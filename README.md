@@ -29,7 +29,21 @@ The orchestrator does not write application code and does not push. The workers 
 
 1. Install [herdr](https://github.com/herdrdev/herdr).
 2. Install the coding-agent harnesses you want for the orchestrator, the workers and the reviewer.
-3. Copy this folder into the skills folder of the orchestrator's harness.
+3. Install the skill for the orchestrator's harness with the [GitHub CLI](https://cli.github.com/manual/gh_skill_install):
+
+   ```
+   gh skill install arafathusayn/herdsman herdsman --agent <agent> --scope user
+   ```
+
+   `<agent>` is the orchestrator's harness, as `gh skill install --help` names it. Add `--pin <tag or commit>` to pin a version. Use `gh skill update` to update later.
+
+   To edit the skill while you use it, clone the repository and link its skill folder into the harness's skills folder instead:
+
+   ```
+   git clone https://github.com/arafathusayn/herdsman.git
+   ln -s "$PWD/herdsman/skills/herdsman" <harness skills folder>/herdsman
+   ```
+
 4. Start the orchestrator inside a herdr pane.
 
 ## Invoke
@@ -73,19 +87,19 @@ The skill stops when `HERDR_ENV` is not `1`.
 
 | Path | Purpose |
 | --- | --- |
-| `SKILL.md` | The procedure the orchestrator follows |
-| `references/` | herdr commands, launch forms and notes per harness, contract templates, git and GitHub rules, harness guards, watchers, lessons log |
-| `scripts/wait-event.sh` | One-shot waiter; the wake-up clock of the loop |
-| `scripts/worker-status.sh` | Health snapshot of every agent |
-| `scripts/checkpointer.sh` | Memory checkpoint and compaction loop for the orchestrator |
-| `scripts/watch-workers.sh`, `scripts/watch-reviewer.sh` | Monitor templates, for use inside one long turn only |
-| `scripts/test/` | Watcher tests with a fake herdr |
+| `skills/herdsman/SKILL.md` | The procedure the orchestrator follows |
+| `skills/herdsman/references/` | herdr commands, launch forms and notes per harness, contract templates, git and GitHub rules, harness guards, watchers, lessons log |
+| `skills/herdsman/scripts/wait-event.sh` | One-shot waiter; the wake-up clock of the loop |
+| `skills/herdsman/scripts/worker-status.sh` | Health snapshot of every agent |
+| `skills/herdsman/scripts/checkpointer.sh` | Memory checkpoint and compaction loop for the orchestrator |
+| `skills/herdsman/scripts/watch-*.sh` | Monitor templates, for use inside one long turn only |
+| `skills/herdsman/scripts/test/` | Tests with a fake herdr |
 
 ## Requirements
 
 - `/bin/bash` 3.2 or later. The scripts use no associative arrays, so they run on the macOS default shell.
 - `jq`, for `checkpointer.sh`.
-- `gh`, when the route opens pull requests.
+- The GitHub CLI (`gh`): 2.101.0 or later with `gh skill`, to install the skill; any recent version, when the route opens pull requests.
 - A memory checkpoint command in the orchestrator's harness. The checkpointer's prompt is set at the top of `checkpointer.sh`.
 
 ## Develop
