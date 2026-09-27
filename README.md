@@ -37,7 +37,34 @@ The orchestrator does not write application code and does not push. The workers 
 In the orchestrator session, inside herdr:
 
 ```
-/herdsman <tasks, harnesses, models and any rules for the route>
+/herdsman [subcommand] [options]
+```
+
+| Subcommand | What it does |
+| --- | --- |
+| none, or `run <route request>` | Runs the full route. The request names the tasks, harnesses, models and rules. |
+| `checkpoint [start\|now\|probe\|status\|stop]` | Manages the checkpointer. The default action is `start`. |
+| `status` | Shows the health of every agent in the current route. Changes nothing. |
+| `help` | Shows the subcommands, options and examples. |
+
+Options for `checkpoint`:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--pane <id>` | this session's pane | The orchestrator pane to watch |
+| `--every <minutes>` | 15 | Time between checkpoints (`start` only) |
+| `--limit <tokens>` | 250k | Compact at or over this context size |
+| `--prompt "<text>"` | the script's default | The memory checkpoint prompt |
+| `--compact "<command>"` | `/compact` | The harness's compact command |
+| `--side right\|down` | right | Where the new pane goes (`start` only) |
+
+Examples:
+
+```
+/herdsman checkpoint start --every 10 --limit 300k
+/herdsman checkpoint now
+/herdsman status
+/herdsman run "tasks: issues 12 and 14; workers: <harness> <model>; reviewer: <harness> <model>"
 ```
 
 The skill stops when `HERDR_ENV` is not `1`.
@@ -63,10 +90,11 @@ The skill stops when `HERDR_ENV` is not `1`.
 
 ## Develop
 
-Run the watcher tests after each change to the scripts:
+Run the tests after each change to the scripts:
 
 ```
 /bin/bash <skill folder>/scripts/test/run-tests.sh
+/bin/bash <skill folder>/scripts/test/checkpointer-tests.sh
 ```
 
 Check the checkpointer against a live orchestrator pane. The probe sends nothing:
@@ -83,7 +111,7 @@ herdr pane rename <new pane id> checkpointer
 herdr pane run <new pane id> "TARGET=<orchestrator pane id> /bin/bash <skill folder>/scripts/checkpointer.sh"
 ```
 
-Set `INTERVAL` (seconds, default 900) and `LIMIT` (tokens, default 250000) to change the schedule and the compaction limit.
+The script reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 250000), `PROMPT` and `COMPACT` from the environment. `--once` runs one checkpoint now and exits.
 
 ## Design notes
 

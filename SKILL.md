@@ -1,6 +1,8 @@
 ---
 name: herdsman
 description: "Run an orchestrator, implementer, reviewer loop inside Herdr: the current agent session orchestrates, worker agents (any harness Herdr can start) implement one task each (optionally in their own git worktree and branch), a reviewer agent on a stronger model reviews every pull request (or tree snapshot, when no commits are allowed) with named review skills and reports only P0 and P1 findings, and the loop of fixes and re-reviews runs until each task passes. A checkpointer pane keeps the orchestrator's memory current and its context compacted. Use when the user says herdsman, asks to orchestrate coding tasks with worker agents and a reviewer agent through Herdr, or asks for parallel implementation agents with a review loop. Requires HERDR_ENV=1."
+argument-hint: "[run <route request> | checkpoint [start|now|probe|status|stop] [--every <min>] [--limit <tokens>] | status | help]"
+license: GPL-3.0-only
 ---
 
 # herdsman: orchestrator, implementers, reviewer
@@ -10,6 +12,51 @@ One agent session (this one) orchestrates. Worker agents implement, one task eac
 Read `references/harness-guards.md` before the first shell command. Read the other references when the step names them.
 
 Harness notes: `references/` has one file per harness used so far (launch form, prompt form, slash commands for compact and clear, working and blocked markers, quirks), for example `codex-workers.md`, `muse-workers.md` and `claude-reviewer.md`. Before a route uses a harness with no notes file, probe it (launch in a scratch pane, send a prompt, find its compact, clear and interrupt commands and its working marker) and write the notes file first.
+
+## Arguments
+
+Invocation: `/herdsman [subcommand] [options]`. Received: `$ARGUMENTS`
+
+`<skill>` below is this skill's folder: `${CLAUDE_SKILL_DIR}` (a harness that does not substitute it shows the literal text; then use the folder this file was loaded from). Read the first word of the arguments. Values in quotes keep their spaces. On an unknown subcommand or option, say which word was not understood and print the `help` output.
+
+| Subcommand | What it does |
+| --- | --- |
+| none, or `run <route request>` | The full route: steps 0 to 6. The text after `run`, or any text that does not start with a subcommand, is the route request (tasks, harnesses, models, rules). The interview does not ask again what the request already answers. |
+| `checkpoint [action] [options]` | Manage the orchestrator checkpointer (below). |
+| `status` | Run `scripts/worker-status.sh` for the agents in the current route's task table (`00-route.md`) and report. Changes nothing. |
+| `help` | Print this table, the checkpoint actions and options, and the examples. Do nothing else. |
+
+### checkpoint
+
+Actions (default `start`):
+
+- `start`: create the checkpointer pane (step 3 item 9) with the options below. If a pane labelled `checkpointer` already exists (`herdr pane list`), report it and change nothing; to change its options, `stop` it first.
+- `now`: one checkpoint now. Run `TARGET=<pane> /bin/bash <skill>/scripts/checkpointer.sh --once` as a background command and end the turn: the script waits until the orchestrator is idle, sends the memory prompt, waits for that turn, and compacts when the context is at or over the limit.
+- `probe`: run `checkpointer.sh --probe` and report the transcript path and the context tokens. Sends nothing.
+- `status`: read the last 10 lines of the `checkpointer` pane (`herdr pane read <id> --lines 10`) and report the schedule, the last checkpoint and the last context reading. Report "not running" when no such pane exists.
+- `stop`: close the `checkpointer` pane (`herdr pane close <id>`). The invocation is the user's approval.
+
+Options (environment variable for the script in brackets):
+
+- `--pane <id>`: the orchestrator pane to watch (`TARGET`). Default: this session's pane, `$HERDR_PANE_ID`.
+- `--every <minutes>`: the interval (`INTERVAL`, in seconds, so multiply by 60). Default 15. `start` only.
+- `--limit <tokens>`: compact at or over this context size (`LIMIT`). Accepts `250k`, `1m` or a plain number. Default 250k.
+- `--prompt "<text>"`: the memory checkpoint prompt (`PROMPT`). Default: `DEFAULT_PROMPT` in the script.
+- `--compact "<command>"`: the harness's compact command (`COMPACT`). Default `/compact`.
+- `--side right|down`: where the new pane goes. Default right. `start` only.
+
+Quote values with spaces inside the `herdr pane run` command string, for example `PROMPT='/save-memory now'`.
+
+Examples:
+
+```
+/herdsman checkpoint
+/herdsman checkpoint start --every 10 --limit 300k
+/herdsman checkpoint now --limit 150k
+/herdsman checkpoint status
+/herdsman status
+/herdsman run "tasks: issues 12 and 14; workers: <harness> <model>; reviewer: <harness> <model>"
+```
 
 ## 0. Preconditions
 
@@ -64,7 +111,7 @@ Order: tab, panes, agents, prompts. Never two Herdr mutations in one shell call 
    The reviewer is prompted only when a pull request is ready for review.
 7. Verify each pane's text after its prompt (`herdr pane read <id> --lines 30`): the prompt is echoed and the harness's working marker shows (see its notes).
 8. Every prompt is a full brief, never a pointer (user rule): end-state goal the user would see, numbered steps with files, a Check per step, a leave-alone list, hard rules and time limits, the report shape.
-9. Checkpointer pane (one split, one rename, one run): `herdr pane split <orchestrator pane> --direction right --ratio 0.7 --no-focus`, `herdr pane rename <new> checkpointer`, `herdr pane run <new> "TARGET=<orchestrator pane> /bin/bash <skill>/scripts/checkpointer.sh"`. Probe first with `--probe` (prints the transcript and context tokens, sends nothing).
+9. Checkpointer pane (`checkpoint start`; one split, one rename, one run): `herdr pane split <orchestrator pane> --direction right --ratio 0.7 --no-focus`, `herdr pane rename <new> checkpointer`, `herdr pane run <new> "TARGET=<orchestrator pane> /bin/bash <skill>/scripts/checkpointer.sh"` (prefix `INTERVAL=`, `LIMIT=`, `PROMPT=`, `COMPACT=` from the options). Probe first with `--probe` (prints the transcript and context tokens, sends nothing).
 
 ## 4. Wait for events with a background command that exits
 
