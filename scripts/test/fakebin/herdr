@@ -1,0 +1,9 @@
+#!/bin/bash
+# Fake herdr for the herdsman watcher tests: `herdr pane read <id> ...` prints $FAKE_PANE_DIR/<id>.txt
+if [ "$1" = "pane" ] && [ "$2" = "read" ]; then
+  f="$FAKE_PANE_DIR/$3.txt"
+  [ -f "$f" ] && cat "$f"
+  exit 0
+fi
+echo "fake herdr: unsupported $*" >&2
+exit 1
