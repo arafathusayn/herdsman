@@ -99,7 +99,7 @@ The skill stops when `HERDR_ENV` is not `1`.
 
 - `/bin/bash` 3.2 or later. The scripts use no associative arrays, so they run on the macOS default shell.
 - `jq`, for `checkpointer.sh`.
-- The GitHub CLI (`gh`): 2.101.0 or later with `gh skill`, to install the skill; any recent version, when the route opens pull requests.
+- The GitHub CLI (`gh`): a version with `gh skill` (tested with 2.101.0), to install the skill; any recent version, when the route opens pull requests.
 - A memory checkpoint command in the orchestrator's harness. The checkpointer's prompt is set at the top of `checkpointer.sh`.
 
 ## Develop
