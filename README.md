@@ -83,18 +83,6 @@ Examples:
 
 The skill stops when `HERDR_ENV` is not `1`.
 
-## What is inside
-
-| Path | Purpose |
-| --- | --- |
-| `skills/herdsman/SKILL.md` | The procedure the orchestrator follows |
-| `skills/herdsman/references/` | herdr commands, launch forms and notes per harness, contract templates, git and GitHub rules, harness guards, watchers, lessons log |
-| `skills/herdsman/scripts/wait-event.sh` | One-shot waiter; the wake-up clock of the loop |
-| `skills/herdsman/scripts/worker-status.sh` | Health snapshot of every agent |
-| `skills/herdsman/scripts/checkpointer.sh` | Memory checkpoint and compaction loop for the orchestrator |
-| `skills/herdsman/scripts/watch-*.sh` | Monitor templates, for use inside one long turn only |
-| `skills/herdsman/scripts/test/` | Tests with a fake herdr |
-
 ## Requirements
 
 - `/bin/bash` 3.2 or later. The scripts use no associative arrays, so they run on the macOS default shell.
