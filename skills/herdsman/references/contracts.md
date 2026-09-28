@@ -47,6 +47,8 @@ When done, write `<writable root>/reports/<task>.md` with, in this order: `STATU
 
 Branch `<branch>` from `origin/<base>`. Worktree `<path>`. Test database `<prefix>_<x>_test`. Report file `<writable root>/reports/<x>.md`.
 
+Due: <HH:MM> (<N> minutes from launch). If the work is not finished by then, stop starting new work, write the report from what exists with `STATUS: gaps`, and reply with its path. The orchestrator also enforces this time from outside.
+
 ## Problem
 <what is wrong or missing, with file paths that prove it>
 
@@ -69,6 +71,7 @@ Rules learned:
 - Say where sibling work overlaps; otherwise two workers edit the same migration number or the same module.
 - State which GitHub mutations are allowed. A worker given "authorized base change" latitude dissolved a stack and retargeted a pull request on its own.
 - Put the coverage rule on changed files only.
+- Give every brief a `Due:` line and pass the same time to the waiter as `HERDSMAN_DUE_<name>`. The line alone does not stop a worker: workers ignored stop times written in their own briefs, so the waiter's OVERDUE event is what triggers the stop-and-report steer.
 - When two or more tasks change the database schema, say in the shared rules that generated migration numbers will collide across branches and that the pull request merged second regenerates its migration history after a rebase onto main (seen 2026-09-22: three open branches all held 0014 and 0015).
 
 ## 20-reviewer.md

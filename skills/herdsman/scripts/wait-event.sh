@@ -5,9 +5,12 @@
 # command re-invokes the orchestrator, which handles the events and re-arms the same command.
 # Monitor tasks do not wake the session between turns; this does.
 # Events: REPORT <task> <path> | REPORT-UPDATED <task> <path> | REVIEW <path> | BLOCKED <agent> <text>
-#         | GOAL-DONE-NO-REPORT <agent> | STALL <agent> (screen unchanged for 3 polls while working) | TICK
+#         | GOAL-DONE-NO-REPORT <agent> | STALL <agent> (screen unchanged for 3 polls while working)
+#         | OVERDUE <agent> (past its due time and its report not written since the due time was set) | TICK
 # Configure with HERDSMAN_REPORTS, HERDSMAN_STATE, HERDSMAN_WORKERS, HERDSMAN_PANE_<name> (dashes as underscores),
+# HERDSMAN_DUE_<name> (epoch seconds, e.g. `date -v+45M +%s`; optional, one per worker),
 # HERDSMAN_REVIEWER_PANE, HERDSMAN_REVIEWER_NAME, DEADLINE (default 540), POLL (default 60), or edit the defaults.
+# DEADLINE is how long this waiter runs before TICK; a worker's time box is HERDSMAN_DUE_<name>.
 REPORTS=${HERDSMAN_REPORTS:-/ABSOLUTE/PATH/TO/writable-root/reports}
 STATE=${HERDSMAN_STATE:-/ABSOLUTE/PATH/TO/scratchpad/watch-state}
 WORKERS=${HERDSMAN_WORKERS:-"wk-a wk-b wk-c wk-d"}
@@ -50,6 +53,25 @@ REPORT $task $report $now"
       elif [ -n "$prevm" ] && [ "$mtime" != "$prevm" ]; then
         events="$events
 REPORT-UPDATED $task $report $now"
+      fi
+    fi
+    # Workers ignore stop times written in their own briefs, so the waiter enforces the due time.
+    # The baseline is the report's mtime when this due time was first seen, so a fix round whose
+    # report already exists is overdue until the report changes, and a new due time re-arms.
+    duevar="HERDSMAN_DUE_$(printf '%s' "$name" | tr '-' '_')"
+    due=$(eval "printf '%s' \"\${$duevar:-}\"")
+    if [ -n "$due" ]; then
+      cur=$(stat -f %m "$report" 2>/dev/null || echo none)
+      if [ "$(cat "$STATE/due-$name" 2>/dev/null)" != "$due" ]; then
+        printf '%s' "$due" > "$STATE/due-$name"
+        printf '%s' "$cur" > "$STATE/duebase-$name"
+        rm -f "$STATE/overdue-$name"
+      fi
+      if [ "$(date +%s)" -ge "$due" ] && [ ! -f "$STATE/overdue-$name" ] \
+        && [ "$cur" = "$(cat "$STATE/duebase-$name" 2>/dev/null)" ]; then
+        touch "$STATE/overdue-$name"
+        events="$events
+OVERDUE $name due $(date -r "$due" '+%H:%M') no report since the due time was set $now"
       fi
     fi
     text=$(herdr pane read "$(pane_of "$name")" --source recent-unwrapped --lines 40 2>/dev/null)

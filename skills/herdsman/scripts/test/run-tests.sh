@@ -107,6 +107,24 @@ printf '%s\n' "· Incubating…" > "$FAKE_PANE_DIR/w9:p3.txt"
 printf '%s\n' "• Working (9m • esc to interrupt)" > "$FAKE_PANE_DIR/w9:p1.txt"
 out=$(run_e); out=$(run_e); out=$(run_e); nocheck "E6a no stall after the change plus two unchanged polls" 'STALL' "$out"
 out=$(run_e); check "E6b stall on the third unchanged poll" 'STALL wk-a' "$out"
+# E7: due time in the future: no OVERDUE
+export HERDSMAN_DUE_wk_b=$(( $(date +%s) + 3600 ))
+out=$(run_e); nocheck "E7 not overdue before the due time" 'OVERDUE' "$out"
+# E8: due time passed, no report for wk-b: OVERDUE once
+export HERDSMAN_DUE_wk_b=$(( $(date +%s) - 60 ))
+out=$(run_e); check "E8 overdue without a report" 'OVERDUE wk-b due [0-9][0-9]:[0-9][0-9]' "$out"
+out=$(run_e); nocheck "E8b overdue not repeated" 'OVERDUE' "$out"
+# E9: fix round: report a already exists when the due time is set, due passes unchanged: OVERDUE wk-a
+export HERDSMAN_DUE_wk_a=$(( $(date +%s) - 60 ))
+out=$(run_e); check "E9 overdue with a stale existing report" 'OVERDUE wk-a' "$out"
+# E10: report written after the due time was set: no OVERDUE even past the due time
+unset HERDSMAN_DUE_wk_a
+export HERDSMAN_DUE_wk_b=$(( $(date +%s) + 2 ))
+out=$(run_e); nocheck "E10a armed, not yet due" 'OVERDUE' "$out"
+printf 'STATUS: done\n' > "$HERDSMAN_REPORTS/b.md"
+/bin/sleep 3
+out=$(run_e); check "E10b report event" 'REPORT b ' "$out"; nocheck "E10c no overdue after the report" 'OVERDUE' "$out"
+unset HERDSMAN_DUE_wk_b
 
 echo "RESULT pass=$pass fail=$fail (work dir $T)"
 [ "$fail" -eq 0 ]
