@@ -9,6 +9,10 @@ Contracts are the only channel from the orchestrator to a worker. A worker reads
 
 Repository: <absolute path of the checkout> (remote `origin` = GitHub <org>/<repo>). <one line on the stack and the package layout>. Read <the repo's agent guide, specs and ADRs> before coding.
 
+## Must prove
+
+<the Must-prove list from 00-route.md, quoted as written>
+
 ## Setup
 
 1. Fetch first with the credential helper (the sandbox has no terminal for a password prompt):
@@ -25,6 +29,17 @@ Repository: <absolute path of the checkout> (remote `origin` = GitHub <org>/<rep
 - Tests first for every behaviour change: a failing test, then the code. Coverage: 100% function and line for the files you changed or added; list pre-existing gaps in other files under `gaps:` in the report and do not touch those files.
 - Run before commit: <format, lint, type check, test commands>. Everything green.
 - Commit messages: conventional (`feat(scope): ...`), one logical change per commit, the body says why.
+
+## CPU
+
+Run at most one TypeScript compiler process, single-threaded: `GOMAXPROCS=1 tsc --singleThreaded --checkers 1 --builders 1` (TypeScript 7 native); never run package scripts that pass more checkers. The test runner gets one worker (`--maxWorkers=1` for vitest). One heavy process at a time, your subagents included.
+
+## Live tests
+
+- A live test proves a Must-prove path. It runs the real harness through the route's execution path with the user's normal installed login.
+- It does not depend on a token or an API key, and it does not skip when one is missing.
+- Test code never edits the harness's own settings or login files. Writes the harness itself makes during the run are expected (session transcripts, a trust entry for the throwaway folder). The test deletes only what it created.
+- It runs in a throwaway session and a throwaway folder, and stops what it started.
 
 ## Push and pull request
 
@@ -81,6 +96,14 @@ Rules learned:
 
 You review pull requests of <org>/<repo> that the implementation workers open. You write no application code, push nothing, post nothing on GitHub. Your output is one report file per review.
 
+## Must prove
+
+<the Must-prove list from 00-route.md, quoted as written>
+
+## CPU
+
+Run at most one TypeScript compiler process, single-threaded: `GOMAXPROCS=1 tsc --singleThreaded --checkers 1 --builders 1` (TypeScript 7 native); never run package scripts that pass more checkers. The test runner gets one worker (`--maxWorkers=1` for vitest). One heavy process at a time, your subagents included.
+
 ## Setup (once)
 - Clone: <path>. Your worktree: <worktrees root>/r. Create it if missing: `git -C <clone> worktree add <worktrees root>/r --detach origin/<base>`.
 - Remote git commands use the credential helper: `git -c credential.helper='!f() { echo username=<gh account>; echo password=$(gh auth token --user <gh account>); }; f' fetch origin`.
@@ -101,6 +124,8 @@ Input: a pull request number and a report path, given in the prompt.
 - P0: wrong behaviour, data loss or corruption, a tenancy leak, a security hole, a failing or skipped test, a hand-written or row-breaking migration.
 - P1: wrong behaviour in an edge case the contract names, changed behaviour without a test, an unmet contract requirement, a maintainability problem that will cost within the next few stories, a React effect that belongs in render or in an event handler and causes a visible bug or a needless network call.
 - Everything below P1 is left out entirely. No style notes, no naming notes, no optional refactors.
+- Test isolation: judge it by what the test code writes, not by what the harness writes during a live run.
+- GOAL-CONFLICT: a finding whose fix would skip or gate a Must-prove test. Report it with both options, not as P0. The orchestrator takes it to the user.
 
 ## Report
 Write the file at the path given in the prompt. Under 80 lines:
@@ -110,6 +135,7 @@ TESTS: <command> -> <pass>/<total> (one line per command)
 FINDINGS:
 - P0 | <file>:<line> | <what is wrong and what happens> | fix: <one sentence>
 - P1 | ...
+- GOAL-CONFLICT | <file>:<line> | <the risk> | option 1: <keep the Must-prove test, fix this> | option 2: <skip or gate it>
 `VERDICT: pass` means zero P0 and zero P1. Then reply in the terminal with only the path.
 ```
 

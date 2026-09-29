@@ -46,16 +46,16 @@ When a Codex worker ends a turn with a question ("Can you enable write access to
 
 ## Context hygiene (user rule, 2026-09-22)
 
-- `herdr agent list` shows `tokens.quota_context` ("context 53%") per Codex worker; the pane footer shows the same.
+- The Codex pane footer shows the context use per worker (for example "context 53%").
 - Above 50% and the next dispatch is a fix round on the same pull request: `herdr agent prompt wk-x "/compact"`, wait until the pane shows the compaction finished and the prompt line is back, then the `/goal`.
 - Next dispatch is a new task: `herdr agent prompt wk-x "/new"` (fresh session in the same pane and process; the Herdr name stays), then the `/goal` that names the shared rules and the task file again.
 - Never compact or clear while a goal runs; a prompt sent mid-goal is queued and would land at a random point. Codex refuses it anyway: "'/compact' is disabled while a task is in progress".
-- A compaction takes 30 s to 2 min on a 70% to 90% context ("Compacting context (Ns)" then "Context compacted · 1m 41s"); Herdr's `quota_context` updates only after it finishes (88% → 4%, 69% → 0%). Do not re-send `/compact` while "Compacting context" is on screen.
+- A compaction takes 30 s to 2 min on a 70% to 90% context ("Compacting context (Ns)" then "Context compacted · 1m 41s"); the footer figure updates only after it finishes (88% → 4%, 69% → 0%). Do not re-send `/compact` while "Compacting context" is on screen.
 - Measured 2026-09-22 after one task each: 53% to 88% of context per worker. Without hygiene the second task of a worker starts near the limit.
 
 ## Usage quota
 
-- All Codex workers on one account draw from one weekly pool. `herdr agent list` shows it per pane as `quota_summary: "7d N% reset <time>"`; the figure is the same on every worker.
+- All Codex workers on one account draw from one weekly pool. Codex `/status` shows the weekly limit; the figure is the same on every worker.
 - At 0% a running goal stops with "Usage limit reached" and the pane footer reads "Goal hit usage limits (/goal resume)". The watcher reports BLOCKED. Work in the worktree stays as it was (possibly mid-change, tests red).
 - Check the figure before a long dispatch; 7% was gone within one review cycle with two workers active. Below about 5%, expect the block during the round.
 - Recovery: wait for the reset time, verify the figure moved, then `herdr agent prompt wk-x "/goal resume"`. A session one-shot timer at the reset time (the CronCreate tool) wakes the orchestrator for this. The Claude reviewer is a separate pool and keeps working. Whether an implementation moves to a Claude worker while waiting is the user's decision.

@@ -126,5 +126,16 @@ printf 'STATUS: done\n' > "$HERDSMAN_REPORTS/b.md"
 out=$(run_e); check "E10b report event" 'REPORT b ' "$out"; nocheck "E10c no overdue after the report" 'OVERDUE' "$out"
 unset HERDSMAN_DUE_wk_b
 
+# L1: route-log.sh appends one "- HH:MM <text>" line; L2: usage error on a missing argument or file
+RL="$SK/route-log.sh"
+/bin/bash -n "$RL" && echo "PASS syntax route-log" || { echo "FAIL syntax route-log"; fail=$((fail+1)); }
+printf '# route\n' > "$T/00-route.md"
+/bin/bash "$RL" "$T/00-route.md" "wk-a started task a"
+check "L1 appended line format" '^- [0-9][0-9]:[0-9][0-9] wk-a started task a$' "$(tail -1 "$T/00-route.md")"
+check "L1b exactly one line appended" '^2$' "$(wc -l < "$T/00-route.md" | tr -d ' ')"
+out=$(/bin/bash "$RL" "$T/00-route.md" 2>&1); rc=$?
+check "L2 usage on a missing text" '^usage: route-log.sh' "$out"; if [ "$rc" -ne 0 ]; then pass=$((pass+1)); echo "PASS L2 exit non-zero"; else fail=$((fail+1)); echo "FAIL L2 exit 0"; fi
+out=$(/bin/bash "$RL" "$T/no-such-route.md" "x" 2>&1); check "L2b usage on a missing file" '^usage: route-log.sh' "$out"
+
 echo "RESULT pass=$pass fail=$fail (work dir $T)"
 [ "$fail" -eq 0 ]

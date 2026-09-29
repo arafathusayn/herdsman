@@ -86,14 +86,14 @@ Then present a dispatch plan in the reply (tasks, branches, worktrees, panes, ha
 
 ## 2. Route folder and contracts
 
-Create a route folder the orchestrator owns, for example `<project>/docs/plans/<route>-<date>/` (git-ignored or committed, the user's choice). Write every file with the harness's file tools. Files:
+Create the route folder at `<writable root>/.herdsman/<route>-<date>/` (user rule, 2026-09-28: every route artifact, contracts, reports and reviews, lives in a `.herdsman` folder, and `.herdsman/` is in the project's `.gitignore`; add the line if it is missing). Write every file with the harness's file tools. Files:
 
-- `00-route.md`: decisions from the interview, task table (task, branch, worktree, worker name, pane), and a dated run-state list the orchestrator appends to.
+- `00-route.md`: decisions from the interview, task table (task, branch, worktree, worker name, pane), and a dated run-state list the orchestrator appends to. It also holds a "Must prove" list taken from the route's goal: the product paths the goal requires to work for real (which harnesses, through which execution path, with which logins, which deploy, which end-to-end checks). Every contract and the reviewer contract quote it.
 - `10-shared-rules.md`: setup, code standard, tests, commit, push, pull-request body rules, review-bot loop, report format. Template in `references/contracts.md`.
 - `1n-task-<x>.md`: one contract per task: problem, scope, out of scope, acceptance, branch, worktree, test database, report path.
 - `20-reviewer.md`: the reviewer contract: setup, per-review steps, severity definitions, report format. Template in `references/contracts.md`.
 
-Report files must live where every worker can write. A sandboxed harness writes only under its writable root, so put reports there, not in the route folder, unless the route folder is under that root. Use `<writable root>/reports/<task>.md` and `<writable root>/reports/review-<pr>-<n>.md`.
+Report files must live where every worker can write. A sandboxed harness writes only under its writable root, which is why the `.herdsman` folder sits under it. Use `<route folder>/reports/<task>.md` and `<route folder>/reports/review-<pr>-<n>.md`.
 
 ## 3. Launch, one Herdr mutation per call
 
@@ -141,10 +141,10 @@ React to each event:
 
 For each pull request with `STATUS: complete` and green checks:
 
-1. Context first, one rule for every agent: a follow-up of the agent's own earlier work (a re-review of the same pull request, a fix round) keeps its context, compacted as soon as its previous turn finished; a completely new task (a pull request the reviewer has not seen, a new contract for a worker) starts from a cleared context. Use the harness's compact and clear commands and read the pane after the command. Then prompt the reviewer: `Read <route>/20-reviewer.md and follow it exactly. Review pull request <n> (branch <b>, contract <task file>). Report path: <writable root>/reports/review-<n>-<k>.md. Reply with only that path when done.`
+1. Context first, one rule for every agent: a follow-up of the agent's own earlier work (a re-review of the same pull request, a fix round) keeps its context, compacted as soon as its previous turn finished; a completely new task (a pull request the reviewer has not seen, a new contract for a worker) starts from a cleared context. Use the harness's compact and clear commands and read the pane after the command. Then prompt the reviewer: `Read <route>/20-reviewer.md and follow it exactly. Review pull request <n> (branch <b>, contract <task file>). Report path: <route folder>/reports/review-<n>-<k>.md. Reply with only that path when done.`
 2. On REVIEW, read the file. `VERDICT: pass` closes the loop for that pull request; record it and tell the user.
-3. `VERDICT: fix`: prompt the task's worker: `<goal prefix if any>Read <review file>. Fix every P0 and P1 finding in it on your branch: failing test first, then the code, run the suites, commit, push, reply on any review-bot threads, then update your report file (new head, what changed per finding under decisions:) and reply with only its path. If you disagree with a finding, write the reason under decisions: and still make the smallest change that satisfies its fix line.` If the prompt answers `agent_blocked`, clear the queued question first (harness notes). Then wait for the worker's REPORT-UPDATED, then send the reviewer the new head as `review-<n>-<k+1>`.
-4. Repeat until pass. After three fix rounds on one pull request, stop and show the user the remaining findings; a disagreement between worker and reviewer is the user's call.
+3. `VERDICT: fix`: goal gate first. Check each finding's fix line against the Must-prove list. If a fix would skip, disable, mock or gate a Must-prove path, or needs a credential, token, API key or login the user does not already use, do not forward it: decide by the goal and tell the reviewer why the finding is overruled, or ask the user. A `GOAL-CONFLICT` line goes to the user with both options. Then prompt the task's worker with the rest: `<goal prefix if any>Read <review file>. Fix every P0 and P1 finding in it on your branch: failing test first, then the code, run the suites, commit, push, reply on any review-bot threads, then update your report file (new head, what changed per finding under decisions:) and reply with only its path. If you disagree with a finding, write the reason under decisions: and still make the smallest change that satisfies its fix line.` If the prompt answers `agent_blocked`, clear the queued question first (harness notes). Then wait for the worker's REPORT-UPDATED, then send the reviewer the new head as `review-<n>-<k+1>`.
+4. Repeat until pass. A disagreement goes to the user at once: when a worker disagreed with a finding (under decisions:) and the reviewer raises it again, the user decides before another fix round starts. After three fix rounds on one pull request, stop and show the user the remaining findings.
 5. The reviewer posts nothing on GitHub and pushes nothing. Merges are the user's unless authorized; the authorized form is a squash merge when the local verdict is pass AND the bot approval is green on the same head (`references/git-and-github.md`, Merges). Before the first merge read the base branch's rules (`gh api repos/<org>/<repo>/rules/branches/<base>`): a required second approval that the author's account cannot give needs the user's choice (admin bypass, a colleague's approval, or a rule change); never bypass on your own. After a merge, when the user asked for it, delete the remote branch if the pull request is MERGED and no open pull request is based on it; keep the local worktree until route close.
 6. Parallel workers that generate database migrations from the same base produce the same migration numbers. Before merging the second such pull request, send its worker a fix round: rebase onto the new main, regenerate the migration history, run the suites, push. Say this in the shared rules up front when more than one task touches the schema.
 
@@ -154,7 +154,7 @@ When commits are not allowed, review tree snapshots instead of pull requests (`r
 
 ## 6. Record and close
 
-- Append a dated line (run `date` first) to `00-route.md` run-state at every event that changes state: launch, blocker, report, review verdict, fix round, pass.
+- Append a run-state line to `00-route.md` at every event that changes state: launch, blocker, report, review verdict, fix round, pass. Use `scripts/route-log.sh <route>/00-route.md "<text>"` (it writes `- HH:MM <text>` from `date`), never a typed time.
 - Keep the orchestrator context small: read report files and review files, not pane transcripts, except to unblock.
 - At close: table of pull requests (number, branch, head, checks, review verdict, rounds), open items, and the exact things the user still owns (merges, secrets, infrastructure). Write the lessons of the route into memory per the user's memory conventions, and into `references/lessons-log.md` of this skill when they are general.
 
@@ -166,3 +166,6 @@ When commits are not allowed, review tree snapshots instead of pull requests (`r
 - One Herdr mutation per call. Ask before every step that changes Herdr layout, containers, GitHub or cloud state, unless the user gave that exact step its go in the dispatch plan.
 - Write files with the harness's file tools, never with heredocs or redirects.
 - Read `date` before writing any timestamp.
+- Never propose that the user add a new credential, token or API key to make a test or run work; the route uses the user's existing logins.
+- A report whose required live test skipped is not complete. Do not send it to review. Send it back to the worker to run the test.
+- When a worker reports that a permission classifier blocked an environment fix, verify the cause read-only, then give the user the exact command (on the clipboard with `pbcopy` when asked). Never run it past the classifier yourself.
