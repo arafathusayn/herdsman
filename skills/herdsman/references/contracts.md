@@ -1,11 +1,11 @@
 # Contract templates
 
-Contracts are the only channel from the orchestrator to a worker. A worker reads two files (shared rules, its task) and follows them. Write them so that a careful engineer with no chat history can act. Plain American English, short sentences, no em dashes, no names of people, no secrets.
+Contracts are the only channel from the orchestrator to the other agents. An implementer reads two files (shared rules, its task), the integrator reads the shared rules and the integrator contract, and a reviewer reads the reviewer contract. Write them so that a careful engineer with no chat history can act. Plain American English, short sentences, no em dashes, no names of people, no secrets.
 
 ## 10-shared-rules.md
 
 ```
-# Shared rules for every worker
+# Shared rules for every implementer and the integrator
 
 Repository: <absolute path of the checkout> (remote `origin` = GitHub <org>/<repo>). <one line on the stack and the package layout>. Read <the repo's agent guide, specs and ADRs> before coding.
 
@@ -43,6 +43,8 @@ Run at most one TypeScript compiler process, single-threaded: `GOMAXPROCS=1 tsc 
 
 ## Push and pull request
 
+<Route with one pull request per task: keep this section. Integration route: replace it for the implementers with "Commit to your local branch only. Never push, never open a pull request, never post on GitHub. A change that another task's file needs is a `handoff:` line in your report, not an edit." and keep this section for the integrator's push phase only.>
+
 - Push with the one-shot credential helper, never by changing the git identity or the remote:
   `git -c credential.helper='!f() { echo username=<gh account>; echo password=$(gh auth token --user <gh account>); }; f' push -u origin <branch>`
 - Open a READY pull request: `GH_TOKEN=$(gh auth token --user <gh account>) gh pr create --repo <org>/<repo> --base <base> --head <branch> --title "<type>(<scope>): <title>" --body-file <file>`.
@@ -52,7 +54,7 @@ Run at most one TypeScript compiler process, single-threaded: `GOMAXPROCS=1 tsc 
 
 ## Report
 
-When done, write `<writable root>/reports/<task>.md` with, in this order: `STATUS: complete` or `STATUS: blocked <reason>`; branch; worktree; PR URL; head commit; the exact test commands and their pass counts; `decisions:` (every judgement call); `gaps:`. Under 60 lines. Then reply in the terminal with only the path of that file.
+When done, write `<writable root>/reports/<task>.md` with, in this order: `STATUS: complete` or `STATUS: blocked <reason>`; branch; worktree; PR URL; head commit; the exact test commands and their pass counts; `decisions:` (every judgement call); `handoff:` (changes that another task's files need, integration route); `gaps:`. Under 60 lines. Then reply in the terminal with only the path of that file.
 ```
 
 ## 1n-task-<x>.md
@@ -72,7 +74,7 @@ Due: <HH:MM> (<N> minutes from launch). If the work is not finished by then, sto
 ...
 
 ## Out of scope
-<what the worker must not touch, including sibling tasks' files>
+<what the implementer must not touch, including sibling tasks' files>
 
 ## Overlap
 <open pull requests that touch the same files; what to do: read, do not depend, note "rebase after PR n merges" under Known gaps>
@@ -82,19 +84,56 @@ Due: <HH:MM> (<N> minutes from launch). If the work is not finished by then, sto
 ```
 
 Rules learned:
-- Name every constant and rule explicitly (`IMPORT_PRICE_CHANGE_FLAG_RATIO = 0.10`), or the worker invents its own.
-- Say where sibling work overlaps; otherwise two workers edit the same migration number or the same module.
-- State which GitHub mutations are allowed. A worker given "authorized base change" latitude dissolved a stack and retargeted a pull request on its own.
+- Name every constant and rule explicitly (`IMPORT_PRICE_CHANGE_FLAG_RATIO = 0.10`), or the implementer invents its own.
+- Say where sibling work overlaps; otherwise two implementers edit the same migration number or the same module.
+- Scope every acceptance line to the task's own files. A line about a whole folder ("no test file under X is longer than N lines") makes the reviewer report every old file in that folder as unmet.
+- State which GitHub mutations are allowed. An implementer given "authorized base change" latitude dissolved a stack and retargeted a pull request on its own.
 - Put the coverage rule on changed files only.
-- Give every brief a `Due:` line and pass the same time to the waiter as `HERDSMAN_DUE_<name>`. The line alone does not stop a worker: workers ignored stop times written in their own briefs, so the waiter's OVERDUE event is what triggers the stop-and-report steer.
-- When two or more tasks change the database schema, say in the shared rules that generated migration numbers will collide across branches and that the pull request merged second regenerates its migration history after a rebase onto main (seen 2026-09-22: three open branches all held 0014 and 0015).
+- Give every brief a `Due:` line and pass the same time to the waiter as `HERDSMAN_DUE_<name>`. The line alone does not stop an agent: agents ignored stop times written in their own briefs, so the waiter's OVERDUE event is what triggers the stop-and-report steer.
+- When two or more tasks change the database schema, say in the shared rules that generated migration numbers will collide across branches and that the pull request merged second regenerates its migration history after a rebase onto main. Parallel branches from one base all take the same next number.
+
+## 1n-task-i.md (integration route)
+
+```
+# Task I: integrate <route> into one branch
+
+Branch `<combined branch>` from `<start commit>`. Worktree `<path>`. Test databases `<prefix>_i_<package>_test`. Report file `<writable root>/reports/i.md`. You are the only agent that pushes. Do each phase only when the orchestrator's prompt names it; after each phase update the report and reply with only its path.
+
+## Phase 1: combine (the prompt names the accepted branches)
+1. Merge in this order with `git merge --no-ff`: <branch list>. Resolve conflicts by keeping both tasks' intent; list each resolution under decisions:.
+2. Apply every `handoff:` line from the task reports, and the orchestrator handoffs below, test first.
+3. Fix only integration breakage: a test that passed on its branch and fails on the combined branch.
+4. Run every gate: <format, lint, type check, every test suite with your databases>.
+
+## Phase 1b and later: fixes from the final review (the prompt names the review file)
+Fix every P0 and P1 on the combined branch, failing test first. New tests go in new files, never in a file that a running task replaces.
+
+## Phase 2: add a late task (the prompt names its commit)
+Merge it, run every gate again, update the report.
+
+## Phase 3: push (only after the orchestrator's prompt says the final review passed)
+1. Fetch with the credential helper. If `origin/<target>` is not `<start commit>` any more, stop and report `STATUS: blocked remote moved`.
+2. Push as a fast-forward only (`git push origin <combined branch>:<target>`); never force.
+3. Reply once on each review thread with the fix commit or the reason (texts from the task reports).
+4. Run the review-bot loop from the shared rules.
+
+## Orchestrator handoffs
+<fixes that span two tasks' files, each with its regression test>
+
+## Never
+Change a task's intent, edit application code outside a merge, a handoff or a review fix, force-push, or post anything the phases do not name.
+```
+
+Rules learned:
+- Start the integrator when the first branches pass review, not at launch, and give it the merge order in the contract. Conflicts then happen in one place, in a known order.
+- Write a phase into the contract before its prompt, as a dated "Orchestrator amendments" section when the contract already exists; the integrator reads the contract, not the chat.
 
 ## 20-reviewer.md
 
 ```
 # Reviewer contract, route <name>
 
-You review pull requests of <org>/<repo> that the implementation workers open. You write no application code, push nothing, post nothing on GitHub. Your output is one report file per review.
+You review the pull requests or local branches of <org>/<repo> that the implementers produce and, in an integration route, the integrator's combined branch against the base branch (the final review). You write no application code, push nothing, post nothing on GitHub. Your output is one report file per review.
 
 ## Must prove
 
@@ -112,9 +151,9 @@ Run at most one TypeScript compiler process, single-threaded: `GOMAXPROCS=1 tsc 
 - Tests: `TEST_DATABASE_URL=...<prefix>_r_test`; create once, drop and recreate between pull requests.
 
 ## Per review
-Input: a pull request number and a report path, given in the prompt.
-1. Fetch, `git checkout --detach origin/<head branch>` (`gh pr view <n> --json headRefName,baseRefName,headRefOid`). Record the head commit.
-2. Changed files: `gh pr diff <n> --name-only`.
+Input: a pull request number, or a local branch and its head commit, and a report path, given in the prompt.
+1. Fetch, `git checkout --detach origin/<head branch>` (`gh pr view <n> --json headRefName,baseRefName,headRefOid`); for a local branch, `git checkout --detach <head commit>`. Record the head commit.
+2. Changed files: `gh pr diff <n> --name-only`, or `git diff --name-only origin/<base>...<head commit>` for a local branch. The final review of an integration route uses the combined branch against the base branch and checks every task contract, the integrator contract and the paths between tasks.
 3. React files (<paths>): run the `/react-review` skill on those files; skip the runtime layer.
 4. All TypeScript in the diff: run the `/thermo-nuclear-code-quality-review` skill on the diff against the base branch.
 5. Run the test commands from the PR body's Verification section with your database. A failing test is a P0.
@@ -140,7 +179,7 @@ FINDINGS:
 ```
 
 Rules learned:
-- Give the reviewer its own worktree; it must not touch a worker's worktree while the worker is mid-fix.
+- Give the reviewer its own worktree; it must not touch an implementer's or the integrator's worktree while that agent is mid-fix.
 - The severity words must be defined in the contract; reviewers otherwise mix vocabularies (major, high, blocking). Gate on the `VERDICT:` line, not on adjectives.
 - A skill named in the contract may not exist in the reviewer's harness. Check `ls ~/.claude/skills` before writing the contract, and keep a fallback line ("if the skill is missing, say so in the report and do a direct pass with the same checklist").
 - One report per review round, numbered; never overwrite, so the fix history stays readable.

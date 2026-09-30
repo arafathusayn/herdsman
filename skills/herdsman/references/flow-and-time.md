@@ -4,24 +4,24 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 
 ## The orchestrator enforces time
 
-- Every prompt, first task and fix round alike, carries a due time, and the waiter gets it as `HERDSMAN_DUE_<name>`. Reason: workers ignore stop times written in their own briefs.
+- Every prompt, first task and fix round alike, carries a due time, and the waiter gets it as `HERDSMAN_DUE_<name>`. Reason: agents ignore stop times written in their own briefs.
 - Past the due time, queue a stop-and-report steer, then send the interrupt key if no report comes. Reason: a queued steer lands only when the current turn ends, and a long turn may not end.
 - Size due times from the durations seen on the route, so that OVERDUE means something. A due time far beyond the real duration never fires.
-- A reviewer can have a due time too: put it in `HERDSMAN_WORKERS` with `HERDSMAN_TASK_<name>=review-<pr>-<k>`.
+- A reviewer can have a due time too: add its name to the waiter's `HERDSMAN_IMPLEMENTERS` list with `HERDSMAN_TASK_<name>=review-<pr>-<k>`.
 
 ## The bottleneck moves
 
 - Review rounds, not coding, cost the most. Keep one review per artifact per round, report P0 and P1 only, and gate on a verdict line.
-- When workers finish fast, the reviewers become the queue: add a reviewer, or run reviews that do not depend on each other at the same time (for example the final review of a combined branch while a test-only task runs; the test-only task gets its own review).
+- When implementers finish fast, the reviewers become the queue: add a reviewer, or run reviews that do not depend on each other at the same time (for example the final review of a combined branch while a test-only task runs; the test-only task gets its own review).
 - When an integrator waits for CI, CI becomes the critical path: run reviews while CI runs, and review a pushed head before its checks end.
-- When the only pushing agent is busy, do not stall the reviewer: review the worker's local wip branch. If the published head equals the reviewed commit, no second review is needed.
+- When the only pushing agent is busy, do not stall the reviewer: review the implementer's local wip branch. If the published head equals the reviewed commit, no second review is needed.
 
 ## Work ahead, but only on safe ground
 
-- Write the next wave's contracts while the integrator combines, so workers start the moment its report lands.
-- When the integrator's next merge is free of conflicts, branch the next part from the worker's wip branch instead of waiting for the merge.
-- A report or a finished goal does not free a worker: its branch can still fail review, and the fix round then has no owner. Give new work only after the branch passes review.
-- A new urgent side task fits a running team: add a contract to the same route folder and give it to an idle worker (cleared first).
+- Write the next wave's contracts while the integrator combines, so implementers start the moment its report lands.
+- When the integrator's next merge is free of conflicts, branch the next part from the implementer's wip branch instead of waiting for the merge.
+- A report or a finished goal does not free an implementer: its branch can still fail review, and the fix round then has no owner. Give new work only after the branch passes review.
+- A new urgent side task fits a running team: add a contract to the same route folder and give it to an idle implementer (cleared first).
 
 ## Idle is a state
 
@@ -30,8 +30,8 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 
 ## Quota is capacity
 
-- Workers, reviewers and a review bot on one model account share one weekly pool. Read the figure before a long round, and count what one review costs on this route.
-- At zero, a running goal stops and in-flight work is lost; resume after the reset (`codex-workers.md`, Usage quota). Never fall back to an API key; moving work to another harness is the user's decision.
+- Implementers, the integrator, reviewers and a review bot on one model account share one weekly pool. Read the figure before a long round, and count what one review costs on this route.
+- At zero, a running goal stops and in-flight work is lost; resume after the reset (`codex.md`, Usage quota). Never fall back to an API key; moving work to another harness is the user's decision.
 
 ## Dispatch without copy errors
 

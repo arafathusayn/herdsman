@@ -4,7 +4,7 @@ All agents of a route run on one machine and usually on one test database contai
 
 ## Contracts name the environment exactly
 
-- Before you write test database names into contracts, read the project's test-reset guard (for example a required "test" in the name) and the settings its suites need. Otherwise each worker invents its own names and values.
+- Before you write test database names into contracts, read the project's test-reset guard (for example a required "test" in the name) and the settings its suites need. Otherwise each implementer invents its own names and values.
 - Give each agent its own databases, named in its contract or prompt. Never let one agent touch another's database.
 - Probe a new harness before a route gives it database-backed tests: sandbox network and approval modes decide whether it can reach the container.
 

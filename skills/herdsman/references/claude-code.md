@@ -1,6 +1,8 @@
-# Claude Code reviewer
+# Claude Code
 
-## Launch form (verified with Claude Code 2.1.x, 2026-09-22)
+Claude Code can take any agent type. Most notes below come from reviewer panes; "Claude Code panes" at the end holds the notes for every type.
+
+## Reviewer launch form
 
 ```
 herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
@@ -8,15 +10,15 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
   --add-dir <route folder root>
 ```
 
-- `interactive_ready:true` arrives in seconds; the pane header shows the model and effort ("Opus 5.5 (1M context) xhigh"). The user moved the reviewer from claude-fable-5-1 to Opus 5.5 on 2026-09-23; take the model from the interview.
+- `interactive_ready:true` arrives in seconds; the pane header shows the model and effort ("Opus 5.5 (1M context) xhigh"). Take the model from the interview.
 - One `--add-dir` is safer: a launch with two was refused once by the auto-mode classifier as "Create Unsafe Agents".
 - To stop an idle Claude pane, `ctrl+c` twice may not exit; type `/exit` and press enter. After a session exits, the Herdr name is gone (`agent_not_found`); relaunch and send a full-contract prompt, because the new session remembers nothing of earlier rounds.
 - Without `--add-dir` the reviewer blocks on "Allow reads outside the working directories?" when the contract or the route files live outside its cwd. Do not answer that prompt for the user; relaunch with `--add-dir`.
 - `--permission-mode auto` lets it run gh, git fetch, tests and the review skills without prompts; it still refuses dangerous shapes.
 - Start it in its own tab ("Reviewer") with `--cwd <writable root>` so its worktree and report files are local.
-- Review prompts go as `/goal <whole review>` (user rule 2026-09-23 14:4x). Before each new review: `/clear`, or `/compact` when the review needs the earlier rounds (a re-review of the same PR). Every goal says "Find only P0 and P1 issues."
+- Review prompts go as `/goal <whole review>` (user rule). Before each new review: `/clear`, or `/compact` when the review needs the earlier rounds (a re-review of the same PR). Every goal says "Find only P0 and P1 issues."
 
-## Prompt shape for Opus 5.5 (source: claude.dev/blog/getting-the-most-out-of-opus-5-5, read 2026-09-23)
+## Prompt shape for Opus 5.5 (source: claude.dev/blog/getting-the-most-out-of-opus-5-5)
 
 - Give the whole review in one message and name the finish line: the report file with a `VERDICT:` line for the head commit.
 - Remove "think carefully" and "think step by step". The model reasons before each reply without them.
@@ -37,22 +39,23 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 
 - Define P0 and P1 in the contract (see `contracts.md`). Everything below P1 is omitted, not demoted.
 - The `VERDICT:` line is the gate. `pass` = zero P0 and zero P1.
-- Findings carry `file:line`, what happens, and a one-sentence fix, so the worker can act without reading the reviewer's reasoning.
+- Findings carry `file:line`, what happens, and a one-sentence fix, so the implementer or the integrator can act without reading the reviewer's reasoning.
 
 ## Loop mechanics
 
-- One persistent reviewer, one pull request at a time, one prompt per review: contract path, PR number, branch, task contract, report path `review-<pr>-<k>.md`.
-- After a `fix` verdict the worker fixes and pushes; the reviewer then reviews the new head as `review-<pr>-<k+1>`. Never overwrite a review file.
+- Each reviewer is persistent and takes one review at a time, one prompt per review: contract path, PR number, branch, task contract, report path `review-<pr>-<k>.md`.
+- After a `fix` verdict the implementer (or, after the final review, the integrator) fixes; the reviewer then reviews the new head as `review-<pr>-<k+1>`. Never overwrite a review file.
 - Three fix rounds on one pull request without pass: stop, show the user the remaining findings and both sides' reasons.
 - The reviewer posts nothing on GitHub. If the user wants review comments on the pull request, that is a separate, explicit step.
-- Context (user rule, 2026-09-22, corrected the same day): the same rule as for implementers. A re-review of a pull request the reviewer already reviewed is a follow-up: keep the context (it knows its own findings), `/compact` first when the footer shows more than 50%. A pull request it has not seen is a new task: `/clear` first, confirm the empty prompt, then the review prompt (which names the contract file, so nothing is lost). A review of a medium pull request used about 10% of a 1M context at xhigh. Claude Code's percentage is in the pane footer ("19% 190k/1M"); `herdr agent list` shows none for Claude.
+- Context (user rule): the same rule as for every agent. A re-review of a pull request the reviewer already reviewed is a follow-up: keep the context (it knows its own findings), `/compact` first when the footer shows more than 50%. A pull request it has not seen is a new task: `/clear` first, confirm the empty prompt, then the review prompt (which names the contract file, so nothing is lost). A review of a medium pull request used about 10% of a 1M context at xhigh. Claude Code's percentage is in the pane footer ("19% 190k/1M"); `herdr agent list` shows none for Claude.
 
 ## Watching the reviewer
 
 `scripts/watch-reviewer.sh` polls the pane every 90 s: REVIEW on a new `review-*.md`, BLOCKED on permission or password text ("Allow reads outside", "Do you want to proceed", "Password for"), IDLE when the screen changed and no working marker ("esc to interrupt", "thinking", "Incubating", "tokens") is present. Claude Code's working markers differ from Codex's; keep both lists in the scripts.
 
-## Claude Code panes (reviewers and workers)
+## Claude Code panes (every agent type)
 
+- Implementer or integrator launch: the reviewer form with the model and effort from the interview, `--permission-mode auto`, and `--add-dir <route folder root>` when the route folder is outside the agent's cwd.
 - Working marker: a spinner line "… (12s · ..." (`… \([0-9]` in the scripts), not "esc to interrupt".
 - Wait for a `/compact` to end ("Compacting conversation" gone, the prompt line back) before the next prompt.
 - A cleared pane can keep an unsent input line; clear the input before the next prompt.

@@ -1,14 +1,22 @@
 # herdsman
 
-A coding-agent skill that runs a team of coding agents inside [herdr](https://github.com/herdrdev/herdr). One agent session is the orchestrator. Worker agents write the code. A reviewer agent reviews each result. The loop of fixes and reviews continues until each task passes.
+A coding-agent skill that runs a team of coding agents inside [herdr](https://github.com/herdrdev/herdr): an orchestrator, implementers, an integrator and reviewers. The loop of fixes and reviews continues until each task passes.
 
-Each role can use a different harness and a different model. Any coding agent that herdr can start and recognize in a pane can be a worker or the reviewer.
+## Agent types
+
+- **Orchestrator:** the agent session that the user talks to. It runs the interview, writes the contracts, launches and watches the other agents, forwards review findings and records the results. It does not write application code and does not push.
+- **Implementer:** one agent per task. It writes the code and the tests for its task on its own branch.
+- **Integrator:** when several tasks land as one branch or one pull request, one agent combines the accepted task branches, fixes what breaks between them, and is the only agent that pushes and answers review threads.
+- **Reviewer:** reviews each task branch and, before a push, the combined result. It reports only P0 and P1 findings and changes nothing.
+
+Each agent can use a different harness and a different model. Any coding agent that herdr can start and recognize in a pane can take any agent type.
 
 ## Features
 
-- **Parallel workers:** one worker agent per task, each in its own herdr pane, optionally in its own git worktree and branch.
-- **Strict review:** one reviewer agent, usually on a stronger model than the workers, reports only P0 and P1 findings. A task gets at most three fix rounds; then the user decides.
-- **Event-driven waits:** a background waiter wakes the orchestrator on a new report, a new review, a blocked worker or a stalled worker.
+- **Parallel implementers:** one implementer agent per task, each in its own herdr pane, optionally in its own git worktree and branch.
+- **One pull request or many:** each implementer publishes its own pull request, or an integrator combines the tasks into one branch and publishes it.
+- **Strict review:** reviewer agents, usually on a stronger model than the implementers, report only P0 and P1 findings. A task gets at most three fix rounds; then the user decides. In an integration route a final review of the combined head runs before the push.
+- **Event-driven waits:** a background waiter wakes the orchestrator on a new report, a new review, a blocked agent or a stalled agent.
 - **Health checks:** on every wake, a status script shows each agent's state, model, background jobs with their ages, and recent file writes. It flags jobs that run too long and trees with no writes.
 - **Checkpointer:** a pane next to the orchestrator asks the orchestrator to save its memory every 15 minutes, and to compact its context when the context passes a token limit.
 - **Context hygiene:** each agent is compacted or cleared as soon as it finishes.
@@ -16,19 +24,19 @@ Each role can use a different harness and a different model. Any coding agent th
 
 ## How it works
 
-1. **Interview:** the orchestrator asks once for the tasks, branches, harnesses, models, merge policy and test setup. Then it shows a dispatch plan and waits for the user's go.
-2. **Contracts:** the orchestrator writes a route folder with shared rules, one contract per task and a reviewer contract.
-3. **Launch:** the orchestrator creates the herdr tabs and panes, starts the agents, and sends each worker a full brief. A brief has the goal, numbered steps with a check for each step, a leave-alone list, time limits and the report format.
+1. **Interview:** the orchestrator asks once for the tasks, branches, harnesses, models, integration (one pull request per task or one combined branch), merge policy and test setup. Then it shows a dispatch plan and waits for the user's go.
+2. **Contracts:** the orchestrator writes a route folder with shared rules, one contract per task, an integrator contract when tasks are combined, and a reviewer contract.
+3. **Launch:** the orchestrator creates the herdr tabs and panes, starts the agents, and sends each implementer a full brief. A brief has the goal, numbered steps with a check for each step, a leave-alone list, time limits and the report format.
 4. **Wait:** the waiter script exits on the first event. The orchestrator handles the event, runs the health check, and starts the waiter again.
-5. **Review:** each finished task goes to the reviewer. A `fix` verdict goes back to the worker as a fix round. A `pass` verdict closes the task.
+5. **Review:** each finished task goes to a reviewer. A `fix` verdict goes back to the implementer as a fix round. A `pass` verdict closes the task. In an integration route, the integrator then combines the accepted branches in phases, a final review checks the combined head, and only a passing final review lets the integrator push.
 6. **Close:** the orchestrator records the results and writes the lessons into memory. General lessons become rules in the skill's concept files (`references/flow-and-time.md`, `context-hygiene.md`, `ownership-and-integration.md`, `review-discipline.md`, `shared-environment.md`, `checkpointer.md`) or in its tool notes.
 
-The orchestrator does not write application code and does not push. The workers do.
+The orchestrator does not write application code and does not push. The implementers push their own pull requests, or, in an integration route, only the integrator pushes.
 
 ## Install
 
 1. Install [herdr](https://github.com/herdrdev/herdr).
-2. Install the coding-agent harnesses you want for the orchestrator, the workers and the reviewer.
+2. Install the coding-agent harnesses you want for the orchestrator, the implementers, the integrator and the reviewers.
 3. Install the skill for the orchestrator's harness with the [GitHub CLI](https://cli.github.com/manual/gh_skill_install):
 
    ```
@@ -78,7 +86,8 @@ Examples:
 /herdsman checkpoint start --every 10 --limit 300k
 /herdsman checkpoint now
 /herdsman status
-/herdsman run "tasks: issues 12 and 14; workers: <harness> <model>; reviewer: <harness> <model>"
+/herdsman run "tasks: issues 12 and 14; implementers: <harness> <model>; reviewer: <harness> <model>"
+/herdsman run "tasks: four parts of one change, one pull request; implementers: <harness> <model>; integrator: the first implementer that is free; reviewers: two <harness> <model>"
 ```
 
 The skill stops when `HERDR_ENV` is not `1`.
@@ -119,7 +128,7 @@ The script reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 250
 
 - **Background waits, not monitors:** an in-session monitor event does not wake an idle orchestrator. A background command that exits does.
 - **One herdr change per call:** two changes in one shell call have failed without output.
-- **Deadlines belong to the orchestrator:** workers ignored stop times written in their own briefs. A queued instruction runs only when the worker's turn ends, so the orchestrator interrupts when the deadline passes.
+- **Deadlines belong to the orchestrator:** agents ignored stop times written in their own briefs. A queued instruction runs only when the agent's turn ends, so the orchestrator interrupts when the deadline passes.
 - **Context size from the transcript:** the checkpointer reads the input and cache token counts of the orchestrator's last turn from its session transcript. The included reader expects JSONL transcripts with a usage block per turn. For a harness with another format, replace `transcript()` and `context_tokens()` in `checkpointer.sh`.
 
 ## License
