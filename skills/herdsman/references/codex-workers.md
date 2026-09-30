@@ -14,6 +14,12 @@ herdr agent start wk-<x> --kind codex --pane <id> --timeout 90000 -- \
 - The user's `~/.codex/config.toml` may default to a higher effort (xhigh); pass the effort explicitly. Medium is the default since 2026-09-23 (the user's instruction after a day of routes on high); the reviewer keeps xhigh.
 - Codex shows `Goal active` and `Pursuing goal (Nm)` after a `/goal` prompt.
 
+## Update and resume (verified with Codex CLI 0.159.2, 2026-09-30)
+
+- `codex update` updates the standalone install in place (0.155.1 to 0.159.2); running panes keep the old binary until restarted.
+- `codex debug models` prints the model catalog as JSON (slug, display name, efforts). `gpt-6.1-sol` exists from 0.159.
+- An ended session (the pane is back at the shell prompt, "To continue this session, run: codex resume <id>") restarts in the same pane with the same Herdr name: `herdr agent start <name> --kind codex --pane <id> --timeout 90000 -- resume --model <model> -c model_reasoning_effort=<e> -a never --sandbox workspace-write -c sandbox_workspace_write.network_access=true -C <root> <session id>`. A goal that was paused shows "Resume paused goal?" with option 1 selected: `herdr pane send-keys <pane> enter` resumes it. The footer then shows the new model.
+
 ## The writable root
 
 The sandbox writes only under the `-C` directory and /tmp. Everything a worker must write lives there: worktrees, report files, scratch files, package caches. A report path outside it (a docs folder of a sibling repo) blocks the worker at the very end of its task. Contracts may point at files anywhere for reading.
