@@ -32,6 +32,7 @@ Concepts: the rules that earlier routes taught, with their reasons, one file per
 - [`references/review-discipline.md`](references/review-discipline.md): what a review reports and proves, the goal gate, orchestrator amendments, disagreements, human reviews.
 - [`references/shared-environment.md`](references/shared-environment.md): test databases, CPU and shared memory on one machine, tests that prove the product.
 - [`references/checkpointer.md`](references/checkpointer.md): the checkpointer requests and numbers (see `checkpoint` below).
+- [`references/optional-techniques.md`](references/optional-techniques.md): techniques that are off unless the user picks them: plan gate, contract pre-review, progress file, locked proof tests, visual check, guide feedback.
 
 Tool notes: [`references/herdr.md`](references/herdr.md), [`references/watchers.md`](references/watchers.md), [`references/git-and-github.md`](references/git-and-github.md), [`references/contracts.md`](references/contracts.md) and the harness files above.
 
@@ -103,6 +104,7 @@ Ask once, in one question round, everything the route needs. Do not ask again mi
 - Implementer harness, model and effort; the same for the integrator in an integration route. Default: the user's recorded preference; with none, ask.
 - Reviewer harness, model and effort, and the review skills (for example a React review skill for React files and a code-quality skill for TypeScript, plus any security or domain skill the user names). Default: the user's recorded preference; with none, ask.
 - Severity gate: report P0 and P1 only (default).
+- Optional techniques ([`references/optional-techniques.md`](references/optional-techniques.md)): plan gate, contract pre-review, progress file, locked proof tests, visual check, guide feedback. Default: none. Offer the ones that fit the route's size and risk, with their cost.
 - Merge policy: the user merges, or the orchestrator squash-merges on double approval (local pass plus bot approval on the same head). Whether the remote branch is deleted after a merge.
 - Context policy (user rule): every implementer, integrator and reviewer is compacted (when a follow-up of its own work comes next) or cleared (for a new task) right after it finishes, with its harness's commands; when compaction is refused, clear. Never mid-turn.
 - Orchestrator checkpointer (user rule): a pane named `checkpointer` running [`scripts/checkpointer.sh`](scripts/checkpointer.sh) against the orchestrator pane (step 4).

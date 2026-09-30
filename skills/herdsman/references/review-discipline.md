@@ -28,7 +28,7 @@ A review is useful only when it blocks the right things, proves them, and leads 
 
 - A reviewer flags every change from the task file as a P1, also an implementer's reasoned change of a rule that the orchestrator wrote. When the change serves the goal better, write a dated "Orchestrator amendments" section at the end of the task file, forward only the real findings, and say in the re-review prompt which findings the amendments close.
 - Decide conflicts by the user's recorded rules. When a provider's contract disagrees with its own examples, the contract wins; pin the conflict in a test and hand it to the user for the provider.
-- A rule that the user gives in the middle of a route overrides the contract: put it in the next prompt and amend the contract, or the next job repeats the old form.
+- A rule that the user gives in the middle of a route overrides the contract: put it in the next prompt and amend the contract, or the next job repeats the old form. For a running agent, amend the contract first and then send a one-line steer that points to the amendment; do not restart the task.
 - Send a disagreement to the user at once when an implementer disagreed with a finding and the reviewer raises it again. After three fix rounds on one branch, stop and show the user the remaining findings.
 
 ## Beyond the local review

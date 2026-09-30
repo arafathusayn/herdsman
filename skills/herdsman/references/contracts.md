@@ -52,9 +52,13 @@ Run at most one TypeScript compiler process, single-threaded: `GOMAXPROCS=1 tsc 
 - After the pull request is open, wait five minutes, then read `gh pr checks <n>` and the review-bot comments. Fix real findings test-first, push, reply on each thread with "Addressed in <sha>". Repeat until checks pass and the bot reports no new issues. If the bot is wrong, reply with the reason and move on.
 - Do not change a pull request's base branch, dissolve a stack, force-push over someone else's commits, or close a pull request without an instruction in your task file.
 
+## Keep going
+
+Do not stop to ask when the next step needs no input. Stop and write the report only before a destructive action (deleting data, a force push, a change outside your worktree), at a conflict between two rules, at a missing login, or at the due time.
+
 ## Report
 
-When done, write `<writable root>/reports/<task>.md` with, in this order: `STATUS: complete` or `STATUS: blocked <reason>`; branch; worktree; PR URL; head commit; the exact test commands and their pass counts; `decisions:` (every judgement call); `handoff:` (changes that another task's files need, integration route); `gaps:`. Under 60 lines. Then reply in the terminal with only the path of that file.
+When done, write `<writable root>/reports/<task>.md` with, in this order: `STATUS: complete` or `STATUS: blocked <reason>`; `needs:` (each decision or approval that the orchestrator or the user must give, or `none`); branch; worktree; PR URL; head commit; the exact test commands and their pass counts; `decisions:` (every judgement call); `handoff:` (changes that another task's files need, integration route); `gaps:`. Under 60 lines. Then reply in the terminal with only the path of that file.
 ```
 
 ## 1n-task-<x>.md
@@ -175,6 +179,7 @@ FINDINGS:
 - P0 | <file>:<line> | <what is wrong and what happens> | fix: <one sentence>
 - P1 | ...
 - GOAL-CONFLICT | <file>:<line> | <the risk> | option 1: <keep the Must-prove test, fix this> | option 2: <skip or gate it>
+NOT CHECKED: <what this review could not check, for example remote CI, a live service or a GitHub state, one line each>
 `VERDICT: pass` means zero P0 and zero P1. Then reply in the terminal with only the path.
 ```
 
