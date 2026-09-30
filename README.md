@@ -21,7 +21,7 @@ Each role can use a different harness and a different model. Any coding agent th
 3. **Launch:** the orchestrator creates the herdr tabs and panes, starts the agents, and sends each worker a full brief. A brief has the goal, numbered steps with a check for each step, a leave-alone list, time limits and the report format.
 4. **Wait:** the waiter script exits on the first event. The orchestrator handles the event, runs the health check, and starts the waiter again.
 5. **Review:** each finished task goes to the reviewer. A `fix` verdict goes back to the worker as a fix round. A `pass` verdict closes the task.
-6. **Close:** the orchestrator records the results and writes the lessons into memory and into `references/lessons-log.md`.
+6. **Close:** the orchestrator records the results and writes the lessons into memory. General lessons become rules in the skill's concept files (`references/flow-and-time.md`, `context-hygiene.md`, `ownership-and-integration.md`, `review-discipline.md`, `shared-environment.md`, `checkpointer.md`) or in its tool notes.
 
 The orchestrator does not write application code and does not push. The workers do.
 

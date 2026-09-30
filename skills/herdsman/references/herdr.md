@@ -22,6 +22,9 @@ The installed binary is the authority: `herdr --help`, then a group without a su
 ## Gotchas
 
 - A `herdr agent start` that the harness rejected can still have run. The pane then holds a stuck name (`agent_launch_pending`); `agent rename --clear`, the same name (`agent_name_taken`) and a fresh name (`agent_pane_busy`, "not an available shell") all fail. Remedy: close that pane and split a fresh one.
+- Agent names must match `^[a-z][a-z0-9_-]{0,31}$` (`invalid_agent_name` otherwise) and are global across workspaces: `agent_name_taken` means another workspace's route may hold the name. Use route-specific names and keep display names in contracts.
+- Read a pane before you reuse it: the user may have started another session there. `herdr agent prompt <pane id> "/quit"` reaches an agent that has no name.
+- `herdr pane list | grep <label>` also matches panes whose text holds the label; filter the JSON by its `label` field.
 - Every herdr call must be a plain top-level command. Calls inside `for` loops with `set --`, or with long `${VAR//x/y}` substitutions, exit 1 with no output.
 - Herdr's agent state is unreliable for Codex: it may say `working` at the prompt and `idle` mid-task. Truth is the pane text: an active Codex shows `• Working (Ns • esc to interrupt)` or `Pursuing goal (Nm)`; the `› Ask Codex to do anything` line is always present.
 - Names vanish from `herdr agent list` for Codex workers in narrow panes; `herdr agent rename <pane> <name>` re-registers.

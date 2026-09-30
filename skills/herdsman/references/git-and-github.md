@@ -27,6 +27,7 @@
 
 - READY pull requests, not drafts, when the user said so. `gh pr create --repo <org>/<repo> --base <base> --head <branch> --title ... --body-file <file>`.
 - Body rules (user's standard): Summary, per-file bullets with why, Verification with exact commands and databases, Known gaps. No reviewer or tool names, no people, no metrics, no process history. Grep the body for banned words before creating.
+- Under a "CI green before the body" rule: open the pull request with a minimal body, wait for CI, then the integrator writes, checks and pushes the full body.
 - Landing-order gates ("rebase after PR n merges") are Known-gap lines, not defects, so the pull request can open.
 - Stacked pull requests open with `--base <sibling branch>`; CI still runs against the workflow of the default branch, so a failing check may come from the base.
 - GitHub native stacks: link with `printf '{"pull_requests":[base,top]}' | gh api --method POST -H "X-GitHub-Api-Version: 2026-03-10" repos/O/R/stacks --input -` (integers; each base ref must equal the previous head ref; same repository). `.../stacks/N/unstack` removes. Dissolving a stack and retargeting a base is a GitHub mutation that needs the user's go unless the task file grants it.

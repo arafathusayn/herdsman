@@ -13,6 +13,17 @@ Read `references/harness-guards.md` before the first shell command. Read the oth
 
 Harness notes: `references/` has one file per harness used so far (launch form, prompt form, slash commands for compact and clear, working and blocked markers, quirks), for example `codex-workers.md`, `muse-workers.md` and `claude-reviewer.md`. Before a route uses a harness with no notes file, probe it (launch in a scratch pane, send a prompt, find its compact, clear and interrupt commands and its working marker) and write the notes file first.
 
+Concepts: the rules that earlier routes taught, with their reasons, one file per concept. Read them before the dispatch plan (step 1), and again when a step touches the concept.
+
+- `references/flow-and-time.md`: due times that the orchestrator enforces, the moving bottleneck (reviewers, CI, the integrator), work ahead, idle state, quota as capacity.
+- `references/context-hygiene.md`: compact for a follow-up, clear for a new job, when harnesses refuse the commands, the orchestrator's own context.
+- `references/ownership-and-integration.md`: file and line ownership, handoffs, one integrator, fixes on another author's pull request, migration numbers and stacks.
+- `references/review-discipline.md`: what a review reports and proves, the goal gate, orchestrator amendments, disagreements, human reviews.
+- `references/shared-environment.md`: test databases, CPU and shared memory on one machine, tests that prove the product.
+- `references/checkpointer.md`: the checkpointer requests and numbers (see `checkpoint` below).
+
+Tool notes: `references/herdr.md`, `references/watchers.md`, `references/git-and-github.md`, `references/contracts.md` and the harness files above.
+
 ## Arguments
 
 Invocation: `/herdsman [subcommand] [options]`. Received: `$ARGUMENTS`
@@ -27,6 +38,8 @@ Invocation: `/herdsman [subcommand] [options]`. Received: `$ARGUMENTS`
 | `help` | Print this table, the checkpoint actions and options, and the examples. Do nothing else. |
 
 ### checkpoint
+
+How the requests and the context numbers read: `references/checkpointer.md`.
 
 Actions (default `start`):
 
@@ -156,7 +169,7 @@ When commits are not allowed, review tree snapshots instead of pull requests (`r
 
 - Append a run-state line to `00-route.md` at every event that changes state: launch, blocker, report, review verdict, fix round, pass. Use `scripts/route-log.sh <route>/00-route.md "<text>"` (it writes `- HH:MM <text>` from `date`), never a typed time.
 - Keep the orchestrator context small: read report files and review files, not pane transcripts, except to unblock.
-- At close: table of pull requests (number, branch, head, checks, review verdict, rounds), open items, and the exact things the user still owns (merges, secrets, infrastructure). Write the lessons of the route into memory per the user's memory conventions, and into `references/lessons-log.md` of this skill when they are general.
+- At close: table of pull requests (number, branch, head, checks, review verdict, rounds), open items, and the exact things the user still owns (merges, secrets, infrastructure). Write the lessons of the route into memory per the user's memory conventions. When a lesson is general, write it into this skill as a rule with its reason: in the concept file of its topic (list above), or in the tool or harness notes when it is a command quirk; merge it with an older rule on the same point instead of adding a second one. A new concept gets a new file and a line in the Concepts list. No dates, route stories, counts, durations, versions or project names in the skill: those stay in memory.
 
 ## Rules that do not bend
 

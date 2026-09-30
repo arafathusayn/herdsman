@@ -14,10 +14,10 @@ herdr agent start wk-<x> --kind codex --pane <id> --timeout 90000 -- \
 - The user's `~/.codex/config.toml` may default to a higher effort (xhigh); pass the effort explicitly. Medium is the default since 2026-09-23 (the user's instruction after a day of routes on high); the reviewer keeps xhigh.
 - Codex shows `Goal active` and `Pursuing goal (Nm)` after a `/goal` prompt.
 
-## Update and resume (verified with Codex CLI 0.159.2, 2026-09-30)
+## Update and resume
 
-- `codex update` updates the standalone install in place (0.155.1 to 0.159.2); running panes keep the old binary until restarted.
-- `codex debug models` prints the model catalog as JSON (slug, display name, efforts). `gpt-6.1-sol` exists from 0.159.
+- `codex update` updates the standalone install in place; running panes keep the old binary until restarted.
+- `codex debug models` prints the model catalog as JSON (slug, display name, efforts). Check it before a launch names a new model.
 - An ended session (the pane is back at the shell prompt, "To continue this session, run: codex resume <id>") restarts in the same pane with the same Herdr name: `herdr agent start <name> --kind codex --pane <id> --timeout 90000 -- resume --model <model> -c model_reasoning_effort=<e> -a never --sandbox workspace-write -c sandbox_workspace_write.network_access=true -C <root> <session id>`. A goal that was paused shows "Resume paused goal?" with option 1 selected: `herdr pane send-keys <pane> enter` resumes it. The footer then shows the new model.
 
 ## The writable root
@@ -54,7 +54,9 @@ When a Codex worker ends a turn with a question ("Can you enable write access to
 
 - The Codex pane footer shows the context use per worker (for example "context 53%").
 - Above 50% and the next dispatch is a fix round on the same pull request: `herdr agent prompt wk-x "/compact"`, wait until the pane shows the compaction finished and the prompt line is back, then the `/goal`.
-- Next dispatch is a new task: `herdr agent prompt wk-x "/new"` (fresh session in the same pane and process; the Herdr name stays), then the `/goal` that names the shared rules and the task file again.
+- Next dispatch is a new task: `herdr agent prompt wk-x "/new"` (fresh session in the same pane and process; the Herdr name stays), then the `/goal` that names the shared rules and the task file again. `/new` first opens a chooser "Where should the new conversation run? 1. Current checkout 2. New worktree": send `herdr pane send-keys <pane> enter` for the current checkout, then read the pane for the empty prompt.
+- `/new` is refused while a `/compact` still runs ("'/new' is disabled while a task is in progress"). Read at least 25 pane lines for "Compacting context" before sending it.
+- A `/goal` while an old goal is active opens "Replace current goal": send `enter`.
 - Never compact or clear while a goal runs; a prompt sent mid-goal is queued and would land at a random point. Codex refuses it anyway: "'/compact' is disabled while a task is in progress".
 - A compaction takes 30 s to 2 min on a 70% to 90% context ("Compacting context (Ns)" then "Context compacted · 1m 41s"); the footer figure updates only after it finishes (88% → 4%, 69% → 0%). Do not re-send `/compact` while "Compacting context" is on screen.
 - Measured 2026-09-22 after one task each: 53% to 88% of context per worker. Without hygiene the second task of a worker starts near the limit.

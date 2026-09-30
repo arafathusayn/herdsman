@@ -50,3 +50,11 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 ## Watching the reviewer
 
 `scripts/watch-reviewer.sh` polls the pane every 90 s: REVIEW on a new `review-*.md`, BLOCKED on permission or password text ("Allow reads outside", "Do you want to proceed", "Password for"), IDLE when the screen changed and no working marker ("esc to interrupt", "thinking", "Incubating", "tokens") is present. Claude Code's working markers differ from Codex's; keep both lists in the scripts.
+
+## Claude Code panes (reviewers and workers)
+
+- Working marker: a spinner line "… (12s · ..." (`… \([0-9]` in the scripts), not "esc to interrupt".
+- Wait for a `/compact` to end ("Compacting conversation" gone, the prompt line back) before the next prompt.
+- A cleared pane can keep an unsent input line; clear the input before the next prompt.
+- Never prompt a working Claude agent with its next job: the harness delivers the prompt in the middle of the turn. Wait for its report.
+- A long prompt pasted into the input can show "paste again to expand"; read more pane lines to see whether the turn started.
