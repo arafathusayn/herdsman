@@ -12,6 +12,8 @@ A review is useful only when it blocks the right things, proves them, and leads 
 
 - Branch reviews check each task against its own contract, so they miss defects on paths between tasks (a logging path, a stored-data read, an error handler that two tasks both touch). Always run a full review of the combined head against the base branch before anything is pushed.
 - Send the final review's fixes to the integrator on the combined branch, test first. Tell it where new tests must not go when a parallel task replaces a file.
+- When a final review finds a leak of private data, ask the fix to list every boundary where that data enters storage, errors or logs (procedure input, insert, send, webhook, read, shared error handlers) and to test each one. A fix of only the reported line moves the leak to the next boundary, one review round at a time.
+- A fix that would change code on the base branch that the whole app shares (a shared error logger, a global handler) is a `handoff:` line, not part of the pull request. The orchestrator decides the scope, gives it to the user as a separate item, and tells the next reviewer that it is a decision.
 
 ## What a fix must show
 

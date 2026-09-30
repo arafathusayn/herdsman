@@ -21,6 +21,8 @@ Parallel implementers in one repository collide on files, numbers and branches. 
 
 - Branch every task from the exact head commit under review.
 - The integrator fetches, stops if the remote branch moved, and pushes only as a fast-forward. It answers every review thread once, with the fix commit or the reason.
+- When the user reads texts before they are posted, split the push phase in two. First: push, write every reply into one drafts file (thread id, path and line, text), and run the review-bot loop without posting. Then, after the user's go: post exactly the approved file, once per thread, after a check for replies that already exist. Reason: the push was approved in the dispatch plan, the texts were not, and a posted reply cannot be taken back.
+- A fix that belongs in the pull request description (for example a migration range) is not the integrator's: the orchestrator edits the description on the user's go, then the integrator posts the reply.
 
 ## Numbers and stacks
 

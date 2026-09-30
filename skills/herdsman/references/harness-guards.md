@@ -12,6 +12,7 @@
 - `rm -rf`, `rm -r`: never pre-clean; fresh directory names; delete files by literal path, then `rmdir`.
 - `eval "$c"` in loops, pipelines into an executable dcg cannot verify, `> /tmp/x.$$`: literal commands, shell variables instead of temp files, a script file written with the Write tool and run with `bash <file>`.
 - git commands with shell variables or inside loops: literal paths, one command per line.
+- A zsh shell does not split an unquoted variable on newlines, so `for x in $list` runs once with the whole list. Pipe the list into `while read -r x; do ...; done`.
 - One blocked command fails the whole batch; keep destructive or redirect-bearing steps in their own small call.
 
 ## Bash tool limits
