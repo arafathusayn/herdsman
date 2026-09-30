@@ -18,9 +18,9 @@ All agents of a route run on one machine and usually on one test database contai
 ## Tests that prove the product
 
 - A suite that skips environment validation everywhere hides boot failures: require one test that starts the real entry point with only the documented settings.
-- Opt-in live tests may skip in the normal suites, but a route whose goal needs the live path must run it (`contracts.md`, Live tests).
+- Opt-in live tests may skip in the normal suites, but a route whose goal needs the live path must run it ([`contracts.md`](contracts.md), Live tests).
 
 ## Facts, not guesses
 
-- Timestamps come from `date`; route-state lines come from `scripts/route-log.sh`.
+- Timestamps come from `date`; route-state lines come from [`scripts/route-log.sh`](../scripts/route-log.sh).
 - Test logs written outside the worktree make a working agent look idle; check that folder before calling it hung.

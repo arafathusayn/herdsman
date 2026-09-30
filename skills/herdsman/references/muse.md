@@ -28,7 +28,7 @@ herdr agent start im-<x> --kind muse --pane <id> --timeout 90000 -- --model muse
 ## State and health
 
 - Muse starts long commands and Workflows as background tasks (footer `└ ◆ <label> running 23m`). Herdr then reports `idle`/`done` while work continues: read the footer before prompting or clearing.
-- The "Thinking (1h 09m)" / "Calling tools" timer counts the whole turn. Real progress: files written in the last 10 minutes (`find <tree> -type f -mmin -10`; BSD `-newermt '-10 minutes'` silently matches nothing). `scripts/agent-status.sh` prints both and flags jobs over 30 minutes and trees with no writes.
+- The "Thinking (1h 09m)" / "Calling tools" timer counts the whole turn. Real progress: files written in the last 10 minutes (`find <tree> -type f -mmin -10`; BSD `-newermt '-10 minutes'` silently matches nothing). [`scripts/agent-status.sh`](../scripts/agent-status.sh) prints both and flags jobs over 30 minutes and trees with no writes.
 - The report file may be written before a long run ends; its mtime churns, so the waiter emits several REPORT-UPDATED events. Act when the pane shows `Worked for ...`.
 
 ## Deadlines

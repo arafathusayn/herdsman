@@ -3,7 +3,7 @@
 ## The wake-up fact
 
 - A Monitor task keeps running and its stdout lines become chat events, but those events are delivered only while a turn is running or when the user sends a message. Between turns the session sleeps through them: the monitor sees a new report within a minute, and the orchestrator only when the user writes.
-- A Bash command started with `run_in_background: true` re-invokes the session when it exits. That is the wake-up to build on: `scripts/wait-event.sh` polls, exits on the first event pass, or exits after 540 s with `TICK` (the Bash tool caps `timeout` at 600000 ms). Handle, re-arm, repeat. Never end a turn while the route runs without an armed waiter.
+- A Bash command started with `run_in_background: true` re-invokes the session when it exits. That is the wake-up to build on: [`scripts/wait-event.sh`](../scripts/wait-event.sh) polls, exits on the first event pass, or exits after 540 s with `TICK` (the Bash tool caps `timeout` at 600000 ms). Handle, re-arm, repeat. Never end a turn while the route runs without an armed waiter.
 - Keep IDLE out of the waiter's events (a changed idle screen is noise that would wake the session for nothing); GOAL-DONE-NO-REPORT and REPORT cover the useful cases.
 
 ## Monitor tasks (secondary, inside a long turn only)
@@ -42,7 +42,7 @@ Sanity test (fake `herdr`, one poll per run, bash 3.2): `/bin/bash ~/.claude/ski
 | REPORT `<task> <path>` | an implementer's or the integrator's report file appeared | read it, check STATUS, verify the pull request or branch head, dispatch the review |
 | REPORT-UPDATED `<task> <path>` | the report's mtime changed (a fix round finished) | read the new head and the per-finding decisions, dispatch the re-review |
 | REVIEW `<path>` | reviewer report appeared | read VERDICT, forward findings or record pass |
-| BLOCKED `<agent> <text>` | password, approval, model-switch, usage-limit or trust text on screen | see `codex.md`, `claude-code.md` and `muse.md`; never type a password |
+| BLOCKED `<agent> <text>` | password, approval, model-switch, usage-limit or trust text on screen | see [`codex.md`](codex.md), [`claude-code.md`](claude-code.md) and [`muse.md`](muse.md); never type a password |
 | STALL `<agent>` | working marker but unchanged screen across a poll | on the second STALL read the pane in full, then prompt the next step |
 | IDLE `<agent>` | no working marker and the screen changed | the agent finished or is waiting; read the last lines |
 

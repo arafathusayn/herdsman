@@ -26,12 +26,12 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 ## Idle is a state
 
 - When nothing is in flight, do not re-arm the waiter: it would only TICK. Write "idle, waiter not armed" in the route file so a resumed session knows.
-- An agent that finished and was not compacted or cleared is an open action (`context-hygiene.md`).
+- An agent that finished and was not compacted or cleared is an open action ([`context-hygiene.md`](context-hygiene.md)).
 
 ## Quota is capacity
 
 - Implementers, the integrator, reviewers and a review bot on one model account share one weekly pool. Read the figure before a long round, and count what one review costs on this route.
-- At zero, a running goal stops and in-flight work is lost; resume after the reset (`codex.md`, Usage quota). Never fall back to an API key; moving work to another harness is the user's decision.
+- At zero, a running goal stops and in-flight work is lost; resume after the reset ([`codex.md`](codex.md), Usage quota). Never fall back to an API key; moving work to another harness is the user's decision.
 
 ## Dispatch without copy errors
 

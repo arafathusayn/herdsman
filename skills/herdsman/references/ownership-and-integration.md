@@ -15,7 +15,7 @@ Parallel implementers in one repository collide on files, numbers and branches. 
 - The integrator works in phases, and each phase starts with an orchestrator prompt: combine, fixes from the final review, add a late task, push. A phase that the contract does not name yet goes into the contract first. Reason: the integrator reads its contract, not the chat, and the reviewer checks the result against the same text.
 - The integrator can be an implementer whose task was accepted. Clear it first: integration is a new job, and the old task's context makes it fix things in its own old files.
 - A finding whose fix spans two tasks' files (a column from one task, its writer in another task's file) cannot be fixed on either branch. Accept both branches and write the fix, with its regression test, into the integrator contract. The final review checks it.
-- Review the combined head against the base branch before the push phase, and send its findings back to the integrator as a fix phase. Branch reviews do not see the paths between tasks (`review-discipline.md`).
+- Review the combined head against the base branch before the push phase, and send its findings back to the integrator as a fix phase. Branch reviews do not see the paths between tasks ([`review-discipline.md`](review-discipline.md)).
 
 ## Fixing another author's pull request
 
@@ -26,4 +26,4 @@ Parallel implementers in one repository collide on files, numbers and branches. 
 
 - Parallel tasks that change the schema from the same base all take the next migration and decision-record number. Merge them one at a time and send each remaining branch a rebase round that regenerates its migration.
 - The cut point of a stacked pull request, after its base was squash-merged, is the base's head before the rebase, not a merge base against the moved local branch.
-- Deleting a merged base branch closes every open pull request based on it: retarget the dependents first, and delete only when none is left (`git-and-github.md`, Merges).
+- Deleting a merged base branch closes every open pull request based on it: retarget the dependents first, and delete only when none is left ([`git-and-github.md`](git-and-github.md), Merges).

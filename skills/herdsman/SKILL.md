@@ -20,20 +20,20 @@ The user talks only to the orchestrator. Any harness and model can take any agen
 
 ## References
 
-Read `references/harness-guards.md` before the first shell command. Read the other references when the step names them.
+Read [`references/harness-guards.md`](references/harness-guards.md) before the first shell command. Read the other references when the step names them.
 
-Harness notes: `references/` has one file per harness used so far (launch form, prompt form, slash commands for compact and clear, working and blocked markers, quirks): `codex.md`, `muse.md` and `claude-code.md`. The notes are per harness, not per agent type, because any harness can take any type. Before a route uses a harness with no notes file, probe it (launch in a scratch pane, send a prompt, find its compact, clear and interrupt commands and its working marker) and write the notes file first.
+Harness notes: `references/` has one file per harness used so far (launch form, prompt form, slash commands for compact and clear, working and blocked markers, quirks): [`codex.md`](references/codex.md), [`muse.md`](references/muse.md) and [`claude-code.md`](references/claude-code.md). The notes are per harness, not per agent type, because any harness can take any type. Before a route uses a harness with no notes file, probe it (launch in a scratch pane, send a prompt, find its compact, clear and interrupt commands and its working marker) and write the notes file first.
 
 Concepts: the rules that earlier routes taught, with their reasons, one file per concept. Read them before the dispatch plan (step 1), and again when a step touches the concept.
 
-- `references/flow-and-time.md`: due times that the orchestrator enforces, the moving bottleneck (reviewers, CI, the integrator), work ahead, idle state, quota as capacity.
-- `references/context-hygiene.md`: compact for a follow-up, clear for a new job, when harnesses refuse the commands, the orchestrator's own context.
-- `references/ownership-and-integration.md`: file and line ownership, handoffs, the integrator's phases, fixes on another author's pull request, migration numbers and stacks.
-- `references/review-discipline.md`: what a review reports and proves, the goal gate, orchestrator amendments, disagreements, human reviews.
-- `references/shared-environment.md`: test databases, CPU and shared memory on one machine, tests that prove the product.
-- `references/checkpointer.md`: the checkpointer requests and numbers (see `checkpoint` below).
+- [`references/flow-and-time.md`](references/flow-and-time.md): due times that the orchestrator enforces, the moving bottleneck (reviewers, CI, the integrator), work ahead, idle state, quota as capacity.
+- [`references/context-hygiene.md`](references/context-hygiene.md): compact for a follow-up, clear for a new job, when harnesses refuse the commands, the orchestrator's own context.
+- [`references/ownership-and-integration.md`](references/ownership-and-integration.md): file and line ownership, handoffs, the integrator's phases, fixes on another author's pull request, migration numbers and stacks.
+- [`references/review-discipline.md`](references/review-discipline.md): what a review reports and proves, the goal gate, orchestrator amendments, disagreements, human reviews.
+- [`references/shared-environment.md`](references/shared-environment.md): test databases, CPU and shared memory on one machine, tests that prove the product.
+- [`references/checkpointer.md`](references/checkpointer.md): the checkpointer requests and numbers (see `checkpoint` below).
 
-Tool notes: `references/herdr.md`, `references/watchers.md`, `references/git-and-github.md`, `references/contracts.md` and the harness files above.
+Tool notes: [`references/herdr.md`](references/herdr.md), [`references/watchers.md`](references/watchers.md), [`references/git-and-github.md`](references/git-and-github.md), [`references/contracts.md`](references/contracts.md) and the harness files above.
 
 ## Arguments
 
@@ -45,12 +45,12 @@ Invocation: `/herdsman [subcommand] [options]`. Received: `$ARGUMENTS`
 | --- | --- |
 | none, or `run <route request>` | The full route: steps 0 to 6. The text after `run`, or any text that does not start with a subcommand, is the route request (tasks, harnesses, models, rules). The interview does not ask again what the request already answers. |
 | `checkpoint [action] [options]` | Manage the orchestrator checkpointer (below). |
-| `status` | Run `scripts/agent-status.sh` for the agents in the current route's task table (`00-route.md`) and report. Changes nothing. |
+| `status` | Run [`scripts/agent-status.sh`](scripts/agent-status.sh) for the agents in the current route's task table (`00-route.md`) and report. Changes nothing. |
 | `help` | Print this table, the checkpoint actions and options, and the examples. Do nothing else. |
 
 ### checkpoint
 
-How the requests and the context numbers read: `references/checkpointer.md`.
+How the requests and the context numbers read: [`references/checkpointer.md`](references/checkpointer.md).
 
 Actions (default `start`):
 
@@ -89,7 +89,7 @@ Examples:
 test "${HERDR_ENV:-}" = 1
 ```
 
-Stop if this fails. Then, in one call: `herdr agent start --help` (kinds), `<harness> --version` for every harness in the route, `gh auth status`, and the git remote of the target repository. Read `references/herdr.md` for the command surface.
+Stop if this fails. Then, in one call: `herdr agent start --help` (kinds), `<harness> --version` for every harness in the route, `gh auth status`, and the git remote of the target repository. Read [`references/herdr.md`](references/herdr.md) for the command surface.
 
 ## 1. One interview, then a dispatch plan
 
@@ -105,7 +105,7 @@ Ask once, in one question round, everything the route needs. Do not ask again mi
 - Severity gate: report P0 and P1 only (default).
 - Merge policy: the user merges, or the orchestrator squash-merges on double approval (local pass plus bot approval on the same head). Whether the remote branch is deleted after a merge.
 - Context policy (user rule): every implementer, integrator and reviewer is compacted (when a follow-up of its own work comes next) or cleared (for a new task) right after it finishes, with its harness's commands; when compaction is refused, clear. Never mid-turn.
-- Orchestrator checkpointer (user rule): a pane named `checkpointer` running `scripts/checkpointer.sh` against the orchestrator pane (step 4).
+- Orchestrator checkpointer (user rule): a pane named `checkpointer` running [`scripts/checkpointer.sh`](scripts/checkpointer.sh) against the orchestrator pane (step 4).
 - GitHub account for `gh` when the default account cannot see the repository (`GH_TOKEN=$(gh auth token --user <account>)`).
 
 Then present a dispatch plan in the reply (tasks, branches, worktrees, panes, harnesses, models, report paths, what will be created on disk, in Herdr and on GitHub) and wait for the user's go. Every Herdr tab, container start, contract file and agent launch is a mutation that needs that go. Do not launch anything before it.
@@ -115,16 +115,16 @@ Then present a dispatch plan in the reply (tasks, branches, worktrees, panes, ha
 Create the route folder at `<writable root>/.herdsman/<route>-<date>/` (user rule: every route artifact, contracts, reports and reviews, lives in a `.herdsman` folder, and `.herdsman/` is in the project's `.gitignore`; add the line if it is missing). Write every file with the harness's file tools. Files:
 
 - `00-route.md`: decisions from the interview, task table (task, branch, worktree, agent name, pane), and a dated run-state list the orchestrator appends to. It also holds a "Must prove" list taken from the route's goal: the product paths the goal requires to work for real (which harnesses, through which execution path, with which logins, which deploy, which end-to-end checks). Every contract and the reviewer contract quote it.
-- `10-shared-rules.md`: setup, code standard, tests, commit, push, pull-request body rules, review-bot loop, report format. Template in `references/contracts.md`.
+- `10-shared-rules.md`: setup, code standard, tests, commit, push, pull-request body rules, review-bot loop, report format. Template in [`references/contracts.md`](references/contracts.md).
 - `1n-task-<x>.md`: one contract per task: problem, scope, out of scope, acceptance, branch, worktree, test database, report path.
-- `1n-task-i.md` (integration route): the integrator contract, one section per phase: combine (merge order, handoffs to apply), final-review fixes, add a late task, push (fetch, stop if the remote branch moved, fast-forward only, one reply per review thread, review-bot loop). Each phase starts only on an orchestrator prompt. Template in `references/contracts.md`.
-- `20-reviewer.md`: the reviewer contract: setup, per-review steps, severity definitions, report format. Template in `references/contracts.md`.
+- `1n-task-i.md` (integration route): the integrator contract, one section per phase: combine (merge order, handoffs to apply), final-review fixes, add a late task, push (fetch, stop if the remote branch moved, fast-forward only, one reply per review thread, review-bot loop). Each phase starts only on an orchestrator prompt. Template in [`references/contracts.md`](references/contracts.md).
+- `20-reviewer.md`: the reviewer contract: setup, per-review steps, severity definitions, report format. Template in [`references/contracts.md`](references/contracts.md).
 
 Report files must live where every agent can write. A sandboxed harness writes only under its writable root, which is why the `.herdsman` folder sits under it. Use `<route folder>/reports/<task>.md` and `<route folder>/reports/review-<pr>-<n>.md`.
 
 ## 3. Launch, one Herdr mutation per call
 
-Order: tab, panes, agents, prompts. Never two Herdr mutations in one shell call or in parallel tool calls. Read each result before the next call. Details and the verified command forms in `references/herdr.md`.
+Order: tab, panes, agents, prompts. Never two Herdr mutations in one shell call or in parallel tool calls. Read each result before the next call. Details and the verified command forms in [`references/herdr.md`](references/herdr.md).
 
 1. Implementer tab: `herdr tab create --workspace <w> --cwd <writable root> --label "Implementer Agents" --no-focus`. Note `root_pane.pane_id`.
 2. Panes: for four implementers, split the root pane right, then each column down (2 by 2). One split per call. Note every pane id from the JSON.
@@ -144,25 +144,25 @@ Order: tab, panes, agents, prompts. Never two Herdr mutations in one shell call 
 
 ## 4. Wait for events with a background command that exits
 
-In-session monitors do not wake the orchestrator between turns: their events arrive only while a turn runs or when the user writes. A background shell command that exits does wake it. So the loop's clock is `scripts/wait-event.sh`, run as a background command with a 10-minute timeout:
+In-session monitors do not wake the orchestrator between turns: their events arrive only while a turn runs or when the user writes. A background shell command that exits does wake it. So the loop's clock is [`scripts/wait-event.sh`](scripts/wait-event.sh), run as a background command with a 10-minute timeout:
 
 ```
 HERDSMAN_REPORTS=... HERDSMAN_STATE=... HERDSMAN_IMPLEMENTERS="im-a im-b" HERDSMAN_PANE_im_a=... HERDSMAN_DUE_im_a=<epoch> HERDSMAN_INTEGRATOR=int-1 HERDSMAN_TASK_int_1=i HERDSMAN_PANE_int_1=... HERDSMAN_REVIEWERS="rv-1:<pane>" /bin/bash <skill>/scripts/wait-event.sh
 ```
 
-The integrator is watched like an implementer: its report file, its pane and its due time. It polls every 60 s and exits on the first event pass, or after 540 s with `TICK`. On every wake: handle the events, then re-arm the same command. Events: REPORT (a task report file appeared), REPORT-UPDATED (the report changed after a fix round), REVIEW (a new review file), BLOCKED (password, approval, model-switch, usage-limit or queued-question text; once per screen change), GOAL-DONE-NO-REPORT (the harness shows its goal-finished marker but no report exists), STALL (working marker but unchanged screen for three polls), OVERDUE (an implementer's or the integrator's `HERDSMAN_DUE_<name>` has passed and its report was not written or changed since that due time was set; once per due time). `references/watchers.md` has the variables, the bash 3 constraint and the sanity test in `scripts/test/run-tests.sh`. The two monitor scripts in `scripts/` remain for use inside a long running turn only.
+The integrator is watched like an implementer: its report file, its pane and its due time. It polls every 60 s and exits on the first event pass, or after 540 s with `TICK`. On every wake: handle the events, then re-arm the same command. Events: REPORT (a task report file appeared), REPORT-UPDATED (the report changed after a fix round), REVIEW (a new review file), BLOCKED (password, approval, model-switch, usage-limit or queued-question text; once per screen change), GOAL-DONE-NO-REPORT (the harness shows its goal-finished marker but no report exists), STALL (working marker but unchanged screen for three polls), OVERDUE (an implementer's or the integrator's `HERDSMAN_DUE_<name>` has passed and its report was not written or changed since that due time was set; once per due time). [`references/watchers.md`](references/watchers.md) has the variables, the bash 3 constraint and the sanity test in [`scripts/test/run-tests.sh`](scripts/test/run-tests.sh). The two monitor scripts in `scripts/` remain for use inside a long running turn only.
 
-On every wake, also run `scripts/agent-status.sh` (`HERDSMAN_STATUS_SPECS="name:pane:tree ..."`). User rule: check every agent every ten minutes and do not let background jobs run long. Every implementer and the integrator already has a due time from its prompt (step 3); a job flagged over 30 minutes, or a tree with no writes in 10 minutes, gets an earlier one if its due time is further out. Past the due time (the waiter's OVERDUE event), steer or interrupt. The orchestrator enforces deadlines, not the agent: agents ignored stop times written in their own briefs. At the deadline queue a stop-and-report steer (cancel every run, start none, write the report from existing results with `STATUS: gaps`, reply with the path); a queued steer lands only when the current turn ends, so with no report within about 10 minutes send the harness's interrupt key (usually `esc`): the turn ends and the queued steer runs next (re-prompt only if nothing was queued). Test logs written outside the tree (for example under a temp folder) show as "NO WRITES"; check that folder before calling an agent hung. Any agent idle since its finish and not yet compacted or cleared is an open action.
+On every wake, also run [`scripts/agent-status.sh`](scripts/agent-status.sh) (`HERDSMAN_STATUS_SPECS="name:pane:tree ..."`). User rule: check every agent every ten minutes and do not let background jobs run long. Every implementer and the integrator already has a due time from its prompt (step 3); a job flagged over 30 minutes, or a tree with no writes in 10 minutes, gets an earlier one if its due time is further out. Past the due time (the waiter's OVERDUE event), steer or interrupt. The orchestrator enforces deadlines, not the agent: agents ignored stop times written in their own briefs. At the deadline queue a stop-and-report steer (cancel every run, start none, write the report from existing results with `STATUS: gaps`, reply with the path); a queued steer lands only when the current turn ends, so with no report within about 10 minutes send the harness's interrupt key (usually `esc`): the turn ends and the queued steer runs next (re-prompt only if nothing was queued). Test logs written outside the tree (for example under a temp folder) show as "NO WRITES"; check that folder before calling an agent hung. Any agent idle since its finish and not yet compacted or cleared is an open action.
 
-The checkpointer (`scripts/checkpointer.sh`, in its own pane) bounds the orchestrator's own context: every 15 minutes, if the orchestrator's transcript grew, it waits for idle (never blocked), sends the memory checkpoint prompt (set at the top of the script), waits for that turn, reads the context size from the orchestrator's session transcript (input plus cache tokens of the last main-thread turn) and sends the compact command at 250K tokens or more. The included transcript reader expects JSONL with a usage block per turn; for another format, replace `transcript()` and `context_tokens()`. Keep memory and the route log current so each compaction loses nothing. A background event that wakes the orchestrator between the idle check and the prompt only delays the prompt (the harness queues typed input).
+The checkpointer ([`scripts/checkpointer.sh`](scripts/checkpointer.sh), in its own pane) bounds the orchestrator's own context: every 15 minutes, if the orchestrator's transcript grew, it waits for idle (never blocked), sends the memory checkpoint prompt (set at the top of the script), waits for that turn, reads the context size from the orchestrator's session transcript (input plus cache tokens of the last main-thread turn) and sends the compact command at 250K tokens or more. The included transcript reader expects JSONL with a usage block per turn; for another format, replace `transcript()` and `context_tokens()`. Keep memory and the route log current so each compaction loses nothing. A background event that wakes the orchestrator between the idle check and the prompt only delays the prompt (the harness queues typed input).
 
 React to each event:
 
-- BLOCKED with a password prompt: prompt the agent with the credential-helper form (`references/git-and-github.md`). Never type a password.
+- BLOCKED with a password prompt: prompt the agent with the credential-helper form ([`references/git-and-github.md`](references/git-and-github.md)). Never type a password.
 - BLOCKED with a model-switch offer: keep the confirmed model (harness notes).
 - BLOCKED with a usage limit: tell the user; never fall back to an API key.
 - STALL twice in a row: read the pane in full, then prompt the agent with the exact next step.
-- OVERDUE: run `agent-status.sh` for that agent. If it is still writing and close, give one stated extension (new `HERDSMAN_DUE_<name>`, logged in `00-route.md`); otherwise queue the stop-and-report steer and follow it with the interrupt key as described above. Never extend twice.
+- OVERDUE: run [`agent-status.sh`](scripts/agent-status.sh) for that agent. If it is still writing and close, give one stated extension (new `HERDSMAN_DUE_<name>`, logged in `00-route.md`); otherwise queue the stop-and-report steer and follow it with the interrupt key as described above. Never extend twice.
 - REPORT from an implementer: read the report, check `STATUS:`, check the pull request (`gh pr view <n> --json headRefOid,mergeable,statusCheckRollup`) or, in an integration route, the local branch head, then hand it to the reviewer (step 5).
 - REPORT or REPORT-UPDATED from the integrator: check that its turn ended and that the combined head is new, then start the next step of step 5 (final review, next phase or push).
 
@@ -172,15 +172,15 @@ For each task result with `STATUS: complete` (a pull request with green checks, 
 
 1. Context first, one rule for every agent: a follow-up of the agent's own earlier work (a re-review of the same pull request, a fix round) keeps its context, compacted as soon as its previous turn finished; a completely new task (a pull request the reviewer has not seen, a new contract for an implementer, the integrator job) starts from a cleared context. Use the harness's compact and clear commands and read the pane after the command. Then prompt the reviewer: `Read <route>/20-reviewer.md and follow it exactly. Review pull request <n> (branch <b>, contract <task file>). Report path: <route folder>/reports/review-<n>-<k>.md. Reply with only that path when done.` For a local branch, name the branch and its head commit instead of the pull request.
 2. On REVIEW, read the file. `VERDICT: pass` closes the loop for that pull request or branch; record it and tell the user.
-3. `VERDICT: fix`: goal gate first. Check each finding's fix line against the Must-prove list. If a fix would skip, disable, mock or gate a Must-prove path, or needs a credential, token, API key or login the user does not already use, do not forward it: decide by the goal and tell the reviewer why the finding is overruled, or ask the user. A `GOAL-CONFLICT` line goes to the user with both options. Then prompt the task's implementer with the rest: `<goal prefix if any>Read <review file>. Fix every P0 and P1 finding in it on your branch: failing test first, then the code, run the suites, commit, push, reply on any review-bot threads, then update your report file (new head, what changed per finding under decisions:) and reply with only its path. If you disagree with a finding, write the reason under decisions: and still make the smallest change that satisfies its fix line.` (In an integration route: commit only, no push and no threads.) If the prompt answers `agent_blocked`, clear the queued question first (harness notes). Then wait for the implementer's REPORT-UPDATED, then send the reviewer the new head as `review-<n>-<k+1>`. A finding whose fix spans two tasks' files goes into the integrator contract as a handoff (`references/ownership-and-integration.md`).
+3. `VERDICT: fix`: goal gate first. Check each finding's fix line against the Must-prove list. If a fix would skip, disable, mock or gate a Must-prove path, or needs a credential, token, API key or login the user does not already use, do not forward it: decide by the goal and tell the reviewer why the finding is overruled, or ask the user. A `GOAL-CONFLICT` line goes to the user with both options. Then prompt the task's implementer with the rest: `<goal prefix if any>Read <review file>. Fix every P0 and P1 finding in it on your branch: failing test first, then the code, run the suites, commit, push, reply on any review-bot threads, then update your report file (new head, what changed per finding under decisions:) and reply with only its path. If you disagree with a finding, write the reason under decisions: and still make the smallest change that satisfies its fix line.` (In an integration route: commit only, no push and no threads.) If the prompt answers `agent_blocked`, clear the queued question first (harness notes). Then wait for the implementer's REPORT-UPDATED, then send the reviewer the new head as `review-<n>-<k+1>`. A finding whose fix spans two tasks' files goes into the integrator contract as a handoff ([`references/ownership-and-integration.md`](references/ownership-and-integration.md)).
 4. Repeat until pass. A disagreement goes to the user at once: when an implementer disagreed with a finding (under decisions:) and the reviewer raises it again, the user decides before another fix round starts. After three fix rounds on one pull request or branch, stop and show the user the remaining findings.
-5. Integration route: when the branches have passed, prompt the integrator with the combine phase. On its report, run the final review of the combined head against the base branch (`review-<pr>-<k>`), in parallel with any late test-only task. Send the final review's findings to the integrator as a fix phase on the combined branch, test first. Add a late task in its own phase, then review the new head again. Only a passing final review starts the push phase. Branch reviews miss defects on paths between tasks, so the final review is never skipped (`references/review-discipline.md`).
-6. The reviewer posts nothing on GitHub and pushes nothing. Merges are the user's unless authorized; the authorized form is a squash merge when the local verdict is pass AND the bot approval is green on the same head (`references/git-and-github.md`, Merges). Before the first merge read the base branch's rules (`gh api repos/<org>/<repo>/rules/branches/<base>`): a required second approval that the author's account cannot give needs the user's choice (admin bypass, a colleague's approval, or a rule change); never bypass on your own. After a merge, when the user asked for it, delete the remote branch if the pull request is MERGED and no open pull request is based on it; keep the local worktree until route close.
+5. Integration route: when the branches have passed, prompt the integrator with the combine phase. On its report, run the final review of the combined head against the base branch (`review-<pr>-<k>`), in parallel with any late test-only task. Send the final review's findings to the integrator as a fix phase on the combined branch, test first. Add a late task in its own phase, then review the new head again. Only a passing final review starts the push phase. Branch reviews miss defects on paths between tasks, so the final review is never skipped ([`references/review-discipline.md`](references/review-discipline.md)).
+6. The reviewer posts nothing on GitHub and pushes nothing. Merges are the user's unless authorized; the authorized form is a squash merge when the local verdict is pass AND the bot approval is green on the same head ([`references/git-and-github.md`](references/git-and-github.md), Merges). Before the first merge read the base branch's rules (`gh api repos/<org>/<repo>/rules/branches/<base>`): a required second approval that the author's account cannot give needs the user's choice (admin bypass, a colleague's approval, or a rule change); never bypass on your own. After a merge, when the user asked for it, delete the remote branch if the pull request is MERGED and no open pull request is based on it; keep the local worktree until route close.
 7. Parallel implementers that generate database migrations from the same base produce the same migration numbers. Before merging the second such pull request, send its implementer a fix round: rebase onto the new main, regenerate the migration history, run the suites, push. Say this in the shared rules up front when more than one task touches the schema.
 
 A reviewer is one persistent agent; send it one review at a time. If reviews queue up, ask the user before starting a second reviewer pane.
 
-When commits are not allowed, review tree snapshots instead of pull requests (`references/git-and-github.md`, No-commit routes).
+When commits are not allowed, review tree snapshots instead of pull requests ([`references/git-and-github.md`](references/git-and-github.md), No-commit routes).
 
 ## 6. Record and close
 

@@ -32,7 +32,7 @@ If the default package cache is not writable, agents set `TMPDIR=/private/tmp` a
 
 ## Git and GitHub inside the sandbox
 
-- No terminal for password prompts. A remote URL that embeds an account name triggers `Password for 'https://<account>@github.com': Device not configured` on fetch. Every remote git command needs the one-shot credential helper (see `git-and-github.md`); put it in the shared rules for fetch, pull and push.
+- No terminal for password prompts. A remote URL that embeds an account name triggers `Password for 'https://<account>@github.com': Device not configured` on fetch. Every remote git command needs the one-shot credential helper (see [`git-and-github.md`](git-and-github.md)); put it in the shared rules for fetch, pull and push.
 - `gh` needs `GH_TOKEN=$(gh auth token --user <account>)` when the default gh account cannot see the organisation.
 - Implementers will use an existing clean worktree that already has the branch instead of creating a new one when the contract permits it; say which worktrees are free.
 

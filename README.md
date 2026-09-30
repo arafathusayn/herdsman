@@ -29,7 +29,7 @@ Each agent can use a different harness and a different model. Any coding agent t
 3. **Launch:** the orchestrator creates the herdr tabs and panes, starts the agents, and sends each implementer a full brief. A brief has the goal, numbered steps with a check for each step, a leave-alone list, time limits and the report format.
 4. **Wait:** the waiter script exits on the first event. The orchestrator handles the event, runs the health check, and starts the waiter again.
 5. **Review:** each finished task goes to a reviewer. A `fix` verdict goes back to the implementer as a fix round. A `pass` verdict closes the task. In an integration route, the integrator then combines the accepted branches in phases, a final review checks the combined head, and only a passing final review lets the integrator push.
-6. **Close:** the orchestrator records the results and writes the lessons into memory. General lessons become rules in the skill's concept files (`references/flow-and-time.md`, `context-hygiene.md`, `ownership-and-integration.md`, `review-discipline.md`, `shared-environment.md`, `checkpointer.md`) or in its tool notes.
+6. **Close:** the orchestrator records the results and writes the lessons into memory. General lessons become rules in the skill's concept files ([`references/flow-and-time.md`](skills/herdsman/references/flow-and-time.md), [`context-hygiene.md`](skills/herdsman/references/context-hygiene.md), [`ownership-and-integration.md`](skills/herdsman/references/ownership-and-integration.md), [`review-discipline.md`](skills/herdsman/references/review-discipline.md), [`shared-environment.md`](skills/herdsman/references/shared-environment.md), [`checkpointer.md`](skills/herdsman/references/checkpointer.md)) or in its tool notes.
 
 The orchestrator does not write application code and does not push. The implementers push their own pull requests, or, in an integration route, only the integrator pushes.
 
@@ -95,9 +95,9 @@ The skill stops when `HERDR_ENV` is not `1`.
 ## Requirements
 
 - `/bin/bash` 3.2 or later. The scripts use no associative arrays, so they run on the macOS default shell.
-- `jq`, for `checkpointer.sh`.
+- `jq`, for [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh).
 - The GitHub CLI (`gh`): a version with `gh skill` (tested with 2.101.0), to install the skill; any recent version, when the route opens pull requests.
-- A memory checkpoint command in the orchestrator's harness. The checkpointer's prompt is set at the top of `checkpointer.sh`.
+- A memory checkpoint command in the orchestrator's harness. The checkpointer's prompt is set at the top of [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh).
 
 ## Develop
 
@@ -129,7 +129,7 @@ The script reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 250
 - **Background waits, not monitors:** an in-session monitor event does not wake an idle orchestrator. A background command that exits does.
 - **One herdr change per call:** two changes in one shell call have failed without output.
 - **Deadlines belong to the orchestrator:** agents ignored stop times written in their own briefs. A queued instruction runs only when the agent's turn ends, so the orchestrator interrupts when the deadline passes.
-- **Context size from the transcript:** the checkpointer reads the input and cache token counts of the orchestrator's last turn from its session transcript. The included reader expects JSONL transcripts with a usage block per turn. For a harness with another format, replace `transcript()` and `context_tokens()` in `checkpointer.sh`.
+- **Context size from the transcript:** the checkpointer reads the input and cache token counts of the orchestrator's last turn from its session transcript. The included reader expects JSONL transcripts with a usage block per turn. For a harness with another format, replace `transcript()` and `context_tokens()` in [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh).
 
 ## License
 

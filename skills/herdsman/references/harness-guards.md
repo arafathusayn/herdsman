@@ -16,7 +16,7 @@
 
 ## Bash tool limits
 
-- `sleep N; <cmd>` chains are refused: use the Monitor tool (`watchers.md`).
+- `sleep N; <cmd>` chains are refused: use the Monitor tool ([`watchers.md`](watchers.md)).
 - Compound commands with `wc` or unusual shapes were refused by the auto-mode classifier; keep bookkeeping commands simple.
 - Launching an agent with its sandbox disabled was refused; that launch goes to the user with the exact command.
 - Command output is not shown to the user; put anything they must read into the reply.

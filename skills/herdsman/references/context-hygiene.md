@@ -18,6 +18,6 @@ An agent's context is a resource that the orchestrator manages from outside. A f
 ## The orchestrator's own context
 
 - Keep it small: read report and review files, not pane transcripts, except to unblock an agent.
-- A checkpointer pane writes memory and compacts the orchestrator on a schedule (`checkpointer.md`). Keep the route file current so that a compaction loses nothing.
+- A checkpointer pane writes memory and compacts the orchestrator on a schedule ([`checkpointer.md`](checkpointer.md)). Keep the route file current so that a compaction loses nothing.
 
-Harness commands and markers: `codex.md` (Context hygiene), `claude-code.md`, `muse.md`.
+Harness commands and markers: [`codex.md`](codex.md) (Context hygiene), [`claude-code.md`](claude-code.md), [`muse.md`](muse.md).

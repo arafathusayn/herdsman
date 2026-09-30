@@ -1,6 +1,6 @@
 # Checkpointer
 
-The checkpointer bounds the orchestrator's own context. It runs `scripts/checkpointer.sh` in a pane labelled `checkpointer`, next to the orchestrator pane (on its right).
+The checkpointer bounds the orchestrator's own context. It runs [`scripts/checkpointer.sh`](../scripts/checkpointer.sh) in a pane labelled `checkpointer`, next to the orchestrator pane (on its right).
 
 ## Reading the requests
 

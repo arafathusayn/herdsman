@@ -37,7 +37,7 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 
 ## Severity gate
 
-- Define P0 and P1 in the contract (see `contracts.md`). Everything below P1 is omitted, not demoted.
+- Define P0 and P1 in the contract (see [`contracts.md`](contracts.md)). Everything below P1 is omitted, not demoted.
 - The `VERDICT:` line is the gate. `pass` = zero P0 and zero P1.
 - Findings carry `file:line`, what happens, and a one-sentence fix, so the implementer or the integrator can act without reading the reviewer's reasoning.
 
@@ -51,7 +51,7 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 
 ## Watching the reviewer
 
-`scripts/watch-reviewer.sh` polls the pane every 90 s: REVIEW on a new `review-*.md`, BLOCKED on permission or password text ("Allow reads outside", "Do you want to proceed", "Password for"), IDLE when the screen changed and no working marker ("esc to interrupt", "thinking", "Incubating", "tokens") is present. Claude Code's working markers differ from Codex's; keep both lists in the scripts.
+[`scripts/watch-reviewer.sh`](../scripts/watch-reviewer.sh) polls the pane every 90 s: REVIEW on a new `review-*.md`, BLOCKED on permission or password text ("Allow reads outside", "Do you want to proceed", "Password for"), IDLE when the screen changed and no working marker ("esc to interrupt", "thinking", "Incubating", "tokens") is present. Claude Code's working markers differ from Codex's; keep both lists in the scripts.
 
 ## Claude Code panes (every agent type)
 
