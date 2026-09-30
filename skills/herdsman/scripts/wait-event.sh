@@ -30,9 +30,19 @@ pane_of() {
     wk-d) echo w2:pD ;;
   esac
 }
-task_of() { echo "${1#wk-}"; }
+# The report name: HERDSMAN_TASK_<name> (dashes as underscores) when set, else the name without "wk-".
+task_of() {
+  var="HERDSMAN_TASK_$(printf '%s' "$1" | tr '-' '_')"
+  env_task=$(eval "printf '%s' \"\${$var:-}\"")
+  if [ -n "$env_task" ]; then echo "$env_task"; return; fi
+  echo "${1#wk-}"
+}
+# Reviewers to watch for BLOCKED: HERDSMAN_REVIEWERS="name:pane name:pane" (pane ids hold a colon too),
+# else the one HERDSMAN_REVIEWER_NAME:HERDSMAN_REVIEWER_PANE.
+REVIEWERS=${HERDSMAN_REVIEWERS:-"$RNAME:$RPANE"}
 BLOCK_RE='Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to gpt|Usage limit|Queued follow-up inputs|Type your answer|Allow reads outside|Do you want to proceed|Permission required|Do you trust'
-WORK_RE='esc to interrupt|Pursuing goal|Incubating|thinking'
+# Claude Code shows "… (12s ·" while it works; Codex shows "esc to interrupt" or "Pursuing goal".
+WORK_RE='esc to interrupt|Pursuing goal|Incubating|thinking|… \([0-9]'
 start=$(date +%s)
 while true; do
   events=""
@@ -116,14 +126,18 @@ GOAL-DONE-NO-REPORT $name $now"
 REVIEW $f $now"
     fi
   done
-  text=$(herdr pane read "$RPANE" --source recent-unwrapped --lines 30 2>/dev/null)
-  hash=$(printf '%s' "$text" | cksum | cut -d' ' -f1)
-  prev=$(cat "$STATE/hash-$RNAME" 2>/dev/null)
-  printf '%s' "$hash" > "$STATE/hash-$RNAME"
-  if printf '%s' "$text" | grep -q -E "$BLOCK_RE" && [ "$hash" != "$prev" ]; then
-    events="$events
-BLOCKED $RNAME $(printf '%s' "$text" | grep -o -E "$BLOCK_RE" | head -1) $now"
-  fi
+  for spec in $REVIEWERS; do
+    rname=${spec%%:*}
+    rpane=${spec#*:}
+    text=$(herdr pane read "$rpane" --source recent-unwrapped --lines 30 2>/dev/null)
+    hash=$(printf '%s' "$text" | cksum | cut -d' ' -f1)
+    prev=$(cat "$STATE/hash-$rname" 2>/dev/null)
+    printf '%s' "$hash" > "$STATE/hash-$rname"
+    if printf '%s' "$text" | grep -q -E "$BLOCK_RE" && [ "$hash" != "$prev" ]; then
+      events="$events
+BLOCKED $rname $(printf '%s' "$text" | grep -o -E "$BLOCK_RE" | head -1) $now"
+    fi
+  done
   if [ -n "$events" ]; then
     printf '%s\n' "$events" | sed '/^$/d'
     exit 0
