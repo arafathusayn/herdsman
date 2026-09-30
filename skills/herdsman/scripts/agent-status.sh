@@ -1,9 +1,9 @@
 #!/bin/bash
-# One-shot health snapshot of every agent: state, model, background jobs with their
-# ages, the foreground spinner, and recent file activity in the tree each worker writes to.
+# One-shot health snapshot of every agent (implementers, the integrator, reviewers): state, model,
+# background jobs with their ages, the foreground spinner, and recent file activity in the tree each agent writes to.
 # Flags a job older than LIMIT_MIN minutes, or a tree with no writes in 10 min.
-# Run on every waiter wake (user rule 2026-09-27: "check every ten minutes; background jobs must not take too long").
-# HERDSMAN_STATUS_SPECS="wk-a:w7:p14:/abs/repo rv-1:w7:p17:" (name:pane:tree; empty tree = skip the write check)
+# Run on every waiter wake (user rule: check every agent every ten minutes; background jobs must not take too long).
+# HERDSMAN_STATUS_SPECS="im-a:w7:p14:/abs/repo int-1:w7:p15:/abs/int rv-1:w7:p17:" (name:pane:tree; empty tree = skip the write check)
 LIMIT_MIN=${LIMIT_MIN:-30}
 : "${HERDSMAN_STATUS_SPECS:?set HERDSMAN_STATUS_SPECS}"
 date '+%H:%M:%S'

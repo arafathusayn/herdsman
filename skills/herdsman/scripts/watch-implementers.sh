@@ -1,29 +1,31 @@
 #!/bin/bash
-# herdsman worker watcher. bash 3 compatible (macOS /bin/bash): no associative arrays.
+# herdsman implementer and integrator watcher. bash 3 compatible (macOS /bin/bash): no associative arrays.
 # Events on stdout: REPORT <task> <path> (first appearance), REPORT-UPDATED <task> <path> (mtime changed: a fix round),
 # BLOCKED <name> <text> (once per screen change), STALL <name>, IDLE <name>.
 # Panes stay watched after a report exists (fix rounds). The script never exits on its own: stop it with TaskStop at route end.
-# Either edit the defaults below or set HERDSMAN_REPORTS, HERDSMAN_STATE, HERDSMAN_WORKERS and HERDSMAN_PANE_<name> (dashes as underscores) in the environment.
+# Either edit the defaults below or set HERDSMAN_REPORTS, HERDSMAN_STATE, HERDSMAN_IMPLEMENTERS, HERDSMAN_INTEGRATOR (one name, optional)
+# and HERDSMAN_PANE_<name> (dashes as underscores) in the environment.
 REPORTS=${HERDSMAN_REPORTS:-/ABSOLUTE/PATH/TO/writable-root/reports}
 STATE=${HERDSMAN_STATE:-/ABSOLUTE/PATH/TO/scratchpad/watch-state}
-WORKERS=${HERDSMAN_WORKERS:-"wk-a wk-b wk-c wk-d"}
+IMPLEMENTERS=${HERDSMAN_IMPLEMENTERS:-"im-a im-b im-c im-d"}
+INTEGRATOR=${HERDSMAN_INTEGRATOR:-}
 mkdir -p "$STATE"
 pane_of() {
   var="HERDSMAN_PANE_$(printf '%s' "$1" | tr '-' '_')"
   env_pane=$(eval "printf '%s' \"\${$var:-}\"")
   if [ -n "$env_pane" ]; then echo "$env_pane"; return; fi
   case "$1" in
-    wk-a) echo w2:pA ;;
-    wk-b) echo w2:pB ;;
-    wk-c) echo w2:pC ;;
-    wk-d) echo w2:pD ;;
+    im-a) echo w2:pA ;;
+    im-b) echo w2:pB ;;
+    im-c) echo w2:pC ;;
+    im-d) echo w2:pD ;;
   esac
 }
-task_of() { echo "${1#wk-}"; }
+task_of() { echo "${1#im-}"; }
 BLOCK_RE='Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to gpt|Usage limit|Do you trust|Permission required|Queued follow-up inputs|Type your answer'
 WORK_RE='esc to interrupt|Pursuing goal'
 while true; do
-  for name in $WORKERS; do
+  for name in $IMPLEMENTERS $INTEGRATOR; do
     task=$(task_of "$name")
     report="$REPORTS/$task.md"
     if [ -f "$report" ]; then

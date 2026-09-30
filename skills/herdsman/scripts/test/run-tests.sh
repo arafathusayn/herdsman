@@ -10,9 +10,9 @@ export PATH="$SK/test/fakebin:$PATH"
 export FAKE_PANE_DIR="$T/panes"
 export HERDSMAN_REPORTS="$T/reports"
 export HERDSMAN_STATE="$T/state"
-export HERDSMAN_WORKERS="wk-a wk-b"
-export HERDSMAN_PANE_wk_a=w9:p1
-export HERDSMAN_PANE_wk_b=w9:p2
+export HERDSMAN_IMPLEMENTERS="im-a im-b"
+export HERDSMAN_PANE_im_a=w9:p1
+export HERDSMAN_PANE_im_b=w9:p2
 export HERDSMAN_REVIEWER_PANE=w9:p3
 export HERDSMAN_REVIEWER_NAME=rv-1
 chmod +x "$SK/test/fakebin/herdr"
@@ -26,11 +26,11 @@ check() { # name, expected-regex, actual
 nocheck() { # name, forbidden-regex, actual
   if printf '%s' "$3" | grep -q -E "$2"; then fail=$((fail+1)); echo "FAIL $1: unexpected /$2/ in: $3"; else pass=$((pass+1)); echo "PASS $1"; fi
 }
-run_w() { /bin/bash "$SK/watch-workers.sh" 2>&1; }
+run_w() { /bin/bash "$SK/watch-implementers.sh" 2>&1; }
 run_r() { /bin/bash "$SK/watch-reviewer.sh" 2>&1; }
 
 echo "bash: $(/bin/bash --version | head -1)"
-/bin/bash -n "$SK/watch-workers.sh" && echo "PASS syntax watch-workers" || { echo "FAIL syntax watch-workers"; fail=$((fail+1)); }
+/bin/bash -n "$SK/watch-implementers.sh" && echo "PASS syntax watch-implementers" || { echo "FAIL syntax watch-implementers"; fail=$((fail+1)); }
 /bin/bash -n "$SK/watch-reviewer.sh" && echo "PASS syntax watch-reviewer" || { echo "FAIL syntax watch-reviewer"; fail=$((fail+1)); }
 
 # W1: working screens, first sight: no event
@@ -38,13 +38,13 @@ printf '%s\n' "• Working (3m 10s • esc to interrupt)" "› Ask Codex to do a
 printf '%s\n' "Pursuing goal (2m)" > "$FAKE_PANE_DIR/w9:p2.txt"
 out=$(run_w); nocheck "W1 first working pass is silent" 'STALL|IDLE|BLOCKED|REPORT' "$out"
 # W2: same screens again: STALL for both
-out=$(run_w); check "W2 stall wk-a" 'STALL wk-a' "$out"; check "W2 stall wk-b" 'STALL wk-b' "$out"
+out=$(run_w); check "W2 stall im-a" 'STALL im-a' "$out"; check "W2 stall im-b" 'STALL im-b' "$out"
 # W3: password prompt: BLOCKED with the matched text
 printf '%s\n' "Password for 'https://x@github.com': Device not configured" > "$FAKE_PANE_DIR/w9:p1.txt"
-out=$(run_w); check "W3 blocked wk-a" 'BLOCKED wk-a Password for' "$out"
+out=$(run_w); check "W3 blocked im-a" 'BLOCKED im-a Password for' "$out"
 # W4: idle at the prompt with a changed screen: IDLE
 printf '%s\n' "› Ask Codex to do anything" "/path/to/report.md" > "$FAKE_PANE_DIR/w9:p2.txt"
-out=$(run_w); check "W4 idle wk-b" 'IDLE wk-b' "$out"
+out=$(run_w); check "W4 idle im-b" 'IDLE im-b' "$out"
 # W5: report a appears: REPORT once, never repeated
 printf 'STATUS: complete\n' > "$HERDSMAN_REPORTS/a.md"
 touch -t 202601010000 "$HERDSMAN_REPORTS/a.md"
@@ -56,7 +56,7 @@ out=$(run_w); check "W6 report a updated" "REPORT-UPDATED a $HERDSMAN_REPORTS/a.
 out=$(run_w); nocheck "W6b update not repeated" 'REPORT-UPDATED' "$out"
 # W7: a pane with a report is still watched: queued Codex question is BLOCKED, once per screen change
 printf '%s\n' "• Queued follow-up inputs" "  ? 1 question" > "$FAKE_PANE_DIR/w9:p1.txt"
-out=$(run_w); check "W7 queued question blocked" 'BLOCKED wk-a Queued follow-up inputs' "$out"
+out=$(run_w); check "W7 queued question blocked" 'BLOCKED im-a Queued follow-up inputs' "$out"
 out=$(run_w); nocheck "W7b unchanged blocked screen is silent" 'BLOCKED' "$out"
 # W8: second report present: REPORT b, and the loop keeps running (exit comes from the sleep stub only)
 printf 'STATUS: complete\n' > "$HERDSMAN_REPORTS/b.md"
@@ -93,9 +93,9 @@ out=$(run_e); rc=$?; check "E1 tick" '^TICK no event' "$out"; if [ "$rc" -eq 0 ]
 # E2: a report appears: REPORT and exit, no TICK
 printf 'STATUS: complete\n' > "$HERDSMAN_REPORTS/a.md"
 out=$(run_e); check "E2 report" 'REPORT a ' "$out"; nocheck "E2b no tick with an event" 'TICK' "$out"
-# E3: worker at Goal achieved with no report: GOAL-DONE-NO-REPORT once
+# E3: implementer at Goal achieved with no report: GOAL-DONE-NO-REPORT once
 printf '%s\n' "Goal achieved (20m)" > "$FAKE_PANE_DIR/w9:p2.txt"
-out=$(run_e); check "E3 goal done no report" 'GOAL-DONE-NO-REPORT wk-b' "$out"
+out=$(run_e); check "E3 goal done no report" 'GOAL-DONE-NO-REPORT im-b' "$out"
 out=$(run_e); nocheck "E3b not repeated on the same screen" 'GOAL-DONE' "$out"
 # E4: reviewer permission prompt: BLOCKED rv-1; E5: review file: REVIEW
 printf '%s\n' "Allow reads outside the working directories?" > "$FAKE_PANE_DIR/w9:p3.txt"
@@ -106,32 +106,38 @@ out=$(run_e); check "E5 review" 'REVIEW .*review-7-1.md' "$out"
 printf '%s\n' "· Incubating…" > "$FAKE_PANE_DIR/w9:p3.txt"
 printf '%s\n' "• Working (9m • esc to interrupt)" > "$FAKE_PANE_DIR/w9:p1.txt"
 out=$(run_e); out=$(run_e); out=$(run_e); nocheck "E6a no stall after the change plus two unchanged polls" 'STALL' "$out"
-out=$(run_e); check "E6b stall on the third unchanged poll" 'STALL wk-a' "$out"
+out=$(run_e); check "E6b stall on the third unchanged poll" 'STALL im-a' "$out"
 # E7: due time in the future: no OVERDUE
-export HERDSMAN_DUE_wk_b=$(( $(date +%s) + 3600 ))
+export HERDSMAN_DUE_im_b=$(( $(date +%s) + 3600 ))
 out=$(run_e); nocheck "E7 not overdue before the due time" 'OVERDUE' "$out"
-# E8: due time passed, no report for wk-b: OVERDUE once
-export HERDSMAN_DUE_wk_b=$(( $(date +%s) - 60 ))
-out=$(run_e); check "E8 overdue without a report" 'OVERDUE wk-b due [0-9][0-9]:[0-9][0-9]' "$out"
+# E8: due time passed, no report for im-b: OVERDUE once
+export HERDSMAN_DUE_im_b=$(( $(date +%s) - 60 ))
+out=$(run_e); check "E8 overdue without a report" 'OVERDUE im-b due [0-9][0-9]:[0-9][0-9]' "$out"
 out=$(run_e); nocheck "E8b overdue not repeated" 'OVERDUE' "$out"
-# E9: fix round: report a already exists when the due time is set, due passes unchanged: OVERDUE wk-a
-export HERDSMAN_DUE_wk_a=$(( $(date +%s) - 60 ))
-out=$(run_e); check "E9 overdue with a stale existing report" 'OVERDUE wk-a' "$out"
+# E9: fix round: report a already exists when the due time is set, due passes unchanged: OVERDUE im-a
+export HERDSMAN_DUE_im_a=$(( $(date +%s) - 60 ))
+out=$(run_e); check "E9 overdue with a stale existing report" 'OVERDUE im-a' "$out"
 # E10: report written after the due time was set: no OVERDUE even past the due time
-unset HERDSMAN_DUE_wk_a
-export HERDSMAN_DUE_wk_b=$(( $(date +%s) + 2 ))
+unset HERDSMAN_DUE_im_a
+export HERDSMAN_DUE_im_b=$(( $(date +%s) + 2 ))
 out=$(run_e); nocheck "E10a armed, not yet due" 'OVERDUE' "$out"
 printf 'STATUS: done\n' > "$HERDSMAN_REPORTS/b.md"
 /bin/sleep 3
 out=$(run_e); check "E10b report event" 'REPORT b ' "$out"; nocheck "E10c no overdue after the report" 'OVERDUE' "$out"
-unset HERDSMAN_DUE_wk_b
+unset HERDSMAN_DUE_im_b
+# E11: the integrator's task report: REPORT i, and the implementers' old reports stay silent
+export HERDSMAN_INTEGRATOR=int-1 HERDSMAN_PANE_int_1=w9:p4 HERDSMAN_TASK_int_1=i
+out=$(run_e); nocheck "E11a integrator watched, no report yet" 'REPORT' "$out"
+printf 'STATUS: complete\n' > "$HERDSMAN_REPORTS/i.md"
+out=$(run_e); check "E11b integrator report" "REPORT i $HERDSMAN_REPORTS/i.md" "$out"
+unset HERDSMAN_INTEGRATOR HERDSMAN_PANE_int_1 HERDSMAN_TASK_int_1
 
 # L1: route-log.sh appends one "- HH:MM <text>" line; L2: usage error on a missing argument or file
 RL="$SK/route-log.sh"
 /bin/bash -n "$RL" && echo "PASS syntax route-log" || { echo "FAIL syntax route-log"; fail=$((fail+1)); }
 printf '# route\n' > "$T/00-route.md"
-/bin/bash "$RL" "$T/00-route.md" "wk-a started task a"
-check "L1 appended line format" '^- [0-9][0-9]:[0-9][0-9] wk-a started task a$' "$(tail -1 "$T/00-route.md")"
+/bin/bash "$RL" "$T/00-route.md" "im-a started task a"
+check "L1 appended line format" '^- [0-9][0-9]:[0-9][0-9] im-a started task a$' "$(tail -1 "$T/00-route.md")"
 check "L1b exactly one line appended" '^2$' "$(wc -l < "$T/00-route.md" | tr -d ' ')"
 out=$(/bin/bash "$RL" "$T/00-route.md" 2>&1); rc=$?
 check "L2 usage on a missing text" '^usage: route-log.sh' "$out"; if [ "$rc" -ne 0 ]; then pass=$((pass+1)); echo "PASS L2 exit non-zero"; else fail=$((fail+1)); echo "FAIL L2 exit 0"; fi

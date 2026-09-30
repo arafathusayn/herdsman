@@ -7,13 +7,15 @@
 # Events: REPORT <task> <path> | REPORT-UPDATED <task> <path> | REVIEW <path> | BLOCKED <agent> <text>
 #         | GOAL-DONE-NO-REPORT <agent> | STALL <agent> (screen unchanged for 3 polls while working)
 #         | OVERDUE <agent> (past its due time and its report not written since the due time was set) | TICK
-# Configure with HERDSMAN_REPORTS, HERDSMAN_STATE, HERDSMAN_WORKERS, HERDSMAN_PANE_<name> (dashes as underscores),
-# HERDSMAN_DUE_<name> (epoch seconds, e.g. `date -v+45M +%s`; optional, one per worker),
-# HERDSMAN_REVIEWER_PANE, HERDSMAN_REVIEWER_NAME, DEADLINE (default 540), POLL (default 60), or edit the defaults.
-# DEADLINE is how long this waiter runs before TICK; a worker's time box is HERDSMAN_DUE_<name>.
+# Configure with HERDSMAN_REPORTS, HERDSMAN_STATE, HERDSMAN_IMPLEMENTERS, HERDSMAN_INTEGRATOR (one name, optional),
+# HERDSMAN_PANE_<name> (dashes as underscores), HERDSMAN_DUE_<name> (epoch seconds, e.g. `date -v+45M +%s`;
+# optional, one per implementer or integrator), HERDSMAN_REVIEWER_PANE, HERDSMAN_REVIEWER_NAME, DEADLINE (default 540),
+# POLL (default 60), or edit the defaults. The integrator writes a task report like an implementer and is watched the same way.
+# DEADLINE is how long this waiter runs before TICK; an agent's time box is HERDSMAN_DUE_<name>.
 REPORTS=${HERDSMAN_REPORTS:-/ABSOLUTE/PATH/TO/writable-root/reports}
 STATE=${HERDSMAN_STATE:-/ABSOLUTE/PATH/TO/scratchpad/watch-state}
-WORKERS=${HERDSMAN_WORKERS:-"wk-a wk-b wk-c wk-d"}
+IMPLEMENTERS=${HERDSMAN_IMPLEMENTERS:-"im-a im-b im-c im-d"}
+INTEGRATOR=${HERDSMAN_INTEGRATOR:-}
 RPANE=${HERDSMAN_REVIEWER_PANE:-w2:pR}
 RNAME=${HERDSMAN_REVIEWER_NAME:-rv-1}
 DEADLINE=${DEADLINE:-540}
@@ -24,18 +26,18 @@ pane_of() {
   env_pane=$(eval "printf '%s' \"\${$var:-}\"")
   if [ -n "$env_pane" ]; then echo "$env_pane"; return; fi
   case "$1" in
-    wk-a) echo w2:pA ;;
-    wk-b) echo w2:pB ;;
-    wk-c) echo w2:pC ;;
-    wk-d) echo w2:pD ;;
+    im-a) echo w2:pA ;;
+    im-b) echo w2:pB ;;
+    im-c) echo w2:pC ;;
+    im-d) echo w2:pD ;;
   esac
 }
-# The report name: HERDSMAN_TASK_<name> (dashes as underscores) when set, else the name without "wk-".
+# The report name: HERDSMAN_TASK_<name> (dashes as underscores) when set, else the name without "im-".
 task_of() {
   var="HERDSMAN_TASK_$(printf '%s' "$1" | tr '-' '_')"
   env_task=$(eval "printf '%s' \"\${$var:-}\"")
   if [ -n "$env_task" ]; then echo "$env_task"; return; fi
-  echo "${1#wk-}"
+  echo "${1#im-}"
 }
 # Reviewers to watch for BLOCKED: HERDSMAN_REVIEWERS="name:pane name:pane" (pane ids hold a colon too),
 # else the one HERDSMAN_REVIEWER_NAME:HERDSMAN_REVIEWER_PANE.
@@ -47,7 +49,7 @@ start=$(date +%s)
 while true; do
   events=""
   now=$(date '+%H:%M:%S')
-  for name in $WORKERS; do
+  for name in $IMPLEMENTERS $INTEGRATOR; do
     task=$(task_of "$name")
     report="$REPORTS/$task.md"
     has_report=0
@@ -65,7 +67,7 @@ REPORT $task $report $now"
 REPORT-UPDATED $task $report $now"
       fi
     fi
-    # Workers ignore stop times written in their own briefs, so the waiter enforces the due time.
+    # Agents ignore stop times written in their own briefs, so the waiter enforces the due time.
     # The baseline is the report's mtime when this due time was first seen, so a fix round whose
     # report already exists is overdue until the report changes, and a new due time re-arms.
     duevar="HERDSMAN_DUE_$(printf '%s' "$name" | tr '-' '_')"
