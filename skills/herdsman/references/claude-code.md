@@ -60,4 +60,9 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 - Wait for a `/compact` to end ("Compacting conversation" gone, the prompt line back) before the next prompt.
 - A cleared pane can keep an unsent input line; clear the input before the next prompt.
 - Never prompt a working Claude agent with its next job: the harness delivers the prompt in the middle of the turn. Wait for its report.
+- That delivery is useful for amendments: a prompt to a working agent lands inside its running turn at the next tool call. Use it for a new due time, a scope change, or a defect found in the deployed check. A follow-up that says "do this after your report" also works; the agent then replies with both report paths.
+- Stop a running task: send `esc` (the turn ends), then a stop prompt with steps: commit nothing more, no push, stop every process and test server, drop your test databases, write the report with `STATUS: stopped`, reply with only its path. Then clear the agent. A grey goal-clear text in the input line after that is a suggestion, not a sent command.
+- A shell step that appends with a heredoc can wait for input forever (a step that shows "Running" for minutes). Send `esc`, check that the process is gone and whether the file got a partial append, then tell the agent to write with its file tools.
+- The permission guard can refuse an agent's push to the default branch. See [`shipping.md`](shipping.md), Who pushes.
 - A long prompt pasted into the input can show "paste again to expand"; read more pane lines to see whether the turn started.
+- "Waiting for API response · will retry in N m" recovers on its own within minutes. Read the pane again at the next wake before any restart.

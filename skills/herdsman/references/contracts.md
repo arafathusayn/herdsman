@@ -93,6 +93,9 @@ Rules learned:
 - Scope every acceptance line to the task's own files. A line about a whole folder ("no test file under X is longer than N lines") makes the reviewer report every old file in that folder as unmet.
 - State which GitHub mutations are allowed. An implementer given "authorized base change" latitude dissolved a stack and retargeted a pull request on its own.
 - Put the coverage rule on changed files only.
+- Read the repository's guard tests (import boundaries, banned modules) before you write file paths into a contract. They can forbid a path the contract names, and they often follow imports through every file in the chain. A ruling that allows one forbidden import fails as soon as another file imports that file.
+- Name the hidden limits that a reviewer will probe: shared helpers with a ceiling (a list call that stops at a row cap) and platform limits (a timer delay above the maximum fires at once, so bound the delay and arm it again). Each limit that the contract leaves out costs one more review round.
+- Tests that replace a global (the clock, timers, a spied function) restore each one after every test. Say it in the contract: a test that leaks a fake clock into later files passes alone and fails in the full run.
 - Give every brief a `Due:` line and pass the same time to the waiter as `HERDSMAN_DUE_<name>`. The line alone does not stop an agent: agents ignored stop times written in their own briefs, so the waiter's OVERDUE event is what triggers the stop-and-report steer.
 - When two or more tasks change the database schema, say in the shared rules that generated migration numbers will collide across branches and that the pull request merged second regenerates its migration history after a rebase onto main. Parallel branches from one base all take the same next number.
 

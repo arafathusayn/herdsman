@@ -18,6 +18,7 @@ An agent's context is a resource that the orchestrator manages from outside. A f
 ## The orchestrator's own context
 
 - Keep it small: read report and review files, not pane transcripts, except to unblock an agent.
+- Send a question that spans many files to one read-only research agent, with numbered questions and a word limit. Its answer becomes the Facts section of the next contracts. A probe of an outside service gets hard rules in its prompt: read-only requests, secrets only in shell variables, output files only in the scratch folder.
 - A checkpointer pane writes memory and compacts the orchestrator on a schedule ([`checkpointer.md`](checkpointer.md)). Keep the route file current so that a compaction loses nothing.
 
 Harness commands and markers: [`codex.md`](codex.md) (Context hygiene), [`claude-code.md`](claude-code.md), [`muse.md`](muse.md).

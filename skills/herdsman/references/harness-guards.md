@@ -13,6 +13,9 @@
 - `eval "$c"` in loops, pipelines into an executable dcg cannot verify, `> /tmp/x.$$`: literal commands, shell variables instead of temp files, a script file written with the Write tool and run with `bash <file>`.
 - git commands with shell variables or inside loops: literal paths, one command per line.
 - A zsh shell does not split an unquoted variable on newlines, so `for x in $list` runs once with the whole list. Pipe the list into `while read -r x; do ...; done`.
+- zsh reads `$W:branch` in a refspec as a modifier and fails with "bad substitution"; write `${W}:branch` or the literal commit. `--force-with-lease=<ref>:<sha>` needs the full 40-character commit id.
+- A command put on the clipboard for the user's shell runs in zsh: an unquoted variable that holds several flags stays one word there. Write each flag out in full.
+- zsh `echo` turns `\n` inside JSON strings into real newlines and breaks a parser. Save command output to a file, or use `printf '%s'`, before you parse it.
 - One blocked command fails the whole batch; keep destructive or redirect-bearing steps in their own small call.
 
 ## Bash tool limits
@@ -35,7 +38,10 @@
 
 ## Orchestrator posture (user rules)
 
-- Orchestrate only: contracts, launches, waits, verification, records. No application code, no tests run by the orchestrator, no pushes.
+- Orchestrate only: contracts, launches, waits, verification, records. No application code, no tests run by the orchestrator, no pushes unless the user grants them for the route ([`shipping.md`](shipping.md)).
+- Act on the user's instruction on the user's condition, as the tools show it. When you see a risk that the instruction does not cover, act first and name the risk in one line after. Hold only for secrets, a destructive or irreversible step, or a recorded rule of the user. Reason: a condition the orchestrator adds on its own turns an instruction into a new question and stalls the work.
+- When an instruction depends on a fact ("if X is not done"), check the fact read-only first (it usually takes a minute), then act without another question.
+- When a check needs a login, search the local environment files by variable name only and read a value only into a shell variable. If nothing matches, ask the user which variable holds it before you report "no access" or draw a conclusion without the source.
 - Ask before every infrastructure mutation (Herdr layout, Docker, GitHub, cloud) unless the dispatch plan the user approved names that step. A repo connect on a deployment platform triggers a deploy.
 - Keep the orchestrator context small: implementers and the integrator write capped files with `STATUS:`, `decisions:`, `gaps:`; grep those.
 - Timestamps come from `date`, read before writing; correct a wrong one by appending, never by rewriting history.

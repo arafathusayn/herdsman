@@ -27,7 +27,7 @@ The installed binary is the authority: `herdr --help`, then a group without a su
 - `herdr pane list | grep <label>` also matches panes whose text holds the label; filter the JSON by its `label` field.
 - Every herdr call must be a plain top-level command. Calls inside `for` loops with `set --`, or with long `${VAR//x/y}` substitutions, exit 1 with no output.
 - Herdr's agent state is unreliable for Codex: it may say `working` at the prompt and `idle` mid-task. Truth is the pane text: an active Codex shows `• Working (Ns • esc to interrupt)` or `Pursuing goal (Nm)`; the `› Ask Codex to do anything` line is always present.
-- Names vanish from `herdr agent list` for Codex agents in narrow panes; `herdr agent rename <pane> <name>` re-registers.
+- Names vanish from `herdr agent list` for Codex agents in narrow panes, after a `/new`, after a goal ends, and after the user changes the model in the pane. `herdr agent rename <pane> <name>` registers the name again. Check `herdr agent list` after each `/new`; on `agent_not_found`, rename and send the same prompt again.
 - Herdr reports an agent `idle` while a long foreground command runs; read the screen before treating it as stalled.
 - `agent_status: blocked` means Herdr recognised an approval UI; `unknown` does not prove completion.
 - Quit a Claude agent with ctrl+c twice (sometimes four), wait for the shell prompt, then start again; flags apply per process.

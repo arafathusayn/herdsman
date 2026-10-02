@@ -8,6 +8,9 @@ Parallel implementers in one repository collide on files, numbers and branches. 
 - New tests go in a new file per task, and a shared list (error codes, migrations, exports) takes one block per task, at the end. Merges then append instead of conflicting.
 - Split a large change into parallel parts on disjoint files plus a wiring part on the combined branch.
 - Name every GitHub mutation that a task may make. An implementer with latitude over base branches can dissolve a stack of pull requests on its own.
+- Two agents on one feature: fix the shared module's contract (paths, names, signatures, defaults) in the task file. One agent creates it as its first commit and writes `commit1: <sha>` in its report at once; the other codes against that contract and merges that commit only on the orchestrator's prompt. At the end the first agent merges the second branch, and one review covers the result.
+- A fix round with independent parts (review findings in some files, a new service in others) goes faster split by files across two free implementers: part A on the task branch, part B on a new branch from the same head in another clean worktree. Part A merges part B on the orchestrator's prompt, and one re-review covers the combined head.
+- A task based on an unshipped feature branch misses everything that reached the default branch after that branch started. Check `git merge-base --is-ancestor origin/<default> <base>` before you name a base, and when it fails, the contract says "merge origin/<default> before step N" (lock-file conflicts: keep both sides, then regenerate the lock file with the package manager).
 
 ## One integrator
 

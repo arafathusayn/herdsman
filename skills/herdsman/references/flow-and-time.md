@@ -8,6 +8,15 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 - Past the due time, queue a stop-and-report steer, then send the interrupt key if no report comes. Reason: a queued steer lands only when the current turn ends, and a long turn may not end.
 - Size due times from the durations seen on the route, so that OVERDUE means something. A due time far beyond the real duration never fires.
 - A reviewer can have a due time too: add its name to the waiter's `HERDSMAN_IMPLEMENTERS` list with `HERDSMAN_TASK_<name>=review-<pr>-<k>`.
+- An agent that is inside its final gates at the due time gets a few more minutes in the waiter, not a stop steer: a stop there throws away a nearly finished run.
+- When the user asks whether the route can go faster, give an honest estimate for each remaining step and offer concrete speed-ups with their risks, so the user picks with the cost in view.
+
+## A fix the user names
+
+- Give its arrival time in the first answer. Give it its own small commit and its own early review, or its own ship, as soon as it is coded; it must not wait behind a large fix round.
+- When it cannot ship alone, start the review on the current head while the implementer finishes the rest, and say so.
+- Run each later review of that branch next to the next fix, never after it. Reason: each round can find new issues elsewhere on the branch, and the named fix then waits behind all of them.
+- After the second review round, ask the user once: ship now with the open findings as follow-up tasks, or wait for the next round. A finding about wrong data still blocks.
 
 ## The bottleneck moves
 
@@ -21,7 +30,8 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 - Write the next wave's contracts while the integrator combines, so implementers start the moment its report lands.
 - When the integrator's next merge is free of conflicts, branch the next part from the implementer's wip branch instead of waiting for the merge.
 - A report or a finished goal does not free an implementer: its branch can still fail review, and the fix round then has no owner. Give new work only after the branch passes review.
-- A new urgent side task fits a running team: add a contract to the same route folder and give it to an idle implementer (cleared first).
+- A new urgent side task fits a running team: add a contract to the same route folder and give it to an idle implementer (cleared first). Before you decide that no implementer is free, list every agent: panes of an earlier wave can be idle.
+- An agent that waits for a late task gets preparation work (the plan for the live checks, a draft of the pull-request body) instead of idle time.
 
 ## Idle is a state
 

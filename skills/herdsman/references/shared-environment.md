@@ -14,6 +14,7 @@ All agents of a route run on one machine and usually on one test database contai
 - Agents that run full gates on one container at the same time can exhaust its shared memory. Run one full gate at a time, or let the reviewer run only the touched packages while the integrator gates. Every brief says: wait and run again after a recovery, never restart containers.
 - Database tests that skip for no clear reason can come from a full System V shared-memory table (orphaned segments of crashed embedded databases): check `ipcs -m`, and give the cleanup command to the user.
 - Starting a container runtime can also start other projects' containers with a restart policy. Report them; do not stop them.
+- Every contract says: when your browser tests end, close your pages, stop the test browser if no other agent is in a browser test, stop your local servers, and list what you closed in the report. On each wake, look for test-browser processes of finished agents and ask their owners to close them. Reason: idle browsers and servers load the shared machine and the user's desktop.
 
 ## Tests that prove the product
 

@@ -13,7 +13,7 @@ One agent session (this one) orchestrates. It delegates all other work to three 
 
 The user talks only to the orchestrator. Any harness and model can take any agent type; the interview sets them.
 
-- **Orchestrator** (one: this session). Runs the interview, writes the contracts, launches the other agents, waits for events, applies the goal gate, forwards findings, verifies results and records the route. It never edits application code, never runs the application's tests and never pushes application code.
+- **Orchestrator** (one: this session). Runs the interview, writes the contracts, launches the other agents, waits for events, applies the goal gate, forwards findings, verifies results and records the route. It never edits application code, never runs the application's tests and never pushes application code, unless the user grants it the push of reviewed commits for a route.
 - **Implementer** (one per task; names `im-<x>`). Does one task on its own local branch in its own worktree, tests first, and writes a task report. In a route with one pull request per task, it also pushes, opens the pull request and runs the review-bot loop. In an integration route, it never touches GitHub and writes each change that another task's files need as a `handoff:` line in its report.
 - **Integrator** (one in an integration route, none in a route with one pull request per task; name `int-1`). Combines the accepted implementer branches in a fixed order in its own worktree, applies every handoff, fixes only integration breakage and the final review's findings on the combined branch (test first), and runs every gate. It is the only agent that pushes, opens or updates the pull request, answers review threads and runs the review-bot loop. It works in phases, and each phase starts with an orchestrator prompt: combine, final-review fixes, add a late task, push. It can be a new agent or an implementer whose task was accepted; clear that implementer first, because integration is a new job.
 - **Reviewer** (one or more; names `rv-<n>`). Reviews each implementer branch against its contract and, in an integration route, the combined head against the base branch before anything is pushed (the final review). Writes one numbered report per review. It never edits code, commits, pushes or posts. It usually runs on a stronger model than the implementers. A second reviewer runs in parallel only with the user's go, when reviews queue up.
@@ -31,6 +31,7 @@ Concepts: the rules that earlier routes taught, with their reasons, one file per
 - [`references/ownership-and-integration.md`](references/ownership-and-integration.md): file and line ownership, handoffs, the integrator's phases, fixes on another author's pull request, migration numbers and stacks.
 - [`references/review-discipline.md`](references/review-discipline.md): what a review reports and proves, the goal gate, orchestrator amendments, disagreements, human reviews.
 - [`references/shared-environment.md`](references/shared-environment.md): test databases, CPU and shared memory on one machine, tests that prove the product.
+- [`references/shipping.md`](references/shipping.md): routes that push reviewed commits straight to the default branch: the ship gate, who pushes, acceptance on the deployed app, the user's browser.
 - [`references/checkpointer.md`](references/checkpointer.md): the checkpointer requests and numbers (see `checkpoint` below).
 - [`references/optional-techniques.md`](references/optional-techniques.md): techniques that are off unless the user picks them: plan gate, contract pre-review, progress file, locked proof tests, visual check, guide feedback.
 
@@ -99,7 +100,7 @@ Ask once, in one question round, everything the route needs. Do not ask again mi
 - Tasks: the list, one implementer per task. Each task has a branch name and a base branch.
 - Integration: one pull request per task (the implementers publish), or one combined branch (an integrator publishes). For a combined branch: the merge order, the target branch, and whether the integrator is a new agent or an implementer whose task was accepted.
 - Worktrees: "own worktree per task" (default) or "existing checkout". Worktree root, for example `<repo parent>/worktrees/<letter>`. The integrator gets its own worktree too.
-- Push policy: push and open a READY pull request, or draft, or push only.
+- Push policy: push and open a READY pull request, or draft, or push only, or ship reviewed commits straight to the default branch and a deploy branch ([`references/shipping.md`](references/shipping.md)). For the last one: who pushes when an agent's guard refuses the push, and how the deploy branch follows.
 - Test infrastructure: local database or services the agents may start (container, port, credentials), one throwaway database per task and per agent.
 - Implementer harness, model and effort; the same for the integrator in an integration route. Default: the user's recorded preference; with none, ask.
 - Reviewer harness, model and effort, and the review skills (for example a React review skill for React files and a code-quality skill for TypeScript, plus any security or domain skill the user names). Default: the user's recorded preference; with none, ask.
@@ -192,7 +193,7 @@ When commits are not allowed, review tree snapshots instead of pull requests ([`
 
 ## Rules that do not bend
 
-- The orchestrator never edits application code, never runs the application's tests itself, never pushes. In a route with one pull request per task the implementers push; in an integration route only the integrator pushes.
+- The orchestrator never edits application code, never runs the application's tests itself, never pushes. In a route with one pull request per task the implementers push; in an integration route only the integrator pushes. One exception: when an agent's guard refuses a push to the default branch, the user can grant the orchestrator the push of reviewed commits for that route ([`references/shipping.md`](references/shipping.md), Who pushes).
 - Never touch git identity, remotes or global git config, in any pane. Push with the one-shot credential helper only.
 - No secrets in contracts, reports or pull-request bodies. No people's names or tool names in pull-request bodies.
 - One Herdr mutation per call. Ask before every step that changes Herdr layout, containers, GitHub or cloud state, unless the user gave that exact step its go in the dispatch plan.

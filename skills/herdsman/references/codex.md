@@ -32,7 +32,7 @@ If the default package cache is not writable, agents set `TMPDIR=/private/tmp` a
 
 ## Git and GitHub inside the sandbox
 
-- No terminal for password prompts. A remote URL that embeds an account name triggers `Password for 'https://<account>@github.com': Device not configured` on fetch. Every remote git command needs the one-shot credential helper (see [`git-and-github.md`](git-and-github.md)); put it in the shared rules for fetch, pull and push.
+- No terminal for password prompts. A remote URL that embeds an account name triggers `Password for 'https://<account>@github.com': Device not configured` on fetch. Every remote git command needs the one-shot credential helper (see [`git-and-github.md`](git-and-github.md)); put it in the shared rules for fetch, pull and push. A fresh session, or a session on a new model, can forget it and run a plain `git fetch`: say "never a plain git fetch" in every dispatch prompt.
 - `gh` needs `GH_TOKEN=$(gh auth token --user <account>)` when the default gh account cannot see the organisation.
 - Implementers will use an existing clean worktree that already has the branch instead of creating a new one when the contract permits it; say which worktrees are free.
 
@@ -40,6 +40,7 @@ If the default package cache is not writable, agents set `TMPDIR=/private/tmp` a
 
 - A coverage rule phrased as "100% for package X" makes an implementer chase pre-existing gaps in unrelated files. Phrase it as "100% for the files you changed or added; list other gaps under gaps:".
 - An implementer given "authorized base change" latitude will dissolve a GitHub stack and retarget a pull request on its own. Name each allowed GitHub mutation in the task file; everything else is forbidden by the shared rules.
+- A `/goal` sent while Codex runs a long tool call (a wait for the review bot) does not open "Replace current goal". The send can be lost with no trace, or arrive as a message to the running goal ("Messages to be submitted after next tool call"). Read the pane after each send, and write the whole instruction so that it works either way.
 - Interrupting the publishing agent per review-bot round works (esc, then a new `/goal` ending with "then resume task X"; committed work survives), but stretches the task; for a long bot loop ask the user for a second pane.
 
 ## Prompts that blocked or failed
