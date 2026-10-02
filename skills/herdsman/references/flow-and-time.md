@@ -31,7 +31,7 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 ## Work ahead, but only on safe ground
 
 - Write the next wave's contracts while the integrator combines, so implementers start the moment its report lands.
-- When the task branches own disjoint files, the combine can start while their reviews still run. It finds conflicts early and settles handoffs that a branch already did. Name each head in the prompt as provisional. A fix round on a branch then reaches the combined branch through a re-merge phase (merge the new commits, run again the gates that cover them), and the final review covers the result.
+- When the task branches own disjoint files, the combine can start while their reviews still run. It finds conflicts early and settles handoffs that a branch already did. Name each head in the prompt as provisional. A fix round on a branch then reaches the combined branch through a re-merge phase (merge the new commits, run again the gates that cover them), and the final review covers the result. A provisional branch's own review still gates the push: it passes, or it folds into the final review with its findings closed there.
 - When the integrator's next merge is free of conflicts, branch the next part from the implementer's wip branch instead of waiting for the merge.
 - A report or a finished goal does not free an implementer: its branch can still fail review, and the fix round then has no owner. Give new work only after the branch passes review.
 - A new urgent side task fits a running team: add a contract to the same route folder and give it to an idle implementer (cleared first). Before you decide that no implementer is free, list every agent: panes of an earlier wave can be idle.
