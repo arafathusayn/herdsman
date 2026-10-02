@@ -64,7 +64,7 @@ exec "$@"
 
 - A suite that skips environment validation everywhere hides boot failures: require one test that starts the real entry point with only the documented settings.
 - A test harness must not set up anything that the real job does not (a trusted-directory setting, an exported variable, a loaded `.env` file). Such a setup masks exactly the failure the job will hit. Reproduce the job's conditions instead: its user, the owner of its workspace, its empty environment.
-- The local gate is not the CI gate: CI usually has no `.env` files and keeps the runner's default per-test and per-hook timeouts. Tests that start child processes pass locally only because the parent loaded a `.env` file. Before a push, run the touched suites again with a clean environment (`env -i PATH="$PATH" HOME="$HOME"` plus the runner's flag that skips `.env` files).
+- The local gate is not the CI gate: CI usually has no `.env` files and keeps the runner's default per-test and per-hook timeouts. Tests that start child processes pass locally only because the parent loaded a `.env` file. Before a push, run the touched suites again with a clean environment (`env -i PATH="$PATH" HOME="$HOME"` plus the runner's flag that skips `.env` files). Pass again, after `env -i`, every setting that the contract or CI names for the suites, such as the agent's own `TEST_DATABASE_URL`: drop the incidental local exports, not the required test configuration, or the rerun fails on a missing setting or reaches a fallback database.
 - Opt-in live tests may skip in the normal suites, but a route whose goal needs the live path must run it ([`contracts.md`](contracts.md), Live tests).
 
 ## Facts, not guesses
