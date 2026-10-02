@@ -26,7 +26,10 @@ MAX_WAIT=600                         # seconds on the gate, then exit 75
 case "$HERDSMAN_CHECK" in
   gated) exec "$@" ;;                # a check started by a check already holds the lock
   locked) ;;                         # started again by lockf below: gate, then run
-  *) export HERDSMAN_CHECK=locked; exec lockf -k -t 5400 "$LOCK" "$0" "$@" ;;
+  *) export HERDSMAN_CHECK=locked HERDSMAN_CHECK_RAN=$(mktemp -u /private/tmp/herdsman-ran.XXXXXX)
+     lockf -k -t 5400 "$LOCK" "$0" "$@"; s=$?
+     if [ -e "$HERDSMAN_CHECK_RAN" ]; then rm -f "$HERDSMAN_CHECK_RAN"; exit "$s"; fi
+     echo "run-check: NOT RUN (exit $s; the line above says why)" >&2; exit "$s" ;;
 esac
 reading() {
   if [ -f "$READING" ] && [ $(( $(date +%s) - $(stat -f %m "$READING") )) -lt 60 ]; then cat "$READING"; return; fi
@@ -39,14 +42,15 @@ while :; do
   read -r load free <<< "$(reading)"
   if [ -z "$free" ]; then echo "run-check: no load reading, running under the lock only" >&2; break; fi
   awk -v l="$load" -v m="$LOAD_LIMIT" 'BEGIN { exit !(l < m) }' && [ "${free%.*}" -ge "$MIN_FREE" ] && break
-  if [ $(( $(date +%s) - start )) -ge "$MAX_WAIT" ]; then echo "run-check: load gate gave up (load $load, free $free%)" >&2; exit 75; fi
+  if [ $(( $(date +%s) - start )) -ge "$MAX_WAIT" ]; then echo "run-check: NOT RUN (load gate gave up: load $load, free $free%)" >&2; exit 75; fi
   sleep 15
 done
 export HERDSMAN_CHECK=gated
+touch "$HERDSMAN_CHECK_RAN"           # the check starts: its exit code is its own
 exec "$@"
 ```
 
-- `lockf` also exits 75 when it cannot get the lock in time. Both mean "not run": a gap (implementer) or NOT CHECKED (reviewer), never a failure.
+- "Not run" is the wrapper's own `run-check: NOT RUN` line (no lock within the wait, or the load gate gave up, each with its own reason line before it): a gap (implementer) or NOT CHECKED (reviewer). An exit code alone never says so: a check that started and then exited 75 is a failure like any other.
 - Set the load limit from the machine's idle load, read before the route starts. Operating-system background work (media indexing, the window server, a container runtime's virtual machine) can hold the load over a fixed limit while no check runs, and every gate then waits for nothing. Every prompt caps that wait: a check that waits on the load gate for more than about ten minutes is cancelled and reported as a gap (implementer) or under NOT CHECKED (reviewer). A re-review reuses an earlier check result only when nothing that check reads has changed: its files, everything they import (shared helpers, exported fixtures), its configuration, the lock file and the environment. An untouched consumer of a changed helper or fixture is not unchanged: run its checks again.
 - A load gate must work inside every harness's sandbox. The Codex sandbox denies `sysctl` and `memory_pressure`, so a wrapper that waits on an empty reading hangs forever and the reviewer runs no gates. Run a publisher outside the sandbox (a background shell of the orchestrator) that writes the reading to a file under /private/tmp every 15 s and stops by itself after a set number of hours. The wrapper uses that file while it is fresh; with no reading at all, it runs under the lock alone and prints that. Write the publisher's stop time in the route file and restart it before the next job: after it stops, sandboxed agents run with no load gate. Test the wrapper with a stub PATH that denies the probes before any agent gets it.
 - Agents that run full gates on one container at the same time can exhaust its shared memory. Run one full gate at a time, or let the reviewer run only the touched packages while the integrator gates. Every brief says: wait and run again after a recovery, never restart containers. The lock prevents parallel runs but not this limit: one full gate can still crash a container with a small shared-memory size that holds thousands of leftover test databases. Suites drop the databases they create; a cleanup or a bigger shared-memory size means a container restart, which is the user's go.
