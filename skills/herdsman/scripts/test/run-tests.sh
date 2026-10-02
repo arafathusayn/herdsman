@@ -70,6 +70,7 @@ out=$(run_r); nocheck "R1 working is silent" 'IDLE|BLOCKED|REVIEW' "$out"
 # R2: permission prompt: BLOCKED
 printf '%s\n' "Allow reads outside the working directories?" > "$FAKE_PANE_DIR/w9:p3.txt"
 out=$(run_r); check "R2 blocked" 'BLOCKED rv-1 Allow reads outside' "$out"
+out=$(run_r); nocheck "R2b unchanged blocked screen is silent" 'BLOCKED' "$out"
 # R3: idle with a changed screen: IDLE
 printf '%s\n' "❯" "/path/review-31-1.md" > "$FAKE_PANE_DIR/w9:p3.txt"
 out=$(run_r); check "R3 idle" 'IDLE rv-1' "$out"
