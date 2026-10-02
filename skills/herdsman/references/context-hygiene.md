@@ -19,6 +19,8 @@ An agent's context is a resource that the orchestrator manages from outside. A f
 
 - Keep it small: read report and review files, not pane transcripts, except to unblock an agent.
 - Send a question that spans many files to one read-only research agent, with numbered questions and a word limit. Its answer becomes the Facts section of the next contracts. A probe of an outside service gets hard rules in its prompt: read-only requests, secrets only in shell variables, output files only in the scratch folder.
+- After a compaction, read the user's commit and pull-request rules again before the next commit: the harness can add its default instructions (an attribution trailer, for example) back into the context.
+- Keep the waiter wrapper and every file a resumed session needs in the route folder, not in a session scratch folder: the operating system can purge temporary folders during a long route.
 - A checkpointer pane writes memory and compacts the orchestrator on a schedule ([`checkpointer.md`](checkpointer.md)). Keep the route file current so that a compaction loses nothing.
 
 Harness commands and markers: [`codex.md`](codex.md) (Context hygiene), [`claude-code.md`](claude-code.md), [`muse.md`](muse.md).

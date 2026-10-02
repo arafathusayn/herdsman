@@ -56,9 +56,14 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 ## Claude Code panes (every agent type)
 
 - Implementer or integrator launch: the reviewer form with the model and effort from the interview, `--permission-mode auto`, and `--add-dir <route folder root>` when the route folder is outside the agent's cwd.
+- The first launch in a folder shows a trust prompt with "No, exit" selected: send `down`, then `enter`.
 - Working marker: a spinner line "… (12s · ..." (`… \([0-9]` in the scripts), not "esc to interrupt".
 - Wait for a `/compact` to end ("Compacting conversation" gone, the prompt line back) before the next prompt.
 - A cleared pane can keep an unsent input line; clear the input before the next prompt.
+- After a turn ends, Claude Code can show a prompt suggestion in the input line (for example `❯ is CI green yet?`). `herdr pane read` has no colors, so the grey suggestion looks like typed text. It is not sent: never press enter on it. A new `herdr agent prompt` replaces it.
+- A pane that shows "Update installed · Restart to update" keeps working on the old version. Do not restart mid-route: a restart loses the session's context and its launch flags. Restart between routes.
+- When the auto-mode classifier blocks or stops ruling on agent work, the user may choose to launch implementers with `--dangerously-skip-permissions`. That launch is the user's decision; never choose it yourself.
+- Each agent's session transcript is `~/.claude/projects/<cwd with slashes as dashes>/<session id>.jsonl`. Grep it for the commands and their output to check a report's claims (for example a full gate that finished too fast) without reading the pane.
 - Never prompt a working Claude agent with its next job: the harness delivers the prompt in the middle of the turn. Wait for its report.
 - That delivery is useful for amendments: a prompt to a working agent lands inside its running turn at the next tool call. Use it for a new due time, a scope change, or a defect found in the deployed check. A follow-up that says "do this after your report" also works; the agent then replies with both report paths.
 - Stop a running task: send `esc` (the turn ends), then a stop prompt with steps: commit nothing more, no push, stop every process and test server, drop your test databases, write the report with `STATUS: stopped`, reply with only its path. Then clear the agent. A grey goal-clear text in the input line after that is a suggestion, not a sent command.
