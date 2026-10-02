@@ -31,7 +31,7 @@ Parallel implementers in one repository collide on files, numbers and branches. 
 
 ## Numbers and stacks
 
-- Parallel tasks that change the schema from the same base all take the next migration and decision-record number. Merge them one at a time and send each remaining branch a rebase round that regenerates its migration.
+- Parallel tasks that change the schema from the same base all take the next migration and decision-record number. Reserve the numbers per task in the route file, check them against the default branch and every open pull request at landing time, and add a uniqueness check to the gate. Merge them one at a time and send each remaining branch a rebase round that regenerates its migration; the pull requests stacked above it then need the same check.
 - Bring a moved default branch into a reviewed branch with a merge, not a rebase: a merge keeps the reviewed commits (the squash merge flattens it later anyway), and a rebase rewrites every commit and voids "reviewed at <sha>". A stacked branch above it then moves with `git rebase --onto <new lower head> <old lower head>`, bottom up.
 - A generator does not reproduce hand-written SQL inside a generated migration. Regenerate to get the new number and snapshot, copy the old file's content into the new file name, and run the generator again: it must report no schema changes. Never rename generated files by hand; update every place that cites the old name.
 - A finding that a stacked pull request inherits from the one below it is fixed on the lower branch, before the upper one moves.

@@ -5,7 +5,8 @@ All agents of a route run on one machine and usually on one test database contai
 ## Contracts name the environment exactly
 
 - Before you write test database names into contracts, read the project's test-reset guard (for example a required "test" in the name) and the settings its suites need. Otherwise each implementer invents its own names and values.
-- Give each agent its own databases, named in its contract or prompt. Never let one agent touch another's database.
+- Give each agent its own databases, named in its contract or prompt. Never let one agent touch another's database. Name throwaway databases, queues and ports from a full unique id, not a shortened time-based one: parallel runs then collide. A fixture never changes state that the whole cluster shares (a shared role's password).
+- Before launch, check the shared stack: the container runtime is up, the test database is healthy, the ports are free, and stacks left over from earlier routes are stopped or recorded. A test that fails only under a full-suite load is a collision or a flake until it passes alone.
 - Probe a new harness before a route gives it database-backed tests: sandbox network and approval modes decide whether it can reach the container.
 
 ## Share the load
@@ -31,7 +32,7 @@ All agents of a route run on one machine and usually on one test database contai
 - Timestamps come from `date`; route-state lines come from [`scripts/route-log.sh`](../scripts/route-log.sh).
 - Test logs written outside the worktree make a working agent look idle; check that folder before calling it hung.
 - Run the gates on the base before the route starts. Keep a short list of known flaky tests and failures that already exist on the default branch in the shared rules, with the command that reruns them, so that agents report them as unrelated instead of chasing them. Later, before you call a failure new, run it on the base. A failure from a stale build cache needs a forced rerun (turbo `--force`).
-- Compare the local toolchain versions with the versions CI pins, at launch. A lock file is changed only by the pinned package manager, never by hand and never by another version; lock-file drift in a report goes to the user as a question ("upgrade the pins?").
+- Compare the local toolchain versions with the versions CI pins, at launch. A lock file is changed only by the pinned package manager, never by hand and never by another version; lock-file drift in a report goes to the user as a question ("upgrade the pins?"). Put this rule in the shared rules: agents repeat the mistake when the rule lives only in memory.
 - When an implementer's test results and the reviewer's differ, look for an environment difference first (exported variables, a loaded `.env` file, a different database). The accept decision rests on the reviewer's run.
 - A gate that exits 0 without running anything is a false green: a flag in the wrong position can print the tool's usage text and exit 0, a misspelled config key is ignored, tests can skip without a word, and a pipe into `tail` reports `tail`'s exit code. A report's test lines name what ran and what skipped (files, counts) and the command's own exit code; a line without them is a gap.
 - A report that finishes much faster than the work should take is checked in the agent's own session transcript (the commands and their output) before you call it real or fake. Build caches can make full gates fast.
