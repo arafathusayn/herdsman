@@ -22,7 +22,7 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 
 - Review rounds, not coding, cost the most. Keep one review per artifact per round, report P0 and P1 only, and gate on a verdict line. A fix round by a fast implementer can take minutes while a full review takes several times longer, so keep re-reviews limited to the diff since the last reviewed head ([`review-discipline.md`](review-discipline.md)).
 - A red CI result and the review findings that arrive at the same time go to the owner as one fix round, not two.
-- A branch re-review that is still pending when the combined branch is ready can fold into the final review, which then names the earlier findings it must close.
+- A branch re-review that is still pending when the combined branch is ready can fold into the final review. The final-review prompt then names each earlier review report and the finding lines it must close, and the report answers each one under `CLOSED:`.
 - Match the ceremony to the change. On a mid-size feature, per-task paperwork (hashed review packages, per-task review of minor findings) costs more than it catches. The default is review per task for P0 and P1 only, plus one whole-branch review.
 - When implementers finish fast, the reviewers become the queue: add a reviewer, or run reviews that do not depend on each other at the same time (for example the final review of a combined branch while a test-only task runs; the test-only task gets its own review).
 - When an integrator waits for CI, CI becomes the critical path: run reviews while CI runs, and review a pushed head before its checks end.

@@ -32,7 +32,7 @@ Repository: <absolute path of the checkout> (remote `origin` = GitHub <org>/<rep
 
 ## CPU
 
-Every check (type check, lint, tests, formatter, build) runs through `<route folder>/run-check.sh <command>`: one check at a time on the whole machine, single-threaded. Single-thread forms: `GOMAXPROCS=1 tsc --singleThreaded --checkers 1 --builders 1` (TypeScript 7 native); `--maxWorkers=1 --no-file-parallelism` for vitest; `--concurrency=1` for turbo; ESLint `--concurrency=off`. Never run package scripts that pass more checkers, never two checks at once, never a check in the background next to another, never a check in a subagent. A check that waits on the load gate for more than ten minutes: cancel it and list it under `gaps:`.
+Every check (type check, lint, tests, formatter, build) runs through `<route folder>/run-check.sh <command>`. If that file is missing, stop and report `STATUS: blocked no run-check.sh`; never run a check without it. One check at a time on the whole machine, single-threaded. Single-thread forms: `GOMAXPROCS=1 tsc --singleThreaded --checkers 1 --builders 1` (TypeScript 7 native); `--maxWorkers=1 --no-file-parallelism` for vitest; `--concurrency=1` for turbo; ESLint `--concurrency=off`. Never run package scripts that pass more checkers, never two checks at once, never a check in the background next to another, never a check in a subagent. A check that waits on the load gate for more than ten minutes: cancel it and list it under `gaps:`.
 
 ## Live tests
 
@@ -49,7 +49,7 @@ Every check (type check, lint, tests, formatter, build) runs through `<route fol
   `git -c credential.helper= -c credential.helper='!f() { echo username=<gh account>; echo password=$(gh auth token --user <gh account>); }; f' push -u origin <branch>`
 - Open a READY pull request: `GH_TOKEN=$(gh auth token --user <gh account>) gh pr create --repo <org>/<repo> --base <base> --head <branch> --title "<type>(<scope>): <title>" --body-file <file>`.
 - PR body: `## Summary` (problem and change in plain words); one bullet per file or module with what changed and why; `## Verification` with the exact commands and databases; `## Known gaps` if anything is left. Never mention review rounds, reviewer or tool names, people's names, metrics or timings, process history. Reference issues by number.
-- After the pull request is open, wait five minutes, then read `gh pr checks <n>` and the review-bot comments. Fix real findings test-first, push, reply on each thread with "Addressed in <sha>". Repeat until checks pass and the bot reports no new issues. If the bot is wrong, reply with the reason and move on.
+- After the pull request is open, wait five minutes, then read `gh pr checks <n>` and the review-bot comments. Fix real findings test-first, push, reply on each bot thread with "Addressed in <sha>". Repeat until checks pass and the bot reports no new issues. If the bot is wrong, reply on its thread with the reason in one line and move on. These two forms on the bot's own threads are the only text you post; a reply to a person's comment goes into your report under `needs:` as a draft (thread id, text), never onto GitHub.
 - Do not change a pull request's base branch, dissolve a stack, force-push over someone else's commits, or close a pull request without an instruction in your task file.
 
 ## Keep going
@@ -81,7 +81,7 @@ Due: <HH:MM> (<N> minutes from launch). If the work is not finished by then, sto
 <what the implementer must not touch, including sibling tasks' files>
 
 ## Overlap
-<open pull requests that touch the same files; what to do: read, do not depend, note "rebase after PR n merges" under Known gaps>
+<open pull requests that touch the same files; what to do: read, do not depend, note "update after PR n merges" under Known gaps>
 
 ## Acceptance
 - <observable checks a reviewer can repeat>
@@ -104,7 +104,7 @@ Rules learned:
 - A task that edits an exported fixture or a shared helper lists every consumer (`git grep -l <name>`) and runs their tests, not only the test it meant to change.
 - Tests that replace a global (the clock, timers, a spied function) restore each one after every test. Say it in the contract: a test that leaks a fake clock into later files passes alone and fails in the full run.
 - Give every brief a `Due:` line and pass the same time to the waiter as `HERDSMAN_DUE_<name>`. The line alone does not stop an agent: agents ignored stop times written in their own briefs, so the waiter's OVERDUE event is what triggers the stop-and-report steer.
-- When two or more tasks change the database schema, say in the shared rules that generated migration numbers will collide across branches and that the pull request merged second regenerates its migration history after a rebase onto main. Parallel branches from one base all take the same next number.
+- When two or more tasks change the database schema, say in the shared rules that generated migration numbers will collide across branches and that the pull request merged second regenerates its migration history after merging main into its branch (a merge, not a rebase, so its review stays valid). Parallel branches from one base all take the same next number.
 
 ## 1n-task-i.md (integration route)
 
@@ -130,8 +130,8 @@ Merge it, run every gate again, update the report.
 
 ## Phase 3: push (only after the orchestrator's prompt says the final review passed)
 1. Fetch with the credential helper. If `origin/<target>` is not `<start commit>` any more, stop and report `STATUS: blocked remote moved`.
-2. Scan the added lines for secrets (`git diff origin/<target>...HEAD`, added lines only) and check every new commit's author and trailers (`git log --format='%an <%ae>%n%b' origin/<target>..HEAD`: the expected identity, no trailers the shared rules forbid), then push as a fast-forward only (`git push origin <combined branch>:<target>`); never force.
-3. Reply once on each review thread with the fix commit or the reason (texts from the task reports).
+2. Scan every outgoing commit for secrets, not only the net diff: a secret added in one commit and removed in a later one is still published. Read each commit's added lines, merge resolutions included, and its message (`git log -p -m --format='%H%n%an <%ae>%n%B' origin/<target>..HEAD`); if a secret is found, do not push: report `STATUS: blocked secret in history` with the commit and file, never the value. Check every new commit's author and trailers (`git log --format='%an <%ae>%n%b' origin/<target>..HEAD`: the expected identity, no trailers the shared rules forbid), then push as a fast-forward only (`git push origin <combined branch>:<target>`); never force.
+3. Reply once on each review-bot thread with the fix commit or the reason. For people's threads, write each reply into a drafts file (thread id, path and line, text) and post only the file that the orchestrator's prompt names as approved, once per thread, after a check for replies that already exist.
 4. Run the review-bot loop from the shared rules.
 
 ## Orchestrator handoffs
@@ -143,7 +143,7 @@ Change a task's intent, edit application code outside a merge, a handoff or a re
 
 Rules learned:
 - Start the integrator when the first branches pass review, not at launch, and give it the merge order in the contract. Conflicts then happen in one place, in a known order. When the branches own disjoint files, the combine may start while their reviews run, with fix rounds brought in by the re-merge phase ([`flow-and-time.md`](flow-and-time.md), Work ahead).
-- A push that opens a new pull request needs the user's go for that step. An approved dispatch plan or an interview answer whose text says the integrator pushes is that go: copy the exact option text into `00-route.md`, and check that text, not a summary, before the push phase.
+- A push that opens a new pull request needs the user's go for both steps: the push and the new pull request. An approved dispatch plan or an interview answer is that go only when its text names both; a text that names only the push (the push-only policy) covers the push, and the pull request waits for its own yes. Copy the exact option text into `00-route.md`, and check that text, not a summary, before the push phase.
 - Write a phase into the contract before its prompt, as a dated "Orchestrator amendments" section when the contract already exists; the integrator reads the contract, not the chat.
 
 ## 20-reviewer.md
@@ -159,7 +159,7 @@ You review the pull requests or local branches of <org>/<repo> that the implemen
 
 ## CPU
 
-Every check runs through `<route folder>/run-check.sh <command>`, one at a time on the whole machine, single-threaded (the same forms as the shared rules). A check that waits on the load gate for more than ten minutes: cancel it and write it under NOT CHECKED. Reuse the result of an earlier review for packages and files that the new commits do not touch, and say so.
+Every check runs through `<route folder>/run-check.sh <command>`, one at a time on the whole machine, single-threaded (the same forms as the shared rules). A check that waits on the load gate for more than ten minutes: cancel it and write it under NOT CHECKED. Reuse a check result from an earlier review only when nothing that check reads has changed (its files, everything they import, including shared helpers and exported fixtures, its configuration, the lock file, the environment), and say so. Run again the checks of every consumer of a changed helper or fixture.
 
 ## Setup (once)
 - Clone: <path>. Your worktree: <worktrees root>/r. Create it if missing: `git -C <clone> worktree add <worktrees root>/r --detach origin/<base>`.
@@ -169,7 +169,7 @@ Every check runs through `<route folder>/run-check.sh <command>`, one at a time 
 - Tests: `TEST_DATABASE_URL=...<prefix>_r_test`; create once, drop and recreate between pull requests.
 
 ## Per review
-Input: a pull request number, or a local branch and its head commit, and a report path, given in the prompt.
+Input: a pull request number, or a local branch and its head commit, and a report path, given in the prompt. A re-review, or a final review that a pending branch re-review folds into, also names earlier review reports and the findings in them to close; check each one.
 1. Fetch, `git checkout --detach origin/<head branch>` (`gh pr view <n> --json headRefName,baseRefName,headRefOid`); for a local branch, `git checkout --detach <head commit>`. Record the head commit.
 2. Changed files: `gh pr diff <n> --name-only`, or `git diff --name-only origin/<base>...<head commit>` for a local branch. The final review of an integration route uses the combined branch against the base branch and checks every task contract, the integrator contract and the paths between tasks.
 3. React files (<paths>): run the `/react-review` skill on those files; skip the runtime layer.
@@ -193,8 +193,9 @@ FINDINGS:
 - P0 | <file>:<line> | <what is wrong and what happens> | fix: <one sentence>
 - P1 | ...
 - GOAL-CONFLICT | <file>:<line> | <the risk> | option 1: <keep the Must-prove test, fix this> | option 2: <skip or gate it>
+CLOSED: <earlier report> <finding> | closed | open: <why> (one line per finding the prompt names; omit when it names none)
 NOT CHECKED: <what this review could not check, for example remote CI, a live service or a GitHub state, one line each>
-`VERDICT: pass` means zero P0 and zero P1. Then reply in the terminal with only the path.
+`VERDICT: pass` means zero P0, zero P1 and no named finding left open. Then reply in the terminal with only the path.
 ```
 
 Rules learned:
