@@ -23,7 +23,7 @@ sleep() { exit 0; }
 export -f sleep
 pass=0; fail=0
 check() { # name, expected-regex, actual
-  if printf '%s' "$3" | grep -q -E "$2"; then pass=$((pass+1)); echo "PASS $1"; else fail=$((fail+1)); echo "FAIL $1: expected /$2/ got: $3"; fi
+  if printf '%s' "$3" | grep -q -E "$2"; then pass=$((pass+1)); echo "PASS $1"; else fail=$((fail+1)); echo "FAIL $1: expected /$2/ got: $3"; return 1; fi
 }
 nocheck() { # name, forbidden-regex, actual
   if printf '%s' "$3" | grep -q -E "$2"; then fail=$((fail+1)); echo "FAIL $1: unexpected /$2/ in: $3"; else pass=$((pass+1)); echo "PASS $1"; fi
@@ -176,7 +176,11 @@ export HERDSMAN_GATE="$T/gate" HERDSMAN_GATE_POLL=1
 /bin/bash "$WG" sh -c 'exit 3'; rc=$?
 check "G1 exit status of the command" '^3$' "$rc"; check "G1b lock released" '^gone$' "$([ -d "$HERDSMAN_GATE" ] && echo held || echo gone)"
 # Read the niceness from the kernel (getpriority), not from ps: the ps columns differ between macOS and Linux.
-check "G1c runs at a lower priority" '^10$' "$(/bin/bash "$WG" perl -e 'print getpriority(0, 0)')"
+# On a failure the line also shows the shell's own niceness and that of a plain `nice -n 10`.
+prio='print getpriority(0, 0)'
+got=$(/bin/bash "$WG" perl -e "$prio" 2>&1)
+check "G1c runs at a lower priority" '^10$' "$got" \
+  || echo "     shell=$(perl -e "$prio") plain-nice-perl=$(nice -n 10 perl -e "$prio" 2>&1) gate-bash-ps=$(/bin/bash "$WG" /bin/bash -c '/bin/ps -o ni= -p $$' 2>&1) plain-nice-bash-ps=$(nice -n 10 /bin/bash -c '/bin/ps -o ni= -p $$' 2>&1) nice=$(command -v nice)"
 /bin/bash "$WG" 2>/dev/null; check "G1d usage error without a command" '^2$' "$?"
 : > "$T/gate.log"
 /bin/bash "$WG" sh -c "/bin/sleep 2; echo first >> '$T/gate.log'" & holder=$!
