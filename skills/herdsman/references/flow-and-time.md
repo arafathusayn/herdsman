@@ -50,6 +50,7 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 ## Quota is capacity
 
 - Implementers, the integrator, reviewers and a review bot on one model account share one weekly pool. Read the figure before a long round, and count what one review costs on this route.
+- Before the first dispatch, count the reviews the route still needs (one review per task branch, the final review, and a reserve for re-reviews, since their number is not known yet) against that cost. When they do not fit, offer the user another reviewer then, not when the pool is empty. When the pool runs short during the route, spend what is left on the smallest pending review and let work that needs no reviewer go on (integration and its gates). Never start a review that will hit the limit: pause with every agent idle and the waiter stopped, and ask the user.
 - At zero, a running goal stops and in-flight work is lost; resume after the reset ([`codex.md`](codex.md), Usage quota). Never fall back to an API key; moving work to another harness is the user's decision.
 
 ## Dispatch without copy errors
