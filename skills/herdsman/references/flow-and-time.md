@@ -20,7 +20,10 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 
 ## The bottleneck moves
 
-- Review rounds, not coding, cost the most. Keep one review per artifact per round, report P0 and P1 only, and gate on a verdict line.
+- Review rounds, not coding, cost the most. Keep one review per artifact per round, report P0 and P1 only, and gate on a verdict line. A fix round by a fast implementer can take minutes while a full review takes several times longer, so keep re-reviews limited to the diff since the last reviewed head ([`review-discipline.md`](review-discipline.md)).
+- A red CI result and the review findings that arrive at the same time go to the owner as one fix round, not two.
+- A branch re-review that is still pending when the combined branch is ready can fold into the final review, which then names the earlier findings it must close.
+- Match the ceremony to the change. On a mid-size feature, per-task paperwork (hashed review packages, per-task review of minor findings) costs more than it catches. The default is review per task for P0 and P1 only, plus one whole-branch review.
 - When implementers finish fast, the reviewers become the queue: add a reviewer, or run reviews that do not depend on each other at the same time (for example the final review of a combined branch while a test-only task runs; the test-only task gets its own review).
 - When an integrator waits for CI, CI becomes the critical path: run reviews while CI runs, and review a pushed head before its checks end.
 - When the only pushing agent is busy, do not stall the reviewer: review the implementer's local wip branch. If the published head equals the reviewed commit, no second review is needed.
@@ -28,10 +31,16 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 ## Work ahead, but only on safe ground
 
 - Write the next wave's contracts while the integrator combines, so implementers start the moment its report lands.
+- When the task branches own disjoint files, the combine can start while their reviews still run. It finds conflicts early and settles handoffs that a branch already did. Name each head in the prompt as provisional. A fix round on a branch then reaches the combined branch through a re-merge phase (merge the new commits, run again the gates that cover them), and the final review covers the result.
 - When the integrator's next merge is free of conflicts, branch the next part from the implementer's wip branch instead of waiting for the merge.
 - A report or a finished goal does not free an implementer: its branch can still fail review, and the fix round then has no owner. Give new work only after the branch passes review.
 - A new urgent side task fits a running team: add a contract to the same route folder and give it to an idle implementer (cleared first). Before you decide that no implementer is free, list every agent: panes of an earlier wave can be idle.
 - An agent that waits for a late task gets preparation work (the plan for the live checks, a draft of the pull-request body) instead of idle time.
+
+## Open questions do not hold the launch
+
+- A question that affects only a later or reversible step does not hold the route: record a default in the route file, say it to the user, and gate only the irreversible step (a live call to an outside service, production) on the answer.
+- Small design calls that an implementer's report raises are the orchestrator's: rule, record the amendment, and tell the user, who can overrule.
 
 ## Idle is a state
 

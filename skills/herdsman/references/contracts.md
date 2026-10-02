@@ -32,7 +32,7 @@ Repository: <absolute path of the checkout> (remote `origin` = GitHub <org>/<rep
 
 ## CPU
 
-Run at most one TypeScript compiler process, single-threaded: `GOMAXPROCS=1 tsc --singleThreaded --checkers 1 --builders 1` (TypeScript 7 native); never run package scripts that pass more checkers. The test runner gets one worker (`--maxWorkers=1` for vitest). One heavy process at a time, your subagents included.
+Every check (type check, lint, tests, formatter, build) runs through `<route folder>/run-check.sh <command>`: one check at a time on the whole machine, single-threaded. Single-thread forms: `GOMAXPROCS=1 tsc --singleThreaded --checkers 1 --builders 1` (TypeScript 7 native); `--maxWorkers=1 --no-file-parallelism` for vitest; `--concurrency=1` for turbo; ESLint `--concurrency=off`. Never run package scripts that pass more checkers, never two checks at once, never a check in the background next to another, never a check in a subagent. A check that waits on the load gate for more than ten minutes: cancel it and list it under `gaps:`.
 
 ## Live tests
 
@@ -88,13 +88,18 @@ Due: <HH:MM> (<N> minutes from launch). If the work is not finished by then, sto
 ```
 
 Rules learned:
+- Before you write contracts, check the design against decisions that the user and the team already made (meeting notes, team chat, earlier rulings). A plan that picks a path the team rejected gets rewritten at the launch interview.
+- Check each assumption that a task rests on (a column's nullability, a required field, a foreign key, a function's real signature) with a read-only scout against the real code and schema before dispatch, and write each correction into the task as a ruling. A wrong assumption found by a reviewer costs a fix round; found by a scout, it costs one line.
 - Name every constant and rule explicitly (`IMPORT_PRICE_CHANGE_FLAG_RATIO = 0.10`), or the implementer invents its own.
 - Say where sibling work overlaps; otherwise two implementers edit the same migration number or the same module.
 - Scope every acceptance line to the task's own files. A line about a whole folder ("no test file under X is longer than N lines") makes the reviewer report every old file in that folder as unmet.
 - State which GitHub mutations are allowed. An implementer given "authorized base change" latitude dissolved a stack and retargeted a pull request on its own.
 - Put the coverage rule on changed files only.
 - Read the repository's guard tests (import boundaries, banned modules) before you write file paths into a contract. They can forbid a path the contract names, and they often follow imports through every file in the chain. A ruling that allows one forbidden import fails as soon as another file imports that file.
-- Name the hidden limits that a reviewer will probe: shared helpers with a ceiling (a list call that stops at a row cap) and platform limits (a timer delay above the maximum fires at once, so bound the delay and arm it again). Each limit that the contract leaves out costs one more review round.
+- Name the hidden limits that a reviewer will probe: shared helpers with a ceiling (a list call that stops at a row cap) and platform limits (a timer delay above the maximum fires at once, so bound the delay and arm it again; CI's default per-test and per-hook timeouts). Also name the usual slips: date math across a daylight-saving change ("the same hour yesterday" is not 24 hours ago), a pattern matched on raw text that the consumer decodes first (an encoded URL parameter), output printed before the error boundary exists (a module that validates settings when it is imported), a time budget taken after setup instead of at entry, a concurrency permit released before a response body is read. Each limit that the contract leaves out costs one more review round.
+- For a client of an outside service, the acceptance names fakes that misbehave: a slow body, a disconnect in the middle of a body, a size-limit error on a later page, a settings value that points at another host. Happy-path fakes with full line coverage miss every one of these defects.
+- When a brief names a class of input to reject (a character class, a set of modes), list the members it must keep. "Reject every control character except tab" also rejects a line break inside a quoted CSV cell. Read the report's `gaps:` line for side effects of your own wording.
+- A task that edits an exported fixture or a shared helper lists every consumer (`git grep -l <name>`) and runs their tests, not only the test it meant to change.
 - Tests that replace a global (the clock, timers, a spied function) restore each one after every test. Say it in the contract: a test that leaks a fake clock into later files passes alone and fails in the full run.
 - Give every brief a `Due:` line and pass the same time to the waiter as `HERDSMAN_DUE_<name>`. The line alone does not stop an agent: agents ignored stop times written in their own briefs, so the waiter's OVERDUE event is what triggers the stop-and-report steer.
 - When two or more tasks change the database schema, say in the shared rules that generated migration numbers will collide across branches and that the pull request merged second regenerates its migration history after a rebase onto main. Parallel branches from one base all take the same next number.
@@ -112,6 +117,9 @@ Branch `<combined branch>` from `<start commit>`. Worktree `<path>`. Test databa
 3. Fix only integration breakage: a test that passed on its branch and fails on the combined branch.
 4. Run every gate: <format, lint, type check, every test suite with your databases>.
 
+## Re-merge (the prompt names a task branch and its new head after a fix round)
+Merge that head with `git merge --no-ff`, apply any new handoff, run again the gates that cover the changed packages, update the report with the new combined head.
+
 ## Phase 1b and later: fixes from the final review (the prompt names the review file)
 Fix every P0 and P1 on the combined branch, failing test first. New tests go in new files, never in a file that a running task replaces.
 
@@ -120,7 +128,7 @@ Merge it, run every gate again, update the report.
 
 ## Phase 3: push (only after the orchestrator's prompt says the final review passed)
 1. Fetch with the credential helper. If `origin/<target>` is not `<start commit>` any more, stop and report `STATUS: blocked remote moved`.
-2. Push as a fast-forward only (`git push origin <combined branch>:<target>`); never force.
+2. Scan the added lines for secrets (`git diff origin/<target>...HEAD`, added lines only) and check every new commit's author and trailers (`git log --format='%an <%ae>%n%b' origin/<target>..HEAD`: the expected identity, no trailers the shared rules forbid), then push as a fast-forward only (`git push origin <combined branch>:<target>`); never force.
 3. Reply once on each review thread with the fix commit or the reason (texts from the task reports).
 4. Run the review-bot loop from the shared rules.
 
@@ -132,7 +140,8 @@ Change a task's intent, edit application code outside a merge, a handoff or a re
 ```
 
 Rules learned:
-- Start the integrator when the first branches pass review, not at launch, and give it the merge order in the contract. Conflicts then happen in one place, in a known order.
+- Start the integrator when the first branches pass review, not at launch, and give it the merge order in the contract. Conflicts then happen in one place, in a known order. When the branches own disjoint files, the combine may start while their reviews run, with fix rounds brought in by the re-merge phase ([`flow-and-time.md`](flow-and-time.md), Work ahead).
+- A push that opens a new pull request needs the user's go for that step. An approved dispatch plan or an interview answer whose text says the integrator pushes is that go: copy the exact option text into `00-route.md`, and check that text, not a summary, before the push phase.
 - Write a phase into the contract before its prompt, as a dated "Orchestrator amendments" section when the contract already exists; the integrator reads the contract, not the chat.
 
 ## 20-reviewer.md
@@ -148,7 +157,7 @@ You review the pull requests or local branches of <org>/<repo> that the implemen
 
 ## CPU
 
-Run at most one TypeScript compiler process, single-threaded: `GOMAXPROCS=1 tsc --singleThreaded --checkers 1 --builders 1` (TypeScript 7 native); never run package scripts that pass more checkers. The test runner gets one worker (`--maxWorkers=1` for vitest). One heavy process at a time, your subagents included.
+Every check runs through `<route folder>/run-check.sh <command>`, one at a time on the whole machine, single-threaded (the same forms as the shared rules). A check that waits on the load gate for more than ten minutes: cancel it and write it under NOT CHECKED. Reuse the result of an earlier review for packages and files that the new commits do not touch, and say so.
 
 ## Setup (once)
 - Clone: <path>. Your worktree: <worktrees root>/r. Create it if missing: `git -C <clone> worktree add <worktrees root>/r --detach origin/<base>`.
