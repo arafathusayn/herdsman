@@ -11,6 +11,8 @@ All agents of a route run on one machine and usually on one test database contai
 ## Share the load
 
 - Run one single-threaded compiler per agent at a time. Parallel type checks can hang the machine.
+- Every contract sends full suites, type checks and builds through [`scripts/with-gate.sh`](../scripts/with-gate.sh). A rule in a contract does not stop five agents from starting their gates in the same minute; the gate's lock does, for every route on the machine. It also lowers the command's priority (`nice`), so the desktop stays usable. A stuck holder costs at most `HERDSMAN_GATE_WAIT` (30 minutes): then the waiting command runs anyway and says so.
+- `agent-status.sh` prints the machine's 5-minute load against its core count and its free memory, and flags a load above the core count or under 10% free memory; the waiter reports a new flag as HEALTH. On a machine flag, start no new heavy work until it clears.
 - Agents that run full gates on one container at the same time can exhaust its shared memory. Run one full gate at a time, or let the reviewer run only the touched packages while the integrator gates. Every brief says: wait and run again after a recovery, never restart containers.
 - Database tests that skip for no clear reason can come from a full System V shared-memory table (orphaned segments of crashed embedded databases): check `ipcs -m`, and give the cleanup command to the user.
 - Starting a container runtime can also start other projects' containers with a restart policy. Report them; do not stop them.

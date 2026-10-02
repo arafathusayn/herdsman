@@ -34,6 +34,8 @@ Repository: <absolute path of the checkout> (remote `origin` = GitHub <org>/<rep
 
 Run at most one TypeScript compiler process, single-threaded: `GOMAXPROCS=1 tsc --singleThreaded --checkers 1 --builders 1` (TypeScript 7 native); never run package scripts that pass more checkers. The test runner gets one worker (`--maxWorkers=1` for vitest). One heavy process at a time, your subagents included.
 
+Run every full test suite, type check and build through the machine's gate: `/bin/bash <skill>/scripts/with-gate.sh <command>` (a command line with `&&` or a pipe goes in one `sh -c '...'`). The gate runs one such command at a time across all agents on this machine, at a lower priority, and says when it waits. Targeted tests of a few files run without it. Never remove the gate's lock folder (`/tmp/herdsman-gate`).
+
 ## Live tests
 
 - A live test proves a Must-prove path. It runs the real harness through the route's execution path with the user's normal installed login.
@@ -149,6 +151,8 @@ You review the pull requests or local branches of <org>/<repo> that the implemen
 ## CPU
 
 Run at most one TypeScript compiler process, single-threaded: `GOMAXPROCS=1 tsc --singleThreaded --checkers 1 --builders 1` (TypeScript 7 native); never run package scripts that pass more checkers. The test runner gets one worker (`--maxWorkers=1` for vitest). One heavy process at a time, your subagents included.
+
+Run every full test suite, type check and build through the machine's gate: `/bin/bash <skill>/scripts/with-gate.sh <command>` (a command line with `&&` or a pipe goes in one `sh -c '...'`). The gate runs one such command at a time across all agents on this machine, at a lower priority, and says when it waits. Targeted tests of a few files run without it. Never remove the gate's lock folder (`/tmp/herdsman-gate`).
 
 ## Setup (once)
 - Clone: <path>. Your worktree: <worktrees root>/r. Create it if missing: `git -C <clone> worktree add <worktrees root>/r --detach origin/<base>`.
