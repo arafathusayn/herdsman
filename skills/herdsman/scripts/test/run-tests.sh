@@ -202,10 +202,25 @@ mkdir "$HERDSMAN_GATE"; touch -t 202601010000 "$HERDSMAN_GATE"
 check "G4 an old lock without a pid is taken over" '^ran$' "$(HERDSMAN_GATE_WAIT=5 /bin/bash "$WG" echo ran 2>/dev/null)"
 /bin/bash "$WG" /bin/sleep 3 & holder=$!
 /bin/sleep 0.5
-check "G5 a nested gate does not wait for its own lock" '^nested$' "$(HERDSMAN_GATE_HELD=1 HERDSMAN_GATE_WAIT=60 /bin/bash "$WG" echo nested 2>/dev/null)"
+check "G5 an inherited mark without the lock does not skip the gate" 'running without the gate' "$(HERDSMAN_GATE_HELD=12345 HERDSMAN_GATE_WAIT=1 /bin/bash "$WG" echo inherited 2>&1)"
 out=$(HERDSMAN_GATE_WAIT=1 /bin/bash "$WG" echo ran 2>&1)
 check "G6 after the wait limit it runs anyway" 'running without the gate' "$out"; check "G6b and the command ran" 'ran$' "$out"
 wait "$holder"
+check "G5b a nested gate inside a gated command does not wait for its own lock" '^nested$' \
+  "$(HERDSMAN_GATE_WAIT=60 /bin/bash "$WG" /bin/bash "$WG" echo nested 2>/dev/null)"
+# G7: the gate shell is killed alone while its command runs: the next command waits for that command
+: > "$T/orphan.log"
+/bin/bash "$WG" sh -c "/bin/sleep 2; echo first >> '$T/orphan.log'" & gate=$!
+/bin/sleep 0.5; kill -9 "$gate" 2>/dev/null; wait "$gate" 2>/dev/null
+/bin/bash "$WG" sh -c "echo second >> '$T/orphan.log'" 2>/dev/null
+check "G7 a running command keeps the lock after its gate shell dies" '^first second$' "$(tr '\n' ' ' < "$T/orphan.log" | sed 's/ $//')"
+# G8: a stale lock that cannot be cleared: no busy loop, the wait limit still applies
+mkdir "$HERDSMAN_GATE"; echo "$dead" > "$HERDSMAN_GATE/pid"; : > "$HERDSMAN_GATE/kept"
+start=$(date +%s)
+out=$(HERDSMAN_GATE_WAIT=2 perl -e 'alarm 15; exec @ARGV' /bin/bash "$WG" echo ran 2>&1)
+check "G8 an uncleared stale lock reaches the wait limit" 'running without the gate' "$out"
+check "G8b within the limit, not after a timeout" '^ok$' "$([ $(( $(date +%s) - start )) -lt 10 ] && echo ok || echo slow)"
+rm -f "$HERDSMAN_GATE/kept" "$HERDSMAN_GATE/pid"; rmdir "$HERDSMAN_GATE"
 unset HERDSMAN_GATE HERDSMAN_GATE_POLL
 
 # Z: the scripts started from zsh in a clean environment, with the command forms the skill documents
