@@ -8,7 +8,7 @@
 # HERDSMAN_GATE       the lock folder (default /tmp/herdsman-gate: a sandboxed agent can write /tmp)
 # HERDSMAN_GATE_WAIT  seconds to wait for the lock before running anyway, so a stuck holder never stops a route (default 1800)
 # HERDSMAN_GATE_POLL  seconds between lock checks (default 10)
-# HERDSMAN_NICE       niceness of the command and its children (default 10)
+# HERDSMAN_NICE       how much to lower the priority of the command and its children (nice increment, default 10)
 # Exit status: the command's, or 2 on a usage error.
 [ $# -gt 0 ] || { echo 'usage: with-gate.sh <command> [args...]' >&2; exit 2; }
 GATE=${HERDSMAN_GATE:-/tmp/herdsman-gate}
@@ -19,24 +19,40 @@ NICE=${HERDSMAN_NICE:-10}
 # A gated command that runs this script again (a suite script that starts the type check) already holds the lock.
 [ -n "${HERDSMAN_GATE_HELD:-}" ] && exec "$@"
 
+older_than_a_minute() { [ -n "$(find "$1" -prune -mmin +1 2>/dev/null)" ]; }
+
 # The holder is alive unless its process is gone. A sandbox can refuse the signal check ("not permitted"):
 # that holder is alive. A lock without a pid file is stale after a minute (its taker died before writing it).
 holder_alive() {
   pid=$(cat "$GATE/pid" 2>/dev/null)
   if [ -z "$pid" ]; then
-    [ -z "$(find "$GATE" -maxdepth 0 -mmin +1 2>/dev/null)" ]
+    ! older_than_a_minute "$GATE"
     return
   fi
   kill -0 "$pid" 2>/dev/null && return 0
   kill -0 "$pid" 2>&1 | grep -q 'not permitted'
 }
 
+# Clear a stale lock under a second lock, and check it again there: a waiter that found the lock stale
+# must not remove the new, live lock that another waiter took in the meantime. A takeover lock older than
+# a minute belongs to a waiter that died inside these few steps.
+take_over() {
+  if ! mkdir "$GATE.takeover" 2>/dev/null; then
+    older_than_a_minute "$GATE.takeover" && rmdir "$GATE.takeover" 2>/dev/null
+    return
+  fi
+  if [ -d "$GATE" ] && ! holder_alive; then
+    rm -f "$GATE/pid" "$GATE/cmd"
+    rmdir "$GATE" 2>/dev/null
+  fi
+  rmdir "$GATE.takeover"
+}
+
 start=$(date +%s)
 said=""
 until mkdir "$GATE" 2>/dev/null; do
   if ! holder_alive; then
-    # Move the stale lock aside first: a rename is atomic, so two waiters cannot both clear it.
-    mv "$GATE" "$GATE.stale.$$" 2>/dev/null && rm -f "$GATE.stale.$$/pid" "$GATE.stale.$$/cmd" && rmdir "$GATE.stale.$$"
+    take_over
     continue
   fi
   if [ $(( $(date +%s) - start )) -ge "$WAIT" ]; then

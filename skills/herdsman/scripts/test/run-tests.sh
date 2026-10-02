@@ -23,7 +23,7 @@ sleep() { exit 0; }
 export -f sleep
 pass=0; fail=0
 check() { # name, expected-regex, actual
-  if printf '%s' "$3" | grep -q -E "$2"; then pass=$((pass+1)); echo "PASS $1"; else fail=$((fail+1)); echo "FAIL $1: expected /$2/ got: $3"; return 1; fi
+  if printf '%s' "$3" | grep -q -E "$2"; then pass=$((pass+1)); echo "PASS $1"; else fail=$((fail+1)); echo "FAIL $1: expected /$2/ got: $3"; fi
 }
 nocheck() { # name, forbidden-regex, actual
   if printf '%s' "$3" | grep -q -E "$2"; then fail=$((fail+1)); echo "FAIL $1: unexpected /$2/ in: $3"; else pass=$((pass+1)); echo "PASS $1"; fi
@@ -176,11 +176,10 @@ export HERDSMAN_GATE="$T/gate" HERDSMAN_GATE_POLL=1
 /bin/bash "$WG" sh -c 'exit 3'; rc=$?
 check "G1 exit status of the command" '^3$' "$rc"; check "G1b lock released" '^gone$' "$([ -d "$HERDSMAN_GATE" ] && echo held || echo gone)"
 # Read the niceness from the kernel (getpriority), not from ps: the ps columns differ between macOS and Linux.
-# On a failure the line also shows the shell's own niceness and that of a plain `nice -n 10`.
+# nice adds to the caller's niceness (a CI runner can start jobs at -10), up to the maximum of 19.
 prio='print getpriority(0, 0)'
-got=$(/bin/bash "$WG" perl -e "$prio" 2>&1)
-check "G1c runs at a lower priority" '^10$' "$got" \
-  || echo "     shell=$(perl -e "$prio") plain-nice-perl=$(nice -n 10 perl -e "$prio" 2>&1) gate-bash-ps=$(/bin/bash "$WG" /bin/bash -c '/bin/ps -o ni= -p $$' 2>&1) plain-nice-bash-ps=$(nice -n 10 /bin/bash -c '/bin/ps -o ni= -p $$' 2>&1) nice=$(command -v nice)"
+want=$(( $(perl -e "$prio") + 10 )); [ "$want" -gt 19 ] && want=19
+check "G1c lowers the priority by 10" "^$want\$" "$(/bin/bash "$WG" perl -e "$prio" 2>&1)"
 /bin/bash "$WG" 2>/dev/null; check "G1d usage error without a command" '^2$' "$?"
 : > "$T/gate.log"
 /bin/bash "$WG" sh -c "/bin/sleep 2; echo first >> '$T/gate.log'" & holder=$!
@@ -190,6 +189,15 @@ check "G2 the second command waits for the first" '^first second$' "$(tr '\n' ' 
 sh -c 'exit 0' & dead=$!; wait "$dead"
 mkdir "$HERDSMAN_GATE"; echo "$dead" > "$HERDSMAN_GATE/pid"
 check "G3 a lock whose process is gone is taken over" '^ran$' "$(HERDSMAN_GATE_WAIT=5 /bin/bash "$WG" echo ran 2>/dev/null)"
+# G3b: six waiters find the same stale lock at once: only one takes it over, and the commands never overlap
+sh -c 'exit 0' & dead=$!; wait "$dead"
+mkdir "$HERDSMAN_GATE"; echo "$dead" > "$HERDSMAN_GATE/pid"; : > "$T/race.log"
+for i in 1 2 3 4 5 6; do
+  /bin/bash "$WG" sh -c "echo s >> '$T/race.log'; /bin/sleep 0.2; echo e >> '$T/race.log'" 2>/dev/null &
+done
+wait
+check "G3b a stale lock is taken over by one waiter only" '^(se){6}$' "$(tr -d '\n' < "$T/race.log")"
+check "G3c no lock is left behind" '^none$' "$(ls -d "$HERDSMAN_GATE" "$HERDSMAN_GATE.takeover" 2>/dev/null || echo none)"
 mkdir "$HERDSMAN_GATE"; touch -t 202601010000 "$HERDSMAN_GATE"
 check "G4 an old lock without a pid is taken over" '^ran$' "$(HERDSMAN_GATE_WAIT=5 /bin/bash "$WG" echo ran 2>/dev/null)"
 /bin/bash "$WG" /bin/sleep 3 & holder=$!
