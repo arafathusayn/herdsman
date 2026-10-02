@@ -8,7 +8,7 @@ LIMIT_MIN=${LIMIT_MIN:-30}
 : "${HERDSMAN_STATUS_SPECS:?set HERDSMAN_STATUS_SPECS}"
 date '+%H:%M:%S'
 # Machine: a 5-minute load average above the core count means work waits for a CPU; under 10% free
-# memory the machine swaps. Either one is the moment to run fewer heavy gates (scripts/with-gate.sh).
+# memory the machine swaps. Either one is the moment to run fewer heavy checks (scripts/run-check.sh).
 if [ -r /proc/loadavg ]; then load=$(cut -d' ' -f2 /proc/loadavg)
 else load=$(LC_ALL=C sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' | awk '{print $2}'); fi
 cpus=$(sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null)

@@ -18,7 +18,7 @@ Each agent can use a different harness and a different model. Any coding agent t
 - **Strict review:** reviewer agents, usually on a stronger model than the implementers, report only P0 and P1 findings. A task gets at most three fix rounds; then the user decides. In an integration route a final review of the combined head runs before the push.
 - **Event-driven waits:** a background waiter wakes the orchestrator on a new report, a new review, a blocked agent or a stalled agent.
 - **Health checks:** on every wake, a status script shows each agent's state, model, background jobs with their ages, recent file writes, and the machine's load and free memory. It flags jobs that run too long, trees with no writes, and a loaded machine. Between wakes the waiter runs the same check every ten minutes and wakes the orchestrator only for a new flag.
-- **One heavy gate at a time:** agents run full suites, type checks and builds through a lock script, so their gates queue instead of starting together, at a lower CPU priority.
+- **One heavy check at a time:** agents run type checks, lint, tests and builds through `run-check.sh`: a machine-wide lock with a load gate inside it, at a lower CPU priority, so checks queue instead of starting together.
 - **Checkpointer:** a pane next to the orchestrator asks the orchestrator to save its memory every 15 minutes, and to compact its context when the context passes a token limit.
 - **Context hygiene:** each agent is compacted or cleared as soon as it finishes.
 - **No-commit routes:** when commits are not allowed, reviews use tree snapshots from a temporary git index.
@@ -131,7 +131,7 @@ The script reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 250
 
 - **Background waits, not monitors:** an in-session monitor event does not wake an idle orchestrator. A background command that exits does.
 - **Few wakes:** every wake is a whole orchestrator turn. The waiter runs up to 25 minutes, under the 30-minute limit for background commands, and wakes early only for an event.
-- **A lock, not a rule:** a sentence in each contract does not keep agents from starting heavy gates at the same moment. A lock folder shared by every agent on the machine does.
+- **A lock, not a rule:** a sentence in each contract does not keep agents from starting heavy gates at the same moment. A lock shared by every agent on the machine does, and the kernel frees it when its holder exits.
 - **One herdr change per call:** two changes in one shell call have failed without output.
 - **Deadlines belong to the orchestrator:** agents ignored stop times written in their own briefs. A queued instruction runs only when the agent's turn ends, so the orchestrator interrupts when the deadline passes.
 - **Context size from the transcript:** the checkpointer reads the input and cache token counts of the orchestrator's last turn from its session transcript. The included reader expects JSONL transcripts with a usage block per turn. For a harness with another format, replace `transcript()` and `context_tokens()` in [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh).

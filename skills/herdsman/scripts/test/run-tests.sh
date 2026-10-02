@@ -170,59 +170,53 @@ out=$(/bin/bash "$RL" "$T/00-route.md" 2>&1); rc=$?
 check "L2 usage on a missing text" '^usage: route-log.sh' "$out"; if [ "$rc" -ne 0 ]; then pass=$((pass+1)); echo "PASS L2 exit non-zero"; else fail=$((fail+1)); echo "FAIL L2 exit 0"; fi
 out=$(/bin/bash "$RL" "$T/no-such-route.md" "x" 2>&1); check "L2b usage on a missing file" '^usage: route-log.sh' "$out"
 
-# G: with-gate.sh runs one heavy command at a time
-WG="$SK/with-gate.sh"
-export HERDSMAN_GATE="$T/gate" HERDSMAN_GATE_POLL=1
-/bin/bash -n "$WG" && { pass=$((pass+1)); echo "PASS syntax with-gate"; } || { fail=$((fail+1)); echo "FAIL syntax with-gate"; }
-/bin/bash "$WG" sh -c 'exit 3'; rc=$?
-check "G1 exit status of the command" '^3$' "$rc"; check "G1b lock released" '^gone$' "$([ -d "$HERDSMAN_GATE" ] && echo held || echo gone)"
+# C: run-check.sh runs one heavy check at a time, behind a load gate. A fixed reading keeps the gate deterministic.
+RC="$SK/run-check.sh"
+export HERDSMAN_LOCK="$T/checks.lock" HERDSMAN_READING="$T/load" HERDSMAN_PROBES=off HERDSMAN_GATE_POLL=1 HERDSMAN_LOAD_LIMIT=4
+/bin/bash -n "$RC" && { pass=$((pass+1)); echo "PASS syntax run-check"; } || { fail=$((fail+1)); echo "FAIL syntax run-check"; }
+echo "0.5 50" > "$HERDSMAN_READING"
+/bin/bash "$RC" sh -c 'exit 3' 2>/dev/null; check "C1 exit status of the check" '^3$' "$?"
 # Read the niceness from the kernel (getpriority), not from ps: the ps columns differ between macOS and Linux.
 # nice adds to the caller's niceness (a CI runner can start jobs at -10), up to the maximum of 19.
 prio='print getpriority(0, 0)'
 want=$(( $(perl -e "$prio") + 10 )); [ "$want" -gt 19 ] && want=19
-check "G1c lowers the priority by 10" "^$want\$" "$(/bin/bash "$WG" perl -e "$prio" 2>&1)"
-/bin/bash "$WG" 2>/dev/null; check "G1d usage error without a command" '^2$' "$?"
-: > "$T/gate.log"
-/bin/bash "$WG" sh -c "/bin/sleep 2; echo first >> '$T/gate.log'" & holder=$!
+check "C1b lowers the priority by 10" "^$want\$" "$(/bin/bash "$RC" perl -e "$prio" 2>&1)"
+/bin/bash "$RC" 2>/dev/null; check "C1c usage error without a command" '^64$' "$?"
+check "C2 a nested check runs at once" '^nested$' "$(HERDSMAN_LOCK_WAIT=5 /bin/bash "$RC" /bin/bash "$RC" echo nested 2>&1)"
+: > "$T/order.log"; echo "0.5 50" > "$HERDSMAN_READING"
+/bin/bash "$RC" sh -c "/bin/sleep 2; echo first >> '$T/order.log'" 2>/dev/null & holder=$!
 /bin/sleep 0.5
-/bin/bash "$WG" sh -c "echo second >> '$T/gate.log'" 2>/dev/null; wait "$holder"
-check "G2 the second command waits for the first" '^first second$' "$(tr '\n' ' ' < "$T/gate.log" | sed 's/ $//')"
-sh -c 'exit 0' & dead=$!; wait "$dead"
-mkdir "$HERDSMAN_GATE"; echo "$dead" > "$HERDSMAN_GATE/pid"
-check "G3 a lock whose process is gone is taken over" '^ran$' "$(HERDSMAN_GATE_WAIT=5 /bin/bash "$WG" echo ran 2>/dev/null)"
-# G3b: six waiters find the same stale lock at once: only one takes it over, and the commands never overlap
-sh -c 'exit 0' & dead=$!; wait "$dead"
-mkdir "$HERDSMAN_GATE"; echo "$dead" > "$HERDSMAN_GATE/pid"; : > "$T/race.log"
-for i in 1 2 3 4 5 6; do
-  /bin/bash "$WG" sh -c "echo s >> '$T/race.log'; /bin/sleep 0.2; echo e >> '$T/race.log'" 2>/dev/null &
-done
-wait
-check "G3b a stale lock is taken over by one waiter only" '^(se){6}$' "$(tr -d '\n' < "$T/race.log")"
-check "G3c no lock is left behind" '^none$' "$(ls -d "$HERDSMAN_GATE" "$HERDSMAN_GATE.takeover" 2>/dev/null || echo none)"
-mkdir "$HERDSMAN_GATE"; touch -t 202601010000 "$HERDSMAN_GATE"
-check "G4 an old lock without a pid is taken over" '^ran$' "$(HERDSMAN_GATE_WAIT=5 /bin/bash "$WG" echo ran 2>/dev/null)"
-/bin/bash "$WG" /bin/sleep 3 & holder=$!
+out=$(/bin/bash "$RC" sh -c "echo second >> '$T/order.log'" 2>&1); wait "$holder"
+check "C3 the second check waits for the first" '^first second$' "$(tr '\n' ' ' < "$T/order.log" | sed 's/ $//')"
+check "C3b and says whose lock it waits for" 'waiting for the machine lock, held by pid' "$out"
+/bin/bash "$RC" /bin/sleep 3 2>/dev/null & holder=$!
 /bin/sleep 0.5
-check "G5 an inherited mark without the lock does not skip the gate" 'running without the gate' "$(HERDSMAN_GATE_HELD=12345 HERDSMAN_GATE_WAIT=1 /bin/bash "$WG" echo inherited 2>&1)"
-out=$(HERDSMAN_GATE_WAIT=1 /bin/bash "$WG" echo ran 2>&1)
-check "G6 after the wait limit it runs anyway" 'running without the gate' "$out"; check "G6b and the command ran" 'ran$' "$out"
-wait "$holder"
-check "G5b a nested gate inside a gated command does not wait for its own lock" '^nested$' \
-  "$(HERDSMAN_GATE_WAIT=60 /bin/bash "$WG" /bin/bash "$WG" echo nested 2>/dev/null)"
-# G7: the gate shell is killed alone while its command runs: the next command waits for that command
+out=$(HERDSMAN_LOCK_WAIT=1 /bin/bash "$RC" echo ran 2>&1); rc=$?; wait "$holder"
+check "C4 no lock within the wait: NOT RUN" 'run-check: NOT RUN \(no lock within 1s\)' "$out"; nocheck "C4b the check did not run" '^ran$' "$out"
+check "C4c exit 75" '^75$' "$rc"
+echo "9.0 50" > "$HERDSMAN_READING"
+out=$(HERDSMAN_GATE_WAIT=1 /bin/bash "$RC" echo ran 2>&1); rc=$?
+check "C5 load over the limit: the gate gives up" 'NOT RUN \(load gate gave up after 1s: load 9.0, limit 4' "$out"
+nocheck "C5b the check did not run" '^ran$' "$out"; check "C5c exit 75" '^75$' "$rc"
+echo "0.5 5" > "$HERDSMAN_READING"
+check "C6 low free memory: the gate gives up" 'NOT RUN \(load gate gave up' "$(HERDSMAN_GATE_WAIT=1 /bin/bash "$RC" echo ran 2>&1)"
+echo "0.5 50" > "$HERDSMAN_READING"
+out=$(/bin/bash "$RC" echo ran 2>&1)
+check "C7 under the limits the check runs" '^ran$' "$out"; nocheck "C7b without a gate warning" 'run-check:' "$out"
+rm -f "$HERDSMAN_READING"
+out=$(/bin/bash "$RC" echo ran 2>&1)
+check "C8 no reading: runs under the lock only and says so" 'no load reading, running under the lock only' "$out"; check "C8b and ran" 'ran$' "$out"
+check "C9 no start markers left behind" '^none$' "$(ls "$T"/herdsman-check.* 2>/dev/null || echo none)"
 : > "$T/orphan.log"
-/bin/bash "$WG" sh -c "/bin/sleep 2; echo first >> '$T/orphan.log'" & gate=$!
-/bin/sleep 0.5; kill -9 "$gate" 2>/dev/null; wait "$gate" 2>/dev/null
-/bin/bash "$WG" sh -c "echo second >> '$T/orphan.log'" 2>/dev/null
-check "G7 a running command keeps the lock after its gate shell dies" '^first second$' "$(tr '\n' ' ' < "$T/orphan.log" | sed 's/ $//')"
-# G8: a stale lock that cannot be cleared: no busy loop, the wait limit still applies
-mkdir "$HERDSMAN_GATE"; echo "$dead" > "$HERDSMAN_GATE/pid"; : > "$HERDSMAN_GATE/kept"
-start=$(date +%s)
-out=$(HERDSMAN_GATE_WAIT=2 perl -e 'alarm 15; exec @ARGV' /bin/bash "$WG" echo ran 2>&1)
-check "G8 an uncleared stale lock reaches the wait limit" 'running without the gate' "$out"
-check "G8b within the limit, not after a timeout" '^ok$' "$([ $(( $(date +%s) - start )) -lt 10 ] && echo ok || echo slow)"
-rm -f "$HERDSMAN_GATE/kept" "$HERDSMAN_GATE/pid"; rmdir "$HERDSMAN_GATE"
-unset HERDSMAN_GATE HERDSMAN_GATE_POLL
+/bin/bash "$RC" sh -c "/bin/sleep 2; echo first >> '$T/orphan.log'" 2>/dev/null & outer=$!
+/bin/sleep 0.5; kill -9 "$outer" 2>/dev/null; wait "$outer" 2>/dev/null
+/bin/bash "$RC" sh -c "echo second >> '$T/orphan.log'" 2>/dev/null
+check "C10 a running check keeps the lock after its run-check shell dies" '^first second$' "$(tr '\n' ' ' < "$T/orphan.log" | sed 's/ $//')"
+unset HERDSMAN_PROBES
+HERDSMAN_PUBLISH_SECONDS=2 HERDSMAN_PUBLISH_EVERY=1 /bin/bash "$RC" --publish 1 2> "$T/publisher.err"
+check "C11 the publisher writes a reading" '^[0-9.]+ [0-9.]+$' "$(cat "$HERDSMAN_READING" 2>/dev/null)"
+check "C11b and stops by itself" 'publisher stopped' "$(cat "$T/publisher.err")"
+unset HERDSMAN_LOCK HERDSMAN_READING HERDSMAN_GATE_POLL HERDSMAN_LOAD_LIMIT
 
 # Z: the scripts started from zsh in a clean environment, with the command forms the skill documents
 if command -v zsh >/dev/null 2>&1; then
@@ -232,7 +226,7 @@ if command -v zsh >/dev/null 2>&1; then
   check "Z1 waiter from zsh: report" 'REPORT a ' "$out"; check "Z1b waiter from zsh: due time" 'OVERDUE im-b due [0-9][0-9]:[0-9][0-9]' "$out"
   zrun '/bin/bash "$1" "$2" "im-a: round 2 (due 14:05) * done"' zsh "$RL" "$T/00-route.md"
   check "Z2 route-log from zsh keeps the text" '^- [0-9][0-9]:[0-9][0-9] im-a: round 2 \(due 14:05\) \* done$' "$(tail -1 "$T/00-route.md")"
-  zrun "HERDSMAN_GATE='$T/zgate' /bin/bash '$SK/with-gate.sh' sh -c 'exit 4'"; check "Z3 gate from zsh keeps the exit status" '^4$' "$?"
+  zrun "HERDSMAN_LOCK='$T/z.lock' HERDSMAN_PROBES=off /bin/bash '$SK/run-check.sh' sh -c 'exit 4'" 2>/dev/null; check "Z3 run-check from zsh keeps the exit status" '^4$' "$?"
   check "Z4 a test runner started with zsh" 'RESULT pass=[0-9]+ fail=0' "$(zsh "$SK/test/checkpointer-tests.sh" 2>&1 | tail -1)"
 else
   echo "SKIP Z tests: zsh is not installed"

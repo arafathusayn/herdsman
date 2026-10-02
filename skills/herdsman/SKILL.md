@@ -166,7 +166,7 @@ React to each event:
 - BLOCKED with a model-switch offer: keep the confirmed model (harness notes).
 - BLOCKED with a usage limit: tell the user; never fall back to an API key.
 - STALL twice in a row: read the pane in full, then prompt the agent with the exact next step.
-- HEALTH for an agent: as for the same flag on a wake (an earlier due time, or a look at the folder its test logs go to). HEALTH for the machine: start no new heavy work; tell the agents in their next prompt to run their gates through [`scripts/with-gate.sh`](scripts/with-gate.sh) if they do not already ([`references/shared-environment.md`](references/shared-environment.md)).
+- HEALTH for an agent: as for the same flag on a wake (an earlier due time, or a look at the folder its test logs go to). HEALTH for the machine: start no new heavy work; check that the route's `run-check.sh` has its load limit and that the publisher still runs ([`references/shared-environment.md`](references/shared-environment.md)).
 - OVERDUE: run [`agent-status.sh`](scripts/agent-status.sh) for that agent. If it is still writing and close, give one stated extension (new `HERDSMAN_DUE_<name>`, logged in `00-route.md`); otherwise queue the stop-and-report steer and follow it with the interrupt key as described above. Never extend twice.
 - REPORT from an implementer: read the report, check `STATUS:`, check the pull request (`gh pr view <n> --json headRefOid,mergeable,statusCheckRollup`) or, in an integration route, the local branch head, then hand it to the reviewer (step 5).
 - REPORT or REPORT-UPDATED from the integrator: check that its turn ended and that the combined head is new, then start the next step of step 5 (final review, next phase or push).
