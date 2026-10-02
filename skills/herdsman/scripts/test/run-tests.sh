@@ -175,7 +175,8 @@ export HERDSMAN_GATE="$T/gate" HERDSMAN_GATE_POLL=1
 /bin/bash -n "$WG" && { pass=$((pass+1)); echo "PASS syntax with-gate"; } || { fail=$((fail+1)); echo "FAIL syntax with-gate"; }
 /bin/bash "$WG" sh -c 'exit 3'; rc=$?
 check "G1 exit status of the command" '^3$' "$rc"; check "G1b lock released" '^gone$' "$([ -d "$HERDSMAN_GATE" ] && echo held || echo gone)"
-check "G1c runs at a lower priority" '^ *10$' "$(/bin/bash "$WG" sh -c 'ps -o ni= -p $$')"
+# Read the niceness from the kernel (getpriority), not from ps: the ps columns differ between macOS and Linux.
+check "G1c runs at a lower priority" '^10$' "$(/bin/bash "$WG" perl -e 'print getpriority(0, 0)')"
 /bin/bash "$WG" 2>/dev/null; check "G1d usage error without a command" '^2$' "$?"
 : > "$T/gate.log"
 /bin/bash "$WG" sh -c "/bin/sleep 2; echo first >> '$T/gate.log'" & holder=$!
