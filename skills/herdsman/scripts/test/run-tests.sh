@@ -213,6 +213,10 @@ check "C9 no start markers left behind" '^none$' "$(ls "$T"/herdsman-check.* 2>/
 /bin/bash "$RC" sh -c "echo second >> '$T/orphan.log'" 2>/dev/null
 check "C10 a running check keeps the lock after its run-check shell dies" '^first second$' "$(tr '\n' ' ' < "$T/orphan.log" | sed 's/ $//')"
 unset HERDSMAN_PROBES
+# C10b: the real probes feed the gate: no reading file, loose limits (a busy CI runner must not fail the test)
+rm -f "$HERDSMAN_READING"
+out=$(HERDSMAN_LOAD_LIMIT=10000 HERDSMAN_MIN_FREE=1 HERDSMAN_GATE_WAIT=5 /bin/bash "$RC" echo ran 2>&1)
+check "C10b the machine's own reading lets a check run" '^ran$' "$out"; nocheck "C10c with a reading, not under the lock only" 'run-check:' "$out"
 HERDSMAN_PUBLISH_SECONDS=2 HERDSMAN_PUBLISH_EVERY=1 /bin/bash "$RC" --publish 1 2> "$T/publisher.err"
 check "C11 the publisher writes a reading" '^[0-9.]+ [0-9.]+$' "$(cat "$HERDSMAN_READING" 2>/dev/null)"
 check "C11b and stops by itself" 'publisher stopped' "$(cat "$T/publisher.err")"
