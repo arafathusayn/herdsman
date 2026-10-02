@@ -10,6 +10,9 @@ STATE=${HERDSMAN_STATE:-/ABSOLUTE/PATH/TO/scratchpad/watch-state}
 IMPLEMENTERS=${HERDSMAN_IMPLEMENTERS:-"im-a im-b im-c im-d"}
 INTEGRATOR=${HERDSMAN_INTEGRATOR:-}
 mkdir -p "$STATE"
+# GNU and BSD (macOS) stat differ.
+if stat -c %Y / >/dev/null 2>&1; then file_mtime() { stat -c %Y "$1" 2>/dev/null; }
+else file_mtime() { stat -f %m "$1" 2>/dev/null; }; fi
 pane_of() {
   var="HERDSMAN_PANE_$(printf '%s' "$1" | tr '-' '_')"
   env_pane=$(eval "printf '%s' \"\${$var:-}\"")
@@ -29,7 +32,7 @@ while true; do
     task=$(task_of "$name")
     report="$REPORTS/$task.md"
     if [ -f "$report" ]; then
-      mtime=$(stat -f %m "$report" 2>/dev/null)
+      mtime=$(file_mtime "$report")
       prevm=$(cat "$STATE/mtime-$task" 2>/dev/null)
       printf '%s' "$mtime" > "$STATE/mtime-$task"
       if [ ! -f "$STATE/report-$task" ]; then

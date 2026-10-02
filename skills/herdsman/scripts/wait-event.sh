@@ -1,16 +1,20 @@
 #!/bin/bash
 # herdsman one-shot waiter (bash 3). THE wake mechanism of the loop.
-# Run it with the Bash tool as run_in_background: true, timeout: 600000. It exits on the FIRST event pass
+# Run it with the Bash tool as run_in_background: true, timeout: 1800000. It exits on the FIRST event pass
 # (printing every event of that pass) or after DEADLINE seconds with a TICK line; a finished background
 # command re-invokes the orchestrator, which handles the events and re-arms the same command.
+# DEADLINE stays below the harness's limit for background commands (Claude Code: 30 minutes unless the
+# timeout asks for more): each TICK is a whole orchestrator turn, so a short deadline only adds turns.
 # Monitor tasks do not wake the session between turns; this does.
 # Events: REPORT <task> <path> | REPORT-UPDATED <task> <path> | REVIEW <path> | BLOCKED <agent> <text>
 #         | GOAL-DONE-NO-REPORT <agent> | STALL <agent> (screen unchanged for 3 polls while working)
-#         | OVERDUE <agent> (past its due time and its report not written since the due time was set) | TICK
+#         | OVERDUE <agent> (past its due time and its report not written since the due time was set)
+#         | HEALTH <agent or machine> <flag> (agent-status.sh flagged it; once until it clears) | TICK
 # Configure with HERDSMAN_REPORTS, HERDSMAN_STATE, HERDSMAN_IMPLEMENTERS, HERDSMAN_INTEGRATOR (one name, optional),
 # HERDSMAN_PANE_<name> (dashes as underscores), HERDSMAN_DUE_<name> (epoch seconds, e.g. `date -v+45M +%s`;
-# optional, one per implementer or integrator), HERDSMAN_REVIEWER_PANE, HERDSMAN_REVIEWER_NAME, DEADLINE (default 540),
-# POLL (default 60), or edit the defaults. The integrator writes a task report like an implementer and is watched the same way.
+# optional, one per implementer or integrator), HERDSMAN_REVIEWER_PANE, HERDSMAN_REVIEWER_NAME, DEADLINE (default 1500),
+# POLL (default 60), HERDSMAN_STATUS_SPECS (as for agent-status.sh: turns on the health check every HEALTH_EVERY
+# seconds, default 600), or edit the defaults. The integrator writes a task report like an implementer and is watched the same way.
 # DEADLINE is how long this waiter runs before TICK; an agent's time box is HERDSMAN_DUE_<name>.
 REPORTS=${HERDSMAN_REPORTS:-/ABSOLUTE/PATH/TO/writable-root/reports}
 STATE=${HERDSMAN_STATE:-/ABSOLUTE/PATH/TO/scratchpad/watch-state}
@@ -18,9 +22,16 @@ IMPLEMENTERS=${HERDSMAN_IMPLEMENTERS:-"im-a im-b im-c im-d"}
 INTEGRATOR=${HERDSMAN_INTEGRATOR:-}
 RPANE=${HERDSMAN_REVIEWER_PANE:-w2:pR}
 RNAME=${HERDSMAN_REVIEWER_NAME:-rv-1}
-DEADLINE=${DEADLINE:-540}
+DEADLINE=${DEADLINE:-1500}
 POLL=${POLL:-60}
+HEALTH_EVERY=${HEALTH_EVERY:-600}
+STATUS_SCRIPT=${HERDSMAN_STATUS_SCRIPT:-$(dirname "$0")/agent-status.sh}
 mkdir -p "$STATE"
+# GNU and BSD (macOS) tools differ: stat -c or -f, date -d or -r.
+if stat -c %Y / >/dev/null 2>&1; then file_mtime() { stat -c %Y "$1" 2>/dev/null; }
+else file_mtime() { stat -f %m "$1" 2>/dev/null; }; fi
+if date -d @0 +%s >/dev/null 2>&1; then clock_of() { date -d "@$1" '+%H:%M'; }
+else clock_of() { date -r "$1" '+%H:%M'; }; fi
 pane_of() {
   var="HERDSMAN_PANE_$(printf '%s' "$1" | tr '-' '_')"
   env_pane=$(eval "printf '%s' \"\${$var:-}\"")
@@ -55,7 +66,7 @@ while true; do
     has_report=0
     if [ -f "$report" ]; then
       has_report=1
-      mtime=$(stat -f %m "$report" 2>/dev/null)
+      mtime=$(file_mtime "$report")
       prevm=$(cat "$STATE/mtime-$task" 2>/dev/null)
       printf '%s' "$mtime" > "$STATE/mtime-$task"
       if [ ! -f "$STATE/report-$task" ]; then
@@ -73,7 +84,7 @@ REPORT-UPDATED $task $report $now"
     duevar="HERDSMAN_DUE_$(printf '%s' "$name" | tr '-' '_')"
     due=$(eval "printf '%s' \"\${$duevar:-}\"")
     if [ -n "$due" ]; then
-      cur=$(stat -f %m "$report" 2>/dev/null || echo none)
+      cur=$(file_mtime "$report" || echo none)
       if [ "$(cat "$STATE/due-$name" 2>/dev/null)" != "$due" ]; then
         printf '%s' "$due" > "$STATE/due-$name"
         printf '%s' "$cur" > "$STATE/duebase-$name"
@@ -83,7 +94,7 @@ REPORT-UPDATED $task $report $now"
         && [ "$cur" = "$(cat "$STATE/duebase-$name" 2>/dev/null)" ]; then
         touch "$STATE/overdue-$name"
         events="$events
-OVERDUE $name due $(date -r "$due" '+%H:%M') no report since the due time was set $now"
+OVERDUE $name due $(clock_of "$due") no report since the due time was set $now"
       fi
     fi
     text=$(herdr pane read "$(pane_of "$name")" --source recent-unwrapped --lines 40 2>/dev/null)
@@ -140,6 +151,25 @@ REVIEW $f $now"
 BLOCKED $rname $(printf '%s' "$text" | grep -o -E "$BLOCK_RE" | head -1) $now"
     fi
   done
+  # Health: the user's ten-minute check of every agent runs here, so a quiet route needs no orchestrator turn.
+  # Each flag (a job over its limit, a tree with no writes, machine load or memory) is reported once, until it clears.
+  if [ -n "${HERDSMAN_STATUS_SPECS:-}" ] && [ -f "$STATUS_SCRIPT" ]; then
+    last=$(cat "$STATE/health-at" 2>/dev/null)
+    if [ -z "$last" ]; then
+      date +%s > "$STATE/health-at"
+    elif [ $(( $(date +%s) - last )) -ge "$HEALTH_EVERY" ]; then
+      date +%s > "$STATE/health-at"
+      flags=$(/bin/bash "$STATUS_SCRIPT" 2>/dev/null | awk 'BEGIN{n="machine"} /^== /{n=$2} /<-- /{sub(/.*<-- /,""); print n" "$0}' | sort -u)
+      prevflags=$(cat "$STATE/health-flags" 2>/dev/null)
+      printf '%s\n' "$flags" > "$STATE/health-flags"
+      new=$(printf '%s\n' "$flags" | while IFS= read -r l; do
+        [ -n "$l" ] || continue
+        printf '%s\n' "$prevflags" | grep -qxF -- "$l" || echo "HEALTH $l $now"
+      done)
+      [ -n "$new" ] && events="$events
+$new"
+    fi
+  fi
   if [ -n "$events" ]; then
     printf '%s\n' "$events" | sed '/^$/d'
     exit 0

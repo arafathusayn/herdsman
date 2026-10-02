@@ -22,8 +22,9 @@ while true; do
   hash=$(printf '%s' "$text" | cksum | cut -d' ' -f1)
   prev=$(cat "$STATE/hash-$NAME" 2>/dev/null)
   printf '%s' "$hash" > "$STATE/hash-$NAME"
+  # Once per screen change, like the waiter: an unchanged prompt on screen is the same event.
   if printf '%s' "$text" | grep -q -E "$BLOCK_RE"; then
-    echo "BLOCKED $NAME $(printf '%s' "$text" | grep -o -E "$BLOCK_RE" | head -1) $(date '+%H:%M:%S')"
+    [ "$hash" != "$prev" ] && echo "BLOCKED $NAME $(printf '%s' "$text" | grep -o -E "$BLOCK_RE" | head -1) $(date '+%H:%M:%S')"
   elif ! printf '%s' "$text" | grep -q -E "$WORK_RE"; then
     if [ "$hash" != "$prev" ]; then
       echo "IDLE $NAME $(date '+%H:%M:%S')"

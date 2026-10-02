@@ -14,6 +14,10 @@ COMPACT="${COMPACT:-/compact}"
 DEFAULT_PROMPT='/memory-with-dag Capture all learnings as lessons in your local memory and if needed in kb. Keep index memory file lean, each entry should have timestamps and expand from index root using DAG like structure and knowledge graph. Do it now. Focus on reproduction of the understaning of the current state for this project because I'"'"'m going to compact your context.'
 PROMPT="${PROMPT:-$DEFAULT_PROMPT}"
 
+# GNU and BSD (macOS) stat differ.
+if stat -c %s / >/dev/null 2>&1; then file_size() { stat -c %s "$1"; }
+else file_size() { stat -f %z "$1"; }; fi
+
 log() { echo "$(date '+%H:%M:%S') $*" | tee -a "$LOG"; }
 
 # The transcript is found from the session id Herdr reports, so it follows a resumed session.
@@ -63,8 +67,8 @@ while true; do
   sleep "$INTERVAL"
   f=$(transcript)
   [ -z "$f" ] && { log "no transcript found; skip"; continue; }
-  size=$(stat -f %z "$f")
+  size=$(file_size "$f")
   if [ "$size" = "$last_size" ]; then log "no activity since last checkpoint; skip"; continue; fi
   cycle "$f" || continue
-  last_size=$(stat -f %z "$f")
+  last_size=$(file_size "$f")
 done

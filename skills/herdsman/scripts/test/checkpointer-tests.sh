@@ -1,6 +1,8 @@
 #!/bin/bash
 # Tests for scripts/checkpointer.sh --once and --probe with a fake herdr and a fake transcript.
-# Run: /bin/bash <skill>/scripts/test/checkpointer-tests.sh
+# Run from bash or zsh: zsh <skill>/scripts/test/checkpointer-tests.sh (or /bin/bash, sh, ./checkpointer-tests.sh)
+# Started from zsh or sh, re-run under /bin/bash (the line is valid in all three).
+[ -n "${BASH_VERSION:-}" ] || exec /bin/bash "$0" "$@"
 S="$(cd "$(dirname "$0")/.." && pwd)/checkpointer.sh"
 T=$(mktemp -d "${TMPDIR:-/tmp}/herdsman-cp-test-XXXXXX")
 mkdir -p "$T/bin" "$T/home/.claude/projects/p"
@@ -28,6 +30,15 @@ run LIMIT=400000; check "waits for idle or done, never blocked" "$(grep -c -- '-
 
 out=$(env CALLS="$T/calls" PATH="$T/bin:$PATH" HOME="$T/home" TARGET=w9:p9 /bin/bash "$S" --probe)
 check "probe reads context" "${out##*context=}" "300100"
+
+# The pane-run form from zsh, the macOS login shell: a quoted value with a space reaches the script whole.
+if command -v zsh >/dev/null 2>&1; then
+  : > "$T/calls"
+  env -i CALLS="$T/calls" PATH="$T/bin:$PATH" HOME="$T/home" LOG="$T/log" zsh -f -c "TARGET=w9:p9 PROMPT='/save-memory now' LIMIT=1 /bin/bash '$S' --once" > /dev/null
+  check "zsh pane-run form keeps a quoted prompt" "$(prompts)" "/save-memory now|/compact|"
+else
+  echo "SKIP zsh form: zsh is not installed"
+fi
 
 echo "RESULT pass=$pass fail=$fail (work dir $T)"
 [ "$fail" = 0 ]

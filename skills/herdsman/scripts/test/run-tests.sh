@@ -1,8 +1,10 @@
 #!/bin/bash
-# Sanity tests for the herdsman watcher templates under macOS /bin/bash 3.2.
-# Run: /bin/bash ~/.claude/skills/herdsman/scripts/test/run-tests.sh [work dir]
+# Sanity tests for the herdsman scripts under macOS /bin/bash 3.2 with BSD tools, and under GNU tools.
+# Run from bash or zsh: zsh <skill>/scripts/test/run-tests.sh [work dir] (or /bin/bash, sh, ./run-tests.sh)
 # A `sleep` stub exits the watcher after one pass, so every test is one poll iteration.
-# A fake `herdr` on PATH serves pane text from files.
+# A fake `herdr` on PATH serves pane text from files. The Z tests start the scripts from zsh, as a macOS shell does.
+# Started from zsh or sh, re-run under /bin/bash (the line is valid in all three).
+[ -n "${BASH_VERSION:-}" ] || exec /bin/bash "$0" "$@"
 set -u
 SK=$(cd "$(dirname "$0")/.." && pwd)
 T=${1:-${TMPDIR:-/tmp}/herdsman-test-$$}
@@ -68,6 +70,7 @@ out=$(run_r); nocheck "R1 working is silent" 'IDLE|BLOCKED|REVIEW' "$out"
 # R2: permission prompt: BLOCKED
 printf '%s\n' "Allow reads outside the working directories?" > "$FAKE_PANE_DIR/w9:p3.txt"
 out=$(run_r); check "R2 blocked" 'BLOCKED rv-1 Allow reads outside' "$out"
+out=$(run_r); nocheck "R2b unchanged blocked screen is silent" 'BLOCKED' "$out"
 # R3: idle with a changed screen: IDLE
 printf '%s\n' "❯" "/path/review-31-1.md" > "$FAKE_PANE_DIR/w9:p3.txt"
 out=$(run_r); check "R3 idle" 'IDLE rv-1' "$out"
@@ -131,6 +134,30 @@ out=$(run_e); nocheck "E11a integrator watched, no report yet" 'REPORT' "$out"
 printf 'STATUS: complete\n' > "$HERDSMAN_REPORTS/i.md"
 out=$(run_e); check "E11b integrator report" "REPORT i $HERDSMAN_REPORTS/i.md" "$out"
 unset HERDSMAN_INTEGRATOR HERDSMAN_PANE_int_1 HERDSMAN_TASK_int_1
+# E13: health check: silent on the first arm, then each flag of agent-status.sh once, until it clears
+printf '%s\n' '#!/bin/bash' 'cat "$STUB_OUT"' > "$T/status-stub.sh"
+export STUB_OUT="$T/status-out" HERDSMAN_STATUS_SPECS="im-a:w9:p1:$T" HERDSMAN_STATUS_SCRIPT="$T/status-stub.sh" HEALTH_EVERY=0
+printf '%s\n' '12:00:00' 'machine: load 9.00 (5 min) on 8 cores, memory free 50%' '   <-- LOAD HIGH' \
+  '== im-a (w9:p1) state= model=' '   files changed in last 10m under t: 0  <-- NO WRITES in 10m' > "$STUB_OUT"
+out=$(run_e); nocheck "E13a first arm only starts the clock" 'HEALTH' "$out"
+out=$(run_e); check "E13b machine flag" 'HEALTH machine LOAD HIGH ' "$out"; check "E13c agent flag" 'HEALTH im-a NO WRITES in 10m ' "$out"
+out=$(run_e); nocheck "E13d same flags are not repeated" 'HEALTH' "$out"
+printf '%s\n' '12:10:00' 'machine: load 2.00 (5 min) on 8 cores, memory free 50%' '== im-a (w9:p1) state= model=' \
+  '   files changed in last 10m under t: 0  <-- NO WRITES in 10m' > "$STUB_OUT"
+out=$(run_e); nocheck "E13e a cleared flag is silent" 'HEALTH' "$out"
+printf '%s\n' '12:20:00' 'machine: load 9.00 (5 min) on 8 cores, memory free 50%' '   <-- LOAD HIGH' '== im-a (w9:p1) state= model=' \
+  '   files changed in last 10m under t: 0  <-- NO WRITES in 10m' > "$STUB_OUT"
+out=$(run_e); check "E13f a flag that returns is reported again" 'HEALTH machine LOAD HIGH' "$out"; nocheck "E13g the unchanged flag stays silent" 'HEALTH im-a' "$out"
+unset STUB_OUT HERDSMAN_STATUS_SPECS HERDSMAN_STATUS_SCRIPT HEALTH_EVERY
+
+# A1: agent-status.sh prints the machine line and flags a tree with no recent writes
+mkdir -p "$T/quiet-tree"; touch -t 202601010000 "$T/quiet-tree" 2>/dev/null
+out=$(HERDSMAN_STATUS_SPECS="im-a:w9:p1:$T/quiet-tree" /bin/bash "$SK/agent-status.sh" 2>&1)
+check "A1 machine line" '^machine: load [0-9.]+ \(5 min\) on [0-9]+ cores, memory free [0-9?]+%' "$(printf '%s\n' "$out" | grep '^machine')"
+check "A1b quiet tree flagged" 'under quiet-tree: 0  <-- NO WRITES in 10m' "$out"
+printf 'x\n' > "$T/quiet-tree/new.txt"
+out=$(HERDSMAN_STATUS_SPECS="im-a:w9:p1:$T/quiet-tree" /bin/bash "$SK/agent-status.sh" 2>&1)
+check "A1c a fresh write clears the flag" 'under quiet-tree: 1$' "$out"
 
 # L1: route-log.sh appends one "- HH:MM <text>" line; L2: usage error on a missing argument or file
 RL="$SK/route-log.sh"
@@ -142,6 +169,72 @@ check "L1b exactly one line appended" '^2$' "$(wc -l < "$T/00-route.md" | tr -d 
 out=$(/bin/bash "$RL" "$T/00-route.md" 2>&1); rc=$?
 check "L2 usage on a missing text" '^usage: route-log.sh' "$out"; if [ "$rc" -ne 0 ]; then pass=$((pass+1)); echo "PASS L2 exit non-zero"; else fail=$((fail+1)); echo "FAIL L2 exit 0"; fi
 out=$(/bin/bash "$RL" "$T/no-such-route.md" "x" 2>&1); check "L2b usage on a missing file" '^usage: route-log.sh' "$out"
+
+# C: run-check.sh runs one heavy check at a time, behind a load gate. A fixed reading keeps the gate deterministic.
+RC="$SK/run-check.sh"
+export HERDSMAN_LOCK="$T/checks.lock" HERDSMAN_READING="$T/load" HERDSMAN_PROBES=off HERDSMAN_GATE_POLL=1 HERDSMAN_LOAD_LIMIT=4
+/bin/bash -n "$RC" && { pass=$((pass+1)); echo "PASS syntax run-check"; } || { fail=$((fail+1)); echo "FAIL syntax run-check"; }
+echo "0.5 50" > "$HERDSMAN_READING"
+/bin/bash "$RC" sh -c 'exit 3' 2>/dev/null; check "C1 exit status of the check" '^3$' "$?"
+# Read the niceness from the kernel (getpriority), not from ps: the ps columns differ between macOS and Linux.
+# nice adds to the caller's niceness (a CI runner can start jobs at -10), up to the maximum of 19.
+prio='print getpriority(0, 0)'
+want=$(( $(perl -e "$prio") + 10 )); [ "$want" -gt 19 ] && want=19
+check "C1b lowers the priority by 10" "^$want\$" "$(/bin/bash "$RC" perl -e "$prio" 2>&1)"
+/bin/bash "$RC" 2>/dev/null; check "C1c usage error without a command" '^64$' "$?"
+check "C2 a nested check runs at once" '^nested$' "$(HERDSMAN_LOCK_WAIT=5 /bin/bash "$RC" /bin/bash "$RC" echo nested 2>&1)"
+: > "$T/order.log"; echo "0.5 50" > "$HERDSMAN_READING"
+/bin/bash "$RC" sh -c "/bin/sleep 2; echo first >> '$T/order.log'" 2>/dev/null & holder=$!
+/bin/sleep 0.5
+out=$(/bin/bash "$RC" sh -c "echo second >> '$T/order.log'" 2>&1); wait "$holder"
+check "C3 the second check waits for the first" '^first second$' "$(tr '\n' ' ' < "$T/order.log" | sed 's/ $//')"
+check "C3b and says whose lock it waits for" 'waiting for the machine lock, held by pid' "$out"
+/bin/bash "$RC" /bin/sleep 3 2>/dev/null & holder=$!
+/bin/sleep 0.5
+out=$(HERDSMAN_LOCK_WAIT=1 /bin/bash "$RC" echo ran 2>&1); rc=$?; wait "$holder"
+check "C4 no lock within the wait: NOT RUN" 'run-check: NOT RUN \(no lock within 1s\)' "$out"; nocheck "C4b the check did not run" '^ran$' "$out"
+check "C4c exit 75" '^75$' "$rc"
+echo "9.0 50" > "$HERDSMAN_READING"
+out=$(HERDSMAN_GATE_WAIT=1 /bin/bash "$RC" echo ran 2>&1); rc=$?
+check "C5 load over the limit: the gate gives up" 'NOT RUN \(load gate gave up after 1s: load 9.0, limit 4' "$out"
+nocheck "C5b the check did not run" '^ran$' "$out"; check "C5c exit 75" '^75$' "$rc"
+echo "0.5 5" > "$HERDSMAN_READING"
+check "C6 low free memory: the gate gives up" 'NOT RUN \(load gate gave up' "$(HERDSMAN_GATE_WAIT=1 /bin/bash "$RC" echo ran 2>&1)"
+echo "0.5 50" > "$HERDSMAN_READING"
+out=$(/bin/bash "$RC" echo ran 2>&1)
+check "C7 under the limits the check runs" '^ran$' "$out"; nocheck "C7b without a gate warning" 'run-check:' "$out"
+rm -f "$HERDSMAN_READING"
+out=$(/bin/bash "$RC" echo ran 2>&1)
+check "C8 no reading: runs under the lock only and says so" 'no load reading, running under the lock only' "$out"; check "C8b and ran" 'ran$' "$out"
+check "C9 no start markers left behind" '^none$' "$(ls "$T"/herdsman-check.* 2>/dev/null || echo none)"
+: > "$T/orphan.log"
+/bin/bash "$RC" sh -c "/bin/sleep 2; echo first >> '$T/orphan.log'" 2>/dev/null & outer=$!
+/bin/sleep 0.5; kill -9 "$outer" 2>/dev/null; wait "$outer" 2>/dev/null
+/bin/bash "$RC" sh -c "echo second >> '$T/orphan.log'" 2>/dev/null
+check "C10 a running check keeps the lock after its run-check shell dies" '^first second$' "$(tr '\n' ' ' < "$T/orphan.log" | sed 's/ $//')"
+unset HERDSMAN_PROBES
+# C10b: the real probes feed the gate: no reading file, loose limits (a busy CI runner must not fail the test)
+rm -f "$HERDSMAN_READING"
+out=$(HERDSMAN_LOAD_LIMIT=10000 HERDSMAN_MIN_FREE=1 HERDSMAN_GATE_WAIT=5 /bin/bash "$RC" echo ran 2>&1)
+check "C10b the machine's own reading lets a check run" '^ran$' "$out"; nocheck "C10c with a reading, not under the lock only" 'run-check:' "$out"
+HERDSMAN_PUBLISH_SECONDS=2 HERDSMAN_PUBLISH_EVERY=1 /bin/bash "$RC" --publish 1 2> "$T/publisher.err"
+check "C11 the publisher writes a reading" '^[0-9.]+ [0-9.]+$' "$(cat "$HERDSMAN_READING" 2>/dev/null)"
+check "C11b and stops by itself" 'publisher stopped' "$(cat "$T/publisher.err")"
+unset HERDSMAN_LOCK HERDSMAN_READING HERDSMAN_GATE_POLL HERDSMAN_LOAD_LIMIT
+
+# Z: the scripts started from zsh in a clean environment, with the command forms the skill documents
+if command -v zsh >/dev/null 2>&1; then
+  zrun() { env -i PATH="$PATH" HOME="$HOME" FAKE_PANE_DIR="$FAKE_PANE_DIR" zsh -f -c "$@"; }
+  mkdir -p "$T/z/reports"; printf 'STATUS: complete\n' > "$T/z/reports/a.md"
+  out=$(zrun "HERDSMAN_REPORTS='$T/z/reports' HERDSMAN_STATE='$T/z/state' HERDSMAN_IMPLEMENTERS='im-a im-b' HERDSMAN_PANE_im_a=w9:p1 HERDSMAN_PANE_im_b=w9:p2 HERDSMAN_DUE_im_b=\$(( \$(date +%s) - 60 )) HERDSMAN_REVIEWERS='rv-1:w9:p3' DEADLINE=0 POLL=1 /bin/bash '$SK/wait-event.sh'" 2>&1)
+  check "Z1 waiter from zsh: report" 'REPORT a ' "$out"; check "Z1b waiter from zsh: due time" 'OVERDUE im-b due [0-9][0-9]:[0-9][0-9]' "$out"
+  zrun '/bin/bash "$1" "$2" "im-a: round 2 (due 14:05) * done"' zsh "$RL" "$T/00-route.md"
+  check "Z2 route-log from zsh keeps the text" '^- [0-9][0-9]:[0-9][0-9] im-a: round 2 \(due 14:05\) \* done$' "$(tail -1 "$T/00-route.md")"
+  zrun "HERDSMAN_LOCK='$T/z.lock' HERDSMAN_PROBES=off /bin/bash '$SK/run-check.sh' sh -c 'exit 4'" 2>/dev/null; check "Z3 run-check from zsh keeps the exit status" '^4$' "$?"
+  check "Z4 a test runner started with zsh" 'RESULT pass=[0-9]+ fail=0' "$(zsh "$SK/test/checkpointer-tests.sh" 2>&1 | tail -1)"
+else
+  echo "SKIP Z tests: zsh is not installed"
+fi
 
 echo "RESULT pass=$pass fail=$fail (work dir $T)"
 [ "$fail" -eq 0 ]
