@@ -31,8 +31,10 @@ The installed binary is the authority: `herdr --help`, then a group without a su
 - Herdr reports an agent `idle` while a long foreground command runs; read the screen before treating it as stalled.
 - `agent_status: blocked` means Herdr recognised an approval UI; `unknown` does not prove completion.
 - Quit a Claude agent with ctrl+c twice (sometimes four), wait for the shell prompt, then start again; flags apply per process.
+- After a Herdr server restart or a harness configuration change, read every pane: agents and waiters attached to the old server are gone, and sessions that kept running keep the tools and hooks they started with. Restart the panes whose agent is gone and re-arm the waiter. Send the current job again from the route file only to an agent whose pane shows the job was interrupted (a shell prompt, or an idle input with no finished report); an agent still working keeps its job, and a second copy can repeat its work or its mutations.
 - `herdr channel set` and `herdr update --handoff` refuse to run inside a Herdr pane; the user runs them outside. The handoff kept panes and agents alive.
 - `/goal` is a Codex feature. Claude Code, Muse and OpenCode take plain prompts.
+- `herdr pane send-keys` takes key names only; text such as `/new` fails with "unsupported key". Send text with `herdr agent prompt <name> "<text>"`.
 - `herdr agent prompt` answers `agent_blocked` while Codex shows a queued follow-up question; clear it with `pane send-keys <pane> alt+up` then `'ctrl+]'` (see [`codex.md`](codex.md)). Key names: `alt+up`, `ctrl+]`, `esc`, `enter`. `pane send-text` and `pane run` (text plus Enter) bypass the agent state check; use them only when the agent commands refuse.
 - A `grep -o '"type":...'` on a prompt result hides errors: the error JSON has no `type`. Print the result with `head -c 300` instead and look for `agent_prompted`.
 - `herdr agent wait <name> --timeout N` ends with `{"error":{"code":"timeout",...}}` on exit 1 when the agent stays busy; a `grep` for `agent_status` then prints nothing ("No matches found"). A long Muse turn outlasts a one-hour wait; rely on the waiter (REPORT-UPDATED) instead of long agent waits.
