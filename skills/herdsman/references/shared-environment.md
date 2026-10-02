@@ -27,6 +27,7 @@ case "$HERDSMAN_CHECK" in
   gated) exec "$@" ;;                # a check started by a check already holds the lock
   locked) ;;                         # started again by lockf below: gate, then run
   *) export HERDSMAN_CHECK=locked HERDSMAN_CHECK_RAN=$(mktemp -u /private/tmp/herdsman-ran.XXXXXX)
+     [ -n "$HERDSMAN_CHECK_RAN" ] || { echo "run-check: NOT RUN (no start-marker name)" >&2; exit 70; }
      lockf -k -t 5400 "$LOCK" "$0" "$@"; s=$?
      if [ -e "$HERDSMAN_CHECK_RAN" ]; then rm -f "$HERDSMAN_CHECK_RAN"; exit "$s"; fi
      echo "run-check: NOT RUN (exit $s; the line above says why)" >&2; exit "$s" ;;
@@ -46,7 +47,8 @@ while :; do
   sleep 15
 done
 export HERDSMAN_CHECK=gated
-touch "$HERDSMAN_CHECK_RAN"           # the check starts: its exit code is its own
+# Mark the start before the check runs; without a marker, stop rather than run a check that would read as NOT RUN.
+touch "$HERDSMAN_CHECK_RAN" && [ -e "$HERDSMAN_CHECK_RAN" ] || { echo "run-check: NOT RUN (cannot write the start marker)" >&2; exit 70; }
 exec "$@"
 ```
 
