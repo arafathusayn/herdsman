@@ -1,0 +1,31 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS: /bin/bash 3.2 with BSD tools, zsh as the login shell. Linux: GNU tools.
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install zsh
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q zsh
+      - name: Shells
+        run: |
+          /bin/bash --version | head -1
+          zsh --version
+      - name: Watcher, waiter, status, gate and route-log tests, started from zsh
+        run: zsh skills/herdsman/scripts/test/run-tests.sh
+      - name: Checkpointer tests, started from zsh
+        run: zsh skills/herdsman/scripts/test/checkpointer-tests.sh
