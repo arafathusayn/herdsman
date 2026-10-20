@@ -15,7 +15,8 @@
 # HERDSMAN_PANE_<name> (dashes as underscores), HERDSMAN_DUE_<name> (epoch seconds, e.g. `date -v+45M +%s`;
 # optional, one per implementer or integrator), HERDSMAN_REVIEWER_PANE, HERDSMAN_REVIEWER_NAME, DEADLINE (default 1500),
 # POLL (default 60), HERDSMAN_STATUS_SPECS (as for agent-status.sh: turns on the health check every
-# HERDSMAN_HEALTH_EVERY seconds, default 300: the user's rule is to check every awaited agent every five minutes),
+# HERDSMAN_HEALTH_EVERY seconds, default 300: the user's rule is to check every awaited agent every five minutes;
+# the old name HEALTH_EVERY is still read when HERDSMAN_HEALTH_EVERY is not set, so an old wrapper keeps its interval),
 # or edit the defaults. The integrator writes a task report like an implementer and is watched the same way.
 # DEADLINE is how long this waiter runs before TICK; an agent's time box is HERDSMAN_DUE_<name>.
 REPORTS=${HERDSMAN_REPORTS:-/ABSOLUTE/PATH/TO/writable-root/reports}
@@ -27,7 +28,7 @@ RPANE=${HERDSMAN_REVIEWER_PANE:-w2:pR}
 RNAME=${HERDSMAN_REVIEWER_NAME:-rv-1}
 DEADLINE=${DEADLINE:-1500}
 POLL=${POLL:-60}
-HEALTH_EVERY=${HERDSMAN_HEALTH_EVERY:-300}
+HEALTH_EVERY=${HERDSMAN_HEALTH_EVERY:-${HEALTH_EVERY:-300}}
 STATUS_SCRIPT=${HERDSMAN_STATUS_SCRIPT:-$(dirname "$0")/agent-status.sh}
 mkdir -p "$STATE"
 # GNU and BSD (macOS) tools differ: stat -c or -f, date -d or -r.

@@ -59,7 +59,7 @@ A review is useful only when it blocks the right things, proves them, and leads 
 - An implementer's reason for leaving part of a scope out ("would need a new query", "the helper does not return the user") is a claim, like a report line. Read the code it names before you accept it. Reason: such a claim can be true for some code paths and false for others, for example where one path's helper already holds the data that the claim says is missing.
 - Decide conflicts by the user's recorded rules. When a provider's contract disagrees with its own examples, the contract wins; pin the conflict in a test and hand it to the user for the provider.
 - A rule that the user gives in the middle of a route overrides the contract: put it in the next prompt and amend the contract, or the next job repeats the old form. For a running agent, amend the contract first and then send a one-line steer that points to the amendment; do not restart the task. An idle agent gets it as a short note that ends "no task now, reply only 'noted'", so that the note does not start work.
-- Send a disagreement to the user at once when an implementer disagreed with a finding and the reviewer raises it again. After three fix rounds on one branch, stop and show the user the remaining findings.
+- Send a disagreement to the user at once when an implementer disagreed with a finding and the reviewer raises it again. The review after the third fix round on one branch is the final gate: stop only when it still finds P0 or P1, and then show the user the remaining findings ([`SKILL.md`](../SKILL.md), step 5 item 4).
 
 ## Beyond the local review
 
@@ -82,7 +82,7 @@ A review is useful only when it blocks the right things, proves them, and leads 
 
 - A reviewer works in its own detached worktree with its own test databases, named in its prompt. It never uses `git stash`: the stash is shared across worktrees.
 - The reviewer writes a report file and changes nothing else: no code, no commits, no GitHub.
-- A reviewer that cannot write files (a read-only sandbox, a plan permission mode) or cannot reach the network gets every input inside its working folder: the pull request body, the review threads, every outside document, and the worktrees that you create for it. The reviewer contract tells it to print its report between two marker lines. The orchestrator reads the pane (`herdr agent read <name> --source recent-unwrapped`), takes the last marker pair, and writes the report file with its file tool before it compacts or clears that reviewer. Reason: without a write or a fetch, the reviewer returns an incomplete review or a report that never reaches the route folder (the waiter sees only a file), and compaction can clear the scrollback.
+- A reviewer that cannot write files (a read-only sandbox, a plan permission mode) or cannot reach the network gets every input inside its working folder: the pull request body, the review threads, every outside document, and the worktrees that you create for it. The reviewer contract tells it to print its report between two marker lines. The orchestrator reads the pane (`herdr pane read <pane> --source recent-unwrapped --lines <N>`, with N large enough to hold the whole report), takes the last marker pair, and writes the report file with its file tool before it compacts or clears that reviewer. Reason: without a write or a fetch, the reviewer returns an incomplete review or a report that never reaches the route folder (the waiter sees only a file), and compaction can clear the scrollback.
 
 ## Wording of gates and prompts
 

@@ -64,6 +64,20 @@ out=$(run_w); nocheck "W7b unchanged blocked screen is silent" 'BLOCKED' "$out"
 # W8: second report present: REPORT b, and the loop keeps running (exit comes from the sleep stub only)
 printf 'STATUS: complete\n' > "$HERDSMAN_REPORTS/b.md"
 out=$(run_w); rc=$?; check "W8 report b" 'REPORT b' "$out"; nocheck "W8b no ALL-REPORTS exit" 'ALL-REPORTS' "$out"
+# W9: as for the waiter, HERDSMAN_IMPLEMENTERS unset keeps the default list; set but empty means no implementers
+# (a review-only route). Own pane, report and state folders. Each run is one pass, started with a fresh state folder.
+imp_w() { # state folder name, then NAME=value settings
+  local s=$1; shift
+  env -u HERDSMAN_IMPLEMENTERS FAKE_PANE_DIR="$T/panes-w9" HERDSMAN_REPORTS="$T/reports-w9" HERDSMAN_STATE="$T/$s" "$@" /bin/bash "$SK/watch-implementers.sh" 2>&1
+}
+mkdir -p "$T/panes-w9" "$T/reports-w9"
+printf '%s\n' "Password for 'https://x@github.com': Device not configured" > "$T/panes-w9/w9:p1.txt"
+printf '%s\n' "Password for 'https://x@github.com': Device not configured" > "$T/panes-w9/w9:p2.txt"
+printf 'STATUS: complete\n' > "$T/reports-w9/a.md"
+out=$(imp_w state-w9a HERDSMAN_IMPLEMENTERS=); nocheck "W9a an empty implementer list watches no implementer" 'BLOCKED|REPORT|STALL|IDLE|rror' "$out"
+out=$(imp_w state-w9b HERDSMAN_IMPLEMENTERS= HERDSMAN_INTEGRATOR=im-b); check "W9b an empty list still watches the integrator" 'BLOCKED im-b Password for' "$out"
+nocheck "W9c and only the integrator" 'im-a' "$out"
+out=$(imp_w state-w9c); check "W9d an unset implementer list keeps the default list" 'BLOCKED im-a Password for' "$out"
 
 # R1: reviewer working (Claude markers): silent
 printf '%s\n' "· Incubating… (10s · thinking with xhigh effort)" > "$FAKE_PANE_DIR/w9:p3.txt"
@@ -84,6 +98,13 @@ out=$(run_r); nocheck "R5b review not repeated" 'REVIEW' "$out"
 # R6: missing report folder does not print errors
 export HERDSMAN_REPORTS="$T/no-such-dir"
 out=$(run_r); nocheck "R6 no reports dir: no error text" 'No such file|error' "$out"
+# R7: the poll interval is 60 s or less, because a permission prompt closes itself after about a minute.
+# A `sleep` stub that records its argument shows the interval.
+export SLEEP_LOG="$T/sleep-arg"; rm -f "$SLEEP_LOG"
+sleep() { printf '%s' "$1" > "$SLEEP_LOG"; exit 0; }; export -f sleep
+out=$(run_r)
+sleep() { exit 0; }; export -f sleep
+check "R7 the reviewer watcher sleeps 60 s or less between polls" '^([1-9]|[1-5][0-9]|60)$' "$(cat "$SLEEP_LOG" 2>/dev/null)"
 
 # One-shot waiter: fresh state, real sleep restored (the waiter exits on its own)
 unset -f sleep
@@ -149,16 +170,20 @@ out=$(run_e); nocheck "E13e a cleared flag is silent" 'HEALTH' "$out"
 printf '%s\n' '12:20:00' 'machine: load 9.00 (5 min) on 8 cores, memory free 50%' '   <-- LOAD HIGH' '== im-a (w9:p1) state= model=' \
   '   files changed in last 10m under t: 0  <-- NO WRITES in 10m' > "$STUB_OUT"
 out=$(run_e); check "E13f a flag that returns is reported again" 'HEALTH machine LOAD HIGH' "$out"; nocheck "E13g the unchanged flag stays silent" 'HEALTH im-a' "$out"
-# E14: the health interval is the setting HERDSMAN_HEALTH_EVERY (seconds), default 300. The clock file of a fresh
-# state folder says that the last check ran N seconds ago, so each run shows whether a check is due.
+# E17: the health interval is the setting HERDSMAN_HEALTH_EVERY (seconds), default 300; the old name HEALTH_EVERY is
+# still read. The clock file of a fresh state folder says that the last check ran N seconds ago, so each run shows
+# whether a check is due.
 health_run() { # N (seconds since the last check), then optional NAME=value settings
   rm -rf "$T/state-h"; mkdir -p "$T/state-h"; printf '%s' $(( $(date +%s) - $1 )) > "$T/state-h/health-at"; shift
-  env -u HERDSMAN_HEALTH_EVERY HERDSMAN_STATE="$T/state-h" ${1+"$@"} DEADLINE=0 POLL=1 /bin/bash "$SK/wait-event.sh" 2>&1
+  env -u HERDSMAN_HEALTH_EVERY -u HEALTH_EVERY HERDSMAN_STATE="$T/state-h" ${1+"$@"} DEADLINE=0 POLL=1 /bin/bash "$SK/wait-event.sh" 2>&1
 }
 out=$(health_run 200); nocheck "E17a default interval: a check 200 s ago is not due" 'HEALTH' "$out"
 out=$(health_run 400); check "E17b default interval is 300 s: a check 400 s ago is due" 'HEALTH machine LOAD HIGH' "$out"
 out=$(health_run 200 HERDSMAN_HEALTH_EVERY=100); check "E17c HERDSMAN_HEALTH_EVERY is read: a shorter interval is due" 'HEALTH machine LOAD HIGH' "$out"
-out=$(health_run 400 HERDSMAN_HEALTH_EVERY=1000); nocheck "E17d HERDSMAN_HEALTH_EVERY is read: a longer interval is not due" 'HEALTH' "$out"
+out=$(health_run 700 HERDSMAN_HEALTH_EVERY=1000); nocheck "E17d HERDSMAN_HEALTH_EVERY is read: a longer interval is not due (a 600 s default or an ignored setting would be due)" 'HEALTH' "$out"
+out=$(health_run 200 HEALTH_EVERY=100); check "E17e the old name HEALTH_EVERY is still read: a shorter interval is due" 'HEALTH machine LOAD HIGH' "$out"
+out=$(health_run 700 HEALTH_EVERY=1000); nocheck "E17f the old name HEALTH_EVERY is still read: a longer interval is not due" 'HEALTH' "$out"
+out=$(health_run 200 HERDSMAN_HEALTH_EVERY=1000 HEALTH_EVERY=100); nocheck "E17g HERDSMAN_HEALTH_EVERY wins over the old name" 'HEALTH' "$out"
 unset STUB_OUT HERDSMAN_STATUS_SPECS HERDSMAN_STATUS_SCRIPT HERDSMAN_HEALTH_EVERY
 
 # E15: HERDSMAN_IMPLEMENTERS unset keeps the default list; set but empty means no implementers (a review-only route)
@@ -229,30 +254,46 @@ out=$(run_p 8); check "G4 a pull request that is merged at the first pass is rep
 out=$(run_p 8); nocheck "G4b and not again" 'MERGED' "$out"
 
 # P: checkpointer.sh --probe names the transcript and why. The fake `herdr agent get` reports the session id in
-# $FAKE_SESSION. The folders of other projects hold a newer file, which must never be used.
+# $FAKE_SESSION. The named file of that id always wins; a newer file of the same folder, or of the working folder when
+# the id has no file, is only a hint. The folders of other projects hold a newer file, which must never be used.
+# TRANSCRIPT=<path> names the file to read.
 CP="$T/cp"; CPP="$CP/home/.claude/projects"; mkdir -p "$CPP/projA" "$CPP/projB" "$CP/work" "$CP/empty"
 usage() { printf '{"type":"assistant","message":{"usage":{"input_tokens":%s,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' "$2" > "$1"; }
 usage "$CPP/projA/old.jsonl" 111; touch -t 202601010000 "$CPP/projA/old.jsonl"
 usage "$CPP/projA/cur.jsonl" 222
 usage "$CPP/projB/other.jsonl" 999
-cp_probe() { # session id, working folder of the checkpointer pane
-  (cd "$2" && env HOME="$CP/home" FAKE_SESSION="$1" TARGET=w9:p9 /bin/bash "$SK/checkpointer.sh" --probe 2>&1)
+cp_probe() { # session id, working folder of the checkpointer pane, optional TRANSCRIPT path
+  (cd "$2" && env HOME="$CP/home" FAKE_SESSION="$1" TRANSCRIPT="${3:-}" TARGET=w9:p9 /bin/bash "$SK/checkpointer.sh" --probe 2>&1)
 }
 out=$(cp_probe cur "$CP/work")
 check "P1 the file of the reported id is used when it is the newest of its folder" 'projA/cur.jsonl context=222' "$out"
 check "P1b and the probe says why" 'transcript: the file of the session id that Herdr reports' "$out"
+nocheck "P1c and gives no hint, because no newer file exists" 'hint:' "$out"
 out=$(cp_probe old "$CP/work")
-check "P2 an id file older than the newest file of its folder: the newest file is used" 'projA/cur.jsonl context=222' "$out"
-check "P2b and the probe says why" "transcript: the file of session id 'old' is older than the newest" "$out"
+check "P2 the file of the reported id wins over a newer file of its folder" 'projA/old.jsonl context=111' "$out"
+nocheck "P2b and the newer file is not read" 'cur.jsonl context=' "$out"
+check "P2c and the probe says why" "transcript: the file of the session id that Herdr reports \('old'\)" "$out"
+check "P2d and shows the newer file as a hint" 'hint: a newer transcript exists: .*projA/cur.jsonl; if the id is stale, set TRANSCRIPT=<path>' "$out"
 derived=$(printf '%s' "$(cd "$CP/work" && pwd)" | sed 's/[^A-Za-z0-9]/-/g')
 mkdir -p "$CPP/$derived"; usage "$CPP/$derived/first.jsonl" 333; touch -t 202601010000 "$CPP/$derived/first.jsonl"; usage "$CPP/$derived/second.jsonl" 444
 out=$(cp_probe gone "$CP/work")
-check "P3 no file for the id: the newest file of the working folder's project is used" "projects/$derived/second.jsonl context=444" "$out"
-check "P3b and the probe says why" "transcript: the file of session id 'gone' is missing; newest" "$out"
+check "P3 no file for the id: no transcript is chosen" "transcript: no file for session id 'gone'" "$out"
+nocheck "P3b and no file of the working folder's project is read" 'context=' "$out"
+check "P3c and the newest file of that folder is shown as a hint" "hint: .*projects/$derived/second.jsonl; if the id is stale, set TRANSCRIPT=<path>" "$out"
 out=$(cp_probe gone "$CP/empty")
 check "P4 no file for the id and no project folder: the probe says so" "transcript: no file for session id 'gone' and no .jsonl in" "$out"
 nocheck "P4b and names no file" 'cur.jsonl|second.jsonl|other.jsonl' "$out"
+nocheck "P4c and prints no context line and no error" 'context=|No such file|tail:' "$out"
 (cd "$CP/empty" && env HOME="$CP/home" FAKE_SESSION=gone TARGET=w9:p9 LOG="$CP/log" /bin/bash "$SK/checkpointer.sh" --once >/dev/null 2>&1); check "P5 --once with no transcript exits 1" '^1$' "$?"
+out=$(cd "$CP/work" && env HOME="$CP/home" FAKE_SESSION=gone TARGET=w9:p9 LOG="$CP/log" /bin/bash "$SK/checkpointer.sh" --once 2>&1)
+check "P5b --once with no file for the id stops, although the working folder holds a file" 'no transcript found' "$out"
+nocheck "P5c and sends no checkpoint" 'sending' "$out"
+out=$(cp_probe cur "$CP/work" "$CPP/projB/other.jsonl")
+check "P6 TRANSCRIPT names the file to read, whatever the session id says" 'projB/other.jsonl context=999' "$out"
+check "P6b and the probe says so" 'transcript: TRANSCRIPT is set' "$out"
+out=$(cp_probe cur "$CP/work" "$CP/no-such.jsonl")
+check "P6c TRANSCRIPT names a missing file: the probe says so" 'transcript: TRANSCRIPT is set but the file does not exist' "$out"
+nocheck "P6d and no other file is read" 'context=' "$out"
 
 # W10-W16: watch-prs.sh with the fake gh (fixtures in $FAKE_GH_DIR, see test/fakebin/gh). A deadline of 0 makes a run
 # one pass. A longer deadline polls every second. Each group has its own state folder and its own pull request numbers.

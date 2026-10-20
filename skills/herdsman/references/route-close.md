@@ -13,7 +13,7 @@ Closing an agent, stopping a session or removing a worktree can lose work that i
 - Save each agent's session id and folder to a file in the route folder before you stop it, so that it can resume ([`codex.md`](codex.md), [`muse.md`](muse.md) and [`claude-code.md`](claude-code.md) give the resume forms). Reason: after the close, nothing else holds them.
 - Stop each agent with its harness's normal exit command (for example `/exit` or `/quit`), never with a forced kill, because a forced kill loses the work in progress.
 - Leave helper processes alone: they are not agents, and other work can still use them.
-- Close the watchers and the checkpointer that watched the closed agents: stop the waiter by its task id ([`watchers.md`](watchers.md)) and close the `checkpointer` pane. Reason: a watcher with nothing to watch only spends usage and wakes the session.
+- Stop the waiter and the pull request watcher by their task ids ([`watchers.md`](watchers.md)). Reason: a watcher with nothing to watch only spends usage and wakes the session. The checkpointer watches the orchestrator pane, not the closed agents, so close the `checkpointer` pane only on the user's go ([`flow-and-time.md`](flow-and-time.md), Idle is a state).
 
 ## Remove worktrees
 

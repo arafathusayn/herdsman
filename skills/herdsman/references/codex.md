@@ -63,7 +63,7 @@ Read the key hint on screen: some builds show "⇧← to answer" instead of "⌥
 ## Context hygiene (user rule)
 
 - The Codex pane footer shows the context use per agent (for example "context 53%"). Some builds show no figure there (only the model, the folder and the goal state); then compact after every finished job without waiting for a reading.
-- The next dispatch is a fix round on the same pull request or branch: compact right after the finished turn, with no threshold. `herdr agent prompt <name> "/compact"`, wait until the pane shows the compaction finished and the prompt line is back, then the `/goal`.
+- The next dispatch is a fix round on the same pull request or branch: compact right after the finished turn, with no threshold, except near the usage limit ([`flow-and-time.md`](flow-and-time.md), Quota is capacity). `herdr agent prompt <name> "/compact"`, wait until the pane shows the compaction finished and the prompt line is back, then the `/goal`.
 - Next dispatch is a new task (a new contract, the integrator job, a branch the reviewer has not seen): `herdr agent prompt <name> "/new"` (fresh session in the same pane and process; the Herdr name stays), then the `/goal` that names the contracts again. `/new` first opens a chooser "Where should the new conversation run? 1. Current checkout 2. New worktree": send `herdr pane send-keys <pane> enter` for the current checkout, then read the pane for the empty prompt.
 - The chooser does not always open: read the pane after `/new`, and send `enter` only when the chooser shows. With the empty prompt already there, send nothing.
 - `/new` is refused while a `/compact` still runs ("'/new' is disabled while a task is in progress"). Read at least 25 pane lines for "Compacting context" before sending it.

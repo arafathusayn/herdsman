@@ -8,7 +8,7 @@
 
 ## dcg guard shapes that block (alternatives)
 
-- `git checkout -- <path>` and `git checkout <ref> -- <path>`: use `git stash`, or `git show <ref>:<path> > /literal/path` then `git add`.
+- `git checkout -- <path>` and `git checkout <ref> -- <path>`: use `git show <ref>:<path> > /literal/path` then `git add`. Do not use `git stash` here, because the stash is shared across worktrees and sessions ([`review-discipline.md`](review-discipline.md), Reviewer hygiene).
 - `mv` touching `~` or with a variable path: `cp`, or `python3 - <<'EOF'` with `os.rename`.
 - `rm -rf`, `rm -r`: never pre-clean; fresh directory names; delete files by literal path, then `rmdir`.
 - `eval "$c"` in loops, pipelines into an executable dcg cannot verify, `> /tmp/x.$$`: literal commands, shell variables instead of temp files, a script file written with the Write tool and run with `bash <file>`.

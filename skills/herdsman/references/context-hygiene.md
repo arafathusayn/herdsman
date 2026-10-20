@@ -4,7 +4,7 @@ An agent's context is a resource that the orchestrator manages from outside. A f
 
 ## The rule
 
-- Right after an agent finishes, compact it when its next job is a follow-up of its own work (a fix round on its branch, a re-review of its own review), and clear it when its next job is new. Never do either in the middle of a turn.
+- Right after an agent finishes, compact it when its next job is a follow-up of its own work (a fix round on its branch, a re-review of its own review), and clear it when its next job is new. Never do either in the middle of a turn. Near the usage limit, skip the compaction, because each one spends quota ([`flow-and-time.md`](flow-and-time.md), Quota is capacity).
 - The job decides, not the agent: when several reviewers share a queue, a reviewer's next job is usually a branch it has not seen, so clear it at once instead of compacting first.
 - A reviewer whose last review used most of its context gets a fresh agent (or a clear) for the next round, not a compaction, and the prompt names the earlier findings. Reason: a compaction of a full context is slow, and the next round then starts with little room.
 - A cleared agent loses nothing that matters, because every prompt names its contract files again.

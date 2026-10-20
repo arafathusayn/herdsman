@@ -3,8 +3,10 @@
 # Every INTERVAL s: if the orchestrator did work since the last checkpoint, wait until it is idle,
 # send PROMPT (a memory checkpoint), wait for that turn, then send COMPACT when context >= LIMIT tokens.
 # Run it in its own pane: herdr pane run <pane> "TARGET=<orchestrator pane> /bin/bash <skill>/scripts/checkpointer.sh"
-# Probe (no prompts sent; prints which transcript it chose and why): TARGET=<pane> /bin/bash checkpointer.sh --probe
+# Probe (no prompts sent; prints which transcript it chose and why, and a hint when a newer one exists):
+#   TARGET=<pane> /bin/bash checkpointer.sh --probe
 # One cycle now, then exit:  TARGET=<pane> /bin/bash checkpointer.sh --once
+# Set TRANSCRIPT=<path> in any of these forms to name the transcript when the probe shows that the session id is stale.
 TARGET="${TARGET:?set TARGET to the orchestrator pane id, e.g. w7:p1}"
 INTERVAL="${INTERVAL:-900}"
 LIMIT="${LIMIT:-250000}"
@@ -22,28 +24,40 @@ log() { echo "$(date '+%H:%M:%S') $*" | tee -a "$LOG"; }
 
 # The transcript is found from the session id Herdr reports, so it follows a resumed session.
 # Herdr learns that id from a start hook, saves it with the layout and restores it after a restart, so the id
-# can name a transcript that the running session never wrote. When the named file is missing, or is older than
-# the newest .jsonl of its project folder, the newest .jsonl of that folder is used instead. With no named
-# file, the folder is the one that matches the working folder of this pane.
-# It sets TRANSCRIPT_FILE (empty when none) and TRANSCRIPT_WHY (the reason for the choice; --probe prints it).
+# can name a transcript that the running session never wrote. The named file is always used when it exists. Another
+# session of the same project folder can write a newer file while this orchestrator waits, so a newer file is a
+# hint only: --probe prints it and the script never reads it. With no named file there is no transcript, and
+# the script skips (the hint then names the newest .jsonl of the folder that matches the working folder of this pane).
+# TRANSCRIPT=<path> overrides the choice: use it when --probe shows that the id is stale.
+# It sets TRANSCRIPT_FILE (empty when none), TRANSCRIPT_WHY (the reason; --probe prints it) and TRANSCRIPT_HINT.
 transcript() {
   local sid named dir newest
+  TRANSCRIPT_FILE=""; TRANSCRIPT_HINT=""
+  if [ -n "${TRANSCRIPT:-}" ]; then
+    if [ -f "$TRANSCRIPT" ]; then
+      TRANSCRIPT_FILE=$TRANSCRIPT
+      TRANSCRIPT_WHY="TRANSCRIPT is set; the file is used whatever the session id says"
+    else
+      TRANSCRIPT_WHY="TRANSCRIPT is set but the file does not exist: $TRANSCRIPT"
+    fi
+    return
+  fi
   sid=$(herdr agent get "$TARGET" | jq -r '.result.agent.agent_session.value')
   named=$(ls -t "$HOME"/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -1)
   if [ -n "$named" ]; then dir=$(dirname "$named")
   else dir="$HOME/.claude/projects/$(printf '%s' "$PWD" | sed 's/[^A-Za-z0-9]/-/g')"; fi
   newest=$(ls -t "$dir"/*.jsonl 2>/dev/null | head -1)
-  TRANSCRIPT_FILE=$named
-  if [ -z "$named" ] && [ -z "$newest" ]; then
-    TRANSCRIPT_WHY="no file for session id '$sid' and no .jsonl in $dir"
-  elif [ -z "$named" ]; then
-    TRANSCRIPT_FILE=$newest
-    TRANSCRIPT_WHY="the file of session id '$sid' is missing; newest .jsonl of $dir"
-  elif [ "$newest" -nt "$named" ]; then
-    TRANSCRIPT_FILE=$newest
-    TRANSCRIPT_WHY="the file of session id '$sid' is older than the newest .jsonl of $dir"
-  else
+  if [ -n "$named" ]; then
+    TRANSCRIPT_FILE=$named
     TRANSCRIPT_WHY="the file of the session id that Herdr reports ('$sid')"
+    if [ "$newest" -nt "$named" ]; then
+      TRANSCRIPT_HINT="a newer transcript exists: $newest; if the id is stale, set TRANSCRIPT=<path>"
+    fi
+  elif [ -z "$newest" ]; then
+    TRANSCRIPT_WHY="no file for session id '$sid' and no .jsonl in $dir"
+  else
+    TRANSCRIPT_WHY="no file for session id '$sid'"
+    TRANSCRIPT_HINT="the newest transcript of $dir is $newest; if the id is stale, set TRANSCRIPT=<path>"
   fi
 }
 
@@ -77,7 +91,9 @@ cycle() {
 if [ "$1" = --probe ]; then
   transcript; f=$TRANSCRIPT_FILE
   echo "transcript: $TRANSCRIPT_WHY"
-  echo "$f context=$(context_tokens "$f")"; exit 0
+  [ -n "$TRANSCRIPT_HINT" ] && echo "hint: $TRANSCRIPT_HINT"
+  [ -n "$f" ] && echo "$f context=$(context_tokens "$f")"
+  exit 0
 fi
 if [ "$1" = --once ]; then
   transcript; f=$TRANSCRIPT_FILE

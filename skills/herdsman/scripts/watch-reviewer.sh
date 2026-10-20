@@ -30,5 +30,6 @@ while true; do
       echo "IDLE $NAME $(date '+%H:%M:%S')"
     fi
   fi
-  sleep 90
+  # 60 s or less: a permission prompt closes itself after about a minute, and a slower poll can miss it.
+  sleep 60
 done
