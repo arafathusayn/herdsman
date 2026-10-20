@@ -16,6 +16,8 @@ herdr agent start im-<x> --kind codex --pane <id> --timeout 90000 -- \
 - The user's `~/.codex/config.toml` may default to a higher effort (xhigh); pass the effort explicitly. User rule: implementers run at medium unless the interview sets another effort; reviewers keep xhigh.
 - Codex shows `Goal active` and `Pursuing goal (Nm)` after a `/goal` prompt.
 - The first launch in a new folder (a fresh worktree) shows a trust prompt with "Yes, continue" selected, and `agent start` answers `agent_not_ready`: send `enter`, then wait for the idle prompt.
+- A launch can open an "Update available" chooser with "1. Update now" selected, while `agent start` still answers `interactive_ready:true`. Read the pane after every launch. Send `esc` (skip): an update mid-route changes the binary under a running route and is the user's call.
+- A restart of an agent whose earlier launch skipped an update can install it anyway: `agent start` answered `agent_not_ready` ("blocked during startup"), and seconds later the pane showed "Update ran successfully! Please restart Codex." with no key sent by the orchestrator. Before restarting a Codex agent mid-route, read the pane after the start command and act within seconds, or start it with the update check off (`-c check_for_update_on_startup=false`, check the key in the installed version's config docs first). If the update ran, tell the user and every peer session that runs Codex agents: running sessions keep the old binary, new launches and resumes get the new one.
 
 ## Update and resume
 
@@ -54,19 +56,21 @@ If the default package cache is not writable, agents set `TMPDIR=/private/tmp` a
 
 When a Codex agent ends a turn with a question ("Can you enable write access to that directory?") and the orchestrator answers with a new `herdr agent prompt`, Codex takes the prompt as a normal turn but keeps the question in a "Queued follow-up inputs, ? 1 question, ⌥ + ↑ to answer" box. Herdr then reports `agent_status: blocked` and refuses further prompts (`agent_blocked`). Clear it: `herdr pane send-keys <pane> alt+up` opens the question ("Type your answer, enter submit, ctrl + ] skip"), then `herdr pane send-keys <pane> 'ctrl+]'` skips it; the next `agent prompt` is accepted. The watcher lists "Queued follow-up inputs" and "Type your answer" as BLOCKED text.
 
+Read the key hint on screen: some builds show "⇧← to answer" instead of "⌥ + ↑"; then `send-keys <pane> shift+left` opens the question. To answer instead of skipping, type with `herdr pane send-text <pane> "<answer>"` and press `enter`. A plain message that tells a Codex agent to stop its goal leaves the footer at "Goal paused (/goal resume)"; a later `/goal` prompt is still taken, but if the turn ends without the report, send `/goal resume`. A sandboxed Codex agent cannot start a browser: give it measured numbers from another agent rather than a browser task.
+
 ## Context hygiene (user rule)
 
-- The Codex pane footer shows the context use per agent (for example "context 53%").
+- The Codex pane footer shows the context use per agent (for example "context 53%"). Some builds show no figure there (only the model, the folder and the goal state); then compact after every finished job without waiting for a reading.
 - Above 50% and the next dispatch is a fix round on the same pull request or branch: `herdr agent prompt <name> "/compact"`, wait until the pane shows the compaction finished and the prompt line is back, then the `/goal`.
 - Next dispatch is a new task (a new contract, the integrator job, a branch the reviewer has not seen): `herdr agent prompt <name> "/new"` (fresh session in the same pane and process; the Herdr name stays), then the `/goal` that names the contracts again. `/new` first opens a chooser "Where should the new conversation run? 1. Current checkout 2. New worktree": send `herdr pane send-keys <pane> enter` for the current checkout, then read the pane for the empty prompt.
 - The chooser does not always open: read the pane after `/new`, and send `enter` only when the chooser shows. With the empty prompt already there, send nothing.
 - `/new` is refused while a `/compact` still runs ("'/new' is disabled while a task is in progress"). Read at least 25 pane lines for "Compacting context" before sending it.
 - A `/goal` while an old goal is active opens "Replace current goal": send `enter`.
-- After a goal ends with a report but no "Goal achieved" (for example it wrote a `NEEDS:` line), the footer reads "Goal stalled (/goal resume)". A `/compact` and then a new `/goal` work. The footer can keep the stalled text while the pane body shows "Working": judge by the pane body, not the footer.
+- After a goal ends with a report but no "Goal achieved" (for example it wrote a `NEEDS:` line), the footer reads "Goal stalled (/goal resume)". A `/compact` and then a new `/goal` work. The footer can keep the stalled text while the pane body shows "Working": judge by the pane body, not the footer. The same holds after "Goal achieved": after `/compact`, a new `/goal` ran ("Working", and the agent restated the new brief) while the footer still read "<old goal title> Goal achieved (Nm)".
 - The goal driver checks the write set and the stop conditions against the brief FILE, not the chat: a prompt that says "you may edit X" changes nothing. Amend the file, then `/goal resume`. Send `/goal resume` alone: text after it becomes a new objective.
 - The goal driver keeps the authorization scope that its goal named. A new goal outside that scope stalls. Close the "Replace goal" dialog with `esc`, send a plain prompt that names the authorization and the brief file, wait for the one-line acknowledgement, then send `/goal resume` alone.
 - Never compact or clear while a goal runs; a prompt sent mid-goal is queued and would land at a random point. Codex refuses it anyway: "'/compact' is disabled while a task is in progress".
-- A compaction takes 30 s to 2 min on a 70% to 90% context ("Compacting context (Ns)" then "Context compacted · 1m 41s"); the footer figure updates only after it finishes (88% → 4%, 69% → 0%). Do not re-send `/compact` while "Compacting context" is on screen.
+- A compaction takes 30 s to 2 min on a 70% to 90% context ("Compacting context (Ns)" then "Context compacted · <time>"); the footer figure updates only after it finishes. Do not re-send `/compact` while "Compacting context" is on screen.
 - One task can fill more than half of an agent's context. Without hygiene the agent's second task starts near the limit.
 
 ## Usage quota
@@ -77,6 +81,7 @@ When a Codex agent ends a turn with a question ("Can you enable write access to 
 - At 0% a running goal stops with "Usage limit reached" and the pane footer reads "Goal hit usage limits (/goal resume)". The watcher reports BLOCKED. Work in the worktree stays as it was (possibly mid-change, tests red).
 - Check the figure before a long dispatch; one review cycle with two active agents can take several percent. Below about 5%, expect the block during the round.
 - Recovery: wait for the reset time, verify the figure moved, then `herdr agent prompt <name> "/goal resume"`. A session one-shot timer at the reset time (the CronCreate tool) wakes the orchestrator for this. A Claude reviewer is a separate pool and keeps working. Whether a task moves to a Claude implementer while waiting is the user's decision.
+- "■ Selected model is at capacity. Please try a different model." stops a running goal mid-turn; the footer reads "Goal stalled (/goal resume)" and the waiter reports `BLOCKED <agent> Goal stalled` when no working marker shows. It is a transient server limit, not quota: send `/goal resume` alone at once. The goal picks up where it stopped and writes its report. Read the reviewer pane on every PR-watcher TICK, not only on waiter events.
 
 ## Fix rounds
 

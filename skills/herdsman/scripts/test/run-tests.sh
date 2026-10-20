@@ -2,7 +2,8 @@
 # Sanity tests for the herdsman scripts under macOS /bin/bash 3.2 with BSD tools, and under GNU tools.
 # Run from bash or zsh: zsh <skill>/scripts/test/run-tests.sh [work dir] (or /bin/bash, sh, ./run-tests.sh)
 # A `sleep` stub exits the watcher after one pass, so every test is one poll iteration.
-# A fake `herdr` on PATH serves pane text from files. The Z tests start the scripts from zsh, as a macOS shell does.
+# A fake `herdr` on PATH serves pane text from files, and a fake `gh` serves pull request fixtures (see the comments in
+# test/fakebin). The Z tests start the scripts from zsh, as a macOS shell does.
 # Started from zsh or sh, re-run under /bin/bash (the line is valid in all three).
 [ -n "${BASH_VERSION:-}" ] || exec /bin/bash "$0" "$@"
 set -u
@@ -17,7 +18,7 @@ export HERDSMAN_PANE_im_a=w9:p1
 export HERDSMAN_PANE_im_b=w9:p2
 export HERDSMAN_REVIEWER_PANE=w9:p3
 export HERDSMAN_REVIEWER_NAME=rv-1
-chmod +x "$SK/test/fakebin/herdr"
+chmod +x "$SK/test/fakebin/herdr" "$SK/test/fakebin/gh"
 mkdir -p "$FAKE_PANE_DIR" "$HERDSMAN_REPORTS" "$HERDSMAN_STATE"
 sleep() { exit 0; }
 export -f sleep
@@ -150,6 +151,28 @@ printf '%s\n' '12:20:00' 'machine: load 9.00 (5 min) on 8 cores, memory free 50%
 out=$(run_e); check "E13f a flag that returns is reported again" 'HEALTH machine LOAD HIGH' "$out"; nocheck "E13g the unchanged flag stays silent" 'HEALTH im-a' "$out"
 unset STUB_OUT HERDSMAN_STATUS_SPECS HERDSMAN_STATUS_SCRIPT HEALTH_EVERY
 
+# E14: a stale "Goal stalled" footer beside a working marker is no block: the stall counter still runs.
+# E15: the same footer (or "Apply for Daybreak") on a pane with no working marker is BLOCKED, once per screen change.
+# Own pane, report and state dirs, so the tests above stay unchanged.
+old_panes=$FAKE_PANE_DIR; old_reports=$HERDSMAN_REPORTS; old_state=$HERDSMAN_STATE
+export FAKE_PANE_DIR="$T/panes-stalled" HERDSMAN_REPORTS="$T/reports-stalled" HERDSMAN_STATE="$T/state-stalled"
+mkdir -p "$FAKE_PANE_DIR" "$HERDSMAN_REPORTS"
+printf '%s\n' "• Working (12s • esc to interrupt)" "  Goal stalled (/goal resume)" > "$FAKE_PANE_DIR/w9:p1.txt"
+printf '%s\n' "Pursuing goal (1m)" > "$FAKE_PANE_DIR/w9:p2.txt"
+printf '%s\n' "• Working (5s • esc to interrupt)" "  Goal stalled (/goal resume)" > "$FAKE_PANE_DIR/w9:p3.txt"
+out=$(run_e); nocheck "E14a working pane with a stale stalled footer is not BLOCKED" 'BLOCKED im-a' "$out"
+nocheck "E14b working reviewer with a stale stalled footer is not BLOCKED" 'BLOCKED rv-1' "$out"
+out=$(run_e); out=$(run_e); nocheck "E14c no stall after the change plus two unchanged polls" 'STALL im-a' "$out"
+out=$(run_e); check "E14d stall on the third unchanged poll" 'STALL im-a' "$out"
+printf '%s\n' "› Ask Codex to do anything" "  Goal stalled (/goal resume)" > "$FAKE_PANE_DIR/w9:p1.txt"
+printf '%s\n' "Apply for Daybreak" > "$FAKE_PANE_DIR/w9:p2.txt"
+printf '%s\n' "❯" "  Goal stalled (/goal resume)" > "$FAKE_PANE_DIR/w9:p3.txt"
+out=$(run_e); check "E15a quiet pane with a stalled footer is BLOCKED" 'BLOCKED im-a Goal stalled' "$out"
+check "E15b quiet pane with the Daybreak text is BLOCKED" 'BLOCKED im-b Apply for Daybreak' "$out"
+check "E15c quiet reviewer with a stalled footer is BLOCKED" 'BLOCKED rv-1 Goal stalled' "$out"
+out=$(run_e); nocheck "E15d unchanged blocked screens are silent" 'BLOCKED' "$out"
+export FAKE_PANE_DIR=$old_panes HERDSMAN_REPORTS=$old_reports HERDSMAN_STATE=$old_state
+
 # A1: agent-status.sh prints the machine line and flags a tree with no recent writes
 mkdir -p "$T/quiet-tree"; touch -t 202601010000 "$T/quiet-tree" 2>/dev/null
 out=$(HERDSMAN_STATUS_SPECS="im-a:w9:p1:$T/quiet-tree" /bin/bash "$SK/agent-status.sh" 2>&1)
@@ -158,6 +181,71 @@ check "A1b quiet tree flagged" 'under quiet-tree: 0  <-- NO WRITES in 10m' "$out
 printf 'x\n' > "$T/quiet-tree/new.txt"
 out=$(HERDSMAN_STATUS_SPECS="im-a:w9:p1:$T/quiet-tree" /bin/bash "$SK/agent-status.sh" 2>&1)
 check "A1c a fresh write clears the flag" 'under quiet-tree: 1$' "$out"
+
+# W10-W16: watch-prs.sh with the fake gh (fixtures in $FAKE_GH_DIR, see test/fakebin/gh). A deadline of 0 makes a run
+# one pass. A longer deadline polls every second. Each group has its own state folder and its own pull request numbers.
+export FAKE_GH_DIR="$T/gh"; mkdir -p "$FAKE_GH_DIR"
+run_pw() { # pull requests, state folder name, deadline in seconds
+  env HERDSMAN_PRS="$1" HERDSMAN_REPO=org/repo HERDSMAN_PR_STATE="$T/$2" HERDSMAN_PR_DEADLINE="$3" HERDSMAN_PR_INTERVAL=1 /bin/bash "$SK/watch-prs.sh" 2>&1
+}
+/bin/bash -n "$SK/watch-prs.sh" && { pass=$((pass+1)); echo "PASS syntax watch-prs"; } || { fail=$((fail+1)); echo "FAIL syntax watch-prs"; }
+# pr_json <state> <head> <check run>...: the JSON of `gh pr view --json state,headRefOid,statusCheckRollup`
+pr_json() { local s=$1 h=$2 IFS=,; shift 2; printf '{"state":"%s","headRefOid":"%s","statusCheckRollup":[%s]}\n' "$s" "$h" "$*"; }
+# check_run <name> <status> <conclusion> <started> <completed> [<workflow>]. The times are short strings: the watcher only sorts them.
+check_run() { printf '{"__typename":"CheckRun","name":"%s","status":"%s","conclusion":"%s","startedAt":"%s","completedAt":"%s","workflowName":"%s"}' "$@"; }
+if command -v jq >/dev/null 2>&1; then
+  # W10: a push or a rerun cancels the old run of a check while the new run is in progress: no failure event.
+  # The old run is last in the list, so a pick of the last item (instead of the newest start time) fails.
+  pr_json OPEN aaaa1111bbbb "$(check_run test COMPLETED SUCCESS T10:00:00Z T10:01:00Z)" > "$FAKE_GH_DIR/21-view.json"
+  out=$(run_pw 21 w10 0); check "W10 the first pass records a baseline" '^TICK no PR change' "$out"
+  pr_json OPEN aaaa1111bbbb "$(check_run test IN_PROGRESS '' T10:05:00Z '')" "$(check_run test COMPLETED CANCELLED T10:00:00Z T10:03:00Z)" > "$FAKE_GH_DIR/21-view.json"
+  out=$(run_pw 21 w10 0); check "W10a an old cancelled run beside a newer run of the same name does not wake" '^TICK no PR change' "$out"
+  nocheck "W10b and no event reports the cancelled result" 'CANCELLED' "$out"
+  # W11: the newest run of a name decides, so a newer failure still wakes. The newer run is last in the list here.
+  pr_json OPEN aaaa1111bbbb "$(check_run test COMPLETED SUCCESS T10:00:00Z T10:01:00Z)" > "$FAKE_GH_DIR/22-view.json"
+  out=$(run_pw 22 w11 0)
+  pr_json OPEN aaaa1111bbbb "$(check_run test COMPLETED SUCCESS T10:00:00Z T10:01:00Z)" "$(check_run test COMPLETED FAILURE T10:05:00Z T10:06:00Z)" > "$FAKE_GH_DIR/22-view.json"
+  out=$(run_pw 22 w11 0); check "W11 a newer failed run of a name wakes" '^PR .* NEW check test=FAILURE$' "$out"
+  nocheck "W11b with no TICK" 'TICK' "$out"
+  # W16: two workflows that share a job name are two checks: a failure in one is not hidden by a newer success in the other.
+  pr_json OPEN aaaa1111bbbb "$(check_run build COMPLETED SUCCESS T09:00:00Z T09:01:00Z CI)" > "$FAKE_GH_DIR/28-view.json"
+  out=$(run_pw 28 w16 0)
+  pr_json OPEN aaaa1111bbbb "$(check_run build COMPLETED FAILURE T10:00:00Z T10:01:00Z CI)" "$(check_run build COMPLETED SUCCESS T10:00:05Z T10:01:00Z 'Deploy preview')" > "$FAKE_GH_DIR/28-view.json"
+  out=$(run_pw 28 w16 0); check "W16 a failed run of a job name wakes although another workflow's job of that name started later" '^PR .* NEW check build=FAILURE$' "$out"
+  nocheck "W16b with no TICK" 'TICK' "$out"
+else
+  echo "SKIP W10, W11, W16: jq is not installed"
+fi
+# W12: a pull request that cannot be read is no "no change": the third failed poll in a row ends the run with exit 1.
+touch "$FAKE_GH_DIR/23-fail"
+out=$(run_pw 23 w12 5); rc=$?
+check "W12 the third failed poll in a row ends the run with an error line" '^PR-WATCH-ERROR PR .* could not be read$' "$out"
+nocheck "W12b and not with a TICK" 'TICK' "$out"
+check "W12c exit 1" '^1$' "$rc"
+check "W12d after exactly three failed polls" '^3$' "$(printf '%s\n' "$out" | grep -c 'HTTP 502')"
+# W13: the deadline ends with one failed read: the TICK names the pull request that it did not read.
+touch "$FAKE_GH_DIR/24-fail"
+out=$(run_pw 24 w13 0); rc=$?
+check "W13 a TICK after a failed read names the pull request" '^TICK no PR change \(not read: 24\)' "$out"
+check "W13b exit 0" '^0$' "$rc"
+# W14: a good read clears the count of failed reads, so three failed polls must follow each other.
+touch "$FAKE_GH_DIR/25-fail"
+out=$(run_pw 25 w14 0); out=$(run_pw 25 w14 0)
+nocheck "W14 two failed polls in a row end no run" 'PR-WATCH-ERROR' "$out"
+rm -f "$FAKE_GH_DIR/25-fail"; printf '%s\n' 'state OPEN' 'head aaaa1111' > "$FAKE_GH_DIR/25-view.txt"
+out=$(run_pw 25 w14 0); nocheck "W14b a good read clears the failed reads from the TICK" 'not read' "$out"
+touch "$FAKE_GH_DIR/25-fail"
+out=$(run_pw 25 w14 0); check "W14c a failed poll after a good read counts as the first" 'not read: 25' "$out"
+nocheck "W14d and ends no run" 'PR-WATCH-ERROR' "$out"
+# W15: the error exit keeps the events that the same pass found on another pull request.
+printf '%s\n' 'state OPEN' 'head aaaa1111' > "$FAKE_GH_DIR/26-view.txt"
+touch "$FAKE_GH_DIR/27-fail"
+out=$(run_pw "26 27" w15 0); out=$(run_pw "26 27" w15 0)
+printf '%s\n' 'state OPEN' 'head bbbb2222' > "$FAKE_GH_DIR/26-view.txt"
+out=$(run_pw "26 27" w15 0); rc=$?
+check "W15 the event of the readable pull request is printed" '^PR .* NEW head bbbb2222$' "$out"
+check "W15b and the unreadable one ends the run" '^PR-WATCH-ERROR PR .* could not be read$' "$out"
+check "W15c exit 1" '^1$' "$rc"
 
 # L1: route-log.sh appends one "- HH:MM <text>" line; L2: usage error on a missing argument or file
 RL="$SK/route-log.sh"

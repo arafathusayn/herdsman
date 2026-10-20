@@ -14,9 +14,9 @@ herdr agent start im-<x> --kind muse --pane <id> --timeout 90000 -- --model muse
 
 ## Prompts
 
-- Muse takes plain prompts (no `/goal`). A prompt sent while Muse is working is dropped. To queue into a busy agent: `herdr pane send-text <pane> "<text>"` then `herdr pane send-keys <pane> alt+enter` ("queued for the next turn").
+- Muse takes plain prompts (no `/goal`). A prompt sent while Muse is working is dropped. To queue into a busy agent: `herdr pane send-text <pane> "<text>"` then `herdr pane send-keys <pane> alt+enter` ("queued for the next turn"). If the turn ended between the read and the send, `alt+enter` only adds a line break and the text sits unsent in the input: read the pane after the send, and when it shows "Worked for ..." with no working marker, send `enter`. A reviewer can write its report file and keep its turn open for minutes ("Double checking"); judge idle by the pane, not by the report.
 - Brief shape (user rule, "prompt better"): end-state goal the user would see, numbered steps with files, a Check per step (command plus expected result), a leave-alone list with owners, hard rules (no git writes, throwaway HOME, time limits), and the report shape. Put fix rounds in a file and summarize the goal in the prompt. Pointer-only prompts ("Read X and do Y") let an agent stop at its path scope and leave obvious leftovers.
-- Give time limits in the brief: targeted tests while working, each full suite once with `timeout 2400`, no background job over 40 minutes.
+- Give time limits in the brief: targeted tests while working, each full suite once with `perl -e 'alarm 2400; exec @ARGV' <command>`, no background job over 40 minutes.
 
 ## Slash commands
 

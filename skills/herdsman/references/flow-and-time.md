@@ -33,6 +33,7 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 - Write the next wave's contracts while the integrator combines, so implementers start the moment its report lands.
 - When the task branches own disjoint files, the combine can start while their reviews still run. It finds conflicts early and settles handoffs that a branch already did. Name each head in the prompt as provisional. A fix round on a branch then reaches the combined branch through a re-merge phase (merge the new commits, run again the gates that cover them), and the final review covers the result. A provisional branch's own review still gates the push: it passes, or it folds into the final review with its findings closed there.
 - When the integrator's next merge is free of conflicts, branch the next part from the implementer's wip branch instead of waiting for the merge.
+- When the default branch moves under a pull request that is in review, check the merge first (`git merge-tree --write-tree --name-only origin/<default> <head>`, exit 0 = no text conflict), then send the update round (a merge, not a rebase, all gates) to the idle implementer while the review runs. The running review carries forward for the branch's own changes; the merge commit then gets its own short review (`git diff <reviewed head> <merge>`, `git show --remerge-diff <merge>`, the suites of both sides). Waiting for the review first only serializes two independent steps.
 - A report or a finished goal does not free an implementer: its branch can still fail review, and the fix round then has no owner. Give new work only after the branch passes review.
 - A new urgent side task fits a running team: add a contract to the same route folder and give it to an idle implementer (cleared first). Before you decide that no implementer is free, list every agent: panes of an earlier wave can be idle.
 - An agent that waits for a late task gets preparation work (the plan for the live checks, a draft of the pull-request body) instead of idle time.
@@ -45,12 +46,13 @@ The orchestrator owns time and capacity. Agents do not keep their own deadlines,
 ## Idle is a state
 
 - When nothing is in flight, do not re-arm the waiter: it would only TICK. Write "idle, waiter not armed" in the route file so a resumed session knows.
+- The same holds for the PR watcher once the route waits only on people (the user's merge or decision, human approvals): stop it, or offer to, and say how to resume. Their answer arrives as the user's message anyway. Reason: a waiter or watcher that stays armed while nothing can change only wakes the orchestrator with TICKs, and each TICK costs one turn and one report.
 - An agent that finished and was not compacted or cleared is an open action ([`context-hygiene.md`](context-hygiene.md)).
 
 ## Quota is capacity
 
 - Implementers, the integrator, reviewers and a review bot on one model account share one weekly pool. Read the figure before a long round, and count what one review costs on this route.
-- Before the first dispatch, count the reviews the route still needs (one review per task branch, the final review, and a reserve for re-reviews, since their number is not known yet) against that cost. When they do not fit, offer the user another reviewer then, not when the pool is empty. When the pool runs short during the route, spend what is left on the smallest pending review and let work that needs no reviewer go on (integration and its gates). Never start a review that will hit the limit: pause with every agent idle and the waiter stopped, and ask the user.
+- Read every harness's usage line at each launch and relaunch, and at each wake (a relaunched reviewer can show a nearly empty weekly pool that the route never counted). Before the first dispatch, count the reviews the route still needs (one review per task branch, the final review, and a reserve for re-reviews, since their number is not known yet) against that cost. When they do not fit, offer the user another reviewer then, not when the pool is empty. When the pool runs short during the route, spend what is left on the smallest pending review and let work that needs no reviewer go on (integration and its gates). Never start a review that will hit the limit: pause with every agent idle and the waiter stopped, and ask the user.
 - At zero, a running goal stops and in-flight work is lost; resume after the reset ([`codex.md`](codex.md), Usage quota). Never fall back to an API key; moving work to another harness is the user's decision.
 
 ## Dispatch without copy errors

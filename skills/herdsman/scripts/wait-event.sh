@@ -56,6 +56,8 @@ REVIEWERS=${HERDSMAN_REVIEWERS:-"$RNAME:$RPANE"}
 BLOCK_RE='Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to gpt|Usage limit|Queued follow-up inputs|Type your answer|Allow reads outside|Do you want to proceed|Permission required|Do you trust'
 # Claude Code shows "… (12s ·" while it works; Codex shows "esc to interrupt" or "Pursuing goal".
 WORK_RE='esc to interrupt|Pursuing goal|Incubating|thinking|… \([0-9]'
+# A Codex footer can keep this text while the agent works, so it counts as a block only where no WORK_RE text shows.
+STALLED_RE='Goal stalled|Apply for Daybreak'
 start=$(date +%s)
 while true; do
   events=""
@@ -121,6 +123,10 @@ STALL $name screen unchanged for 3 polls $now"
       fi
     else
       printf '0' > "$STATE/stall-$name"
+      if [ "$hash" != "$prev" ] && printf '%s' "$text" | grep -q -E "$STALLED_RE"; then
+        events="$events
+BLOCKED $name $(printf '%s' "$text" | grep -o -E "$STALLED_RE" | head -1) $now"
+      fi
       if [ "$has_report" -eq 0 ] && printf '%s' "$text" | grep -q 'Goal achieved'; then
         if [ ! -f "$STATE/goaldone-$name" ]; then
           touch "$STATE/goaldone-$name"
@@ -149,6 +155,9 @@ REVIEW $f $now"
     if printf '%s' "$text" | grep -q -E "$BLOCK_RE" && [ "$hash" != "$prev" ]; then
       events="$events
 BLOCKED $rname $(printf '%s' "$text" | grep -o -E "$BLOCK_RE" | head -1) $now"
+    elif ! printf '%s' "$text" | grep -q -E "$WORK_RE" && printf '%s' "$text" | grep -q -E "$STALLED_RE" && [ "$hash" != "$prev" ]; then
+      events="$events
+BLOCKED $rname $(printf '%s' "$text" | grep -o -E "$STALLED_RE" | head -1) $now"
     fi
   done
   # Health: the user's ten-minute check of every agent runs here, so a quiet route needs no orchestrator turn.
