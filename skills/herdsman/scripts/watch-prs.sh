@@ -8,8 +8,11 @@
 # that moves lines does not re-emit), a new head commit, a state change, or a check whose result
 # changes. Only the newest run of each check name and workflow counts: a push or a rerun cancels the old run
 # while the new run goes on, and that cancelled result is not a failure. Two workflows that have a job of the
-# same name are two checks, so two lines can share a name. The first run per pull request only records
-# a baseline. Exits with TICK after HERDSMAN_PR_DEADLINE seconds (default 1500). Re-arm after every wake.
+# same name are two checks, so two lines can share a name. A merge is the state change to MERGED (the field
+# `state`, never `mergeable` or the merge state, which GitHub reports as UNKNOWN for a merged pull request)
+# and wakes at once. The first run per pull request only records a baseline (a pull request that is already
+# merged is reported once, because nobody saw its merge). Exits with TICK after HERDSMAN_PR_DEADLINE seconds
+# (default 1500). Re-arm after every wake.
 # A pull request that cannot be read (no access, repeated GitHub errors) is not "no change". The failed polls
 # in a row are counted for each pull request in the file fail-<n> of HERDSMAN_PR_STATE, and a good read clears
 # the count. After 3 failed polls in a row the script prints "PR-WATCH-ERROR PR <n> could not be read" and
@@ -62,6 +65,11 @@ while :; do
     old_file="$STATE/pr-$n.txt"
     if [ ! -f "$old_file" ]; then
       printf '%s\n' "$new" > "$old_file"
+      # A baseline is silent, except for a pull request that is already merged: nobody reported that merge.
+      if printf '%s\n' "$new" | grep -qx 'state MERGED'; then
+        events="${events}PR $n NEW state MERGED
+"
+      fi
       continue
     fi
     added=$(printf '%s\n' "$new" | comm -13 "$old_file" -)

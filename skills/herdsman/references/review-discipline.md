@@ -82,6 +82,7 @@ A review is useful only when it blocks the right things, proves them, and leads 
 
 - A reviewer works in its own detached worktree with its own test databases, named in its prompt. It never uses `git stash`: the stash is shared across worktrees.
 - The reviewer writes a report file and changes nothing else: no code, no commits, no GitHub.
+- A reviewer that cannot write files (a read-only sandbox, a plan permission mode) or cannot reach the network gets every input inside its working folder: the pull request body, the review threads, every outside document, and the worktrees that you create for it. The reviewer contract tells it to print its report between two marker lines. The orchestrator reads the pane (`herdr agent read <name> --source recent-unwrapped`), takes the last marker pair, and writes the report file with its file tool before it compacts or clears that reviewer. Reason: without a write or a fetch, the reviewer returns an incomplete review or a report that never reaches the route folder (the waiter sees only a file), and compaction can clear the scrollback.
 
 ## Wording of gates and prompts
 

@@ -28,18 +28,22 @@ Repository: <absolute path of the checkout> (remote `origin` = GitHub <org>/<rep
 - Migrations: <generated only; how; next free number and where numbering may collide with open pull requests>.
 - Tests first for every behaviour change: a failing test, then the code. Coverage: 100% function and line for the files you changed or added; list pre-existing gaps in other files under `gaps:` in the report and do not touch those files.
 - Run before commit: <format, lint, type check, test commands>. Everything green.
+- Workflow files: pin every action that you add or change in a file under `.github/workflows/` to a full commit id, not a tag, because repository owners and pin checks block the merge until every action is pinned. Resolve a tag with `gh api repos/<org>/<repo>/git/ref/tags/<tag> --jq .object.sha`. When `.object.type` is `tag` (an annotated tag), the id is a tag object, so read it once more with `gh api repos/<org>/<repo>/git/tags/<sha> --jq .object.sha`.
 - Commit messages: conventional (`feat(scope): ...`), one logical change per commit, the body says why.
 
 ## CPU
 
-Every check (type check, lint, tests, formatter, build) runs through `<route folder>/run-check.sh <command>`. If that file is missing, stop and report `STATUS: blocked no run-check.sh`; never run a check without it. One check at a time on the whole machine, single-threaded. Single-thread forms: `GOMAXPROCS=1 tsc --singleThreaded --checkers 1 --builders 1` (TypeScript 7 native); `--maxWorkers=1 --no-file-parallelism` for vitest; `--runInBand` for jest; `--concurrency=1` for turbo; ESLint `--concurrency=off`. Never run package scripts that pass more checkers, never two checks at once, never a check in the background next to another, never a check in a subagent. A check that waits on the load gate for more than ten minutes: cancel it and list it under `gaps:`.
+Every check (type check, lint, tests, formatter, build) runs through `/bin/bash <route folder>/run-check.sh <command>` (call it through `bash`, because a file written with file tools can lack the executable bit). If that file is missing, stop and report `STATUS: blocked no run-check.sh`; never run a check without it. One check at a time on the whole machine, single-threaded. Single-thread forms: `GOMAXPROCS=1 tsc --singleThreaded --checkers 1 --builders 1` (TypeScript 7 native); `--maxWorkers=1 --no-file-parallelism` for vitest; `--runInBand` for jest; `--concurrency=1` for turbo; ESLint `--concurrency=off`. Never run package scripts that pass more checkers, never two checks at once, never a check in the background next to another, never a check in a subagent. A check that waits on the load gate for more than ten minutes: cancel it and list it under `gaps:`.
 
 ## Live tests
 
 - A live test proves a Must-prove path. It runs the real harness through the route's execution path with the user's normal installed login.
 - It does not depend on a token or an API key, and it does not skip when one is missing.
-- Test code never edits the harness's own settings or login files. Writes the harness itself makes during the run are expected (session transcripts, a trust entry for the throwaway folder). The test deletes only what it created.
+- Test code never edits the harness's own settings or login files. The only writes that the harness itself makes during the run and that are expected are session transcripts and a trust entry for the throwaway folder. The test deletes only what it created.
 - It runs in a throwaway session and a throwaway folder, and stops what it started.
+- A live test, spike or reproduction that starts Herdr or a harness uses its own Herdr session with a unique name, runs one at a time, and stops that session at the end. Clear every inherited `HERDR_*` variable on the process with a literal list (`env -u HERDR_BIN_PATH -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID`) or with `env -i`, never with a command substitution, because a pane passes these variables on, the test then reaches the user's own session, and a command guard blocks a substitution.
+- Take ownership of a Herdr session (and register its cleanup) only when its status check (`herdr --session <name> status server --json`) gives a valid answer that says the session is not running. Reason: a failed check is not "not running", and cleanup would then stop a session that the test did not start.
+- Give the run its own copy of the harness's config folder. Save the content of the user's harness settings file before the run, compare it after the run, and restore it if it changed. Reason: a harness saves its launch flags into the user's settings and writes to the user's sessions. When a harness keeps its login in a system keychain, a separate config folder logs it out and is not isolation; the saved and compared settings file is then the only protection.
 
 ## Push and pull request
 
@@ -49,6 +53,7 @@ Every check (type check, lint, tests, formatter, build) runs through `<route fol
   `git -c credential.helper= -c credential.helper='!f() { echo username=<gh account>; echo password=$(gh auth token --user <gh account>); }; f' push -u origin <branch>`
 - Open a READY pull request: `GH_TOKEN=$(gh auth token --user <gh account>) gh pr create --repo <org>/<repo> --base <base> --head <branch> --title "<type>(<scope>): <title>" --body-file <file>`.
 - PR body: `## Summary` (problem and change in plain words); one bullet per file or module with what changed and why; `## Verification` with the exact commands and databases; `## Known gaps` if anything is left. Never mention review rounds, reviewer or tool names, people's names, metrics or timings, process history. Reference issues by number.
+- Before each push to a pull request that a review bot reads, review your own new code, collect every open bot thread and every finding of your own, and fix them all in one push. Reason: each push starts a new bot review and a new CI run, and bots miss defects that a self-review finds. A bot's approval is a signal, not a full review.
 - After the pull request is open, wait five minutes, then read `gh pr checks <n>` and the review-bot comments. Fix real findings test-first, push, reply on each bot thread with "Addressed in <sha>". Repeat until checks pass and the bot reports no new issues. If the bot is wrong, reply on its thread with the reason in one line and move on. When the approval check stays on an older head after your replies, post one issue comment that mentions the bot and asks for a fresh review of the current head. These three fixed forms are the only text you post; a reply to a person's comment goes into your report under `needs:` as a draft (thread id, text), never onto GitHub.
 - Do not change a pull request's base branch, dissolve a stack, force-push over someone else's commits, or close a pull request without an instruction in your task file.
 
@@ -59,6 +64,8 @@ Do not stop to ask when the next step needs no input. Stop and write the report 
 ## Report
 
 When done, write `<writable root>/reports/<task>.md` with, in this order: `STATUS: complete` or `STATUS: blocked <reason>`; `needs:` (each decision or approval that the orchestrator or the user must give, or `none`); branch; worktree; PR URL; head commit; the exact test commands and their pass counts; `decisions:` (every judgement call); `handoff:` (changes that another task's files need, integration route); `gaps:`. Under 60 lines. Then reply in the terminal with only the path of that file.
+
+Write the report file once for the task (and once for each fix round), after every gate has a result, never as a draft or with a placeholder result: each write wakes the orchestrator, and a report with a placeholder sends an unfinished branch to review. Keep progress notes in a separate file. After the report, make no more commits and no pushes until the next prompt, because the reviewers read the reported head and the report describes only that head.
 ```
 
 ## 1n-task-<x>.md
@@ -217,7 +224,7 @@ You review the pull requests or local branches of <org>/<repo> that the implemen
 
 ## CPU
 
-Every check runs through `<route folder>/run-check.sh <command>`, one at a time on the whole machine, single-threaded (the same forms as the shared rules). A check that waits on the load gate for more than ten minutes: cancel it and write it under NOT CHECKED. Reuse a check result from an earlier review only when nothing that check reads has changed (its files, everything they import, including shared helpers and exported fixtures, its configuration, the lock file, the environment), and say so. Run again the checks of every consumer of a changed helper or fixture.
+Every check runs through `/bin/bash <route folder>/run-check.sh <command>`, one at a time on the whole machine, single-threaded (the same forms as the shared rules). A check that waits on the load gate for more than ten minutes: cancel it and write it under NOT CHECKED. Reuse a check result from an earlier review only when nothing that check reads has changed (its files, everything they import, including shared helpers and exported fixtures, its configuration, the lock file, the environment), and say so. Run again the checks of every consumer of a changed helper or fixture.
 
 ## Setup (once)
 - Clone: <path>. Your worktree: <worktrees root>/r. Create it if missing: `git -C <clone> worktree add <worktrees root>/r --detach origin/<base>`.
@@ -225,6 +232,7 @@ Every check runs through `<route folder>/run-check.sh <command>`, one at a time 
 - `gh` runs as `GH_TOKEN=$(gh auth token --user <gh account>) gh ...`.
 - Never change git identity, remotes or global config. Do not run `git push`.
 - Tests: `TEST_DATABASE_URL=...<prefix>_r_test`; create once, drop and recreate between pull requests.
+- Inputs: <the pull request body, the review threads and every outside document, as files inside your working folder: paths>. If you cannot write files (a read-only sandbox, a plan permission mode), print your whole report between a line `REPORT-BEGIN` and a line `REPORT-END` instead of writing the file, and reply with nothing else. The orchestrator writes the file.
 
 ## Per review
 Input: a pull request number, or a local branch and its head commit, and a report path, given in the prompt. A re-review, or a final review that a pending branch re-review folds into, also names earlier review reports and the findings in them to close; check each one.
@@ -232,18 +240,19 @@ Input: a pull request number, or a local branch and its head commit, and a repor
 2. Changed files: `gh pr diff <n> --name-only`, or `git diff --name-only origin/<base>...<head commit>` for a local branch. The final review of an integration route uses the combined branch against the base branch and checks every task contract, the integrator contract and the paths between tasks.
 3. React files (<paths>): run the `/react-review` skill on those files; skip the runtime layer.
 4. All TypeScript in the diff: run the `/thermo-nuclear-code-quality-review` skill on the diff against the base branch.
-5. Run the test commands from the PR body's Verification section with your database. A failing test is a P0.
+5. Run the test commands from the PR body's Verification section with your database. A failing test is a P0, except a suite that your own sandbox cannot run (see ENV below).
 6. Check the pull request against its task contract (<map of branch to contract file>) and the shared rules. An unmet requirement is at least a P1.
 
 ## Severity, report only these
 - P0: wrong behaviour, data loss or corruption, a tenancy leak, a security hole, a failing or skipped test, a row-breaking migration, a hand-written migration or hand-written SQL that the task contract does not allow (name each allowed one here: <task, migration, why>).
 - P1: wrong behaviour in an edge case the contract names, changed behaviour without a test, an unmet contract requirement, a maintainability problem that will cost within the next few stories, a React effect that belongs in render or in an event handler and causes a visible bug or a needless network call.
+- ENV: a suite that fails because your sandbox denies a call (a socket, a shared-memory call, a loopback port). Report it as ENV with the denied call, not as P0. The orchestrator compares it with the implementer's run and the other reviewers' runs on the same head. A failure that only your sandbox shows stays ENV, and an agent outside your sandbox runs that suite. ENV does not change the VERDICT, but the accept decision waits for that run. Every other failed or skipped test stays P0.
 - Everything below P1 is left out entirely. No style notes, no naming notes, no optional refactors.
 - Test isolation: judge it by what the test code writes, not by what the harness writes during a live run.
 - GOAL-CONFLICT: a finding whose fix would skip or gate a Must-prove test. Report it with both options, not as P0. The orchestrator takes it to the user.
 
 ## Report
-Write the file at the path given in the prompt. Under 80 lines:
+Write the file at the path given in the prompt (or print it between the marker lines of Setup). Under 80 lines:
 VERDICT: pass | fix
 PR: <number> <head branch> <head commit>
 TESTS: <command> -> <pass>/<total> (one line per command)
@@ -251,6 +260,7 @@ FINDINGS:
 - P0 | <file>:<line> | <what is wrong and what happens> | fix: <one sentence>
 - P1 | ...
 - GOAL-CONFLICT | <file>:<line> | <the risk> | option 1: <keep the Must-prove test, fix this> | option 2: <skip or gate it>
+- ENV | <suite> | <the call that the sandbox denied> | run: <command for an agent outside the sandbox>
 CLOSED: <earlier report> <finding> | closed | open: <why> (one line per finding the prompt names; omit when it names none)
 NOT CHECKED: <what this review could not check, for example remote CI, a live service or a GitHub state, one line each>
 `VERDICT: pass` means zero P0, zero P1 and no named finding left open. Then reply in the terminal with only the path.
@@ -260,5 +270,5 @@ Rules learned:
 - Give the reviewer its own worktree; it must not touch an implementer's or the integrator's worktree while that agent is mid-fix.
 - The severity words must be defined in the contract; reviewers otherwise mix vocabularies (major, high, blocking). Gate on the `VERDICT:` line, not on adjectives.
 - A skill named in the contract may not exist in the reviewer's harness. Check `ls ~/.claude/skills` before writing the contract, and keep a fallback line ("if the skill is missing, say so in the report and do a direct pass with the same checklist").
-- Every contract (reviewer, implementer, integrator) says: "no package runner (`npx`, `pnpm dlx`, `bunx`, `yarn dlx`) with an unpinned tag such as `@latest`; only a version the skill pins, published at least seven days ago, or skip that tool and say so". Reason: a review skill's static scanner was run as `pnpm dlx <tool>@latest` inside a sandbox with network access and read access to the disk, which can execute a release younger than the owner's minimum age for new package versions. Grep the named skills for `@latest` before the contract goes out.
+- Every contract (reviewer, implementer, integrator) says: "no package runner (`npx`, `pnpm dlx`, `bunx`, `yarn dlx`) with an unpinned tag such as `@latest`; only a version the skill pins, published at least seven days ago, or skip that tool and say so". Reason: a review skill's static scanner was run as `pnpm dlx <tool>@latest` inside a sandbox with network access and read access to the disk, which can execute a release younger than the owner's minimum age for new package versions. Grep the named skills for `@latest` before the contract goes out. Actions in workflow files follow the same idea: the shared rules pin each one to a full commit id (Code standard).
 - One report per review round, numbered; never overwrite, so the fix history stays readable.
