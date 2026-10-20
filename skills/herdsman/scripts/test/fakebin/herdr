@@ -1,8 +1,13 @@
 #!/bin/bash
 # Fake herdr for the herdsman watcher tests: `herdr pane read <id> ...` prints $FAKE_PANE_DIR/<id>.txt
+# and `herdr agent get <name>` prints the session record with the id in $FAKE_SESSION (empty when unset).
 if [ "$1" = "pane" ] && [ "$2" = "read" ]; then
   f="$FAKE_PANE_DIR/$3.txt"
   [ -f "$f" ] && cat "$f"
+  exit 0
+fi
+if [ "$1" = "agent" ] && [ "$2" = "get" ]; then
+  printf '{"result":{"agent":{"agent_session":{"value":"%s"}}}}\n' "${FAKE_SESSION:-}"
   exit 0
 fi
 echo "fake herdr: unsupported $*" >&2

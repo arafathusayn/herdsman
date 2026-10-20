@@ -10,21 +10,25 @@
 #         | GOAL-DONE-NO-REPORT <agent> | STALL <agent> (screen unchanged for 3 polls while working)
 #         | OVERDUE <agent> (past its due time and its report not written since the due time was set)
 #         | HEALTH <agent or machine> <flag> (agent-status.sh flagged it; once until it clears) | TICK
-# Configure with HERDSMAN_REPORTS, HERDSMAN_STATE, HERDSMAN_IMPLEMENTERS, HERDSMAN_INTEGRATOR (one name, optional),
+# Configure with HERDSMAN_REPORTS, HERDSMAN_STATE, HERDSMAN_IMPLEMENTERS (unset: the default list below; set but
+# empty: no implementers, for a review-only route), HERDSMAN_INTEGRATOR (one name, optional),
 # HERDSMAN_PANE_<name> (dashes as underscores), HERDSMAN_DUE_<name> (epoch seconds, e.g. `date -v+45M +%s`;
 # optional, one per implementer or integrator), HERDSMAN_REVIEWER_PANE, HERDSMAN_REVIEWER_NAME, DEADLINE (default 1500),
-# POLL (default 60), HERDSMAN_STATUS_SPECS (as for agent-status.sh: turns on the health check every HEALTH_EVERY
-# seconds, default 600), or edit the defaults. The integrator writes a task report like an implementer and is watched the same way.
+# POLL (default 60), HERDSMAN_STATUS_SPECS (as for agent-status.sh: turns on the health check every
+# HERDSMAN_HEALTH_EVERY seconds, default 300: the user's rule is to check every awaited agent every five minutes;
+# the old name HEALTH_EVERY is still read when HERDSMAN_HEALTH_EVERY is not set, so an old wrapper keeps its interval),
+# or edit the defaults. The integrator writes a task report like an implementer and is watched the same way.
 # DEADLINE is how long this waiter runs before TICK; an agent's time box is HERDSMAN_DUE_<name>.
 REPORTS=${HERDSMAN_REPORTS:-/ABSOLUTE/PATH/TO/writable-root/reports}
 STATE=${HERDSMAN_STATE:-/ABSOLUTE/PATH/TO/scratchpad/watch-state}
-IMPLEMENTERS=${HERDSMAN_IMPLEMENTERS:-"im-a im-b im-c im-d"}
+# No colon: an empty value is a choice (no implementers), only an unset variable takes the default list.
+IMPLEMENTERS=${HERDSMAN_IMPLEMENTERS-"im-a im-b im-c im-d"}
 INTEGRATOR=${HERDSMAN_INTEGRATOR:-}
 RPANE=${HERDSMAN_REVIEWER_PANE:-w2:pR}
 RNAME=${HERDSMAN_REVIEWER_NAME:-rv-1}
 DEADLINE=${DEADLINE:-1500}
 POLL=${POLL:-60}
-HEALTH_EVERY=${HEALTH_EVERY:-600}
+HEALTH_EVERY=${HERDSMAN_HEALTH_EVERY:-${HEALTH_EVERY:-300}}
 STATUS_SCRIPT=${HERDSMAN_STATUS_SCRIPT:-$(dirname "$0")/agent-status.sh}
 mkdir -p "$STATE"
 # GNU and BSD (macOS) tools differ: stat -c or -f, date -d or -r.
@@ -160,7 +164,7 @@ BLOCKED $rname $(printf '%s' "$text" | grep -o -E "$BLOCK_RE" | head -1) $now"
 BLOCKED $rname $(printf '%s' "$text" | grep -o -E "$STALLED_RE" | head -1) $now"
     fi
   done
-  # Health: the user's ten-minute check of every agent runs here, so a quiet route needs no orchestrator turn.
+  # Health: the user's periodic check of every agent runs here, so a quiet route needs no orchestrator turn.
   # Each flag (a job over its limit, a tree with no writes, machine load or memory) is reported once, until it clears.
   if [ -n "${HERDSMAN_STATUS_SPECS:-}" ] && [ -f "$STATUS_SCRIPT" ]; then
     last=$(cat "$STATE/health-at" 2>/dev/null)

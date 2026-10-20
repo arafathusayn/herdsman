@@ -3,11 +3,13 @@
 # Events on stdout: REPORT <task> <path> (first appearance), REPORT-UPDATED <task> <path> (mtime changed: a fix round),
 # BLOCKED <name> <text> (once per screen change), STALL <name>, IDLE <name>.
 # Panes stay watched after a report exists (fix rounds). The script never exits on its own: stop it with TaskStop at route end.
-# Either edit the defaults below or set HERDSMAN_REPORTS, HERDSMAN_STATE, HERDSMAN_IMPLEMENTERS, HERDSMAN_INTEGRATOR (one name, optional)
+# Either edit the defaults below or set HERDSMAN_REPORTS, HERDSMAN_STATE, HERDSMAN_IMPLEMENTERS (unset: the default list;
+# set but empty: no implementers), HERDSMAN_INTEGRATOR (one name, optional)
 # and HERDSMAN_PANE_<name> (dashes as underscores) in the environment.
 REPORTS=${HERDSMAN_REPORTS:-/ABSOLUTE/PATH/TO/writable-root/reports}
 STATE=${HERDSMAN_STATE:-/ABSOLUTE/PATH/TO/scratchpad/watch-state}
-IMPLEMENTERS=${HERDSMAN_IMPLEMENTERS:-"im-a im-b im-c im-d"}
+# No colon: an empty value is a choice (no implementers), only an unset variable takes the default list.
+IMPLEMENTERS=${HERDSMAN_IMPLEMENTERS-"im-a im-b im-c im-d"}
 INTEGRATOR=${HERDSMAN_INTEGRATOR:-}
 mkdir -p "$STATE"
 # GNU and BSD (macOS) stat differ.

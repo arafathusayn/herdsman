@@ -1,9 +1,10 @@
 #!/bin/bash
 # One-shot health snapshot of every agent (implementers, the integrator, reviewers): state, model,
 # background jobs with their ages, the foreground spinner, and recent file activity in the tree each agent writes to.
-# Flags a job older than LIMIT_MIN minutes, a tree with no writes in 10 min, and a loaded machine.
-# Run on every waiter wake (user rule: check every agent every ten minutes; background jobs must not take too long).
-# HERDSMAN_STATUS_SPECS="im-a:w7:p14:/abs/repo int-1:w7:p15:/abs/int rv-1:w7:p17:" (name:pane:tree; empty tree = skip the write check)
+# Flags a job older than LIMIT_MIN minutes, a tree with no writes in 10 min, a tree path that does not exist, and a loaded machine.
+# Run on every waiter wake (user rule: check every agent every five minutes; background jobs must not take too long).
+# HERDSMAN_STATUS_SPECS="im-a:w7:p14:/abs/repo int-1:w7:p15:/abs/int rv-1:w7:p17:" (name:pane:tree; empty tree = skip the write check;
+# copy each tree from `git worktree list`: a path that does not exist is flagged TREE MISSING, not NO WRITES)
 LIMIT_MIN=${LIMIT_MIN:-30}
 : "${HERDSMAN_STATUS_SPECS:?set HERDSMAN_STATUS_SPECS}"
 date '+%H:%M:%S'
@@ -31,7 +32,10 @@ for spec in $HERDSMAN_STATUS_SPECS; do
     echo "   bg: $(printf '%s' "$row" | sed 's/^[^A-Za-z]*//' | cut -c1-70) [${mins}m]$flag"
   done
   printf '%s\n' "$screen" | grep -E 'Thinking|Calling tools|esc to interrupt' | tail -1 | sed 's/^/   fg: /'
-  if [ -n "$tree" ]; then
+  if [ -n "$tree" ] && [ ! -d "$tree" ]; then
+    # A wrong path would show NO WRITES (find prints nothing), so name it as its own flag.
+    echo "   tree not found: $tree  <-- TREE MISSING"
+  elif [ -n "$tree" ]; then
     # Prune dependency and build caches, and stop counting at 50: the flag needs only "none".
     n=$(find "$tree" \( -name node_modules -o -name .git -o -name .next -o -name .turbo -o -name .venv -o -name target \) -prune \
       -o -type f -mmin -10 -print 2>/dev/null | head -n 50 | wc -l | tr -d ' ')

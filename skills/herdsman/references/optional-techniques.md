@@ -43,3 +43,10 @@ These techniques are off unless the user picks them in the interview (step 1). E
 - When: the same class of finding appears in two tasks or two rounds of one route, or a review shows that the guide is out of date.
 - How: write one short rule with its reason and show it to the user. On the user's go, the implementer or the integrator commits it in a separate commit with the fix.
 - Cost: a change to the target repository outside the task's scope. It needs the user's go each time.
+
+## Without agent panes
+
+- What: the herdsman discipline without Herdr agent panes. The harness's own Workflows and subagents take the agent types. Contracts, due times, reviews and records stay the same. `herdr agent start` is not used.
+- When: the user asks for the discipline and chooses to avoid agent panes. Off unless the user picks it: step 3 otherwise starts every agent in a pane.
+- How: write the contracts and the route file as for any route, and give each Workflow stage or subagent its contract in its prompt. A Workflow stage resumes from its cache only when its prompt is unchanged. So, to change the rules of a running workflow, edit only the stages that have not run, stop the workflow after the current stage has a result, and resume it by its run id. Keep the prompts of finished stages byte for byte. A workflow agent cannot receive a message after launch.
+- Cost: no pane for the user to watch or steer. A change of rules in the middle of a run is limited to the stages that have not run, and a changed prompt in a finished stage runs that stage again and spends quota and time.
