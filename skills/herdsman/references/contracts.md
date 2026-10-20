@@ -47,7 +47,7 @@ Every check (type check, lint, tests, formatter, build) runs through `/bin/bash 
 
 ## Push and pull request
 
-<Route with one pull request per task: keep this section. Integration route: replace it for the implementers with "Commit to your local branch only. Never push, never open a pull request, never post on GitHub. A change that another task's file needs is a `handoff:` line in your report, not an edit." and keep this section for the integrator's push phase only.>
+<Route with one pull request per task: keep this section. Integration route: replace it for the implementers with "Commit to your local branch only. Never push, never open a pull request, never post on GitHub. A change that another task's file needs is a `handoff:` line in your report, not an edit." and keep this section for the integrator's push phase only. Two-gate route: keep this section and put this line first for the implementers: "Commit to your local branch only until the orchestrator writes that the local review passed. Then push and open the pull request as this section says.">
 
 - Push with the one-shot credential helper, never by changing the git identity or the remote:
   `git -c credential.helper= -c credential.helper='!f() { echo username=<gh account>; echo password=$(gh auth token --user <gh account>); }; f' push -u origin <branch>`

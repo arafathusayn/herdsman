@@ -5,6 +5,7 @@ Closing an agent, stopping a session or removing a worktree can lose work that i
 ## Check before you close
 
 - Read each pane, and check each worktree for uncommitted and unpushed work: `git -C <worktree> status --short` for edits, and `git -C <worktree> log --oneline HEAD --not --remotes` (after `git -C <worktree> fetch`) for commits that no remote branch holds. Use literal paths, one command per line ([`harness-guards.md`](harness-guards.md)). Reason: work that is not on the remote cannot be recovered after the close.
+- A squash merge puts a new commit on the default branch, so after the branch is deleted, no remote branch holds the task's own commits, and the check above lists them. That work is saved when `gh pr view <n> --json state,headRefOid` shows `MERGED`, its `headRefOid` equals `git -C <worktree> rev-parse HEAD`, and the status shows no edits. A commit after that head is unsaved work.
 - Close an agent only when it is idle. When it is not, wait for its turn to end, or ask the user.
 - Close only the panes and worktrees that this route created (the task table in `00-route.md` names them), and never your own pane (`$HERDR_PANE_ID`). Other sessions in the workspace own the rest: ask them to close their own. Reason: a pane or worktree of another session can hold work that you cannot see.
 
@@ -17,7 +18,7 @@ Closing an agent, stopping a session or removing a worktree can lose work that i
 
 ## Remove worktrees
 
-- Remove only a clean worktree whose commits are on the remote, and only with the user's go. `git worktree remove <path>` refuses a worktree with edits; never add `--force`. A worktree that holds copied secrets goes the same way at route close ([`git-and-github.md`](git-and-github.md)).
+- Remove only a clean worktree whose commits are on the remote (or whose head is the head of a merged pull request, as above), and only with the user's go. `git worktree remove <path>` refuses a worktree with edits; never add `--force`. A worktree that holds copied secrets goes the same way at route close ([`git-and-github.md`](git-and-github.md)).
 
 ## Tell the user
 
