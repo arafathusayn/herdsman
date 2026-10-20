@@ -81,7 +81,7 @@ Read the key hint on screen: some builds show "⇧← to answer" instead of "⌥
 - At 0% a running goal stops with "Usage limit reached" and the pane footer reads "Goal hit usage limits (/goal resume)". The watcher reports BLOCKED. Work in the worktree stays as it was (possibly mid-change, tests red).
 - Check the figure before a long dispatch; one review cycle with two active agents can take several percent. Below about 5%, expect the block during the round.
 - Recovery: wait for the reset time, verify the figure moved, then `herdr agent prompt <name> "/goal resume"`. A session one-shot timer at the reset time (the CronCreate tool) wakes the orchestrator for this. A Claude reviewer is a separate pool and keeps working. Whether a task moves to a Claude implementer while waiting is the user's decision.
-- "■ Selected model is at capacity. Please try a different model." stops a running goal mid-turn; the footer reads "Goal stalled (/goal resume)" and the waiter may see only a quiet pane (no BLOCKED text matched). It is a transient server limit, not quota: send `/goal resume` alone at once. The goal picks up where it stopped and writes its report. Read the reviewer pane on every PR-watcher TICK, not only on waiter events.
+- "■ Selected model is at capacity. Please try a different model." stops a running goal mid-turn; the footer reads "Goal stalled (/goal resume)" and the waiter reports `BLOCKED <agent> Goal stalled` when no working marker shows. It is a transient server limit, not quota: send `/goal resume` alone at once. The goal picks up where it stopped and writes its report. Read the reviewer pane on every PR-watcher TICK, not only on waiter events.
 
 ## Fix rounds
 

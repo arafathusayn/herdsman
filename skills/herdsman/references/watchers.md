@@ -49,12 +49,12 @@ Sanity test (fake `herdr`, one poll per run): `zsh <skill>/scripts/test/run-test
 | REPORT `<task> <path>` | an implementer's or the integrator's report file appeared | read it, check STATUS, verify the pull request or branch head, dispatch the review |
 | REPORT-UPDATED `<task> <path>` | the report's mtime changed (a fix round finished) | read the new head and the per-finding decisions, dispatch the re-review |
 | REVIEW `<path>` | reviewer report appeared | read VERDICT, forward findings or record pass |
-| BLOCKED `<agent> <text>` | password, approval, model-switch, usage-limit or trust text on screen | see [`codex.md`](codex.md), [`claude-code.md`](claude-code.md) and [`muse.md`](muse.md); never type a password |
+| BLOCKED `<agent> <text>` | password, approval, model-switch, usage-limit or trust text on screen, or stalled-goal text with no working marker | see [`codex.md`](codex.md), [`claude-code.md`](claude-code.md) and [`muse.md`](muse.md); never type a password |
 | STALL `<agent>` | working marker but unchanged screen across a poll | on the second STALL read the pane in full, then prompt the next step |
 | HEALTH `<agent or machine> <flag>` | the waiter's ten-minute `agent-status.sh` run shows a new flag (waiter only) | an agent flag: as on a wake; a machine flag: no new heavy work; check the `run-check.sh` limits and the publisher |
 | IDLE `<agent>` | no working marker and the screen changed | the agent finished or is waiting; read the last lines |
 
-On every wake, list the reports folder (`ls -la <route>/reports`) as well as reading the waiter's line. The waiter exits on its first event, so a report written a few minutes after a HEALTH or STALL exit is not announced until the next re-arm; and while a question waits on the user, no waiter runs at all (one route found a review report 19 minutes late this way). A HEALTH "NO WRITES" right after an agent's compaction or a fresh prompt is expected; re-arm without acting.
+On every wake, list the reports folder (`ls -la <route>/reports`) as well as reading the waiter's line. The waiter exits on its first event, so a report written a few minutes after a HEALTH or STALL exit is not announced until the next re-arm; and while a question waits on the user, no waiter runs at all, so a report can wait unseen until the next wake. A HEALTH "NO WRITES" right after an agent's compaction or a fresh prompt is expected; re-arm without acting.
 
 The implementer watcher never exits on its own (fix rounds continue after the first reports); stop it with TaskStop at route end. BLOCKED fires once per screen change, not on every poll.
 

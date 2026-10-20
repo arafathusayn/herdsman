@@ -150,6 +150,28 @@ printf '%s\n' '12:20:00' 'machine: load 9.00 (5 min) on 8 cores, memory free 50%
 out=$(run_e); check "E13f a flag that returns is reported again" 'HEALTH machine LOAD HIGH' "$out"; nocheck "E13g the unchanged flag stays silent" 'HEALTH im-a' "$out"
 unset STUB_OUT HERDSMAN_STATUS_SPECS HERDSMAN_STATUS_SCRIPT HEALTH_EVERY
 
+# E14: a stale "Goal stalled" footer beside a working marker is no block: the stall counter still runs.
+# E15: the same footer (or "Apply for Daybreak") on a pane with no working marker is BLOCKED, once per screen change.
+# Own pane, report and state dirs, so the tests above stay unchanged.
+old_panes=$FAKE_PANE_DIR; old_reports=$HERDSMAN_REPORTS; old_state=$HERDSMAN_STATE
+export FAKE_PANE_DIR="$T/panes-stalled" HERDSMAN_REPORTS="$T/reports-stalled" HERDSMAN_STATE="$T/state-stalled"
+mkdir -p "$FAKE_PANE_DIR" "$HERDSMAN_REPORTS"
+printf '%s\n' "• Working (12s • esc to interrupt)" "  Goal stalled (/goal resume)" > "$FAKE_PANE_DIR/w9:p1.txt"
+printf '%s\n' "Pursuing goal (1m)" > "$FAKE_PANE_DIR/w9:p2.txt"
+printf '%s\n' "• Working (5s • esc to interrupt)" "  Goal stalled (/goal resume)" > "$FAKE_PANE_DIR/w9:p3.txt"
+out=$(run_e); nocheck "E14a working pane with a stale stalled footer is not BLOCKED" 'BLOCKED im-a' "$out"
+nocheck "E14b working reviewer with a stale stalled footer is not BLOCKED" 'BLOCKED rv-1' "$out"
+out=$(run_e); out=$(run_e); nocheck "E14c no stall after the change plus two unchanged polls" 'STALL im-a' "$out"
+out=$(run_e); check "E14d stall on the third unchanged poll" 'STALL im-a' "$out"
+printf '%s\n' "› Ask Codex to do anything" "  Goal stalled (/goal resume)" > "$FAKE_PANE_DIR/w9:p1.txt"
+printf '%s\n' "Apply for Daybreak" > "$FAKE_PANE_DIR/w9:p2.txt"
+printf '%s\n' "❯" "  Goal stalled (/goal resume)" > "$FAKE_PANE_DIR/w9:p3.txt"
+out=$(run_e); check "E15a quiet pane with a stalled footer is BLOCKED" 'BLOCKED im-a Goal stalled' "$out"
+check "E15b quiet pane with the Daybreak text is BLOCKED" 'BLOCKED im-b Apply for Daybreak' "$out"
+check "E15c quiet reviewer with a stalled footer is BLOCKED" 'BLOCKED rv-1 Goal stalled' "$out"
+out=$(run_e); nocheck "E15d unchanged blocked screens are silent" 'BLOCKED' "$out"
+export FAKE_PANE_DIR=$old_panes HERDSMAN_REPORTS=$old_reports HERDSMAN_STATE=$old_state
+
 # A1: agent-status.sh prints the machine line and flags a tree with no recent writes
 mkdir -p "$T/quiet-tree"; touch -t 202601010000 "$T/quiet-tree" 2>/dev/null
 out=$(HERDSMAN_STATUS_SPECS="im-a:w9:p1:$T/quiet-tree" /bin/bash "$SK/agent-status.sh" 2>&1)

@@ -120,7 +120,7 @@ Rules learned:
 - A command with a dry run and an apply runs one decision function per record twice: for the preview, and again
   inside the write transaction right before each write; the write follows the second answer and the output counts
   records whose answer changed. Write this into the contract from the start. Reason: a plan made before the write
-  goes stale (new data, a changed field, a hold that became proven), and fixing each race one at a time took two
+  goes stale (new data, a changed field, a hold that became proven), and fixing each race one at a time costs extra
   review rounds.
 - When review findings share a cause, rule on the cause, not on each finding, and ask the next review to search
   for other instances. A fix that covered one command let the same race come back in its sibling command.
@@ -260,5 +260,5 @@ Rules learned:
 - Give the reviewer its own worktree; it must not touch an implementer's or the integrator's worktree while that agent is mid-fix.
 - The severity words must be defined in the contract; reviewers otherwise mix vocabularies (major, high, blocking). Gate on the `VERDICT:` line, not on adjectives.
 - A skill named in the contract may not exist in the reviewer's harness. Check `ls ~/.claude/skills` before writing the contract, and keep a fallback line ("if the skill is missing, say so in the report and do a direct pass with the same checklist").
-- Every contract (reviewer, implementer, integrator) says: "no package runner (`npx`, `pnpm dlx`, `bunx`, `yarn dlx`) with an unpinned tag such as `@latest`; only a version the skill pins, published at least seven days ago, or skip that tool and say so". Reason: a review skill's static scanner was run as `pnpm dlx <tool>@latest` inside a sandbox with network access and read access to the disk, which executed a release published a day and a half earlier, past the owner's seven-day rule for new package versions. Grep the named skills for `@latest` before the contract goes out.
+- Every contract (reviewer, implementer, integrator) says: "no package runner (`npx`, `pnpm dlx`, `bunx`, `yarn dlx`) with an unpinned tag such as `@latest`; only a version the skill pins, published at least seven days ago, or skip that tool and say so". Reason: a review skill's static scanner was run as `pnpm dlx <tool>@latest` inside a sandbox with network access and read access to the disk, which can execute a release younger than the owner's minimum age for new package versions. Grep the named skills for `@latest` before the contract goes out.
 - One report per review round, numbered; never overwrite, so the fix history stays readable.
