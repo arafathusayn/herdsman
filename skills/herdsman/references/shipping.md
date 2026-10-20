@@ -4,7 +4,7 @@ Some routes ship reviewed commits straight to the default branch, and from there
 
 ## The ship gate
 
-- A branch ships only after the reviewer's `VERDICT: pass` on its head.
+- A branch ships only after the reviewer's `VERDICT: pass` on its head, with no open ENV line ([`contracts.md`](contracts.md), reviewer Severity).
 - When the base branch moved since the branch's last merge, the implementer merges the base and runs every suite on the merged head before the push. A clean merge check is not a tested result: two files can merge without a conflict and still break each other.
 - The exact commit to push passes the tests in the same form as CI: the same command, the whole package in one process, the same entry point. Reason: a test that leaks a global (a fake clock, a timer spy) into later files passes in a partial local run and fails in CI.
 - Keep the evidence (command, commit, pass counts) in the ship-prep report. No evidence, no push.
