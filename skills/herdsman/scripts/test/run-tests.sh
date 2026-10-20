@@ -182,7 +182,7 @@ printf 'x\n' > "$T/quiet-tree/new.txt"
 out=$(HERDSMAN_STATUS_SPECS="im-a:w9:p1:$T/quiet-tree" /bin/bash "$SK/agent-status.sh" 2>&1)
 check "A1c a fresh write clears the flag" 'under quiet-tree: 1$' "$out"
 
-# W10-W15: watch-prs.sh with the fake gh (fixtures in $FAKE_GH_DIR, see test/fakebin/gh). A deadline of 0 makes a run
+# W10-W16: watch-prs.sh with the fake gh (fixtures in $FAKE_GH_DIR, see test/fakebin/gh). A deadline of 0 makes a run
 # one pass. A longer deadline polls every second. Each group has its own state folder and its own pull request numbers.
 export FAKE_GH_DIR="$T/gh"; mkdir -p "$FAKE_GH_DIR"
 run_pw() { # pull requests, state folder name, deadline in seconds
@@ -191,8 +191,8 @@ run_pw() { # pull requests, state folder name, deadline in seconds
 /bin/bash -n "$SK/watch-prs.sh" && { pass=$((pass+1)); echo "PASS syntax watch-prs"; } || { fail=$((fail+1)); echo "FAIL syntax watch-prs"; }
 # pr_json <state> <head> <check run>...: the JSON of `gh pr view --json state,headRefOid,statusCheckRollup`
 pr_json() { local s=$1 h=$2 IFS=,; shift 2; printf '{"state":"%s","headRefOid":"%s","statusCheckRollup":[%s]}\n' "$s" "$h" "$*"; }
-# check_run <name> <status> <conclusion> <started> <completed>. The times are short strings: the watcher only sorts them.
-check_run() { printf '{"__typename":"CheckRun","name":"%s","status":"%s","conclusion":"%s","startedAt":"%s","completedAt":"%s"}' "$@"; }
+# check_run <name> <status> <conclusion> <started> <completed> [<workflow>]. The times are short strings: the watcher only sorts them.
+check_run() { printf '{"__typename":"CheckRun","name":"%s","status":"%s","conclusion":"%s","startedAt":"%s","completedAt":"%s","workflowName":"%s"}' "$@"; }
 if command -v jq >/dev/null 2>&1; then
   # W10: a push or a rerun cancels the old run of a check while the new run is in progress: no failure event.
   # The old run is last in the list, so a pick of the last item (instead of the newest start time) fails.
@@ -207,8 +207,14 @@ if command -v jq >/dev/null 2>&1; then
   pr_json OPEN aaaa1111bbbb "$(check_run test COMPLETED SUCCESS T10:00:00Z T10:01:00Z)" "$(check_run test COMPLETED FAILURE T10:05:00Z T10:06:00Z)" > "$FAKE_GH_DIR/22-view.json"
   out=$(run_pw 22 w11 0); check "W11 a newer failed run of a name wakes" '^PR .* NEW check test=FAILURE$' "$out"
   nocheck "W11b with no TICK" 'TICK' "$out"
+  # W16: two workflows that share a job name are two checks: a failure in one is not hidden by a newer success in the other.
+  pr_json OPEN aaaa1111bbbb "$(check_run build COMPLETED SUCCESS T09:00:00Z T09:01:00Z CI)" > "$FAKE_GH_DIR/28-view.json"
+  out=$(run_pw 28 w16 0)
+  pr_json OPEN aaaa1111bbbb "$(check_run build COMPLETED FAILURE T10:00:00Z T10:01:00Z CI)" "$(check_run build COMPLETED SUCCESS T10:00:05Z T10:01:00Z 'Deploy preview')" > "$FAKE_GH_DIR/28-view.json"
+  out=$(run_pw 28 w16 0); check "W16 a failed run of a job name wakes although another workflow's job of that name started later" '^PR .* NEW check build=FAILURE$' "$out"
+  nocheck "W16b with no TICK" 'TICK' "$out"
 else
-  echo "SKIP W10, W11: jq is not installed"
+  echo "SKIP W10, W11, W16: jq is not installed"
 fi
 # W12: a pull request that cannot be read is no "no change": the third failed poll in a row ends the run with exit 1.
 touch "$FAKE_GH_DIR/23-fail"

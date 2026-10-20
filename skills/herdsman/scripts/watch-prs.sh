@@ -6,8 +6,9 @@
 # Polls every HERDSMAN_PR_INTERVAL seconds (default 120) and exits on the first change on any
 # watched pull request: a new issue comment, inline comment or review (compared by id, so a push
 # that moves lines does not re-emit), a new head commit, a state change, or a check whose result
-# changes. Only the newest run of each check name counts: a push or a rerun cancels the old run while the
-# new run goes on, and that cancelled result is not a failure. The first run per pull request only records
+# changes. Only the newest run of each check name and workflow counts: a push or a rerun cancels the old run
+# while the new run goes on, and that cancelled result is not a failure. Two workflows that have a job of the
+# same name are two checks, so two lines can share a name. The first run per pull request only records
 # a baseline. Exits with TICK after HERDSMAN_PR_DEADLINE seconds (default 1500). Re-arm after every wake.
 # A pull request that cannot be read (no access, repeated GitHub errors) is not "no change". The failed polls
 # in a row are counted for each pull request in the file fail-<n> of HERDSMAN_PR_STATE, and a good read clears
@@ -35,9 +36,10 @@ snapshot() {
   rc=$(gh api "repos/$REPO/pulls/$n/comments" --paginate --jq '.[] | "inline \(.id) \(.user.login) \(.path)"') || return 1
   rv=$(gh api "repos/$REPO/pulls/$n/reviews" --paginate --jq '.[] | "review \(.id) \(.user.login) \(.state)"') || return 1
   # statusCheckRollup keeps the old run of a check beside its newer run, for example a run that a push or a rerun
-  # cancelled. Group the runs by name and keep only the newest one of each (by start time, then end time).
+  # cancelled. Group the runs by check name and workflow (two workflows can have a job of the same name) and keep
+  # only the newest run of each group (by start time, then end time).
   view=$(gh pr view "$n" --repo "$REPO" --json state,headRefOid,statusCheckRollup \
-    --jq '"state \(.state)", "head \(.headRefOid[0:8])", (.statusCheckRollup | group_by(.name // .context)[] | sort_by(.startedAt, .completedAt) | .[-1] | "check \(.name // .context)=\(.conclusion // .state // .status)")') || return 1
+    --jq '"state \(.state)", "head \(.headRefOid[0:8])", (.statusCheckRollup | group_by([(.name // .context), (.workflowName // "")])[] | sort_by(.startedAt, .completedAt) | .[-1] | "check \(.name // .context)=\(.conclusion // .state // .status)")') || return 1
   printf '%s\n%s\n%s\n%s\n' "$ic" "$rc" "$rv" "$view" | grep -v '^$' | sort
 }
 
