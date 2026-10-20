@@ -1,6 +1,8 @@
 # Antigravity CLI (agy)
 
-Antigravity CLI can take any agent type. Herdr kind: `agy`. Notes from a probe of a pane the user had started (Gemini model, "auto" mode).
+These notes come from a probe of a pane that the user started. They do not yet hold a verified launch command, working marker or interrupt key. Before a route uses this harness, probe those three first (as [`SKILL.md`](../SKILL.md), References, says for a harness with no notes) and add them here.
+
+Antigravity CLI can take any agent type. Herdr kind: `agy`. The probed pane used a Gemini model and "auto" mode.
 
 ## Launch and modes
 

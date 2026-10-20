@@ -2,7 +2,8 @@
 # Sanity tests for the herdsman scripts under macOS /bin/bash 3.2 with BSD tools, and under GNU tools.
 # Run from bash or zsh: zsh <skill>/scripts/test/run-tests.sh [work dir] (or /bin/bash, sh, ./run-tests.sh)
 # A `sleep` stub exits the watcher after one pass, so every test is one poll iteration.
-# A fake `herdr` on PATH serves pane text from files. The Z tests start the scripts from zsh, as a macOS shell does.
+# A fake `herdr` on PATH serves pane text from files, and a fake `gh` serves pull request fixtures (see the comments in
+# test/fakebin). The Z tests start the scripts from zsh, as a macOS shell does.
 # Started from zsh or sh, re-run under /bin/bash (the line is valid in all three).
 [ -n "${BASH_VERSION:-}" ] || exec /bin/bash "$0" "$@"
 set -u
@@ -17,7 +18,7 @@ export HERDSMAN_PANE_im_a=w9:p1
 export HERDSMAN_PANE_im_b=w9:p2
 export HERDSMAN_REVIEWER_PANE=w9:p3
 export HERDSMAN_REVIEWER_NAME=rv-1
-chmod +x "$SK/test/fakebin/herdr"
+chmod +x "$SK/test/fakebin/herdr" "$SK/test/fakebin/gh"
 mkdir -p "$FAKE_PANE_DIR" "$HERDSMAN_REPORTS" "$HERDSMAN_STATE"
 sleep() { exit 0; }
 export -f sleep
@@ -180,6 +181,65 @@ check "A1b quiet tree flagged" 'under quiet-tree: 0  <-- NO WRITES in 10m' "$out
 printf 'x\n' > "$T/quiet-tree/new.txt"
 out=$(HERDSMAN_STATUS_SPECS="im-a:w9:p1:$T/quiet-tree" /bin/bash "$SK/agent-status.sh" 2>&1)
 check "A1c a fresh write clears the flag" 'under quiet-tree: 1$' "$out"
+
+# W10-W15: watch-prs.sh with the fake gh (fixtures in $FAKE_GH_DIR, see test/fakebin/gh). A deadline of 0 makes a run
+# one pass. A longer deadline polls every second. Each group has its own state folder and its own pull request numbers.
+export FAKE_GH_DIR="$T/gh"; mkdir -p "$FAKE_GH_DIR"
+run_pw() { # pull requests, state folder name, deadline in seconds
+  env HERDSMAN_PRS="$1" HERDSMAN_REPO=org/repo HERDSMAN_PR_STATE="$T/$2" HERDSMAN_PR_DEADLINE="$3" HERDSMAN_PR_INTERVAL=1 /bin/bash "$SK/watch-prs.sh" 2>&1
+}
+/bin/bash -n "$SK/watch-prs.sh" && { pass=$((pass+1)); echo "PASS syntax watch-prs"; } || { fail=$((fail+1)); echo "FAIL syntax watch-prs"; }
+# pr_json <state> <head> <check run>...: the JSON of `gh pr view --json state,headRefOid,statusCheckRollup`
+pr_json() { local s=$1 h=$2 IFS=,; shift 2; printf '{"state":"%s","headRefOid":"%s","statusCheckRollup":[%s]}\n' "$s" "$h" "$*"; }
+# check_run <name> <status> <conclusion> <started> <completed>. The times are short strings: the watcher only sorts them.
+check_run() { printf '{"__typename":"CheckRun","name":"%s","status":"%s","conclusion":"%s","startedAt":"%s","completedAt":"%s"}' "$@"; }
+if command -v jq >/dev/null 2>&1; then
+  # W10: a push or a rerun cancels the old run of a check while the new run is in progress: no failure event.
+  # The old run is last in the list, so a pick of the last item (instead of the newest start time) fails.
+  pr_json OPEN aaaa1111bbbb "$(check_run test COMPLETED SUCCESS T10:00:00Z T10:01:00Z)" > "$FAKE_GH_DIR/21-view.json"
+  out=$(run_pw 21 w10 0); check "W10 the first pass records a baseline" '^TICK no PR change' "$out"
+  pr_json OPEN aaaa1111bbbb "$(check_run test IN_PROGRESS '' T10:05:00Z '')" "$(check_run test COMPLETED CANCELLED T10:00:00Z T10:03:00Z)" > "$FAKE_GH_DIR/21-view.json"
+  out=$(run_pw 21 w10 0); check "W10a an old cancelled run beside a newer run of the same name does not wake" '^TICK no PR change' "$out"
+  nocheck "W10b and no event reports the cancelled result" 'CANCELLED' "$out"
+  # W11: the newest run of a name decides, so a newer failure still wakes. The newer run is last in the list here.
+  pr_json OPEN aaaa1111bbbb "$(check_run test COMPLETED SUCCESS T10:00:00Z T10:01:00Z)" > "$FAKE_GH_DIR/22-view.json"
+  out=$(run_pw 22 w11 0)
+  pr_json OPEN aaaa1111bbbb "$(check_run test COMPLETED SUCCESS T10:00:00Z T10:01:00Z)" "$(check_run test COMPLETED FAILURE T10:05:00Z T10:06:00Z)" > "$FAKE_GH_DIR/22-view.json"
+  out=$(run_pw 22 w11 0); check "W11 a newer failed run of a name wakes" '^PR .* NEW check test=FAILURE$' "$out"
+  nocheck "W11b with no TICK" 'TICK' "$out"
+else
+  echo "SKIP W10, W11: jq is not installed"
+fi
+# W12: a pull request that cannot be read is no "no change": the third failed poll in a row ends the run with exit 1.
+touch "$FAKE_GH_DIR/23-fail"
+out=$(run_pw 23 w12 5); rc=$?
+check "W12 the third failed poll in a row ends the run with an error line" '^PR-WATCH-ERROR PR .* could not be read$' "$out"
+nocheck "W12b and not with a TICK" 'TICK' "$out"
+check "W12c exit 1" '^1$' "$rc"
+check "W12d after exactly three failed polls" '^3$' "$(printf '%s\n' "$out" | grep -c 'HTTP 502')"
+# W13: the deadline ends with one failed read: the TICK names the pull request that it did not read.
+touch "$FAKE_GH_DIR/24-fail"
+out=$(run_pw 24 w13 0); rc=$?
+check "W13 a TICK after a failed read names the pull request" '^TICK no PR change \(not read: 24\)' "$out"
+check "W13b exit 0" '^0$' "$rc"
+# W14: a good read clears the count of failed reads, so three failed polls must follow each other.
+touch "$FAKE_GH_DIR/25-fail"
+out=$(run_pw 25 w14 0); out=$(run_pw 25 w14 0)
+nocheck "W14 two failed polls in a row end no run" 'PR-WATCH-ERROR' "$out"
+rm -f "$FAKE_GH_DIR/25-fail"; printf '%s\n' 'state OPEN' 'head aaaa1111' > "$FAKE_GH_DIR/25-view.txt"
+out=$(run_pw 25 w14 0); nocheck "W14b a good read clears the failed reads from the TICK" 'not read' "$out"
+touch "$FAKE_GH_DIR/25-fail"
+out=$(run_pw 25 w14 0); check "W14c a failed poll after a good read counts as the first" 'not read: 25' "$out"
+nocheck "W14d and ends no run" 'PR-WATCH-ERROR' "$out"
+# W15: the error exit keeps the events that the same pass found on another pull request.
+printf '%s\n' 'state OPEN' 'head aaaa1111' > "$FAKE_GH_DIR/26-view.txt"
+touch "$FAKE_GH_DIR/27-fail"
+out=$(run_pw "26 27" w15 0); out=$(run_pw "26 27" w15 0)
+printf '%s\n' 'state OPEN' 'head bbbb2222' > "$FAKE_GH_DIR/26-view.txt"
+out=$(run_pw "26 27" w15 0); rc=$?
+check "W15 the event of the readable pull request is printed" '^PR .* NEW head bbbb2222$' "$out"
+check "W15b and the unreadable one ends the run" '^PR-WATCH-ERROR PR .* could not be read$' "$out"
+check "W15c exit 1" '^1$' "$rc"
 
 # L1: route-log.sh appends one "- HH:MM <text>" line; L2: usage error on a missing argument or file
 RL="$SK/route-log.sh"
