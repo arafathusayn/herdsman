@@ -22,6 +22,7 @@
 ## Bash tool limits
 
 - `sleep N; <cmd>` chains are refused: use the Monitor tool ([`watchers.md`](watchers.md)).
+- macOS has no `timeout` command. A contract that bounds commands names `perl -e 'alarm <secs>; exec @ARGV' <command>`; run `which` on every tool a contract names before launch. Reason: a brief that names a missing command makes every bounded check fail and costs an amendment mid-task.
 - Compound commands with `wc` or unusual shapes were refused by the auto-mode classifier; keep bookkeeping commands simple.
 - Launching an agent with its sandbox disabled was refused; that launch goes to the user with the exact command.
 - Command output is not shown to the user; put anything they must read into the reply.

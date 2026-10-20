@@ -53,7 +53,7 @@ task_of() {
 # Reviewers to watch for BLOCKED: HERDSMAN_REVIEWERS="name:pane name:pane" (pane ids hold a colon too),
 # else the one HERDSMAN_REVIEWER_NAME:HERDSMAN_REVIEWER_PANE.
 REVIEWERS=${HERDSMAN_REVIEWERS:-"$RNAME:$RPANE"}
-BLOCK_RE='Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to gpt|Usage limit|Queued follow-up inputs|Type your answer|Allow reads outside|Do you want to proceed|Permission required|Do you trust'
+BLOCK_RE='Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to gpt|Usage limit|Queued follow-up inputs|Type your answer|Allow reads outside|Do you want to proceed|Permission required|Do you trust|Goal stalled|Apply for Daybreak'
 # Claude Code shows "… (12s ·" while it works; Codex shows "esc to interrupt" or "Pursuing goal".
 WORK_RE='esc to interrupt|Pursuing goal|Incubating|thinking|… \([0-9]'
 start=$(date +%s)

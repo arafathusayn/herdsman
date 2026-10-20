@@ -22,14 +22,14 @@ The user talks only to the orchestrator. Any harness and model can take any agen
 
 Read [`references/harness-guards.md`](references/harness-guards.md) before the first shell command. Read the other references when the step names them.
 
-Harness notes: `references/` has one file per harness used so far (launch form, prompt form, slash commands for compact and clear, working and blocked markers, quirks): [`codex.md`](references/codex.md), [`muse.md`](references/muse.md) and [`claude-code.md`](references/claude-code.md). The notes are per harness, not per agent type, because any harness can take any type. Before a route uses a harness with no notes file, probe it (launch in a scratch pane, send a prompt, find its compact, clear and interrupt commands and its working marker) and write the notes file first.
+Harness notes: `references/` has one file per harness used so far (launch form, prompt form, slash commands for compact and clear, working and blocked markers, quirks): [`codex.md`](references/codex.md), [`muse.md`](references/muse.md), [`claude-code.md`](references/claude-code.md) and [`agy.md`](references/agy.md). The notes are per harness, not per agent type, because any harness can take any type. Before a route uses a harness with no notes file, probe it (launch in a scratch pane, send a prompt, find its compact, clear and interrupt commands and its working marker) and write the notes file first.
 
 Concepts: the rules that earlier routes taught, with their reasons, one file per concept. Read them before the dispatch plan (step 1), and again when a step touches the concept.
 
 - [`references/flow-and-time.md`](references/flow-and-time.md): due times that the orchestrator enforces, the moving bottleneck (reviewers, CI, the integrator), work ahead, idle state, quota as capacity.
 - [`references/context-hygiene.md`](references/context-hygiene.md): compact for a follow-up, clear for a new job, when harnesses refuse the commands, the orchestrator's own context.
 - [`references/ownership-and-integration.md`](references/ownership-and-integration.md): file and line ownership, handoffs, the integrator's phases, fixes on another author's pull request, migration numbers and stacks.
-- [`references/review-discipline.md`](references/review-discipline.md): what a review reports and proves, the goal gate, orchestrator amendments, disagreements, human reviews.
+- [`references/review-discipline.md`](references/review-discipline.md): what a review reports and proves, the goal gate, orchestrator amendments, disagreements, human reviews, review-only routes on someone else's pull request (brief, snapshot, severity rulings, posting one inline review).
 - [`references/shared-environment.md`](references/shared-environment.md): test databases, CPU and shared memory on one machine, tests that prove the product.
 - [`references/shipping.md`](references/shipping.md): routes that push reviewed commits straight to the default branch: the ship gate, who pushes, acceptance on the deployed app, the user's browser.
 - [`references/checkpointer.md`](references/checkpointer.md): the checkpointer requests and numbers (see `checkpoint` below).
@@ -95,7 +95,7 @@ Stop if this fails. Then, in one call: `herdr agent start --help` (kinds), `<har
 
 ## 1. One interview, then a dispatch plan
 
-Ask once, in one question round, everything the route needs. Do not ask again mid-route unless a step is unsafe without an answer.
+Ask once, in one question round, everything the route needs. Do not ask again mid-route unless a step is unsafe without an answer. A product default that changes what users will see (which records a cleanup hides, what stays listed) is a question in this round, never a "may overrule" note in the contract. Reason: the user finds a wrong default only after delivery, and then a late follow-up pull request must fix it.
 
 - Tasks: the list, one implementer per task. Each task has a branch name and a base branch.
 - Integration: one pull request per task (the implementers publish), or one combined branch (an integrator publishes). For a combined branch: the merge order, the target branch, and whether the integrator is a new agent or an implementer whose task was accepted.
