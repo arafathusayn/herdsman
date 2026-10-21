@@ -425,11 +425,26 @@ kroute '| Task | Pane | Agent |' '| a | tbd | im-a |' '- [x] C0.1 all: read guar
 out=$(/bin/bash "$RK" "$K2F" launch 2>&1); check "K12 a placeholder in a reordered Pane column" '^MISSING pane in the task table: \| a \| tbd \| im-a \|' "$out"
 kroute '| Task | Agent | Where |' '| a | im-a | w1:p2 |' '- [x] C0.1 all: read guards -- done'
 out=$(/bin/bash "$RK" "$K2F" launch 2>&1); check "K13 a table with no Pane column" '^MISSING a Pane column' "$out"
-kroute '| Task | Agent | Pane |' '| a | im-a | w1:p2 |' '- [x] C2.5 pr: contracts -- 10-shared-rules.md' '- [x] C2.7 all: reviewer -- 20-reviewer.md'
+kroute '| Task | Agent | Pane |' '| a | im-a | w1:p2 |' '- [x] C2.5 pr int gate2 ship: contracts -- 10-shared-rules.md' '- [x] C2.7 pr int gate2 ship: reviewer -- 20-reviewer.md'
+mkdir -p "$K2F/10-shared-rules.md"; printf '# notes\n' > "$K2F/20-notes.md"
 out=$(/bin/bash "$RK" "$K2F" 2>&1); rc=$?
-check "K14 a kept contracts line needs the shared rules" '^MISSING 10-shared-rules.md \(C2.5\)$' "$out"
-check "K14b and a task contract" '^MISSING a 1n-task-<x>.md contract \(C2.5\)$' "$out"; check "K14c and the reviewer contract" '^MISSING 20-reviewer.md or the review brief \(C2.7\)$' "$out"
+check "K14 a kept contracts line needs the shared rules, and a directory is not a file" '^MISSING 10-shared-rules.md \(C2.5\)$' "$out"
+check "K14b and a task contract" '^MISSING a 1n-task-<x>.md contract \(C2.5\)$' "$out"
+check "K14c and the reviewer contract, which another 20- file does not replace" '^MISSING 20-reviewer.md \(C2.7\)$' "$out"
 check "K14d and fails" '^1$' "$rc"
+rmdir "$K2F/10-shared-rules.md"; rm -f "$K2F/20-notes.md"
+kroute '| Task | Agent | Pane |' '| a | im-a | w1:p2 |' '- [x] C2.6 int: integrator -- 15-task-i.md' '- [x] C2.7 ro: brief -- 20-review-brief.md'
+printf '# Task I\nDue: 12:00\n' > "$K2F/15-task-i.md"
+out=$(/bin/bash "$RK" "$K2F" 2>&1)
+check "K16 a numbered integrator contract satisfies C2.6" '^ok the integrator contract 1n-task-i.md \(C2.6\)$' "$out"
+check "K16b a review-only route needs its brief" '^MISSING 20-review-brief.md \(C2.7\)$' "$out"
+rm -f "$K2F/15-task-i.md"
+kroute '| Task | Agent | Pane |' '| a | im-a | w1:p2 |' '- [x] C0.1 all: read guards -- done' '  - [ ] C2.8 all: indented and open'
+out=$(/bin/bash "$RK" "$K2F" close 2>&1); rc=$?
+check "K17 an indented checkbox is BAD, not hidden" '^BAD   - \[ \] C2.8' "$out"; check "K17b and the close stage fails" '^1$' "$rc"
+printf '%s\n' '# Route r2' '## Decisions' '## Must prove' '## Task table' '## Checklist' '- [x] C0.1 all: read guards -- done' '## Run state' > "$K2F/00-route.md"
+out=$(/bin/bash "$RK" "$K2F" launch 2>&1); check "K18 an empty task table fails the launch stage" '^MISSING a Pane column' "$out"
+nocheck "K18b with no ok for its panes" '^ok task table panes filled' "$out"
 kroute '| Task | Agent | Pane |' '| a | im-a | w1:p2 |'
 out=$(/bin/bash "$RK" "$K2F" close 2>&1); rc=$?
 check "K15 an empty checklist is MISSING, not a pass" '^MISSING checklist lines' "$out"; nocheck "K15b with no ok for open lines" '^ok no open checklist line' "$out"

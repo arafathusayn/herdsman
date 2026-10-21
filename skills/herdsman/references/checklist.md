@@ -4,7 +4,7 @@ The steps of [`SKILL.md`](../SKILL.md) as lines to tick, each linked to the rule
 
 ## How to use it
 
-- At step 2, copy the section "Lines" below into `00-route.md` under the heading `## Checklist (links relative to <skill>/references/)`, with the skill's folder in place of `<skill>`: the links in the lines are relative to this file's folder, and the heading keeps them usable from the route folder. Keep the lines whose tag fits the route and delete the others: `all`; `pr` (one pull request per task); `int` (integration route); `gate2` (two-gate route); `ship` (shipping without pull requests); `ro` (review-only route on someone else's pull request); `db` (a test database); `sbx` (a sandboxed harness runs checks); `nocommit` (a route that may not commit). Copy the block "Per review unit" once for each task branch, pull request or combined head, with its id in place of `<u>`.
+- At step 2, copy the section "Lines" below into `00-route.md` under the heading `## Checklist`, with every link target made absolute: `](harness-guards.md)` becomes `](<skill>/references/harness-guards.md)` and `](../SKILL.md)` becomes `](<skill>/SKILL.md)`, with the skill's folder in place of `<skill>`. Reason: the links here are relative to this file's folder, and they would point into the route folder after the copy. Keep the lines whose tag fits the route and delete the others: `all`; `pr` (one pull request per task); `int` (integration route); `gate2` (two-gate route); `ship` (shipping without pull requests); `ro` (review-only route on someone else's pull request); `db` (a test database); `sbx` (a sandboxed harness runs checks); `nocommit` (a route that may not commit). Copy the block "Per review unit" once for each task branch, pull request or combined head, with its id in place of `<u>`.
 - Tick a line with the Edit tool when it is done: `- [x]` and ` -- <evidence>` at the end of the line (a path, a commit, a pane id, the user's answer). A line that stops applying mid-route becomes `- [-]` and ` -- <reason>`. Never tick a line from memory of what was done: check the evidence first.
 - Read the open lines on every wake and after every compaction, before the next action. [`scripts/route-check.sh`](../scripts/route-check.sh) prints them, reports a ticked line without its evidence or reason as BAD, and checks the files that the kept lines require.
 - The checklist does not replace a step's text. Each step starts with a "Read first" line: read those files before the step's first action, and tick the line.
@@ -23,16 +23,16 @@ The steps of [`SKILL.md`](../SKILL.md) as lines to tick, each linked to the rule
 - [ ] C1.2 all: One question round, through the ask tool when the harness has one, that covers every interview item the request leaves open, including product defaults that change what users see and the optional techniques, the skill navigator always ([`SKILL.md`](../SKILL.md), step 1; [`harness-guards.md`](harness-guards.md), Orchestrator posture).
 - [ ] C1.3 db: Read the test database's database count and its container's shared-memory use before the first gate; a high count puts the recreate question in the interview ([`shared-environment.md`](shared-environment.md), Share the load).
 - [ ] C1.4 all: Count the reviews the route needs against each harness's usage pool ([`flow-and-time.md`](flow-and-time.md), Quota is capacity).
-- [ ] C1.5 all: Dispatch plan in the reply, with the folder-trust answer of each new folder; the go asked, through the ask tool when the harness has one; nothing launched before the go ([`SKILL.md`](../SKILL.md), step 1).
+- [ ] C1.5 all: Dispatch plan in the reply, with the folder-trust answer of each new folder; the go asked, through the ask tool when the harness has one; nothing launched before the go except the skill navigator that the interview picked ([`SKILL.md`](../SKILL.md), step 1).
 - [ ] C1.6 all: Each chosen option's full text copied into `00-route.md` ([`SKILL.md`](../SKILL.md), step 1).
 
 ### Step 2: route folder and contracts
 
-- [ ] C2.1 all: Read first: [`contracts.md`](contracts.md), [`shared-environment.md`](shared-environment.md) and this file.
+- [ ] C2.1 all: Read first: [`contracts.md`](contracts.md), [`shared-environment.md`](shared-environment.md), [`checklist.md`](checklist.md).
 - [ ] C2.2 all: Route folder under `.herdsman/`, ignored by git; report files under its `reports/`, where every agent can write ([`SKILL.md`](../SKILL.md), step 2).
 - [ ] C2.3 all: `00-route.md` holds Decisions, Must prove, Task table, Checklist and Run state ([`SKILL.md`](../SKILL.md), step 2).
 - [ ] C2.4 all: A read-only scout checked each assumption the tasks rest on, the numbers already taken and the open pull requests on the same files ([`contracts.md`](contracts.md), Rules learned).
-- [ ] C2.5 pr int gate2 ship: `10-shared-rules.md` and one `1n-task-<x>.md` per task, each with a `Due:` line; every contract quotes the Must-prove list ([`contracts.md`](contracts.md)).
+- [ ] C2.5 pr int gate2 ship: `10-shared-rules.md` and one `1n-task-<x>.md` per task, each with every section of its template and a `Due:` line; every contract quotes the Must-prove list; when more than one task changes the schema, the shared rules say how migration numbers collide ([`contracts.md`](contracts.md); [`SKILL.md`](../SKILL.md), step 5 item 7).
 - [ ] C2.6 int: `1n-task-i.md` with one section per phase ([`contracts.md`](contracts.md), 1n-task-i.md).
 - [ ] C2.7 pr int gate2 ship: `20-reviewer.md`; every review skill it names exists in the reviewer's harness; no package runner with an unpinned tag ([`contracts.md`](contracts.md), 20-reviewer.md).
 - [ ] C2.7 ro: One review brief, `20-review-brief.md`, and no contracts ([`review-discipline.md`](review-discipline.md), Review-only routes).
@@ -47,11 +47,11 @@ The steps of [`SKILL.md`](../SKILL.md) as lines to tick, each linked to the rule
 - [ ] C3.1 all: Read first: [`herdr.md`](herdr.md) and the notes of each harness in the route.
 - [ ] C3.2 pr int gate2 ship: Tabs and panes created one mutation per call, each labelled; pane ids in the task table ([`SKILL.md`](../SKILL.md), step 3; [`herdr.md`](herdr.md), Etiquette).
 - [ ] C3.2 ro: The reviewer panes the route reuses named in the task table, each cleared first ([`review-discipline.md`](review-discipline.md), Review-only routes).
-- [ ] C3.3 all: Each agent started one per call, as step 3 items 4 and 5 say; each folder-trust dialog answered as the plan says; each harness's usage line read ([`SKILL.md`](../SKILL.md), step 3; [`flow-and-time.md`](flow-and-time.md), Quota is capacity).
+- [ ] C3.3 pr int gate2 ship: Each agent started one per call, as step 3 items 4 and 5 say; each folder-trust dialog answered as the plan says; each harness's usage line read ([`SKILL.md`](../SKILL.md), step 3; [`flow-and-time.md`](flow-and-time.md), Quota is capacity).
 - [ ] C3.4 all: Each prompt is a full brief with a due time from `date`, logged in `00-route.md`, and passed to the waiter ([`SKILL.md`](../SKILL.md), step 3 items 6 and 9).
 - [ ] C3.5 all: Each pane read after its prompt as step 3 item 8 says: the prompt echoed and the working marker shown ([`SKILL.md`](../SKILL.md), step 3).
 - [ ] C3.6 all: Checkpointer probed, then started in its own pane, unless the user declined it ([`SKILL.md`](../SKILL.md), step 3 item 10).
-- [ ] C3.7 all: `route-check.sh <route folder>` without a MISSING or BAD line before the first launch, and with `launch` once the task table names every pane ([`SKILL.md`](../SKILL.md), step 3).
+- [ ] C3.7 all: `route-check.sh <route folder>` without a MISSING or BAD line before the first agent of the route starts or gets a prompt, and with `launch` once the task table names every pane ([`SKILL.md`](../SKILL.md), step 3).
 - [ ] C3.8 pr int gate2 ship: The reviewer's first job, the base gates, prompted with the implementers' first prompts ([`SKILL.md`](../SKILL.md), step 3 item 6).
 - [ ] C3.9 int: The integrator started and prompted as step 3 item 7 says, each phase written into its contract first ([`SKILL.md`](../SKILL.md), step 3 item 7).
 
@@ -71,7 +71,7 @@ The steps of [`SKILL.md`](../SKILL.md) as lines to tick, each linked to the rule
 ### Per review unit `<u>` (copy once per task branch, pull request or combined head)
 
 - [ ] C5.<u>.1 all: Read first: [`review-discipline.md`](review-discipline.md); in an integration route also [`ownership-and-integration.md`](ownership-and-integration.md).
-- [ ] C5.<u>.2 all: The reviewer's context set, then the review prompt with its report path and due time; one review at a time per reviewer ([`SKILL.md`](../SKILL.md), step 5 item 1).
+- [ ] C5.<u>.2 all: The reviewer's context set, then the review prompt with its report path and due time ([`SKILL.md`](../SKILL.md), step 5 item 1); one review at a time per reviewer, and a second reviewer only with the user's go ([`SKILL.md`](../SKILL.md), step 5, after item 7).
 - [ ] C5.<u>.3 all: Each review read, its ENV lines first; each ENV line's closing run passed on the same head, or the line became a P0 ([`SKILL.md`](../SKILL.md), step 5 item 2; [`contracts.md`](contracts.md), 20-reviewer.md Severity).
 - [ ] C5.<u>.4 all: Each fix line checked against the Must-prove list before it is forwarded; every finding is either in the fix brief word for word or has a recorded ruling that the reviewer was told ([`SKILL.md`](../SKILL.md), step 5 item 3).
 - [ ] C5.<u>.5 all: Pass recorded, or the final gate shown to the user; a disagreement that a reviewer raised again went to the user before the next fix round ([`SKILL.md`](../SKILL.md), step 5 item 4).
@@ -91,7 +91,7 @@ The steps of [`SKILL.md`](../SKILL.md) as lines to tick, each linked to the rule
 
 - [ ] C6.1 all: Read first: [`route-close.md`](route-close.md).
 - [ ] C6.2 all: Each worktree checked for edits and unpushed commits; each agent's resume data saved in the route folder before it closed ([`route-close.md`](route-close.md), Check before you close; Save, then stop).
-- [ ] C6.3 all: Each agent closed with its harness's exit command; the waiter and watchers stopped; the checkpointer closed only on the user's go ([`route-close.md`](route-close.md), Save, then stop).
+- [ ] C6.3 all: Each agent that the route started closed with its harness's exit command, and panes the route reused left open; the waiter and watchers stopped; the checkpointer closed only on the user's go ([`route-close.md`](route-close.md), Save, then stop).
 - [ ] C6.4 all: Live sources read before the close report; the close table and what the user still owns are in the reply and in `00-route.md` ([`SKILL.md`](../SKILL.md), step 6; [`harness-guards.md`](harness-guards.md), Orchestrator posture).
 - [ ] C6.5 all: Lessons written to memory; general lessons into this skill under its own rules ([`SKILL.md`](../SKILL.md), step 6).
 - [ ] C6.6 all: `route-check.sh <route folder> close` exits 0 ([`SKILL.md`](../SKILL.md), step 6).

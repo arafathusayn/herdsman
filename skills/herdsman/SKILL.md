@@ -138,7 +138,7 @@ Everything that agents or their tools must read lives in the route folder. Copy 
 
 ## 3. Launch, one Herdr mutation per call
 
-Read first: [`references/herdr.md`](references/herdr.md) and the notes of each harness in the route. Before the first launch, run `/bin/bash <skill>/scripts/route-check.sh <route folder>` and fix every MISSING and BAD line first; once the task table names every pane, run it with `launch`.
+Read first: [`references/herdr.md`](references/herdr.md) and the notes of each harness in the route. Before the first agent of the route starts, run `/bin/bash <skill>/scripts/route-check.sh <route folder>` and fix every MISSING and BAD line first; once the task table names every pane, run it with `launch`.
 
 Order: tab, panes, agents, prompts. Never two Herdr mutations in one shell call or in parallel tool calls. Read each result before the next call. Details and the verified command forms in [`references/herdr.md`](references/herdr.md).
 

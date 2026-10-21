@@ -28,8 +28,9 @@ for h in 'Decisions' 'Must prove' 'Task table' 'Checklist' 'Run state'; do
 done
 if git -C "$R" check-ignore -q "$R/00-route.md" 2>/dev/null; then ok "route folder ignored by git"; else missing "git ignore for the route folder (.herdsman/)"; fi
 
-# Checklist lines: "- [ ]" open; "- [x] ... -- <evidence>" done; "- [-] ... -- <reason>" dropped. Anything else is BAD.
-lines=$(awk '/^## Checklist/ {c=1; next} /^## / {c=0} c && /^- \[/' "$F")
+# Checklist lines: "- [ ]" open; "- [x] ... -- <evidence>" done; "- [-] ... -- <reason>" dropped. Anything else that
+# looks like a checkbox (another state, an indent, a "*" or "+" bullet) is BAD, so no line hides from the open count.
+lines=$(awk '/^## Checklist/ {c=1; next} /^## / {c=0} c && /^[ \t]*[-*+] \[/' "$F")
 if [ -z "$lines" ]; then
   missing "checklist lines in the Checklist section"
 else
@@ -46,20 +47,21 @@ else
 fi
 has() { printf '%s\n' "$lines" | grep -q "^- \[.\] $1 "; }
 
-# Files that the kept checklist lines require.
-need() { # path, check name
-  if [ -e "$1" ]; then ok "$2"; else missing "$2"; fi
+# Files that the kept checklist lines require: readable regular files, not directories.
+need() { # check name, then candidate paths (a glob that matched nothing stays literal and fails -f)
+  local name=$1 p; shift
+  for p in "$@"; do
+    if [ -f "$p" ] && [ -r "$p" ]; then ok "$name"; return; fi
+  done
+  missing "$name"
 }
 if has C2.5; then
-  need "$R/10-shared-rules.md" "10-shared-rules.md (C2.5)"
-  set -- "$R"/1[0-9]-task-*.md
-  if [ -e "$1" ]; then ok "task contracts (C2.5)"; else missing "a 1n-task-<x>.md contract (C2.5)"; fi
+  need "10-shared-rules.md (C2.5)" "$R/10-shared-rules.md"
+  need "a 1n-task-<x>.md contract (C2.5)" "$R"/1[0-9]-task-*.md
 fi
-has C2.6 && need "$R/1n-task-i.md" "1n-task-i.md (C2.6)"
-if has C2.7; then
-  set -- "$R"/20-*.md
-  if [ -e "$1" ]; then ok "reviewer contract or brief (C2.7)"; else missing "20-reviewer.md or the review brief (C2.7)"; fi
-fi
+has C2.6 && need "the integrator contract 1n-task-i.md (C2.6)" "$R"/1[0-9]-task-i.md
+has 'C2.7 pr[a-z0-9 ]*:' && need "20-reviewer.md (C2.7)" "$R/20-reviewer.md"
+has 'C2.7 ro:' && need "20-review-brief.md (C2.7)" "$R/20-review-brief.md"
 for c in "$R/10-shared-rules.md" "$R/20-reviewer.md"; do
   [ -f "$c" ] || continue
   if grep -q 'Must prove' "$c"; then ok "Must prove in ${c##*/}"; else missing "Must prove list in ${c##*/}"; fi
@@ -69,7 +71,7 @@ for c in "$R"/1[0-9]-task-*.md; do
   if grep -q '^Due: ' "$c"; then ok "Due line in ${c##*/}"; else missing "Due line in ${c##*/}"; fi
 done
 if has C2.8 || grep -l 'run-check\.sh' "$R"/[12][0-9]-*.md >/dev/null 2>&1; then
-  if [ -x "$R/run-check.sh" ]; then ok "run-check.sh executable"; else missing "executable run-check.sh (C2.8 or a contract names it)"; fi
+  if [ -f "$R/run-check.sh" ] && [ -x "$R/run-check.sh" ]; then ok "run-check.sh executable"; else missing "executable run-check.sh (C2.8 or a contract names it)"; fi
 fi
 
 if [ "$STAGE" != plan ]; then
@@ -77,10 +79,10 @@ if [ "$STAGE" != plan ]; then
   panes=$(awk -F'|' '
     /^## Task table/ {t=1; next} /^## / {t=0}
     !t || !/^\|/ {next}
-    !col { for (i=2; i<NF; i++) { h=$i; gsub(/^ +| +$/, "", h); if (h=="Pane") col=i } ; if (!col) {print "NOHEADER"; exit} ; next }
+    !col { for (i=2; i<NF; i++) { h=$i; gsub(/^ +| +$/, "", h); if (h=="Pane") col=i } ; if (!col) {print "NOHEADER"; done=1; exit} ; next }
     /^\| *-+ *\|/ {next}
     { rows++; p=$col; gsub(/^ +| +$/, "", p); if (p=="" || p=="tbd" || p=="TBD" || p=="?" || p=="-") print "PLACEHOLDER " $0 }
-    END { if (col && !rows) print "NOROWS" }' "$F")
+    END { if (done) exit; if (!col) print "NOHEADER"; else if (!rows) print "NOROWS" }' "$F")
   case "$panes" in
     "") ok "task table panes filled" ;;
     NOHEADER*) missing "a Pane column in the task table header" ;;
