@@ -371,6 +371,42 @@ out=$(/bin/bash "$RL" "$T/00-route.md" 2>&1); rc=$?
 check "L2 usage on a missing text" '^usage: route-log.sh' "$out"; if [ "$rc" -ne 0 ]; then pass=$((pass+1)); echo "PASS L2 exit non-zero"; else fail=$((fail+1)); echo "FAIL L2 exit 0"; fi
 out=$(/bin/bash "$RL" "$T/no-such-route.md" "x" 2>&1); check "L2b usage on a missing file" '^usage: route-log.sh' "$out"
 
+# K: route-check.sh checks a route folder on disk and prints the open checklist lines
+RK="$SK/route-check.sh"
+/bin/bash -n "$RK" && { pass=$((pass+1)); echo "PASS syntax route-check"; } || { fail=$((fail+1)); echo "FAIL syntax route-check"; }
+KR="$T/krepo"; KF="$KR/.herdsman/r1"
+mkdir -p "$KF"; git -C "$KR" init -q; printf '.herdsman/\n' > "$KR/.gitignore"
+printf '%s\n' '# Route r1' '## Decisions' '- x' '## Must prove' '- y' '## Task table' '| Task | Agent | Pane |' '| --- | --- | --- |' \
+  '| a | im-a | w1:p2 |' '## Checklist' '- [x] C0.1 all: read guards -- done' '- [ ] C2.8 all: run-check.sh tested' '- [-] C2.9 sbx: no sandbox' \
+  '## Run state' '- [ ] not a checklist line' > "$KF/00-route.md"
+printf '%s\n' '# Shared rules' '## Must prove' 'Every check runs through run-check.sh' > "$KF/10-shared-rules.md"
+printf '%s\n' '# Task a' 'Due: 10:40' > "$KF/11-task-a.md"
+printf '#!/bin/bash\n' > "$KF/run-check.sh"; chmod +x "$KF/run-check.sh"
+out=$(/bin/bash "$RK" "$KF" 2>&1); rc=$?
+check "K1 a complete folder passes the plan stage" '^0$' "$rc"; check "K1b and prints the open line" '^OPEN C2.8 all: run-check.sh tested$' "$out"
+nocheck "K1c ticked, dropped and run-state lines are not open" 'OPEN (C0.1|C2.9|not a checklist)' "$out"
+check "K1d git ignore seen" '^ok route folder ignored by git$' "$out"
+out=$(/bin/bash "$RK" "$KF" close 2>&1); check "K2 an open line fails the close stage" '^1$' "$?"
+sed 's/^- \[ \] C2.8/- [x] C2.8/' "$KF/00-route.md" > "$T/k.tmp" && cp "$T/k.tmp" "$KF/00-route.md"
+out=$(/bin/bash "$RK" "$KF" close 2>&1); rc=$?
+check "K2b with every line closed the close stage passes" '^0$' "$rc"; check "K2c and says so" '^ok no open checklist line$' "$out"
+chmod -x "$KF/run-check.sh"
+out=$(/bin/bash "$RK" "$KF" 2>&1); check "K3 a contract names run-check.sh that is not executable" '^MISSING executable run-check.sh' "$out"
+chmod +x "$KF/run-check.sh"; printf '# Task b\n' > "$KF/12-task-b.md"
+out=$(/bin/bash "$RK" "$KF" 2>&1); check "K4 a task file without a Due line" '^MISSING Due line in 12-task-b.md$' "$out"
+printf 'Due: 11:00\n' >> "$KF/12-task-b.md"
+printf '%s\n' '| b | im-b | tbd |' >> "$T/k.row"
+awk -v row="$(cat "$T/k.row")" '{print} /^\| a \| im-a/ {print row}' "$KF/00-route.md" > "$T/k.tmp" && cp "$T/k.tmp" "$KF/00-route.md"
+check "K5 the plan stage ignores a placeholder pane" '^0$' "$(/bin/bash "$RK" "$KF" >/dev/null 2>&1; echo $?)"
+out=$(/bin/bash "$RK" "$KF" launch 2>&1); check "K5b the launch stage reports it" '^MISSING pane in the task table: \| b \| im-b \| tbd \|$' "$out"
+grep -v '^## Checklist' "$KF/00-route.md" > "$T/k.tmp" && cp "$T/k.tmp" "$KF/00-route.md"
+out=$(/bin/bash "$RK" "$KF" 2>&1); rc=$?
+check "K6 a missing section is reported" '^MISSING section Checklist in 00-route.md$' "$out"; check "K6b and fails" '^1$' "$rc"
+printf '' > "$KR/.gitignore"
+out=$(/bin/bash "$RK" "$KF" 2>&1); check "K7 a route folder that git does not ignore" '^MISSING git ignore' "$out"
+/bin/bash "$RK" 2>/dev/null; check "K8 usage without a folder" '^2$' "$?"
+/bin/bash "$RK" "$KF" later 2>/dev/null; check "K8b usage on an unknown stage" '^2$' "$?"
+
 # C: run-check.sh runs one heavy check at a time, behind a load gate. A fixed reading keeps the gate deterministic.
 RC="$SK/run-check.sh"
 export HERDSMAN_LOCK="$T/checks.lock" HERDSMAN_READING="$T/load" HERDSMAN_PROBES=off HERDSMAN_GATE_POLL=1 HERDSMAN_LOAD_LIMIT=4

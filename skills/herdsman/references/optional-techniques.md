@@ -2,6 +2,14 @@
 
 These techniques are off unless the user picks them in the interview (step 1). Each one adds a step, so offer it when it fits the route: its size, its risk, and the user's time. They work with any harness and any model.
 
+## Skill navigator
+
+- What: a read-only subagent reads the whole skill folder and returns a reading map for this route: for each step, the files and sections the orchestrator must read, and the ones this route does not need, each with a one-line reason.
+- When: offered in every interview. It fits an orchestrator with a tight context, and a route shape the orchestrator has not run before (a first integration route, a first shipping route).
+- How: after the interview answers fix the route's shape (integration or not, shipping, test database, sandboxed harnesses, review-only), start one subagent of the orchestrator's own harness (for example the Agent tool in Claude Code). It is a reader, not an agent of the route, so it needs no pane. Its prompt names the skill folder, the route's shape and the answer format: one line per item, `<step> | <file> | <section heading> | <why>`, then a Skip list with the same fields. It writes the map to `<route folder>/ref/reading-map.md`. The orchestrator reads each listed section before the dispatch plan, ticks the step's "Read first" line with the map's path, and reads the map's lines for the current step again after each compaction.
+- Limits: the map narrows reading; it never removes a checklist line or a rule. A rule the map leaves out still binds. When an event is not in the map, read the files of the step's "Read first" line in full. When the route's shape changes (a merge the interview did not plan, a new harness), run the navigator again or read the files in full.
+- Cost: one subagent run, which reads the whole skill in its own context, and a few minutes before the plan.
+
 ## Plan gate
 
 - What: the implementer writes its plan before it writes code, and waits for approval.
