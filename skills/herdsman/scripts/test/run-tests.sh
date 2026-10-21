@@ -442,6 +442,11 @@ rm -f "$K2F/15-task-i.md"
 kroute '| Task | Agent | Pane |' '| a | im-a | w1:p2 |' '- [x] C0.1 all: read guards -- done' '  - [ ] C2.8 all: indented and open'
 out=$(/bin/bash "$RK" "$K2F" close 2>&1); rc=$?
 check "K17 an indented checkbox is BAD, not hidden" '^BAD   - \[ \] C2.8' "$out"; check "K17b and the close stage fails" '^1$' "$rc"
+tab=$(printf '\t')
+kroute '| Task | Agent | Pane |' '| a | im-a | w1:p2 |' '- [x] C0.1 all: read guards -- done' '-  [ ] C2.8 all: two spaces' "-${tab}[ ] C2.9 all: a tab" '1. [ ] C2.10 all: numbered'
+out=$(/bin/bash "$RK" "$K2F" close 2>&1); rc=$?
+check "K17c two spaces after the bullet are BAD" '^BAD -  \[ \] C2.8' "$out"; check "K17d a tab after the bullet is BAD" "^BAD -${tab}\\[ \\] C2.9" "$out"
+check "K17e a numbered checkbox is BAD" '^BAD 1\. \[ \] C2.10' "$out"; check "K17f and the close stage fails" '^1$' "$rc"
 printf '%s\n' '# Route r2' '## Decisions' '## Must prove' '## Task table' '## Checklist' '- [x] C0.1 all: read guards -- done' '## Run state' > "$K2F/00-route.md"
 out=$(/bin/bash "$RK" "$K2F" launch 2>&1); check "K18 an empty task table fails the launch stage" '^MISSING a Pane column' "$out"
 nocheck "K18b with no ok for its panes" '^ok task table panes filled' "$out"

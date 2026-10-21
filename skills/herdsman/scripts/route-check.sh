@@ -29,8 +29,9 @@ done
 if git -C "$R" check-ignore -q "$R/00-route.md" 2>/dev/null; then ok "route folder ignored by git"; else missing "git ignore for the route folder (.herdsman/)"; fi
 
 # Checklist lines: "- [ ]" open; "- [x] ... -- <evidence>" done; "- [-] ... -- <reason>" dropped. Anything else that
-# looks like a checkbox (another state, an indent, a "*" or "+" bullet) is BAD, so no line hides from the open count.
-lines=$(awk '/^## Checklist/ {c=1; next} /^## / {c=0} c && /^[ \t]*[-*+] \[/' "$F")
+# looks like a checkbox (another state, an indent, a "*", "+" or numbered bullet, more space or a tab after the bullet)
+# is BAD, so no line hides from the open count.
+lines=$(awk '/^## Checklist/ {c=1; next} /^## / {c=0} c && /^[ \t]*([-*+]|[0-9]+[.)])[ \t]+\[/' "$F")
 if [ -z "$lines" ]; then
   missing "checklist lines in the Checklist section"
 else
