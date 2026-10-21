@@ -16,7 +16,7 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 - Resume form: `claude --resume <session id>`. Through Herdr, put `--resume <session id>` first in the launch arguments, followed by the same launch flags as the first start (`herdr agent start <name> --kind claude --pane <id> --timeout 90000 -- --resume <session id> <same flags>`), because flags apply per process. Take the session id from the exit line in the scrollback, or from the transcript file name (`<session id>.jsonl`, see "Claude Code panes"). A resumed session keeps its earlier context; a fresh launch does not.
 - Without `--add-dir` the reviewer blocks on "Allow reads outside the working directories?" when the contract or the route files live outside its cwd. Do not answer that prompt for the user; relaunch with `--add-dir`.
 - `--permission-mode auto` lets it run gh, git fetch, tests and the review skills without prompts; it still refuses dangerous shapes.
-- Start it in its own tab ("Reviewer") with `--cwd <writable root>` so its worktree and report files are local.
+- Start it in the reviewers' tab (`<project>-reviewers`, labels in [`herdr.md`](herdr.md), Etiquette) with `--cwd <writable root>` so its worktree and report files are local.
 - Review prompts go as `/goal <whole review>` (user rule). Before each new review: `/clear`, or `/compact` when the review needs the earlier rounds (a re-review of the same PR). Every goal says "Find only P0 and P1 issues."
 
 ## Prompt shape for Opus 5.5 (source: claude.dev/blog/getting-the-most-out-of-opus-5-5)
