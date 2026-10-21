@@ -241,13 +241,16 @@ Input: a pull request number, or a local branch and its head commit, and a repor
 2. Changed files: `gh pr diff <n> --name-only`, or `git diff --name-only origin/<base>...<head commit>` for a local branch. The final review of an integration route uses the combined branch against the base branch and checks every task contract, the integrator contract and the paths between tasks.
 3. React files (<paths>): run the `/react-review` skill on those files; skip the runtime layer.
 4. All TypeScript in the diff: run the `/thermo-nuclear-code-quality-review` skill on the diff against the base branch.
-5. Run the test commands from the PR body's Verification section with your database. A failing test is a P0, except a suite that your own sandbox cannot run (see ENV below).
+5. Run the test commands from the PR body's Verification section with your database. A failing test is a P0, except a failure that meets one of the ENV cases below with its evidence.
 6. Check the pull request against its task contract (<map of branch to contract file>) and the shared rules. An unmet requirement is at least a P1.
 
 ## Severity, report only these
 - P0: wrong behaviour, data loss or corruption, a tenancy leak, a security hole, a failing or skipped test, a row-breaking migration, a hand-written migration or hand-written SQL that the task contract does not allow (name each allowed one here: <task, migration, why>).
 - P1: wrong behaviour in an edge case the contract names, changed behaviour without a test, an unmet contract requirement, a maintainability problem that will cost within the next few stories, a React effect that belongs in render or in an event handler and causes a visible bug or a needless network call.
-- ENV: a suite that fails because your sandbox denies a call (a socket, a shared-memory call, a loopback port), or a database suite that fails with "No space left on device" while the test database's container is out of shared memory (`df -h /dev/shm` inside the container shows it full) and the change's own tests drop every database they create. Report it as ENV with the denied call or the reading, not as P0. The orchestrator compares it with the implementer's run and the other reviewers' runs on the same head. A failure that only your sandbox shows stays ENV, and an agent outside your sandbox runs that suite; a shared-memory failure stays ENV until the suite passes on the same head after the database is recreated. ENV does not change the VERDICT, but the accept decision waits for that run. Every other failed or skipped test stays P0.
+- ENV: a failure whose cause lies outside the change, in exactly one of these two cases, each with its evidence and the run that closes it. Report it as ENV, not as P0.
+  - Sandbox: the suite fails because your sandbox denies a call (a socket, a shared-memory call, a loopback port). Evidence: the denied call. Closing run: an agent outside your sandbox runs the suite on the same head.
+  - Shared memory: a database suite fails with "No space left on device" while the test database's container is out of shared memory. Evidence: `df -h /dev/shm` inside the container shows it full, and the database count (for Postgres, `select count(*) from pg_database`) shows leftover databases. Closing run: after the database is recreated, the suite runs again on the same head through `run-check.sh`, with the database count read before and after it; the wrapper runs one check at a time, so the change in the count is this run's own.
+  The orchestrator compares each ENV line with the implementer's run and the other reviewers' runs on the same head. ENV does not change the VERDICT, but the accept decision waits for the closing run. When the closing run fails, or the shared-memory run ends with more databases than it started with (the change's tests leave databases behind), the ENV line becomes a P0. A failure that meets neither case, or lacks its evidence, and every skipped test stay P0.
 - Everything below P1 is left out entirely. No style notes, no naming notes, no optional refactors.
 - Test isolation: judge it by what the test code writes, not by what the harness writes during a live run.
 - GOAL-CONFLICT: a finding whose fix would skip or gate a Must-prove test. Report it with both options, not as P0. The orchestrator takes it to the user.
@@ -261,7 +264,7 @@ FINDINGS:
 - P0 | <file>:<line> | <what is wrong and what happens> | fix: <one sentence>
 - P1 | ...
 - GOAL-CONFLICT | <file>:<line> | <the risk> | option 1: <keep the Must-prove test, fix this> | option 2: <skip or gate it>
-- ENV | <suite> | <the call that the sandbox denied, or the shared-memory reading> | run: <command for an agent outside the sandbox, or the rerun after the recreate>
+- ENV | sandbox or shared memory | <suite> | <evidence: the denied call, or the /dev/shm reading and the database count> | run: <the closing run's command>
 CLOSED: <earlier report> <finding> | closed | open: <why> (one line per finding the prompt names; omit when it names none)
 NOT CHECKED: <what this review could not check, for example remote CI, a live service or a GitHub state, one line each>
 `VERDICT: pass` means zero P0, zero P1 and no named finding left open. Then reply in the terminal with only the path.
