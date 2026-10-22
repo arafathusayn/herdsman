@@ -5,7 +5,7 @@
 # the contracts of a route with implementers), so a review-only route is not asked for task contracts.
 # Usage: route-check.sh <route folder> [plan|launch|close]
 #   plan (default): the route file's sections and checklist lines, the git ignore, the files the kept lines require.
-#   launch: plan, plus every task-table row names a pane.
+#   launch: plan, plus every task-table row names a pane (skipped when the route keeps the line "C3.2 nopane").
 #   close: launch, plus no open checklist line.
 # Prints "ok <check>", "MISSING <check>", "BAD <line>" and "OPEN <line>"; exits 1 on any MISSING or BAD (and on OPEN
 # at close), 2 on usage.
@@ -56,9 +56,25 @@ need() { # check name, then candidate paths (a glob that matched nothing stays l
   done
   missing "$name"
 }
+# The value of the task table's Task column in each task row.
+tasks=$(awk -F'|' '
+  /^## Task table/ {t=1; next} /^## / {t=0}
+  !t || !/^\|/ {next}
+  !col { for (i=2; i<NF; i++) { h=$i; gsub(/^ +| +$/, "", h); if (h=="Task") col=i } ; if (!col) exit ; next }
+  /^\| *-+ *\|/ {next}
+  { v=$col; gsub(/^ +| +$/, "", v); if (v!="") print v }' "$F")
 if has C2.5; then
   need "10-shared-rules.md (C2.5)" "$R/10-shared-rules.md"
-  need "a 1n-task-<x>.md contract (C2.5)" "$R"/1[0-9]-task-*.md
+  # One contract per task row: another task's contract, or the integrator's, does not stand in for it.
+  if [ -z "$tasks" ]; then
+    missing "task rows with a Task column in the task table (C2.5)"
+  else
+    while IFS= read -r t; do
+      need "the contract 1n-task-$t.md of task $t (C2.5)" "$R"/1[0-9]-task-"$t".md
+    done <<EOF
+$tasks
+EOF
+  fi
 fi
 has C2.6 && need "the integrator contract 1n-task-i.md (C2.6)" "$R"/1[0-9]-task-i.md
 has 'C2.7 pr[a-z0-9 ]*:' && need "20-reviewer.md (C2.7)" "$R/20-reviewer.md"
@@ -75,14 +91,17 @@ if has C2.8 || grep -l 'run-check\.sh' "$R"/[12][0-9]-*.md >/dev/null 2>&1; then
   if [ -f "$R/run-check.sh" ] && [ -x "$R/run-check.sh" ]; then ok "run-check.sh executable"; else missing "executable run-check.sh (C2.8 or a contract names it)"; fi
 fi
 
-if [ "$STAGE" != plan ]; then
+if [ "$STAGE" != plan ] && has 'C3.2 nopane:'; then
+  # The user picked "Without agent panes": subagents or Workflow stages take the agent types, so no row has a pane.
+  ok "no agent panes (C3.2 nopane)"
+elif [ "$STAGE" != plan ]; then
   # Find the Pane column from the header row, then require a real pane in every task row.
   panes=$(awk -F'|' '
     /^## Task table/ {t=1; next} /^## / {t=0}
     !t || !/^\|/ {next}
     !col { for (i=2; i<NF; i++) { h=$i; gsub(/^ +| +$/, "", h); if (h=="Pane") col=i } ; if (!col) {print "NOHEADER"; done=1; exit} ; next }
     /^\| *-+ *\|/ {next}
-    { rows++; p=$col; gsub(/^ +| +$/, "", p); if (p=="" || p=="tbd" || p=="TBD" || p=="?" || p=="-") print "PLACEHOLDER " $0 }
+    { rows++; p=$col; gsub(/^ +| +$/, "", p); if (p=="" || p=="tbd" || p=="TBD" || p=="?" || p=="-" || p=="none") print "PLACEHOLDER " $0 }
     END { if (done) exit; if (!col) print "NOHEADER"; else if (!rows) print "NOROWS" }' "$F")
   case "$panes" in
     "") ok "task table panes filled" ;;
