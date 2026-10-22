@@ -56,26 +56,35 @@ need() { # check name, then candidate paths (a glob that matched nothing stays l
   done
   missing "$name"
 }
-# The Task value of each implementer row of the task table: a row whose Agent is im-<x> (SKILL.md, Agent types).
-# Integrator, reviewer, checkpointer and orchestrator rows have no task contract of their own (C2.6 holds the
-# integrator's).
-tasks=$(awk -F'|' '
+# The task table's Contract column names each row's contract file: an implementer's 1n-task-<x>.md, the integrator's
+# 1n-task-i.md, "-" for a row with none (reviewer, checkpointer, orchestrator). The column, not the agent's name, says
+# which rows need a contract, because a route may name its agents its own way or keep an implementer on as integrator.
+# Prints "<task>^_<contract cell>^_<row>" per task row (^_ is the unit separator, which `read` does not merge the way it
+# merges tabs, so an empty cell stays empty), or NOCOL when the header has no Task or Contract column.
+us=$(printf '\037')
+contracts=$(awk -F'|' -v us="$us" '
   /^## Task table/ {t=1; next} /^## / {t=0}
   !t || !/^\|/ {next}
-  !tc { for (i=2; i<NF; i++) { h=$i; gsub(/^ +| +$/, "", h); if (h=="Task") tc=i; if (h=="Agent") ac=i } ; if (!tc || !ac) exit ; next }
+  !tc { for (i=2; i<NF; i++) { h=$i; gsub(/^ +| +$/, "", h); if (h=="Task") tc=i; if (h=="Contract") cc=i } ; if (!tc || !cc) {print "NOCOL"; exit} ; next }
   /^\| *-+ *\|/ {next}
-  { v=$tc; a=$ac; gsub(/^ +| +$/, "", v); gsub(/^ +| +$/, "", a); if (v!="" && a ~ /^im-/) print v }' "$F")
+  { v=$tc; c=$cc; gsub(/^ +| +$/, "", v); gsub(/^ +| +$/, "", c); print v us c us $0 }' "$F")
 if has C2.5; then
   need "10-shared-rules.md (C2.5)" "$R/10-shared-rules.md"
-  # One contract per implementer row: another task's contract, or the integrator's, does not stand in for it.
-  if [ -z "$tasks" ]; then
-    missing "implementer rows (Task and Agent columns, Agent im-<x>) in the task table (C2.5)"
+  # Each named contract must exist: another task's contract, or the integrator's, does not stand in for it.
+  if [ -z "$contracts" ] || [ "$contracts" = NOCOL ]; then
+    missing "a Contract column in the task table (C2.5)"
   else
-    while IFS= read -r t; do
-      need "the contract 1n-task-$t.md of task $t (C2.5)" "$R"/1[0-9]-task-"$t".md
+    named=0
+    while IFS="$us" read -r t c row; do
+      case "$c" in
+        -) ;;
+        ''|tbd|TBD|'?') missing "contract in the task table: $row" ;;
+        *) named=1; need "the contract $c of task $t (C2.5)" "$R/$c" ;;
+      esac
     done <<EOF
-$tasks
+$contracts
 EOF
+    [ "$named" = 1 ] || missing "a task contract named in the Contract column (C2.5)"
   fi
 fi
 has C2.6 && need "the integrator contract 1n-task-i.md (C2.6)" "$R"/1[0-9]-task-i.md

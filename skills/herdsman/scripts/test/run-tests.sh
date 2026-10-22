@@ -429,7 +429,7 @@ kroute '| Task | Agent | Pane |' '| a | im-a | w1:p2 |' '- [x] C2.5 pr int gate2
 mkdir -p "$K2F/10-shared-rules.md"; printf '# notes\n' > "$K2F/20-notes.md"
 out=$(/bin/bash "$RK" "$K2F" 2>&1); rc=$?
 check "K14 a kept contracts line needs the shared rules, and a directory is not a file" '^MISSING 10-shared-rules.md \(C2.5\)$' "$out"
-check "K14b and a task contract" '^MISSING the contract 1n-task-a.md of task a \(C2.5\)$' "$out"
+check "K14b and a Contract column that names the task contracts" '^MISSING a Contract column in the task table \(C2.5\)$' "$out"
 check "K14c and the reviewer contract, which another 20- file does not replace" '^MISSING 20-reviewer.md \(C2.7\)$' "$out"
 check "K14d and fails" '^1$' "$rc"
 rmdir "$K2F/10-shared-rules.md"; rm -f "$K2F/20-notes.md"
@@ -454,24 +454,30 @@ kroute '| Task | Agent | Pane |' '| a | im-a | w1:p2 |'
 out=$(/bin/bash "$RK" "$K2F" close 2>&1); rc=$?
 check "K15 an empty checklist is MISSING, not a pass" '^MISSING checklist lines' "$out"; nocheck "K15b with no ok for open lines" '^ok no open checklist line' "$out"
 check "K15c and fails the close stage" '^1$' "$rc"
-# K19: a kept contracts line needs the contract of each implementer row (agent im-<x>); another task's or the
-# integrator's does not count, and the integrator, reviewer, checkpointer and orchestrator rows need none of their own
+# K19: a kept contracts line needs each contract that the task table's Contract column names, whatever the agent is
+# called (a route-specific implementer name, an implementer kept on as the integrator); "-" marks a row with none
 printf '.herdsman/\n' > "$KR/.gitignore"
-{ printf '%s\n' '# Route r2' '## Decisions' '- x' '## Must prove' '- y' '## Task table' '| Task | Agent | Pane |' '| --- | --- | --- |'
-  printf '%s\n' '| a | im-a | w1:p2 |' '| b | im-b | w1:p3 |' '| combine | int-1 | w1:p4 |' '| review | rv-1 | w2:p1 |'
-  printf '%s\n' '| checkpointer | checkpointer.sh | w1:p5 |' '| fixes | orchestrator | w1:p1 |' '## Checklist'
+{ printf '%s\n' '# Route r2' '## Decisions' '- x' '## Must prove' '- y' '## Task table' '| Task | Agent | Pane | Contract |' '| --- | --- | --- | --- |'
+  printf '%s\n' '| a | im-a | w1:p2 | 11-task-a.md |' '| b | rt-b | w1:p3 | 12-task-b.md |' '| i | im-a | w1:p2 | 15-task-i.md |'
+  printf '%s\n' '| review | rv-1 | w2:p1 | - |' '| checkpointer | checkpointer.sh | w1:p5 | - |' '## Checklist'
   printf '%s\n' '- [x] C2.5 pr int gate2 ship: contracts -- 10-shared-rules.md' '## Run state'; } > "$K2F/00-route.md"
 printf '%s\n' '# Shared rules' '## Must prove' > "$K2F/10-shared-rules.md"
 printf '# Task a\nDue: 10:40\n' > "$K2F/11-task-a.md"; printf '# Task I\nDue: 12:00\n' > "$K2F/15-task-i.md"
 out=$(/bin/bash "$RK" "$K2F" 2>&1); rc=$?
-check "K19 an implementer row without its contract is MISSING" '^MISSING the contract 1n-task-b.md of task b \(C2.5\)$' "$out"
-check "K19b the rows that have one pass" '^ok the contract 1n-task-a.md of task a \(C2.5\)$' "$out"
+check "K19 a named contract that does not exist is MISSING, for a route-specific agent name too" '^MISSING the contract 12-task-b.md of task b \(C2.5\)$' "$out"
+check "K19b the contracts that exist pass" '^ok the contract 11-task-a.md of task a \(C2.5\)$' "$out"
 check "K19c and the plan stage fails" '^1$' "$rc"
-nocheck "K19e no contract asked for integrator, reviewer, checkpointer or orchestrator rows" 'task (combine|review|checkpointer|fixes)' "$out"
+check "K19g an implementer kept on as the integrator is checked against the contract its row names" '^ok the contract 15-task-i.md of task i \(C2.5\)$' "$out"
+nocheck "K19e no contract asked for rows marked -" 'task (review|checkpointer)' "$out"
 printf '# Task b\nDue: 11:00\n' > "$K2F/12-task-b.md"
-out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K19d with every implementer's contract written the plan stage passes" '^0$' "$?"
-kroute '| Task | Owner | Pane |' '| a | im-a | w1:p2 |' '- [x] C2.5 pr int gate2 ship: contracts -- 10-shared-rules.md'
-out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K19f a table without an Agent column is MISSING, not a pass" '^MISSING implementer rows' "$out"
+out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K19d with every named contract written the plan stage passes" '^0$' "$?"
+awk '{ if ($0 ~ /^\| b \|/) print "| b | rt-b | w1:p3 | tbd |"; else print }' "$K2F/00-route.md" > "$T/k.tmp" && cp "$T/k.tmp" "$K2F/00-route.md"
+out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K19f a placeholder Contract cell is MISSING, not a pass" '^MISSING contract in the task table: \| b \| rt-b \| w1:p3 \| tbd \|$' "$out"
+awk '{ if ($0 ~ /^\| b \|/) print "| b | rt-b | w1:p3 |  |"; else print }' "$K2F/00-route.md" > "$T/k.tmp" && cp "$T/k.tmp" "$K2F/00-route.md"
+out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K19i an empty Contract cell is MISSING, not a pass" '^MISSING contract in the task table: \| b \| rt-b \| w1:p3 \|  \|$' "$out"
+{ printf '%s\n' '# Route r2' '## Decisions' '## Must prove' '## Task table' '| Task | Agent | Pane | Contract |' '| --- | --- | --- | --- |'
+  printf '%s\n' '| review | rv-1 | w2:p1 | - |' '## Checklist' '- [x] C2.5 pr int gate2 ship: contracts -- 10-shared-rules.md' '## Run state'; } > "$K2F/00-route.md"
+out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K19h a kept contracts line with no contract named is MISSING" '^MISSING a task contract named in the Contract column \(C2.5\)$' "$out"
 rm -f "$K2F/10-shared-rules.md" "$K2F/11-task-a.md" "$K2F/12-task-b.md" "$K2F/15-task-i.md"
 # K20: a route without agent panes keeps the nopane line; launch and close then skip the pane check
 kroute '| Task | Agent | Pane |' '| a | stage-a | none |' '- [x] C3.2 nopane: agents as subagents -- user picked Without agent panes'
