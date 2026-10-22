@@ -56,18 +56,20 @@ need() { # check name, then candidate paths (a glob that matched nothing stays l
   done
   missing "$name"
 }
-# The value of the task table's Task column in each task row.
+# The Task value of each implementer row of the task table: a row whose Agent is im-<x> (SKILL.md, Agent types).
+# Integrator, reviewer, checkpointer and orchestrator rows have no task contract of their own (C2.6 holds the
+# integrator's).
 tasks=$(awk -F'|' '
   /^## Task table/ {t=1; next} /^## / {t=0}
   !t || !/^\|/ {next}
-  !col { for (i=2; i<NF; i++) { h=$i; gsub(/^ +| +$/, "", h); if (h=="Task") col=i } ; if (!col) exit ; next }
+  !tc { for (i=2; i<NF; i++) { h=$i; gsub(/^ +| +$/, "", h); if (h=="Task") tc=i; if (h=="Agent") ac=i } ; if (!tc || !ac) exit ; next }
   /^\| *-+ *\|/ {next}
-  { v=$col; gsub(/^ +| +$/, "", v); if (v!="") print v }' "$F")
+  { v=$tc; a=$ac; gsub(/^ +| +$/, "", v); gsub(/^ +| +$/, "", a); if (v!="" && a ~ /^im-/) print v }' "$F")
 if has C2.5; then
   need "10-shared-rules.md (C2.5)" "$R/10-shared-rules.md"
-  # One contract per task row: another task's contract, or the integrator's, does not stand in for it.
+  # One contract per implementer row: another task's contract, or the integrator's, does not stand in for it.
   if [ -z "$tasks" ]; then
-    missing "task rows with a Task column in the task table (C2.5)"
+    missing "implementer rows (Task and Agent columns, Agent im-<x>) in the task table (C2.5)"
   else
     while IFS= read -r t; do
       need "the contract 1n-task-$t.md of task $t (C2.5)" "$R"/1[0-9]-task-"$t".md
@@ -91,7 +93,8 @@ if has C2.8 || grep -l 'run-check\.sh' "$R"/[12][0-9]-*.md >/dev/null 2>&1; then
   if [ -f "$R/run-check.sh" ] && [ -x "$R/run-check.sh" ]; then ok "run-check.sh executable"; else missing "executable run-check.sh (C2.8 or a contract names it)"; fi
 fi
 
-if [ "$STAGE" != plan ] && has 'C3.2 nopane:'; then
+# Only an open or done nopane line skips the pane check: a dropped one means the route went back to panes.
+if [ "$STAGE" != plan ] && printf '%s\n' "$lines" | grep -q '^- \[[ x]\] C3.2 nopane: '; then
   # The user picked "Without agent panes": subagents or Workflow stages take the agent types, so no row has a pane.
   ok "no agent panes (C3.2 nopane)"
 elif [ "$STAGE" != plan ]; then

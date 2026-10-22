@@ -454,19 +454,24 @@ kroute '| Task | Agent | Pane |' '| a | im-a | w1:p2 |'
 out=$(/bin/bash "$RK" "$K2F" close 2>&1); rc=$?
 check "K15 an empty checklist is MISSING, not a pass" '^MISSING checklist lines' "$out"; nocheck "K15b with no ok for open lines" '^ok no open checklist line' "$out"
 check "K15c and fails the close stage" '^1$' "$rc"
-# K19: a kept contracts line needs one contract per task row; another task's or the integrator's does not count
+# K19: a kept contracts line needs the contract of each implementer row (agent im-<x>); another task's or the
+# integrator's does not count, and the integrator, reviewer, checkpointer and orchestrator rows need none of their own
 printf '.herdsman/\n' > "$KR/.gitignore"
 { printf '%s\n' '# Route r2' '## Decisions' '- x' '## Must prove' '- y' '## Task table' '| Task | Agent | Pane |' '| --- | --- | --- |'
-  printf '%s\n' '| a | im-a | w1:p2 |' '| b | im-b | w1:p3 |' '| i | int-1 | w1:p4 |' '## Checklist'
+  printf '%s\n' '| a | im-a | w1:p2 |' '| b | im-b | w1:p3 |' '| combine | int-1 | w1:p4 |' '| review | rv-1 | w2:p1 |'
+  printf '%s\n' '| checkpointer | checkpointer.sh | w1:p5 |' '| fixes | orchestrator | w1:p1 |' '## Checklist'
   printf '%s\n' '- [x] C2.5 pr int gate2 ship: contracts -- 10-shared-rules.md' '## Run state'; } > "$K2F/00-route.md"
 printf '%s\n' '# Shared rules' '## Must prove' > "$K2F/10-shared-rules.md"
 printf '# Task a\nDue: 10:40\n' > "$K2F/11-task-a.md"; printf '# Task I\nDue: 12:00\n' > "$K2F/15-task-i.md"
 out=$(/bin/bash "$RK" "$K2F" 2>&1); rc=$?
-check "K19 a task row without its contract is MISSING" '^MISSING the contract 1n-task-b.md of task b \(C2.5\)$' "$out"
+check "K19 an implementer row without its contract is MISSING" '^MISSING the contract 1n-task-b.md of task b \(C2.5\)$' "$out"
 check "K19b the rows that have one pass" '^ok the contract 1n-task-a.md of task a \(C2.5\)$' "$out"
 check "K19c and the plan stage fails" '^1$' "$rc"
+nocheck "K19e no contract asked for integrator, reviewer, checkpointer or orchestrator rows" 'task (combine|review|checkpointer|fixes)' "$out"
 printf '# Task b\nDue: 11:00\n' > "$K2F/12-task-b.md"
-out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K19d with every contract written the plan stage passes" '^0$' "$?"
+out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K19d with every implementer's contract written the plan stage passes" '^0$' "$?"
+kroute '| Task | Owner | Pane |' '| a | im-a | w1:p2 |' '- [x] C2.5 pr int gate2 ship: contracts -- 10-shared-rules.md'
+out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K19f a table without an Agent column is MISSING, not a pass" '^MISSING implementer rows' "$out"
 rm -f "$K2F/10-shared-rules.md" "$K2F/11-task-a.md" "$K2F/12-task-b.md" "$K2F/15-task-i.md"
 # K20: a route without agent panes keeps the nopane line; launch and close then skip the pane check
 kroute '| Task | Agent | Pane |' '| a | stage-a | none |' '- [x] C3.2 nopane: agents as subagents -- user picked Without agent panes'
@@ -475,6 +480,8 @@ check "K20 a nopane route passes the launch stage" '^0$' "$rc"; check "K20b and 
 out=$(/bin/bash "$RK" "$K2F" close 2>&1); check "K20c and the close stage" '^0$' "$?"
 kroute '| Task | Agent | Pane |' '| a | stage-a | none |' '- [x] C0.1 all: read guards -- done'
 out=$(/bin/bash "$RK" "$K2F" launch 2>&1); check "K20d without the nopane line the pane check stays" '^MISSING pane in the task table' "$out"
+kroute '| Task | Agent | Pane |' '| a | im-a | none |' '- [-] C3.2 nopane: agents as subagents -- user switched to Herdr panes'
+out=$(/bin/bash "$RK" "$K2F" launch 2>&1); check "K20e a dropped nopane line restores the pane check" '^MISSING pane in the task table' "$out"
 # K21: no line of the skill's checklist waits on the close stage, which passes only once every line is closed
 out=$(grep '^- \[ \]' "$SK/../references/checklist.md"); nocheck "K21 no checklist line waits on route-check close" 'route-check\.sh[^;]* close' "$out"
 
