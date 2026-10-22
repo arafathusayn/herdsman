@@ -66,7 +66,7 @@ contracts=$(awk -F'|' -v us="$us" '
   /^## Task table/ {t=1; next} /^## / {t=0}
   !t || !/^\|/ {next}
   !tc { for (i=2; i<NF; i++) { h=$i; gsub(/^ +| +$/, "", h); if (h=="Task") tc=i; if (h=="Contract") cc=i } ; if (!tc || !cc) {print "NOCOL"; exit} ; next }
-  /^\| *-+ *\|/ {next}
+  /^\| *:?-+:? *\|/ {next}
   { v=$tc; c=$cc; gsub(/^ +| +$/, "", v); gsub(/^ +| +$/, "", c); print v us c us $0 }' "$F")
 if has C2.5; then
   need "10-shared-rules.md (C2.5)" "$R/10-shared-rules.md"
@@ -112,7 +112,7 @@ elif [ "$STAGE" != plan ]; then
     /^## Task table/ {t=1; next} /^## / {t=0}
     !t || !/^\|/ {next}
     !col { for (i=2; i<NF; i++) { h=$i; gsub(/^ +| +$/, "", h); if (h=="Pane") col=i } ; if (!col) {print "NOHEADER"; done=1; exit} ; next }
-    /^\| *-+ *\|/ {next}
+    /^\| *:?-+:? *\|/ {next}
     { rows++; p=$col; gsub(/^ +| +$/, "", p); if (p=="" || p=="tbd" || p=="TBD" || p=="?" || p=="-" || p=="none") print "PLACEHOLDER " $0 }
     END { if (done) exit; if (!col) print "NOHEADER"; else if (!rows) print "NOROWS" }' "$F")
   case "$panes" in

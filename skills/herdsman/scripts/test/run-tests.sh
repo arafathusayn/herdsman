@@ -478,6 +478,12 @@ out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K19i an empty Contract cell is MISSIN
 { printf '%s\n' '# Route r2' '## Decisions' '## Must prove' '## Task table' '| Task | Agent | Pane | Contract |' '| --- | --- | --- | --- |'
   printf '%s\n' '| review | rv-1 | w2:p1 | - |' '## Checklist' '- [x] C2.5 pr int gate2 ship: contracts -- 10-shared-rules.md' '## Run state'; } > "$K2F/00-route.md"
 out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K19h a kept contracts line with no contract named is MISSING" '^MISSING a task contract named in the Contract column \(C2.5\)$' "$out"
+# K22: a separator row with alignment colons is no task row, for the contract and the pane checks alike
+{ printf '%s\n' '# Route r2' '## Decisions' '## Must prove' '## Task table' '| Task | Agent | Pane | Contract |' '| :--- | :---: | ---: | --- |'
+  printf '%s\n' '| a | im-a | w1:p2 | 11-task-a.md |' '## Checklist' '- [x] C2.5 pr int gate2 ship: contracts -- 10-shared-rules.md' '## Run state'; } > "$K2F/00-route.md"
+printf '%s\n' '# Shared rules' '## Must prove' > "$K2F/10-shared-rules.md"
+out=$(/bin/bash "$RK" "$K2F" launch 2>&1); rc=$?
+check "K22 an aligned separator row passes the launch stage" '^0$' "$rc"; nocheck "K22b and is not read as a row" ':---' "$out"
 rm -f "$K2F/10-shared-rules.md" "$K2F/11-task-a.md" "$K2F/12-task-b.md" "$K2F/15-task-i.md"
 # K20: a route without agent panes keeps the nopane line; launch and close then skip the pane check
 kroute '| Task | Agent | Pane |' '| a | stage-a | none |' '- [x] C3.2 nopane: agents as subagents -- user picked Without agent panes'
