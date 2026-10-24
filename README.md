@@ -123,7 +123,7 @@ In the orchestrator session, inside herdr:
 | *(none)* or `run <route request>` | Runs the full route. The request names the tasks, harnesses, models and rules. |
 | `adjutant [--name <name>] [--orchestrator <pane>] [--inbox <root>] [--launch]` | Optional. Attaches this session as the adjutant, the user's side of the message channel ([`references/adjutant.md`](skills/herdsman/references/adjutant.md)). |
 | `orchestrator [--adjutant <name> --name <own-name> --inbox <root>] [request]` | Orchestrates as `run` does; with the adjutant options, it enrolls in the message channel first. |
-| `message [status\|wait\|read\|release\|ack\|send]` | Herdsman messages between the adjutant and the orchestrator ([`references/messages.md`](skills/herdsman/references/messages.md)). The default action is `status`. |
+| `message [status\|wait\|read\|release\|ack\|send\|hold\|unhold]` | Herdsman messages between the adjutant and the orchestrator ([`references/messages.md`](skills/herdsman/references/messages.md)). The default action is `status`. |
 | `checkpoint [start\|now\|probe\|status\|stop]` | Manages the checkpointer. The default action is `start`. |
 | `status` | Shows the health of every agent in the current route. Changes nothing. |
 | `help` | Shows the subcommands, options and examples. |
