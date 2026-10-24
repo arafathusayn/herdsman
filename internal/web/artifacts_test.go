@@ -34,6 +34,14 @@ func TestArtifactsListAndServeInASandbox(t *testing.T) {
 	writeFile(t, filepath.Join(proj, "reports", ".env"), `SECRET=1`)
 	writeFile(t, filepath.Join(proj, "reports", "credentials.json"), `{"key":"x"}`)
 	writeFile(t, filepath.Join(proj, "reports", "logo.PNG"), `png`)
+	// Links named like page assets: to a hidden file, and through a linked folder.
+	if err := os.Symlink(".env", filepath.Join(proj, "reports", "public.js")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(proj, "reports", "real", "app.js"), `x`)
+	if err := os.Symlink("real", filepath.Join(proj, "reports", "lib")); err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, filepath.Join(proj, ".lavish", "plan.html"), `<p>plan</p>`)
 	writeFile(t, filepath.Join(proj, "node_modules", "pkg", "index.html"), `x`)
 	writeFile(t, filepath.Join(proj, ".git", "x.html"), `x`)
@@ -86,6 +94,9 @@ func TestArtifactsListAndServeInASandbox(t *testing.T) {
 	for path, want := range map[string]int{
 		dir + "style.css":          200,
 		dir + "logo.PNG":           200,
+		dir + "real/app.js":        200,
+		dir + "public.js":          404,
+		dir + "lib/app.js":         404,
 		dir + "credentials.json":   404,
 		dir + ".env":               404,
 		dir + "..%2fnotes.md":      404,
@@ -170,5 +181,27 @@ func TestRouteFoldersResolveEveryWorktreeForm(t *testing.T) {
 	want := []string{"/p/.herdsman/r-2026-10-24", "/abs/wt", "/p/wt/rel", "/p/.herdsman/worktrees/a", filepath.Join(home, "wt/home")}
 	if got := routeFolders(r); !slices.Equal(got, want) {
 		t.Fatalf("folders = %v, want %v", got, want)
+	}
+}
+
+// A session folder that is itself a link is walked at its target, so its
+// pages show; the same folder twice, a missing one, home and / are left out.
+func TestWalkRootsResolveALinkedFolder(t *testing.T) {
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real, link, home := filepath.Join(tmp, "real"), filepath.Join(tmp, "link"), filepath.Join(tmp, "home")
+	writeFile(t, filepath.Join(real, "page.html"), "p")
+	writeFile(t, filepath.Join(home, "x.html"), "x")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	roots := walkRoots([]string{link, real, filepath.Join(tmp, "missing"), "/", home}, home)
+	if !slices.Equal(roots, []string{real}) {
+		t.Fatalf("roots = %v, want [%s]", roots, real)
+	}
+	if got := newArtifacts().find(roots); len(got) != 1 || got[0].Path != "page.html" {
+		t.Fatalf("pages = %+v", got)
 	}
 }

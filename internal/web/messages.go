@@ -289,6 +289,37 @@ func identityOK(raw json.RawMessage) bool {
 	return id.Pane != "" && s.Kind == "id" && sessionValueRe.MatchString(s.Value) && s.Agent != "" && s.Source != ""
 }
 
+// validRegistry checks a registry file as the channel's valid_registry
+// does: at most two entries, each a usable name with exactly a role and an
+// identity, and no role, pane or session used twice. One bad entry voids it.
+func validRegistry(b []byte, readErr error) ([]ChannelPeer, bool) {
+	var reg map[string]json.RawMessage
+	if readErr != nil || strictJSON(b) != nil || json.Unmarshal(b, &reg) != nil || reg == nil || len(reg) > 2 {
+		return nil, false
+	}
+	var out []ChannelPeer
+	roles, panes, sessions := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for name, raw := range reg {
+		var p struct {
+			Role     string          `json:"role"`
+			Identity json.RawMessage `json:"identity"`
+		}
+		if !nameRe.MatchString(name) || reserved[name] || !keysExactly(raw, "identity", "role") ||
+			json.Unmarshal(raw, &p) != nil || (p.Role != "adjutant" && p.Role != "orchestrator") || !identityOK(p.Identity) {
+			return nil, false
+		}
+		var id identity
+		_ = json.Unmarshal(p.Identity, &id)
+		session := fmt.Sprintf("%q", []string{id.Session.Agent, id.Session.Kind, id.Session.Source, id.Session.Value})
+		if roles[p.Role] || panes[id.Pane] || sessions[session] {
+			return nil, false
+		}
+		roles[p.Role], panes[id.Pane], sessions[session] = true, true, true
+		out = append(out, ChannelPeer{Name: name, Role: p.Role, Pane: id.Pane})
+	}
+	return out, true
+}
+
 // readEnvelope reads and checks one envelope file, as the channel's own
 // envelope check does.
 func readEnvelope(p string) (*envelope, error) {
@@ -455,23 +486,13 @@ func readChannel(root string, now time.Time) Channel {
 	peers, perr := readBounded(filepath.Join(root, "peers"), envelopeMax)
 	approved, aerr := readBounded(filepath.Join(root, "peers.approved"), envelopeMax)
 	names := map[string]bool{}
-	if aerr == nil && strictJSON(approved) == nil {
-		var reg map[string]struct {
-			Role     string   `json:"role"`
-			Identity identity `json:"identity"`
+	if reg, ok := validRegistry(approved, aerr); ok {
+		ch.Peers = reg
+		for _, p := range reg {
+			names[p.Name] = true
 		}
-		// One bad entry voids the whole registry, as the channel's valid_registry does.
-		if json.Unmarshal(approved, &reg) == nil && len(reg) <= 2 {
-			for name, p := range reg {
-				if !nameRe.MatchString(name) || reserved[name] || (p.Role != "adjutant" && p.Role != "orchestrator") {
-					ch.Peers, names = []ChannelPeer{}, map[string]bool{}
-					break
-				}
-				names[name] = true
-				ch.Peers = append(ch.Peers, ChannelPeer{Name: name, Role: p.Role, Pane: p.Identity.Pane})
-			}
-		}
-		ch.Approved = perr == nil && bytes.Equal(peers, approved) && len(ch.Peers) > 0
+		_, pok := validRegistry(peers, perr)
+		ch.Approved = pok && bytes.Equal(peers, approved) && len(reg) > 0
 	}
 	ch.Pending = !ch.Approved
 	sort.Slice(ch.Peers, func(i, j int) bool { return ch.Peers[i].Role < ch.Peers[j].Role })

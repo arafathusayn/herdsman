@@ -33,11 +33,13 @@ export function loadHosts(): Hosts {
   }
 }
 
-export function saveHosts(h: Hosts): void {
+/** Stores the host list; false when the browser keeps no site storage. */
+export function saveHosts(h: Hosts): boolean {
   try {
     localStorage.setItem(storeKey, JSON.stringify(h));
+    return true;
   } catch {
-    // Kept for this page only.
+    return false;
   }
 }
 

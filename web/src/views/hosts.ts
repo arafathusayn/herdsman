@@ -22,7 +22,15 @@ const pairKey = "herdsman.pending-link";
  */
 export function switchTo(hs: Hosts, host: Host, token = ""): void {
   hs.current = host.id;
-  saveHosts(hs);
+  // The page starts over from the stored list, so a choice it cannot store
+  // would come back as the old host.
+  if (!saveHosts(hs)) {
+    toast(
+      "This browser does not let the app store its hosts, so it cannot switch. Allow site data and try again.",
+      "error",
+    );
+    return;
+  }
   try {
     if (token) sessionStorage.setItem(pairKey, JSON.stringify({ url: host.url, token }));
   } catch {

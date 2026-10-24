@@ -158,6 +158,22 @@ func TestReadChannelFollowsTheChannelRules(t *testing.T) {
 	if ch := readChannel(root, time.Now()); ch.Approved || len(ch.Peers) != 0 {
 		t.Fatalf("reserved peer name accepted: %+v", ch.Peers)
 	}
+
+	// So do an entry without an identity and two peers in one role, pane
+	// or session, which the courier refuses too.
+	for name, reg := range map[string]string{
+		"no identity": `{"front":{"role":"adjutant"}}`,
+		"one role":    `{"front":{"identity":` + fmt.Sprintf(identityJSON, "w1:p6", "s1") + `,"role":"adjutant"},"boss":{"identity":` + fmt.Sprintf(identityJSON, "w1:p1", "s2") + `,"role":"adjutant"}}`,
+		"one pane":    `{"front":{"identity":` + fmt.Sprintf(identityJSON, "w1:p6", "s1") + `,"role":"adjutant"},"boss":{"identity":` + fmt.Sprintf(identityJSON, "w1:p6", "s2") + `,"role":"orchestrator"}}`,
+		"one session": `{"front":{"identity":` + fmt.Sprintf(identityJSON, "w1:p6", "s1") + `,"role":"adjutant"},"boss":{"identity":` + fmt.Sprintf(identityJSON, "w1:p1", "s1") + `,"role":"orchestrator"}}`,
+		"extra field": `{"front":{"identity":` + fmt.Sprintf(identityJSON, "w1:p6", "s1") + `,"role":"adjutant","note":"x"}}`,
+	} {
+		writeFile(t, filepath.Join(root, "peers"), reg)
+		writeFile(t, filepath.Join(root, "peers.approved"), reg)
+		if ch := readChannel(root, time.Now()); ch.Approved || len(ch.Peers) != 0 {
+			t.Errorf("%s: registry accepted: %+v", name, ch.Peers)
+		}
+	}
 }
 
 // The body limit counts code points, as the channel's jq `length` does, not bytes.
