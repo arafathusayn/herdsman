@@ -1359,6 +1359,12 @@ check "RC2c the leak gate refuses a folder and a link" '^2 2$' "$a $?"
 mkfifo "$(OB)/new/m000000000009.md"
 courier >/dev/null; st=$?
 check "RC2d a FIFO queue entry is held and alerts, and the courier exits 0" '^0 yes .*Suspicious queue entry' "$st $(if [ -p "$(OB)/new/m000000000009.md" ]; then echo yes; else echo no; fi) $(cat "$C/calls.log" | tr '\n' ' ')"
+# RC2e: an oversized queue entry is held in new with an alert, and the next valid send is still delivered.
+new_case rc-big-entry
+head -c 131073 /dev/zero | tr '\0' a > "$(OB)/new/m000000000009.md"
+send >/dev/null; courier >/dev/null; st=$?
+check "RC2e an oversized queue entry is held and alerts, and the courier exits 0" '^0 yes no .*Suspicious queue entry' "$st $(yn "$(OB)/new/m000000000009.md") $(yn "$(OB)/ready/m000000000009.md") $(cat "$C/calls.log" | tr '\n' ' ')"
+check "RC2f the valid send beside it is delivered" '^yes$' "$(yn "$(OB)/ready/$ID.md")"
 # RC3: the read summary counts pending new entries and quarantine.
 new_case rc-summary
 send >/dev/null; courier >/dev/null
