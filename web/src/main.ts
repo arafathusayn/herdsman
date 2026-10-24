@@ -10,6 +10,7 @@ import {
   Index,
   type Member,
   paneSize,
+  routeFor,
   routeLabel,
   statusLabel,
   team,
@@ -241,13 +242,18 @@ async function pollChannel(): Promise<void> {
 
 function pickDefaultRoute(): void {
   const { view, server } = store.app;
-  if (view.route) return;
+  if (view.route) {
+    // A link by bare name moves to the id, so the sidebar marks it.
+    const r = routeFor(server?.routes ?? [], view.route);
+    if (r && r.id !== view.route) store.go({ route: r.id }, false);
+    return;
+  }
   const live = server?.routes?.find((r) => r.live);
   store.go({ route: live ? live.id : SESSION }, false);
 }
 
 function currentRoute(app: App): Route | null {
-  return app.server?.routes?.find((r) => r.id === app.view.route) ?? null;
+  return routeFor(app.server?.routes ?? [], app.view.route);
 }
 
 function render(app: App): void {

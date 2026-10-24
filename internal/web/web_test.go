@@ -673,10 +673,10 @@ func TestScrollPicksTheWay(t *testing.T) {
 
 func TestRouteFileIsConfinedToKnownRoutes(t *testing.T) {
 	f := newFixture(t)
-	if res := f.request(t, http.MethodGet, "/api/route/file?route=t-2026-10-24&path=00-route.md", "", f.authed); res.StatusCode != 200 {
+	if res := f.request(t, http.MethodGet, "/api/route/file?route="+routeID(f.routeDir, "t-2026-10-24")+"&path=00-route.md", "", f.authed); res.StatusCode != 200 {
 		t.Fatalf("own file = %d", res.StatusCode)
 	}
-	for _, q := range []string{"route=t-2026-10-24&path=../../etc/passwd", "route=other&path=00-route.md"} {
+	for _, q := range []string{"route=" + routeID(f.routeDir, "t-2026-10-24") + "&path=../../etc/passwd", "route=other&path=00-route.md"} {
 		if res := f.request(t, http.MethodGet, "/api/route/file?"+q, "", f.authed); res.StatusCode != http.StatusNotFound {
 			t.Errorf("%s = %d, want 404", q, res.StatusCode)
 		}

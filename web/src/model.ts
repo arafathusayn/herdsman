@@ -246,3 +246,14 @@ export function routeLabel(r: Route, all: Route[]): string {
   const project = r.dir.split("/").at(-3) ?? ""; // <project>/.herdsman/<route>
   return project ? `${r.name} · ${project}` : r.name;
 }
+
+/**
+ * The route a link names: by its id, or, for a link from before ids had a
+ * hash, by its folder name while only one route has that name.
+ */
+export function routeFor(routes: Route[], key: string): Route | null {
+  const byId = routes.find((r) => r.id === key);
+  if (byId) return byId;
+  const named = routes.filter((r) => r.name === key);
+  return named.length === 1 ? (named[0] ?? null) : null;
+}
