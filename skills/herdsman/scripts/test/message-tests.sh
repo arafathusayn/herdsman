@@ -1332,12 +1332,148 @@ evcase ev-wait-other; printf '%s\n' '@sleep 1' '@ready' '{"event":"pane.updated"
 out=$(ENVX="HERDR_SOCKET_PATH=$C/sock DEADLINE=4 RECHECK=60" msg receiver-pane message-wait.sh "$O")
 check "EV7b another pane's event does not wake it before the deadline" '^TICK' "$out"
 
+# RC: refusal and recovery paths that change no state, alert repeats, display lines and liveness.
+# RC1: a missing argument or an unknown action prints the usage, exits 2 and creates no state.
+new_case rc-args noenroll
+for sc in message-send.sh message-read.sh message-ack.sh message-wait.sh resume-goal-when-idle.sh message-hold.sh message-register.sh; do
+  out=$(msg sender-pane "$sc"); st=$?
+  check "RC1 no arguments: $sc prints its usage and exits 2" '^2 .+' "$st $out"
+done
+out=$(msg sender-pane message-register.sh bogus x); st=$?
+check "RC1b an unknown registry action is refused" '^2 unknown registry action' "$st $out"
+out=$(msg sender-pane message-register.sh propose 'Bad Name' adjutant); st=$?
+check "RC1c an invalid name is refused" '^2 propose <name>' "$st $out"
+check "RC1d and none of them created state" '^no no$' "$(yn "$C/inbox/state") $(yn "$C/inbox/peers")"
+# RC2: a FIFO, a folder, a link or an oversized body is refused before any allocation; the leak gate refuses a
+# folder and a link; a FIFO queue entry is held with an alert and the courier still exits 0.
+new_case rc-inputs
+mkfifo "$C/body.fifo"; mkdir "$C/body.dir"; ln -s "$C/body.txt" "$C/body.link"
+head -c 65537 /dev/zero | tr '\0' a > "$C/body.big"
+for b in fifo dir link big; do
+  out=$(msg sender-pane message-send.sh "$A" "$O" "$C/body.$b" brief); st=$?
+  check "RC2 a $b body is refused" '^2 body must be a bounded readable regular file' "$st $out"
+done
+check "RC2b no ID was allocated" '^0$' "$(nfiles "$C/inbox/ids" 'm*')"
+leak "$C/body.dir" >/dev/null 2>&1; a=$?; leak "$C/body.link" >/dev/null 2>&1
+check "RC2c the leak gate refuses a folder and a link" '^2 2$' "$a $?"
+mkfifo "$(OB)/new/m000000000009.md"
+courier >/dev/null; st=$?
+check "RC2d a FIFO queue entry is held and alerts, and the courier exits 0" '^0 yes .*Suspicious queue entry' "$st $(if [ -p "$(OB)/new/m000000000009.md" ]; then echo yes; else echo no; fi) $(cat "$C/calls.log" | tr '\n' ' ')"
+# RC3: the read summary counts pending new entries and quarantine.
+new_case rc-summary
+send >/dev/null; courier >/dev/null
+send >/dev/null; jq_edit '.from="route-intruder"' "$(OB)/new/m000000000002.md"; courier >/dev/null
+send >/dev/null
+check "RC3 the read summary counts one pending and one quarantined entry" '"type":"summary","pending_new":1,"quarantine":1' "$(msg receiver-pane message-read.sh "$O")"
+# RC4: a missing, null or made-up lifecycle keeps the message in new; a known one delivers it.
+new_case rc-life
+send >/dev/null
+for e in 'del(.["sender-pane"].agent_status)' '.["sender-pane"].agent_status=null' '.["sender-pane"].agent_status="sleeping"'; do
+  jq_edit "$e" "$C/agents.json"; courier >/dev/null
+  check "RC4 lifecycle ${e#*.agent_status}: the message stays in new" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+done
+jq_edit '.["sender-pane"].agent_status="idle"' "$C/agents.json"; courier >/dev/null
+check "RC4b a known lifecycle delivers it" '^no yes$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+# RC5: status shows the registry approval flags.
+new_case rc-flags
+check "RC5 an approved registry: approved and nothing pending" 'registry valid=yes approved=yes pending=no' "$(msg receiver-pane message-status.sh "$O")"
+jq_edit '.["route-adjutant"].identity.session.value="new-session"' "$C/inbox/peers"
+check "RC5b a pending change: not approved and pending" 'registry valid=yes approved=no pending=yes' "$(msg receiver-pane message-status.sh "$O")"
+# RC6: an ID replayed after its ack is held as a duplicate and never delivered again.
+new_case rc-replay
+send >/dev/null; courier >/dev/null
+token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
+printf 'intake recorded\n' > "$C/record.txt"; msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt" >/dev/null
+cp "$C/inbox/ids/$ID/envelope" "$(OB)/new/$ID.md"; courier >/dev/null
+check "RC6 a replay after ack is held as a duplicate" '^yes no .*Duplicate message held' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md") $(cat "$C/calls.log" | tr '\n' ' ')"
+# RC7: a quarantine survives courier restarts with one terminal and one alert.
+new_case rc-quarantine
+send >/dev/null; jq_edit '.from="route-intruder"' "$(OB)/new/$ID.md"
+courier >/dev/null; courier >/dev/null; courier >/dev/null
+check "RC7 three courier runs keep one quarantine, one terminal and one alert" '^1 quarantined 1$' \
+  "$(nfiles "$(OB)/quarantine" '*.md') $(jq -r .state "$C/inbox/ids/$ID/terminal.json") $(grep -c 'notification show Messages quarantined' "$C/calls.log")"
+# RC8: a quarantine alert that could not be shown stays pending and is retried once after its backoff.
+new_case rc-alert-retry
+touch "$C/toast-disabled"
+send >/dev/null; jq_edit '.from="route-intruder"' "$(OB)/new/$ID.md"; courier >/dev/null
+check "RC8 a disabled toast leaves the quarantine alert pending" '^1 0$' "$(nfiles "$C/inbox/alerts" 'quarantine-*.pending') $(nfiles "$C/inbox/alerts" 'quarantine-*.sent')"
+rm "$C/toast-disabled"; touch -t 202001010000 "$C/inbox/alerts/"quarantine-*.attempt; courier >/dev/null
+check "RC8b the retry after the backoff shows it once" '^0 1$' "$(nfiles "$C/inbox/alerts" 'quarantine-*.pending') $(nfiles "$C/inbox/alerts" 'quarantine-*.sent')"
+n=$(grep -c 'notification show Messages quarantined' "$C/calls.log"); courier >/dev/null
+check "RC8c and never again" "^$n\$" "$(grep -c 'notification show Messages quarantined' "$C/calls.log")"
+# RC9: a courier outage alerts, recovery resolves it, and a second outage with toasts off stays pending.
+new_case rc-outage
+rm "$C/inbox/state/heartbeat"; send >/dev/null
+check "RC9 the first outage alerts" 'notification show Message courier unavailable' "$(cat "$C/calls.log")"
+touch "$C/inbox/state/heartbeat"; send >/dev/null
+check "RC9b recovery resolves the shown alert" '^no no$' "$(yn "$C/inbox/alerts/courier-down.sent") $(yn "$C/inbox/alerts/courier-down.attempt")"
+rm "$C/inbox/state/heartbeat"; touch "$C/toast-disabled"; send >/dev/null
+check "RC9c a second outage with toasts off is pending again, not sent" '^yes no$' "$(yn "$C/inbox/alerts/courier-down.pending") $(yn "$C/inbox/alerts/courier-down.sent")"
+# RC10: every pinned blocked marker at a line start is recorded; the same text quoted inside a line is not.
+new_case rc-markers
+i=0; pairs=; targets='[]'
+for phrase in 'Do you want to proceed' 'Do you trust' 'Allow reads outside' 'Allow once' 'Allow always' 'Password for' \
+  'Device not configured' 'Permission required' 'approval required' 'Switch to gpt' '❯ 1. Yes, proceed' 'Yes, and don' \
+  'escalated execution requires' 'Queued follow-up inputs' 'Type your answer' 'Usage limit' 'Selected model is at capacity' \
+  "This content can't be shown"; do
+  i=$((i+1)); pairs="$pairs mark-$i session-$i"; printf '%s\n' 'output line' "$phrase" > "$C/screen-mark-$i"
+  targets=$(printf '%s' "$targets" | jq -c --arg p "mark-$i" --arg s "session-$i" '.+[{pane:$p,session:{source:"hook",agent:"claude",kind:"id",value:$s}}]')
+done
+printf '%s\n' 'he said Do you want to proceed with it' 'a quoted "Permission required" line' > "$C/screen-quoted"
+targets=$(printf '%s' "$targets" | jq -c '.+[{pane:"quoted",session:{source:"hook",agent:"claude",kind:"id",value:"quoted-session"}}]')
+# shellcheck disable=SC2086
+set_agents sender-pane sender-session receiver-pane receiver-session $pairs quoted quoted-session
+printf '%s\n' "$targets" > "$C/inbox/watch-targets.json"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "RC10 each of the eighteen pinned markers is recorded and the quoted text is not" '^18$' "$(nfiles "$C/inbox/state" 'blocked-*')"
+# RC11: a blocked prompt that changes is a new episode: the old alert resolves and the new one alerts.
+new_case rc-episode
+jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}]' > "$C/inbox/watch-targets.json"
+printf 'Permission required\n' > "$C/screen-receiver-pane"
+ENVX="RUN_FOR=2 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+first=$(cat "$C/inbox/state/"blocked-*)
+printf 'Allow once\n' > "$C/screen-receiver-pane"
+ENVX="RUN_FOR=2 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "RC11 the changed prompt is a new episode with its own alert" '^yes changed [2-9]$' \
+  "$(if [ -e "$C/inbox/alerts/blocked-$first.sent" ]; then echo kept; else echo yes; fi) $(if [ "$(cat "$C/inbox/state/"blocked-*)" != "$first" ]; then echo changed; else echo same; fi) $(grep -c 'notification show Agent notice or blocked state' "$C/calls.log")"
+# RC12: after a verified working turn the resume re-arms, and a later pause gets one new resume.
+new_case rc-rearm
+jq_edit '.["task-pane"]=(.["sender-pane"]|.pane_id="task-pane"|.agent="codex"|.agent_session.agent="codex"|.agent_session.value="task-session")' "$C/agents.json"
+jq -n '{"im-task":{role:"task-agent",identity:{pane:"task-pane",session:{source:"hook",agent:"codex",kind:"id",value:"task-session"}}}}' > "$C/inbox/resume-targets.json"
+printf 'Goal paused (/goal resume)\n' > "$C/screen-task-pane"; touch "$C/allow-resume"; relay_boundary
+msg sender-pane resume-goal-when-idle.sh im-task >/dev/null
+check "RC12 a working turn after the resume clears the intent" '^NOOP verified working' "$(msg sender-pane resume-goal-when-idle.sh im-task)"
+printf 'Goal paused (/goal resume)\n' > "$C/screen-task-pane"
+check "RC12b the next pause gets one new resume" '^SENT /goal resume' "$(msg sender-pane resume-goal-when-idle.sh im-task)"
+check "RC12c two resumes in two episodes" '^2$' "$(grep -c '^agent prompt task-pane /goal resume$' "$C/calls.log")"
+
+# GX1: a go that expires while the gate waits for the input lock or the authority check is refused.
+new_case gate-expiry
+relay_boundary
+printf 'reviewed text\n' > "$C/draft.txt"
+APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"
+gojson x1 2
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' '[ "$1 $2" != "agent list" ] || sleep 3' "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+out=$(ENVX="PATH=$C/race-bin:$CPATH" consume x1)
+check "GX1 a go that expires during the authority check is refused" 'REFUSED go expired.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "GX1b and nothing is consumed" '^no$' "$(yn "$APR/consumed/x1.json")"
+# GX2: a journal alert clears once the journal drains, even when no new card appears.
+new_case journal-clear
+jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}]' > "$C/inbox/watch-targets.json"
+relay_boundary
+jkey=$(jq -c '.[0]' "$C/inbox/watch-targets.json" | jq -Sc . | cksum | awk '{print $1 "-" $2}')
+touch "$C/inbox/alerts/card-journal-$jkey.sent" "$C/inbox/alerts/card-journal-$jkey.attempt"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "GX2 a drained journal resolves its alert without a new card" '^no$' "$(yn "$C/inbox/alerts/card-journal-$jkey.sent")"
+
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
 READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read|nc -U)( |$)'
 nocheck "N1 no other call reached the fake herdr" '.' \
-  "$(for f in "$T"/*/calls.log; do [ "$f" = "$T/resume/calls.log" ] || [ "${f#"$T"/ckpt-}" != "$f" ] || grep -v -E "$READS" "$f"; done)"
+  "$(for f in "$T"/*/calls.log; do [ "$f" = "$T/resume/calls.log" ] || [ "$f" = "$T/rc-rearm/calls.log" ] || [ "${f#"$T"/ckpt-}" != "$f" ] || grep -v -E "$READS" "$f"; done)"
 nocheck "N1b the resume case sent only the exact resume input" '.' \
-  "$(grep -v -E "$READS" "$T/resume/calls.log" | grep -v -x -e 'agent prompt task-pane /goal resume' -e 'tab focus fixture-tab')"
+  "$(cat "$T/resume/calls.log" "$T/rc-rearm/calls.log" | grep -v -E "$READS" | grep -v -x -e 'agent prompt task-pane /goal resume' -e 'tab focus fixture-tab')"
 nocheck "N1c the checkpointer cases prompted only the orchestrator pane" '.' \
   "$(for f in "$T"/ckpt-*/calls.log; do grep -v -E "$READS" "$f" | grep -v -E '^(agent wait [^ ]+ .*|agent prompt receiver-pane (/save-memory|/compact))$'; done)"
 
