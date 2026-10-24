@@ -578,6 +578,29 @@ head -c 60000 /dev/zero | tr '\0' '\001' > "$C/body.txt"
 out=$(send); s=$?
 check "S11 an oversized encoded envelope is refused before publication" '^2 .*encoded envelope' "$s $out"
 check "S11b and nothing is queued" '^0$' "$(nfiles "$(OB)/new" '*')"
+new_case changed-backlog
+send >/dev/null; touch -t 202001010000 "$(OB)/new/$ID.md"; courier ALERT_AFTER=1 >/dev/null
+n=$(grep -c 'notification show Unread messages' "$C/calls.log")
+send >/dev/null; touch -t 202001010000 "$(OB)/new/m000000000002.md"; courier ALERT_AFTER=1 >/dev/null
+check "S12 a newly overdue message alerts again although the old backlog was alerted" "^$((n+1))\$" \
+  "$(grep -c 'notification show Unread messages' "$C/calls.log")"
+out=$(courier SWEEP=3600 HEALTH_AFTER=180); s=$?
+check "S13 a sweep longer than the health threshold refuses the courier" '^2 .*scan allowance' "$s $out"
+new_case release-forms
+out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh release missing); s=$?
+check "S14 release with no matching claim fails" '^2$' "$s"
+send >/dev/null; courier >/dev/null
+check "S15 the first delivery wakes the waiter" 'MESSAGE' "$(ENVX="DEADLINE=1 RECHECK=1" msg receiver-pane message-wait.sh "$O")"
+token=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh read | jq -r 'select(.type=="claim")|.token')
+check "S15b the claimed, unchanged state does not wake it" 'TICK' "$(ENVX="DEADLINE=1 RECHECK=1" msg receiver-pane message-wait.sh "$O")"
+send >/dev/null; courier >/dev/null
+check "S15c a second delivery wakes it again" 'MESSAGE' "$(ENVX="DEADLINE=1 RECHECK=1" msg receiver-pane message-wait.sh "$O")"
+printf 'intake recorded\n' > "$C/record.txt"
+msg receiver-pane message-read.sh "$O" "$token" >/dev/null
+msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt" >/dev/null
+msg receiver-pane message-ack.sh "$O" "$token" m000000000002 "$C/record.txt" >/dev/null
+ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh release "$token" >/dev/null; s=$?
+check "S16 release of a fully acked claim succeeds and leaves no claim" '^0 no$' "$s $(yn "$(OB)/claim")"
 
 # N: no channel script typed into any pane; the resume case sent only its one exact input.
 nocheck "N1 no input call reached the fake herdr" 'agent prompt|send-keys|send-text|pane run' \
