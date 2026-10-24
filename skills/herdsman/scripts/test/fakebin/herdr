@@ -4,9 +4,12 @@
 # With $FIXTURE set (the message tests), it logs every call to $FIXTURE/calls.log and serves the message
 # channel calls from files in that folder: agents.json (pane id to agent record), and the switches
 # get-failure, get-invalid, metadata-failure, toast-disabled and read-failure, and screen-<pane> for `pane read`.
-# Every input call fails and stays in the log, except an exact `/goal resume` prompt when allow-resume exists.
+# Every input call fails and stays in the log, except an exact `/goal resume` prompt when allow-resume exists,
+# and any prompt when allow-prompt exists (the checkpointer cases; drift-after-prompt then changes that session).
+# `agent wait` returns at once.
 if [ -n "${FIXTURE:-}" ]; then
-  printf '%s\n' "$*" >> "$FIXTURE/calls.log"
+  # One line per call: a newline inside an argument becomes a space.
+  line=$*; printf '%s\n' "${line//$'\n'/ }" >> "$FIXTURE/calls.log"
   case "$1 $2" in
     'agent get')
       if [ -f "$FIXTURE/get-failure" ]; then echo '{"error":{"code":"temporary_failure"}}'; exit 1; fi
@@ -34,10 +37,22 @@ if [ -n "${FIXTURE:-}" ]; then
       if [ -f "$FIXTURE/read-failure" ]; then echo '{"error":{"code":"unavailable"}}'; exit 1; fi
       if [ -f "$FIXTURE/screen-$3" ]; then cat "$FIXTURE/screen-$3"; else echo 'idle prompt'; fi
       exit 0 ;;
+    'agent wait')
+      echo '{"id":"fixture-response","result":{"type":"ok"}}'
+      exit 0 ;;
     'agent prompt')
       # Only the exact goal resume, and only where the case allows it; the pane then shows a working turn.
       if [ -f "$FIXTURE/allow-resume" ] && [ $# = 4 ] && [ "$4" = '/goal resume' ]; then
         echo 'Working' > "$FIXTURE/screen-$3"
+        echo '{"id":"fixture-response","result":{"type":"ok"}}'
+        exit 0
+      fi
+      # The checkpointer cases accept prompts; drift-after-prompt then changes that pane's session.
+      if [ -f "$FIXTURE/allow-prompt" ]; then
+        if [ -f "$FIXTURE/drift-after-prompt" ]; then
+          jq --arg p "$3" '.[$p].agent_session.value="drifted-session"' "$FIXTURE/agents.json" > "$FIXTURE/agents.tmp" &&
+            mv "$FIXTURE/agents.tmp" "$FIXTURE/agents.json"
+        fi
         echo '{"id":"fixture-response","result":{"type":"ok"}}'
         exit 0
       fi ;;

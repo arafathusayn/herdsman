@@ -70,7 +70,8 @@ OB() { printf '%s' "$C/inbox/$O"; }
 
 echo "bash: $(/bin/bash --version | head -1)"
 for s in message-lib message-register message-send herdr-events message-courier message-wait message-read message-ack \
-  message-status message-authority message card-watch resume-goal-when-idle publish-leak-gate; do
+  message-status message-authority message card-watch resume-goal-when-idle publish-leak-gate \
+  approval-gate transcript-audit checkpointer-guard checkpointer; do
   if /bin/bash -n "$SK/$s.sh" 2>/dev/null; then pass=$((pass+1)); echo "PASS syntax $s"; else fail=$((fail+1)); echo "FAIL syntax $s"; fi
 done
 
@@ -128,8 +129,10 @@ jq_edit '.from="route-intruder"' "$(OB)/new/$ID.md"
 courier >/dev/null
 check "M1d forged unenrolled from name: quarantined" '^yes no$' "$(yn "$(OB)/quarantine/$ID.md") $(yn "$(OB)/ready/$ID.md")"
 out=$(msg receiver-pane message-status.sh "$O")
-check "M1e status counts the quarantine" 'quarantine' "$out"
+check "M1e status counts the quarantine" "^$O orphan=[^ ]* new=0 ready=0 cur=0 quarantine=1\$" "$(printf '%s\n' "$out" | grep "^$O orphan=")"
 nocheck "M1f status never prints the rejected body" 'full brief' "$out"
+new_case status-zero
+check "M1g a clean mailbox shows a zero quarantine count" "^$O orphan=[^ ]* .*quarantine=0\$" "$(msg receiver-pane message-status.sh "$O" | grep "^$O orphan=")"
 
 # M2: the right name with a wrong session never reaches ready, edited or live.
 new_case wrong-session
@@ -225,6 +228,10 @@ jq_edit '.excluded=false' "$C/preflight.json"
 out=$(msg sender-pane message-register.sh propose "$A" adjutant)
 check "P4 an inbox without a verified exclusion is refused" 'inbox exclusion not verified' "$out"
 check "P4b before any state is created" '^no$' "$(yn "$C/inbox/state")"
+jq_edit '.excluded=true' "$C/preflight.json"; printf 'changed rule\n' >> "$C/ignore-rule"
+out=$(msg sender-pane message-register.sh propose "$A" adjutant)
+check "P4c a changed ignore rule after the preflight is refused" 'ignore rules changed; repeat external preflight' "$out"
+check "P4d before any state is created" '^no$' "$(yn "$C/inbox/state")"
 
 # L: the publish leak gate.
 printf 'See /Users/someone/project for details.\n' > "$T/leak.md"
@@ -280,6 +287,19 @@ courier >/dev/null
 for q in 7:'a body with header lines' 8:'a duplicate JSON key' 3:'an unknown reply id' 4:'a wrong recipient generation'; do
   check "E6 quarantined: ${q#*:}" '^yes$' "$(yn "$(OB)/quarantine/m00000000000${q%%:*}.md")"
 done
+# E6b: a duplicate key alone. Filename, allocation copy and identities stay valid, so only the duplicate check refuses it.
+new_case duplicate-only
+send >/dev/null
+sed 's/^{/{"kind":"brief",/' "$(OB)/new/$ID.md" > "$C/dup.md"; cp "$C/dup.md" "$(OB)/new/$ID.md"; cp "$C/dup.md" "$C/inbox/ids/$ID/envelope"
+courier >/dev/null
+check "E6b a duplicate key with an equal allocation copy is quarantined" '^yes no$' "$(yn "$(OB)/quarantine/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+# E6c: an edit of only the body of a correctly addressed envelope; only the allocation-copy compare can refuse it.
+new_case body-edit
+send >/dev/null
+jq_edit '.body="changed brief\n"' "$(OB)/new/$ID.md"
+courier >/dev/null
+check "E6c a changed body is quarantined" '^yes no$' "$(yn "$(OB)/quarantine/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+C="$T/envelope"
 cp "$(OB)/ready/$ID.md" "$C/ready-copy"
 cp "$(OB)/ready/$ID.md" "$(OB)/new/$ID.md"
 courier >/dev/null
@@ -366,7 +386,12 @@ AB="$C/inbox/$A"
 check "C1 every visible card is journaled" '^2$' "$(nfiles "$C/inbox/card-events" '*.json')"
 check "C2 and relayed once to the adjutant as observations" '^2 observation observation$' \
   "$(nfiles "$AB/new" '*.md') $(cat "$AB/new/"*.md | jq -r .kind | tr '\n' ' ' | sed 's/ $//')"
-check "C2b labeled as side-agent data from the orchestrator transport" 'side_agent_data' "$(cat "$AB/new/"*.md | jq -r '.from + " " + .body')"
+check "C2b each relay is side-agent data from the orchestrator transport with the exact source" '^2$' \
+  "$(cat "$AB/new/"*.md | jq -s --arg o "$O" '[.[] | select(.from==$o and .kind=="observation" and
+    (.body|rtrimstr("\n")|fromjson|.version==1 and .type=="side_agent_data" and (.id|type=="string" and length>0) and
+     .source=={pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}))] | length')"
+check "C2c and keeps each card's text and notice ID" '^first finding second finding 2$' \
+  "$(cat "$AB/new/"*.md | jq -rs '[.[]|.body|rtrimstr("\n")|fromjson] | ([.[].text|sub("^.*· ";"")]|sort|join(" ")) + " " + ([.[].id]|unique|length|tostring)')"
 ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
 check "C4 a second watcher run relays nothing again" '^2$' "$(nfiles "$AB/new" '*.md')"
 check "C3 a blocked prompt still shown on the next pass alerts" 'notification show Agent notice or blocked state' "$(cat "$C/calls.log")"
@@ -449,7 +474,7 @@ check "F1 a failed delivery move keeps the envelope in new" '^yes no$' "$(yn "$(
 nocheck "F1b and logs no verified delivery" VERIFIED "$(verified_log)"
 new_case pretend-move
 send >/dev/null; touch "$C/pretend-move"; courier "$FP" >/dev/null
-check "F2 a move that claims success without moving keeps the envelope in new" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+nocheck "F2 a move that claims success without moving reports no count to the recipient" 'report-metadata receiver-pane .*messages=1' "$(cat "$C/calls.log")"
 nocheck "F2b and logs no verified delivery" VERIFIED "$(verified_log)"
 new_case fail-read-move
 send >/dev/null; courier >/dev/null; touch "$C/fail-move"
@@ -503,6 +528,8 @@ for variant in system gnu; do
   new_case "exact-age-$variant"
   [ "$variant" = gnu ] && touch "$C/stat-gnu"
   send >/dev/null; perl -e 'utime 100, 100, $ARGV[0]' "$(OB)/new/$ID.md"
+  # Without the marker awk would copy the main loop; fail the case instead of running it.
+  grep -q "^log_line 'courier start'" "$SK/message-courier.sh" || { fail=$((fail+1)); echo "FAIL F10 courier start marker missing"; break; }
   awk "/^log_line 'courier start'/{exit} {print}" "$SK/message-courier.sh" > "$C/courier-functions.sh"
   for at in 101 102 103; do
     printf '%s\n' "$at" > "$C/fixed-now"
@@ -543,7 +570,8 @@ check "S5c and the card watcher accepts both targets" '^[2-9]' "$(grep -c '^pane
 new_case invalid-acks
 send >/dev/null; courier >/dev/null
 token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
-for value in '' '{}' "{\"id\":\"$ID\",\"claim\":\"wrong\",\"time\":1,\"processing_record\":\"record\",\"envelope_checksum\":\"wrong\"}"; do
+# The third ack is valid except for its claim, so only the claim compare can refuse it.
+for value in '' '{}' "{\"id\":\"$ID\",\"claim\":\"wrong\",\"time\":1,\"processing_record\":\"record\",\"envelope_checksum\":\"$(digest "$(OB)/cur/$ID.md")\"}"; do
   printf '%s' "$value" > "$(OB)/ack/$ID.md.json"
   check "S6 an invalid ack (${value:-empty}) leaves the message unhandled" "\"id\":\"$ID\"" "$(msg receiver-pane message-read.sh "$O" "$token")"
 done
@@ -588,7 +616,7 @@ out=$(courier SWEEP=3600 HEALTH_AFTER=180); s=$?
 check "S13 a sweep longer than the health threshold refuses the courier" '^2 .*scan allowance' "$s $out"
 new_case release-forms
 out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh release missing); s=$?
-check "S14 release with no matching claim fails" '^2$' "$s"
+check "S14 release with no matching claim fails" '^2 .*no such active claim' "$s $out"
 send >/dev/null; courier >/dev/null
 check "S15 the first delivery wakes the waiter" 'MESSAGE' "$(ENVX="DEADLINE=1 RECHECK=1" msg receiver-pane message-wait.sh "$O")"
 token=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh read | jq -r 'select(.type=="claim")|.token')
@@ -602,10 +630,232 @@ msg receiver-pane message-ack.sh "$O" "$token" m000000000002 "$C/record.txt" >/d
 ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh release "$token" >/dev/null; s=$?
 check "S16 release of a fully acked claim succeeds and leaves no claim" '^0 no$' "$s $(yn "$(OB)/claim")"
 
-# N: no channel script typed into any pane; the resume case sent only its one exact input.
-nocheck "N1 no input call reached the fake herdr" 'agent prompt|send-keys|send-text|pane run' \
-  "$(for f in "$T"/*/calls.log; do [ "$f" = "$T/resume/calls.log" ] || cat "$f"; done)"
-nocheck "N1b the resume case typed nothing else" 'send-keys|send-text|pane run' "$(cat "$T/resume/calls.log")"
+# CP: in adjutant mode the checkpointer checks the approved orchestrator identity right before each input.
+ckpt() { # target [assignments]: run checkpointer.sh --once from the courier pane and print its exit status
+  local target=$1; shift
+  ENVX="TARGET=$target TRANSCRIPT=$C/transcript.jsonl LOG=$C/ckpt.log LIMIT=1 PROMPT=/save-memory COMPACT=/compact $*" \
+    msg courier-pane checkpointer.sh --once >/dev/null; echo "$?"
+}
+cpcase() {
+  new_case "$1"; touch "$C/allow-prompt"
+  printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$C/transcript.jsonl"
+}
+sent() { grep '^agent prompt' "$C/calls.log" | tr '\n' '|'; }
+cpcase ckpt-ordinary
+ckpt receiver-pane >/dev/null
+check "CP1 ordinary mode is unchanged: memory prompt then compact, no registry needed" \
+  '^agent prompt receiver-pane /save-memory\|agent prompt receiver-pane /compact\|$' "$(sent)"
+cpcase ckpt-approved
+rc=$(ckpt receiver-pane "HERDSMAN_ORCHESTRATOR=$O")
+check "CP2 the approved orchestrator identity gets both inputs" \
+  '^0 agent prompt receiver-pane /save-memory\|agent prompt receiver-pane /compact\|$' "$rc $(sent)"
+cpcase ckpt-drift
+jq_edit '.["receiver-pane"].agent_session.value="new-session"' "$C/agents.json"
+rc=$(ckpt receiver-pane "HERDSMAN_ORCHESTRATOR=$O")
+check "CP3 a changed orchestrator session gets no input" '^1 $' "$rc $(sent)"
+check "CP3b and the log names the refusal" 'orchestrator session changed' "$(cat "$C/ckpt.log")"
+cpcase ckpt-adjutant
+rc=$(ckpt sender-pane "HERDSMAN_ORCHESTRATOR=$A")
+check "CP4 the adjutant is never a checkpoint target" '^1 $' "$rc $(sent)"
+check "CP4b refused as not the orchestrator" 'never type into the adjutant' "$(cat "$C/ckpt.log")"
+rc=$(ckpt sender-pane "HERDSMAN_ORCHESTRATOR=$O")
+check "CP4c the orchestrator name with the adjutant pane is refused" '^1 $' "$rc $(sent)"
+check "CP4d as the wrong pane" 'not the approved orchestrator pane' "$(cat "$C/ckpt.log")"
+cpcase ckpt-closed
+jq_edit 'del(.["receiver-pane"])' "$C/agents.json"
+rc=$(ckpt receiver-pane "HERDSMAN_ORCHESTRATOR=$O")
+check "CP5 a closed orchestrator pane gets no input" '^1 .*closed' "$rc $(sent) $(grep 'identity check' "$C/ckpt.log")"
+cpcase ckpt-pending
+jq_edit '.["route-orchestrator"].identity.session.value="pending-session"' "$C/inbox/peers"
+rc=$(ckpt receiver-pane "HERDSMAN_ORCHESTRATOR=$O")
+check "CP6 a pending registry change holds every input" '^1 .*awaiting human approval' "$rc $(sent) $(grep 'identity check' "$C/ckpt.log")"
+cpcase ckpt-midway
+touch "$C/drift-after-prompt"
+rc=$(ckpt receiver-pane "HERDSMAN_ORCHESTRATOR=$O")
+check "CP7 drift after the memory prompt stops the compact input" '^1 agent prompt receiver-pane /save-memory\|$' "$rc $(sent)"
+cpcase ckpt-unknown
+rc=$(ckpt receiver-pane "HERDSMAN_ORCHESTRATOR=route-nobody")
+check "CP8 an unknown orchestrator name gets no input" '^1 .*unknown orchestrator' "$rc $(sent) $(grep 'identity check' "$C/ckpt.log")"
+
+# AG: the executor adapter checks a relayed go's boundary, bindings, trusted interaction, expiry and cancellation,
+# records consumption before the effect, and returns the recorded outcome for a duplicate.
+new_case gate
+jq_edit '.boundary={version:1,private_home:true,inventory_current:true,lower_trust:[{name:"im-a",harness:"codex",launch_hash:"h",sandbox:true,inbox_denied:true,socket_denied:true}]}' "$C/preflight.json"
+printf 'reviewed text\n' > "$C/draft.txt"
+APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"
+gojson() { # request-id expires-offset [jq edit]
+  jq -n --arg r "$1" --arg d "$(digest "$C/draft.txt")" --argjson e "$(( $(date +%s) + $2 ))" \
+    '{version:1,type:"user_go",question_id:"choice",request_id:$r,action:"post",target:"pr-comment",revision:"head1",
+      draft_hash:$d,expires_at:$e,text:"post this draft",human_interaction:("ask-"+$r)}' | jq -c "${3:-.}" > "$C/go-$1.json"
+  jq -n --arg r "$1" '{source:"ask-tool",question_id:"choice",request_id:$r,revision:"head1"}' > "$APR/interactions/ask-$1.json"
+}
+gate() { msg receiver-pane approval-gate.sh "$@"; echo "rc=$?"; }
+consume() { gate consume "$C/go-$1.json" post "${2:-pr-comment}" "${3:-head1}" "${4:-$C/draft.txt}"; }
+gojson r1 600
+out=$(consume r1); check "AG1 a bound, current go is consumed" '^CONSUME r1.*rc=0' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "AG1b consumption is recorded before the effect" '^consuming post pr-comment head1$' \
+  "$(jq -r '[.state,.action,.target,.revision]|join(" ")' "$APR/consumed/r1.json")"
+out=$(consume r1); check "AG2 a repeat before the outcome must reconcile, never act again" 'RECONCILE r1.*rc=5' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(gate complete r1 posted); check "AG3 the outcome is recorded" 'COMPLETED r1 outcome=posted.*rc=0' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(consume r1); check "AG3b a duplicate returns the recorded outcome" 'DUPLICATE r1 outcome=posted.*rc=4' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(gate complete r1 posted); check "AG3c a second outcome is refused" 'outcome already recorded.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+printf 'changed text\n' > "$C/draft2.txt"
+out=$(consume r1 pr-comment head1 "$C/draft2.txt"); check "AG4 a changed draft needs a new go" 'draft differs.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(consume r1 other-pr); check "AG5 a changed target needs a new go" 'target differs.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(consume r1 pr-comment head2); check "AG5b a changed revision needs a new go" 'revision differs.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson r2 -5
+out=$(consume r2); check "AG6 an expired go is refused" 'go expired.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "AG6b and records nothing" '^no$' "$(yn "$APR/consumed/r2.json")"
+gojson r3 600; printf '{"version":1,"type":"cancel","request_id":"r3","revision":"head1","reason":"withdrawn"}\n' > "$APR/cancels/r3.json"
+out=$(consume r3); check "AG7 a cancelled request is refused" 'request cancelled.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "AG7b and records nothing" '^no$' "$(yn "$APR/consumed/r3.json")"
+gojson r4 600; rm "$APR/interactions/ask-r4.json"
+out=$(consume r4); check "AG8 a go with no recorded ask-tool answer is refused" 'no trusted interaction.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson r5 600; jq_edit '.request_id="other"' "$APR/interactions/ask-r5.json"
+out=$(consume r5); check "AG8b an ask-tool answer for another request is refused" 'does not match this go.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson r6 600; jq_edit '.source="pane-text"' "$APR/interactions/ask-r6.json"
+out=$(consume r6); check "AG8c quoted pane text is not a trusted interaction" 'does not match this go.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson r7 600; mv "$APR/interactions/ask-r7.json" "$C/ask-r7.json"; ln -s "$C/ask-r7.json" "$APR/interactions/ask-r7.json"
+out=$(consume r7); check "AG8d a linked interaction record is refused" 'no trusted interaction.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson r8 600 'del(.draft_hash)'
+out=$(consume r8); check "AG9 a go with a missing field is refused" 'fields missing or mistyped.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson r9 600 '.expires_at="soon"'
+out=$(consume r9); check "AG9b a mistyped expiry is refused" 'fields missing or mistyped.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson r10 600; sed 's/^{/{"action":"merge",/' "$C/go-r10.json" > "$C/go-r10.dup"; mv "$C/go-r10.dup" "$C/go-r10.json"
+out=$(consume r10); check "AG9c a duplicate key is refused" 'not strict JSON.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson r11 600; mkdir "$APR/action.lock"
+out=$(consume r11); check "AG10 a held action lock refuses without a record" 'action lock busy.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "AG10b nothing consumed and the lock is not removed" '^no yes$' "$(yn "$APR/consumed/r11.json") $(yn "$APR/action.lock")"
+rmdir "$APR/action.lock"
+out=$(gate complete r12 posted); check "AG11 an outcome without a consumption is refused" 'no consumption recorded.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson r13 600
+jq_edit '.boundary.lower_trust[0].sandbox=false' "$C/preflight.json"
+out=$(consume r13); check "AG12 the HUMAN boundary consumes nothing" '^HUMAN.*rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "AG12b and records nothing" '^no$' "$(yn "$APR/consumed/r13.json")"
+jq_edit '.boundary.lower_trust[0].sandbox=true' "$C/preflight.json"
+out=$(gate consume "$C/go-r13.json" post pr-comment head1 -); check "AG13 no draft for a draft-bound go is refused" 'draft differs.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson r14 600 '.draft_hash="none"'
+out=$(gate consume "$C/go-r14.json" post pr-comment head1 -); check "AG13b a go without a draft binds to no draft" '^CONSUME r14.*rc=0' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "AG14 the gate typed nothing and called no display mutation" '^0$' "$(grep -c -E '^(agent prompt|pane |notification)' "$C/calls.log")"
+
+# TA: the read-only transcript audit reads tool-call records, never prose, for the named current session.
+TC="$T/audit"; mkdir -p "$TC/memory" "$TC/project"
+aud() { env -i PATH="$CPATH" AUDIT_CHANNEL_DIR=/skill/scripts ${AUDX:-} /bin/bash "$SK/transcript-audit.sh" "$@" 2>&1; echo "rc=$?"; }
+tu() { # id name input-json [session]
+  jq -nc --arg s "${4:-coord-session}" --arg id "$1" --arg n "$2" --argjson i "$3" \
+    '{type:"assistant",sessionId:$s,message:{content:[{type:"tool_use",id:$id,name:$n,input:$i}]}}'
+}
+sh_call() { tu "$1" Bash "$(jq -nc --arg c "$2" '{command:$c}')"; }
+{
+  jq -nc '{type:"user",sessionId:"coord-session",message:{content:"please run git push and npm test"}}'
+  jq -nc '{type:"assistant",sessionId:"coord-session",message:{content:[{type:"text",text:"I will not run git push or gh pr create."}]}}'
+  tu ok1 Read '{"file_path":"/any/file"}'
+  sh_call ok2 '/bin/bash /skill/scripts/message.sh status'
+  sh_call ok3 'git log --oneline -3'
+  tu ok4 Write "$(jq -nc --arg p "$TC/memory/note.md" '{file_path:$p,content:"x"}')"
+  sh_call ok5 'gh pr view 9 --json state'
+} > "$TC/clean.jsonl"
+out=$(aud claude "$TC/clean.jsonl" coord-session "$TC/memory/")
+check "TA1 allowed calls and prose that names forbidden commands are clean" '^AUDIT clean calls=5 .*rc=0' "$(printf '%s' "$out" | tr '\n' ' ')"
+{
+  cat "$TC/clean.jsonl"
+  tu w1 Write "$(jq -nc --arg p "$TC/project/app.ts" '{file_path:$p,content:"x"}')"
+  tu w2 Edit "$(jq -nc --arg p "$TC/memory/../project/app.ts" '{file_path:$p}')"
+  sh_call b1 'git commit -m change'
+  sh_call b2 'cd /repo && git -C /repo push origin HEAD'
+  sh_call b3 'gh pr create --title t --body-file f'
+  sh_call b4 'gh api -X POST repos/o/r/issues/1/comments -f body=SECRETVALUE'
+  sh_call b5 'curl -X POST https://example.invalid/hook'
+  sh_call b6 'npm test'
+  sh_call b7 '/bin/bash scripts/test/run-tests.sh'
+  sh_call b8 'docker compose up -d'
+  tu m1 mcp__chat__send_message '{"text":"hello"}'
+} > "$TC/flagged.jsonl"
+out=$(aud claude "$TC/flagged.jsonl" coord-session "$TC/memory/")
+for want in 'w1 class=project-write' 'w2 class=project-write' 'b1 class=git-write' 'b2 class=git-write' 'b3 class=outward-write' \
+  'b4 class=outward-write' 'b5 class=outward-write' 'b6 class=test-or-package' 'b7 class=test-or-package' \
+  'b8 class=service-or-container' 'm1 class=tracker-or-chat-write'; do
+  check "TA2 flagged: ${want%% *} ${want#* }" "call=$want" "$out"
+done
+check "TA2b the audit reports the flagged count and exits 1" 'AUDIT flagged=11 calls=16.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+nocheck "TA2c targets are redacted: no argument values or full paths" "SECRETVALUE|$TC/project" "$out"
+check "TA2d a flag names the tool and the call id" '^FLAG tool=Bash call=b1 ' "$out"
+out=$(aud claude "$TC/clean.jsonl" other-session "$TC/memory/")
+check "TA3 another session's transcript is an audit gap, never clean" '^GAP transcript is not the named current session.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+{ cat "$TC/clean.jsonl"; sh_call x1 'git push' | sed 's/coord-session/other-session/'; } > "$TC/mixed.jsonl"
+out=$(aud claude "$TC/mixed.jsonl" coord-session "$TC/memory/"); check "TA3b records of two sessions are a gap" '^GAP .*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(aud claude "$TC/missing.jsonl" coord-session); check "TA4 a missing transcript is a gap" '^GAP transcript missing.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(aud opencode "$TC/clean.jsonl" coord-session); check "TA4b an unsupported harness is a gap" '^GAP no transcript adapter.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+{ cat "$TC/clean.jsonl"; printf '{"type":"assistant",\n'; } > "$TC/broken.jsonl"
+out=$(aud claude "$TC/broken.jsonl" coord-session); check "TA4c a malformed record is a gap" '^GAP malformed transcript record.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(aud claude "audit/clean.jsonl" coord-session); check "TA4d a relative transcript path is a gap" '^GAP transcript path must be absolute.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+: > "$TC/empty.jsonl"; out=$(aud claude "$TC/empty.jsonl" coord-session); check "TA4e an empty transcript is a gap" '^GAP no session record.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+ln -s "$TC/clean.jsonl" "$TC/link.jsonl"; out=$(aud claude "$TC/link.jsonl" coord-session); check "TA4f a linked transcript is a gap" '^GAP transcript missing or not a regular file.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+printf '%s\n' 'git commit -m change' > "$TC/grants"
+out=$(AUDX="AUDIT_GRANT_FILE=$TC/grants" aud claude "$TC/flagged.jsonl" coord-session "$TC/memory/")
+nocheck "TA5 an exact granted command line is not flagged" 'call=b1 ' "$out"
+check "TA5b and the grant exempts no other line" 'call=b2 class=git-write' "$out"
+{
+  jq -nc '{type:"session_meta",payload:{id:"codex-session"}}'
+  jq -nc '{type:"response_item",payload:{type:"function_call",name:"exec_command",call_id:"c1",arguments:"{\"cmd\":\"/bin/bash /skill/scripts/message.sh read\"}"}}'
+  jq -nc '{type:"response_item",payload:{type:"function_call",name:"shell",call_id:"c2",arguments:"{\"command\":[\"bash\",\"-lc\",\"git push origin HEAD\"]}"}}'
+  jq -nc --arg p "*** Begin Patch
+*** Update File: $TC/project/app.ts
+@@
+-a
++b
+*** End Patch" '{type:"response_item",payload:{type:"custom_tool_call",name:"apply_patch",call_id:"c3",input:$p}}'
+  jq -nc --arg p "*** Begin Patch
+*** Add File: $TC/memory/note.md
++x
+*** End Patch" '{type:"response_item",payload:{type:"custom_tool_call",name:"apply_patch",call_id:"c4",input:$p}}'
+  jq -nc '{type:"response_item",payload:{type:"message",role:"assistant",content:[{type:"output_text",text:"git push is not mine to run"}]}}'
+} > "$TC/codex.jsonl"
+out=$(aud codex "$TC/codex.jsonl" codex-session "$TC/memory/")
+check "TA6 Codex: a shell git push is flagged" 'call=c2 class=git-write' "$out"
+check "TA6b Codex: a patch outside the allowed roots is flagged" 'call=c3 class=project-write' "$out"
+nocheck "TA6c Codex: channel commands and an allowed patch are not flagged" 'call=c1 |call=c4 ' "$out"
+check "TA6d Codex: two flags of four calls" 'AUDIT flagged=2 calls=4.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(aud codex "$TC/codex.jsonl" other-session); check "TA6e Codex: another session is a gap" '^GAP transcript is not the named current session.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+jq -nc '{type:"response_item",payload:{type:"function_call",name:"shell",call_id:"c9",arguments:"not json"}}' > "$TC/codex-bad.jsonl"
+{ jq -nc '{type:"session_meta",payload:{id:"codex-session"}}'; cat "$TC/codex-bad.jsonl"; } > "$TC/codex-bad2.jsonl"
+out=$(aud codex "$TC/codex-bad2.jsonl" codex-session); check "TA6f Codex: unreadable call arguments are a gap" '^GAP malformed tool-call arguments: call c9.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+# TA8: a push hidden in a script is not visible in command text, so any script or interpreter run is not clean
+# unless it starts a channel script by its exact installed path.
+{
+  jq -nc '{type:"user",sessionId:"coord-session",message:{content:"start"}}'
+  sh_call s1 'bash /tmp/do-push.sh'
+  sh_call s2 './deploy.sh --now'
+  sh_call s3 'python3 -c "import os"'
+  sh_call s4 '/bin/bash /skill/scripts/../tmp/message.sh status'
+  sh_call s5 '/bin/bash /other/scripts/message.sh status'
+  sh_call s6 'source ./env.sh'
+  sh_call s7 'sh -c true'
+  sh_call s8 'ls /tmp && /bin/bash /skill/scripts/message.sh status && perl x.pl'
+  sh_call s9 'env X=1 /skill/scripts/hidden.sh'
+  sh_call s10 '/bin/bash -c /skill/scripts/message.sh'
+  sh_call k1 'ls -la /tmp'
+  sh_call k2 'cd /x && /bin/bash /skill/scripts/message.sh read | jq -c .'
+  sh_call k3 "HERDSMAN_NAME=route-adjutant /bin/bash '/skill/scripts/message.sh' status"
+  sh_call k4 'cat /x/notes.md'
+} > "$TC/scripts.jsonl"
+out=$(aud claude "$TC/scripts.jsonl" coord-session)
+for n in 1 2 3 4 5 6 7 8 9 10; do check "TA8 a script or interpreter run is flagged: s$n" "call=s$n class=script-run" "$out"; done
+nocheck "TA8b exact channel scripts and plain reads stay clean" 'call=k[0-9]' "$out"
+check "TA8c ten flags of fourteen calls" 'AUDIT flagged=10 calls=14.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(env -i PATH="$CPATH" /bin/bash "$SK/transcript-audit.sh" claude "$TC/scripts.jsonl" coord-session 2>&1)
+check "TA8d without the channel folder even a channel script run is flagged" 'call=k2 class=script-run' "$out"
+before=$(digest "$TC/flagged.jsonl"); aud claude "$TC/flagged.jsonl" coord-session >/dev/null
+check "TA7 the audit leaves the transcript unchanged" "^$before\$" "$(digest "$TC/flagged.jsonl")"
+
+# N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
+READS='^(agent get|agent list|pane report-metadata|notification show|pane read)( |$)'
+nocheck "N1 no other call reached the fake herdr" '.' \
+  "$(for f in "$T"/*/calls.log; do [ "$f" = "$T/resume/calls.log" ] || [ "${f#"$T"/ckpt-}" != "$f" ] || grep -v -E "$READS" "$f"; done)"
+nocheck "N1b the resume case sent only the exact resume input" '.' \
+  "$(grep -v -E "$READS" "$T/resume/calls.log" | grep -v -x 'agent prompt task-pane /goal resume')"
+nocheck "N1c the checkpointer cases prompted only the orchestrator pane" '.' \
+  "$(for f in "$T"/ckpt-*/calls.log; do grep -v -E "$READS" "$f" | grep -v -E '^(agent wait [^ ]+ .*|agent prompt receiver-pane (/save-memory|/compact))$'; done)"
 
 echo "RESULT pass=$pass fail=$fail (work dir $T)"
 [ "$fail" -eq 0 ]
