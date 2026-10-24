@@ -691,6 +691,38 @@ func TestStaticServesIndexWithCSP(t *testing.T) {
 	}
 }
 
+// The docs are a second page in their own folder, so their relative links
+// need the folder's slash; any other unknown path is still the app.
+func TestStaticServesTheDocsPage(t *testing.T) {
+	f := newFixture(t)
+	f.srv.assets = fstest.MapFS{
+		"index.html":      {Data: []byte("<!doctype html><title>herdsman</title>")},
+		"docs/index.html": {Data: []byte("<!doctype html><title>herdsman docs</title>")},
+		"docs/index.css":  {Data: []byte("body{}")},
+	}
+	for _, p := range []string{"/docs", "/docs/", "/docs?x=1"} {
+		res := f.request(t, http.MethodGet, p, "", nil)
+		body, _ := io.ReadAll(res.Body)
+		if res.StatusCode != 200 || res.Request.URL.Path != "/docs/" || !strings.Contains(string(body), "herdsman docs") {
+			t.Errorf("%s: status %d at %s, body %q", p, res.StatusCode, res.Request.URL, body)
+		}
+		if !strings.Contains(res.Header.Get("Content-Security-Policy"), "default-src 'self'") {
+			t.Errorf("%s: no CSP", p)
+		}
+	}
+	if res := f.request(t, http.MethodGet, "/docs?x=1", "", nil); res.Request.URL.RawQuery != "x=1" {
+		t.Errorf("redirect dropped the query: %s", res.Request.URL)
+	}
+	res := f.request(t, http.MethodGet, "/docs/index.css", "", nil)
+	if res.StatusCode != 200 || res.Header.Get("Content-Security-Policy") != "" {
+		t.Errorf("docs css: status %d, CSP %q", res.StatusCode, res.Header.Get("Content-Security-Policy"))
+	}
+	res = f.request(t, http.MethodGet, "/docs/missing", "", nil)
+	if body, _ := io.ReadAll(res.Body); !strings.Contains(string(body), "<title>herdsman</title>") {
+		t.Errorf("unknown path under docs: %q, want the app", body)
+	}
+}
+
 func TestIsLiveIgnoresReusedPaneIDs(t *testing.T) {
 	panes := map[string]bool{"w1:p1": true, "w1:p2": true}
 	agents := map[string]string{"w1:p2": "im-new"}

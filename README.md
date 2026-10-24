@@ -9,11 +9,16 @@
   <a href="LICENSE"><img alt="License: GPL v3" src="https://img.shields.io/badge/license-GPLv3-blue.svg"></a>
 </p>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.png">
+    <img alt="/herdsman run &quot;tasks: issues 12 and 14; implementers: &lt;harness&gt; &lt;model&gt;; reviewer: &lt;harness&gt; &lt;model&gt;&quot;" src=".github/assets/banner-light.png" width="912">
+  </picture>
+</p>
+
 herdsman is a skill for coding agents. You talk to one agent, the orchestrator, and it runs the rest of the team inside [herdr](https://github.com/herdrdev/herdr): implementers write the code, reviewers check it, and an integrator combines the work when it ships as one branch. Fixes and reviews go round until each task passes. Optionally, you talk to an adjutant instead, and it relays your briefs and answers to the orchestrator through a private message channel.
 
-```
-/herdsman run "tasks: issues 12 and 14; implementers: <harness> <model>; reviewer: <harness> <model>"
-```
+Read the docs at <https://herdsman.arafat.ai/docs/>, or at `/docs/` on any running `herdsman web`.
 
 ---
 

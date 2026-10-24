@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      name="description"
+      content="herdsman runs a whole team of coding agents from one conversation, inside herdr. Install it, run a route, and watch and steer the team from a browser."
+    />
+    <title>herdsman docs</title>
+    <link rel="icon" type="image/svg+xml" href="../logo.svg" />
+    <link rel="stylesheet" href="../styles/docs.css" />
+    <script type="module" src="../src/docs.ts"></script>
+  </head>
+  <body>
+    <a class="skip" href="#content">Skip to the content</a>
+
+    <header class="top">
+      <button
+        class="icon-btn nav-toggle"
+        type="button"
+        aria-label="Show the contents"
+        aria-controls="nav"
+        aria-expanded="false"
+      >
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" />
+          <path d="M9 4v16" />
+        </svg>
+      </button>
+      <a class="brand" href="./">
+        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="#1d4d38" />
+          <g fill="none" stroke="#e9f6ef" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 6.5V26" />
+            <path d="M10 17.5a5.5 5.5 0 0 1 11 0v5.5a3 3 0 0 0 3 3" />
+          </g>
+          <circle cx="15.5" cy="24" r="2" fill="#5cc093" />
+        </svg>
+        <span>herdsman</span>
+        <span class="brand-chip">Docs</span>
+      </a>
+      <nav class="top-links" aria-label="Elsewhere">
+        <a class="top-link" href="https://github.com/arafathusayn/herdsman" rel="noopener">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 3v12" />
+            <path d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+            <path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+            <path d="M18 9a9 9 0 0 1-9 9" />
+          </svg>
+          <span>GitHub</span>
+        </a>
+        <a class="btn primary" href="../">
+          <span>Open the app</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14" />
+            <path d="M13 6l6 6-6 6" />
+          </svg>
+        </a>
+      </nav>
+    </header>
+
+    <div class="shell">
+      <aside class="nav" id="nav" aria-label="Contents">
+        <div class="nav-scroll">
+          <label class="search">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z" />
+              <path d="M20 20l-4-4" />
+            </svg>
+            <input
+              type="search"
+              placeholder="Filter the contents"
+              aria-label="Filter the contents"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <kbd>/</kbd>
+          </label>
+          <p class="nav-empty" hidden>No section matches.</p>
+
+          <div class="nav-group">
+            <p class="nav-head">Start</p>
+            <a href="#overview">Overview</a>
+            <a href="#quick-start">Quick start</a>
+            <a href="#install">Install</a>
+          </div>
+          <div class="nav-group">
+            <p class="nav-head">Concepts</p>
+            <a href="#team">The team</a>
+            <a href="#route">How a route runs</a>
+            <a href="#pairing">Pairing and security</a>
+          </div>
+          <div class="nav-group">
+            <p class="nav-head">Use</p>
+            <a href="#commands">Skill commands</a>
+            <a href="#checkpointer">Checkpointer</a>
+            <a href="#web-app">Web app</a>
+            <a href="#hosts">Phones and other hosts</a>
+            <a href="#options">Web app options</a>
+          </div>
+          <div class="nav-group">
+            <p class="nav-head">Help</p>
+            <a href="#troubleshooting">Troubleshooting</a>
+            <a href="#requirements">Requirements</a>
+          </div>
+        </div>
+        <div class="nav-foot">
+          <div id="theme" class="theme-slot"></div>
+        </div>
+      </aside>
+      <div class="scrim" hidden></div>
+
+      <main id="content" class="content">
+        <!-- Overview -->
+        <section id="overview" class="hero">
+          <p class="eyebrow">A skill for coding agents, and a web app to watch them</p>
+          <h1>Run a whole team of coding agents from one conversation.</h1>
+          <p class="lead">
+            You talk to one agent, the orchestrator. It runs the rest of the team inside
+            <a href="https://github.com/herdrdev/herdr" rel="noopener">herdr</a>: implementers write the code, reviewers
+            check it, and an integrator combines the work when it ships as one branch. Fixes and reviews go round until
+            each task passes.
+          </p>
+
+          <div class="hero-demo" aria-hidden="true">
+            <div class="demo-term">
+              <div class="demo-bar"><i></i><i></i><i></i><span>orchestrator</span></div>
+              <pre><span class="p">›</span> /herdsman run
+  "tasks: issues 12 and 14;
+   implementers: &lt;harness&gt; &lt;model&gt;;
+   reviewer: &lt;harness&gt; &lt;model&gt;"</pre>
+            </div>
+            <div class="demo-board">
+              <div class="demo-col">
+                <p>Working</p>
+                <span class="agent s-working"><b></b>implementer-12</span>
+                <span class="agent s-working"><b></b>implementer-14</span>
+              </div>
+              <div class="demo-col">
+                <p>Reviewing</p>
+                <span class="agent s-blocked"><b></b>reviewer</span>
+              </div>
+              <div class="demo-col">
+                <p>Done</p>
+                <span class="agent s-done"><b></b>task 12 · pass</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="paths">
+            <a class="path" href="#quick-start">
+              <span class="path-icon"
+                ><svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" />
+                  <path d="M2 21a7 7 0 0 1 14 0" />
+                  <path d="M16 3.5a4 4 0 0 1 0 7.5" />
+                  <path d="M22 21a7 7 0 0 0-4-6.3" /></svg
+              ></span>
+              <span class="path-title">Run a route</span>
+              <span class="path-text">Install the skill, start the orchestrator in herdr, and give it the tasks.</span>
+            </a>
+            <a class="path" href="#web-app">
+              <span class="path-icon"
+                ><svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 5h18v11H3z" />
+                  <path d="M8 20h8" />
+                  <path d="M12 16v4" /></svg
+              ></span>
+              <span class="path-title">Watch it in a browser</span>
+              <span class="path-text"
+                >Run <code>herdsman web</code>, pair with a code, and steer every agent from one page.</span
+              >
+            </a>
+            <a class="path" href="#troubleshooting">
+              <span class="path-icon"
+                ><svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z" />
+                  <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6" />
+                  <path d="M12 17h.01" /></svg
+              ></span>
+              <span class="path-title">Fix a problem</span>
+              <span class="path-text">Cannot reach a host, a code that expired, an untrusted tap.</span>
+            </a>
+          </div>
+        </section>
+
+        <!-- Quick start -->
+        <section id="quick-start">
+          <h2>Quick start</h2>
+          <p>
+            Two parts work together. The skill runs the team. The <code>herdsman</code> command serves a browser app
+            that shows the team and lets you steer it. You can use the skill alone.
+          </p>
+
+          <div class="split">
+            <div class="card">
+              <p class="card-kicker">The skill</p>
+              <ol class="steps">
+                <li>
+                  <p>
+                    Install <a href="https://github.com/herdrdev/herdr" rel="noopener">herdr</a> and the coding-agent
+                    harnesses you want for each role.
+                  </p>
+                </li>
+                <li>
+                  <p>Install the skill for the orchestrator's harness.</p>
+                  <pre><code>gh skill install arafathusayn/herdsman herdsman --agent &lt;agent&gt; --scope user</code></pre>
+                </li>
+                <li>
+                  <p>Start the orchestrator in a herdr pane and give it the route.</p>
+                  <pre><code>/herdsman run "tasks: issues 12 and 14; implementers: &lt;harness&gt; &lt;model&gt;; reviewer: &lt;harness&gt; &lt;model&gt;"</code></pre>
+                </li>
+              </ol>
+            </div>
+            <div class="card">
+              <p class="card-kicker">The web app</p>
+              <ol class="steps">
+                <li>
+                  <p>Install the command with Homebrew.</p>
+                  <pre><code>brew tap arafathusayn/tap
+brew trust arafathusayn/tap
+brew install --cask arafathusayn/tap/herdsman</code></pre>
+                </li>
+                <li>
+                  <p>Start it on the machine that runs herdr.</p>
+                  <pre><code>herdsman web --open</code></pre>
+                </li>
+                <li>
+                  <p>Type the 6-digit code that the terminal shows. The browser is now paired with this host.</p>
+                </li>
+              </ol>
+            </div>
+          </div>
+        </section>
+
+        <!-- Install -->
+        <section id="install">
+          <h2>Install</h2>
+
+          <h3 id="install-skill">The skill</h3>
+          <p>
+            Install it with the <a href="https://cli.github.com/manual/gh_skill_install" rel="noopener">GitHub CLI</a>.
+            <code>&lt;agent&gt;</code> is the orchestrator's harness, as <code>gh skill install --help</code> names it.
+          </p>
+          <pre><code>gh skill install arafathusayn/herdsman herdsman --agent &lt;agent&gt; --scope user</code></pre>
+          <p>
+            Add <code>--pin &lt;tag or commit&gt;</code> to pin a version. Run <code>gh skill update</code> to update
+            later.
+          </p>
+
+          <details class="fold">
+            <summary>Edit the skill while you use it: link a clone</summary>
+            <pre><code>git clone https://github.com/arafathusayn/herdsman.git
+ln -s "$PWD/herdsman/skills/herdsman" &lt;harness skills folder&gt;/herdsman</code></pre>
+          </details>
+
+          <p class="note">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 5h16v14H4z" />
+              <path d="M7.5 9.5l3 2.5-3 2.5" />
+              <path d="M12.5 15h4" />
+            </svg>
+            <span
+              >Start the orchestrator inside a herdr pane. The skill stops when <code>HERDR_ENV</code> is not
+              <code>1</code>.</span
+            >
+          </p>
+
+          <h3 id="install-cli">The herdsman command</h3>
+          <p>One Go binary with the web app inside. Nothing else runs on your machine.</p>
+          <div class="tabs" data-tabs>
+            <div class="tab-list" role="tablist" aria-label="Install method">
+              <button role="tab" type="button" aria-selected="true" aria-controls="ins-brew" id="ins-brew-tab">
+                Homebrew
+              </button>
+              <button
+                role="tab"
+                type="button"
+                aria-selected="false"
+                aria-controls="ins-release"
+                id="ins-release-tab"
+                tabindex="-1"
+              >
+                Release archive
+              </button>
+              <button
+                role="tab"
+                type="button"
+                aria-selected="false"
+                aria-controls="ins-source"
+                id="ins-source-tab"
+                tabindex="-1"
+              >
+                From source
+              </button>
+            </div>
+            <div class="tab-panel" role="tabpanel" id="ins-brew" aria-labelledby="ins-brew-tab">
+              <pre><code>brew tap arafathusayn/tap
+brew trust arafathusayn/tap
+brew install --cask arafathusayn/tap/herdsman</code></pre>
+              <p>
+                Homebrew installs from a tap outside its own only after you trust it. <code>brew trust</code> does that
+                once. To get a new release later:
+              </p>
+              <pre><code>brew upgrade --cask herdsman</code></pre>
+            </div>
+            <div class="tab-panel" role="tabpanel" id="ins-release" aria-labelledby="ins-release-tab" hidden>
+              <p>
+                Download the archive for macOS or Linux from
+                <a href="https://github.com/arafathusayn/herdsman/releases" rel="noopener">Releases</a>, then put
+                <code>herdsman</code> on your <code>PATH</code>.
+              </p>
+            </div>
+            <div class="tab-panel" role="tabpanel" id="ins-source" aria-labelledby="ins-source-tab" hidden>
+              <p>Build from a clone with Go and Bun. This writes <code>bin/herdsman</code>.</p>
+              <pre><code>git clone https://github.com/arafathusayn/herdsman.git
+cd herdsman
+make build</code></pre>
+            </div>
+          </div>
+          <p>Check it:</p>
+          <pre><code>herdsman version</code></pre>
+        </section>
+
+        <!-- Team -->
+        <section id="team">
+          <h2>The team</h2>
+          <p>
+            Every agent runs in its own herdr pane. Each one can use a different harness and a different model: any
+            coding agent that herdr can start and recognize in a pane can take any role.
+          </p>
+          <div class="roles">
+            <article class="role r-adjutant">
+              <header>
+                <span class="role-dot"></span>
+                <h3>Adjutant</h3>
+                <span class="tag">optional</span>
+              </header>
+              <p>
+                You talk to it instead of the orchestrator. It asks you the route's questions and relays briefs and
+                answers through a private message channel.
+              </p>
+              <p class="never">Never writes code, runs tests, commits or pushes.</p>
+            </article>
+            <article class="role r-orchestrator">
+              <header>
+                <span class="role-dot"></span>
+                <h3>Orchestrator</h3>
+              </header>
+              <p>
+                The session you talk to. It runs the interview, writes the contracts, launches and watches the agents,
+                forwards review findings and records the results.
+              </p>
+              <p class="never">Never writes application code and never pushes.</p>
+            </article>
+            <article class="role r-implementer">
+              <header>
+                <span class="role-dot"></span>
+                <h3>Implementer</h3>
+                <span class="tag">one per task</span>
+              </header>
+              <p>Writes the code and the tests for its task on its own branch, optionally in its own git worktree.</p>
+            </article>
+            <article class="role r-reviewer">
+              <header>
+                <span class="role-dot"></span>
+                <h3>Reviewer</h3>
+              </header>
+              <p>
+                Reviews each task branch and, before a push, the combined result. It reports only P0 and P1 findings.
+              </p>
+              <p class="never">Changes nothing.</p>
+            </article>
+            <article class="role r-integrator">
+              <header>
+                <span class="role-dot"></span>
+                <h3>Integrator</h3>
+                <span class="tag">when combined</span>
+              </header>
+              <p>
+                Combines the accepted task branches into one branch, fixes what breaks between them, and is the only
+                agent that pushes.
+              </p>
+            </article>
+            <article class="role r-checkpointer">
+              <header>
+                <span class="role-dot"></span>
+                <h3>Checkpointer</h3>
+                <span class="tag">helper pane</span>
+              </header>
+              <p>
+                Asks the orchestrator to save its memory every 15 minutes, and to compact its context past a token
+                limit.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <!-- Route -->
+        <section id="route">
+          <h2>How a route runs</h2>
+          <p>
+            A route is one run of the team over a set of tasks. The orchestrator sleeps between events, so each wake
+            does real work.
+          </p>
+          <ol class="flow">
+            <li class="f-plan">
+              <span class="f-n">1</span><b>Interview</b
+              ><span>Tasks, models and rules. It shows a dispatch plan and waits for your go.</span>
+            </li>
+            <li class="f-plan">
+              <span class="f-n">2</span><b>Contracts</b
+              ><span>A route folder: shared rules and one contract per task.</span>
+            </li>
+            <li class="f-work">
+              <span class="f-n">3</span><b>Launch</b
+              ><span>herdr tabs and panes, and a full brief for each implementer.</span>
+            </li>
+            <li class="f-wait">
+              <span class="f-n">4</span><b>Wait</b><span>A background waiter exits on the first event.</span>
+            </li>
+            <li class="f-review">
+              <span class="f-n">5</span><b>Review</b
+              ><span>Each finished task goes to a reviewer: <em>fix</em> or <em>pass</em>.</span>
+            </li>
+            <li class="f-done">
+              <span class="f-n">6</span><b>Close</b><span>Results recorded, lessons saved to memory.</span>
+            </li>
+          </ol>
+          <div class="loops">
+            <p class="loop l-fix">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 12a8 8 0 0 1 14-5.3L20 9" />
+                <path d="M20 4v5h-5" />
+                <path d="M20 12a8 8 0 0 1-14 5.3L4 15" />
+                <path d="M4 20v-5h5" />
+              </svg>
+              <span
+                ><b>Fix round.</b> A <em>fix</em> verdict sends the task back to its implementer, and its new report
+                goes back to Wait. A task gets at most three fix rounds; after that, you decide.</span
+              >
+            </p>
+            <p class="loop l-merge">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 3v12" />
+                <path d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+                <path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+                <path d="M18 9a9 9 0 0 1-9 9" />
+              </svg>
+              <span
+                ><b>Combined tasks.</b> The integrator merges the accepted branches in phases. Only a passing final
+                review of the combined head lets it push.</span
+              >
+            </p>
+          </div>
+        </section>
+
+        <!-- Pairing -->
+        <section id="pairing">
+          <h2>Pairing and security</h2>
+          <p>A link alone controls nothing. A browser must also prove that it can see the host's terminal.</p>
+          <ol class="pair-flow">
+            <li>
+              <span class="pf-icon"
+                ><svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+                  <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></svg
+              ></span>
+              <b>The link</b>
+              <span
+                >The terminal prints a link with a one-run token after its <code>#</code>. Browsers leave that part out
+                of requests, so proxies and logs never see it.</span
+              >
+            </li>
+            <li>
+              <span class="pf-icon"
+                ><svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 6h18v12H3z" />
+                  <path d="M7 10h.01" />
+                  <path d="M11 10h.01" />
+                  <path d="M15 10h.01" />
+                  <path d="M7 14h10" /></svg
+              ></span>
+              <b>The code</b>
+              <span>The same terminal shows a 6-digit code. You type it in the browser.</span>
+            </li>
+            <li>
+              <span class="pf-icon"
+                ><svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" />
+                  <path d="M8.5 12l2.5 2.5 4.5-5" /></svg
+              ></span>
+              <b>Paired</b>
+              <span>The browser keeps a device secret for this host until the server stops.</span>
+            </li>
+          </ol>
+          <ul class="facts">
+            <li><b>A code lasts 2 minutes</b> and allows 5 tries. At most 8 pairings wait at one time.</li>
+            <li>
+              <b>Guessing is bounded.</b> After 20 wrong codes in 10 minutes, no new pairing starts until that window
+              moves on.
+            </li>
+            <li>
+              <b>Strong secrets.</b> The link token is 192 bits and the device secret 256 bits, both from the system's
+              random source.
+            </li>
+            <li>
+              <b>Loopback by default.</b> The server listens on <code>127.0.0.1</code> unless <code>--host</code> names
+              one other address.
+            </li>
+            <li>
+              <b>No cookies.</b> A request without the header carries no authority, so another site cannot ride on a
+              paired browser.
+            </li>
+            <li>
+              <b>Sandboxed artifacts.</b> HTML pages that agents wrote open in a sandboxed frame, with no access to the
+              app or your pairing.
+            </li>
+          </ul>
+        </section>
+
+        <!-- Commands -->
+        <section id="commands">
+          <h2>Skill commands</h2>
+          <p>In the orchestrator session, inside herdr:</p>
+          <pre><code>/herdsman [subcommand] [options]</code></pre>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Subcommand</th>
+                  <th>What it does</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>run &lt;route request&gt;</code><br /><span class="muted">or no subcommand</span></td>
+                  <td>Runs the full route. The request names the tasks, harnesses, models and rules.</td>
+                </tr>
+                <tr>
+                  <td><code>adjutant</code></td>
+                  <td>
+                    Attaches this session as the adjutant, your side of the message channel. Options:
+                    <code>--name</code>, <code>--orchestrator &lt;pane&gt;</code>, <code>--inbox &lt;root&gt;</code>,
+                    <code>--launch</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>orchestrator</code></td>
+                  <td>
+                    Orchestrates as <code>run</code> does. With
+                    <code>--adjutant &lt;name&gt; --name &lt;own-name&gt; --inbox &lt;root&gt;</code>, it enrolls in the
+                    message channel first.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>message</code></td>
+                  <td>
+                    Messages between the adjutant and the orchestrator: <code>status</code> (default),
+                    <code>wait</code>, <code>read</code>, <code>release</code>, <code>ack</code>, <code>send</code>,
+                    <code>hold</code>, <code>unhold</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>checkpoint</code></td>
+                  <td>
+                    Manages the checkpointer: <code>start</code> (default), <code>now</code>, <code>probe</code>,
+                    <code>status</code>, <code>stop</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>status</code></td>
+                  <td>Shows the health of every agent in the current route. Changes nothing.</td>
+                </tr>
+                <tr>
+                  <td><code>help</code></td>
+                  <td>Shows the subcommands, options and examples.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <h3 id="examples">Examples</h3>
+          <pre><code><span class="c"># Two issues, one pull request each</span>
+/herdsman run "tasks: issues 12 and 14; implementers: &lt;harness&gt; &lt;model&gt;; reviewer: &lt;harness&gt; &lt;model&gt;"
+
+<span class="c"># Four parts of one change, combined into one pull request</span>
+/herdsman run "tasks: four parts of one change, one pull request; implementers: &lt;harness&gt; &lt;model&gt;; integrator: the first implementer that is free; reviewers: two &lt;harness&gt; &lt;model&gt;"
+
+<span class="c"># Check on the team</span>
+/herdsman status</code></pre>
+        </section>
+
+        <!-- Checkpointer -->
+        <section id="checkpointer">
+          <h2>Checkpointer</h2>
+          <p>A pane next to the orchestrator that keeps its memory saved and its context small.</p>
+          <pre><code>/herdsman checkpoint start --every 10 --limit 300k
+/herdsman checkpoint now</code></pre>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Option</th>
+                  <th>Default</th>
+                  <th>Meaning</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>--pane &lt;id&gt;</code></td>
+                  <td>this session's pane</td>
+                  <td>The orchestrator pane to watch</td>
+                </tr>
+                <tr>
+                  <td><code>--every &lt;minutes&gt;</code></td>
+                  <td><code>15</code></td>
+                  <td>Time between checkpoints (<code>start</code> only)</td>
+                </tr>
+                <tr>
+                  <td><code>--limit &lt;tokens&gt;</code></td>
+                  <td><code>250k</code></td>
+                  <td>Compact at or over this context size</td>
+                </tr>
+                <tr>
+                  <td><code>--prompt "&lt;text&gt;"</code></td>
+                  <td>the script's default</td>
+                  <td>The memory checkpoint prompt</td>
+                </tr>
+                <tr>
+                  <td><code>--compact "&lt;command&gt;"</code></td>
+                  <td><code>/compact</code></td>
+                  <td>The harness's compact command</td>
+                </tr>
+                <tr>
+                  <td><code>--side right|down</code></td>
+                  <td><code>right</code></td>
+                  <td>Where the new pane goes (<code>start</code> only)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Web app -->
+        <section id="web-app">
+          <h2>Web app</h2>
+          <p>
+            <code>herdsman web</code> serves a browser app that shows and steers the team. Start it on the machine that
+            runs herdr. It prints a link, a pairing code when a browser opens the link, and a QR code for a phone.
+          </p>
+          <pre><code>herdsman web --open</code></pre>
+          <div class="views">
+            <div class="view">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" />
+                <path d="M2 21a7 7 0 0 1 14 0" />
+                <path d="M16 3.5a4 4 0 0 1 0 7.5" />
+                <path d="M22 21a7 7 0 0 0-4-6.3" /></svg
+              ><b>Team</b><span>A board of every agent in the route, by role or by status.</span>
+            </div>
+            <div class="view">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 5h16v14H4z" />
+                <path d="M7.5 9.5l3 2.5-3 2.5" />
+                <path d="M12.5 15h4" /></svg
+              ><b>Agent</b
+              ><span
+                >Each agent's live terminal, its keys and a prompt box. Terminal mode types straight into the
+                pane.</span
+              >
+            </div>
+            <div class="view">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg><b>Checklist</b
+              ><span>The route's checklist lines.</span>
+            </div>
+            <div class="view">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 6h12" />
+                <path d="M8 12h12" />
+                <path d="M8 18h12" />
+                <path d="M4 6h.01" />
+                <path d="M4 12h.01" />
+                <path d="M4 18h.01" /></svg
+              ><b>Run state</b><span>The orchestrator's run log, newest first.</span>
+            </div>
+            <div class="view">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 3h8l4 4v14H6z" />
+                <path d="M14 3v4h4" /></svg
+              ><b>Docs</b><span>Contracts, reports and notes in the route folder.</span>
+            </div>
+            <div class="view">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 3h8l4 4v14H6z" />
+                <path d="M14 3v4h4" />
+                <path d="M12 9v5" />
+                <path d="M9.5 11.5h5" />
+                <path d="M9.5 17h5" /></svg
+              ><b>Changes</b><span>The code each task changed against its base branch, inline or side by side.</span>
+            </div>
+            <div class="view">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 5h18v14H3z" />
+                <path d="M3 9h18" />
+                <path d="M6 7h.01" />
+                <path d="M9 7h.01" />
+                <path d="M9.5 12.5 7.5 14.5l2 2" />
+                <path d="M14.5 12.5l2 2-2 2" /></svg
+              ><b>Artifacts</b><span>HTML pages that agents wrote, such as reports, reviews and plans.</span>
+            </div>
+            <div class="view">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 5h16v11H9l-5 4z" />
+                <path d="M8 9h8" />
+                <path d="M8 12h5" /></svg
+              ><b>Messages</b><span>The channel between the adjutant and the orchestrator. Read only.</span>
+            </div>
+          </div>
+          <p class="note">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z" />
+            </svg>
+            <span>Press <kbd>⌘K</kbd> or <kbd>Ctrl+K</kbd> anywhere in the app to open the command palette.</span>
+          </p>
+
+          <h3 id="hosted">The hosted app</h3>
+          <p>
+            A copy of the app built from <code>main</code> is served at
+            <a href="https://herdsman.arafat.ai">herdsman.arafat.ai</a> (also <code>herdsman.arafat.dev</code>, and the
+            short names <code>h.</code> and <code>herd.</code> on both domains). The server prints a "Hosted app" link
+            that opens it with this host filled in.
+          </p>
+          <p>
+            The first time the hosted app calls this computer or a private address, the browser asks to access devices
+            on your local network. Allow it, then choose <b>Try again</b>. The link's pairing token waits until the host
+            answers.
+          </p>
+          <p class="note">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z" />
+              <path d="M12 8v5" />
+              <path d="M12 16h.01" />
+            </svg>
+            <span
+              >Each address is its own browser origin. Hosts and pairings saved on one address do not show on
+              another.</span
+            >
+          </p>
+        </section>
+
+        <!-- Hosts -->
+        <section id="hosts">
+          <h2>Phones and other hosts</h2>
+          <p>
+            The app can reach any number of hosts: this computer, a LAN or Tailscale address, or a domain in front of a
+            server. Open the Hosts dialog from the server button in the top bar, or paste a host's printed link into it.
+            Each host pairs on its own.
+          </p>
+          <p>
+            A page served over HTTPS can reach plain-HTTP hosts only on this computer. A phone's
+            <code>127.0.0.1</code> is the phone itself. So pick the row that fits where the browser is:
+          </p>
+          <div class="table-wrap">
+            <table class="where">
+              <thead>
+                <tr>
+                  <th>The browser is on</th>
+                  <th>Start the server with</th>
+                  <th>Then open</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><b>This computer</b></td>
+                  <td><code>herdsman web --open</code></td>
+                  <td>The printed link, or the "Hosted app" link</td>
+                </tr>
+                <tr>
+                  <td><b>A phone on your tailnet</b><br /><span class="muted">recommended for phones</span></td>
+                  <td>
+                    <code>tailscale serve --bg 7878</code><br /><code
+                      >herdsman web --public-url https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code
+                    >
+                  </td>
+                  <td>Scan the QR code. It opens the hosted app with this server filled in.</td>
+                </tr>
+                <tr>
+                  <td><b>A device on the same LAN</b></td>
+                  <td><code>herdsman web --host 192.168.1.20</code></td>
+                  <td>Scan the QR code. It opens the server's own app over plain HTTP.</td>
+                </tr>
+                <tr>
+                  <td><b>Anywhere, behind your proxy</b></td>
+                  <td><code>herdsman web --allow-host box.example.com</code></td>
+                  <td><code>https://box.example.com</code>, or add it as a host in the hosted app</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Without <code>--public-url</code>, the QR code opens the server's own app, and a line under it says how to
+            get the hosted app.
+          </p>
+        </section>
+
+        <!-- Options -->
+        <section id="options">
+          <h2>Web app options</h2>
+          <pre><code>herdsman web [--port 7878] [--host &lt;ip&gt;] [--allow-host &lt;name&gt;]... [--inbox &lt;folder&gt;]
+             [--client &lt;url&gt;|none] [--public-url &lt;https url&gt;] [--session &lt;name&gt;]
+             [--route &lt;folder&gt;]... [--open] [--no-qr]</code></pre>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Option</th>
+                  <th>Default</th>
+                  <th>Meaning</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>--port &lt;n&gt;</code></td>
+                  <td><code>7878</code></td>
+                  <td>Port to listen on; <code>0</code> picks a free one</td>
+                </tr>
+                <tr>
+                  <td><code>--host &lt;ip&gt;</code></td>
+                  <td><code>127.0.0.1</code></td>
+                  <td>Listen on one other address, such as a LAN or Tailscale IP</td>
+                </tr>
+                <tr>
+                  <td><code>--allow-host &lt;name&gt;</code></td>
+                  <td>none</td>
+                  <td>Also answer to this host name, such as the domain of a proxy or tunnel (repeatable)</td>
+                </tr>
+                <tr>
+                  <td><code>--public-url &lt;https url&gt;</code></td>
+                  <td>none</td>
+                  <td>
+                    The HTTPS address in front of this server. It is also an allowed host name, and the QR code then
+                    opens the hosted app
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>--client &lt;url&gt;</code></td>
+                  <td><code>HERDSMAN_CLIENT</code>, else <code>https://herdsman.arafat.ai</code></td>
+                  <td>A hosted copy of the app; <code>none</code> turns the hosted link off</td>
+                </tr>
+                <tr>
+                  <td><code>--inbox &lt;folder&gt;</code></td>
+                  <td><code>HERDSMAN_INBOX</code></td>
+                  <td>The adjutant's private message folder, for the Messages tab (read only)</td>
+                </tr>
+                <tr>
+                  <td><code>--route &lt;folder&gt;</code></td>
+                  <td>found from the panes' folders</td>
+                  <td>A route folder to show first (repeatable)</td>
+                </tr>
+                <tr>
+                  <td><code>--session &lt;name&gt;</code></td>
+                  <td><code>HERDR_SESSION</code></td>
+                  <td>The herdr session</td>
+                </tr>
+                <tr>
+                  <td><code>--open</code>, <code>--no-qr</code></td>
+                  <td>off</td>
+                  <td>Open the browser; skip the QR code</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Troubleshooting -->
+        <section id="troubleshooting">
+          <h2>Troubleshooting</h2>
+          <div class="faq">
+            <details class="fold">
+              <summary>The hosted app says "Cannot reach This computer"</summary>
+              <p>
+                The browser has not allowed the hosted app to reach devices on your local network yet. Allow its prompt,
+                then choose
+                <b>Try again</b>. If you blocked it before, allow local network access again in the browser's settings
+                for the site.
+              </p>
+            </details>
+            <details class="fold">
+              <summary>A host shows as blocked in the hosted app</summary>
+              <p>
+                It is a plain-HTTP address on another machine, which an HTTPS page may not call. Put it behind HTTPS,
+                for example with
+                <code>tailscale serve</code> and <code>--public-url</code>, or open the server's own app at its printed
+                link.
+              </p>
+            </details>
+            <details class="fold">
+              <summary>The pairing code does not work</summary>
+              <p>
+                A code lasts 2 minutes and allows 5 tries. Open the printed link again to get a new code. After 20 wrong
+                codes in 10 minutes, new pairings wait until that window moves on.
+              </p>
+            </details>
+            <details class="fold">
+              <summary>A paired browser asks for a code again</summary>
+              <p>Device secrets last until the server stops. After a restart, open the new link and pair again.</p>
+            </details>
+            <details class="fold">
+              <summary>Hosts I added do not show on another address</summary>
+              <p>
+                Each address, such as <code>herdsman.arafat.ai</code> and <code>h.arafat.dev</code>, is its own browser
+                origin with its own saved hosts. Add the host again there.
+              </p>
+            </details>
+            <details class="fold">
+              <summary>Homebrew says the tap is not trusted</summary>
+              <p>Trust it once, then install or upgrade again:</p>
+              <pre><code>brew trust arafathusayn/tap</code></pre>
+            </details>
+            <details class="fold">
+              <summary>The skill stops at once</summary>
+              <p>
+                Start the orchestrator inside a herdr pane. The skill runs only when <code>HERDR_ENV</code> is
+                <code>1</code>.
+              </p>
+            </details>
+          </div>
+        </section>
+
+        <!-- Requirements -->
+        <section id="requirements">
+          <h2>Requirements</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tool</th>
+                  <th>Why</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><a href="https://github.com/herdrdev/herdr" rel="noopener">herdr</a></td>
+                  <td>Runs every agent in its own pane.</td>
+                </tr>
+                <tr>
+                  <td><code>/bin/bash</code> 3.2+</td>
+                  <td>Runs the scripts. The macOS default shell works, with either BSD or GNU tools.</td>
+                </tr>
+                <tr>
+                  <td><code>jq</code></td>
+                  <td>
+                    Used by the checkpointer. The message scripts need a <code>jq</code> with streaming and
+                    <code>IN</code> support.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>nc</code> with Unix sockets</td>
+                  <td>Only with an adjutant: the message courier and waiter read herdr events through it.</td>
+                </tr>
+                <tr>
+                  <td>GitHub CLI (<code>gh</code>)</td>
+                  <td>
+                    A version with <code>gh skill</code> to install the skill; any recent version when the route opens
+                    pull requests.
+                  </td>
+                </tr>
+                <tr>
+                  <td>macOS or Linux</td>
+                  <td>For the <code>herdsman</code> command. A browser for the web app; nothing else.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <footer class="foot">
+          <span
+            >herdsman is free software under the
+            <a href="https://github.com/arafathusayn/herdsman/blob/main/LICENSE" rel="noopener">GPL v3</a>.</span
+          >
+          <span class="foot-links">
+            <a href="https://github.com/arafathusayn/herdsman" rel="noopener">GitHub</a>
+            <a href="https://github.com/arafathusayn/herdsman/releases" rel="noopener">Releases</a>
+            <a href="../">Open the app</a>
+          </span>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>
