@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -308,10 +309,10 @@ func TestPairingRejectsWrongCodesThenEnds(t *testing.T) {
 }
 
 func TestPairingExpires(t *testing.T) {
-	d := newDevices()
+	d := newDevices("tok")
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	d.now = func() time.Time { return now }
-	sec, code, _, err := d.begin("Safari on iPhone")
+	sec, code, _, err := d.begin("tok", "Safari on iPhone")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,10 +322,18 @@ func TestPairingExpires(t *testing.T) {
 	}
 }
 
-func TestPairingLimitsGuessing(t *testing.T) {
-	d := newDevices()
+// Each link allows maxFailures wrong codes in all: the last one replaces the
+// token and ends every open request, however the guesses were spread.
+func TestPairingLimitsGuessingPerLink(t *testing.T) {
+	d := newDevices("tok")
+	// A request that waits while the guessing goes on ends with it.
+	waiting, waitingCode, _, err := d.begin("tok", "bystander")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrong, newTok := 0, ""
 	for range maxFailures / pairAttempts {
-		sec, code, _, err := d.begin("x")
+		sec, code, _, err := d.begin("tok", "x")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -333,11 +342,85 @@ func TestPairingLimitsGuessing(t *testing.T) {
 			bad = "888888"
 		}
 		for range pairAttempts {
-			_, _ = d.confirm(sec, bad)
+			wrong++
+			_, err := d.confirm(sec, bad)
+			e, _ := errors.AsType[*errPair](err)
+			if e == nil {
+				t.Fatalf("wrong code %d: %v", wrong, err)
+			}
+			if (e.token != "") != (wrong == maxFailures) {
+				t.Fatalf("wrong code %d: new token %q", wrong, e.token)
+			}
+			newTok = e.token
 		}
 	}
-	if _, _, _, err := d.begin("x"); err == nil {
-		t.Fatalf("pairing still opens after %d wrong codes", maxFailures)
+	if newTok == "tok" || d.validToken("tok") || !d.validToken(newTok) {
+		t.Fatalf("token not replaced: new %q", newTok)
+	}
+	if _, err := d.confirm(waiting, waitingCode); err == nil {
+		t.Fatal("a request opened before the token was replaced still paired")
+	}
+	// A request that checked the old token before the replacement, and opens
+	// only after it, is refused: the check and the opening share one lock.
+	if _, _, _, err := d.begin("tok", "x"); !errors.Is(err, errOldToken) {
+		t.Fatalf("request on the old token after the replacement: %v", err)
+	}
+	// The count starts again for the new link.
+	sec, code, _, err := d.begin(newTok, "x")
+	if err != nil {
+		t.Fatalf("pairing on the new token: %v", err)
+	}
+	if _, err := d.confirm(sec, code); err != nil {
+		t.Fatalf("right code on the new token: %v", err)
+	}
+}
+
+func TestTooManyWrongCodesReplaceTheLinkToken(t *testing.T) {
+	f := newFixture(t)
+	rotated := make(chan string, 1)
+	f.srv.cfg.OnRotate = func(tok string) { rotated <- tok }
+	open := func(tok string) (*http.Response, pairState) {
+		res := f.request(t, http.MethodPost, "/api/session", "", map[string]string{"X-Herdsman-Token": tok})
+		var st pairState
+		_ = json.NewDecoder(res.Body).Decode(&st)
+		return res, st
+	}
+	var last pairState
+	for range maxFailures / pairAttempts {
+		_, st := open("secret-token")
+		code := <-f.codes
+		bad := "999999"
+		if code == bad {
+			bad = "888888"
+		}
+		for range pairAttempts {
+			res := f.request(t, http.MethodPost, "/api/pair", `{"code":"`+bad+`"}`, map[string]string{"X-Herdsman-Pair": st.Pair})
+			last = pairState{}
+			_ = json.NewDecoder(res.Body).Decode(&last)
+		}
+	}
+	if last.Status != "none" || !strings.Contains(last.Error, "new link") {
+		t.Fatalf("last wrong code: %+v", last)
+	}
+	var tok string
+	select {
+	case tok = <-rotated:
+	default:
+		t.Fatal("the terminal was not given a new link")
+	}
+	if tok == "" || tok == "secret-token" {
+		t.Fatalf("new token %q", tok)
+	}
+	if res, _ := open("secret-token"); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old link after rotation: status %d", res.StatusCode)
+	}
+	if res, st := open(tok); res.StatusCode != 200 || st.Pair == "" {
+		t.Fatalf("new link: status %d, %+v", res.StatusCode, st)
+	}
+	<-f.codes
+	// A browser paired before the rotation keeps working.
+	if res := f.request(t, http.MethodGet, "/api/state", "", f.authed); res.StatusCode != 200 {
+		t.Fatalf("paired browser after rotation: status %d", res.StatusCode)
 	}
 }
 

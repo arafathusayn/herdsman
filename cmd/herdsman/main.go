@@ -171,10 +171,16 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	hub := web.NewHub(client, pong, routes)
 	queue := web.NewQueue(client, hub)
 	token := web.NewToken()
+	hostport := net.JoinHostPort(*host, strconv.Itoa(actual))
+	qr := !*noQR && isTerminal(stdout)
 	srv := &http.Server{
 		Handler: web.NewServer(client, hub, queue, web.Config{
 			Token: token, Port: actual, Hosts: hosts, Inbox: *inbox,
 			OnPair: func(n web.PairNotice) { printPair(stdout, n) },
+			OnRotate: func(t string) {
+				fmt.Fprintln(stdout, "\n  Too many wrong pairing codes: the links above no longer work. Paired browsers keep working. New links:")
+				printLinks(stdout, stderr, makeLinks(hostport, t, publicURL, clientURL), qr)
+			},
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          log.New(stderr, "", log.LstdFlags),
@@ -184,20 +190,12 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 
 	// Each link lets a browser ask to pair; each browser must then type the
 	// code this terminal prints for it.
-	l := makeLinks(net.JoinHostPort(*host, strconv.Itoa(actual)), token, publicURL, clientURL)
+	l := makeLinks(hostport, token, publicURL, clientURL)
 	url := l.direct
-	fmt.Fprintf(stdout, "herdsman web %s on herdr %s (%s)\n\n  %s\n\n", version, pong.Version, sock, l.direct)
-	if l.public != "" {
-		fmt.Fprintf(stdout, "  Public: %s\n\n", l.public)
-	}
-	if l.hosted != "" {
-		fmt.Fprintf(stdout, "  Hosted app: %s\n\n", l.hosted)
-	}
-	if !*noQR && isTerminal(stdout) {
-		if err := termqr.Write(stdout, l.qr, "  "); err != nil {
-			fmt.Fprintf(stderr, "herdsman: no QR code: %v\n", err)
-		}
-		fmt.Fprintf(stdout, "\n  %s\n\n", l.qrNote)
+	fmt.Fprintf(stdout, "herdsman web %s on herdr %s (%s)\n", version, pong.Version, sock)
+	printLinks(stdout, stderr, l, qr)
+	if w := plainHTTPWarning(*host); w != "" {
+		fmt.Fprintf(stdout, "Warning: %s\n\n", w)
 	}
 	if len(extraHosts(*host)) > 0 {
 		fmt.Fprintf(stdout, "Listening on %s. Each browser that opens the URL must type the pairing code printed here.\n", *host)
@@ -291,6 +289,53 @@ func makeLinks(hostport, token string, public, client *neturl.URL) links {
 
 // extraHosts returns host when it is not a loopback name, for the server's
 // Host check.
+// printLinks prints the links that let a browser ask to pair, and the QR code.
+func printLinks(stdout, stderr io.Writer, l links, qr bool) {
+	fmt.Fprintf(stdout, "\n  %s\n\n", l.direct)
+	if l.public != "" {
+		fmt.Fprintf(stdout, "  Public: %s\n\n", l.public)
+	}
+	if l.hosted != "" {
+		fmt.Fprintf(stdout, "  Hosted app: %s\n\n", l.hosted)
+	}
+	if qr {
+		if err := termqr.Write(stdout, l.qr, "  "); err != nil {
+			fmt.Fprintf(stderr, "herdsman: no QR code: %v\n", err)
+		}
+		fmt.Fprintf(stdout, "\n  %s\n\n", l.qrNote)
+	}
+}
+
+// tailnet is the address range Tailscale gives its machines; traffic to them
+// is encrypted by Tailscale itself.
+var tailnet = []*net.IPNet{mustCIDR("100.64.0.0/10"), mustCIDR("fd7a:115c:a1e0::/48")}
+
+func mustCIDR(s string) *net.IPNet {
+	_, n, err := net.ParseCIDR(s)
+	if err != nil {
+		panic(err)
+	}
+	return n
+}
+
+// plainHTTPWarning says why --host on a LAN address is risky: the pairing
+// code, the agents' screens and what you type cross the network unencrypted.
+func plainHTTPWarning(host string) string {
+	if len(extraHosts(host)) == 0 {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		for _, n := range tailnet {
+			if n.Contains(ip) {
+				return ""
+			}
+		}
+	}
+	return fmt.Sprintf("%s serves plain HTTP. Anyone on this network can read the traffic, "+
+		"including the agents' screens and what you type to them. Prefer a Tailscale address, "+
+		"or put HTTPS in front of this server (for example tailscale serve) and pass --public-url.", host)
+}
+
 func extraHosts(host string) []string {
 	if host == "localhost" {
 		return nil

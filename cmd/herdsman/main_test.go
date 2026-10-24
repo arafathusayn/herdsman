@@ -59,6 +59,24 @@ func TestExtraHosts(t *testing.T) {
 	}
 }
 
+// Plain HTTP is warned about only where it crosses a network unencrypted:
+// not on loopback, and not on a Tailscale address.
+func TestPlainHTTPWarning(t *testing.T) {
+	for host, warn := range map[string]bool{
+		"127.0.0.1": false, "::1": false, "localhost": false,
+		"100.64.0.7": false, "100.127.255.1": false, "fd7a:115c:a1e0::1": false,
+		"192.168.1.20": true, "10.0.0.5": true, "100.128.0.1": true, "box.local": true,
+	} {
+		got := plainHTTPWarning(host)
+		if (got != "") != warn {
+			t.Errorf("plainHTTPWarning(%q) = %q, want a warning: %v", host, got, warn)
+		}
+		if warn && !strings.Contains(got, "--public-url") {
+			t.Errorf("plainHTTPWarning(%q) does not say what to do: %q", host, got)
+		}
+	}
+}
+
 // Stopping the server ends open event streams, so it stops at once and
 // without an error.
 func TestServeEndsOpenStreams(t *testing.T) {

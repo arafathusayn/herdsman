@@ -17,7 +17,7 @@ Ship one `herdsman` binary through GitHub releases. It carries every herdsman co
 | Access | Binds to `127.0.0.1` only, with a random token per run |
 | Scripts | All bash scripts move into CLI subcommands in a single PR, and the scripts are deleted in that PR |
 | PRs | 1) CLI skeleton, releases and `herdsman web`. 2) Landing page. 3) Port every script |
-| Release | All three PRs ship together as one stable `v1.0.0` everywhere: the GitHub release, the `arafathusayn/tap` formula, `herdsman version`, the landing page and the skill. No tag is pushed before PR 3 lands |
+| Release | Changed on 2026-10-25. `v0.1.0` and `v0.2.0` shipped PR 1. `v1.0.0` ships PR 1, the docs page at `/docs/` (in place of PR 2), and the pairing hardening; the skill keeps its shell scripts. PR 3 ships in a later `1.x` release |
 | Homebrew | goreleaser publishes the formula to `arafathusayn/tap` |
 | Agents | Agent-type agnostic: no harness-specific UI. Starting an agent takes any `kind` and command line. PR 1 operates existing routes and does not start new ones |
 | Machines | The local herdr session only |
@@ -101,13 +101,13 @@ The browser gets live state over one SSE stream and sends every action as a POST
 6. Serve `internal/web/dist` from another origin, open the printed hosted link, pair, and use the app; add a second host from the Hosts dialog.
 7. Artifacts lists the HTML pages in the session's folders and shows one; Messages shows the adjutant's channel when `--inbox` names it.
 
-## PR 2: Landing page (`site/`)
+## PR 2: Landing page (`site/`), replaced by the docs page at `/docs/`
 
 - Static HTML and CSS, plus a little TypeScript compiled by `bun build`. Deployed to GitHub Pages by an Actions workflow on changes to `site/`.
 - Sections: hero ("Run a whole team of coding agents from one conversation"), the team (four roles), how a route runs (the six steps as a diagram), a screenshot of the web app in light and dark, install (`brew` or a release download, then `herdsman web`), and links to the README and the skill.
 - It shares the web app's design tokens (`web/tokens.css`), so the page and the product look like one system. It works in light and dark, with no tracking and no external scripts.
 
-## PR 3: Port every script into the CLI
+## PR 3: Port every script into the CLI (after `v1.0.0`)
 
 | Script | Subcommand |
 | --- | --- |

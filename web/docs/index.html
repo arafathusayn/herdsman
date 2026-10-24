@@ -504,8 +504,8 @@ make build</code></pre>
           <ul class="facts">
             <li><b>A code lasts 2 minutes</b> and allows 5 tries. At most 8 pairings wait at one time.</li>
             <li>
-              <b>Guessing is bounded.</b> After 20 wrong codes in 10 minutes, no new pairing starts until that window
-              moves on.
+              <b>Guessing is bounded.</b> Each link allows 20 wrong codes in all. Then it stops working, open pairings
+              end, and the terminal prints a new link.
             </li>
             <li>
               <b>Strong secrets.</b> The link token is 192 bits and the device secret 256 bits, both from the system's
@@ -513,7 +513,7 @@ make build</code></pre>
             </li>
             <li>
               <b>Loopback by default.</b> The server listens on <code>127.0.0.1</code> unless <code>--host</code> names
-              one other address.
+              one other address. A LAN address serves plain HTTP, and the server warns about it.
             </li>
             <li>
               <b>No cookies.</b> A request without the header carries no authority, so another site cannot ride on a
@@ -905,7 +905,7 @@ make build</code></pre>
               <summary>The pairing code does not work</summary>
               <p>
                 A code lasts 2 minutes and allows 5 tries. Open the printed link again to get a new code. After 20 wrong
-                codes in 10 minutes, new pairings wait until that window moves on.
+                codes for one link, that link stops working: open the new link that the terminal printed.
               </p>
             </details>
             <details class="fold">

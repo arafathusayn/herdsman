@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -53,6 +52,9 @@ type Config struct {
 	Inbox string
 	// OnPair shows a pairing code to the person at the terminal.
 	OnPair func(PairNotice)
+	// OnRotate shows the person at the terminal the links for a new token,
+	// after too many wrong codes ended the old one.
+	OnRotate func(token string)
 }
 
 // NewToken returns a random token for one run of the server.
@@ -69,8 +71,11 @@ func NewServer(c *herdr.Client, hub *Hub, q *Queue, cfg Config) *Server {
 	if cfg.OnPair == nil {
 		cfg.OnPair = func(PairNotice) {}
 	}
+	if cfg.OnRotate == nil {
+		cfg.OnRotate = func(string) {}
+	}
 	return &Server{
-		hub: hub, queue: q, client: c, cfg: cfg, devices: newDevices(), assets: sub,
+		hub: hub, queue: q, client: c, cfg: cfg, devices: newDevices(cfg.Token), assets: sub,
 		diffSlots: make(chan struct{}, 2), artifacts: newArtifacts(),
 	}
 }
@@ -150,10 +155,6 @@ func (s *Server) guard(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) validToken(t string) bool {
-	return t != "" && subtle.ConstantTimeCompare([]byte(t), []byte(s.cfg.Token)) == 1
-}
-
 // auth lets only paired browsers through.
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +177,8 @@ type pairState struct {
 	Device string `json:"device,omitempty"`
 }
 
+const oldTokenMessage = "The token in this URL is wrong or from an older run."
+
 // session takes the token from the URL fragment and opens a pairing request:
 // the code goes to the terminal, never to the browser.
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
@@ -185,8 +188,9 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, pairState{Status: "paired"})
 		return
 	}
-	if !s.validToken(r.Header.Get("X-Herdsman-Token")) {
-		writeJSON(w, http.StatusUnauthorized, pairState{Status: "none", Error: "The token in this URL is wrong or from an older run."})
+	tok := r.Header.Get("X-Herdsman-Token")
+	if !s.devices.validToken(tok) {
+		writeJSON(w, http.StatusUnauthorized, pairState{Status: "none", Error: oldTokenMessage})
 		return
 	}
 	if sec := r.Header.Get("X-Herdsman-Pair"); s.devices.isPending(sec) {
@@ -194,7 +198,13 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	device := describeDevice(r.UserAgent())
-	sec, code, expires, err := s.devices.begin(device)
+	// begin checks the token again under the pairing lock: it may have been
+	// replaced since the check above.
+	sec, code, expires, err := s.devices.begin(tok, device)
+	if errors.Is(err, errOldToken) {
+		writeJSON(w, http.StatusUnauthorized, pairState{Status: "none", Error: oldTokenMessage})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusTooManyRequests, pairState{Status: "none", Error: err.Error()})
 		return
@@ -237,6 +247,10 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 			st.Left = e.left
 			if e.gone {
 				st.Status = "none"
+			}
+			if e.token != "" {
+				// Every link printed so far is dead; paired browsers keep working.
+				s.cfg.OnRotate(e.token)
 			}
 		}
 		writeJSON(w, http.StatusForbidden, st)

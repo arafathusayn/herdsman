@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -23,10 +24,10 @@ const (
 	pairTTL      = 2 * time.Minute
 	pairAttempts = 5
 	maxPending   = 8
-	// Guessing is bounded across requests too: past maxFailures wrong codes
-	// in failWindow, no new pairing starts until the window moves on.
+	// Guessing is bounded across requests too: after maxFailures wrong codes
+	// the link's token is replaced, so each leaked link allows that many
+	// guesses in all, and the terminal prints the new link.
 	maxFailures = 20
-	failWindow  = 10 * time.Minute
 )
 
 // PairNotice is what the terminal shows for one pairing request.
@@ -45,16 +46,34 @@ type pairing struct {
 }
 
 type devices struct {
-	mu       sync.Mutex
-	now      func() time.Time
+	mu  sync.Mutex
+	now func() time.Time
+	// token is the link's token. It lives under the same lock as the
+	// requests, so a request can never open on a token that was just
+	// replaced.
+	token    string
 	pending  map[string]*pairing // by sha256 of the pairing secret
 	paired   map[string]string   // sha256 of the device secret -> device name
-	failures []time.Time
+	failures int                 // wrong codes since the token was last replaced
 }
 
-func newDevices() *devices {
-	return &devices{now: time.Now, pending: map[string]*pairing{}, paired: map[string]string{}}
+func newDevices(token string) *devices {
+	return &devices{now: time.Now, token: token, pending: map[string]*pairing{}, paired: map[string]string{}}
 }
+
+func (d *devices) tokenOK(t string) bool {
+	return t != "" && subtle.ConstantTimeCompare([]byte(t), []byte(d.token)) == 1
+}
+
+// validToken reports whether t is the current link token.
+func (d *devices) validToken(t string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.tokenOK(t)
+}
+
+// errOldToken is a link whose token was replaced, or one from another run.
+var errOldToken = errors.New("old link token")
 
 func secret() string {
 	b := make([]byte, 32)
@@ -77,25 +96,19 @@ func newCode() string {
 	return fmt.Sprintf("%06d", n.Int64())
 }
 
-// begin opens a pairing request and returns its secret and code.
-func (d *devices) begin(device string) (sec, code string, expires time.Time, err error) {
+// begin opens a pairing request for a link's token and returns its secret
+// and code.
+func (d *devices) begin(token, device string) (sec, code string, expires time.Time, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if !d.tokenOK(token) {
+		return "", "", time.Time{}, errOldToken
+	}
 	now := d.now()
 	for k, p := range d.pending {
 		if now.After(p.expires) {
 			delete(d.pending, k)
 		}
-	}
-	recent := d.failures[:0]
-	for _, t := range d.failures {
-		if now.Sub(t) < failWindow {
-			recent = append(recent, t)
-		}
-	}
-	d.failures = recent
-	if len(d.failures) >= maxFailures {
-		return "", "", time.Time{}, fmt.Errorf("too many wrong pairing codes; try again in %s", failWindow)
 	}
 	if len(d.pending) >= maxPending {
 		return "", "", time.Time{}, fmt.Errorf("too many open pairing requests; wait %s", pairTTL)
@@ -118,6 +131,9 @@ type errPair struct {
 	msg  string
 	left int
 	gone bool
+	// token is the link's new token when the wrong codes reached
+	// maxFailures: the old one is replaced and every open request has ended.
+	token string
 }
 
 func (e *errPair) Error() string { return e.msg }
@@ -135,7 +151,13 @@ func (d *devices) confirm(sec, code string) (string, error) {
 	}
 	if subtle.ConstantTimeCompare([]byte(code), []byte(p.code)) != 1 {
 		p.attempts++
-		d.failures = append(d.failures, d.now())
+		d.failures++
+		if d.failures >= maxFailures {
+			d.failures = 0
+			clear(d.pending)
+			d.token = NewToken()
+			return "", &errPair{msg: "Too many wrong codes for this link. Open the new link that the terminal printed.", gone: true, token: d.token}
+		}
 		left := pairAttempts - p.attempts
 		if left <= 0 {
 			delete(d.pending, key)
