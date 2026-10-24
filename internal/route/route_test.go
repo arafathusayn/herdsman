@@ -20,7 +20,8 @@ const current = "# Route cur (2026-10-24)\n\n" +
 	"| --- | --- | --- | --- | --- | --- |\n" +
 	"| auth | feat/auth | ../wt-auth | im-auth | w1:p2 | 11-task-auth.md |\n" +
 	"| review (Codex) | - | - | rv-codex (Codex high) | `w1:p3` (tab w1:t2 reviewers) | - |\n" +
-	"| checkpointer | - | - | - | w1:p4 | - |\n\n" +
+	"| checkpointer | - | - | - | w1:p4 | - |\n" +
+	"| docs | docs/gates (tracks origin/main; one PR) | ~/wt docs (shared with auth) | im-docs | w1:p5 | - |\n\n" +
 	"## Checklist\n\n" +
 	"- [x] C0.1 all: Read first.\n" +
 	"- [ ] C2.11 pr: The base's gate results known.\n" +
@@ -84,6 +85,8 @@ func TestLoad(t *testing.T) {
 		{Task: "auth", Branch: "feat/auth", Worktree: "../wt-auth", Agent: "im-auth", Pane: "w1:p2", Contract: "11-task-auth.md"},
 		{Task: "review (Codex)", Agent: "rv-codex", Pane: "w1:p3"},
 		{Task: "checkpointer", Pane: "w1:p4"},
+		// Notes after a branch or worktree value stay out of it; a path keeps its spaces.
+		{Task: "docs", Branch: "docs/gates", Worktree: "~/wt docs", Agent: "im-docs", Pane: "w1:p5"},
 	}
 	if !slices.Equal(r.Tasks, want) {
 		t.Fatalf("tasks = %+v\nwant  %+v", r.Tasks, want)

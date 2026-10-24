@@ -226,8 +226,13 @@ func taskFrom(header, cells []string) Task {
 		}
 		return ""
 	}
+	// Like the agent and pane cells, branch and worktree cells can carry notes
+	// after their value: "feat/x (tracks origin/main)". A branch has no spaces;
+	// a worktree path may, so only a parenthesized note is cut from it.
+	branch, _, _ := strings.Cut(get("branch"), " ")
+	worktree, _, _ := strings.Cut(get("worktree"), " (")
 	return Task{
-		Task: get("task"), Branch: get("branch"), Worktree: get("worktree"),
+		Task: get("task"), Branch: branch, Worktree: strings.TrimSpace(worktree),
 		Agent: agentToken.FindString(get("agent")), Pane: paneToken.FindString(get("pane")),
 		Contract: get("contract"),
 	}

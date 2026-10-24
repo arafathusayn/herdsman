@@ -178,12 +178,14 @@ type pairState struct {
 // session takes the token from the URL fragment and opens a pairing request:
 // the code goes to the terminal, never to the browser.
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
-	if !s.validToken(r.Header.Get("X-Herdsman-Token")) {
-		writeJSON(w, http.StatusUnauthorized, pairState{Status: "none", Error: "The token in this URL is wrong or from an older run."})
-		return
-	}
+	// A paired browser stays paired whatever link it opens: a wrong or old
+	// token must not make it drop its device secret.
 	if s.devices.isPaired(bearer(r)) {
 		writeJSON(w, http.StatusOK, pairState{Status: "paired"})
+		return
+	}
+	if !s.validToken(r.Header.Get("X-Herdsman-Token")) {
+		writeJSON(w, http.StatusUnauthorized, pairState{Status: "none", Error: "The token in this URL is wrong or from an older run."})
 		return
 	}
 	if sec := r.Header.Get("X-Herdsman-Pair"); s.devices.isPending(sec) {

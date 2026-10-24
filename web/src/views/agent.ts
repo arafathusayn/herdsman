@@ -61,6 +61,8 @@ export class AgentPanel {
     "aria-label": "Pane output",
   });
   private readonly tailNote = h("div", { class: "tail-note" });
+  /** Whether the last text read was cut to its line limit. */
+  private truncated = false;
   /** Takes the typing of the terminal view, so IME, paste and phone keyboards work. */
   private readonly termInput = h("textarea", {
     class: "term-input",
@@ -572,11 +574,11 @@ export class AgentPanel {
         // Colors are fixed when drawn, so a new theme or scheme redraws the same text.
         const pal = readPalette(this.tail);
         const palKey = JSON.stringify(pal);
+        if (r) this.truncated = !!r.truncated;
+        // Any answer, a 304 too, means the pane reads again, so an old error note goes.
+        this.tailNote.textContent = this.truncated && !term ? "Showing the last 400 lines." : "";
         if (r || palKey !== this.palKey) {
-          if (r) {
-            this.text = r.text;
-            this.tailNote.textContent = r.truncated && !term ? "Showing the last 400 lines." : "";
-          }
+          if (r) this.text = r.text;
           this.palKey = palKey;
           this.fitRows();
           this.fitFont();

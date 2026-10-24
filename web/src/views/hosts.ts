@@ -215,6 +215,43 @@ export function openHosts(): void {
 }
 
 /**
+ * Asks before a link adds a host this browser does not know: any page or
+ * artifact can open such a link, and the host gets what you type to agents.
+ */
+export function confirmHost(root: HTMLElement, url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const answer = (yes: boolean) => () => resolve(yes);
+    mount(
+      root,
+      h(
+        "main",
+        { class: "pair" },
+        h(
+          "div",
+          { class: "pair-card connect-card" },
+          logoMark(),
+          h("h1", null, "Add this host?"),
+          h("p", { class: "pair-lead" }, "A link asks this app to connect to a host it does not know yet:"),
+          h("code", { class: "host-url" }, url),
+          h(
+            "p",
+            { class: "pair-note" },
+            icon(icons.server),
+            "Add it only if you started herdsman web there. The host sees your agents' screens and what you type to them.",
+          ),
+          h(
+            "div",
+            { class: "dialog-actions" },
+            h("button", { type: "button", class: "btn", onclick: answer(false) }, "Cancel"),
+            h("button", { type: "button", class: "btn primary", onclick: answer(true) }, "Add and pair"),
+          ),
+        ),
+      ),
+    );
+  });
+}
+
+/**
  * The screen for a browser with nothing to show: no host yet, a host that
  * does not know this browser, or one it cannot reach.
  */

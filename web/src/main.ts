@@ -26,7 +26,7 @@ import { openAppearance } from "./views/appearance.ts";
 import { ArtifactsView } from "./views/artifacts.ts";
 import { DiffView } from "./views/diff.ts";
 import { FilesView } from "./views/files.ts";
-import { openHosts, showConnect, takePendingLink } from "./views/hosts.ts";
+import { confirmHost, openHosts, showConnect, takePendingLink } from "./views/hosts.ts";
 import { MessagesView } from "./views/messages.ts";
 import { showPairing } from "./views/pair.ts";
 import { card, teamView } from "./views/team.ts";
@@ -118,6 +118,22 @@ async function boot(): Promise<void> {
   const link = /(?:^#|&)t=/.test(location.hash) ? parseLink(location.href, location.origin) : null;
   if (location.hash) history.replaceState(null, "", location.pathname + location.search);
   let token = "";
+  // The page's own server and the hosts already here are trusted; a link that
+  // names any other host asks first, since any page can open such a link.
+  const ownUrl = normalizeUrl(location.origin + location.pathname);
+  if (
+    link &&
+    link.url !== ownUrl &&
+    !hs.hosts.some((x) => x.url === link.url) &&
+    !(await confirmHost(root, link.url))
+  ) {
+    showConnect(
+      root,
+      "Host not added",
+      "The link's host was not added. Pick a host you know, or paste a link you trust.",
+    );
+    return;
+  }
   if (link) {
     upsert(hs, link.url);
     token = link.token;

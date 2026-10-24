@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"time"
+	"unicode/utf8"
 )
 
 // The message channel: the private inbox where the adjutant and the
@@ -275,7 +276,8 @@ func readEnvelope(p string) (*envelope, error) {
 	base := filepath.Base(p)
 	if e.Version != 1 || e.ID+".md" != base || !idRe.MatchString(e.ID) || !nameRe.MatchString(e.From) ||
 		!nameRe.MatchString(e.To) || !kinds[e.Kind] || (e.ReplyTo != "" && !idRe.MatchString(e.ReplyTo)) ||
-		e.Time < 0 || len(e.Body) > 65536 {
+		e.Time < 0 || utf8.RuneCountInString(e.Body) > 65536 { // jq's length counts code points
+
 		return nil, errors.New("envelope fields")
 	}
 	return &e, nil
