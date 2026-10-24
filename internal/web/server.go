@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -360,11 +361,22 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	p := strings.TrimPrefix(r.URL.Path, "/")
-	if p == "" {
-		p = "index.html"
+	if p == "" || strings.HasSuffix(p, "/") {
+		p += "index.html"
 	}
-	if _, err := fs.Stat(s.assets, p); err != nil {
+	if fi, err := fs.Stat(s.assets, p); err != nil {
 		p = "index.html" // client-side routes
+	} else if fi.IsDir() {
+		// A page folder such as docs: its relative links need the slash.
+		if _, err := fs.Stat(s.assets, path.Join(p, "index.html")); err == nil {
+			to := "./" + path.Base(p) + "/"
+			if r.URL.RawQuery != "" {
+				to += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, to, http.StatusMovedPermanently)
+			return
+		}
+		p = "index.html"
 	}
 	if _, err := fs.Stat(s.assets, "index.html"); err != nil {
 		http.Error(w, "web assets are not built into this binary: run `make web` and build again", http.StatusNotFound)
@@ -372,7 +384,7 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	}
 	// Asset names carry no hash, so the browser revalidates every load.
 	w.Header().Set("Cache-Control", "no-cache")
-	if p == "index.html" {
+	if strings.HasSuffix(p, ".html") {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' http: https:; frame-src http: https:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 	}

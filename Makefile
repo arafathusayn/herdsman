@@ -12,10 +12,12 @@ GORELEASER        := github.com/goreleaser/goreleaser/v2@v2.19.0
 
 BUN_GLOBAL  := $(or $(BUN_INSTALL),$(HOME)/.bun)/install/global/node_modules
 WEB_DIST    := internal/web/dist
-BUN_BUILD   := bun build ./index.html --outdir ../$(WEB_DIST) --minify \
-               --entry-naming '[name].[ext]' --asset-naming '[name].[ext]' --chunk-naming '[name].[ext]'
+# Two pages: the app at / and the docs at /docs/. Names keep their folder, so
+# both pages can be index.html; the app's files keep the names they had.
+BUN_BUILD   := bun build ./index.html ./docs/index.html --outdir ../$(WEB_DIST) --minify \
+               --entry-naming '[dir]/[name].[ext]' --asset-naming '[name].[ext]' --chunk-naming '[dir]/[name].[ext]'
 
-.PHONY: all tools web web-check web-fmt build check test lint vuln release-check clean
+.PHONY: all tools web pages web-check web-fmt build check test lint vuln release-check clean
 
 all: check build
 
@@ -27,6 +29,11 @@ tools:
 web:
 	find $(WEB_DIST) -type f ! -name .gitkeep -delete
 	cd web && $(BUN_BUILD)
+
+## pages: the web app as a static site (Cloudflare Pages runs this), with its
+## security headers
+pages: web
+	cp web/public/_headers $(WEB_DIST)/
 
 ## web-check: format check, type check and tests of the web app
 web-check:

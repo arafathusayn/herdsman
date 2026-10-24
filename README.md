@@ -9,11 +9,16 @@
   <a href="LICENSE"><img alt="License: GPL v3" src="https://img.shields.io/badge/license-GPLv3-blue.svg"></a>
 </p>
 
-herdsman is a skill for coding agents. You talk to one agent, the orchestrator, and it runs the rest of the team inside [herdr](https://github.com/herdrdev/herdr): implementers write the code, reviewers check it, and an integrator combines the work when it ships as one branch. Fixes and reviews go round until each task passes. Optionally, you talk to an adjutant instead, and it relays your briefs and answers to the orchestrator through a private message channel.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.png">
+    <img alt="/herdsman run &quot;tasks: issues 12 and 14; implementers: &lt;harness&gt; &lt;model&gt;; reviewer: &lt;harness&gt; &lt;model&gt;&quot;" src=".github/assets/banner-light.png" width="912">
+  </picture>
+</p>
 
-```
-/herdsman run "tasks: issues 12 and 14; implementers: <harness> <model>; reviewer: <harness> <model>"
-```
+herdsman is a skill for coding agents. You talk to one agent: the orchestrator, or an optional adjutant that relays your briefs and answers to the orchestrator through a private message channel. The orchestrator runs the rest of the team inside [herdr](https://github.com/herdrdev/herdr): implementers write the code, reviewers check it, and an integrator combines the work when it ships as one branch. Fixes and reviews go round until each task passes.
+
+Read the docs at <https://herdsman.arafat.ai/docs/>, or at `/docs/` on any running `herdsman web`.
 
 ---
 
@@ -39,7 +44,7 @@ Every agent runs in its own herdr pane. Each one can use a different harness and
 | Role | What it does |
 | --- | --- |
 | **Adjutant** | Optional, at most one. When a route has one, you talk to the adjutant instead of the orchestrator. It asks you the route's questions, relays full briefs and your answers to the orchestrator as herdsman messages, and runs only the pane administration you approve. It never writes code, runs tests, commits or pushes. See [`references/adjutant.md`](skills/herdsman/references/adjutant.md). |
-| **Orchestrator** | The session you talk to, directly or through the adjutant. It runs the interview, writes the contracts, launches and watches the other agents, forwards review findings and records the results. It never writes application code and never pushes. |
+| **Orchestrator** | Runs the route. You talk to it directly, or through the adjutant. It runs the interview, writes the contracts, launches and watches the other agents, forwards review findings and records the results. It never writes application code and never pushes. |
 | **Implementer** | One per task. It writes the code and the tests for its task on its own branch. |
 | **Integrator** | Used when several tasks ship as one branch or one pull request. It combines the accepted task branches, fixes what breaks between them, and is the only agent that pushes and answers review threads. |
 | **Reviewer** | Reviews each task branch and, before a push, the combined result. It reports only P0 and P1 findings and changes nothing. |
