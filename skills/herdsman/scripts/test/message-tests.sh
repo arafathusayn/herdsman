@@ -1079,16 +1079,35 @@ jq -n '{"im-task":{role:"task-agent",identity:{pane:"task-pane",session:{source:
 printf 'Goal paused (/goal resume)\n' > "$C/screen-task-pane"; relay_boundary
 out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh hold im-task 'user paused this task'); st=$?
 check "Z9 hold records the named hold" '^0 HOLD im-task' "$st $out"
-check "Z9b with the holder and the reason" "^$O user paused this task\$" "$(jq -r '.by + " " + .reason' "$C/inbox/state/hold-im-task")"
+check "Z9b with the holder and the reason" '^user paused this task$' "$(jq -r --arg o "$O" '.holds[$o].reason' "$C/inbox/state/hold-im-task")"
 check "Z9c the resume helper then holds" 'HELD user pause or freeze' "$(msg sender-pane resume-goal-when-idle.sh im-task)"
 mkdir "$C/inbox/herdr-mutation.lock"
 out=$(ENVX="HERDSMAN_NAME=$O LOCK_WAIT=1" msg receiver-pane message.sh unhold im-task); st=$?
 check "Z9d unhold waits for the shared lock and refuses when busy" '^2 .*lock busy' "$st $out"
 rmdir "$C/inbox/herdr-mutation.lock"
 out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh unhold im-task); st=$?
-check "Z9e unhold clears the hold" "^0 UNHOLD im-task by $O no\$" "$st $out $(yn "$C/inbox/state/hold-im-task")"
+check "Z9e unhold clears the hold" "^0 UNHOLD im-task by $O; no hold remains no\$" "$st $out $(yn "$C/inbox/state/hold-im-task")"
 out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh hold '../x' reason); st=$?
 check "Z9f an invalid hold name is refused" '^2 ' "$st $out"
+# Z9g: a hold is cleared only by its owner; another coordinator's hold stays, and resume stays held while any hold stays.
+ENVX="HERDSMAN_NAME=$A" msg sender-pane message.sh hold im-task 'the user paused this task' >/dev/null
+out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh unhold im-task); st=$?
+check "Z9g the orchestrator cannot clear the adjutant's user-pause hold" "^2 .*no hold by $O" "$st $out"
+check "Z9h and the adjutant's hold stays" '^the user paused this task$' "$(jq -r --arg a "$A" '.holds[$a].reason' "$C/inbox/state/hold-im-task")"
+ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh hold im-task 'stopping the task' >/dev/null
+check "Z9i a second owner's hold does not overwrite the first" '^the user paused this task stopping the task$' \
+  "$(jq -r --arg a "$A" --arg o "$O" '.holds[$a].reason + " " + .holds[$o].reason' "$C/inbox/state/hold-im-task")"
+ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh unhold im-task >/dev/null
+check "Z9j the orchestrator's unhold removes only its own hold" "^$A\$" "$(jq -r '.holds|keys|join(" ")' "$C/inbox/state/hold-im-task")"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task)
+check "Z9k the resume stays held and names the remaining owner" "^HELD user pause or freeze.*$A" "$out"
+check "Z9l and no resume was sent" '^0$' "$(grep -c '^agent prompt' "$C/calls.log")"
+ENVX="HERDSMAN_NAME=$A" msg sender-pane message.sh unhold im-task >/dev/null
+check "Z9m the last owner's unhold clears the record" '^no$' "$(yn "$C/inbox/state/hold-im-task")"
+printf 'held by hand\n' > "$C/inbox/state/hold-im-task"
+out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh unhold im-task); st=$?
+check "Z9n a hold record in another format is never changed" '^2 .*owner format.* held by hand$' "$st $out $(cat "$C/inbox/state/hold-im-task")"
+check "Z9o and still holds the resume" '^HELD user pause or freeze' "$(msg sender-pane resume-goal-when-idle.sh im-task)"
 
 # Z10: a deliberate hold is quiet in the watcher; only uncertain resume states alert.
 new_case quiet-hold

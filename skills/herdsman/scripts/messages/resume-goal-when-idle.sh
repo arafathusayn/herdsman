@@ -29,7 +29,16 @@ key=$(printf '%s' "$expected" | jq -Sc . | cksum | awk '{print $1 "-" $2}')
 held() { printf 'HELD %s\n' "$*"; exit 3; }
 guards() {
   [ ! -e "$ROOT/state/route-paused" ] && [ ! -e "$ROOT/state/route-frozen" ] &&
-    [ ! -e "$ROOT/state/hold-$NAME" ]
+    [ ! -e "$ROOT/state/hold-$NAME" ] && [ ! -L "$ROOT/state/hold-$NAME" ]
+}
+# Any hold record holds, whatever its owners or format; the message names the owners it can read.
+pause_held() {
+  local owners=unreadable
+  if regular "$ROOT/state/hold-$NAME" && strict_json "$ROOT/state/hold-$NAME"; then
+    owners=$(jq -r '.holds|keys|join(" ")' "$ROOT/state/hold-$NAME" 2>/dev/null) || owners=unreadable
+  elif [ ! -e "$ROOT/state/hold-$NAME" ] && [ ! -L "$ROOT/state/hold-$NAME" ]; then owners=route
+  fi
+  held "user pause or freeze; holds: $owners"
 }
 observe() {
   raw=$(herdr agent get "$pane" </dev/null) || die 'identity unavailable'
@@ -46,7 +55,7 @@ classify() {
   elif printf '%s\n' "$screen" | grep -qE '^[[:space:]]*Goal paused( \(/goal resume\))?[[:space:]]*$'; then printf paused
   else printf unknown; fi
 }
-guards || held 'user pause or freeze'
+guards || pause_held
 observe
 state=$(classify)
 case "$state" in
@@ -60,7 +69,7 @@ export MUTATION_OWNED=1
 printf '%s\n' "$$" > "$ROOT/herdr-mutation.lock/pid"
 # Recheck the intent under the lock: an overlapping helper may have sent in this episode since the first check.
 [ ! -e "$ROOT/state/resume-$key.sent" ] || held 'reconcile the previous resume'
-guards || held 'user pause or freeze'
+guards || pause_held
 boundary_ok || held 'HUMAN boundary changed'
 current=$(target_record) || held 'target changed'
 [ "$(printf '%s' "$current" | jq -Sc .)" = "$(printf '%s' "$target" | jq -Sc .)" ] || held 'target changed'
@@ -68,7 +77,7 @@ observe
 [ "$(classify)" = paused ] || held 'turn changed before input'
 # Setup writers use this same lock. A final guard also catches an uncooperative
 # writer discovered during observation, before the durable intent commits.
-guards || held 'user pause or freeze'
+guards || pause_held
 focus=$(herdr pane list </dev/null | jq -er '[.result.panes[]|select(.focused==true)|.tab_id]|unique|select(length==1)|.[0]') || die 'cannot capture focus'
 write_text "$ROOT/state/resume-$key.sent" "$(now) intent /goal resume; restore tab $focus"
 result=0
