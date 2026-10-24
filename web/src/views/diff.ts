@@ -152,6 +152,7 @@ export class DiffView {
   private sorted: DiffFile[] = [];
   private sortedOf: DiffSource | null = null;
   private drawnKey = "";
+  private drawnSource: DiffSource | null = null;
   private showAll = false;
   private timer = 0;
   private loading = false;
@@ -435,9 +436,12 @@ export class DiffView {
   private renderViewer(): void {
     const src = this.source();
     const f = this.selected();
-    const key = `${highlighting()}|${layout}|${this.narrow}|${src?.id}|${src?.diff?.merge_base}|${f?.path}|${this.showAll}|${this.sources === null}|${src?.diff?.patch.length}|${src?.error}`;
-    if (key === this.drawnKey) return;
+    // A new diff is a new source object (an unchanged one comes back from the
+    // ETag cache as the same object), so any new patch redraws.
+    const key = `${highlighting()}|${layout}|${this.narrow}|${src?.id}|${f?.path}|${this.showAll}|${this.sources === null}`;
+    if (key === this.drawnKey && src === this.drawnSource) return;
     this.drawnKey = key;
+    this.drawnSource = src;
     if (!src) {
       mount(this.viewerHead);
       mount(this.viewerBody, h("p", { class: "muted" }, this.error || "Reading the changes…"));
@@ -523,7 +527,19 @@ export class DiffView {
       );
       return;
     }
-    mount(this.viewerBody, this.table(lines, f.path));
+    // The size cut stops the patch inside its last section, so that file may show only part of its lines.
+    const cut = src.diff.truncated && section === [...this.sections.values()].at(-1);
+    mount(
+      this.viewerBody,
+      cut
+        ? h(
+            "p",
+            { class: "diff-cut", role: "note" },
+            "The diff reached its size cut in this file, so lines past this point are not shown. Open the file in the worktree to see all of it.",
+          )
+        : null,
+      this.table(lines, f.path),
+    );
   }
 
   private table(lines: DiffLine[], path: string): HTMLElement {

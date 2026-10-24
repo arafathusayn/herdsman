@@ -259,7 +259,11 @@ export class MessagesView {
         messageBody(m.to, m.id)
           .then((text) => this.bodies.set(m.id, { text }))
           .catch((e: unknown) => this.bodies.set(m.id, { error: e instanceof Error ? e.message : String(e) }))
-          .finally(() => store.emit());
+          .finally(() => {
+            // The body changed but not the set of loaded ids, so force the redraw.
+            this.lastKey = "";
+            store.emit();
+          });
       }
     }
     this.lastKey = "";
