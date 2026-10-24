@@ -1602,6 +1602,19 @@ rmdir "$C/inbox/alerts/courier-down.lock"
 msg sender-pane message-send.sh "$A" "$O" "$C/body.txt" brief >/dev/null
 check "V3R14c after the release the resolution completes" '^no yes$' "$(yn "$C/inbox/alerts/courier-down.pending") $(yn "$C/inbox/alerts/courier-down.resolved")"
 
+# V3R15: a ready entry or a lock that vanishes before its age is read is skipped without arithmetic on an empty time.
+new_case v3r-vanish
+send >/dev/null; courier >/dev/null
+touch -t 202001010000 "$(OB)/ready/$ID.md"; mkdir "$C/inbox/herdr-mutation.lock"; touch -t 202001010000 "$C/inbox/herdr-mutation.lock"
+printf '%s\n' "/ready/$ID.md" 'herdr-mutation.lock' > "$C/stat-fail"
+out=$(courier "PATH=$FB:$CPATH ALERT_AFTER=60"); st=$?
+check "V3R15 the courier skips the vanished entry and exits 0" '^0 no$' "$st $(if printf '%s' "$out" | grep -qiE 'integer|syntax error|arithmetic'; then echo arith; else echo no; fi)"
+nocheck "V3R15b and raises no unread alert from a missing age" 'notification show Unread messages' "$(cat "$C/calls.log")"
+out=$(ENVX="PATH=$FB:$CPATH" msg receiver-pane message-status.sh "$O"); st=$?
+check "V3R15c status skips the lock with a missing age" '^0 no$' "$st $(if printf '%s' "$out" | grep -qiE 'integer|syntax error|arithmetic|mutation-lock-stale'; then echo bad; else echo no; fi)"
+out=$(ENVX="PATH=$FB:$CPATH DEADLINE=2 RECHECK=1" msg receiver-pane message-wait.sh "$O"); st=$?
+nocheck "V3R15d the waiter has no arithmetic failure" 'integer|syntax error|arithmetic' "$out"
+
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
 READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read|nc -U)( |$)'
 nocheck "N1 no other call reached the fake herdr" '.' \
