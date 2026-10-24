@@ -89,19 +89,21 @@ func diff(ctx context.Context, dir, base, head string, worktree bool) (*Diff, er
 	}
 	// Fixed a/ and b/ prefixes: diff.noprefix or diff.mnemonicPrefix in a
 	// config would change the patch headers the web app reads.
+	// Diff reads of the work tree run no filter program the config names.
+	env := noFilters(ctx, dir)
 	opts := []string{"diff", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "-M"}
 
-	status, err := git(ctx, dir, maxOutput, append(append(opts, "--name-status", "-z"), append(revs, "--")...)...)
+	status, err := gitEnv(ctx, dir, maxOutput, env, append(append(opts, "--name-status", "-z"), append(revs, "--")...)...)
 	if err != nil {
 		return nil, err
 	}
-	numstat, err := git(ctx, dir, maxOutput, append(append(opts, "--numstat", "-z"), append(revs, "--")...)...)
+	numstat, err := gitEnv(ctx, dir, maxOutput, env, append(append(opts, "--numstat", "-z"), append(revs, "--")...)...)
 	if err != nil {
 		return nil, err
 	}
 	d.Files = mergeStats(parseNameStatus(status), parseNumstat(numstat))
 
-	patch, err := git(ctx, dir, MaxPatch, append(opts, append(revs, "--")...)...)
+	patch, err := gitEnv(ctx, dir, MaxPatch, env, append(opts, append(revs, "--")...)...)
 	if errors.Is(err, errTooLong) {
 		d.Truncated = true
 	} else if err != nil {
@@ -208,6 +210,43 @@ var errTooLong = errors.New("output too long")
 // git runs one read-only git command in dir and returns at most limit bytes of
 // its output; a longer output comes back cut to limit with errTooLong.
 func git(ctx context.Context, dir string, limit int, args ...string) (string, error) {
+	return gitEnv(ctx, dir, limit, nil, args...)
+}
+
+// noFilters is the config, as environment entries, that turns off every
+// filter driver the repository's config names. Clean and process filters
+// run when git reads a changed work tree file, and diff has no flag that
+// stops them.
+func noFilters(ctx context.Context, dir string) []string {
+	out, _ := git(ctx, dir, maxOutput, "config", "-z", "--name-only", "--get-regexp", `^filter\..+\.`)
+	var keys []string
+	seen := map[string]bool{}
+	for k := range strings.SplitSeq(out, "\x00") {
+		i := strings.LastIndexByte(k, '.')
+		if !strings.HasPrefix(k, "filter.") || i <= len("filter.") || seen[k[:i]] {
+			continue
+		}
+		seen[k[:i]] = true
+		keys = append(keys, k[:i]+".clean", k[:i]+".smudge", k[:i]+".process", k[:i]+".required")
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	// GIT_CONFIG_KEY_n takes a key as it is, where -c would split a driver
+	// name at its first "=".
+	env := []string{"GIT_CONFIG_COUNT=" + strconv.Itoa(len(keys))}
+	for n, k := range keys {
+		v := ""
+		if strings.HasSuffix(k, ".required") {
+			v = "false"
+		}
+		env = append(env, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", n, k), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", n, v))
+	}
+	return env
+}
+
+// gitEnv is git with extra environment entries.
+func gitEnv(ctx context.Context, dir string, limit int, env []string, args ...string) (string, error) {
 	base := []string{
 		"--no-pager",
 		// Nothing a repository's config names may run or write: no fsmonitor
@@ -228,6 +267,7 @@ func git(ctx context.Context, dir string, limit int, args ...string) (string, er
 		"GIT_PAGER=cat",
 		"LC_ALL=C",
 	)
+	cmd.Env = append(cmd.Env, env...) // the last entry of a key wins
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	pipe, err := cmd.StdoutPipe()

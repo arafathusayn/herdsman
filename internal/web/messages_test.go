@@ -225,7 +225,8 @@ func TestChannelRefusesAnOpenInbox(t *testing.T) {
 
 func TestMessageBodyOnlyFromVerifiedStates(t *testing.T) {
 	f := newFixture(t)
-	srv := NewServer(nil, f.hub, f.queue, Config{Token: "secret-token", Inbox: newInbox(t)})
+	inbox := newInbox(t)
+	srv := NewServer(nil, f.hub, f.queue, Config{Token: "secret-token", Inbox: inbox})
 	srv.devices = f.srv.devices // the browser f paired
 	dev := strings.TrimPrefix(f.authed["Authorization"], "Bearer ")
 	h := srv.Handler()
@@ -249,6 +250,25 @@ func TestMessageBodyOnlyFromVerifiedStates(t *testing.T) {
 	}
 	if code, m := get("/api/messages"); code != 200 || m["configured"] != true {
 		t.Fatalf("channel: %d %v", code, m)
+	}
+
+	// A queue folder linked to another passes off nothing: a waiting
+	// message behind a linked ready folder is neither served nor listed.
+	writeFile(t, filepath.Join(inbox, "front", "new", "m000000000005.md"), envelopeJSON("m000000000005", "boss", "front", "brief", ""))
+	ready := filepath.Join(inbox, "front", "ready")
+	if err := os.Rename(ready, ready+"-old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(inbox, "front", "new"), ready); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := get("/api/messages/front/m000000000005"); code != http.StatusNotFound {
+		t.Errorf("body through a linked ready folder: %d, want 404", code)
+	}
+	for _, m := range readChannel(inbox, time.Now()).Messages {
+		if m.ID == "m000000000005" && m.State != "new" {
+			t.Errorf("listed through a linked ready folder as %s", m.State)
+		}
 	}
 }
 
