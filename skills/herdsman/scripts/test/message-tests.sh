@@ -1541,6 +1541,27 @@ touch -t 202001010000 "$(OB)/new/m000000000001.md"
 out=$(ENVX="DEADLINE=2 RECHECK=1" msg receiver-pane message-wait.sh "$O")
 check "V3R7b an entry older than one sweep wakes it as pending" 'HEALTH pending delivery' "$out"
 
+# V3R8: status never prints an active claim's token, and an actually empty active claim can be released.
+new_case v3r-secret
+out=$(msg receiver-pane message-read.sh "$O"); token=$(printf '%s\n' "$out" | jq -r 'select(.type=="claim")|.token')
+check "V3R8 an empty read still gets a claim" '^.+$' "$token"
+nocheck "V3R8b status never prints the claim token" "$token" "$(msg receiver-pane message-status.sh "$O")"
+check "V3R8c the empty active claim is released" '"type":"released"' "$(msg receiver-pane message-read.sh "$O" "$token" --release)"
+# V3R9: a relay the send refuses for another reason alerts as a failed relay, not as a budget overflow.
+new_case v3r-relay-failed
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+jq -n '[{pane:"task-pane",session:{source:"hook",agent:"claude",kind:"id",value:"task-session"}}]' > "$C/inbox/watch-targets.json"
+printf '%s\n' '✦ Heads up · failed finding' > "$C/screen-task-pane"
+relay_boundary
+set_agents sender-pane sender-session task-pane task-session
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "V3R9 a refused send alerts as a failed relay" 'notification show Side-agent relay failed' "$(cat "$C/calls.log")"
+nocheck "V3R9b and not as a budget overflow" 'Source relay budget' "$(cat "$C/calls.log")"
+# EV8: a flood of other panes' events does not keep the waiter from waking on its own pane's event.
+evcase ev-wait-flood; printf '%s\n' '@sleep 1' '@ready' '@flood 300' '{"event":"pane.updated","data":{"pane":{"pane_id":"receiver-pane","tokens":{"messages":"1"}}}}' > "$C/events"
+out=$(ENVX="HERDR_SOCKET_PATH=$C/sock DEADLINE=8 RECHECK=60" msg receiver-pane message-wait.sh "$O")
+check "EV8 the waiter wakes on its own event after a flood" "^MESSAGE $O" "$out"
+
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
 READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read|nc -U)( |$)'
 nocheck "N1 no other call reached the fake herdr" '.' \
