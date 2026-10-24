@@ -342,7 +342,12 @@ func (h *Hub) broadcast(m message) {
 	for ch := range h.subs {
 		select {
 		case ch <- m:
-		default: // a stalled browser misses this one and gets the next state whole
+		default:
+			// A stalled browser would miss this state for good if the session
+			// then goes quiet, so its stream ends: it reconnects and starts
+			// from the current snapshot.
+			delete(h.subs, ch)
+			close(ch)
 		}
 	}
 }

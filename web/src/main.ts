@@ -4,7 +4,17 @@ import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
 import { h, icon, icons, logoMark, mount } from "./dom.ts";
 import { blockedReason, type Host, loadHosts, normalizeUrl, parseLink, saveHosts, upsert } from "./hosts.ts";
-import { ago, Index, type Member, paneSize, statusLabel, team, type WorkspaceGroup, workspaceGroups } from "./model.ts";
+import {
+  ago,
+  checklistCounts,
+  Index,
+  type Member,
+  paneSize,
+  statusLabel,
+  team,
+  type WorkspaceGroup,
+  workspaceGroups,
+} from "./model.ts";
 import { isMac, openPalette, paletteKeys, paletteOpen, sidebarKeys } from "./palette.ts";
 import { loadWidths, navResizer } from "./resize.ts";
 import { type App, type RouteTab, store } from "./store.ts";
@@ -506,9 +516,20 @@ function locationChip(dir: string): HTMLElement {
 }
 
 function progress(r: Route): string {
-  const c = r.checklist ?? [];
-  if (!c.length) return "";
-  return `${c.filter((i) => i.done).length}/${c.length}`;
+  const c = checklistCounts(r.checklist ?? []);
+  if (!c.total) return "";
+  return `${c.done + c.skipped}/${c.total}`;
+}
+
+/** The progress bar's tip: what is done, what stopped applying, what is open. */
+function progressTip(c: ReturnType<typeof checklistCounts>): string {
+  return [
+    `${c.done} of ${c.total} checklist lines done`,
+    c.skipped ? `${c.skipped} not applicable` : "",
+    c.open ? `${c.open} open` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 function renderMain(app: App, idx: Index): void {
@@ -555,8 +576,9 @@ function renderMain(app: App, idx: Index): void {
   const withMessages = !!r.adjutant_pane || !!app.channel?.configured;
   const shown = tabs.filter(([id]) => id !== "messages" || withMessages || app.view.tab === "messages");
   const pending = unread(app.channel);
-  const c = r.checklist ?? [];
-  const done = c.filter((i) => i.done).length;
+  // A `[-]` line is settled with its reason, as the route's close check counts it.
+  const c = checklistCounts(r.checklist ?? []);
+  const done = c.done + c.skipped;
   if (main.firstChild !== routeShell) mount(main, routeShell);
   mount(
     routeHead,
@@ -577,21 +599,21 @@ function renderMain(app: App, idx: Index): void {
         ),
       ),
     ),
-    c.length
+    c.total
       ? h(
           "div",
           {
             class: "progress",
-            title: `${done} of ${c.length} checklist lines done`,
+            title: progressTip(c),
           },
           h(
             "div",
             { class: "bar" },
             h("span", {
-              style: `width:${Math.round((done / c.length) * 100)}%`,
+              style: `width:${Math.round((done / c.total) * 100)}%`,
             }),
           ),
-          h("small", null, `${done}/${c.length}`),
+          h("small", null, `${done}/${c.total}`),
         )
       : null,
   );
@@ -777,15 +799,19 @@ function checklistView(r: Route): HTMLElement {
   return h(
     "ul",
     { class: "checklist" },
-    items.map((i) =>
-      h(
+    items.map((i) => {
+      const state = i.done ? "Done" : i.skipped ? "Not applicable" : "Open";
+      return h(
         "li",
-        { class: i.done ? "done" : "" },
-        h("span", { class: "box", "aria-label": i.done ? "Done" : "Open" }, i.done ? icon(icons.check) : null),
+        {
+          class: i.done ? "done" : i.skipped ? "skipped" : "",
+          title: i.skipped ? "Stopped applying; the reason follows the line" : null,
+        },
+        h("span", { class: "box", "aria-label": state }, i.done ? icon(icons.check) : i.skipped ? "–" : null),
         i.id ? h("code", null, i.id) : null,
         h("span", null, i.text),
-      ),
-    ),
+      );
+    }),
   );
 }
 

@@ -24,6 +24,7 @@ const current = "# Route cur (2026-10-24)\n\n" +
 	"## Checklist\n\n" +
 	"- [x] C0.1 all: Read first.\n" +
 	"- [ ] C2.11 pr: The base's gate results known.\n" +
+	"- [-] C3.2 nopane: Panes listed. -- the user picked no panes\n" +
 	"- [X] done without an id\n\n" +
 	"## Run state\n\n" +
 	"- 14:47 route folder created\n" +
@@ -90,6 +91,7 @@ func TestLoad(t *testing.T) {
 	wantCheck := []route.CheckItem{
 		{Done: true, ID: "C0.1", Text: "all: Read first."},
 		{Done: false, ID: "C2.11", Text: "pr: The base's gate results known."},
+		{Skipped: true, ID: "C3.2", Text: "nopane: Panes listed. -- the user picked no panes"},
 		{Done: true, Text: "done without an id"},
 	}
 	if !slices.Equal(r.Checklist, wantCheck) {

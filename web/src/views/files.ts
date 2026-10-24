@@ -286,8 +286,18 @@ export class FilesView {
         show();
       })
       .catch((e: unknown) => {
-        if (this.loadedKey === key)
-          mount(this.viewerBody, h("p", { class: "error" }, e instanceof Error ? e.message : String(e)));
+        if (this.loadedKey !== key) return;
+        // Forget the failed load, so the next update or a click tries again.
+        this.loadedKey = "";
+        const retry = (): void => {
+          this.loadedKey = "";
+          this.renderViewer();
+        };
+        mount(
+          this.viewerBody,
+          h("p", { class: "error" }, e instanceof Error ? e.message : String(e)),
+          h("button", { type: "button", class: "btn", onclick: retry }, "Try again"),
+        );
       });
   }
 }

@@ -90,6 +90,8 @@ export interface Task {
 
 export interface CheckItem {
   done: boolean;
+  /** A `- [-]` line: a requirement that stopped applying, with its reason in the text. */
+  skipped?: boolean;
   id: string;
   text: string;
 }

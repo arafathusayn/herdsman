@@ -250,7 +250,12 @@ export class DiffView {
   }
 
   update(source: string, file: string): void {
-    if (source === this.sourceId && file === this.file) return;
+    if (source === this.sourceId && file === this.file) {
+      // A store update can also be the highlighting setting; the viewer's key
+      // holds it, so this redraws only when something it shows changed.
+      this.renderViewer();
+      return;
+    }
     this.sourceId = source;
     this.file = file;
     this.showAll = false;

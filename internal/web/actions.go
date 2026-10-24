@@ -76,9 +76,20 @@ func (q *Queue) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case j := <-q.jobs:
-			j.done <- q.run(ctx, j.a)
+			j.done <- q.safeRun(ctx, j.a)
 		}
 	}
+}
+
+// safeRun runs one action and turns a panic into its result, so one bad
+// action never stops the queue that every browser shares.
+func (q *Queue) safeRun(ctx context.Context, a Action) (r Result) {
+	defer func() {
+		if p := recover(); p != nil {
+			r = Result{Code: "internal_error", Error: fmt.Sprintf("the action failed: %v", p)}
+		}
+	}()
+	return q.run(ctx, a)
 }
 
 // Do queues an action and waits for its result.
@@ -177,6 +188,9 @@ func result(raw json.RawMessage, summary string, err error) Result {
 // maxWheel caps the wheel events one scroll action sends.
 const maxWheel = 10
 
+// maxScroll bounds one scroll; it is far past any real scrollback step.
+const maxScroll = 100000
+
 // scroll moves a pane's view the way a mouse wheel over a terminal would.
 // A pane with herdr scrollback scrolls there. An agent's full-screen UI has
 // no scrollback, so it gets SGR mouse wheel events at the pointer: agents
@@ -185,6 +199,9 @@ const maxWheel = 10
 func (q *Queue) scroll(ctx context.Context, a Action) Result {
 	if a.Pane == "" || a.Lines == 0 {
 		return Result{Code: "invalid_action", Error: "pane and lines are required"}
+	}
+	if a.Lines < -maxScroll || a.Lines > maxScroll {
+		return Result{Code: "invalid_action", Error: fmt.Sprintf("lines must be between -%d and %d", maxScroll, maxScroll)}
 	}
 	p, err := q.client.Pane(ctx, a.Pane)
 	if err != nil {

@@ -30,9 +30,12 @@ type Task struct {
 }
 
 type CheckItem struct {
-	Done bool   `json:"done"`
-	ID   string `json:"id"`
-	Text string `json:"text"`
+	Done bool `json:"done"`
+	// Skipped marks a `- [-]` line: a requirement that stopped applying, its
+	// reason kept in the text.
+	Skipped bool   `json:"skipped,omitempty"`
+	ID      string `json:"id"`
+	Text    string `json:"text"`
 }
 
 type LogLine struct {
@@ -112,7 +115,7 @@ func mtime(dir string) time.Time {
 var (
 	orchestratorPane = regexp.MustCompile(`(?i)orchestrator:.*?\bpane ([A-Za-z0-9]+:[A-Za-z0-9]+)`)
 	adjutantPane     = regexp.MustCompile(`(?i)^\W*adjutant:.*?\bpane ([A-Za-z0-9]+:[A-Za-z0-9]+)`)
-	checkLine        = regexp.MustCompile(`^- \[( |x|X)\] (?:(C[0-9]+\.[0-9]+)\s+)?(.*)$`)
+	checkLine        = regexp.MustCompile(`^- \[( |x|X|-)\] (?:(C[0-9]+\.[0-9]+)\s+)?(.*)$`)
 	runLine          = regexp.MustCompile(`^- ([0-9]{2}:[0-9]{2}) (.*)$`)
 	// A cell can carry notes after its value: "wS:p8 (tab wS:t4 ...)".
 	agentToken = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}\b`)
@@ -167,7 +170,7 @@ func Load(dir string) (*Route, error) {
 			r.Tasks = append(r.Tasks, taskFrom(header, cells))
 		case "checklist":
 			if m := checkLine.FindStringSubmatch(line); m != nil {
-				r.Checklist = append(r.Checklist, CheckItem{Done: m[1] != " ", ID: m[2], Text: m[3]})
+				r.Checklist = append(r.Checklist, CheckItem{Done: m[1] == "x" || m[1] == "X", Skipped: m[1] == "-", ID: m[2], Text: m[3]})
 			}
 		case "run state":
 			if m := runLine.FindStringSubmatch(line); m != nil {

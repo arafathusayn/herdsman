@@ -6,9 +6,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/arafathusayn/herdsman/internal/route"
 )
 
 func writeFile(t *testing.T, p, body string) {
@@ -72,8 +75,12 @@ func TestArtifactsListAndServeInASandbox(t *testing.T) {
 		t.Fatalf("page: %d", page.StatusCode)
 	}
 	h := page.Header
-	if !strings.HasPrefix(h.Get("Content-Security-Policy"), "sandbox allow-scripts") || h.Get("X-Frame-Options") != "" || h.Get("Access-Control-Allow-Origin") != "" {
+	// The frame's opaque origin may load module scripts; any real origin gets no CORS grant.
+	if !strings.HasPrefix(h.Get("Content-Security-Policy"), "sandbox allow-scripts") || h.Get("X-Frame-Options") != "" || h.Get("Access-Control-Allow-Origin") != "null" {
 		t.Fatalf("page headers: %v", h)
+	}
+	if other := f.request(t, http.MethodGet, opened.URL, "", map[string]string{"Origin": "https://elsewhere.example"}); other.Header.Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("a real origin got a CORS grant: %v", other.Header)
 	}
 	dir := strings.TrimSuffix(opened.URL, "summary.html")
 	for path, want := range map[string]int{
@@ -150,5 +157,18 @@ func TestArtifactListingRefreshesInTheBackground(t *testing.T) {
 	}
 	if got := a.find([]string{root}); len(got) != 2 {
 		t.Fatalf("after the background walk: %v", got)
+	}
+}
+
+// Task worktrees count in every form the task table allows, not only
+// absolute paths, so a stopped task's pages still show.
+func TestRouteFoldersResolveEveryWorktreeForm(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	r := &route.Route{Dir: "/p/.herdsman/r-2026-10-24", Tasks: []route.Task{
+		{Worktree: "/abs/wt"}, {Worktree: "wt/rel"}, {Worktree: "<repo>/.herdsman/worktrees/a"}, {Worktree: "~/wt/home"}, {Worktree: "-"}, {Worktree: ""},
+	}}
+	want := []string{"/p/.herdsman/r-2026-10-24", "/abs/wt", "/p/wt/rel", "/p/.herdsman/worktrees/a", filepath.Join(home, "wt/home")}
+	if got := routeFolders(r); !slices.Equal(got, want) {
+		t.Fatalf("folders = %v, want %v", got, want)
 	}
 }
