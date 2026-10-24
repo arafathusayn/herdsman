@@ -214,7 +214,8 @@ export interface ArtifactList {
   artifacts: Artifact[];
 }
 
-export type MessageKind = "brief" | "observation" | "question" | "result" | "cancel" | "user_answer" | "receipt";
+export type MessageKind =
+  "brief" | "observation" | "question" | "result" | "cancel" | "user_answer" | "receipt" | "side_agent_data";
 
 /** One herdsman message's envelope header; the body comes on request. */
 export interface ChannelMessage {
@@ -239,6 +240,10 @@ export interface Channel {
   peers: { name: string; role: "adjutant" | "orchestrator"; pane: string }[];
   health: { name: string; age: number; ok: boolean }[];
   health_after: number;
+  /** Health problems beyond the heartbeats, named as `message status` names them. */
+  flags: string[];
+  /** Hold and resume intents in the channel's state folder. */
+  holds: string[];
   boxes: {
     name: string;
     orphan: boolean;

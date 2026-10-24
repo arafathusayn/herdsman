@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +89,59 @@ func TestReadChannel(t *testing.T) {
 	ch = readChannel(root, time.Now())
 	if ch.Approved || !ch.Pending || ch.Messages[0].Acked {
 		t.Fatalf("after change: approved=%v acked=%v", ch.Approved, ch.Messages[0].Acked)
+	}
+}
+
+// The channel's later rules: side-agent cards as their own kind, reserved
+// names, claims that need an owner, links that void an ack, and the health
+// flags and holds that `message status` prints.
+func TestReadChannelFollowsTheChannelRules(t *testing.T) {
+	root := newInbox(t)
+	writeFile(t, filepath.Join(root, "front", "ready", "m000000000004.md"), envelopeJSON("m000000000004", "boss", "front", "side_agent_data", ""))
+	writeFile(t, filepath.Join(root, "front", "claim", "token"), "tok")
+	writeFile(t, filepath.Join(root, "state", "timing.json"), `{"health":0}`)
+	writeFile(t, filepath.Join(root, "state", "automation-held"), "")
+	writeFile(t, filepath.Join(root, "state", "hold-review"), "")
+	lock := filepath.Join(root, "channel.lock")
+	if err := os.Mkdir(lock, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(lock, old, old); err != nil {
+		t.Fatal(err)
+	}
+	ch := readChannel(root, time.Now())
+	if ch.HealthAfter != defaultHealthSecs || !slices.Equal(ch.Flags, []string{"timing-invalid", "channel-lock-stale", "automation-held"}) ||
+		!slices.Equal(ch.Holds, []string{"hold-review"}) {
+		t.Fatalf("flags %v holds %v health_after %d", ch.Flags, ch.Holds, ch.HealthAfter)
+	}
+	if !slices.ContainsFunc(ch.Messages, func(m ChannelMessage) bool { return m.Kind == "side_agent_data" }) {
+		t.Fatalf("side_agent_data refused: %+v", ch.Messages)
+	}
+	for _, b := range ch.Boxes {
+		if b.Name == "front" && b.Claim != "incomplete" {
+			t.Fatalf("claim without an owner: %s", b.Claim)
+		}
+	}
+
+	// A link on an ack's path voids it: here the message's ids folder.
+	moved := filepath.Join(root, "ids", "m000000000001")
+	if err := os.Rename(moved, moved+"-dir"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(moved+"-dir", moved); err != nil {
+		t.Fatal(err)
+	}
+	if ch := readChannel(root, time.Now()); ch.Messages[0].Acked {
+		t.Fatal("an ack through a linked ids folder counted")
+	}
+
+	// A reserved name voids the whole registry.
+	bad := `{"state":{"identity":` + fmt.Sprintf(identityJSON, "w1:p6", "s1") + `,"role":"adjutant"}}`
+	writeFile(t, filepath.Join(root, "peers"), bad)
+	writeFile(t, filepath.Join(root, "peers.approved"), bad)
+	if ch := readChannel(root, time.Now()); ch.Approved || len(ch.Peers) != 0 {
+		t.Fatalf("reserved peer name accepted: %+v", ch.Peers)
 	}
 }
 

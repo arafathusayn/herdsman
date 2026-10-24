@@ -9,7 +9,22 @@ export const kindLabel: Record<MessageKind, string> = {
   cancel: "Cancel",
   user_answer: "User answer",
   receipt: "Receipt",
+  side_agent_data: "Side agent",
 };
+
+/** What each health flag means, as a chip and its tip. */
+export const flagLabel: Record<string, [string, string]> = {
+  "timing-invalid": ["Timing invalid", "state/timing.json is invalid; the default health threshold is used"],
+  "mutation-lock-stale": ["Mutation lock stale", "A herdr mutation lock is older than the health threshold"],
+  "channel-lock-stale": ["Channel lock stale", "The channel lock is older than the health threshold"],
+  "alert-lock-stale": ["Alert lock stale", "An alert lock is older than the health threshold"],
+  "automation-held": ["Automation held", "Automation is held until the human releases it"],
+};
+
+/** A flag's chip text and tip; an unknown flag shows as it is named. */
+export function describeFlag(flag: string): [string, string] {
+  return flagLabel[flag] ?? [flag, "Reported by the message channel"];
+}
 
 /** Where a message stands in the queue, as one word for its badge. */
 export function stateLabel(m: ChannelMessage): string {
