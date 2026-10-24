@@ -150,8 +150,8 @@ export class MessagesView {
             "span",
             {
               class: "chip warn",
-              "data-tip": x.by
-                ? `Held by ${x.by}${x.reason ? `: ${x.reason}` : ""}`
+              "data-tip": x.owners?.length
+                ? `Held by ${x.owners.map((o) => (o.reason ? `${o.by}: ${o.reason}` : o.by)).join("; ")}`
                 : "A hold or resume intent in the channel's state folder",
             },
             x.name,

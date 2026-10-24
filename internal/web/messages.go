@@ -139,11 +139,41 @@ type ChannelAlert struct {
 }
 
 // ChannelHold is one hold or resume intent. A hold written by `message.sh
-// hold` records who holds and why; the other files carry no such record.
+// hold` keeps one entry per owner, `{"holds":{"<owner>":{"reason","time"}}}`;
+// the target stays held while any entry stays. Other files carry no record.
 type ChannelHold struct {
-	Name   string `json:"name"`
-	By     string `json:"by,omitempty"`
-	Reason string `json:"reason,omitempty"`
+	Name   string           `json:"name"`
+	Owners []ChannelHolding `json:"owners,omitempty"`
+}
+
+// ChannelHolding is one owner's entry in a hold.
+type ChannelHolding struct {
+	By     string `json:"by"`
+	Reason string `json:"reason"`
+}
+
+// holdOwners reads a hold record in the owner format, owners sorted; nil
+// for any other content, which the channel leaves for a human to inspect.
+func holdOwners(b []byte) []ChannelHolding {
+	var rec struct {
+		Holds map[string]json.RawMessage `json:"holds"`
+	}
+	if strictJSON(b) != nil || !keysExactly(b, "holds") || json.Unmarshal(b, &rec) != nil || rec.Holds == nil {
+		return nil
+	}
+	var out []ChannelHolding
+	for by, raw := range rec.Holds {
+		var e struct {
+			Reason *string  `json:"reason"`
+			Time   *float64 `json:"time"`
+		}
+		if !nameRe.MatchString(by) || !keysExactly(raw, "reason", "time") || json.Unmarshal(raw, &e) != nil || e.Reason == nil || e.Time == nil {
+			return nil
+		}
+		out = append(out, ChannelHolding{By: by, Reason: *e.Reason})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].By < out[j].By })
+	return out
 }
 
 // Channel is the inbox as the Messages tab shows it.
@@ -401,14 +431,8 @@ func readChannel(root string, now time.Time) Channel {
 		for _, f := range found {
 			h := ChannelHold{Name: filepath.Base(f)}
 			if strings.HasPrefix(h.Name, "hold-") {
-				if b, err := readBounded(f, envelopeMax); err == nil && strictJSON(b) == nil {
-					var rec struct {
-						By     string `json:"by"`
-						Reason string `json:"reason"`
-					}
-					if json.Unmarshal(b, &rec) == nil && nameRe.MatchString(rec.By) {
-						h.By, h.Reason = rec.By, rec.Reason
-					}
+				if b, err := readBounded(f, envelopeMax); err == nil {
+					h.Owners = holdOwners(b)
 				}
 			}
 			ch.Holds = append(ch.Holds, h)
