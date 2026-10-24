@@ -235,8 +235,8 @@ func taskFrom(header, cells []string) Task {
 	}
 	return Task{
 		Task: get("task"), Branch: cellValue(get("branch"), false), Worktree: cellValue(get("worktree"), true),
-		Agent: agentToken.FindString(get("agent")), Pane: paneToken.FindString(get("pane")),
-		Contract: get("contract"),
+		Agent: agentToken.FindString(cellValue(get("agent"), false)), Pane: paneToken.FindString(get("pane")),
+		Contract: cellValue(get("contract"), true),
 	}
 }
 
