@@ -120,6 +120,8 @@ var (
 	// A cell can carry notes after its value: "wS:p8 (tab wS:t4 ...)".
 	agentToken = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}\b`)
 	paneToken  = regexp.MustCompile(`\b[A-Za-z0-9]+:[A-Za-z0-9]+\b`)
+	// A note in parentheses that ends a cell: "~/wt (shared with auth)".
+	trailingNote = regexp.MustCompile(`^(.*?)\s+\([^()]*\)$`)
 )
 
 // Load reads a route folder.
@@ -192,7 +194,12 @@ func tableCells(line string) []string {
 	}
 	parts := strings.Split(t[1:len(t)-1], "|")
 	for i := range parts {
-		parts[i] = strings.Trim(strings.TrimSpace(parts[i]), "`")
+		parts[i] = strings.TrimSpace(parts[i])
+		// A cell that is one code span loses its backticks; a code span with a
+		// note after it keeps them, so cellValue can take the value whole.
+		if c := parts[i]; len(c) >= 2 && c[0] == '`' && c[len(c)-1] == '`' && strings.Count(c, "`") == 2 {
+			parts[i] = c[1 : len(c)-1]
+		}
 	}
 	return parts
 }
@@ -226,16 +233,33 @@ func taskFrom(header, cells []string) Task {
 		}
 		return ""
 	}
-	// Like the agent and pane cells, branch and worktree cells can carry notes
-	// after their value: "feat/x (tracks origin/main)". A branch has no spaces;
-	// a worktree path may, so only a parenthesized note is cut from it.
-	branch, _, _ := strings.Cut(get("branch"), " ")
-	worktree, _, _ := strings.Cut(get("worktree"), " (")
 	return Task{
-		Task: get("task"), Branch: branch, Worktree: strings.TrimSpace(worktree),
+		Task: get("task"), Branch: cellValue(get("branch"), false), Worktree: cellValue(get("worktree"), true),
 		Agent: agentToken.FindString(get("agent")), Pane: paneToken.FindString(get("pane")),
 		Contract: get("contract"),
 	}
+}
+
+// cellValue is a branch or worktree cell without the notes after its value,
+// as in "feat/x (tracks origin/main)". A value in backticks is taken whole.
+// Otherwise a branch, which has no spaces, ends at its first space, and a
+// path, which may hold spaces and parentheses, loses only a parenthesized
+// note at its very end.
+func cellValue(cell string, path bool) string {
+	cell = strings.TrimSpace(cell)
+	if rest, ok := strings.CutPrefix(cell, "`"); ok {
+		if v, _, ok := strings.Cut(rest, "`"); ok {
+			return v
+		}
+	}
+	if !path {
+		v, _, _ := strings.Cut(cell, " ")
+		return v
+	}
+	if m := trailingNote.FindStringSubmatch(cell); m != nil {
+		return m[1]
+	}
+	return cell
 }
 
 // listFiles lists the readable text files of a route folder, skipping large

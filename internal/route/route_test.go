@@ -21,7 +21,9 @@ const current = "# Route cur (2026-10-24)\n\n" +
 	"| auth | feat/auth | ../wt-auth | im-auth | w1:p2 | 11-task-auth.md |\n" +
 	"| review (Codex) | - | - | rv-codex (Codex high) | `w1:p3` (tab w1:t2 reviewers) | - |\n" +
 	"| checkpointer | - | - | - | w1:p4 | - |\n" +
-	"| docs | docs/gates (tracks origin/main; one PR) | ~/wt docs (shared with auth) | im-docs | w1:p5 | - |\n\n" +
+	"| docs | docs/gates (tracks origin/main; one PR) | ~/wt docs (shared with auth) | im-docs | w1:p5 | - |\n" +
+	"| copy | `feat/copy` | `/work/project (copy)/task-a` (kept) | im-copy | w1:p7 | - |\n" +
+	"| copy2 | - | /work/project (copy)/task-b | im-copy2 | w1:p8 | - |\n\n" +
 	"## Checklist\n\n" +
 	"- [x] C0.1 all: Read first.\n" +
 	"- [ ] C2.11 pr: The base's gate results known.\n" +
@@ -87,6 +89,9 @@ func TestLoad(t *testing.T) {
 		{Task: "checkpointer", Pane: "w1:p4"},
 		// Notes after a branch or worktree value stay out of it; a path keeps its spaces.
 		{Task: "docs", Branch: "docs/gates", Worktree: "~/wt docs", Agent: "im-docs", Pane: "w1:p5"},
+		// A path in backticks is taken whole; a bare path keeps parentheses inside it.
+		{Task: "copy", Branch: "feat/copy", Worktree: "/work/project (copy)/task-a", Agent: "im-copy", Pane: "w1:p7"},
+		{Task: "copy2", Worktree: "/work/project (copy)/task-b", Agent: "im-copy2", Pane: "w1:p8"},
 	}
 	if !slices.Equal(r.Tasks, want) {
 		t.Fatalf("tasks = %+v\nwant  %+v", r.Tasks, want)
