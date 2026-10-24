@@ -1908,6 +1908,15 @@ mark {
   margin: 20px 24px;
 }
 
+.diff-cut {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+  color: var(--text);
+  font-size: 13px;
+}
+
 .diff-code {
   overflow-x: auto;
   background: var(--code-bg, transparent);

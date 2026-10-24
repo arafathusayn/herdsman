@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,8 @@ func TestArtifactsListAndServeInASandbox(t *testing.T) {
 	writeFile(t, filepath.Join(proj, "reports", "summary.html"), `<link rel="stylesheet" href="style.css"><p>hi</p>`)
 	writeFile(t, filepath.Join(proj, "reports", "style.css"), `p{color:red}`)
 	writeFile(t, filepath.Join(proj, "reports", ".env"), `SECRET=1`)
+	writeFile(t, filepath.Join(proj, "reports", "credentials.json"), `{"key":"x"}`)
+	writeFile(t, filepath.Join(proj, "reports", "logo.PNG"), `png`)
 	writeFile(t, filepath.Join(proj, ".lavish", "plan.html"), `<p>plan</p>`)
 	writeFile(t, filepath.Join(proj, "node_modules", "pkg", "index.html"), `x`)
 	writeFile(t, filepath.Join(proj, ".git", "x.html"), `x`)
@@ -75,6 +78,8 @@ func TestArtifactsListAndServeInASandbox(t *testing.T) {
 	dir := strings.TrimSuffix(opened.URL, "summary.html")
 	for path, want := range map[string]int{
 		dir + "style.css":          200,
+		dir + "logo.PNG":           200,
+		dir + "credentials.json":   404,
 		dir + ".env":               404,
 		dir + "..%2fnotes.md":      404,
 		dir + "../notes.md":        404,
@@ -84,16 +89,32 @@ func TestArtifactsListAndServeInASandbox(t *testing.T) {
 			t.Errorf("%s: status %d, want %d", path, res.StatusCode, want)
 		}
 	}
+
+	// A page can send its own URL anywhere; another machine still gets nothing.
+	req := httptest.NewRequest(http.MethodGet, opened.URL, nil)
+	req.Host = "127.0.0.1"
+	req.RemoteAddr = "192.0.2.9:4000"
+	rec := httptest.NewRecorder()
+	f.srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("link reused from another address: %d", rec.Code)
+	}
 }
 
 func TestArtifactCapsAreBounded(t *testing.T) {
 	a := newArtifacts()
-	first := a.grant("/a")
-	if a.grant("/a") != first {
+	first := a.grant("/a", "127.0.0.1")
+	if a.grant("/a", "127.0.0.1") != first {
 		t.Fatal("a live capability was not reused")
 	}
+	if a.grant("/a", "192.0.2.9") == first {
+		t.Fatal("another browser got the same capability")
+	}
+	if _, ok := a.dir(first, "192.0.2.9"); ok {
+		t.Fatal("a capability opened its folder to another browser")
+	}
 	for i := range maxCaps + 5 {
-		a.grant("/d" + string(rune('a'+i%26)) + strings.Repeat("x", i))
+		a.grant("/d"+string(rune('a'+i%26))+strings.Repeat("x", i), "127.0.0.1")
 	}
 	if len(a.caps) > maxCaps {
 		t.Fatalf("%d capabilities kept", len(a.caps))

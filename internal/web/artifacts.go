@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,8 +19,9 @@ import (
 // Artifacts are HTML files that agents leave in the session's folders: a
 // report, a review page, a plan. The Artifacts tab lists them and shows one
 // in a sandboxed frame. The frame loads it from a capability URL that opens
-// only the file's own folder, so a page's relative images and styles work
-// while its scripts run in an opaque origin that holds no herdsman secret.
+// only the page assets in the file's own folder, and only to the browser that
+// asked for it, so a page's relative images and styles work while its scripts
+// run in an opaque origin that holds no herdsman secret.
 
 const (
 	// A listing is reused this long; an older one is still served while a
@@ -41,9 +43,33 @@ type Artifact struct {
 	Modified time.Time `json:"modified"`
 }
 
+// A capability is bound to the address of the browser that opened it: a page
+// can read its own URL and send it anywhere, so the URL alone must not open
+// the folder to another machine.
 type artifactCap struct {
 	dir     string
+	client  string
 	expires time.Time
+}
+
+// pageAssets are the files a page loads by itself: frames, scripts, styles,
+// images, fonts and media. Data files (JSON, text, keys, configs) are never
+// served; the page's own fetch could not read them anyway, since the frame's
+// origin is opaque and no CORS header is sent.
+var pageAssets = map[string]bool{
+	".html": true, ".htm": true, ".css": true, ".js": true, ".mjs": true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".avif": true, ".svg": true, ".ico": true, ".bmp": true,
+	".woff": true, ".woff2": true, ".ttf": true, ".otf": true,
+	".mp4": true, ".webm": true, ".ogg": true, ".mp3": true, ".wav": true, ".m4a": true,
+}
+
+// clientOf is the address a request comes from, without its port.
+func clientOf(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 type artifacts struct {
@@ -210,8 +236,9 @@ func isHTML(name string) bool {
 	return ext == ".html" || ext == ".htm"
 }
 
-// grant returns a capability for dir, reusing a live one.
-func (a *artifacts) grant(dir string) string {
+// grant returns a capability for dir that only client may use, reusing a
+// live one.
+func (a *artifacts) grant(dir, client string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
@@ -221,8 +248,8 @@ func (a *artifacts) grant(dir string) string {
 		}
 	}
 	for k, c := range a.caps {
-		if c.dir == dir {
-			a.caps[k] = artifactCap{dir: dir, expires: now.Add(capTTL)}
+		if c.dir == dir && c.client == client {
+			a.caps[k] = artifactCap{dir: dir, client: client, expires: now.Add(capTTL)}
 			return k
 		}
 	}
@@ -236,15 +263,16 @@ func (a *artifacts) grant(dir string) string {
 		delete(a.caps, oldest)
 	}
 	k := secret()
-	a.caps[k] = artifactCap{dir: dir, expires: now.Add(capTTL)}
+	a.caps[k] = artifactCap{dir: dir, client: client, expires: now.Add(capTTL)}
 	return k
 }
 
-func (a *artifacts) dir(cap string) (string, bool) {
+// dir is the folder cap opens for client.
+func (a *artifacts) dir(cap, client string) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	c, ok := a.caps[cap]
-	if !ok || a.now().After(c.expires) {
+	if !ok || c.client != client || a.now().After(c.expires) {
 		return "", false
 	}
 	return c.dir, true
@@ -270,19 +298,20 @@ func (s *Server) openArtifact(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		dir, file := path.Split(a.Path)
-		cap := s.artifacts.grant(filepath.Join(a.Root, filepath.FromSlash(dir)))
+		cap := s.artifacts.grant(filepath.Join(a.Root, filepath.FromSlash(dir)), clientOf(r))
 		writeJSON(w, http.StatusOK, map[string]string{"url": "/artifact/" + cap + "/" + url.PathEscape(file)})
 		return
 	}
 	writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such artifact in the session's folders"})
 }
 
-// serveArtifact serves a file from a granted folder. Hidden files stay out,
-// os.Root keeps links from leaving the folder, and the CSP sandbox gives the
-// page an opaque origin even when it is opened outside the frame. No CORS
-// header is sent, so the page's scripts cannot read the folder's files.
+// serveArtifact serves a page asset from a granted folder to the browser the
+// folder was granted to. Hidden files and data files stay out, os.Root keeps
+// links from leaving the folder, and the CSP sandbox gives the page an opaque
+// origin even when it is opened outside the frame. No CORS header is sent, so
+// the page's scripts cannot read the folder's files.
 func (s *Server) serveArtifact(w http.ResponseWriter, r *http.Request) {
-	dir, ok := s.artifacts.dir(r.PathValue("cap"))
+	dir, ok := s.artifacts.dir(r.PathValue("cap"), clientOf(r))
 	if !ok {
 		http.Error(w, "this artifact link expired: open it again from the Artifacts tab", http.StatusNotFound)
 		return
@@ -293,6 +322,10 @@ func (s *Server) serveArtifact(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
+	}
+	if !pageAssets[strings.ToLower(path.Ext(rel))] {
+		http.NotFound(w, r)
+		return
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
