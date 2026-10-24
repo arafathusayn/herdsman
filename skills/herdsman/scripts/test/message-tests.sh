@@ -420,6 +420,81 @@ check "L10 an allowed exact line passes but the private path next to it still fa
   "$(LEAK_ALLOW_FILE="$T/allow-list" gate "$T/allow.md") $(printf 'Set MODE=fast for the demo.\n' > "$T/allow-only.md"; LEAK_ALLOW_FILE="$T/allow-list" gate "$T/allow-only.md")"
 check "L11 an invalid extra pattern is an error" '^2$' "$(LEAK_PATTERN='(' gate "$T/clean.md")"
 
+# F: injected tool failures. test/faultbin comes first on PATH only in these cases; a failed or faked transition
+# never loses work, never reports success, and a failed producer never commits state.
+FB="$SK/test/faultbin"; chmod +x "$FB"/*
+FP="PATH=$FB:$CPATH"
+new_case fail-move
+send >/dev/null; touch "$C/fail-move"; courier "$FP" >/dev/null
+check "F1 a failed delivery move keeps the envelope in new" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+nocheck "F1b and logs no verified delivery" VERIFIED "$(verified_log)"
+new_case pretend-move
+send >/dev/null; touch "$C/pretend-move"; courier "$FP" >/dev/null
+check "F2 a move that claims success without moving keeps the envelope in new" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+nocheck "F2b and logs no verified delivery" VERIFIED "$(verified_log)"
+new_case fail-read-move
+send >/dev/null; courier >/dev/null; touch "$C/fail-move"
+ENVX=$FP msg receiver-pane message-read.sh "$O" >/dev/null; s=$?
+check "F3 a failed read transition fails the read" '^[1-9]' "$s"
+check "F3b the message stays in ready with no ack" '^yes 0$' "$(yn "$(OB)/ready/$ID.md") $(nfiles "$(OB)/ack" '*')"
+new_case fail-quarantine-move
+send >/dev/null; jq_edit '.from="route-intruder"' "$(OB)/new/$ID.md"; touch "$C/fail-move"
+courier "$FP" >/dev/null; s=$?
+check "F4 a failed quarantine move keeps the entry in new and the courier exits 0" '^yes no 0$' \
+  "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/quarantine/$ID.md") $s"
+check "F4b and raises the suspicious entry alert" 'notification show Suspicious queue entry' "$(cat "$C/calls.log")"
+new_case fail-body-read
+send >/dev/null; courier >/dev/null; touch "$C/fail-cat"
+out=$(ENVX=$FP msg receiver-pane message-read.sh "$O")
+check "F5 a failed body read still claims and lists the message" "\"id\":\"$ID\"" "$out"
+check "F5b the message moves to cur and is not acked" '^yes 0$' "$(yn "$(OB)/cur/$ID.md") $(nfiles "$(OB)/ack" '*')"
+new_case fail-send
+touch "$C/fail-send"
+ENVX=$FP msg sender-pane message-send.sh "$A" "$O" "$C/body.txt" brief >/dev/null; s=$?
+check "F6 a failed publication fails the send" '^[1-9]' "$s"
+check "F6b and leaves no temp file and nothing queued" '^0 0 0$' \
+  "$(nfiles "$(OB)/tmp" '.send.*') $(nfiles "$(OB)/tmp" '*') $(nfiles "$(OB)/new" '*')"
+rm "$C/fail-send"
+check "F6c the next send gets a fresh ID: the failed one is never reused" '^m000000000002 queued' "$(send)"
+new_case fail-ack-producer
+send >/dev/null; courier >/dev/null
+token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
+printf 'intake recorded\n' > "$C/record.txt"; printf -- '--rawfile record\n' > "$C/fail-jq"
+ENVX=$FP msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt" >/dev/null; s=$?
+check "F7 a failed ack producer fails the ack and commits no ack" '^[1-9][0-9]* no$' "$s $(yn "$(OB)/ack/$ID.md.json")"
+rm "$C/fail-jq"
+check "F7b the unhandled message is still listed for the claim" "\"id\":\"$ID\"" "$(msg receiver-pane message-read.sh "$O" "$token")"
+new_case fail-atomic
+# shellcheck disable=SC2016
+code='mkdir -p "$ROOT/ids/probe"; producer() { printf "{}\n"; return 1; }
+for leaf in peers peers.approved state/test.json enrolled/test.json alerts/test.pending state/sequence ids/probe/terminal.json \
+  ids/probe/claim route-orchestrator/ack/probe.json route-orchestrator/notices/probe.json state/count-probe state/timing.json; do
+  write_text "$ROOT/$leaf" 1; if atomic "$ROOT/$leaf" producer; then exit 9; fi; [ "$(cat "$ROOT/$leaf")" = 1 ] || exit 8
+done'
+env -i PATH="$CPATH" HOME="$HOME" HERDSMAN_INBOX="$C/inbox" FIXTURE="$C" HERDR_PANE_ID=courier-pane HERDR_SOCKET_PATH= \
+  HERDSMAN_PREFLIGHT="$C/preflight.json" WATCH_REQUIRED=0 /bin/bash -c '. "$1"; root_init; '"$code" probe "$SK/message-lib.sh" >/dev/null 2>&1
+check "F8 a failed producer leaves every class of state file unchanged" '^0$' "$?"
+new_case fail-jq-feature noenroll
+printf 'IN(\n' > "$C/fail-jq"
+out=$(ENVX=$FP msg sender-pane message-register.sh propose fresh adjutant); s=$?
+check "F9 a jq without IN or streaming support fails enrollment" '^2 .*jq needs streaming and IN support' "$s $out"
+check "F9b before any state exists" '^no$' "$(yn "$C/inbox/state")"
+# F10: the exact age boundary on a fixed clock, with the system stat and with the GNU form only.
+for variant in system gnu; do
+  new_case "exact-age-$variant"
+  [ "$variant" = gnu ] && touch "$C/stat-gnu"
+  send >/dev/null; perl -e 'utime 100, 100, $ARGV[0]' "$(OB)/new/$ID.md"
+  awk "/^log_line 'courier start'/{exit} {print}" "$SK/message-courier.sh" > "$C/courier-functions.sh"
+  for at in 101 102 103; do
+    printf '%s\n' "$at" > "$C/fixed-now"
+    env -i PATH="$FB:$CPATH" HOME="$HOME" HERDSMAN_INBOX="$C/inbox" FIXTURE="$C" HERDR_PANE_ID=courier-pane HERDR_SOCKET_PATH= \
+      HERDSMAN_PREFLIGHT="$C/preflight.json" WATCH_REQUIRED=0 ALERT_AFTER=2 SWEEP=1 \
+      /bin/bash -c '. "$1"; sweep' "$SK/message-courier.sh" "$C/courier-functions.sh" >/dev/null 2>&1
+    printf '%s ' "$(grep -c 'notification show Unread messages' "$C/calls.log")" >> "$C/alerts-by-time"
+  done
+  check "F10 $variant stat: no alert one second early, one at the exact age, none repeated" '^0 1 1 $' "$(cat "$C/alerts-by-time")"
+done
+
 # N: no channel script typed into any pane; the resume case sent only its one exact input.
 nocheck "N1 no input call reached the fake herdr" 'agent prompt|send-keys|send-text|pane run' \
   "$(for f in "$T"/*/calls.log; do [ "$f" = "$T/resume/calls.log" ] || cat "$f"; done)"
