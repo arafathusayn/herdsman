@@ -23,7 +23,8 @@ const current = "# Route cur (2026-10-24)\n\n" +
 	"| checkpointer | - | - | - | w1:p4 | - |\n" +
 	"| docs | docs/gates (tracks origin/main; one PR) | ~/wt docs (shared with auth) | im-docs | w1:p5 | - |\n" +
 	"| copy | `feat/copy` | `/work/project (copy)/task-a` (kept) | im-copy | w1:p7 | - |\n" +
-	"| copy2 | - | /work/project (copy)/task-b | im-copy2 | w1:p8 | - |\n\n" +
+	"| copy2 | - | /work/project (copy)/task-b | im-copy2 | w1:p8 | - |\n" +
+	"| quoted | - | - | `im-quoted` (Claude) | `w1:p9` (tab w1:t3) | `12-task-quoted.md` (draft) |\n\n" +
 	"## Checklist\n\n" +
 	"- [x] C0.1 all: Read first.\n" +
 	"- [ ] C2.11 pr: The base's gate results known.\n" +
@@ -92,6 +93,8 @@ func TestLoad(t *testing.T) {
 		// A path in backticks is taken whole; a bare path keeps parentheses inside it.
 		{Task: "copy", Branch: "feat/copy", Worktree: "/work/project (copy)/task-a", Agent: "im-copy", Pane: "w1:p7"},
 		{Task: "copy2", Worktree: "/work/project (copy)/task-b", Agent: "im-copy2", Pane: "w1:p8"},
+		// An agent or pane in a code span with a note after it.
+		{Task: "quoted", Agent: "im-quoted", Pane: "w1:p9", Contract: "12-task-quoted.md"},
 	}
 	if !slices.Equal(r.Tasks, want) {
 		t.Fatalf("tasks = %+v\nwant  %+v", r.Tasks, want)
