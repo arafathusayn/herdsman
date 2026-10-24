@@ -1,0 +1,16 @@
+#!/bin/bash
+# Fault-injecting mv for the message tests (test/faultbin is first on PATH only in the F cases).
+# $FIXTURE/fail-send fails a move into new/; fail-move fails, and pretend-move fakes success without moving,
+# for a move into ready/, quarantine/ or cur/. Every other call runs the real mv found after this folder.
+here=$(cd "$(dirname "$0")" && pwd)
+real() { local d IFS=:; for d in $PATH; do [ "$d" = "$here" ] && continue; [ -x "$d/$1" ] && { printf '%s\n' "$d/$1"; return 0; }; done; return 127; }
+if [ -f "$FIXTURE/fail-send" ]; then
+  case "$*" in *'/new/'*) exit 1 ;; esac
+fi
+if [ -f "$FIXTURE/fail-move" ]; then
+  case "$*" in *'/ready/'*|*'/quarantine/'*|*'/cur/'*) exit 1 ;; esac
+fi
+if [ -f "$FIXTURE/pretend-move" ]; then
+  case "$*" in *'/ready/'*|*'/quarantine/'*|*'/cur/'*) exit 0 ;; esac
+fi
+exec "$(real mv)" "$@"
