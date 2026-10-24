@@ -59,7 +59,7 @@ export class FilesView {
   private results: RouteFile[] = [];
   private readonly open = new Map<string, boolean>();
 
-  constructor(readonly routeName: string) {
+  constructor(readonly routeId: string) {
     this.search.addEventListener("input", () => {
       this.active = 0;
       this.renderList();
@@ -264,7 +264,7 @@ export class FilesView {
         icon(icons.copy),
       ),
     );
-    const fileKey = `${r.name}/${this.selected}/${f?.modified ?? ""}`;
+    const fileKey = `${r.id}/${this.selected}/${f?.modified ?? ""}`;
     const key = `${fileKey}/${this.raw}/${highlighting()}`;
     if (key === this.loadedKey) return;
     this.loadedKey = key;
@@ -278,7 +278,7 @@ export class FilesView {
       return;
     }
     mount(this.viewerBody, h("p", { class: "muted" }, "Loading…"));
-    routeFile(r.name, this.selected)
+    routeFile(r.id, this.selected)
       .then((text) => {
         if (this.loadedKey !== key) return;
         this.text = text;

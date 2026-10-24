@@ -322,22 +322,19 @@ func (s *Server) pane(w http.ResponseWriter, r *http.Request) {
 
 // routeFile serves one Markdown file from a route folder the hub knows.
 func (s *Server) routeFile(w http.ResponseWriter, r *http.Request) {
-	name, rel := r.URL.Query().Get("route"), r.URL.Query().Get("path")
-	for _, rv := range s.hub.Current().Routes {
-		if rv.Name != name {
-			continue
-		}
-		b, err := route.ReadFile(rv.Dir, rel)
-		if err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(b)
+	rv := findRoute(s.hub.Current().Routes, r.URL.Query().Get("route"))
+	if rv == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown route"})
 		return
 	}
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown route"})
+	b, err := route.ReadFile(rv.Dir, r.URL.Query().Get("path"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(b)
 }
 
 func (s *Server) action(w http.ResponseWriter, r *http.Request) {

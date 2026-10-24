@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/route"
 )
 
 // An event from herdr makes the hub send a new state, and stopping the hub
@@ -94,5 +95,30 @@ func TestHubDropsAStalledSubscriber(t *testing.T) {
 	f.hub.mu.Unlock()
 	if kept {
 		t.Fatal("a dropped subscriber is still listed")
+	}
+}
+
+// Two projects may each have a route folder of one name: each gets its own
+// ID, so links and requests reach the right one. A unique name is its ID.
+func TestRouteIDsTellSameNamedRoutesApart(t *testing.T) {
+	rs := []RouteView{
+		{Route: &route.Route{Name: "review-2026-10-24", Dir: "/a/.herdsman/review-2026-10-24"}},
+		{Route: &route.Route{Name: "review-2026-10-24", Dir: "/b/.herdsman/review-2026-10-24"}},
+		{Route: &route.Route{Name: "auth-2026-10-24", Dir: "/a/.herdsman/auth-2026-10-24"}},
+	}
+	setRouteIDs(rs)
+	if rs[0].ID == rs[1].ID || rs[0].ID[:len("review-2026-10-24~")] != "review-2026-10-24~" || rs[2].ID != "auth-2026-10-24" {
+		t.Fatalf("ids: %q %q %q", rs[0].ID, rs[1].ID, rs[2].ID)
+	}
+	if got := findRoute(rs, rs[1].ID); got == nil || got.Dir != "/b/.herdsman/review-2026-10-24" {
+		t.Fatalf("findRoute(%q) = %+v", rs[1].ID, got)
+	}
+	if findRoute(rs, "review-2026-10-24") != nil {
+		t.Fatal("a shared name alone picked one of the routes")
+	}
+	again := []RouteView{{Route: &route.Route{Name: "review-2026-10-24", Dir: "/b/.herdsman/review-2026-10-24"}}, rs[0]}
+	setRouteIDs(again)
+	if again[0].ID != rs[1].ID {
+		t.Fatalf("id changed with the list order: %q, was %q", again[0].ID, rs[1].ID)
 	}
 }

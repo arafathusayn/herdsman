@@ -10,6 +10,7 @@ import {
   Index,
   type Member,
   paneSize,
+  routeLabel,
   statusLabel,
   team,
   type WorkspaceGroup,
@@ -242,11 +243,11 @@ function pickDefaultRoute(): void {
   const { view, server } = store.app;
   if (view.route) return;
   const live = server?.routes?.find((r) => r.live);
-  store.go({ route: live ? live.name : SESSION }, false);
+  store.go({ route: live ? live.id : SESSION }, false);
 }
 
 function currentRoute(app: App): Route | null {
-  return app.server?.routes?.find((r) => r.name === app.view.route) ?? null;
+  return app.server?.routes?.find((r) => r.id === app.view.route) ?? null;
 }
 
 function render(app: App): void {
@@ -318,7 +319,11 @@ function renderTopbar(app: App): void {
       logoMark(),
       h("span", null, "herdsman"),
     ),
-    h("span", { class: "crumb" }, r ? r.name : app.view.route === SESSION ? sessionCrumb(app) : ""),
+    h(
+      "span",
+      { class: "crumb" },
+      r ? routeLabel(r, app.server?.routes ?? []) : app.view.route === SESSION ? sessionCrumb(app) : "",
+    ),
     h("span", { class: "grow" }),
     h(
       "button",
@@ -367,10 +372,8 @@ function renderSidebar(app: App): void {
     h(
       "a",
       {
-        href: `?r=${encodeURIComponent(r.name)}`,
-        class: ["nav-item", nested ? "nested" : "", app.view.route === r.name ? "active" : ""]
-          .filter(Boolean)
-          .join(" "),
+        href: `?r=${encodeURIComponent(r.id)}`,
+        class: ["nav-item", nested ? "nested" : "", app.view.route === r.id ? "active" : ""].filter(Boolean).join(" "),
         title: [
           r.title || r.name,
           r.live ? "running" : "not running",
@@ -378,18 +381,18 @@ function renderSidebar(app: App): void {
         ]
           .filter(Boolean)
           .join(" · "),
-        "aria-current": app.view.route === r.name ? "page" : undefined,
+        "aria-current": app.view.route === r.id ? "page" : undefined,
         onclick: (e: Event) => {
           e.preventDefault();
           navOpen = false;
-          store.go({ route: r.name, tab: "team", file: "", pane: "" });
+          store.go({ route: r.id, tab: "team", file: "", pane: "" });
         },
       },
       h("span", {
         class: r.live ? "live-dot on" : "live-dot",
         "aria-hidden": "true",
       }),
-      h("span", { class: "nav-text" }, r.name),
+      h("span", { class: "nav-text" }, routeLabel(r, routes)),
       h("span", { class: "nav-meta" }, progress(r)),
     );
   const agents = app.server?.snapshot.agents ?? [];
@@ -549,7 +552,7 @@ function progressTip(c: ReturnType<typeof checklistCounts>): string {
 }
 
 function renderMain(app: App, idx: Index): void {
-  if (app.view.tab !== "changes" || app.view.route !== changes?.routeName) changes?.stop();
+  if (app.view.tab !== "changes" || app.view.route !== changes?.routeId) changes?.stop();
   if (app.view.tab !== "artifacts") artifacts?.stop();
   if (app.view.route === SESSION || !app.view.route) {
     mount(main, sessionView(app, idx));
@@ -663,7 +666,7 @@ function renderMain(app: App, idx: Index): void {
     }
   }
   if (app.view.tab === "docs") {
-    if (files?.routeName !== r.name) files = new FilesView(r.name);
+    if (files?.routeId !== r.id) files = new FilesView(r.id);
     if (routeBody.firstChild !== files.el) mount(routeBody, files.el);
     files.update(r, app.view.file);
     return;
@@ -681,9 +684,9 @@ function renderMain(app: App, idx: Index): void {
     return;
   }
   if (app.view.tab === "changes") {
-    if (changes?.routeName !== r.name) {
+    if (changes?.routeId !== r.id) {
       changes?.stop();
-      changes = new DiffView(r.name);
+      changes = new DiffView(r.id);
     }
     if (routeBody.firstChild !== changes.el) mount(routeBody, changes.el);
     changes.update(app.view.source, app.view.diffFile);

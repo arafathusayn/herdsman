@@ -239,3 +239,10 @@ export function checklistCounts(items: CheckItem[]): { done: number; skipped: nu
 export function afterSend(sent: string, current: string): string {
   return current === sent ? "" : current;
 }
+
+/** A route's name, with its project folder when another route has the same name. */
+export function routeLabel(r: Route, all: Route[]): string {
+  if (!all.some((x) => x.id !== r.id && x.name === r.name)) return r.name;
+  const project = r.dir.split("/").at(-3) ?? ""; // <project>/.herdsman/<route>
+  return project ? `${r.name} · ${project}` : r.name;
+}

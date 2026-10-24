@@ -1,6 +1,16 @@
 import { expect, test } from "bun:test";
 
-import { afterSend, checklistCounts, Index, lanes, type Member, roleOf, team, workspaceGroups } from "./model.ts";
+import {
+  afterSend,
+  checklistCounts,
+  Index,
+  lanes,
+  type Member,
+  roleOf,
+  routeLabel,
+  team,
+  workspaceGroups,
+} from "./model.ts";
 import type { Agent, Pane, Route, State, Workspace } from "./types.ts";
 
 const ws = (id: string, number: number, label = ""): Workspace => ({
@@ -43,6 +53,7 @@ const agent = (id: string, workspace: string): Agent => ({
 });
 
 const route = (name: string, orchestrator: string, panes: string[], live = true): Route => ({
+  id: name,
   dir: `/r/${name}`,
   name,
   title: name,
@@ -176,4 +187,11 @@ test("a send clears only the text it sent", () => {
   expect(afterSend("fix the test", "fix the test")).toBe("");
   expect(afterSend("fix the test", "fix the test, then push")).toBe("fix the test, then push");
   expect(afterSend("fix the test", "")).toBe("");
+});
+
+test("a route name shared by two projects shows its project", () => {
+  const a = { ...route("review", "w1:p1", []), id: "review~aaa", dir: "/code/api/.herdsman/review" };
+  const b = { ...route("review", "w2:p1", []), id: "review~bbb", dir: "/code/web/.herdsman/review" };
+  const c = route("auth", "w3:p1", []);
+  expect([a, b, c].map((r) => routeLabel(r, [a, b, c]))).toEqual(["review · api", "review · web", "auth"]);
 });

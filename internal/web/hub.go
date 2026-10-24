@@ -3,6 +3,8 @@ package web
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"slices"
@@ -43,7 +45,36 @@ type Entry struct {
 // RouteView is a route as the browser sees it.
 type RouteView struct {
 	*route.Route
-	Live bool `json:"live"`
+	// ID names the route in links and requests: its folder name, or, when
+	// two projects have a route folder of that name, the name and a short
+	// hash of its full path.
+	ID   string `json:"id"`
+	Live bool   `json:"live"`
+}
+
+// setRouteIDs gives each route its ID.
+func setRouteIDs(rs []RouteView) {
+	count := map[string]int{}
+	for _, r := range rs {
+		count[r.Name]++
+	}
+	for i := range rs {
+		rs[i].ID = rs[i].Name
+		if count[rs[i].Name] > 1 {
+			sum := sha256.Sum256([]byte(rs[i].Dir))
+			rs[i].ID += "~" + hex.EncodeToString(sum[:3])
+		}
+	}
+}
+
+// findRoute is the route with this ID, or nil.
+func findRoute(rs []RouteView, id string) *RouteView {
+	for i := range rs {
+		if rs[i].ID == id {
+			return &rs[i]
+		}
+	}
+	return nil
 }
 
 // State is everything the browser renders, sent whole on every change.
@@ -291,6 +322,7 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 		}
 		out = append(out, RouteView{Route: r, Live: isLive(r, panes, agentAt, claimed)})
 	}
+	setRouteIDs(out)
 	return out
 }
 

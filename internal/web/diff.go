@@ -199,17 +199,12 @@ func worktreeDir(project, cell string) string {
 // times per task, so at most two requests read at once; the ETag lets a
 // polling browser get a bodyless 304 while nothing changes.
 func (s *Server) routeDiff(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Query().Get("route")
-	var rt *route.Route
-	for _, rv := range s.hub.Current().Routes {
-		if rv.Name == name {
-			rt = rv.Route
-		}
-	}
-	if rt == nil {
+	rv := findRoute(s.hub.Current().Routes, r.URL.Query().Get("route"))
+	if rv == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown route"})
 		return
 	}
+	rt := rv.Route
 	select {
 	case s.diffSlots <- struct{}{}:
 		defer func() { <-s.diffSlots }()

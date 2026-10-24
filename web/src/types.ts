@@ -108,6 +108,8 @@ export interface RouteFile {
 }
 
 export interface Route {
+  /** Names the route in links and requests: the folder name, or with a short hash when two projects share it. */
+  id: string;
   dir: string;
   name: string;
   title: string;
