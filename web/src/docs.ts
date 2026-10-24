@@ -87,7 +87,9 @@ function setupAnchors(): void {
   }
 }
 
-function setupMenu(): { close: () => void } {
+type Menu = { open: () => void; close: () => void };
+
+function setupMenu(): Menu {
   const toggle = document.querySelector<HTMLButtonElement>(".nav-toggle");
   const scrim = document.querySelector<HTMLElement>(".scrim");
   const set = (open: boolean): void => {
@@ -104,10 +106,10 @@ function setupMenu(): { close: () => void } {
       toggle?.focus();
     }
   });
-  return { close: () => set(false) };
+  return { open: () => set(true), close: () => set(false) };
 }
 
-function setupNav(menu: { close: () => void }): void {
+function setupNav(menu: Menu): void {
   const links = [...document.querySelectorAll<HTMLAnchorElement>(".nav-group a")];
   for (const a of links) a.addEventListener("click", () => menu.close());
 
@@ -144,12 +146,12 @@ function setupNav(menu: { close: () => void }): void {
     }
   });
   document.addEventListener("keydown", (e) => {
-    const t = e.target as HTMLElement | null;
-    const typing = t?.closest("input, textarea, [contenteditable]");
+    const typing = e.target instanceof Element && e.target.closest("input, textarea, [contenteditable]");
     if (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
-      document.body.classList.add("nav-open");
-      document.querySelector<HTMLElement>(".scrim")?.removeAttribute("hidden");
+      // On narrow screens the contents are a menu: open it through the same
+      // path as its button, so the button's state stays true.
+      if (getComputedStyle(document.querySelector(".nav-toggle") ?? document.body).display !== "none") menu.open();
       input?.focus();
     }
   });
@@ -200,6 +202,11 @@ function setupTabs(): void {
         if (panel) panel.hidden = !on;
       }
     };
+    const list = box.querySelector<HTMLElement>('[role="tablist"]');
+    if (list) list.hidden = false;
+    for (const title of box.querySelectorAll<HTMLElement>(".tab-title")) title.hidden = true;
+    const first = tabs.find((t) => t.getAttribute("aria-selected") === "true") ?? tabs[0];
+    if (first) select(first);
     tabs.forEach((t, i) => {
       t.addEventListener("click", () => select(t));
       t.addEventListener("keydown", (e) => {

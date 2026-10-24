@@ -272,7 +272,7 @@ ln -s "$PWD/herdsman/skills/herdsman" &lt;harness skills folder&gt;/herdsman</co
           <h3 id="install-cli">The herdsman command</h3>
           <p>One Go binary with the web app inside. Nothing else runs on your machine.</p>
           <div class="tabs" data-tabs>
-            <div class="tab-list" role="tablist" aria-label="Install method">
+            <div class="tab-list" role="tablist" aria-label="Install method" hidden>
               <button role="tab" type="button" aria-selected="true" aria-controls="ins-brew" id="ins-brew-tab">
                 Homebrew
               </button>
@@ -298,6 +298,7 @@ ln -s "$PWD/herdsman/skills/herdsman" &lt;harness skills folder&gt;/herdsman</co
               </button>
             </div>
             <div class="tab-panel" role="tabpanel" id="ins-brew" aria-labelledby="ins-brew-tab">
+              <p class="tab-title">Homebrew</p>
               <pre><code>brew tap arafathusayn/tap
 brew trust arafathusayn/tap
 brew install --cask arafathusayn/tap/herdsman</code></pre>
@@ -307,14 +308,16 @@ brew install --cask arafathusayn/tap/herdsman</code></pre>
               </p>
               <pre><code>brew upgrade --cask herdsman</code></pre>
             </div>
-            <div class="tab-panel" role="tabpanel" id="ins-release" aria-labelledby="ins-release-tab" hidden>
+            <div class="tab-panel" role="tabpanel" id="ins-release" aria-labelledby="ins-release-tab">
+              <p class="tab-title">Release archive</p>
               <p>
                 Download the archive for macOS or Linux from
                 <a href="https://github.com/arafathusayn/herdsman/releases" rel="noopener">Releases</a>, then put
                 <code>herdsman</code> on your <code>PATH</code>.
               </p>
             </div>
-            <div class="tab-panel" role="tabpanel" id="ins-source" aria-labelledby="ins-source-tab" hidden>
+            <div class="tab-panel" role="tabpanel" id="ins-source" aria-labelledby="ins-source-tab">
+              <p class="tab-title">From source</p>
               <p>Build from a clone with Go and Bun. This writes <code>bin/herdsman</code>.</p>
               <pre><code>git clone https://github.com/arafathusayn/herdsman.git
 cd herdsman

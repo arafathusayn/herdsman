@@ -309,6 +309,12 @@ kbd {
   text-decoration: none;
 }
 
+/* The filter hides links and groups; the display rules above would show them. */
+.nav-group a[hidden],
+.nav-group[hidden] {
+  display: none;
+}
+
 .nav-group a:hover {
   background: var(--surface-2);
   color: var(--text);
@@ -865,6 +871,22 @@ pre.has-copy {
 
 .tabs {
   margin: 0 0 16px;
+}
+
+/* Without JavaScript every panel shows under its own title, and the tab
+   list stays hidden; the script swaps the titles for the tabs. */
+.tab-list[hidden],
+.tab-title[hidden] {
+  display: none;
+}
+
+.tab-title {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
 }
 
 .tab-list {
