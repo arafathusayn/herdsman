@@ -1,0 +1,218 @@
+/* herdsman design tokens, shared by the web app and the landing page. */
+:root,
+.match-app {
+  --font:
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Text comes from the first monospace font; any glyph it lacks (Nerd Font
+     and Powerline icons, symbols, emoji) falls through to an installed Nerd
+     Font, then to the system symbol and emoji fonts. */
+  --mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", "Symbols Nerd Font Mono",
+    "Symbols Nerd Font", "FiraCode Nerd Font Mono", "JetBrainsMono Nerd Font Mono", "Hack Nerd Font Mono",
+    "MesloLGS Nerd Font Mono", "MesloLGS NF", "CaskaydiaCove Nerd Font Mono", "Iosevka Nerd Font Mono",
+    "SauceCodePro Nerd Font Mono", "UbuntuMono Nerd Font Mono", "DejaVuSansM Nerd Font Mono", "Apple Symbols",
+    "Segoe UI Symbol", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", monospace;
+
+  --bg: #f6f6f3;
+  --surface: #ffffff;
+  --surface-2: #f0f0ec;
+  --surface-3: #e8e8e3;
+  --border: #e2e2dc;
+  --border-strong: #cfcfc7;
+  --text: #1b1c1a;
+  --muted: #676a64;
+  --faint: #8f928b;
+  --accent: #2f7d5b;
+  --accent-soft: #e3f1ea;
+  --accent-ink: #ffffff;
+  --danger: #b42318;
+  --danger-soft: #fdecea;
+  --tail-bg: #fbfbf9;
+
+  /* Terminal colors (Match app); a chosen scheme overrides them on <html>. */
+  --t-bg: var(--tail-bg);
+  --t-fg: var(--text);
+  --t0: #1b1c1a;
+  --t1: #b42318;
+  --t2: #2f7d5b;
+  --t3: #9a6700;
+  --t4: #2f62d6;
+  --t5: #8e44ad;
+  --t6: #127d84;
+  --t7: #6f726b;
+  --t8: #8f928b;
+  --t9: #d1242f;
+  --t10: #3a9a6e;
+  --t11: #b07d00;
+  --t12: #4a7cf0;
+  --t13: #a75cc7;
+  --t14: #1b9aa2;
+  --t15: #a8aba4;
+
+  /* Code highlighting (Match app); a chosen theme overrides them on <html>. */
+  --code-fg: var(--text);
+  --hl-comment: #6e7781;
+  --hl-keyword: #cf222e;
+  --hl-string: #0a3069;
+  --hl-number: #0550ae;
+  --hl-type: #953800;
+  --hl-func: #8250df;
+  --hl-constant: #0550ae;
+  --hl-property: #0550ae;
+  --hl-tag: #116329;
+  --hl-attr: #0550ae;
+  --hl-meta: #8250df;
+  --hl-variable: #953800;
+
+  --s-working: #2f62d6;
+  --s-working-soft: #e5edff;
+  --s-idle: #6f726b;
+  --s-idle-soft: #eeeeea;
+  --s-blocked: #b45309;
+  --s-blocked-soft: #fdf0dc;
+  --s-done: #2f7d5b;
+  --s-done-soft: #e3f1ea;
+  --s-unknown: #8f928b;
+  --s-unknown-soft: #f0f0ec;
+  --s-gone: #b42318;
+  --s-gone-soft: #fdecea;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 1px 2px rgb(20 22 18 / 6%), 0 4px 16px rgb(20 22 18 / 6%);
+  --shadow-lg: 0 12px 48px rgb(20 22 18 / 18%);
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--border-strong);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]),
+  :root:not([data-theme="light"]) .match-app {
+    --bg: #0f1110;
+    --surface: #161917;
+    --surface-2: #1c201e;
+    --surface-3: #242926;
+    --border: #272c29;
+    --border-strong: #353b37;
+    --text: #e7eae7;
+    --muted: #9da39e;
+    --faint: #737a75;
+    --accent: #5cc093;
+    --accent-soft: #17291f;
+    --accent-ink: #08130d;
+    --danger: #f2877d;
+    --danger-soft: #2d1614;
+    --tail-bg: #121513;
+    --t0: #2a2f2c;
+    --t1: #f07167;
+    --t2: #5cc093;
+    --t3: #e0b35a;
+    --t4: #6c9cf5;
+    --t5: #c58af0;
+    --t6: #4fc6c9;
+    --t7: #c9ccc6;
+    --t8: #6b706c;
+    --t9: #ff8a80;
+    --t10: #7ed6ad;
+    --t11: #f0c674;
+    --t12: #8fb4ff;
+    --t13: #d8a6f7;
+    --t14: #74dbdd;
+    --t15: #f3f4f1;
+    --hl-comment: #8b949e;
+    --hl-keyword: #ff7b72;
+    --hl-string: #a5d6ff;
+    --hl-number: #79c0ff;
+    --hl-type: #ffa657;
+    --hl-func: #d2a8ff;
+    --hl-constant: #79c0ff;
+    --hl-property: #79c0ff;
+    --hl-tag: #7ee787;
+    --hl-attr: #79c0ff;
+    --hl-meta: #d2a8ff;
+    --hl-variable: #ffa657;
+
+    --s-working: #7aa6ff;
+    --s-working-soft: #18223a;
+    --s-idle: #a3a8a4;
+    --s-idle-soft: #222624;
+    --s-blocked: #f2b45c;
+    --s-blocked-soft: #2e2213;
+    --s-done: #5cc093;
+    --s-done-soft: #17291f;
+    --s-unknown: #7c837e;
+    --s-unknown-soft: #1f2321;
+    --s-gone: #f2877d;
+    --s-gone-soft: #2d1614;
+
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 16px rgb(0 0 0 / 25%);
+    --shadow-lg: 0 12px 48px rgb(0 0 0 / 55%);
+  }
+}
+
+:root[data-theme="dark"],
+:root[data-theme="dark"] .match-app {
+  --bg: #0f1110;
+  --surface: #161917;
+  --surface-2: #1c201e;
+  --surface-3: #242926;
+  --border: #272c29;
+  --border-strong: #353b37;
+  --text: #e7eae7;
+  --muted: #9da39e;
+  --faint: #737a75;
+  --accent: #5cc093;
+  --accent-soft: #17291f;
+  --accent-ink: #08130d;
+  --danger: #f2877d;
+  --danger-soft: #2d1614;
+  --tail-bg: #121513;
+  --t0: #2a2f2c;
+  --t1: #f07167;
+  --t2: #5cc093;
+  --t3: #e0b35a;
+  --t4: #6c9cf5;
+  --t5: #c58af0;
+  --t6: #4fc6c9;
+  --t7: #c9ccc6;
+  --t8: #6b706c;
+  --t9: #ff8a80;
+  --t10: #7ed6ad;
+  --t11: #f0c674;
+  --t12: #8fb4ff;
+  --t13: #d8a6f7;
+  --t14: #74dbdd;
+  --t15: #f3f4f1;
+  --hl-comment: #8b949e;
+  --hl-keyword: #ff7b72;
+  --hl-string: #a5d6ff;
+  --hl-number: #79c0ff;
+  --hl-type: #ffa657;
+  --hl-func: #d2a8ff;
+  --hl-constant: #79c0ff;
+  --hl-property: #79c0ff;
+  --hl-tag: #7ee787;
+  --hl-attr: #79c0ff;
+  --hl-meta: #d2a8ff;
+  --hl-variable: #ffa657;
+
+  --s-working: #7aa6ff;
+  --s-working-soft: #18223a;
+  --s-idle: #a3a8a4;
+  --s-idle-soft: #222624;
+  --s-blocked: #f2b45c;
+  --s-blocked-soft: #2e2213;
+  --s-done: #5cc093;
+  --s-done-soft: #17291f;
+  --s-unknown: #7c837e;
+  --s-unknown-soft: #1f2321;
+  --s-gone: #f2877d;
+  --s-gone-soft: #2d1614;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 16px rgb(0 0 0 / 25%);
+  --shadow-lg: 0 12px 48px rgb(0 0 0 / 55%);
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
