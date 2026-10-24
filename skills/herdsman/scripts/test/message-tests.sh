@@ -1,6 +1,7 @@
 #!/bin/bash
 # Tests for the herdsman message channel under macOS /bin/bash 3.2 with BSD tools, and under GNU tools.
 # Run from bash or zsh: zsh <skill>/scripts/test/message-tests.sh [work dir]
+# The cases run in parallel parts, one per CPU at a time; MESSAGE_TEST_JOBS=1 runs the parts one after another.
 # Every script runs under `env -i` with the fake herdr and nc of test/fakebin first on PATH and fake HERDR_*
 # values, so no inherited HERDR_* variable reaches a live Herdr session. The fake herdr serves agent records
 # from <case>/agents.json and logs every call to <case>/calls.log. HERDR_SOCKET_PATH is empty, so the courier
@@ -84,6 +85,67 @@ relay_boundary() {
         {identity:$i,harness:.agent,launch_hash:"fixture-check",sandbox:true,inbox_denied:true,socket_denied:true,
          code_denied:true,proof_denied:true}]}' "$C/inbox/setup.json" > "$C/edit.tmp" && mv "$C/edit.tmp" "$C/inbox/setup.json"
 }
+# Files and helpers that cases in more than one part below share.
+printf 'See /Users/someone/project for details.\n' > "$T/leak.md"
+printf 'All checks passed on the current head.\n' > "$T/clean.md"
+# leak <file> [heading ...]: the gate in the same clean environment as the channel scripts.
+leak() {
+  env -i PATH="$CPATH" HOME="$HOME" LEAK_ALLOW_FILE="${LEAK_ALLOW_FILE:-}" LEAK_PATTERN="${LEAK_PATTERN:-}" \
+    /bin/bash "$MS/publish-leak-gate.sh" "$@"
+}
+# test/faultbin comes first on PATH only in the cases that inject tool failures.
+FB="$SK/test/faultbin"; chmod +x "$FB"/*
+FP="PATH=$FB:$CPATH"
+ckpt() { # target [assignments]: run checkpointer.sh --once from the courier pane and print its exit status
+  local target=$1; shift
+  ENVX="TARGET=$target TRANSCRIPT=$C/transcript.jsonl LOG=$C/ckpt.log LIMIT=1 PROMPT=/save-memory COMPACT=/compact $*" \
+    msg courier-pane checkpointer.sh --once >/dev/null; echo "$?"
+}
+cpcase() {
+  new_case "$1"; touch "$C/allow-prompt"
+  printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$C/transcript.jsonl"
+}
+sent() { grep '^agent prompt' "$C/calls.log" | tr '\n' '|'; }
+gojson() { # request-id expires-offset [jq edit]
+  jq -n --arg r "$1" --arg d "$(digest "$C/draft.txt")" --argjson e "$(( $(date +%s) + $2 ))" \
+    '{version:1,type:"user_go",question_id:"choice",request_id:$r,action:"post",target:"pr-comment",revision:"head1",
+      draft_hash:$d,expires_at:$e,text:"post this draft",human_interaction:("ask-"+$r)}' | jq -c "${3:-.}" > "$C/go-$1.json"
+  jq -n --arg r "$1" --arg d "$(digest "$C/draft.txt")" '{source:"ask-tool",question_id:"choice",request_id:$r,revision:"head1",
+    approved:true,action:"post",target:"pr-comment",draft_hash:$d}' > "$APR/interactions/ask-$1.json"
+}
+# The approval gate. The L2 cases define their own gate() for the leak gate; their part uses no other.
+gate() { msg receiver-pane approval-gate.sh "$@"; echo "rc=$?"; }
+consume() { gate consume "$C/go-$1.json" post "${2:-pr-comment}" "${3:-head1}" "${4:-$C/draft.txt}"; }
+TC="$T/audit"; mkdir -p "$TC/memory" "$TC/project"
+aud() { env -i PATH="$CPATH" AUDIT_CHANNEL_DIR=/skill/scripts ${AUDX:-} /bin/bash "$SK/transcript-audit.sh" "$@" 2>&1; echo "rc=$?"; }
+tu() { # id name input-json [session]
+  jq -nc --arg s "${4:-coord-session}" --arg id "$1" --arg n "$2" --argjson i "$3" \
+    '{type:"assistant",sessionId:$s,message:{content:[{type:"tool_use",id:$id,name:$n,input:$i}]}}'
+}
+sh_call() { tu "$1" Bash "$(jq -nc --arg c "$2" '{command:$c}')"; }
+evcase() { # name: a sent envelope held back in staged/ until the stream script moves it, and a socket path
+  new_case "$1"; send >/dev/null; mkdir "$C/staged"; mv "$(OB)/new/$ID.md" "$C/staged/"; : > "$C/sock"; : > "$C/events"
+}
+evcourier() { courier "HERDR_SOCKET_PATH=$C/sock SWEEP=60 $*" >/dev/null; }
+RING='{"event":"pane.updated","data":{"pane":{"pane_id":"sender-pane","tokens":{"message_out":"m000000000001"}}}}'
+# Parts: most of the run time is bounded waits (each courier, watcher and waiter run lasts whole seconds), not work.
+# So the cases run in parts: each part is a background subshell with its own case folders that writes its output to
+# $T/.part-<n>.log and its counts to $T/.part-<n>.counts. Their output prints in order when every part is done.
+# A part's cases run in file order, so a case may build on an earlier case of its part.
+# At most MESSAGE_TEST_JOBS parts run at once (default: one per CPU). Each part keeps about half a CPU busy; more
+# parts than CPUs slow every process, and the event and watcher cases count whole seconds, so they fail under load.
+JOBS=${MESSAGE_TEST_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null)}
+case "$JOBS" in ''|*[!0-9]*|0) JOBS=2 ;; esac
+PIDS=
+slot() { # wait until fewer than $JOBS parts run
+  local p n
+  while :; do
+    n=0; for p in $PIDS; do if kill -0 "$p" 2>/dev/null; then n=$((n+1)); fi; done
+    [ "$n" -ge "$JOBS" ] || return 0
+    sleep 0.2
+  done
+}
+counts() { echo "$pass $fail" > "$T/.part-$1.counts"; }
 
 echo "bash: $(/bin/bash --version | head -1)"
 for s in message-lib message-register message-send herdr-events message-courier message-wait message-read message-ack \
@@ -92,6 +154,7 @@ for s in message-lib message-register message-send herdr-events message-courier 
   if /bin/bash -n "$(spath "$s.sh")" 2>/dev/null; then pass=$((pass+1)); echo "PASS syntax $s"; else fail=$((fail+1)); echo "FAIL syntax $s"; fi
 done
 
+slot; ( pass=0; fail=0
 # R: enrollment stores both full identities and holds them for the human's approval.
 new_case register
 check "R1 both full identities approved" '^sender-session receiver-session$' \
@@ -172,6 +235,15 @@ courier >/dev/null
 check "M3 sender pane closed before verification: quarantined" '^yes no$' "$(yn "$(OB)/quarantine/$ID.md") $(yn "$(OB)/ready/$ID.md")"
 check "M3b the sender's mailbox gets a notice" '^yes$' "$(yn "$C/inbox/$A/notices/$ID.md.json")"
 
+# Q: quarantine notices and the correlated resend.
+C="$T/wrong-session"
+out=$(ENVX="DEADLINE=2 RECHECK=1" msg sender-pane message-wait.sh "$A"); check "Q1 a quarantine notice wakes the sender" 'HEALTH sender notice' "$out"
+check "Q2 a fresh correlated resend is queued" 'm000000000002 queued' "$(msg sender-pane message-send.sh "$A" "$O" "$C/body.txt" brief "$ID")"
+courier >/dev/null
+check "Q2b and delivered while the original stays quarantined" '^yes yes$' "$(yn "$(OB)/ready/m000000000002.md") $(yn "$(OB)/quarantine/$ID.md")"
+counts 01 ) > "$T/.part-01.log" 2>&1 & PIDS="$PIDS $!"
+
+slot; ( pass=0; fail=0
 # M4: a changed peers file holds delivery across courier restarts until the registry matches again.
 new_case peers-changed
 send >/dev/null
@@ -279,18 +351,13 @@ check "P4f a manifest that leaves out an installed script is refused" 'proof sta
 check "P4g and no state exists" '^no$' "$(yn "$C/inbox/state")"
 
 # L: the publish leak gate.
-printf 'See /Users/someone/project for details.\n' > "$T/leak.md"
-printf 'All checks passed on the current head.\n' > "$T/clean.md"
-# leak <file> [heading ...]: the gate in the same clean environment as the channel scripts.
-leak() {
-  env -i PATH="$CPATH" HOME="$HOME" LEAK_ALLOW_FILE="${LEAK_ALLOW_FILE:-}" LEAK_PATTERN="${LEAK_PATTERN:-}" \
-    /bin/bash "$MS/publish-leak-gate.sh" "$@"
-}
 out=$(leak "$T/leak.md" 2>&1); st=$?
 check "L1 a private path fails the gate" 'LEAK' "$out"; check "L1b exit 1" '^1$' "$st"
 leak "$T/clean.md" >/dev/null 2>&1; check "L2 clean prose passes" '^0$' "$?"
 leak "$T/missing.md" >/dev/null 2>&1; check "L3 a missing file is an error, not clean" '^2$' "$?"
+counts 02 ) > "$T/.part-02.log" 2>&1 & PIDS="$PIDS $!"
 
+slot; ( pass=0; fail=0
 # V: names, roles and identities that cannot enroll, and permanent retirement.
 new_case names
 for bad in Upper 'has space' abcdefghijklmnopqrstuvwxyz0123456 '-dash'; do
@@ -353,14 +420,9 @@ check "E7b ready keeps its bytes and the copy stays in new" '^same yes$' "$(cmp 
 set_agents sender-pane sender-session receiver-pane replaced-session
 out=$(msg receiver-pane message-read.sh "$O"); check "E8 a new recipient session cannot claim old work" 'own pane/session changed' "$out"
 check "E8b and the work stays ready" '^yes$' "$(yn "$(OB)/ready/$ID.md")"
+counts 03 ) > "$T/.part-03.log" 2>&1 & PIDS="$PIDS $!"
 
-# Q: quarantine notices and the correlated resend.
-C="$T/wrong-session"
-out=$(ENVX="DEADLINE=2 RECHECK=1" msg sender-pane message-wait.sh "$A"); check "Q1 a quarantine notice wakes the sender" 'HEALTH sender notice' "$out"
-check "Q2 a fresh correlated resend is queued" 'm000000000002 queued' "$(msg sender-pane message-send.sh "$A" "$O" "$C/body.txt" brief "$ID")"
-courier >/dev/null
-check "Q2b and delivered while the original stays quarantined" '^yes yes$' "$(yn "$(OB)/ready/m000000000002.md") $(yn "$(OB)/quarantine/$ID.md")"
-
+slot; ( pass=0; fail=0
 # H: alerts, rings, held entries, singletons, controls and the read-only status.
 new_case alerts
 touch "$C/toast-disabled"
@@ -396,7 +458,9 @@ new_case backlog
 i=0; while [ "$i" -lt 1000 ]; do : > "$(OB)/ready/x$i.md"; i=$((i+1)); done
 out=$(send); check "H8 a full backlog refuses send before allocation" 'pending backlog full' "$out"
 check "H8b no ID was allocated" '^no$' "$(yn "$C/inbox/ids/$ID")"
+counts 04 ) > "$T/.part-04.log" 2>&1 & PIDS="$PIDS $!"
 
+slot; ( pass=0; fail=0
 # G: the automatic Codex goal resume sends only the exact input, and only when every guard passes.
 new_case resume
 jq_edit '.["task-pane"]=(.["sender-pane"]|.pane_id="task-pane"|.agent="codex"|.agent_session.agent="codex"|.agent_session.value="task-session")' "$C/agents.json"
@@ -522,11 +586,11 @@ check "L9 an empty required section fails" '^1$' "$(gate "$T/empty-section.md" '
 check "L10 an allowed exact line passes but the private path next to it still fails" '^1 0$' \
   "$(LEAK_ALLOW_FILE="$T/allow-list" gate "$T/allow.md") $(printf 'Set MODE=fast for the demo.\n' > "$T/allow-only.md"; LEAK_ALLOW_FILE="$T/allow-list" gate "$T/allow-only.md")"
 check "L11 an invalid extra pattern is an error" '^2$' "$(LEAK_PATTERN='(' gate "$T/clean.md")"
+counts 05 ) > "$T/.part-05.log" 2>&1 & PIDS="$PIDS $!"
 
+slot; ( pass=0; fail=0
 # F: injected tool failures. test/faultbin comes first on PATH only in these cases; a failed or faked transition
 # never loses work, never reports success, and a failed producer never commits state.
-FB="$SK/test/faultbin"; chmod +x "$FB"/*
-FP="PATH=$FB:$CPATH"
 new_case fail-move
 send >/dev/null; touch "$C/fail-move"; courier "$FP" >/dev/null
 check "F1 a failed delivery move keeps the envelope in new" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
@@ -599,7 +663,9 @@ for variant in system gnu; do
   done
   check "F10 $variant stat: no alert one second early, one at the exact age, none repeated" '^0 1 1 $' "$(cat "$C/alerts-by-time")"
 done
+counts 06 ) > "$T/.part-06.log" 2>&1 & PIDS="$PIDS $!"
 
+slot; ( pass=0; fail=0
 # S: sender identity, acks, claims, links and bounds.
 new_case forged-with-ledger
 send >/dev/null
@@ -651,6 +717,9 @@ check "S8 an incomplete claim is held" '^2 .*reader claim held' "$s $out"
 rmdir "$(OB)/claim"
 token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
 check "S8b after the human clears it, a complete claim is written" "^$token yes\$" "$(cat "$(OB)/claim/token") $(yn "$(OB)/claim/owner")"
+counts 07 ) > "$T/.part-07.log" 2>&1 & PIDS="$PIDS $!"
+
+slot; ( pass=0; fail=0
 new_case alert-link
 printf 'original\n' > "$C/untouched"; ln -s "$C/untouched" "$C/inbox/alerts/courier-down.pending"
 touch -t 202001010000 "$C/inbox/state/heartbeat"
@@ -688,18 +757,10 @@ msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt" >/dev/null
 msg receiver-pane message-ack.sh "$O" "$token" m000000000002 "$C/record.txt" >/dev/null
 ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh release "$token" >/dev/null; s=$?
 check "S16 release of a fully acked claim succeeds and leaves no claim" '^0 no$' "$s $(yn "$(OB)/claim")"
+counts 08 ) > "$T/.part-08.log" 2>&1 & PIDS="$PIDS $!"
 
+slot; ( pass=0; fail=0
 # CP: in adjutant mode the checkpointer checks the approved orchestrator identity right before each input.
-ckpt() { # target [assignments]: run checkpointer.sh --once from the courier pane and print its exit status
-  local target=$1; shift
-  ENVX="TARGET=$target TRANSCRIPT=$C/transcript.jsonl LOG=$C/ckpt.log LIMIT=1 PROMPT=/save-memory COMPACT=/compact $*" \
-    msg courier-pane checkpointer.sh --once >/dev/null; echo "$?"
-}
-cpcase() {
-  new_case "$1"; touch "$C/allow-prompt"
-  printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$C/transcript.jsonl"
-}
-sent() { grep '^agent prompt' "$C/calls.log" | tr '\n' '|'; }
 cpcase ckpt-ordinary
 ckpt receiver-pane >/dev/null
 check "CP1 ordinary mode is unchanged: memory prompt then compact, no registry needed" \
@@ -746,15 +807,6 @@ new_case gate
 relay_boundary
 printf 'reviewed text\n' > "$C/draft.txt"
 APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"
-gojson() { # request-id expires-offset [jq edit]
-  jq -n --arg r "$1" --arg d "$(digest "$C/draft.txt")" --argjson e "$(( $(date +%s) + $2 ))" \
-    '{version:1,type:"user_go",question_id:"choice",request_id:$r,action:"post",target:"pr-comment",revision:"head1",
-      draft_hash:$d,expires_at:$e,text:"post this draft",human_interaction:("ask-"+$r)}' | jq -c "${3:-.}" > "$C/go-$1.json"
-  jq -n --arg r "$1" --arg d "$(digest "$C/draft.txt")" '{source:"ask-tool",question_id:"choice",request_id:$r,revision:"head1",
-    approved:true,action:"post",target:"pr-comment",draft_hash:$d}' > "$APR/interactions/ask-$1.json"
-}
-gate() { msg receiver-pane approval-gate.sh "$@"; echo "rc=$?"; }
-consume() { gate consume "$C/go-$1.json" post "${2:-pr-comment}" "${3:-head1}" "${4:-$C/draft.txt}"; }
 gojson r1 600
 out=$(consume r1); check "AG1 a bound, current go is consumed" '^CONSUME r1.*rc=0' "$(printf '%s' "$out" | tr '\n' ' ')"
 check "AG1b consumption is recorded before the effect" '^consuming post pr-comment head1$' \
@@ -806,13 +858,6 @@ out=$(gate consume "$C/go-r14.json" post pr-comment head1 -); check "AG13b a go 
 check "AG14 the gate typed nothing and called no display mutation" '^0$' "$(grep -c -E '^(agent prompt|pane |notification)' "$C/calls.log")"
 
 # TA: the read-only transcript audit reads tool-call records, never prose, for the named current session.
-TC="$T/audit"; mkdir -p "$TC/memory" "$TC/project"
-aud() { env -i PATH="$CPATH" AUDIT_CHANNEL_DIR=/skill/scripts ${AUDX:-} /bin/bash "$SK/transcript-audit.sh" "$@" 2>&1; echo "rc=$?"; }
-tu() { # id name input-json [session]
-  jq -nc --arg s "${4:-coord-session}" --arg id "$1" --arg n "$2" --argjson i "$3" \
-    '{type:"assistant",sessionId:$s,message:{content:[{type:"tool_use",id:$id,name:$n,input:$i}]}}'
-}
-sh_call() { tu "$1" Bash "$(jq -nc --arg c "$2" '{command:$c}')"; }
 {
   jq -nc '{type:"user",sessionId:"coord-session",message:{content:"please run git push and npm test"}}'
   jq -nc '{type:"assistant",sessionId:"coord-session",message:{content:[{type:"text",text:"I will not run git push or gh pr create."}]}}'
@@ -1046,7 +1091,9 @@ chmod +x "$C/race-bin/herdr"
 ENVX="RUN_FOR=1 INTERVAL=1 PATH=$C/race-bin:$CPATH" msg courier-pane card-watch.sh >/dev/null
 check "Z4e a short-lived agent seen only by the send's recheck is recorded" 'brief-pane' "$(cat "$C/inbox/state/boundary-tainted" 2>&1)"
 check "Z4f and no card was queued" '^0$' "$(nfiles "$C/inbox/$A/new" '*.md')"
+counts 09 ) > "$T/.part-09.log" 2>&1 & PIDS="$PIDS $!"
 
+slot; ( pass=0; fail=0
 # Z5: an ack retry never overwrites a different permanent disposition.
 new_case ack-terminal
 send >/dev/null; courier >/dev/null
@@ -1271,14 +1318,11 @@ out=$(aud claude "$TC/y6-flags.jsonl" coord-session "$TC/memory/")
 for n in 1 2 3 4 5 6 7 8; do check "Y6e a direct write or effect-capable run is flagged: f$n" "call=f$n " "$out"; done
 nocheck "Y6f reads, a null redirect and an allowed-root write stay clean" 'call=r[0-9]' "$out"
 check "Y6g eight flags of fourteen calls" 'AUDIT flagged=8 calls=14.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+counts 10 ) > "$T/.part-10.log" 2>&1 & PIDS="$PIDS $!"
 
+slot; ( pass=0; fail=0
 # EV: the event hints through the fake event stream of test/fakebin/nc. Queue scans decide correctness; an event
 # only wakes a scan early. SWEEP=60 is longer than each run, so a delivery inside the run came from an event.
-evcase() { # name: a sent envelope held back in staged/ until the stream script moves it, and a socket path
-  new_case "$1"; send >/dev/null; mkdir "$C/staged"; mv "$(OB)/new/$ID.md" "$C/staged/"; : > "$C/sock"; : > "$C/events"
-}
-evcourier() { courier "HERDR_SOCKET_PATH=$C/sock SWEEP=60 $*" >/dev/null; }
-RING='{"event":"pane.updated","data":{"pane":{"pane_id":"sender-pane","tokens":{"message_out":"m000000000001"}}}}'
 evcase ev-control; printf '%s\n' '@sleep 1' '@stage' > "$C/events"
 evcourier RUN_FOR=4
 check "EV0 without a ring the staged send waits for the next sweep" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
@@ -1299,6 +1343,9 @@ check "EV2b the fragment is never joined into a ring" '^0$' "$(nfiles "$C/inbox/
 evcase ev-malformed; printf '%s\n' '@sleep 1' '@stage' 'this is not a frame' > "$C/events-1"
 evcourier RUN_FOR=4
 check "EV3 a malformed frame reconnects and the rescan delivers" '^[2-9] yes 0$' "$(cat "$C/nc-count") $(yn "$(OB)/ready/$ID.md") $(nfiles "$C/inbox/state" 'ring-*')"
+counts 11 ) > "$T/.part-11.log" 2>&1 & PIDS="$PIDS $!"
+
+slot; ( pass=0; fail=0
 evcase ev-flood; printf '%s\n' '@sleep 1' '@stage' '@flood 300' "$RING" > "$C/events"
 evcourier RUN_FOR=20
 check "EV4 a flood of unrelated events is read without reconnecting and the ring still delivers" '^1 yes$' "$(cat "$C/nc-count") $(yn "$(OB)/ready/$ID.md")"
@@ -1331,7 +1378,9 @@ check "EV7 the waiter wakes on its own pane's event" "^MESSAGE $O" "$out"
 evcase ev-wait-other; printf '%s\n' '@sleep 1' '@ready' '{"event":"pane.updated","data":{"pane":{"pane_id":"other-pane","tokens":{"messages":"1"}}}}' > "$C/events"
 out=$(ENVX="HERDR_SOCKET_PATH=$C/sock DEADLINE=4 RECHECK=60" msg receiver-pane message-wait.sh "$O")
 check "EV7b another pane's event does not wake it before the deadline" '^TICK' "$out"
+counts 12 ) > "$T/.part-12.log" 2>&1 & PIDS="$PIDS $!"
 
+slot; ( pass=0; fail=0
 # RC: refusal and recovery paths that change no state, alert repeats, display lines and liveness.
 # RC1: a missing argument or an unknown action prints the usage, exits 2 and creates no state.
 new_case rc-args noenroll
@@ -1398,6 +1447,9 @@ send >/dev/null; jq_edit '.from="route-intruder"' "$(OB)/new/$ID.md"
 courier >/dev/null; courier >/dev/null; courier >/dev/null
 check "RC7 three courier runs keep one quarantine, one terminal and one alert" '^1 quarantined 1$' \
   "$(nfiles "$(OB)/quarantine" '*.md') $(jq -r .state "$C/inbox/ids/$ID/terminal.json") $(grep -c 'notification show Messages quarantined' "$C/calls.log")"
+counts 13 ) > "$T/.part-13.log" 2>&1 & PIDS="$PIDS $!"
+
+slot; ( pass=0; fail=0
 # RC8: a quarantine alert that could not be shown stays pending and is retried once after its backoff.
 new_case rc-alert-retry
 touch "$C/toast-disabled"
@@ -1473,7 +1525,9 @@ jkey=$(jq -c '.[0]' "$C/inbox/watch-targets.json" | jq -Sc . | cksum | awk '{pri
 touch "$C/inbox/alerts/card-journal-$jkey.sent" "$C/inbox/alerts/card-journal-$jkey.attempt"
 ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
 check "GX2 a drained journal resolves its alert without a new card" '^no$' "$(yn "$C/inbox/alerts/card-journal-$jkey.sent")"
+counts 14 ) > "$T/.part-14.log" 2>&1 & PIDS="$PIDS $!"
 
+slot; ( pass=0; fail=0
 # V3R: design v3 regressions.
 # V3R1: status keeps the safe queue view under a corrupt registry and under a stale setup proof.
 new_case v3r-status
@@ -1524,6 +1578,9 @@ chmod +x "$C/race-bin/herdr"
 ENVX="RUN_FOR=1 INTERVAL=1 PATH=$C/race-bin:$CPATH" msg courier-pane card-watch.sh >/dev/null
 check "V3R5 a replaced watch-target file holds automation and relays nothing" '^yes 0 .*notification show Automatic coordination held' \
   "$(yn "$C/inbox/state/automation-held") $(nfiles "$C/inbox/$A/new" '*.md') $(cat "$C/calls.log" | tr '\n' ' ')"
+counts 15 ) > "$T/.part-15.log" 2>&1 & PIDS="$PIDS $!"
+
+slot; ( pass=0; fail=0
 # V3R6: more than four cards in one capture alert; at most four are journaled; an absent poll re-arms a headline.
 new_case v3r-cards
 jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}]' > "$C/inbox/watch-targets.json"
@@ -1582,12 +1639,18 @@ send >/dev/null; jq_edit '.from_identity.session.value="forged"' "$(OB)/new/$ID.
 out=$(msg sender-pane message-status.sh "$A")
 check "V3R11 the sender's status lists the quarantine notice" "\"id\":\"$ID\".*\"state\":\"quarantined\".*\"authority\":\"notice-only\"" "$out"
 nocheck "V3R11b and never the body" 'full brief' "$out"
+counts 16 ) > "$T/.part-16.log" 2>&1 & PIDS="$PIDS $!"
+
+slot; ( pass=0; fail=0
 # V3R12: every mistyped envelope field is quarantined.
 for e in '.version="1"' '.time="soon"' '.kind="bogus"' '.reply_to="m1"' '.body=7' '.to_identity.session.kind="name"' '.extra=1'; do
   new_case "v3r-field-$(printf '%s' "$e" | cksum | awk '{print $1}')"
   send >/dev/null; jq_edit "$e" "$(OB)/new/$ID.md"; courier >/dev/null
   check "V3R12 a mistyped envelope field is quarantined: $e" '^yes no$' "$(yn "$(OB)/quarantine/$ID.md") $(yn "$(OB)/ready/$ID.md")"
 done
+counts 17 ) > "$T/.part-17.log" 2>&1 & PIDS="$PIDS $!"
+
+slot; ( pass=0; fail=0
 # V3R13: an unavailable sender check repeated over two courier runs keeps the message in new; recovery delivers it.
 new_case v3r-stale-agent
 send >/dev/null; touch "$C/get-failure"
@@ -1637,6 +1700,15 @@ check "V3R16b the next reader adopts the unacknowledged message in cur" '"id":"m
 nocheck "V3R16c and does not revive the acknowledged one" "\"id\":\"$ID\"" "$out"
 out=$(msg receiver-pane message-ack.sh "$O" "$token2" m000000000002 "$C/record.txt"); st=$?
 check "V3R16d the adopted message is acknowledged with the new claim" '^0 handled$' "$st $(jq -r .state "$C/inbox/ids/m000000000002/terminal.json")"
+counts 18 ) > "$T/.part-18.log" 2>&1 & PIDS="$PIDS $!"
+
+# Every part done: print its output in order and add its counts. A part without counts stopped early.
+wait
+for log in "$T"/.part-*.log; do
+  cat "$log"; part=$(basename "$log" .log)
+  if [ -f "$T/$part.counts" ]; then read -r p f < "$T/$part.counts"; pass=$((pass+p)); fail=$((fail+f))
+  else fail=$((fail+1)); echo "FAIL $part stopped before its last case"; fi
+done
 
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
 READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read|nc -U)( |$)'
