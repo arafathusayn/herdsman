@@ -31,7 +31,7 @@ process_entry() {
       else rc=$?; fi
     fi
   fi
-  try_lock || die 'channel lock busy; entry deferred'
+  try_lock || exit 75
   registry || die 'registry changed during verification'
   [ -e "$f" ] || exit 0
   if [ -e "$ROOT/ids/$id/terminal.json" ] || [ -e "$box/ready/$id.md" ] || [ -e "$box/cur/$id.md" ] || [ -e "$box/quarantine/$id.md" ]; then
@@ -60,7 +60,7 @@ process_entry() {
   resolve_alert "verification-$name-$id"
 }
 sweep() {
-  local box name f expected pane observed count state previous stamp t old='' fp='' key summary baseline
+  local box name f expected pane observed count state previous stamp t old='' fp='' key summary baseline result id from invalid_box=0
   safe_touch "$ROOT/state/heartbeat"
   retry_alerts
   if ! registry; then
@@ -76,6 +76,7 @@ sweep() {
     safe_touch "$ROOT/state/heartbeat"
     name=$(basename "$box")
     if [ -L "$box" ] || ! name_ok "$name"; then
+      invalid_box=1
       notify invalid-box 'Suspicious queue entry' 'Invalid mailbox held; inspect without opening its body.'; continue
     fi
     if ! peer "$name" >/dev/null; then
@@ -83,13 +84,40 @@ sweep() {
     fi
     resolve_alert "orphan-$name"
     if ! (box_init "$name"); then notify "box-$name" 'Suspicious queue entry' 'Mailbox state held.'; continue; fi
+    resolve_alert "box-$name"
+    for f in "$box/quarantine/"*.md; do
+      regular "$f" || continue
+      (
+      export COURIER_OWNED='' WATCH_OWNED='' EV_PID='' EV_DIR='' LOCK_OWNED='' MUTATION_OWNED='' TMP=''
+      trap cleanup EXIT
+      id=$(basename "$f" .md)
+      if id_ok "$id" && [ -d "$ROOT/ids/$id" ] && [ ! -L "$ROOT/ids/$id" ]; then
+        if try_lock; then
+          if [ -e "$ROOT/ids/$id/terminal.json" ]; then
+            if ! strict_json "$ROOT/ids/$id/terminal.json" || ! jq -e --arg id "$id" '.id==$id and .state=="quarantined"' "$ROOT/ids/$id/terminal.json" >/dev/null; then
+              unlock; notify "terminal-conflict-$name-$id" 'Quarantine terminal conflict' 'Hold original bytes and inspect the permanent disposition.'; exit 0
+            fi
+          else atomic "$ROOT/ids/$id/terminal.json" jq -n --arg id "$id" '{id:$id,state:"quarantined"}' || die 'quarantine recovery failed'; fi
+          from=$(jq -r '.from // empty' "$f" 2>/dev/null) || from=
+          if name_ok "$from" && peer "$from" >/dev/null; then
+            atomic "$ROOT/$from/notices/$id.md.json" jq -n --arg id "$id" --arg to "$name" '{id:$id,to:$to,state:"quarantined",authority:"notice-only"}' || die 'notice recovery failed'
+          fi
+          unlock
+          notify "quarantine-$name-$id" 'Messages quarantined' 'An envelope failed checks. Show headers only; resend with a fresh ID.'
+        fi
+      fi
+      ) || notify "quarantine-recovery-$name-$(basename "$f" .md)" 'Quarantine recovery held' 'Inspect this disposition; unrelated work continues.'
+    done
     for f in "$box/new/"*.md; do
       [ -e "$f" ] || [ -L "$f" ] || continue
       safe_touch "$ROOT/state/heartbeat"
-      if ! (process_entry "$f" "$name"); then
-        key=$(printf '%s' "$f" | cksum | awk '{print $1 "-" $2}')
-        notify "entry-$key" 'Suspicious queue entry' 'Entry held after a transition or verification error; unrelated work continues.' || :
-      fi
+      key=$(printf '%s' "$f" | cksum | awk '{print $1 "-" $2}')
+      result=0; (process_entry "$f" "$name") || result=$?
+      case "$result" in
+        0) resolve_alert "entry-$key" ;;
+        75) log_line "DEFERRED queue lock $name" ;;
+        *) notify "entry-$key" 'Suspicious queue entry' 'Entry held after a transition or verification error; unrelated work continues.' || : ;;
+      esac
     done
     count=$(unacked "$box" | wc -l | tr -d ' ')
     expected=$(peer "$name" | jq -c .identity); pane=$(printf '%s' "$expected" | jq -r .pane)
@@ -107,7 +135,8 @@ sweep() {
     for f in "$box/new/"*.md "$box/ready/"*.md "$box/cur/"*.md; do
       regular "$f" || continue
       ack_valid "$box" "$(basename "$f" .md)" && continue
-      if [ $(( $(now)-$(mtime "$f") )) -ge "$ALERT_AFTER" ]; then old=1; fp="$fp $name/$(basename "$f")"; fi
+      stamp=$(mtime "$f" 2>/dev/null) || continue
+      if [ $(( $(now)-stamp )) -ge "$ALERT_AFTER" ]; then old=1; fp="$fp $name/$(basename "$f")"; fi
     done
     summary=
     for f in "$box/tmp/"* "$box/tmp/".[!.]*; do
@@ -117,6 +146,7 @@ sweep() {
     done
     [ -n "$summary" ] || resolve_alert "partial-$name"
   done
+  [ "$invalid_box" = 1 ] || resolve_alert invalid-box
   if [ -n "$old" ]; then
     key=$(printf '%s' "$fp" | cksum | awk '{print $1 "-" $2}')
     notify "unread-$key" 'Unread messages' 'Messages exceeded the configured age; includes new and unacknowledged cur.'

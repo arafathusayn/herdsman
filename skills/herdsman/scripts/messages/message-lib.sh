@@ -5,13 +5,34 @@ set -o pipefail
 umask 077
 export LC_ALL=C
 die() { printf '%s\n' "$*" >&2; exit 2; }
-name_ok() { [[ "$1" =~ ^[a-z][a-z0-9_-]{0,31}$ ]]; }
+name_ok() {
+  [[ "$1" =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || return 1
+  case "$1" in peers|peers.approved|state|ids|alerts|enrolled|card-events|courier.lock|watch.lock|channel.lock|herdr-mutation.lock|setup) return 1 ;; esac
+}
 id_ok() { [[ "$1" =~ ^m[0-9]{12}$ ]]; }
 uint() { [[ "$2" =~ ^(0|[1-9][0-9]{0,7})$ ]] && [ "$2" -ge "$3" ] && [ "$2" -le "$4" ] || die "invalid $1: $2"; }
-regular() { [ -f "$1" ] && [ ! -L "$1" ] && [ -r "$1" ]; }
+guard_path() {
+  local path=${1%/*}
+  case "$1" in "$ROOT/"*)
+    while [ "$path" != "$ROOT" ]; do [ -d "$path" ] && [ ! -L "$path" ] || return 1; path=${path%/*}; done ;;
+  esac
+}
+regular() { [ -f "$1" ] && [ ! -L "$1" ] && [ -r "$1" ] && { [ -z "${ROOT:-}" ] || guard_path "$1"; }; }
 bounded() { regular "$1" && [ "$(wc -c < "$1")" -le 131072 ]; }
-strict_json() { bounded "$1" && jq --stream -se 'map(select(length==2)|.[0]) | length==(unique|length)' "$1" >/dev/null; }
-safe_leaf() { [ ! -e "$1" ] && [ ! -L "$1" ] || regular "$1" || die "nonregular state leaf: $1"; }
+strict_json() {
+  bounded "$1" && jq --stream -n -e '
+    reduce inputs as $e ({seen:{},active:{},ok:true};
+      if ($e|length)==2 then
+        $e[0] as $p |
+        reduce range(0;($p|length)+1) as $n (.;
+          ($p[:$n]|tojson) as $k |
+          if .seen[$k] and (.active[$k]|not) then .ok=false else . end |
+          .seen[$k]=true |
+          if $n<($p|length) then .active[$k]=true else . end)
+      else ($e[0][:-1]|tojson) as $k | del(.active[$k]) end)
+    | .ok and (.seen|length>0) and (.active|length==0)' "$1" >/dev/null
+}
+safe_leaf() { guard_path "$1" && { [ ! -e "$1" ] && [ ! -L "$1" ] || regular "$1"; } || die "nonregular state leaf: $1"; }
 safe_touch() { safe_leaf "$1"; touch "$1"; }
 same_identity() { [ "$(printf '%s' "$1" | jq -Sc '{pane,session:{source:.session.source,agent:.session.agent,kind:.session.kind,value:.session.value}}')" = "$(printf '%s' "$2" | jq -Sc '{pane,session:{source:.session.source,agent:.session.agent,kind:.session.kind,value:.session.value}}')" ]; }
 now() { date +%s; }
@@ -31,35 +52,28 @@ root_init() {
   jq -en '"idle"|IN("idle","working")' >/dev/null && printf '{}' | jq --stream -se 'length>0' >/dev/null || die 'jq needs streaming and IN support'
   for d in state alerts ids enrolled card-events courier.lock watch.lock channel.lock herdr-mutation.lock; do
     if [ -e "$ROOT/$d" ] || [ -L "$ROOT/$d" ]; then
-      [ ! -L "$ROOT/$d" ] && [ -d "$ROOT/$d" ] && [ -z "$(find "$ROOT/$d" -type l -print)" ] || die 'symlink or invalid administrative state'
+      [ ! -L "$ROOT/$d" ] && [ -d "$ROOT/$d" ] || die 'symlink or invalid administrative state'
     fi
   done
   for d in peers peers.approved courier.log courier.log.previous; do safe_leaf "$ROOT/$d"; done
+  TIMING_STALE=
   if [ -e "$ROOT/state/timing.json" ]; then
-    strict_json "$ROOT/state/timing.json" || die 'invalid shared timing configuration'
-    stored_health=$(jq -er '.health' "$ROOT/state/timing.json") || die 'missing shared health threshold'
-    uint shared-health "$stored_health" 1 86400
-    [ -z "$supplied_health" ] || [ "$supplied_health" = "$stored_health" ] || die 'health threshold conflicts with shared timing'
-    HEALTH_AFTER=$stored_health
+    if strict_json "$ROOT/state/timing.json" &&
+       stored_health=$(jq -er '.health|select(type=="number" and floor==. and .>=1 and .<=86400)' "$ROOT/state/timing.json") &&
+       { [ -z "$supplied_health" ] || [ "$supplied_health" = "$stored_health" ]; }; then HEALTH_AFTER=$stored_health
+    else
+      TIMING_STALE=1
+      [ "${ROOT_READ_ONLY:-0}" = 1 ] || die 'invalid or conflicting shared timing configuration'
+    fi
   fi
-  # Operator creates this outside the inbox only after real exclusion/tracked-file
-  # checks. No Git dependency or Git call is hidden in the channel runtime.
-  local proof rule expected actual
-  proof=${HERDSMAN_PREFLIGHT:?set the externally prepared inbox preflight proof}
-  strict_json "$proof" || die 'missing strict preflight proof'
-  jq -e --arg root "$ROOT" '.inbox==$root and .excluded==true and .tracked_files==0 and
-    (.rules|type=="array" and length>0) and all(.rules[];
-    (.path|type=="string" and startswith("/")) and (.checksum|type=="string"))' "$proof" >/dev/null || die 'inbox exclusion not verified'
-  while IFS= read -r rule; do
-    expected=$(printf '%s' "$rule" | jq -r '.checksum')
-    rule=$(printf '%s' "$rule" | jq -r '.path')
-    regular "$rule" || die 'ignore rule file unavailable'
-    actual=$(digest "$rule")
-    [ "$actual" = "$expected" ] || die 'ignore rules changed; repeat external preflight'
-  done < <(jq -c '.rules[]' "$proof")
+  PROOF_STALE=
+  if ! preflight_valid; then
+    PROOF_STALE=1
+    [ "${ROOT_READ_ONLY:-0}" = 1 ] || die 'sandbox policy or protected installation proof stale; repeat human setup'
+  fi
   for d in state ids enrolled alerts; do
     [ ! -L "$ROOT/$d" ] || die "symlink: $d"
-    if [ "${ROOT_READ_ONLY:-0}" = 1 ]; then [ -d "$ROOT/$d" ] || die 'channel not initialized'; else mkdir -p "$ROOT/$d"; fi
+    if [ "${ROOT_READ_ONLY:-0}" != 1 ]; then mkdir -p "$ROOT/$d"; fi
   done
   LOCK_OWNED=; TMP=; COURIER_OWNED=; WATCH_OWNED=; MUTATION_OWNED=
   trap cleanup EXIT
@@ -130,6 +144,7 @@ valid_registry() {
   strict_json "$1" || return 1
   jq -e 'type=="object" and length<=2 and all(to_entries[];
     (.key|test("^[a-z][a-z0-9_-]{0,31}$")) and
+    (.key|IN("peers","state","ids","alerts","enrolled","card-events","setup")|not) and
     (.value|keys==["identity","role"]) and
     (.value.role=="adjutant" or .value.role=="orchestrator") and
     (.value.identity|keys==["pane","session"]) and
@@ -169,6 +184,7 @@ live_identity() {
 self_peer() {
   registry || die 'registry change awaiting human approval'
   SELF=$(peer "$1") || die 'unknown peer'
+  REGISTRY_SUM=$(digest "$ROOT/peers.approved")
   local observed expected
   expected=$(printf '%s' "$SELF" | jq -c '.identity')
   observed=$(live_identity "${HERDR_PANE_ID:?set own pane}") || die 'own identity unavailable'
@@ -184,53 +200,77 @@ log_line() {
   fi
   printf '%s %s\n' "$(now)" "$line" >> "$log" || die 'cannot record courier diagnostics'
 }
-notify() {
-  local key="$1" title="$2" body="$3"
-  safe_leaf "$ROOT/alerts/$key.sent"; safe_leaf "$ROOT/alerts/$key.pending"
-  [ ! -f "$ROOT/alerts/$key.sent" ] || return 0
-  atomic "$ROOT/alerts/$key.pending" jq -n --arg title "$title" --arg body "$body" '{title:$title,body:$body}' || return 1
-  alert_attempt "$key"
+alert_lock() {
+  mkdir "$ROOT/alerts/$1.lock" 2>/dev/null || return 1
+  printf '%s\n' "$$" > "$ROOT/alerts/$1.lock/pid"
 }
-alert_attempt() {
-  local key=$1 stamp reply age title body
+alert_unlock() { rm -f "$ROOT/alerts/$ALERT_KEY.lock/pid"; rmdir "$ROOT/alerts/$ALERT_KEY.lock"; }
+notify() (
+  local key=$1
+  ALERT_KEY=$1
+  alert_lock "$key" || exit 0
+  trap alert_unlock EXIT
+  safe_leaf "$ROOT/alerts/$key.sent"; safe_leaf "$ROOT/alerts/$key.pending"
+  [ ! -f "$ROOT/alerts/$key.sent" ] || exit 0
+  if [ ! -f "$ROOT/alerts/$key.pending" ]; then
+    atomic "$ROOT/alerts/$key.pending" jq -n --arg title "$2" --arg body "$3" '{title:$title,body:$body}' || exit 1
+  fi
+  alert_attempt_locked "$key"
+)
+alert_attempt() (
+  local key=$1
+  ALERT_KEY=$1
+  alert_lock "$key" || exit 0
+  trap alert_unlock EXIT
+  alert_attempt_locked "$key"
+)
+alert_attempt_locked() {
+  local key=$1 stamp reply age title body delay=5 failures=0 time
   stamp="$ROOT/alerts/$key.attempt"; safe_leaf "$stamp"
-  strict_json "$ROOT/alerts/$key.pending" || return 1
-  if [ -f "$stamp" ]; then age=$(( $(now) - $(mtime "$stamp") )); [ "$age" -ge 5 ] || return 0; fi
+  strict_json "$ROOT/alerts/$key.pending" || return 0
+  if regular "$ROOT/alerts/$key.failures"; then failures=$(cat "$ROOT/alerts/$key.failures"); fi
+  uint alert-failures "$failures" 0 10
+  delay=$((5 * (1 << failures))); [ "$delay" -le 300 ] || delay=300
+  if time=$(mtime "$stamp" 2>/dev/null); then age=$(( $(now)-time )); [ "$age" -ge "$delay" ] || return 0; fi
   safe_touch "$stamp"
   title=$(jq -er '.title|select(type=="string")' "$ROOT/alerts/$key.pending") || return 1
   body=$(jq -er '.body|select(type=="string")' "$ROOT/alerts/$key.pending") || return 1
   if reply=$(display_call notification show "$title" --body "$body" --sound request) &&
      printf '%s' "$reply" | jq -e '.result.shown==true' >/dev/null 2>&1; then
     safe_touch "$ROOT/alerts/$key.sent"
-    rm "$ROOT/alerts/$key.pending"
-  else log_line "ALERT PENDING $key"; fi
+    rm -f "$ROOT/alerts/$key.pending" "$ROOT/alerts/$key.failures"
+  else
+    [ "$failures" -ge 10 ] || failures=$((failures+1))
+    write_text "$ROOT/alerts/$key.failures" "$failures"; log_line "ALERT PENDING $key"
+  fi
 }
 retry_alerts() {
   local f
   for f in "$ROOT/alerts/"*.pending; do
     [ -e "$f" ] || continue
-    ( alert_attempt "$(basename "$f" .pending)" ) || printf 'HEALTH alert retry failed\n' >&2
+    alert_attempt "$(basename "$f" .pending)" || printf 'HEALTH alert retry failed\n' >&2
   done
 }
-resolve_alert() {
-  local key=$1 copy
-  # Preserve a failed notification as a historical retry, independent of health.
+resolve_alert() (
+  local key=$1
+  ALERT_KEY=$1
+  alert_lock "$key" || exit 0
+  trap alert_unlock EXIT
+  # Resolution ends retries for this incident. Keep payload as an explicit history.
   if regular "$ROOT/alerts/$key.pending"; then
-    copy=$(mktemp "$ROOT/alerts/resolved-$key.XXXXXX")
-    rm "$copy"
-    move_unique "$ROOT/alerts/$key.pending" "$copy.pending"
-    if regular "$ROOT/alerts/$key.attempt"; then mv "$ROOT/alerts/$key.attempt" "$copy.attempt"; fi
+    safe_leaf "$ROOT/alerts/$key.resolved"
+    mv -f "$ROOT/alerts/$key.pending" "$ROOT/alerts/$key.resolved"
   fi
-  rm -f "$ROOT/alerts/$key.sent" "$ROOT/alerts/$key.attempt"
-}
+  rm -f "$ROOT/alerts/$key.sent" "$ROOT/alerts/$key.attempt" "$ROOT/alerts/$key.failures"
+)
 envelope() {
   bounded "$1" || return 1
-  jq --stream -se 'map(select(length==2)|.[0]) | length==(unique|length)' "$1" >/dev/null || return 1
+  strict_json "$1" || return 1
   jq -e --arg file "$(basename "$1" .md)" '
     keys==["body","from","from_identity","id","kind","reply_to","time","to","to_identity","version"] and
     .version==1 and .id==$file and (.id|test("^m[0-9]{12}$")) and
     (.from|test("^[a-z][a-z0-9_-]{0,31}$")) and (.to|test("^[a-z][a-z0-9_-]{0,31}$")) and
-    (.kind|IN("brief","observation","question","result","cancel","user_answer","receipt")) and
+    (.kind|IN("brief","observation","question","result","cancel","user_answer","receipt","side_agent_data")) and
     (.reply_to=="" or (.reply_to|test("^m[0-9]{12}$"))) and
     (.time|type=="number" and floor==. and .>=0) and
     (.body|type=="string" and length<=65536) and
@@ -254,6 +294,7 @@ unacked() {
 }
 ack_valid() {
   local file="$1/ack/$2.md.json"
+  [ ! -L "$1" ] && [ ! -L "$1/ack" ] && [ ! -L "$1/cur" ] && [ ! -L "$ROOT/ids/$2" ] || return 1
   strict_json "$file" || return 1
   jq -e --arg id "$2" '.id==$id and (.claim|type=="string" and length>0) and
     (.time|type=="number") and (.processing_record|type=="string" and length>0) and
@@ -268,10 +309,24 @@ health_snapshot() {
     # Every installed setup includes the watcher. Fixture-only opt-out is explicit.
     [ "$role" != watch ] || [ "${WATCH_REQUIRED:-1}" = 1 ] || continue
     stamp="$ROOT/state/heartbeat"; [ "$role" != watch ] || stamp="$ROOT/state/watch-heartbeat"
-    age=999999; regular "$stamp" && age=$(( $(now)-$(mtime "$stamp") ))
+    age=999999
+    if regular "$stamp" && stamp=$(mtime "$stamp" 2>/dev/null); then age=$(( $(now)-stamp )); fi
     if [ "$age" -gt "$HEALTH_AFTER" ]; then printf '%s-down\n' "$role"; bad=1; fi
   done
-  if [ -d "$ROOT/herdr-mutation.lock" ] && [ $(( $(now)-$(mtime "$ROOT/herdr-mutation.lock") )) -gt "$HEALTH_AFTER" ]; then printf 'mutation-lock-stale\n'; bad=1; fi
+  for role in herdr-mutation channel; do
+    if [ -d "$ROOT/$role.lock" ] && stamp=$(mtime "$ROOT/$role.lock" 2>/dev/null) && [ $(( $(now)-stamp )) -gt "$HEALTH_AFTER" ]; then
+      [ "$role" != herdr-mutation ] || role=mutation
+      printf '%s-lock-stale\n' "$role"; bad=1
+    fi
+  done
+  for role in "$ROOT/alerts/"*.lock; do
+    if [ -d "$role" ] && stamp=$(mtime "$role" 2>/dev/null) && [ $(( $(now)-stamp )) -gt "$HEALTH_AFTER" ]; then
+      printf 'alert-lock-stale\n'; bad=1; break
+    fi
+  done
+  [ -z "${PROOF_STALE:-}" ] || { printf 'setup-proof-stale\n'; bad=1; }
+  [ -z "${TIMING_STALE:-}" ] || { printf 'timing-invalid\n'; bad=1; }
+  [ ! -e "$ROOT/state/automation-held" ] || { printf 'automation-held\n'; bad=1; }
   return "$bad"
 }
 health() {
@@ -283,4 +338,51 @@ health() {
     else resolve_alert "$role-down"; fi
   done
   [ -z "$flags" ] || { printf 'HEALTH %s\n' "$flags" >&2; return 1; }
+}
+
+preflight_valid() {
+  local expected path installed files
+  installed=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+  [ "${HERDSMAN_PREFLIGHT:-}" = "$ROOT/setup.json" ] || return 1
+  [ -n "${HERDSMAN_PREFLIGHT:-}" ] && strict_json "$HERDSMAN_PREFLIGHT" || return 1
+  jq -e --arg root "$ROOT" '.inbox==$root and .policy_verified==true and
+    (.rules|type=="array" and length>0) and (.scripts|type=="array" and length>0) and
+    all(.rules[],.scripts[]; keys==["checksum","path"] and
+      (.path|type=="string" and startswith("/") and (test("[\\t\\r\\n\\\\]")|not)) and
+      (.checksum|type=="string" and test("^[0-9]+-[0-9]+$")))' "$HERDSMAN_PREFLIGHT" >/dev/null || return 1
+  files=$(printf '%s\n' "$installed/"*.sh | jq -Rsc 'split("\n")[:-1]|sort')
+  jq -e --argjson files "$files" '(.scripts|length)==14 and ([.scripts[].path]|sort)==$files' "$HERDSMAN_PREFLIGHT" >/dev/null || return 1
+  while IFS=$'\t' read -r path expected; do
+    regular "$path" && [ "$(digest "$path")" = "$expected" ] || return 1
+  done < <(jq -r '.rules[],.scripts[]|[.path,.checksum]|@tsv' "$HERDSMAN_PREFLIGHT")
+}
+claim_valid() {
+  guard_path "$1/claim/token" && [ -d "$1/claim" ] && [ ! -L "$1/claim" ] && regular "$1/claim/token" && regular "$1/claim/owner"
+}
+commit_identity() {
+  registry && [ "$REGISTRY_SUM" = "$(digest "$ROOT/peers.approved")" ] || die 'registry changed during observation; retry'
+}
+boundary_ok() {
+  local agents
+  [ -z "$PROOF_STALE" ] && preflight_valid && registry || return 1
+  [ ! -e "$ROOT/state/boundary-tainted" ] || return 1
+  # Protected human setup pins roles separately from mutable queue records.
+  jq -e --slurpfile pair "$ROOT/peers.approved" '
+    .boundary as $b | $b.version==1 and $b.inventory_current==true and
+    $b.private_home==true and $b.human_checked==true and $b.protected_domain==true and
+    $b.pair==$pair[0] and ($b.courier_panes|type=="array") and
+    ($b.lower_trust|type=="array") and all($b.lower_trust[];
+      .sandbox==true and .inbox_denied==true and .socket_denied==true and
+      .code_denied==true and .proof_denied==true and
+      (.launch_hash|type=="string" and length>0) and (.identity|type=="object"))' \
+    "$HERDSMAN_PREFLIGHT" >/dev/null || return 1
+  agents=$(herdr agent list </dev/null) || return 1
+  printf '%s' "$agents" | jq -e --slurpfile proof "$HERDSMAN_PREFLIGHT" '
+    .result.agents as $agents | $proof[0].boundary as $b |
+    ($agents|type=="array" and length>0) and all($agents[];
+      . as $a | {pane:.pane_id,session:.agent_session} as $i |
+      any($b.pair[]; .identity==$i) or any($b.courier_panes[]; .==$i) or
+      any($b.lower_trust[]; .identity==$i and .harness==$a.agent)) and
+    all($b.lower_trust[]; .identity as $i |
+      any($agents[]; {pane:.pane_id,session:.agent_session}==$i))' >/dev/null
 }

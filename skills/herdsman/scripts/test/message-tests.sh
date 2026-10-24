@@ -8,7 +8,8 @@
 # Started from zsh or sh, re-run under /bin/bash (the line is valid in all three).
 [ -n "${BASH_VERSION:-}" ] || exec /bin/bash "$0" "$@"
 set -u
-SK=$(cd "$(dirname "$0")/.." && pwd)
+SK=$(cd "$(dirname "$0")/.." && pwd -P)
+MS="$SK/messages"
 T=${1:-${TMPDIR:-/tmp}/herdsman-msg-test-$$}
 mkdir -p "$T"
 T=$(cd "$T" && pwd -P)
@@ -31,12 +32,16 @@ nfiles() { # dir, glob: how many entries match
   echo "$n"
 }
 digest() { cksum < "$1" | awk '{print $1 "-" $2}'; }
+# The channel scripts live in scripts/messages; the phase-two adapters and the checkpointer in scripts.
+spath() { if [ -e "$MS/$1" ]; then printf '%s' "$MS/$1"; else printf '%s' "$SK/$1"; fi; }
+# The protected installation manifest of the setup proof: every channel script with its checksum.
+SCRIPTS=$(for f in "$MS"/*.sh; do jq -n --arg p "$f" --arg c "$(digest "$f")" '{checksum:$c,path:$p}'; done | jq -sc .)
 # msg <pane> <script> [args]: run one channel script as the given pane, with $ENVX as extra assignments.
 msg() {
   local pane=$1 script=$2; shift 2
   # shellcheck disable=SC2086
   env -i PATH="$CPATH" HOME="$HOME" HERDSMAN_INBOX="$C/inbox" FIXTURE="$C" HERDR_PANE_ID="$pane" HERDR_SOCKET_PATH= \
-    HERDSMAN_PREFLIGHT="$C/preflight.json" WATCH_REQUIRED=0 $ENVX /bin/bash "$SK/$script" "$@" 2>&1
+    HERDSMAN_PREFLIGHT="$C/inbox/setup.json" WATCH_REQUIRED=0 $ENVX /bin/bash "$(spath "$script")" "$@" 2>&1
 }
 courier() { local ENVX="RUN_FOR=1 $*"; msg courier-pane message-courier.sh; }
 send() { msg sender-pane message-send.sh "$A" "$O" "$C/body.txt" brief; }
@@ -55,9 +60,9 @@ verified_log() { cat "$C/inbox/state/"diagnostic-*.log 2>/dev/null | grep VERIFI
 # new_case <name> [noenroll]: a fresh private inbox with a preflight proof and two agents, enrolled and approved.
 new_case() {
   C="$T/$1"; mkdir -m 700 "$C" "$C/inbox"; : > "$C/calls.log"
-  printf '.herdsman/\n' > "$C/ignore-rule"
-  jq -n --arg inbox "$C/inbox" --arg rule "$C/ignore-rule" --arg sum "$(digest "$C/ignore-rule")" \
-    '{inbox:$inbox,excluded:true,tracked_files:0,rules:[{path:$rule,checksum:$sum}]}' > "$C/preflight.json"
+  printf 'sandbox policy\n' > "$C/ignore-rule"
+  jq -n --arg inbox "$C/inbox" --arg rule "$C/ignore-rule" --arg sum "$(digest "$C/ignore-rule")" --argjson scripts "$SCRIPTS" \
+    '{inbox:$inbox,policy_verified:true,rules:[{path:$rule,checksum:$sum}],scripts:$scripts}' > "$C/inbox/setup.json"
   set_agents sender-pane sender-session receiver-pane receiver-session
   printf 'full brief\n' > "$C/body.txt"
   [ "${2:-}" = noenroll ] && return 0
@@ -67,12 +72,23 @@ new_case() {
   touch "$C/inbox/state/heartbeat"
 }
 OB() { printf '%s' "$C/inbox/$O"; }
+# relay_boundary: record the protected human setup for the current agents: the approved pair pinned, and every
+# other live agent as a sandboxed lower-trust launch. message-authority.sh then prints RELAY.
+relay_boundary() {
+  jq --slurpfile pair "$C/inbox/peers.approved" --slurpfile ag "$C/agents.json" '
+    ([$pair[0][].identity]) as $ids |
+    .boundary={version:1,inventory_current:true,private_home:true,human_checked:true,protected_domain:true,
+      pair:$pair[0],courier_panes:[],
+      lower_trust:[$ag[0][] | {pane:.pane_id,session:.agent_session} as $i | select(any($ids[]; .==$i)|not) |
+        {identity:$i,harness:.agent,launch_hash:"fixture-check",sandbox:true,inbox_denied:true,socket_denied:true,
+         code_denied:true,proof_denied:true}]}' "$C/inbox/setup.json" > "$C/edit.tmp" && mv "$C/edit.tmp" "$C/inbox/setup.json"
+}
 
 echo "bash: $(/bin/bash --version | head -1)"
 for s in message-lib message-register message-send herdr-events message-courier message-wait message-read message-ack \
   message-status message-authority message card-watch resume-goal-when-idle publish-leak-gate \
   approval-gate transcript-audit checkpointer-guard checkpointer; do
-  if /bin/bash -n "$SK/$s.sh" 2>/dev/null; then pass=$((pass+1)); echo "PASS syntax $s"; else fail=$((fail+1)); echo "FAIL syntax $s"; fi
+  if /bin/bash -n "$(spath "$s.sh")" 2>/dev/null; then pass=$((pass+1)); echo "PASS syntax $s"; else fail=$((fail+1)); echo "FAIL syntax $s"; fi
 done
 
 # R: enrollment stores both full identities and holds them for the human's approval.
@@ -203,35 +219,63 @@ check "W3 a missing courier heartbeat wakes HEALTH" 'HEALTH courier-down' "$out"
 
 # P: the public grammar and the boundary decision.
 out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh bogus); check "P1 an unknown message command fails with the grammar" 'status\|wait\|read' "$out"
+for form in 'status extra' 'wait extra' 'read a b' 'release' 'ack a b' 'send a'; do
+  # shellcheck disable=SC2086
+  out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh $form); s=$?
+  check "P1b a wrong argument count prints the same grammar: $form" '^2 message: status\|wait\|read' "$s $out"
+done
 out=$(msg receiver-pane message-authority.sh); st=$?
 check "P2 no boundary proof: relayed gos authorize nothing outward" '^HUMAN' "$out"; check "P2b exit 3" '^3$' "$st"
-jq_edit '.boundary={version:1,private_home:true,inventory_current:true,lower_trust:[{name:"im-a",harness:"codex",launch_hash:"h",sandbox:true,inbox_denied:true,socket_denied:true}]}' "$C/preflight.json"
-check "P3 a complete fixture boundary permits RELAY" '^RELAY' "$(msg receiver-pane message-authority.sh)"
-jq_edit '.boundary.lower_trust[0].sandbox=false' "$C/preflight.json"
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+relay_boundary
+check "P3 a complete protected boundary permits RELAY" '^RELAY' "$(msg receiver-pane message-authority.sh)"
+jq_edit '.boundary.lower_trust[0].sandbox=false' "$C/inbox/setup.json"
 check "P3b one unsandboxed agent forces HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
-# Each A9 trigger alone forces HUMAN; a sandboxed Claude entry is the positive control for the Claude case.
+# Each trigger alone forces HUMAN; the restored boundary is the positive control after each one.
+relay_boundary; cp "$C/inbox/setup.json" "$C/setup.base"
 for edit in '.boundary.inventory_current=false:stale inventory' '.boundary.private_home=false:a shared home' \
-  '.boundary.lower_trust[0]|=(.harness="claude"|.sandbox=false):a Claude launch without sandbox' \
-  '.boundary.lower_trust[0]|=del(.socket_denied):no socket denial recorded'; do
-  jq_edit '.boundary.lower_trust[0].sandbox=true' "$C/preflight.json"; cp "$C/preflight.json" "$C/preflight.base"
-  jq_edit "${edit%%:*}" "$C/preflight.json"
+  '.boundary.human_checked=false:no human check' '.boundary.protected_domain=false:no protected domain' \
+  '.boundary.lower_trust[0]|=del(.socket_denied):no socket denial recorded' \
+  '.boundary.lower_trust[0].code_denied=false:code not denied' '.boundary.lower_trust[0].proof_denied=false:proof not denied' \
+  '.boundary.lower_trust=[]:a live agent missing from the inventory' \
+  '.boundary.pair={}:a pair that differs from the approved registry'; do
+  cp "$C/setup.base" "$C/inbox/setup.json"; jq_edit "${edit%%:*}" "$C/inbox/setup.json"
   check "P3c ${edit#*:} forces HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
-  mv "$C/preflight.base" "$C/preflight.json"
 done
-jq_edit '.boundary.lower_trust[0].harness="claude"' "$C/preflight.json"
-check "P3d a sandboxed Claude entry permits RELAY" '^RELAY' "$(msg receiver-pane message-authority.sh)"
-# The design leaves open whether an empty lower_trust list may relay; this pins the current result so a change shows.
-jq_edit '.boundary.lower_trust=[]' "$C/preflight.json"
-check "P3e an empty lower_trust list currently permits RELAY (open design question)" '^RELAY' "$(msg receiver-pane message-authority.sh)"
+cp "$C/setup.base" "$C/inbox/setup.json"
+jq_edit '.["task-pane"].agent_session.value="relaunched"' "$C/agents.json"
+check "P3d a relaunched lower-trust session is unknown and forces HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
+set_agents sender-pane sender-session receiver-pane receiver-session; relay_boundary
+check "P3e with only the pair live and an empty lower_trust list, RELAY" '^RELAY' "$(msg receiver-pane message-authority.sh)"
+touch "$C/inbox/state/boundary-tainted"
+check "P3f a recorded unsandboxed exposure forces HUMAN until human setup" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
 new_case unproven noenroll
-jq_edit '.excluded=false' "$C/preflight.json"
+jq_edit '.policy_verified=false' "$C/inbox/setup.json"
 out=$(msg sender-pane message-register.sh propose "$A" adjutant)
-check "P4 an inbox without a verified exclusion is refused" 'inbox exclusion not verified' "$out"
+check "P4 a setup proof without verified sandbox policies is refused" 'proof stale; repeat human setup' "$out"
 check "P4b before any state is created" '^no$' "$(yn "$C/inbox/state")"
-jq_edit '.excluded=true' "$C/preflight.json"; printf 'changed rule\n' >> "$C/ignore-rule"
+jq_edit '.policy_verified=true' "$C/inbox/setup.json"; printf 'changed rule\n' >> "$C/ignore-rule"
 out=$(msg sender-pane message-register.sh propose "$A" adjutant)
-check "P4c a changed ignore rule after the preflight is refused" 'ignore rules changed; repeat external preflight' "$out"
+check "P4c a changed sandbox policy file after the setup is refused" 'proof stale; repeat human setup' "$out"
 check "P4d before any state is created" '^no$' "$(yn "$C/inbox/state")"
+printf 'sandbox policy\n' > "$C/ignore-rule"; jq_edit '.scripts[0].checksum="1-1"' "$C/inbox/setup.json"
+out=$(msg sender-pane message-register.sh propose "$A" adjutant)
+check "P4e a changed protected script checksum is refused" 'proof stale; repeat human setup' "$out"
+jq --argjson s "$SCRIPTS" '.scripts=$s' "$C/inbox/setup.json" > "$C/edit.tmp" && mv "$C/edit.tmp" "$C/inbox/setup.json"
+# V3a: administrative names are reserved, so a peer can never be named like channel state.
+for reserved in setup peers state ids alerts; do
+  out=$(msg sender-pane message-register.sh propose "$reserved" adjutant)
+  check "V3a the reserved name $reserved cannot enroll" 'propose <name> adjutant|orchestrator' "$out"
+done
+check "V3b and no mailbox or state was created" '^no no$' "$(yn "$C/inbox/state") $(yn "$C/inbox/setup/new")"
+# V3c: an escaped key equal to another key is a duplicate.
+sed 's/^{/{"policy_\\u0076erified":true,/' "$C/inbox/setup.json" > "$C/edit.tmp" && mv "$C/edit.tmp" "$C/inbox/setup.json"
+out=$(msg sender-pane message-register.sh propose "$A" adjutant)
+check "V3c an escaped duplicate key in the setup proof is refused" 'proof stale; repeat human setup' "$out"
+jq --argjson s "$SCRIPTS" '.scripts=$s[1:]' "$C/inbox/setup.json" > "$C/edit.tmp" && mv "$C/edit.tmp" "$C/inbox/setup.json"
+out=$(msg sender-pane message-register.sh propose "$A" adjutant)
+check "P4f a manifest that leaves out an installed script is refused" 'proof stale; repeat human setup' "$out"
+check "P4g and no state exists" '^no$' "$(yn "$C/inbox/state")"
 
 # L: the publish leak gate.
 printf 'See /Users/someone/project for details.\n' > "$T/leak.md"
@@ -239,7 +283,7 @@ printf 'All checks passed on the current head.\n' > "$T/clean.md"
 # leak <file> [heading ...]: the gate in the same clean environment as the channel scripts.
 leak() {
   env -i PATH="$CPATH" HOME="$HOME" LEAK_ALLOW_FILE="${LEAK_ALLOW_FILE:-}" LEAK_PATTERN="${LEAK_PATTERN:-}" \
-    /bin/bash "$SK/publish-leak-gate.sh" "$@"
+    /bin/bash "$MS/publish-leak-gate.sh" "$@"
 }
 out=$(leak "$T/leak.md" 2>&1); st=$?
 check "L1 a private path fails the gate" 'LEAK' "$out"; check "L1b exit 1" '^1$' "$st"
@@ -359,15 +403,24 @@ jq -n '{"im-task":{role:"task-agent",identity:{pane:"task-pane",session:{source:
 printf 'Goal paused (/goal resume)\n' > "$C/screen-task-pane"
 touch "$C/allow-resume"
 prompts() { grep -c '^agent prompt' "$C/calls.log"; }
+# A14: without the protected boundary the resume is held, and nothing is typed.
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G0 under the HUMAN boundary the resume is held" '^HELD HUMAN boundary' "$out"
+check "G0b and no input was sent" '^0$' "$(prompts)"
+relay_boundary
 out=$(msg sender-pane resume-goal-when-idle.sh "$A"); check "G1 the adjutant is never a resume target" 'never adjutant' "$out"
 out=$(msg sender-pane resume-goal-when-idle.sh "$O"); check "G2 a target that is not Codex is refused" 'not Codex' "$out"
 touch "$C/inbox/state/route-frozen"
 out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G3 a user freeze holds the resume" 'HELD user pause or freeze' "$out"
 rm "$C/inbox/state/route-frozen"
 jq_edit '.["task-pane"].agent_status="working"' "$C/agents.json"
-out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G4 a busy turn waits" 'WAIT turn is not idle' "$out"
-jq_edit '.["task-pane"].agent_status="idle"|.["task-pane"].agent_session.value="drifted"' "$C/agents.json"
-out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G5 a changed session is refused" 'identity changed' "$out"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G4 a working turn is a no-op that clears any old intent" '^NOOP verified working' "$out"
+jq_edit '.["task-pane"].agent_status="idle"' "$C/agents.json"
+cp "$C/inbox/resume-targets.json" "$C/resume-targets.base"; jq_edit '.["im-task"].identity.session.value="drifted"' "$C/inbox/resume-targets.json"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G5 a registered identity that differs from the live session is refused" 'identity changed' "$out"
+mv "$C/resume-targets.base" "$C/inbox/resume-targets.json"
+jq_edit '.["task-pane"].agent_session.value="drifted"' "$C/agents.json"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G5b a relaunched live session is outside the inventory and held" '^HELD HUMAN boundary' "$out"
+jq_edit '.["task-pane"].agent_session.value="task-session"' "$C/agents.json"
 jq_edit '.["task-pane"].agent_session.value="task-session"' "$C/agents.json"
 touch "$C/read-failure"
 out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G6 a failed pane read is refused" 'pane read failed' "$out"
@@ -381,13 +434,18 @@ out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G9 a working tur
 new_case cards
 jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}]' > "$C/inbox/watch-targets.json"
 printf '%s\n' 'output line' '✦ Heads up · first finding' '✦ Heads up · second finding' 'Permission required' > "$C/screen-receiver-pane"
+# A14: without the protected boundary card relay is held and the human is alerted.
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "C0 under the HUMAN boundary no card is relayed" '^0$' "$(nfiles "$C/inbox/$A/new" '*.md')"
+check "C0b and the human is alerted" 'notification show' "$(cat "$C/calls.log")"
+relay_boundary
 ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
 AB="$C/inbox/$A"
 check "C1 every visible card is journaled" '^2$' "$(nfiles "$C/inbox/card-events" '*.json')"
-check "C2 and relayed once to the adjutant as observations" '^2 observation observation$' \
+check "C2 and relayed once to the adjutant with the dedicated side-agent kind" '^2 side_agent_data side_agent_data$' \
   "$(nfiles "$AB/new" '*.md') $(cat "$AB/new/"*.md | jq -r .kind | tr '\n' ' ' | sed 's/ $//')"
 check "C2b each relay is side-agent data from the orchestrator transport with the exact source" '^2$' \
-  "$(cat "$AB/new/"*.md | jq -s --arg o "$O" '[.[] | select(.from==$o and .kind=="observation" and
+  "$(cat "$AB/new/"*.md | jq -s --arg o "$O" '[.[] | select(.from==$o and .kind=="side_agent_data" and
     (.body|rtrimstr("\n")|fromjson|.version==1 and .type=="side_agent_data" and (.id|type=="string" and length>0) and
      .source=={pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}))] | length')"
 check "C2c and keeps each card's text and notice ID" '^first finding second finding 2$' \
@@ -403,12 +461,12 @@ check "C5b and the drift alerts" 'notification show Notice monitor identity chan
 
 # X: strict administrative JSON, shared timing, locks, claim links, concurrency and data-only bodies.
 new_case strict
-sed 's/^{/{"excluded":true,/' "$C/preflight.json" > "$C/edit.tmp" && mv "$C/edit.tmp" "$C/preflight.json"
-out=$(send); check "X1 a duplicate preflight key is refused" 'missing strict preflight proof' "$out"
+sed 's/^{/{"policy_verified":true,/' "$C/inbox/setup.json" > "$C/edit.tmp" && mv "$C/edit.tmp" "$C/inbox/setup.json"
+out=$(send); check "X1 a duplicate setup proof key is refused" 'proof stale; repeat human setup' "$out"
 new_case timing
 courier >/dev/null
 out=$(ENVX="HEALTH_AFTER=99" msg sender-pane message-send.sh "$A" "$O" "$C/body.txt" brief)
-check "X2 a health threshold that conflicts with the courier's timing is refused" 'conflicts with shared timing' "$out"
+check "X2 a health threshold that conflicts with the courier's timing is refused" 'invalid or conflicting shared timing' "$out"
 out=$(ENVX="DEADLINE=2 RECHECK=1 WATCH_REQUIRED=1" msg receiver-pane message-wait.sh "$O")
 check "X3 a missing watcher heartbeat wakes HEALTH with the courier fresh" 'HEALTH watch-down' "$out"
 send >/dev/null
@@ -516,7 +574,7 @@ for leaf in peers peers.approved state/test.json enrolled/test.json alerts/test.
   write_text "$ROOT/$leaf" 1; if atomic "$ROOT/$leaf" producer; then exit 9; fi; [ "$(cat "$ROOT/$leaf")" = 1 ] || exit 8
 done'
 env -i PATH="$CPATH" HOME="$HOME" HERDSMAN_INBOX="$C/inbox" FIXTURE="$C" HERDR_PANE_ID=courier-pane HERDR_SOCKET_PATH= \
-  HERDSMAN_PREFLIGHT="$C/preflight.json" WATCH_REQUIRED=0 /bin/bash -c '. "$1"; root_init; '"$code" probe "$SK/message-lib.sh" >/dev/null 2>&1
+  HERDSMAN_PREFLIGHT="$C/inbox/setup.json" WATCH_REQUIRED=0 /bin/bash -c '. "$1"; root_init; '"$code" probe "$MS/message-lib.sh" >/dev/null 2>&1
 check "F8 a failed producer leaves every class of state file unchanged" '^0$' "$?"
 new_case fail-jq-feature noenroll
 printf 'IN(\n' > "$C/fail-jq"
@@ -529,13 +587,13 @@ for variant in system gnu; do
   [ "$variant" = gnu ] && touch "$C/stat-gnu"
   send >/dev/null; perl -e 'utime 100, 100, $ARGV[0]' "$(OB)/new/$ID.md"
   # Without the marker awk would copy the main loop; fail the case instead of running it.
-  grep -q "^log_line 'courier start'" "$SK/message-courier.sh" || { fail=$((fail+1)); echo "FAIL F10 courier start marker missing"; break; }
-  awk "/^log_line 'courier start'/{exit} {print}" "$SK/message-courier.sh" > "$C/courier-functions.sh"
+  grep -q "^log_line 'courier start'" "$MS/message-courier.sh" || { fail=$((fail+1)); echo "FAIL F10 courier start marker missing"; break; }
+  awk "/^log_line 'courier start'/{exit} {print}" "$MS/message-courier.sh" > "$C/courier-functions.sh"
   for at in 101 102 103; do
     printf '%s\n' "$at" > "$C/fixed-now"
     env -i PATH="$FB:$CPATH" HOME="$HOME" HERDSMAN_INBOX="$C/inbox" FIXTURE="$C" HERDR_PANE_ID=courier-pane HERDR_SOCKET_PATH= \
-      HERDSMAN_PREFLIGHT="$C/preflight.json" WATCH_REQUIRED=0 ALERT_AFTER=2 SWEEP=1 \
-      /bin/bash -c '. "$1"; sweep' "$SK/message-courier.sh" "$C/courier-functions.sh" >/dev/null 2>&1
+      HERDSMAN_PREFLIGHT="$C/inbox/setup.json" WATCH_REQUIRED=0 ALERT_AFTER=2 SWEEP=1 \
+      /bin/bash -c '. "$1"; sweep' "$MS/message-courier.sh" "$C/courier-functions.sh" >/dev/null 2>&1
     printf '%s ' "$(grep -c 'notification show Unread messages' "$C/calls.log")" >> "$C/alerts-by-time"
   done
   check "F10 $variant stat: no alert one second early, one at the exact age, none repeated" '^0 1 1 $' "$(cat "$C/alerts-by-time")"
@@ -595,8 +653,8 @@ check "S8b after the human clears it, a complete claim is written" "^$token yes\
 new_case alert-link
 printf 'original\n' > "$C/untouched"; ln -s "$C/untouched" "$C/inbox/alerts/courier-down.pending"
 touch -t 202001010000 "$C/inbox/state/heartbeat"
-ENVX="DEADLINE=1 RECHECK=1" msg receiver-pane message-wait.sh "$O" >/dev/null; s=$?
-check "S9 a linked alert state file stops the waiter and is not followed" '^2 original$' "$s $(cat "$C/untouched")"
+out=$(ENVX="DEADLINE=1 RECHECK=1" msg receiver-pane message-wait.sh "$O"); s=$?
+check "S9 a linked alert state file wakes the waiter with HEALTH and is not followed" '^1 original HEALTH' "$s $(cat "$C/untouched") $out"
 new_case lock-owner-link
 printf 'outside\n' > "$C/outside"; mkdir "$C/inbox/courier.lock"; ln -s "$C/outside" "$C/inbox/courier.lock/pid"
 msg receiver-pane message-status.sh >/dev/null; s=$?
@@ -676,11 +734,15 @@ check "CP7 drift after the memory prompt stops the compact input" '^1 agent prom
 cpcase ckpt-unknown
 rc=$(ckpt receiver-pane "HERDSMAN_ORCHESTRATOR=route-nobody")
 check "CP8 an unknown orchestrator name gets no input" '^1 .*unknown orchestrator' "$rc $(sent) $(grep 'identity check' "$C/ckpt.log")"
+cpcase ckpt-stale
+jq_edit '.policy_verified=false' "$C/inbox/setup.json"
+rc=$(ckpt receiver-pane "HERDSMAN_ORCHESTRATOR=$O")
+check "CP9 a stale setup proof gets no input" '^1 .*proof stale' "$rc $(sent) $(grep 'identity check' "$C/ckpt.log")"
 
 # AG: the executor adapter checks a relayed go's boundary, bindings, trusted interaction, expiry and cancellation,
 # records consumption before the effect, and returns the recorded outcome for a duplicate.
 new_case gate
-jq_edit '.boundary={version:1,private_home:true,inventory_current:true,lower_trust:[{name:"im-a",harness:"codex",launch_hash:"h",sandbox:true,inbox_denied:true,socket_denied:true}]}' "$C/preflight.json"
+relay_boundary
 printf 'reviewed text\n' > "$C/draft.txt"
 APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"
 gojson() { # request-id expires-offset [jq edit]
@@ -729,10 +791,13 @@ check "AG10b nothing consumed and the lock is not removed" '^no yes$' "$(yn "$AP
 rmdir "$APR/action.lock"
 out=$(gate complete r12 posted); check "AG11 an outcome without a consumption is refused" 'no consumption recorded.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
 gojson r13 600
-jq_edit '.boundary.lower_trust[0].sandbox=false' "$C/preflight.json"
+jq_edit '.boundary.human_checked=false' "$C/inbox/setup.json"
 out=$(consume r13); check "AG12 the HUMAN boundary consumes nothing" '^HUMAN.*rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
 check "AG12b and records nothing" '^no$' "$(yn "$APR/consumed/r13.json")"
-jq_edit '.boundary.lower_trust[0].sandbox=true' "$C/preflight.json"
+jq_edit '.boundary.human_checked=true' "$C/inbox/setup.json"
+jq_edit '.policy_verified=false' "$C/inbox/setup.json"
+out=$(consume r13); check "AG12c a stale setup proof consumes nothing" 'proof stale.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+jq_edit '.policy_verified=true' "$C/inbox/setup.json"
 out=$(gate consume "$C/go-r13.json" post pr-comment head1 -); check "AG13 no draft for a draft-bound go is refused" 'draft differs.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
 gojson r14 600 '.draft_hash="none"'
 out=$(gate consume "$C/go-r14.json" post pr-comment head1 -); check "AG13b a go without a draft binds to no draft" '^CONSUME r14.*rc=0' "$(printf '%s' "$out" | tr '\n' ' ')"
@@ -849,11 +914,11 @@ before=$(digest "$TC/flagged.jsonl"); aud claude "$TC/flagged.jsonl" coord-sessi
 check "TA7 the audit leaves the transcript unchanged" "^$before\$" "$(digest "$TC/flagged.jsonl")"
 
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
-READS='^(agent get|agent list|pane report-metadata|notification show|pane read)( |$)'
+READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read)( |$)'
 nocheck "N1 no other call reached the fake herdr" '.' \
   "$(for f in "$T"/*/calls.log; do [ "$f" = "$T/resume/calls.log" ] || [ "${f#"$T"/ckpt-}" != "$f" ] || grep -v -E "$READS" "$f"; done)"
 nocheck "N1b the resume case sent only the exact resume input" '.' \
-  "$(grep -v -E "$READS" "$T/resume/calls.log" | grep -v -x 'agent prompt task-pane /goal resume')"
+  "$(grep -v -E "$READS" "$T/resume/calls.log" | grep -v -x -e 'agent prompt task-pane /goal resume' -e 'tab focus fixture-tab')"
 nocheck "N1c the checkpointer cases prompted only the orchestrator pane" '.' \
   "$(for f in "$T"/ckpt-*/calls.log; do grep -v -E "$READS" "$f" | grep -v -E '^(agent wait [^ ]+ .*|agent prompt receiver-pane (/save-memory|/compact))$'; done)"
 

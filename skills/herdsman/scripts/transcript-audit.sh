@@ -83,7 +83,7 @@ shell_class() { # command -> "class program" (the program word only, never argum
 # Command text cannot show what a script does, so every script or interpreter run is not clean unless it starts
 # one of the channel scripts by its exact path under AUDIT_CHANNEL_DIR (the installed script folder).
 CHANNEL='message.sh message-register.sh message-send.sh message-read.sh message-ack.sh message-status.sh
-  message-wait.sh message-authority.sh publish-leak-gate.sh transcript-audit.sh'
+  message-wait.sh message-authority.sh publish-leak-gate.sh'
 channel_script() {
   local n
   [ -n "${AUDIT_CHANNEL_DIR:-}" ] || return 1

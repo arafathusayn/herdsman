@@ -8,15 +8,21 @@ export ROOT_READ_ONLY=1; root_init
 health_snapshot || :
 for role in courier watch; do
   pid=none; age=unknown
+  if [ -d "$ROOT/$role.lock" ]; then safe_leaf "$ROOT/$role.lock/pid"; fi
   if regular "$ROOT/$role.lock/pid"; then pid=$(cat "$ROOT/$role.lock/pid"); fi
   stamp="$ROOT/state/heartbeat"; [ "$role" != watch ] || stamp="$ROOT/state/watch-heartbeat"
-  [ ! -f "$stamp" ] || age=$(( $(now)-$(mtime "$stamp") ))
+  if stamp=$(mtime "$stamp" 2>/dev/null); then age=$(( $(now)-stamp )); fi
   printf '%s pid=%s heartbeat-age=%s; PID existence alone is not proof of health\n' "$role" "$pid" "$age"
 done
 valid=no; approved=no
 if valid_registry "$ROOT/peers" && valid_registry "$ROOT/peers.approved"; then valid=yes; registry && approved=yes; fi
 printf 'registry valid=%s approved=%s pending=%s\n' "$valid" "$approved" "$(if [ "$approved" = yes ]; then printf no; else printf yes; fi)"
-jq -c 'to_entries[]|{name:.key,role:.value.role,pane:.value.identity.pane,session:.value.identity.session}' "$ROOT/peers.approved"
+if valid_registry "$ROOT/peers.approved"; then jq -c 'to_entries[]|{name:.key,role:.value.role,pane:.value.identity.pane,session:.value.identity.session}' "$ROOT/peers.approved"; fi
+printf 'authority=foreground-check required-adapters=sandbox,provenance,capture,wake,audit,checkpoint\n'
+for f in "$ROOT/state/route-paused" "$ROOT/state/route-frozen" "$ROOT/state/automation-held" "$ROOT/state/"hold-* "$ROOT/state/"resume-*.sent; do [ ! -e "$f" ] || printf 'hold-or-intent: %s\n' "$(basename "$f")"; done
+pending_alerts=0
+for f in "$ROOT/alerts/"*.pending; do [ ! -f "$f" ] || pending_alerts=$((pending_alerts+1)); done
+printf 'pending-alerts=%s\n' "$pending_alerts"
 for box in "$ROOT/"*; do
   [ -d "$box/new" ] || continue
   [ ! -L "$box" ] || die 'mailbox symlink'
@@ -24,7 +30,7 @@ for box in "$ROOT/"*; do
   printf '%s orphan=%s new=%s ready=%s cur=%s quarantine=%s\n' "$(basename "$box")" "$orphan" "$(count_state "$box/new")" "$(count_state "$box/ready")" "$(count_state "$box/cur")" "$(count_state "$box/quarantine")"
   total=0
   while IFS= read -r pending; do [ -z "$pending" ] || total=$((total+1)); done < <(unacked "$box")
-  printf 'unacknowledged=%s claim=%s\n' "$total" "$(if [ -f "$box/claim/token" ]; then printf held; elif [ -d "$box/claim" ]; then printf incomplete; else printf none; fi)"
+  printf 'unacknowledged=%s claim=%s\n' "$total" "$(if claim_valid "$box"; then printf held; elif [ -d "$box/claim" ]; then printf incomplete; else printf none; fi)"
   for state in new ready cur quarantine; do
     [ ! -L "$box/$state" ] || die 'state symlink'
     for f in "$box/$state/"*.md; do
@@ -36,7 +42,7 @@ for box in "$ROOT/"*; do
     done
   done
   for f in "$box/tmp/"* "$box/tmp/".[!.]*; do [ ! -e "$f" ] || printf 'partial write: %s\n' "$f"; done
-  for f in "$box/notices/"*.json; do [ ! -f "$f" ] || jq -c '{id,to,state,authority}' "$f"; done
+  for f in "$box/notices/"*.json; do [ ! -f "$f" ] || jq -c '{id,to,state,authority}' "$f" || printf 'invalid notice\n' ; done
 done
 for f in "$ROOT/alerts/"*.pending; do regular "$f" && cat "$f"; done
 :

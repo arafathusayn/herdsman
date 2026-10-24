@@ -27,7 +27,10 @@ while :; do
         regular "$notice" || continue
         notices="$notices $(basename "$notice"):$(digest "$notice")"
       done
-      pending=$(count_state "$ROOT/$ME/new")
+      for pending_file in "$ROOT/$ME/new/"*.md; do
+        stamp=$(mtime "$pending_file" 2>/dev/null) || continue
+        if [ $((t-stamp)) -gt "${sweep:-60}" ]; then pending=$((pending+1)); fi
+      done
     fi
     fingerprint=$(printf '%s\n' "$found" "$notices" "$pending" "$flags" "$fault" | cksum | awk '{print $1 "-" $2}')
     previous=; state="$ROOT/state/wait-$ME"

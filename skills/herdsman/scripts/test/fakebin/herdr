@@ -37,6 +37,13 @@ if [ -n "${FIXTURE:-}" ]; then
       if [ -f "$FIXTURE/read-failure" ]; then echo '{"error":{"code":"unavailable"}}'; exit 1; fi
       if [ -f "$FIXTURE/screen-$3" ]; then cat "$FIXTURE/screen-$3"; else echo 'idle prompt'; fi
       exit 0 ;;
+    'pane list')
+      # Every fixture pane sits in one focused tab, so the resume helper can capture and restore it.
+      jq -c '{id:"fixture-response",result:{type:"pane_list",panes:[.[]|{pane_id,tab_id,focused:true}]}}' "$FIXTURE/agents.json"
+      exit 0 ;;
+    'tab focus')
+      echo '{"id":"fixture-response","result":{"type":"ok"}}'
+      exit 0 ;;
     'agent wait')
       echo '{"id":"fixture-response","result":{"type":"ok"}}'
       exit 0 ;;

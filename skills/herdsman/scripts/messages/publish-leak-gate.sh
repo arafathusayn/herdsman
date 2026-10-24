@@ -26,29 +26,24 @@ scan() {
 }
 scan "$pattern"
 [ -z "${LEAK_PATTERN:-}" ] || scan "$LEAK_PATTERN"
-if ! awk '
-  { s=$0; sub(/^[[:space:]]*/,"",s)
-    if (s ~ /^```/ || s ~ /^~~~/) {
-      c=substr(s,1,1); n=0; while(substr(s,n+1,1)==c) n++
-      if (!opened) { opened=1; mark=c; width=n; body=0; next }
-      rest=substr(s,n+1)
-      if (c==mark && n>=width && rest ~ /^[[:space:]]*$/) {
-        if (!body) bad=1; opened=0; next
+check_structure() {
+  awk -v wanted="$1" '
+    { s=$0; sub(/^[[:space:]]*/,"",s)
+      if (s ~ /^```/ || s ~ /^~~~/) {
+        c=substr(s,1,1); n=0; while(substr(s,n+1,1)==c) n++
+        if (!opened) { opened=1; mark=c; width=n; content=0; next }
+        rest=substr(s,n+1)
+        if (c==mark && n>=width && rest ~ /^[[:space:]]*$/) {
+          if (!content) bad=1; opened=0; next
+        }
       }
+      if (!opened && /^#/) { active=($0==wanted); if(active) seen=1; next }
+      if (NF) { if(opened) content=1; if(active) body=1 }
     }
-    if (opened && s !~ /^[[:space:]]*$/) body=1
-  }
-  END { if (opened || bad) exit 1 }' "$input"; then
-  echo 'EMPTY, incomplete, or unreadable code fence: restore content' >&2; exit 1
-fi
+    END { exit (opened || bad || (wanted!="" && !(seen && body))) }' "$input"
+}
+check_structure '' || { echo 'EMPTY, incomplete, or unreadable code fence: restore content' >&2; exit 1; }
 for heading in "$@"; do
-  if ! awk -v wanted="$heading" '
-    /^[[:space:]]*(```|~~~)/ {fence=!fence; next}
-    $0==wanted {seen=1; active=1; next}
-    /^#/ && !fence {active=0}
-    active && NF && $0 !~ /^[[:space:]]*(```|~~~)/ {body=1}
-    END {exit !(seen && body)}' "$input"; then
-    echo "missing or empty required section: $heading" >&2; exit 1
-  fi
+  check_structure "$heading" || { echo "missing or empty required section: $heading" >&2; exit 1; }
 done
 echo 'pattern and structure checks passed; manual policy/read-back review required'

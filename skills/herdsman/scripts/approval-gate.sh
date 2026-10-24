@@ -6,10 +6,11 @@
 # cancels/<request-id>.json, consumed/<request-id>.json and action.lock.
 # Exit 0: CONSUME or completed; 1: refused, a new go is needed; 2: error or busy lock; 3: HUMAN boundary;
 # 4: DUPLICATE, the recorded outcome stands; 5: RECONCILE, a consumption has no outcome: inspect external state first.
-. "$(dirname "$0")/message-lib.sh"
+. "$(dirname "$0")/messages/message-lib.sh"
 refuse() { printf 'REFUSED %s\n' "$*"; exit 1; }
 ref_ok() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; }
 export ROOT_READ_ONLY=1; root_init
+[ -z "$PROOF_STALE" ] || die 'sandbox policy or protected installation proof stale; repeat human setup'
 AP="$ROOT/approvals" GATE_OWNED=
 for d in "$AP" "$AP/interactions" "$AP/cancels" "$AP/consumed"; do
   [ ! -L "$d" ] || die "symlink approval state: $d"; mkdir -p "$d"
@@ -29,7 +30,7 @@ case "${1:-}" in
   consume)
     [ $# = 6 ] || die 'usage: approval-gate.sh consume <go-file> <action> <target> <revision> <draft-file|->'
     GO=$2 ACTION=$3 TARGET=$4 REVISION=$5 DRAFT=$6
-    out=$(/bin/bash "$(dirname "$0")/message-authority.sh" 2>&1) || { printf '%s\n' "$out"; exit 3; }
+    out=$(/bin/bash "$(dirname "$0")/messages/message-authority.sh" 2>&1) || { printf '%s\n' "$out"; exit 3; }
     strict_json "$GO" || refuse 'go is not strict JSON'
     jq -e 'type=="object" and .version==1 and .type=="user_go" and
       (.expires_at|type=="number" and floor==.) and

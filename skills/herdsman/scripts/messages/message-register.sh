@@ -14,6 +14,8 @@ case "$action" in
   *) die 'unknown registry action' ;;
 esac
 root_init
+identity=
+if [ "$action" = propose ]; then identity=$(live_identity "${HERDR_PANE_ID:?set own pane}") || die 'cannot enroll current session'; fi
 lock
 if [ ! -e "$ROOT/peers" ]; then write_text "$ROOT/peers" '{}'; fi
 if [ ! -e "$ROOT/peers.approved" ]; then write_text "$ROOT/peers.approved" '{}'; fi
@@ -25,7 +27,6 @@ case "$action" in
     [ ! -e "$ROOT/enrolled/$name.retired" ] || die 'retired name; use a fresh generation'
     name_ok "$name" || die 'invalid name'
     case "$role" in adjutant|orchestrator) ;; *) die 'invalid role' ;; esac
-    identity=$(live_identity "${HERDR_PANE_ID:?set own pane}") || die 'cannot enroll current session'
     candidate=$(jq -nc --arg r "$role" --argjson i "$identity" '{role:$r,identity:$i}')
     if [ -e "$ROOT/enrolled/$name.json" ]; then
       jq -e --argjson candidate "$candidate" '.==$candidate' "$ROOT/enrolled/$name.json" >/dev/null || die 'name is immutable; use a fresh generation name'

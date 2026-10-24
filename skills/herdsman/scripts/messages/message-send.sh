@@ -5,17 +5,29 @@
 FROM=$1; TO=$2; BODY=$3; KIND=$4; REPLY=${5:-}
 name_ok "$FROM" && name_ok "$TO" || die 'invalid name'
 bounded "$BODY" && [ "$(wc -c < "$BODY")" -le 65536 ] || die 'body must be a bounded readable regular file'
-case "$KIND" in brief|observation|question|result|cancel|user_answer|receipt) ;; *) die 'invalid kind' ;; esac
+case "$KIND" in brief|observation|question|result|cancel|user_answer|receipt|side_agent_data) ;; *) die 'invalid kind' ;; esac
 [ -z "$REPLY" ] || id_ok "$REPLY" || die 'invalid reply id'
 root_init
-lock
 self_peer "$FROM"
+lock; commit_identity
 recipient=$(peer "$TO") || die 'unknown peer'
 if [ -n "$REPLY" ]; then regular "$ROOT/ids/$REPLY/envelope" || die 'unknown reply id'; fi
 box_init "$TO"
-backlog=$(unacked "$ROOT/$TO" | wc -l | tr -d ' ')
-backlog=$((backlog + $(count_state "$ROOT/$TO/new") + $(count_state "$ROOT/$TO/quarantine")))
-[ "$backlog" -lt 1000 ] || die 'pending backlog full; inspect status'
+backlog=0; service=0; source_count=0; source_identity=null
+if [ "$KIND" = side_agent_data ]; then
+  source_identity=$(jq -ce '.source|select(type=="object" and keys==["pane","session"])' "$BODY") || die 'side-agent source identity required'
+fi
+for f in "$ROOT/$TO/new/"*.md "$ROOT/$TO/ready/"*.md "$ROOT/$TO/cur/"*.md "$ROOT/$TO/quarantine/"*.md; do
+  [ -e "$f" ] || continue
+  ack_valid "$ROOT/$TO" "$(basename "$f" .md)" && continue
+  if bounded "$f" && jq -e '.kind=="side_agent_data"' "$f" >/dev/null 2>&1; then
+    service=$((service+1))
+    if [ "$KIND" = side_agent_data ] && jq -e --argjson source "$source_identity" '.body|fromjson|.source==$source' "$f" >/dev/null 2>&1; then source_count=$((source_count+1)); fi
+  else backlog=$((backlog+1)); fi
+done
+if [ "$KIND" = side_agent_data ]; then
+  [ "$service" -lt 32 ] && [ "$source_count" -lt 8 ] || die 'side-agent budget full; human inspection required'
+else [ "$backlog" -lt 1000 ] || die 'pending backlog full; inspect status'; fi
 sequence=0
 if [ -f "$ROOT/state/sequence" ]; then sequence=$(cat "$ROOT/state/sequence"); fi
 [[ "$sequence" =~ ^(0|[1-9][0-9]{0,11})$ ]] && [ "$sequence" -lt 999999999999 ] || die 'invalid/exhausted sequence'

@@ -5,11 +5,11 @@
 ME=$1; TOKEN=${2:-}; ACTION=${3:-}
 [ -z "$ACTION" ] || [ "$ACTION" = --release ] || die 'unknown read option'
 root_init
-lock; self_peer "$ME"; box_init "$ME"
+self_peer "$ME"; lock; commit_identity; box_init "$ME"
 box="$ROOT/$ME"
 [ ! -L "$box/claim" ] || die 'claim symlink'
 if [ -d "$box/claim" ]; then
-  regular "$box/claim/token" && regular "$box/claim/owner" && [ -n "$TOKEN" ] && [ "$TOKEN" = "$(cat "$box/claim/token")" ] || die 'reader claim held; recover with the recorded token, do not start another reader'
+  claim_valid "$box" && [ -n "$TOKEN" ] && [ "$TOKEN" = "$(cat "$box/claim/token")" ] || die 'reader claim held; recover with the recorded token, do not start another reader'
 else
   [ -z "$TOKEN" ] && [ -z "$ACTION" ] || die 'no such active claim'
   claim_stage=$(mktemp -d "$box/tmp/.claim.XXXXXX"); TOKEN=$(basename "$claim_stage")
@@ -41,6 +41,7 @@ for f in "$box/cur/"*.md; do
   [ ! -e "$ROOT/ids/$(basename "$f" .md)/terminal.json" ] || die 'terminal cur replay held; reconcile archive'
   envelope "$f" || die 'invalid cur envelope'
   jq -e --argjson peer "$SELF" '.to_identity==$peer.identity' "$f" >/dev/null || die 'recipient generation mismatch'
+  write_text "$ROOT/ids/$(basename "$f" .md)/claim" "$TOKEN"
   jq -c --arg path "$f" --arg claim "$TOKEN" '{type:"manifest",id,from,to,kind,time,reply_to,path:$path,claim:$claim,authority:"data-only"}' "$f"
 done
 jq -nc --argjson pending "$(count_state "$box/new")" --argjson quarantine "$(count_state "$box/quarantine")" '{type:"summary",pending_new:$pending,quarantine:$quarantine}'
