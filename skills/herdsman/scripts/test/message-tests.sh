@@ -1590,6 +1590,18 @@ check "V3R13 two unavailable checks keep the message in new" '^yes no$' "$(yn "$
 rm "$C/get-failure"; courier >/dev/null
 check "V3R13b the next available check delivers it" '^no yes$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
 
+# V3R14: an alert incident has one owner: a resolution while another process owns the alert waits, and completes
+# after the owner releases it.
+new_case v3r-alert-owner
+printf '{"title":"Message courier unavailable","body":"inspect"}\n' > "$C/inbox/alerts/courier-down.pending"
+mkdir "$C/inbox/alerts/courier-down.lock"
+send >/dev/null
+check "V3R14 a resolution under another owner leaves the incident pending" '^yes no$' "$(yn "$C/inbox/alerts/courier-down.pending") $(yn "$C/inbox/alerts/courier-down.resolved")"
+check "V3R14b and does not take the owner's lock" '^yes$' "$(yn "$C/inbox/alerts/courier-down.lock")"
+rmdir "$C/inbox/alerts/courier-down.lock"
+msg sender-pane message-send.sh "$A" "$O" "$C/body.txt" brief >/dev/null
+check "V3R14c after the release the resolution completes" '^no yes$' "$(yn "$C/inbox/alerts/courier-down.pending") $(yn "$C/inbox/alerts/courier-down.resolved")"
+
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
 READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read|nc -U)( |$)'
 nocheck "N1 no other call reached the fake herdr" '.' \
