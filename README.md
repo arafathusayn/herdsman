@@ -24,6 +24,7 @@ herdsman is a skill for coding agents. You talk to one agent, the orchestrator, 
 - [Features](#features)
 - [Install](#install)
 - [Usage](#usage)
+- [Web app](#web-app)
 - [Requirements](#requirements)
 - [Develop](#develop)
 - [Design notes](#design-notes)
@@ -153,6 +154,34 @@ In the orchestrator session, inside herdr:
 | `--prompt "<text>"` | the script's default | The memory checkpoint prompt |
 | `--compact "<command>"` | `/compact` | The harness's compact command |
 | `--side right\|down` | `right` | Where the new pane goes (`start` only) |
+
+## Web app
+
+`herdsman web` serves a browser app that shows and steers the team: a board of every agent by role or status, each agent's live terminal with its keys and a prompt box, the route's checklist, run state, docs and code changes, the HTML pages agents wrote, and the adjutant's messages. It is one Go binary with the app inside; nothing else runs on your machine.
+
+```sh
+make build              # from a clone: needs Go and Bun, builds bin/herdsman
+bin/herdsman web --open
+```
+
+It prints a URL with a one-run token. The browser that opens it must type a 6-digit pairing code that the same terminal prints, so a leaked link alone controls nothing. A paired browser keeps a device secret for that host until the server stops.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--port <n>` | `7878` | Port to listen on; `0` picks a free one |
+| `--host <ip>` | `127.0.0.1` | Listen on one other address, such as a LAN or Tailscale IP, to open it from a phone |
+| `--allow-host <name>` | none | Also answer to this host name, such as the domain of a proxy or tunnel in front of the server (repeatable) |
+| `--inbox <folder>` | `HERDSMAN_INBOX` | The adjutant's private message folder, for the Messages tab (read only) |
+| `--client <url>` | `HERDSMAN_CLIENT` | A hosted copy of the app; the server also prints a link that opens it with this host |
+| `--route <folder>` | found from the panes' folders | A route folder to show first (repeatable) |
+| `--session <name>` | `HERDR_SESSION` | The herdr session |
+| `--open`, `--no-qr` | off | Open the browser; skip the QR code |
+
+**Hosts.** The app can also be served from its own site and reach any number of hosts across origins: this computer, a LAN or Tailscale address, or a public domain in front of a server. Open the Hosts dialog from the server button in the top bar, or paste a host's printed link into it. Each host pairs on its own. A page served over HTTPS can reach plain-HTTP hosts only on this computer; put others behind HTTPS (for example `tailscale serve`, or a proxy with `--allow-host`).
+
+**Artifacts.** The Artifacts tab lists the HTML files in the session's folders (the panes' folders, route folders and task worktrees, skipping dependency, build and hidden folders except `.lavish`, `.herdsman` and `.artifacts`) and shows one in a sandboxed frame. The frame gets a short-lived link that serves only page files (HTML, scripts, styles, images, fonts and media) from that file's folder, and only to the browser that opened it; its scripts run without access to the app or your pairing.
+
+**Messages.** With an adjutant, the Messages tab shows the channel between the adjutant and the orchestrator the way `message status` reads it: the approved pair, courier and watcher health, alerts, and each message with its queue state. A body loads when you open it, and never for queued or quarantined entries. The app does not send messages.
 
 ## Requirements
 
