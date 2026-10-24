@@ -183,13 +183,21 @@ Or download the archive for macOS or Linux from [Releases](https://github.com/ar
 
 It prints a URL with a one-run token. The browser that opens it must type a 6-digit pairing code that the same terminal prints, so a leaked link alone controls nothing. A paired browser keeps a device secret for that host until the server stops.
 
+**From a phone.** The terminal also shows a QR code. A phone can use the hosted app only when it reaches this server over HTTPS, so the QR code opens the hosted app when `--public-url` names that address, and this server's own app otherwise:
+
+```sh
+tailscale serve --bg 7878
+herdsman web --public-url https://<machine>.<tailnet>.ts.net
+```
+
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--port <n>` | `7878` | Port to listen on; `0` picks a free one |
 | `--host <ip>` | `127.0.0.1` | Listen on one other address, such as a LAN or Tailscale IP, to open it from a phone |
 | `--allow-host <name>` | none | Also answer to this host name, such as the domain of a proxy or tunnel in front of the server (repeatable) |
 | `--inbox <folder>` | `HERDSMAN_INBOX` | The adjutant's private message folder, for the Messages tab (read only) |
-| `--client <url>` | `HERDSMAN_CLIENT` | A hosted copy of the app; the server also prints a link that opens it with this host |
+| `--client <url>` | `HERDSMAN_CLIENT`, else `https://herdsman.arafat.ai` | A hosted copy of the app; the server also prints a link that opens it with this host. `none` turns it off |
+| `--public-url <https url>` | none | The HTTPS address in front of this server, such as `tailscale serve` or a tunnel. It is also an allowed host name, and the QR code then opens the hosted app |
 | `--route <folder>` | found from the panes' folders | A route folder to show first (repeatable) |
 | `--session <name>` | `HERDR_SESSION` | The herdr session |
 | `--open`, `--no-qr` | off | Open the browser; skip the QR code |

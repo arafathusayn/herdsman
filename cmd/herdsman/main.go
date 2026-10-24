@@ -27,6 +27,9 @@ import (
 	"github.com/arafathusayn/herdsman/internal/web"
 )
 
+// defaultClient is the hosted copy of the app, built from main.
+const defaultClient = "https://herdsman.arafat.ai"
+
 // Set by the release build.
 var (
 	version = "dev"
@@ -37,16 +40,20 @@ const usage = `herdsman: run a team of coding agents inside herdr.
 
 Usage:
   herdsman web [--port 7878] [--host <ip>] [--allow-host <name>]... [--inbox <folder>]
-               [--client <url>] [--session <name>] [--route <folder>]... [--open] [--no-qr]
+               [--client <url>|none] [--public-url <https url>] [--session <name>]
+               [--route <folder>]... [--open] [--no-qr]
   herdsman version
   herdsman help
 
 Commands:
   web      Serve the web app and print its URL, with a one-run token, and a QR code.
            It listens on 127.0.0.1 unless --host names one other address,
-           such as a LAN or Tailscale IP, to open it from a phone. The app may
-           also be hosted elsewhere (--client) and reach this server across
-           origins; every browser still pairs with a code printed here.
+           such as a LAN or Tailscale IP, to open it from a phone. The app is
+           also hosted at ` + defaultClient + ` (--client) and reaches this
+           server across origins; every browser still pairs with a code
+           printed here. A phone can use the hosted app only through HTTPS:
+           with --public-url (for example the address of tailscale serve),
+           the QR code opens the hosted app.
   version  Print the version.
   help     Print this help.
 `
@@ -90,7 +97,12 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	session := fs.String("session", "", "herdr session name (default: HERDR_SESSION or the default session)")
 	open := fs.Bool("open", false, "open the app in the default browser")
 	inbox := fs.String("inbox", os.Getenv("HERDSMAN_INBOX"), "private herdsman message folder of the adjutant channel (default: HERDSMAN_INBOX)")
-	clientFlag := fs.String("client", os.Getenv("HERDSMAN_CLIENT"), "URL of a hosted herdsman web app to print a link for (default: HERDSMAN_CLIENT)")
+	clientDefault := defaultClient
+	if v, ok := os.LookupEnv("HERDSMAN_CLIENT"); ok {
+		clientDefault = v
+	}
+	clientFlag := fs.String("client", clientDefault, "URL of a hosted herdsman web app to print a link for, or none (default: HERDSMAN_CLIENT, else "+defaultClient+")")
+	publicFlag := fs.String("public-url", "", "HTTPS address in front of this server, such as tailscale serve or a tunnel; the QR code then opens the hosted app")
 	var routes, allow multi
 	fs.Var(&routes, "route", "route folder to show first (repeatable)")
 	fs.Var(&allow, "allow-host", "another host name to answer to, such as the domain of a proxy or tunnel in front of this server (repeatable)")
@@ -104,14 +116,25 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("--inbox %s must be an absolute path", *inbox)
 	}
 	var clientURL *neturl.URL
-	if *clientFlag != "" {
+	if *clientFlag != "" && *clientFlag != "none" {
 		u, err := neturl.Parse(*clientFlag)
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return fmt.Errorf("--client %s must be an http or https URL", *clientFlag)
+			return fmt.Errorf("--client %s must be an http or https URL, or none", *clientFlag)
 		}
 		clientURL = u
 	}
+	var publicURL *neturl.URL
+	if *publicFlag != "" {
+		u, err := neturl.Parse(*publicFlag)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || strings.Trim(u.Path, "/") != "" || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("--public-url %s must be an https origin, such as https://box.tailnet.ts.net", *publicFlag)
+		}
+		publicURL = &neturl.URL{Scheme: "https", Host: u.Host}
+	}
 	hosts := extraHosts(*host)
+	if publicURL != nil {
+		hosts = append(hosts, publicURL.Hostname())
+	}
 	for _, a := range allow {
 		for n := range strings.SplitSeq(a, ",") {
 			if n = strings.TrimSpace(n); n != "" {
@@ -159,21 +182,27 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	go hub.Run(ctx)
 	go queue.Run(ctx)
 
-	url := fmt.Sprintf("http://%s/#t=%s", net.JoinHostPort(*host, strconv.Itoa(actual)), token)
-	// The URL lets a browser ask to pair; each browser must then type the
+	// Each link lets a browser ask to pair; each browser must then type the
 	// code this terminal prints for it.
-	fmt.Fprintf(stdout, "herdsman web %s on herdr %s (%s)\n\n  %s\n\n", version, pong.Version, sock, url)
-	if clientURL != nil {
-		fmt.Fprintf(stdout, "  Hosted app: %s\n\n", clientLink(clientURL, net.JoinHostPort(*host, strconv.Itoa(actual)), token))
+	l := makeLinks(net.JoinHostPort(*host, strconv.Itoa(actual)), token, publicURL, clientURL)
+	url := l.direct
+	fmt.Fprintf(stdout, "herdsman web %s on herdr %s (%s)\n\n  %s\n\n", version, pong.Version, sock, l.direct)
+	if l.public != "" {
+		fmt.Fprintf(stdout, "  Public: %s\n\n", l.public)
+	}
+	if l.hosted != "" {
+		fmt.Fprintf(stdout, "  Hosted app: %s\n\n", l.hosted)
 	}
 	if !*noQR && isTerminal(stdout) {
-		if err := termqr.Write(stdout, url, "  "); err != nil {
+		if err := termqr.Write(stdout, l.qr, "  "); err != nil {
 			fmt.Fprintf(stderr, "herdsman: no QR code: %v\n", err)
 		}
-		fmt.Fprintln(stdout)
+		fmt.Fprintf(stdout, "\n  %s\n\n", l.qrNote)
 	}
 	if len(extraHosts(*host)) > 0 {
 		fmt.Fprintf(stdout, "Listening on %s. Each browser that opens the URL must type the pairing code printed here.\n", *host)
+	} else if publicURL != nil {
+		fmt.Fprintln(stdout, "Each browser that opens a link must type the pairing code printed here.")
 	} else {
 		fmt.Fprintln(stdout, "Each browser that opens the URL must type the pairing code printed here. To open it from a phone, add --host <LAN or Tailscale IP>.")
 	}
@@ -215,11 +244,49 @@ func printPair(w io.Writer, n web.PairNotice) {
 // clientLink is the hosted app's URL that adds this server and pairs with it:
 // the server's address and the token ride in the fragment, which never
 // leaves the browser.
-func clientLink(u *neturl.URL, hostport, token string) string {
+func clientLink(u *neturl.URL, server, token string) string {
 	c := *u
-	q := neturl.Values{"host": {"http://" + hostport}, "t": {token}}
+	q := neturl.Values{"host": {server}, "t": {token}}
 	c.Fragment, c.RawFragment = "", ""
+	if c.Path == "" {
+		c.Path = "/"
+	}
 	return c.String() + "#" + q.Encode()
+}
+
+// links are the URLs the server prints, and the one its QR code carries.
+type links struct {
+	direct string // this server's own copy of the app
+	public string // the same, through the HTTPS address in front of it
+	hosted string // the hosted app, with this server filled in
+	qr     string
+	qrNote string
+}
+
+// makeLinks picks what the QR code opens. A phone can use the hosted app
+// only when it reaches this server over HTTPS: an HTTPS page may not call
+// plain HTTP on another machine, and a phone's 127.0.0.1 is the phone.
+func makeLinks(hostport, token string, public, client *neturl.URL) links {
+	l := links{direct: fmt.Sprintf("http://%s/#t=%s", hostport, token)}
+	server := "http://" + hostport
+	if public != nil {
+		server = public.String()
+		l.public = server + "/#t=" + token
+	}
+	if client != nil {
+		l.hosted = clientLink(client, server, token)
+	}
+	switch {
+	case l.hosted != "" && l.public != "":
+		l.qr, l.qrNote = l.hosted, "The QR code opens the hosted app with this server filled in."
+	case l.public != "":
+		l.qr, l.qrNote = l.public, "The QR code opens this server's app through "+server+"."
+	case l.hosted != "":
+		l.qr, l.qrNote = l.direct, "The QR code opens this server's own app. To open the hosted app from a phone, put HTTPS in front of this server (for example `tailscale serve 7878`) and pass its address with --public-url."
+	default:
+		l.qr, l.qrNote = l.direct, "The QR code opens this server's own app."
+	}
+	return l
 }
 
 // extraHosts returns host when it is not a loopback name, for the server's

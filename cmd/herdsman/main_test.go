@@ -106,14 +106,46 @@ func TestWebNeedsHerdr(t *testing.T) {
 
 func TestClientLinkCarriesHostAndTokenInTheFragment(t *testing.T) {
 	u, _ := neturl.Parse("https://herdsman.example.com/app/")
-	got := clientLink(u, "127.0.0.1:7878", "abc123")
+	got := clientLink(u, "http://127.0.0.1:7878", "abc123")
 	if got != "https://herdsman.example.com/app/#host=http%3A%2F%2F127.0.0.1%3A7878&t=abc123" {
 		t.Fatalf("link = %s", got)
 	}
 }
 
+// The QR code opens the hosted app only when a phone can reach this server
+// over HTTPS; otherwise it opens the server's own app.
+func TestQRCodeOpensTheHostedAppOnlyOverHTTPS(t *testing.T) {
+	client, _ := neturl.Parse(defaultClient)
+	public, _ := neturl.Parse("https://box.tailnet.ts.net")
+	cases := []struct {
+		name           string
+		public, client *neturl.URL
+		qr, hosted     string
+	}{
+		{"default", nil, client, "http://192.168.1.5:7878/#t=abc123",
+			"https://herdsman.arafat.ai/#host=http%3A%2F%2F192.168.1.5%3A7878&t=abc123"},
+		{"public", public, client, "https://herdsman.arafat.ai/#host=https%3A%2F%2Fbox.tailnet.ts.net&t=abc123",
+			"https://herdsman.arafat.ai/#host=https%3A%2F%2Fbox.tailnet.ts.net&t=abc123"},
+		{"public, no client", public, nil, "https://box.tailnet.ts.net/#t=abc123", ""},
+		{"no client", nil, nil, "http://192.168.1.5:7878/#t=abc123", ""},
+	}
+	for _, c := range cases {
+		l := makeLinks("192.168.1.5:7878", "abc123", c.public, c.client)
+		if l.qr != c.qr || l.hosted != c.hosted {
+			t.Errorf("%s: qr = %s, hosted = %s", c.name, l.qr, l.hosted)
+		}
+		if l.direct != "http://192.168.1.5:7878/#t=abc123" || l.qrNote == "" {
+			t.Errorf("%s: direct = %s, note = %q", c.name, l.direct, l.qrNote)
+		}
+	}
+}
+
 func TestWebChecksNewFlags(t *testing.T) {
-	for _, args := range [][]string{{"--inbox", "relative/inbox"}, {"--client", "ftp://x"}, {"--client", "herdsman.example.com"}} {
+	for _, args := range [][]string{
+		{"--inbox", "relative/inbox"}, {"--client", "ftp://x"}, {"--client", "herdsman.example.com"},
+		{"--public-url", "http://box.tailnet.ts.net"}, {"--public-url", "https://box.tailnet.ts.net/app"},
+		{"--public-url", "box.tailnet.ts.net"}, {"--public-url", "https://u:p@box.tailnet.ts.net"},
+	} {
 		var out, errb bytes.Buffer
 		if err := run(append([]string{"web"}, args...), &out, &errb); err == nil {
 			t.Errorf("%v: no error", args)
