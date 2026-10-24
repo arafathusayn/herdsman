@@ -206,6 +206,20 @@ jq_edit '.boundary={version:1,private_home:true,inventory_current:true,lower_tru
 check "P3 a complete fixture boundary permits RELAY" '^RELAY' "$(msg receiver-pane message-authority.sh)"
 jq_edit '.boundary.lower_trust[0].sandbox=false' "$C/preflight.json"
 check "P3b one unsandboxed agent forces HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
+# Each A9 trigger alone forces HUMAN; a sandboxed Claude entry is the positive control for the Claude case.
+for edit in '.boundary.inventory_current=false:stale inventory' '.boundary.private_home=false:a shared home' \
+  '.boundary.lower_trust[0]|=(.harness="claude"|.sandbox=false):a Claude launch without sandbox' \
+  '.boundary.lower_trust[0]|=del(.socket_denied):no socket denial recorded'; do
+  jq_edit '.boundary.lower_trust[0].sandbox=true' "$C/preflight.json"; cp "$C/preflight.json" "$C/preflight.base"
+  jq_edit "${edit%%:*}" "$C/preflight.json"
+  check "P3c ${edit#*:} forces HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
+  mv "$C/preflight.base" "$C/preflight.json"
+done
+jq_edit '.boundary.lower_trust[0].harness="claude"' "$C/preflight.json"
+check "P3d a sandboxed Claude entry permits RELAY" '^RELAY' "$(msg receiver-pane message-authority.sh)"
+# The design leaves open whether an empty lower_trust list may relay; this pins the current result so a change shows.
+jq_edit '.boundary.lower_trust=[]' "$C/preflight.json"
+check "P3e an empty lower_trust list currently permits RELAY (open design question)" '^RELAY' "$(msg receiver-pane message-authority.sh)"
 new_case unproven noenroll
 jq_edit '.excluded=false' "$C/preflight.json"
 out=$(msg sender-pane message-register.sh propose "$A" adjutant)
@@ -215,10 +229,15 @@ check "P4b before any state is created" '^no$' "$(yn "$C/inbox/state")"
 # L: the publish leak gate.
 printf 'See /Users/someone/project for details.\n' > "$T/leak.md"
 printf 'All checks passed on the current head.\n' > "$T/clean.md"
-out=$(/bin/bash "$SK/publish-leak-gate.sh" "$T/leak.md" 2>&1); st=$?
+# leak <file> [heading ...]: the gate in the same clean environment as the channel scripts.
+leak() {
+  env -i PATH="$CPATH" HOME="$HOME" LEAK_ALLOW_FILE="${LEAK_ALLOW_FILE:-}" LEAK_PATTERN="${LEAK_PATTERN:-}" \
+    /bin/bash "$SK/publish-leak-gate.sh" "$@"
+}
+out=$(leak "$T/leak.md" 2>&1); st=$?
 check "L1 a private path fails the gate" 'LEAK' "$out"; check "L1b exit 1" '^1$' "$st"
-/bin/bash "$SK/publish-leak-gate.sh" "$T/clean.md" >/dev/null 2>&1; check "L2 clean prose passes" '^0$' "$?"
-/bin/bash "$SK/publish-leak-gate.sh" "$T/missing.md" >/dev/null 2>&1; check "L3 a missing file is an error, not clean" '^2$' "$?"
+leak "$T/clean.md" >/dev/null 2>&1; check "L2 clean prose passes" '^0$' "$?"
+leak "$T/missing.md" >/dev/null 2>&1; check "L3 a missing file is an error, not clean" '^2$' "$?"
 
 # V: names, roles and identities that cannot enroll, and permanent retirement.
 new_case names
@@ -401,7 +420,7 @@ check "X9 header lines in a body never become manifest fields" '^m000000000001 r
   "$(cat "$C/r1.out" "$C/r2.out" | grep '"type":"manifest"' | jq -r '.id + " " + .from + " " + .kind')"
 
 # L2: the leak gate's fence, section, allow-list and pattern checks.
-gate() { /bin/bash "$SK/publish-leak-gate.sh" "$@" >/dev/null 2>&1; echo $?; }
+gate() { leak "$@" >/dev/null 2>&1; echo $?; }
 printf 'Run this:\n\n```bash\n```\n' > "$T/empty-fence.md"
 printf 'Run this:\n\n```bash\nmake test\n' > "$T/unclosed.md"
 printf 'Run this:\n\n  ~~~\n  ~~~\n' > "$T/tilde.md"
@@ -494,6 +513,71 @@ for variant in system gnu; do
   done
   check "F10 $variant stat: no alert one second early, one at the exact age, none repeated" '^0 1 1 $' "$(cat "$C/alerts-by-time")"
 done
+
+# S: sender identity, acks, claims, links and bounds.
+new_case forged-with-ledger
+send >/dev/null
+jq_edit '.from="route-orchestrator"' "$(OB)/new/$ID.md"; cp "$(OB)/new/$ID.md" "$C/inbox/ids/$ID/envelope"
+courier >/dev/null
+check "S1 a forged from name with a matching allocation copy is still quarantined" '^yes no$' "$(yn "$(OB)/quarantine/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+out=$(msg sender-pane message-send.sh "$O" "$A" "$C/body.txt" brief); s=$?
+check "S2 the adjutant's pane cannot send under the orchestrator's name" '^2 own pane/session changed' "$s $out"
+check "S2b and nothing is queued for the adjutant" '^0$' "$(nfiles "$C/inbox/$A/new" '*')"
+new_case moved-sender
+set_agents moved-pane sender-session receiver-pane receiver-session
+out=$(send); s=$?
+check "S3 a moved sender pane must enroll again before it sends" '^2 own identity unavailable' "$s $out"
+new_case identity-namespace
+jq_edit '.["sender-pane"].agent_session.source="other-namespace"' "$C/agents.json"
+out=$(send); s=$?
+check "S4 the same session value in another identity namespace cannot send" '^2 own pane/session changed' "$s $out"
+new_case reordered-keys
+jq_edit 'map_values(.agent_session|=(to_entries|reverse|from_entries))' "$C/agents.json"
+msg sender-pane message-register.sh propose "$A" adjutant >/dev/null
+send >/dev/null; courier >/dev/null
+check "S5 reordered identity keys still deliver" '^yes$' "$(yn "$(OB)/ready/$ID.md")"
+check "S5b and read" "\"id\":\"$ID\"" "$(msg receiver-pane message-read.sh "$O")"
+jq '[to_entries[]|{pane:.key,session:.value.agent_session}]' "$C/agents.json" > "$C/inbox/watch-targets.json"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "S5c and the card watcher accepts both targets" '^[2-9]' "$(grep -c '^pane read' "$C/calls.log")"
+new_case invalid-acks
+send >/dev/null; courier >/dev/null
+token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
+for value in '' '{}' "{\"id\":\"$ID\",\"claim\":\"wrong\",\"time\":1,\"processing_record\":\"record\",\"envelope_checksum\":\"wrong\"}"; do
+  printf '%s' "$value" > "$(OB)/ack/$ID.md.json"
+  check "S6 an invalid ack (${value:-empty}) leaves the message unhandled" "\"id\":\"$ID\"" "$(msg receiver-pane message-read.sh "$O" "$token")"
+done
+new_case release-history
+send >/dev/null; courier >/dev/null
+token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
+printf 'intake recorded\n' > "$C/record.txt"
+msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt" >/dev/null
+msg receiver-pane message-read.sh "$O" "$token" --release >/dev/null
+send >/dev/null; courier >/dev/null
+out=$(msg receiver-pane message-read.sh "$O")
+check "S7 a new claim lists the new message" '"id":"m000000000002"' "$out"
+nocheck "S7b and does not revive the released, acked one" "\"id\":\"$ID\"" "$out"
+new_case incomplete-claim
+send >/dev/null; courier >/dev/null; mkdir "$(OB)/claim"
+out=$(msg receiver-pane message-read.sh "$O"); s=$?
+check "S8 an incomplete claim is held" '^2 .*reader claim held' "$s $out"
+rmdir "$(OB)/claim"
+token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
+check "S8b after the human clears it, a complete claim is written" "^$token yes\$" "$(cat "$(OB)/claim/token") $(yn "$(OB)/claim/owner")"
+new_case alert-link
+printf 'original\n' > "$C/untouched"; ln -s "$C/untouched" "$C/inbox/alerts/courier-down.pending"
+touch -t 202001010000 "$C/inbox/state/heartbeat"
+ENVX="DEADLINE=1 RECHECK=1" msg receiver-pane message-wait.sh "$O" >/dev/null; s=$?
+check "S9 a linked alert state file stops the waiter and is not followed" '^2 original$' "$s $(cat "$C/untouched")"
+new_case lock-owner-link
+printf 'outside\n' > "$C/outside"; mkdir "$C/inbox/courier.lock"; ln -s "$C/outside" "$C/inbox/courier.lock/pid"
+msg receiver-pane message-status.sh >/dev/null; s=$?
+check "S10 a linked courier lock owner is refused" '^2 outside$' "$s $(cat "$C/outside")"
+new_case encoded-bound
+head -c 60000 /dev/zero | tr '\0' '\001' > "$C/body.txt"
+out=$(send); s=$?
+check "S11 an oversized encoded envelope is refused before publication" '^2 .*encoded envelope' "$s $out"
+check "S11b and nothing is queued" '^0$' "$(nfiles "$(OB)/new" '*')"
 
 # N: no channel script typed into any pane; the resume case sent only its one exact input.
 nocheck "N1 no input call reached the fake herdr" 'agent prompt|send-keys|send-text|pane run' \
