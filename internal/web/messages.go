@@ -507,10 +507,14 @@ func readChannel(root string, now time.Time) Channel {
 			continue
 		}
 		b := ChannelBox{Name: box, Orphan: !names[box], Counts: map[string]int{}, Claim: "none"}
-		if st, err := os.Lstat(filepath.Join(root, box, "claim")); err == nil && st.IsDir() {
-			// A claim is held only with both its token and its owner record.
+		claim := filepath.Join(root, box, "claim")
+		if st, err := os.Stat(claim); err == nil && st.IsDir() {
+			// A claim is held only with both its token and its owner record, in
+			// a real folder; a folder reached through a link is incomplete, as
+			// `message status` shows it.
 			b.Claim = "incomplete"
-			if regularFile(filepath.Join(root, box, "claim", "token")) && regularFile(filepath.Join(root, box, "claim", "owner")) {
+			if lst, err := os.Lstat(claim); err == nil && lst.IsDir() &&
+				regularFile(filepath.Join(claim, "token")) && regularFile(filepath.Join(claim, "owner")) {
 				b.Claim = "held"
 			}
 		}
