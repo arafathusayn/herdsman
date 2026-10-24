@@ -438,7 +438,7 @@ export class DiffView {
     const f = this.selected();
     // A new diff is a new source object (an unchanged one comes back from the
     // ETag cache as the same object), so any new patch redraws.
-    const key = `${highlighting()}|${layout}|${this.narrow}|${src?.id}|${f?.path}|${this.showAll}|${this.sources === null}`;
+    const key = `${highlighting()}|${layout}|${this.narrow}|${src?.id}|${f?.path}|${this.showAll}|${this.sources === null}|${this.error}`;
     if (key === this.drawnKey && src === this.drawnSource) return;
     this.drawnKey = key;
     this.drawnSource = src;
