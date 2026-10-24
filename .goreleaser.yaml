@@ -1,0 +1,64 @@
+# One static binary per OS and architecture, with the web app embedded.
+# No release is tagged before v1.0.0, which ships the CLI, the web app, the
+# landing page and the ported scripts together.
+version: 2
+
+project_name: herdsman
+
+before:
+  hooks:
+    - go mod tidy
+    - make web
+
+builds:
+  - id: herdsman
+    main: ./cmd/herdsman
+    binary: herdsman
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }}
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: herdsman
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+homebrew_casks:
+  - name: herdsman
+    repository:
+      owner: arafathusayn
+      name: tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/arafathusayn/herdsman
+    description: Run a whole team of coding agents from one conversation, and from the browser.
+    license: GPL-3.0-only
+    binaries: [herdsman]
+    hooks:
+      post:
+        # The binary is not notarized; let macOS run it without the quarantine prompt.
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/herdsman"]
+          end
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  draft: false
+  prerelease: auto

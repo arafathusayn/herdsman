@@ -9,7 +9,7 @@
   <a href="LICENSE"><img alt="License: GPL v3" src="https://img.shields.io/badge/license-GPLv3-blue.svg"></a>
 </p>
 
-herdsman is a skill for coding agents. You talk to one agent, the orchestrator, and it runs the rest of the team inside [herdr](https://github.com/herdrdev/herdr): implementers write the code, reviewers check it, and an integrator combines the work when it ships as one branch. Fixes and reviews go round until each task passes.
+herdsman is a skill for coding agents. You talk to one agent, the orchestrator, and it runs the rest of the team inside [herdr](https://github.com/herdrdev/herdr): implementers write the code, reviewers check it, and an integrator combines the work when it ships as one branch. Fixes and reviews go round until each task passes. Optionally, you talk to an adjutant instead, and it relays your briefs and answers to the orchestrator through a private message channel.
 
 ```
 /herdsman run "tasks: issues 12 and 14; implementers: <harness> <model>; reviewer: <harness> <model>"
@@ -24,6 +24,7 @@ herdsman is a skill for coding agents. You talk to one agent, the orchestrator, 
 - [Features](#features)
 - [Install](#install)
 - [Usage](#usage)
+- [Web app](#web-app)
 - [Requirements](#requirements)
 - [Develop](#develop)
 - [Design notes](#design-notes)
@@ -37,7 +38,8 @@ Every agent runs in its own herdr pane. Each one can use a different harness and
 
 | Role | What it does |
 | --- | --- |
-| **Orchestrator** | The session you talk to. It runs the interview, writes the contracts, launches and watches the other agents, forwards review findings and records the results. It never writes application code and never pushes. |
+| **Adjutant** | Optional, at most one. When a route has one, you talk to the adjutant instead of the orchestrator. It asks you the route's questions, relays full briefs and your answers to the orchestrator as herdsman messages, and runs only the pane administration you approve. It never writes code, runs tests, commits or pushes. See [`references/adjutant.md`](skills/herdsman/references/adjutant.md). |
+| **Orchestrator** | The session you talk to, directly or through the adjutant. It runs the interview, writes the contracts, launches and watches the other agents, forwards review findings and records the results. It never writes application code and never pushes. |
 | **Implementer** | One per task. It writes the code and the tests for its task on its own branch. |
 | **Integrator** | Used when several tasks ship as one branch or one pull request. It combines the accepted task branches, fixes what breaks between them, and is the only agent that pushes and answers review threads. |
 | **Reviewer** | Reviews each task branch and, before a push, the combined result. It reports only P0 and P1 findings and changes nothing. |
@@ -45,17 +47,30 @@ Every agent runs in its own herdr pane. Each one can use a different harness and
 ## How a route runs
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, sans-serif","lineColor":"#64748b","edgeLabelBackground":"#0f172a","clusterBkg":"#f8fafc","clusterBorder":"#cbd5e1","titleColor":"#0f172a"}}}%%
 flowchart LR
-    A[Interview] --> B[Contracts]
-    B --> C[Launch]
-    C --> D[Wait for events]
-    D --> E{Review}
-    E -- fix --> F[Fix round]
-    F --> D
-    E -- pass --> G[Close]
+  A["1. Interview<br>tasks, models, rules"]:::purple -->|"your go"| B["2. Contracts<br>one per task"]:::purple
+  B --> C["3. Launch<br>agents in herdr panes"]:::blue
+  C --> D["4. Wait<br>for the next event"]:::grey
+  D -->|"task done"| E{"5. Review"}:::yellow
+  E -->|"fix"| F["Fix round<br>by the implementer"]:::amber
+  F -->|"new report"| D
+  E -->|"pass"| G["6. Close<br>results and lessons"]:::green
+  E -.->|"pass, tasks combined"| H["Integrator<br>merges, final review, push"]:::indigo
+  H --> G
+  classDef purple fill:#f3e8ff,stroke:#9333ea,color:#581c87
+  classDef blue fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+  classDef grey fill:#f1f5f9,stroke:#64748b,color:#0f172a
+  classDef yellow fill:#fef9c3,stroke:#ca8a04,color:#713f12
+  classDef amber fill:#fef3c7,stroke:#d97706,color:#78350f
+  classDef green fill:#dcfce7,stroke:#16a34a,color:#14532d
+  classDef indigo fill:#e0e7ff,stroke:#4f46e5,color:#312e81
+  linkStyle default stroke:#64748b,color:#f8fafc
 ```
 
-1. **Interview.** The orchestrator asks once for the tasks, branches, harnesses, models, integration style, merge policy and test setup. It then shows a dispatch plan and waits for your go.
+Purple is planning with you, blue is agents at work, grey is the orchestrator asleep until an event, yellow is the reviewer's verdict, amber is a task sent back for fixes, indigo is the integrator (only when tasks ship as one branch), and green is done.
+
+1. **Interview.** The orchestrator (or the adjutant, when the route has one) asks once for the tasks, branches, harnesses, models, integration style, merge policy and test setup. It then shows a dispatch plan and waits for your go.
 2. **Contracts.** It writes a route folder: shared rules, one contract per task, a reviewer contract, and an integrator contract when tasks are combined.
 3. **Launch.** It opens the herdr tabs and panes, starts the agents, and sends each implementer a full brief: the goal, numbered steps with a check for each, a leave-alone list, time limits and the report format.
 4. **Wait.** A background waiter exits on the first event. The orchestrator handles it, runs a health check, and starts the waiter again.
@@ -77,6 +92,7 @@ flowchart LR
 
 **Stay responsive and healthy**
 
+- **An optional adjutant.** You talk to an adjutant while the orchestrator works. Messages go through a private file channel: an approved pair, a courier that checks every message, a watcher, and alerts when either stops ([`references/messages.md`](skills/herdsman/references/messages.md)).
 - **Event-driven waits.** The orchestrator wakes on a new report, a new review, a blocked agent or a stalled one, and sleeps otherwise.
 - **Health checks.** Each wake shows every agent's state, model, background jobs and their ages, recent file writes, and the machine's load and free memory. Long-running jobs, idle trees and a loaded machine are flagged. Between wakes the waiter checks every ten minutes and wakes the orchestrator only for a new flag.
 - **One heavy check at a time.** Type checks, lint, tests and builds go through [`run-check.sh`](skills/herdsman/scripts/run-check.sh): a machine-wide lock with a load gate, at lower CPU priority, so checks queue instead of piling up.
@@ -153,6 +169,34 @@ In the orchestrator session, inside herdr:
 | `--prompt "<text>"` | the script's default | The memory checkpoint prompt |
 | `--compact "<command>"` | `/compact` | The harness's compact command |
 | `--side right\|down` | `right` | Where the new pane goes (`start` only) |
+
+## Web app
+
+`herdsman web` serves a browser app that shows and steers the team: a board of every agent by role or status, each agent's live terminal with its keys and a prompt box, the route's checklist, run state, docs and code changes, the HTML pages agents wrote, and the adjutant's messages. It is one Go binary with the app inside; nothing else runs on your machine.
+
+```sh
+make build              # from a clone: needs Go and Bun, builds bin/herdsman
+bin/herdsman web --open
+```
+
+It prints a URL with a one-run token. The browser that opens it must type a 6-digit pairing code that the same terminal prints, so a leaked link alone controls nothing. A paired browser keeps a device secret for that host until the server stops.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--port <n>` | `7878` | Port to listen on; `0` picks a free one |
+| `--host <ip>` | `127.0.0.1` | Listen on one other address, such as a LAN or Tailscale IP, to open it from a phone |
+| `--allow-host <name>` | none | Also answer to this host name, such as the domain of a proxy or tunnel in front of the server (repeatable) |
+| `--inbox <folder>` | `HERDSMAN_INBOX` | The adjutant's private message folder, for the Messages tab (read only) |
+| `--client <url>` | `HERDSMAN_CLIENT` | A hosted copy of the app; the server also prints a link that opens it with this host |
+| `--route <folder>` | found from the panes' folders | A route folder to show first (repeatable) |
+| `--session <name>` | `HERDR_SESSION` | The herdr session |
+| `--open`, `--no-qr` | off | Open the browser; skip the QR code |
+
+**Hosts.** The app can also be served from its own site and reach any number of hosts across origins: this computer, a LAN or Tailscale address, or a public domain in front of a server. Open the Hosts dialog from the server button in the top bar, or paste a host's printed link into it. Each host pairs on its own. A page served over HTTPS can reach plain-HTTP hosts only on this computer; put others behind HTTPS (for example `tailscale serve`, or a proxy with `--allow-host`).
+
+**Artifacts.** The Artifacts tab lists the HTML files in the session's folders (the panes' folders, route folders and task worktrees, skipping dependency, build and hidden folders except `.lavish`, `.herdsman` and `.artifacts`) and shows one in a sandboxed frame. The frame gets a short-lived link that serves only page files (HTML, scripts, styles, images, fonts and media) from that file's folder, and only to the browser that opened it; its scripts run without access to the app or your pairing.
+
+**Messages.** With an adjutant, the Messages tab shows the channel between the adjutant and the orchestrator the way `message status` reads it: the approved pair, courier and watcher health, alerts, and each message with its queue state. A body loads when you open it, and never for queued or quarantined entries. The app does not send messages.
 
 ## Requirements
 
