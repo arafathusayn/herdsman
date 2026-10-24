@@ -121,6 +121,9 @@ In the orchestrator session, inside herdr:
 | Subcommand | What it does |
 | --- | --- |
 | *(none)* or `run <route request>` | Runs the full route. The request names the tasks, harnesses, models and rules. |
+| `adjutant [--name <name>] [--orchestrator <pane>] [--inbox <root>] [--launch]` | Optional. Attaches this session as the adjutant, the user's side of the message channel ([`references/adjutant.md`](skills/herdsman/references/adjutant.md)). |
+| `orchestrator [--adjutant <name> --name <own-name> --inbox <root>] [request]` | Orchestrates as `run` does; with the adjutant options, it enrolls in the message channel first. |
+| `message [status\|wait\|read\|release\|ack\|send]` | Herdsman messages between the adjutant and the orchestrator ([`references/messages.md`](skills/herdsman/references/messages.md)). The default action is `status`. |
 | `checkpoint [start\|now\|probe\|status\|stop]` | Manages the checkpointer. The default action is `start`. |
 | `status` | Shows the health of every agent in the current route. Changes nothing. |
 | `help` | Shows the subcommands, options and examples. |
@@ -156,7 +159,8 @@ In the orchestrator session, inside herdr:
 | Tool | Why |
 | --- | --- |
 | `/bin/bash` 3.2+ | Runs the scripts. They avoid associative arrays, so the macOS default shell works, with either BSD or GNU tools, started from bash or zsh. |
-| `jq` | Used by [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh). |
+| `jq` | Used by [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh). The message scripts need a `jq` with streaming and `IN` support. |
+| `nc` with Unix sockets | Only with an adjutant: the message courier and waiter read Herdr events through it. |
 | GitHub CLI (`gh`) | A version with `gh skill` (tested with 2.101.0) to install the skill; any recent version when the route opens pull requests. |
 | Memory checkpoint command | Needed in the orchestrator's harness. The checkpointer's prompt is set at the top of [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh). |
 
@@ -169,7 +173,7 @@ zsh <skill folder>/scripts/test/run-tests.sh
 zsh <skill folder>/scripts/test/checkpointer-tests.sh
 ```
 
-Started from zsh or sh, each test script re-runs itself under `/bin/bash`. CI runs both on macOS (bash 3.2, BSD tools) and Linux (GNU tools).
+`run-tests.sh` also runs `message-tests.sh` (the message channel) and adds its result. Started from zsh or sh, each test script re-runs itself under `/bin/bash`. CI runs both on macOS (bash 3.2, BSD tools) and Linux (GNU tools).
 
 <details>
 <summary>Try the checkpointer against a live orchestrator pane</summary>
