@@ -3402,6 +3402,118 @@ mark {
   display: none;
 }
 
+/* How to install herdsman, at the foot of the connect screen */
+
+.install {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  margin-top: 4px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+
+.install h2 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.install p {
+  margin: 0;
+}
+
+.install-lead {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.install-steps {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.install-steps li {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding-left: 30px;
+  font-size: 13px;
+  counter-increment: step;
+}
+
+.install-steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: -1px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.install-cmd {
+  position: relative;
+  min-width: 0;
+}
+
+.install-cmd pre {
+  margin: 0;
+  padding: 10px 44px 10px 12px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--tail-bg);
+  line-height: 1.6;
+}
+
+.install-cmd .icon-btn {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+}
+
+.install-alt {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.install-alt a,
+.install-docs {
+  color: var(--accent);
+}
+
+.install-docs {
+  justify-self: start;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.install-docs .icon {
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: -3px;
+}
+
+.install-docs:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .pair-host {
   display: inline-flex;
   gap: 6px;
