@@ -24,6 +24,12 @@ nocheck() { # name, forbidden-regex, actual
   if printf '%s' "$3" | grep -q -E "$2"; then fail=$((fail+1)); echo "FAIL $1: unexpected /$2/ in: $3"; else pass=$((pass+1)); echo "PASS $1"; fi
 }
 yn() { if [ -e "$1" ]; then echo yes; else echo no; fi; }
+nfiles() { # dir, glob: how many entries match
+  local f n=0
+  # shellcheck disable=SC2086
+  for f in "$1"/$2; do [ -e "$f" ] && n=$((n+1)); done
+  echo "$n"
+}
 digest() { cksum < "$1" | awk '{print $1 "-" $2}'; }
 # msg <pane> <script> [args]: run one channel script as the given pane, with $ENVX as extra assignments.
 msg() {
@@ -214,8 +220,147 @@ check "L1 a private path fails the gate" 'LEAK' "$out"; check "L1b exit 1" '^1$'
 /bin/bash "$SK/publish-leak-gate.sh" "$T/clean.md" >/dev/null 2>&1; check "L2 clean prose passes" '^0$' "$?"
 /bin/bash "$SK/publish-leak-gate.sh" "$T/missing.md" >/dev/null 2>&1; check "L3 a missing file is an error, not clean" '^2$' "$?"
 
-# N: no channel script typed into any pane.
-nocheck "N1 no input call reached the fake herdr" 'agent prompt|send-keys|send-text|pane run' "$(cat "$T"/*/calls.log)"
+# V: names, roles and identities that cannot enroll, and permanent retirement.
+new_case names
+for bad in Upper 'has space' abcdefghijklmnopqrstuvwxyz0123456 '-dash'; do
+  out=$(msg sender-pane message-register.sh propose "$bad" adjutant); check "V1 invalid name refused: $bad" 'propose <name>' "$out"
+done
+out=$(msg sender-pane message-register.sh propose route-x boss); check "V2 an unknown role is refused" 'propose <name>|invalid role' "$out"
+msg sender-pane message-register.sh retire "$A" "$(digest "$C/inbox/peers")" >/dev/null
+out=$(msg sender-pane message-register.sh propose "$A" adjutant); check "V3 a retired name never reactivates" 'retired name' "$out"
+new_case path-session noenroll
+set_agents sender-pane 'a/b' receiver-pane receiver-session
+out=$(msg sender-pane message-register.sh propose "$A" adjutant); check "V4 a path-bearing session cannot enroll" 'cannot enroll current session' "$out"
+new_case same-session noenroll
+set_agents sender-pane shared-session receiver-pane shared-session
+msg sender-pane message-register.sh propose "$A" adjutant >/dev/null
+out=$(msg receiver-pane message-register.sh propose "$O" orchestrator); check "V5 one session in two panes cannot form a pair" 'role/session already enrolled' "$out"
+
+# E: allocation, envelope checks and verification that stays retryable.
+new_case envelope
+send >/dev/null
+check "E1 the queued envelope equals its allocation copy" '^same$' "$(cmp -s "$C/inbox/ids/$ID/envelope" "$(OB)/new/$ID.md" && echo same)"
+check "E1b no write is left in tmp" '^x$' "$(ls -A "$(OB)/tmp")x"
+check "E1c the next allocation increases" 'm000000000002 queued' "$(send)"
+jq_edit '.to="route-adjutant"' "$(OB)/new/m000000000002.md"
+jq_edit '.["sender-pane"].agent_status="unknown"' "$C/agents.json"
+courier >/dev/null
+check "E2 an edited recipient is quarantined" '^yes$' "$(yn "$(OB)/quarantine/m000000000002.md")"
+check "E3 an unknown lifecycle keeps the message in new, never rejected" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/quarantine/$ID.md")"
+touch "$C/get-invalid"; jq_edit '.["sender-pane"].agent_status="idle"' "$C/agents.json"
+courier >/dev/null
+check "E4 invalid agent JSON keeps the message in new" '^yes$' "$(yn "$(OB)/new/$ID.md")"
+rm "$C/get-invalid"
+courier >/dev/null
+check "E5 a restored observation delivers it" '^yes$' "$(yn "$(OB)/ready/$ID.md")"
+printf 'from: route-adjutant\nto: route-orchestrator\nnot json\n' > "$(OB)/new/m000000000007.md"
+jq -c . "$(OB)/ready/$ID.md" | sed 's/^{/{"version":1,/' > "$(OB)/new/m000000000008.md"
+send >/dev/null; jq_edit '.reply_to="m000000000099"' "$(OB)/new/m000000000003.md"
+send >/dev/null; jq_edit '.to_identity.session.value="old-generation"' "$(OB)/new/m000000000004.md"
+courier >/dev/null
+for q in 7:'a body with header lines' 8:'a duplicate JSON key' 3:'an unknown reply id' 4:'a wrong recipient generation'; do
+  check "E6 quarantined: ${q#*:}" '^yes$' "$(yn "$(OB)/quarantine/m00000000000${q%%:*}.md")"
+done
+cp "$(OB)/ready/$ID.md" "$C/ready-copy"
+cp "$(OB)/ready/$ID.md" "$(OB)/new/$ID.md"
+courier >/dev/null
+check "E7 a duplicate ID is held, not delivered over ready" 'notification show Duplicate message held' "$(cat "$C/calls.log")"
+check "E7b ready keeps its bytes and the copy stays in new" '^same yes$' "$(cmp -s "$C/ready-copy" "$(OB)/ready/$ID.md" && echo same) $(yn "$(OB)/new/$ID.md")"
+set_agents sender-pane sender-session receiver-pane replaced-session
+out=$(msg receiver-pane message-read.sh "$O"); check "E8 a new recipient session cannot claim old work" 'own pane/session changed' "$out"
+check "E8b and the work stays ready" '^yes$' "$(yn "$(OB)/ready/$ID.md")"
+
+# Q: quarantine notices and the correlated resend.
+C="$T/wrong-session"
+out=$(ENVX="DEADLINE=2 RECHECK=1" msg sender-pane message-wait.sh "$A"); check "Q1 a quarantine notice wakes the sender" 'HEALTH sender notice' "$out"
+check "Q2 a fresh correlated resend is queued" 'm000000000002 queued' "$(msg sender-pane message-send.sh "$A" "$O" "$C/body.txt" brief "$ID")"
+courier >/dev/null
+check "Q2b and delivered while the original stays quarantined" '^yes yes$' "$(yn "$(OB)/ready/m000000000002.md") $(yn "$(OB)/quarantine/$ID.md")"
+
+# H: alerts, rings, held entries, singletons, controls and the read-only status.
+new_case alerts
+touch "$C/toast-disabled"
+send >/dev/null; courier >/dev/null
+touch -t 202001010000 "$(OB)/ready/$ID.md"
+courier ALERT_AFTER=60 >/dev/null
+check "H1 a disabled toast stays pending, not sent" '^1 0$' "$(nfiles "$C/inbox/alerts" 'unread-*.pending') $(nfiles "$C/inbox/alerts" 'unread-*.sent')"
+rm "$C/toast-disabled"; touch -t 202001010000 "$C/inbox/alerts/"unread-*.attempt
+courier ALERT_AFTER=60 >/dev/null
+check "H1b a later retry records the shown toast" '^0 1$' "$(nfiles "$C/inbox/alerts" 'unread-*.pending') $(nfiles "$C/inbox/alerts" 'unread-*.sent')"
+touch "$C/metadata-failure"
+out=$(send); check "H2 a failed ring warns and the message stays queued" 'WARNING ring failed.*queued' "$(printf '%s' "$out" | tr '\n' ' ')"
+rm "$C/metadata-failure"
+mkdir -p "$C/inbox/route-ghost/new"; cp "$C/body.txt" "$C/inbox/route-ghost/new/m000000000050.md"
+ln -s "$C/body.txt" "$(OB)/new/m000000000051.md"
+courier >/dev/null
+check "H3 an orphan mailbox alerts and keeps its work" 'notification show Orphaned message mailbox' "$(cat "$C/calls.log")"
+check "H3b orphan work intact" '^yes$' "$(yn "$C/inbox/route-ghost/new/m000000000050.md")"
+check "H4 a queue symlink is held with a safe alert" 'notification show Suspicious queue entry' "$(cat "$C/calls.log")"
+check "H4b the link stays in new and its target is untouched" '^yes full brief$' "$(yn "$(OB)/new/m000000000051.md") $(cat "$C/body.txt")"
+out=$(courier SWEEP=abc); check "H5 a malformed control fails before start" 'invalid SWEEP' "$out"
+check "H5b without taking the courier lock" '^no$' "$(yn "$C/inbox/courier.lock")"
+mkdir "$C/inbox/courier.lock"
+out=$(courier); check "H6 a second courier is refused" 'courier lock exists' "$out"
+rmdir "$C/inbox/courier.lock"
+snap() { find "$C/inbox" -print | sort; find "$C/inbox" -type f -exec cksum {} + | sort; }
+before=$(snap); calls=$(wc -l < "$C/calls.log" | tr -d ' ')
+out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh)
+check "H7 message with no action is status" 'courier pid=' "$out"
+check "H7b status changes no inbox byte" '^same$' "$( [ "$before" = "$(snap)" ] && echo same)"
+check "H7c and makes no Herdr call" "^$calls\$" "$(wc -l < "$C/calls.log" | tr -d ' ')"
+new_case backlog
+i=0; while [ "$i" -lt 1000 ]; do : > "$(OB)/ready/x$i.md"; i=$((i+1)); done
+out=$(send); check "H8 a full backlog refuses send before allocation" 'pending backlog full' "$out"
+check "H8b no ID was allocated" '^no$' "$(yn "$C/inbox/ids/$ID")"
+
+# G: the automatic Codex goal resume sends only the exact input, and only when every guard passes.
+new_case resume
+jq_edit '.["task-pane"]=(.["sender-pane"]|.pane_id="task-pane"|.agent="codex"|.agent_session.agent="codex"|.agent_session.value="task-session")' "$C/agents.json"
+jq -n '{"im-task":{role:"task-agent",identity:{pane:"task-pane",session:{source:"hook",agent:"codex",kind:"id",value:"task-session"}}}}' > "$C/inbox/resume-targets.json"
+printf 'Goal paused (/goal resume)\n' > "$C/screen-task-pane"
+touch "$C/allow-resume"
+prompts() { grep -c '^agent prompt' "$C/calls.log"; }
+out=$(msg sender-pane resume-goal-when-idle.sh "$A"); check "G1 the adjutant is never a resume target" 'never adjutant' "$out"
+out=$(msg sender-pane resume-goal-when-idle.sh "$O"); check "G2 a target that is not Codex is refused" 'not Codex' "$out"
+touch "$C/inbox/state/route-frozen"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G3 a user freeze holds the resume" 'HELD user pause or freeze' "$out"
+rm "$C/inbox/state/route-frozen"
+jq_edit '.["task-pane"].agent_status="working"' "$C/agents.json"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G4 a busy turn waits" 'WAIT turn is not idle' "$out"
+jq_edit '.["task-pane"].agent_status="idle"|.["task-pane"].agent_session.value="drifted"' "$C/agents.json"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G5 a changed session is refused" 'identity changed' "$out"
+jq_edit '.["task-pane"].agent_session.value="task-session"' "$C/agents.json"
+touch "$C/read-failure"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G6 a failed pane read is refused" 'pane read failed' "$out"
+rm "$C/read-failure"
+check "G7 no guard sent any input" '^0$' "$(prompts)"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G8 an idle paused Codex goal gets the resume" '^SENT /goal resume' "$out"
+check "G8b exactly one input, the exact text, to the task pane" '^agent prompt task-pane /goal resume$' "$(grep '^agent prompt' "$C/calls.log")"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G9 a working turn after the resume is a no-op" '^NOOP' "$out"
+
+# C: side-agent cards relay to the adjutant as data; blocked prompts alert; nothing is typed.
+new_case cards
+jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}]' > "$C/inbox/watch-targets.json"
+printf '%s\n' 'output line' '✦ Heads up · first finding' '✦ Heads up · second finding' 'Permission required' > "$C/screen-receiver-pane"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+AB="$C/inbox/$A"
+check "C1 every visible card is journaled" '^2$' "$(nfiles "$C/inbox/card-events" '*.json')"
+check "C2 and relayed once to the adjutant as observations" '^2 observation observation$' \
+  "$(nfiles "$AB/new" '*.md') $(cat "$AB/new/"*.md | jq -r .kind | tr '\n' ' ' | sed 's/ $//')"
+check "C2b labeled as side-agent data from the orchestrator transport" 'side_agent_data' "$(cat "$AB/new/"*.md | jq -r '.from + " " + .body')"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "C4 a second watcher run relays nothing again" '^2$' "$(nfiles "$AB/new" '*.md')"
+check "C3 a blocked prompt still shown on the next pass alerts" 'notification show Agent notice or blocked state' "$(cat "$C/calls.log")"
+set_agents sender-pane sender-session receiver-pane reused-session
+reads=$(grep -c '^pane read receiver-pane' "$C/calls.log")
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "C5 a reused pane is not read under the old target" "^$reads\$" "$(grep -c '^pane read receiver-pane' "$C/calls.log")"
+check "C5b and the drift alerts" 'notification show Notice monitor identity changed' "$(cat "$C/calls.log")"
+
+# N: no channel script typed into any pane; the resume case sent only its one exact input.
+nocheck "N1 no input call reached the fake herdr" 'agent prompt|send-keys|send-text|pane run' \
+  "$(for f in "$T"/*/calls.log; do [ "$f" = "$T/resume/calls.log" ] || cat "$f"; done)"
+nocheck "N1b the resume case typed nothing else" 'send-keys|send-text|pane run' "$(cat "$T/resume/calls.log")"
 
 echo "RESULT pass=$pass fail=$fail (work dir $T)"
 [ "$fail" -eq 0 ]
