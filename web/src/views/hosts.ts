@@ -298,8 +298,85 @@ export function showConnect(root: HTMLElement, title: string, text: string, retr
           icon(icons.keyboard),
           "Pairing proves you can see the host's terminal, so a shared or leaked link is not enough to control your agents.",
         ),
+        installGuide(),
       ),
     ),
   );
   root.querySelector<HTMLInputElement>(".hosts-add input")?.focus();
+}
+
+const brewInstall =
+  "brew tap arafathusayn/tap\nbrew trust arafathusayn/tap\nbrew install --cask arafathusayn/tap/herdsman";
+
+/** A command with a copy button. */
+function command(text: string): HTMLElement {
+  const copy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Copied.");
+    } catch {
+      toast("The browser blocked the clipboard. Select the text and copy it.", "error");
+    }
+  };
+  return h(
+    "div",
+    { class: "install-cmd" },
+    h("pre", null, h("code", null, text)),
+    h(
+      "button",
+      { type: "button", class: "icon-btn", "aria-label": "Copy", "data-tip": "Copy", onclick: copy },
+      icon(icons.copy),
+    ),
+  );
+}
+
+/**
+ * How someone who lands on this app without herdsman gets it running: the
+ * hosted copy is often the first thing a new person sees.
+ */
+function installGuide(): HTMLElement {
+  return h(
+    "section",
+    { class: "install", "aria-labelledby": "install-title" },
+    h("h2", { id: "install-title" }, "How to install herdsman"),
+    h(
+      "p",
+      { class: "install-lead" },
+      "herdsman runs a team of coding agents inside herdr. This app shows and steers them from any browser, ",
+      "and talks only to the machines you pair it with.",
+    ),
+    h(
+      "ol",
+      { class: "install-steps" },
+      h(
+        "li",
+        null,
+        h("p", null, "On the machine that runs herdr, install the herdsman command with Homebrew:"),
+        command(brewInstall),
+        h(
+          "p",
+          { class: "install-alt" },
+          "Or download it for macOS or Linux from ",
+          h(
+            "a",
+            { href: "https://github.com/arafathusayn/herdsman/releases", rel: "noopener", target: "_blank" },
+            "Releases",
+          ),
+          ".",
+        ),
+      ),
+      h("li", null, h("p", null, "Start it there:"), command("herdsman web --open")),
+      h(
+        "li",
+        null,
+        h("p", null, "Open the link it prints, or paste it above. Then type the 6-digit code that the terminal shows."),
+      ),
+    ),
+    h(
+      "a",
+      { class: "install-docs", href: "./docs/" },
+      "Read the docs: install the skill, run a route, use a phone",
+      icon(icons.arrow),
+    ),
+  );
 }
