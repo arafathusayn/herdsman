@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -101,7 +102,8 @@ func TestReadChannelFollowsTheChannelRules(t *testing.T) {
 	writeFile(t, filepath.Join(root, "front", "claim", "token"), "tok")
 	writeFile(t, filepath.Join(root, "state", "timing.json"), `{"health":0}`)
 	writeFile(t, filepath.Join(root, "state", "automation-held"), "")
-	writeFile(t, filepath.Join(root, "state", "hold-review"), `{"by":"boss","reason":"stopping the reviewer","time":1761300000}`)
+	writeFile(t, filepath.Join(root, "state", "hold-review"), `{"holds":{"front":{"reason":"the user asked","time":1761300001},"boss":{"reason":"stopping the reviewer","time":1761300000}}}`)
+	writeFile(t, filepath.Join(root, "state", "hold-old"), `{"by":"boss","reason":"an older record","time":1761300000}`)
 	writeFile(t, filepath.Join(root, "state", "route-paused"), "")
 	lock := filepath.Join(root, "channel.lock")
 	if err := os.Mkdir(lock, 0o700); err != nil {
@@ -112,9 +114,16 @@ func TestReadChannelFollowsTheChannelRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch := readChannel(root, time.Now())
+	// Each owner of a hold shows with its reason; a record in another
+	// format still shows as a hold, with no owners.
+	wantHolds := []ChannelHold{
+		{Name: "route-paused"},
+		{Name: "hold-old"},
+		{Name: "hold-review", Owners: []ChannelHolding{{By: "boss", Reason: "stopping the reviewer"}, {By: "front", Reason: "the user asked"}}},
+	}
 	if ch.HealthAfter != defaultHealthSecs || !slices.Equal(ch.Flags, []string{"timing-invalid", "channel-lock-stale", "automation-held"}) ||
-		!slices.Equal(ch.Holds, []ChannelHold{{Name: "route-paused"}, {Name: "hold-review", By: "boss", Reason: "stopping the reviewer"}}) {
-		t.Fatalf("flags %v holds %v health_after %d", ch.Flags, ch.Holds, ch.HealthAfter)
+		!reflect.DeepEqual(ch.Holds, wantHolds) {
+		t.Fatalf("flags %v holds %+v health_after %d", ch.Flags, ch.Holds, ch.HealthAfter)
 	}
 	if !slices.ContainsFunc(ch.Messages, func(m ChannelMessage) bool { return m.Kind == "side_agent_data" }) {
 		t.Fatalf("side_agent_data refused: %+v", ch.Messages)

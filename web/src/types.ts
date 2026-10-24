@@ -244,8 +244,8 @@ export interface Channel {
   health_after: number;
   /** Health problems beyond the heartbeats, named as `message status` names them. */
   flags: string[];
-  /** Hold and resume intents in the channel's state folder; a named hold says who holds and why. */
-  holds: { name: string; by?: string; reason?: string }[];
+  /** Hold and resume intents in the channel's state folder; a named hold lists each owner and why. */
+  holds: { name: string; owners?: { by: string; reason: string }[] }[];
   boxes: {
     name: string;
     orphan: boolean;
