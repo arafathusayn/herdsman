@@ -101,7 +101,8 @@ func TestReadChannelFollowsTheChannelRules(t *testing.T) {
 	writeFile(t, filepath.Join(root, "front", "claim", "token"), "tok")
 	writeFile(t, filepath.Join(root, "state", "timing.json"), `{"health":0}`)
 	writeFile(t, filepath.Join(root, "state", "automation-held"), "")
-	writeFile(t, filepath.Join(root, "state", "hold-review"), "")
+	writeFile(t, filepath.Join(root, "state", "hold-review"), `{"by":"boss","reason":"stopping the reviewer","time":1761300000}`)
+	writeFile(t, filepath.Join(root, "state", "route-paused"), "")
 	lock := filepath.Join(root, "channel.lock")
 	if err := os.Mkdir(lock, 0o700); err != nil {
 		t.Fatal(err)
@@ -112,7 +113,7 @@ func TestReadChannelFollowsTheChannelRules(t *testing.T) {
 	}
 	ch := readChannel(root, time.Now())
 	if ch.HealthAfter != defaultHealthSecs || !slices.Equal(ch.Flags, []string{"timing-invalid", "channel-lock-stale", "automation-held"}) ||
-		!slices.Equal(ch.Holds, []string{"hold-review"}) {
+		!slices.Equal(ch.Holds, []ChannelHold{{Name: "route-paused"}, {Name: "hold-review", By: "boss", Reason: "stopping the reviewer"}}) {
 		t.Fatalf("flags %v holds %v health_after %d", ch.Flags, ch.Holds, ch.HealthAfter)
 	}
 	if !slices.ContainsFunc(ch.Messages, func(m ChannelMessage) bool { return m.Kind == "side_agent_data" }) {

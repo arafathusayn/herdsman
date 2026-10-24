@@ -145,8 +145,17 @@ export class MessagesView {
           const [text, tip] = describeFlag(f);
           return h("span", { class: "chip bad", "data-tip": tip }, text);
         }),
-        (ch.holds ?? []).map((name) =>
-          h("span", { class: "chip warn", "data-tip": "A hold or resume intent in the channel's state folder" }, name),
+        (ch.holds ?? []).map((x) =>
+          h(
+            "span",
+            {
+              class: "chip warn",
+              "data-tip": x.by
+                ? `Held by ${x.by}${x.reason ? `: ${x.reason}` : ""}`
+                : "A hold or resume intent in the channel's state folder",
+            },
+            x.name,
+          ),
         ),
         boxes.map((b) =>
           h(
