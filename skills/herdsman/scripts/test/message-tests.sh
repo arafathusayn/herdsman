@@ -4,8 +4,9 @@
 # The cases run in parallel parts, one per CPU at a time; MESSAGE_TEST_JOBS=1 runs the parts one after another.
 # Every script runs under `env -i` with the fake herdr and nc of test/fakebin first on PATH and fake HERDR_*
 # values, so no inherited HERDR_* variable reaches a live Herdr session. The fake herdr serves agent records
-# from <case>/agents.json and logs every call to <case>/calls.log. HERDR_SOCKET_PATH is empty, so the courier
-# and waiter use their bounded queue scans; the event stream itself is not exercised here.
+# from <case>/agents.json and logs every call to <case>/calls.log. HERDR_SOCKET_PATH is empty by default, so the
+# courier and waiter use their bounded queue scans. The EV cases set a fixture socket path and replay a scripted
+# event stream through the fake nc; no case opens a real socket.
 # Started from zsh or sh, re-run under /bin/bash (the line is valid in all three).
 [ -n "${BASH_VERSION:-}" ] || exec /bin/bash "$0" "$@"
 set -u
@@ -498,7 +499,11 @@ out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G5 a registered 
 mv "$C/resume-targets.base" "$C/inbox/resume-targets.json"
 jq_edit '.["task-pane"].agent_session.value="drifted"' "$C/agents.json"
 out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G5b a relaunched live session is outside the inventory and held" '^HELD HUMAN boundary' "$out"
+check "G5c the helper records the exposure it saw" '"value":"drifted"' "$(jq -c . "$C/inbox/state/boundary-tainted" 2>&1)"
 jq_edit '.["task-pane"].agent_session.value="task-session"' "$C/agents.json"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G5d after that session exits the resume stays held" '^HELD HUMAN boundary' "$out"
+# The human repeats setup, which removes the record.
+rm "$C/inbox/state/boundary-tainted"
 jq_edit '.["task-pane"].agent_session.value="task-session"' "$C/agents.json"
 touch "$C/read-failure"
 out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G6 a failed pane read is refused" 'pane read failed' "$out"
@@ -1038,6 +1043,17 @@ jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",va
 touch "$C/list-failure-once"
 ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
 nocheck "Z2f one failed agent list does not alert the human" 'notification show Automatic coordination held' "$(cat "$C/calls.log")"
+# Under load the run above may end after its one failed list, before a good list resets the count; start from none.
+rm -f "$C/inbox/state/agent-list-failures" "$C/inbox/state/automation-held"
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2" = "agent list" ]; then n=$(cat "$FIXTURE/lists" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$FIXTURE/lists"' \
+  '  [ "$n" != 2 ] || { [ -e "$HERDSMAN_INBOX/state/automation-held" ] && echo held || echo none; } > "$FIXTURE/after-first-failure"' \
+  '  [ "$n" != 1 ] || { echo "{\"error\":{\"code\":\"temporary_failure\"}}"; exit 1; }' \
+  'fi' "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+ENVX="RUN_FOR=2 INTERVAL=1 PATH=$C/race-bin:$CPATH" msg courier-pane card-watch.sh >/dev/null
+check "Z2f2 after the first failed list no automation-held is written" '^none$' "$(cat "$C/after-first-failure" 2>&1)"
 check "Z2g and records no exposure" '^no$' "$(yn "$C/inbox/state/boundary-tainted")"
 touch "$C/list-failure"
 ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
@@ -1173,6 +1189,18 @@ check "Z8 a policy changed during the sweep moves nothing to ready" '^yes no$' "
 check "Z8b and the human is alerted" 'notification show Message setup proof stale' "$(cat "$C/calls.log")"
 courier >/dev/null
 check "Z8c a courier started on the stale proof refuses" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+new_case courier-repair
+# The proof goes stale between sweeps and is repaired while the message is held back; the same run delivers it.
+send >/dev/null; mkdir "$C/staged"; mv "$(OB)/new/$ID.md" "$C/staged/"; cp "$C/ignore-rule" "$C/ignore-rule.good"
+env -i PATH="$CPATH" HOME="$HOME" HERDSMAN_INBOX="$C/inbox" FIXTURE="$C" HERDR_PANE_ID=courier-pane HERDR_SOCKET_PATH= \
+  HERDSMAN_PREFLIGHT="$C/inbox/setup.json" WATCH_REQUIRED=0 RUN_FOR=10 SWEEP=1 HEALTH_AFTER=20 /bin/bash "$MS/message-courier.sh" >/dev/null 2>&1 &
+cpid=$!
+i=0; while [ ! -e "$C/inbox/state/timing.json" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+printf 'changed between sweeps\n' >> "$C/ignore-rule"
+i=0; while ! grep -q 'notification show Message setup proof stale' "$C/calls.log" && [ "$i" -lt 60 ]; do sleep 0.1; i=$((i+1)); done
+cp "$C/ignore-rule.good" "$C/ignore-rule"; mv "$C/staged/$ID.md" "$(OB)/new/"
+wait "$cpid"
+check "Z8d after the proof is repaired the same courier run delivers" '^no yes$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
 
 # Z9: hold and unhold publish a named hold under the shared input lock.
 new_case hold
@@ -1224,6 +1252,23 @@ ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
 ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
 nocheck "Z10 a user pause sends no resume-held alert" 'notification show Goal resume held' "$(cat "$C/calls.log")"
 check "Z10b the quiet hold is still visible in status" 'hold-or-intent: resume-held-im-task' "$(msg receiver-pane message-status.sh "$O")"
+rm "$C/inbox/state/route-paused" "$C/inbox/state/resume-held-im-task"
+printf 'Do you want to allow this command?\n' > "$C/screen-task-pane"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+nocheck "Z10c a blocked turn sends no resume-held alert" 'notification show Goal resume held' "$(cat "$C/calls.log")"
+check "Z10c2 and its quiet hold names the blocked turn" 'turn is not idle or is blocked' "$(cat "$C/inbox/state/resume-held-im-task" 2>&1)"
+rm "$C/inbox/state/resume-held-im-task"
+printf 'Goal paused (/goal resume)\n' > "$C/screen-task-pane"
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2" = "pane read" ] && [ -d "$HERDSMAN_INBOX/herdr-mutation.lock" ]; then printf "Working (3s)\n"; exit 0; fi' \
+  "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+ENVX="RUN_FOR=1 INTERVAL=1 PATH=$C/race-bin:$CPATH" msg courier-pane card-watch.sh >/dev/null
+ENVX="RUN_FOR=1 INTERVAL=1 PATH=$C/race-bin:$CPATH" msg courier-pane card-watch.sh >/dev/null
+nocheck "Z10d a turn that changes before input sends no resume-held alert" 'notification show Goal resume held' "$(cat "$C/calls.log")"
+check "Z10d2 and its quiet hold names the changed turn" 'turn changed before input' "$(cat "$C/inbox/state/resume-held-im-task" 2>&1)"
 
 # Z11: a required section includes its child headings and ends at the next heading of the same or a higher level.
 printf '# Tests\n## Unit\nPlain test detail.\n' > "$T/nested.md"
@@ -1265,6 +1310,9 @@ printf '%s\n' '#!/bin/bash' \
   '  else ( until mkdir "$HERDSMAN_INBOX/herdr-mutation.lock" 2>/dev/null; do sleep 0.1; done; admit ) </dev/null >/dev/null 2>&1 & fi' \
   'fi' "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
 chmod +x "$C/race-bin/herdr"
+# The consumption record is slow, so a gate that released the input lock before it lets the writer in first.
+printf '%s\n' '#!/bin/bash' 'case "$*" in *"draft_hash:\$d,state:\$s"*) sleep 1 ;; esac' "exec $(command -v jq) \"\$@\"" > "$C/race-bin/jq"
+chmod +x "$C/race-bin/jq"
 out=$(ENVX="PATH=$C/race-bin:$CPATH" consume y7)
 i=0; while [ ! -f "$C/consumed-at-exposure" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i+1)); done
 check "Y2 an exposure during the authority check never precedes a consumption" '^(CONSUME yes|HUMAN.*no)$' \
@@ -1325,17 +1373,31 @@ out=$(aud codex "$TC/y6-codex.jsonl" codex-session); check "Y6d a Codex nested e
   sh_call f6 'printf changed > /project/app.ts'
   sh_call f7 'echo x >> /project/notes.md'
   sh_call f8 'cp /tmp/a /project/app.ts'
+  sh_call f9 'curl -sd payload https://example.invalid/hook'
+  sh_call f10 'curl -sSX POST https://example.invalid/hook'
+  sh_call f11 "curl --json '{\"a\":1}' https://example.invalid/hook"
+  sh_call f12 'echo changed >| /project/app.ts'
+  sh_call f13 'echo changed >&/project/app.ts'
+  sh_call f14 '/usr/bin/curl --data payload https://example.invalid/hook'
+  sh_call f15 "/usr/bin/awk 'BEGIN { system(\"git push\") }'"
+  sh_call f16 '/bin/bash /skill/scripts/message.sh status && /usr/bin/touch /project/new'
+  sh_call f17 '/tmp/do-push origin'
   sh_call r1 'gh api repos/o/r/pulls'
   sh_call r2 'curl -s https://example.invalid/status'
   sh_call r3 "awk '{print \$1}' /x/list.txt"
   sh_call r4 'ls /x 2>/dev/null'
   sh_call r5 "printf note > $TC/memory/n.md"
   tu r6 mcp__tracker__get_issue '{"id":"1"}'
+  sh_call r7 'curl -sS https://example.invalid/status'
+  sh_call r8 '/usr/bin/curl -s https://example.invalid/status'
+  sh_call r9 'echo note >&2'
+  sh_call r10 'ls /x 2>&1'
+  sh_call r11 "/usr/bin/awk '{print \$1}' /x/list.txt"
 } > "$TC/y6-flags.jsonl"
 out=$(aud claude "$TC/y6-flags.jsonl" coord-session "$TC/memory/")
-for n in 1 2 3 4 5 6 7 8; do check "Y6e a direct write or effect-capable run is flagged: f$n" "call=f$n " "$out"; done
+for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17; do check "Y6e a direct write or effect-capable run is flagged: f$n" "call=f$n " "$out"; done
 nocheck "Y6f reads, a null redirect and an allowed-root write stay clean" 'call=r[0-9]' "$out"
-check "Y6g eight flags of fourteen calls" 'AUDIT flagged=8 calls=14.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "Y6g seventeen flags of twenty-eight calls" 'AUDIT flagged=17 calls=28.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
 counts 10 ) > "$T/.part-10.log" 2>&1 & started 10
 
 slot; ( begin 11; pass=0; fail=0
@@ -1377,7 +1439,8 @@ sleep 0.5; kill -TERM "$cpid"; wait "$cpid" 2>/dev/null
 npid=$(cat "$C/nc-pid-1" 2>/dev/null); i=0; while kill -0 "$npid" 2>/dev/null && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i+1)); done
 check "EV5 after a stop signal the event folder and the transport child are gone" '^0 gone no$' \
   "$(nfiles "$C/inbox/state" '.events.*') $(if kill -0 "$npid" 2>/dev/null; then echo alive; else echo gone; fi) $(yn "$C/inbox/courier.lock")"
-# EV6: after a kill signal no cleanup runs: the transport child still ends on end of input, and the owner record
+# EV6: after a kill signal no cleanup runs. The first check covers the fake nc only, which ends on end of input; how
+# a real nc child ends after the courier is killed is a live check. The owner record
 # and the courier lock stay for inspection, so a new courier refuses to start.
 evcase ev-kill
 env -i PATH="$CPATH" HOME="$HOME" HERDSMAN_INBOX="$C/inbox" FIXTURE="$C" HERDR_PANE_ID=courier-pane HERDR_SOCKET_PATH="$C/sock" \
@@ -1535,6 +1598,10 @@ chmod +x "$C/race-bin/herdr"
 out=$(ENVX="PATH=$C/race-bin:$CPATH" consume x1)
 check "GX1 a go that expires during the authority check is refused" 'REFUSED go expired.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
 check "GX1b and nothing is consumed" '^no$' "$(yn "$APR/consumed/x1.json")"
+check "GX1c the refusal came after the authority check" 'agent list' "$(cat "$C/calls.log")"
+gojson x2 30
+out=$(ENVX="PATH=$C/race-bin:$CPATH" consume x2)
+check "GX1d a go that outlives the same slow check is consumed" '^CONSUME x2.*rc=0' "$(printf '%s' "$out" | tr '\n' ' ')"
 # GX2: a journal alert clears once the journal drains, even when no new card appears.
 new_case journal-clear
 jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}]' > "$C/inbox/watch-targets.json"
@@ -1719,6 +1786,101 @@ nocheck "V3R16c and does not revive the acknowledged one" "\"id\":\"$ID\"" "$out
 out=$(msg receiver-pane message-ack.sh "$O" "$token2" m000000000002 "$C/record.txt"); st=$?
 check "V3R16d the adopted message is acknowledged with the new claim" '^0 handled$' "$st $(jq -r .state "$C/inbox/ids/m000000000002/terminal.json")"
 counts 18 ) > "$T/.part-18.log" 2>&1 & started 18
+
+slot; ( begin 19; pass=0; fail=0
+# XB1: an exposure seen while another process owns the input lock is never published under that owner. It waits
+# in state/exposure-pending, every check fails closed meanwhile, and the next owner of the lock publishes it.
+new_case exposure-busy
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+jq -n '[{pane:"task-pane",session:{source:"hook",agent:"claude",kind:"id",value:"task-session"}}]' > "$C/inbox/watch-targets.json"
+relay_boundary
+jq_edit '.["rogue-pane"]=(.["task-pane"]|.pane_id="rogue-pane"|.agent_session.value="rogue-session")' "$C/agents.json"
+mkdir "$C/inbox/herdr-mutation.lock"; echo 99999 > "$C/inbox/herdr-mutation.lock/pid"
+ENVX="RUN_FOR=1 INTERVAL=1 LOCK_WAIT=1" msg courier-pane card-watch.sh >/dev/null
+check "XB1 no exposure record is published while another process owns the input lock" '^no 99999$' \
+  "$(yn "$C/inbox/state/boundary-tainted") $(cat "$C/inbox/herdr-mutation.lock/pid")"
+check "XB1b the incident waits for the next owner" '^[1-9]' "$(nfiles "$C/inbox/state/exposure-pending" '*.json')"
+jq_edit 'del(.["rogue-pane"])' "$C/agents.json"
+check "XB1c after that agent exits, a check still fails closed" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
+rm "$C/inbox/herdr-mutation.lock/pid"; rmdir "$C/inbox/herdr-mutation.lock"
+printf 'reviewed text\n' > "$C/draft.txt"; APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"; gojson xb1 600
+out=$(consume xb1)
+check "XB1d the next owner of the lock publishes the exposure and the gate refuses" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "XB1e the record names the agent and no entry is left pending" '^0 .*rogue-pane' \
+  "$(nfiles "$C/inbox/state/exposure-pending" '*.json') $(jq -c . "$C/inbox/state/boundary-tainted" 2>&1)"
+check "XB1f and nothing is consumed" '^no$' "$(yn "$APR/consumed/xb1.json")"
+# XB2: an agent that only the resume helper's locked recheck sees is recorded, and the resume is held.
+new_case resume-exposure
+jq_edit '.["task-pane"]=(.["sender-pane"]|.pane_id="task-pane"|.agent="codex"|.agent_session.agent="codex"|.agent_session.value="task-session")' "$C/agents.json"
+jq -n '{"im-task":{role:"task-agent",identity:{pane:"task-pane",session:{source:"hook",agent:"codex",kind:"id",value:"task-session"}}}}' > "$C/inbox/resume-targets.json"
+printf 'Goal paused (/goal resume)\n' > "$C/screen-task-pane"; touch "$C/allow-resume"; relay_boundary
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2" = "agent list" ] && [ -d "$HERDSMAN_INBOX/herdr-mutation.lock" ]; then' \
+  '  jq -c "{id:\"fixture-response\",result:{type:\"agent_list\",agents:([.[]]+[.[\"task-pane\"]|.pane_id=\"brief-pane\"|.agent_session.value=\"brief-session\"])}}" "$FIXTURE/agents.json"; exit 0' \
+  'fi' "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+out=$(ENVX="PATH=$C/race-bin:$CPATH" msg sender-pane resume-goal-when-idle.sh im-task)
+check "XB2 the locked recheck holds the resume" '^HELD HUMAN boundary changed' "$out"
+check "XB2b and records the agent it saw" 'brief-pane' "$(cat "$C/inbox/state/boundary-tainted" 2>&1)"
+check "XB2c no input was sent" '^0$' "$(grep -c '^agent prompt' "$C/calls.log")"
+# XB3: an agent that the gate's locked check sees is recorded, and nothing is consumed.
+new_case gate-exposure
+relay_boundary
+printf 'reviewed text\n' > "$C/draft.txt"; APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"; gojson xb3 600
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2" = "agent list" ] && [ -d "$HERDSMAN_INBOX/herdr-mutation.lock" ]; then' \
+  '  jq -c "{id:\"fixture-response\",result:{type:\"agent_list\",agents:([.[]]+[.[\"receiver-pane\"]|.pane_id=\"brief-pane\"|.agent_session.value=\"brief-session\"])}}" "$FIXTURE/agents.json"; exit 0' \
+  'fi' "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+out=$(ENVX="PATH=$C/race-bin:$CPATH" consume xb3)
+check "XB3 the gate refuses under the HUMAN boundary" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "XB3b and records the agent it saw" 'brief-pane' "$(cat "$C/inbox/state/boundary-tainted" 2>&1)"
+check "XB3c nothing is consumed" '^no$' "$(yn "$APR/consumed/xb3.json")"
+
+# AR1: after an archive moves the cur copy and its ack aside, a replay of the original bytes is held by the
+# terminal record alone.
+new_case archive-handled
+send >/dev/null; courier >/dev/null
+token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
+printf 'intake recorded\n' > "$C/record.txt"; msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt" >/dev/null
+mkdir "$C/archive"; mv "$(OB)/cur/$ID.md" "$(OB)/ack/$ID.md.json" "$C/archive/"
+cp "$C/inbox/ids/$ID/envelope" "$(OB)/new/$ID.md"; : > "$C/calls.log"
+courier >/dev/null
+check "AR1 a replay after the archive of a handled message is held in new" '^yes no no$' \
+  "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md") $(yn "$(OB)/quarantine/$ID.md")"
+check "AR1b and alerts as a duplicate" 'notification show Duplicate message held' "$(cat "$C/calls.log")"
+# AR2: the same after an archive moves a quarantined copy aside.
+new_case archive-quarantined
+send >/dev/null; jq_edit '.from_identity.session.value="forged"' "$(OB)/new/$ID.md"; courier >/dev/null
+mkdir "$C/archive"; mv "$(OB)/quarantine/$ID.md" "$C/archive/"; cp "$C/archive/$ID.md" "$(OB)/new/$ID.md"; : > "$C/calls.log"
+courier >/dev/null
+check "AR2 a replay after the archive of a quarantined message is held in new" '^yes no no quarantined$' \
+  "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md") $(yn "$(OB)/quarantine/$ID.md") $(jq -r .state "$C/inbox/ids/$ID/terminal.json")"
+check "AR2b and alerts as a duplicate" 'notification show Duplicate message held' "$(cat "$C/calls.log")"
+# AR3: a quarantine move that was cut before its terminal record: the courier writes the terminal, the sender's
+# notice and the human notice.
+new_case quarantine-cut
+send >/dev/null; jq_edit '.from_identity.session.value="forged"' "$(OB)/new/$ID.md"; mv "$(OB)/new/$ID.md" "$(OB)/quarantine/$ID.md"
+courier >/dev/null
+check "AR3 the missing terminal is written as quarantined" '^quarantined$' "$(jq -r .state "$C/inbox/ids/$ID/terminal.json" 2>&1)"
+check "AR3b the sender's notice is published" '^yes yes$' "$(yn "$C/inbox/$A/notices/$ID.md.json") $(yn "$C/inbox/ids/$ID/notice-published")"
+check "AR3c the human is told" 'notification show Messages quarantined' "$(cat "$C/calls.log")"
+# FL: a steady flood of other panes' events never starves a timer: the courier's sweep, the waiter's recheck and the
+# waiter's deadline each run on time while the fake stream keeps sending.
+evcase fl-courier; printf '%s\n' '@sleep 1' '@stage' '@flood-for 30' > "$C/events"
+SECONDS=0; evcourier RUN_FOR=4 SWEEP=1; took=$SECONDS
+check "FL1 under a flood the courier's timer sweep delivers a send that has no ring" '^yes$' "$(yn "$(OB)/ready/$ID.md")"
+check "FL1b and the courier exits by its run limit" '^yes$' "$([ "$took" -le 12 ] && echo yes || echo "no $took")"
+evcase fl-wait-deadline; printf '%s\n' '@flood-for 30' > "$C/events"
+SECONDS=0; out=$(ENVX="HERDR_SOCKET_PATH=$C/sock DEADLINE=2 RECHECK=60" msg receiver-pane message-wait.sh "$O"); took=$SECONDS
+check "FL2 under a flood the waiter reaches its deadline" '^TICK' "$out"
+check "FL2b on time" '^yes$' "$([ "$took" -le 10 ] && echo yes || echo "no $took")"
+evcase fl-wait-recheck; printf '%s\n' '@sleep 1' '@ready' '@flood-for 30' > "$C/events"
+out=$(ENVX="HERDR_SOCKET_PATH=$C/sock DEADLINE=12 RECHECK=1" msg receiver-pane message-wait.sh "$O")
+check "FL3 under a flood the waiter's recheck finds a delivery with no event for its pane" "^MESSAGE $O" "$out"
+counts 19 ) > "$T/.part-19.log" 2>&1 & started 19
 
 # Wait for each part in order, print its output and add its counts. A part that exits nonzero or writes no counts
 # stopped before its last case.

@@ -67,7 +67,8 @@ GIT="${B}git[[:space:]](${N}[[:space:]])?(commit|push)$E"
 # Mutation options count at the start of the argument list too, in spaced, equal and compact forms.
 GHAPI="${B}gh[[:space:]]+api[[:space:]](${N}[[:space:]])?((-X|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|(-f|-F|--field|--raw-field|--input)([[:space:]=]|$)|-[fF][^[:space:]])"
 GHW="${B}gh[[:space:]](${N}[[:space:]])?(create|edit|merge|close|reopen|comment|review|delete|ready|rerun|cancel|set|fork|upload|lock|transfer|develop)$E"
-CURL="${B}(curl|wget)[[:space:]](${N}[[:space:]])?((-X|--request|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|(-d|--data[a-z-]*|-F|--form|-T|--upload-file|--post-data|--post-file)([[:space:]=]|$)|-[dFT][^[:space:]])"
+# A short-option cluster counts when it holds a data, form or upload option, or ends in -X with a write method.
+CURL="${B}(curl|wget)[[:space:]](${N}[[:space:]])?(-[a-zA-Z]*X[[:space:]=]*(POST|PATCH|PUT|DELETE)|(--request|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|(--data[a-z-]*|--json|--form[a-z-]*|--upload-file|--post-data|--post-file)([[:space:]=]|$)|-[a-zA-Z]*[dFT])"
 # An awk program that can run commands or write files is a script run; plain text processing is not.
 AWKRUN="${B}(awk|gawk|mawk|nawk)[[:space:]]"
 AWKFX='system[[:space:]]*[(]|getline|print[^;}]*[>|]'
@@ -78,13 +79,17 @@ RUN="${B}(npm|npx|pnpm|pnpx|yarn|bun|bunx|deno|node|pip|pip3|uv|uvx|poetry|cargo
 TESTS="${B}([^[:space:]]*/)?[A-Za-z0-9_.-]*tests?[.](sh|py)$E"
 SVC="${B}(docker|docker-compose|podman|nerdctl|colima|kubectl|helm|systemctl|launchctl|service|terraform|pulumi|wrangler|railway|vercel|flyctl|brew[[:space:]]+services)$E"
 MCPW='(send|create|update|delete|post|comment|write|add|edit|merge|upload|remove|move|schedule|react|approve|publish|set_|_set|assign|archive|attach|start|stop)'
+# A program started from a system command folder is classified by its name; quotes never hide a program name.
+SYSDIR='(/usr/local/bin|/opt/homebrew/bin|/usr/bin|/usr/sbin|/bin|/sbin)'
+normalized() { printf '%s' "$1" | tr -d "\"'" | sed -E "s#(^|[;&|({[:space:]])$SYSDIR/#\1#g"; }
 shell_class() { # command -> "class program" (the program word only, never arguments), or nothing
-  local c
-  if [[ "$1" =~ $GIT ]]; then c='git-write'
-  elif [[ "$1" =~ $GHAPI ]] || [[ "$1" =~ $GHW ]] || [[ "$1" =~ $CURL ]]; then c='outward-write'
-  elif [[ "$1" =~ $RUN ]] || [[ "$1" =~ $TESTS ]]; then c='test-or-package'
-  elif [[ "$1" =~ $SVC ]]; then c='service-or-container'
-  elif [[ "$1" =~ $AWKRUN ]] && [[ "$1" =~ $AWKFX ]]; then printf 'script-run awk\n'; return 0
+  local c n
+  n=$(normalized "$1")
+  if [[ "$n" =~ $GIT ]]; then c='git-write'
+  elif [[ "$n" =~ $GHAPI ]] || [[ "$n" =~ $GHW ]] || [[ "$n" =~ $CURL ]]; then c='outward-write'
+  elif [[ "$n" =~ $RUN ]] || [[ "$n" =~ $TESTS ]]; then c='test-or-package'
+  elif [[ "$n" =~ $SVC ]]; then c='service-or-container'
+  elif [[ "$n" =~ $AWKRUN ]] && [[ "$n" =~ $AWKFX ]]; then printf 'script-run awk\n'; return 0
   elif shell_write "$1"; then return 0
   else script_run "$1"; return 0; fi
   printf '%s %s\n' "$c" "$(printf '%s' "${BASH_REMATCH[0]}" | sed 's/^[;&|({[:space:]]*//' | awk '{print $1}')"
@@ -100,7 +105,7 @@ channel_script() {
   return 1
 }
 script_run() { # command -> "script-run <program>" for the first script or interpreter run that is not allowed
-  local seg w i first wrapped
+  local seg w i first prog wrapped
   local -a words
   while IFS= read -r seg; do
     read -r -a words <<< "$(printf '%s' "$seg" | tr -d "\"'")" || true
@@ -115,31 +120,38 @@ script_run() { # command -> "script-run <program>" for the first script or inter
       esac
     done
     [ "$i" -lt "${#words[@]}" ] || continue
-    first=${words[$i]}
-    case "${first##*/}" in
+    first=${words[$i]} prog=${words[$i]}
+    # A program from a system command folder runs by its name; any other path is a script run.
+    if [[ "$first" =~ ^$SYSDIR/([^/]+)$ ]]; then prog=${BASH_REMATCH[2]}; fi
+    case "$prog" in
       bash|sh|zsh|dash|ksh|fish|python|python2|python3|python3.*|perl|ruby|node|deno|bun|php|lua|osascript|tclsh|awk|gawk|mawk)
         w=
         for ((i=i+1; i<${#words[@]}; i++)); do case "${words[$i]}" in -*) ;; *) w=${words[$i]}; break ;; esac; done
-        case "${first##*/}" in awk|gawk|mawk) [[ " ${words[*]} " =~ \ -f\  ]] || continue ;; esac
+        case "$prog" in awk|gawk|mawk) [[ " ${words[*]} " =~ \ -f\  ]] || continue ;; esac
         if [ -n "$w" ] && channel_script "$w" && [[ ! " ${words[*]} " =~ \ -c\  ]]; then continue; fi
-        printf 'script-run %s\n' "${first##*/}"; return 0 ;;
+        printf 'script-run %s\n' "$prog"; return 0 ;;
       eval|source|.|xargs)
-        printf 'script-run %s\n' "$first"; return 0 ;;
+        printf 'script-run %s\n' "$prog"; return 0 ;;
       */*|*.sh|*.py|*.pl|*.rb|*.js)
         channel_script "$first" && continue
-        printf 'script-run %s\n' "${first##*/}"; return 0 ;;
+        printf 'script-run %s\n' "${prog##*/}"; return 0 ;;
     esac
-  done < <(printf '%s\n' "$1" | awk '{ gsub(/[$]\(|[;&|(){}`]/, "\n"); print }')
+  # Single-quoted text runs nothing in the shell (an awk program, a pattern), so a quoted text with spaces or shell
+  # punctuation never starts a segment. A quoted single word, such as a script path, stays.
+  done < <(printf '%s\n' "$1" | sed "s/'[^' ]*[ {};|&()][^']*'/Q/g" | awk '{ gsub(/[$]\(|[;&|(){}`]/, "\n"); print }')
 }
 shell_write() { # command -> "project-write <target>" for a redirect outside the allowed roots or a file mutation
-  local rest t
+  local rest t op n
   rest=$(printf '%s' "$1" | tr -d "\"'")
-  while [[ "$rest" =~ \>\>?[[:space:]]*([^[:space:]\;\&\|\(\)]+) ]]; do
-    t=${BASH_REMATCH[1]}; rest=${rest#*"${BASH_REMATCH[0]}"}
-    case "$t" in '&'*|/dev/null|/dev/stdout|/dev/stderr|/dev/tty) continue ;; esac
+  # >, >>, >| and >&: a >& followed by a descriptor number or - copies a stream; any other target is a file.
+  while [[ "$rest" =~ \>(\>|\||\&)?[[:space:]]*([^[:space:]\;\&\|\(\)]+) ]]; do
+    op=${BASH_REMATCH[1]} t=${BASH_REMATCH[2]}; rest=${rest#*"${BASH_REMATCH[0]}"}
+    if [ "$op" = '&' ]; then case "$t" in -|[0-9]|[0-9][0-9]) continue ;; esac; fi
+    case "$t" in /dev/null|/dev/stdout|/dev/stderr|/dev/tty) continue ;; esac
     in_root "$t" || { printf 'project-write .../%s\n' "${t##*/}"; return 0; }
   done
-  if [[ "$1" =~ $WRITECMD ]] || [[ "$1" =~ $SEDI ]]; then
+  n=$(normalized "$1")
+  if [[ "$n" =~ $WRITECMD ]] || [[ "$n" =~ $SEDI ]]; then
     printf 'project-write %s\n' "$(printf '%s' "${BASH_REMATCH[0]}" | sed 's/^[;&|({[:space:]]*//' | awk '{print $1}')"; return 0
   fi
   return 1

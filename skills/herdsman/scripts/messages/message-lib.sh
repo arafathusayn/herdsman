@@ -103,12 +103,14 @@ try_lock() {
 lock() { try_lock || die 'channel lock busy; retry with backoff, never auto-remove'; }
 unlock() { rm "$ROOT/channel.lock/pid"; rmdir "$ROOT/channel.lock"; LOCK_OWNED=; }
 # The shared input and admission lock. Hold, admission and resume writers take it; display calls take it briefly.
+# Its new owner first publishes any exposure that waited for it.
 mutation_lock() {
   local tries=0
   while ! mkdir "$ROOT/herdr-mutation.lock" 2>/dev/null; do
     tries=$((tries+1)); [ "$tries" -lt "$LOCK_WAIT" ] || return 1; sleep 1
   done
   MUTATION_OWNED=1; printf '%s\n' "$$" > "$ROOT/herdr-mutation.lock/pid"
+  fold_exposure
 }
 mutation_unlock() { rm "$ROOT/herdr-mutation.lock/pid"; rmdir "$ROOT/herdr-mutation.lock"; MUTATION_OWNED=; }
 display_call() {
@@ -376,28 +378,71 @@ claim_valid() {
 commit_identity() {
   registry && [ "$REGISTRY_SUM" = "$(digest "$ROOT/peers.approved")" ] || die 'registry changed during observation; retry'
 }
-# Record a live agent outside the protected setup. Any check that sees an inventory fault writes it once; only the
-# human removes it after repeating setup.
+# Record a live agent outside the protected setup. Any check that sees an inventory fault records it once; only the
+# human removes the record after repeating setup. Only the owner of the shared input lock publishes it, so a record
+# never lands between another owner's boundary check and its commit. When another process owns the lock, the
+# incident waits in state/exposure-pending: every boundary check fails closed while it waits, and the next owner
+# of the lock publishes it.
 record_exposure() {
-  local own=
-  [ "${BOUNDARY_FAULT:-}" = inventory ] && [ ! -e "$ROOT/state/boundary-tainted" ] || return 0
-  # Publish under the shared input lock, as every admission and exposure writer does. The observed incident is
-  # kept while waiting; a lock that stays busy still gets the record, because recording fails closed.
+  local own='' dir="$ROOT/state/exposure-pending"
+  case "${BOUNDARY_FAULT:-}" in
+    inventory) [ ! -e "$ROOT/state/boundary-tainted" ] || return 0 ;;
+    # Taking the lock publishes the waiting record.
+    pending) if [ -z "${MUTATION_OWNED:-}" ] && mutation_lock; then mutation_unlock; fi; return 0 ;;
+    *) return 0 ;;
+  esac
   if [ -z "${MUTATION_OWNED:-}" ]; then
-    if mutation_lock; then own=1; else log_line 'EXPOSURE input lock busy; recorded without it'; fi
+    if mutation_lock; then own=1
+    else
+      [ ! -L "$dir" ] || die 'exposure-pending symlink'
+      mkdir -p "$dir"
+      atomic "$dir/$$-$(now)-$RANDOM.json" jq -n --argjson agents "$BOUNDARY_UNKNOWN" --argjson time "$(now)" \
+        '{agents:$agents,time:$time}' || die 'cannot keep the exposure record'
+      log_line 'EXPOSURE input lock busy; the record waits for the next owner'
+      return 0
+    fi
   fi
-  atomic "$ROOT/state/boundary-tainted" jq -n --argjson agents "$BOUNDARY_UNKNOWN" --argjson time "$(now)" \
-    '{reason:"live agent outside the protected setup",agents:$agents,time:$time}'
+  [ -e "$ROOT/state/boundary-tainted" ] || atomic "$ROOT/state/boundary-tainted" jq -n --argjson agents "$BOUNDARY_UNKNOWN" \
+    --argjson time "$(now)" '{reason:"live agent outside the protected setup",agents:$agents,time:$time}'
   [ -z "$own" ] || mutation_unlock
+}
+exposure_pending() {
+  local f
+  for f in "$ROOT/state/exposure-pending/"*; do [ -e "$f" ] || [ -L "$f" ] && return 0; done
+  [ -L "$ROOT/state/exposure-pending" ]
+}
+# The owner of the input lock publishes every waiting exposure. An unreadable entry still counts as exposure.
+fold_exposure() {
+  local f agents='[]' found=0 more
+  local -a seen
+  exposure_pending || return 0
+  [ ! -L "$ROOT/state/exposure-pending" ] || die 'exposure-pending symlink'
+  for f in "$ROOT/state/exposure-pending/"*; do
+    [ -e "$f" ] || [ -L "$f" ] || continue
+    seen[found]=$f; found=$((found+1))
+    if regular "$f" && strict_json "$f" && more=$(jq -c '.agents|select(type=="array")' "$f"); then
+      agents=$(jq -nc --argjson a "$agents" --argjson b "$more" '$a+$b|unique')
+    fi
+  done
+  [ -e "$ROOT/state/boundary-tainted" ] || atomic "$ROOT/state/boundary-tainted" jq -n --argjson agents "$agents" \
+    --argjson time "$(now)" '{reason:"live agent outside the protected setup",agents:$agents,time:$time}' ||
+    die 'cannot publish the waiting exposure record'
+  for f in "${seen[@]}"; do rm -f "$f"; done
 }
 # shellcheck disable=SC2034 # BOUNDARY_FAULT and BOUNDARY_UNKNOWN are read by the sourcing watcher.
 boundary_ok() {
-  # BOUNDARY_FAULT: static (proof, registry, exposure or setup fields), list (no usable agent list) or inventory
-  # (BOUNDARY_UNKNOWN names each live agent outside the protected setup). Only the watcher records exposure.
+  # BOUNDARY_FAULT: static (proof, registry, exposure or setup fields), pending (an exposure that waits for the
+  # input lock), list (no usable agent list) or inventory (BOUNDARY_UNKNOWN names each live agent outside the
+  # protected setup). The caller records an inventory fault with record_exposure.
   local agents
   BOUNDARY_FAULT=static; BOUNDARY_UNKNOWN='[]'
   [ -z "$PROOF_STALE" ] && preflight_valid && registry || return 1
   [ ! -e "$ROOT/state/boundary-tainted" ] || return 1
+  if exposure_pending; then
+    # The owner of the input lock publishes it now; any other check fails closed until the next owner does.
+    if [ -n "${MUTATION_OWNED:-}" ]; then fold_exposure; return 1; fi
+    BOUNDARY_FAULT=pending; return 1
+  fi
   # Protected human setup pins roles separately from mutable queue records.
   jq -e --slurpfile pair "$ROOT/peers.approved" '
     .boundary as $b | $b.version==1 and $b.inventory_current==true and
