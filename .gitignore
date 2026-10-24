@@ -1,0 +1,7 @@
+# The web app is built into the binary at release time, never committed.
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+
+# goreleaser output and local builds
+/dist/
+/bin/
