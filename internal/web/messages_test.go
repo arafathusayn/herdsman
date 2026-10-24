@@ -139,6 +139,31 @@ func TestReadChannelFollowsTheChannelRules(t *testing.T) {
 		}
 	}
 
+	// A claim folder replaced by a link is incomplete, never held, even
+	// with both records; a real one with both is held.
+	writeFile(t, filepath.Join(root, "boss", "claim", "token"), "tok")
+	writeFile(t, filepath.Join(root, "boss", "claim", "owner"), "boss")
+	claimState := func() string {
+		for _, b := range readChannel(root, time.Now()).Boxes {
+			if b.Name == "boss" {
+				return b.Claim
+			}
+		}
+		return ""
+	}
+	if got := claimState(); got != "held" {
+		t.Fatalf("real claim folder: %s", got)
+	}
+	if err := os.Rename(filepath.Join(root, "boss", "claim"), filepath.Join(root, "claim-copy")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "claim-copy"), filepath.Join(root, "boss", "claim")); err != nil {
+		t.Fatal(err)
+	}
+	if got := claimState(); got != "incomplete" {
+		t.Fatalf("linked claim folder: %s", got)
+	}
+
 	// A link on an ack's path voids it: here the message's ids folder.
 	moved := filepath.Join(root, "ids", "m000000000001")
 	if err := os.Rename(moved, moved+"-dir"); err != nil {
