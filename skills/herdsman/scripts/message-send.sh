@@ -1,0 +1,38 @@
+#!/bin/bash
+# <from> <to> <body-file> <kind> [reply-to-id]. Standalone execution only.
+. "$(dirname "$0")/message-lib.sh"
+[ $# = 4 ] || [ $# = 5 ] || die 'send <from> <to> <body-file> <kind> [reply-to-id]'
+FROM=$1; TO=$2; BODY=$3; KIND=$4; REPLY=${5:-}
+name_ok "$FROM" && name_ok "$TO" || die 'invalid name'
+bounded "$BODY" && [ "$(wc -c < "$BODY")" -le 65536 ] || die 'body must be a bounded readable regular file'
+case "$KIND" in brief|observation|question|result|cancel|user_answer|receipt) ;; *) die 'invalid kind' ;; esac
+[ -z "$REPLY" ] || id_ok "$REPLY" || die 'invalid reply id'
+root_init
+lock
+self_peer "$FROM"
+recipient=$(peer "$TO") || die 'unknown peer'
+if [ -n "$REPLY" ]; then regular "$ROOT/ids/$REPLY/envelope" || die 'unknown reply id'; fi
+box_init "$TO"
+backlog=$(unacked "$ROOT/$TO" | wc -l | tr -d ' ')
+backlog=$((backlog + $(count_state "$ROOT/$TO/new") + $(count_state "$ROOT/$TO/quarantine")))
+[ "$backlog" -lt 1000 ] || die 'pending backlog full; inspect status'
+sequence=0
+if [ -f "$ROOT/state/sequence" ]; then sequence=$(cat "$ROOT/state/sequence"); fi
+[[ "$sequence" =~ ^(0|[1-9][0-9]{0,11})$ ]] && [ "$sequence" -lt 999999999999 ] || die 'invalid/exhausted sequence'
+sequence=$((sequence+1)); write_text "$ROOT/state/sequence" "$sequence"
+id=$(printf 'm%012d' "$sequence")
+mkdir "$ROOT/ids/$id" || die 'duplicate allocation; reconcile sequence'
+TMP=$(mktemp "$ROOT/$TO/tmp/.send.XXXXXX")
+jq -n --arg id "$id" --arg from "$FROM" --arg to "$TO" --arg kind "$KIND" --arg reply "$REPLY" \
+  --argjson 'fi' "$(printf '%s' "$SELF" | jq '.identity')" --argjson ti "$(printf '%s' "$recipient" | jq '.identity')" \
+  --argjson time "$(now)" --rawfile body "$BODY" \
+  '{version:1,id:$id,from:$from,to:$to,from_identity:$fi,to_identity:$ti,time:$time,kind:$kind,reply_to:$reply,body:$body}' > "$TMP"
+bounded "$TMP" && jq -e 'type=="object" and (.body|type=="string")' "$TMP" >/dev/null || die 'encoded envelope too large or invalid; not queued'
+cp "$TMP" "$ROOT/ids/$id/envelope"
+move_unique "$TMP" "$ROOT/$TO/new/$id.md"; TMP=
+unlock
+if ! display_call pane report-metadata "$HERDR_PANE_ID" --source herdsman-message-out --token "message_out=$id" --ttl-ms 600000 >/dev/null; then
+  printf 'WARNING ring failed; %s is queued, not delivered\n' "$id" >&2
+fi
+health || :
+printf '%s queued; delivery requires receipt or status confirmation\n' "$id"

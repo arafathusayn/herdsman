@@ -4,6 +4,7 @@
 # A `sleep` stub exits the watcher after one pass, so every test is one poll iteration.
 # A fake `herdr` on PATH serves pane text and the session id from files and variables, and a fake `gh` serves pull
 # request fixtures (see the comments in test/fakebin). The Z tests start the scripts from zsh, as a macOS shell does.
+# The M section at the end runs message-tests.sh and adds its counts to the result.
 # Started from zsh or sh, re-run under /bin/bash (the line is valid in all three).
 [ -n "${BASH_VERSION:-}" ] || exec /bin/bash "$0" "$@"
 set -u
@@ -499,14 +500,19 @@ out=$(grep '^- \[ \]' "$SK/../references/checklist.md"); nocheck "K21 no checkli
 
 # C: run-check.sh runs one heavy check at a time, behind a load gate. A fixed reading keeps the gate deterministic.
 RC="$SK/run-check.sh"
+# A suite started through a route's run-check wrapper inherits its markers and limits: clear them, or every
+# run-check below passes straight through as a check started by a check.
+unset HERDSMAN_CHECK HERDSMAN_CHECK_IN HERDSMAN_CHECK_RAN HERDSMAN_MIN_FREE HERDSMAN_NICE HERDSMAN_LOCK_WAIT HERDSMAN_GATE_WAIT
 export HERDSMAN_LOCK="$T/checks.lock" HERDSMAN_READING="$T/load" HERDSMAN_PROBES=off HERDSMAN_GATE_POLL=1 HERDSMAN_LOAD_LIMIT=4
 /bin/bash -n "$RC" && { pass=$((pass+1)); echo "PASS syntax run-check"; } || { fail=$((fail+1)); echo "FAIL syntax run-check"; }
 echo "0.5 50" > "$HERDSMAN_READING"
 /bin/bash "$RC" sh -c 'exit 3' 2>/dev/null; check "C1 exit status of the check" '^3$' "$?"
 # Read the niceness from the kernel (getpriority), not from ps: the ps columns differ between macOS and Linux.
-# nice adds to the caller's niceness (a CI runner can start jobs at -10), up to the maximum of 19.
+# nice adds to the caller's niceness (a CI runner can start jobs at -10), up to the system's maximum (19 on
+# Linux, 20 on macOS: a suite started through run-check already runs at 10).
 prio='print getpriority(0, 0)'
-want=$(( $(perl -e "$prio") + 10 )); [ "$want" -gt 19 ] && want=19
+max=$(nice -n 40 perl -e "$prio")
+want=$(( $(perl -e "$prio") + 10 )); [ "$want" -gt "$max" ] && want=$max
 check "C1b lowers the priority by 10" "^$want\$" "$(/bin/bash "$RC" perl -e "$prio" 2>&1)"
 /bin/bash "$RC" 2>/dev/null; check "C1c usage error without a command" '^64$' "$?"
 check "C2 a nested check runs at once" '^nested$' "$(HERDSMAN_LOCK_WAIT=5 /bin/bash "$RC" /bin/bash "$RC" echo nested 2>&1)"
@@ -562,6 +568,19 @@ if command -v zsh >/dev/null 2>&1; then
 else
   echo "SKIP Z tests: zsh is not installed"
 fi
+
+# M: the message channel tests run here too, so every run of this file (CI included) covers them; their counts
+# join this result, and a run that prints no result line or exits nonzero with no failure counts as one failure.
+mout=$(/bin/bash "$SK/test/message-tests.sh" "$T/messages" 2>&1); mst=$?
+printf '%s\n' "$mout"
+mres=$(printf '%s\n' "$mout" | tail -1)
+case "$mres" in
+  'RESULT pass='*' fail='*)
+    mp=${mres#RESULT pass=}; mp=${mp%% *}; mf=${mres#* fail=}; mf=${mf%% *}
+    pass=$((pass+mp)); fail=$((fail+mf))
+    if [ "$mst" -ne 0 ] && [ "$mf" -eq 0 ]; then fail=$((fail+1)); echo "FAIL M message-tests.sh exited $mst with no failure"; fi ;;
+  *) fail=$((fail+1)); echo "FAIL M message-tests.sh printed no result line (exit $mst)" ;;
+esac
 
 echo "RESULT pass=$pass fail=$fail (work dir $T)"
 [ "$fail" -eq 0 ]

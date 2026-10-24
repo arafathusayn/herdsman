@@ -1,0 +1,5 @@
+#!/bin/bash
+# Fake nc for the message tests: it never opens a socket. The tests run with an empty HERDR_SOCKET_PATH,
+# so the event helper falls back to its bounded queue scans; this stub only satisfies the tool check.
+if [ -n "${FIXTURE:-}" ]; then printf 'nc %s\n' "$*" >> "$FIXTURE/calls.log"; fi
+exit 1
