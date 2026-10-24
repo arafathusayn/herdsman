@@ -300,3 +300,19 @@ func TestEnvelopeRefusesMistypedFields(t *testing.T) {
 		}
 	}
 }
+
+// A fresh channel's registry is "{}": no pair yet, approval pending, and the
+// peers an empty list, never null, so the app can read it.
+func TestFreshRegistryHasAnEmptyPeerList(t *testing.T) {
+	root := newInbox(t)
+	writeFile(t, filepath.Join(root, "peers"), `{}`)
+	writeFile(t, filepath.Join(root, "peers.approved"), `{}`)
+	ch := readChannel(root, time.Now())
+	b, err := json.Marshal(ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Approved || !ch.Pending || !strings.Contains(string(b), `"peers":[]`) {
+		t.Fatalf("approved %v pending %v json %s", ch.Approved, ch.Pending, b)
+	}
+}

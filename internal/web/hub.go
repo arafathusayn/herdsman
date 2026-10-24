@@ -45,26 +45,17 @@ type Entry struct {
 // RouteView is a route as the browser sees it.
 type RouteView struct {
 	*route.Route
-	// ID names the route in links and requests: its folder name, or, when
-	// two projects have a route folder of that name, the name and a short
-	// hash of its full path.
+	// ID names the route in links and requests: its folder name and a short
+	// hash of its full path. It depends on nothing else, so it stays the same
+	// when another project's route of the same name comes or goes.
 	ID   string `json:"id"`
 	Live bool   `json:"live"`
 }
 
-// setRouteIDs gives each route its ID.
-func setRouteIDs(rs []RouteView) {
-	count := map[string]int{}
-	for _, r := range rs {
-		count[r.Name]++
-	}
-	for i := range rs {
-		rs[i].ID = rs[i].Name
-		if count[rs[i].Name] > 1 {
-			sum := sha256.Sum256([]byte(rs[i].Dir))
-			rs[i].ID += "~" + hex.EncodeToString(sum[:3])
-		}
-	}
+// routeID is the ID of the route in folder dir.
+func routeID(dir, name string) string {
+	sum := sha256.Sum256([]byte(dir))
+	return name + "~" + hex.EncodeToString(sum[:3])
 }
 
 // findRoute is the route with this ID, or nil.
@@ -320,9 +311,8 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 		if err != nil {
 			continue
 		}
-		out = append(out, RouteView{Route: r, Live: isLive(r, panes, agentAt, claimed)})
+		out = append(out, RouteView{Route: r, ID: routeID(r.Dir, r.Name), Live: isLive(r, panes, agentAt, claimed)})
 	}
-	setRouteIDs(out)
 	return out
 }
 

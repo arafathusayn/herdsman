@@ -142,13 +142,13 @@ func TestWorktreeDir(t *testing.T) {
 
 func TestRouteDiffEndpoint(t *testing.T) {
 	f := newFixture(t)
-	if res := f.request(t, http.MethodGet, "/api/route/diff?route=t-2026-10-24", "", nil); res.StatusCode != http.StatusUnauthorized {
+	if res := f.request(t, http.MethodGet, "/api/route/diff?route="+routeID(f.routeDir, "t-2026-10-24"), "", nil); res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unpaired: %d", res.StatusCode)
 	}
 	if res := f.request(t, http.MethodGet, "/api/route/diff?route=nope", "", f.authed); res.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown route: %d", res.StatusCode)
 	}
-	res := f.request(t, http.MethodGet, "/api/route/diff?route=t-2026-10-24", "", f.authed)
+	res := f.request(t, http.MethodGet, "/api/route/diff?route="+routeID(f.routeDir, "t-2026-10-24"), "", f.authed)
 	var body struct{ Sources []DiffSource }
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil || res.StatusCode != 200 {
 		t.Fatalf("status %d: %v", res.StatusCode, err)
@@ -158,7 +158,7 @@ func TestRouteDiffEndpoint(t *testing.T) {
 		t.Fatalf("sources = %+v", body.Sources)
 	}
 	hdr := map[string]string{"Authorization": f.authed["Authorization"], "If-None-Match": res.Header.Get("ETag")}
-	if res := f.request(t, http.MethodGet, "/api/route/diff?route=t-2026-10-24", "", hdr); res.StatusCode != http.StatusNotModified {
+	if res := f.request(t, http.MethodGet, "/api/route/diff?route="+routeID(f.routeDir, "t-2026-10-24"), "", hdr); res.StatusCode != http.StatusNotModified {
 		t.Fatalf("repeat: %d, want 304", res.StatusCode)
 	}
 }

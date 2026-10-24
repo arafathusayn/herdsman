@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,26 +100,22 @@ func TestHubDropsAStalledSubscriber(t *testing.T) {
 }
 
 // Two projects may each have a route folder of one name: each gets its own
-// ID, so links and requests reach the right one. A unique name is its ID.
+// ID, so links and requests reach the right one. An ID depends only on its
+// own folder, so it stays when a route of the same name comes or goes.
 func TestRouteIDsTellSameNamedRoutesApart(t *testing.T) {
+	a, b := "/a/.herdsman/review-2026-10-24", "/b/.herdsman/review-2026-10-24"
+	ida, idb := routeID(a, "review-2026-10-24"), routeID(b, "review-2026-10-24")
+	if ida == idb || !strings.HasPrefix(ida, "review-2026-10-24~") || ida != routeID(a, "review-2026-10-24") {
+		t.Fatalf("ids: %q %q", ida, idb)
+	}
 	rs := []RouteView{
-		{Route: &route.Route{Name: "review-2026-10-24", Dir: "/a/.herdsman/review-2026-10-24"}},
-		{Route: &route.Route{Name: "review-2026-10-24", Dir: "/b/.herdsman/review-2026-10-24"}},
-		{Route: &route.Route{Name: "auth-2026-10-24", Dir: "/a/.herdsman/auth-2026-10-24"}},
+		{Route: &route.Route{Name: "review-2026-10-24", Dir: a}, ID: ida},
+		{Route: &route.Route{Name: "review-2026-10-24", Dir: b}, ID: idb},
 	}
-	setRouteIDs(rs)
-	if rs[0].ID == rs[1].ID || rs[0].ID[:len("review-2026-10-24~")] != "review-2026-10-24~" || rs[2].ID != "auth-2026-10-24" {
-		t.Fatalf("ids: %q %q %q", rs[0].ID, rs[1].ID, rs[2].ID)
-	}
-	if got := findRoute(rs, rs[1].ID); got == nil || got.Dir != "/b/.herdsman/review-2026-10-24" {
-		t.Fatalf("findRoute(%q) = %+v", rs[1].ID, got)
+	if got := findRoute(rs, idb); got == nil || got.Dir != b {
+		t.Fatalf("findRoute(%q) = %+v", idb, got)
 	}
 	if findRoute(rs, "review-2026-10-24") != nil {
 		t.Fatal("a shared name alone picked one of the routes")
-	}
-	again := []RouteView{{Route: &route.Route{Name: "review-2026-10-24", Dir: "/b/.herdsman/review-2026-10-24"}}, rs[0]}
-	setRouteIDs(again)
-	if again[0].ID != rs[1].ID {
-		t.Fatalf("id changed with the list order: %q, was %q", again[0].ID, rs[1].ID)
 	}
 }

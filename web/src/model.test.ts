@@ -7,6 +7,7 @@ import {
   lanes,
   type Member,
   roleOf,
+  routeFor,
   routeLabel,
   team,
   workspaceGroups,
@@ -194,4 +195,14 @@ test("a route name shared by two projects shows its project", () => {
   const b = { ...route("review", "w2:p1", []), id: "review~bbb", dir: "/code/web/.herdsman/review" };
   const c = route("auth", "w3:p1", []);
   expect([a, b, c].map((r) => routeLabel(r, [a, b, c]))).toEqual(["review · api", "review · web", "auth"]);
+});
+
+test("a link finds its route by id, or by a name only one route has", () => {
+  const a = { ...route("review", "w1:p1", []), id: "review~aaa111" };
+  const b = { ...route("review", "w2:p1", []), id: "review~bbb222" };
+  const c = { ...route("auth", "w3:p1", []), id: "auth~ccc333" };
+  expect(routeFor([a, b, c], "review~bbb222")).toBe(b);
+  expect(routeFor([a, b, c], "auth")).toBe(c);
+  expect(routeFor([a, b, c], "review")).toBeNull();
+  expect(routeFor([a, b, c], "gone~000000")).toBeNull();
 });

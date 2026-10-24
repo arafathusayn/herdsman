@@ -311,7 +311,7 @@ func validRegistry(b []byte, readErr error) ([]ChannelPeer, bool) {
 	if readErr != nil || strictJSON(b) != nil || json.Unmarshal(b, &reg) != nil || reg == nil || len(reg) > 2 {
 		return nil, false
 	}
-	var out []ChannelPeer
+	out := []ChannelPeer{}
 	roles, panes, sessions := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for name, raw := range reg {
 		var p struct {
