@@ -73,3 +73,26 @@ func TestRecordKeepsTheAgentStatus(t *testing.T) {
 		t.Fatalf("entry = %+v", e)
 	}
 }
+
+// A browser too slow to drain its queue is dropped rather than left on an old
+// state: its stream ends, and it reconnects to the current snapshot.
+func TestHubDropsAStalledSubscriber(t *testing.T) {
+	f := newFixture(t)
+	ch, _, _ := f.hub.subscribe()
+	defer f.hub.unsubscribe(ch)
+	for range cap(ch) + 1 {
+		f.hub.broadcast(message{event: "state", data: []byte("{}")})
+	}
+	for range cap(ch) {
+		<-ch
+	}
+	if _, ok := <-ch; ok {
+		t.Fatal("a stalled subscriber stayed subscribed")
+	}
+	f.hub.mu.Lock()
+	_, kept := f.hub.subs[ch]
+	f.hub.mu.Unlock()
+	if kept {
+		t.Fatal("a dropped subscriber is still listed")
+	}
+}

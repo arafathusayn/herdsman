@@ -1179,8 +1179,16 @@ kbd {
   background: var(--surface);
 }
 
-.checklist li.done > span:last-child {
+.checklist li.done > span:last-child,
+.checklist li.skipped > span:last-child {
   color: var(--muted);
+}
+
+.checklist li.skipped .box {
+  border-style: dashed;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
 }
 
 .checklist .box {

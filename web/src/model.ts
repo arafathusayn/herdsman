@@ -1,5 +1,5 @@
 // Derives what the views show from the raw server state.
-import type { Agent, Pane, Route, Snapshot, State, Status, Tab, Task, Workspace } from "./types.ts";
+import type { Agent, CheckItem, Pane, Route, Snapshot, State, Status, Tab, Task, Workspace } from "./types.ts";
 
 export type Role = "adjutant" | "orchestrator" | "implementer" | "integrator" | "reviewer" | "checkpointer" | "agent";
 
@@ -223,4 +223,11 @@ export function ago(iso: string, now = Date.now()): string {
   if (s < 3600) return `${Math.round(s / 60)}m ago`;
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
+}
+
+/** How far a checklist is: done, not applicable (`[-]`, settled with a reason) and open lines. */
+export function checklistCounts(items: CheckItem[]): { done: number; skipped: number; open: number; total: number } {
+  const done = items.filter((i) => i.done).length;
+  const skipped = items.filter((i) => !i.done && i.skipped).length;
+  return { done, skipped, open: items.length - done - skipped, total: items.length };
 }

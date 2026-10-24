@@ -195,6 +195,8 @@ export async function act(a: Action): Promise<ActionResult> {
 }
 
 const etags = new Map<string, string>();
+/** Bumped by forgetPane, so a read still in flight cannot bring back an ETag its panel dropped. */
+const paneGenerations = new Map<string, number>();
 
 /**
  * The last lines of a pane with its color codes, or with visible the screen
@@ -204,6 +206,7 @@ const etags = new Map<string, string>();
 export async function readPane(pane: string, visible = false, lines = 400): Promise<PaneRead | null> {
   const extra: Record<string, string> = {};
   const key = `${pane} ${visible}`;
+  const generation = paneGenerations.get(pane) ?? 0;
   const tag = etags.get(key);
   if (tag) extra["If-None-Match"] = tag;
   const source = visible ? "&source=visible" : "";
@@ -215,13 +218,15 @@ export async function readPane(pane: string, visible = false, lines = 400): Prom
   const body = (await res.json()) as PaneRead & { error?: string };
   if (!res.ok) throw new Error(body.error ?? `pane read failed (${res.status})`);
   const et = res.headers.get("ETag");
-  if (et) etags.set(key, et);
+  if (et && (paneGenerations.get(pane) ?? 0) === generation) etags.set(key, et);
   return body;
 }
 
+/** Drops a pane's cached ETags, so the next read gets the text again. */
 export function forgetPane(pane: string): void {
   etags.delete(`${pane} false`);
   etags.delete(`${pane} true`);
+  paneGenerations.set(pane, (paneGenerations.get(pane) ?? 0) + 1);
 }
 
 export async function routeFile(route: string, path: string): Promise<string> {

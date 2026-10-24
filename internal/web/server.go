@@ -270,7 +270,10 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case m := <-ch:
+		case m, ok := <-ch:
+			if !ok {
+				return // dropped as stalled; the browser reconnects to a fresh snapshot
+			}
 			write(m.event, m.data)
 			fl.Flush()
 		case <-ping.C:

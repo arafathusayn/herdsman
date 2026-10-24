@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/arafathusayn/herdsman/internal/route"
 )
 
 // Artifacts are HTML files that agents leave in the session's folders: a
@@ -54,8 +56,7 @@ type artifactCap struct {
 
 // pageAssets are the files a page loads by itself: frames, scripts, styles,
 // images, fonts and media. Data files (JSON, text, keys, configs) are never
-// served; the page's own fetch could not read them anyway, since the frame's
-// origin is opaque and no CORS header is sent.
+// served, to the page or to anyone holding its link.
 var pageAssets = map[string]bool{
 	".html": true, ".htm": true, ".css": true, ".js": true, ".mjs": true,
 	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".avif": true, ".svg": true, ".ico": true, ".bmp": true,
@@ -100,6 +101,19 @@ var hiddenArtifactDirs = map[string]bool{".lavish": true, ".herdsman": true, ".a
 // artifactRoots are the session's folders: every pane's folders, every route
 // folder and every task worktree. The home folder and the file system root
 // are left out: walking them would take long and find unrelated pages.
+// routeFolders is a route's own folder and its tasks' worktrees, with every
+// worktree form the task table allows resolved as the Changes tab does.
+func routeFolders(r *route.Route) []string {
+	dirs := []string{r.Dir}
+	project := filepath.Dir(filepath.Dir(r.Dir)) // <project>/.herdsman/<route>
+	for _, t := range r.Tasks {
+		if w := strings.TrimSpace(t.Worktree); w != "" && w != "-" {
+			dirs = append(dirs, worktreeDir(project, w))
+		}
+	}
+	return dirs
+}
+
 func (s *Server) artifactRoots() []string {
 	st := s.hub.Current()
 	var dirs []string
@@ -113,12 +127,7 @@ func (s *Server) artifactRoots() []string {
 		add(p.ForegroundCwd)
 	}
 	for _, r := range st.Routes {
-		dirs = append(dirs, r.Dir)
-		for _, t := range r.Tasks {
-			if filepath.IsAbs(t.Worktree) {
-				dirs = append(dirs, t.Worktree)
-			}
-		}
+		dirs = append(dirs, routeFolders(r.Route)...)
 	}
 	home, _ := os.UserHomeDir()
 	var out []string
@@ -308,8 +317,9 @@ func (s *Server) openArtifact(w http.ResponseWriter, r *http.Request) {
 // serveArtifact serves a page asset from a granted folder to the browser the
 // folder was granted to. Hidden files and data files stay out, os.Root keeps
 // links from leaving the folder, and the CSP sandbox gives the page an opaque
-// origin even when it is opened outside the frame. No CORS header is sent, so
-// the page's scripts cannot read the folder's files.
+// origin even when it is opened outside the frame, so its scripts reach no
+// herdsman secret. Only that opaque origin gets a CORS header, which module
+// scripts need.
 func (s *Server) serveArtifact(w http.ResponseWriter, r *http.Request) {
 	dir, ok := s.artifacts.dir(r.PathValue("cap"), clientOf(r))
 	if !ok {
@@ -345,8 +355,15 @@ func (s *Server) serveArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h := w.Header()
-	h.Del("Access-Control-Allow-Origin")
 	h.Del("Access-Control-Expose-Headers")
+	h.Del("Access-Control-Allow-Origin")
+	// The frame's opaque origin sends "Origin: null", and module scripts load
+	// in CORS mode, so they need this. It opens nothing new: the link already
+	// serves only page assets, only to this browser.
+	if r.Header.Get("Origin") == "null" {
+		h.Set("Access-Control-Allow-Origin", "null")
+	}
+	h.Add("Vary", "Origin")
 	h.Set("Cache-Control", "no-store")
 	h.Set("Content-Security-Policy", "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads")
 	http.ServeContent(w, r, st.Name(), st.ModTime(), f)

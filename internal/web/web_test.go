@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -619,6 +620,17 @@ func TestScrollPicksTheWay(t *testing.T) {
 		if len(got) != 1 || got[0].Method != tc.method || got[0].Params[tc.param] != tc.want {
 			t.Errorf("%+v: sent %v, want %s %s=%q", tc.a, got, tc.method, tc.param, tc.want)
 		}
+	}
+
+	// A scroll past any real step is refused, never negated into a panic, and
+	// the queue keeps serving.
+	for _, lines := range []int{math.MinInt, math.MaxInt, -maxScroll - 1} {
+		if _, r := f.act(t, Action{Type: "scroll", Pane: "w1:p2", Lines: lines}); r.OK || r.Code != "invalid_action" {
+			t.Fatalf("lines %d: %+v", lines, r)
+		}
+	}
+	if _, r := f.act(t, Action{Type: "scroll", Pane: "w1:p2", Lines: -1}); !r.OK {
+		t.Fatalf("queue after a refused scroll: %+v", r)
 	}
 
 	// Typing into a pane left scrolled back jumps to the bottom first, once.

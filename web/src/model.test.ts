@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { Index, lanes, type Member, roleOf, team, workspaceGroups } from "./model.ts";
+import { checklistCounts, Index, lanes, type Member, roleOf, team, workspaceGroups } from "./model.ts";
 import type { Agent, Pane, Route, State, Workspace } from "./types.ts";
 
 const ws = (id: string, number: number, label = ""): Workspace => ({
@@ -159,4 +159,15 @@ test("an adjutant leads the team, by its route line or its task row", () => {
     routes: [{ ...route("only-adjutant", "", []), adjutant_pane: "w2:p6" }],
   } as unknown as State);
   expect(placed.groups.map((g) => g.routes.map((x) => x.name))).toEqual([["only-adjutant"]]);
+});
+
+// A `[-]` line stopped applying: it is neither done nor open.
+test("checklist counts keep not-applicable lines apart", () => {
+  const item = (done: boolean, skipped = false) => ({ done, skipped, id: "", text: "x" });
+  expect(checklistCounts([item(true), item(false, true), item(false), item(false)])).toEqual({
+    done: 1,
+    skipped: 1,
+    open: 2,
+    total: 4,
+  });
 });
