@@ -188,7 +188,7 @@ type Channel struct {
 	// Flags are the health problems `message status` reports beyond the heartbeats:
 	// timing-invalid, mutation-lock-stale, channel-lock-stale, alert-lock-stale, automation-held.
 	Flags []string `json:"flags"`
-	// Holds are the hold and resume intents in state/: route-paused, route-frozen, hold-*, resume-*.sent.
+	// Holds are the hold and resume intents in state/: route-paused, route-frozen, hold-*, resume-*.sent, resume-held-*.
 	Holds    []ChannelHold    `json:"holds"`
 	Boxes    []ChannelBox     `json:"boxes"`
 	Messages []ChannelMessage `json:"messages"`
@@ -426,10 +426,16 @@ func readChannel(root string, now time.Time) Channel {
 	if exists(filepath.Join(root, "state", "automation-held")) {
 		ch.Flags = append(ch.Flags, "automation-held")
 	}
-	for _, pat := range []string{"route-paused", "route-frozen", "hold-*", "resume-*.sent"} {
+	// A name matched by two patterns shows once.
+	seen := map[string]bool{}
+	for _, pat := range []string{"route-paused", "route-frozen", "hold-*", "resume-*.sent", "resume-held-*"} {
 		found, _ := filepath.Glob(filepath.Join(root, "state", pat))
 		for _, f := range found {
 			h := ChannelHold{Name: filepath.Base(f)}
+			if seen[h.Name] {
+				continue
+			}
+			seen[h.Name] = true
 			if strings.HasPrefix(h.Name, "hold-") {
 				if b, err := readBounded(f, envelopeMax); err == nil {
 					h.Owners = holdOwners(b)

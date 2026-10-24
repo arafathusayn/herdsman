@@ -105,6 +105,8 @@ func TestReadChannelFollowsTheChannelRules(t *testing.T) {
 	writeFile(t, filepath.Join(root, "state", "hold-review"), `{"holds":{"front":{"reason":"the user asked","time":1761300001},"boss":{"reason":"stopping the reviewer","time":1761300000}}}`)
 	writeFile(t, filepath.Join(root, "state", "hold-old"), `{"by":"boss","reason":"an older record","time":1761300000}`)
 	writeFile(t, filepath.Join(root, "state", "route-paused"), "")
+	writeFile(t, filepath.Join(root, "state", "resume-held-boss"), "HELD user pause or freeze; holds: front")
+	writeFile(t, filepath.Join(root, "state", "resume-held-x.sent"), "") // matches two patterns
 	lock := filepath.Join(root, "channel.lock")
 	if err := os.Mkdir(lock, 0o700); err != nil {
 		t.Fatal(err)
@@ -115,11 +117,14 @@ func TestReadChannelFollowsTheChannelRules(t *testing.T) {
 	}
 	ch := readChannel(root, time.Now())
 	// Each owner of a hold shows with its reason; a record in another
-	// format still shows as a hold, with no owners.
+	// format still shows as a hold, with no owners. A held resume shows
+	// too, and a name two patterns match shows once.
 	wantHolds := []ChannelHold{
 		{Name: "route-paused"},
 		{Name: "hold-old"},
 		{Name: "hold-review", Owners: []ChannelHolding{{By: "boss", Reason: "stopping the reviewer"}, {By: "front", Reason: "the user asked"}}},
+		{Name: "resume-held-x.sent"},
+		{Name: "resume-held-boss"},
 	}
 	if ch.HealthAfter != defaultHealthSecs || !slices.Equal(ch.Flags, []string{"timing-invalid", "channel-lock-stale", "automation-held"}) ||
 		!reflect.DeepEqual(ch.Holds, wantHolds) {
