@@ -145,6 +145,18 @@ func TestReadChannelFollowsTheChannelRules(t *testing.T) {
 	}
 }
 
+// The body limit counts code points, as the channel's jq `length` does, not bytes.
+func TestEnvelopeBodyLimitCountsCodePoints(t *testing.T) {
+	dir := t.TempDir()
+	body, _ := json.Marshal(strings.Repeat("é", 40000)) // 80000 bytes, 40000 code points
+	env := strings.Replace(envelopeJSON("m000000000009", "boss", "front", "brief", ""), `"{\"version\":1,\"text\":\"hello\"}"`, string(body), 1)
+	p := filepath.Join(dir, "m000000000009.md")
+	writeFile(t, p, env)
+	if _, err := readEnvelope(p); err != nil {
+		t.Fatalf("a 40000-character body was refused: %v", err)
+	}
+}
+
 func TestChannelRefusesAnOpenInbox(t *testing.T) {
 	root := newInbox(t)
 	if err := os.Chmod(root, 0o755); err != nil {

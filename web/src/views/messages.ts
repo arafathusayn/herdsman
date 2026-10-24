@@ -261,7 +261,8 @@ export class MessagesView {
     if (this.expanded.has(m.id)) this.expanded.delete(m.id);
     else {
       this.expanded.add(m.id);
-      if (!this.bodies.has(m.id)) {
+      // A body that failed to load is fetched again when it is shown again.
+      if (!this.bodies.has(m.id) || this.bodies.get(m.id)?.error) {
         this.bodies.set(m.id, {});
         messageBody(m.to, m.id)
           .then((text) => this.bodies.set(m.id, { text }))

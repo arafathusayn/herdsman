@@ -299,7 +299,8 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 func isLive(r *route.Route, panes map[string]bool, agentAt map[string]string, claimed map[string]bool) bool {
 	live := false
 	for _, t := range r.Tasks {
-		if t.Pane != "" && t.Agent != "" && agentAt[t.Pane] == t.Agent {
+		// A newer route that names the same pane owns it, even when the agent's name is reused too.
+		if t.Pane != "" && t.Agent != "" && agentAt[t.Pane] == t.Agent && !claimed[t.Pane] {
 			live = true
 		}
 	}

@@ -262,6 +262,20 @@ func TestPairingSecretsAreNotCookies(t *testing.T) {
 	}
 }
 
+// A paired browser that opens a link with a wrong or old token stays paired,
+// so a link from another page or from history cannot make it drop its secret.
+func TestPairedBrowserStaysPairedOnAWrongToken(t *testing.T) {
+	f := newFixture(t)
+	hdr := map[string]string{"X-Herdsman-Token": "0123456789abcdef", "Authorization": f.authed["Authorization"]}
+	var st pairState
+	if res := f.request(t, http.MethodPost, "/api/session", "", hdr); res.StatusCode != 200 || json.NewDecoder(res.Body).Decode(&st) != nil || st.Status != "paired" {
+		t.Fatalf("paired browser with a wrong token: %d %+v", res.StatusCode, st)
+	}
+	if res := f.request(t, http.MethodPost, "/api/session", "", map[string]string{"X-Herdsman-Token": "0123456789abcdef"}); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unpaired browser with a wrong token: %d", res.StatusCode)
+	}
+}
+
 func TestPairingRejectsWrongCodesThenEnds(t *testing.T) {
 	f := newFixture(t)
 	res := f.request(t, http.MethodPost, "/api/session", "", map[string]string{"X-Herdsman-Token": "secret-token"})
@@ -688,5 +702,10 @@ func TestIsLiveIgnoresReusedPaneIDs(t *testing.T) {
 	}
 	if isLive(older, panes, agents, claimed) {
 		t.Fatal("older route that reuses the same pane ids counted as live")
+	}
+	// Routes reuse agent names as well: an old row for the same agent in the same pane is not live.
+	same := &route.Route{OrchestratorPane: "w1:p9", Tasks: []route.Task{{Agent: "im-new", Pane: "w1:p2"}}}
+	if isLive(same, panes, agents, claimed) {
+		t.Fatal("older route that reuses the pane id and the agent name counted as live")
 	}
 }
