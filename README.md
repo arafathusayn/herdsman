@@ -175,9 +175,13 @@ In the orchestrator session, inside herdr:
 `herdsman web` serves a browser app that shows and steers the team: a board of every agent by role or status, each agent's live terminal with its keys and a prompt box, the route's checklist, run state, docs and code changes, the HTML pages agents wrote, and the adjutant's messages. It is one Go binary with the app inside; nothing else runs on your machine.
 
 ```sh
+brew tap arafathusayn/tap
+brew trust arafathusayn/tap
 brew install --cask arafathusayn/tap/herdsman
 herdsman web --open
 ```
+
+Homebrew installs from a tap outside its own only after you trust it; `brew trust` does that once. Later, `brew upgrade --cask herdsman` gets new releases.
 
 Or download the archive for macOS or Linux from [Releases](https://github.com/arafathusayn/herdsman/releases), or build from a clone with Go and Bun: `make build` writes `bin/herdsman`.
 
