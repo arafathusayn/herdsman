@@ -1,0 +1,7 @@
+# Headers for the hosted copy of the app (Cloudflare Pages). The policy is
+# the one `herdsman web` sends with the embedded copy (internal/web/server.go).
+/*
+  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' http: https:; frame-src http: https:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer

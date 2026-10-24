@@ -1,7 +1,7 @@
 name: release
 
 # A pushed v* tag builds the binaries, publishes the GitHub release and
-# writes the Homebrew cask to arafathusayn/tap (through a deploy key).
+# writes the Homebrew cask to arafathusayn/homebrew-tap (through a deploy key).
 
 on:
   push:
