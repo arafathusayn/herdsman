@@ -1615,6 +1615,23 @@ check "V3R15c status skips the lock with a missing age" '^0 no$' "$st $(if print
 out=$(ENVX="PATH=$FB:$CPATH DEADLINE=2 RECHECK=1" msg receiver-pane message-wait.sh "$O"); st=$?
 nocheck "V3R15d the waiter has no arithmetic failure" 'integer|syntax error|arithmetic' "$out"
 
+# V3R16: after a reader stops with an incomplete claim, the human moves the claim aside; the next reader adopts the
+# unacknowledged message in cur and does not revive the acknowledged one.
+new_case v3r-adopt
+send >/dev/null; courier >/dev/null
+token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
+printf 'intake recorded\n' > "$C/record.txt"; msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt" >/dev/null
+send >/dev/null; courier >/dev/null; msg receiver-pane message-read.sh "$O" "$token" >/dev/null
+rm "$(OB)/claim/owner"
+out=$(msg receiver-pane message-read.sh "$O" "$token"); st=$?
+check "V3R16 a claim without its owner is held, even with the recorded token" '^2 .*reader claim held' "$st $out"
+mv "$(OB)/claim" "$C/stopped-claim"
+out=$(msg receiver-pane message-read.sh "$O"); token2=$(printf '%s\n' "$out" | jq -r 'select(.type=="claim")|.token')
+check "V3R16b the next reader adopts the unacknowledged message in cur" '"id":"m000000000002".*"authority":"data-only"' "$out"
+nocheck "V3R16c and does not revive the acknowledged one" "\"id\":\"$ID\"" "$out"
+out=$(msg receiver-pane message-ack.sh "$O" "$token2" m000000000002 "$C/record.txt"); st=$?
+check "V3R16d the adopted message is acknowledged with the new claim" '^0 handled$' "$st $(jq -r .state "$C/inbox/ids/m000000000002/terminal.json")"
+
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
 READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read|nc -U)( |$)'
 nocheck "N1 no other call reached the fake herdr" '.' \
