@@ -42,7 +42,9 @@ export function readQuoted(s: string): { path: string; end: number } {
 
 /** A ---/+++ path without its a/ or b/ side; "" for /dev/null. */
 function sidePath(s: string, side: "a/" | "b/"): string {
-  const p = readQuoted(s).path;
+  // Git ends an unquoted name that has a space with a tab; a name with a tab
+  // of its own is always quoted, so the tab is never part of the name.
+  const p = readQuoted(s.startsWith('"') ? s : s.replace(/\t$/, "")).path;
   return p.startsWith(side) ? p.slice(2) : "";
 }
 

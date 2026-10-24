@@ -121,3 +121,23 @@ test("sideBySide pairs each removed run with the added run after it", () => {
   const shape = sideBySide(lines).map((r) => ("kind" in r ? r.kind : `${r.left?.text ?? "_"}|${r.right?.text ?? "_"}`));
   expect(shape).toEqual(["hunk", "a|a", "b|B", "c|_", "d|d", "_|e", "_|f", "g|_", "note"]);
 });
+
+// Git ends an unquoted ---/+++ name that has a space with a tab.
+test("splitPatch drops the tab after a name with a space", () => {
+  const spaced = [
+    "diff --git a/gone file.txt b/gone file.txt",
+    "deleted file mode 100644",
+    "--- a/gone file.txt\t",
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-a",
+    "diff --git a/my file.txt b/my file.txt",
+    "--- a/my file.txt\t",
+    "+++ b/my file.txt\t",
+    "@@ -1 +1,2 @@",
+    " a",
+    "+b",
+    "",
+  ].join("\n");
+  expect([...splitPatch(spaced).keys()]).toEqual(["gone file.txt", "my file.txt"]);
+});
