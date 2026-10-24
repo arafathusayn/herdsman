@@ -1562,6 +1562,34 @@ evcase ev-wait-flood; printf '%s\n' '@sleep 1' '@ready' '@flood 300' '{"event":"
 out=$(ENVX="HERDR_SOCKET_PATH=$C/sock DEADLINE=8 RECHECK=60" msg receiver-pane message-wait.sh "$O")
 check "EV8 the waiter wakes on its own event after a flood" "^MESSAGE $O" "$out"
 
+# V3R10: an ack retry repairs a missing terminal record.
+new_case v3r-terminal
+send >/dev/null; courier >/dev/null
+token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
+printf 'intake recorded\n' > "$C/record.txt"; msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt" >/dev/null
+rm "$C/inbox/ids/$ID/terminal.json"
+out=$(msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt"); st=$?
+check "V3R10 an ack retry recreates the missing terminal" "^0 acknowledged $ID handled\$" "$st $out $(jq -r .state "$C/inbox/ids/$ID/terminal.json")"
+# V3R11: the sender's status shows its outgoing notice by headers only.
+new_case v3r-outgoing
+send >/dev/null; jq_edit '.from_identity.session.value="forged"' "$(OB)/new/$ID.md"; courier >/dev/null
+out=$(msg sender-pane message-status.sh "$A")
+check "V3R11 the sender's status lists the quarantine notice" "\"id\":\"$ID\".*\"state\":\"quarantined\".*\"authority\":\"notice-only\"" "$out"
+nocheck "V3R11b and never the body" 'full brief' "$out"
+# V3R12: every mistyped envelope field is quarantined.
+for e in '.version="1"' '.time="soon"' '.kind="bogus"' '.reply_to="m1"' '.body=7' '.to_identity.session.kind="name"' '.extra=1'; do
+  new_case "v3r-field-$(printf '%s' "$e" | cksum | awk '{print $1}')"
+  send >/dev/null; jq_edit "$e" "$(OB)/new/$ID.md"; courier >/dev/null
+  check "V3R12 a mistyped envelope field is quarantined: $e" '^yes no$' "$(yn "$(OB)/quarantine/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+done
+# V3R13: an unavailable sender check repeated over two courier runs keeps the message in new; recovery delivers it.
+new_case v3r-stale-agent
+send >/dev/null; touch "$C/get-failure"
+courier >/dev/null; courier >/dev/null
+check "V3R13 two unavailable checks keep the message in new" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+rm "$C/get-failure"; courier >/dev/null
+check "V3R13b the next available check delivers it" '^no yes$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
 READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read|nc -U)( |$)'
 nocheck "N1 no other call reached the fake herdr" '.' \
