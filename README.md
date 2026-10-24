@@ -9,7 +9,7 @@
   <a href="LICENSE"><img alt="License: GPL v3" src="https://img.shields.io/badge/license-GPLv3-blue.svg"></a>
 </p>
 
-herdsman is a skill for coding agents. You talk to one agent, the orchestrator, and it runs the rest of the team inside [herdr](https://github.com/herdrdev/herdr): implementers write the code, reviewers check it, and an integrator combines the work when it ships as one branch. Fixes and reviews go round until each task passes.
+herdsman is a skill for coding agents. You talk to one agent, the orchestrator, and it runs the rest of the team inside [herdr](https://github.com/herdrdev/herdr): implementers write the code, reviewers check it, and an integrator combines the work when it ships as one branch. Fixes and reviews go round until each task passes. Optionally, you talk to an adjutant instead, and it relays your briefs and answers to the orchestrator through a private message channel.
 
 ```
 /herdsman run "tasks: issues 12 and 14; implementers: <harness> <model>; reviewer: <harness> <model>"
@@ -38,7 +38,8 @@ Every agent runs in its own herdr pane. Each one can use a different harness and
 
 | Role | What it does |
 | --- | --- |
-| **Orchestrator** | The session you talk to. It runs the interview, writes the contracts, launches and watches the other agents, forwards review findings and records the results. It never writes application code and never pushes. |
+| **Adjutant** | Optional, at most one. When a route has one, you talk to the adjutant instead of the orchestrator. It asks you the route's questions, relays full briefs and your answers to the orchestrator as herdsman messages, and runs only the pane administration you approve. It never writes code, runs tests, commits or pushes. See [`references/adjutant.md`](skills/herdsman/references/adjutant.md). |
+| **Orchestrator** | The session you talk to, directly or through the adjutant. It runs the interview, writes the contracts, launches and watches the other agents, forwards review findings and records the results. It never writes application code and never pushes. |
 | **Implementer** | One per task. It writes the code and the tests for its task on its own branch. |
 | **Integrator** | Used when several tasks ship as one branch or one pull request. It combines the accepted task branches, fixes what breaks between them, and is the only agent that pushes and answers review threads. |
 | **Reviewer** | Reviews each task branch and, before a push, the combined result. It reports only P0 and P1 findings and changes nothing. |
@@ -46,17 +47,30 @@ Every agent runs in its own herdr pane. Each one can use a different harness and
 ## How a route runs
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, sans-serif","lineColor":"#64748b","edgeLabelBackground":"#0f172a","clusterBkg":"#f8fafc","clusterBorder":"#cbd5e1","titleColor":"#0f172a"}}}%%
 flowchart LR
-    A[Interview] --> B[Contracts]
-    B --> C[Launch]
-    C --> D[Wait for events]
-    D --> E{Review}
-    E -- fix --> F[Fix round]
-    F --> D
-    E -- pass --> G[Close]
+  A["1. Interview<br>tasks, models, rules"]:::purple -->|"your go"| B["2. Contracts<br>one per task"]:::purple
+  B --> C["3. Launch<br>agents in herdr panes"]:::blue
+  C --> D["4. Wait<br>for the next event"]:::grey
+  D -->|"task done"| E{"5. Review"}:::yellow
+  E -->|"fix"| F["Fix round<br>by the implementer"]:::amber
+  F -->|"new report"| D
+  E -->|"pass"| G["6. Close<br>results and lessons"]:::green
+  E -.->|"pass, tasks combined"| H["Integrator<br>merges, final review, push"]:::indigo
+  H --> G
+  classDef purple fill:#f3e8ff,stroke:#9333ea,color:#581c87
+  classDef blue fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+  classDef grey fill:#f1f5f9,stroke:#64748b,color:#0f172a
+  classDef yellow fill:#fef9c3,stroke:#ca8a04,color:#713f12
+  classDef amber fill:#fef3c7,stroke:#d97706,color:#78350f
+  classDef green fill:#dcfce7,stroke:#16a34a,color:#14532d
+  classDef indigo fill:#e0e7ff,stroke:#4f46e5,color:#312e81
+  linkStyle default stroke:#64748b,color:#f8fafc
 ```
 
-1. **Interview.** The orchestrator asks once for the tasks, branches, harnesses, models, integration style, merge policy and test setup. It then shows a dispatch plan and waits for your go.
+Purple is planning with you, blue is agents at work, grey is the orchestrator asleep until an event, yellow is the reviewer's verdict, amber is a task sent back for fixes, indigo is the integrator (only when tasks ship as one branch), and green is done.
+
+1. **Interview.** The orchestrator (or the adjutant, when the route has one) asks once for the tasks, branches, harnesses, models, integration style, merge policy and test setup. It then shows a dispatch plan and waits for your go.
 2. **Contracts.** It writes a route folder: shared rules, one contract per task, a reviewer contract, and an integrator contract when tasks are combined.
 3. **Launch.** It opens the herdr tabs and panes, starts the agents, and sends each implementer a full brief: the goal, numbered steps with a check for each, a leave-alone list, time limits and the report format.
 4. **Wait.** A background waiter exits on the first event. The orchestrator handles it, runs a health check, and starts the waiter again.
@@ -78,6 +92,7 @@ flowchart LR
 
 **Stay responsive and healthy**
 
+- **An optional adjutant.** You talk to an adjutant while the orchestrator works. Messages go through a private file channel: an approved pair, a courier that checks every message, a watcher, and alerts when either stops ([`references/messages.md`](skills/herdsman/references/messages.md)).
 - **Event-driven waits.** The orchestrator wakes on a new report, a new review, a blocked agent or a stalled one, and sleeps otherwise.
 - **Health checks.** Each wake shows every agent's state, model, background jobs and their ages, recent file writes, and the machine's load and free memory. Long-running jobs, idle trees and a loaded machine are flagged. Between wakes the waiter checks every ten minutes and wakes the orchestrator only for a new flag.
 - **One heavy check at a time.** Type checks, lint, tests and builds go through [`run-check.sh`](skills/herdsman/scripts/run-check.sh): a machine-wide lock with a load gate, at lower CPU priority, so checks queue instead of piling up.
