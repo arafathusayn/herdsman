@@ -569,6 +569,15 @@ else
   echo "SKIP Z tests: zsh is not installed"
 fi
 
+# M0: a message test part that stops before its last case fails the run, even in a reused work dir that holds the
+# counts of an earlier run. MESSAGE_TEST_STOP=all stops every part before its first case.
+mkdir -p "$T/messages-stop"
+i=1; while [ "$i" -le 18 ]; do printf '999 0\n' > "$T/messages-stop/.part-$(printf '%02d' "$i").counts"; i=$((i+1)); done
+out=$(MESSAGE_TEST_STOP=all /bin/bash "$SK/test/message-tests.sh" "$T/messages-stop" 2>/dev/null); st=$?
+check "M0 stopped parts fail the message run and old counts are ignored" \
+  '^1 .*FAIL part 01 stopped before its last case \(exit 3\).*FAIL part 18 stopped.*RESULT pass=[0-9]{1,2} fail=18 ' \
+  "$st $(printf '%s' "$out" | tr '\n' ' ')"
+
 # M: the message channel tests run here too, so every run of this file (CI included) covers them; their counts
 # join this result, and a run that prints no result line or exits nonzero with no failure counts as one failure.
 mout=$(/bin/bash "$SK/test/message-tests.sh" "$T/messages" 2>&1); mst=$?
