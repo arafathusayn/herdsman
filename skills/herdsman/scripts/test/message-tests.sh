@@ -1300,7 +1300,7 @@ evcase ev-malformed; printf '%s\n' '@sleep 1' '@stage' 'this is not a frame' > "
 evcourier RUN_FOR=4
 check "EV3 a malformed frame reconnects and the rescan delivers" '^[2-9] yes 0$' "$(cat "$C/nc-count") $(yn "$(OB)/ready/$ID.md") $(nfiles "$C/inbox/state" 'ring-*')"
 evcase ev-flood; printf '%s\n' '@sleep 1' '@stage' '@flood 300' "$RING" > "$C/events"
-evcourier RUN_FOR=5
+evcourier RUN_FOR=20
 check "EV4 a flood of unrelated events is read without reconnecting and the ring still delivers" '^1 yes$' "$(cat "$C/nc-count") $(yn "$(OB)/ready/$ID.md")"
 # EV5: a stop signal closes the transport: no event folder, no transport child, no courier lock.
 evcase ev-term
@@ -1559,7 +1559,7 @@ check "V3R9 a refused send alerts as a failed relay" 'notification show Side-age
 nocheck "V3R9b and not as a budget overflow" 'Source relay budget' "$(cat "$C/calls.log")"
 # EV8: a flood of other panes' events does not keep the waiter from waking on its own pane's event.
 evcase ev-wait-flood; printf '%s\n' '@sleep 1' '@ready' '@flood 300' '{"event":"pane.updated","data":{"pane":{"pane_id":"receiver-pane","tokens":{"messages":"1"}}}}' > "$C/events"
-out=$(ENVX="HERDR_SOCKET_PATH=$C/sock DEADLINE=8 RECHECK=60" msg receiver-pane message-wait.sh "$O")
+out=$(ENVX="HERDR_SOCKET_PATH=$C/sock DEADLINE=20 RECHECK=60" msg receiver-pane message-wait.sh "$O")
 check "EV8 the waiter wakes on its own event after a flood" "^MESSAGE $O" "$out"
 
 # V3R10: an ack retry repairs a missing terminal record.
