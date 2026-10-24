@@ -65,14 +65,15 @@ process_entry() {
   resolve_alert "verification-$name-$id"
 }
 proof_stale_alert() {
-  notify setup-proof-stale 'Message setup proof stale' 'A pinned policy or protected script changed. The courier moves nothing until the human repeats setup.'
+  notify setup-proof-stale 'Message setup proof stale' 'A pinned policy or protected script changed. The courier moves nothing until the human repeats setup; it then resumes on its next sweep.'
 }
 sweep() {
   local box name f expected pane observed count state previous stamp t old='' fp='' key summary baseline result id from invalid_box=0
   safe_touch "$ROOT/state/heartbeat"
   retry_alerts
-  # Recheck the setup proof before each sweep's queue changes. A stale proof stays stale for this run.
-  if [ -n "$PROOF_STALE" ] || ! preflight_valid; then PROOF_STALE=1; proof_stale_alert; return 0; fi
+  # Recheck the setup proof before each sweep's queue changes. A repeated human setup restores delivery.
+  if ! preflight_valid; then PROOF_STALE=1; proof_stale_alert; return 0; fi
+  if [ -n "$PROOF_STALE" ]; then PROOF_STALE=; resolve_alert setup-proof-stale; fi
   if ! registry; then
     baseline=unavailable; key=unavailable
     regular "$ROOT/peers.approved" && baseline=$(digest "$ROOT/peers.approved")

@@ -1010,6 +1010,42 @@ check "Z4 the admission happened during the relay" '^yes$' "$(yn "$C/admitted")"
 check "Z4b no card was queued after the admission" '^0$' "$(nfiles "$C/inbox/$A/new" '*.md')"
 check "Z4c and the authority is HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
 
+# Z4d: the send holds the input lock from its boundary check through the enqueue. An admission writer that starts
+# during the send's agent list waits for the lock, so it sees the card already queued, never queued after it.
+new_case lock-window
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+jq -n '[{pane:"task-pane",session:{source:"hook",agent:"claude",kind:"id",value:"task-session"}}]' > "$C/inbox/watch-targets.json"
+printf '%s\n' '✦ Heads up · window finding' > "$C/screen-task-pane"
+relay_boundary
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2" = "agent list" ]; then n=0; [ ! -f "$FIXTURE/list-count" ] || n=$(cat "$FIXTURE/list-count"); n=$((n+1)); echo "$n" > "$FIXTURE/list-count"' \
+  '  if [ "$n" = 3 ]; then (' \
+  '    until mkdir "$HERDSMAN_INBOX/herdr-mutation.lock" 2>/dev/null; do sleep 0.1; done' \
+  '    q=0; for f in "$HERDSMAN_INBOX"/route-adjutant/new/*.md; do [ ! -e "$f" ] || q=$((q+1)); done' \
+  '    rmdir "$HERDSMAN_INBOX/herdr-mutation.lock"; echo "$q" > "$FIXTURE/queued-at-admission"' \
+  '  ) </dev/null >/dev/null 2>&1 & fi' \
+  'fi' "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+ENVX="RUN_FOR=1 INTERVAL=1 PATH=$C/race-bin:$CPATH" msg courier-pane card-watch.sh >/dev/null
+i=0; while [ ! -f "$C/queued-at-admission" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i+1)); done
+check "Z4d an admission during the send's boundary check waits until the card is queued" '^1$' "$(cat "$C/queued-at-admission" 2>&1)"
+# Z4e: an unknown agent that only the send's locked recheck sees is still recorded as exposure.
+new_case send-exposure
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+jq -n '[{pane:"task-pane",session:{source:"hook",agent:"claude",kind:"id",value:"task-session"}}]' > "$C/inbox/watch-targets.json"
+printf '%s\n' '✦ Heads up · brief finding' > "$C/screen-task-pane"
+relay_boundary
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2" = "agent list" ] && [ -d "$HERDSMAN_INBOX/herdr-mutation.lock" ]; then' \
+  '  jq -c "{id:\"fixture-response\",result:{type:\"agent_list\",agents:([.[]]+[.[\"task-pane\"]|.pane_id=\"brief-pane\"|.agent_session.value=\"brief-session\"])}}" "$FIXTURE/agents.json"; exit 0' \
+  'fi' "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+ENVX="RUN_FOR=1 INTERVAL=1 PATH=$C/race-bin:$CPATH" msg courier-pane card-watch.sh >/dev/null
+check "Z4e a short-lived agent seen only by the send's recheck is recorded" 'brief-pane' "$(cat "$C/inbox/state/boundary-tainted" 2>&1)"
+check "Z4f and no card was queued" '^0$' "$(nfiles "$C/inbox/$A/new" '*.md')"
+
 # Z5: an ack retry never overwrites a different permanent disposition.
 new_case ack-terminal
 send >/dev/null; courier >/dev/null
@@ -1089,6 +1125,8 @@ out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh unhold im-task); st=$
 check "Z9e unhold clears the hold" "^0 UNHOLD im-task by $O; no hold remains no\$" "$st $out $(yn "$C/inbox/state/hold-im-task")"
 out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh hold '../x' reason); st=$?
 check "Z9f an invalid hold name is refused" '^2 ' "$st $out"
+out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh hold im-typo reason); st=$?
+check "Z9f2 a hold for a name that is neither a peer nor a resume target is refused" '^2 .*unknown hold target' "$st $out"
 # Z9g: a hold is cleared only by its owner; another coordinator's hold stays, and resume stays held while any hold stays.
 ENVX="HERDSMAN_NAME=$A" msg sender-pane message.sh hold im-task 'the user paused this task' >/dev/null
 out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh unhold im-task); st=$?
@@ -1119,6 +1157,7 @@ touch "$C/inbox/state/route-paused"
 ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
 ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
 nocheck "Z10 a user pause sends no resume-held alert" 'notification show Goal resume held' "$(cat "$C/calls.log")"
+check "Z10b the quiet hold is still visible in status" 'hold-or-intent: resume-held-im-task' "$(msg receiver-pane message-status.sh "$O")"
 
 # Z11: a required section includes its child headings and ends at the next heading of the same or a higher level.
 printf '# Tests\n## Unit\nPlain test detail.\n' > "$T/nested.md"

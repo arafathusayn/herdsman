@@ -376,6 +376,13 @@ claim_valid() {
 commit_identity() {
   registry && [ "$REGISTRY_SUM" = "$(digest "$ROOT/peers.approved")" ] || die 'registry changed during observation; retry'
 }
+# Record a live agent outside the protected setup. Any check that sees an inventory fault writes it once; only the
+# human removes it after repeating setup.
+record_exposure() {
+  [ "${BOUNDARY_FAULT:-}" = inventory ] && [ ! -e "$ROOT/state/boundary-tainted" ] || return 0
+  atomic "$ROOT/state/boundary-tainted" jq -n --argjson agents "$BOUNDARY_UNKNOWN" --argjson time "$(now)" \
+    '{reason:"live agent outside the protected setup",agents:$agents,time:$time}'
+}
 # shellcheck disable=SC2034 # BOUNDARY_FAULT and BOUNDARY_UNKNOWN are read by the sourcing watcher.
 boundary_ok() {
   # BOUNDARY_FAULT: static (proof, registry, exposure or setup fields), list (no usable agent list) or inventory

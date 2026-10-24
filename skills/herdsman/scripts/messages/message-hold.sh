@@ -8,6 +8,9 @@ ME=$1; ACTION=$2; NAME=$3; REASON=${4:-}
 [ "${#REASON}" -le 300 ] || die 'hold reason longer than 300 characters'
 root_init
 self_peer "$ME"
+# Only a registered peer or an approved resume target can be held; a misspelled name would guard nothing.
+peer "$NAME" >/dev/null || { strict_json "$ROOT/resume-targets.json" && jq -e --arg n "$NAME" 'has($n)' "$ROOT/resume-targets.json" >/dev/null; } ||
+  die "unknown hold target: $NAME"
 mutation_lock || die 'input lock busy; retry with backoff, never auto-remove'
 commit_identity
 # One record per target, one entry per owner. An owner sets or clears only its own entry; another owner's hold

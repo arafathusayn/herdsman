@@ -18,7 +18,7 @@ if [ "$KIND" = side_agent_data ]; then
   # Admission and exposure writers publish under the shared input lock. Hold it from this boundary check
   # through the enqueue, so an admission that wins the race prevents the relay. Release it before the doorbell.
   mutation_lock || die 'input lock busy; side-agent data not queued'
-  boundary_ok || die 'HUMAN boundary; side-agent data not queued'
+  boundary_ok || { record_exposure; die 'HUMAN boundary; side-agent data not queued'; }
   source_identity=$(jq -ce '.source|select(type=="object" and keys==["pane","session"])' "$BODY") || die 'side-agent source identity required'
 fi
 for f in "$ROOT/$TO/new/"*.md "$ROOT/$TO/ready/"*.md "$ROOT/$TO/cur/"*.md "$ROOT/$TO/quarantine/"*.md; do

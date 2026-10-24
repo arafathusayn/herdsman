@@ -19,7 +19,7 @@ if valid_registry "$ROOT/peers" && valid_registry "$ROOT/peers.approved"; then v
 printf 'registry valid=%s approved=%s pending=%s\n' "$valid" "$approved" "$(if [ "$approved" = yes ]; then printf no; else printf yes; fi)"
 if valid_registry "$ROOT/peers.approved"; then jq -c 'to_entries[]|{name:.key,role:.value.role,pane:.value.identity.pane,session:.value.identity.session}' "$ROOT/peers.approved"; fi
 printf 'authority=foreground-check required-adapters=sandbox,provenance,capture,wake,audit,checkpoint\n'
-for f in "$ROOT/state/route-paused" "$ROOT/state/route-frozen" "$ROOT/state/automation-held" "$ROOT/state/"hold-* "$ROOT/state/"resume-*.sent; do [ ! -e "$f" ] || printf 'hold-or-intent: %s\n' "$(basename "$f")"; done
+for f in "$ROOT/state/route-paused" "$ROOT/state/route-frozen" "$ROOT/state/automation-held" "$ROOT/state/"hold-* "$ROOT/state/"resume-*.sent "$ROOT/state/"resume-held-*; do [ ! -e "$f" ] || printf 'hold-or-intent: %s\n' "$(basename "$f")"; done
 pending_alerts=0
 for f in "$ROOT/alerts/"*.pending; do [ ! -f "$f" ] || pending_alerts=$((pending_alerts+1)); done
 printf 'pending-alerts=%s\n' "$pending_alerts"
