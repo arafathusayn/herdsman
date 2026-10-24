@@ -108,7 +108,9 @@ function paneCommands(ctx: Context, m: Member): Command[] {
         run({ type: "keys", pane: p, keys: k.keys }),
       ),
     ),
-    cmd("keys", `Agent: Send other keys to ${t}…`, icons.keyboard, () => sendOtherKeys(p)),
+    cmd("keys", `Agent: Send other keys to ${t}…`, icons.keyboard, () =>
+      sendOtherKeys((keys) => void run({ type: "keys", pane: p, keys })),
+    ),
     cmd("start", `Pane: Start an agent in ${p}…`, icons.play, () => startAgent(p, kinds(ctx.app))),
     cmd("rename", `Pane: Rename ${t}…`, icons.tag, () => renamePane(m)),
     cmd("split-right", `Pane: Split ${t} right`, icons.split, () =>
