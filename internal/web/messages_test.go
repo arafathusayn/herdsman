@@ -251,3 +251,32 @@ func TestMessageBodyOnlyFromVerifiedStates(t *testing.T) {
 		t.Fatalf("channel: %d %v", code, m)
 	}
 }
+
+// Every mistyped envelope field fails the check, as the courier quarantines it.
+func TestEnvelopeRefusesMistypedFields(t *testing.T) {
+	dir := t.TempDir()
+	good := envelopeJSON("m000000000009", "boss", "front", "brief", "")
+	p := filepath.Join(dir, "m000000000009.md")
+	writeFile(t, p, good)
+	if _, err := readEnvelope(p); err != nil {
+		t.Fatalf("a good envelope was refused: %v", err)
+	}
+	for _, c := range [][2]string{
+		{`"version":1`, `"version":"1"`},
+		{`"time":1761300000`, `"time":"soon"`},
+		{`"kind":"brief"`, `"kind":"bogus"`},
+		{`"reply_to":""`, `"reply_to":"m1"`},
+		{`"body":"{\"version\":1,\"text\":\"hello\"}"`, `"body":7`},
+		{`"kind":"id","source":"herdr","value":"s2"`, `"kind":"name","source":"herdr","value":"s2"`},
+		{`"version":1,`, `"version":1,"extra":1,`},
+	} {
+		bad := strings.Replace(good, c[0], c[1], 1)
+		if bad == good {
+			t.Fatalf("fixture has no %s", c[0])
+		}
+		writeFile(t, p, bad)
+		if _, err := readEnvelope(p); err == nil {
+			t.Errorf("accepted %s", c[1])
+		}
+	}
+}
