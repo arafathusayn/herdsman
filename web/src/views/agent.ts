@@ -8,7 +8,7 @@ import { arrowKeys, keySet, renamePane, sendOtherKeys, startAgent } from "../age
 import { readPalette, renderAnsi } from "../ansi.ts";
 import { act, AuthError, forgetPane, readPane } from "../api.ts";
 import { h, icon, icons, mount } from "../dom.ts";
-import { type Member, roleName } from "../model.ts";
+import { afterSend, type Member, roleName } from "../model.ts";
 import { isMac } from "../palette.ts";
 import { panelResizer } from "../resize.ts";
 import { store } from "../store.ts";
@@ -602,7 +602,8 @@ export class AgentPanel {
     this.busy = false;
     this.sendBtn.disabled = false;
     if (ok) {
-      this.input.value = "";
+      // The box stays editable while the send is out; keep what was typed meanwhile.
+      this.input.value = afterSend(text, this.input.value);
       this.stuck = true;
     }
     this.input.focus();

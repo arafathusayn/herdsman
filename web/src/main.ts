@@ -653,13 +653,7 @@ function renderMain(app: App, idx: Index): void {
       ),
     ),
   );
-  if (app.view.tab === "docs") {
-    if (files?.routeName !== r.name) files = new FilesView(r.name);
-    if (routeBody.firstChild !== files.el) mount(routeBody, files.el);
-    files.update(r, app.view.file);
-    return;
-  }
-  // On a phone the tab row scrolls; keep the open tab in view.
+  // On a phone the tab row scrolls; keep the open tab in view, Docs included.
   if (shownTab !== app.view.tab) {
     shownTab = app.view.tab;
     const active = routeTabs.querySelector<HTMLElement>(".tab.active");
@@ -667,6 +661,12 @@ function renderMain(app: App, idx: Index): void {
       const left = active.getBoundingClientRect().left - routeTabs.getBoundingClientRect().left + routeTabs.scrollLeft;
       routeTabs.scrollLeft = left - (routeTabs.clientWidth - active.offsetWidth) / 2;
     }
+  }
+  if (app.view.tab === "docs") {
+    if (files?.routeName !== r.name) files = new FilesView(r.name);
+    if (routeBody.firstChild !== files.el) mount(routeBody, files.el);
+    files.update(r, app.view.file);
+    return;
   }
   if (app.view.tab === "artifacts") {
     artifacts ??= new ArtifactsView();
