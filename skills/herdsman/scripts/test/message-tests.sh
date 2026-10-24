@@ -1272,8 +1272,68 @@ for n in 1 2 3 4 5 6 7 8; do check "Y6e a direct write or effect-capable run is 
 nocheck "Y6f reads, a null redirect and an allowed-root write stay clean" 'call=r[0-9]' "$out"
 check "Y6g eight flags of fourteen calls" 'AUDIT flagged=8 calls=14.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
 
+# EV: the event hints through the fake event stream of test/fakebin/nc. Queue scans decide correctness; an event
+# only wakes a scan early. SWEEP=60 is longer than each run, so a delivery inside the run came from an event.
+evcase() { # name: a sent envelope held back in staged/ until the stream script moves it, and a socket path
+  new_case "$1"; send >/dev/null; mkdir "$C/staged"; mv "$(OB)/new/$ID.md" "$C/staged/"; : > "$C/sock"; : > "$C/events"
+}
+evcourier() { courier "HERDR_SOCKET_PATH=$C/sock SWEEP=60 $*" >/dev/null; }
+RING='{"event":"pane.updated","data":{"pane":{"pane_id":"sender-pane","tokens":{"message_out":"m000000000001"}}}}'
+evcase ev-control; printf '%s\n' '@sleep 1' '@stage' > "$C/events"
+evcourier RUN_FOR=4
+check "EV0 without a ring the staged send waits for the next sweep" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+check "EV0b the courier subscribed to pane updates, closes and exits" '"events.subscribe".*pane.updated.*pane.closed.*pane.exited' "$(cat "$C/subscriptions.log")"
+# Each sweep checks the recipient's live identity once, so the count of those calls counts sweeps.
+evcase ev-ring-once; printf '%s\n' '@sleep 1' '@stage' "$RING" > "$C/events"
+evcourier RUN_FOR=4; once=$(grep -c '^agent get receiver-pane' "$C/calls.log")
+evcase ev-ring; printf '%s\n' '@sleep 1' '@stage' "$RING" "$RING" > "$C/events"
+evcourier RUN_FOR=4
+check "EV1 a ring wakes a sweep that delivers the send" '^no yes$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+check "EV1b a repeated ring for the same message wakes no second sweep" "^$once 1\$" "$(grep -c '^agent get receiver-pane' "$C/calls.log") $(nfiles "$C/inbox/state" 'ring-*')"
+evcase ev-split
+printf '%s\n' '@sleep 1' '@stage' '@part {"event":"pane.updated","data":{"pane":{"pane_id":"sender-pane",' '@sleep 10' \
+  '"tokens":{"message_out":"m000000000001"}}}}' > "$C/events-1"
+evcourier RUN_FOR=5 EVENT_READ_MAX=1
+check "EV2 a split frame times out, reconnects and the rescan delivers" '^[2-9] no yes$' "$(cat "$C/nc-count") $(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+check "EV2b the fragment is never joined into a ring" '^0$' "$(nfiles "$C/inbox/state" 'ring-*')"
+evcase ev-malformed; printf '%s\n' '@sleep 1' '@stage' 'this is not a frame' > "$C/events-1"
+evcourier RUN_FOR=4
+check "EV3 a malformed frame reconnects and the rescan delivers" '^[2-9] yes 0$' "$(cat "$C/nc-count") $(yn "$(OB)/ready/$ID.md") $(nfiles "$C/inbox/state" 'ring-*')"
+evcase ev-flood; printf '%s\n' '@sleep 1' '@stage' '@flood 300' "$RING" > "$C/events"
+evcourier RUN_FOR=5
+check "EV4 a flood of unrelated events is read without reconnecting and the ring still delivers" '^1 yes$' "$(cat "$C/nc-count") $(yn "$(OB)/ready/$ID.md")"
+# EV5: a stop signal closes the transport: no event folder, no transport child, no courier lock.
+evcase ev-term
+env -i PATH="$CPATH" HOME="$HOME" HERDSMAN_INBOX="$C/inbox" FIXTURE="$C" HERDR_PANE_ID=courier-pane HERDR_SOCKET_PATH="$C/sock" \
+  HERDSMAN_PREFLIGHT="$C/inbox/setup.json" WATCH_REQUIRED=0 RUN_FOR=30 SWEEP=60 /bin/bash "$MS/message-courier.sh" >/dev/null 2>&1 &
+cpid=$!
+i=0; while [ ! -f "$C/nc-pid-1" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+sleep 0.5; kill -TERM "$cpid"; wait "$cpid" 2>/dev/null
+npid=$(cat "$C/nc-pid-1" 2>/dev/null); i=0; while kill -0 "$npid" 2>/dev/null && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+check "EV5 after a stop signal the event folder and the transport child are gone" '^0 gone no$' \
+  "$(nfiles "$C/inbox/state" '.events.*') $(if kill -0 "$npid" 2>/dev/null; then echo alive; else echo gone; fi) $(yn "$C/inbox/courier.lock")"
+# EV6: after a kill signal no cleanup runs: the transport child still ends on end of input, and the owner record
+# and the courier lock stay for inspection, so a new courier refuses to start.
+evcase ev-kill
+env -i PATH="$CPATH" HOME="$HOME" HERDSMAN_INBOX="$C/inbox" FIXTURE="$C" HERDR_PANE_ID=courier-pane HERDR_SOCKET_PATH="$C/sock" \
+  HERDSMAN_PREFLIGHT="$C/inbox/setup.json" WATCH_REQUIRED=0 RUN_FOR=30 SWEEP=60 /bin/bash "$MS/message-courier.sh" >/dev/null 2>&1 &
+cpid=$!
+i=0; while [ ! -f "$C/nc-pid-1" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+sleep 0.5; kill -KILL "$cpid"; wait "$cpid" 2>/dev/null
+npid=$(cat "$C/nc-pid-1" 2>/dev/null); i=0; while kill -0 "$npid" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+check "EV6 after a kill signal the transport child ends on end of input" '^gone$' "$(if kill -0 "$npid" 2>/dev/null; then echo alive; else echo gone; fi)"
+check "EV6b the owner record names the stopped courier" "^$cpid\$" "$(cat "$C"/inbox/state/.events.*/owner.json 2>/dev/null | jq -r .owner_pid)"
+check "EV6c and a new courier refuses the kept lock" 'courier lock exists' "$(courier "HERDR_SOCKET_PATH=$C/sock")"
+# EV7: an event for the waiter's own pane wakes its scan before the recheck interval.
+evcase ev-wait; printf '%s\n' '@sleep 1' '@ready' '{"event":"pane.updated","data":{"pane":{"pane_id":"receiver-pane","tokens":{"messages":"1"}}}}' > "$C/events"
+out=$(ENVX="HERDR_SOCKET_PATH=$C/sock DEADLINE=6 RECHECK=60" msg receiver-pane message-wait.sh "$O")
+check "EV7 the waiter wakes on its own pane's event" "^MESSAGE $O" "$out"
+evcase ev-wait-other; printf '%s\n' '@sleep 1' '@ready' '{"event":"pane.updated","data":{"pane":{"pane_id":"other-pane","tokens":{"messages":"1"}}}}' > "$C/events"
+out=$(ENVX="HERDR_SOCKET_PATH=$C/sock DEADLINE=4 RECHECK=60" msg receiver-pane message-wait.sh "$O")
+check "EV7b another pane's event does not wake it before the deadline" '^TICK' "$out"
+
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
-READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read)( |$)'
+READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read|nc -U)( |$)'
 nocheck "N1 no other call reached the fake herdr" '.' \
   "$(for f in "$T"/*/calls.log; do [ "$f" = "$T/resume/calls.log" ] || [ "${f#"$T"/ckpt-}" != "$f" ] || grep -v -E "$READS" "$f"; done)"
 nocheck "N1b the resume case sent only the exact resume input" '.' \

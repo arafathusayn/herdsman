@@ -1,5 +1,28 @@
 #!/bin/bash
-# Fake nc for the message tests: it never opens a socket. The tests run with an empty HERDR_SOCKET_PATH,
-# so the event helper falls back to its bounded queue scans; this stub only satisfies the tool check.
+# Fake nc for the message tests: it never opens a socket. Without $FIXTURE/events it fails, so the event helper
+# falls back to its bounded queue scans. With $FIXTURE/events (or events-<n> for the n-th connection) it is a fake
+# event stream: it logs the subscribe request to subscriptions.log, answers subscription_started, then plays the
+# script line by line and stays connected until its input closes. Script lines: `@sleep <s>`, `@part <text>` (a
+# frame fragment without its newline), `@flood <n>` (n unrelated pane events), `@stage` (move staged envelopes into
+# the orchestrator's new/ folder, as a send would) and `@exit` (drop the connection); any other line is one frame.
 if [ -n "${FIXTURE:-}" ]; then printf 'nc %s\n' "$*" >> "$FIXTURE/calls.log"; fi
-exit 1
+[ -n "${FIXTURE:-}" ] && [ -f "$FIXTURE/events" ] || exit 1
+n=0; [ ! -f "$FIXTURE/nc-count" ] || n=$(cat "$FIXTURE/nc-count"); n=$((n+1)); echo "$n" > "$FIXTURE/nc-count"
+printf '%s\n' "$$" > "$FIXTURE/nc-pid-$n"
+IFS= read -r request || exit 1
+printf '%s\n' "$request" >> "$FIXTURE/subscriptions.log"
+printf '{"id":"message-hints","result":{"type":"subscription_started"}}\n'
+script="$FIXTURE/events"; [ ! -f "$FIXTURE/events-$n" ] || script="$FIXTURE/events-$n"
+while IFS= read -r line; do
+  case "$line" in
+    '@sleep '*) sleep "${line#@sleep }" ;;
+    '@part '*) printf '%s' "${line#@part }" ;;
+    '@flood '*) i=0; while [ "$i" -lt "${line#@flood }" ]; do printf '{"event":"pane.updated","data":{"pane":{"pane_id":"flood-pane"}}}\n'; i=$((i+1)); done ;;
+    '@stage') for f in "$FIXTURE"/staged/*.md; do [ ! -e "$f" ] || mv "$f" "$HERDSMAN_INBOX/route-orchestrator/new/"; done ;;
+    '@ready') for f in "$FIXTURE"/staged/*.md; do [ ! -e "$f" ] || mv "$f" "$HERDSMAN_INBOX/route-orchestrator/ready/"; done ;;
+    '@exit') exit 0 ;;
+    *) printf '%s\n' "$line" ;;
+  esac
+done < "$script"
+# Stay connected until the reader closes its end.
+cat > /dev/null
