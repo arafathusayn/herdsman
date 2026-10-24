@@ -29,3 +29,28 @@ jobs:
         run: zsh skills/herdsman/scripts/test/run-tests.sh
       - name: Checkpointer tests, started from zsh
         run: zsh skills/herdsman/scripts/test/checkpointer-tests.sh
+
+  cli:
+    # The Go CLI and the web app inside it: format, types, tests, lint,
+    # known vulnerabilities, then a build with the app embedded.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Bun types (global, outside the repo)
+        run: make tools
+      - name: Check
+        run: make check
+      - name: Build
+        run: make build && ./bin/herdsman version
+      - name: Release config
+        run: make release-check
