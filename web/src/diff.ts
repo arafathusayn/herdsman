@@ -8,26 +8,70 @@ export interface DiffLine {
   text: string;
 }
 
-const header = "diff --git a/";
+const header = "diff --git ";
 const hunkPattern = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/;
+
+const escapes: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+
+/**
+ * Reads one path as git writes it. Even with core.quotePath=false, git
+ * C-quotes a name with a double quote, a backslash or a control character;
+ * the escapes are bytes, so octal ones decode as UTF-8. `end` is where the
+ * path stopped, for a header that has two.
+ */
+export function readQuoted(s: string): { path: string; end: number } {
+  if (!s.startsWith('"')) return { path: s, end: s.length };
+  const bytes: number[] = [];
+  const enc = new TextEncoder();
+  let i = 1;
+  for (; i < s.length && s[i] !== '"'; i++) {
+    const c = s[i] ?? "";
+    if (c !== "\\") {
+      bytes.push(...enc.encode(c));
+      continue;
+    }
+    const next = s[++i] ?? "";
+    const oct = /^[0-3][0-7]{2}/.exec(s.slice(i, i + 3));
+    if (oct) {
+      bytes.push(parseInt(oct[0], 8));
+      i += 2;
+    } else bytes.push(escapes[next] ?? next.charCodeAt(0));
+  }
+  return { path: new TextDecoder().decode(new Uint8Array(bytes)), end: i + 1 };
+}
+
+/** A ---/+++ path without its a/ or b/ side; "" for /dev/null. */
+function sidePath(s: string, side: "a/" | "b/"): string {
+  const p = readQuoted(s).path;
+  return p.startsWith(side) ? p.slice(2) : "";
+}
 
 /** The path a section's lines name: the new path, or the old one for a deleted file. */
 function sectionPath(lines: string[]): string {
   let minus = "";
   for (const l of lines) {
     if (l.startsWith("@@")) break;
-    if (l.startsWith("rename to ")) return l.slice("rename to ".length);
-    if (l.startsWith("copy to ")) return l.slice("copy to ".length);
-    if (l.startsWith("+++ b/")) return l.slice(6);
-    if (l.startsWith("--- a/")) minus = l.slice(6);
+    if (l.startsWith("rename to ")) return readQuoted(l.slice("rename to ".length)).path;
+    if (l.startsWith("copy to ")) return readQuoted(l.slice("copy to ".length)).path;
+    if (l.startsWith("+++ ")) {
+      const p = sidePath(l.slice(4), "b/");
+      if (p) return p;
+    }
+    if (l.startsWith("--- ")) minus = sidePath(l.slice(4), "a/") || minus;
   }
   if (minus) return minus;
-  // No ---/+++ lines (a binary or mode-only change): "diff --git a/p b/p".
+  // No ---/+++ lines (a binary or mode-only change): "diff --git a/p b/p",
+  // or with both sides quoted.
   const rest = (lines[0] ?? "").slice(header.length);
-  const n = (rest.length - 3) / 2;
-  if (Number.isInteger(n) && rest.slice(n, n + 3) === " b/" && rest.slice(0, n) === rest.slice(n + 3))
-    return rest.slice(0, n);
-  return rest;
+  if (rest.startsWith('"')) {
+    const a = readQuoted(rest);
+    return sidePath(rest.slice(a.end + 1), "b/") || a.path.slice(2);
+  }
+  const plain = rest.slice(2);
+  const n = (plain.length - 3) / 2;
+  if (Number.isInteger(n) && plain.slice(n, n + 3) === " b/" && plain.slice(0, n) === plain.slice(n + 3))
+    return plain.slice(0, n);
+  return plain;
 }
 
 /** Splits a patch into its file sections, keyed by path. */
