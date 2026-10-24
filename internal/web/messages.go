@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -63,7 +64,7 @@ func regularFile(p string) bool {
 
 // emptyChannel is a channel with every list present, so the app never meets null.
 func emptyChannel() Channel {
-	return Channel{Peers: []ChannelPeer{}, Health: []ChannelHealth{}, Flags: []string{}, Holds: []string{}, Boxes: []ChannelBox{}, Messages: []ChannelMessage{}, Alerts: []ChannelAlert{}}
+	return Channel{Peers: []ChannelPeer{}, Health: []ChannelHealth{}, Flags: []string{}, Holds: []ChannelHold{}, Boxes: []ChannelBox{}, Messages: []ChannelMessage{}, Alerts: []ChannelAlert{}}
 }
 
 // staleDir reports whether p is a directory older than after seconds, as a held lock is.
@@ -137,6 +138,14 @@ type ChannelAlert struct {
 	Body  string `json:"body"`
 }
 
+// ChannelHold is one hold or resume intent. A hold written by `message.sh
+// hold` records who holds and why; the other files carry no such record.
+type ChannelHold struct {
+	Name   string `json:"name"`
+	By     string `json:"by,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // Channel is the inbox as the Messages tab shows it.
 type Channel struct {
 	Configured  bool            `json:"configured"`
@@ -150,7 +159,7 @@ type Channel struct {
 	// timing-invalid, mutation-lock-stale, channel-lock-stale, alert-lock-stale, automation-held.
 	Flags []string `json:"flags"`
 	// Holds are the hold and resume intents in state/: route-paused, route-frozen, hold-*, resume-*.sent.
-	Holds    []string         `json:"holds"`
+	Holds    []ChannelHold    `json:"holds"`
 	Boxes    []ChannelBox     `json:"boxes"`
 	Messages []ChannelMessage `json:"messages"`
 	Alerts   []ChannelAlert   `json:"alerts"`
@@ -390,7 +399,19 @@ func readChannel(root string, now time.Time) Channel {
 	for _, pat := range []string{"route-paused", "route-frozen", "hold-*", "resume-*.sent"} {
 		found, _ := filepath.Glob(filepath.Join(root, "state", pat))
 		for _, f := range found {
-			ch.Holds = append(ch.Holds, filepath.Base(f))
+			h := ChannelHold{Name: filepath.Base(f)}
+			if strings.HasPrefix(h.Name, "hold-") {
+				if b, err := readBounded(f, envelopeMax); err == nil && strictJSON(b) == nil {
+					var rec struct {
+						By     string `json:"by"`
+						Reason string `json:"reason"`
+					}
+					if json.Unmarshal(b, &rec) == nil && nameRe.MatchString(rec.By) {
+						h.By, h.Reason = rec.By, rec.Reason
+					}
+				}
+			}
+			ch.Holds = append(ch.Holds, h)
 		}
 	}
 	for _, s := range []struct{ name, file string }{{"courier", "heartbeat"}, {"watcher", "watch-heartbeat"}} {
