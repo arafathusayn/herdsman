@@ -183,20 +183,28 @@ Or download the archive for macOS or Linux from [Releases](https://github.com/ar
 
 It prints a URL with a one-run token. The browser that opens it must type a 6-digit pairing code that the same terminal prints, so a leaked link alone controls nothing. A paired browser keeps a device secret for that host until the server stops.
 
+**From a phone.** The terminal also shows a QR code. A phone can use the hosted app only when it reaches this server over HTTPS, so the QR code opens the hosted app when `--public-url` names that address, and this server's own app otherwise:
+
+```sh
+tailscale serve --bg 7878
+herdsman web --public-url https://<machine>.<tailnet>.ts.net
+```
+
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--port <n>` | `7878` | Port to listen on; `0` picks a free one |
 | `--host <ip>` | `127.0.0.1` | Listen on one other address, such as a LAN or Tailscale IP, to open it from a phone |
 | `--allow-host <name>` | none | Also answer to this host name, such as the domain of a proxy or tunnel in front of the server (repeatable) |
 | `--inbox <folder>` | `HERDSMAN_INBOX` | The adjutant's private message folder, for the Messages tab (read only) |
-| `--client <url>` | `HERDSMAN_CLIENT` | A hosted copy of the app; the server also prints a link that opens it with this host |
+| `--client <url>` | `HERDSMAN_CLIENT`, else `https://herdsman.arafat.ai` | A hosted copy of the app; the server also prints a link that opens it with this host. `none` turns it off |
+| `--public-url <https url>` | none | The HTTPS address in front of this server, such as `tailscale serve` or a tunnel. It is also an allowed host name, and the QR code then opens the hosted app |
 | `--route <folder>` | found from the panes' folders | A route folder to show first (repeatable) |
 | `--session <name>` | `HERDR_SESSION` | The herdr session |
 | `--open`, `--no-qr` | off | Open the browser; skip the QR code |
 
 **Hosts.** The app can also be served from its own site and reach any number of hosts across origins: this computer, a LAN or Tailscale address, or a public domain in front of a server. Open the Hosts dialog from the server button in the top bar, or paste a host's printed link into it. Each host pairs on its own. A page served over HTTPS can reach plain-HTTP hosts only on this computer; put others behind HTTPS (for example `tailscale serve`, or a proxy with `--allow-host`).
 
-**Hosted app.** A copy of the app built from `main` is served at <https://herdsman.arafat.ai> (also `herdsman.arafat.dev`, and the short names `h.` and `herd.` on both domains). Start the server with `--client https://herdsman.arafat.ai` (or set `HERDSMAN_CLIENT`) and it also prints a link that opens the hosted app with this host filled in. Each address is its own browser origin, so hosts and pairings saved on one do not show on another. The hosted copy sends the same content security policy as the embedded one ([`web/public/_headers`](web/public/_headers)).
+**Hosted app.** A copy of the app built from `main` is served at <https://herdsman.arafat.ai> (also `herdsman.arafat.dev`, and the short names `h.` and `herd.` on both domains). The server prints a link that opens the hosted app with this host filled in (`--client` picks another copy, `--client none` turns it off). The first time the hosted app calls this computer or a private address, the browser asks to access devices on your local network: allow it, then choose **Try again**; the link's pairing token waits until the host answers. Each address is its own browser origin, so hosts and pairings saved on one do not show on another. The hosted copy sends the same content security policy as the embedded one ([`web/public/_headers`](web/public/_headers)).
 
 **Artifacts.** The Artifacts tab lists the HTML files in the session's folders (the panes' folders, route folders and task worktrees, skipping dependency, build and hidden folders except `.lavish`, `.herdsman` and `.artifacts`) and shows one in a sandboxed frame. The frame gets a short-lived link that serves only page files (HTML, scripts, styles, images, fonts and media) from that file's folder, and only to the browser that opened it; its scripts run without access to the app or your pairing.
 

@@ -5,6 +5,7 @@ import {
   defaultName,
   type Hosts,
   loadHosts,
+  localNetworkHint,
   normalizeUrl,
   parseLink,
   saveHosts,
@@ -76,6 +77,16 @@ test("an https page cannot reach plain-http hosts beyond this computer", () => {
   expect(blockedReason("https:", "http://192.168.1.20:7878")).not.toBe("");
   expect(blockedReason("http:", "http://192.168.1.20:7878")).toBe("");
   expect(blockedReason("https:", "https://box.example.com")).toBe("");
+});
+
+// A public page reaches this machine or a private address only after the
+// browser's local network prompt; the server's own page needs no prompt.
+test("a public page that cannot reach a private host hints at the local network prompt", () => {
+  expect(localNetworkHint("herdsman.arafat.ai", "http://127.0.0.1:7878")).toContain("local network");
+  expect(localNetworkHint("herdsman.arafat.ai", "https://box.tailnet.ts.net")).toBe("");
+  expect(localNetworkHint("herdsman.arafat.ai", "http://100.101.7.3:7878")).toContain("local network");
+  expect(localNetworkHint("127.0.0.1", "http://127.0.0.1:7878")).toBe("");
+  expect(localNetworkHint("192.168.1.20", "http://192.168.1.20:7878")).toBe("");
 });
 
 test("a host list the browser cannot store reports it", () => {

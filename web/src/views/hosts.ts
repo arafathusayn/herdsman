@@ -31,12 +31,20 @@ export function switchTo(hs: Hosts, host: Host, token = ""): void {
     );
     return;
   }
+  keepPendingLink(host.url, token);
+  location.assign(location.pathname);
+}
+
+/**
+ * Keeps a pairing token for its host until the host answers: across a
+ * switch, or a reload after the host could not be reached.
+ */
+export function keepPendingLink(url: string, token: string): void {
   try {
-    if (token) sessionStorage.setItem(pairKey, JSON.stringify({ url: host.url, token }));
+    if (token) sessionStorage.setItem(pairKey, JSON.stringify({ url, token }));
   } catch {
     // Without session storage the host asks for its link again.
   }
-  location.assign(location.pathname);
 }
 
 /** A pairing token that a switch left for the host it named. */
@@ -263,10 +271,13 @@ export function confirmHost(root: HTMLElement, url: string): Promise<boolean> {
  * The screen for a browser with nothing to show: no host yet, a host that
  * does not know this browser, or one it cannot reach.
  */
-export function showConnect(root: HTMLElement, title: string, text: string): void {
+export function showConnect(root: HTMLElement, title: string, text: string, retry?: () => void): void {
   const list = h("div", { class: "hosts-list-wrap" });
   const redraw = (): void => mount(list, hostList(redraw));
   redraw();
+  const again = retry
+    ? h("button", { class: "btn primary pair-retry", type: "button", onclick: retry }, "Try again")
+    : null;
   mount(
     root,
     h(
@@ -278,6 +289,7 @@ export function showConnect(root: HTMLElement, title: string, text: string): voi
         logoMark(),
         h("h1", null, title),
         h("p", { class: "pair-lead" }, text),
+        again,
         addForm(redraw),
         list,
         h(
