@@ -19,6 +19,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
@@ -38,6 +39,9 @@ type Server struct {
 	// diffSlots bounds how many code diff requests run git at once.
 	diffSlots chan struct{}
 	artifacts *artifacts
+
+	tokenMu sync.Mutex
+	token   string // the link's token: Config.Token until it is replaced
 }
 
 // Config is what one run of the server is set up with.
@@ -53,6 +57,9 @@ type Config struct {
 	Inbox string
 	// OnPair shows a pairing code to the person at the terminal.
 	OnPair func(PairNotice)
+	// OnRotate shows the person at the terminal the links for a new token,
+	// after too many wrong codes ended the old one.
+	OnRotate func(token string)
 }
 
 // NewToken returns a random token for one run of the server.
@@ -69,8 +76,11 @@ func NewServer(c *herdr.Client, hub *Hub, q *Queue, cfg Config) *Server {
 	if cfg.OnPair == nil {
 		cfg.OnPair = func(PairNotice) {}
 	}
+	if cfg.OnRotate == nil {
+		cfg.OnRotate = func(string) {}
+	}
 	return &Server{
-		hub: hub, queue: q, client: c, cfg: cfg, devices: newDevices(), assets: sub,
+		hub: hub, queue: q, client: c, cfg: cfg, devices: newDevices(), assets: sub, token: cfg.Token,
 		diffSlots: make(chan struct{}, 2), artifacts: newArtifacts(),
 	}
 }
@@ -151,7 +161,18 @@ func (s *Server) guard(next http.Handler) http.Handler {
 }
 
 func (s *Server) validToken(t string) bool {
-	return t != "" && subtle.ConstantTimeCompare([]byte(t), []byte(s.cfg.Token)) == 1
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
+	return t != "" && subtle.ConstantTimeCompare([]byte(t), []byte(s.token)) == 1
+}
+
+// rotateToken ends every link printed so far; paired browsers keep working.
+func (s *Server) rotateToken() {
+	s.tokenMu.Lock()
+	s.token = NewToken()
+	t := s.token
+	s.tokenMu.Unlock()
+	s.cfg.OnRotate(t)
 }
 
 // auth lets only paired browsers through.
@@ -237,6 +258,9 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 			st.Left = e.left
 			if e.gone {
 				st.Status = "none"
+			}
+			if e.rotate {
+				s.rotateToken()
 			}
 		}
 		writeJSON(w, http.StatusForbidden, st)

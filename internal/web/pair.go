@@ -23,10 +23,10 @@ const (
 	pairTTL      = 2 * time.Minute
 	pairAttempts = 5
 	maxPending   = 8
-	// Guessing is bounded across requests too: past maxFailures wrong codes
-	// in failWindow, no new pairing starts until the window moves on.
+	// Guessing is bounded across requests too: after maxFailures wrong codes
+	// the link's token is replaced, so each leaked link allows that many
+	// guesses in all, and the terminal prints the new link.
 	maxFailures = 20
-	failWindow  = 10 * time.Minute
 )
 
 // PairNotice is what the terminal shows for one pairing request.
@@ -49,7 +49,7 @@ type devices struct {
 	now      func() time.Time
 	pending  map[string]*pairing // by sha256 of the pairing secret
 	paired   map[string]string   // sha256 of the device secret -> device name
-	failures []time.Time
+	failures int                 // wrong codes since the token was last replaced
 }
 
 func newDevices() *devices {
@@ -87,16 +87,6 @@ func (d *devices) begin(device string) (sec, code string, expires time.Time, err
 			delete(d.pending, k)
 		}
 	}
-	recent := d.failures[:0]
-	for _, t := range d.failures {
-		if now.Sub(t) < failWindow {
-			recent = append(recent, t)
-		}
-	}
-	d.failures = recent
-	if len(d.failures) >= maxFailures {
-		return "", "", time.Time{}, fmt.Errorf("too many wrong pairing codes; try again in %s", failWindow)
-	}
 	if len(d.pending) >= maxPending {
 		return "", "", time.Time{}, fmt.Errorf("too many open pairing requests; wait %s", pairTTL)
 	}
@@ -118,6 +108,9 @@ type errPair struct {
 	msg  string
 	left int
 	gone bool
+	// rotate asks the server to replace the link's token: the wrong codes
+	// reached maxFailures, and every open request has ended.
+	rotate bool
 }
 
 func (e *errPair) Error() string { return e.msg }
@@ -135,7 +128,12 @@ func (d *devices) confirm(sec, code string) (string, error) {
 	}
 	if subtle.ConstantTimeCompare([]byte(code), []byte(p.code)) != 1 {
 		p.attempts++
-		d.failures = append(d.failures, d.now())
+		d.failures++
+		if d.failures >= maxFailures {
+			d.failures = 0
+			clear(d.pending)
+			return "", &errPair{msg: "Too many wrong codes for this link. Open the new link that the terminal printed.", gone: true, rotate: true}
+		}
 		left := pairAttempts - p.attempts
 		if left <= 0 {
 			delete(d.pending, key)

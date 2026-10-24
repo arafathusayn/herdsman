@@ -190,7 +190,7 @@ Homebrew installs from a tap outside its own only after you trust it; `brew trus
 
 Or download the archive for macOS or Linux from [Releases](https://github.com/arafathusayn/herdsman/releases), or build from a clone with Go and Bun: `make build` writes `bin/herdsman`.
 
-It prints a URL with a one-run token. The browser that opens it must type a 6-digit pairing code that the same terminal prints, so a leaked link alone controls nothing. A paired browser keeps a device secret for that host until the server stops.
+It prints a URL with a one-run token. The browser that opens it must type a 6-digit pairing code that the same terminal prints, so a leaked link alone controls nothing. Each link allows 20 wrong codes in all; then it stops working, and the terminal prints a new one. A paired browser keeps a device secret for that host until the server stops.
 
 **From a phone.** The terminal also shows a QR code. A phone can use the hosted app only when it reaches this server over HTTPS, so the QR code opens the hosted app when `--public-url` names that address, and this server's own app otherwise:
 
@@ -202,7 +202,7 @@ herdsman web --public-url https://<machine>.<tailnet>.ts.net
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--port <n>` | `7878` | Port to listen on; `0` picks a free one |
-| `--host <ip>` | `127.0.0.1` | Listen on one other address, such as a LAN or Tailscale IP, to open it from a phone |
+| `--host <ip>` | `127.0.0.1` | Listen on one other address, such as a LAN or Tailscale IP, to open it from a phone. A LAN address serves plain HTTP, and the server warns about it |
 | `--allow-host <name>` | none | Also answer to this host name, such as the domain of a proxy or tunnel in front of the server (repeatable) |
 | `--inbox <folder>` | `HERDSMAN_INBOX` | The adjutant's private message folder, for the Messages tab (read only) |
 | `--client <url>` | `HERDSMAN_CLIENT`, else `https://herdsman.arafat.ai` | A hosted copy of the app; the server also prints a link that opens it with this host. `none` turns it off |
