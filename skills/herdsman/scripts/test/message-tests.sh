@@ -1468,12 +1468,85 @@ touch "$C/inbox/alerts/card-journal-$jkey.sent" "$C/inbox/alerts/card-journal-$j
 ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
 check "GX2 a drained journal resolves its alert without a new card" '^no$' "$(yn "$C/inbox/alerts/card-journal-$jkey.sent")"
 
+# V3R: design v3 regressions.
+# V3R1: status keeps the safe queue view under a corrupt registry and under a stale setup proof.
+new_case v3r-status
+send >/dev/null
+cp "$C/inbox/peers.approved" "$C/peers.base"; printf 'not json\n' > "$C/inbox/peers.approved"
+check "V3R1 a corrupt registry still shows the queued message" "^$O .*new=1" "$(msg receiver-pane message-status.sh | grep "^$O ")"
+cp "$C/peers.base" "$C/inbox/peers.approved"; jq_edit '.policy_verified=false' "$C/inbox/setup.json"
+out=$(msg receiver-pane message-status.sh)
+check "V3R1b a stale setup proof still shows the queue and flags the proof" "setup-proof-stale.*$O .*new=1" "$(printf '%s' "$out" | tr '\n' ' ')"
+# V3R2: ack refuses a claim folder that was replaced by a link, and publishes no intake.
+new_case v3r-claim-link
+send >/dev/null; courier >/dev/null
+token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
+mv "$(OB)/claim" "$C/claim-copy"; ln -s "$C/claim-copy" "$(OB)/claim"
+printf 'intake recorded\n' > "$C/record.txt"
+out=$(msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt"); st=$?
+check "V3R2 a linked claim folder cannot ack" '^2 wrong active reader claim' "$st $out"
+check "V3R2b and no intake is published" '^no no$' "$(yn "$(OB)/ack/$ID.md.json") $(yn "$C/inbox/ids/$ID/terminal.json")"
+# V3R3: a literal working marker wins over a stale paused-goal footer; nothing is typed.
+new_case v3r-markers
+jq_edit '.["task-pane"]=(.["sender-pane"]|.pane_id="task-pane"|.agent="codex"|.agent_session.agent="codex"|.agent_session.value="task-session")' "$C/agents.json"
+jq -n '{"im-task":{role:"task-agent",identity:{pane:"task-pane",session:{source:"hook",agent:"codex",kind:"id",value:"task-session"}}}}' > "$C/inbox/resume-targets.json"
+touch "$C/allow-resume"; relay_boundary
+for m in 'Working' 'Pursuing goal' 'Goal active' 'Incubating' 'thinking' 'press esc to interrupt'; do
+  printf '%s\n' "$m" 'Goal paused (/goal resume)' > "$C/screen-task-pane"
+  check "V3R3 the active marker '$m' wins over a stale paused footer" '^NOOP verified working' "$(msg sender-pane resume-goal-when-idle.sh im-task)"
+done
+check "V3R3b and no input was sent" '^0$' "$(grep -c '^agent prompt' "$C/calls.log")"
+# V3R4: an unchanged read-back after a resume is kept, holds the next try and alerts on the next interval.
+new_case v3r-readback
+jq_edit '.["task-pane"]=(.["sender-pane"]|.pane_id="task-pane"|.agent="codex"|.agent_session.agent="codex"|.agent_session.value="task-session")' "$C/agents.json"
+jq -n '{"im-task":{role:"task-agent",identity:{pane:"task-pane",session:{source:"hook",agent:"codex",kind:"id",value:"task-session"}}}}' > "$C/inbox/resume-targets.json"
+jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}]' > "$C/inbox/watch-targets.json"
+printf 'Goal paused (/goal resume)\n' > "$C/screen-task-pane"; touch "$C/allow-prompt"; relay_boundary
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "V3R4 an unchanged read-back is kept and sends no second resume" '^1 yes$' "$(grep -c '^agent prompt task-pane' "$C/calls.log") $(nfiles "$C/inbox/state" 'resume-*.readback' | sed 's/^1$/yes/')"
+check "V3R4b and the held resume alerts on the next interval" 'notification show Goal resume held' "$(cat "$C/calls.log")"
+# V3R5: a watch-target file replaced during a run holds automation and alerts; no card is relayed.
+new_case v3r-targets
+jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}]' > "$C/inbox/watch-targets.json"
+printf '%s\n' '✦ Heads up · target finding' > "$C/screen-receiver-pane"; relay_boundary
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2" = "pane read" ] && [ ! -e "$FIXTURE/replaced" ]; then touch "$FIXTURE/replaced"; printf "[]\n" > "$HERDSMAN_INBOX/watch-targets.json"; fi' \
+  "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+ENVX="RUN_FOR=1 INTERVAL=1 PATH=$C/race-bin:$CPATH" msg courier-pane card-watch.sh >/dev/null
+check "V3R5 a replaced watch-target file holds automation and relays nothing" '^yes 0 .*notification show Automatic coordination held' \
+  "$(yn "$C/inbox/state/automation-held") $(nfiles "$C/inbox/$A/new" '*.md') $(cat "$C/calls.log" | tr '\n' ' ')"
+# V3R6: more than four cards in one capture alert; at most four are journaled; an absent poll re-arms a headline.
+new_case v3r-cards
+jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}]' > "$C/inbox/watch-targets.json"
+printf '%s\n' '✦ Heads up · c1' '✦ Heads up · c2' '✦ Heads up · c3' '✦ Heads up · c4' '✦ Heads up · c5' '✦ Heads up · c6' > "$C/screen-receiver-pane"
+relay_boundary
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "V3R6 six cards in one capture journal four and alert" '^4 .*notification show Side-agent cards need inspection' "$(nfiles "$C/inbox/card-events" '*.json') $(cat "$C/calls.log" | tr '\n' ' ')"
+printf '%s\n' '✦ Heads up · again' > "$C/screen-receiver-pane"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+printf 'idle prompt\n' > "$C/screen-receiver-pane"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+printf '%s\n' '✦ Heads up · again' > "$C/screen-receiver-pane"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "V3R6b the same headline after an absent poll is a new episode" '^2$' "$(grep -l 'again' "$C/inbox/card-events/"*.json | wc -l | tr -d ' ')"
+# V3R7: a new entry wakes the waiter as pending only once it is older than one courier sweep.
+new_case v3r-pending
+courier >/dev/null; send >/dev/null
+out=$(ENVX="DEADLINE=2 RECHECK=1" msg receiver-pane message-wait.sh "$O")
+check "V3R7 a fresh new entry does not wake the waiter" '^TICK' "$out"
+touch -t 202001010000 "$(OB)/new/m000000000001.md"
+out=$(ENVX="DEADLINE=2 RECHECK=1" msg receiver-pane message-wait.sh "$O")
+check "V3R7b an entry older than one sweep wakes it as pending" 'HEALTH pending delivery' "$out"
+
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
 READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read|nc -U)( |$)'
 nocheck "N1 no other call reached the fake herdr" '.' \
-  "$(for f in "$T"/*/calls.log; do [ "$f" = "$T/resume/calls.log" ] || [ "$f" = "$T/rc-rearm/calls.log" ] || [ "${f#"$T"/ckpt-}" != "$f" ] || grep -v -E "$READS" "$f"; done)"
+  "$(for f in "$T"/*/calls.log; do [ "$f" = "$T/resume/calls.log" ] || [ "$f" = "$T/rc-rearm/calls.log" ] || [ "$f" = "$T/v3r-readback/calls.log" ] || [ "${f#"$T"/ckpt-}" != "$f" ] || grep -v -E "$READS" "$f"; done)"
 nocheck "N1b the resume case sent only the exact resume input" '.' \
-  "$(cat "$T/resume/calls.log" "$T/rc-rearm/calls.log" | grep -v -E "$READS" | grep -v -x -e 'agent prompt task-pane /goal resume' -e 'tab focus fixture-tab')"
+  "$(cat "$T/resume/calls.log" "$T/rc-rearm/calls.log" "$T/v3r-readback/calls.log" | grep -v -E "$READS" | grep -v -x -e 'agent prompt task-pane /goal resume' -e 'tab focus fixture-tab')"
 nocheck "N1c the checkpointer cases prompted only the orchestrator pane" '.' \
   "$(for f in "$T"/ckpt-*/calls.log; do grep -v -E "$READS" "$f" | grep -v -E '^(agent wait [^ ]+ .*|agent prompt receiver-pane (/save-memory|/compact))$'; done)"
 
