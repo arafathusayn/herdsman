@@ -750,7 +750,8 @@ gojson() { # request-id expires-offset [jq edit]
   jq -n --arg r "$1" --arg d "$(digest "$C/draft.txt")" --argjson e "$(( $(date +%s) + $2 ))" \
     '{version:1,type:"user_go",question_id:"choice",request_id:$r,action:"post",target:"pr-comment",revision:"head1",
       draft_hash:$d,expires_at:$e,text:"post this draft",human_interaction:("ask-"+$r)}' | jq -c "${3:-.}" > "$C/go-$1.json"
-  jq -n --arg r "$1" '{source:"ask-tool",question_id:"choice",request_id:$r,revision:"head1"}' > "$APR/interactions/ask-$1.json"
+  jq -n --arg r "$1" --arg d "$(digest "$C/draft.txt")" '{source:"ask-tool",question_id:"choice",request_id:$r,revision:"head1",
+    approved:true,action:"post",target:"pr-comment",draft_hash:$d}' > "$APR/interactions/ask-$1.json"
 }
 gate() { msg receiver-pane approval-gate.sh "$@"; echo "rc=$?"; }
 consume() { gate consume "$C/go-$1.json" post "${2:-pr-comment}" "${3:-head1}" "${4:-$C/draft.txt}"; }
@@ -800,7 +801,7 @@ jq_edit '.policy_verified=false' "$C/inbox/setup.json"
 out=$(consume r13); check "AG12c a stale setup proof consumes nothing" 'proof stale.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
 jq_edit '.policy_verified=true' "$C/inbox/setup.json"
 out=$(gate consume "$C/go-r13.json" post pr-comment head1 -); check "AG13 no draft for a draft-bound go is refused" 'draft differs.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
-gojson r14 600 '.draft_hash="none"'
+gojson r14 600 '.draft_hash="none"'; jq_edit '.draft_hash="none"' "$APR/interactions/ask-r14.json"
 out=$(gate consume "$C/go-r14.json" post pr-comment head1 -); check "AG13b a go without a draft binds to no draft" '^CONSUME r14.*rc=0' "$(printf '%s' "$out" | tr '\n' ' ')"
 check "AG14 the gate typed nothing and called no display mutation" '^0$' "$(grep -c -E '^(agent prompt|pane |notification)' "$C/calls.log")"
 
@@ -1164,6 +1165,112 @@ printf '# Tests\n## Unit\nPlain test detail.\n' > "$T/nested.md"
 printf '# Tests\n# Other\nPlain test detail.\n' > "$T/sibling.md"
 check "Z11 a required section with text under a child heading passes" '^0$' "$(leak "$T/nested.md" '# Tests' >/dev/null 2>&1; echo $?)"
 check "Z11b a sibling heading still ends the section" '^1$' "$(leak "$T/sibling.md" '# Tests' >/dev/null 2>&1; echo $?)"
+
+# Y: the second branch review fixes, each reproduced with the failing case first.
+# Y1: the trusted interaction must be an affirmative answer bound to the exact action, target and draft.
+new_case gate-answer
+relay_boundary
+printf 'reviewed text\n' > "$C/draft.txt"
+APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"
+gojson y1 600; jq_edit '.approved=false|.answer="No, do not post"' "$APR/interactions/ask-y1.json"
+out=$(consume y1); check "Y1 a negative ask-tool answer is refused" 'REFUSED .*not an affirmative.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson y2 600; jq_edit 'del(.approved)' "$APR/interactions/ask-y2.json"
+out=$(consume y2); check "Y1b an answer with no approval is refused" 'REFUSED .*not an affirmative.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson y3 600; jq_edit '.action="merge"' "$APR/interactions/ask-y3.json"
+out=$(consume y3); check "Y1c an answer that approves another action is refused" 'REFUSED .*approves another action.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson y4 600; jq_edit '.target="other-pr"' "$APR/interactions/ask-y4.json"
+out=$(consume y4); check "Y1d an answer that approves another target is refused" 'REFUSED .*approves another action.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson y5 600; jq_edit '.draft_hash="1-1"' "$APR/interactions/ask-y5.json"
+out=$(consume y5); check "Y1e an answer that approves another draft is refused" 'REFUSED .*approves another action.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "Y1f and none of them consumed anything" '^0$' "$(nfiles "$APR/consumed" '*.json')"
+gojson y6 600
+out=$(consume y6); check "Y1g the bound affirmative answer is the positive control" '^CONSUME y6.*rc=0' "$(printf '%s' "$out" | tr '\n' ' ')"
+# Y2: the gate rechecks the boundary under the input lock at consumption. An admission writer that runs during the
+# authority check waits for that lock, so a consumption never follows an exposure record.
+new_case gate-race
+relay_boundary
+printf 'reviewed text\n' > "$C/draft.txt"
+APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"
+gojson y7 600
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2" = "agent list" ] && [ ! -e "$FIXTURE/admitted" ]; then touch "$FIXTURE/admitted"' \
+  '  admit() { s=no; [ ! -e "$HERDSMAN_INBOX/approvals/consumed/y7.json" ] || s=yes; printf "exposure\n" > "$HERDSMAN_INBOX/state/boundary-tainted"; rmdir "$HERDSMAN_INBOX/herdr-mutation.lock"; echo "$s" > "$FIXTURE/consumed-at-exposure"; }' \
+  '  if mkdir "$HERDSMAN_INBOX/herdr-mutation.lock" 2>/dev/null; then admit' \
+  '  else ( until mkdir "$HERDSMAN_INBOX/herdr-mutation.lock" 2>/dev/null; do sleep 0.1; done; admit ) </dev/null >/dev/null 2>&1 & fi' \
+  'fi' "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+out=$(ENVX="PATH=$C/race-bin:$CPATH" consume y7)
+i=0; while [ ! -f "$C/consumed-at-exposure" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i+1)); done
+check "Y2 an exposure during the authority check never precedes a consumption" '^(CONSUME yes|HUMAN.*no)$' \
+  "$(printf '%s' "$out" | head -1 | awk '{print $1}') $(cat "$C/consumed-at-exposure" 2>&1)"
+# Y3: in adjutant mode the checkpointer sends input only while it holds the shared input lock.
+cpcase ckpt-lock
+mkdir "$C/inbox/herdr-mutation.lock"
+rc=$(ckpt receiver-pane "HERDSMAN_ORCHESTRATOR=$O LOCK_WAIT=1")
+check "Y3 a held input lock stops the checkpoint input" '^1 $' "$rc $(sent)"
+check "Y3b the lock is not taken over and the log names it" '^yes .*input lock busy' "$(yn "$C/inbox/herdr-mutation.lock") $(cat "$C/ckpt.log")"
+rmdir "$C/inbox/herdr-mutation.lock"
+rc=$(ckpt receiver-pane "HERDSMAN_ORCHESTRATOR=$O")
+check "Y3c with the lock free the inputs go out and the lock is released" '^0 agent prompt receiver-pane /save-memory.* no$' "$rc $(sent) $(yn "$C/inbox/herdr-mutation.lock")"
+# Y4: a card relay observes Herdr outside the queue lock.
+new_case send-observe
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+jq -n '[{pane:"task-pane",session:{source:"hook",agent:"claude",kind:"id",value:"task-session"}}]' > "$C/inbox/watch-targets.json"
+printf '%s\n' '✦ Heads up · observe finding' > "$C/screen-task-pane"
+relay_boundary
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2" = "agent list" ] && [ -d "$HERDSMAN_INBOX/channel.lock" ]; then touch "$FIXTURE/list-under-queue-lock"; fi' \
+  "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+ENVX="RUN_FOR=1 INTERVAL=1 PATH=$C/race-bin:$CPATH" msg courier-pane card-watch.sh >/dev/null
+check "Y4 the card is relayed and no agent list ran under the queue lock" '^1 no$' "$(nfiles "$C/inbox/$A/new" '*.md') $(yn "$C/list-under-queue-lock")"
+# Y5: the watcher writes the exposure record under the shared input lock.
+new_case exposure-lock
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+jq -n '[{pane:"task-pane",session:{source:"hook",agent:"claude",kind:"id",value:"task-session"}}]' > "$C/inbox/watch-targets.json"
+relay_boundary
+jq_edit '.["rogue-pane"]=(.["task-pane"]|.pane_id="rogue-pane"|.agent_session.value="rogue-session")' "$C/agents.json"
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1" = "-f" ] && [ "${2##*/}" = "boundary-tainted" ] || [ "${3##*/}" = "boundary-tainted" ]; then [ -d "$HERDSMAN_INBOX/herdr-mutation.lock" ] && echo held > "$FIXTURE/exposure-barrier" || echo free > "$FIXTURE/exposure-barrier"; fi' \
+  'exec /bin/mv "$@"' > "$C/race-bin/mv"
+chmod +x "$C/race-bin/mv"
+ENVX="RUN_FOR=1 INTERVAL=1 PATH=$C/race-bin:$CPATH" msg courier-pane card-watch.sh >/dev/null
+check "Y5 the exposure record is published while the input lock is held" '^held$' "$(cat "$C/exposure-barrier" 2>&1)"
+check "Y5b and the lock is released afterwards" '^no$' "$(yn "$C/inbox/herdr-mutation.lock")"
+# Y6: the audit gives GAP for unsupported or malformed tool records and flags first-option writes, wrappers with
+# options, effect-capable awk programs and shell writes outside the allowed roots.
+tgap() { { jq -nc '{type:"user",sessionId:"coord-session",message:{content:"start"}}'; printf '%s\n' "$1"; } > "$TC/y6.jsonl"; aud claude "$TC/y6.jsonl" coord-session "$TC/memory/"; }
+out=$(tgap "$(tu y1 send_email '{"to":"someone"}')"); check "Y6 an unknown tool is a gap" '^GAP unsupported tool send_email.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(tgap "$(tu y2 Bash '{"command":["git","push"]}')"); check "Y6b a shell call without a command string is a gap" '^GAP malformed tool-call arguments: call y2.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+out=$(tgap "$(tu y3 mcp__mail__frobnicate '{}')"); check "Y6c an MCP call that is neither a known read nor a write is a gap" '^GAP unsupported tool mcp__mail__frobnicate.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+{ jq -nc '{type:"session_meta",payload:{id:"codex-session"}}'
+  jq -nc '{type:"response_item",payload:{type:"function_call",name:"exec",call_id:"x1",arguments:"{\"code\":\"tools.exec_command({cmd:\\\"git push origin HEAD\\\"})\"}"}}'
+} > "$TC/y6-codex.jsonl"
+out=$(aud codex "$TC/y6-codex.jsonl" codex-session); check "Y6d a Codex nested execution tool is a gap" '^GAP unsupported tool exec.*rc=2' "$(printf '%s' "$out" | tr '\n' ' ')"
+{
+  jq -nc '{type:"user",sessionId:"coord-session",message:{content:"start"}}'
+  sh_call f1 'gh api -f body=hello repos/o/r/issues/1/comments'
+  sh_call f2 'curl --data payload https://example.invalid/hook'
+  sh_call f3 'gh api -fbody=hello repos/o/r/issues/1/comments'
+  sh_call f4 'env -i /tmp/do-push.sh'
+  sh_call f5 "awk 'BEGIN { system(\"git push\") }'"
+  sh_call f6 'printf changed > /project/app.ts'
+  sh_call f7 'echo x >> /project/notes.md'
+  sh_call f8 'cp /tmp/a /project/app.ts'
+  sh_call r1 'gh api repos/o/r/pulls'
+  sh_call r2 'curl -s https://example.invalid/status'
+  sh_call r3 "awk '{print \$1}' /x/list.txt"
+  sh_call r4 'ls /x 2>/dev/null'
+  sh_call r5 "printf note > $TC/memory/n.md"
+  tu r6 mcp__tracker__get_issue '{"id":"1"}'
+} > "$TC/y6-flags.jsonl"
+out=$(aud claude "$TC/y6-flags.jsonl" coord-session "$TC/memory/")
+for n in 1 2 3 4 5 6 7 8; do check "Y6e a direct write or effect-capable run is flagged: f$n" "call=f$n " "$out"; done
+nocheck "Y6f reads, a null redirect and an allowed-root write stay clean" 'call=r[0-9]' "$out"
+check "Y6g eight flags of fourteen calls" 'AUDIT flagged=8 calls=14.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
 
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
 READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read)( |$)'

@@ -379,9 +379,16 @@ commit_identity() {
 # Record a live agent outside the protected setup. Any check that sees an inventory fault writes it once; only the
 # human removes it after repeating setup.
 record_exposure() {
+  local own=
   [ "${BOUNDARY_FAULT:-}" = inventory ] && [ ! -e "$ROOT/state/boundary-tainted" ] || return 0
+  # Publish under the shared input lock, as every admission and exposure writer does. The observed incident is
+  # kept while waiting; a lock that stays busy still gets the record, because recording fails closed.
+  if [ -z "${MUTATION_OWNED:-}" ]; then
+    if mutation_lock; then own=1; else log_line 'EXPOSURE input lock busy; recorded without it'; fi
+  fi
   atomic "$ROOT/state/boundary-tainted" jq -n --argjson agents "$BOUNDARY_UNKNOWN" --argjson time "$(now)" \
     '{reason:"live agent outside the protected setup",agents:$agents,time:$time}'
+  [ -z "$own" ] || mutation_unlock
 }
 # shellcheck disable=SC2034 # BOUNDARY_FAULT and BOUNDARY_UNKNOWN are read by the sourcing watcher.
 boundary_ok() {

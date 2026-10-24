@@ -64,9 +64,16 @@ B='(^|[;&|({[:space:]])'
 E='([[:space:]]|$|[;&|)])'
 N='[^;&|]*'
 GIT="${B}git[[:space:]](${N}[[:space:]])?(commit|push)$E"
-GHAPI="${B}gh[[:space:]]+api[[:space:]]${N}((-X|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|[[:space:]](-f|-F|--field|--raw-field|--input)[[:space:]=])"
+# Mutation options count at the start of the argument list too, in spaced, equal and compact forms.
+GHAPI="${B}gh[[:space:]]+api[[:space:]](${N}[[:space:]])?((-X|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|(-f|-F|--field|--raw-field|--input)([[:space:]=]|$)|-[fF][^[:space:]])"
 GHW="${B}gh[[:space:]](${N}[[:space:]])?(create|edit|merge|close|reopen|comment|review|delete|ready|rerun|cancel|set|fork|upload|lock|transfer|develop)$E"
-CURL="${B}(curl|wget)[[:space:]]${N}((-X|--request|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|[[:space:]](-d|--data[a-z-]*|-F|--form|-T|--upload-file|--post-data|--post-file)[[:space:]=])"
+CURL="${B}(curl|wget)[[:space:]](${N}[[:space:]])?((-X|--request|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|(-d|--data[a-z-]*|-F|--form|-T|--upload-file|--post-data|--post-file)([[:space:]=]|$)|-[dFT][^[:space:]])"
+# An awk program that can run commands or write files is a script run; plain text processing is not.
+AWKRUN="${B}(awk|gawk|mawk|nawk)[[:space:]]"
+AWKFX='system[[:space:]]*[(]|getline|print[^;}]*[>|]'
+# Shell file mutations. Their targets are not parsed, so they are flagged wherever they point.
+WRITECMD="${B}(cp|mv|rm|mkdir|rmdir|touch|ln|chmod|chown|tee|install|rsync|truncate|dd|patch|unzip|tar)[[:space:]]"
+SEDI="${B}(sed|perl)[[:space:]](${N}[[:space:]])?-[a-zA-Z]*i"
 RUN="${B}(npm|npx|pnpm|pnpx|yarn|bun|bunx|deno|node|pip|pip3|uv|uvx|poetry|cargo|go|make|gradle|gradlew|mvn|pytest|jest|vitest|tox|rspec|bundle|composer|mix|dotnet|xcodebuild)$E"
 TESTS="${B}([^[:space:]]*/)?[A-Za-z0-9_.-]*tests?[.](sh|py)$E"
 SVC="${B}(docker|docker-compose|podman|nerdctl|colima|kubectl|helm|systemctl|launchctl|service|terraform|pulumi|wrangler|railway|vercel|flyctl|brew[[:space:]]+services)$E"
@@ -77,6 +84,8 @@ shell_class() { # command -> "class program" (the program word only, never argum
   elif [[ "$1" =~ $GHAPI ]] || [[ "$1" =~ $GHW ]] || [[ "$1" =~ $CURL ]]; then c='outward-write'
   elif [[ "$1" =~ $RUN ]] || [[ "$1" =~ $TESTS ]]; then c='test-or-package'
   elif [[ "$1" =~ $SVC ]]; then c='service-or-container'
+  elif [[ "$1" =~ $AWKRUN ]] && [[ "$1" =~ $AWKFX ]]; then printf 'script-run awk\n'; return 0
+  elif shell_write "$1"; then return 0
   else script_run "$1"; return 0; fi
   printf '%s %s\n' "$c" "$(printf '%s' "${BASH_REMATCH[0]}" | sed 's/^[;&|({[:space:]]*//' | awk '{print $1}')"
 }
@@ -91,13 +100,19 @@ channel_script() {
   return 1
 }
 script_run() { # command -> "script-run <program>" for the first script or interpreter run that is not allowed
-  local seg w i first
+  local seg w i first wrapped
   local -a words
   while IFS= read -r seg; do
     read -r -a words <<< "$(printf '%s' "$seg" | tr -d "\"'")" || true
-    i=0
+    i=0; wrapped=
+    # A wrapper with an option or a count hides what it starts: flag it instead of guessing its argument grammar.
     while [ "$i" -lt "${#words[@]}" ]; do
-      case "${words[$i]}" in env|exec|nohup|time|command|builtin|sudo|nice|timeout|*=*) i=$((i+1)) ;; *) break ;; esac
+      case "${words[$i]}" in
+        env|exec|nohup|time|command|builtin|sudo|nice|timeout|doas|stdbuf|ionice|chroot|setsid) wrapped=${words[$i]}; i=$((i+1)) ;;
+        *=*) i=$((i+1)) ;;
+        -*|[0-9]*) [ -z "$wrapped" ] || { printf 'script-run %s\n' "$wrapped"; return 0; }; break ;;
+        *) break ;;
+      esac
     done
     [ "$i" -lt "${#words[@]}" ] || continue
     first=${words[$i]}
@@ -116,6 +131,19 @@ script_run() { # command -> "script-run <program>" for the first script or inter
     esac
   done < <(printf '%s\n' "$1" | awk '{ gsub(/[$]\(|[;&|(){}`]/, "\n"); print }')
 }
+shell_write() { # command -> "project-write <target>" for a redirect outside the allowed roots or a file mutation
+  local rest t
+  rest=$(printf '%s' "$1" | tr -d "\"'")
+  while [[ "$rest" =~ \>\>?[[:space:]]*([^[:space:]\;\&\|\(\)]+) ]]; do
+    t=${BASH_REMATCH[1]}; rest=${rest#*"${BASH_REMATCH[0]}"}
+    case "$t" in '&'*|/dev/null|/dev/stdout|/dev/stderr|/dev/tty) continue ;; esac
+    in_root "$t" || { printf 'project-write .../%s\n' "${t##*/}"; return 0; }
+  done
+  if [[ "$1" =~ $WRITECMD ]] || [[ "$1" =~ $SEDI ]]; then
+    printf 'project-write %s\n' "$(printf '%s' "${BASH_REMATCH[0]}" | sed 's/^[;&|({[:space:]]*//' | awk '{print $1}')"; return 0
+  fi
+  return 1
+}
 granted() { [ -n "$GRANTS" ] && grep -Fxq -- "$1" "$GRANTS"; }
 in_root() {
   local p=$1 r
@@ -133,14 +161,20 @@ while IFS=$'\x1f' read -r tool id path cmd; do
     '!malformed') gap "malformed tool-call arguments: call $id" ;;
     Write|Edit|MultiEdit|NotebookEdit|apply_patch|edit_file|write_file)
       in_root "$path" || { class='project-write'; target=".../${path##*/}"; } ;;
+    Read|Grep|Glob|LS|NotebookRead|WebFetch|WebSearch|TodoWrite|ToolSearch|AskUserQuestion|Skill|BashOutput|TaskOutput|update_plan|view_image) ;;
     Bash|shell|exec_command|local_shell|shell_command|container.exec)
+      [ -n "$cmd" ] || gap "malformed tool-call arguments: call $id"
       class=$(shell_class "$cmd")
       if [ -n "$class" ] && granted "$cmd"; then class=; fi
       if [ -n "$class" ]; then target=${class#* }; class=${class%% *}; fi ;;
     mcp__*)
       if [[ "$(printf '%s' "$tool" | tr 'A-Z' 'a-z')" =~ $MCPW ]]; then
         class='tracker-or-chat-write'
+      elif ! [[ "_$(printf '%s' "${tool##*__}" | tr 'A-Z' 'a-z')_" =~ _(get|list|read|search|query|fetch|view|find|describe|show|count|lookup|retrieve|status|info)_ ]]; then
+        gap "unsupported tool $tool (call $id)"
       fi ;;
+    # Every other record is a tool this audit cannot interpret, so it is never clean.
+    *) gap "unsupported tool $tool (call $id)" ;;
   esac
   if [ -n "$class" ]; then
     flagged=$((flagged+1))

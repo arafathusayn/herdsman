@@ -30,7 +30,6 @@ case "${1:-}" in
   consume)
     [ $# = 6 ] || die 'usage: approval-gate.sh consume <go-file> <action> <target> <revision> <draft-file|->'
     GO=$2 ACTION=$3 TARGET=$4 REVISION=$5 DRAFT=$6
-    out=$(/bin/bash "$(dirname "$0")/messages/message-authority.sh" 2>&1) || { printf '%s\n' "$out"; exit 3; }
     strict_json "$GO" || refuse 'go is not strict JSON'
     jq -e 'type=="object" and .version==1 and .type=="user_go" and
       (.expires_at|type=="number" and floor==.) and
@@ -51,7 +50,15 @@ case "${1:-}" in
     jq -e --slurpfile g "$GO" '.source=="ask-tool" and .question_id==$g[0].question_id and
       .request_id==$g[0].request_id and .revision==$g[0].revision' "$I" >/dev/null ||
       refuse 'trusted interaction does not match this go'
+    # Correlation alone is not consent: the recorded answer must approve exactly this action, target and draft.
+    jq -e '.approved==true' "$I" >/dev/null || refuse 'trusted interaction is not an affirmative answer'
+    jq -e --slurpfile g "$GO" '.action==$g[0].action and .target==$g[0].target and .draft_hash==$g[0].draft_hash' "$I" >/dev/null ||
+      refuse 'trusted interaction approves another action, target or draft'
     gate_lock
+    # Admission and exposure writers use the shared input lock. Check the boundary under it and record the
+    # consumption before releasing it, so no admission falls between the check and the consumption.
+    mutation_lock || die 'input lock busy; retry later, never auto-remove'
+    out=$(/bin/bash "$(dirname "$0")/messages/message-authority.sh" 2>&1) || { printf '%s\n' "$out"; exit 3; }
     safe_leaf "$AP/cancels/$REQ.json"
     [ ! -e "$AP/cancels/$REQ.json" ] || refuse 'request cancelled'
     R="$AP/consumed/$REQ.json"
@@ -64,6 +71,7 @@ case "${1:-}" in
       printf 'RECONCILE %s consumed without an outcome: inspect external state before any retry\n' "$REQ"; exit 5
     fi
     atomic "$R" consumed_record "$REQ" "$ACTION" "$TARGET" "$REVISION" "$HASH" consuming '' || die 'cannot record consumption'
+    mutation_unlock
     printf 'CONSUME %s: act once, then run complete\n' "$REQ" ;;
   complete)
     [ $# = 3 ] || die 'usage: approval-gate.sh complete <request-id> <outcome>'

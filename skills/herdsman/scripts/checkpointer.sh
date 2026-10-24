@@ -77,23 +77,44 @@ guard() {
   log "identity check failed, no input sent: $out"; return 1
 }
 
+# In adjutant mode each identity check and its input run under the shared input lock of the private inbox, so they
+# never interleave with a goal resume, a hold or an admission. A busy lock sends nothing; it is never removed.
+LOCK_WAIT=${LOCK_WAIT:-6}; INPUT_OWNED=
+input_lock() {
+  local tries=0
+  [ -n "${HERDSMAN_ORCHESTRATOR:-}" ] || return 0
+  while ! mkdir "${HERDSMAN_INBOX:?set HERDSMAN_INBOX in adjutant mode}/herdr-mutation.lock" 2>/dev/null; do
+    tries=$((tries+1)); [ "$tries" -lt "$LOCK_WAIT" ] || { log "input lock busy, no input sent"; return 1; }; sleep 1
+  done
+  INPUT_OWNED=1; printf '%s\n' "$$" > "$HERDSMAN_INBOX/herdr-mutation.lock/pid"
+}
+input_unlock() {
+  [ -n "$INPUT_OWNED" ] || return 0
+  rm -f "$HERDSMAN_INBOX/herdr-mutation.lock/pid"; rmdir "$HERDSMAN_INBOX/herdr-mutation.lock"; INPUT_OWNED=
+}
+trap input_unlock EXIT
+
 # Blocked means a permission dialog; typing into it would answer it, so wait for idle or done only.
 wait_idle() { herdr agent wait "$TARGET" --until idle --until 'done' >/dev/null; }
 
 # One checkpoint: memory prompt, then compaction when the context is at or over LIMIT.
 cycle() {
   wait_idle
-  guard || return 1
+  input_lock || return 1
+  guard || { input_unlock; return 1; }
   log "sending memory checkpoint"
-  herdr agent prompt "$TARGET" "$PROMPT" >/dev/null || { log "prompt failed; retry next interval"; return 1; }
+  herdr agent prompt "$TARGET" "$PROMPT" >/dev/null || { input_unlock; log "prompt failed; retry next interval"; return 1; }
+  input_unlock
   herdr agent wait "$TARGET" --until working --timeout 30000 >/dev/null 2>&1
   wait_idle
   tokens=$(context_tokens "$1")
   log "memory checkpoint done; context=${tokens:-?}"
   if [ -n "$tokens" ] && [ "$tokens" -ge "$LIMIT" ]; then
-    guard || return 1
+    input_lock || return 1
+    guard || { input_unlock; return 1; }
     log "sending $COMPACT"
-    herdr agent prompt "$TARGET" "$COMPACT" >/dev/null
+    herdr agent prompt "$TARGET" "$COMPACT" >/dev/null || :
+    input_unlock
     herdr agent wait "$TARGET" --until working --timeout 30000 >/dev/null 2>&1
     wait_idle
     log "compact done; context=$(context_tokens "$1")"
