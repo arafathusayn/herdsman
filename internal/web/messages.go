@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -30,9 +31,45 @@ const (
 var (
 	nameRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 	idRe   = regexp.MustCompile(`^m[0-9]{12}$`)
-	kinds  = map[string]bool{"brief": true, "observation": true, "question": true, "result": true, "cancel": true, "user_answer": true, "receipt": true}
+	kinds  = map[string]bool{"brief": true, "observation": true, "question": true, "result": true, "cancel": true, "user_answer": true, "receipt": true, "side_agent_data": true}
 	states = []string{"new", "ready", "cur", "quarantine"}
+	// The channel's own entries at the inbox root; no peer or mailbox may take these names.
+	reserved = map[string]bool{"peers": true, "peers.approved": true, "state": true, "ids": true, "alerts": true, "enrolled": true, "card-events": true,
+		"courier.lock": true, "watch.lock": true, "channel.lock": true, "herdr-mutation.lock": true, "setup": true}
 )
+
+// noLinks reports whether none of the paths is a symbolic link; a missing path passes.
+func noLinks(paths ...string) bool {
+	for _, p := range paths {
+		if st, err := os.Lstat(p); err == nil && st.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// exists reports whether p is present, a link included.
+func exists(p string) bool {
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
+// regularFile reports whether p is a regular file and not a link.
+func regularFile(p string) bool {
+	st, err := os.Lstat(p)
+	return err == nil && st.Mode().IsRegular()
+}
+
+// emptyChannel is a channel with every list present, so the app never meets null.
+func emptyChannel() Channel {
+	return Channel{Peers: []ChannelPeer{}, Health: []ChannelHealth{}, Flags: []string{}, Holds: []string{}, Boxes: []ChannelBox{}, Messages: []ChannelMessage{}, Alerts: []ChannelAlert{}}
+}
+
+// staleDir reports whether p is a directory older than after seconds, as a held lock is.
+func staleDir(p string, now time.Time, after int64) bool {
+	st, err := os.Lstat(p)
+	return err == nil && st.IsDir() && int64(now.Sub(st.ModTime())/time.Second) > after
+}
 
 type identity struct {
 	Pane    string `json:"pane"`
@@ -101,16 +138,21 @@ type ChannelAlert struct {
 
 // Channel is the inbox as the Messages tab shows it.
 type Channel struct {
-	Configured  bool             `json:"configured"`
-	Error       string           `json:"error,omitempty"`
-	Approved    bool             `json:"approved"`
-	Pending     bool             `json:"pending"`
-	Peers       []ChannelPeer    `json:"peers"`
-	Health      []ChannelHealth  `json:"health"`
-	HealthAfter int64            `json:"health_after"`
-	Boxes       []ChannelBox     `json:"boxes"`
-	Messages    []ChannelMessage `json:"messages"`
-	Alerts      []ChannelAlert   `json:"alerts"`
+	Configured  bool            `json:"configured"`
+	Error       string          `json:"error,omitempty"`
+	Approved    bool            `json:"approved"`
+	Pending     bool            `json:"pending"`
+	Peers       []ChannelPeer   `json:"peers"`
+	Health      []ChannelHealth `json:"health"`
+	HealthAfter int64           `json:"health_after"`
+	// Flags are the health problems `message status` reports beyond the heartbeats:
+	// timing-invalid, mutation-lock-stale, channel-lock-stale, alert-lock-stale, automation-held.
+	Flags []string `json:"flags"`
+	// Holds are the hold and resume intents in state/: route-paused, route-frozen, hold-*, resume-*.sent.
+	Holds    []string         `json:"holds"`
+	Boxes    []ChannelBox     `json:"boxes"`
+	Messages []ChannelMessage `json:"messages"`
+	Alerts   []ChannelAlert   `json:"alerts"`
 }
 
 // readBounded reads a regular, non-link file of at most max bytes.
@@ -264,6 +306,9 @@ func cksum(b []byte) string {
 // ackValid mirrors the channel's ack check: an intake record bound to the
 // envelope's bytes and the claim that read it.
 func ackValid(root, box, id string) bool {
+	if !noLinks(filepath.Join(root, box), filepath.Join(root, box, "ack"), filepath.Join(root, box, "cur"), filepath.Join(root, "ids", id)) {
+		return false
+	}
 	b, err := readBounded(filepath.Join(root, box, "ack", id+".md.json"), envelopeMax)
 	if err != nil || strictJSON(b) != nil {
 		return false
@@ -305,18 +350,45 @@ func openInbox(root string) error {
 }
 
 func readChannel(root string, now time.Time) Channel {
-	ch := Channel{Configured: true, Peers: []ChannelPeer{}, Health: []ChannelHealth{}, Boxes: []ChannelBox{}, Messages: []ChannelMessage{}, Alerts: []ChannelAlert{}}
+	ch := emptyChannel()
+	ch.Configured = true
 	if err := openInbox(root); err != nil {
 		ch.Error = err.Error()
 		return ch
 	}
 	ch.HealthAfter = defaultHealthSecs
-	if b, err := readBounded(filepath.Join(root, "state", "timing.json"), envelopeMax); err == nil && strictJSON(b) == nil {
-		var t struct {
-			Health int64 `json:"health"`
+	// A present but invalid timing file keeps the default and is flagged, as read-only status does.
+	if timing := filepath.Join(root, "state", "timing.json"); exists(timing) {
+		valid := false
+		if b, err := readBounded(timing, envelopeMax); err == nil && strictJSON(b) == nil {
+			var t struct {
+				Health json.Number `json:"health"`
+			}
+			if json.Unmarshal(b, &t) == nil {
+				if n, err := strconv.ParseInt(t.Health.String(), 10, 64); err == nil && n >= 1 && n <= 86400 {
+					ch.HealthAfter, valid = n, true
+				}
+			}
 		}
-		if json.Unmarshal(b, &t) == nil && t.Health >= 1 && t.Health <= 86400 {
-			ch.HealthAfter = t.Health
+		if !valid {
+			ch.Flags = append(ch.Flags, "timing-invalid")
+		}
+	}
+	for _, l := range []struct{ dir, flag string }{{"herdr-mutation.lock", "mutation-lock-stale"}, {"channel.lock", "channel-lock-stale"}} {
+		if staleDir(filepath.Join(root, l.dir), now, ch.HealthAfter) {
+			ch.Flags = append(ch.Flags, l.flag)
+		}
+	}
+	if locks, _ := filepath.Glob(filepath.Join(root, "alerts", "*.lock")); slices.ContainsFunc(locks, func(p string) bool { return staleDir(p, now, ch.HealthAfter) }) {
+		ch.Flags = append(ch.Flags, "alert-lock-stale")
+	}
+	if exists(filepath.Join(root, "state", "automation-held")) {
+		ch.Flags = append(ch.Flags, "automation-held")
+	}
+	for _, pat := range []string{"route-paused", "route-frozen", "hold-*", "resume-*.sent"} {
+		found, _ := filepath.Glob(filepath.Join(root, "state", pat))
+		for _, f := range found {
+			ch.Holds = append(ch.Holds, filepath.Base(f))
 		}
 	}
 	for _, s := range []struct{ name, file string }{{"courier", "heartbeat"}, {"watcher", "watch-heartbeat"}} {
@@ -335,10 +407,12 @@ func readChannel(root string, now time.Time) Channel {
 			Role     string   `json:"role"`
 			Identity identity `json:"identity"`
 		}
-		if json.Unmarshal(approved, &reg) == nil {
+		// One bad entry voids the whole registry, as the channel's valid_registry does.
+		if json.Unmarshal(approved, &reg) == nil && len(reg) <= 2 {
 			for name, p := range reg {
-				if !nameRe.MatchString(name) || (p.Role != "adjutant" && p.Role != "orchestrator") {
-					continue
+				if !nameRe.MatchString(name) || reserved[name] || (p.Role != "adjutant" && p.Role != "orchestrator") {
+					ch.Peers, names = []ChannelPeer{}, map[string]bool{}
+					break
 				}
 				names[name] = true
 				ch.Peers = append(ch.Peers, ChannelPeer{Name: name, Role: p.Role, Pane: p.Identity.Pane})
@@ -352,7 +426,7 @@ func readChannel(root string, now time.Time) Channel {
 	entries, _ := os.ReadDir(root)
 	for _, e := range entries {
 		box := e.Name()
-		if !e.IsDir() || !nameRe.MatchString(box) {
+		if !e.IsDir() || !nameRe.MatchString(box) || reserved[box] {
 			continue
 		}
 		if st, err := os.Lstat(filepath.Join(root, box, "new")); err != nil || !st.IsDir() {
@@ -360,8 +434,9 @@ func readChannel(root string, now time.Time) Channel {
 		}
 		b := ChannelBox{Name: box, Orphan: !names[box], Counts: map[string]int{}, Claim: "none"}
 		if st, err := os.Lstat(filepath.Join(root, box, "claim")); err == nil && st.IsDir() {
+			// A claim is held only with both its token and its owner record.
 			b.Claim = "incomplete"
-			if t, err := os.Lstat(filepath.Join(root, box, "claim", "token")); err == nil && t.Mode().IsRegular() {
+			if regularFile(filepath.Join(root, box, "claim", "token")) && regularFile(filepath.Join(root, box, "claim", "owner")) {
 				b.Claim = "held"
 			}
 		}
@@ -406,7 +481,7 @@ func readChannel(root string, now time.Time) Channel {
 
 func (s *Server) messages(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.Inbox == "" {
-		writeJSON(w, http.StatusOK, Channel{Peers: []ChannelPeer{}, Health: []ChannelHealth{}, Boxes: []ChannelBox{}, Messages: []ChannelMessage{}, Alerts: []ChannelAlert{}})
+		writeJSON(w, http.StatusOK, emptyChannel())
 		return
 	}
 	writeJSON(w, http.StatusOK, readChannel(s.cfg.Inbox, time.Now()))

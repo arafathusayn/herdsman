@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { stateLabel, unread } from "./channel.ts";
+import { describeFlag, kindLabel, stateLabel, unread } from "./channel.ts";
 import type { Channel, ChannelMessage } from "./types.ts";
 
 const msg = (state: ChannelMessage["state"], acknowledged = false): ChannelMessage => ({
@@ -35,4 +35,10 @@ test("unread counts what no reader took in, across boxes", () => {
   });
   expect(unread(null)).toBe(0);
   expect(unread({ boxes: [box(2), box(1)] } as unknown as Channel)).toBe(3);
+});
+
+test("side-agent cards and health flags have words of their own", () => {
+  expect(kindLabel.side_agent_data).toBe("Side agent");
+  expect(describeFlag("automation-held")[0]).toBe("Automation held");
+  expect(describeFlag("something-new")).toEqual(["something-new", "Reported by the message channel"]);
 });

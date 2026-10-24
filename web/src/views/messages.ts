@@ -3,7 +3,7 @@
 // pair, the courier's health, alerts, and the conversation; a body loads
 // only when its message is opened, and never for unverified entries.
 import { messageBody } from "../api.ts";
-import { kindLabel, stateLabel, stateTip } from "../channel.ts";
+import { describeFlag, kindLabel, stateLabel, stateTip } from "../channel.ts";
 import { h, icon, icons, mount } from "../dom.ts";
 import { store } from "../store.ts";
 import type { Channel, ChannelMessage } from "../types.ts";
@@ -140,6 +140,13 @@ export class MessagesView {
             },
             `${s.name === "courier" ? "Courier" : "Watcher"} ${s.ok ? "up" : "down"}`,
           ),
+        ),
+        (ch.flags ?? []).map((f) => {
+          const [text, tip] = describeFlag(f);
+          return h("span", { class: "chip bad", "data-tip": tip }, text);
+        }),
+        (ch.holds ?? []).map((name) =>
+          h("span", { class: "chip warn", "data-tip": "A hold or resume intent in the channel's state folder" }, name),
         ),
         boxes.map((b) =>
           h(
