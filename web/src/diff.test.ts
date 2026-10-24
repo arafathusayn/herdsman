@@ -34,6 +34,58 @@ test("splitPatch keys each section by its path", () => {
   expect([...splitPatch(patch).keys()]).toEqual(["keep.txt", "new name.txt", "gone.txt", "img.bin"]);
 });
 
+// Headers as git writes them with core.quotePath=false: names with a quote,
+// a backslash or a tab are C-quoted; other names, UTF-8 included, are not.
+test("splitPatch reads quoted paths", () => {
+  const quoted = [
+    'diff --git "a/back\\\\slash.txt" "b/new\\"name.txt"',
+    "similarity index 100%",
+    'rename from "back\\\\slash.txt"',
+    'rename to "new\\"name.txt"',
+    'diff --git "a/q\\"uote.txt" "b/q\\"uote.txt"',
+    "index 1..2 100644",
+    '--- "a/q\\"uote.txt"',
+    '+++ "b/q\\"uote.txt"',
+    "@@ -1 +1,2 @@",
+    " x",
+    "+b",
+    'diff --git "a/ta\\tb.txt" "b/ta\\tb.txt"',
+    "deleted file mode 100644",
+    '--- "a/ta\\tb.txt"',
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-y",
+    'diff --git "a/bell\\007.bin" "b/bell\\007.bin"',
+    "new file mode 100644",
+    'Binary files /dev/null and "b/bell\\007.bin" differ',
+    "diff --git a/é.txt b/é.txt",
+    "--- a/é.txt",
+    "+++ b/é.txt",
+    "@@ -1 +1,2 @@",
+    " w",
+    "+b",
+    'diff --git "a/\\303\\251\\\\x.txt" "b/\\303\\251\\\\x.txt"',
+    "new file mode 100644",
+    "--- /dev/null",
+    '+++ "b/\\303\\251\\\\x.txt"',
+    "@@ -0,0 +1 @@",
+    "+v",
+    "",
+  ].join("\n");
+  const sections = splitPatch(quoted);
+  expect([...sections.keys()]).toEqual([
+    'new"name.txt',
+    'q"uote.txt',
+    "ta\tb.txt",
+    "bell\x07.bin",
+    "é.txt",
+    "é\\x.txt",
+  ]);
+  expect(parseSection(sections.get('q"uote.txt') ?? []).filter((l) => l.kind === "add")).toEqual([
+    { kind: "add", new: 2, text: "b" },
+  ]);
+});
+
 test("parseSection numbers old and new lines", () => {
   const lines = parseSection(splitPatch(patch).get("keep.txt") ?? []);
   expect(lines).toEqual([

@@ -213,8 +213,9 @@ func git(ctx context.Context, dir string, limit int, args ...string) (string, er
 		// programs in diff's own flags.
 		"-c", "core.fsmonitor=false",
 		"-c", "core.untrackedCache=false",
-		// Paths come out as they are, not C-quoted, so the patch headers
-		// match the file list.
+		// Non-ASCII paths come out as they are. Git still C-quotes a name
+		// with a double quote, a backslash or a control character in patch
+		// headers; the web app decodes those to match the -z file list.
 		"-c", "core.quotePath=false",
 		"-C", dir,
 	}
