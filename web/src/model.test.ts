@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { checklistCounts, Index, lanes, type Member, roleOf, team, workspaceGroups } from "./model.ts";
+import { afterSend, checklistCounts, Index, lanes, type Member, roleOf, team, workspaceGroups } from "./model.ts";
 import type { Agent, Pane, Route, State, Workspace } from "./types.ts";
 
 const ws = (id: string, number: number, label = ""): Workspace => ({
@@ -170,4 +170,10 @@ test("checklist counts keep not-applicable lines apart", () => {
     open: 2,
     total: 4,
   });
+});
+
+test("a send clears only the text it sent", () => {
+  expect(afterSend("fix the test", "fix the test")).toBe("");
+  expect(afterSend("fix the test", "fix the test, then push")).toBe("fix the test, then push");
+  expect(afterSend("fix the test", "")).toBe("");
 });

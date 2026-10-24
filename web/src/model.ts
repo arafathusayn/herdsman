@@ -231,3 +231,11 @@ export function checklistCounts(items: CheckItem[]): { done: number; skipped: nu
   const skipped = items.filter((i) => !i.done && i.skipped).length;
   return { done, skipped, open: items.length - done - skipped, total: items.length };
 }
+
+/**
+ * What the message box holds after a send went through: empty when it still
+ * holds the sent text, else the edits typed while the send was out.
+ */
+export function afterSend(sent: string, current: string): string {
+  return current === sent ? "" : current;
+}
