@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -45,16 +46,34 @@ type pairing struct {
 }
 
 type devices struct {
-	mu       sync.Mutex
-	now      func() time.Time
+	mu  sync.Mutex
+	now func() time.Time
+	// token is the link's token. It lives under the same lock as the
+	// requests, so a request can never open on a token that was just
+	// replaced.
+	token    string
 	pending  map[string]*pairing // by sha256 of the pairing secret
 	paired   map[string]string   // sha256 of the device secret -> device name
 	failures int                 // wrong codes since the token was last replaced
 }
 
-func newDevices() *devices {
-	return &devices{now: time.Now, pending: map[string]*pairing{}, paired: map[string]string{}}
+func newDevices(token string) *devices {
+	return &devices{now: time.Now, token: token, pending: map[string]*pairing{}, paired: map[string]string{}}
 }
+
+func (d *devices) tokenOK(t string) bool {
+	return t != "" && subtle.ConstantTimeCompare([]byte(t), []byte(d.token)) == 1
+}
+
+// validToken reports whether t is the current link token.
+func (d *devices) validToken(t string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.tokenOK(t)
+}
+
+// errOldToken is a link whose token was replaced, or one from another run.
+var errOldToken = errors.New("old link token")
 
 func secret() string {
 	b := make([]byte, 32)
@@ -77,10 +96,14 @@ func newCode() string {
 	return fmt.Sprintf("%06d", n.Int64())
 }
 
-// begin opens a pairing request and returns its secret and code.
-func (d *devices) begin(device string) (sec, code string, expires time.Time, err error) {
+// begin opens a pairing request for a link's token and returns its secret
+// and code.
+func (d *devices) begin(token, device string) (sec, code string, expires time.Time, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if !d.tokenOK(token) {
+		return "", "", time.Time{}, errOldToken
+	}
 	now := d.now()
 	for k, p := range d.pending {
 		if now.After(p.expires) {
@@ -108,9 +131,9 @@ type errPair struct {
 	msg  string
 	left int
 	gone bool
-	// rotate asks the server to replace the link's token: the wrong codes
-	// reached maxFailures, and every open request has ended.
-	rotate bool
+	// token is the link's new token when the wrong codes reached
+	// maxFailures: the old one is replaced and every open request has ended.
+	token string
 }
 
 func (e *errPair) Error() string { return e.msg }
@@ -132,7 +155,8 @@ func (d *devices) confirm(sec, code string) (string, error) {
 		if d.failures >= maxFailures {
 			d.failures = 0
 			clear(d.pending)
-			return "", &errPair{msg: "Too many wrong codes for this link. Open the new link that the terminal printed.", gone: true, rotate: true}
+			d.token = NewToken()
+			return "", &errPair{msg: "Too many wrong codes for this link. Open the new link that the terminal printed.", gone: true, token: d.token}
 		}
 		left := pairAttempts - p.attempts
 		if left <= 0 {

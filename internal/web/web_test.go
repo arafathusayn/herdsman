@@ -309,10 +309,10 @@ func TestPairingRejectsWrongCodesThenEnds(t *testing.T) {
 }
 
 func TestPairingExpires(t *testing.T) {
-	d := newDevices()
+	d := newDevices("tok")
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	d.now = func() time.Time { return now }
-	sec, code, _, err := d.begin("Safari on iPhone")
+	sec, code, _, err := d.begin("tok", "Safari on iPhone")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,18 +322,18 @@ func TestPairingExpires(t *testing.T) {
 	}
 }
 
-// Each link allows maxFailures wrong codes in all: the last one asks for a
-// new token and ends every open request, however the guesses were spread.
+// Each link allows maxFailures wrong codes in all: the last one replaces the
+// token and ends every open request, however the guesses were spread.
 func TestPairingLimitsGuessingPerLink(t *testing.T) {
-	d := newDevices()
+	d := newDevices("tok")
 	// A request that waits while the guessing goes on ends with it.
-	waiting, waitingCode, _, err := d.begin("bystander")
+	waiting, waitingCode, _, err := d.begin("tok", "bystander")
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrong := 0
+	wrong, newTok := 0, ""
 	for range maxFailures / pairAttempts {
-		sec, code, _, err := d.begin("x")
+		sec, code, _, err := d.begin("tok", "x")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -348,21 +348,30 @@ func TestPairingLimitsGuessingPerLink(t *testing.T) {
 			if e == nil {
 				t.Fatalf("wrong code %d: %v", wrong, err)
 			}
-			if e.rotate != (wrong == maxFailures) {
-				t.Fatalf("wrong code %d: rotate = %v", wrong, e.rotate)
+			if (e.token != "") != (wrong == maxFailures) {
+				t.Fatalf("wrong code %d: new token %q", wrong, e.token)
 			}
+			newTok = e.token
 		}
+	}
+	if newTok == "tok" || d.validToken("tok") || !d.validToken(newTok) {
+		t.Fatalf("token not replaced: new %q", newTok)
 	}
 	if _, err := d.confirm(waiting, waitingCode); err == nil {
 		t.Fatal("a request opened before the token was replaced still paired")
 	}
+	// A request that checked the old token before the replacement, and opens
+	// only after it, is refused: the check and the opening share one lock.
+	if _, _, _, err := d.begin("tok", "x"); !errors.Is(err, errOldToken) {
+		t.Fatalf("request on the old token after the replacement: %v", err)
+	}
 	// The count starts again for the new link.
-	sec, code, _, err := d.begin("x")
+	sec, code, _, err := d.begin(newTok, "x")
 	if err != nil {
-		t.Fatalf("pairing after the token was replaced: %v", err)
+		t.Fatalf("pairing on the new token: %v", err)
 	}
 	if _, err := d.confirm(sec, code); err != nil {
-		t.Fatalf("right code after the token was replaced: %v", err)
+		t.Fatalf("right code on the new token: %v", err)
 	}
 }
 
