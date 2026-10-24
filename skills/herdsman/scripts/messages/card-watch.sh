@@ -20,6 +20,23 @@ mkdir -p "$ROOT/card-events"
 sender=$(jq -er 'to_entries[]|select(.value.role=="orchestrator")|.key' "$ROOT/peers.approved")
 receiver=$(jq -er 'to_entries[]|select(.value.role=="adjutant")|.key' "$ROOT/peers.approved")
 sender_pane=$(peer "$sender" | jq -r .identity.pane)
+# Count the source's journal records whose relay the adjutant has not acknowledged, and resolve its journal alert
+# when the count is under the cap. Reads $pane and $key; sets $active.
+count_journal() {
+  local event queued relayed
+  active=0
+  for event in "$ROOT/card-events/"*.json; do
+    regular "$event" || continue
+    jq -e --arg pane "$pane" '.source.pane==$pane' "$event" >/dev/null || continue
+    queued="$ROOT/state/card-$(basename "$event" .json).queued"
+    if regular "$queued"; then
+      relayed=$(awk '{print $1; exit}' "$queued")
+      if id_ok "$relayed" && regular "$ROOT/ids/$relayed/terminal.json" && jq -e '.state=="handled"' "$ROOT/ids/$relayed/terminal.json" >/dev/null 2>&1; then continue; fi
+    fi
+    active=$((active+1))
+  done
+  [ "$active" -ge 8 ] || resolve_alert "card-journal-$key"
+}
 started=$(now)
 while :; do
   safe_touch "$ROOT/state/watch-heartbeat"
@@ -64,27 +81,15 @@ while :; do
     if [ "$count" -gt 4 ]; then notify "card-overflow-$key" 'Side-agent cards need inspection' 'Capture cap reached; inspect the source pane and durable harness journal.'
     else resolve_alert "card-overflow-$key"; fi
     # The journal cap counts only records whose relay the adjutant has not acknowledged. It is counted only when a new
-    # card needs the cap check, so the cost does not grow with every poll.
+    # card needs the cap check or while its journal alert is open, so a drained journal clears the alert.
     active=
+    if regular "$ROOT/alerts/card-journal-$key.pending" || regular "$ROOT/alerts/card-journal-$key.sent"; then count_journal; fi
     while IFS= read -r card <&5; do
       [ -n "$card" ] || continue
       card_key=$(printf '%s\n%s' "$key" "$card" | cksum | awk '{print $1 "-" $2}')
       marker="$ROOT/state/card-visible-$card_key"
       if [ ! -f "$marker" ] && [ "$auto" = 1 ]; then
-        if [ -z "$active" ]; then
-          active=0
-          for event in "$ROOT/card-events/"*.json; do
-            regular "$event" || continue
-            jq -e --arg pane "$pane" '.source.pane==$pane' "$event" >/dev/null || continue
-            queued="$ROOT/state/card-$(basename "$event" .json).queued"
-            if regular "$queued"; then
-              relayed=$(awk '{print $1; exit}' "$queued")
-              if id_ok "$relayed" && regular "$ROOT/ids/$relayed/terminal.json" && jq -e '.state=="handled"' "$ROOT/ids/$relayed/terminal.json" >/dev/null 2>&1; then continue; fi
-            fi
-            active=$((active+1))
-          done
-          [ "$active" -ge 8 ] || resolve_alert "card-journal-$key"
-        fi
+        [ -n "$active" ] || count_journal
         if [ "$active" -ge 8 ]; then
           notify "card-journal-$key" 'Side-agent cards need inspection' 'Source journal cap reached; human disposition required.'
         else

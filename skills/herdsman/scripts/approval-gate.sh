@@ -59,6 +59,8 @@ case "${1:-}" in
     # consumption before releasing it, so no admission falls between the check and the consumption.
     mutation_lock || die 'input lock busy; retry later, never auto-remove'
     out=$(/bin/bash "$(dirname "$0")/messages/message-authority.sh" 2>&1) || { printf '%s\n' "$out"; exit 3; }
+    # The go can expire while the gate waits for the lock or the authority check: check it again right here.
+    [ "$(jq -r '.expires_at' "$GO")" -gt "$(now)" ] || refuse 'go expired'
     safe_leaf "$AP/cancels/$REQ.json"
     [ ! -e "$AP/cancels/$REQ.json" ] || refuse 'request cancelled'
     R="$AP/consumed/$REQ.json"
