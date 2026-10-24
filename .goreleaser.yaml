@@ -1,6 +1,6 @@
 # One static binary per OS and architecture, with the web app embedded.
-# No release is tagged before v1.0.0, which ships the CLI, the web app, the
-# landing page and the ported scripts together.
+# A pushed v* tag runs .github/workflows/release.yml, which publishes the
+# GitHub release and the Homebrew cask in arafathusayn/tap.
 version: 2
 
 project_name: herdsman
@@ -39,7 +39,11 @@ homebrew_casks:
     repository:
       owner: arafathusayn
       name: tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      branch: main
+      # A deploy key with write access to the tap repository only.
+      git:
+        url: git@github.com:arafathusayn/tap.git
+        private_key: "{{ .Env.HOMEBREW_TAP_SSH_KEY }}"
     homepage: https://github.com/arafathusayn/herdsman
     description: Run a whole team of coding agents from one conversation, and from the browser.
     license: GPL-3.0-only

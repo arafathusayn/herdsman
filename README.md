@@ -175,9 +175,11 @@ In the orchestrator session, inside herdr:
 `herdsman web` serves a browser app that shows and steers the team: a board of every agent by role or status, each agent's live terminal with its keys and a prompt box, the route's checklist, run state, docs and code changes, the HTML pages agents wrote, and the adjutant's messages. It is one Go binary with the app inside; nothing else runs on your machine.
 
 ```sh
-make build              # from a clone: needs Go and Bun, builds bin/herdsman
-bin/herdsman web --open
+brew install --cask arafathusayn/tap/herdsman
+herdsman web --open
 ```
+
+Or download the archive for macOS or Linux from [Releases](https://github.com/arafathusayn/herdsman/releases), or build from a clone with Go and Bun: `make build` writes `bin/herdsman`.
 
 It prints a URL with a one-run token. The browser that opens it must type a 6-digit pairing code that the same terminal prints, so a leaked link alone controls nothing. A paired browser keeps a device secret for that host until the server stops.
 
