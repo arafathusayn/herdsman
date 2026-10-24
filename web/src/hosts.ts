@@ -135,6 +135,16 @@ function newId(): string {
 }
 
 /**
+ * A hint for a host this page cannot reach, or "". A public page that calls
+ * this machine or a private address waits for the browser's local network
+ * permission, and the call fails until the person allows it.
+ */
+export function localNetworkHint(pageHostname: string, url: string): string {
+  if (isPrivate(pageHostname) || !isPrivate(new URL(url).hostname)) return "";
+  return "If the browser asked to access devices on your local network, allow it, then try again.";
+}
+
+/**
  * Why a browser will refuse to reach the host from this page, or "". An
  * https page may not call plain http, except on loopback addresses.
  */

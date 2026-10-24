@@ -3,7 +3,16 @@ import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "
 import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
 import { h, icon, icons, logoMark, mount } from "./dom.ts";
-import { blockedReason, type Host, loadHosts, normalizeUrl, parseLink, saveHosts, upsert } from "./hosts.ts";
+import {
+  blockedReason,
+  type Host,
+  loadHosts,
+  localNetworkHint,
+  normalizeUrl,
+  parseLink,
+  saveHosts,
+  upsert,
+} from "./hosts.ts";
 import {
   ago,
   checklistCounts,
@@ -28,7 +37,7 @@ import { openAppearance } from "./views/appearance.ts";
 import { ArtifactsView } from "./views/artifacts.ts";
 import { DiffView } from "./views/diff.ts";
 import { FilesView } from "./views/files.ts";
-import { confirmHost, openHosts, showConnect, takePendingLink } from "./views/hosts.ts";
+import { confirmHost, keepPendingLink, openHosts, showConnect, takePendingLink } from "./views/hosts.ts";
 import { MessagesView } from "./views/messages.ts";
 import { showPairing } from "./views/pair.ts";
 import { card, teamView } from "./views/team.ts";
@@ -164,11 +173,17 @@ async function boot(): Promise<void> {
   try {
     st = token ? await startSession(token) : await pairStatus();
   } catch {
+    // The link's token waits for the host, so trying again (after the
+    // browser's local network prompt, or once the server runs) still pairs.
+    keepPendingLink(current.url, token);
+    const blocked = blockedReason(location.protocol, current.url);
+    const hint = localNetworkHint(location.hostname, current.url);
     showConnect(
       root,
       `Cannot reach ${current.name}`,
-      blockedReason(location.protocol, current.url) ||
-        `Is herdsman web running at ${current.url}? Start it there, or pick another host.`,
+      blocked ||
+        `Is herdsman web running at ${current.url}? Start it there, or pick another host.${hint ? ` ${hint}` : ""}`,
+      blocked ? undefined : () => location.reload(),
     );
     return;
   }
