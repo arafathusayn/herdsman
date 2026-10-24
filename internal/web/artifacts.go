@@ -98,9 +98,6 @@ var skipDirs = map[string]bool{
 // Hidden folders are skipped except these, where agents keep their pages.
 var hiddenArtifactDirs = map[string]bool{".lavish": true, ".herdsman": true, ".artifacts": true}
 
-// artifactRoots are the session's folders: every pane's folders, every route
-// folder and every task worktree. The home folder and the file system root
-// are left out: walking them would take long and find unrelated pages.
 // routeFolders is a route's own folder and its tasks' worktrees, with every
 // worktree form the task table allows resolved as the Changes tab does.
 func routeFolders(r *route.Route) []string {
@@ -114,6 +111,8 @@ func routeFolders(r *route.Route) []string {
 	return dirs
 }
 
+// artifactRoots are the session's folders: every pane's folders, every route
+// folder and every task worktree.
 func (s *Server) artifactRoots() []string {
 	st := s.hub.Current()
 	var dirs []string
@@ -130,9 +129,22 @@ func (s *Server) artifactRoots() []string {
 		dirs = append(dirs, routeFolders(r.Route)...)
 	}
 	home, _ := os.UserHomeDir()
+	return walkRoots(dirs, home)
+}
+
+// walkRoots keeps the folders worth walking, once each and sorted. The home
+// folder and the file system root are left out: walking them would take long
+// and find unrelated pages. A folder that is itself a link is walked at its
+// target, since a walk does not descend into a link given as its root.
+func walkRoots(dirs []string, home string) []string {
 	var out []string
 	for _, d := range dirs {
 		d = filepath.Clean(d)
+		if st, err := os.Lstat(d); err == nil && st.Mode()&os.ModeSymlink != 0 {
+			if d, err = filepath.EvalSymlinks(d); err != nil {
+				continue
+			}
+		}
 		if !filepath.IsAbs(d) || d == "/" || d == home || slices.Contains(out, d) {
 			continue
 		}
@@ -343,6 +355,18 @@ func (s *Server) serveArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer root.Close()
+	// os.Root follows links that stay in the folder, so a link named like a
+	// page asset could serve a hidden or data file. No link may sit on the
+	// path, and the file opened must be the one checked.
+	segs := strings.Split(rel, "/")
+	var last os.FileInfo
+	for i := range segs {
+		last, err = root.Lstat(filepath.Join(segs[:i+1]...))
+		if err != nil || last.Mode()&os.ModeSymlink != 0 {
+			http.NotFound(w, r)
+			return
+		}
+	}
 	f, err := root.Open(filepath.FromSlash(rel))
 	if err != nil {
 		http.NotFound(w, r)
@@ -350,7 +374,7 @@ func (s *Server) serveArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	st, err := f.Stat()
-	if err != nil || !st.Mode().IsRegular() {
+	if err != nil || !st.Mode().IsRegular() || !os.SameFile(st, last) {
 		http.NotFound(w, r)
 		return
 	}

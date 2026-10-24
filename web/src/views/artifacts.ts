@@ -51,6 +51,8 @@ export class ArtifactsView {
   private results: Artifact[] = [];
   private active = 0;
   private timer = 0;
+  // Each start is a new polling run; a run left from before a stop ends at its next tick.
+  private run = 0;
   private readonly open = new Map<string, boolean>();
 
   constructor() {
@@ -80,9 +82,10 @@ export class ArtifactsView {
   /** Polls the list while the tab shows. */
   start(): void {
     if (this.timer) return;
+    const run = ++this.run;
     const tick = async (): Promise<void> => {
       await this.load();
-      if (this.timer) this.timer = window.setTimeout(() => void tick(), refreshEvery);
+      if (this.timer && run === this.run) this.timer = window.setTimeout(() => void tick(), refreshEvery);
     };
     this.timer = window.setTimeout(() => void tick(), 0);
   }
@@ -90,6 +93,7 @@ export class ArtifactsView {
   stop(): void {
     clearTimeout(this.timer);
     this.timer = 0;
+    this.run++;
   }
 
   update(selected: string): void {
@@ -110,10 +114,11 @@ export class ArtifactsView {
       const l = await listArtifacts();
       const before = JSON.stringify(this.items);
       this.items = l.artifacts ?? [];
+      const recovered = this.error !== "";
       this.error = "";
       const first = !this.loaded;
       this.loaded = true;
-      if (first || before !== JSON.stringify(this.items)) {
+      if (first || recovered || before !== JSON.stringify(this.items)) {
         this.renderList();
         this.renderViewer();
       }

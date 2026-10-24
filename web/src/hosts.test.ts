@@ -59,7 +59,7 @@ test("hosts are named, kept and made current", () => {
   expect([a.name, b.name, hs.current]).toEqual(["This computer", "Box", b.id]);
   expect(upsert(hs, "http://127.0.0.1:7878").id).toBe(a.id);
   expect(hs.current).toBe(a.id);
-  saveHosts(hs);
+  expect(saveHosts(hs)).toBe(true);
   expect(loadHosts()).toEqual(hs);
   // A damaged entry is dropped; a missing current falls back to the first host.
   store.set("herdsman.hosts", JSON.stringify({ hosts: [{ id: "x", url: "not a url" }, b], current: "gone" }));
@@ -76,4 +76,20 @@ test("an https page cannot reach plain-http hosts beyond this computer", () => {
   expect(blockedReason("https:", "http://192.168.1.20:7878")).not.toBe("");
   expect(blockedReason("http:", "http://192.168.1.20:7878")).toBe("");
   expect(blockedReason("https:", "https://box.example.com")).toBe("");
+});
+
+test("a host list the browser cannot store reports it", () => {
+  const before = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: () => null,
+    setItem: () => {
+      throw new DOMException("blocked", "SecurityError");
+    },
+    removeItem: () => {},
+  } as unknown as Storage;
+  try {
+    expect(saveHosts({ hosts: [], current: "" })).toBe(false);
+  } finally {
+    globalThis.localStorage = before;
+  }
 });
