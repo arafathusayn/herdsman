@@ -161,6 +161,35 @@ func TestRunsNoRepoPrograms(t *testing.T) {
 	}
 }
 
+// Clean and process filters run when git reads a changed work tree file,
+// whatever the diff flags; reading changes runs none of them.
+func TestRunsNoFilterPrograms(t *testing.T) {
+	for _, kind := range []string{"clean", "process"} {
+		_, wt := repo(t)
+		marker := filepath.Join(t.TempDir(), "ran")
+		hook := filepath.Join(t.TempDir(), "hook.sh")
+		write(t, filepath.Dir(hook), "hook.sh", "#!/bin/sh\ntouch "+marker+"\ncat\n")
+		if err := os.Chmod(hook, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		write(t, wt, ".gitattributes", "*.txt filter=x.y\n")
+		run(t, wt, "config", "filter.x.y."+kind, hook)
+		run(t, wt, "config", "filter.x.y.required", "true")
+		write(t, wt, "keep.txt", "changed\n")
+
+		d, err := Worktree(context.Background(), wt, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatalf("a %s filter from the repository's config ran", kind)
+		}
+		if !strings.Contains(d.Patch, "+changed") {
+			t.Errorf("%s: the change is missing:\n%s", kind, d.Patch)
+		}
+	}
+}
+
 func TestOutputIsBounded(t *testing.T) {
 	_, wt := repo(t)
 	write(t, wt, "keep.txt", strings.Repeat("line\n", 2000))

@@ -62,6 +62,20 @@ func regularFile(p string) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
+// realDirs reports whether each folder from root down to the last of parts
+// is a folder and not a link, as the channel's guard_path checks a file's
+// parents: a queue folder linked to another would pass off its entries.
+func realDirs(root string, parts ...string) bool {
+	p := root
+	for _, part := range parts {
+		p = filepath.Join(p, part)
+		if st, err := os.Lstat(p); err != nil || !st.IsDir() {
+			return false
+		}
+	}
+	return true
+}
+
 // emptyChannel is a channel with every list present, so the app never meets null.
 func emptyChannel() Channel {
 	return Channel{Peers: []ChannelPeer{}, Health: []ChannelHealth{}, Flags: []string{}, Holds: []ChannelHold{}, Boxes: []ChannelBox{}, Messages: []ChannelMessage{}, Alerts: []ChannelAlert{}}
@@ -519,6 +533,9 @@ func readChannel(root string, now time.Time) Channel {
 			}
 		}
 		for _, state := range states {
+			if !realDirs(root, box, state) {
+				continue
+			}
 			files, _ := filepath.Glob(filepath.Join(root, box, state, "*.md"))
 			b.Counts[state] = len(files)
 			for _, f := range files {
@@ -573,6 +590,9 @@ func (s *Server) messageBody(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, state := range []string{"cur", "ready"} {
+		if !realDirs(s.cfg.Inbox, box, state) {
+			continue
+		}
 		env, err := readEnvelope(filepath.Join(s.cfg.Inbox, box, state, id+".md"))
 		if err == nil && env.To == box {
 			writeJSON(w, http.StatusOK, map[string]any{"id": env.ID, "body": env.Body})
