@@ -46,7 +46,8 @@ export const arrowKeys: { label: string; name: string; keys: string[] }[] = [
 
 const namePattern = "[a-z][a-z0-9_\\-]{0,31}";
 
-export async function sendOtherKeys(pane: string): Promise<void> {
+/** Asks for key names and hands them to send, which sends them in order with other input. */
+export async function sendOtherKeys(send: (keys: string[]) => void): Promise<void> {
   const v = await formDialog(
     "Send keys",
     [
@@ -61,7 +62,7 @@ export async function sendOtherKeys(pane: string): Promise<void> {
     "Send",
   );
   const keys = v?.["keys"]?.split(/\s+/).filter(Boolean) ?? [];
-  if (keys.length) await run({ type: "keys", pane, keys });
+  if (keys.length) send(keys);
 }
 
 export async function startAgent(pane: string, kinds: string[]): Promise<void> {

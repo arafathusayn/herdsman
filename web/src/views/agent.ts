@@ -160,7 +160,7 @@ export class AgentPanel {
           {
             class: "key",
             title: k.hint,
-            onclick: () => void run({ type: "keys", pane: this.pane, keys: k.keys }),
+            onclick: () => this.sendKeys(k.keys),
           },
           k.label,
         ),
@@ -175,7 +175,7 @@ export class AgentPanel {
               class: "key arrow",
               title: `${k.name} arrow`,
               "aria-label": `${k.name} arrow`,
-              onclick: () => void run({ type: "keys", pane: this.pane, keys: k.keys }),
+              onclick: () => this.sendKeys(k.keys),
             },
             k.label,
           ),
@@ -186,7 +186,7 @@ export class AgentPanel {
         {
           class: "key",
           title: "Send other key names, separated by spaces",
-          onclick: () => void sendOtherKeys(this.pane),
+          onclick: () => void sendOtherKeys((keys) => this.sendKeys(keys)),
         },
         "Other…",
       ),
@@ -212,6 +212,7 @@ export class AgentPanel {
     );
     this.termInput.spellcheck = false;
     this.termInput.addEventListener("keydown", (e) => {
+      if (this.view !== "terminal") return;
       if (this.zoomFor(e)) return;
       const i = keyInput(keyLike(e), isMac);
       if (!i) return;
@@ -223,7 +224,7 @@ export class AgentPanel {
     const takeText = (): void => {
       const text = typedText(this.termInput.value);
       this.termInput.value = "";
-      if (text) this.inputs.push({ text });
+      if (text && this.view === "terminal") this.inputs.push({ text });
     };
     this.termInput.addEventListener("input", (e) => {
       if (!(e as InputEvent).isComposing) takeText();
@@ -329,7 +330,10 @@ export class AgentPanel {
       b.classList.toggle("active", v === this.view);
       b.setAttribute("aria-pressed", String(v === this.view));
     }
+    // The typing field exists only for the terminal view: off it, nothing
+    // can focus it, tab to it or type into the pane through it.
     if (!term) this.termInput.blur();
+    this.termInput.disabled = !term || this.member?.status === "gone";
     this.showTyping();
     this.fitFont();
   }
@@ -376,6 +380,15 @@ export class AgentPanel {
     const col = this.cell.w ? Math.floor(left / this.cell.w) + 1 : 1;
     const row = this.cell.h ? Math.floor(top / this.cell.h) + 1 : 1;
     return { col: Math.max(1, col), row: Math.max(1, row) };
+  }
+
+  /**
+   * Sends quick keys. In the terminal view they join the typing queue, so a
+   * tapped Enter lands after the text typed before it, not ahead of it.
+   */
+  private sendKeys(keys: string[]): void {
+    if (this.view === "terminal") this.inputs.push({ keys });
+    else void run({ type: "keys", pane: this.pane, keys });
   }
 
   private async sendInput(i: Input): Promise<boolean> {
@@ -460,7 +473,7 @@ export class AgentPanel {
     const gone = m.status === "gone";
     this.input.disabled = gone;
     this.sendBtn.disabled = gone;
-    this.termInput.disabled = gone;
+    this.termInput.disabled = gone || this.view !== "terminal";
   }
 
   destroy(): void {
