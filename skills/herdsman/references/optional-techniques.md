@@ -2,6 +2,14 @@
 
 These techniques are off unless the user picks them in the interview (step 1). Each one adds a step, so offer it when it fits the route: its size, its risk, and the user's time. They work with any harness and any model.
 
+## Skill navigator
+
+- What: a read-only subagent reads the whole skill folder and returns a reading map for this route: for each step, the files and sections the orchestrator must read, and the ones this route does not need, each with a one-line reason.
+- When: offered in every interview. It fits an orchestrator with a tight context, and a route shape the orchestrator has not run before (a first integration route, a first shipping route).
+- How: after the interview answers fix the route's shape (integration or not, shipping, test database, sandboxed harnesses, review-only), start one subagent of the orchestrator's own harness (for example the Agent tool in Claude Code). The interview answer that picks the navigator is its go, before the dispatch plan's go, because it only reads the skill folder and writes nothing ([`SKILL.md`](../SKILL.md), step 1). It is a reader, not an agent of the route, so it needs no pane ([`SKILL.md`](../SKILL.md), step 3). Its prompt names the skill folder, the route's shape and the answer format: one line per item, `<step> | <file> | <section heading> | <why>`, then a Skip list with the same fields; it returns the map in its reply. The orchestrator reads each listed section before the dispatch plan. At step 2 it writes the map to `<route folder>/ref/reading-map.md` and ticks the step 1 "Read first" line with that path; after each compaction it reads the map's lines for the current step again.
+- Limits: the map stands in for the full reads as [`SKILL.md`](../SKILL.md) (References) says; it never removes a checklist line or a rule. A rule the map leaves out still binds. When an event or a step is not in the map, read the files of the step's "Read first" line in full. When the route's shape changes (a merge the interview did not plan, a new harness), run the navigator again or read the files in full.
+- Cost: one subagent run, which reads the whole skill in its own context, before the plan.
+
 ## Plan gate
 
 - What: the implementer writes its plan before it writes code, and waits for approval.
@@ -48,5 +56,5 @@ These techniques are off unless the user picks them in the interview (step 1). E
 
 - What: the herdsman discipline without Herdr agent panes. The harness's own Workflows and subagents take the agent types. Contracts, due times, reviews and records stay the same. `herdr agent start` is not used.
 - When: the user asks for the discipline and chooses to avoid agent panes. Off unless the user picks it: step 3 otherwise starts every agent in a pane.
-- How: write the contracts and the route file as for any route, and give each Workflow stage or subagent its contract in its prompt. A Workflow stage resumes from its cache only when its prompt is unchanged. So, to change the rules of a running workflow, edit only the stages that have not run, stop the workflow after the current stage has a result, and resume it by its run id. Keep the prompts of finished stages byte for byte. A workflow agent cannot receive a message after launch.
+- How: write the contracts and the route file as for any route, and give each Workflow stage or subagent its contract in its prompt. Keep the checklist's `nopane` line and write `none` in the task table's Pane column, so that [`route-check.sh`](../scripts/route-check.sh) does not ask for panes at launch and close ([`checklist.md`](checklist.md)). A Workflow stage resumes from its cache only when its prompt is unchanged. So, to change the rules of a running workflow, edit only the stages that have not run, stop the workflow after the current stage has a result, and resume it by its run id. Keep the prompts of finished stages byte for byte. A workflow agent cannot receive a message after launch.
 - Cost: no pane for the user to watch or steer. A change of rules in the middle of a run is limited to the stages that have not run, and a changed prompt in a finished stage runs that stage again and spends quota and time.

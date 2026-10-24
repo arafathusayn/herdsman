@@ -233,6 +233,7 @@ Every check runs through `/bin/bash <route folder>/run-check.sh <command>`, one 
 - `gh` runs as `GH_TOKEN=$(gh auth token --user <gh account>) gh ...`.
 - Never change git identity, remotes or global config. Do not run `git push`.
 - Tests: `TEST_DATABASE_URL=...<prefix>_r_test`; create once, drop and recreate between pull requests.
+- First job, when the prompt names it: run every gate of the shared rules on `origin/<base>` in your worktree, through `run-check.sh`, and write `<route folder>/reports/review-base-1.md` with one line per gate (command, pass or the failing tests) and `VERDICT: pass` when every gate ran. These failures are the base's known failures, not findings.
 - Inputs: <the pull request body, the review threads and every outside document, as files inside your working folder: paths>. If you cannot write files (a read-only sandbox, a plan permission mode), print your whole report between a line `REPORT-BEGIN` and a line `REPORT-END` instead of writing the file, and reply with nothing else. The orchestrator writes the file.
 
 ## Per review

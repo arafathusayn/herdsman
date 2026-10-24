@@ -20,11 +20,11 @@ The user talks only to the orchestrator. Any harness and model can take any agen
 
 ## References
 
-Read [`references/harness-guards.md`](references/harness-guards.md) before the first shell command. Read the other references when the step names them.
+Read [`references/harness-guards.md`](references/harness-guards.md) before the first shell command. Each step below starts with a "Read first" line: read those files before the step's first action. The route checklist ([`references/checklist.md`](references/checklist.md)) turns the steps into lines that the route file keeps, so that work still open stays visible after the orchestrator's context is compacted; [`scripts/route-check.sh`](scripts/route-check.sh) prints those lines and checks what the route folder shows. Reason: a route outlives the orchestrator's context, and the rules that were read at the start are the ones missed later.
 
 Harness notes: `references/` has one file per harness used so far (launch form, prompt form, slash commands for compact and clear, working and blocked markers, quirks): [`codex.md`](references/codex.md), [`muse.md`](references/muse.md), [`claude-code.md`](references/claude-code.md) and [`agy.md`](references/agy.md). The notes are per harness, not per agent type, because any harness can take any type. Before a route uses a harness with no notes file, probe it (launch in a scratch pane, send a prompt, find its compact, clear and interrupt commands and its working marker) and write the notes file first.
 
-Concepts: the rules that earlier routes taught, with their reasons, one file per concept. Read them before the dispatch plan (step 1), and again when a step touches the concept.
+Concepts: the rules that earlier routes taught, with their reasons, one file per concept. Read them before the dispatch plan (step 1), and again when a step touches the concept. With the skill navigator ([`references/optional-techniques.md`](references/optional-techniques.md)), the sections its map names stand in for these full reads, step by step: a rule the map leaves out still binds, and an event or step the map does not cover sends you back to the full files.
 
 - [`references/flow-and-time.md`](references/flow-and-time.md): due times that the orchestrator enforces, the moving bottleneck (reviewers, CI, the integrator), work ahead, idle state and restarts, quota as capacity.
 - [`references/context-hygiene.md`](references/context-hygiene.md): compact for a follow-up, clear for a new job, when harnesses refuse the commands, the orchestrator's own context.
@@ -34,9 +34,9 @@ Concepts: the rules that earlier routes taught, with their reasons, one file per
 - [`references/shared-environment.md`](references/shared-environment.md): test databases, CPU and shared memory on one machine, tests that prove the product.
 - [`references/shipping.md`](references/shipping.md): routes that push reviewed commits straight to the default branch: the ship gate, who pushes, release by hand, acceptance on the deployed app, rollback, the user's browser.
 - [`references/checkpointer.md`](references/checkpointer.md): the checkpointer requests and numbers (see `checkpoint` below).
-- [`references/optional-techniques.md`](references/optional-techniques.md): techniques that are off unless the user picks them: plan gate, contract pre-review, progress file, locked proof tests, visual check, guide feedback, without agent panes.
+- [`references/optional-techniques.md`](references/optional-techniques.md): techniques that are off unless the user picks them: skill navigator, plan gate, contract pre-review, progress file, locked proof tests, visual check, guide feedback, without agent panes.
 
-Tool notes: [`references/herdr.md`](references/herdr.md), [`references/watchers.md`](references/watchers.md), [`references/git-and-github.md`](references/git-and-github.md), [`references/contracts.md`](references/contracts.md) and the harness files above.
+Tool notes: [`references/checklist.md`](references/checklist.md), [`references/herdr.md`](references/herdr.md), [`references/watchers.md`](references/watchers.md), [`references/git-and-github.md`](references/git-and-github.md), [`references/contracts.md`](references/contracts.md) and the harness files above.
 
 ## Arguments
 
@@ -89,15 +89,19 @@ Examples:
 
 ## 0. Preconditions
 
+Read first: [`references/harness-guards.md`](references/harness-guards.md), [`references/herdr.md`](references/herdr.md).
+
 ```bash
 test "${HERDR_ENV:-}" = 1
 ```
 
-Stop if this fails. Then, in one call: `herdr agent start --help` (kinds), `<harness> --version` for every harness in the route, `gh auth status`, and the git remote of the target repository. Read [`references/herdr.md`](references/herdr.md) for the command surface.
+Stop if this fails. Then, in one call: `herdr agent start --help` (kinds), `<harness> --version` for every harness in the route, `gh auth status`, and the git remote of the target repository.
 
 ## 1. One interview, then a dispatch plan
 
-Ask once, in one question round, everything the route needs. Do not ask again mid-route unless a step is unsafe without an answer. A product default that changes what users will see (which records a cleanup hides, what stays listed) is a question in this round, never a "may overrule" note in the contract. Reason: the user finds a wrong default only after delivery, and then a late follow-up pull request must fix it.
+Read first: every concept file in the Concepts list and the notes of each harness in the route, before the dispatch plan, or the sections the skill navigator's map names (References above).
+
+Ask once, in one question round, through the ask tool when the harness has one ([`references/harness-guards.md`](references/harness-guards.md), Orchestrator posture), everything the route needs. Do not ask again mid-route unless a step is unsafe without an answer. A product default that changes what users will see (which records a cleanup hides, what stays listed) is a question in this round, never a "may overrule" note in the contract. Reason: the user finds a wrong default only after delivery, and then a late follow-up pull request must fix it.
 
 - Tasks: the list, one implementer per task. Each task has a branch name and a base branch.
 - Integration: one pull request per task (the implementers publish), or one combined branch (an integrator publishes). For a combined branch: the merge order, the target branch, and whether the integrator is a new agent or an implementer whose task was accepted.
@@ -107,19 +111,21 @@ Ask once, in one question round, everything the route needs. Do not ask again mi
 - Implementer harness, model and effort; the same for the integrator in an integration route. Default: the user's recorded preference; with none, ask.
 - Reviewer harness, model and effort, and the review skills (for example a React review skill for React files and a code-quality skill for TypeScript, plus any security or domain skill the user names). Default: the user's recorded preference; with none, ask.
 - Severity gate: report P0 and P1 only (default).
-- Optional techniques ([`references/optional-techniques.md`](references/optional-techniques.md)): plan gate, contract pre-review, progress file, locked proof tests, visual check, guide feedback, without agent panes. Default: none. Offer the ones that fit the route's size and risk, with their cost.
+- Optional techniques ([`references/optional-techniques.md`](references/optional-techniques.md)): skill navigator, plan gate, contract pre-review, progress file, locked proof tests, visual check, guide feedback, without agent panes. Default: none. Always offer the skill navigator; offer the others that fit the route's size and risk, with their cost.
 - Merge policy: the user merges, or the orchestrator squash-merges on double approval (local pass plus bot approval on the same head). Whether the remote branch is deleted after a merge.
 - Context policy (user rule): every implementer, integrator and reviewer is compacted (when a follow-up of its own work comes next) or cleared (for a new task) right after it finishes, with its harness's commands; when compaction is refused, clear. Never mid-turn. Near the usage limit, skip the compaction ([`references/flow-and-time.md`](references/flow-and-time.md), Quota is capacity).
 - Orchestrator checkpointer (user rule): a pane named `checkpointer` running [`scripts/checkpointer.sh`](scripts/checkpointer.sh) against the orchestrator pane (step 4).
 - GitHub account for `gh` when the default account cannot see the repository (`GH_TOKEN=$(gh auth token --user <account>)`).
 
-Copy each chosen option's full text into `00-route.md` (step 2): later steps, such as a push that opens a new pull request, rest on its exact words. Then present a dispatch plan in the reply (tasks, branches, worktrees, panes, harnesses, models, report paths, what will be created on disk, in Herdr and on GitHub) and wait for the user's go. Every Herdr tab, container start, contract file and agent launch is a mutation that needs that go. Do not launch anything before it. The plan also names the answer to the folder-trust dialog (and any tool-server dialog) of each new folder, because the answer grants access to the user's folder; the user's go then covers it ([`references/claude-code.md`](references/claude-code.md), [`references/codex.md`](references/codex.md)).
+Copy each chosen option's full text into `00-route.md` (step 2): later steps, such as a push that opens a new pull request, rest on its exact words. Then present a dispatch plan in the reply (tasks, branches, worktrees, panes, harnesses, models, report paths, what will be created on disk, in Herdr and on GitHub), then ask for the user's go, through the ask tool when the harness has one, with the go, a change and a stop as options, and wait for the answer. Every Herdr tab, container start, contract file and agent launch is a mutation that needs that go. Do not launch anything before it. One exception: the skill navigator, whose go is the interview answer that picks it; it reads the skill, returns its map in its reply and writes nothing. The plan also names the answer to the folder-trust dialog (and any tool-server dialog) of each new folder, because the answer grants access to the user's folder; the user's go then covers it ([`references/claude-code.md`](references/claude-code.md), [`references/codex.md`](references/codex.md)).
 
 ## 2. Route folder and contracts
 
+Read first: [`references/contracts.md`](references/contracts.md), [`references/shared-environment.md`](references/shared-environment.md), [`references/checklist.md`](references/checklist.md).
+
 Create the route folder at `<writable root>/.herdsman/<route>-<date>/` (user rule: every route artifact, contracts, reports and reviews, lives in a `.herdsman` folder, and `.herdsman/` is in the project's `.gitignore`; add the line if it is missing). Write every file with the harness's file tools. Files:
 
-- `00-route.md`: decisions from the interview, task table (task, branch, worktree, agent name, pane), and a dated run-state list the orchestrator appends to. It also holds a "Must prove" list taken from the route's goal: the product paths the goal requires to work for real (which harnesses, through which execution path, with which logins, which deploy, which end-to-end checks). Every contract and the reviewer contract quote it.
+- `00-route.md`: decisions from the interview, task table (task, branch, worktree, agent name, pane, contract: the row's contract file, `-` for a row with none, because an agent's name does not show its role), and a dated run-state list the orchestrator appends to. It also holds a "Must prove" list taken from the route's goal: the product paths the goal requires to work for real (which harnesses, through which execution path, with which logins, which deploy, which end-to-end checks). Every contract and the reviewer contract quote it. It also holds a `## Checklist` section: the lines of [`references/checklist.md`](references/checklist.md) that fit the route, ticked as the route goes.
 - `10-shared-rules.md`: setup, code standard, tests, commit, push, pull-request body rules, review-bot loop, report format. Template in [`references/contracts.md`](references/contracts.md).
 - `1n-task-<x>.md`: one contract per task: problem, scope, out of scope, acceptance, branch, worktree, test database, report path.
 - `1n-task-i.md` (integration route): the integrator contract, one section per phase: combine (merge order, handoffs to apply), final-review fixes, add a late task, push (fetch, stop if the remote branch moved, fast-forward only, one reply per review thread, review-bot loop). Each phase starts only on an orchestrator prompt. Template in [`references/contracts.md`](references/contracts.md).
@@ -132,9 +138,11 @@ Everything that agents or their tools must read lives in the route folder. Copy 
 
 ## 3. Launch, one Herdr mutation per call
 
+Read first: [`references/herdr.md`](references/herdr.md) and the notes of each harness in the route. Before the first agent of the route starts, run `/bin/bash <skill>/scripts/route-check.sh <route folder>` and fix every MISSING and BAD line first; once the task table names every pane, run it with `launch`.
+
 Order: tab, panes, agents, prompts. Never two Herdr mutations in one shell call or in parallel tool calls. Read each result before the next call. Details and the verified command forms in [`references/herdr.md`](references/herdr.md).
 
-Start every agent in a Herdr pane through `herdr agent start`, also when the user does not say Herdr. Never run a harness as a hidden background process (for example `codex exec`), because the user cannot see or steer it. The one exception is the user's pick of [Without agent panes](references/optional-techniques.md).
+Start every agent in a Herdr pane through `herdr agent start`, also when the user does not say Herdr. Never run a harness as a hidden background process (for example `codex exec`), because the user cannot see or steer it. The one exception is the user's pick of [Without agent panes](references/optional-techniques.md). The skill navigator is not a route agent: it only reads the skill, so it runs as a subagent of the orchestrator's harness.
 
 1. Implementer tab: `herdr tab create --workspace <w> --cwd <writable root> --label "<project>-implementers" --no-focus`. Note `root_pane.pane_id`.
 2. Panes: for four implementers, split the root pane right, then each column down (2 by 2). One split per call. Note every pane id from the JSON. Label each pane with `herdr pane rename <id> im-<task>`, one call each, and label the orchestrator's own tab and pane too ([`references/herdr.md`](references/herdr.md), Etiquette).
@@ -145,7 +153,7 @@ Start every agent in a Herdr pane through `herdr agent start`, also when the use
 5. Reviewer agent, the same way: `herdr agent start rv-1 --kind <kind> --pane <id> --timeout 90000 -- <model, effort, permission and extra-folder flags>`. The reviewer needs read access to the route folder and the scratch folder.
 6. Prompts, one per call. A harness with a goal mode (for example `/goal`) takes the brief as a goal; others take plain text:
    `herdr agent prompt im-<x> "<goal prefix if any>End state: <end-state goal>. Read <shared rules> and then <task file>. Do task <X> exactly as those two files specify: worktree, branch, tests first, commit, push, open a ready pull request, follow the review-bot loop, then write the report file and reply with only its path."` In an integration route, and at the first gate of a two-gate route, the implementer commits to its local branch only: no push, no pull request.
-   The reviewer is prompted only when a pull request or branch is ready for review.
+   The reviewer is prompted only when a pull request or branch is ready for review, with one exception in a route with implementers: its first job, the base gates ([`references/shared-environment.md`](references/shared-environment.md), Facts, not guesses), prompted together with the implementers' first prompts, with a due time and the report path `<route folder>/reports/review-base-1.md`.
    Time box every prompt, first tasks and fix rounds alike: pick the minutes from the task size, run `date` first, compute the due time (`date -v+<N>M +%s` on macOS, `date -d "+<N> min" +%s` with GNU date), write `Due: <HH:MM>` in the brief, append the launch and the due time to `00-route.md`, and pass `HERDSMAN_DUE_im_<x>=<epoch>` to the waiter until that agent reports (step 4). Drop the variable once the report arrives.
 7. Integrator (integration route): start it when the first branches have passed review, not at launch; when the branches own disjoint files, it may combine while their reviews run, and each later fix round comes in through a re-merge phase ([`references/flow-and-time.md`](references/flow-and-time.md), Work ahead). Either start a new agent (`herdr agent start int-1 ...`) or clear an implementer whose task was accepted (it keeps its Herdr name; record the new job in the task table). Prompt one phase at a time: `<goal prefix if any>End state: <end-state goal>. Read <shared rules> and then <integrator contract>. Do phase <n> exactly as specified, then update the report file and reply with only its path.` Give each phase a due time like any prompt, and pass the name to the waiter as `HERDSMAN_INTEGRATOR` with its report name (`HERDSMAN_TASK_int_1=i`).
 8. Verify each pane's text after its prompt (`herdr pane read <id> --lines 40`; read at least 30 lines, because a pinned tip menu can push the echo out of a short read): the prompt is echoed and the harness's working marker shows (see its notes). When your own text sits unsent in an idle input (for example `[Pasted text #N]`), send `enter` once. After a timeout or an error from Herdr, read the pane before you send the prompt again, because the prompt may have arrived and a second send duplicates it.
@@ -153,6 +161,10 @@ Start every agent in a Herdr pane through `herdr agent start`, also when the use
 10. Checkpointer pane (`checkpoint start`; one split, one rename, one run): `herdr pane split --pane <orchestrator pane> --direction right --cwd <orchestrator's working folder> --no-focus` (when the session id has no file, `--probe` names the newest transcript of that folder as a hint: [`references/checkpointer.md`](references/checkpointer.md)), `herdr pane rename <new> checkpointer`, `herdr pane run <new> "TARGET=<orchestrator pane> /bin/bash <skill>/scripts/checkpointer.sh"` (prefix `INTERVAL=`, `LIMIT=`, `PROMPT=`, `COMPACT=`, `TRANSCRIPT=` from the options). Probe first with `--probe` (prints the transcript and context tokens, sends nothing).
 
 ## 4. Wait for events with a background command that exits
+
+Read first: [`references/watchers.md`](references/watchers.md), [`references/flow-and-time.md`](references/flow-and-time.md).
+
+On every wake, and before any other action after a compaction, read the open lines of the route checklist (`/bin/bash <skill>/scripts/route-check.sh <route folder> launch`).
 
 In-session monitors do not wake the orchestrator between turns: their events arrive only while a turn runs or when the user writes. A background shell command that exits does wake it. So the loop's clock is [`scripts/wait-event.sh`](scripts/wait-event.sh), run as a background command with a 30-minute timeout (`1800000`):
 
@@ -179,6 +191,8 @@ React to each event:
 
 ## 5. Review loop
 
+Read first: [`references/review-discipline.md`](references/review-discipline.md); in an integration route, [`references/ownership-and-integration.md`](references/ownership-and-integration.md); before the first merge, [`references/git-and-github.md`](references/git-and-github.md) (Merges), or [`references/shipping.md`](references/shipping.md) before the first push of a shipping route.
+
 For each task result with `STATUS: complete` (a pull request with green checks, or a local branch in an integration route or at the first gate of a two-gate route):
 
 1. Context first, one rule for every agent: a follow-up of the agent's own earlier work (a re-review of the same pull request, a fix round) keeps its context, compacted as soon as its previous turn finished (two exceptions: a reviewer whose last review used most of its context, [`references/context-hygiene.md`](references/context-hygiene.md); and any agent near the usage limit, where the compaction is skipped, [`references/flow-and-time.md`](references/flow-and-time.md), Quota is capacity); a completely new task (a pull request the reviewer has not seen, a new contract for an implementer, the integrator job) starts from a cleared context. Use the harness's compact and clear commands and read the pane after the command. Then prompt the reviewer: `End state: <end-state goal>. Read <route>/20-reviewer.md and follow it exactly. Review pull request <n> (branch <b>, contract <task file>). Report path: <route folder>/reports/review-<n>-<k>.md. Reply with only that path when done.` For a local branch, name the branch and its head commit instead of the pull request.
@@ -195,9 +209,11 @@ When commits are not allowed, review tree snapshots instead of pull requests ([`
 
 ## 6. Record and close
 
+Read first: [`references/route-close.md`](references/route-close.md), before the first close of an agent, a session or a worktree.
+
 - Append a run-state line to `00-route.md` at every event that changes state: launch, blocker, report, review verdict, fix round, pass. Use `scripts/route-log.sh <route>/00-route.md "<text>"` (it writes `- HH:MM <text>` from `date`), never a typed time.
 - Keep the orchestrator context small: read report files and review files, not pane transcripts, except to unblock.
-- At close: table of pull requests (number, branch, head, checks, review verdict, rounds), open items, and the exact things the user still owns (merges, secrets, infrastructure). Before you close an agent, stop a session or remove a worktree, follow [`references/route-close.md`](references/route-close.md). Write the lessons of the route into memory per the user's memory conventions.
+- At close: `route-check.sh <route folder> close` shows no open checklist line (each one done, or `[-]` with its reason); table of pull requests (number, branch, head, checks, review verdict, rounds), open items, and the exact things the user still owns (merges, secrets, infrastructure). Before you close an agent, stop a session or remove a worktree, follow [`references/route-close.md`](references/route-close.md). Write the lessons of the route into memory per the user's memory conventions.
 - When a lesson is general, write it into this skill as a rule with its reason: in the concept file of its topic (list above), or in the tool or harness notes when it is a command quirk; merge it with an older rule on the same point instead of adding a second one. A new concept gets a new file and a line in the Concepts list. No dates, route stories, counts, durations, versions or project names in the skill: those stay in memory.
 - Before you change this skill, read its checkout's git status and diff. Never commit, discard or stash edits that another session made: make your change in a separate worktree from the default branch, and tell the user about the other edits. Compare each idea with the skill first and add only the gaps. Before a commit, scan the added lines for project names, people's names, private paths, email addresses, secrets and dates, and run the skill's tests (`scripts/test/run-tests.sh`), because the repository is public and a pushed line stays visible. Commit and push only on the user's go.
 
