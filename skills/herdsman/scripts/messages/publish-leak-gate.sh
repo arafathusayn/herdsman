@@ -37,7 +37,11 @@ check_structure() {
           if (!content) bad=1; opened=0; next
         }
       }
-      if (!opened && /^#/) { active=($0==wanted); if(active) seen=1; next }
+      # A required section keeps its child headings; a heading of the same or a higher level ends it.
+      if (!opened && /^#/) {
+        level=match($0,/[^#]/)-1; if (level<1) level=length($0)
+        if (active && level>wanted_level) next
+        active=($0==wanted); if(active) { seen=1; wanted_level=level }; next }
       if (NF) { if(opened) content=1; if(active) body=1 }
     }
     END { exit (opened || bad || (wanted!="" && !(seen && body))) }' "$input"

@@ -30,10 +30,23 @@ while :; do
   if ! regular "$ROOT/watch-targets.json" || [ "$(digest "$ROOT/watch-targets.json")" != "$watch_sum" ] || [ "$current_resume" != "$resume_sum" ]; then coverage=0; fi
   auto=0
   if [ "$coverage" = 1 ] && boundary_ok; then
-    auto=1; rm -f "$ROOT/state/automation-held"; resolve_alert automation-held
+    auto=1; rm -f "$ROOT/state/automation-held" "$ROOT/state/agent-list-failures"; resolve_alert automation-held
   else
+    # A live agent outside the protected setup is exposure: it stays recorded after that agent exits, until the
+    # human repeats setup and removes the record. A failed list is availability, never exposure.
+    if [ "$coverage" = 1 ] && [ "${BOUNDARY_FAULT:-}" = inventory ] && [ ! -e "$ROOT/state/boundary-tainted" ]; then
+      atomic "$ROOT/state/boundary-tainted" jq -n --argjson agents "$BOUNDARY_UNKNOWN" --argjson time "$(now)" \
+        '{reason:"live agent outside the protected setup",agents:$agents,time:$time}'
+    fi
     write_text "$ROOT/state/automation-held" 'HUMAN: inspect cards and paused goals; no relay or input. Rebuild protected setup after any unsandboxed launch.'
-    notify automation-held 'Automatic coordination held' 'Human inspection required. No goal resume or card relay; the adjutant must tell the user.'
+    failures=0
+    if [ "$coverage" = 1 ] && [ "${BOUNDARY_FAULT:-}" = list ]; then
+      regular "$ROOT/state/agent-list-failures" && failures=$(cat "$ROOT/state/agent-list-failures")
+      uint agent-list-failures "$failures" 0 99999999; failures=$((failures+1))
+      write_text "$ROOT/state/agent-list-failures" "$failures"
+    else rm -f "$ROOT/state/agent-list-failures"; fi
+    # One failed list holds quietly; the second consecutive failure alerts.
+    [ "$failures" = 1 ] || notify automation-held 'Automatic coordination held' 'Human inspection required. No goal resume or card relay; the adjutant must tell the user.'
   fi
   while IFS= read -r target <&6; do
     pane=$(printf '%s' "$target" | jq -r .pane)
@@ -52,21 +65,30 @@ while :; do
     count=$(printf '%s\n' "$cards" | awk 'NF{n++}END{print n+0}')
     if [ "$count" -gt 4 ]; then notify "card-overflow-$key" 'Side-agent cards need inspection' 'Capture cap reached; inspect the source pane and durable harness journal.'
     else resolve_alert "card-overflow-$key"; fi
+    # The journal cap counts only records whose relay the adjutant has not acknowledged.
+    active=0
+    for event in "$ROOT/card-events/"*.json; do
+      regular "$event" || continue
+      jq -e --arg pane "$pane" '.source.pane==$pane' "$event" >/dev/null || continue
+      queued="$ROOT/state/card-$(basename "$event" .json).queued"
+      if regular "$queued"; then
+        relayed=$(awk '{print $1; exit}' "$queued")
+        if id_ok "$relayed" && regular "$ROOT/ids/$relayed/terminal.json" && jq -e '.state=="handled"' "$ROOT/ids/$relayed/terminal.json" >/dev/null 2>&1; then continue; fi
+      fi
+      active=$((active+1))
+    done
+    [ "$active" -ge 8 ] || resolve_alert "card-journal-$key"
     while IFS= read -r card <&5; do
       [ -n "$card" ] || continue
       card_key=$(printf '%s\n%s' "$key" "$card" | cksum | awk '{print $1 "-" $2}')
       marker="$ROOT/state/card-visible-$card_key"
       if [ ! -f "$marker" ] && [ "$auto" = 1 ]; then
-        active=0
-        for event in "$ROOT/card-events/"*.json; do
-          regular "$event" || continue
-          if jq -e --arg pane "$pane" '.source.pane==$pane' "$event" >/dev/null; then active=$((active+1)); fi
-        done
         if [ "$active" -ge 8 ]; then
-          notify "card-overflow-$key" 'Side-agent cards need inspection' 'Source journal cap reached; human disposition required.'
+          notify "card-journal-$key" 'Side-agent cards need inspection' 'Source journal cap reached; human disposition required.'
         else
           event=$(mktemp "$ROOT/card-events/$card_key.XXXXXX"); rm "$event"
           atomic "$event.json" jq -n --arg id "$(basename "$event")" --argjson source "$target" --arg text "$card" '{version:1,type:"side_agent_data",id:$id,source:$source,text:$text}'
+          active=$((active+1))
         fi
       fi
       [ "$auto" != 1 ] || write_text "$marker" "$card"
@@ -104,10 +126,15 @@ while :; do
       source_key=$(jq -Sc .source "$event" | cksum | awk '{print $1 "-" $2}')
       # Recheck the live boundary before each relay, including durable records.
       boundary_ok || break
-      if receipt=$(HERDR_PANE_ID="$sender_pane" /bin/bash "$(dirname "$0")/message-send.sh" "$sender" "$receiver" "$event" side_agent_data); then
-        write_text "$ROOT/state/card-$event_key.queued" "$receipt"; resolve_alert "relay-overflow-$source_key"
+      if receipt=$(HERDR_PANE_ID="$sender_pane" /bin/bash "$(dirname "$0")/message-send.sh" "$sender" "$receiver" "$event" side_agent_data 2>&1); then
+        write_text "$ROOT/state/card-$event_key.queued" "$(printf '%s\n' "$receipt" | grep -E '^m[0-9]{12} queued' | sed -n 1p)"
+        resolve_alert "relay-overflow-$source_key"; resolve_alert "relay-failed-$source_key"
       else
-        notify "relay-overflow-$source_key" 'Side-agent cards need inspection' 'Source relay budget unavailable; durable journal retained for human inspection.'
+        case "$receipt" in
+          *'side-agent budget full'*) notify "relay-overflow-$source_key" 'Side-agent cards need inspection' 'Source relay budget unavailable; durable journal retained for human inspection.' ;;
+          *'HUMAN boundary'*) break ;;
+          *) notify "relay-failed-$source_key" 'Side-agent relay failed' 'The send was refused; durable journal retained. Inspect message status.' ;;
+        esac
       fi
     done
     if [ "$invalid" = 1 ]; then notify card-invalid 'Invalid side-agent record' 'Retain and inspect journal record.'; else resolve_alert card-invalid; fi
@@ -118,7 +145,8 @@ while :; do
       elif [ "$result" = 2 ]; then notify "resume-$resume_name" 'Goal resume needs inspection' 'Inspect identity, focus and retained read-back; no blind retry.'
       else
         case "$output" in
-          'HELD mutation lock busy'*) : ;;
+          # A deliberate hold or a busy, blocked or changed turn is already visible in status; stay quiet.
+          'HELD mutation lock busy'*|'HELD user pause or freeze'*|'HELD turn is not idle or is blocked'*|'HELD turn changed before input'*) : ;;
           *) if regular "$ROOT/state/resume-held-$resume_name"; then notify "resume-$resume_name" 'Goal resume held' "$output"
              else write_text "$ROOT/state/resume-held-$resume_name" "$output"; fi ;;
         esac

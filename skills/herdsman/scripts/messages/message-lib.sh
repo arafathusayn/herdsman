@@ -37,6 +37,7 @@ safe_touch() { safe_leaf "$1"; touch "$1"; }
 same_identity() { [ "$(printf '%s' "$1" | jq -Sc '{pane,session:{source:.session.source,agent:.session.agent,kind:.session.kind,value:.session.value}}')" = "$(printf '%s' "$2" | jq -Sc '{pane,session:{source:.session.source,agent:.session.agent,kind:.session.kind,value:.session.value}}')" ]; }
 now() { date +%s; }
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
+# POSIX CRC: it detects accidental drift, never forgery. The protected installation is the guard against tampering.
 digest() { cksum < "$1" | awk '{print $1 "-" $2}'; }
 root_init() {
   local supplied_health=${HEALTH_AFTER:-} stored_health
@@ -101,6 +102,15 @@ try_lock() {
 }
 lock() { try_lock || die 'channel lock busy; retry with backoff, never auto-remove'; }
 unlock() { rm "$ROOT/channel.lock/pid"; rmdir "$ROOT/channel.lock"; LOCK_OWNED=; }
+# The shared input and admission lock. Hold, admission and resume writers take it; display calls take it briefly.
+mutation_lock() {
+  local tries=0
+  while ! mkdir "$ROOT/herdr-mutation.lock" 2>/dev/null; do
+    tries=$((tries+1)); [ "$tries" -lt "$LOCK_WAIT" ] || return 1; sleep 1
+  done
+  MUTATION_OWNED=1; printf '%s\n' "$$" > "$ROOT/herdr-mutation.lock/pid"
+}
+mutation_unlock() { rm "$ROOT/herdr-mutation.lock/pid"; rmdir "$ROOT/herdr-mutation.lock"; MUTATION_OWNED=; }
 display_call() {
   # Narrow exception: serialized display metadata and notifications only.
   local tries=0 status=0
@@ -350,8 +360,12 @@ preflight_valid() {
     all(.rules[],.scripts[]; keys==["checksum","path"] and
       (.path|type=="string" and startswith("/") and (test("[\\t\\r\\n\\\\]")|not)) and
       (.checksum|type=="string" and test("^[0-9]+-[0-9]+$")))' "$HERDSMAN_PREFLIGHT" >/dev/null || return 1
-  files=$(printf '%s\n' "$installed/"*.sh | jq -Rsc 'split("\n")[:-1]|sort')
-  jq -e --argjson files "$files" '(.scripts|length)==14 and ([.scripts[].path]|sort)==$files' "$HERDSMAN_PREFLIGHT" >/dev/null || return 1
+  # Every script of the installed folder and every adapter beside it must be listed; every listed file is checked.
+  files=$( { printf '%s\n' "$installed/"*.sh
+    for path in approval-gate transcript-audit checkpointer-guard checkpointer; do
+      [ ! -e "${installed%/*}/$path.sh" ] || printf '%s\n' "${installed%/*}/$path.sh"
+    done; } | jq -Rsc 'split("\n")[:-1]')
+  jq -e --argjson files "$files" '[.scripts[].path] as $p | ($p|unique|length)==($p|length) and all($files[]; IN($p[]))' "$HERDSMAN_PREFLIGHT" >/dev/null || return 1
   while IFS=$'\t' read -r path expected; do
     regular "$path" && [ "$(digest "$path")" = "$expected" ] || return 1
   done < <(jq -r '.rules[],.scripts[]|[.path,.checksum]|@tsv' "$HERDSMAN_PREFLIGHT")
@@ -362,27 +376,35 @@ claim_valid() {
 commit_identity() {
   registry && [ "$REGISTRY_SUM" = "$(digest "$ROOT/peers.approved")" ] || die 'registry changed during observation; retry'
 }
+# shellcheck disable=SC2034 # BOUNDARY_FAULT and BOUNDARY_UNKNOWN are read by the sourcing watcher.
 boundary_ok() {
+  # BOUNDARY_FAULT: static (proof, registry, exposure or setup fields), list (no usable agent list) or inventory
+  # (BOUNDARY_UNKNOWN names each live agent outside the protected setup). Only the watcher records exposure.
   local agents
+  BOUNDARY_FAULT=static; BOUNDARY_UNKNOWN='[]'
   [ -z "$PROOF_STALE" ] && preflight_valid && registry || return 1
   [ ! -e "$ROOT/state/boundary-tainted" ] || return 1
   # Protected human setup pins roles separately from mutable queue records.
   jq -e --slurpfile pair "$ROOT/peers.approved" '
     .boundary as $b | $b.version==1 and $b.inventory_current==true and
-    $b.private_home==true and $b.human_checked==true and $b.protected_domain==true and
+    $b.private_home==true and $b.human_checked==true and $b.protected_domain==true and $b.launch_admission==true and
     $b.pair==$pair[0] and ($b.courier_panes|type=="array") and
     ($b.lower_trust|type=="array") and all($b.lower_trust[];
       .sandbox==true and .inbox_denied==true and .socket_denied==true and
       .code_denied==true and .proof_denied==true and
       (.launch_hash|type=="string" and length>0) and (.identity|type=="object"))' \
     "$HERDSMAN_PREFLIGHT" >/dev/null || return 1
+  # The inventory is server-wide. A lower-trust agent that exited is no risk; an unknown live agent is.
+  BOUNDARY_FAULT=list
   agents=$(herdr agent list </dev/null) || return 1
-  printf '%s' "$agents" | jq -e --slurpfile proof "$HERDSMAN_PREFLIGHT" '
+  agents=$(printf '%s' "$agents" | jq -ce --slurpfile proof "$HERDSMAN_PREFLIGHT" '
     .result.agents as $agents | $proof[0].boundary as $b |
-    ($agents|type=="array" and length>0) and all($agents[];
+    select($agents|type=="array" and length>0) | [$agents[] |
       . as $a | {pane:.pane_id,session:.agent_session} as $i |
-      any($b.pair[]; .identity==$i) or any($b.courier_panes[]; .==$i) or
-      any($b.lower_trust[]; .identity==$i and .harness==$a.agent)) and
-    all($b.lower_trust[]; .identity as $i |
-      any($agents[]; {pane:.pane_id,session:.agent_session}==$i))' >/dev/null
+      select((any($b.pair[]; .identity==$i) or any($b.courier_panes[]; .==$i) or
+        any($b.lower_trust[]; .identity==$i and .harness==$a.agent))|not) |
+      {pane:.pane_id,agent:.agent,session:.agent_session}]') || return 1
+  BOUNDARY_FAULT=inventory; BOUNDARY_UNKNOWN=$agents
+  [ "$agents" = '[]' ] || return 1
+  BOUNDARY_FAULT=
 }

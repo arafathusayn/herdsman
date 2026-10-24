@@ -34,8 +34,9 @@ nfiles() { # dir, glob: how many entries match
 digest() { cksum < "$1" | awk '{print $1 "-" $2}'; }
 # The channel scripts live in scripts/messages; the phase-two adapters and the checkpointer in scripts.
 spath() { if [ -e "$MS/$1" ]; then printf '%s' "$MS/$1"; else printf '%s' "$SK/$1"; fi; }
-# The protected installation manifest of the setup proof: every channel script with its checksum.
-SCRIPTS=$(for f in "$MS"/*.sh; do jq -n --arg p "$f" --arg c "$(digest "$f")" '{checksum:$c,path:$p}'; done | jq -sc .)
+# The protected installation manifest of the setup proof: every channel script, adapter and the checkpointer, each
+# with its checksum.
+SCRIPTS=$(for f in "$MS"/*.sh "$SK/approval-gate.sh" "$SK/transcript-audit.sh" "$SK/checkpointer-guard.sh" "$SK/checkpointer.sh"; do jq -n --arg p "$f" --arg c "$(digest "$f")" '{checksum:$c,path:$p}'; done | jq -sc .)
 # msg <pane> <script> [args]: run one channel script as the given pane, with $ENVX as extra assignments.
 msg() {
   local pane=$1 script=$2; shift 2
@@ -77,7 +78,7 @@ OB() { printf '%s' "$C/inbox/$O"; }
 relay_boundary() {
   jq --slurpfile pair "$C/inbox/peers.approved" --slurpfile ag "$C/agents.json" '
     ([$pair[0][].identity]) as $ids |
-    .boundary={version:1,inventory_current:true,private_home:true,human_checked:true,protected_domain:true,
+    .boundary={version:1,inventory_current:true,private_home:true,human_checked:true,protected_domain:true,launch_admission:true,
       pair:$pair[0],courier_panes:[],
       lower_trust:[$ag[0][] | {pane:.pane_id,session:.agent_session} as $i | select(any($ids[]; .==$i)|not) |
         {identity:$i,harness:.agent,launch_hash:"fixture-check",sandbox:true,inbox_denied:true,socket_denied:true,
@@ -86,7 +87,7 @@ relay_boundary() {
 
 echo "bash: $(/bin/bash --version | head -1)"
 for s in message-lib message-register message-send herdr-events message-courier message-wait message-read message-ack \
-  message-status message-authority message card-watch resume-goal-when-idle publish-leak-gate \
+  message-status message-authority message message-hold card-watch resume-goal-when-idle publish-leak-gate \
   approval-gate transcript-audit checkpointer-guard checkpointer; do
   if /bin/bash -n "$(spath "$s.sh")" 2>/dev/null; then pass=$((pass+1)); echo "PASS syntax $s"; else fail=$((fail+1)); echo "FAIL syntax $s"; fi
 done
@@ -219,7 +220,7 @@ check "W3 a missing courier heartbeat wakes HEALTH" 'HEALTH courier-down' "$out"
 
 # P: the public grammar and the boundary decision.
 out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh bogus); check "P1 an unknown message command fails with the grammar" 'status\|wait\|read' "$out"
-for form in 'status extra' 'wait extra' 'read a b' 'release' 'ack a b' 'send a'; do
+for form in 'status extra' 'wait extra' 'read a b' 'release' 'ack a b' 'send a' 'hold a' 'unhold' 'unhold a b'; do
   # shellcheck disable=SC2086
   out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh $form); s=$?
   check "P1b a wrong argument count prints the same grammar: $form" '^2 message: status\|wait\|read' "$s $out"
@@ -912,6 +913,199 @@ out=$(env -i PATH="$CPATH" /bin/bash "$SK/transcript-audit.sh" claude "$TC/scrip
 check "TA8d without the channel folder even a channel script run is flagged" 'call=k2 class=script-run' "$out"
 before=$(digest "$TC/flagged.jsonl"); aud claude "$TC/flagged.jsonl" coord-session >/dev/null
 check "TA7 the audit leaves the transcript unchanged" "^$before\$" "$(digest "$TC/flagged.jsonl")"
+
+# Z: the final design fixes, each reproduced with the failing case first.
+# Z1: an installed folder may hold other reviewed scripts. Every listed script is checked, every script of the folder
+# must be listed, and the adapters and the checkpointer beside the folder are bound by checksum too.
+new_case install
+mkdir -p "$C/skill/messages"; cp "$MS"/*.sh "$C/skill/messages/"
+for s in approval-gate transcript-audit checkpointer-guard checkpointer; do cp "$SK/$s.sh" "$C/skill/"; done
+printf '#!/bin/bash\nexit 0\n' > "$C/skill/messages/existing-route-check.sh"
+set_scripts() { # glob ...: record exactly these installed files in the setup proof
+  local s f; s=$(for f in "$@"; do jq -n --arg p "$f" --arg c "$(digest "$f")" '{checksum:$c,path:$p}'; done | jq -sc .)
+  jq --argjson s "$s" '.scripts=$s' "$C/inbox/setup.json" > "$C/edit.tmp" && mv "$C/edit.tmp" "$C/inbox/setup.json"
+}
+isend() { # one send from the installed copy
+  env -i PATH="$CPATH" HOME="$HOME" HERDSMAN_INBOX="$C/inbox" FIXTURE="$C" HERDR_PANE_ID=sender-pane HERDR_SOCKET_PATH= \
+    HERDSMAN_PREFLIGHT="$C/inbox/setup.json" WATCH_REQUIRED=0 /bin/bash "$C/skill/messages/message-send.sh" "$A" "$O" "$C/body.txt" brief 2>&1
+}
+iadapter() { # script args: one adapter run from the installed copy
+  local s=$1; shift
+  env -i PATH="$CPATH" HOME="$HOME" HERDSMAN_INBOX="$C/inbox" FIXTURE="$C" HERDR_PANE_ID=receiver-pane HERDR_SOCKET_PATH= \
+    HERDSMAN_PREFLIGHT="$C/inbox/setup.json" WATCH_REQUIRED=0 /bin/bash "$C/skill/$s" "$@" 2>&1
+}
+set_scripts "$C/skill/messages/"*.sh "$C/skill/"*.sh
+check "Z1 an installed folder with one more reviewed script still sends" ' queued' "$(isend)"
+set_scripts "$C/skill/messages/"[a-df-z]*.sh "$C/skill/"*.sh
+check "Z1b a script of the folder missing from the proof makes it stale" 'proof stale' "$(isend)"
+set_scripts "$C/skill/messages/"*.sh "$C/skill/checkpointer.sh"
+check "Z1c an adapter beside the folder missing from the proof makes it stale" 'proof stale' "$(isend)"
+set_scripts "$C/skill/messages/"*.sh "$C/skill/"*.sh
+printf '# changed\n' >> "$C/skill/approval-gate.sh"
+check "Z1d a changed executor adapter makes the proof stale for the channel" 'proof stale' "$(isend)"
+check "Z1e and the changed adapter refuses to run" 'proof stale' "$(iadapter approval-gate.sh complete r1 posted)"
+check "Z1f and the checkpointer guard refuses input" 'proof stale' "$(iadapter checkpointer-guard.sh "$O" receiver-pane)"
+set_scripts "$C/skill/messages/"*.sh "$C/skill/"*.sh
+check "Z1g the proof of the changed bytes is the positive control" ' queued' "$(isend)"
+printf '# changed\n' >> "$C/skill/transcript-audit.sh"
+check "Z1h a changed transcript audit makes the proof stale" 'proof stale' "$(isend)"
+
+# Z2: an agent outside the protected setup taints the boundary; its exit does not restore automatic coordination.
+new_case taint
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+jq -n '[{pane:"task-pane",session:{source:"hook",agent:"claude",kind:"id",value:"task-session"}}]' > "$C/inbox/watch-targets.json"
+printf '%s\n' '✦ Heads up · taint finding' > "$C/screen-task-pane"
+relay_boundary
+check "Z2 the protected boundary is the positive control" '^RELAY' "$(msg receiver-pane message-authority.sh)"
+jq_edit '.["rogue-pane"]=(.["task-pane"]|.pane_id="rogue-pane"|.agent_session.value="rogue-session")' "$C/agents.json"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "Z2b an unknown live agent is recorded as boundary exposure" 'rogue-pane' "$(cat "$C/inbox/state/boundary-tainted" 2>&1)"
+jq_edit 'del(.["rogue-pane"])' "$C/agents.json"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "Z2c after that agent exits the authority stays HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
+check "Z2d and no card was relayed" '^0 yes$' "$(nfiles "$C/inbox/$A/new" '*.md') $(yn "$C/inbox/state/automation-held")"
+# A closed lower-trust pane is no risk: its record need not stay live.
+new_case closed-task
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session; relay_boundary
+set_agents sender-pane sender-session receiver-pane receiver-session
+check "Z2e a closed lower-trust pane keeps RELAY" '^RELAY' "$(msg receiver-pane message-authority.sh)"
+# One failed agent list holds automation quietly and taints nothing; a repeated failure alerts.
+jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}]' > "$C/inbox/watch-targets.json"
+touch "$C/list-failure-once"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+nocheck "Z2f one failed agent list does not alert the human" 'notification show Automatic coordination held' "$(cat "$C/calls.log")"
+check "Z2g and records no exposure" '^no$' "$(yn "$C/inbox/state/boundary-tainted")"
+touch "$C/list-failure"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+check "Z2h a repeated agent list failure alerts" 'notification show Automatic coordination held' "$(cat "$C/calls.log")"
+check "Z2i and still records no exposure" '^no$' "$(yn "$C/inbox/state/boundary-tainted")"
+rm "$C/list-failure"
+
+# Z3: automatic coordination needs the explicit launch admission record of the protected setup.
+new_case admission
+relay_boundary; jq_edit '.boundary|=del(.launch_admission)' "$C/inbox/setup.json"
+check "Z3 without the launch admission record the authority is HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
+jq_edit '.boundary.launch_admission=false' "$C/inbox/setup.json"
+check "Z3b a false admission record is HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
+
+# Z4: an admission that wins the race against a card relay prevents the enqueue.
+new_case relay-race
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+jq -n '[{pane:"task-pane",session:{source:"hook",agent:"claude",kind:"id",value:"task-session"}}]' > "$C/inbox/watch-targets.json"
+printf '%s\n' '✦ Heads up · race finding' > "$C/screen-task-pane"
+relay_boundary
+mkdir "$C/race-bin"
+# The orchestrator transport's own identity check runs inside the send; an admission writer acts during it.
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2 $3" = "agent get receiver-pane" ] && [ ! -e "$FIXTURE/admitted" ]; then' \
+  '  mkdir "$HERDSMAN_INBOX/herdr-mutation.lock"' \
+  '  printf "unsandboxed admission during the send\n" > "$HERDSMAN_INBOX/state/boundary-tainted"' \
+  '  jq ".[\"rogue-pane\"]=(.[\"task-pane\"]|.pane_id=\"rogue-pane\"|.agent_session.value=\"rogue-session\")" "$FIXTURE/agents.json" > "$FIXTURE/agents.tmp"' \
+  '  mv "$FIXTURE/agents.tmp" "$FIXTURE/agents.json"; rmdir "$HERDSMAN_INBOX/herdr-mutation.lock"; touch "$FIXTURE/admitted"' \
+  'fi' "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+ENVX="RUN_FOR=1 INTERVAL=1 PATH=$C/race-bin:$CPATH" msg courier-pane card-watch.sh >/dev/null
+check "Z4 the admission happened during the relay" '^yes$' "$(yn "$C/admitted")"
+check "Z4b no card was queued after the admission" '^0$' "$(nfiles "$C/inbox/$A/new" '*.md')"
+check "Z4c and the authority is HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
+
+# Z5: an ack retry never overwrites a different permanent disposition.
+new_case ack-terminal
+send >/dev/null; courier >/dev/null
+token=$(msg receiver-pane message-read.sh "$O" | jq -r 'select(.type=="claim")|.token')
+printf 'intake recorded\n' > "$C/record.txt"
+msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt" >/dev/null
+out=$(msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt"); st=$?
+check "Z5 a retry with the matching terminal is idempotent" "^0 acknowledged $ID" "$st $out"
+printf '{"id":"%s","state":"quarantined","evidence":"keep"}\n' "$ID" > "$C/inbox/ids/$ID/terminal.json"
+before=$(digest "$C/inbox/ids/$ID/terminal.json")
+out=$(msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt"); st=$?
+check "Z5b a retry over a conflicting terminal is refused" '^2 .*terminal' "$st $out"
+check "Z5c and the conflicting terminal is kept" "^$before\$" "$(digest "$C/inbox/ids/$ID/terminal.json")"
+printf 'not json\n' > "$C/inbox/ids/$ID/terminal.json"
+out=$(msg receiver-pane message-ack.sh "$O" "$token" "$ID" "$C/record.txt"); st=$?
+check "Z5d a corrupt terminal is held too" '^2 not json$' "$st $(cat "$C/inbox/ids/$ID/terminal.json")"
+
+# Z6: a disposed sender notice stays disposed; an interrupted first publication is still repaired.
+new_case notice-disposed
+send >/dev/null
+jq_edit '.from_identity.session.value="forged"' "$(OB)/new/$ID.md"
+courier >/dev/null
+check "Z6 the forged envelope is quarantined with a sender notice" '^yes$' "$(yn "$C/inbox/$A/notices/$ID.md.json")"
+mv "$C/inbox/$A/notices/$ID.md.json" "$C/disposed-notice.json"
+touch -t 202001010000 "$C/inbox/ids/$ID/terminal.json"; before=$(ls -l "$C/inbox/ids/$ID/terminal.json")
+courier >/dev/null
+check "Z6b the next sweep does not recreate a disposed notice" '^no yes$' "$(yn "$C/inbox/$A/notices/$ID.md.json") $(yn "$(OB)/quarantine/$ID.md")"
+check "Z6c and does not rewrite the reconciled terminal" "^$before\$" "$(ls -l "$C/inbox/ids/$ID/terminal.json")"
+rm -f "$C/inbox/ids/$ID/notice-published"
+courier >/dev/null
+check "Z6d a notice whose publication was not completed is repaired" '^yes$' "$(yn "$C/inbox/$A/notices/$ID.md.json")"
+
+# Z7: two overlapping resume helpers send one resume per episode.
+new_case resume-race
+jq_edit '.["task-pane"]=(.["sender-pane"]|.pane_id="task-pane"|.agent="codex"|.agent_session.agent="codex"|.agent_session.value="task-session")' "$C/agents.json"
+jq -n '{"im-task":{role:"task-agent",identity:{pane:"task-pane",session:{source:"hook",agent:"codex",kind:"id",value:"task-session"}}}}' > "$C/inbox/resume-targets.json"
+printf 'Goal paused (/goal resume)\n' > "$C/screen-task-pane"; touch "$C/allow-resume"; relay_boundary
+rkey=$(jq -c '.["im-task"].identity' "$C/inbox/resume-targets.json" | jq -Sc . | cksum | awk '{print $1 "-" $2}')
+mkdir "$C/race-bin"
+# The other helper records its intent between this helper's first intent check and its lock.
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$*" = "$HERDSMAN_INBOX/herdr-mutation.lock" ]; then printf "other helper intent\n" > "$HERDSMAN_INBOX/state/resume-$RACE_KEY.sent"; fi' \
+  'exec /bin/mkdir "$@"' > "$C/race-bin/mkdir"
+chmod +x "$C/race-bin/mkdir"
+out=$(ENVX="PATH=$C/race-bin:$CPATH RACE_KEY=$rkey" msg sender-pane resume-goal-when-idle.sh im-task)
+check "Z7 the helper that lost the race holds" '^HELD reconcile the previous resume' "$out"
+check "Z7b and sends no second resume" '^0$' "$(grep -c '^agent prompt' "$C/calls.log")"
+
+# Z8: the courier rechecks the setup proof before each queue change; a stale proof moves nothing and alerts.
+new_case courier-stale
+send >/dev/null
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2 $3" = "agent get sender-pane" ]; then printf "changed while the courier runs\n" >> "$FIXTURE/ignore-rule"; fi' \
+  "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+courier "PATH=$C/race-bin:$CPATH" >/dev/null
+check "Z8 a policy changed during the sweep moves nothing to ready" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+check "Z8b and the human is alerted" 'notification show Message setup proof stale' "$(cat "$C/calls.log")"
+courier >/dev/null
+check "Z8c a courier started on the stale proof refuses" '^yes no$' "$(yn "$(OB)/new/$ID.md") $(yn "$(OB)/ready/$ID.md")"
+
+# Z9: hold and unhold publish a named hold under the shared input lock.
+new_case hold
+jq_edit '.["task-pane"]=(.["sender-pane"]|.pane_id="task-pane"|.agent="codex"|.agent_session.agent="codex"|.agent_session.value="task-session")' "$C/agents.json"
+jq -n '{"im-task":{role:"task-agent",identity:{pane:"task-pane",session:{source:"hook",agent:"codex",kind:"id",value:"task-session"}}}}' > "$C/inbox/resume-targets.json"
+printf 'Goal paused (/goal resume)\n' > "$C/screen-task-pane"; relay_boundary
+out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh hold im-task 'user paused this task'); st=$?
+check "Z9 hold records the named hold" '^0 HOLD im-task' "$st $out"
+check "Z9b with the holder and the reason" "^$O user paused this task\$" "$(jq -r '.by + " " + .reason' "$C/inbox/state/hold-im-task")"
+check "Z9c the resume helper then holds" 'HELD user pause or freeze' "$(msg sender-pane resume-goal-when-idle.sh im-task)"
+mkdir "$C/inbox/herdr-mutation.lock"
+out=$(ENVX="HERDSMAN_NAME=$O LOCK_WAIT=1" msg receiver-pane message.sh unhold im-task); st=$?
+check "Z9d unhold waits for the shared lock and refuses when busy" '^2 .*lock busy' "$st $out"
+rmdir "$C/inbox/herdr-mutation.lock"
+out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh unhold im-task); st=$?
+check "Z9e unhold clears the hold" "^0 UNHOLD im-task by $O no\$" "$st $out $(yn "$C/inbox/state/hold-im-task")"
+out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh hold '../x' reason); st=$?
+check "Z9f an invalid hold name is refused" '^2 ' "$st $out"
+
+# Z10: a deliberate hold is quiet in the watcher; only uncertain resume states alert.
+new_case quiet-hold
+jq_edit '.["task-pane"]=(.["sender-pane"]|.pane_id="task-pane"|.agent="codex"|.agent_session.agent="codex"|.agent_session.value="task-session")' "$C/agents.json"
+jq -n '{"im-task":{role:"task-agent",identity:{pane:"task-pane",session:{source:"hook",agent:"codex",kind:"id",value:"task-session"}}}}' > "$C/inbox/resume-targets.json"
+jq -n '[{pane:"receiver-pane",session:{source:"hook",agent:"claude",kind:"id",value:"receiver-session"}}]' > "$C/inbox/watch-targets.json"
+printf 'Goal paused (/goal resume)\n' > "$C/screen-task-pane"; relay_boundary
+touch "$C/inbox/state/route-paused"
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+ENVX="RUN_FOR=1 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null
+nocheck "Z10 a user pause sends no resume-held alert" 'notification show Goal resume held' "$(cat "$C/calls.log")"
+
+# Z11: a required section includes its child headings and ends at the next heading of the same or a higher level.
+printf '# Tests\n## Unit\nPlain test detail.\n' > "$T/nested.md"
+printf '# Tests\n# Other\nPlain test detail.\n' > "$T/sibling.md"
+check "Z11 a required section with text under a child heading passes" '^0$' "$(leak "$T/nested.md" '# Tests' >/dev/null 2>&1; echo $?)"
+check "Z11b a sibling heading still ends the section" '^1$' "$(leak "$T/sibling.md" '# Tests' >/dev/null 2>&1; echo $?)"
 
 # N: outside the input cases every fake herdr call was a read or a display call; the input cases sent only their inputs.
 READS='^(agent get|agent list|pane list|pane report-metadata|notification show|pane read)( |$)'

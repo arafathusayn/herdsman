@@ -3,7 +3,8 @@
 # and `herdr agent get <name>` prints the session record with the id in $FAKE_SESSION (empty when unset).
 # With $FIXTURE set (the message tests), it logs every call to $FIXTURE/calls.log and serves the message
 # channel calls from files in that folder: agents.json (pane id to agent record), and the switches
-# get-failure, get-invalid, metadata-failure, toast-disabled and read-failure, and screen-<pane> for `pane read`.
+# get-failure, get-invalid, list-failure, list-failure-once (one failed `agent list`), metadata-failure, toast-disabled
+# and read-failure, and screen-<pane> for `pane read`.
 # Every input call fails and stays in the log, except an exact `/goal resume` prompt when allow-resume exists,
 # and any prompt when allow-prompt exists (the checkpointer cases; drift-after-prompt then changes that session).
 # `agent wait` returns at once.
@@ -20,6 +21,8 @@ if [ -n "${FIXTURE:-}" ]; then
       jq -c --arg p "$3" '{id:"fixture-response",result:{type:"agent_info",agent:.[$p]}}' "$FIXTURE/agents.json"
       exit 0 ;;
     'agent list')
+      if [ -f "$FIXTURE/list-failure-once" ]; then rm "$FIXTURE/list-failure-once"; echo '{"error":{"code":"temporary_failure"}}'; exit 1; fi
+      if [ -f "$FIXTURE/list-failure" ]; then echo '{"error":{"code":"temporary_failure"}}'; exit 1; fi
       jq -c '{id:"fixture-response",result:{type:"agent_list",agents:[.[]]}}' "$FIXTURE/agents.json"
       exit 0 ;;
     'pane report-metadata')

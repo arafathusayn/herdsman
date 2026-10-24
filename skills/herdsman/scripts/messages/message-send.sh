@@ -15,6 +15,10 @@ if [ -n "$REPLY" ]; then regular "$ROOT/ids/$REPLY/envelope" || die 'unknown rep
 box_init "$TO"
 backlog=0; service=0; source_count=0; source_identity=null
 if [ "$KIND" = side_agent_data ]; then
+  # Admission and exposure writers publish under the shared input lock. Hold it from this boundary check
+  # through the enqueue, so an admission that wins the race prevents the relay. Release it before the doorbell.
+  mutation_lock || die 'input lock busy; side-agent data not queued'
+  boundary_ok || die 'HUMAN boundary; side-agent data not queued'
   source_identity=$(jq -ce '.source|select(type=="object" and keys==["pane","session"])' "$BODY") || die 'side-agent source identity required'
 fi
 for f in "$ROOT/$TO/new/"*.md "$ROOT/$TO/ready/"*.md "$ROOT/$TO/cur/"*.md "$ROOT/$TO/quarantine/"*.md; do
@@ -42,6 +46,7 @@ jq -n --arg id "$id" --arg from "$FROM" --arg to "$TO" --arg kind "$KIND" --arg 
 bounded "$TMP" && jq -e 'type=="object" and (.body|type=="string")' "$TMP" >/dev/null || die 'encoded envelope too large or invalid; not queued'
 cp "$TMP" "$ROOT/ids/$id/envelope"
 move_unique "$TMP" "$ROOT/$TO/new/$id.md"; TMP=
+[ -z "$MUTATION_OWNED" ] || mutation_unlock
 unlock
 if ! display_call pane report-metadata "$HERDR_PANE_ID" --source herdsman-message-out --token "message_out=$id" --ttl-ms 600000 >/dev/null; then
   printf 'WARNING ring failed; %s is queued, not delivered\n' "$id" >&2

@@ -58,6 +58,8 @@ esac
 mkdir "$ROOT/herdr-mutation.lock" 2>/dev/null || held 'mutation lock busy'
 export MUTATION_OWNED=1
 printf '%s\n' "$$" > "$ROOT/herdr-mutation.lock/pid"
+# Recheck the intent under the lock: an overlapping helper may have sent in this episode since the first check.
+[ ! -e "$ROOT/state/resume-$key.sent" ] || held 'reconcile the previous resume'
 guards || held 'user pause or freeze'
 boundary_ok || held 'HUMAN boundary changed'
 current=$(target_record) || held 'target changed'

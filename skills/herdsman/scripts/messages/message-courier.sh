@@ -8,6 +8,7 @@ root_init
 [ "$HEALTH_AFTER" -gt $((SWEEP+10)) ] || die 'HEALTH_AFTER must exceed SWEEP plus scan allowance'
 mkdir "$ROOT/courier.lock" 2>/dev/null || die 'courier lock exists; inspect owner and heartbeat'
 export COURIER_OWNED=1; printf '%s\n' "$$" > "$ROOT/courier.lock/pid"
+resolve_alert setup-proof-stale
 atomic "$ROOT/state/timing.json" jq -n --argjson sweep "$SWEEP" --argjson health "$HEALTH_AFTER" '{sweep:$sweep,health:$health}'
 SUBS='[{"type":"pane.updated"},{"type":"pane.closed"},{"type":"pane.exited"}]'
 process_entry() {
@@ -33,6 +34,8 @@ process_entry() {
   fi
   try_lock || exit 75
   registry || die 'registry changed during verification'
+  # A pinned policy or protected script changed while the courier runs: move nothing.
+  preflight_valid || { unlock; proof_stale_alert; exit 0; }
   [ -e "$f" ] || exit 0
   if [ -e "$ROOT/ids/$id/terminal.json" ] || [ -e "$box/ready/$id.md" ] || [ -e "$box/cur/$id.md" ] || [ -e "$box/quarantine/$id.md" ]; then
     unlock
@@ -50,6 +53,8 @@ process_entry() {
       if name_ok "$from" && peer "$from" >/dev/null; then
         box_init "$from"
         atomic "$ROOT/$from/notices/$id.md.json" jq -n --arg id "$id" --arg to "$name" '{id:$id,to:$to,state:"quarantined",authority:"notice-only"}' || die 'sender notice failed'
+        # Publication is complete. Recovery repairs only an unfinished publication, never a disposed notice.
+        if id_ok "$id" && [ -d "$ROOT/ids/$id" ]; then safe_touch "$ROOT/ids/$id/notice-published"; fi
       fi
       unlock
       notify "quarantine-$name-$id" 'Messages quarantined' 'An envelope failed checks. Show headers only; resend with a fresh ID.'
@@ -59,10 +64,15 @@ process_entry() {
   unlock
   resolve_alert "verification-$name-$id"
 }
+proof_stale_alert() {
+  notify setup-proof-stale 'Message setup proof stale' 'A pinned policy or protected script changed. The courier moves nothing until the human repeats setup.'
+}
 sweep() {
   local box name f expected pane observed count state previous stamp t old='' fp='' key summary baseline result id from invalid_box=0
   safe_touch "$ROOT/state/heartbeat"
   retry_alerts
+  # Recheck the setup proof before each sweep's queue changes. A stale proof stays stale for this run.
+  if [ -n "$PROOF_STALE" ] || ! preflight_valid; then PROOF_STALE=1; proof_stale_alert; return 0; fi
   if ! registry; then
     baseline=unavailable; key=unavailable
     regular "$ROOT/peers.approved" && baseline=$(digest "$ROOT/peers.approved")
@@ -92,15 +102,30 @@ sweep() {
       trap cleanup EXIT
       id=$(basename "$f" .md)
       if id_ok "$id" && [ -d "$ROOT/ids/$id" ] && [ ! -L "$ROOT/ids/$id" ]; then
+        from=$(jq -r '.from // empty' "$f" 2>/dev/null) || from=
+        notice_due=
+        if name_ok "$from" && peer "$from" >/dev/null && [ ! -e "$ROOT/ids/$id/notice-published" ]; then notice_due=1; fi
+        terminal_ok=
+        if [ -e "$ROOT/ids/$id/terminal.json" ]; then
+          if ! strict_json "$ROOT/ids/$id/terminal.json" || ! jq -e --arg id "$id" '.id==$id and .state=="quarantined"' "$ROOT/ids/$id/terminal.json" >/dev/null; then
+            notify "terminal-conflict-$name-$id" 'Quarantine terminal conflict' 'Hold original bytes and inspect the permanent disposition.'; exit 0
+          fi
+          terminal_ok=1
+        fi
+        # A reconciled quarantine needs no lock and no write; only missing records are repaired.
+        if [ -n "$terminal_ok" ] && [ -z "$notice_due" ]; then
+          notify "quarantine-$name-$id" 'Messages quarantined' 'An envelope failed checks. Show headers only; resend with a fresh ID.'; exit 0
+        fi
         if try_lock; then
-          if [ -e "$ROOT/ids/$id/terminal.json" ]; then
-            if ! strict_json "$ROOT/ids/$id/terminal.json" || ! jq -e --arg id "$id" '.id==$id and .state=="quarantined"' "$ROOT/ids/$id/terminal.json" >/dev/null; then
-              unlock; notify "terminal-conflict-$name-$id" 'Quarantine terminal conflict' 'Hold original bytes and inspect the permanent disposition.'; exit 0
-            fi
-          else atomic "$ROOT/ids/$id/terminal.json" jq -n --arg id "$id" '{id:$id,state:"quarantined"}' || die 'quarantine recovery failed'; fi
-          from=$(jq -r '.from // empty' "$f" 2>/dev/null) || from=
-          if name_ok "$from" && peer "$from" >/dev/null; then
+          preflight_valid || { unlock; proof_stale_alert; exit 0; }
+          if [ -z "$terminal_ok" ]; then
+            if [ -e "$ROOT/ids/$id/terminal.json" ]; then unlock; exit 0; fi
+            atomic "$ROOT/ids/$id/terminal.json" jq -n --arg id "$id" '{id:$id,state:"quarantined"}' || die 'quarantine recovery failed'
+          fi
+          if [ -n "$notice_due" ]; then
+            box_init "$from"
             atomic "$ROOT/$from/notices/$id.md.json" jq -n --arg id "$id" --arg to "$name" '{id:$id,to:$to,state:"quarantined",authority:"notice-only"}' || die 'notice recovery failed'
+            safe_touch "$ROOT/ids/$id/notice-published"
           fi
           unlock
           notify "quarantine-$name-$id" 'Messages quarantined' 'An envelope failed checks. Show headers only; resend with a fresh ID.'
