@@ -157,7 +157,7 @@ export class DiffView {
   private timer = 0;
   private loading = false;
 
-  constructor(readonly routeName: string) {
+  constructor(readonly routeId: string) {
     this.search.addEventListener("input", () => this.renderList());
     this.search.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
@@ -266,7 +266,7 @@ export class DiffView {
     if (this.loading) return;
     this.loading = true;
     try {
-      const next = await routeDiff(this.routeName);
+      const next = await routeDiff(this.routeId);
       if (next !== this.sources || this.error) {
         this.sources = next;
         this.error = "";

@@ -13,7 +13,7 @@ import {
 } from "./appearance.ts";
 import { icons } from "./dom.ts";
 import { loadHosts } from "./hosts.ts";
-import { type Index, type Member, statusLabel, team } from "./model.ts";
+import { type Index, type Member, routeLabel, statusLabel, team } from "./model.ts";
 import { type Command, sidebarKeys } from "./palette.ts";
 import { type App, type RouteTab, store } from "./store.ts";
 import type { Route } from "./types.ts";
@@ -148,12 +148,12 @@ export function buildCommands(ctx: Context): Command[] {
 
   for (const r of app.server?.routes ?? []) {
     out.push({
-      id: `route:${r.name}`,
+      id: `route:${r.id}`,
       kind: "route",
-      title: `Go to Route: ${r.name}`,
+      title: `Go to Route: ${routeLabel(r, app.server?.routes ?? [])}`,
       detail: r.live ? "live" : "not running",
       icon: icons.list,
-      run: () => store.go({ route: r.name, tab: "team", file: "", pane: "" }),
+      run: () => store.go({ route: r.id, tab: "team", file: "", pane: "" }),
     });
   }
   for (const w of app.server?.snapshot.workspaces ?? []) {

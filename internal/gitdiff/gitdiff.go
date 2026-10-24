@@ -87,7 +87,9 @@ func diff(ctx context.Context, dir, base, head string, worktree bool) (*Diff, er
 	if !worktree {
 		revs = append(revs, head)
 	}
-	opts := []string{"diff", "--no-color", "--no-ext-diff", "--no-textconv", "-M"}
+	// Fixed a/ and b/ prefixes: diff.noprefix or diff.mnemonicPrefix in a
+	// config would change the patch headers the web app reads.
+	opts := []string{"diff", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "-M"}
 
 	status, err := git(ctx, dir, maxOutput, append(append(opts, "--name-status", "-z"), append(revs, "--")...)...)
 	if err != nil {

@@ -205,3 +205,19 @@ func TestParseWorktreesSkipsBare(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+// Prefix settings in a repository's config do not change the patch headers.
+func TestPatchPrefixesIgnoreConfig(t *testing.T) {
+	for _, key := range []string{"diff.noprefix", "diff.mnemonicPrefix"} {
+		_, wt := repo(t)
+		run(t, wt, "config", key, "true")
+		write(t, wt, "keep.txt", "one\n2\nthree\n")
+		d, err := Worktree(context.Background(), wt, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(d.Patch, "diff --git a/keep.txt b/keep.txt\n") || !strings.Contains(d.Patch, "+++ b/keep.txt\n") {
+			t.Errorf("%s: patch headers:\n%s", key, d.Patch)
+		}
+	}
+}
