@@ -150,3 +150,25 @@ func TestLimitZeroFlagsEveryJob(t *testing.T) {
 		Machine: Machine{Load5: "0.10", CPUs: "8", Free: "50"}})
 	match(t, "a two-minute job is over a zero limit", `^   bg: short  running  2m 1s \[2m\]  <-- OVER 0m$`, out)
 }
+
+// A26: the script took the first hour and the last minute of a row, and a
+// row with two hour counts or an 08 broke its arithmetic and dropped the
+// agent's remaining rows. The elapsed time is the row's last duration.
+func TestBackgroundRowElapsedTime(t *testing.T) {
+	for _, tc := range []struct {
+		row  string
+		mins int
+	}{
+		{"└ ◆ a long job  running  1h 02m", 62},
+		{"└ ◆ npm test  running  23m 45s", 23},
+		{"└ ◆ rebuild 2h cache  running  5m 3s", 5},
+		{"└ ◆ 3h job  running  1h 08m", 68},
+		{"└ ◆ short  running  08m 1s", 8},
+		{"└ ◆ hours  running  2h", 120},
+		{"└ ◆ huge  running  99999999999999999999m", maxMinutes},
+	} {
+		if got := elapsedMinutes(tc.row); got != tc.mins {
+			t.Errorf("%q: %d, want %d", tc.row, got, tc.mins)
+		}
+	}
+}

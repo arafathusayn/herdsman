@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
-	"github.com/arafathusayn/herdsman/internal/shnum"
+	"github.com/arafathusayn/herdsman/internal/settings"
 	"github.com/arafathusayn/herdsman/internal/status"
 )
 
@@ -27,20 +26,22 @@ func herdrClient() *herdr.Client {
 	return herdr.New(sock)
 }
 
-// statusSnapshot writes the snapshot of HERDSMAN_STATUS_SPECS.
-func statusSnapshot(ctx context.Context, w io.Writer, specs string) {
-	// As ${LIMIT_MIN:-30} and [ "$mins" -ge "$LIMIT_MIN" ]: unset or empty is
-	// 30; the value is read with test's integer syntax (blanks around it,
-	// a sign, leading zeros) and printed as written; a value test refuses
-	// flags no job.
-	limit, label := 30, "30"
-	if v := os.Getenv("LIMIT_MIN"); v != "" {
-		label = v
-		limit = math.MaxInt
-		if n, ok := shnum.Test(v); ok {
-			limit = int(n)
-		}
+// statusLimit reads LIMIT_MIN strictly (A25): unset or empty is 30; a
+// whole number of minutes from 0, read as test reads it and printed as
+// written; anything else is an error.
+func statusLimit() (int, string, error) {
+	v := os.Getenv("LIMIT_MIN")
+	n, err := settings.Int("LIMIT_MIN", v, 30, 0, 1<<30)
+	if v == "" {
+		v = "30"
 	}
+	return int(n), v, err
+}
+
+// statusSnapshot writes the snapshot of HERDSMAN_STATUS_SPECS; its callers
+// have checked LIMIT_MIN.
+func statusSnapshot(ctx context.Context, w io.Writer, specs string) {
+	limit, label, _ := statusLimit()
 	status.Write(ctx, w, status.Options{Specs: status.ParseSpecs(specs), LimitMin: limit, LimitLabel: label, Client: herdrClient(), Now: now(), Machine: status.ReadMachine()})
 }
 
@@ -53,6 +54,10 @@ func runStatus(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if specs == "" {
 		fmt.Fprintln(stderr, "herdsman status: HERDSMAN_STATUS_SPECS: set HERDSMAN_STATUS_SPECS")
 		return 1
+	}
+	if _, _, err := statusLimit(); err != nil {
+		fmt.Fprintf(stderr, "herdsman status: %v\n", err)
+		return settings.ExitInvalid
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

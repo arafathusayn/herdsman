@@ -82,8 +82,8 @@ type Options struct {
 var (
 	modelRe   = regexp.MustCompile(`muse-spark-[0-9.a-z-]*|Opus [0-9.]*|gpt-[0-9a-z.-]*`)
 	bgRe      = regexp.MustCompile(`(running|workflow).*[0-9]+(m|h) ?[0-9]*s?`)
-	hoursRe   = regexp.MustCompile(`[0-9]+h`)
-	minutesRe = regexp.MustCompile(`[0-9]+m`)
+	// durationRe is one elapsed time: "1h 02m", "23m 45s", "2h".
+	durationRe = regexp.MustCompile(`(?:\b([0-9]+)h ?)?\b([0-9]+)m(?: ?[0-9]+s)?|\b([0-9]+)h\b`)
 	fgRe      = regexp.MustCompile(`Thinking|Calling tools|esc to interrupt`)
 	leadRe    = regexp.MustCompile(`^[^A-Za-z]*`)
 )
@@ -130,14 +130,7 @@ func Write(ctx context.Context, w io.Writer, o Options) {
 			bg = bg[len(bg)-3:]
 		}
 		for _, row := range bg {
-			h, mins := 0, 0
-			if x := hoursRe.FindString(row); x != "" {
-				h, _ = strconv.Atoi(strings.TrimSuffix(x, "h"))
-			}
-			if all := minutesRe.FindAllString(row, -1); len(all) > 0 {
-				mins, _ = strconv.Atoi(strings.TrimSuffix(all[len(all)-1], "m"))
-			}
-			total := h*60 + mins
+			total := elapsedMinutes(row)
 			flag := ""
 			if total >= o.LimitMin {
 				label := o.LimitLabel
@@ -242,4 +235,35 @@ func Flags(snapshot string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// maxMinutes caps a job's elapsed minutes: a count too large to read is
+// still over any limit.
+const maxMinutes = 1 << 30
+
+// elapsedMinutes is a background row's elapsed time in minutes: its last
+// duration. The script took the first hour count and the last minute
+// count anywhere in the row, and an 08 or two hour counts broke its
+// arithmetic (A26).
+func elapsedMinutes(row string) int {
+	all := durationRe.FindAllStringSubmatch(row, -1)
+	if len(all) == 0 {
+		return 0
+	}
+	m := all[len(all)-1]
+	num := func(s string) int {
+		if s == "" {
+			return 0
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil || n > maxMinutes {
+			return maxMinutes
+		}
+		return n
+	}
+	h, mins := num(m[1]), num(m[2])
+	if m[3] != "" {
+		h = num(m[3])
+	}
+	return min(h*60+mins, maxMinutes)
 }

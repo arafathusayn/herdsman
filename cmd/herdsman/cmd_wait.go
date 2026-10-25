@@ -30,6 +30,11 @@ func runWait(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: herdsman wait (settings in the environment)")
 		return 2
 	}
+	// LIMIT_MIN feeds the in-process health check.
+	if _, _, err := statusLimit(); err != nil {
+		fmt.Fprintf(stderr, "herdsman wait: %v\n", err)
+		return 2
+	}
 	ctx, cancel := signalContext()
 	defer cancel()
 	return watch.Wait(ctx, os.LookupEnv, watchDeps(stdout, stderr))

@@ -130,7 +130,7 @@ func TestStatusNeedsSpecs(t *testing.T) {
 func TestStatusThroughTheCommand(t *testing.T) {
 	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(t.TempDir(), "none.sock"))
 	t.Setenv("HERDSMAN_STATUS_SPECS", "im-a:w1:p1")
-	t.Setenv("LIMIT_MIN", "x")
+	t.Setenv("LIMIT_MIN", "")
 	// No socket path, no config folder and no home: the client has no socket.
 	t.Setenv("HERDR_SOCKET_PATH", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -223,14 +223,12 @@ func TestStatusLimitFromTheEnvironment(t *testing.T) {
 	for _, tc := range []struct{ limit, want, not string }{
 		{"0", `short .*<-- OVER 0m`, `^$`},
 		{"", `long .*<-- OVER 30m`, `short .*OVER`},
-		{"x", `long  running  45m 0s \[45m\]$`, `OVER`},
 		// R3 finding 2: the shell's integer syntax, and the label as written.
 		{" 30", `long .*<-- OVER  30m$`, `short .*OVER`},
 		{"30 ", `long .*<-- OVER 30 m$`, `short .*OVER`},
 		{"00", `short .*<-- OVER 00m$`, `^$`},
 		{"030", `long .*<-- OVER 030m$`, `short .*OVER`},
 		{"+30", `long .*<-- OVER \+30m$`, `short .*OVER`},
-		{" ", `long  running  45m 0s \[45m\]$`, `OVER`},
 	} {
 		t.Setenv("LIMIT_MIN", tc.limit)
 		var b bytes.Buffer
@@ -290,5 +288,26 @@ func TestWaitHealthWithAPaddedLimit(t *testing.T) {
 	}
 	if !regexp.MustCompile(`(?m)^HEALTH .*OVER  30m`).MatchString(out) {
 		t.Errorf("no HEALTH event for a padded limit:\n%s", out)
+	}
+}
+
+// A25: LIMIT_MIN is a strict setting for status and for wait's health
+// check: one line naming it, exit 2, nothing printed on stdout.
+func TestStatusLimitIsStrict(t *testing.T) {
+	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(t.TempDir(), "none.sock"))
+	t.Setenv("HERDSMAN_STATUS_SPECS", "im-a:w1:p1")
+	for _, v := range []string{"x", " ", "1/0", "-1"} {
+		t.Setenv("LIMIT_MIN", v)
+		out, errs, code := call(t, "status")
+		if code != 2 || out != "" || !strings.HasPrefix(errs, "herdsman status: LIMIT_MIN: ") || strings.Count(errs, "\n") != 1 {
+			t.Errorf("status LIMIT_MIN=%q: %d %q %q", v, code, out, errs)
+		}
+		t.Setenv("DEADLINE", "0")
+		t.Setenv("POLL", "1")
+		t.Setenv("HERDSMAN_STATE", t.TempDir())
+		out, errs, code = call(t, "wait")
+		if code != 2 || out != "" || !strings.HasPrefix(errs, "herdsman wait: LIMIT_MIN: ") {
+			t.Errorf("wait LIMIT_MIN=%q: %d %q %q", v, code, out, errs)
+		}
 	}
 }
