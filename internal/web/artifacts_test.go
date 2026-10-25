@@ -138,7 +138,7 @@ func TestArtifactCapsAreBounded(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r, err := openPageDir(d, id, "")
+		r, err := openPageDir(d, id, "", id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -218,6 +218,32 @@ func TestArtifactGrantIsPinnedToTheListedFolder(t *testing.T) {
 	// but the open refuses to step through the link.
 	if code, u := open(); code != http.StatusNotFound {
 		t.Fatalf("an open through a swapped folder: %d %q", code, serve(u))
+	}
+}
+
+// The listing records each page's folder too: a folder replaced by an
+// ordinary folder of the same name, inside the same root, is not the one
+// listed, so an open of the cached listing is refused.
+func TestArtifactGrantRefusesAReplacedPageFolder(t *testing.T) {
+	f := newFixture(t)
+	proj := filepath.Dir(filepath.Dir(f.routeDir))
+	reports := filepath.Join(proj, "reports")
+	writeFile(t, filepath.Join(reports, "page.html"), "ORIGINAL")
+	id := f.hub.Current().Routes[0].ID
+	res := f.request(t, http.MethodGet, "/api/artifacts?route="+id, "", f.authed)
+	var list struct {
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil || len(list.Artifacts) != 1 {
+		t.Fatalf("list: %d %+v %v", res.StatusCode, list, err)
+	}
+	if err := os.Rename(reports, reports+"-old"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(reports, "page.html"), "REPLACED")
+	b, _ := json.Marshal(map[string]string{"route": id, "root": list.Artifacts[0].Root, "path": "reports/page.html"})
+	if res := f.request(t, http.MethodPost, "/api/artifacts/open", string(b), f.authed); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("an open of a replaced page folder: %d %s", res.StatusCode, readBody(t, res))
 	}
 }
 

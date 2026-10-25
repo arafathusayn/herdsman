@@ -50,6 +50,9 @@ type Artifact struct {
 	// rootID is the folder the walk opened at Root, so a grant opens only
 	// that folder, even when Root's path leads elsewhere by then.
 	rootID os.FileInfo
+	// dirID is the folder the walk read the page in, so a grant refuses a
+	// folder replaced by another of the same name, even inside Root.
+	dirID os.FileInfo
 }
 
 // A capability is bound to the address of the browser that opened it: a page
@@ -306,6 +309,11 @@ func walkRoot(root string, byPath map[string]Artifact) {
 		if err != nil {
 			continue
 		}
+		dirID, err := f.Stat()
+		if err != nil {
+			_ = f.Close()
+			continue
+		}
 		for budget > 0 && len(byPath) < artifactMaxFiles {
 			entries, err := f.ReadDir(min(artifactBatch, budget))
 			budget -= len(entries)
@@ -319,7 +327,7 @@ func walkRoot(root string, byPath map[string]Artifact) {
 					}
 					continue
 				}
-				addArtifact(root, id, rel, d, byPath)
+				addArtifact(Artifact{Root: root, Path: filepath.ToSlash(rel), rootID: id, dirID: dirID}, d, byPath)
 			}
 			if err != nil { // io.EOF at the folder's end
 				break
@@ -329,8 +337,8 @@ func walkRoot(root string, byPath map[string]Artifact) {
 	}
 }
 
-// addArtifact adds the file rel under root when it is an HTML page.
-func addArtifact(root string, id os.FileInfo, rel string, d fs.DirEntry, byPath map[string]Artifact) {
+// addArtifact adds the file a names, found as d, when it is an HTML page.
+func addArtifact(a Artifact, d fs.DirEntry, byPath map[string]Artifact) {
 	if len(byPath) >= artifactMaxFiles || !d.Type().IsRegular() || !isHTML(d.Name()) {
 		return
 	}
@@ -338,11 +346,12 @@ func addArtifact(root string, id os.FileInfo, rel string, d fs.DirEntry, byPath 
 	if err != nil || info.Size() > artifactMaxSize {
 		return
 	}
-	p := filepath.Join(root, rel)
-	if old, ok := byPath[p]; ok && len(old.Root) >= len(root) {
+	p := filepath.Join(a.Root, filepath.FromSlash(a.Path))
+	if old, ok := byPath[p]; ok && len(old.Root) >= len(a.Root) {
 		return
 	}
-	byPath[p] = Artifact{Root: root, Path: filepath.ToSlash(rel), Size: info.Size(), Modified: info.ModTime(), rootID: id}
+	a.Size, a.Modified = info.Size(), info.ModTime()
+	byPath[p] = a
 }
 
 func isHTML(name string) bool {
@@ -355,11 +364,12 @@ var errNotListed = errors.New("the folder changed since it was listed")
 
 // openPageDir opens the folder rel (slash-separated) under a listed root and
 // pins it: the folder opened at root must be the one the walk listed (id),
-// whatever link now sits at root or any folder above it, and no link may sit
-// on the way to rel, so the handle reaches nothing outside the listed root.
-// os.Root keeps a link swapped in during the open inside the root too.
-func openPageDir(root string, id os.FileInfo, rel string) (*os.Root, error) {
-	if id == nil {
+// whatever link now sits at root or any folder above it, no link may sit on
+// the way to rel, and the folder opened at rel must be the one the walk read
+// the page in (dirID), so the handle reaches only the folder listed. os.Root
+// keeps a link swapped in during the open inside the root too.
+func openPageDir(root string, id os.FileInfo, rel string, dirID os.FileInfo) (*os.Root, error) {
+	if id == nil || dirID == nil {
 		return nil, errNotListed
 	}
 	r, err := os.OpenRoot(root)
@@ -372,6 +382,10 @@ func openPageDir(root string, id os.FileInfo, rel string) (*os.Root, error) {
 	}
 	rel = strings.Trim(rel, "/")
 	if rel == "" {
+		if !os.SameFile(id, dirID) {
+			_ = r.Close()
+			return nil, errNotListed
+		}
 		return r, nil
 	}
 	segs := strings.Split(rel, "/")
@@ -384,7 +398,14 @@ func openPageDir(root string, id os.FileInfo, rel string) (*os.Root, error) {
 	}
 	sub, err := r.OpenRoot(filepath.FromSlash(rel))
 	_ = r.Close()
-	return sub, err
+	if err != nil {
+		return nil, err
+	}
+	if opened, err := sub.Stat("."); err != nil || !os.SameFile(dirID, opened) {
+		_ = sub.Close()
+		return nil, errNotListed
+	}
+	return sub, nil
 }
 
 // grant returns a capability for the open folder dir that only client may
@@ -468,7 +489,7 @@ func (s *Server) openArtifact(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		dir, file := path.Split(a.Path)
-		d, err := openPageDir(a.Root, a.rootID, dir)
+		d, err := openPageDir(a.Root, a.rootID, dir, a.dirID)
 		if err != nil {
 			break
 		}
