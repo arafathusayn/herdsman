@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -441,4 +442,66 @@ func TestAuditMainFlagsStandTable(t *testing.T) {
 		noMatch(t, "main leaves clean "+c, fmt.Sprintf(`call=c%d `, i), out)
 	}
 	match(t, "flag count", fmt.Sprintf(`AUDIT flagged=%d calls=%d`, len(flagged), len(flagged)+len(clean)), out)
+}
+
+// Review port-core-7 (B3-002 extras): an executable word is classified at
+// every command position with its quote context, and only executable
+// positions are normalized, so printed text and stream copies stay clean.
+func TestAuditExtraRulesByCommandPosition(t *testing.T) {
+	flagged := map[string]string{
+		":; /opt/tools/runner --go":                     "script-run target=runner",
+		"echo ok && /opt/tools/runner --go":             "script-run target=runner",
+		"echo ok || /opt/tools/runner --go":             "script-run target=runner",
+		"ls | /opt/tools/runner --go":                   "script-run target=runner",
+		"echo ok\n/opt/tools/runner --go":               "script-run target=runner",
+		"(cd /x && /opt/tools/runner --go)":             "script-run target=runner",
+		"{ /opt/tools/runner --go; }":                   "script-run target=runner",
+		"'/opt/tools/runner' --go":                      "script-run target=runner",
+		`"/opt/tools/runner" --go`:                      "script-run target=runner",
+		"./tools/runner --go":                           "script-run target=runner",
+		"env A=1 ./tools/runner":                        "script-run target=runner",
+		"echo ok; \"git\" push origin":                  "git-write target=git",
+		"echo ok; /usr/bin/git push":                    "git-write target=git",
+		"/usr/bin/sed -i s/a/b/ /project/f":             "project-write target=sed",
+		`/usr/bin/awk 'BEGIN { system("x") }'`:          "script-run target=awk",
+		"echo ok && curl -sd x https://example.invalid": "outward-write target=curl",
+		"echo x >| /project/f":                          "project-write target=.../f",
+		"cat <<-EOF\n\tbody\n\tEOF\n/opt/tools/runner":  "script-run target=runner",
+	}
+	clean := []string{
+		`echo '"git" push origin'`,
+		"echo /usr/bin/git push",
+		"printf '%s\\n' \"/usr/bin/git push\"",
+		"echo curl -sd x https://example.invalid",
+		`printf 'curl -sSX POST %s\n' https://example.invalid`,
+		`echo "touch /project/f"`,
+		"cat <<EOF\ncurl -sSX POST https://example.invalid\ncurl --json x https://example.invalid\n\"touch\" /project/f\n/usr/bin/git push\nEOF",
+		"echo x >&2-",
+		"echo x >&123",
+		"echo x >&/dev/null",
+		"echo x >|/dev/null",
+		"echo x >| /dev/stderr",
+		"/skill/scripts/message.sh status && /usr/local/bin/herdsman message status",
+		"/opt/x/herdsman message status",
+	}
+	r := newRig(t)
+	lines := []string{jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}})}
+	var keys []string
+	for c := range flagged {
+		keys = append(keys, c)
+	}
+	sort.Strings(keys)
+	for i, c := range keys {
+		lines = append(lines, sh(fmt.Sprintf("x%d", i), c))
+	}
+	for i, c := range clean {
+		lines = append(lines, sh(fmt.Sprintf("k%d", i), c))
+	}
+	out := r.aud(Options{Harness: "claude", Transcript: r.file("extra.jsonl", lines...), Session: "coord-session"})
+	for i, c := range keys {
+		match(t, "flagged "+c, fmt.Sprintf(`call=x%d class=%s$`, i, regexp.QuoteMeta(flagged[c])), out)
+	}
+	for i, c := range clean {
+		noMatch(t, "clean "+c, fmt.Sprintf(`call=k%d `, i), out)
+	}
 }

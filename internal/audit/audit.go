@@ -133,7 +133,7 @@ func run(o Options, w io.Writer) (int, int, error) {
 			if r.cmd == "" {
 				return calls, flagged, gap("malformed tool-call arguments: call %s", r.id)
 			}
-			c := a.shellClass(r.cmd)
+			c := a.shellClass(r.cmd, r.raw)
 			if c != "" && slices.Contains(grants, r.cmd) {
 				c = ""
 			}
@@ -253,12 +253,14 @@ func checkSession(o Options, records []any) error {
 }
 
 // row is one tool call (and, for a patch, one patched path).
-type row struct{ tool, id, path, cmd string }
+// raw is the command as the transcript holds it, newlines kept, for the
+// B3-002 extra rules only; main's checks read cmd, flattened as main does.
+type row struct{ tool, id, path, cmd, raw string }
 
 var unsafeChars = strings.NewReplacer("\t", " ", "\n", " ", "\r", " ", "\x1f", " ")
 
 func newRow(tool, id, path, cmd string) row {
-	return row{unsafeChars.Replace(tool), unsafeChars.Replace(id), unsafeChars.Replace(path), unsafeChars.Replace(cmd)}
+	return row{unsafeChars.Replace(tool), unsafeChars.Replace(id), unsafeChars.Replace(path), unsafeChars.Replace(cmd), cmd}
 }
 
 func claudeRows(records []any) []row {
@@ -330,7 +332,7 @@ func codexRows(records []any) []row {
 			}
 			switch {
 			case args == nil:
-				rows = append(rows, row{"!malformed", id, "", ""})
+				rows = append(rows, row{"!malformed", id, "", "", ""})
 			case p["name"] == "apply_patch":
 				rows = append(rows, patchRows("apply_patch", id, alt(alt(args["input"], args["patch"]), ""))...)
 			default:
@@ -414,101 +416,11 @@ func program(match string) string {
 // (87c5670's transcript-audit.sh, ported as is) read the command text
 // unchanged and decide first; e93bcc1's B3-002 detections only add flags
 // to a command main leaves clean.
-func (a auditor) shellClass(cmd string) string {
+func (a auditor) shellClass(cmd, raw string) string {
 	if c := a.mainClass(cmd); c != "" {
 		return c
 	}
-	return a.extraClass(cmd)
-}
-
-// The B3-002 extra rules (e93bcc1): curl option clusters, --json and
-// --form*; the >| and >&path redirects; programs named by a system command
-// folder path or in quotes.
-var (
-	curlExtraRE  = regexp.MustCompilePOSIX(b + `(curl|wget)[[:space:]](` + n + `[[:space:]])?(-[a-zA-Z]*X[[:space:]=]*(POST|PATCH|PUT|DELETE)|(--request|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|(--data[a-z-]*|--json|--form[a-z-]*|--upload-file|--post-data|--post-file)([[:space:]=]|$)|-[a-zA-Z]*[dFT])`)
-	redirExtraRE = regexp.MustCompilePOSIX(`>([|]|&)[[:space:]]*([^[:space:];&|()\\]+)`)
-	sysPath      = regexp.MustCompile(`^(/usr/local/bin|/opt/homebrew/bin|/usr/bin|/usr/sbin|/bin|/sbin)/[^/]+$`)
-	sysDirRE     = regexp.MustCompile(`(^|[;&|({[:space:]])(/usr/local/bin|/opt/homebrew/bin|/usr/bin|/usr/sbin|/bin|/sbin)/`)
-)
-
-// extraClass applies the B3-002 rules to a command main leaves clean. They
-// read main's classes again on the command without quotes and system
-// command folders (so "git" push and /usr/bin/git push are git writes),
-// plus the wider curl forms and the two redirect forms main skips.
-func (a auditor) extraClass(cmd string) string {
-	norm := sysDirRE.ReplaceAllString(stripQuotes(cmd), "$1")
-	for _, s := range []string{cmd, norm} {
-		if m := curlExtraRE.FindString(s); m != "" {
-			return "outward-write " + program(m)
-		}
-	}
-	if norm != cmd {
-		if c := a.patternClass(norm); c != "" {
-			return c
-		}
-		if m := writeRE.FindString(norm); m != "" {
-			return "project-write " + program(m)
-		}
-		if m := sedIRE.FindString(norm); m != "" {
-			return "project-write " + program(m)
-		}
-	}
-	// A program named by an absolute path outside the system command
-	// folders is an unknown executable: a script run. Only the command's
-	// own first word is read (no segmenting, so quoted text in an argument
-	// never reads as a program).
-	words := strings.Fields(cmd)
-	i := 0
-	for i < len(words) && (slices.Contains(wrappers, words[i]) || strings.Contains(words[i], "=")) {
-		i++
-	}
-	if i < len(words) && strings.HasPrefix(words[i], "/") && !sysPath.MatchString(words[i]) && !a.channelScript(words[i]) {
-		return "script-run " + base(words[i])
-	}
-	// >| and >&file write a file; >&2 and >&- copy a stream.
-	for _, m := range redirExtraRE.FindAllStringSubmatch(stripQuotes(cmd), -1) {
-		op, t := m[1], m[2]
-		if op == "&" && (t == "-" || allDigits(t)) {
-			continue
-		}
-		if t == "/dev/null" || t == "/dev/stdout" || t == "/dev/stderr" || t == "/dev/tty" {
-			continue
-		}
-		if !a.inRoot(t) {
-			return "project-write .../" + base(t)
-		}
-	}
-	return ""
-}
-
-// patternClass is main's pattern classes alone, without the write and
-// script-run checks.
-func (a auditor) patternClass(cmd string) string {
-	for _, p := range []struct {
-		re    *regexp.Regexp
-		class string
-	}{{gitRE, "git-write"}, {ghAPIRE, "outward-write"}, {ghWRE, "outward-write"}, {curlRE, "outward-write"},
-		{runRE, "test-or-package"}, {testsRE, "test-or-package"}, {svcRE, "service-or-container"}} {
-		if m := p.re.FindString(cmd); m != "" {
-			return p.class + " " + program(m)
-		}
-	}
-	if awkRunRE.MatchString(cmd) && awkFxRE.MatchString(cmd) {
-		return "script-run awk"
-	}
-	return ""
-}
-
-func allDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
-	}
-	return true
+	return a.extraClass(raw)
 }
 
 // mainClass is 87c5670's shell_class.
