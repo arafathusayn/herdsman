@@ -132,6 +132,8 @@ test("each checkpointer bound refusal shows its own message and marks the group"
     submit(f.body);
     expect(f.sent).toEqual([]);
     expect(errorOf(f.body, field)).toBe(message);
+    expect(byName(f.body, field).classList.contains("invalid")).toBe(true);
+    expect(byName(f.body, field === "minutes" ? "limit" : "minutes").classList.contains("invalid")).toBe(false);
     expect(box(f.body, "checkpointer")?.classList.contains("invalid")).toBe(true);
     // Typing elsewhere keeps the message; fixing the field clears it.
     type(byName(f.body, "request"), "go");

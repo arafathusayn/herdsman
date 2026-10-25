@@ -4347,3 +4347,12 @@ mark {
 .nr-folder input::-webkit-calendar-picker-indicator {
   opacity: 0.45;
 }
+
+/* Inside the checkpointer group only the input at fault turns red. */
+.new-route .nr-ck.invalid input.nr-num:not(.invalid) {
+  border-color: var(--border);
+}
+
+.new-route .nr-ck input.nr-num.invalid {
+  border-color: var(--danger);
+}

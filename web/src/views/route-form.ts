@@ -198,6 +198,8 @@ export function routeForm(
       const own = name === "checkpointer" ? checkpointerFields.some((k) => errors[k]) : !!errors[name];
       box.classList.toggle("invalid", own);
     }
+    // Inside the checkpointer group, only the input at fault is marked.
+    for (const k of ["minutes", "limit"]) boxes.get(`${k}-input`)?.classList.toggle("invalid", !!errors[k]);
     for (const [name, msg] of messages) {
       if (!errors[name]) {
         msg.remove();
@@ -243,6 +245,12 @@ export function routeForm(
       oninput: (e: Event) => set({ [name]: (e.target as HTMLInputElement).value } as Partial<RouteForm>, false),
       ...extra,
     });
+
+  const numInput = (name: "minutes" | "limit", extra: Record<string, unknown> = {}): HTMLInputElement => {
+    const el = text(name, { class: `nr-num${errors[name] ? " invalid" : ""}`, ...extra });
+    boxes.set(`${name}-input`, el);
+    return el;
+  };
 
   const harnessFields = (which: "main" | "orch", nameField: "name" | "orchName", who: string): HTMLElement[] => {
     const hn = f[which];
@@ -364,14 +372,8 @@ export function routeForm(
         ? h(
             "div",
             { class: "nr-row" },
-            h(
-              "label",
-              { class: "nr-inline" },
-              "every",
-              text("minutes", { inputmode: "numeric", class: "nr-num" }),
-              "min",
-            ),
-            h("label", { class: "nr-inline" }, "compact at", text("limit", { class: "nr-num" }), "tokens"),
+            h("label", { class: "nr-inline" }, "every", numInput("minutes", { inputmode: "numeric" }), "min"),
+            h("label", { class: "nr-inline" }, "compact at", numInput("limit"), "tokens"),
           )
         : null,
       checkpointerFields.map(errorLine),
