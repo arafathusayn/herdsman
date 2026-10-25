@@ -265,8 +265,8 @@ ln -s "$PWD/herdsman/skills/herdsman" &lt;harness skills folder&gt;/herdsman</co
               <path d="M12.5 15h4" />
             </svg>
             <span
-              >Start the orchestrator inside a herdr pane. The skill stops when <code>HERDR_ENV</code> is not
-              <code>1</code>.</span
+              >Start the orchestrator inside a herdr pane. Outside herdr (<code>HERDR_ENV</code> is not <code>1</code>),
+              the skill asks whether the agents run in herdr panes or as background subagents.</span
             >
           </p>
 
@@ -943,10 +943,11 @@ make build</code></pre>
               <pre><code>brew trust arafathusayn/tap</code></pre>
             </details>
             <details class="fold">
-              <summary>The skill stops at once</summary>
+              <summary>The skill asks where agents run</summary>
               <p>
-                Start the orchestrator inside a herdr pane. The skill runs only when <code>HERDR_ENV</code> is
-                <code>1</code>.
+                The orchestrator is outside herdr (<code>HERDR_ENV</code> is not <code>1</code>). Answer whether each
+                role's agents run in herdr panes or as background subagents, or start the orchestrator inside a herdr
+                pane.
               </p>
             </details>
           </div>

@@ -129,7 +129,7 @@ ln -s "$PWD/herdsman/skills/herdsman" <harness skills folder>/herdsman
 
 </details>
 
-**3. Start the orchestrator** inside a herdr pane. The skill stops when `HERDR_ENV` is not `1`.
+**3. Start the orchestrator** inside a herdr pane. Outside herdr (`HERDR_ENV` is not `1`), the skill asks whether each role's agents run in herdr panes or as background subagents of the orchestrator's harness.
 
 ## Usage
 

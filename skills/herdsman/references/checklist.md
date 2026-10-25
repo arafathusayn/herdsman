@@ -14,7 +14,7 @@ The steps of [`SKILL.md`](../SKILL.md) as lines to tick, each linked to the rule
 ### Step 0: preconditions
 
 - [ ] C0.1 all: Read first: [`harness-guards.md`](harness-guards.md), before the first shell command, and [`herdr.md`](herdr.md).
-- [ ] C0.2 all: `HERDR_ENV=1`; `herdr agent start --help`; `<harness> --version` for every harness; `gh auth status`; the target repository's remote ([`SKILL.md`](../SKILL.md), step 0).
+- [ ] C0.2 all: `HERDR_ENV=1`, or outside Herdr the runner question of step 1; `herdr agent start --help`; `<harness> --version` for every harness; `gh auth status`; the target repository's remote ([`SKILL.md`](../SKILL.md), step 0).
 - [ ] C0.3 all: Read the skill checkout's git status before any change to this skill ([`SKILL.md`](../SKILL.md), step 6).
 
 ### Step 1: interview and dispatch plan
