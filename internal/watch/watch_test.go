@@ -689,3 +689,14 @@ func TestBlockedTransitionsAndStalledFilter(t *testing.T) {
 		}
 	}
 }
+
+// R5 finding 9: a known prompt while Herdr reports blocked names the prompt.
+func TestBlockedStatusWithAKnownPrompt(t *testing.T) {
+	h := newHarness(t)
+	a := herdrtest.Agent("w9:p1", "s")
+	a["agent_status"] = "blocked"
+	h.fx.SetAgent("w9:p1", a)
+	h.screen("w9:p1", "Password for 'https://x@github.com':", "a", "b", "c", "d", "e", "f")
+	h.screen("w9:p2", "Pursuing goal (1m)")
+	match(t, "the prompt is the reason", `BLOCKED im-a Password for `, h.wait())
+}

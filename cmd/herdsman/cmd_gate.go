@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	register(command{name: "approval-gate", summary: "Bind a relayed go before its effect: approval-gate consume ... | complete <request-id> <outcome>.", run: runGate})
+	register(command{name: "approval-gate", summary: "Bind a relayed go before its effect: approval-gate consume ... | complete <request-id> <outcome>.", help: gateHelp, run: runGate})
 }
 
 // inboxOptions are the inbox settings of the environment. HEALTH_AFTER
@@ -47,6 +47,10 @@ func inboxOptions() (inbox.Options, error) {
 }
 
 func runGate(args []string, _ io.Reader, stdout, stderr io.Writer) int {
+	args, asJSON := takeJSON(args)
+	if asJSON {
+		stdout = newEventJSON(stdout)
+	}
 	opts, err := inboxOptions()
 	if err != nil {
 		fmt.Fprintf(stderr, "herdsman approval-gate: %v\n", err)

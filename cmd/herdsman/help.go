@@ -79,3 +79,32 @@ exit codes:
      not be read three polls in a row
   2  usage error, or an invalid setting; nothing ran
 `
+
+const gateHelp = `usage: herdsman approval-gate consume <go-file> <action> <target> <revision> <draft-file|->
+       herdsman approval-gate complete <request-id> <outcome>
+
+Binds a relayed go to one effect: consume checks the go and records the
+request (CONSUME, DUPLICATE, RECONCILE or REFUSED lines); complete records
+its outcome (COMPLETED). --json prints each line as an Event object.
+HEALTH_AFTER (1 to 86400) and LOCK_WAIT (1 to 60) are strict settings.
+
+exit codes:
+  0  consumed or completed; act once
+  1  refused: the go does not bind this effect
+  2  usage error, an invalid setting, or the inbox cannot be used
+  3  a human must repeat the setup
+  4  a duplicate: the request already has an outcome
+  5  reconcile: consumed without an outcome; inspect external state first
+`
+
+const auditHelp = `usage: herdsman transcript-audit claude|codex <transcript> <session-id> [allowed-write-root/ ...]
+
+Audits a transcript for writes: GAP, FLAG and AUDIT lines. --json prints
+each line as an Event object. AUDIT_GRANT_FILE and AUDIT_CHANNEL_DIR as in
+the skill.
+
+exit codes:
+  0  clean
+  1  flagged calls: report each to the human and stop work
+  2  a gap: the transcript could not be audited
+`
