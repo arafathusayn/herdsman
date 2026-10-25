@@ -50,7 +50,8 @@ func (c *courier) seedAllocations() error {
 	}
 	for _, d := range ids {
 		id := filepath.Base(d)
-		if inbox.IDOK(id) && !inbox.Exists(filepath.Join(d, "terminal.json")) {
+		// An existing mark keeps its age.
+		if inbox.IDOK(id) && !inbox.Exists(filepath.Join(d, "terminal.json")) && !inbox.Exists(e.allocationMark(id)) {
 			if err := e.markAllocation(id); err != nil {
 				return err
 			}

@@ -105,10 +105,13 @@ func TestR4UnclearAllocationKept(t *testing.T) {
 		c := newCase(t, true)
 		c.send()
 		os.Remove(c.ob("new", ID+".md"))
+		e := openEnv(t, c, nil)
+		if err := (&courier{Env: e}).retireAbandoned(); err != nil { // the seeding sweep
+			t.Fatal(err)
+		}
 		past := c.now.Add(-2 * time.Hour)
 		os.Chtimes(c.in("state", "allocations", ID), past, past)
 		chmodT(t, c.in("ids", ID), 0)
-		e := openEnv(t, c, nil)
 		if err := (&courier{Env: e}).retireAbandoned(); err != nil {
 			t.Fatal(err)
 		}
