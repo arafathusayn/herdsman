@@ -28,7 +28,7 @@ import (
 // pull request in a row or without a gh token. gh's JSON is read here, not
 // with --jq.
 func PRs(ctx context.Context, env Env, d Deps) int {
-	d.defaults()
+	d.defaults(ctx)
 	for _, k := range []string{"HERDSMAN_PRS", "HERDSMAN_REPO", "HERDSMAN_PR_STATE"} {
 		if env.get(k) == "" {
 			fmt.Fprintf(d.Stderr, "herdsman watch prs: %s: set %s\n", k, k)

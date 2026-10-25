@@ -405,3 +405,19 @@ func TestWaiterReviewersAndDeadline(t *testing.T) {
 		t.Errorf("default settings: %q", b.String())
 	}
 }
+
+// The default sleep waits its time, and ends at once, false, when the
+// context ends (an interrupt of the command).
+func TestDefaultSleep(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var d Deps
+	d.defaults(ctx)
+	if !d.Sleep(time.Millisecond) {
+		t.Error("a short sleep ends the loop")
+	}
+	cancel()
+	start := time.Now()
+	if d.Sleep(time.Hour) || time.Since(start) > 10*time.Second {
+		t.Error("an ended context does not stop the sleep")
+	}
+}

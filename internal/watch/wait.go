@@ -37,7 +37,7 @@ var (
 // this process (Deps.Status); with it, it runs that program directly (no
 // shell), which must be executable, and reads its output as a snapshot.
 func Wait(ctx context.Context, env Env, d Deps) int {
-	d.defaults()
+	d.defaults(ctx)
 	reports := env.or("HERDSMAN_REPORTS", "/ABSOLUTE/PATH/TO/writable-root/reports")
 	st := state(env.or("HERDSMAN_STATE", "/ABSOLUTE/PATH/TO/scratchpad/watch-state"))
 	_ = os.MkdirAll(string(st), 0o755)

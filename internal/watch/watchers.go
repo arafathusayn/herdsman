@@ -28,7 +28,7 @@ const (
 // REPORT, REPORT-UPDATED, BLOCKED (once per screen change), STALL and IDLE
 // lines, every ImplementersPoll.
 func Implementers(ctx context.Context, env Env, d Deps) int {
-	d.defaults()
+	d.defaults(ctx)
 	reports := env.or("HERDSMAN_REPORTS", "/ABSOLUTE/PATH/TO/writable-root/reports")
 	st := state(env.or("HERDSMAN_STATE", "/ABSOLUTE/PATH/TO/scratchpad/watch-state"))
 	_ = os.MkdirAll(string(st), 0o755)
@@ -76,7 +76,7 @@ func Implementers(ctx context.Context, env Env, d Deps) int {
 // watch-reviewer.sh). It never ends on its own: REVIEW, BLOCKED and IDLE
 // lines, every ReviewerPoll.
 func Reviewer(ctx context.Context, env Env, d Deps) int {
-	d.defaults()
+	d.defaults(ctx)
 	reports := env.or("HERDSMAN_REPORTS", "/ABSOLUTE/PATH/TO/writable-root/reports")
 	st := state(env.or("HERDSMAN_STATE", "/ABSOLUTE/PATH/TO/scratchpad/watch-state"))
 	pane := env.or("HERDSMAN_REVIEWER_PANE", "w2:pR")

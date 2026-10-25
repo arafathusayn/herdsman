@@ -49,12 +49,23 @@ type Deps struct {
 	Gh func(ctx context.Context, env []string, args ...string) ([]byte, error)
 }
 
-func (d *Deps) defaults() {
+// defaults fills the clock and the sleep; the default sleep ends early, with
+// false, when ctx ends, so an interrupt stops a watcher at once.
+func (d *Deps) defaults(ctx context.Context) {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
 	if d.Sleep == nil {
-		d.Sleep = func(t time.Duration) bool { time.Sleep(t); return true }
+		d.Sleep = func(t time.Duration) bool {
+			timer := time.NewTimer(t)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return false
+			case <-timer.C:
+				return true
+			}
+		}
 	}
 }
 
