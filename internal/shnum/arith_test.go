@@ -64,7 +64,7 @@ func TestEvalMatchesBash(t *testing.T) {
 }
 
 func TestEvalErrors(t *testing.T) {
-	if _, err := Eval("1/0", nil); err == nil || err.Error() != "1/0: division by 0" {
+	if _, err := Eval("1/0", nil); err == nil || err.Error() != "1/0: division by 0 (error token is \"0\")" {
 		t.Errorf("%v", err)
 	}
 	// The recursion limit counts the expansions of names.
@@ -83,5 +83,22 @@ func TestEvalErrors(t *testing.T) {
 	}
 	if _, err := Eval("FOO[1", lookupIn(bashEnv)); err == nil {
 		t.Error("a subscript without its ]")
+	}
+}
+
+// TestEvalErrorTextMatchesBash: an error reads as bash's line, after its
+// "<script>: line N: " prefix: the expression, the message and the token.
+func TestEvalErrorTextMatchesBash(t *testing.T) {
+	for _, expr := range []string{"1/0", " 1/0 ", "1/0 ", "08", " 08 + 1", "1 + 09 * 2", "1 + 0#1", "3 + 65#1 ", "x+ ", "2**-1 ",
+		"1 2 ", "1 ? 2 ", "a = 1 +", "1%0", "BAD"} {
+		Bash(t, nil, "true") // skips without bash
+		cmd := exec.Command("/bin/bash", "-c", "echo $(("+expr+"))")
+		cmd.Env = []string{"PATH=/usr/bin:/bin", "LC_ALL=C", "BAD=1/0"}
+		b, _ := cmd.CombinedOutput()
+		want := strings.TrimPrefix(strings.TrimRight(string(b), "\n"), "/bin/bash: ")
+		_, err := Eval(expr, lookupIn(map[string]string{"BAD": "1/0"}))
+		if err == nil || err.Error() != want {
+			t.Errorf("$((%s)): bash %q, Go %v", expr, want, err)
+		}
 	}
 }

@@ -32,11 +32,14 @@ func Eval(expr string, lookup func(string) (string, bool)) (int64, error) {
 
 // Error is an arithmetic error, worded as bash words it.
 type Error struct {
-	Expr string // the expression being evaluated
-	Msg  string // what bash prints after it, e.g. "division by 0"
+	Expr  string // the expression being evaluated, as bash shows it
+	Msg   string // what bash prints after it, e.g. "division by 0"
+	Token string // the text from the token bash stopped at
 }
 
-func (e *Error) Error() string { return e.Expr + ": " + e.Msg }
+func (e *Error) Error() string {
+	return e.Expr + ": " + e.Msg + ` (error token is "` + e.Token + `")`
+}
 
 const maxDepth = 1024 // bash's MAX_EXPR_RECURSION_LEVEL
 
@@ -78,6 +81,8 @@ type parser struct {
 	tokval   int64
 	tokstr   string // the name of the last tStr
 	assignOp int    // the operator of a tOpAssign
+	last     int    // bash's lasttp: where the token just read starts
+	cut      int    // while a number is read, its end: bash cuts the expression there
 }
 
 // panic(errStop) carries an arithmetic error up to eval.
@@ -89,7 +94,7 @@ func (e *evaluator) eval(expr string) (v int64, err error) {
 	}
 	e.depth++
 	defer func() { e.depth-- }()
-	p := &parser{e: e, src: expr}
+	p := &parser{e: e, src: expr, cut: -1}
 	defer func() {
 		if r := recover(); r != nil {
 			v, err = 0, r.(errStop).err // any other panic is a bug: it panics again here
@@ -107,7 +112,14 @@ func (e *evaluator) eval(expr string) (v int64, err error) {
 }
 
 func (p *parser) fail(msg string) {
-	panic(errStop{&Error{Expr: p.src, Msg: msg}})
+	src, tok := p.src, ""
+	if p.cut >= 0 {
+		src = src[:p.cut]
+	}
+	if p.last < len(src) {
+		tok = src[p.last:]
+	}
+	panic(errStop{&Error{Expr: strings.TrimLeft(src, " \t\n"), Msg: msg, Token: tok}})
 }
 
 func isStarter(c byte) bool {
@@ -131,7 +143,9 @@ func (p *parser) readtok() {
 		p.pos++
 	}
 	p.lasttok = p.tok
+	p.last = p.pos
 	if p.pos >= len(p.src) {
+		p.last = max(p.pos-1, 0) // at the end, bash points at the last character
 		p.tok = tEOF
 		return
 	}
@@ -176,7 +190,9 @@ func (p *parser) readtok() {
 			}
 			p.pos++
 		}
+		p.cut = p.pos
 		p.tokval = p.number(p.src[start:p.pos])
+		p.cut = -1
 		p.tok = tNum
 		return
 	}
