@@ -6,11 +6,11 @@ Claude Code can take any agent type. Most notes below come from reviewer panes; 
 
 ```
 herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
-  --model 'claude-opus-5-5[1m]' --effort xhigh --permission-mode auto \
+  --model '<model>' --effort <effort> --permission-mode auto \
   --add-dir <route folder root>
 ```
 
-- `interactive_ready:true` arrives in seconds; the pane header shows the model and effort ("Opus 5.5 (1M context) xhigh"). Take the model from the interview.
+- `<model>` and `<effort>` come from the harness's model list and the user's choice in the interview; the skill names none. `interactive_ready:true` arrives in seconds; the pane header shows the model and effort that Claude Code reports. Check them against the interview.
 - One `--add-dir` is safer: a launch with two was refused once by the auto-mode classifier as "Create Unsafe Agents".
 - To stop an idle Claude pane, type `/exit` and press enter (`herdr agent prompt <name> "/exit"`). `ctrl+c` and `ctrl+d` do not end the session. The exit prints the resume id in the scrollback. Before the next start in that pane, read a bare shell prompt ([`herdr.md`](herdr.md), Gotchas). After a session exits, the Herdr name is gone (`agent_not_found`); relaunch and send a full-contract prompt, because the new session remembers nothing of earlier rounds.
 - Resume form: `claude --resume <session id>`. Through Herdr, put `--resume <session id>` first in the launch arguments, followed by the same launch flags as the first start (`herdr agent start <name> --kind claude --pane <id> --timeout 90000 -- --resume <session id> <same flags>`), because flags apply per process. Take the session id from the exit line in the scrollback, or from the transcript file name (`<session id>.jsonl`, see "Claude Code panes"). A resumed session keeps its earlier context; a fresh launch does not.
@@ -19,7 +19,7 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 - Start it in the reviewers' tab (`<project>-reviewers`, labels in [`herdr.md`](herdr.md), Etiquette) with `--cwd <writable root>` so its worktree and report files are local.
 - Review prompts go as `/goal <whole review>` (user rule). Before each new review: `/clear`, or `/compact` when the review needs the earlier rounds (a re-review of the same PR). Every goal says "Find only P0 and P1 issues."
 
-## Prompt shape for Opus 5.5 (source: claude.dev/blog/getting-the-most-out-of-opus-5-5)
+## Prompt shape for Claude Code reviewers
 
 - Give the whole review in one message and name the finish line: the report file with a `VERDICT:` line for the head commit.
 - Remove "think carefully" and "think step by step". The model reasons before each reply without them.
@@ -28,7 +28,7 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 - Findings that it could not confirm say so and say where it looked.
 - When a long run ends, read first what the reviewer waits on (`NEEDS:`), then the findings.
 - Follow-up messages during a run are allowed (scope additions), but for this loop prefer a new prompt per review.
-- A flagged message switches the session to an older model automatically. After such an event check the pane header still shows "Opus 5.5"; return with `/model`. The switch can be turned off in `/config` ("Switch models when a message is flagged"), but that is the user's setting: ask first.
+- A flagged message can switch the session to another model automatically. After such an event check that the pane header still shows the model from the interview; return with `/model`. The switch can be turned off in `/config` ("Switch models when a message is flagged"), but that is the user's setting: ask first.
 
 ## Skills
 
@@ -48,7 +48,7 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 - After a `fix` verdict the implementer (or, after the final review, the integrator) fixes; the reviewer then reviews the new head as `review-<pr>-<k+1>`. Never overwrite a review file.
 - The review after the third fix round on one pull request is the final gate: stop only when it still finds P0 or P1, and then show the user the remaining findings and both sides' reasons ([`SKILL.md`](../SKILL.md), step 5 item 4).
 - The reviewer posts nothing on GitHub. If the user wants review comments on the pull request, that is a separate, explicit step.
-- Context (user rule): the same rule as for every agent. A re-review of a pull request the reviewer already reviewed is a follow-up: keep the context (it knows its own findings), and `/compact` it right after its previous turn ends, with no threshold, except near the usage limit ([`context-hygiene.md`](context-hygiene.md); [`flow-and-time.md`](flow-and-time.md), Quota is capacity). A pull request it has not seen is a new task: `/clear` first, confirm the empty prompt, then the review prompt (which names the contract file, so nothing is lost). A review of a medium pull request used about 10% of a 1M context at xhigh. Claude Code's percentage is in the pane footer ("19% 190k/1M"); `herdr agent list` shows none for Claude.
+- Context (user rule): the same rule as for every agent. A re-review of a pull request the reviewer already reviewed is a follow-up: keep the context (it knows its own findings), and `/compact` it right after its previous turn ends, with no threshold, except near the usage limit ([`context-hygiene.md`](context-hygiene.md); [`flow-and-time.md`](flow-and-time.md), Quota is capacity). A pull request it has not seen is a new task: `/clear` first, confirm the empty prompt, then the review prompt (which names the contract file, so nothing is lost). A review of a medium pull request used about a tenth of a large context window. Claude Code's percentage is in the pane footer ("19% 190k/1M"); `herdr agent list` shows none for Claude.
 
 ## Watching the reviewer
 
