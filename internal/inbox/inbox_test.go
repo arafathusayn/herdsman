@@ -29,7 +29,7 @@ func TestDigestMatchesPOSIX(t *testing.T) {
 
 func TestStrictJSON(t *testing.T) {
 	good := []string{`{}`, `{"a":{"b":[1,{"c":2}]},"d":"x"}`, `[1,2]`, `"s"`, ` {"a":1} `}
-	bad := []string{``, `{`, `{"a":1,"a":2}`, `{"a":1,"a":2}`, `{"x":{"a":1,"a":2}}`, `[{"a":1,"a":1}]`, `{"a":1}{"a":2}`, `{"a":1} x`, `[1,]`, `{"a":[1}`}
+	bad := []string{``, `{`, `{"a":1,"a":2}`, `{"a":1,"\u0061":2}`, `{"x":{"a":1,"a":2}}`, `[{"a":1,"a":1}]`, `{"a":1}{"a":2}`, `{"a":1} x`, `[1,]`, `{"a":[1}`}
 	for _, s := range good {
 		if err := inbox.StrictJSON([]byte(s)); err != nil {
 			t.Errorf("%s: %v", s, err)
@@ -390,9 +390,21 @@ func TestPreflight(t *testing.T) {
 	}
 	// V3c: an escaped duplicate key in the proof is no strict JSON.
 	b, _ := os.ReadFile(c.Proof)
-	c.Write(c.Proof, strings.Replace(string(b), `{"inbox":`, `{"policy_verified":true,"inbox":`, 1))
+	if !strings.HasPrefix(string(b), `{"inbox":`) {
+		t.Fatalf("the proof starts %.20q", b)
+	}
+	// The shell's spelling: policy_\u0076erified is policy_verified.
+	c.Write(c.Proof, strings.Replace(string(b), `{"inbox":`, `{"policy_\u0076erified":true,"inbox":`, 1))
 	if open().PreflightValid() {
 		t.Error("V3c an escaped duplicate key in the setup proof is refused")
+	}
+	c.Write(c.Proof, strings.Replace(string(b), `{"inbox":`, `{"policy_verified":true,"inbox":`, 1))
+	if open().PreflightValid() {
+		t.Error("(Go) an ordinary duplicate key in the setup proof is refused")
+	}
+	c.Write(c.Proof, string(b))
+	if !open().PreflightValid() {
+		t.Error("V3c the restored proof is the positive control")
 	}
 	c.Prove()
 	r := open()
