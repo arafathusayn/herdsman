@@ -379,6 +379,13 @@ new_case same-session noenroll
 set_agents sender-pane shared-session receiver-pane shared-session
 msg sender-pane message-register.sh propose "$A" adjutant >/dev/null
 out=$(msg receiver-pane message-register.sh propose "$O" orchestrator); check "V5 one session in two panes cannot form a pair" 'role/session already enrolled' "$out"
+# V6: a herdr that never reports launch_pending is not pending; a pending launch still cannot enroll.
+new_case no-launch-pending noenroll
+jq_edit 'del(.[].launch_pending)' "$C/agents.json"
+out=$(msg sender-pane message-register.sh propose "$A" adjutant); check "V6 a missing launch_pending can enroll" '^pending registry ' "$out"
+new_case launch-pending noenroll
+jq_edit '.["sender-pane"].launch_pending=true' "$C/agents.json"
+out=$(msg sender-pane message-register.sh propose "$A" adjutant); check "V6b a pending launch cannot enroll" 'cannot enroll current session' "$out"
 
 # E: allocation, envelope checks and verification that stays retryable.
 new_case envelope
@@ -496,6 +503,11 @@ jq_edit '.["task-pane"].agent_session.value="task-session"' "$C/agents.json"
 touch "$C/read-failure"
 out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G6 a failed pane read is refused" 'pane read failed' "$out"
 rm "$C/read-failure"
+jq_edit '.["task-pane"].launch_pending=true' "$C/agents.json"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G6b a pending launch is refused" 'not Codex or ready' "$out"
+jq_edit 'del(.["task-pane"].launch_pending)|.["task-pane"].agent_status="working"' "$C/agents.json"
+out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G6c a missing launch_pending is observed as not pending" '^NOOP verified working' "$out"
+jq_edit '.["task-pane"].launch_pending=false|.["task-pane"].agent_status="idle"' "$C/agents.json"
 check "G7 no guard sent any input" '^0$' "$(prompts)"
 out=$(msg sender-pane resume-goal-when-idle.sh im-task); check "G8 an idle paused Codex goal gets the resume" '^SENT /goal resume' "$out"
 check "G8b exactly one input, the exact text, to the task pane" '^agent prompt task-pane /goal resume$' "$(grep '^agent prompt' "$C/calls.log")"
