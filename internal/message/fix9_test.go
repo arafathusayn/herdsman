@@ -69,7 +69,7 @@ func reopenedRoot(t *testing.T, e *Env) *inbox.Root {
 // a plausible recipient without an entry; an allocation folder that cannot
 // be searched keeps its aged mark.
 func TestR4UnclearAllocationKept(t *testing.T) {
-	for _, mode := range []string{"schema", "renamed", "id"} {
+	for _, mode := range []string{"schema", "renamed", "identity", "id"} {
 		t.Run(mode, func(t *testing.T) {
 			c := newCase(t, true)
 			c.send()
@@ -80,6 +80,8 @@ func TestR4UnclearAllocationKept(t *testing.T) {
 			switch mode {
 			case "schema":
 				delete(m, "version")
+			case "identity":
+				m["to_identity"] = map[string]any{"pane": "", "session": map[string]any{}}
 			case "renamed":
 				delete(m, "version")
 				m["versions"] = 1
