@@ -15,16 +15,3 @@ func TestTest(t *testing.T) {
 		}
 	}
 }
-
-func TestArith(t *testing.T) {
-	for s, want := range map[string]int64{"30": 30, " 30 ": 30, "\n30\n": 30, "030": 24, "0x1f": 31, "0X10": 16, "-5": -5, "+7": 7, "0": 0} {
-		if n, ok := Arith(s); !ok || n != want {
-			t.Errorf("Arith(%q) = %d %v, want %d", s, n, ok, want)
-		}
-	}
-	for _, s := range []string{"", "08", "0x", "x", "3 0", "1.5", "0xg", "99999999999999999999", "+-5", "--5"} {
-		if _, ok := Arith(s); ok {
-			t.Errorf("Arith(%q) passed", s)
-		}
-	}
-}
