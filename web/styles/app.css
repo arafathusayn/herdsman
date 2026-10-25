@@ -4343,3 +4343,7 @@ mark {
     justify-self: start;
   }
 }
+
+.nr-folder input::-webkit-calendar-picker-indicator {
+  opacity: 0.45;
+}

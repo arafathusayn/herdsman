@@ -22,6 +22,7 @@ import {
   type RouteForm,
   setRole,
   skillWarnings,
+  stepNote,
   toRequest,
   update,
   validate,
@@ -512,15 +513,7 @@ function newRouteForm(dlg: HTMLDialogElement, body: HTMLFormElement, c: Catalog,
                 "span",
                 { class: "nr-item" },
                 h("span", null, s.step),
-                s.status === "ok"
-                  ? null
-                  : h(
-                      "small",
-                      null,
-                      s.status === "failed"
-                        ? `${s.code ? `${s.code}: ` : ""}${s.reason ?? ""}`
-                        : "skipped: an earlier step failed",
-                    ),
+                s.status === "ok" ? null : h("small", null, stepNote(s)),
               ),
               s.id ? h("code", null, s.id) : null,
             ),

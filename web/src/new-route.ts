@@ -1,7 +1,7 @@
 // The New route form's logic, apart from the DOM: defaults, the folder
 // list, labels, validation and the exact text the app will send. The server
 // checks everything again; this keeps the form honest and quick.
-import type { Catalog, CatalogKind, RouteRequest, RouteRole, State } from "./types.ts";
+import type { Catalog, CatalogKind, RouteRequest, RouteRole, RouteStep, State } from "./types.ts";
 
 export const CHECKPOINT_MIN_MINUTES = 5;
 export const CHECKPOINT_MAX_MINUTES = 240;
@@ -306,4 +306,12 @@ export function toRequest(f: RouteForm, c: Catalog): RouteRequest {
 /** Shows a home path with ~. */
 export function tilde(p: string, home: string): string {
   return home && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p;
+}
+
+/** The line under a step that did not pass: herdr's error (which starts with its code), or why it was skipped. */
+export function stepNote(s: RouteStep): string {
+  if (s.status === "skipped") return `skipped: ${s.reason ?? "an earlier step failed"}`;
+  if (s.status !== "failed") return "";
+  const reason = s.reason ?? "";
+  return s.code && !reason.startsWith(`${s.code}:`) ? `${s.code}: ${reason}` : reason;
 }

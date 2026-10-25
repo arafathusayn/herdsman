@@ -18,6 +18,7 @@ import {
   type RouteForm,
   setRole,
   skillWarnings,
+  stepNote,
   tilde,
   toRequest,
   update,
@@ -293,4 +294,20 @@ test("server fields map to form fields, and home paths show ~", () => {
   expect(tilde("/Users/me/x", "/Users/me")).toBe("~/x");
   expect(tilde("/Users/meme", "/Users/me")).toBe("/Users/meme");
   expect(tilde("/x", "")).toBe("/x");
+});
+
+test("a failed step shows herdr's error once, a skipped one says why", () => {
+  const base = { step: "s", method: "m" };
+  expect(stepNote({ ...base, status: "failed", code: "agent_not_ready", reason: "agent_not_ready: not yet" })).toBe(
+    "agent_not_ready: not yet",
+  );
+  expect(stepNote({ ...base, status: "failed", code: "herdr_error", reason: "bad pane id" })).toBe(
+    "herdr_error: bad pane id",
+  );
+  expect(stepNote({ ...base, status: "failed" })).toBe("");
+  expect(stepNote({ ...base, status: "skipped", reason: "an earlier step failed" })).toBe(
+    "skipped: an earlier step failed",
+  );
+  expect(stepNote({ ...base, status: "skipped" })).toBe("skipped: an earlier step failed");
+  expect(stepNote({ ...base, status: "ok" })).toBe("");
 });
