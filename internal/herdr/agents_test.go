@@ -202,3 +202,22 @@ func TestWaitAgentStatusFailures(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// R2 finding 3: the timeout covers the whole wait, the first read too. A
+// first answer that comes after the timeout is a timeout, never a success.
+func TestWaitAgentStatusTimesTheFirstRead(t *testing.T) {
+	srv, _, c := fixture(t)
+	srv.Handle("agent.get", func(map[string]any) (any, string) {
+		time.Sleep(300 * time.Millisecond)
+		a := herdrtest.Agent("w1:p1", "s")
+		return map[string]any{"type": "agent_info", "agent": a}, ""
+	})
+	start := time.Now()
+	_, err := c.WaitAgentStatus(context.Background(), "w1:p1", []herdr.Status{"idle"}, 10*time.Millisecond)
+	if !errors.Is(err, herdr.ErrWaitTimeout) {
+		t.Errorf("err = %v, want the timeout", err)
+	}
+	if d := time.Since(start); d > 250*time.Millisecond {
+		t.Errorf("the wait took %v, past its timeout", d)
+	}
+}

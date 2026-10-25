@@ -165,13 +165,7 @@ var ErrWaitTimeout = errors.New("herdr: timed out waiting for the agent status")
 // change between the reads is never missed and the event's own shape does
 // not matter.
 func (c *Client) WaitAgentStatus(ctx context.Context, target string, want []Status, timeout time.Duration) (Status, error) {
-	a, err := c.AgentGet(ctx, target)
-	if err != nil {
-		return "", err
-	}
-	if slices.Contains(want, a.Status) {
-		return a.Status, nil
-	}
+	// The timeout starts here and bounds every request, the first read too.
 	wctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if timeout > 0 {
@@ -187,6 +181,13 @@ func (c *Client) WaitAgentStatus(ctx context.Context, target string, want []Stat
 			return "", ErrWaitTimeout
 		}
 		return "", err
+	}
+	a, err := c.AgentGet(wctx, target)
+	if err != nil {
+		return fail(err)
+	}
+	if slices.Contains(want, a.Status) {
+		return a.Status, nil
 	}
 	hits := make(chan struct{}, 1)
 	ready := make(chan struct{})
