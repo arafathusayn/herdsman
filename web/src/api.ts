@@ -1,5 +1,18 @@
 import type { Host } from "./hosts.ts";
-import type { Action, ActionResult, ArtifactList, Channel, DiffSource, Entry, PaneRead, State } from "./types.ts";
+import type {
+  Action,
+  ActionResult,
+  ArtifactList,
+  Catalog,
+  Channel,
+  DiffSource,
+  Entry,
+  InboxState,
+  PaneRead,
+  RouteRequest,
+  RouteResult,
+  State,
+} from "./types.ts";
 
 export class AuthError extends Error {}
 
@@ -288,4 +301,33 @@ export async function messageBody(box: string, id: string): Promise<string> {
   const body = (await res.json()) as { body?: string; error?: string };
   if (!res.ok || body.body === undefined) throw new Error(body.error ?? `cannot read ${id} (${res.status})`);
   return body.body;
+}
+
+/** The harnesses a new route can start, with their models and efforts. */
+export async function catalog(): Promise<Catalog> {
+  const res = await call("/api/catalog", { headers: headers() });
+  if (res.status === 401) throw new AuthError("Session expired.");
+  if (!res.ok) throw new Error(`cannot read the harness list (${res.status})`);
+  return (await res.json()) as Catalog;
+}
+
+/** Creates a route: a refusal or a failed step comes back in the result, not as a throw. */
+export async function createRoute(r: RouteRequest): Promise<RouteResult> {
+  const res = await call("/api/routes", {
+    method: "POST",
+    headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify(r),
+  });
+  if (res.status === 401) throw new AuthError("Session expired: open the pairing link that herdsman web printed.");
+  const body = (await res.json()) as Partial<RouteResult>;
+  return { ok: false, steps: [], tabs: [], ...body };
+}
+
+/** What the setup checklist can read from a route's private inbox. */
+export async function inboxState(path: string): Promise<InboxState> {
+  const res = await call(`/api/routes/inbox?${new URLSearchParams({ path })}`, { headers: headers() });
+  if (res.status === 401) throw new AuthError("Session expired.");
+  const body = (await res.json()) as InboxState;
+  if (!res.ok) throw new Error(body.error ?? `cannot read the inbox (${res.status})`);
+  return body;
 }

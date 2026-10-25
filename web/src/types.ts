@@ -9,6 +9,16 @@ export interface Workspace {
   focused: boolean;
   active_tab_id: string;
   agent_status: Status;
+  /** The git checkout herdr found for the workspace. */
+  worktree?: WorkspaceWorktree;
+}
+
+export interface WorkspaceWorktree {
+  repo_key: string;
+  repo_name: string;
+  repo_root: string;
+  checkout_path: string;
+  is_linked_worktree: boolean;
 }
 
 export interface Tab {
@@ -258,4 +268,86 @@ export interface Channel {
   }[];
   messages: ChannelMessage[];
   alerts: { title: string; body: string }[];
+}
+
+export interface CatalogModel {
+  id: string;
+  label: string;
+  efforts: string[];
+  default_effort: string;
+}
+
+/** One harness the New route form can start, as GET /api/catalog lists it. */
+export interface CatalogKind {
+  kind: string;
+  label: string;
+  models: CatalogModel[];
+  default_model: string;
+  other_model: boolean;
+  free_model: boolean;
+  checkpointer: boolean;
+  skill_prefix: string;
+  skill_installed: boolean;
+  offline: boolean;
+}
+
+export interface Catalog {
+  kinds: CatalogKind[];
+  today: string;
+  home: string;
+  checkpointer_ok: boolean;
+  checkpointer_why?: string;
+}
+
+export type RouteRole = "orchestrator" | "adjutant";
+
+export interface RouteRequest {
+  role: RouteRole;
+  workspace_id: string;
+  folder: string;
+  kind: string;
+  model: string;
+  effort: string;
+  name: string;
+  request: string;
+  checkpointer: { on: boolean; minutes: number; limit: number };
+  orch_name?: string;
+  orch_kind?: string;
+  orch_model?: string;
+  orch_effort?: string;
+  route_name?: string;
+  inbox?: string;
+}
+
+export interface RouteStep {
+  step: string;
+  method: string;
+  status: "ok" | "failed" | "skipped";
+  reason?: string;
+  code?: string;
+  id?: string;
+}
+
+export interface RouteResult {
+  ok: boolean;
+  code?: string;
+  field?: string;
+  error?: string;
+  steps: RouteStep[];
+  tabs: string[];
+  orchestrator_pane?: string;
+  adjutant_pane?: string;
+  checkpointer_pane?: string;
+  attach_command?: string;
+}
+
+/** What the setup checklist can read from a route's private inbox. */
+export interface InboxState {
+  path: string;
+  exists: boolean;
+  private: boolean;
+  setup: boolean;
+  proposed: string[];
+  approved: string[];
+  error?: string;
 }
