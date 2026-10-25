@@ -221,7 +221,7 @@ func TestStatusLimitFromTheEnvironment(t *testing.T) {
 		t.Setenv("LIMIT_MIN", tc.limit)
 		var b bytes.Buffer
 		statusSnapshot(context.Background(), &b, "im-a:w9:p1:")
-		if !regexp.MustCompile("(?m)" + tc.want).MatchString(b.String()) || (tc.not != `^$` && regexp.MustCompile("(?m)"+tc.not).MatchString(b.String())) {
+		if !regexp.MustCompile("(?m)"+tc.want).MatchString(b.String()) || (tc.not != `^$` && regexp.MustCompile("(?m)"+tc.not).MatchString(b.String())) {
 			t.Errorf("LIMIT_MIN=%q:\n%s", tc.limit, b.String())
 		}
 	}
