@@ -730,6 +730,19 @@ make build</code></pre>
             <span>Press <kbd>⌘K</kbd> or <kbd>Ctrl+K</kbd> anywhere in the app to open the command palette.</span>
           </p>
 
+          <h3 id="new-route">Create a route</h3>
+          <p>
+            <b>New route</b> beside the Workspaces heading in the sidebar, or <code>Route: New route…</code> in the
+            palette, opens a form. Pick a folder, type the request and press <b>Start route</b>. The app opens a herdr
+            tab named <code>&lt;project&gt;-orchestrator</code>, starts the harness, model and effort you chose through
+            herdr, sends <code>/herdsman run "&lt;request&gt;"</code> (<code>$herdsman</code> for Codex), and splits a
+            <code>checkpointer</code> pane beside it. Models and efforts come from each harness's own list, newest
+            first. The <b>Adjutant</b> role starts an adjutant and its orchestrator in two tabs with one private inbox
+            per route, and shows the channel setup as a checklist: creating the inbox, the setup proof, attaching the
+            adjutant and approving the pair stay your steps. If a step fails, the form shows which steps ran; nothing is
+            closed.
+          </p>
+
           <h3 id="hosted">The hosted app</h3>
           <p>
             A copy of the app built from <code>main</code> is served at
@@ -813,7 +826,7 @@ make build</code></pre>
         <!-- Options -->
         <section id="options">
           <h2>Web app options</h2>
-          <pre><code>herdsman web [--port 7878] [--host &lt;ip&gt;] [--allow-host &lt;name&gt;]... [--inbox &lt;folder&gt;]
+          <pre><code>herdsman web [--port 7878] [--host &lt;ip&gt;] [--allow-host &lt;name&gt;]... [--inbox &lt;folder&gt;] [--skill-dir &lt;folder&gt;]
              [--client &lt;url&gt;|none] [--public-url &lt;https url&gt;] [--session &lt;name&gt;]
              [--route &lt;folder&gt;]... [--open] [--no-qr]</code></pre>
           <div class="table-wrap">
@@ -858,6 +871,11 @@ make build</code></pre>
                   <td><code>--inbox &lt;folder&gt;</code></td>
                   <td><code>HERDSMAN_INBOX</code></td>
                   <td>The adjutant's private message folder, for the Messages tab (read only)</td>
+                </tr>
+                <tr>
+                  <td><code>--skill-dir &lt;folder&gt;</code></td>
+                  <td>the installed skill</td>
+                  <td>The herdsman skill folder whose <code>scripts/checkpointer.sh</code> a new route runs</td>
                 </tr>
                 <tr>
                   <td><code>--route &lt;folder&gt;</code></td>

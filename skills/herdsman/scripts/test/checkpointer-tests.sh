@@ -9,7 +9,8 @@ mkdir -p "$T/bin" "$T/home/.claude/projects/p"
 cat > "$T/bin/herdr" <<'EOF'
 #!/bin/bash
 echo "$*" >> "$CALLS"
-[ "$1 $2" = "agent get" ] && printf '{"result":{"agent":{"agent_session":{"value":"%s"}}}}\n' "${FAKE_SID:-fake}"
+[ "$1 $2" = "agent get" ] && printf '{"result":{"agent":{"agent":"%s","agent_session":{"kind":"%s","value":"%s"}}}}\n' \
+  "${FAKE_AGENT:-claude}" "${FAKE_KIND:-id}" "${FAKE_SID:-fake}"
 exit 0
 EOF
 chmod +x "$T/bin/herdr"
@@ -61,6 +62,35 @@ if command -v zsh >/dev/null 2>&1; then
 else
   echo "SKIP zsh form: zsh is not installed"
 fi
+
+# Codex: rollouts live under $CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<session id>.jsonl, and the context is
+# the input tokens of the last token_count event that carries usage (a later one can carry none).
+tc() { printf '{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":%s,"cached_input_tokens":0,"output_tokens":7,"reasoning_output_tokens":0,"total_tokens":%s},"total_token_usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"model_context_window":400000}}}\n' "$1" "$(($1 + 7))"; }
+CX="$T/codex/sessions/2000/01/02"; mkdir -p "$CX"
+SID=0a1b2c3d-0000-4000-8000-000000000001
+{ echo '{"type":"session_meta","payload":{"id":"'"$SID"'"}}'; tc 1000; tc 300100
+  echo '{"type":"event_msg","payload":{"type":"token_count","info":null}}'; } > "$CX/rollout-2000-01-02T01-02-03-$SID.jsonl"
+crun() { run FAKE_AGENT=codex FAKE_SID="$SID" CODEX_HOME="$T/codex" "$@"; }
+out=$(env CALLS="$T/calls" PATH="$T/bin:$PATH" HOME="$T/home" CODEX_HOME="$T/codex" FAKE_AGENT=codex FAKE_SID="$SID" TARGET=w9:p9 /bin/bash "$S" --probe)
+check "codex probe finds the rollout of the session id" "$(printf '%s\n' "$out" | grep -c "rollout-2000-01-02T01-02-03-$SID.jsonl context=")" "1"
+check "codex probe reads the last token_count with usage" "${out##*context=}" "300100"
+check "codex probe says why" "$(printf '%s\n' "$out" | grep -c "transcript: the Codex rollout of the session id that Herdr reports ('$SID')")" "1"
+crun; check "codex over limit: memory prompt without the slash command, then /compact" "$(prompts)" "Capture all learning|/compact|"
+crun LIMIT=400000; check "codex under limit: memory prompt only" "$(prompts)" "Capture all learning|"
+crun PROMPT=/save-now; check "codex with PROMPT set: sent as is" "$(prompts)" "/save-now|/compact|"
+run FAKE_AGENT=codex FAKE_SID=missing CODEX_HOME="$T/codex"; rc=$?
+check "codex with no rollout for the id: exit 1" "$rc" "1"
+check "and no prompt is sent" "$(prompts)" ""
+# Codex without CODEX_HOME looks under ~/.codex.
+mkdir -p "$T/home3/.codex/sessions/2000/01/01"; { tc 60000; } > "$T/home3/.codex/sessions/2000/01/01/rollout-2000-01-01T09-00-00-$SID.jsonl"
+out=$(env CALLS="$T/calls" PATH="$T/bin:$PATH" HOME="$T/home3" FAKE_AGENT=codex FAKE_SID="$SID" TARGET=w9:p9 /bin/bash "$S" --probe)
+check "codex without CODEX_HOME reads ~/.codex/sessions" "${out##*context=}" "60000"
+# A session reported as a path is read from that path.
+out=$(env CALLS="$T/calls" PATH="$T/bin:$PATH" HOME="$T/home" FAKE_AGENT=codex FAKE_KIND=path FAKE_SID="$CX/rollout-2000-01-02T01-02-03-$SID.jsonl" TARGET=w9:p9 /bin/bash "$S" --probe)
+check "codex session reported as a path" "${out##*context=}" "300100"
+# TRANSCRIPT naming a Codex rollout works for a Claude-reported pane too: the record shape picks the reader.
+out=$(env CALLS="$T/calls" PATH="$T/bin:$PATH" HOME="$T/home" TRANSCRIPT="$CX/rollout-2000-01-02T01-02-03-$SID.jsonl" TARGET=w9:p9 /bin/bash "$S" --probe)
+check "TRANSCRIPT names a Codex rollout: its context is read" "${out##*context=}" "300100"
 
 echo "RESULT pass=$pass fail=$fail (work dir $T)"
 [ "$fail" = 0 ]

@@ -37,6 +37,9 @@ type Server struct {
 	// diffSlots bounds how many code diff requests run git at once.
 	diffSlots chan struct{}
 	artifacts *artifacts
+	// catalog lists the harnesses a new route can start.
+	catalog *catalogSource
+	now     func() time.Time
 }
 
 // Config is what one run of the server is set up with.
@@ -50,6 +53,9 @@ type Config struct {
 	Hosts []string
 	// Inbox is the private herdsman message folder, or "" for none.
 	Inbox string
+	// SkillDir is the herdsman skill folder (--skill-dir), for the
+	// checkpointer of a new route; "" looks for the installed skill.
+	SkillDir string
 	// OnPair shows a pairing code to the person at the terminal.
 	OnPair func(PairNotice)
 	// OnRotate shows the person at the terminal the links for a new token,
@@ -77,6 +83,7 @@ func NewServer(c *herdr.Client, hub *Hub, q *Queue, cfg Config) *Server {
 	return &Server{
 		hub: hub, queue: q, client: c, cfg: cfg, devices: newDevices(cfg.Token), assets: sub,
 		diffSlots: make(chan struct{}, 2), artifacts: newArtifacts(),
+		catalog: newCatalogSource(execRunner), now: time.Now,
 	}
 }
 
@@ -106,6 +113,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/artifacts", s.auth(http.HandlerFunc(s.listArtifacts)))
 	mux.Handle("POST /api/artifacts/open", s.auth(http.HandlerFunc(s.openArtifact)))
 	mux.HandleFunc("GET /artifact/{cap}/{path...}", s.serveArtifact)
+	mux.Handle("GET /api/catalog", s.auth(http.HandlerFunc(s.catalogJSON)))
+	mux.Handle("POST /api/routes", s.auth(http.HandlerFunc(s.createRoute)))
+	mux.Handle("GET /api/routes/inbox", s.auth(http.HandlerFunc(s.inboxState)))
 	mux.Handle("GET /api/messages", s.auth(http.HandlerFunc(s.messages)))
 	mux.Handle("GET /api/messages/{box}/{id}", s.auth(http.HandlerFunc(s.messageBody)))
 	mux.HandleFunc("GET /", s.static)

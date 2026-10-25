@@ -13,6 +13,8 @@ type Workspace struct {
 	Focused     bool   `json:"focused"`
 	ActiveTabID string `json:"active_tab_id"`
 	AgentStatus Status `json:"agent_status"`
+	// Worktree is the git checkout herdr found for the workspace, if any.
+	Worktree *WorkspaceWorktree `json:"worktree,omitempty"`
 }
 
 type Tab struct {
