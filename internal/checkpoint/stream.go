@@ -224,7 +224,7 @@ func (l *lineReader) value(path string, tracked bool, depth int) error {
 		keep(capture{kind: 'a'})
 		return l.array(depth)
 	case b == '"':
-		s, long, err := l.str()
+		s, long, err := l.str(tracked)
 		keep(capture{kind: 's', str: s, long: long})
 		return err
 	case b == '-' || isDigit(b):
@@ -260,7 +260,7 @@ func (l *lineReader) object(path string, tracked bool, depth int) error {
 		if b, err := l.peek(); err != nil || b != '"' {
 			return errLine
 		}
-		key, long, err := l.str()
+		key, long, err := l.str(tracked)
 		if err != nil {
 			return err
 		}
@@ -268,7 +268,13 @@ func (l *lineReader) object(path string, tracked bool, depth int) error {
 		if c, err := l.byte(); err != nil || c != ':' {
 			return errLine
 		}
-		if err := l.value(path+segment(key), tracked && !long, depth+1); err != nil {
+		// A path is built only along the wanted fields' parents (at most
+		// four members deep), so unrelated nesting costs no memory.
+		sub, subTracked := "", false
+		if tracked && !long {
+			sub, subTracked = path+segment(key), true
+		}
+		if err := l.value(sub, subTracked, depth+1); err != nil {
 			return err
 		}
 		l.space()
@@ -308,10 +314,13 @@ func (l *lineReader) array(depth int) error {
 // str reads a string: its decoded value when its spelling is at most
 // keepRaw bytes (long reports a longer one, which is checked to its end
 // but not kept).
-func (l *lineReader) str() (string, bool, error) {
+func (l *lineReader) str(keep bool) (string, bool, error) {
 	_, _ = l.byte() // "
-	raw := []byte{'"'}
-	long := false
+	var raw []byte
+	long := !keep // a string no field can be is checked, never kept
+	if keep {
+		raw = append(make([]byte, 0, 64), '"')
+	}
 	for {
 		if long {
 			l.skipPlain()

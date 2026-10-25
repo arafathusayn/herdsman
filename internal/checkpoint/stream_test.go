@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -105,5 +106,28 @@ func TestStreamEscapes(t *testing.T) {
 func TestStreamUnreadable(t *testing.T) {
 	if got := ContextTokens(t.TempDir()); got.OK || got.Skipped != 0 {
 		t.Errorf("folder: %+v", got)
+	}
+}
+
+// Deep unrelated metadata costs flat memory (A24): a record whose usage
+// sits beside objects nested 100 to 1000 deep, each under a 380-byte
+// name, reads its usage and allocates under 1 MiB at every depth.
+func TestStreamDepth(t *testing.T) {
+	name := strings.Repeat("k", 380)
+	for _, depth := range []int{100, 300, 600, 1000} {
+		meta := strings.Repeat(`{"`+name+`":`, depth) + "1" + strings.Repeat("}", depth)
+		p := filepath.Join(t.TempDir(), "t")
+		write(t, p, `{"type":"assistant","meta":`+meta+`,"message":{"usage":{"input_tokens":300000}}}`+"\n")
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		got := ContextTokens(p)
+		runtime.ReadMemStats(&after)
+		if got.String() != "300000" || got.Skipped != 0 {
+			t.Errorf("depth %d: %+v", depth, got)
+		}
+		if grew := after.TotalAlloc - before.TotalAlloc; grew > 1<<20 {
+			t.Errorf("depth %d: allocated %d bytes", depth, grew)
+		}
 	}
 }
