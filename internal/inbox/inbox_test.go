@@ -756,3 +756,86 @@ func TestPreflightTrustsOnlyTheConfiguredInstallation(t *testing.T) {
 		t.Error("a proof of an unrelated copy passed with no configured installation")
 	}
 }
+
+// R2 finding 4, message-tests.sh P2 to P3f: the boundary decision of
+// message-authority.sh. Each P3c trigger alone forces HUMAN; the restored
+// boundary is the positive control after each one.
+func TestAuthorityBoundaryTriggers(t *testing.T) {
+	srv := herdrtest.Start(t)
+	fx := herdrtest.Serve(srv)
+	hc := herdr.New(srv.Socket)
+	ctx := context.Background()
+	c := inboxtest.New(t)
+	c.Enroll("sender-pane", "sender-session", "receiver-pane", "receiver-session")
+	authority := func() (string, int) {
+		r, err := inbox.Open(c.Options(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Authority(ctx, hc)
+	}
+	line, code := authority()
+	if !strings.HasPrefix(line, "HUMAN") {
+		t.Errorf("P2 no boundary proof: relayed gos authorize nothing outward: %q", line)
+	}
+	if code != 3 {
+		t.Errorf("P2b exit 3: %d", code)
+	}
+	agents := []map[string]any{herdrtest.Agent("sender-pane", "sender-session"), herdrtest.Agent("receiver-pane", "receiver-session"), herdrtest.Agent("task-pane", "task-session")}
+	for _, a := range agents {
+		fx.SetAgent(a["pane_id"].(string), a)
+	}
+	c.RelayBoundary(agents...)
+	if line, _ := authority(); !strings.HasPrefix(line, "RELAY") {
+		t.Fatalf("P3 a complete protected boundary permits RELAY: %q", line)
+	}
+	lower := func(m map[string]any) map[string]any {
+		return m["boundary"].(map[string]any)["lower_trust"].([]any)[0].(map[string]any)
+	}
+	boundary := func(m map[string]any) map[string]any { return m["boundary"].(map[string]any) }
+	c.Edit(c.Proof, func(m map[string]any) { lower(m)["sandbox"] = false })
+	if line, _ := authority(); !strings.HasPrefix(line, "HUMAN") {
+		t.Errorf("P3b one unsandboxed agent forces HUMAN: %q", line)
+	}
+	c.RelayBoundary(agents...)
+	base, _ := os.ReadFile(c.Proof)
+	for _, e := range []struct {
+		name string
+		edit func(m map[string]any)
+	}{
+		{"stale inventory", func(m map[string]any) { boundary(m)["inventory_current"] = false }},
+		{"a shared home", func(m map[string]any) { boundary(m)["private_home"] = false }},
+		{"no human check", func(m map[string]any) { boundary(m)["human_checked"] = false }},
+		{"no protected domain", func(m map[string]any) { boundary(m)["protected_domain"] = false }},
+		{"no socket denial recorded", func(m map[string]any) { delete(lower(m), "socket_denied") }},
+		{"code not denied", func(m map[string]any) { lower(m)["code_denied"] = false }},
+		{"proof not denied", func(m map[string]any) { lower(m)["proof_denied"] = false }},
+		{"(Go) inbox not denied", func(m map[string]any) { lower(m)["inbox_denied"] = false }},
+		{"a live agent missing from the inventory", func(m map[string]any) { boundary(m)["lower_trust"] = []any{} }},
+		{"a pair that differs from the approved registry", func(m map[string]any) { boundary(m)["pair"] = map[string]any{} }},
+	} {
+		c.Write(c.Proof, string(base))
+		c.Edit(c.Proof, e.edit)
+		if line, code := authority(); !strings.HasPrefix(line, "HUMAN") || code != 3 {
+			t.Errorf("P3c %s forces HUMAN: %q %d", e.name, line, code)
+		}
+		c.Write(c.Proof, string(base))
+		if line, _ := authority(); !strings.HasPrefix(line, "RELAY") {
+			t.Errorf("P3c the restored boundary after %q is RELAY: %q", e.name, line)
+		}
+	}
+	relaunched := herdrtest.Agent("task-pane", "relaunched")
+	fx.SetAgent("task-pane", relaunched)
+	if line, _ := authority(); !strings.HasPrefix(line, "HUMAN") {
+		t.Errorf("P3d a relaunched lower-trust session is unknown and forces HUMAN: %q", line)
+	}
+	fx.SetAgent("task-pane", nil)
+	c.RelayBoundary(agents[:2]...)
+	if line, _ := authority(); !strings.HasPrefix(line, "RELAY") {
+		t.Errorf("P3e with only the pair live and an empty lower_trust list, RELAY: %q", line)
+	}
+	c.Write(filepath.Join(c.Dir, "state", "boundary-tainted"), "{}\n")
+	if line, _ := authority(); !strings.HasPrefix(line, "HUMAN") {
+		t.Errorf("P3f a recorded unsandboxed exposure forces HUMAN until human setup: %q", line)
+	}
+}
