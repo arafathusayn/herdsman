@@ -1874,6 +1874,33 @@ check "XB4b and records the agent from that observation" 'brief-pane' "$(cat "$C
 out=$(ENVX="PATH=$C/race-bin:$CPATH" consume xb4)
 check "XB4c a retry after the agent exits stays held" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
 check "XB4d and nothing is consumed" '^no$' "$(yn "$APR/consumed/xb4.json")"
+# XB5: any next owner of the input lock publishes a waiting exposure, not only a writer that checks the boundary:
+# a hold writer, which never runs a boundary check, still writes the record and clears the pending entry.
+new_case exposure-hold-owner
+relay_boundary
+mkdir -p "$C/inbox/state/exposure-pending"
+jq -nc '{agents:[{pane:"rogue-pane"}],time:1}' > "$C/inbox/state/exposure-pending/1-1-1.json"
+out=$(ENVX="HERDSMAN_NAME=$O" msg receiver-pane message.sh hold "$A" 'held for the test'); st=$?
+check "XB5 the hold writer takes the lock and holds" "^0 HOLD $A" "$st $out"
+check "XB5b as the next owner it publishes the waiting exposure and clears the entry" '^0 .*rogue-pane' \
+  "$(nfiles "$C/inbox/state/exposure-pending" '*.json') $(jq -c . "$C/inbox/state/boundary-tainted" 2>&1)"
+# XB6: a pending path that cannot be inspected counts as a waiting exposure: an unsearchable folder that holds an
+# incident, and a regular file in place of the folder. Every check fails closed and the incident is kept.
+for kind in unsearchable file; do
+  new_case "exposure-pending-$kind"
+  relay_boundary
+  P="$C/inbox/state/exposure-pending"
+  if [ "$kind" = file ]; then printf 'not a folder\n' > "$P"
+  else mkdir -p "$P"; jq -nc '{agents:[{pane:"rogue-pane"}],time:1}' > "$P/1-1-1.json"; chmod 000 "$P"; fi
+  check "XB6 $kind: a pending path that cannot be inspected makes the authority HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
+  printf 'reviewed text\n' > "$C/draft.txt"; APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"; gojson "xb6$kind" 600
+  out=$(consume "xb6$kind")
+  check "XB6b $kind: the gate refuses" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
+  check "XB6c $kind: and consumes nothing" '^no$' "$(yn "$APR/consumed/xb6$kind.json")"
+  [ "$kind" = file ] || chmod 700 "$P"
+  if [ "$kind" = file ]; then kept=$(cat "$P" 2>&1); else kept=$(jq -c . "$P/1-1-1.json" 2>&1); fi
+  check "XB6d $kind: the pending incident is kept" 'not a folder|rogue-pane' "$kept"
+done
 
 # AR1: after an archive moves the cur copy and its ack aside, a replay of the original bytes is held by the
 # terminal record alone.

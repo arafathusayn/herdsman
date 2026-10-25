@@ -406,28 +406,40 @@ record_exposure() {
     --argjson time "$(now)" '{reason:"live agent outside the protected setup",agents:$agents,time:$time}'
   [ -z "$own" ] || mutation_unlock
 }
-exposure_pending() {
-  local f
-  for f in "$ROOT/state/exposure-pending/"*; do [ -e "$f" ] || [ -L "$f" ] && return 0; done
-  [ -L "$ROOT/state/exposure-pending" ]
+# The waiting-exposure path: none when it is absent or a real folder that lists empty; entries when a real folder
+# lists entries; uninspectable for anything else (a link, another file type, a folder that cannot be read or
+# searched, a failed listing). Only none lets a boundary check go on.
+pending_state() {
+  local d="$ROOT/state/exposure-pending" list
+  if [ ! -e "$d" ] && [ ! -L "$d" ]; then echo none; return 0; fi
+  if [ -L "$d" ] || [ ! -d "$d" ] || [ ! -r "$d" ] || [ ! -x "$d" ]; then echo uninspectable; return 0; fi
+  list=$(ls -A -- "$d" 2>/dev/null) || { echo uninspectable; return 0; }
+  if [ -n "$list" ]; then echo entries; else echo none; fi
 }
-# The owner of the input lock publishes every waiting exposure. An unreadable entry still counts as exposure.
+exposure_pending() { [ "$(pending_state)" != none ]; }
+# The owner of the input lock publishes every waiting exposure. An unreadable entry still counts as exposure. A
+# pending path that cannot be inspected is published without its agents and kept as it is for the human: nothing
+# that was not read is removed.
 fold_exposure() {
-  local f agents='[]' found=0 more
+  local f agents='[]' found=0 more state
   local -a seen
-  exposure_pending || return 0
-  [ ! -L "$ROOT/state/exposure-pending" ] || die 'exposure-pending symlink'
-  for f in "$ROOT/state/exposure-pending/"*; do
-    [ -e "$f" ] || [ -L "$f" ] || continue
-    seen[found]=$f; found=$((found+1))
-    if regular "$f" && strict_json "$f" && more=$(jq -c '.agents|select(type=="array")' "$f"); then
-      agents=$(jq -nc --argjson a "$agents" --argjson b "$more" '$a+$b|unique')
-    fi
-  done
+  state=$(pending_state)
+  [ "$state" != none ] || return 0
+  if [ "$state" = entries ]; then
+    for f in "$ROOT/state/exposure-pending/"*; do
+      [ -e "$f" ] || [ -L "$f" ] || continue
+      seen[found]=$f; found=$((found+1))
+      if regular "$f" && strict_json "$f" && more=$(jq -c '.agents|select(type=="array")' "$f"); then
+        agents=$(jq -nc --argjson a "$agents" --argjson b "$more" '$a+$b|unique')
+      fi
+    done
+  else
+    log_line 'EXPOSURE pending path cannot be inspected; recorded and kept for the human'
+  fi
   [ -e "$ROOT/state/boundary-tainted" ] || atomic "$ROOT/state/boundary-tainted" jq -n --argjson agents "$agents" \
     --argjson time "$(now)" '{reason:"live agent outside the protected setup",agents:$agents,time:$time}' ||
     die 'cannot publish the waiting exposure record'
-  for f in "${seen[@]}"; do rm -f "$f"; done
+  for f in ${seen[@]+"${seen[@]}"}; do rm -f "$f"; done
 }
 # The HUMAN decision line of message-authority.sh and the executor adapter.
 human_authority() {
