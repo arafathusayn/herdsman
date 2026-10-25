@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -152,8 +153,39 @@ func moveTo(ctx context.Context, wt, head string) error {
 	if len(dirty) > 0 {
 		return &DirtyError{Worktree: wt, Paths: dirty}
 	}
-	_, err = git(ctx, wt, "checkout", "--quiet", "--detach", head)
-	return err
+	beforeCheckout()
+	return checkout(ctx, wt, head)
+}
+
+// beforeCheckout runs between the scans and the checkout; tests write
+// ignored work there, as a race would.
+var beforeCheckout = func() {}
+
+// wouldOverwrite finds the paths in git's refusal to replace untracked or
+// ignored files: one quoted path, or a tab-indented list.
+var wouldOverwrite = regexp.MustCompile(`(?m)'([^']+)' would be (?:overwritten|removed)|^\t(.+)$`)
+
+// checkout moves the worktree to head, detached, with git's
+// --no-overwrite-ignore: git itself refuses to replace an ignored file at
+// the moment it writes (the P0 guard beyond the scans: names that differ
+// only in case on a case-insensitive filesystem, and work written after
+// the scans), and the refusal lists the paths.
+func checkout(ctx context.Context, wt, head string) error {
+	cmd := exec.CommandContext(ctx, "git", "-C", wt, "checkout", "--quiet", "--detach", "--no-overwrite-ignore", head)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	text := string(out)
+	if strings.Contains(text, "would be overwritten") || strings.Contains(text, "would be removed") {
+		var paths []string
+		for _, m := range wouldOverwrite.FindAllStringSubmatch(text, -1) {
+			paths = append(paths, strings.TrimSpace(m[1]+m[2]))
+		}
+		slices.Sort(paths)
+		return &DirtyError{Worktree: wt, Paths: paths}
+	}
+	return fmt.Errorf("git checkout: %v: %s", err, strings.TrimSpace(text))
 }
 
 // ignoredCollisions lists the ignored files a checkout of head would replace.
@@ -166,10 +198,13 @@ func ignoredCollisions(ctx context.Context, wt, head string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Names compare case-folded: on a case-insensitive filesystem LOCAL-NOTES
+	// and local-notes are one file (refusing more on a case-sensitive one is
+	// the safe side).
 	target := map[string]bool{}
 	for p := range strings.SplitSeq(tracked, "\x00") {
 		if p != "" {
-			target[p] = true
+			target[strings.ToLower(p)] = true
 		}
 	}
 	var out []string
@@ -178,15 +213,16 @@ func ignoredCollisions(ctx context.Context, wt, head string) ([]string, error) {
 			continue
 		}
 		p := strings.TrimSuffix(e[3:], "/")
-		hit := target[p]
+		lp := strings.ToLower(p)
+		hit := target[lp]
 		// A tracked file at any parent folder of the ignored path.
-		for d := filepath.Dir(p); !hit && d != "."; d = filepath.Dir(d) {
+		for d := filepath.Dir(lp); !hit && d != "."; d = filepath.Dir(d) {
 			hit = target[d]
 		}
 		// A tracked path inside an ignored file's place.
 		if !hit {
 			for t := range target {
-				if strings.HasPrefix(t, p+"/") {
+				if strings.HasPrefix(t, lp+"/") {
 					hit = true
 					break
 				}

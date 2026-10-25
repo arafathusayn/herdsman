@@ -276,3 +276,116 @@ func TestIgnoredWorkIsKept(t *testing.T) {
 		t.Errorf("unrelated ignored files blocked: %v", err)
 	}
 }
+
+// ignoredRepo has a commit that ignores names and one that tracks them;
+// wt is a review worktree at the ignoring commit.
+func ignoredRepo(t *testing.T, ignore string, track ...string) (dir, wt, ignoring, tracking string) {
+	t.Helper()
+	dir, _, _ = repo(t)
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(ignore), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "add", ".gitignore")
+	gitT(t, dir, "commit", "-q", "-m", "ignore")
+	ignoring = gitT(t, dir, "rev-parse", "HEAD")
+	for _, p := range track {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, p), []byte("tracked\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitT(t, dir, "add", "-f", p)
+	}
+	gitT(t, dir, "commit", "-q", "-m", "track")
+	tracking = gitT(t, dir, "rev-parse", "HEAD")
+	wt = filepath.Join(filepath.Dir(dir), "rv")
+	if _, err := Start(context.Background(), Options{Repo: dir, Worktree: wt, Head: ignoring, CacheRoot: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	return dir, wt, ignoring, tracking
+}
+
+func caseInsensitive(t *testing.T, dir string) bool {
+	t.Helper()
+	p := filepath.Join(dir, "case-probe")
+	if err := os.WriteFile(p, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(p)
+	_, err := os.Stat(filepath.Join(dir, "CASE-PROBE"))
+	return err == nil
+}
+
+// P0: on a case-insensitive filesystem an ignored file whose name differs
+// from the tracked one only in case is the same file: the move refuses.
+func TestIgnoredWorkKeptAcrossCase(t *testing.T) {
+	dir, wt, ignoring, tracking := ignoredRepo(t, "local-notes\nLOCAL-NOTES\n", "LOCAL-NOTES")
+	if !caseInsensitive(t, wt) {
+		t.Skip("case-sensitive filesystem")
+	}
+	if err := os.WriteFile(filepath.Join(wt, "local-notes"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Start(context.Background(), Options{Repo: dir, Worktree: wt, Head: tracking, CacheRoot: t.TempDir()})
+	var d *DirtyError
+	if !errors.As(err, &d) || len(d.Paths) == 0 {
+		t.Fatalf("%v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(wt, "local-notes")); string(b) != "mine\n" {
+		t.Errorf("ignored work overwritten: %q", b)
+	}
+	if gitT(t, wt, "rev-parse", "HEAD") != ignoring {
+		t.Error("moved")
+	}
+}
+
+// P0: ignored work written after the scan is kept: the checkout itself
+// refuses to overwrite it.
+func TestIgnoredWorkWrittenAfterTheScanIsKept(t *testing.T) {
+	dir, wt, ignoring, tracking := ignoredRepo(t, "local-notes\n", "local-notes")
+	beforeCheckout = func() {
+		if err := os.WriteFile(filepath.Join(wt, "local-notes"), []byte("late\n"), 0o644); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { beforeCheckout = func() {} })
+	_, err := Start(context.Background(), Options{Repo: dir, Worktree: wt, Head: tracking, CacheRoot: t.TempDir()})
+	var d *DirtyError
+	if !errors.As(err, &d) || strings.Join(d.Paths, ",") != "local-notes" {
+		t.Fatalf("%v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(wt, "local-notes")); string(b) != "late\n" {
+		t.Errorf("ignored work overwritten: %q", b)
+	}
+	if gitT(t, wt, "rev-parse", "HEAD") != ignoring {
+		t.Error("moved")
+	}
+}
+
+// Parent and child collisions: an ignored folder where the head tracks a
+// file inside, an ignored file where the head tracks a folder, and an
+// ignored file under a folder where the head tracks a file.
+func TestIgnoredParentAndChildCollisions(t *testing.T) {
+	dir, wt, _, tracking := ignoredRepo(t, "cache/\nout\n*.log\n", "cache/a.txt", "out/b.txt", "notes")
+	if err := os.MkdirAll(filepath.Join(wt, "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, "notes", "a.log"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(wt, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, "cache", "z.txt"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, "out"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Start(context.Background(), Options{Repo: dir, Worktree: wt, Head: tracking, CacheRoot: t.TempDir()})
+	var d *DirtyError
+	if !errors.As(err, &d) || strings.Join(d.Paths, ",") != "cache,notes/a.log,out" {
+		t.Fatalf("%v", err)
+	}
+}
