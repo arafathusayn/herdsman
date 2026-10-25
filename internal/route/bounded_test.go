@@ -142,7 +142,7 @@ func TestTailSectionAndFileList(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("route.md", head+"- 10:00 one\n")
+	write("00-route.md", head+"- 10:00 one\n")
 	tail, err := route.LoadBounded(dir, 100, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func TestTailSectionAndFileList(t *testing.T) {
 	if !tail.RunStateLast() {
 		t.Fatal("the run state is the last section")
 	}
-	write("route.md", head+"- 10:00 one\n\n## Notes\n\nlater\n")
+	write("00-route.md", head+"- 10:00 one\n\n## Notes\n\nlater\n")
 	tail, err = route.LoadBounded(dir, 100, tail)
 	if err != nil {
 		t.Fatal(err)
