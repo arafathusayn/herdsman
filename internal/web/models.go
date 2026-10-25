@@ -26,7 +26,9 @@ func harnessModels(ctx context.Context, run runner) []string {
 		claude, codex CatalogKind
 	)
 	wg.Go(func() { claude = fromOutput(parseClaudeHelp, "claude-help.txt", ask("claude", "--help")) })
-	wg.Go(func() { codex = fromOutput(parseCodexModels, "codex-debug-models.json", ask("codex", "debug", "models")) })
+	wg.Go(func() {
+		codex = fromOutput(parseCodexModels, "codex-debug-models.json", ask("codex", "debug", "models"))
+	})
 	wg.Wait()
 	var ids []string
 	for _, k := range []CatalogKind{claude, codex} {
