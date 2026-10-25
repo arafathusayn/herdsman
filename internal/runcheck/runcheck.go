@@ -42,6 +42,7 @@ const (
 	ExitUsage    = 64 // a usage error
 	ExitNoLock   = 69 // the lock file cannot be opened or locked
 	ExitMarker   = 70 // the start marker cannot be written
+	ExitPublish  = 73 // the publisher cannot write its reading
 )
 
 // Config is the environment of a run, with the script's defaults filled
@@ -190,9 +191,17 @@ func Publish(c Config, hours string, stderr io.Writer) int {
 	end := c.Now().Add(span)
 	for c.Now().Before(end) {
 		if r := c.probe(); r != "" {
+			// The script ignored a failed write or rename (A26): checks then
+			// ran on a stale or missing reading while it went on.
 			tmp := c.Reading + "." + strconv.Itoa(os.Getpid())
-			if os.WriteFile(tmp, []byte(r+"\n"), 0o644) == nil {
-				_ = os.Rename(tmp, c.Reading)
+			err := os.WriteFile(tmp, []byte(r+"\n"), 0o644)
+			if err == nil {
+				err = os.Rename(tmp, c.Reading)
+			}
+			if err != nil {
+				_ = os.Remove(tmp)
+				fmt.Fprintf(stderr, "run-check: NOT PUBLISHED (cannot write the reading %s: %v)\n", c.Reading, err)
+				return ExitPublish
 			}
 		}
 		c.Sleep(c.PublishEvery)

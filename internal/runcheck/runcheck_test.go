@@ -593,3 +593,37 @@ func TestPublisherKeepsMemoryFlat(t *testing.T) {
 		t.Errorf("%d goroutines after, %d before", g, g0)
 	}
 }
+
+// R5 finding 8 (A26): a reading the publisher cannot write or rename is an
+// error with its own exit code, and leaves no temporary file.
+func TestPublisherWriteFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(dir string) string
+	}{
+		{"a missing folder", func(dir string) string { return filepath.Join(dir, "missing", "reading") }},
+		{"a folder in the way", func(dir string) string {
+			p := filepath.Join(dir, "reading")
+			_ = os.MkdirAll(filepath.Join(p, "x"), 0o755)
+			return p
+		}},
+	} {
+		dir := t.TempDir()
+		c, _ := Load(func(string) string { return "" })
+		c.Reading = tc.setup(dir)
+		c.Probes, c.Probe = true, func() string { return "0.50 60" }
+		clock := time.Now()
+		c.Now = func() time.Time { return clock }
+		c.Sleep = func(d time.Duration) { clock = clock.Add(d) }
+		c.PublishFor, c.PublishEvery = time.Minute, 15*time.Second
+		var errb bytes.Buffer
+		code := Publish(c, "1", &errb)
+		if code != ExitPublish || !strings.HasPrefix(errb.String(), "run-check: NOT PUBLISHED (cannot write the reading "+c.Reading) || strings.Contains(errb.String(), "publisher stopped") {
+			t.Errorf("%s: %d %q", tc.name, code, errb.String())
+		}
+		left, _ := filepath.Glob(c.Reading + ".*")
+		if len(left) != 0 {
+			t.Errorf("%s: temporary files left: %v", tc.name, left)
+		}
+	}
+}

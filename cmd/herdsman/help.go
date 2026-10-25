@@ -23,6 +23,7 @@ exit codes:
   64  usage error
   69  the lock file cannot be opened or locked
   70  the start marker cannot be written
+  73  the publisher cannot write its reading (--publish)
   75  the load gate gave up, or no lock came within HERDSMAN_LOCK_WAIT
   126 the command cannot be started
   127 the command was not found
