@@ -108,7 +108,7 @@ func (ch *Channel) BinaryProofValid() bool {
 		if !Regular(r.Dir, p) {
 			return false
 		}
-		if sum, err := DigestFileFast(p); err != nil || sum != c {
+		if sum, err := DigestFileCached(p); err != nil || sum != c {
 			return false
 		}
 	}
