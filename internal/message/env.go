@@ -39,6 +39,8 @@ type Env struct {
 	Events Events
 	// Executable is the running herdsman binary, for the binary setup proof.
 	Executable string
+	// JSON prints machine output (--json): one object per status or event.
+	JSON bool
 	// Ctx bounds herdr calls (nil: background).
 	Ctx context.Context
 

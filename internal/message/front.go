@@ -7,11 +7,51 @@ import (
 // Usage is message.sh's grammar line.
 const Usage = "message: status|wait|read [claim]|release <claim>|ack <claim> <id> <record>|send <to> <file> <kind> [reply]|hold <name> <reason>|unhold <name>"
 
+// Help is `herdsman message --help`: the grammar and each command's exit codes.
+const Help = `usage: herdsman message [--json] <action> [args]   (HERDSMAN_NAME: your enrolled name)
+  status                         channel metadata, read-only (--json: one object)
+  wait                           wait for a message or a health change (--json: one event object)
+  read [claim]                   claim ready messages; print manifests, never bodies
+  release <claim>                release a fully acknowledged claim
+  ack <claim> <id> <record>      acknowledge a claimed message after durable intake
+  send <to> <file> <kind> [reply]
+  hold <name> <reason> | unhold <name>
+  register propose <name> adjutant|orchestrator | approve <checksum> | retire <name> <checksum>
+  courier                        SWEEP=60 ALERT_AFTER=600 RUN_FOR=0
+  card-watch [--json]            INTERVAL=5 RUN_FOR=0 (it prints no event lines; alerts go to herdr)
+  resume-goal <name>             RESUME_TARGET_SUM
+  authority                      RELAY or HUMAN
+  leak-gate <file> [heading...]  LEAK_ALLOW_FILE LEAK_PATTERN
+
+exit codes:
+  0  done (wait: a message or TICK; resume-goal: NOOP or SENT; authority: RELAY; leak-gate: clean)
+  1  wait: HEALTH; leak-gate: a leak or a missing section; HERDSMAN_NAME or HERDSMAN_INBOX unset
+  2  usage, an invalid setting, or a refusal (the reason on stderr)
+  3  authority: HUMAN; resume-goal: HELD
+`
+
 // Main is `herdsman message <action> ...`: message.sh's grammar with
 // HERDSMAN_NAME as the caller's enrolled name, and the commands message.sh
 // does not front (register, courier, card-watch, resume-goal, authority,
 // leak-gate), which take their scripts' arguments.
 func (e *Env) Main(args []string) int {
+	var rest []string
+	for _, a := range args {
+		switch a {
+		case "--json":
+			e.JSON = true
+		case "-h", "--help":
+			fmt.Fprint(e.Stdout, Help)
+			return 0
+		default:
+			rest = append(rest, a)
+		}
+	}
+	args = rest
+	if len(args) > 0 && args[0] == "help" {
+		fmt.Fprint(e.Stdout, Help)
+		return 0
+	}
 	if len(args) > 0 {
 		switch args[0] {
 		case "register":

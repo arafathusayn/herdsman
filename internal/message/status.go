@@ -2,6 +2,7 @@ package message
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -50,8 +51,13 @@ func (e *Env) status(args []string) error {
 	}
 	r := e.ch
 	out := e.Stdout
+	rep := &StatusReport{Health: []string{}, Roles: []RoleStatus{}, Peers: []any{}, Holds: []string{}, Mailboxes: []MailboxStatus{}, Alerts: []any{}, DiagnosticLogs: []string{}}
+	if e.JSON {
+		out = io.Discard
+	}
 	for _, f := range e.healthSnapshot() {
 		fmt.Fprintln(out, f)
+		rep.Health = append(rep.Health, f)
 	}
 	now := e.unix()
 	for _, role := range []string{"courier", "watch"} {
@@ -72,6 +78,7 @@ func (e *Env) status(args []string) error {
 			age = strconv.FormatInt(now-t, 10)
 		}
 		fmt.Fprintf(out, "%s pid=%s heartbeat-age=%s; PID existence alone is not proof of health\n", role, pid, age)
+		rep.Roles = append(rep.Roles, RoleStatus{Role: role, PID: pid, HeartbeatAge: age})
 	}
 	pb, pok := inbox.ReadStrict(r.Dir, r.Path("peers"))
 	ab, aok := inbox.ReadStrict(r.Dir, r.Path("peers.approved"))
@@ -90,10 +97,13 @@ func (e *Env) status(args []string) error {
 		pending = "no"
 	}
 	fmt.Fprintf(out, "registry valid=%s approved=%s pending=%s\n", valid, approved, pending)
+	rep.Registry = RegistryStatus{Valid: valid == "yes", Approved: approved == "yes", Pending: pending == "yes"}
 	if avalid {
 		// to_entries keeps the file's key order.
 		for _, p := range orderedPeers(ab, approvedPeers) {
-			out.Write(line(obj("name", p.Name, "role", p.Role, "pane", p.Identity.Pane, "session", sessionObj(p.Identity.Session))))
+			po := obj("name", p.Name, "role", p.Role, "pane", p.Identity.Pane, "session", sessionObj(p.Identity.Session))
+			out.Write(line(po))
+			rep.Peers = append(rep.Peers, po)
 		}
 	}
 	fmt.Fprintln(out, "authority=foreground-check required-adapters=sandbox,provenance,capture,wake,audit,checkpoint")
@@ -112,6 +122,7 @@ func (e *Env) status(args []string) error {
 	}
 	for _, p := range holds {
 		fmt.Fprintf(out, "hold-or-intent: %s\n", filepath.Base(p))
+		rep.Holds = append(rep.Holds, filepath.Base(p))
 	}
 	pendingAlerts := 0
 	for _, p := range glob(r.Path("alerts"), "*.pending") {
@@ -120,6 +131,7 @@ func (e *Env) status(args []string) error {
 		}
 	}
 	fmt.Fprintf(out, "pending-alerts=%d\n", pendingAlerts)
+	rep.PendingAlerts = pendingAlerts
 	for _, box := range glob(r.Dir, "*") {
 		if st, err := os.Stat(filepath.Join(box, "new")); err != nil || !st.IsDir() {
 			continue
@@ -142,6 +154,9 @@ func (e *Env) status(args []string) error {
 			claim = "incomplete"
 		}
 		fmt.Fprintf(out, "unacknowledged=%d claim=%s\n", len(r.Unacked(box)), claim)
+		mb := MailboxStatus{Name: name, Orphan: orphan == "yes", New: inbox.CountState(filepath.Join(box, "new")), Ready: inbox.CountState(filepath.Join(box, "ready")),
+			Cur: inbox.CountState(filepath.Join(box, "cur")), Quarantine: inbox.CountState(filepath.Join(box, "quarantine")), Unacknowledged: len(r.Unacked(box)), Claim: claim,
+			Messages: []any{}, Suspicious: []string{}, Partial: []string{}, Notices: []any{}}
 		for _, state := range []string{"new", "ready", "cur", "quarantine"} {
 			if !inbox.NoLinks(filepath.Join(box, state)) {
 				return die("state symlink")
@@ -150,19 +165,23 @@ func (e *Env) status(args []string) error {
 				m, ok := inbox.Envelope(r.Dir, f)
 				if !ok {
 					fmt.Fprintf(out, "suspicious entry in %s/%s; no body displayed\n", name, state)
+					mb.Suspicious = append(mb.Suspicious, state)
 					continue
 				}
 				if me != "" && m["from"] != me && m["to"] != me {
 					continue
 				}
 				ack := r.AckValid(box, strings.TrimSuffix(filepath.Base(f), ".md"))
-				out.Write(line(obj("id", m["id"], "from", m["from"], "to", m["to"], "kind", m["kind"], "reply_to", m["reply_to"], "state", state, "acknowledged", ack)))
+				mo := obj("id", m["id"], "from", m["from"], "to", m["to"], "kind", m["kind"], "reply_to", m["reply_to"], "state", state, "acknowledged", ack)
+				out.Write(line(mo))
+				mb.Messages = append(mb.Messages, mo)
 			}
 		}
 		tmp, _ := os.ReadDir(filepath.Join(box, "tmp"))
 		for _, t := range tmp {
 			if n := t.Name(); n != "." && n != ".." {
 				fmt.Fprintf(out, "partial write: %s\n", filepath.Join(box, "tmp", n))
+				mb.Partial = append(mb.Partial, filepath.Join(box, "tmp", n))
 			}
 		}
 		for _, f := range glob(filepath.Join(box, "notices"), "*.json") {
@@ -175,19 +194,29 @@ func (e *Env) status(args []string) error {
 				fmt.Fprintln(out, "invalid notice")
 				continue
 			}
-			out.Write(line(obj("id", m["id"], "to", m["to"], "state", m["state"], "authority", m["authority"])))
+			no := obj("id", m["id"], "to", m["to"], "state", m["state"], "authority", m["authority"])
+			out.Write(line(no))
+			mb.Notices = append(mb.Notices, no)
 		}
+		rep.Mailboxes = append(rep.Mailboxes, mb)
 	}
 	for _, f := range glob(r.Path("alerts"), "*.pending") {
 		if inbox.Regular(r.Dir, f) {
 			b, _ := os.ReadFile(f)
 			out.Write(b)
+			if v, err := inbox.Decode(b); err == nil {
+				rep.Alerts = append(rep.Alerts, v)
+			}
 		}
 	}
 	for _, f := range glob(r.Path("state"), "diagnostic-*.log") {
 		if st, err := os.Stat(f); err == nil && st.Mode().IsRegular() {
 			fmt.Fprintf(out, "diagnostic log: %s\n", f)
+			rep.DiagnosticLogs = append(rep.DiagnosticLogs, f)
 		}
+	}
+	if e.JSON {
+		e.Stdout.Write(line(rep))
 	}
 	return nil
 }
@@ -210,4 +239,58 @@ func orderedPeers(b []byte, peers []inbox.Peer) []inbox.Peer {
 		}
 	}
 	return out
+}
+
+// StatusReport is `herdsman message status --json`: one object with the
+// text output's facts. Fields:
+//
+//	health           the health flags (courier-down, watch-down, *-lock-stale, setup-proof-stale, timing-invalid, automation-held)
+//	roles            the courier and the watcher: role, pid ("none") and heartbeat_age (seconds, or "unknown")
+//	registry         valid, approved and pending, as booleans
+//	peers            the approved peers: name, role, pane, session
+//	holds            the hold and resume intent file names under state/
+//	pending_alerts   how many alerts wait to be shown
+//	mailboxes        each mailbox's counts, claim (held, incomplete, none), headers, notices and partial writes
+//	alerts           the pending alert payloads
+//	diagnostic_logs  the courier's diagnostic log paths
+type StatusReport struct {
+	Health         []string        `json:"health"`
+	Roles          []RoleStatus    `json:"roles"`
+	Registry       RegistryStatus  `json:"registry"`
+	Peers          []any           `json:"peers"`
+	Holds          []string        `json:"holds"`
+	PendingAlerts  int             `json:"pending_alerts"`
+	Mailboxes      []MailboxStatus `json:"mailboxes"`
+	Alerts         []any           `json:"alerts"`
+	DiagnosticLogs []string        `json:"diagnostic_logs"`
+}
+
+// RoleStatus is a singleton's lock owner and heartbeat age.
+type RoleStatus struct {
+	Role         string `json:"role"`
+	PID          string `json:"pid"`
+	HeartbeatAge string `json:"heartbeat_age"`
+}
+
+// RegistryStatus is the registry's state.
+type RegistryStatus struct {
+	Valid    bool `json:"valid"`
+	Approved bool `json:"approved"`
+	Pending  bool `json:"pending"`
+}
+
+// MailboxStatus is one mailbox: headers only, never bodies or claim tokens.
+type MailboxStatus struct {
+	Name           string   `json:"name"`
+	Orphan         bool     `json:"orphan"`
+	New            int      `json:"new"`
+	Ready          int      `json:"ready"`
+	Cur            int      `json:"cur"`
+	Quarantine     int      `json:"quarantine"`
+	Unacknowledged int      `json:"unacknowledged"`
+	Claim          string   `json:"claim"`
+	Messages       []any    `json:"messages"`
+	Suspicious     []string `json:"suspicious"`
+	Partial        []string `json:"partial"`
+	Notices        []any    `json:"notices"`
 }

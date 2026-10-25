@@ -18,3 +18,11 @@ func (f *Fixture) Handler(method string) Handler {
 	}
 	return nil
 }
+
+// ResetRequests forgets the recorded requests, so a long test can measure
+// its own memory without the fake's log.
+func (s *Server) ResetRequests() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requests = nil
+}

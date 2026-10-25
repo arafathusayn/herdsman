@@ -145,23 +145,23 @@ func (e *Env) wait(args []string) error {
 				}
 				switch {
 				case flagText+fault != "":
-					fmt.Fprintf(e.Stdout, "HEALTH %s %s\n", flagText, fault)
+					e.event(WaitEvent{Event: "health", Flags: flags, Fault: fault}, fmt.Sprintf("HEALTH %s %s", flagText, fault))
 					return exitWith(1)
 				case len(found) > 0:
-					fmt.Fprintf(e.Stdout, "MESSAGE %s: run herdsman message read\n", me)
+					e.event(WaitEvent{Event: "message", Name: me}, fmt.Sprintf("MESSAGE %s: run herdsman message read", me))
 					return nil
 				case notices != "":
-					fmt.Fprintln(e.Stdout, "HEALTH sender notice; inspect herdsman message status")
+					e.event(WaitEvent{Event: "health", Reason: "sender_notice"}, "HEALTH sender notice; inspect herdsman message status")
 					return exitWith(1)
 				case pending > 0:
-					fmt.Fprintln(e.Stdout, "HEALTH pending delivery; inspect herdsman message status")
+					e.event(WaitEvent{Event: "health", Reason: "pending_delivery"}, "HEALTH pending delivery; inspect herdsman message status")
 					return exitWith(1)
 				}
 			}
 			next = t + int64(recheck)
 		}
 		if t >= end {
-			fmt.Fprintln(e.Stdout, "TICK message-wait deadline")
+			e.event(WaitEvent{Event: "tick"}, "TICK message-wait deadline")
 			return nil
 		}
 		if stream == nil {
@@ -227,4 +227,25 @@ func (e *Env) nextHint(stream *Stream, seconds int64) (string, bool) {
 	(*stream).Close()
 	*stream = nil
 	return "", false
+}
+
+// WaitEvent is one `herdsman message wait --json` line. Fields: event
+// (message, health or tick); name (message: the reader); flags and fault
+// (health: the health flags and identity-unavailable); reason (health:
+// sender_notice or pending_delivery).
+type WaitEvent struct {
+	Event  string   `json:"event"`
+	Name   string   `json:"name,omitempty"`
+	Flags  []string `json:"flags,omitempty"`
+	Fault  string   `json:"fault,omitempty"`
+	Reason string   `json:"reason,omitempty"`
+}
+
+// event prints one event: its JSON line with --json, else its text line.
+func (e *Env) event(v any, text string) {
+	if e.JSON {
+		e.Stdout.Write(line(v))
+		return
+	}
+	fmt.Fprintln(e.Stdout, text)
 }
