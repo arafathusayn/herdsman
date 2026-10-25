@@ -118,7 +118,10 @@ func TestR4WaitHealthOutputFailure(t *testing.T) {
 			env := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed, "HERDR_PANE_ID": pane, "WATCH_REQUIRED": "0", "DEADLINE": "2", "RECHECK": "1"}
 			e := &Env{Getenv: func(k string) string { return env[k] }, Stdout: deltaFailedWriter{}, Stderr: io.Discard, Client: herdr.New(c.srv.Socket), Now: func() time.Time { return c.now }, Sleep: func(d time.Duration) { c.now = c.now.Add(d) }}
 			code := e.Wait([]string{me})
-			out, _ := c.wait(pane, me, "WATCH_REQUIRED=0")
+			var next bytes.Buffer
+			e2 := &Env{Getenv: func(k string) string { return env[k] }, Stdout: &next, Stderr: io.Discard, Client: herdr.New(c.srv.Socket), Now: func() time.Time { return c.now }, Sleep: func(d time.Duration) { c.now = c.now.Add(d) }}
+			e2.Wait([]string{me})
+			out := next.String()
 			if code == 0 || !strings.Contains(out, want) {
 				t.Errorf("failed %s output exited %d; next wait %q", mode, code, out)
 			}
