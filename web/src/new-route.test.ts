@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 
 import {
+  checklist,
   checkpointerAvailable,
   checkpointerOn,
   defaultEffort,
   effortsFor,
   formField,
+  inboxKey,
   initialForm,
   kindOf,
   knownFolders,
@@ -16,6 +18,7 @@ import {
   projectLabel,
   quoteArg,
   type RouteForm,
+  setHarness,
   setRole,
   skillWarnings,
   stepNote,
@@ -310,4 +313,63 @@ test("a failed step shows herdr's error once, a skipped one says why", () => {
   );
   expect(stepNote({ ...base, status: "skipped" })).toBe("skipped: an earlier step failed");
   expect(stepNote({ ...base, status: "ok" })).toBe("");
+});
+
+test("the orchestrator's harness follows the adjutant's kind, model and effort until edited", () => {
+  let f = setRole(fresh(), "adjutant");
+  f = setHarness(f, catalog, "main", { kind: "codex" });
+  expect(f.orch).toEqual({ kind: "codex", model: "gpt-6.1-sol", other: "", effort: "high" });
+  f = setHarness(f, catalog, "main", { model: "gpt-5.6-luna" });
+  expect(f.orch.model).toBe("gpt-5.6-luna");
+  f = setHarness(f, catalog, "main", { effort: "low" });
+  expect(f.orch.effort).toBe("low");
+  f = setHarness(f, catalog, "main", { kind: "claude" });
+  f = setHarness(f, catalog, "main", { model: OTHER, other: "claude-x" });
+  expect(f.orch).toEqual({ kind: "claude", model: OTHER, other: "claude-x", effort: "medium" });
+  f = setHarness(f, catalog, "orch", { kind: "codex" });
+  expect(f.orchEdited).toBe(true);
+  f = setHarness(f, catalog, "main", { kind: "pi" });
+  expect([f.main.kind, f.orch.kind]).toEqual(["pi", "codex"]);
+  f = setHarness(f, catalog, "main", { model: "typed-model" });
+  expect(f.main.model).toBe("typed-model");
+  // The role switch copies the adjutant's choice only while untouched.
+  expect(setRole(setHarness(fresh(), catalog, "main", { kind: "codex" }), "adjutant").orch.kind).toBe("codex");
+  expect(setRole(setRole(f, "orchestrator"), "adjutant").orch.kind).toBe("codex");
+});
+
+test("the checklist follows the form and counts only the current pair's approval", () => {
+  const f = { ...setRole(fresh(), "adjutant"), inbox: "~/in" };
+  const unknown = checklist(f, catalog, null);
+  expect(unknown.map((i) => i.done)).toEqual([null, null, null, null, null]);
+  expect(unknown[0]?.code).toBe("mkdir -m 700 -p ~/in");
+  expect(unknown[2]?.code).toBe("/herdsman adjutant --name orch-9 --orchestrator <orchestrator pane> --inbox ~/in");
+  const base = {
+    path: "/Users/me/in",
+    exists: true,
+    private: true,
+    setup: true,
+    proposed: ["adj-1 (adjutant)"],
+    approved: [],
+  };
+  const stale = checklist(f, catalog, {
+    ...base,
+    approved: ["adj-1 (adjutant)", "orch-1 (orchestrator)"],
+    pair_proposed: true,
+    pair_approved: false,
+  });
+  expect(stale.map((i) => i.done)).toEqual([true, true, null, true, false]);
+  expect(stale[3]?.note).toBe("adj-1 (adjutant)");
+  const done = checklist(
+    f,
+    catalog,
+    { ...base, pair_proposed: true, pair_approved: true },
+    "/herdsman adjutant --orchestrator w1:p5",
+  );
+  expect(done[4]?.done).toBe(true);
+  expect(done[2]?.code).toBe("/herdsman adjutant --orchestrator w1:p5");
+  expect(checklist(f, catalog, { ...base, proposed: [], pair_proposed: false, pair_approved: false })[3]?.note).toBe(
+    undefined,
+  );
+  expect(inboxKey(f)).not.toBe(inboxKey({ ...f, orchName: "orch-2" }));
+  expect(inboxKey(f)).not.toBe(inboxKey({ ...f, inbox: "~/other" }));
 });

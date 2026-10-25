@@ -1,7 +1,7 @@
 // The New route form's logic, apart from the DOM: defaults, the folder
 // list, labels, validation and the exact text the app will send. The server
 // checks everything again; this keeps the form honest and quick.
-import type { Catalog, CatalogKind, RouteRequest, RouteRole, RouteStep, State } from "./types.ts";
+import type { Catalog, CatalogKind, InboxState, RouteRequest, RouteRole, RouteStep, State } from "./types.ts";
 
 export const CHECKPOINT_MIN_MINUTES = 5;
 export const CHECKPOINT_MAX_MINUTES = 240;
@@ -35,6 +35,8 @@ export interface RouteForm {
   limit: string;
   /** The orchestrator an adjutant route starts beside the adjutant. */
   orch: Harness;
+  /** The orchestrator's harness follows the adjutant's until the user edits it. */
+  orchEdited: boolean;
   orchName: string;
   routeName: string;
   inbox: string;
@@ -108,6 +110,26 @@ export function pickHarness(c: Catalog, h: Harness, change: Partial<Pick<Harness
   return { ...h, model, effort };
 }
 
+/** A change to one coordinator's harness: kind, model, effort or typed model id. */
+export type HarnessChange = Partial<Harness>;
+
+/**
+ * Applies a harness change. The adjutant's choice (main) carries over to the
+ * orchestrator until the user edits the orchestrator's own choice.
+ */
+export function setHarness(f: RouteForm, c: Catalog, which: "main" | "orch", change: HarnessChange): RouteForm {
+  const cur = f[which];
+  let h: Harness;
+  if (change.kind !== undefined && change.kind !== cur.kind) h = harness(c, change.kind);
+  else if (change.model !== undefined && !kindOf(c, cur.kind)?.free_model)
+    h = pickHarness(c, cur, { model: change.model });
+  else h = { ...cur, ...(change.model !== undefined ? { model: change.model } : {}) };
+  if (change.effort !== undefined) h = { ...h, effort: change.effort };
+  if (change.other !== undefined) h = { ...h, other: change.other };
+  if (which === "orch") return { ...f, orch: h, orchEdited: true };
+  return { ...f, main: h, orch: f.orchEdited ? f.orch : { ...h } };
+}
+
 export function inboxDefault(project: string, routeName: string): string {
   return `~/.herdsman-private/${project || "project"}-${routeName}`;
 }
@@ -130,6 +152,7 @@ export function initialForm(c: Catalog, st: State | null): RouteForm {
     minutes: "15",
     limit: "250k",
     orch: harness(c, first),
+    orchEdited: false,
     orchName: "orch-1",
     routeName,
     inbox: inboxDefault(projectLabel(folder), routeName),
@@ -143,7 +166,7 @@ export function setRole(f: RouteForm, role: RouteRole): RouteForm {
   let name = f.name;
   if (role === "adjutant" && name === "orch-1") name = "adj-1";
   if (role === "orchestrator" && name === "adj-1") name = "orch-1";
-  return { ...f, role, name };
+  return { ...f, role, name, orch: f.orchEdited ? f.orch : { ...f.main } };
 }
 
 /** Applies a change and keeps the inbox following the folder and route name until edited. */
@@ -314,4 +337,46 @@ export function stepNote(s: RouteStep): string {
   if (s.status !== "failed") return "";
   const reason = s.reason ?? "";
   return s.code && !reason.startsWith(`${s.code}:`) ? `${s.code}: ${reason}` : reason;
+}
+
+/** One line of the channel setup checklist. done is null while its state cannot be read. */
+export interface ChecklistItem {
+  title: string;
+  who: "you do this" | "after start";
+  done: boolean | null;
+  code?: string;
+  note?: string;
+}
+
+/**
+ * The channel setup checklist for the form as it is now: the commands follow
+ * the current inbox and names, and the inbox state counts only when it was
+ * read for this inbox and pair (stateFor); anything else shows as unknown.
+ */
+export function checklist(f: RouteForm, c: Catalog, s: InboxState | null, attach?: string): ChecklistItem[] {
+  const known = s !== null;
+  const items: ChecklistItem[] = [
+    {
+      title: "Create the private inbox, mode 700",
+      who: "you do this",
+      done: known ? s.private : null,
+      code: `mkdir -m 700 -p ${f.inbox}`,
+    },
+    { title: "Write the setup proof (setup.json)", who: "you do this", done: known ? s.setup : null },
+    {
+      title: "Attach the adjutant: type this into its pane",
+      who: "you do this",
+      done: null,
+      code: attach ?? preview(f, c).attach ?? "",
+    },
+    { title: "Both sides propose", who: "after start", done: known ? s.pair_proposed : null },
+    { title: "Approve the pair", who: "you do this", done: known ? s.pair_approved : null },
+  ];
+  if (s?.proposed.length) items[3] = { ...items[3]!, note: s.proposed.join(", ") };
+  return items;
+}
+
+/** The key an inbox read is bound to: a reply for another key is outdated. */
+export function inboxKey(f: RouteForm): string {
+  return `${f.inbox}\n${f.name}\n${f.orchName}`;
 }

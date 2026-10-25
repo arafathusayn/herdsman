@@ -1,0 +1,617 @@
+// The New route form inside its dialog. Everything outside the DOM (the
+// server calls, the live state, navigation, toasts) comes in through Deps,
+// so the form can be driven in tests without a server or the app's store.
+import { h, icon, icons, mount } from "../dom.ts";
+import {
+  checklist,
+  checkpointerAvailable,
+  checkpointerOn,
+  effortsFor,
+  formField,
+  type HarnessChange,
+  inboxKey,
+  initialForm,
+  kindOf,
+  knownFolders,
+  OTHER,
+  preview,
+  projectLabel,
+  type RouteForm,
+  setHarness,
+  setRole,
+  skillWarnings,
+  stepNote,
+  toRequest,
+  update,
+  validate,
+} from "../new-route.ts";
+import type { Catalog, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
+
+export interface Deps {
+  createRoute(r: RouteRequest): Promise<RouteResult>;
+  inboxState(path: string, adjutant: string, orchestrator: string): Promise<InboxState>;
+  /** The live session state, for validation at submit time. */
+  state(): State | null;
+  copy(text: string, what: string): void;
+  openPane(pane: string): void;
+  close(): void;
+  failed(err: unknown): void;
+  /** Schedules fn every ms; returns a stop function. */
+  every(ms: number, fn: () => void): () => void;
+  /** Delays fn by ms; returns a cancel function. */
+  later(ms: number, fn: () => void): () => void;
+}
+
+/** How often an open adjutant checklist rereads its inbox, so human steps show as they happen. */
+export const INBOX_POLL_MS = 5000;
+/** Typing in the inbox, folder, route name or a name waits this long before a reread. */
+export const INBOX_DEBOUNCE_MS = 400;
+
+function selectBox(
+  name: string,
+  value: string,
+  options: [string, string][],
+  onchange: (v: string) => void,
+  id?: string,
+): HTMLElement {
+  const sel = h(
+    "select",
+    { name, id, onchange: (e: Event) => onchange((e.target as HTMLSelectElement).value) },
+    options.map(([v, label]) => h("option", { value: v, selected: v === value }, label)),
+  );
+  return h("span", { class: "select" }, sel, icon(icons.chevronDown));
+}
+
+let uid = 0;
+
+/** The checkpointer group's own messages, each shown under the group. */
+const checkpointerFields = ["checkpointer", "minutes", "limit"];
+
+/**
+ * Builds the form into body and returns a stop function for its timers.
+ * The returned handle also exposes the current form for tests.
+ */
+export function routeForm(
+  body: HTMLElement,
+  c: Catalog,
+  st: State | null,
+  deps: Deps,
+): { stop(): void; form(): RouteForm } {
+  let f: RouteForm = initialForm(c, st);
+  let errors: Record<string, string> = {};
+  let busy = false;
+  let result: RouteResult | null = null;
+  // The inbox state, valid only for the key it was read for.
+  let inbox: { key: string; state: InboxState } | null = null;
+  let reqSeq = 0;
+  let cancelDebounce = (): void => {};
+  const id = `nr${++uid}`;
+  const live = {
+    preview: h("pre", { class: "nr-preview" }),
+    label: h("small", null),
+    inbox: null as HTMLInputElement | null,
+    checklist: h("section", { class: "nr-checklist", "aria-label": "Channel setup" }),
+  };
+  // Each field's box and its error line, by field name.
+  let boxes = new Map<string, HTMLElement>();
+  let messages = new Map<string, HTMLElement>();
+
+  const readInbox = (): void => {
+    if (f.role !== "adjutant") return;
+    const key = inboxKey(f);
+    const seq = ++reqSeq;
+    deps.inboxState(f.inbox, f.name, f.orchName).then(
+      (s) => {
+        // A reply for an older request or another inbox or pair is outdated.
+        if (seq !== reqSeq || key !== inboxKey(f)) return;
+        inbox = { key, state: s };
+        drawChecklist();
+      },
+      () => {
+        if (seq !== reqSeq) return;
+        inbox = null;
+        drawChecklist();
+      },
+    );
+  };
+  const stopPoll = deps.every(INBOX_POLL_MS, readInbox);
+
+  const set = (change: Partial<RouteForm>, redraw: boolean): void => {
+    const before = inboxKey(f);
+    f = update(f, change);
+    for (const k of Object.keys(change)) delete errors[k];
+    if (redraw) draw();
+    else refresh();
+    if (inboxKey(f) !== before) {
+      cancelDebounce();
+      cancelDebounce = deps.later(INBOX_DEBOUNCE_MS, readInbox);
+    }
+  };
+  const harnessChange = (which: "main" | "orch", change: HarnessChange, redraw: boolean): void => {
+    delete errors[which];
+    if (which === "main") delete errors["orch"];
+    f = setHarness(f, c, which, change);
+    if (redraw) draw();
+    else refresh();
+  };
+
+  const drawChecklist = (): void => {
+    if (f.role !== "adjutant" || (result && !result.adjutant_pane)) {
+      mount(live.checklist);
+      return;
+    }
+    const s = inbox && inbox.key === inboxKey(f) ? inbox.state : null;
+    const items = checklist(f, c, s, result?.attach_command);
+    mount(
+      live.checklist,
+      h("h3", null, "Channel setup"),
+      h(
+        "ol",
+        null,
+        items.map((it, i) =>
+          h(
+            "li",
+            { class: it.done ? "done" : "", dataset: { item: String(i) } },
+            h("span", { class: "nr-check", "aria-hidden": "true" }, it.done ? icon(icons.check) : null),
+            h(
+              "span",
+              { class: "nr-item" },
+              h("span", null, it.title),
+              it.code && i === 2
+                ? h(
+                    "span",
+                    { class: "nr-attach" },
+                    h("code", null, it.code),
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        class: "chip-btn",
+                        title: "Copy the command",
+                        "aria-label": "Copy the command",
+                        onclick: () => deps.copy(it.code ?? "", "attach command"),
+                      },
+                      icon(icons.copy),
+                    ),
+                  )
+                : it.code
+                  ? h("code", null, it.code)
+                  : null,
+              it.note ? h("small", null, it.note) : null,
+            ),
+            h("span", { class: `nr-who${it.who === "you do this" ? " you" : ""}` }, it.done ? "done" : it.who),
+          ),
+        ),
+      ),
+      s === null ? h("small", { class: "nr-note" }, "Reading the inbox…") : null,
+    );
+  };
+
+  // Updates what follows typing without redrawing the inputs under the caret.
+  const refresh = (): void => {
+    live.preview.textContent = preview(f, c).command;
+    const project = projectLabel(f.folder) || "<project>";
+    live.label.textContent =
+      f.role === "adjutant" ? `Tabs ${project}-adjutant and ${project}-orchestrator` : `Tab ${project}-orchestrator`;
+    if (live.inbox && !f.inboxEdited) live.inbox.value = f.inbox;
+    for (const [name, box] of boxes) {
+      const own = name === "checkpointer" ? checkpointerFields.some((k) => errors[k]) : !!errors[name];
+      box.classList.toggle("invalid", own);
+    }
+    for (const [name, msg] of messages) {
+      if (!errors[name]) {
+        msg.remove();
+        messages.delete(name);
+      }
+    }
+    if (!result) drawChecklist();
+  };
+
+  const errorLine = (name: string): HTMLElement | null => {
+    if (!errors[name]) return null;
+    const el = h("small", { class: "error", role: "alert", dataset: { error: name } }, errors[name]);
+    messages.set(name, el);
+    return el;
+  };
+
+  const field = (
+    name: string,
+    label: string,
+    control: Node,
+    hint?: Node | string | null,
+    wide = false,
+  ): HTMLElement => {
+    const box = h(
+      "div",
+      { class: `field${wide ? " wide" : ""}${errors[name] ? " invalid" : ""}`, dataset: { field: name } },
+      h("label", { for: `${id}-${name}` }, label),
+      control,
+      hint ? h("small", null, hint) : null,
+      errorLine(name),
+    );
+    boxes.set(name, box);
+    return box;
+  };
+
+  const text = (name: keyof RouteForm, extra: Record<string, unknown> = {}): HTMLInputElement =>
+    h("input", {
+      id: `${id}-${name}`,
+      name,
+      value: String(f[name]),
+      autocomplete: "off",
+      spellcheck: false,
+      oninput: (e: Event) => set({ [name]: (e.target as HTMLInputElement).value } as Partial<RouteForm>, false),
+      ...extra,
+    });
+
+  const harnessFields = (which: "main" | "orch", nameField: "name" | "orchName", who: string): HTMLElement[] => {
+    const hn = f[which];
+    const k = kindOf(c, hn.kind);
+    const kinds: [string, string][] = c.kinds.map((x) => [x.kind, x.label]);
+    let model: Node;
+    if (!k || k.free_model) {
+      model = h("input", {
+        id: `${id}-${which}-model`,
+        name: `${which}-model`,
+        value: hn.model,
+        placeholder: "model id (optional)",
+        autocomplete: "off",
+        spellcheck: false,
+        oninput: (e: Event) => harnessChange(which, { model: (e.target as HTMLInputElement).value }, false),
+      });
+    } else {
+      const opts: [string, string][] = k.models.map((m) => [m.id, m.label === m.id ? m.id : `${m.label} (${m.id})`]);
+      if (k.other_model) opts.push([OTHER, "Other model id…"]);
+      model = selectBox(
+        `${which}-model`,
+        hn.model,
+        opts,
+        (v) => harnessChange(which, { model: v }, true),
+        `${id}-${which}-model`,
+      );
+    }
+    const efforts = effortsFor(k, hn.model);
+    const offline = k?.offline
+      ? h(
+          "span",
+          { class: "nr-chip", title: "The harness could not be asked; this is the last-known list." },
+          "offline list",
+        )
+      : null;
+    return [
+      field(
+        which,
+        `${who} harness`,
+        selectBox(`${which}-kind`, hn.kind, kinds, (v) => harnessChange(which, { kind: v }, true), `${id}-${which}`),
+      ),
+      field(`${which}-model`, "Model", h("div", { class: "nr-row" }, model, offline)),
+      hn.model === OTHER
+        ? field(
+            `${which}-other`,
+            "Model id",
+            h("input", {
+              id: `${id}-${which}-other`,
+              name: `${which}-other`,
+              value: hn.other,
+              placeholder: "claude-opus-4-1",
+              autocomplete: "off",
+              spellcheck: false,
+              oninput: (e: Event) => harnessChange(which, { other: (e.target as HTMLInputElement).value }, false),
+            }),
+          )
+        : null,
+      efforts.length
+        ? field(
+            `${which}-effort`,
+            "Effort",
+            selectBox(
+              `${which}-effort`,
+              hn.effort,
+              efforts.map((e) => [e, e]),
+              (v) => harnessChange(which, { effort: v }, which === "main" && f.role === "adjutant"),
+              `${id}-${which}-effort`,
+            ),
+          )
+        : null,
+      field(nameField, `${who} name`, text(nameField)),
+    ].filter((x): x is HTMLElement => !!x);
+  };
+
+  const draw = (): void => {
+    // A redraw keeps the keyboard focus on the control of the same name.
+    const focused = (document.activeElement as HTMLElement | null)?.getAttribute?.("name");
+    boxes = new Map();
+    messages = new Map();
+    result = null;
+    const ws = st?.snapshot.workspaces ?? [];
+    const ck = checkpointerAvailable(f, c);
+    const ckOn = checkpointerOn(f, c);
+    const folders = knownFolders(st);
+    const role = (r: RouteForm["role"], label: string) =>
+      h(
+        "button",
+        {
+          type: "button",
+          role: "radio",
+          name: `role-${r}`,
+          "aria-checked": String(f.role === r),
+          class: f.role === r ? "active" : "",
+          onclick: () => {
+            f = setRole(f, r);
+            draw();
+            readInbox();
+          },
+        },
+        label,
+      );
+    const ckBox = h(
+      "div",
+      { class: "field wide nr-ck", dataset: { field: "checkpointer" } },
+      h(
+        "label",
+        { class: "nr-toggle" },
+        h("input", {
+          type: "checkbox",
+          name: "checkpointer",
+          checked: ckOn,
+          disabled: !ck.ok,
+          onchange: (e: Event) => set({ checkpointer: (e.target as HTMLInputElement).checked }, true),
+        }),
+        h("span", null, "Checkpointer"),
+        h("small", null, ck.ok ? "keeps the orchestrator's memory and compacts its context" : ck.why),
+      ),
+      ckOn
+        ? h(
+            "div",
+            { class: "nr-row" },
+            h(
+              "label",
+              { class: "nr-inline" },
+              "every",
+              text("minutes", { inputmode: "numeric", class: "nr-num" }),
+              "min",
+            ),
+            h("label", { class: "nr-inline" }, "compact at", text("limit", { class: "nr-num" }), "tokens"),
+          )
+        : null,
+      checkpointerFields.map(errorLine),
+    );
+    boxes.set("checkpointer", ckBox);
+    mount(
+      body,
+      h(
+        "div",
+        { class: "nr-head" },
+        h("h2", null, "New route"),
+        h(
+          "button",
+          { value: "cancel", class: "icon-btn", title: "Close", "aria-label": "Close", formnovalidate: true },
+          icon(icons.close),
+        ),
+      ),
+      h(
+        "div",
+        { class: "nr-body" },
+        h(
+          "div",
+          { class: "nr-role", role: "radiogroup", "aria-label": "Role" },
+          role("orchestrator", "Orchestrator"),
+          role("adjutant", "Adjutant"),
+        ),
+        h(
+          "div",
+          { class: "nr-grid" },
+          field(
+            "workspace",
+            "Workspace",
+            selectBox(
+              "workspace",
+              f.workspace,
+              ws.map((w) => [w.workspace_id, `${w.label || `Workspace ${w.number}`}${w.focused ? " (focused)" : ""}`]),
+              (v) => set({ workspace: v }, true),
+              `${id}-workspace`,
+            ),
+          ),
+          field(
+            "folder",
+            "Folder",
+            h(
+              "span",
+              { class: "nr-folder" },
+              text("folder", { list: `${id}-folders`, placeholder: "/path/to/repo" }),
+              h(
+                "datalist",
+                { id: `${id}-folders` },
+                folders.map((p) => h("option", { value: p })),
+              ),
+            ),
+            live.label,
+            true,
+          ),
+          f.role === "adjutant"
+            ? [
+                h("h3", { class: "nr-sub" }, "Adjutant"),
+                ...harnessFields("main", "name", "Adjutant"),
+                h("h3", { class: "nr-sub" }, "Orchestrator"),
+                ...harnessFields("orch", "orchName", "Orchestrator"),
+                field("routeName", "Route name", text("routeName")),
+                field(
+                  "inbox",
+                  "Private inbox",
+                  h(
+                    "span",
+                    { class: "nr-inbox" },
+                    (live.inbox = text("inbox")),
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        class: "chip-btn",
+                        title: "Copy the inbox path",
+                        "aria-label": "Copy the inbox path",
+                        onclick: () => deps.copy(f.inbox, "inbox path"),
+                      },
+                      icon(icons.copy),
+                    ),
+                  ),
+                  "One inbox per route. The app never creates or writes it.",
+                  true,
+                ),
+              ]
+            : harnessFields("main", "name", "Orchestrator"),
+          field(
+            "request",
+            "Route request",
+            h("textarea", {
+              id: `${id}-request`,
+              name: "request",
+              rows: 4,
+              placeholder: "What should this route do?",
+              value: f.request,
+              oninput: (e: Event) => set({ request: (e.target as HTMLTextAreaElement).value }, false),
+            }),
+            null,
+            true,
+          ),
+          ckBox,
+        ),
+        skillWarnings(f, c).map((w) => h("p", { class: "nr-warn", role: "note" }, w)),
+        h("div", { class: "nr-sends" }, h("span", null, "Sends"), live.preview),
+        live.checklist,
+      ),
+      h(
+        "div",
+        { class: "dialog-actions nr-actions" },
+        h("button", { value: "cancel", class: "btn ghost", formnovalidate: true }, "Cancel"),
+        h(
+          "button",
+          { type: "submit", class: "btn primary", disabled: busy, name: "start" },
+          busy ? "Starting…" : "Start route",
+        ),
+      ),
+    );
+    refresh();
+    if (focused) body.querySelector?.<HTMLElement>(`[name="${focused.replace(/["\\]/g, "")}"]`)?.focus();
+  };
+
+  const showResult = (r: RouteResult): void => {
+    result = r;
+    const mark = { ok: icons.check, failed: icons.close, skipped: null } as const;
+    const pane = r.orchestrator_pane;
+    mount(
+      body,
+      h(
+        "div",
+        { class: "nr-head" },
+        h("h2", null, r.ok ? "Route started" : "The route stopped part way"),
+        h("button", { value: "cancel", class: "icon-btn", title: "Close", "aria-label": "Close" }, icon(icons.close)),
+      ),
+      h(
+        "div",
+        { class: "nr-body" },
+        r.ok ? null : h("p", { class: "error" }, r.error ?? "A step failed."),
+        h(
+          "ol",
+          { class: "nr-steps" },
+          r.steps.map((s) =>
+            h(
+              "li",
+              { class: `s-${s.status}` },
+              h(
+                "span",
+                { class: "nr-check", "aria-hidden": "true" },
+                mark[s.status] ? icon(mark[s.status] as string[]) : "–",
+              ),
+              h(
+                "span",
+                { class: "nr-item" },
+                h("span", null, s.step),
+                s.status === "ok" ? null : h("small", null, stepNote(s)),
+              ),
+              s.id ? h("code", null, s.id) : null,
+            ),
+          ),
+        ),
+        r.ok
+          ? null
+          : h("p", { class: "nr-note" }, "Nothing was closed: the tabs and panes created so far stay as they are."),
+        live.checklist,
+      ),
+      h(
+        "div",
+        { class: "dialog-actions nr-actions" },
+        r.ok
+          ? null
+          : h(
+              "button",
+              {
+                type: "button",
+                class: "btn ghost",
+                onclick: () => {
+                  busy = false;
+                  draw();
+                },
+              },
+              "Back to the form",
+            ),
+        pane
+          ? h(
+              "button",
+              {
+                type: "button",
+                class: "btn ghost",
+                onclick: () => {
+                  deps.close();
+                  deps.openPane(pane);
+                },
+              },
+              "Open the orchestrator",
+            )
+          : null,
+        h("button", { value: "ok", class: "btn primary" }, r.ok ? "Done" : "Close"),
+      ),
+    );
+    drawChecklist();
+    readInbox();
+  };
+
+  body.addEventListener("submit", (e) => {
+    const submitter = (e as SubmitEvent).submitter as HTMLButtonElement | null;
+    if (submitter?.value === "cancel" || submitter?.value === "ok") return;
+    e.preventDefault();
+    if (busy) return;
+    errors = validate(f, c, deps.state());
+    if (Object.keys(errors).length) {
+      draw();
+      return;
+    }
+    busy = true;
+    draw();
+    deps.createRoute(toRequest(f, c)).then(
+      (r) => {
+        busy = false;
+        if (r.code === "invalid_route" || r.code === "bad_request") {
+          errors = { [formField(r.field) || "request"]: r.error ?? "Refused." };
+          draw();
+          return;
+        }
+        showResult(r);
+      },
+      (err: unknown) => {
+        busy = false;
+        deps.failed(err);
+        draw();
+      },
+    );
+  });
+
+  draw();
+  readInbox();
+  return {
+    stop: () => {
+      stopPoll();
+      cancelDebounce();
+    },
+    form: () => f,
+  };
+}

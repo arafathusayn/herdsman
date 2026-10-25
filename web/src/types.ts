@@ -349,5 +349,9 @@ export interface InboxState {
   setup: boolean;
   proposed: string[];
   approved: string[];
+  /** The pending registry is exactly this route's adjutant and orchestrator. */
+  pair_proposed: boolean;
+  /** The approved copy equals that registry, as the channel requires. */
+  pair_approved: boolean;
   error?: string;
 }

@@ -324,8 +324,9 @@ export async function createRoute(r: RouteRequest): Promise<RouteResult> {
 }
 
 /** What the setup checklist can read from a route's private inbox. */
-export async function inboxState(path: string): Promise<InboxState> {
-  const res = await call(`/api/routes/inbox?${new URLSearchParams({ path })}`, { headers: headers() });
+export async function inboxState(path: string, adjutant: string, orchestrator: string): Promise<InboxState> {
+  const q = new URLSearchParams({ path, adjutant, orchestrator });
+  const res = await call(`/api/routes/inbox?${q}`, { headers: headers() });
   if (res.status === 401) throw new AuthError("Session expired.");
   const body = (await res.json()) as InboxState;
   if (!res.ok) throw new Error(body.error ?? `cannot read the inbox (${res.status})`);
