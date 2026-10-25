@@ -47,7 +47,6 @@ type watcher struct {
 	backoff  reopen
 	retryAt  int64
 	dirty    map[string]bool
-	subsKey  string // the target panes the stream subscribed for
 	lastFull int64
 	allDirty bool
 }
@@ -653,17 +652,15 @@ func (w *watcher) writeHeld(text string) error {
 }
 
 // subscriptions are pane.updated and one pane.agent_status_changed per
-// target pane, with a key naming the set.
-func (w *watcher) subscriptions() ([]map[string]any, string) {
+// target pane.
+func (w *watcher) subscriptions() []map[string]any {
 	subs := []map[string]any{{"type": "pane.updated"}}
-	key := ""
 	for _, tg := range w.targets {
 		if p, _ := inbox.Object(tg)["pane"].(string); p != "" {
 			subs = append(subs, map[string]any{"type": "pane.agent_status_changed", "pane_id": p})
-			key += p + "\n"
 		}
 	}
-	return subs, key
+	return subs
 }
 
 // reconcileSecs is how often every target is read even without updates.
@@ -677,16 +674,10 @@ func (w *watcher) await(interval int64) {
 	e := w.Env
 	end := e.unix() + interval
 	// Status changes are subscribed per target pane (D18): a status-only
-	// transition dirties its target without a screen update. A changed
-	// target set reopens the stream with its panes.
-	subs, key := w.subscriptions()
-	if w.stream != nil && key != w.subsKey {
-		w.stream.Close()
-		w.stream = nil
-	}
+	// transition dirties its target without a screen update. The targets
+	// are fixed at start (a changed file holds automation instead).
 	if w.stream == nil && e.unix() >= w.retryAt {
-		w.subsKey = key
-		s, err := e.openStream(subs)
+		s, err := e.openStream(w.subscriptions())
 		if err != nil {
 			w.retryAt = e.unix() + int64(w.backoff.next()/time.Second)
 		} else {

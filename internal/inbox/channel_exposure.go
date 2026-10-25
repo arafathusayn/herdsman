@@ -1,7 +1,6 @@
 package inbox
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,14 +57,17 @@ func (ch *Channel) FoldExposure() error {
 		return &Fatal{Msg: "exposure-pending unreadable; inspect it"}
 	}
 	agents := []Unknown{}
+	omitted := 0
 	seen := map[string]bool{}
 	for _, en := range ents {
 		p := filepath.Join(d, en.Name())
 		if b, ok := ReadStrict(ch.Dir, p); ok {
 			var rec struct {
-				Agents []Unknown `json:"agents"`
+				Agents  []Unknown `json:"agents"`
+				Omitted int       `json:"omitted"`
 			}
 			if json.Unmarshal(b, &rec) == nil {
+				omitted += max(rec.Omitted, 0)
 				for _, a := range rec.Agents {
 					k, _ := json.Marshal(a)
 					if !seen[string(k)] {
@@ -77,7 +79,7 @@ func (ch *Channel) FoldExposure() error {
 		}
 	}
 	if !Exists(ch.Path("state", "boundary-tainted")) {
-		if err := ch.writeTainted(agents); err != nil {
+		if err := ch.writeTaintedOmitted(agents, omitted); err != nil {
 			return &Fatal{Msg: "cannot publish the waiting exposure record"}
 		}
 	}
@@ -87,16 +89,13 @@ func (ch *Channel) FoldExposure() error {
 	return nil
 }
 
-func (ch *Channel) writeTainted(unknown []Unknown) error {
+func (ch *Channel) writeTainted(unknown []Unknown) error { return ch.writeTaintedOmitted(unknown, 0) }
+
+func (ch *Channel) writeTaintedOmitted(unknown []Unknown, omitted int) error {
 	if unknown == nil {
 		unknown = []Unknown{}
 	}
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(exposure{Reason: "live agent outside the protected setup", Agents: unknown, Time: ch.Unix()})
-	return ch.Atomic(ch.Path("state", "boundary-tainted"), b.Bytes())
+	return ch.Atomic(ch.Path("state", "boundary-tainted"), taintedRecord(unknown, omitted, ch.Unix()))
 }
 
 // LockMutation takes the shared input lock (tries attempts, sleep between)
@@ -166,9 +165,8 @@ func (ch *Channel) keepPending(unknown []Unknown) error {
 	if unknown == nil {
 		unknown = []Unknown{}
 	}
-	b, _ := json.Marshal(map[string]any{"agents": unknown, "time": ch.Unix()})
 	name := fmt.Sprintf("%d-%d-%d.json", os.Getpid(), ch.Unix(), rand.IntN(1<<30))
-	if err := ch.Atomic(filepath.Join(d, name), append(b, '\n')); err != nil {
+	if err := ch.Atomic(filepath.Join(d, name), pendingRecord(unknown, ch.Unix())); err != nil {
 		return &Fatal{Msg: "cannot keep the exposure record"}
 	}
 	return ch.LogLine("EXPOSURE input lock busy; the record waits for the next owner")

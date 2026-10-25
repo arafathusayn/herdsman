@@ -164,8 +164,7 @@ const quarantineBody = "An envelope failed checks. Show headers only; resend wit
 // its own subshell: 0 done, 75 the queue lock was busy, 2 the entry is held
 // (a die); an alert follows from the caller.
 func (c *courier) processEntry(f, name string) int {
-	sub := &Env{Getenv: c.Getenv, Stdout: c.Stdout, Stderr: c.Stderr, Client: c.Client, Now: c.Now, Sleep: c.Sleep,
-		Events: c.Events, Executable: c.Executable, Ctx: c.Ctx, ch: c.ch}
+	sub := c.child()
 	code := c.processEntryIn(sub, f, name)
 	sub.releaseAll()
 	return code
@@ -335,8 +334,7 @@ func (c *courier) proofStaleAlert(e *Env) error {
 // recoverQuarantine repairs a quarantine whose terminal or sender notice
 // is missing, in its own subshell: a failure alerts and other work goes on.
 func (c *courier) recoverQuarantine(f, name string) error {
-	e := &Env{Getenv: c.Getenv, Stdout: c.Stdout, Stderr: c.Stderr, Client: c.Client, Now: c.Now, Sleep: c.Sleep,
-		Events: c.Events, Executable: c.Executable, Ctx: c.Ctx, ch: c.ch}
+	e := c.child()
 	defer e.releaseAll()
 	r := e.ch
 	id := strings.TrimSuffix(filepath.Base(f), ".md")

@@ -244,5 +244,7 @@ func (ch *Channel) Authority(ctx context.Context, c *herdr.Client) (string, int)
 type exposure struct {
 	Reason string    `json:"reason"`
 	Agents []Unknown `json:"agents"`
-	Time   int64     `json:"time"`
+	// Omitted counts the agents left out to keep the record bounded.
+	Omitted int   `json:"omitted,omitempty"`
+	Time    int64 `json:"time"`
 }

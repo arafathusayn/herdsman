@@ -90,25 +90,25 @@ func (c *courier) retireAbandoned() error {
 			_ = os.Remove(mark)
 			continue
 		}
-		stamp, serr := inbox.Mtime(env)
-		if !inbox.Regular(e.ch.Dir, env) || serr != nil {
+		st, serr := os.Lstat(env)
+		if errors.Is(serr, fs.ErrNotExist) {
 			// Marked but never allocated (a cut before the mkdir or the
-			// copy): the mark goes once it is old.
-			if t, err := inbox.Mtime(mark); err == nil && e.unix()-t >= abandonAfter && !inbox.Exists(env) {
+			// copy): the mark goes once it is old. Only an explicit absence
+			// counts: a folder that cannot be searched keeps its mark.
+			if mt, err := os.Lstat(mark); err == nil && e.unix()-mt.ModTime().Unix() >= abandonAfter {
 				_ = os.Remove(mark)
 			}
 			continue
 		}
-		if e.unix()-stamp < abandonAfter {
-			continue // young: a human may have moved the entry aside for a moment
+		if serr != nil || !st.Mode().IsRegular() || e.unix()-st.ModTime().Unix() < abandonAfter {
+			continue // unclear, or young: a human may have moved the entry aside for a moment
 		}
-		// Only a readable copy that names its recipient, with no entry in
+		// Only a valid envelope for this id, whose recipient has no entry in
 		// any of its queue folders, is abandoned; anything unclear stays
 		// for a human (a live queue entry is never retired).
-		b, rerr := inbox.ReadBounded(env, inbox.MaxSize)
-		m, ok := decodeObject(string(b))
+		m, ok := inbox.AllocationEnvelope(e.ch.Dir, env, id)
 		to, _ := m["to"].(string)
-		if rerr != nil || !ok || !inbox.NameOK(to) || queuedAnywhere(e, to, id) {
+		if !ok || !inbox.NameOK(to) || queuedAnywhere(e, to, id) {
 			continue
 		}
 		if err := e.ch.Atomic(filepath.Join(d, "terminal.json"), pretty(obj("id", id, "state", "abandoned"))); err != nil {
