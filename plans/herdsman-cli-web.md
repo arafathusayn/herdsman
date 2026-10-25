@@ -15,8 +15,8 @@ Ship one `herdsman` binary through GitHub releases. It carries every herdsman co
 | Binary | Go, one static binary per OS and architecture. The built web app is embedded with `embed.FS`. goreleaser publishes the GitHub releases |
 | Frontend | TypeScript with no React, no npm and no `node_modules`. `bun build` compiles it to JS, `bun check` type-checks it and `bun fmt` formats it, on the latest Bun (1.4.4 or later). Bun is a build-time tool only |
 | Access | Binds to `127.0.0.1` only, with a random token per run |
-| Scripts | All bash scripts move into CLI subcommands in a single PR, and the scripts are deleted in that PR |
-| PRs | 1) CLI skeleton, releases and `herdsman web`. 2) Landing page. 3) Port every script (done in four pull requests). Next: the `herdsman daemon` |
+| Scripts | All bash scripts move into CLI subcommands in a stack of five pull requests; the last one deletes the scripts. Bash defects are fixed in Go, not ported |
+| PRs | 1) CLI skeleton, releases and `herdsman web`. 2) Landing page. 3) Port every script (a stack of five pull requests). Next: the `herdsman daemon` |
 | Release | `v0.1.0` and `v0.2.0` shipped PR 1. `v1.0.0` waits for the script port (PR 3), and then for a `herdsman daemon` that serves the message channel over SSE and replaces the script channel. The daemon is the next planned work after PR 3. `v1.0.0` then ships PR 1, the docs page at `/docs/` (in place of PR 2), the pairing hardening, PR 3 and the daemon |
 | Homebrew | goreleaser publishes the formula to `arafathusayn/tap` |
 | Agents | Agent-type agnostic: no harness-specific UI. Starting an agent takes any `kind` and command line. PR 1 operates existing routes and does not start new ones |
@@ -109,7 +109,7 @@ The browser gets live state over one SSE stream and sends every action as a POST
 
 ## PR 3: Port every script into the CLI (before `v1.0.0`)
 
-Done in four pull requests: the core commands (status, route check and log, run-check, wait, watch, transcript-audit, approval-gate), the checkpointer, the message channel, and the switch of the skill, README, docs page and CI to the binary with the scripts deleted.
+Done in a stack of five pull requests, in this order: the core commands (status, route check and log, run-check, wait, watch, transcript-audit, approval-gate), the checkpointer, the message channel, the tools (`herdsman doctor`, `herdsman review start` and a leaner `herdsman web`), and last the switch of the skill, README, docs page and CI to the binary, which deletes the scripts.
 
 | Script | Subcommand |
 | --- | --- |
@@ -123,10 +123,11 @@ Done in four pull requests: the core commands (status, route check and log, run-
 | `transcript-audit.sh`, `approval-gate.sh` | `herdsman transcript-audit`, `herdsman approval-gate` |
 | `messages/*.sh` | `herdsman message <action>` and `herdsman message register\|courier\|card-watch\|resume-goal\|authority\|leak-gate` |
 
-- Behavior parity first. Every case of the shell suites becomes a Go table test, with the fake `herdr` (as a fake socket) and the fake `gh` (still on `PATH`, because `watch-prs` keeps running `gh`).
+- Behavior parity first, for valid input. A script behavior that is a defect (an error on the wrong path, an ignored failure, a race, an unbounded wait) is fixed in Go with a test, not ported. Every case of the shell suites becomes a Go table test, with the fake `herdr` (as a fake socket) and the fake `gh` (still on `PATH`, because `watch-prs` keeps running `gh`).
 - Update `SKILL.md` and every reference that names a script. The skill's start gate checks `herdsman version` next to `HERDR_ENV=1`, and the README install gains the binary step.
 - `run-check` today is copied into the route folder and run by implementers and reviewers as `/bin/bash <route folder>/run-check.sh`. After the port, agents call `herdsman run-check`, so the binary must sit on a `PATH` that every harness sandbox can run, or the route folder gets a copy or symlink of it. Check this with Codex and Claude Code sandboxes before the scripts are deleted.
-- Delete `skills/herdsman/scripts/` in the same PR.
+- Long-running commands (`web`, `wait`, `watch`, `run-check --publish`, the checkpointer loop, the message waiter and services, later the daemon) idle near zero CPU and keep memory flat: they wait on Herdr socket events instead of polling, bound their reads and prune what they remember, with tests and measured limits on the built binary.
+- Delete `skills/herdsman/scripts/` in the last pull request of the stack, after every case runs in Go.
 
 ## Risks
 
