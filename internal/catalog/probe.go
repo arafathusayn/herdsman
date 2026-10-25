@@ -89,9 +89,7 @@ func ParseHelp(kind, program string, help []byte) Harness {
 			block += " " + strings.TrimSpace(next)
 		}
 		if e := effortList.FindString(block); e != "" {
-			for _, w := range strings.FieldsFunc(e, func(r rune) bool { return r == '|' || r == ',' || r == ' ' }) {
-				h.Efforts = append(h.Efforts, w)
-			}
+			h.Efforts = strings.FieldsFunc(e, func(r rune) bool { return r == '|' || r == ',' || r == ' ' })
 			if d := effortDef.FindStringSubmatch(block); d != nil {
 				h.DefaultEffort = DefaultEffort(h.Efforts, d[1])
 			}
