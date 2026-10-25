@@ -16,6 +16,8 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/inbox"
+
+	"github.com/arafathusayn/herdsman/internal/shglob"
 )
 
 // Env looks up one environment variable, as os.LookupEnv.
@@ -169,7 +171,7 @@ func isFile(p string) bool {
 
 // reviews lists reports/review-*.md in name order.
 func reviews(reports string) []string {
-	files, _ := filepath.Glob(filepath.Join(reports, "review-*.md"))
+	files, _ := shglob.Glob(reports, "review-*.md")
 	var out []string
 	for _, f := range files {
 		if isFile(f) {

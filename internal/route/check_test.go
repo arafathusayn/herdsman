@@ -354,3 +354,18 @@ func TestField(t *testing.T) {
 		t.Error("awk fields")
 	}
 }
+
+// R3 sweep (a): a route folder whose name holds [ lists its own contracts.
+func TestCheckRouteFolderWithBrackets(t *testing.T) {
+	repo := krepo(t)
+	kf := filepath.Join(repo, ".herdsman", "r[1]")
+	write(t, filepath.Join(kf, "00-route.md"), "# Route r1", "## Decisions", "- x", "## Must prove", "- y", "## Task table",
+		"| Task | Agent | Pane |", "| --- | --- | --- |", "| a | im-a | w1:p2 |", "## Checklist", "- [x] C0.1 all: read guards -- done",
+		"## Run state")
+	write(t, filepath.Join(kf, "11-task-a.md"), "# Task a")
+	out, _ := check(t, kf, StagePlan)
+	want(t, "a task file without a Due line in a bracketed folder", `^MISSING Due line in 11-task-a.md$`, out)
+	write(t, filepath.Join(kf, "11-task-a.md"), "# Task a", "Due: 10:40")
+	out, _ = check(t, kf, StagePlan)
+	want(t, "and with its Due line", `^ok Due line in 11-task-a.md$`, out)
+}

@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
+
+	"github.com/arafathusayn/herdsman/internal/shglob"
 )
 
 // Peer is one entry of the registry: a name, its role and its pane.
@@ -225,7 +227,12 @@ func (r *Root) PreflightValid() bool {
 	if !filepath.IsAbs(installed) || !RegularFile(filepath.Join(installed, "message-lib.sh")) {
 		return false
 	}
-	files, _ := filepath.Glob(filepath.Join(installed, "*.sh"))
+	// The folder is listed literally (a [ in its path is no pattern), and a
+	// folder that cannot be listed makes the proof stale.
+	files, err := shglob.Glob(installed, "*.sh")
+	if err != nil {
+		return false
+	}
 	for _, a := range []string{"approval-gate", "transcript-audit", "checkpointer-guard", "checkpointer"} {
 		if p := filepath.Join(filepath.Dir(installed), a+".sh"); Exists(p) {
 			files = append(files, p)

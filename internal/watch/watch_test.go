@@ -457,3 +457,17 @@ func TestWaiterImplementerEvents(t *testing.T) {
 	h.fx.Fail("pane.read", "temporary_failure")
 	h.wait()
 }
+
+// R3 sweep (a): a reports folder whose name holds [ lists its own reviews.
+func TestReviewsInABracketedFolder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "rep[x]")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "review-7-1.md"), []byte("VERDICT: fix\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "review-x"), nil, 0o644)
+	if got := reviews(dir); len(got) != 1 || got[0] != filepath.Join(dir, "review-7-1.md") {
+		t.Errorf("reviews: %v", got)
+	}
+	if reviews(filepath.Join(dir, "none")) != nil {
+		t.Error("a missing folder has reviews")
+	}
+}

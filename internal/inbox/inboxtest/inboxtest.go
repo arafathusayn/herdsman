@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
+
+	"github.com/arafathusayn/herdsman/internal/shglob"
 )
 
 // The names of the enrolled pair, as in message-tests.sh.
@@ -115,8 +117,8 @@ func (c *Case) entry(p string) map[string]any {
 func (c *Case) Prove() {
 	c.t.Helper()
 	var scripts []any
-	files, _ := filepath.Glob(filepath.Join(c.Installed, "*.sh"))
-	adapters, _ := filepath.Glob(filepath.Join(filepath.Dir(c.Installed), "*.sh"))
+	files, _ := shglob.Glob(c.Installed, "*.sh")
+	adapters, _ := shglob.Glob(filepath.Dir(c.Installed), "*.sh")
 	for _, f := range append(files, adapters...) {
 		scripts = append(scripts, c.entry(f))
 	}

@@ -851,3 +851,48 @@ func TestAuthorityBoundaryTriggers(t *testing.T) {
 		t.Errorf("P3f a recorded unsandboxed exposure forces HUMAN until human setup: %q", line)
 	}
 }
+
+// R3 finding 1: an installation folder whose path holds [ is listed
+// literally; a proof that lists only an unrelated script stays stale, and
+// the proof of every installed script is the positive control.
+func TestPreflightInstallationWithBrackets(t *testing.T) {
+	for _, name := range []string{"skill[", "skill[x]"} {
+		c := inboxtest.New(t)
+		installed := filepath.Join(c.Base, name, "messages")
+		var scripts []any
+		for _, s := range []string{"message-lib.sh", "message-send.sh"} {
+			p := filepath.Join(installed, s)
+			c.Write(p, "#!/bin/bash\n# "+s+"\n")
+			sum, _ := inbox.DigestFile(p)
+			scripts = append(scripts, map[string]any{"path": p, "checksum": sum})
+		}
+		other := filepath.Join(c.Base, "other", "x.sh")
+		c.Write(other, "#!/bin/bash\n")
+		osum, _ := inbox.DigestFile(other)
+		valid := func() bool {
+			o := c.Options(true)
+			o.Installed = installed
+			r, err := inbox.Open(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return r.PreflightValid()
+		}
+		c.Edit(c.Proof, func(m map[string]any) { m["scripts"] = []any{map[string]any{"path": other, "checksum": osum}} })
+		if valid() {
+			t.Errorf("%s: a proof of an unrelated script passed", name)
+		}
+		c.Edit(c.Proof, func(m map[string]any) { m["scripts"] = scripts })
+		if !valid() {
+			t.Errorf("%s: the proof of every installed script is stale", name)
+		}
+		// A folder that cannot be listed (search but no read permission) fails closed.
+		if os.Geteuid() != 0 {
+			_ = os.Chmod(installed, 0o300)
+			if valid() {
+				t.Errorf("%s: an installation that cannot be listed passed", name)
+			}
+			_ = os.Chmod(installed, 0o755)
+		}
+	}
+}

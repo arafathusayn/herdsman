@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/arafathusayn/herdsman/internal/shglob"
 )
 
 // Stages of Check.
@@ -202,7 +204,7 @@ func Check(dir, stage string, w io.Writer) int {
 		}
 	}
 	if has(`C2.6`) {
-		integrators, _ := filepath.Glob(filepath.Join(dir, "1[0-9]-task-i.md"))
+		integrators, _ := shglob.Glob(dir, "1[0-9]-task-i.md")
 		need("the integrator contract 1n-task-i.md (C2.6)", integrators...)
 	}
 	if has(`C2.7 pr[a-z0-9 ]*:`) {
@@ -222,7 +224,7 @@ func Check(dir, stage string, w io.Writer) int {
 			missing("Must prove list in " + name)
 		}
 	}
-	tasks, _ := filepath.Glob(filepath.Join(dir, "1[0-9]-task-*.md"))
+	tasks, _ := shglob.Glob(dir, "1[0-9]-task-*.md")
 	for _, p := range tasks {
 		if !isFile(p) {
 			continue
@@ -318,7 +320,7 @@ func readable(p string) bool {
 // namesRunCheck reports whether a contract or brief ([12][0-9]-*.md) names
 // run-check.sh.
 func namesRunCheck(dir string) bool {
-	files, _ := filepath.Glob(filepath.Join(dir, "[12][0-9]-*.md"))
+	files, _ := shglob.Glob(dir, "[12][0-9]-*.md")
 	for _, p := range files {
 		if b, err := os.ReadFile(p); err == nil && strings.Contains(string(b), "run-check.sh") {
 			return true
