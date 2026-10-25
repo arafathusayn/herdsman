@@ -51,6 +51,10 @@ func (st *scriptedStream) Next(d time.Duration) (string, error) {
 			s.c.now = s.c.now.Add(left)
 			d -= left
 			s.steps = s.steps[1:]
+		case strings.HasPrefix(step, "@blocked "):
+			f := strings.Fields(step)
+			setBlocked(s.c, f[1], f[2])
+			s.steps = s.steps[1:]
 		case step == "@stage", step == "@ready":
 			dir := "new"
 			if step == "@ready" {
