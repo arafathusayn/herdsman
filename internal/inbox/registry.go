@@ -217,16 +217,12 @@ func (r *Root) PreflightValid() bool {
 		}
 		paths[e.path] = true
 	}
+	// The installation checked is the one the caller trusts (Options.Installed,
+	// HERDSMAN_MESSAGES_DIR), as the script checks the folder it runs from;
+	// never a path read from the proof. With none, or one that holds no
+	// message-lib.sh, the proof is stale.
 	installed := r.Installed
-	if installed == "" {
-		for _, e := range listed {
-			if filepath.Base(e.path) == "message-lib.sh" {
-				installed = filepath.Dir(e.path)
-				break
-			}
-		}
-	}
-	if installed == "" {
+	if !filepath.IsAbs(installed) || !RegularFile(filepath.Join(installed, "message-lib.sh")) {
 		return false
 	}
 	files, _ := filepath.Glob(filepath.Join(installed, "*.sh"))

@@ -425,3 +425,24 @@ func TestSetFieldsRefusesBadJSON(t *testing.T) {
 		t.Error("a broken record is set")
 	}
 }
+
+// R2 finding 1: a proof that lists only an unrelated copy of message-lib.sh
+// is stale for the configured installation; complete exits 2 and keeps the
+// consuming record, as the script does.
+func TestGateRefusesAProofOfAnUnrelatedCopy(t *testing.T) {
+	r := newRig(t)
+	r.gojson("u1", 600, nil)
+	match(t, "the positive control", `^CONSUME u1.*rc=0`, r.consume("u1"))
+	other := filepath.Join(r.c.Base, "other", "messages", "message-lib.sh")
+	r.c.Write(other, "#!/bin/bash\n# other\n")
+	r.c.Edit(r.c.Proof, func(m map[string]any) {
+		m["scripts"] = []any{map[string]any{"path": other, "checksum": r.digest(other)}}
+	})
+	out, code := r.gate("complete", "u1", "posted")
+	if code != 2 || !strings.Contains(out, "proof stale") {
+		t.Errorf("complete on a proof of an unrelated copy: %s", out)
+	}
+	if st := r.c.ReadJSON(r.consumed("u1"))["state"]; st != "consuming" {
+		t.Errorf("the record changed: %v", st)
+	}
+}

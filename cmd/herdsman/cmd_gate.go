@@ -20,6 +20,7 @@ func inboxOptions() inbox.Options {
 	return inbox.Options{
 		Dir:         os.Getenv("HERDSMAN_INBOX"),
 		Preflight:   os.Getenv("HERDSMAN_PREFLIGHT"),
+		Installed:   os.Getenv("HERDSMAN_MESSAGES_DIR"),
 		HealthAfter: os.Getenv("HEALTH_AFTER"),
 		LockWait:    os.Getenv("LOCK_WAIT"),
 	}

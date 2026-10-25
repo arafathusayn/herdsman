@@ -21,8 +21,9 @@ type Options struct {
 	// recorded, not fatal, and no state folder is created.
 	ReadOnly bool
 	// Installed is the folder of the installed channel scripts whose files
-	// the setup proof must list (see PreflightValid). "" takes the folder
-	// of the message-lib.sh that the proof lists.
+	// the setup proof must list (see PreflightValid): the skill's installed
+	// scripts/messages folder, absolute, from HERDSMAN_MESSAGES_DIR in the
+	// commands. "" (or a folder without message-lib.sh) makes every proof stale.
 	Installed string
 
 	Now   func() time.Time    // nil: time.Now

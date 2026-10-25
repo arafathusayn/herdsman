@@ -193,10 +193,11 @@ func roundTrip(t *testing.T, v any) any {
 
 // Options are the inbox options of this case.
 func (c *Case) Options(readOnly bool) inbox.Options {
-	return inbox.Options{Dir: c.Dir, Preflight: c.Proof, ReadOnly: readOnly}
+	return inbox.Options{Dir: c.Dir, Preflight: c.Proof, Installed: c.Installed, ReadOnly: readOnly}
 }
 
-// Env is the case's environment for a command: HERDSMAN_INBOX and HERDSMAN_PREFLIGHT.
+// Env is the case's environment for a command: HERDSMAN_INBOX,
+// HERDSMAN_PREFLIGHT and HERDSMAN_MESSAGES_DIR.
 func (c *Case) Env() []string {
-	return []string{"HERDSMAN_INBOX=" + c.Dir, "HERDSMAN_PREFLIGHT=" + c.Proof}
+	return []string{"HERDSMAN_INBOX=" + c.Dir, "HERDSMAN_PREFLIGHT=" + c.Proof, "HERDSMAN_MESSAGES_DIR=" + c.Installed}
 }
