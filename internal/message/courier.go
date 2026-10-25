@@ -51,11 +51,9 @@ func (e *Env) courier(args []string) error {
 	if e.ch.HealthAfter <= sweep+10 {
 		return die("HEALTH_AFTER must exceed SWEEP plus scan allowance")
 	}
-	if err := os.Mkdir(e.path("courier.lock"), 0o700); err != nil {
+	if l, _ := e.take(e.path("courier.lock"), 1, false, nil); l == nil {
 		return die("courier lock exists; inspect owner and heartbeat")
 	}
-	_ = os.WriteFile(e.path("courier.lock", "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600)
-	e.hold(inbox.Adopt(e.path("courier.lock")))
 	if err := e.resolveAlert("setup-proof-stale"); err != nil {
 		return err
 	}
@@ -662,61 +660,4 @@ func (c *courier) pruneRings() error {
 		}
 	}
 	return nil
-}
-
-// retireAbandoned finds allocations that a send cut off between the
-// allocation copy and the queue move (a crash, or a failed retire): an
-// envelope with no terminal record and no copy in its recipient's queue
-// folders. Under the queue lock no send is between those steps, so each is
-// retired as abandoned (A26, D12). A busy lock waits for the next sweep.
-// abandonAfter is how old an unqueued allocation must be to be retired.
-const abandonAfter = 3600
-
-func (c *courier) retireAbandoned() error {
-	e := c.Env
-	ids, err := glob(e.path("ids"), "m*")
-	if err != nil || len(ids) == 0 {
-		return err
-	}
-	sub := &Env{Getenv: c.Getenv, Stdout: c.Stdout, Stderr: c.Stderr, Client: c.Client, Now: c.Now, Sleep: c.Sleep,
-		Events: c.Events, Executable: c.Executable, Ctx: c.Ctx, ch: c.ch}
-	if sub.tryChannel() == nil {
-		return nil
-	}
-	defer sub.releaseAll() // only the queue lock: courier.lock stays held
-	for _, d := range ids {
-		id := filepath.Base(d)
-		env := filepath.Join(d, "envelope")
-		if !inbox.IDOK(id) || !inbox.Regular(e.ch.Dir, env) || inbox.Exists(filepath.Join(d, "terminal.json")) {
-			continue
-		}
-		if stamp, err := inbox.Mtime(env); err != nil || e.unix()-stamp < abandonAfter {
-			continue // young: a human may have moved the entry aside for a moment
-		}
-		m, _ := decodeObject(string(readBounded(env)))
-		to, _ := m["to"].(string)
-		queued := false
-		if inbox.NameOK(to) {
-			for _, s := range []string{"new", "ready", "cur", "quarantine"} {
-				if inbox.Exists(e.path(to, s, id+".md")) {
-					queued = true
-				}
-			}
-		}
-		if queued {
-			continue
-		}
-		if err := e.ch.Atomic(filepath.Join(d, "terminal.json"), pretty(obj("id", id, "state", "abandoned"))); err != nil {
-			return writeFailed(err)
-		}
-		if err := e.ch.LogLine("ABANDONED " + id + " (allocated, never queued)"); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func readBounded(p string) []byte {
-	b, _ := inbox.ReadBounded(p, inbox.MaxSize)
-	return b
 }

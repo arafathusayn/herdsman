@@ -70,7 +70,7 @@ func (e *Env) resumeRun(args []string, beforeLock func()) error {
 	}
 	if ok, fault, unknown := e.ch.Boundary(e.ctx(), e.Client); !ok {
 		// Every check records what it saw (A26, e93bcc1 B3-004).
-		if err := e.ch.RecordExposure(fault, unknown, e.ch.MutationHeld); err != nil {
+		if err := e.recordExposure(fault, unknown); err != nil {
 			return err
 		}
 		return held("HUMAN boundary; no automatic input")
@@ -135,7 +135,7 @@ func (e *Env) resumeRun(args []string, beforeLock func()) error {
 	}
 	if ok, fault, unknown := e.ch.Boundary(e.ctx(), e.Client); !ok {
 		// Every check records what it saw (A26, e93bcc1 B3-004).
-		if err := e.ch.RecordExposure(fault, unknown, e.ch.MutationHeld); err != nil {
+		if err := e.recordExposure(fault, unknown); err != nil {
 			return err
 		}
 		return held("HUMAN boundary changed")

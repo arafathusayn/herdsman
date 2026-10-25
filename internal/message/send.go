@@ -109,7 +109,7 @@ func (e *Env) send(args []string) error {
 			return die("input lock busy; side-agent data not queued")
 		}
 		if ok, fault, unknown := e.ch.Boundary(e.ctx(), e.Client); !ok {
-			if err := e.ch.RecordExposure(fault, unknown, true); err != nil {
+			if err := e.recordExposure(fault, unknown); err != nil {
 				return err
 			}
 			return die("HUMAN boundary; side-agent data not queued")
@@ -190,6 +190,11 @@ func (e *Env) send(args []string) error {
 		return writeFailed(err)
 	}
 	id := fmt.Sprintf("m%012d", n)
+	// Tracked before it exists, so the courier finds an allocation a crash
+	// cuts off without listing the permanent history (A24, review 3).
+	if err := e.markAllocation(id); err != nil {
+		return err
+	}
 	if err := os.Mkdir(e.path("ids", id), 0o700); err != nil {
 		return die("duplicate allocation; reconcile sequence")
 	}

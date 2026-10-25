@@ -45,11 +45,9 @@ type Env struct {
 	// Ctx bounds herdr calls (nil: background).
 	Ctx context.Context
 
-	ch       *inbox.Channel
-	mu       sync.Mutex // guards locks and drained: a signal handler releases them
-	locks    []*inbox.Lock
-	drained  bool        // releaseAll ran: a lock missing from locks is already free
-	mutation *inbox.Lock // the held shared input lock, if any
+	ch      *inbox.Channel
+	own     *owner // lock ownership, shared with sub-runs (owner.go)
+	ownOnce sync.Once
 
 	// Parsed common settings (commonSettings).
 	settingsDone          bool
@@ -134,71 +132,6 @@ func (e *Env) finish(err error) int {
 	return 2
 }
 
-func (e *Env) hold(l *inbox.Lock) *inbox.Lock {
-	if l != nil {
-		e.mu.Lock()
-		if e.drained {
-			// The signal handler already ran and the process is exiting:
-			// do not leave this lock behind.
-			_ = l.Release()
-		} else {
-			e.locks = append(e.locks, l)
-		}
-		e.mu.Unlock()
-	}
-	return l
-}
-
-// release frees one held lock.
-func (e *Env) release(l *inbox.Lock) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if l == e.mutation {
-		e.mutation = nil
-		if e.ch != nil {
-			e.ch.MutationHeld = false
-		}
-	}
-	for i, h := range e.locks {
-		if h == l {
-			e.locks = append(e.locks[:i], e.locks[i+1:]...)
-			return l.Release()
-		}
-	}
-	if e.drained {
-		return nil // a signal already freed it; another process may own it now
-	}
-	return l.Release()
-}
-
-func (e *Env) releaseAll() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.mutation != nil && e.ch != nil {
-		e.ch.MutationHeld = false
-	}
-	e.mutation = nil
-	for i := len(e.locks) - 1; i >= 0; i-- {
-		_ = e.locks[i].Release()
-	}
-	e.locks = nil
-}
-
-// Release frees every lock the run holds. A signal handler calls it from
-// its own goroutine while the command runs: the lock list is guarded.
-func (e *Env) Release() {
-	// Stop further lock takes first, then free the lock folders. The
-	// channel's ownership flag is left to the command's goroutine: the
-	// process exits right after this.
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.drained = true
-	for i := len(e.locks) - 1; i >= 0; i-- {
-		_ = e.locks[i].Release()
-	}
-	e.locks, e.mutation = nil, nil
-}
-
 // options are the inbox settings of the environment.
 func (e *Env) options(readOnly bool) inbox.Options {
 	return inbox.Options{
@@ -222,6 +155,7 @@ func (e *Env) open(readOnly bool) error {
 	if err != nil {
 		return err
 	}
+	ch.Owner = e.owner().ownedBy
 	e.ch = ch
 	return nil
 }
@@ -233,7 +167,7 @@ func (e *Env) pane() string { return e.env("HERDR_PANE_ID") }
 
 // lockChannel is lock: the queue lock or die.
 func (e *Env) lockChannel() (*inbox.Lock, error) {
-	l := e.hold(e.ch.Lock(inbox.ChannelLock))
+	l, _ := e.take(e.path(inbox.ChannelLock), e.ch.LockWait, false, nil)
 	if l == nil {
 		return nil, die("channel lock busy; retry with backoff, never auto-remove")
 	}
@@ -241,37 +175,22 @@ func (e *Env) lockChannel() (*inbox.Lock, error) {
 }
 
 // tryChannel is try_lock: the queue lock, or nil when busy.
-func (e *Env) tryChannel() *inbox.Lock { return e.hold(e.ch.Lock(inbox.ChannelLock)) }
+func (e *Env) tryChannel() *inbox.Lock {
+	l, _ := e.take(e.path(inbox.ChannelLock), e.ch.LockWait, false, nil)
+	return l
+}
 
 // tryMutation is mutation_lock: the shared input lock, or nil when busy.
 func (e *Env) tryMutation() (*inbox.Lock, error) { return e.takeMutation(e.ch.LockWait) }
 
 // takeMutation takes the shared input lock (tries attempts); as its new
-// owner the process first publishes any waiting exposure (e93bcc1). A
-// publication failure releases the lock and refuses the mutation; nil
-// without an error means the lock stayed busy (or a signal is ending the
-// run). Ownership changes only in the command's own goroutine; the signal
-// path frees lock folders and nothing else (review 2).
+// owner the process first publishes any waiting exposure (e93bcc1), under
+// the ownership mutex, so a signal frees the lock only before the fold or
+// after it is listed. A publication failure frees the lock and refuses the
+// mutation; nil without an error means the lock stayed busy or the run is
+// draining (nothing is folded then).
 func (e *Env) takeMutation(tries int) (*inbox.Lock, error) {
-	l, err := e.ch.LockMutation(tries, e.ch.Pause)
-	if l == nil {
-		return nil, nil
-	}
-	if err != nil {
-		_ = l.Release()
-		return nil, err
-	}
-	e.mu.Lock()
-	if e.drained {
-		e.mu.Unlock()
-		_ = l.Release()
-		return nil, nil
-	}
-	e.locks = append(e.locks, l)
-	e.mutation = l
-	e.mu.Unlock()
-	e.ch.MutationHeld = true
-	return l, nil
+	return e.take(e.path(inbox.MutationLock), tries, true, e.ch.FoldExposure)
 }
 
 // errDisplayBusy is a display call that did not get the input lock.

@@ -47,6 +47,7 @@ type watcher struct {
 	backoff  reopen
 	retryAt  int64
 	dirty    map[string]bool
+	subsKey  string // the target panes the stream subscribed for
 	lastFull int64
 	allDirty bool
 }
@@ -96,11 +97,9 @@ func (e *Env) cardWatch(args []string) error {
 		w.resumes = b
 		w.resumeSum = inbox.Digest(b)
 	}
-	if err := os.Mkdir(e.path("watch.lock"), 0o700); err != nil {
+	if l, _ := e.take(e.path("watch.lock"), 1, false, nil); l == nil {
 		return die("watcher already owned; inspect lock")
 	}
-	e.hold(inbox.Adopt(e.path("watch.lock")))
-	_ = os.WriteFile(e.path("watch.lock", "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600)
 	if !inbox.NoLinks(e.path("card-events")) {
 		return die("card journal symlink")
 	}
@@ -211,7 +210,7 @@ func (w *watcher) pass() error {
 		}
 	} else {
 		if coverage {
-			if err := r.RecordExposure(fault, unknown, false); err != nil {
+			if err := e.recordExposure(fault, unknown); err != nil {
 				return writeFailed(err)
 			}
 		}
@@ -472,6 +471,11 @@ func (w *watcher) watchTarget(t any) error {
 		if err := r.WriteText(marker, phraseKey); err != nil {
 			return writeFailed(err)
 		}
+		// A first sighting is confirmed by the next pass's read, even with
+		// no further update for the pane (D18: a status-only transition).
+		if w.dirty != nil {
+			w.dirty[pane] = true
+		}
 	} else if inbox.Regular(r.Dir, marker) {
 		previous := inbox.CatText(marker)
 		if err := e.resolveAlert("blocked-" + previous); err != nil {
@@ -490,7 +494,8 @@ func (e *Env) sub(extra map[string]string, stdout, stderr *bytes.Buffer) *Env {
 			return v
 		}
 		return parent(k)
-	}, Stdout: stdout, Stderr: stderr, Client: e.Client, Now: e.Now, Sleep: e.Sleep, Events: e.Events, Executable: e.Executable, Ctx: e.Ctx}
+	}, Stdout: stdout, Stderr: stderr, Client: e.Client, Now: e.Now, Sleep: e.Sleep, Events: e.Events, Executable: e.Executable, Ctx: e.Ctx,
+		own: e.owner()}
 }
 
 func (w *watcher) relay() error {
@@ -521,7 +526,7 @@ func (w *watcher) relay() error {
 		}
 		sourceKey := inbox.Digest([]byte(sortedCompact(m["source"]) + "\n"))
 		if ok, fault, unknown := r.Boundary(e.ctx(), e.Client); !ok {
-			if err := r.RecordExposure(fault, unknown, false); err != nil {
+			if err := e.recordExposure(fault, unknown); err != nil {
 				return writeFailed(err)
 			}
 			break
@@ -647,6 +652,20 @@ func (w *watcher) writeHeld(text string) error {
 	return w.ch.WriteText(p, text)
 }
 
+// subscriptions are pane.updated and one pane.agent_status_changed per
+// target pane, with a key naming the set.
+func (w *watcher) subscriptions() ([]map[string]any, string) {
+	subs := []map[string]any{{"type": "pane.updated"}}
+	key := ""
+	for _, tg := range w.targets {
+		if p, _ := inbox.Object(tg)["pane"].(string); p != "" {
+			subs = append(subs, map[string]any{"type": "pane.agent_status_changed", "pane_id": p})
+			key += p + "\n"
+		}
+	}
+	return subs, key
+}
+
 // reconcileSecs is how often every target is read even without updates.
 const reconcileSecs = 300
 
@@ -657,8 +676,17 @@ const reconcileSecs = 300
 func (w *watcher) await(interval int64) {
 	e := w.Env
 	end := e.unix() + interval
+	// Status changes are subscribed per target pane (D18): a status-only
+	// transition dirties its target without a screen update. A changed
+	// target set reopens the stream with its panes.
+	subs, key := w.subscriptions()
+	if w.stream != nil && key != w.subsKey {
+		w.stream.Close()
+		w.stream = nil
+	}
 	if w.stream == nil && e.unix() >= w.retryAt {
-		s, err := e.openStream([]map[string]any{{"type": "pane.updated"}})
+		w.subsKey = key
+		s, err := e.openStream(subs)
 		if err != nil {
 			w.retryAt = e.unix() + int64(w.backoff.next()/time.Second)
 		} else {

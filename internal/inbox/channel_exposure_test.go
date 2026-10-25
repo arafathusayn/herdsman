@@ -33,7 +33,7 @@ func TestBoundaryFoldsAsLockOwner(t *testing.T) {
 	if ok, fault, _ := ch.Boundary(context.Background(), herdr.New("")); ok || fault != inbox.FaultPending {
 		t.Fatalf("non-owner: %v %q", ok, fault)
 	}
-	ch.MutationHeld = true
+	ch.Owner = func(_ string, fn func(bool) error) error { return fn(true) }
 	if ok, fault, _ := ch.Boundary(context.Background(), herdr.New("")); ok || fault != inbox.FaultStatic {
 		t.Fatalf("owner: %v %q", ok, fault)
 	}

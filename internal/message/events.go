@@ -119,13 +119,17 @@ func hint(line string) int {
 	return 0
 }
 
-// eventPane is .data.pane.pane_id of an event line, and the ring token
+// eventPane is .data.pane.pane_id (or .data.pane_id) of an event line, and the ring token
 // .data.pane.tokens.message_out.
 func eventPane(line string) (pane, ring string) {
 	m, _ := decodeObject(line)
 	p, _ := m["data"].(map[string]any)
 	pp, _ := p["pane"].(map[string]any)
 	pane, _ = pp["pane_id"].(string)
+	if pane == "" {
+		// pane.agent_status_changed names its pane at .data.pane_id.
+		pane, _ = p["pane_id"].(string)
+	}
 	toks, _ := pp["tokens"].(map[string]any)
 	ring, _ = toks["message_out"].(string)
 	return pane, ring

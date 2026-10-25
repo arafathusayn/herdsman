@@ -1,8 +1,8 @@
 package message
 
 import (
-	"fmt"
-	"math/rand/v2"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -62,7 +62,36 @@ func (e *Env) alert(key, ext string) string { return e.path("alerts", key+ext) }
 // alertLock is alert_lock: the incident's own lock, or nil when another
 // process owns it.
 func (e *Env) alertLock(key string) *inbox.Lock {
-	return e.hold(inbox.TryDir(e.alert(key, ".lock"), 1, nil))
+	l, _ := e.take(e.alert(key, ".lock"), 1, false, nil)
+	return l
+}
+
+// queuedMax bounds the distinct incidents kept per key while its lock
+// stays busy (A24).
+const queuedMax = 16
+
+// queueIncident keeps an incident beside its busy lock (A26, D13) in a
+// bounded, deduplicated queue (A24, review 3): the record's name is the
+// payload's digest, so a retried incident rewrites nothing; a new distinct
+// payload past queuedMax is refused, never dropped silently.
+func (e *Env) queueIncident(key, title, body string) error {
+	payload := pretty(obj("title", title, "body", body))
+	sum := sha256.Sum256(payload)
+	q := e.alert(key, ".queued-"+hex.EncodeToString(sum[:12]))
+	if inbox.RegularFile(q) {
+		return nil
+	}
+	have, err := glob(e.path("alerts"), key+".queued-*")
+	if err != nil {
+		return err
+	}
+	if len(have) >= queuedMax {
+		return die("alert %s busy with %d queued incidents; inspect its lock", key, len(have))
+	}
+	if err := e.ch.Atomic(q, payload); err != nil {
+		return die("alert %s busy and its incident cannot be kept", key)
+	}
+	return e.ch.LogLine("ALERT " + key + " queued: its lock stays busy")
 }
 
 // notify records an incident and shows it once, as notify does: an
@@ -72,16 +101,11 @@ func (e *Env) notify(key, title, body string) error {
 	// Another process may hold this incident's lock for a moment: wait for
 	// it (LOCK_WAIT tries, a second apart) instead of dropping the new
 	// incident (A26, D13). A lock that stays busy is said, not swallowed.
-	l := e.hold(inbox.TryDir(e.alert(key, ".lock"), max(e.ch.LockWait, 1), e.sleep))
+	l, _ := e.take(e.alert(key, ".lock"), e.ch.LockWait, false, nil)
 	if l == nil {
 		// Keep the incident durably beside the busy lock (never in the
-		// holder's own files); the next retry folds it in under the lock
-		// (A26, D13). A record that cannot be kept fails the command.
-		q := e.alert(key, fmt.Sprintf(".queued-%d-%d-%d", os.Getpid(), e.unix(), rand.IntN(1<<30)))
-		if err := e.ch.Atomic(q, pretty(obj("title", title, "body", body))); err != nil {
-			return die("alert %s busy and its incident cannot be kept", key)
-		}
-		return e.ch.LogLine("ALERT " + key + " queued: its lock stays busy")
+		// holder's own files); the next retry folds it in under the lock.
+		return e.queueIncident(key, title, body)
 	}
 	defer e.release(l)
 	for _, x := range []string{".sent", ".pending"} {

@@ -30,9 +30,11 @@ type Channel struct {
 	// Executable is the absolute path of the running herdsman binary, links
 	// resolved; "" accepts no binary proof.
 	Executable string
-	// MutationHeld: this process owns the shared input lock, so a boundary
-	// check publishes a waiting exposure itself (e93bcc1).
-	MutationHeld bool
+	// Owner, when set, answers whether this run owns the shared input lock
+	// (lockDir) and keeps that answer fixed while fn runs: a signal frees
+	// the lock only before or after fn, never during it (review 3). Unset:
+	// the run owns nothing.
+	Owner func(lockDir string, fn func(held bool) error) error
 }
 
 // OpenChannel opens an inbox as Open does, accepting a binary proof of exe
@@ -181,8 +183,15 @@ func (ch *Channel) Boundary(ctx context.Context, c *herdr.Client) (bool, string,
 	if ch.ExposurePending() {
 		// The owner of the input lock publishes it now; any other check
 		// fails closed until the next owner does (e93bcc1).
-		if ch.MutationHeld {
-			_ = ch.FoldExposure()
+		owned := false
+		_ = ch.AsOwner(func(held bool) error {
+			owned = held
+			if held {
+				_ = ch.FoldExposure()
+			}
+			return nil
+		})
+		if owned {
 			return false, FaultStatic, nil
 		}
 		return false, FaultPending, nil

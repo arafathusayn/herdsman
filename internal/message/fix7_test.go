@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
@@ -22,7 +23,7 @@ func openEnv(t *testing.T, c *tc, extra map[string]string) *Env {
 	for k, v := range extra {
 		vars[k] = v
 	}
-	e := &Env{Getenv: func(k string) string { return vars[k] }, Stdout: io.Discard, Stderr: io.Discard, Now: func() time.Time { return c.now }, Sleep: func(time.Duration) {}}
+	e := &Env{Getenv: func(k string) string { return vars[k] }, Stdout: io.Discard, Stderr: io.Discard, Client: herdr.New(c.srv.Socket), Now: func() time.Time { return c.now }, Sleep: func(time.Duration) {}}
 	if err := e.open(false); err != nil {
 		t.Fatal(err)
 	}
@@ -200,4 +201,52 @@ func setBlocked(c *tc, pane, session string) {
 	a := herdrtest.Agent(pane, session)
 	a["agent_status"] = "blocked"
 	c.fx.SetAgent(pane, a)
+}
+
+func ownedNow(e *Env) bool {
+	owned := false
+	_ = e.ch.AsOwner(func(held bool) error { owned = held; return nil })
+	return owned
+}
+
+// Review 3 probes (reviewer's cases): an old allocation with a live entry
+// in any queue folder is not retired, and neither is one whose copy cannot
+// be read, decoded or bounded.
+func TestR3LiveOrUnclearAllocationKept(t *testing.T) {
+	for _, mode := range []string{"new", "ready", "cur", "quarantine", "unreadable", "malformed", "oversized"} {
+		t.Run(mode, func(t *testing.T) {
+			c := newCase(t, true)
+			c.send()
+			folder := mode
+			switch mode {
+			case "unreadable", "malformed", "oversized":
+				folder = "ready"
+			}
+			if folder != "new" {
+				if err := os.Rename(c.ob("new", ID+".md"), c.ob(folder, ID+".md")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			alloc := c.in("ids", ID, "envelope")
+			switch mode {
+			case "malformed":
+				c.write(alloc, "broken allocation JSON\n")
+			case "oversized":
+				c.write(alloc, strings.Repeat("x", inbox.MaxSize+1))
+			}
+			past := c.now.Add(-2 * time.Hour)
+			os.Chtimes(alloc, past, past)
+			if mode == "unreadable" {
+				os.Chmod(alloc, 0)
+				defer os.Chmod(alloc, 0o600)
+			}
+			e := openEnv(t, c, nil)
+			if err := (&courier{Env: e}).retireAbandoned(); err != nil {
+				t.Fatal(err)
+			}
+			if inbox.Exists(c.in("ids", ID, "terminal.json")) {
+				t.Errorf("%s: a live or unclear allocation was retired", mode)
+			}
+		})
+	}
 }
