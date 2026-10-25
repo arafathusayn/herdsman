@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -126,21 +129,181 @@ func TestArtifactsListAndServeInASandbox(t *testing.T) {
 
 func TestArtifactCapsAreBounded(t *testing.T) {
 	a := newArtifacts()
-	first := a.grant("/a", "127.0.0.1")
-	if a.grant("/a", "127.0.0.1") != first {
+	open := func(d string) *os.Root {
+		t.Helper()
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		r, err := openPageDir(d, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	tmp := t.TempDir()
+	first := a.grant(open(filepath.Join(tmp, "a")), "127.0.0.1")
+	if a.grant(open(filepath.Join(tmp, "a")), "127.0.0.1") != first {
 		t.Fatal("a live capability was not reused")
 	}
-	if a.grant("/a", "192.0.2.9") == first {
+	if a.grant(open(filepath.Join(tmp, "a")), "192.0.2.9") == first {
 		t.Fatal("another browser got the same capability")
 	}
 	if _, ok := a.dir(first, "192.0.2.9"); ok {
 		t.Fatal("a capability opened its folder to another browser")
 	}
 	for i := range maxCaps + 5 {
-		a.grant("/d"+string(rune('a'+i%26))+strings.Repeat("x", i), "127.0.0.1")
+		a.grant(open(filepath.Join(tmp, fmt.Sprintf("d%d", i))), "127.0.0.1")
 	}
 	if len(a.caps) > maxCaps {
 		t.Fatalf("%d capabilities kept", len(a.caps))
+	}
+}
+
+// A grant holds the listed folder itself, not its name: a folder swapped for
+// a link to another workspace before the open is refused, and one swapped
+// after the open still serves only the folder that was granted.
+func TestArtifactGrantIsPinnedToTheListedFolder(t *testing.T) {
+	f := newFixture(t)
+	proj := filepath.Dir(filepath.Dir(f.routeDir))
+	reports := filepath.Join(proj, "reports")
+	writeFile(t, filepath.Join(reports, "page.html"), "ORIGINAL")
+	outside := t.TempDir()
+	writeFile(t, filepath.Join(outside, "page.html"), "OTHER WORKSPACE")
+	id := f.hub.Current().Routes[0].ID
+	res := f.request(t, http.MethodGet, "/api/artifacts?route="+id, "", f.authed)
+	var list struct {
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil || len(list.Artifacts) != 1 {
+		t.Fatalf("list: %d %+v %v", res.StatusCode, list, err)
+	}
+	root := list.Artifacts[0].Root
+	open := func() (int, string) {
+		b, _ := json.Marshal(map[string]string{"route": id, "root": root, "path": "reports/page.html"})
+		res := f.request(t, http.MethodPost, "/api/artifacts/open", string(b), f.authed)
+		var o struct {
+			URL string `json:"url"`
+		}
+		_ = json.NewDecoder(res.Body).Decode(&o)
+		return res.StatusCode, o.URL
+	}
+	swap := func(to string) {
+		t.Helper()
+		if err := os.Rename(reports, to); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, reports); err != nil {
+			t.Fatal(err)
+		}
+	}
+	serve := func(u string) string {
+		res := f.request(t, http.MethodGet, u, "", nil)
+		return fmt.Sprint(res.StatusCode, " ", readBody(t, res))
+	}
+
+	// After the grant: the link put in the folder's place is not followed.
+	code, u := open()
+	if code != 200 || serve(u) != "200 ORIGINAL" {
+		t.Fatalf("open before the swap: %d %q", code, serve(u))
+	}
+	swap(reports + "-old")
+	if got := serve(u); got != "200 ORIGINAL" {
+		t.Fatalf("a grant did not keep its folder after a swap: %q", got)
+	}
+	// Before the grant: the listing still names the old folder (it is cached),
+	// but the open refuses to step through the link.
+	if code, u := open(); code != http.StatusNotFound {
+		t.Fatalf("an open through a swapped folder: %d %q", code, serve(u))
+	}
+}
+
+// The walk reads a folder in bounded batches, so a folder far wider than the
+// entry budget costs no more than one at the budget.
+func TestArtifactWalkBoundsAWideFolder(t *testing.T) {
+	if testing.Short() {
+		t.Skip("creates many files")
+	}
+	root := t.TempDir()
+	fill := func(from, to int) {
+		for i := from; i < to; i++ {
+			f, err := os.Create(filepath.Join(root, fmt.Sprintf("p%06d.txt", i)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = f.Close()
+		}
+	}
+	cost := func() uint64 {
+		best := uint64(math.MaxUint64)
+		for range 3 {
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			walkArtifacts([]string{root})
+			runtime.ReadMemStats(&after)
+			best = min(best, after.TotalAlloc-before.TotalAlloc)
+		}
+		return best
+	}
+	fill(0, artifactMaxSeen)
+	narrow := cost()
+	fill(artifactMaxSeen, 8*artifactMaxSeen)
+	wide := cost()
+	if wide > narrow*3/2+256<<10 {
+		t.Fatalf("a folder of %d entries allocated %d bytes, one of %d allocated %d", 8*artifactMaxSeen, wide, artifactMaxSeen, narrow)
+	}
+}
+
+// The listing cache runs for hours: a thousand rounds of refreshes and
+// evictions leave the heap and the goroutine count where they were.
+func TestArtifactCacheLoopKeepsMemoryFlat(t *testing.T) {
+	var roots [][]string
+	for i := range artifactMaxLists + 4 {
+		d := t.TempDir()
+		writeFile(t, filepath.Join(d, fmt.Sprintf("p%d.html", i)), "p")
+		roots = append(roots, []string{d})
+	}
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	a := newArtifacts()
+	a.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	round := func(i int) {
+		clock.Add(int64(artifactsTTL / 4))
+		if got := a.find(roots[i%len(roots)]); len(got) != 1 {
+			t.Fatalf("round %d: %v", i, got)
+		}
+	}
+	settle := func() (uint64, int) {
+		waitRefreshed(t, a)
+		runtime.GC()
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		return m.HeapAlloc, runtime.NumGoroutine()
+	}
+	for i := range 2 * len(roots) {
+		round(i)
+	}
+	heap, goroutines := settle()
+	for i := range 1000 {
+		round(i)
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		if _, n := settle(); n <= goroutines || time.Now().After(deadline) {
+			break
+		}
+	}
+	after, n := settle()
+	if n > goroutines {
+		t.Fatalf("goroutines %d, were %d", n, goroutines)
+	}
+	if after > heap && after-heap > 1<<20 {
+		t.Fatalf("heap grew %d bytes over 1000 rounds", after-heap)
+	}
+	a.mu.Lock()
+	kept := len(a.lists)
+	a.mu.Unlock()
+	if kept > artifactMaxLists {
+		t.Fatalf("%d listings kept", kept)
 	}
 }
 

@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"net"
 	"net/http"
@@ -32,6 +33,7 @@ const (
 	artifactsTTL     = 15 * time.Second
 	artifactMaxDepth = 6
 	artifactMaxSeen  = 6000 // folder entries walked per root
+	artifactBatch    = 256  // folder entries read at once
 	artifactMaxFiles = 500
 	artifactMaxSize  = 16 << 20
 	artifactMaxLists = 8 // listings kept, one per set of roots
@@ -49,9 +51,12 @@ type Artifact struct {
 
 // A capability is bound to the address of the browser that opened it: a page
 // can read its own URL and send it anywhere, so the URL alone must not open
-// the folder to another machine.
+// the folder to another machine. It holds the granted folder open, not its
+// name, so a folder renamed and replaced by a link after the grant never
+// turns the link into a grant of another folder.
 type artifactCap struct {
-	dir     string
+	dir     *os.Root
+	info    os.FileInfo // the folder, to reuse a live grant of it
 	client  string
 	expires time.Time
 }
@@ -261,43 +266,7 @@ func (a *artifacts) refresh(roots []string, key string) []Artifact {
 func walkArtifacts(roots []string) []Artifact {
 	byPath := map[string]Artifact{}
 	for _, root := range roots {
-		seen := 0
-		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				if d != nil && d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			seen++
-			if seen > artifactMaxSeen || len(byPath) >= artifactMaxFiles {
-				return fs.SkipAll
-			}
-			rel, _ := filepath.Rel(root, p)
-			if d.IsDir() {
-				if p == root {
-					return nil
-				}
-				name := d.Name()
-				hidden := strings.HasPrefix(name, ".") && !hiddenArtifactDirs[name]
-				if hidden || skipDirs[name] || strings.Count(rel, string(filepath.Separator)) >= artifactMaxDepth {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if !d.Type().IsRegular() || !isHTML(d.Name()) {
-				return nil
-			}
-			info, err := d.Info()
-			if err != nil || info.Size() > artifactMaxSize {
-				return nil
-			}
-			if old, ok := byPath[p]; ok && len(old.Root) >= len(root) {
-				return nil
-			}
-			byPath[p] = Artifact{Root: root, Path: filepath.ToSlash(rel), Size: info.Size(), Modified: info.ModTime()}
-			return nil
-		})
+		walkRoot(root, byPath)
 	}
 	list := make([]Artifact, 0, len(byPath))
 	for _, v := range byPath {
@@ -312,25 +281,124 @@ func walkArtifacts(roots []string) []Artifact {
 	return list
 }
 
+// walkRoot adds the HTML files under root to byPath. Folders are read in
+// batches that stop at the entry budget, so a folder far wider than the
+// budget is never read or held whole, and os.Root keeps the walk inside root.
+func walkRoot(root string, byPath map[string]Artifact) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return
+	}
+	defer r.Close()
+	budget := artifactMaxSeen
+	stack := []string{"."} // folders left to read, relative to root
+	for len(stack) > 0 && budget > 0 && len(byPath) < artifactMaxFiles {
+		dir := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		f, err := r.Open(dir)
+		if err != nil {
+			continue
+		}
+		for budget > 0 && len(byPath) < artifactMaxFiles {
+			entries, err := f.ReadDir(min(artifactBatch, budget))
+			budget -= len(entries)
+			for _, d := range entries {
+				rel := filepath.Join(dir, d.Name())
+				if d.IsDir() {
+					name := d.Name()
+					hidden := strings.HasPrefix(name, ".") && !hiddenArtifactDirs[name]
+					if !hidden && !skipDirs[name] && strings.Count(rel, string(filepath.Separator)) < artifactMaxDepth {
+						stack = append(stack, rel)
+					}
+					continue
+				}
+				addArtifact(root, rel, d, byPath)
+			}
+			if err != nil { // io.EOF at the folder's end
+				break
+			}
+		}
+		_ = f.Close()
+	}
+}
+
+// addArtifact adds the file rel under root when it is an HTML page.
+func addArtifact(root, rel string, d fs.DirEntry, byPath map[string]Artifact) {
+	if len(byPath) >= artifactMaxFiles || !d.Type().IsRegular() || !isHTML(d.Name()) {
+		return
+	}
+	info, err := d.Info()
+	if err != nil || info.Size() > artifactMaxSize {
+		return
+	}
+	p := filepath.Join(root, rel)
+	if old, ok := byPath[p]; ok && len(old.Root) >= len(root) {
+		return
+	}
+	byPath[p] = Artifact{Root: root, Path: filepath.ToSlash(rel), Size: info.Size(), Modified: info.ModTime()}
+}
+
 func isHTML(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
 	return ext == ".html" || ext == ".htm"
 }
 
-// grant returns a capability for dir that only client may use, reusing a
-// live one.
-func (a *artifacts) grant(dir, client string) string {
+// errNotListed refuses a folder that is no longer the one listed.
+var errNotListed = errors.New("the folder changed since it was listed")
+
+// openPageDir opens the folder rel (slash-separated) under a listed root and
+// pins it: root must still be the folder, not a link put in its place, and
+// no link may sit on the way to rel, so the handle reaches nothing outside
+// root. os.Root keeps a link swapped in during the open inside root too.
+func openPageDir(root, rel string) (*os.Root, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	at, err := os.Lstat(root)
+	opened, err2 := r.Stat(".")
+	if err != nil || err2 != nil || at.Mode()&os.ModeSymlink != 0 || !os.SameFile(at, opened) {
+		_ = r.Close()
+		return nil, errNotListed
+	}
+	rel = strings.Trim(rel, "/")
+	if rel == "" {
+		return r, nil
+	}
+	segs := strings.Split(rel, "/")
+	for i := range segs {
+		st, err := r.Lstat(filepath.Join(segs[:i+1]...))
+		if err != nil || !st.IsDir() { // a link is not a folder to Lstat
+			_ = r.Close()
+			return nil, errNotListed
+		}
+	}
+	sub, err := r.OpenRoot(filepath.FromSlash(rel))
+	_ = r.Close()
+	return sub, err
+}
+
+// grant returns a capability for the open folder dir that only client may
+// use, reusing a live one for the same folder. The capability owns dir.
+func (a *artifacts) grant(dir *os.Root, client string) string {
+	info, _ := dir.Stat(".")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
+	drop := func(k string) {
+		_ = a.caps[k].dir.Close()
+		delete(a.caps, k)
+	}
 	for k, c := range a.caps {
 		if now.After(c.expires) {
-			delete(a.caps, k)
+			drop(k)
 		}
 	}
 	for k, c := range a.caps {
-		if c.dir == dir && c.client == client {
-			a.caps[k] = artifactCap{dir: dir, client: client, expires: now.Add(capTTL)}
+		if c.client == client && info != nil && c.info != nil && os.SameFile(c.info, info) {
+			_ = dir.Close()
+			c.expires = now.Add(capTTL)
+			a.caps[k] = c
 			return k
 		}
 	}
@@ -341,20 +409,21 @@ func (a *artifacts) grant(dir, client string) string {
 				oldest = k
 			}
 		}
-		delete(a.caps, oldest)
+		drop(oldest)
 	}
 	k := secret()
-	a.caps[k] = artifactCap{dir: dir, client: client, expires: now.Add(capTTL)}
+	a.caps[k] = artifactCap{dir: dir, info: info, client: client, expires: now.Add(capTTL)}
 	return k
 }
 
-// dir is the folder cap opens for client.
-func (a *artifacts) dir(cap, client string) (string, bool) {
+// dir is the folder cap opens for client. A use that races a grant closing
+// the folder fails to read it and serves nothing.
+func (a *artifacts) dir(cap, client string) (*os.Root, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	c, ok := a.caps[cap]
 	if !ok || c.client != client || a.now().After(c.expires) {
-		return "", false
+		return nil, false
 	}
 	return c.dir, true
 }
@@ -390,7 +459,11 @@ func (s *Server) openArtifact(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		dir, file := path.Split(a.Path)
-		cap := s.artifacts.grant(filepath.Join(a.Root, filepath.FromSlash(dir)), clientOf(r))
+		d, err := openPageDir(a.Root, dir)
+		if err != nil {
+			break
+		}
+		cap := s.artifacts.grant(d, clientOf(r))
 		writeJSON(w, http.StatusOK, map[string]string{"url": "/artifact/" + cap + "/" + url.PathEscape(file)})
 		return
 	}
@@ -398,13 +471,13 @@ func (s *Server) openArtifact(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveArtifact serves a page asset from a granted folder to the browser the
-// folder was granted to. Hidden files and data files stay out, os.Root keeps
-// links from leaving the folder, and the CSP sandbox gives the page an opaque
+// folder was granted to. Hidden files and data files stay out, the folder is
+// the one held open at the grant, os.Root keeps links from leaving it, and the CSP sandbox gives the page an opaque
 // origin even when it is opened outside the frame, so its scripts reach no
 // herdsman secret. Only that opaque origin gets a CORS header, which module
 // scripts need.
 func (s *Server) serveArtifact(w http.ResponseWriter, r *http.Request) {
-	dir, ok := s.artifacts.dir(r.PathValue("cap"), clientOf(r))
+	root, ok := s.artifacts.dir(r.PathValue("cap"), clientOf(r))
 	if !ok {
 		http.Error(w, "this artifact link expired: open it again from the Artifacts tab", http.StatusNotFound)
 		return
@@ -420,17 +493,12 @@ func (s *Server) serveArtifact(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	defer root.Close()
 	// os.Root follows links that stay in the folder, so a link named like a
 	// page asset could serve a hidden or data file. No link may sit on the
 	// path, and the file opened must be the one checked.
 	segs := strings.Split(rel, "/")
 	var last os.FileInfo
+	var err error
 	for i := range segs {
 		last, err = root.Lstat(filepath.Join(segs[:i+1]...))
 		if err != nil || last.Mode()&os.ModeSymlink != 0 {
