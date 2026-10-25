@@ -359,11 +359,9 @@ func alt(v any) any {
 
 // add is jq's + on null and numbers; other types end the read.
 func add(a, b any) (any, bool) {
+	// b is never null: it is always (x // 0).
 	if a == nil {
-		return b, b == nil || isNum(b)
-	}
-	if b == nil {
-		return a, isNum(a)
+		return b, isNum(b)
 	}
 	x, ok1 := num(a)
 	y, ok2 := num(b)

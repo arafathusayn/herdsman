@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/arafathusayn/herdsman/internal/checkpoint"
 )
@@ -20,6 +21,10 @@ const checkpointerUsage = "usage: TARGET=<pane> herdsman checkpointer [--once|--
 
 // checkpointerExit is os.Exit, replaced in tests.
 var checkpointerExit = os.Exit
+
+// checkpointerWorkingTimeout bounds the wait for a prompted turn (0: the
+// script's 30 s); tests shorten it.
+var checkpointerWorkingTimeout time.Duration
 
 func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	ctx := context.Background()
@@ -43,7 +48,7 @@ func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "herdsman checkpointer:", err)
 		return 1
 	}
-	c := &checkpoint.Checkpointer{Config: cfg, Client: herdrClient(), Stdout: stdout, Stderr: stderr}
+	c := &checkpoint.Checkpointer{Config: cfg, Client: herdrClient(), Stdout: stdout, Stderr: stderr, WorkingTimeout: checkpointerWorkingTimeout}
 	if mode == "--probe" {
 		return c.Probe(ctx)
 	}
