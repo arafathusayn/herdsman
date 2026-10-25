@@ -227,3 +227,52 @@ func TestUnreadableWorktree(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// Ignored local work the new head would overwrite (a file, or a folder
+// where the head has a file) is refused, kept, and listed.
+func TestIgnoredWorkIsKept(t *testing.T) {
+	dir, first, _ := repo(t)
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("local-notes\nbuild/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "add", ".gitignore")
+	gitT(t, dir, "commit", "-q", "-m", "ignore")
+	ignoring := gitT(t, dir, "rev-parse", "HEAD")
+	for _, p := range []string{"local-notes", "build"} {
+		if err := os.WriteFile(filepath.Join(dir, p), []byte("tracked\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitT(t, dir, "add", "-f", "local-notes", "build")
+	gitT(t, dir, "commit", "-q", "-m", "track")
+	tracking := gitT(t, dir, "rev-parse", "HEAD")
+
+	wt := filepath.Join(filepath.Dir(dir), "rv")
+	if _, err := Start(context.Background(), Options{Repo: dir, Worktree: wt, Head: ignoring, CacheRoot: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, "local-notes"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(wt, "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, "build", "out"), []byte("artifact\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Start(context.Background(), Options{Repo: dir, Worktree: wt, Head: tracking, CacheRoot: t.TempDir()})
+	var d *DirtyError
+	if !errors.As(err, &d) || strings.Join(d.Paths, ",") != "build,local-notes" {
+		t.Fatalf("%v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(wt, "local-notes")); string(b) != "mine\n" {
+		t.Errorf("ignored work overwritten: %q", b)
+	}
+	if gitT(t, wt, "rev-parse", "HEAD") != ignoring {
+		t.Error("moved")
+	}
+	// Ignored work the head does not touch does not block.
+	if _, err := Start(context.Background(), Options{Repo: dir, Worktree: wt, Head: first, CacheRoot: t.TempDir()}); err != nil {
+		t.Errorf("unrelated ignored files blocked: %v", err)
+	}
+}

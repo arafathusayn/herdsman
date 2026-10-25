@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -142,6 +143,59 @@ func moveTo(ctx context.Context, wt, head string) error {
 	if len(dirty) > 0 {
 		return &DirtyError{Worktree: wt, Paths: dirty}
 	}
+	// checkout overwrites ignored files: refuse when the head tracks a path
+	// that ignored local work holds (the same file, a file where the work
+	// is a folder, or a folder where the work is a file).
+	if dirty, err = ignoredCollisions(ctx, wt, head); err != nil {
+		return err
+	}
+	if len(dirty) > 0 {
+		return &DirtyError{Worktree: wt, Paths: dirty}
+	}
 	_, err = git(ctx, wt, "checkout", "--quiet", "--detach", head)
 	return err
+}
+
+// ignoredCollisions lists the ignored files a checkout of head would replace.
+func ignoredCollisions(ctx context.Context, wt, head string) ([]string, error) {
+	ignored, err := git(ctx, wt, "status", "--porcelain=v1", "-z", "--ignored=matching", "--untracked-files=all")
+	if err != nil {
+		return nil, err
+	}
+	tracked, err := git(ctx, wt, "ls-tree", "-r", "-z", "--name-only", head)
+	if err != nil {
+		return nil, err
+	}
+	target := map[string]bool{}
+	for p := range strings.SplitSeq(tracked, "\x00") {
+		if p != "" {
+			target[p] = true
+		}
+	}
+	var out []string
+	for e := range strings.SplitSeq(ignored, "\x00") {
+		if !strings.HasPrefix(e, "!! ") {
+			continue
+		}
+		p := strings.TrimSuffix(e[3:], "/")
+		hit := target[p]
+		// A tracked file at any parent folder of the ignored path.
+		for d := filepath.Dir(p); !hit && d != "."; d = filepath.Dir(d) {
+			hit = target[d]
+		}
+		// A tracked path inside an ignored file's place.
+		if !hit {
+			for t := range target {
+				if strings.HasPrefix(t, p+"/") {
+					hit = true
+					break
+				}
+			}
+		}
+		if hit {
+			out = append(out, p)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
 }
