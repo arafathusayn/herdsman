@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -290,5 +291,52 @@ func TestRunGh(t *testing.T) {
 	}
 	if _, err := exec.LookPath("gh"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// R5 finding 5 (A24): a large unchanged history is read as a stream that
+// keeps only the fields the snapshot needs: 1000 comments of 16 KiB each
+// (16 MiB of JSON) allocate far less than the JSON's size per poll.
+func TestPRSnapshotStreamsLargeHistory(t *testing.T) {
+	r := newPRRig(t)
+	body := strings.Repeat("x", 16<<10)
+	var b strings.Builder
+	b.WriteString("[")
+	for i := 0; i < 1000; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"id":%d,"user":{"login":"u%d"},"body":%q}`, i, i%7, body)
+	}
+	b.WriteString("]")
+	big := filepath.Join(r.dir, "big.json")
+	_ = os.WriteFile(big, []byte(b.String()), 0o644)
+	r.fixture("7-view.json", view("OPEN", "abcd1234ffff"))
+	d := Deps{Gh: r.gh.run, GhStream: func(ctx context.Context, env []string, read func(io.Reader) error, args ...string) error {
+		if strings.Contains(strings.Join(args, " "), "issues/7/comments") {
+			f, err := os.Open(big)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			return read(f)
+		}
+		out, err := r.gh.run(ctx, env, args...)
+		if err != nil {
+			return err
+		}
+		return read(bytes.NewReader(out))
+	}}
+	snapshot(context.Background(), d, nil, "org/repo", "7") // warm up
+	var m0, m1 runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&m0)
+	snap, err := snapshot(context.Background(), d, nil, "org/repo", "7")
+	runtime.ReadMemStats(&m1)
+	if err != nil || len(snap) != 1002 || snap[0] != "comment 0 u0" {
+		t.Fatalf("%d lines, %v, first %q", len(snap), err, snap[0])
+	}
+	if alloc := m1.TotalAlloc - m0.TotalAlloc; alloc > 4<<20 {
+		t.Errorf("one poll of a 16 MiB history allocated %d bytes", alloc)
 	}
 }

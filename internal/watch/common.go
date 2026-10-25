@@ -52,6 +52,9 @@ type Deps struct {
 	// Gh runs the gh program with args and returns its stdout; its stderr
 	// goes to Stderr.
 	Gh func(ctx context.Context, env []string, args ...string) ([]byte, error)
+	// GhStream runs gh and hands its stdout to read as a stream (the PR
+	// watcher's paginated reads); nil reads Gh's output.
+	GhStream func(ctx context.Context, env []string, read func(io.Reader) error, args ...string) error
 }
 
 // defaults fills the clock and the sleep; the default sleep ends early, with

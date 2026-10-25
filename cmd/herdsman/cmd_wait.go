@@ -18,7 +18,7 @@ func init() {
 }
 
 func watchDeps(stdout, stderr io.Writer) watch.Deps {
-	return watch.Deps{Client: herdrClient(), Now: now, Stdout: stdout, Stderr: stderr, Status: statusSnapshot, Gh: watch.RunGh(stderr)}
+	return watch.Deps{Client: herdrClient(), Now: now, Stdout: stdout, Stderr: stderr, Status: statusSnapshot, Gh: watch.RunGh(stderr), GhStream: watch.RunGhStream(stderr)}
 }
 
 func signalContext() (context.Context, context.CancelFunc) {

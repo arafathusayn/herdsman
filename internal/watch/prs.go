@@ -171,24 +171,20 @@ func snapshot(ctx context.Context, d Deps, env []string, repo, n string) ([]stri
 		{"repos/" + repo + "/pulls/" + n + "/comments", "inline"},
 		{"repos/" + repo + "/pulls/" + n + "/reviews", "review"},
 	} {
-		out, err := d.Gh(ctx, env, "api", q.path, "--paginate")
+		err := d.ghStream(ctx, env, func(r io.Reader) error {
+			return streamPages(r, func(it ghItem) {
+				l := q.kind + " " + str(it.ID) + " " + str(it.login())
+				switch q.kind {
+				case "inline":
+					l += " " + str(it.Path)
+				case "review":
+					l += " " + str(it.State)
+				}
+				lines = append(lines, l)
+			})
+		}, "api", q.path, "--paginate")
 		if err != nil {
 			return nil, err
-		}
-		items, err := pages(out)
-		if err != nil {
-			return nil, err
-		}
-		for _, it := range items {
-			user, _ := it["user"].(map[string]any)
-			l := q.kind + " " + str(it["id"]) + " " + str(user["login"])
-			switch q.kind {
-			case "inline":
-				l += " " + str(it["path"])
-			case "review":
-				l += " " + str(it["state"])
-			}
-			lines = append(lines, l)
 		}
 	}
 	out, err := d.Gh(ctx, env, "pr", "view", n, "--repo", repo, "--json", "state,headRefOid,statusCheckRollup")
@@ -208,22 +204,6 @@ func snapshot(ctx context.Context, d Deps, env []string, repo, n string) ([]stri
 	}
 	sort.Strings(kept)
 	return kept, nil
-}
-
-// pages reads the objects of gh's --paginate output: one JSON array per page.
-func pages(b []byte) ([]map[string]any, error) {
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.UseNumber()
-	var out []map[string]any
-	for {
-		var page []map[string]any
-		if err := dec.Decode(&page); errors.Is(err, io.EOF) {
-			return out, nil
-		} else if err != nil {
-			return nil, err
-		}
-		out = append(out, page...)
-	}
 }
 
 // prView reads `gh pr view --json state,headRefOid,statusCheckRollup`:
@@ -354,5 +334,96 @@ func RunGh(stderr io.Writer) func(ctx context.Context, env []string, args ...str
 		cmd.Env = append(os.Environ(), env...)
 		cmd.Stderr = stderr
 		return cmd.Output()
+	}
+}
+
+// ghItem is the part of a comment, inline comment or review the snapshot
+// keeps; the body and every other field are skipped while decoding.
+type ghItem struct {
+	ID    any             `json:"id"`
+	User  json.RawMessage `json:"user"`
+	Path  any             `json:"path"`
+	State any             `json:"state"`
+}
+
+func (it ghItem) login() any {
+	var u struct {
+		Login any `json:"login"`
+	}
+	if len(it.User) > 0 && it.User[0] == '{' {
+		dec := json.NewDecoder(bytes.NewReader(it.User))
+		dec.UseNumber()
+		_ = dec.Decode(&u)
+	}
+	return u.Login
+}
+
+// streamPages reads gh's --paginate output (one JSON array per page) item
+// by item, so a long history is never held whole (A24).
+func streamPages(r io.Reader, fn func(ghItem)) error {
+	dec := json.NewDecoder(r)
+	dec.UseNumber()
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if tok == nil {
+			continue // a null page
+		}
+		if d, ok := tok.(json.Delim); !ok || d != '[' {
+			return fmt.Errorf("gh page: want an array, got %v", tok)
+		}
+		for dec.More() {
+			var it ghItem
+			if err := dec.Decode(&it); err != nil {
+				return err
+			}
+			fn(it)
+		}
+		if _, err := dec.Token(); err != nil {
+			return err
+		}
+	}
+}
+
+// ghStream runs gh and hands its output to read as a stream: GhStream when
+// set, else Gh's output.
+func (d Deps) ghStream(ctx context.Context, env []string, read func(io.Reader) error, args ...string) error {
+	if d.GhStream != nil {
+		return d.GhStream(ctx, env, read, args...)
+	}
+	out, err := d.Gh(ctx, env, args...)
+	if err != nil {
+		return err
+	}
+	return read(bytes.NewReader(out))
+}
+
+// RunGhStream runs the gh program and streams its stdout to read; its
+// stderr goes to stderr.
+func RunGhStream(stderr io.Writer) func(ctx context.Context, env []string, read func(io.Reader) error, args ...string) error {
+	return func(ctx context.Context, env []string, read func(io.Reader) error, args ...string) error {
+		cmd := exec.CommandContext(ctx, "gh", args...)
+		cmd.Env = append(os.Environ(), env...)
+		cmd.Stderr = stderr
+		out, err := cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		rerr := read(out)
+		if rerr != nil {
+			_, _ = io.Copy(io.Discard, out)
+		}
+		if err := cmd.Wait(); err != nil {
+			return err
+		}
+		return rerr
 	}
 }
