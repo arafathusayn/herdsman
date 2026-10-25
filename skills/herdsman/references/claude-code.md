@@ -17,13 +17,13 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 - Without `--add-dir` the reviewer blocks on "Allow reads outside the working directories?" when the contract or the route files live outside its cwd. Do not answer that prompt for the user; relaunch with `--add-dir`.
 - `--permission-mode auto` lets it run gh, git fetch, tests and the review skills without prompts; it still refuses dangerous shapes. It is not a sandbox: with an adjutant, a Claude launch counts as unsandboxed for the go precondition unless its actual sandbox is enabled and a negative probe shows that it denies both the private inbox and the Herdr socket ([`messages.md`](messages.md), Private inbox boundary). Which Claude sandbox settings achieve that is not verified yet.
 - Start it in the reviewers' tab (`<project>-reviewers`, labels in [`herdr.md`](herdr.md), Etiquette) with `--cwd <writable root>` so its worktree and report files are local.
-- Review prompts go as `/goal <whole review>` (user rule). Before each new review: `/clear`, or `/compact` when the review needs the earlier rounds (a re-review of the same PR). Every goal says "Find only P0 and P1 issues."
+- Review prompts go as `/goal <whole review>` (user rule). Before each new review: `/clear`, or `/compact` when the review needs the earlier rounds (a re-review of the same PR). Every goal names the route's severity policy: "Find only P0 and P1 issues", or under the recommended setup "Find P0, P1 and P2 issues; only P0 and P1 block."
 
 ## Prompt shape for Claude Code reviewers
 
 - Give the whole review in one message and name the finish line: the report file with a `VERDICT:` line for the head commit.
 - Remove "think carefully" and "think step by step". The model reasons before each reply without them.
-- Review wording from the source: "List only problems you'd block the merge for." It matches the P0 and P1 gate.
+- Review wording from the source: "List only problems you'd block the merge for." It matches the P0 and P1 gate; under the recommended setup, add that P2 is reported but does not block.
 - Stopping rule: stop and ask only when it cannot continue without the orchestrator, or before anything destructive. In the report this is a `NEEDS:` line first under FINDINGS.
 - Findings that it could not confirm say so and say where it looked.
 - When a long run ends, read first what the reviewer waits on (`NEEDS:`), then the findings.
@@ -38,7 +38,7 @@ herdr agent start rv-1 --kind claude --pane <id> --timeout 90000 -- \
 
 ## Severity gate
 
-- Define P0 and P1 in the contract (see [`contracts.md`](contracts.md)). Everything below P1 is omitted, not demoted.
+- Define the severities in the contract (see [`contracts.md`](contracts.md)): P0 and P1, plus P2 under the recommended setup. Everything below the policy's lowest severity is omitted, not demoted.
 - The `VERDICT:` line is the gate. `pass` = zero P0 and zero P1.
 - Findings carry `file:line`, what happens, and a one-sentence fix, so the implementer or the integrator can act without reading the reviewer's reasoning.
 
