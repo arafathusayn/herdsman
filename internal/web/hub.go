@@ -50,6 +50,23 @@ type RouteView struct {
 	// when another project's route of the same name comes or goes.
 	ID   string `json:"id"`
 	Live bool   `json:"live"`
+	// OlderRunState counts the run-state lines before RunState, which keeps
+	// the newest runStateKept only; GET /api/route/runstate pages them (A24).
+	OlderRunState int `json:"older_run_state,omitempty"`
+}
+
+// runStateKept bounds the run-state lines the hub holds per route.
+const runStateKept = 100
+
+// boundRunState keeps the newest runStateKept lines in a fresh array, so the
+// full history is not retained, and returns how many it left out.
+func boundRunState(r *route.Route) int {
+	older := len(r.RunState) - runStateKept
+	if older <= 0 {
+		return 0
+	}
+	r.RunState = slices.Clone(r.RunState[older:])
+	return older
 }
 
 // routeID is the ID of the route in folder dir.
@@ -364,7 +381,8 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 		if err != nil {
 			continue
 		}
-		out = append(out, RouteView{Route: r, ID: routeID(r.Dir, r.Name), Live: isLive(r, panes, agentAt, claimed)})
+		older := boundRunState(r)
+		out = append(out, RouteView{Route: r, ID: routeID(r.Dir, r.Name), Live: isLive(r, panes, agentAt, claimed), OlderRunState: older})
 	}
 	return out
 }

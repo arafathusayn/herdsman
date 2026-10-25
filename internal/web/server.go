@@ -126,6 +126,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/pane/{id}", s.auth(http.HandlerFunc(s.pane)))
 	mux.Handle("GET /api/route/file", s.auth(http.HandlerFunc(s.routeFile)))
 	mux.Handle("GET /api/route/diff", s.auth(http.HandlerFunc(s.routeDiff)))
+	mux.Handle("GET /api/route/runstate", s.auth(http.HandlerFunc(s.routeRunState)))
 	mux.Handle("POST /api/actions", s.auth(http.HandlerFunc(s.action)))
 	mux.Handle("GET /api/artifacts", s.auth(http.HandlerFunc(s.listArtifacts)))
 	mux.Handle("POST /api/artifacts/open", s.auth(http.HandlerFunc(s.openArtifact)))
@@ -509,4 +510,27 @@ func (s *Server) recordActivity() {
 	if err := afk.WriteWebFile(s.cfg.ActivityFile, now); err != nil {
 		log.Printf("herdsman web: cannot record activity: %v", err)
 	}
+}
+
+// routeRunState pages a route's older run-state lines: up to runStateKept
+// lines ending before line index `before`, read from the route file.
+func (s *Server) routeRunState(w http.ResponseWriter, r *http.Request) {
+	rv := findRoute(s.hub.Current().Routes, r.URL.Query().Get("route"))
+	if rv == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown route"})
+		return
+	}
+	before, err := strconv.Atoi(r.URL.Query().Get("before"))
+	if err != nil || before < 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "before must be a whole number"})
+		return
+	}
+	rt, err := route.Load(rv.Dir)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "the route file could not be read"})
+		return
+	}
+	before = min(before, len(rt.RunState))
+	from := max(0, before-runStateKept)
+	writeJSON(w, http.StatusOK, map[string]any{"lines": rt.RunState[from:before], "older": from})
 }

@@ -9,6 +9,7 @@ import type {
   Entry,
   GitHubAccess,
   InboxState,
+  LogLine,
   PaneRead,
   RouteRequest,
   RouteResult,
@@ -248,6 +249,17 @@ export async function routeFile(route: string, path: string): Promise<string> {
   const res = await call(`/api/route/file?${q}`, { headers: headers() });
   if (!res.ok) throw new Error(`cannot read ${path} (${res.status})`);
   return res.text();
+}
+
+/** Up to a page of run-state lines ending before line index `before`, and how many precede them. */
+export async function routeRunState(route: string, before: number): Promise<{ lines: LogLine[]; older: number }> {
+  const res = await call(`/api/route/runstate?${new URLSearchParams({ route, before: String(before) })}`, {
+    headers: headers(),
+  });
+  if (res.status === 401) throw new AuthError("Session expired.");
+  const body = (await res.json()) as { lines?: LogLine[]; older?: number; error?: string };
+  if (!res.ok || !body.lines) throw new Error(body.error ?? `run state failed (${res.status})`);
+  return { lines: body.lines, older: body.older ?? 0 };
 }
 
 const diffs = new Map<string, { etag: string; sources: DiffSource[] }>();

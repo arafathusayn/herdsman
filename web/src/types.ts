@@ -129,6 +129,8 @@ export interface Route {
   tasks: Task[] | null;
   checklist: CheckItem[] | null;
   run_state: LogLine[] | null;
+  /** Run-state lines before run_state, which holds the newest only; paged by routeRunState. */
+  older_run_state?: number;
   files: RouteFile[] | null;
   modified: string;
   live: boolean;
