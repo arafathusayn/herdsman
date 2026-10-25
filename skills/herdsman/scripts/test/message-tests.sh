@@ -1409,6 +1409,27 @@ check "Y6h a quoted executable path with a space is a script run" 'call=q1 class
 check "Y6h2 a quoted executable path with shell punctuation is a script run" 'call=q2 class=script-run' "$out"
 nocheck "Y6h3 quoted awk and grep text stays clean" 'call=q3' "$out"
 check "Y6h4 two flags of three calls" 'AUDIT flagged=2 calls=3.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+# Y6i: commands split by their quote context. A quoted command word is the program after quote removal; separators
+# and paths inside quoted data start no command; syntax the audit does not parse is a GAP, never clean.
+{
+  sh_call q4 "'do-push.sh copy' origin"
+  sh_call q5 "'do-push.sh;noop' origin"
+  sh_call q6 'ls /x && "/tmp/a b.sh" origin'
+  sh_call q7 '/usr/bin/env /tmp/do-push origin'
+  sh_call g1 'echo $(echo $(id -u))'
+  sh_call g2 'cat <<EOF > /x/out.txt'
+  sh_call c1 "echo \"'a; /tmp/do-push'\""
+  sh_call c2 "grep -E 'a|b; c && d' /x/list.txt"
+  sh_call c3 "printf '%s\\n' \"x && /tmp/do-push.sh | y\""
+  sh_call c4 "jq -r '.a | .b' /x/f.json"
+  sh_call c5 'echo "path /x/run.sh; ok" || echo no'
+  sh_call c6 'echo x\;/tmp/do-push'
+} > "$TC/y6-words.jsonl"
+out=$(aud claude "$TC/y6-words.jsonl" coord-session "$TC/memory/")
+for n in 4 5 6 7; do check "Y6i a quoted or wrapped command word is a script run: q$n" "call=q$n class=script-run" "$out"; done
+for n in 1 2; do check "Y6i2 unsupported shell syntax is a GAP line: g$n" "^GAP call=g$n " "$out"; done
+nocheck "Y6i3 separators and paths inside quoted or escaped data stay clean" 'call=c[0-9]' "$out"
+check "Y6i4 six of twelve calls are not clean" 'AUDIT flagged=6 calls=12.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
 counts 10 ) > "$T/.part-10.log" 2>&1 & started 10
 
 slot; ( begin 11; pass=0; fail=0

@@ -2,6 +2,7 @@
 # Read-only audit of the current coordinator session: <claude|codex> <transcript> <session-id> [allowed-write-root/ ...]
 # It reads tool-call records only, never prose, and changes nothing. Exit 0: clean; 1: flagged calls; 2: audit gap.
 # A gap (missing, unsupported, malformed or wrong-session transcript) is never a clean audit.
+# A shell call whose syntax the command splitter does not parse prints a GAP line and counts as flagged (exit 1).
 # AUDIT_GRANT_FILE names exact full command lines that an administrative grant permits; no other line is exempt.
 # AUDIT_CHANNEL_DIR is the installed script folder: only its channel scripts, by exact path, may run as scripts.
 # Limit: the audit reads command text. It cannot see inside an allowed channel script; those are the reviewed scripts.
@@ -82,8 +83,11 @@ MCPW='(send|create|update|delete|post|comment|write|add|edit|merge|upload|remove
 # A program started from a system command folder is classified by its name; quotes never hide a program name.
 SYSDIR='(/usr/local/bin|/opt/homebrew/bin|/usr/bin|/usr/sbin|/bin|/sbin)'
 normalized() { printf '%s' "$1" | tr -d "\"'" | sed -E "s#(^|[;&|({[:space:]])$SYSDIR/#\1#g"; }
-shell_class() { # command -> "class program" (the program word only, never arguments), or nothing
-  local c n
+shell_class() { # command -> "class program" (the program word only, never arguments), "gap <reason>", or nothing
+  local c n toks
+  # Syntax the command splitter does not parse is a gap, before any other class: no class is reliable then.
+  toks=$(printf '%s\n' "$1" | awk "$COMMANDS")
+  case "$toks" in G*) printf 'gap %s\n' "${toks#G?}"; return 0 ;; esac
   n=$(normalized "$1")
   if [[ "$n" =~ $GIT ]]; then c='git-write'
   elif [[ "$n" =~ $GHAPI ]] || [[ "$n" =~ $GHW ]] || [[ "$n" =~ $CURL ]]; then c='outward-write'
@@ -91,7 +95,7 @@ shell_class() { # command -> "class program" (the program word only, never argum
   elif [[ "$n" =~ $SVC ]]; then c='service-or-container'
   elif [[ "$n" =~ $AWKRUN ]] && [[ "$n" =~ $AWKFX ]]; then printf 'script-run awk\n'; return 0
   elif shell_write "$1"; then return 0
-  else script_run "$1"; return 0; fi
+  else script_run "$toks"; return 0; fi
   printf '%s %s\n' "$c" "$(printf '%s' "${BASH_REMATCH[0]}" | sed 's/^[;&|({[:space:]]*//' | awk '{print $1}')"
 }
 # Command text cannot show what a script does, so every script or interpreter run is not clean unless it starts
@@ -104,39 +108,132 @@ channel_script() {
   for n in $CHANNEL; do [ "$1" = "${AUDIT_CHANNEL_DIR%/}/$n" ] && return 0; done
   return 1
 }
-# Inside single quotes, outside double quotes, a blank or a segment character becomes _, so the quoted text stays one
-# word that keeps its program name. A backslash outside single quotes escapes the next character.
-ONEWORD='{
-  out = ""; sq = 0; dq = 0; n = length($0)
-  for (i = 1; i <= n; i++) {
-    c = substr($0, i, 1)
-    if (sq) { if (c == "\047") sq = 0; else if (c ~ /[[:space:];&|(){}`$]/) c = "_" }
-    else if (c == "\\") { out = out c; i++; c = substr($0, i, 1) }
-    else if (c == "\"") dq = !dq
-    else if (c == "\047" && !dq) sq = 1
-    out = out c
+# The command splitter. It reads one command line with its quote context and prints one line per simple command:
+# C, then each word after quote removal, each after a unit separator. Single quotes, double quotes, $'...' and
+# backslash escapes keep their text in one word; ; & | ( ) and newlines separate commands only outside quotes.
+# A redirect operator and its target are not words; a descriptor number before the operator is dropped.
+# $(...), `...`, <(...) and >(...) hold commands of their own, one level deep: their commands print as commands,
+# and in the word that holds them they stand as $_SUB_, so a command word made from one is never a known program.
+# Syntax it does not parse (nested substitution, a here-document, an unterminated quote or substitution) prints
+# only G and a reason, and the caller reports a gap.
+COMMANDS='
+function addc(c) { w = w c; inword = 1 }
+function flushw() {
+  if (inword) { if (skip) skip = 0; else { cmd = cmd "\037" w; nw++ } }
+  w = ""; inword = 0
+}
+function endcmd() { flushw(); skip = 0; if (nw > 0) out = out "C" cmd "\n"; cmd = ""; nw = 0 }
+function gap(r) { printf "G\037%s\n", r; bad = 1; exit }
+function enter(kind) {
+  if (ctx != "") gap("nested command substitution")
+  ctx = kind; xcmd = cmd; xnw = nw; xw = w; xin = inword; xdq = dq; xskip = skip
+  cmd = ""; nw = 0; w = ""; inword = 0; dq = 0; skip = 0; pd = 0
+}
+function leave() {
+  endcmd(); ctx = ""
+  cmd = xcmd; nw = xnw; w = xw; inword = xin; dq = xdq; skip = xskip
+  addc("$_SUB_")
+}
+# match(open, close, from): the index of the close that balances the open at from, or 0.
+function balance(o, cl, from,   j, e, depth) {
+  depth = 0
+  for (j = from; j <= n; j++) {
+    e = substr(s, j, 1)
+    if (e == o) depth++
+    else if (e == cl) { depth--; if (depth == 0) return j }
   }
-  print out
-}'
-script_run() { # command -> "script-run <program>" for the first script or interpreter run that is not allowed
-  local seg w i first prog wrapped
+  return 0
+}
+{
+  s = $0; n = length(s)
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1); d = substr(s, i + 1, 1)
+    if (sq) { if (c == "\047") sq = 0; else addc(c); continue }
+    if (c == "\\") {
+      i++; e = substr(s, i, 1)
+      if (dq && e !~ /[$`"\\]/) addc(c)
+      if (e != "") addc(e)
+      continue
+    }
+    if (c == "`") { if (ctx == "`") leave(); else enter("`"); continue }
+    if (c == "$" && d == "(" && substr(s, i + 2, 1) == "(") {
+      j = balance("(", ")", i + 1); if (!j) gap("unterminated arithmetic")
+      addc(substr(s, i, j - i + 1)); i = j; continue
+    }
+    if (c == "$" && d == "(") { i++; enter(")"); continue }
+    if (c == "$" && d == "{") {
+      j = balance("{", "}", i + 1); if (!j) gap("unterminated parameter expansion")
+      addc(substr(s, i, j - i + 1)); i = j; continue
+    }
+    if (c == "$" && d == "\047" && !dq) {
+      inword = 1
+      for (i += 2; i <= n; i++) {
+        e = substr(s, i, 1)
+        if (e == "\\") { i++; addc(substr(s, i, 1)); continue }
+        if (e == "\047") break
+        addc(e)
+      }
+      if (i > n) gap("unterminated quote")
+      continue
+    }
+    if (dq) { if (c == "\"") dq = 0; else addc(c); continue }
+    if (c == "\047") { sq = 1; inword = 1; continue }
+    if (c == "\"") { dq = 1; inword = 1; continue }
+    if (c == "#" && !inword) break
+    if (c == " " || c == "\t") { flushw(); continue }
+    if ((c == "<" || c == ">") && d == "(") { flushw(); i++; enter(")"); continue }
+    if (c == "<" || c == ">") {
+      if (inword && w ~ /^[0-9]+$/) { w = ""; inword = 0 } else flushw()
+      if (c == "<" && d == "<") { if (substr(s, i + 2, 1) == "<") i += 2; else gap("here-document") }
+      else if (d == ">" || d == "|" || d == "&" || (c == "<" && d == ">")) i++
+      skip = 1; continue
+    }
+    if (c == ";" || c == "&" || c == "|" || c == "\n") { endcmd(); continue }
+    if (c == "(") { if (ctx == ")") pd++; endcmd(); continue }
+    if (c == ")") {
+      if (ctx == ")") { if (pd > 0) { pd--; endcmd() } else leave(); continue }
+      endcmd(); continue
+    }
+    addc(c)
+  }
+  if (sq || dq) gap("unterminated quote")
+  if (ctx != "") gap("unterminated command substitution")
+  endcmd()
+}
+END { if (!bad) printf "%s", out }'
+script_run() { # splitter output -> "script-run <program>" for the first script or interpreter run that is not allowed
+  local line w i first prog wrapped skip
   local -a words
-  while IFS= read -r seg; do
-    read -r -a words <<< "$(printf '%s' "$seg" | tr -d "\"'")" || true
-    i=0; wrapped=
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    IFS=$'\x1f' read -r -a words <<< "${line#C?}" || true
+    i=0; wrapped= skip=
     # A wrapper with an option or a count hides what it starts: flag it instead of guessing its argument grammar.
+    # Reserved words that open or close a compound command start nothing; a test or a for, case or select header
+    # runs no program of its own.
     while [ "$i" -lt "${#words[@]}" ]; do
-      case "${words[$i]}" in
-        env|exec|nohup|time|command|builtin|sudo|nice|timeout|doas|stdbuf|ionice|chroot|setsid) wrapped=${words[$i]}; i=$((i+1)) ;;
+      w=${words[$i]}
+      if [[ "$w" =~ ^$SYSDIR/([^/]+)$ ]]; then w=${BASH_REMATCH[2]}; fi
+      case "$w" in
+        env|exec|nohup|time|command|builtin|sudo|nice|timeout|doas|stdbuf|ionice|chroot|setsid) wrapped=$w; i=$((i+1)) ;;
+        '!'|'{'|'}'|if|then|else|elif|do|while|until|fi|done|esac) [ -z "$wrapped" ] || break; i=$((i+1)) ;;
+        '['|'[['|for|case|select) [ -n "$wrapped" ] || skip=1; break ;;
         *=*) i=$((i+1)) ;;
         -*|[0-9]*) [ -z "$wrapped" ] || { printf 'script-run %s\n' "$wrapped"; return 0; }; break ;;
         *) break ;;
       esac
     done
+    [ -z "$skip" ] || continue
     [ "$i" -lt "${#words[@]}" ] || continue
     first=${words[$i]} prog=${words[$i]}
     # A program from a system command folder runs by its name; any other path is a script run.
     if [[ "$first" =~ ^$SYSDIR/([^/]+)$ ]]; then prog=${BASH_REMATCH[2]}; fi
+    # A command word with a blank, shell punctuation, an expansion or a pattern is no known program: it is a quoted
+    # name, a variable or a substitution, and what it runs cannot be read from the command text.
+    if [[ "$prog" =~ [^A-Za-z0-9._+@%:,=/~-] ]]; then
+      channel_script "$first" && continue
+      printf 'script-run %s\n' "${prog##*/}"; return 0
+    fi
     case "$prog" in
       bash|sh|zsh|dash|ksh|fish|python|python2|python3|python3.*|perl|ruby|node|deno|bun|php|lua|osascript|tclsh|awk|gawk|mawk)
         w=
@@ -150,9 +247,7 @@ script_run() { # command -> "script-run <program>" for the first script or inter
         channel_script "$first" && continue
         printf 'script-run %s\n' "${prog##*/}"; return 0 ;;
     esac
-  # Single-quoted text is one word to the shell: its spaces and punctuation never split a word or start a segment
-  # (an awk program, a pattern), and in command position it is still the program that runs ('/x/a b.sh').
-  done < <(printf '%s\n' "$1" | awk "$ONEWORD" | awk '{ gsub(/[$]\(|[;&|(){}`]/, "\n"); print }')
+  done <<< "$1"
 }
 shell_write() { # command -> "project-write <target>" for a redirect outside the allowed roots or a file mutation
   local rest t op n
@@ -202,7 +297,11 @@ while IFS=$'\x1f' read -r tool id path cmd; do
     # Every other record is a tool this audit cannot interpret, so it is never clean.
     *) gap "unsupported tool $tool (call $id)" ;;
   esac
-  if [ -n "$class" ]; then
+  if [ "$class" = gap ]; then
+    # A call whose shell syntax the audit does not parse is never clean: it counts as flagged.
+    flagged=$((flagged+1))
+    printf 'GAP call=%s tool=%s unsupported shell syntax: %s\n' "$id" "$tool" "$target"
+  elif [ -n "$class" ]; then
     flagged=$((flagged+1))
     printf 'FLAG tool=%s call=%s class=%s target=%s\n' "$tool" "$id" "$class" "$target"
   fi
