@@ -384,7 +384,7 @@ commit_identity() {
 # incident waits in state/exposure-pending: every boundary check fails closed while it waits, and the next owner
 # of the lock publishes it.
 record_exposure() {
-  local own='' dir="$ROOT/state/exposure-pending"
+  local own='' dir="$ROOT/state/exposure-pending" f
   case "${BOUNDARY_FAULT:-}" in
     inventory) [ ! -e "$ROOT/state/boundary-tainted" ] || return 0 ;;
     # Taking the lock publishes the waiting record.
@@ -396,8 +396,14 @@ record_exposure() {
     else
       [ ! -L "$dir" ] || die 'exposure-pending symlink'
       mkdir -p "$dir"
-      atomic "$dir/$$-$(now)-$RANDOM.json" jq -n --argjson agents "$BOUNDARY_UNKNOWN" --argjson time "$(now)" \
-        '{agents:$agents,time:$time}' || die 'cannot keep the exposure record'
+      f="$dir/$$-$(now)-$RANDOM.json"
+      # A record too large for the strict bound keeps its first agents and says it is truncated; it still fails
+      # every check closed. No path leaves the incident without a pending record.
+      atomic "$f" jq -n --argjson agents "$BOUNDARY_UNKNOWN" --argjson time "$(now)" '{agents:$agents,time:$time}' ||
+        atomic "$f" jq -n --argjson agents "$BOUNDARY_UNKNOWN" --argjson time "$(now)" \
+          '{agents:$agents[:20],truncated:true,count:($agents|length),time:$time}' ||
+        atomic "$f" jq -n --argjson time "$(now)" '{agents:[],truncated:true,time:$time}' ||
+        die 'cannot keep the exposure record'
       log_line 'EXPOSURE input lock busy; the record waits for the next owner'
       return 0
     fi
@@ -406,15 +412,16 @@ record_exposure() {
     --argjson time "$(now)" '{reason:"live agent outside the protected setup",agents:$agents,time:$time}'
   [ -z "$own" ] || mutation_unlock
 }
-# The waiting-exposure path: none when it is absent or a real folder that lists empty; entries when a real folder
-# lists entries; uninspectable for anything else (a link, another file type, a folder that cannot be read or
-# searched, a failed listing). Only none lets a boundary check go on.
+# The waiting-exposure path: none when it is absent or a real folder with no entry; entries when a real folder holds
+# any entry; uninspectable for anything else (a link, another file type, a folder that cannot be read or searched,
+# a failed listing). Only none lets a boundary check go on. find prints the entry's whole path, so an entry counts
+# whatever its name (a newline-only name included), and its exit status catches a listing that fails.
 pending_state() {
-  local d="$ROOT/state/exposure-pending" list
+  local d="$ROOT/state/exposure-pending" first
   if [ ! -e "$d" ] && [ ! -L "$d" ]; then echo none; return 0; fi
   if [ -L "$d" ] || [ ! -d "$d" ] || [ ! -r "$d" ] || [ ! -x "$d" ]; then echo uninspectable; return 0; fi
-  list=$(ls -A -- "$d" 2>/dev/null) || { echo uninspectable; return 0; }
-  if [ -n "$list" ]; then echo entries; else echo none; fi
+  first=$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null) || { echo uninspectable; return 0; }
+  if [ -n "$first" ]; then echo entries; else echo none; fi
 }
 exposure_pending() { [ "$(pending_state)" != none ]; }
 # The owner of the input lock publishes every waiting exposure. An unreadable entry still counts as exposure. A
@@ -426,10 +433,12 @@ fold_exposure() {
   state=$(pending_state)
   [ "$state" != none ] || return 0
   if [ "$state" = entries ]; then
-    for f in "$ROOT/state/exposure-pending/"*; do
+    # Dot names count too. An entry whose agents cannot be read still counts: it is published as exposure without
+    # its agents.
+    for f in "$ROOT/state/exposure-pending/"* "$ROOT/state/exposure-pending/".[!.]* "$ROOT/state/exposure-pending/"..?*; do
       [ -e "$f" ] || [ -L "$f" ] || continue
       seen[found]=$f; found=$((found+1))
-      if regular "$f" && strict_json "$f" && more=$(jq -c '.agents|select(type=="array")' "$f"); then
+      if regular "$f" && strict_json "$f" && more=$(jq -ce '.agents|arrays' "$f"); then
         agents=$(jq -nc --argjson a "$agents" --argjson b "$more" '$a+$b|unique')
       fi
     done

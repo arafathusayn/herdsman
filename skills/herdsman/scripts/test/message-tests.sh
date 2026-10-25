@@ -1901,6 +1901,52 @@ for kind in unsearchable file; do
   if [ "$kind" = file ]; then kept=$(cat "$P" 2>&1); else kept=$(jq -c . "$P/1-1-1.json" 2>&1); fi
   check "XB6d $kind: the pending incident is kept" 'not a folder|rogue-pane' "$kept"
 done
+# XB7: the pending folder is inspected without trusting printed names. A link to an empty folder and a readable
+# folder whose listing fails are kept and fail closed; an incident named only by a newline and a strict-JSON
+# incident with unusable agents are published by the gate as exposure, and the gate refuses.
+for kind in symlink listfail newline badmeta; do
+  new_case "exposure-pending-$kind"
+  relay_boundary
+  P="$C/inbox/state/exposure-pending"; X=
+  case "$kind" in
+    symlink) mkdir "$C/empty-pending"; ln -s "$C/empty-pending" "$P" ;;
+    listfail)
+      mkdir -p "$P" "$C/race-bin"
+      printf '%s\n' '#!/bin/bash' 'case "$*" in *exposure-pending*) exit 1 ;; esac' 'exec /usr/bin/find "$@"' > "$C/race-bin/find"
+      chmod +x "$C/race-bin/find"; X="PATH=$C/race-bin:$CPATH" ;;
+    newline) mkdir -p "$P"; jq -nc '{agents:[{pane:"rogue-pane"}],time:1}' > "$P/"$'\n' ;;
+    badmeta) mkdir -p "$P"; printf '{"agents":"bad","time":1}\n' > "$P/1-1-1.json" ;;
+  esac
+  check "XB7 $kind: the authority is HUMAN" '^HUMAN' "$(ENVX="$X" msg receiver-pane message-authority.sh)"
+  printf 'reviewed text\n' > "$C/draft.txt"; APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"; gojson "xb7$kind" 600
+  out=$(ENVX="$X" consume "xb7$kind")
+  check "XB7b $kind: the gate refuses" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
+  check "XB7c $kind: and consumes nothing" '^no$' "$(yn "$APR/consumed/xb7$kind.json")"
+  case "$kind" in
+    symlink|listfail) check "XB7d $kind: the pending path is kept" '^yes$' "$(if [ -e "$P" ] || [ -L "$P" ]; then echo yes; else echo no; fi)" ;;
+    newline) check "XB7d $kind: the gate published the incident" 'rogue-pane' "$(cat "$C/inbox/state/boundary-tainted" 2>&1)" ;;
+    badmeta) check "XB7d $kind: the gate published an exposure without agents" '"agents":\[\]' "$(jq -c . "$C/inbox/state/boundary-tainted" 2>&1)" ;;
+  esac
+done
+# XB8: a busy writer that sees more unknown agents than one strict record can hold keeps a bounded pending record,
+# so after those agents exit every check still fails closed.
+new_case exposure-large
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+jq -n '[{pane:"task-pane",session:{source:"hook",agent:"claude",kind:"id",value:"task-session"}}]' > "$C/inbox/watch-targets.json"
+relay_boundary
+cp "$C/agents.json" "$C/agents.base"
+jq_edit '.["task-pane"] as $t | reduce range(0;700) as $i (.; .["rogue-\($i)"]=($t|.pane_id="rogue-\($i)"|.agent_session.value="rogue-session-\($i)"))' "$C/agents.json"
+mkdir "$C/inbox/herdr-mutation.lock"; echo 99999 > "$C/inbox/herdr-mutation.lock/pid"
+ENVX="RUN_FOR=1 INTERVAL=1 LOCK_WAIT=1" msg courier-pane card-watch.sh >/dev/null
+check "XB8 the busy writer keeps a bounded pending record of the large exposure" '^[1-9][0-9]* true$' \
+  "$(nfiles "$C/inbox/state/exposure-pending" '*.json') $(cat "$C/inbox/state/exposure-pending/"*.json 2>/dev/null | jq -s -r 'length>0 and all(.[]; .truncated==true)' 2>&1)"
+cp "$C/agents.base" "$C/agents.json"
+rm "$C/inbox/herdr-mutation.lock/pid"; rmdir "$C/inbox/herdr-mutation.lock"
+check "XB8b after those agents exit the authority is HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
+printf 'reviewed text\n' > "$C/draft.txt"; APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"; gojson xb8 600
+out=$(consume xb8)
+check "XB8c the gate refuses" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "XB8d and consumes nothing" '^no$' "$(yn "$APR/consumed/xb8.json")"
 
 # AR1: after an archive moves the cur copy and its ack aside, a replay of the original bytes is held by the
 # terminal record alone.
