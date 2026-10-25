@@ -69,20 +69,6 @@ func TestDefaultEffort(t *testing.T) {
 	}
 }
 
-// fake answers commands from a table; a missing program is exec.ErrNotFound.
-func fake(out map[string]string, fail map[string]error) Runner {
-	return func(_ context.Context, name string, args ...string) ([]byte, error) {
-		key := strings.Join(append([]string{name}, args...), " ")
-		if err, ok := fail[key]; ok {
-			return nil, err
-		}
-		if err, ok := fail[name]; ok {
-			return nil, err
-		}
-		return []byte(out[key]), nil
-	}
-}
-
 func TestExecRunner(t *testing.T) {
 	if _, err := ExecRunner(context.Background(), filepath.Join(t.TempDir(), "none")); err == nil {
 		t.Error("no error for a missing program")
