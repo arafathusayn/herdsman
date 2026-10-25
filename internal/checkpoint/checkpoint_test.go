@@ -81,11 +81,7 @@ func (r *rig) once(home string, env map[string]string) int {
 	r.t.Helper()
 
 	r.mark = len(r.srv.Requests())
-	code, err := r.checkpointer(r.config(home, env)).Once(context.Background())
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	return code
+	return r.checkpointer(r.config(home, env)).Once(context.Background())
 }
 
 // prompts is the suite's prompts(): the first 20 characters of each prompt

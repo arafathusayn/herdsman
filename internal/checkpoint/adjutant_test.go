@@ -51,11 +51,7 @@ func (c *cpCase) ckpt(target string, env map[string]string) int {
 		c.t.Fatal(err)
 	}
 	c.mark = len(c.srv.Requests())
-	code, err := c.checkpointer(cfg).Once(context.Background())
-	if err != nil {
-		c.t.Fatal(err)
-	}
-	return code
+	return c.checkpointer(cfg).Once(context.Background())
 }
 
 // sent is the suite's sent(): each prompt as "agent prompt <pane> <text>|".
@@ -86,23 +82,25 @@ const orch = inboxtest.Orchestrator
 // The CP cases of message-tests.sh: in adjutant mode the checkpointer checks
 // the approved orchestrator identity right before each input.
 func TestAdjutantCases(t *testing.T) {
-	c := newCP(t)
+	var all []*cpCase
+	add := func(x *cpCase) *cpCase { all = append(all, x); return x }
+	c := add(newCP(t))
 	c.ckpt("receiver-pane", nil)
 	check(t, "CP1 ordinary mode is unchanged: memory prompt then compact, no registry needed",
 		`^agent prompt receiver-pane /save-memory\|agent prompt receiver-pane /compact\|$`, c.sent())
 
-	c = newCP(t)
+	c = add(newCP(t))
 	rc := c.ckpt("receiver-pane", map[string]string{"HERDSMAN_ORCHESTRATOR": orch})
 	check(t, "CP2 the approved orchestrator identity gets both inputs",
 		`^0 agent prompt receiver-pane /save-memory\|agent prompt receiver-pane /compact\|$`, itoa(rc)+" "+c.sent())
 
-	c = newCP(t)
+	c = add(newCP(t))
 	c.fx.Edit("receiver-pane", "agent_session", map[string]any{"source": "hook", "agent": "claude", "kind": "id", "value": "new-session"})
 	rc = c.ckpt("receiver-pane", map[string]string{"HERDSMAN_ORCHESTRATOR": orch})
 	check(t, "CP3 a changed orchestrator session gets no input", `^1 $`, itoa(rc)+" "+c.sent())
 	check(t, "CP3b and the log names the refusal", `orchestrator session changed`, c.log())
 
-	c = newCP(t)
+	c = add(newCP(t))
 	rc = c.ckpt("sender-pane", map[string]string{"HERDSMAN_ORCHESTRATOR": inboxtest.Adjutant})
 	check(t, "CP4 the adjutant is never a checkpoint target", `^1 $`, itoa(rc)+" "+c.sent())
 	check(t, "CP4b refused as not the orchestrator", `never type into the adjutant`, c.log())
@@ -110,19 +108,19 @@ func TestAdjutantCases(t *testing.T) {
 	check(t, "CP4c the orchestrator name with the adjutant pane is refused", `^1 $`, itoa(rc)+" "+c.sent())
 	check(t, "CP4d as the wrong pane", `not the approved orchestrator pane`, c.log())
 
-	c = newCP(t)
+	c = add(newCP(t))
 	c.fx.SetAgent("receiver-pane", nil)
 	rc = c.ckpt("receiver-pane", map[string]string{"HERDSMAN_ORCHESTRATOR": orch})
 	check(t, "CP5 a closed orchestrator pane gets no input", `^1 .*closed`, itoa(rc)+" "+c.sent()+grepLog(c.log(), "identity check"))
 
-	c = newCP(t)
+	c = add(newCP(t))
 	c.box.Edit(filepath.Join(c.box.Dir, "peers"), func(m map[string]any) {
 		m[orch].(map[string]any)["identity"].(map[string]any)["session"].(map[string]any)["value"] = "pending-session"
 	})
 	rc = c.ckpt("receiver-pane", map[string]string{"HERDSMAN_ORCHESTRATOR": orch})
 	check(t, "CP6 a pending registry change holds every input", `^1 .*awaiting human approval`, itoa(rc)+" "+c.sent()+grepLog(c.log(), "identity check"))
 
-	c = newCP(t)
+	c = add(newCP(t))
 	c.srv.Handle("agent.prompt", func(p map[string]any) (any, string) {
 		c.fx.Edit(p["target"].(string), "agent_session", map[string]any{"source": "hook", "agent": "claude", "kind": "id", "value": "drifted-session"})
 		return map[string]any{"type": "ok"}, ""
@@ -130,26 +128,28 @@ func TestAdjutantCases(t *testing.T) {
 	rc = c.ckpt("receiver-pane", map[string]string{"HERDSMAN_ORCHESTRATOR": orch})
 	check(t, "CP7 drift after the memory prompt stops the compact input", `^1 agent prompt receiver-pane /save-memory\|$`, itoa(rc)+" "+c.sent())
 
-	c = newCP(t)
+	c = add(newCP(t))
 	rc = c.ckpt("receiver-pane", map[string]string{"HERDSMAN_ORCHESTRATOR": "route-nobody"})
 	check(t, "CP8 an unknown orchestrator name gets no input", `^1 .*unknown orchestrator`, itoa(rc)+" "+c.sent()+grepLog(c.log(), "identity check"))
 
-	c = newCP(t)
+	c = add(newCP(t))
 	c.box.Edit(c.box.Proof, func(m map[string]any) { m["policy_verified"] = false })
 	rc = c.ckpt("receiver-pane", map[string]string{"HERDSMAN_ORCHESTRATOR": orch})
 	check(t, "CP9 a stale setup proof gets no input", `^1 .*proof stale`, itoa(rc)+" "+c.sent()+grepLog(c.log(), "identity check"))
 
-	// N1c: the checkpointer cases prompted only the orchestrator pane and
-	// made no call but reads, waits and those prompts.
-	for _, q := range c.srv.Requests() {
-		switch q.Method {
-		case "agent.get", "events.subscribe":
-		case "agent.prompt":
-			if q.Params["target"] != "receiver-pane" {
-				t.Errorf("N1c prompted %v", q.Params["target"])
+	// N1c: in every checkpoint case, the only calls were reads, waits and
+	// the exact prompts /save-memory and /compact to the orchestrator pane.
+	for _, x := range all {
+		for _, q := range x.srv.Requests() {
+			switch q.Method {
+			case "agent.get", "events.subscribe":
+			case "agent.prompt":
+				if q.Params["target"] != "receiver-pane" || (q.Params["text"] != "/save-memory" && q.Params["text"] != "/compact") {
+					t.Errorf("N1c prompted %v %q", q.Params["target"], q.Params["text"])
+				}
+			default:
+				t.Errorf("N1c unexpected call %s", q.Method)
 			}
-		default:
-			t.Errorf("N1c unexpected call %s", q.Method)
 		}
 	}
 }
@@ -175,23 +175,14 @@ func TestInputLock(t *testing.T) {
 	if err := os.Mkdir(lock, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for lw, sleeps := range map[string]int{"3": 2, "abc": 0, "0": 0} {
+	for lw, sleeps := range map[string]int{"3": 2, "1": 0} {
 		cfg := c.config(c.dir, map[string]string{"HERDSMAN_ORCHESTRATOR": orch, "HERDSMAN_INBOX": c.box.Dir, "LOCK_WAIT": lw})
 		cp := c.checkpointer(cfg)
 		n := 0
 		cp.Sleep = func(time.Duration) { n++ }
-		if ok, err := cp.inputLock(); ok || err != nil || n != sleeps {
-			t.Errorf("LOCK_WAIT=%s: %v %v %d sleeps", lw, ok, err, n)
+		if cp.inputLock() || n != sleeps {
+			t.Errorf("LOCK_WAIT=%s: %d sleeps", lw, n)
 		}
-	}
-	// Adjutant mode without HERDSMAN_INBOX stops with status 1.
-	cfg := c.config(c.dir, map[string]string{"HERDSMAN_ORCHESTRATOR": orch, "TRANSCRIPT": filepath.Join(c.dir, "transcript.jsonl")})
-	cfg.Target = "receiver-pane"
-	if code, err := c.checkpointer(cfg).Once(context.Background()); code != 1 || err != ErrNoInbox {
-		t.Errorf("no inbox: %d %v", code, err)
-	}
-	if err := c.checkpointer(cfg).Loop(context.Background(), 0); err != ErrNoInbox {
-		t.Errorf("loop without inbox: %v", err)
 	}
 }
 

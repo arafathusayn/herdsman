@@ -23,13 +23,23 @@ func TestCheckpointerCommandLine(t *testing.T) {
 			t.Errorf("%v: %d %q", args, code, e)
 		}
 	}
-	if _, e, code := call(t, "checkpointer", "--probe"); code != 1 || e != "herdsman checkpointer: TARGET: set TARGET to the orchestrator pane id, e.g. w7:p1\n" {
+	if _, e, code := call(t, "checkpointer", "--probe"); code != 2 || e != "herdsman checkpointer: TARGET: required, the orchestrator pane id (got \"\")\n" {
 		t.Errorf("no TARGET: %d %q", code, e)
 	}
 	t.Setenv("TARGET", "w9:p9")
+	t.Setenv("HERDSMAN_ORCHESTRATOR", "o")
+	t.Setenv("HERDSMAN_INBOX", "")
+	if _, e, code := call(t, "checkpointer", "--once"); code != 2 || e != "herdsman checkpointer: HERDSMAN_INBOX: required in adjutant mode (HERDSMAN_ORCHESTRATOR is set) (got \"\")\n" {
+		t.Errorf("no inbox: %d %q", code, e)
+	}
+	t.Setenv("HERDSMAN_ORCHESTRATOR", "")
 	t.Setenv("INTERVAL", "soon")
-	if _, e, code := call(t, "checkpointer"); code != 2 || e != "herdsman checkpointer: invalid INTERVAL: soon\n" {
+	if _, e, code := call(t, "checkpointer"); code != 2 || !strings.HasPrefix(e, "herdsman checkpointer: INTERVAL: ") || !strings.HasSuffix(e, "(got \"soon\")\n") {
 		t.Errorf("bad INTERVAL: %d %q", code, e)
+	}
+	out, _, code := call(t, "checkpointer", "--help")
+	if code != 0 || !strings.Contains(out, "Exit codes:") {
+		t.Errorf("help: %d %q", code, out)
 	}
 }
 
@@ -71,7 +81,6 @@ func TestCheckpointerCommands(t *testing.T) {
 	}
 	// The orchestrator is blocked, so the idle wait holds the run until
 	// the test frees it. A SIGHUP during the run exits 129.
-	t.Setenv("HERDSMAN_ORCHESTRATOR", inboxtest.Orchestrator)
 	fx.Edit("receiver-pane", "agent_status", "blocked")
 	exited := make(chan int, 1)
 	checkpointerExit = func(c int) { exited <- c }
@@ -90,12 +99,6 @@ func TestCheckpointerCommands(t *testing.T) {
 		fx.Edit("receiver-pane", "agent_status", "idle")
 		srv.Emit("pane.agent_status_changed", map[string]any{"pane_id": "receiver-pane"})
 	}()
-	t.Setenv("HERDSMAN_INBOX", "")
-	_, e, code = call(t, "checkpointer", "--once")
-	if code != 1 || e != "herdsman checkpointer: HERDSMAN_INBOX: set HERDSMAN_INBOX in adjutant mode\n" {
-		t.Errorf("no inbox: %d %q", code, e)
-	}
-	t.Setenv("HERDSMAN_ORCHESTRATOR", "")
 	out, _, code = call(t, "checkpointer", "--once")
 	if code != 0 || !strings.Contains(out, "sending /compact") {
 		t.Errorf("once: %d %q", code, out)

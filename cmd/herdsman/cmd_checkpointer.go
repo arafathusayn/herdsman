@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,7 +16,20 @@ func init() {
 	register(command{name: "checkpointer", summary: "Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.", run: runCheckpointer})
 }
 
-const checkpointerUsage = "usage: TARGET=<pane> herdsman checkpointer [--once|--probe]\n       herdsman checkpointer guard <orchestrator-name> <pane>"
+const checkpointerUsage = `usage: TARGET=<pane> herdsman checkpointer [--once|--probe]
+       herdsman checkpointer guard <orchestrator-name> <pane>
+
+Settings (environment): TARGET (required), INTERVAL=900 (seconds, or with
+an s, m, h or d suffix), LIMIT=250000, LOG=$TMPDIR/checkpointer.log,
+COMPACT=/compact, PROMPT, TRANSCRIPT, CODEX_HOME; adjutant mode:
+HERDSMAN_ORCHESTRATOR, HERDSMAN_INBOX, HERDSMAN_PREFLIGHT,
+HERDSMAN_MESSAGES_DIR, LOCK_WAIT=6.
+
+Exit codes:
+  0  --probe printed; --once sent its checkpoint (and compact when due); guard OK
+  1  --once: no transcript, an input not sent, or a wait that failed
+  2  usage, a bad setting, or a guard refusal
+`
 
 // checkpointerExit is os.Exit, replaced in tests.
 var checkpointerExit = os.Exit
@@ -38,15 +50,19 @@ func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		mode = args[0]
 	}
+	if len(args) == 1 && (mode == "--help" || mode == "-h") {
+		fmt.Fprint(stdout, checkpointerUsage)
+		return 0
+	}
 	if len(args) > 1 || (mode != "" && mode != "--once" && mode != "--probe") {
-		fmt.Fprintln(stderr, checkpointerUsage)
+		fmt.Fprint(stderr, checkpointerUsage)
 		return 2
 	}
 	pwd, _ := os.Getwd()
 	cfg, err := checkpoint.FromEnv(os.Getenv, pwd)
 	if err != nil {
 		fmt.Fprintln(stderr, "herdsman checkpointer:", err)
-		return 1
+		return 2
 	}
 	c := &checkpoint.Checkpointer{Config: cfg, Client: herdrClient(), Stdout: stdout, Stderr: stderr, WorkingTimeout: checkpointerWorkingTimeout}
 	if mode == "--probe" {
@@ -66,20 +82,9 @@ func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		c.Release()
 		checkpointerExit(128 + int(s.(syscall.Signal)))
 	}()
-	var code int
 	if mode == "--once" {
-		code, err = c.Once(ctx)
-	} else {
-		interval, ok := checkpoint.Interval(cfg.Interval)
-		if !ok {
-			fmt.Fprintf(stderr, "herdsman checkpointer: invalid INTERVAL: %s\n", cfg.Interval)
-			return 2
-		}
-		err = c.Loop(ctx, interval)
+		return c.Once(ctx)
 	}
-	if errors.Is(err, checkpoint.ErrNoInbox) {
-		fmt.Fprintln(stderr, "herdsman checkpointer:", err)
-		return 1
-	}
-	return code
+	_ = c.Loop(ctx) // runs until a signal ends the process
+	return 0
 }

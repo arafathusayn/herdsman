@@ -21,7 +21,6 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/inbox"
-	"github.com/arafathusayn/herdsman/internal/shnum"
 )
 
 // DefaultPrompt is the memory checkpoint prompt. A Codex target gets it
@@ -32,31 +31,27 @@ const DefaultPrompt = "/memory-with-dag Capture all learnings as lessons in your
 // (`herdr agent wait --until working --timeout 30000`).
 const WorkingTimeout = 30 * time.Second
 
-// Config is the checkpointer's environment, with the script's defaults
-// applied by FromEnv.
+// Config is the checkpointer's environment, read and checked once by
+// FromEnv with the script's defaults.
 type Config struct {
-	Target       string // TARGET
-	Interval     string // INTERVAL, as sleep reads it
-	Limit        string // LIMIT, compared as test does
-	Log          string // LOG
-	Compact      string // COMPACT
-	Prompt       string // PROMPT
-	PromptSet    bool   // PROMPT was set and not empty
-	Orchestrator string // HERDSMAN_ORCHESTRATOR: adjutant mode when set
+	Target       string        // TARGET
+	Interval     time.Duration // INTERVAL; also the limit of each wait for an idle orchestrator
+	IntervalText string        // INTERVAL as written, for the start line
+	Limit        int64         // LIMIT
+	LimitText    string        // LIMIT as written, for the start line
+	Log          string        // LOG
+	Compact      string        // COMPACT
+	Prompt       string        // PROMPT
+	PromptSet    bool          // PROMPT was set and not empty
+	Orchestrator string        // HERDSMAN_ORCHESTRATOR: adjutant mode when set
 	Inbox        inbox.Options
-	LockWait     string // LOCK_WAIT for the input lock
+	LockWait     int // LOCK_WAIT for the input lock
 	Env          Env
 }
 
-// ErrNoTarget is TARGET unset or empty.
-var ErrNoTarget = errors.New("TARGET: set TARGET to the orchestrator pane id, e.g. w7:p1")
-
-// ErrNoInbox is adjutant mode without HERDSMAN_INBOX: the script stops
-// with status 1 when it takes the input lock.
-var ErrNoInbox = errors.New("HERDSMAN_INBOX: set HERDSMAN_INBOX in adjutant mode")
-
-// FromEnv reads the configuration from getenv with the script's defaults.
-// Empty values count as unset, as ${VAR:-default} does.
+// FromEnv reads the configuration from getenv with the script's defaults
+// (empty values count as unset, as ${VAR:-default}) and checks every
+// setting before anything runs: a bad one is a *SettingError.
 func FromEnv(getenv func(string) string, pwd string) (Config, error) {
 	or := func(k, def string) string {
 		if v := getenv(k); v != "" {
@@ -66,14 +61,13 @@ func FromEnv(getenv func(string) string, pwd string) (Config, error) {
 	}
 	c := Config{
 		Target:       getenv("TARGET"),
-		Interval:     or("INTERVAL", "900"),
-		Limit:        or("LIMIT", "250000"),
+		IntervalText: or("INTERVAL", "900"),
+		LimitText:    or("LIMIT", "250000"),
 		Log:          or("LOG", or("TMPDIR", "/tmp")+"/checkpointer.log"),
 		Compact:      or("COMPACT", "/compact"),
 		Prompt:       or("PROMPT", DefaultPrompt),
 		PromptSet:    getenv("PROMPT") != "",
 		Orchestrator: getenv("HERDSMAN_ORCHESTRATOR"),
-		LockWait:     or("LOCK_WAIT", "6"),
 		Inbox: inbox.Options{
 			Dir:         getenv("HERDSMAN_INBOX"),
 			Preflight:   getenv("HERDSMAN_PREFLIGHT"),
@@ -84,35 +78,24 @@ func FromEnv(getenv func(string) string, pwd string) (Config, error) {
 		Env: Env{Transcript: getenv("TRANSCRIPT"), Home: getenv("HOME"), CodexHome: getenv("CODEX_HOME"), PWD: pwd},
 	}
 	if c.Target == "" {
-		return c, ErrNoTarget
+		return c, &SettingError{"TARGET", "required, the orchestrator pane id", ""}
+	}
+	var err error
+	if c.Interval, err = Duration("INTERVAL", c.IntervalText); err != nil {
+		return c, err
+	}
+	if c.Limit, err = Integer("LIMIT", c.LimitText, 0, 1<<53); err != nil {
+		return c, err
+	}
+	lw, err := Integer("LOCK_WAIT", or("LOCK_WAIT", "6"), 1, 60)
+	if err != nil {
+		return c, err
+	}
+	c.LockWait = int(lw)
+	if c.Orchestrator != "" && c.Inbox.Dir == "" {
+		return c, &SettingError{"HERDSMAN_INBOX", "required in adjutant mode (HERDSMAN_ORCHESTRATOR is set)", ""}
 	}
 	return c, nil
-}
-
-// Interval reads INTERVAL as sleep does: a non-negative number of seconds,
-// with an optional fraction and an optional s, m, h or d suffix.
-func Interval(s string) (time.Duration, bool) {
-	mult := time.Second
-	if s != "" {
-		switch s[len(s)-1] {
-		case 's':
-			s = s[:len(s)-1]
-		case 'm':
-			mult, s = time.Minute, s[:len(s)-1]
-		case 'h':
-			mult, s = time.Hour, s[:len(s)-1]
-		case 'd':
-			mult, s = 24*time.Hour, s[:len(s)-1]
-		}
-	}
-	if s == "" || strings.ContainsAny(s, "+-eEnNiIxXpP_") {
-		return 0, false
-	}
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil || f < 0 || f*float64(mult) > float64(1<<62) {
-		return 0, false
-	}
-	return time.Duration(f * float64(mult)), true
 }
 
 // Checkpointer runs checkpoints on one target.
@@ -151,26 +134,40 @@ func (c *Checkpointer) sleep(d time.Duration) {
 	time.Sleep(d)
 }
 
-func (c *Checkpointer) wait(ctx context.Context, want []herdr.Status, timeout time.Duration) {
+func (c *Checkpointer) wait(ctx context.Context, want []herdr.Status, timeout time.Duration) error {
 	if c.Wait != nil {
-		_, _ = c.Wait(ctx, c.Config.Target, want, timeout)
-		return
+		_, err := c.Wait(ctx, c.Config.Target, want, timeout)
+		return err
 	}
-	_, _ = c.Client.WaitAgentStatus(ctx, c.Config.Target, want, timeout)
+	_, err := c.Client.WaitAgentStatus(ctx, c.Config.Target, want, timeout)
+	return err
 }
 
-// waitIdle waits for idle or done only: blocked means a permission dialog,
-// and typing into it would answer it.
-func (c *Checkpointer) waitIdle(ctx context.Context) {
-	c.wait(ctx, []herdr.Status{"idle", "done"}, 0)
+// waitIdle waits for idle or done only (blocked means a permission dialog,
+// and typing into it would answer it), at most one interval. A wait that
+// fails or runs out is logged and ends the cycle: no input goes to an
+// orchestrator that is not idle.
+func (c *Checkpointer) waitIdle(ctx context.Context, then string) bool {
+	err := c.wait(ctx, []herdr.Status{"idle", "done"}, c.Config.Interval)
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, herdr.ErrWaitTimeout):
+		c.log(fmt.Sprintf("orchestrator not idle within %ss; %s", c.Config.IntervalText, then))
+	default:
+		c.log(fmt.Sprintf("agent wait failed: %v; %s", err, then))
+	}
+	return false
 }
 
+// waitWorking waits for the prompted turn to start; a turn that starts
+// and ends before the wait reads it is fine, so its end is not an error.
 func (c *Checkpointer) waitWorking(ctx context.Context) {
 	t := c.WorkingTimeout
 	if t == 0 {
 		t = WorkingTimeout
 	}
-	c.wait(ctx, []herdr.Status{"working"}, t)
+	_ = c.wait(ctx, []herdr.Status{"working"}, t)
 }
 
 // log writes "HH:MM:SS msg" to stdout and appends it to the log file, as
@@ -190,42 +187,27 @@ func (c *Checkpointer) log(msg string) {
 	}
 }
 
-// session reads what herdr reports about the target.
+// session reads what herdr reports about the target. A failed read or a
+// record without a string session id gives no session id, never a guessed
+// one.
 func (c *Checkpointer) session(ctx context.Context) Session {
 	a, err := c.Client.AgentGet(ctx, c.Config.Target)
 	if err != nil {
-		// The herdr CLI prints an error answer as JSON on stdout, where
-		// the script's jq reads a null session value; with no answer at
-		// all it reads nothing.
-		if _, ok := errors.AsType[*herdr.Error](err); ok {
-			return Session{SID: "null", Kind: "id"}
-		}
-		return Session{Kind: "id"}
+		return Session{Kind: "id", Missing: "agent get: " + err.Error()}
 	}
 	v, _ := inbox.Decode(a.Raw)
 	m := inbox.Object(v)
-	s := Session{Agent: jqField(m["agent"], ""), Kind: "id"}
-	sess, isObj := m["agent_session"].(map[string]any)
-	if !isObj {
-		// A null session reads as null; any other value is a jq error,
-		// which prints nothing.
-		if m["agent_session"] == nil {
-			s.SID = "null"
-		}
-		return s
+	s := Session{Kind: "id"}
+	s.Agent, _ = m["agent"].(string)
+	sess := inbox.Object(m["agent_session"])
+	if k, ok := sess["kind"].(string); ok && k != "" {
+		s.Kind = k
 	}
-	s.SID = jqField(sess["value"], "null")
-	s.Kind = jqField(sess["kind"], "id")
+	s.SID, _ = sess["value"].(string)
+	if s.SID == "" {
+		s.Missing = "no agent_session value"
+	}
 	return s
-}
-
-// jqField is a field as jq -r prints it, with def for null (and false,
-// for the script's `// default`; a missing value field prints null).
-func jqField(v any, def string) string {
-	if v == nil || (v == false && def != "null") {
-		return def
-	}
-	return jqText(v)
 }
 
 // transcript makes the choice and records the harness for the prompt.
@@ -236,13 +218,14 @@ func (c *Checkpointer) transcript(ctx context.Context) Choice {
 }
 
 // memoryPrompt is the prompt for the target: Codex gets the default
-// without its leading slash command.
+// without its leading slash command. Trailing newlines are dropped, as the
+// script's "$(memory_prompt)" drops them.
 func (c *Checkpointer) memoryPrompt() string {
+	p := c.Config.Prompt
 	if c.agent == "codex" && !c.Config.PromptSet {
-		_, rest, _ := strings.Cut(DefaultPrompt, " ")
-		return rest
+		_, p, _ = strings.Cut(DefaultPrompt, " ")
 	}
-	return c.Config.Prompt
+	return strings.TrimRight(p, "\n")
 }
 
 // guard runs the identity check in adjutant mode; ordinary mode has none.
@@ -260,27 +243,19 @@ func (c *Checkpointer) guard(ctx context.Context) bool {
 
 // inputLock takes the inbox's input lock in adjutant mode, with LOCK_WAIT
 // attempts a second apart. A busy lock sends nothing and is never removed.
-func (c *Checkpointer) inputLock() (bool, error) {
+func (c *Checkpointer) inputLock() bool {
 	if c.Config.Orchestrator == "" {
-		return true, nil
+		return true
 	}
-	if c.Config.Inbox.Dir == "" {
-		return false, ErrNoInbox
-	}
-	// [ "$tries" -lt "$LOCK_WAIT" ]: a value test refuses allows one try.
-	tries := 1
-	if n, ok := shnum.Test(c.Config.LockWait); ok && n > 1 {
-		tries = int(min(n, 1<<30))
-	}
-	l := inbox.TryDir(filepath.Join(c.Config.Inbox.Dir, inbox.MutationLock), tries, c.sleep)
+	l := inbox.TryDir(filepath.Join(c.Config.Inbox.Dir, inbox.MutationLock), c.Config.LockWait, c.sleep)
 	if l == nil {
 		c.log("input lock busy, no input sent")
-		return false, nil
+		return false
 	}
 	c.mu.Lock()
 	c.lock = l
 	c.mu.Unlock()
-	return true, nil
+	return true
 }
 
 // Release frees the input lock when this checkpointer holds it (the
@@ -295,60 +270,65 @@ func (c *Checkpointer) Release() {
 }
 
 // input takes the lock, checks the identity, logs what it sends and sends
-// it. It reports whether it tried to send, the prompt's error, and
-// ErrNoInbox.
-func (c *Checkpointer) input(ctx context.Context, what, text string) (sent bool, promptErr, fatal error) {
-	ok, err := c.inputLock()
-	if err != nil || !ok {
-		return false, nil, err
+// it. It reports whether it sent the text.
+func (c *Checkpointer) input(ctx context.Context, what, text, failed string) bool {
+	if !c.inputLock() {
+		return false
 	}
 	defer c.Release()
 	if !c.guard(ctx) {
-		return false, nil, nil
+		return false
 	}
 	c.log("sending " + what)
-	return true, c.Client.AgentPrompt(ctx, c.Config.Target, text), nil
+	if err := c.Client.AgentPrompt(ctx, c.Config.Target, text); err != nil {
+		c.log(failed)
+		return false
+	}
+	return true
+}
+
+// reading reads the context of f and logs the records it passed over.
+func (c *Checkpointer) reading(f string) Reading {
+	r := ContextTokens(f)
+	if r.Skipped > 0 {
+		c.log(fmt.Sprintf("passed over %d unreadable records of %s", r.Skipped, f))
+	}
+	return r
 }
 
 // Cycle is one checkpoint on the transcript f: the memory prompt, then the
-// compact command when the context is at or over the limit. It returns
-// the script's status (0 or 1) or ErrNoInbox.
-func (c *Checkpointer) Cycle(ctx context.Context, f string) (int, error) {
-	c.waitIdle(ctx)
-	sent, perr, err := c.input(ctx, "memory checkpoint", c.memoryPrompt())
-	if err != nil || !sent {
-		return 1, err
+// compact command when the context is at or over the limit. It returns 0,
+// or 1 when an input was not sent or a wait failed (retry next interval).
+func (c *Checkpointer) Cycle(ctx context.Context, f string) int {
+	const retry = "no input sent; retry next interval"
+	if !c.waitIdle(ctx, retry) {
+		return 1
 	}
-	if perr != nil {
-		c.log("prompt failed; retry next interval")
-		return 1, nil
+	if !c.input(ctx, "memory checkpoint", c.memoryPrompt(), "prompt failed; retry next interval") {
+		return 1
 	}
 	c.waitWorking(ctx)
-	c.waitIdle(ctx)
-	tokens := ContextTokens(f)
-	shown := tokens
+	if !c.waitIdle(ctx, "no context read; retry next interval") {
+		return 1
+	}
+	r := c.reading(f)
+	shown := r.String()
 	if shown == "" {
 		shown = "?"
 	}
 	c.log("memory checkpoint done; context=" + shown)
-	if tokens == "" || !atLeast(tokens, c.Config.Limit) {
-		return 0, nil
+	if !r.OK || r.Tokens < c.Config.Limit {
+		return 0
 	}
-	sent, _, err = c.input(ctx, c.Config.Compact, c.Config.Compact)
-	if err != nil || !sent {
-		return 1, err
+	if !c.input(ctx, c.Config.Compact, c.Config.Compact, "compact failed; retry next interval") {
+		return 1
 	}
 	c.waitWorking(ctx)
-	c.waitIdle(ctx)
-	c.log("compact done; context=" + ContextTokens(f))
-	return 0, nil
-}
-
-// atLeast is [ "$a" -ge "$b" ]: false when test refuses either value.
-func atLeast(a, b string) bool {
-	x, ok1 := shnum.Test(a)
-	y, ok2 := shnum.Test(b)
-	return ok1 && ok2 && x >= y
+	if !c.waitIdle(ctx, "no context read; retry next interval") {
+		return 1
+	}
+	c.log("compact done; context=" + c.reading(f).String())
+	return 0
 }
 
 // Probe prints which transcript the checkpointer reads and why, a hint
@@ -366,31 +346,32 @@ func (c *Checkpointer) Probe(ctx context.Context) int {
 }
 
 // Once runs one cycle now: 1 when there is no transcript.
-func (c *Checkpointer) Once(ctx context.Context) (int, error) {
+func (c *Checkpointer) Once(ctx context.Context) int {
 	ch := c.transcript(ctx)
 	if ch.File == "" {
 		c.log("no transcript found")
-		return 1, nil
+		return 1
 	}
 	return c.Cycle(ctx, ch.File)
 }
 
-// fileSize is the script's file_size: the size as text, "" when stat fails.
-func fileSize(p string) string {
+// stamp is a transcript's size and modification time, "" when stat fails:
+// a transcript rewritten to the same size still counts as activity.
+func stamp(p string) string {
 	st, err := os.Stat(p)
 	if err != nil {
 		return ""
 	}
-	return strconv.FormatInt(st.Size(), 10)
+	return strconv.FormatInt(st.Size(), 10) + "/" + strconv.FormatInt(st.ModTime().UnixNano(), 10)
 }
 
-// Loop runs a checkpoint every interval while the transcript grew since the
-// last one, until ctx ends or a cycle stops with ErrNoInbox.
-func (c *Checkpointer) Loop(ctx context.Context, interval time.Duration) error {
-	last := "0"
-	c.log(fmt.Sprintf("checkpointer on %s: every %ss, compact at >= %s tokens", c.Config.Target, c.Config.Interval, c.Config.Limit))
+// Loop runs a checkpoint every interval while the transcript changed since
+// the last one, until ctx ends.
+func (c *Checkpointer) Loop(ctx context.Context) error {
+	last := ""
+	c.log(fmt.Sprintf("checkpointer on %s: every %ss, compact at >= %s tokens", c.Config.Target, c.Config.IntervalText, c.Config.LimitText))
 	for {
-		c.sleep(interval)
+		c.sleep(c.Config.Interval)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -399,17 +380,13 @@ func (c *Checkpointer) Loop(ctx context.Context, interval time.Duration) error {
 			c.log("no transcript found; skip")
 			continue
 		}
-		if fileSize(ch.File) == last {
+		if stamp(ch.File) == last {
 			c.log("no activity since last checkpoint; skip")
 			continue
 		}
-		code, err := c.Cycle(ctx, ch.File)
-		if err != nil {
-			return err
-		}
-		if code != 0 {
+		if c.Cycle(ctx, ch.File) != 0 {
 			continue
 		}
-		last = fileSize(ch.File)
+		last = stamp(ch.File)
 	}
 }

@@ -2,14 +2,11 @@ package checkpoint
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/shglob"
@@ -24,14 +21,19 @@ type Choice struct {
 	Hint string
 }
 
-// Session is what herdr reports about the target, as the script reads it
-// from `herdr agent get` with jq: Agent is `.agent // empty`, SID is
-// `.agent_session.value` (jq -r: "null" when missing, "" when the call
-// printed nothing), Kind is `.agent_session.kind // "id"`.
+// Session is what herdr reports about the target: the harness, the
+// session id ("" when herdr reports none) and its kind ("id" or "path").
+// Missing names why there is no id.
 type Session struct {
-	Agent string
-	SID   string
-	Kind  string
+	Agent   string
+	SID     string
+	Kind    string
+	Missing string
+}
+
+// noSession is the why line when herdr reports no session id.
+func noSession(s Session) string {
+	return "herdr reports no session id for the target (" + s.Missing + ")"
 }
 
 // Env is the part of the environment the choice reads.
@@ -54,6 +56,9 @@ func Choose(s Session, e Env) Choice {
 		return Choice{Why: "TRANSCRIPT is set but the file does not exist: " + e.Transcript}
 	}
 	sid := s.SID
+	if s.Agent == "codex" && sid == "" {
+		return Choice{Why: noSession(s)}
+	}
 	if s.Agent == "codex" {
 		base := e.CodexHome
 		if base == "" {
@@ -67,12 +72,15 @@ func Choose(s Session, e Env) Choice {
 			pat := "rollout-*-" + escape(sid) + ".jsonl"
 			named = newest(append(globLevels(dir, []string{"*", "*", "*", pat}), globLevels(dir, []string{pat})...))
 		}
-		if sid != "" && isFile(named) {
+		if isFile(named) {
 			return Choice{File: named, Why: "the Codex rollout of the session id that Herdr reports ('" + sid + "')"}
 		}
 		return Choice{Why: "no Codex rollout for session id '" + sid + "' under " + dir}
 	}
-	named := newest(globLevels(e.Home+"/.claude/projects", []string{"*", escape(sid) + ".jsonl"}))
+	var named string
+	if sid != "" {
+		named = newest(globLevels(e.Home+"/.claude/projects", []string{"*", escape(sid) + ".jsonl"}))
+	}
 	var dir string
 	if named != "" {
 		dir = filepath.Dir(named)
@@ -87,12 +95,15 @@ func Choose(s Session, e Env) Choice {
 			c.Hint = "a newer transcript exists: " + latest + "; if the id is stale, set TRANSCRIPT=<path>"
 		}
 		return c
-	case latest == "":
-		return Choice{Why: "no file for session id '" + sid + "' and no .jsonl in " + dir}
-	default:
-		return Choice{Why: "no file for session id '" + sid + "'",
-			Hint: "the newest transcript of " + dir + " is " + latest + "; if the id is stale, set TRANSCRIPT=<path>"}
 	}
+	why := "no file for session id '" + sid + "'"
+	if sid == "" {
+		why = noSession(s)
+	}
+	if latest == "" {
+		return Choice{Why: why + " and no .jsonl in " + dir}
+	}
+	return Choice{Why: why, Hint: "the newest transcript of " + dir + " is " + latest + "; if the id is stale, set TRANSCRIPT=<path>"}
 }
 
 // Derived is the project folder name Claude Code gives a working folder, as
@@ -249,155 +260,4 @@ func tailLines(p string, n int) ([]byte, error) {
 	}
 	start := idx + 1
 	return buf[start:], nil
-}
-
-// ContextTokens is the script's context_tokens: of the last 400 lines of
-// the transcript, the context of the last record that carries usage, as
-// jq prints it ("" for none). Claude Code: input + cache creation + cache
-// read tokens of the last main-thread assistant turn. Codex: the input
-// tokens of the last token_count event with usage. The records are read
-// as jq reads them: a value it cannot read or a field of a wrong type ends
-// the read, and what was found before counts.
-func ContextTokens(p string) string {
-	b, err := tailLines(p, 400)
-	if err != nil {
-		return ""
-	}
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.UseNumber()
-	last := ""
-	for {
-		var v any
-		if err := dec.Decode(&v); err != nil {
-			return last
-		}
-		out, ok, fine := record(v)
-		if !fine {
-			return last
-		}
-		if ok {
-			last = out
-		}
-	}
-}
-
-// record applies the script's jq filter to one value: the output, whether
-// there is one, and false where jq stops with an error.
-func record(v any) (string, bool, bool) {
-	if v == nil {
-		return "", false, true
-	}
-	m, isObj := v.(map[string]any)
-	if !isObj {
-		return "", false, false
-	}
-	if m["type"] == "assistant" {
-		msg, fine := index(m["message"])
-		if !fine {
-			return "", false, false
-		}
-		usage := msg["usage"]
-		if truthy(usage) && !truthy(m["isSidechain"]) {
-			u, fine := usage.(map[string]any)
-			if !fine {
-				return "", false, false
-			}
-			sum, fine := add(u["input_tokens"], alt(u["cache_creation_input_tokens"]))
-			if fine {
-				sum, fine = add(sum, alt(u["cache_read_input_tokens"]))
-			}
-			if !fine {
-				return "", false, false
-			}
-			return jqText(sum), true, true
-		}
-	}
-	if m["type"] != "event_msg" {
-		return "", false, true
-	}
-	payload, fine := index(m["payload"])
-	if !fine {
-		return "", false, false
-	}
-	if payload["type"] != "token_count" {
-		return "", false, true
-	}
-	info, fine := index(payload["info"])
-	if !fine {
-		return "", false, false
-	}
-	ltu := info["last_token_usage"]
-	if !truthy(ltu) {
-		return "", false, true
-	}
-	l, fine := index(ltu)
-	if !fine {
-		return "", false, false
-	}
-	return jqText(l["input_tokens"]), true, true
-}
-
-// index is jq's .field on a value: an object, or null (every field null);
-// any other value is an error.
-func index(v any) (map[string]any, bool) {
-	if v == nil {
-		return map[string]any{}, true
-	}
-	m, ok := v.(map[string]any)
-	return m, ok
-}
-
-func truthy(v any) bool { return v != nil && v != false }
-
-// alt is jq's (x // 0).
-func alt(v any) any {
-	if !truthy(v) {
-		return json.Number("0")
-	}
-	return v
-}
-
-// add is jq's + on null and numbers; other types end the read.
-func add(a, b any) (any, bool) {
-	// b is never null: it is always (x // 0).
-	if a == nil {
-		return b, isNum(b)
-	}
-	x, ok1 := num(a)
-	y, ok2 := num(b)
-	if !ok1 || !ok2 {
-		return nil, false
-	}
-	return x + y, true
-}
-
-func isNum(v any) bool { _, ok := num(v); return ok }
-
-func num(v any) (float64, bool) {
-	switch n := v.(type) {
-	case json.Number:
-		f, err := n.Float64()
-		return f, err == nil || errors.Is(err, strconv.ErrRange)
-	case float64:
-		return n, true
-	}
-	return 0, false
-}
-
-// jqText prints a value as jq -r does: a string raw, a number literal as
-// written, a computed number as an integer when it is one, else JSON.
-func jqText(v any) string {
-	switch x := v.(type) {
-	case string:
-		return x
-	case json.Number:
-		return x.String()
-	case float64:
-		if x == math.Trunc(x) && math.Abs(x) < 1e17 {
-			return strconv.FormatInt(int64(x), 10)
-		}
-		return strconv.FormatFloat(x, 'g', 17, 64)
-	}
-	b, _ := json.Marshal(v)
-	return string(b)
 }
