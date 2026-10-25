@@ -35,8 +35,10 @@ func Implementers(ctx context.Context, env Env, d Deps) int {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var panes []string
+	var targets []target
 	for _, name := range watched(env) {
 		panes = append(panes, paneOf(env, name))
+		targets = append(targets, target{name, paneOf(env, name)})
 	}
 	d.wakeOn(ctx, panes)
 	for {
@@ -76,8 +78,22 @@ func Implementers(ctx context.Context, env Env, d Deps) int {
 				}
 			}
 		}
-		if !d.Sleep(ImplementersPoll) {
-			return 0
+		// The watcher never ends on its own: an event's BLOCKED lines are
+		// printed and the sleep goes on to the next scheduled sample.
+		next := d.Now().Add(ImplementersPoll)
+		for {
+			ok, lines := d.sleepUntil(next, func() []string {
+				return statusRecheck(ctx, d, st, targets, implBlockRE, implWorkRE, nil)
+			})
+			for _, l := range lines {
+				fmt.Fprintln(d.Stdout, l+" "+clock(d.Now()))
+			}
+			if !ok {
+				return 0
+			}
+			if len(lines) == 0 {
+				break
+			}
 		}
 	}
 }
@@ -117,8 +133,20 @@ func Reviewer(ctx context.Context, env Env, d Deps) int {
 		} else if !revWorkRE.MatchString(text) && h != prev {
 			fmt.Fprintf(d.Stdout, "IDLE %s %s\n", name, clock(d.Now()))
 		}
-		if !d.Sleep(ReviewerPoll) {
-			return 0
+		next := d.Now().Add(ReviewerPoll)
+		for {
+			ok, lines := d.sleepUntil(next, func() []string {
+				return statusRecheck(ctx, d, st, []target{{name, pane}}, revBlockRE, revWorkRE, nil)
+			})
+			for _, l := range lines {
+				fmt.Fprintln(d.Stdout, l+" "+clock(d.Now()))
+			}
+			if !ok {
+				return 0
+			}
+			if len(lines) == 0 {
+				break
+			}
 		}
 	}
 }

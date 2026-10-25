@@ -73,15 +73,18 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var panes []string
+	var targets []target
 	for _, name := range watched(env) {
 		panes = append(panes, paneOf(env, name))
+		targets = append(targets, target{name, paneOf(env, name)})
 	}
 	for _, spec := range reviewers {
-		_, p, found := strings.Cut(spec, ":")
+		name, p, found := strings.Cut(spec, ":")
 		if !found {
 			p = spec
 		}
 		panes = append(panes, p)
+		targets = append(targets, target{name, p})
 	}
 	d.wakeOn(ctx, panes)
 	start := d.Now()
@@ -194,7 +197,16 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 			fmt.Fprintf(d.Stdout, "TICK no event in %ds %s\n", int64(elapsed/time.Second), now)
 			return 0
 		}
-		if !d.Sleep(poll) {
+		ok, lines := d.sleepUntil(d.Now().Add(poll), func() []string {
+			return statusRecheck(ctx, d, st, targets, waitBlockRE, waitWorkRE, waitStalledRE)
+		})
+		if len(lines) > 0 {
+			for _, l := range lines {
+				fmt.Fprintln(d.Stdout, l+" "+clock(d.Now()))
+			}
+			return 0
+		}
+		if !ok {
 			return 0
 		}
 	}

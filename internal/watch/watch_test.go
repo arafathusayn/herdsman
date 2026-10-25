@@ -794,3 +794,116 @@ func TestWakeOnWithoutASocket(t *testing.T) {
 	}
 	(&Deps{}).wakeOn(ctx, []string{"w9:p1"}) // no client: nothing to start
 }
+
+// Review 6, finding 1: another pane's status events run only the status
+// recheck; they never sample screens, so an unchanged working pane is not
+// reported stalled before its own poll.
+func TestEventsDoNotAgeOtherPanes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		fn   func(context.Context, Env, Deps) int
+	}{{"wait", Wait}, {"watch implementers", Implementers}} {
+		h := newHarness(t)
+		h.env["DEADLINE"], h.env["POLL"] = "1d", "60"
+		for _, p := range []string{"w9:p1", "w9:p2", "w9:p3"} {
+			a := herdrtest.Agent(p, "s")
+			a["agent_status"] = "working"
+			h.fx.SetAgent(p, a)
+		}
+		h.screen("w9:p1", "• Working (3m 10s • esc to interrupt)")
+		h.screen("w9:p2", "Pursuing goal (2m)")
+		h.screen("w9:p3", "· Incubating…")
+		ctx, cancel := context.WithCancel(context.Background())
+		out := &syncBuffer{}
+		done := make(chan int, 1)
+		env := maps.Clone(h.env)
+		go func() {
+			done <- tc.fn(ctx, func(k string) (string, bool) { v, ok := env[k]; return v, ok }, Deps{Client: h.client, Stdout: out, Stderr: out})
+		}()
+		deadline := time.Now().Add(5 * time.Second)
+		for h.fx.Server().Subscribers() == 0 && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		for i := 0; i < 5; i++ {
+			h.fx.Server().Emit("pane.agent_status_changed", map[string]any{"pane_id": "w9:p2", "agent_status": "working"})
+			time.Sleep(50 * time.Millisecond)
+		}
+		time.Sleep(200 * time.Millisecond)
+		noMatch(t, tc.name+": no STALL from another pane's events", `STALL`, out.String())
+		cancel()
+		<-done
+	}
+}
+
+// Review 6, finding 3: a change made while the subscription registers is
+// caught by the recheck after the server's acknowledgement.
+func TestRecheckAfterTheSubscriptionAck(t *testing.T) {
+	for _, tc := range []struct {
+		name, pane, who string
+		fn              func(context.Context, Env, Deps) int
+	}{{"wait", "w9:p1", "im-a", Wait}, {"watch implementers", "w9:p1", "im-a", Implementers}, {"watch reviewer", "w9:p3", "rv-1", Reviewer}} {
+		h := newHarness(t)
+		h.env["DEADLINE"], h.env["POLL"] = "1d", "1d"
+		for _, p := range []string{"w9:p1", "w9:p2", "w9:p3"} {
+			a := herdrtest.Agent(p, "s")
+			a["agent_status"] = "working"
+			h.fx.SetAgent(p, a)
+			h.screen(p, "plain text")
+		}
+		// The agent turns blocked while the subscription registers; no event is sent.
+		h.fx.Server().Handle("events.subscribe", func(map[string]any) (any, string) {
+			a := herdrtest.Agent(tc.pane, "s")
+			a["agent_status"] = "blocked"
+			h.fx.SetAgent(tc.pane, a)
+			return map[string]any{"type": "subscription_started"}, ""
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		out := &syncBuffer{}
+		done := make(chan int, 1)
+		env := maps.Clone(h.env)
+		go func() {
+			done <- tc.fn(ctx, func(k string) (string, bool) { v, ok := env[k]; return v, ok }, Deps{Client: h.client, Stdout: out, Stderr: out})
+		}()
+		deadline := time.Now().Add(5 * time.Second)
+		for !strings.Contains(out.String(), "BLOCKED "+tc.who) && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		match(t, tc.name+": the recheck after the ack", `BLOCKED `+tc.who+` agent blocked`, out.String())
+		cancel()
+		<-done
+	}
+}
+
+// Review 6, finding 4: a subscription that lived over a minute resets the
+// backoff (an injected clock), and the reader's error returns.
+func TestReconnectResetAndReaderErrors(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var mu sync.Mutex
+	clock := time.Now()
+	calls := 0
+	d := Deps{Client: herdr.New(filepath.Join(t.TempDir(), "none.sock")), Now: func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		clock = clock.Add(2 * time.Minute)
+		return clock
+	}}
+	d.defaults(ctx)
+	d.wakeOn(ctx, []string{"w9:p1"})
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		n := calls
+		mu.Unlock()
+		if n >= 2 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	for _, bad := range []string{`}`, `[{"id":1}}`, `[{"id":1}`} {
+		if err := streamPages(strings.NewReader(bad), func(ghItem) {}); err == nil {
+			t.Errorf("%q: no error", bad)
+		}
+	}
+}

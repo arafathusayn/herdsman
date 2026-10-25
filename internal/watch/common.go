@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
@@ -56,7 +57,8 @@ type Deps struct {
 	// watcher's paginated reads); nil reads Gh's output.
 	GhStream func(ctx context.Context, env []string, read func(io.Reader) error, args ...string) error
 
-	wake chan struct{} // a Herdr event ends the default Sleep (wakeOn)
+	wake  chan struct{} // a Herdr event ends the default Sleep (wakeOn)
+	event *atomic.Bool  // set when the default Sleep ended on an event
 }
 
 // defaults fills the clock and the sleep; the default sleep ends early, with
@@ -67,7 +69,8 @@ func (d *Deps) defaults(ctx context.Context) {
 	}
 	if d.Sleep == nil {
 		wake := make(chan struct{}, 1)
-		d.wake = wake
+		event := new(atomic.Bool)
+		d.wake, d.event = wake, event
 		d.Sleep = func(t time.Duration) bool {
 			timer := time.NewTimer(t)
 			defer timer.Stop()
@@ -77,6 +80,7 @@ func (d *Deps) defaults(ctx context.Context) {
 			case <-timer.C:
 				return true
 			case <-wake:
+				event.Store(true)
 				return true
 			}
 		}
@@ -334,17 +338,22 @@ func (d *Deps) wakeOn(ctx context.Context, panes []string) {
 		}
 	}
 	wake := d.wake
+	poke := func() {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
+	now := d.Now
 	go func() {
 		backoff := time.Second
 		for ctx.Err() == nil {
-			start := time.Now()
-			_ = d.Client.Subscribe(ctx, subs, func(herdr.Event) {
-				select {
-				case wake <- struct{}{}:
-				default:
-				}
-			})
-			if time.Since(start) > time.Minute {
+			start := now()
+			// Once the server acknowledges (at start and after every
+			// reconnect), a status recheck catches a change made while
+			// the subscription was registering (review 6, finding 3).
+			_ = d.Client.SubscribeReady(ctx, subs, poke, func(herdr.Event) { poke() })
+			if now().Sub(start) > time.Minute {
 				backoff = time.Second
 			}
 			t := time.NewTimer(backoff)
@@ -357,4 +366,42 @@ func (d *Deps) wakeOn(ctx context.Context, panes []string) {
 			backoff = min(2*backoff, time.Minute)
 		}
 	}()
+}
+
+// target is one watched agent: its name and pane.
+type target struct{ name, pane string }
+
+// statusRecheck is the event-driven pass (review 6, finding 1): only the
+// blocked state of each target, from Herdr's status and the screen's block
+// patterns. It never samples the screen for STALL or IDLE and never moves
+// the screen hash, so another pane's events cannot age a healthy pane.
+func statusRecheck(ctx context.Context, d Deps, st state, targets []target, block, work, stalled *regexp.Regexp) []string {
+	var out []string
+	for _, t := range targets {
+		text := readPane(ctx, d.Client, t.pane, 40)
+		reason, blocked := screenBlock(agentStatus(ctx, d.Client, t.pane), text, block, work, stalled)
+		h := st.read("hash-" + t.name)
+		if newBlock(st, t.name, blocked, h, h) {
+			out = append(out, "BLOCKED "+t.name+" "+reason)
+		}
+	}
+	return out
+}
+
+// sleepUntil sleeps to next, the next scheduled sample. A Herdr event
+// wakes it early: recheck runs (the status-only pass) and, when it
+// reports nothing, the sleep goes on to the same next. It returns false
+// when the sleep was stopped, and the recheck's lines when it found any.
+func (d Deps) sleepUntil(next time.Time, recheck func() []string) (bool, []string) {
+	for {
+		if !d.Sleep(max(next.Sub(d.Now()), 0)) {
+			return false, nil
+		}
+		if d.event == nil || !d.event.Swap(false) || !d.Now().Before(next) {
+			return true, nil
+		}
+		if lines := recheck(); len(lines) > 0 {
+			return true, lines
+		}
+	}
 }
