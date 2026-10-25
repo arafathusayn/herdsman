@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -39,6 +40,33 @@ var (
 	loggedIn     = regexp.MustCompile(`Logged in to github\.com (?:account|as) ([A-Za-z0-9-]+)`)
 	activeLine   = regexp.MustCompile(`Active account: (true|false)`)
 )
+
+// RedactRemote shows a remote URL without its credentials: no user or
+// password, no query or fragment, one line of at most 200 characters.
+func RedactRemote(remote string) string {
+	r := strings.TrimSpace(remote)
+	if u, err := url.Parse(r); err == nil && u.Scheme != "" && u.Host != "" {
+		u.User, u.RawQuery, u.Fragment, u.RawFragment, u.ForceQuery = nil, "", "", "", false
+		r = u.String()
+	} else if at := strings.LastIndex(r, "@"); at >= 0 {
+		// scp-like user@host:path, or something unparsable: drop what
+		// precedes the last @.
+		r = r[at+1:]
+	}
+	if i := strings.IndexAny(r, "?#"); i >= 0 {
+		r = r[:i]
+	}
+	r = strings.Map(func(c rune) rune {
+		if c < 0x20 || c == 0x7f {
+			return -1
+		}
+		return c
+	}, r)
+	if len(r) > 200 {
+		r = r[:200] + "…"
+	}
+	return r
+}
 
 // RepoOf reads "owner/name" from a GitHub remote URL.
 func RepoOf(remote string) (string, bool) {
@@ -82,7 +110,7 @@ func ProbeGitHub(ctx context.Context, p Probes, dir string) (GitHubAccess, error
 	}
 	repo, ok := RepoOf(remote)
 	if !ok {
-		return GitHubAccess{}, fmt.Errorf("origin %s is not a GitHub repository", remote)
+		return GitHubAccess{}, fmt.Errorf("origin %s is not a GitHub repository", RedactRemote(remote))
 	}
 	gh, err := p.LookPath("gh")
 	if err != nil {

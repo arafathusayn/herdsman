@@ -143,6 +143,20 @@ func readLimits(p Probes) (limits, error) {
 		}
 		l.load, l.loadLabel = f, strings.TrimSpace(v)
 	}
+	// The inbox's own settings, read only when an inbox is checked, with
+	// the inbox's ranges (inbox.Open reads them the same way).
+	if p.Getenv("HERDSMAN_INBOX") != "" {
+		for _, set := range []struct {
+			name   string
+			lo, hi int
+		}{{"HEALTH_AFTER", 1, 86400}, {"LOCK_WAIT", 1, 60}} {
+			if v := p.Getenv(set.name); v != "" {
+				if _, err := wholeNumber(set.name, v, set.lo, set.hi); err != nil {
+					return l, err
+				}
+			}
+		}
+	}
 	if v := p.Getenv("HERDSMAN_MIN_FREE"); v != "" {
 		n, err := wholeNumber("HERDSMAN_MIN_FREE", v, 0, 100)
 		if err != nil {

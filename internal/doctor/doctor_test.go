@@ -365,3 +365,24 @@ func TestGoCacheNoHome(t *testing.T) {
 		t.Error("no error without a home folder")
 	}
 }
+
+// A25: every setting the doctor consumes is parsed before any probe runs.
+func TestInboxSettingsParsedFirst(t *testing.T) {
+	for _, tc := range []struct{ key, val, want string }{
+		{"HEALTH_AFTER", "nonsense", `HEALTH_AFTER: not a whole number (got "nonsense")`},
+		{"LOCK_WAIT", "61", `LOCK_WAIT: out of range 1 to 60 (got "61")`},
+	} {
+		p := fakes(t, map[string]string{"HERDSMAN_INBOX": "/x", tc.key: tc.val})
+		probed := false
+		p.GhAuth = func(context.Context, string) error { probed = true; return nil }
+		cs, err := Run(context.Background(), p)
+		if err == nil || err.Error() != tc.want || cs != nil || probed {
+			t.Errorf("%s=%s: %v %v probed=%v", tc.key, tc.val, err, cs, probed)
+		}
+	}
+	// Without an inbox they are not read.
+	p := fakes(t, map[string]string{"HEALTH_AFTER": "nonsense"})
+	if _, err := Run(context.Background(), p); err != nil {
+		t.Error(err)
+	}
+}

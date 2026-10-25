@@ -125,3 +125,32 @@ esac
 		t.Errorf("%+v %v", g, err)
 	}
 }
+
+// P0: a remote's credentials never reach the doctor's output.
+func TestRemoteCredentialsAreRedacted(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://user:SECRET@github.enterprise.invalid/o/r.git": "https://github.enterprise.invalid/o/r.git",
+		"https://gitlab.com/o/r.git?token=SECRET#frag":          "https://gitlab.com/o/r.git",
+		"deploy:SECRET@host.invalid:o/r.git":                    "host.invalid:o/r.git",
+		"bad\nline\x1bSECRET@x":                                 "x",
+		"https://host.invalid/" + strings.Repeat("a", 300):      "https://host.invalid/" + strings.Repeat("a", 179) + "…",
+	} {
+		if got := RedactRemote(in); got != want || strings.Contains(got, "SECRET") {
+			t.Errorf("%q: %q", in, got)
+		}
+	}
+	p := fakes(t, nil)
+	p.GitRemote = func(context.Context, string) (string, error) {
+		return "https://user:SECRET@github.enterprise.invalid/o/r.git?x=SECRET", nil
+	}
+	cs := run(t, p)
+	one(t, cs, "gh-account", Warn, "origin https://github.enterprise.invalid/o/r.git is not a GitHub repository")
+	for _, c := range cs {
+		if strings.Contains(c.Detail, "SECRET") {
+			t.Errorf("leak: %+v", c)
+		}
+	}
+	if _, err := ProbeGitHub(context.Background(), p, "."); err == nil || strings.Contains(err.Error(), "SECRET") {
+		t.Errorf("%v", err)
+	}
+}
