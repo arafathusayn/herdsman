@@ -591,3 +591,15 @@ func TestRoutePromptGivesUpAfterTheWait(t *testing.T) {
 		t.Fatalf("status %d: %+v", code, res)
 	}
 }
+
+func TestDoJobTurnsAPanicIntoAResult(t *testing.T) {
+	f := newFixture(t)
+	r := f.queue.DoJob(context.Background(), func(context.Context) Result { panic("boom") })
+	if r.OK || r.Code != "internal_error" || !strings.Contains(r.Error, "boom") {
+		t.Fatalf("result = %+v", r)
+	}
+	// The queue keeps running after it.
+	if r := f.queue.DoJob(context.Background(), func(context.Context) Result { return Result{OK: true} }); !r.OK {
+		t.Fatalf("result = %+v", r)
+	}
+}
