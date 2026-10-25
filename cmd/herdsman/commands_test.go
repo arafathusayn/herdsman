@@ -311,3 +311,27 @@ func TestStatusLimitIsStrict(t *testing.T) {
 		}
 	}
 }
+
+// A25 item 2: each slice-1 command's --help ends in one table of its exit
+// codes.
+func TestHelpListsExitCodes(t *testing.T) {
+	for name, codes := range map[string][]string{
+		"run-check": {"64", "69", "70", "75", "2"},
+		"status":    {"0", "1", "2"},
+		"route":     {"0", "1", "2"},
+		"wait":      {"0", "2"},
+		"watch":     {"0", "1", "2"},
+	} {
+		out, _, code := call(t, name, "--help")
+		if code != 0 || !strings.Contains(out, "usage: herdsman "+name) || !strings.Contains(out, "\nexit codes:\n") {
+			t.Errorf("%s --help: %d %q", name, code, out)
+			continue
+		}
+		table := out[strings.Index(out, "\nexit codes:\n"):]
+		for _, c := range codes {
+			if !regexp.MustCompile(`(?m)^  ` + c + ` +\S`).MatchString(table) {
+				t.Errorf("%s --help: no row for exit %s in %q", name, c, table)
+			}
+		}
+	}
+}

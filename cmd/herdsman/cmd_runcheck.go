@@ -10,7 +10,7 @@ import (
 )
 
 func init() {
-	register(command{name: "run-check", summary: "Run one heavy check at a time on this machine, behind a load gate (--publish <hours>: the load reading).", run: runRunCheck})
+	register(command{name: "run-check", summary: "Run one heavy check at a time on this machine, behind a load gate (--publish <hours>: the load reading).", help: runCheckHelp, run: runRunCheck})
 }
 
 func runRunCheck(args []string, stdin io.Reader, stdout, stderr io.Writer) int {

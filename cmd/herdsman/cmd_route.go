@@ -13,7 +13,7 @@ import (
 var now = time.Now
 
 func init() {
-	register(command{name: "route", summary: "Check a route folder (route check) or append a run-state line (route log).", run: runRoute})
+	register(command{name: "route", summary: "Check a route folder (route check) or append a run-state line (route log).", help: routeHelp, run: runRoute})
 }
 
 const (

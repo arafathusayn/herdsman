@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	register(command{name: "status", summary: "Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.", run: runStatus})
+	register(command{name: "status", summary: "Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.", help: statusHelp, run: runStatus})
 }
 
 // herdrClient is the client of the herdr session the commands talk to;
