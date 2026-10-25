@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
 
 	"github.com/arafathusayn/herdsman/internal/runcheck"
+	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
 func init() {
@@ -12,7 +14,11 @@ func init() {
 }
 
 func runRunCheck(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	c := runcheck.FromEnv(os.Getenv)
+	c, err := runcheck.Load(os.Getenv)
+	if err != nil {
+		fmt.Fprintf(stderr, "herdsman run-check: %v\n", err)
+		return settings.ExitInvalid
+	}
 	if len(args) > 0 && args[0] == "--publish" {
 		hours := ""
 		if len(args) > 1 {

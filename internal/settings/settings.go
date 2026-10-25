@@ -148,29 +148,36 @@ type Reader struct {
 	Err    error
 }
 
-func (r *Reader) keep(err error) {
-	if r.Err == nil {
+func (r *Reader) keep(err error) bool {
+	if err != nil && r.Err == nil {
 		r.Err = err
 	}
+	return err != nil
 }
 
 // Int is Int on the variable's value.
 func (r *Reader) Int(name string, def, lo, hi int64) int64 {
 	n, err := Int(name, r.Getenv(name), def, lo, hi)
-	r.keep(err)
+	if r.keep(err) {
+		return def
+	}
 	return n
 }
 
 // Duration is Duration on the variable's value.
 func (r *Reader) Duration(name string, def, max time.Duration) time.Duration {
 	d, err := Duration(name, r.Getenv(name), def, max)
-	r.keep(err)
+	if r.keep(err) {
+		return def
+	}
 	return d
 }
 
 // Decimal is Decimal on the variable's value.
 func (r *Reader) Decimal(name string) float64 {
 	f, err := Decimal(name, r.Getenv(name))
-	r.keep(err)
+	if r.keep(err) {
+		return 0
+	}
 	return f
 }

@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -29,6 +28,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/machine"
 
+	"github.com/arafathusayn/herdsman/internal/settings"
 	"github.com/arafathusayn/herdsman/internal/shnum"
 )
 
@@ -50,18 +50,18 @@ type Config struct {
 	Lock     string        // HERDSMAN_LOCK, default /tmp/herdsman-checks.lock
 	Reading  string        // HERDSMAN_READING, default /tmp/herdsman-load
 	LockWait time.Duration // HERDSMAN_LOCK_WAIT seconds, default 5400
-	GateWait time.Duration // HERDSMAN_GATE_WAIT seconds, default 600 (never, when test refuses it)
-	// GateWaitText is HERDSMAN_GATE_WAIT as written, for the NOT RUN line;
-	// "" prints GateWait.
-	GateWaitText string
-	MinFree      int           // HERDSMAN_MIN_FREE percent, default 10 (no reading passes when test refuses it)
-	Nice         int           // HERDSMAN_NICE, default 10
-	Poll         time.Duration // HERDSMAN_GATE_POLL seconds, default 15
-	LoadLimit    string        // HERDSMAN_LOAD_LIMIT, default the core count
-	Probes       bool          // HERDSMAN_PROBES, on unless "off"
+	GateWait time.Duration // HERDSMAN_GATE_WAIT seconds, default 600
+	MinFree  int           // HERDSMAN_MIN_FREE percent, default 10
+	Nice     int           // HERDSMAN_NICE, default 10
+	Poll     time.Duration // HERDSMAN_GATE_POLL seconds, default 15
+	// LoadLimit is HERDSMAN_LOAD_LIMIT, default the core count.
+	LoadLimit string
+	Probes    bool // HERDSMAN_PROBES, on unless "off"
 
-	PublishSeconds string        // HERDSMAN_PUBLISH_SECONDS, default hours*3600
-	PublishEvery   time.Duration // HERDSMAN_PUBLISH_EVERY seconds, default 15
+	// PublishFor is HERDSMAN_PUBLISH_SECONDS; negative (unset) runs the
+	// publisher for its hours.
+	PublishFor   time.Duration
+	PublishEvery time.Duration // HERDSMAN_PUBLISH_EVERY seconds, default 15
 
 	Check    string // HERDSMAN_CHECK: "", "locked" or "gated"
 	CheckIn  string // HERDSMAN_CHECK_IN
@@ -74,96 +74,60 @@ type Config struct {
 	// Env is the environment the check runs with (HERDSMAN_CHECK and the
 	// markers are set on top). nil: os.Environ().
 	Env []string
-	// Vars are the script's settings as its arithmetic sees them.
-	Vars map[string]string
-	// Getenv reads the other names (nil: the process environment).
-	Getenv func(string) string
 }
 
-// testInt reads a number the script compares with [ -ge ]: as test reads
-// it, and math.MaxInt (a comparison that never holds) when test refuses it.
-func testInt(s string) int {
-	if n, ok := shnum.Test(s); ok {
-		return int(n)
-	}
-	return math.MaxInt
-}
+// MaxDuration caps every duration setting: the script had no range, so
+// one day (A25), and no multiplication overflows.
+const MaxDuration = 24 * time.Hour
 
-// publishEnd is run-check.sh's
-// end=$(( $(date +%s) + ${HERDSMAN_PUBLISH_SECONDS:-$(( $2 * 3600 ))} )): the
-// texts are spliced into the expressions as bash splices them, and names
-// read the script's settings, then the environment.
-func publishEnd(c Config, now int64, hours string) (int64, error) {
-	lookup := c.lookup()
-	secs := c.PublishSeconds
-	if secs == "" {
-		h, err := shnum.Eval(hours+" * 3600", lookup)
-		if err != nil {
-			return 0, err
-		}
-		secs = strconv.FormatInt(h, 10)
-	}
-	return shnum.Eval(strconv.FormatInt(now, 10)+" + "+secs, lookup)
-}
-
-// lookup reads a name in an arithmetic expression: the script's settings
-// (LOCK, READING, LOCK_WAIT, GATE_WAIT, MIN_FREE, NICE, POLL), then the
-// environment.
-func (c Config) lookup() func(string) (string, bool) {
-	return func(k string) (string, bool) {
-		if v, ok := c.Vars[k]; ok {
-			return v, true
-		}
-		if c.Getenv != nil {
-			return c.Getenv(k), true // empty and unset are both 0
-		}
-		return os.LookupEnv(k)
-	}
-}
-
-// FromEnv reads the settings the script reads, with its defaults.
+// FromEnv is Load for a caller that has checked the settings already: an
+// invalid setting keeps its default.
 func FromEnv(getenv func(string) string) Config {
+	c, _ := Load(getenv)
+	return c
+}
+
+// Load reads the settings the script reads, with its defaults, through
+// the strict parser (A25): the first invalid one is the error, which the
+// command prints before it exits 2 and runs nothing.
+func Load(getenv func(string) string) (Config, error) {
 	or := func(k, d string) string {
 		if v := getenv(k); v != "" {
 			return v
 		}
 		return d
 	}
-	secs := func(k string, d int) time.Duration {
-		n, err := strconv.Atoi(or(k, strconv.Itoa(d)))
-		if err != nil {
-			n = d
+	r := settings.Reader{Getenv: getenv}
+	c := Config{
+		Lock:         or("HERDSMAN_LOCK", "/tmp/herdsman-checks.lock"),
+		Reading:      or("HERDSMAN_READING", "/tmp/herdsman-load"),
+		LockWait:     r.Duration("HERDSMAN_LOCK_WAIT", 5400*time.Second, MaxDuration),
+		GateWait:     r.Duration("HERDSMAN_GATE_WAIT", 600*time.Second, MaxDuration),
+		MinFree:      int(r.Int("HERDSMAN_MIN_FREE", 10, 0, 100)),
+		Nice:         int(r.Int("HERDSMAN_NICE", 10, -20, 20)),
+		Poll:         r.Duration("HERDSMAN_GATE_POLL", 15*time.Second, MaxDuration),
+		LoadLimit:    strings.Trim(getenv("HERDSMAN_LOAD_LIMIT"), " \t\n"),
+		Probes:       or("HERDSMAN_PROBES", "on") != "off",
+		PublishFor:   -1,
+		PublishEvery: r.Duration("HERDSMAN_PUBLISH_EVERY", 15*time.Second, MaxDuration),
+		Check:        getenv("HERDSMAN_CHECK"),
+		CheckIn:      getenv("HERDSMAN_CHECK_IN"),
+		CheckRan:     getenv("HERDSMAN_CHECK_RAN"),
+	}
+	r.Decimal("HERDSMAN_LOAD_LIMIT")
+	if getenv("HERDSMAN_PUBLISH_SECONDS") != "" {
+		c.PublishFor = r.Duration("HERDSMAN_PUBLISH_SECONDS", 0, MaxDuration)
+	}
+	// A sleep of 0 between polls would spin (A24).
+	for _, d := range []struct {
+		k string
+		v time.Duration
+	}{{"HERDSMAN_GATE_POLL", c.Poll}, {"HERDSMAN_PUBLISH_EVERY", c.PublishEvery}} {
+		if d.v < time.Second && r.Err == nil {
+			r.Err = &settings.Error{Var: d.k, Reason: "must be at least 1 second", Got: getenv(d.k)}
 		}
-		return time.Duration(n) * time.Second
 	}
-	num := func(k string, d int) int {
-		n, err := strconv.Atoi(or(k, strconv.Itoa(d)))
-		if err != nil {
-			return d
-		}
-		return n
-	}
-	return Config{
-		Lock:           or("HERDSMAN_LOCK", "/tmp/herdsman-checks.lock"),
-		Reading:        or("HERDSMAN_READING", "/tmp/herdsman-load"),
-		LockWait:       secs("HERDSMAN_LOCK_WAIT", 5400),
-		GateWait:       600 * time.Second, // read from GateWaitText by gateWaitSecs
-		GateWaitText:   or("HERDSMAN_GATE_WAIT", "600"),
-		MinFree:        testInt(or("HERDSMAN_MIN_FREE", "10")),
-		Nice:           num("HERDSMAN_NICE", 10),
-		Poll:           secs("HERDSMAN_GATE_POLL", 15),
-		LoadLimit:      getenv("HERDSMAN_LOAD_LIMIT"),
-		Probes:         or("HERDSMAN_PROBES", "on") != "off",
-		PublishSeconds: getenv("HERDSMAN_PUBLISH_SECONDS"),
-		PublishEvery:   secs("HERDSMAN_PUBLISH_EVERY", 15),
-		Check:          getenv("HERDSMAN_CHECK"),
-		CheckIn:        getenv("HERDSMAN_CHECK_IN"),
-		CheckRan:       getenv("HERDSMAN_CHECK_RAN"),
-		Getenv:         getenv,
-		Vars: map[string]string{"LOCK": or("HERDSMAN_LOCK", "/tmp/herdsman-checks.lock"), "READING": or("HERDSMAN_READING", "/tmp/herdsman-load"),
-			"LOCK_WAIT": or("HERDSMAN_LOCK_WAIT", "5400"), "GATE_WAIT": or("HERDSMAN_GATE_WAIT", "600"), "MIN_FREE": or("HERDSMAN_MIN_FREE", "10"),
-			"NICE": or("HERDSMAN_NICE", "10"), "POLL": or("HERDSMAN_GATE_POLL", "15")},
-	}
+	return c, r.Err
 }
 
 func (c *Config) defaults() {
@@ -200,22 +164,31 @@ func (c *Config) reading() string {
 }
 
 // Publish writes the machine's reading to the reading file every
-// PublishEvery until hours (or PublishSeconds) pass, as `run-check.sh
-// --publish <hours>` does.
+// PublishEvery until hours (or PublishFor) pass, as `run-check.sh
+// --publish <hours>` does. Hours are a whole number, read as test reads
+// it; a span over a day is a day.
 func Publish(c Config, hours string, stderr io.Writer) int {
 	c.defaults()
 	if hours == "" {
 		fmt.Fprintln(stderr, "usage: herdsman run-check --publish <hours>")
 		return ExitUsage
 	}
-	end, err := publishEnd(c, c.Now().Unix(), hours)
-	if err != nil {
-		// bash prints the error and leaves end empty; the loop's test then
-		// fails, so the publisher stops at once with its usual line.
-		fmt.Fprintln(stderr, "run-check:", err)
-		end = math.MinInt64
+	// An hour count the script could not read sent it on to the check path
+	// with "--publish" as the command (A26): refuse it here.
+	h, ok := shnum.Test(hours)
+	if !ok || h < 0 {
+		fmt.Fprintf(stderr, "herdsman run-check: --publish: not a whole number of hours (got %q)\n", hours)
+		return settings.ExitInvalid
 	}
-	for c.Now().Unix() < end {
+	span := c.PublishFor
+	if span < 0 {
+		span = MaxDuration
+		if h < int64(MaxDuration/time.Hour) {
+			span = time.Duration(h) * time.Hour
+		}
+	}
+	end := c.Now().Add(span)
+	for c.Now().Before(end) {
 		if r := c.probe(); r != "" {
 			tmp := c.Reading + "." + strconv.Itoa(os.Getpid())
 			if os.WriteFile(tmp, []byte(r+"\n"), 0o644) == nil {
@@ -310,8 +283,8 @@ func (c *Config) gateAndRun(args []string, lock *os.File, stdin io.Reader, stdou
 		if under(load, limit) && freeInt(free) >= c.MinFree {
 			break
 		}
-		if int64(c.Now().Sub(start)/time.Second) >= c.gateWaitSecs() {
-			fmt.Fprintf(stderr, "run-check: NOT RUN (load gate gave up after %ss: load %s, limit %s, free %s%%)\n", c.gateWaitText(), load, limit, free)
+		if c.Now().Sub(start) >= c.GateWait {
+			fmt.Fprintf(stderr, "run-check: NOT RUN (load gate gave up after %ds: load %s, limit %s, free %s%%)\n", int64(c.GateWait/time.Second), load, limit, free)
 			return ExitTempFail
 		}
 		c.Sleep(c.Poll)
@@ -482,23 +455,3 @@ func holders(f *os.File) string {
 	return "?"
 }
 
-// gateWaitText is HERDSMAN_GATE_WAIT as the script prints it.
-func (c *Config) gateWaitText() string {
-	if c.GateWaitText != "" {
-		return c.GateWaitText
-	}
-	return strconv.Itoa(int(c.GateWait / time.Second))
-}
-
-// gateWaitSecs is HERDSMAN_GATE_WAIT in whole seconds as [ -ge ] reads it,
-// compared without a duration conversion so no value wraps; a value test
-// refuses never elapses.
-func (c *Config) gateWaitSecs() int64 {
-	if c.GateWaitText == "" {
-		return int64(c.GateWait / time.Second)
-	}
-	if n, ok := shnum.Test(c.GateWaitText); ok {
-		return n
-	}
-	return math.MaxInt64
-}

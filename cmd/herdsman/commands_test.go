@@ -150,10 +150,15 @@ func TestRunCheckThroughTheCommand(t *testing.T) {
 	if _, _, code := call(t, "run-check", "--publish"); code == 0 {
 		t.Error("--publish without hours passes")
 	}
-	// As $(( x * 3600 )) in bash: an unset name is 0, so the publisher stops at once.
-	t.Setenv("x", "")
-	if _, errs, code := call(t, "run-check", "--publish", "x"); code != 0 || !strings.Contains(errs, "publisher stopped") {
+	// A26: hours bash could not read are refused, not run as a check.
+	if _, errs, code := call(t, "run-check", "--publish", "x"); code != 2 || errs != "herdsman run-check: --publish: not a whole number of hours (got \"x\")\n" {
 		t.Errorf("--publish x: %d %q", code, errs)
+	}
+	// A25: an invalid setting is one line naming it, exit 2, and nothing runs.
+	t.Setenv("HERDSMAN_GATE_POLL", "soon")
+	if out, errs, code := call(t, "run-check", "echo", "ran"); code != 2 || out != "" ||
+		errs != "herdsman run-check: HERDSMAN_GATE_POLL: not a duration (seconds, or a number with s, m, h or d) (got \"soon\")\n" {
+		t.Errorf("GATE_POLL=soon: %d %q %q", code, out, errs)
 	}
 }
 
