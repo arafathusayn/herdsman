@@ -217,6 +217,13 @@ func TestStatusLimitFromTheEnvironment(t *testing.T) {
 		{"0", `short .*<-- OVER 0m`, `^$`},
 		{"", `long .*<-- OVER 30m`, `short .*OVER`},
 		{"x", `long  running  45m 0s \[45m\]$`, `OVER`},
+		// R3 finding 2: the shell's integer syntax, and the label as written.
+		{" 30", `long .*<-- OVER  30m$`, `short .*OVER`},
+		{"30 ", `long .*<-- OVER 30 m$`, `short .*OVER`},
+		{"00", `short .*<-- OVER 00m$`, `^$`},
+		{"030", `long .*<-- OVER 030m$`, `short .*OVER`},
+		{"+30", `long .*<-- OVER \+30m$`, `short .*OVER`},
+		{" ", `long  running  45m 0s \[45m\]$`, `OVER`},
 	} {
 		t.Setenv("LIMIT_MIN", tc.limit)
 		var b bytes.Buffer
@@ -250,5 +257,31 @@ func TestWaitHealthWithAZeroLimit(t *testing.T) {
 	}
 	if !regexp.MustCompile(`(?m)^HEALTH .*OVER 0m`).MatchString(out) {
 		t.Errorf("no HEALTH event for a zero limit:\n%s", out)
+	}
+}
+
+// R3 finding 2, the health side: LIMIT_MIN=" 30" is 30 to the shell, so a
+// 45-minute job is a HEALTH event, its flag printed as written.
+func TestWaitHealthWithAPaddedLimit(t *testing.T) {
+	srv := herdrtest.Start(t)
+	fx := herdrtest.Serve(srv)
+	a := herdrtest.Agent("w9:p1", "s")
+	a["name"], a["agent_status"] = "im-a", "working"
+	fx.SetAgent("w9:p1", a)
+	fx.SetScreen("w9:p1", "└ ◆ long  running  45m 0s\n")
+	dir := t.TempDir()
+	for k, v := range map[string]string{"HERDR_SOCKET_PATH": srv.Socket, "HERDSMAN_STATE": filepath.Join(dir, "state"),
+		"HERDSMAN_REPORTS": filepath.Join(dir, "reports"), "HERDSMAN_IMPLEMENTERS": "", "HERDSMAN_REVIEWERS": "",
+		"HERDSMAN_STATUS_SPECS": "im-a:w9:p1:", "HERDSMAN_HEALTH_EVERY": "0", "LIMIT_MIN": " 30", "DEADLINE": "0", "POLL": "1"} {
+		t.Setenv(k, v)
+	}
+	t.Setenv("HERDSMAN_STATUS_SCRIPT", "") // empty: the in-process check (A12)
+	out := ""
+	for range 2 {
+		o, _, _ := call(t, "wait")
+		out += o
+	}
+	if !regexp.MustCompile(`(?m)^HEALTH .*OVER  30m`).MatchString(out) {
+		t.Errorf("no HEALTH event for a padded limit:\n%s", out)
 	}
 }

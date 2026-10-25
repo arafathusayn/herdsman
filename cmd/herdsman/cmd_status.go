@@ -6,10 +6,10 @@ import (
 	"io"
 	"math"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/shnum"
 	"github.com/arafathusayn/herdsman/internal/status"
 )
 
@@ -29,17 +29,19 @@ func herdrClient() *herdr.Client {
 
 // statusSnapshot writes the snapshot of HERDSMAN_STATUS_SPECS.
 func statusSnapshot(ctx context.Context, w io.Writer, specs string) {
-	// As ${LIMIT_MIN:-30}: unset or empty is 30, an explicit 0 flags every
-	// job, and a value that is no number flags none (the script's test fails).
-	limit := 30
+	// As ${LIMIT_MIN:-30} and [ "$mins" -ge "$LIMIT_MIN" ]: unset or empty is
+	// 30; the value is read with test's integer syntax (blanks around it,
+	// a sign, leading zeros) and printed as written; a value test refuses
+	// flags no job.
+	limit, label := 30, "30"
 	if v := os.Getenv("LIMIT_MIN"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			n = math.MaxInt
+		label = v
+		limit = math.MaxInt
+		if n, ok := shnum.Test(v); ok {
+			limit = int(n)
 		}
-		limit = n
 	}
-	status.Write(ctx, w, status.Options{Specs: status.ParseSpecs(specs), LimitMin: limit, Client: herdrClient(), Now: now(), Machine: status.ReadMachine()})
+	status.Write(ctx, w, status.Options{Specs: status.ParseSpecs(specs), LimitMin: limit, LimitLabel: label, Client: herdrClient(), Now: now(), Machine: status.ReadMachine()})
 }
 
 func runStatus(args []string, _ io.Reader, stdout, stderr io.Writer) int {

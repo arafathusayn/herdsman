@@ -71,6 +71,9 @@ func ReadMachine() Machine {
 type Options struct {
 	Specs    []Spec
 	LimitMin int // LIMIT_MIN as given (the command defaults it to 30)
+	// LimitLabel is LIMIT_MIN as written, for the OVER flag (the script
+	// prints ${LIMIT_MIN}m); "" prints LimitMin.
+	LimitLabel string
 	Client   *herdr.Client
 	Now      time.Time
 	Machine  Machine
@@ -137,7 +140,11 @@ func Write(ctx context.Context, w io.Writer, o Options) {
 			total := h*60 + mins
 			flag := ""
 			if total >= o.LimitMin {
-				flag = fmt.Sprintf("  <-- OVER %dm", o.LimitMin)
+				label := o.LimitLabel
+				if label == "" {
+					label = strconv.Itoa(o.LimitMin)
+				}
+				flag = fmt.Sprintf("  <-- OVER %sm", label)
 			}
 			text := []rune(leadRe.ReplaceAllString(row, ""))
 			if len(text) > 70 {
