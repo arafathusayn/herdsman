@@ -77,6 +77,9 @@ type RouteRequest struct {
 	OrchEffort string `json:"orch_effort,omitempty"`
 	RouteName  string `json:"route_name,omitempty"`
 	Inbox      string `json:"inbox,omitempty"`
+	// Setup is the chosen setup (A32), sent to the orchestrator after the
+	// request; nil from older clients.
+	Setup *RouteSetup `json:"setup,omitempty"`
 }
 
 // RouteStep is one herdr call of the job and how it went.
@@ -218,6 +221,11 @@ func planRoute(req RouteRequest, st State, cat Catalog, home, skillDir string) (
 	if err := checkRequestText(req.Request); err != nil {
 		return nil, err
 	}
+	if req.Setup != nil {
+		if err := req.Setup.check(); err != nil {
+			return nil, refuse("setup", "setup: %s", err)
+		}
+	}
 	live := map[string]bool{}
 	for _, a := range st.Snapshot.Agents {
 		if a.Name != nil {
@@ -285,8 +293,15 @@ func planRoute(req RouteRequest, st State, cat Catalog, home, skillDir string) (
 	} else {
 		p.prompt = prefix + " run"
 	}
-	if req.Request != "" {
-		p.prompt += " " + quoteArg(req.Request)
+	text := req.Request
+	if req.Setup != nil {
+		if text != "" {
+			text += "\n\n"
+		}
+		text += req.Setup.text(req, req.Checkpointer.On)
+	}
+	if text != "" {
+		p.prompt += " " + quoteArg(text)
 	}
 
 	c := req.Checkpointer

@@ -25,6 +25,7 @@ import {
   setHarness,
   setRecommended,
   setRole,
+  SETUP_QUESTIONS,
   skillWarnings,
   stepNote,
   toRequest,
@@ -587,9 +588,36 @@ export function routeForm(
               )
             : h(
                 "div",
-                { class: "nr-role", role: "radiogroup", "aria-label": "Role" },
-                role("orchestrator", "Orchestrator"),
-                role("adjutant", "Adjutant (Recommended)"),
+                null,
+                h(
+                  "div",
+                  { class: "nr-role", role: "radiogroup", "aria-label": "Role" },
+                  role("orchestrator", "Orchestrator"),
+                  role("adjutant", "Adjutant (Recommended)"),
+                ),
+                // The custom path asks every setup item; an empty answer lets the route ask.
+                h(
+                  "div",
+                  { class: "nr-grid nr-custom", dataset: { field: "custom-setup" } },
+                  SETUP_QUESTIONS.map(([item, recommended]) =>
+                    field(
+                      `custom-${item}`,
+                      item,
+                      h("input", {
+                        id: `${id}-custom-${item}`,
+                        name: `custom-${item}`,
+                        value: f.custom[item] ?? "",
+                        maxlength: 400,
+                        autocomplete: "off",
+                        placeholder: recommended,
+                        oninput: (e: Event) =>
+                          set({ custom: { ...f.custom, [item]: (e.target as HTMLInputElement).value } }, false),
+                      }),
+                      "Empty: the route asks you.",
+                      true,
+                    ),
+                  ),
+                ),
               ),
           h(
             "div",

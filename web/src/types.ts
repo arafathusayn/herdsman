@@ -342,6 +342,20 @@ export interface RouteRequest {
   orch_effort?: string;
   route_name?: string;
   inbox?: string;
+  /** The chosen setup (A32), sent to the orchestrator as text after the request. */
+  setup?: RouteSetup;
+}
+
+/** The setup the form chose (A32): the server renders it into the orchestrator's prompt. */
+export interface RouteSetup {
+  recommended: boolean;
+  /** The checkpointer as the route starts it: false when it is unavailable. */
+  checkpointer: boolean;
+  github_account?: string;
+  /** The coordinators' picks. */
+  roles: { role: string; runner: string; harness: string; model: string; effort: string }[];
+  /** One answer per setup item: the recommended sentence, or the user's (empty: the route asks). */
+  answers: { item: string; answer: string }[];
 }
 
 export interface RouteStep {

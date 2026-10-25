@@ -398,3 +398,17 @@ test("a repository no account can read says how to log in", async () => {
   // Nothing to confirm: Start is open.
   expect(byName(body, "start").disabled).toBe(false);
 });
+
+// A32: the custom path asks every setup item; the answers go in the setup.
+test("the custom path asks each setup item and sends the answers", async () => {
+  const f = await mountForm();
+  const { SETUP_QUESTIONS } = await import("../new-route.ts");
+  for (const [item] of SETUP_QUESTIONS) expect(byName(f.body, `custom-${item}`)).toBeDefined();
+  type(byName(f.body, "custom-Integration"), "one combined branch");
+  submit(f.body);
+  const s = f.sent[0]?.setup;
+  expect(s?.recommended).toBe(false);
+  expect(s?.answers.find((a) => a.item === "Integration")?.answer).toBe("one combined branch");
+  expect(s?.answers.find((a) => a.item === "Merge")?.answer).toBe("");
+  expect(s?.roles[0]?.role).toBe("orchestrator");
+});

@@ -9,6 +9,7 @@ import type {
   InboxState,
   RouteRequest,
   RouteRole,
+  RouteSetup,
   RouteStep,
   State,
 } from "./types.ts";
@@ -56,6 +57,8 @@ export interface RouteForm {
   recommended: boolean;
   /** The GitHub account the user confirmed for the route, or "" (A32). */
   ghAccount: string;
+  /** The custom path's answer to each setup item, by item name (A32). */
+  custom: Record<string, string>;
 }
 
 /**
@@ -277,6 +280,7 @@ export function initialForm(c: Catalog, st: State | null): RouteForm {
     inboxEdited: false,
     recommended: false,
     ghAccount: "",
+    custom: {},
   };
 }
 
@@ -427,11 +431,36 @@ export function formField(serverField: string | undefined): string {
   return map[serverField ?? ""] ?? serverField ?? "";
 }
 
-/** The route request with the confirmed GitHub account as its last line, for the orchestrator. */
-export function withAccount(request: string, account: string): string {
-  if (!account) return request;
-  const line = `GitHub account: ${account}.`;
-  return request ? `${request}\n\n${line}` : line;
+/** The setup items the custom path asks: the form's own fields cover the adjutant, checkpointer and account. */
+export const SETUP_QUESTIONS: [string, string][] = RECOMMENDED_SETUP.filter(
+  ([item]) => !["Adjutant", "Checkpointer", "GitHub account"].includes(item),
+);
+
+/** The setup the orchestrator receives (A32), with the effective checkpointer. */
+export function setupOf(f: RouteForm, c: Catalog): RouteSetup {
+  const roles = [
+    { role: f.role, runner: "herdr", harness: f.main.kind, model: modelOf(f.main), effort: f.main.effort },
+  ];
+  if (f.role === "adjutant") {
+    roles.push({
+      role: "orchestrator",
+      runner: "herdr",
+      harness: f.orch.kind,
+      model: modelOf(f.orch),
+      effort: f.orch.effort,
+    });
+  }
+  const s: RouteSetup = {
+    recommended: f.recommended,
+    checkpointer: checkpointerOn(f, c),
+    roles,
+    answers: SETUP_QUESTIONS.map(([item, text]) => ({
+      item,
+      answer: f.recommended ? text : (f.custom[item] ?? "").trim(),
+    })),
+  };
+  if (f.ghAccount) s.github_account = f.ghAccount;
+  return s;
 }
 
 /** The account choices of a probe: the accounts that can read the repository, the probed one marked. */
@@ -451,8 +480,9 @@ export function toRequest(f: RouteForm, c: Catalog): RouteRequest {
     model: modelOf(f.main),
     effort: f.main.effort,
     name: f.name,
-    request: withAccount(f.request, f.ghAccount),
+    request: f.request,
     checkpointer: { on: checkpointerOn(f, c), minutes: Number(f.minutes), limit: parseLimit(f.limit) ?? 0 },
+    setup: setupOf(f, c),
   };
   if (f.role === "adjutant") {
     r.orch_name = f.orchName;

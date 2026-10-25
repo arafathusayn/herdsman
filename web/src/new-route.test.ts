@@ -28,6 +28,8 @@ import {
   setHarness,
   setRecommended,
   setRole,
+  SETUP_QUESTIONS,
+  setupOf,
   skillWarnings,
   stepNote,
   tilde,
@@ -35,7 +37,6 @@ import {
   update,
   usePrevious,
   validate,
-  withAccount,
 } from "./new-route.ts";
 import type { Catalog, State } from "./types.ts";
 
@@ -300,6 +301,7 @@ test("the request body carries the form's values", () => {
     name: "orch-9",
     request: "",
     checkpointer: { on: true, minutes: 15, limit: 1000000 },
+    setup: setupOf(f, catalog),
   });
   const a = toRequest({ ...setRole(fresh(), "adjutant"), orchName: "o2" }, catalog);
   expect([a.orch_name, a.orch_kind, a.orch_model, a.orch_effort, a.route_name, a.inbox]).toEqual([
@@ -496,11 +498,32 @@ test("the confirmed GitHub account goes with the request", () => {
     ["user-b", "user-b (probed)"],
     ["user-c", "user-c"],
   ]);
-  expect(withAccount("ship it", "")).toBe("ship it");
-  expect(withAccount("ship it", "user-b")).toBe("ship it\n\nGitHub account: user-b.");
-  expect(withAccount("", "user-b")).toBe("GitHub account: user-b.");
+  // The account rides in the setup, not in the request text.
   const f = update(initialForm(catalog, null), { request: "x", ghAccount: "user-b" });
-  expect(toRequest(f, catalog).request).toBe("x\n\nGitHub account: user-b.");
+  expect(toRequest(f, catalog).request).toBe("x");
+  expect(toRequest(f, catalog).setup?.github_account).toBe("user-b");
+});
+
+test("the setup carries the recommended items or the custom answers, with effective values", () => {
+  const rec = { ...setRecommended(initialForm(catalog, null), catalog, true) };
+  const s = setupOf(rec, catalog);
+  expect(s.recommended).toBe(true);
+  expect(s.checkpointer).toBe(true);
+  expect(s.roles.map((r) => `${r.role}/${r.runner}/${r.harness}`)).toEqual([
+    `adjutant/herdr/${rec.main.kind}`,
+    `orchestrator/herdr/${rec.orch.kind}`,
+  ]);
+  expect(s.answers).toEqual(SETUP_QUESTIONS.map(([item, answer]) => ({ item, answer })));
+  expect(s.answers.map((a) => a.item)).not.toContain("Adjutant");
+  // The checkpointer is off when the skill's script is missing.
+  expect(setupOf(rec, { ...catalog, checkpointer_ok: false }).checkpointer).toBe(false);
+  // Custom: the user's answers; an unanswered item is empty, so the route asks.
+  const custom = { ...initialForm(catalog, null), custom: { Integration: " one combined branch " } };
+  const c = setupOf(custom, catalog);
+  expect(c.recommended).toBe(false);
+  expect(c.answers[0]).toEqual({ item: "Integration", answer: "one combined branch" });
+  expect(c.answers.slice(1).every((a) => a.answer === "")).toBe(true);
+  expect(c.answers.length).toBe(SETUP_QUESTIONS.length);
 });
 
 test("a provider/model id is a valid typed model", () => {
