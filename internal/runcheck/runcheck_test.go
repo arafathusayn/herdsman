@@ -469,13 +469,6 @@ func TestTryLockOnAClosedFile(t *testing.T) {
 	}
 }
 
-// run is runIn with the config's own clock and sleep.
-func run(c Config, args ...string) (string, string, int) {
-	var out, errb bytes.Buffer
-	code := Run(c, args, nil, &out, &errb)
-	return out.String(), errb.String(), code
-}
-
 // A25 strict settings: each numeric or duration setting is parsed once, at
 // start; a bad one is an error naming it, and nothing runs.
 func TestStrictSettings(t *testing.T) {
@@ -537,7 +530,7 @@ func TestPublishHoursAreStrict(t *testing.T) {
 	if code := Publish(c, "99999999999999", &errb); code != 0 || clock.Sub(start) != 24*time.Hour {
 		t.Errorf("huge hours clamp to a day: %d ran %v", code, clock.Sub(start))
 	}
-	clock, start = time.Now(), clock
+	clock = time.Now()
 	start = clock
 	if code := Publish(c, " 08 ", &errb); code != 0 || clock.Sub(start) != 8*time.Hour {
 		t.Errorf("08 hours is 8 (A26: not an octal error): %d ran %v", code, clock.Sub(start))
