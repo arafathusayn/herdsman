@@ -7,6 +7,8 @@ import (
 	"io"
 	"math"
 	"os"
+	"strconv"
+	"strings"
 )
 
 // The transcript reader streams: it finds the start of the last 400 lines
@@ -18,7 +20,11 @@ import (
 const (
 	scanBuf  = 64 << 10
 	maxDepth = 10000
-	keepStr  = 64 // longer strings are checked but not kept
+	// keepRaw bounds the raw spelling of a kept string. Every wanted key and
+	// value is ASCII of at most 40 bytes, and each ASCII character takes at
+	// most 6 raw bytes (\uXXXX), so a longer spelling can never equal one:
+	// it is checked to its end but not kept.
+	keepRaw = 6 * 64
 )
 
 // lastLinesStart is the offset of the first of the last n lines of f.
@@ -65,21 +71,47 @@ type capture struct {
 	ok    bool // the number is a whole non-negative int64
 }
 
-// wanted are the fields the reading needs, by path.
-var wanted = map[string]bool{
-	"": true, "type": true, "isSidechain": true, "message": true, "message.usage": true,
-	"message.usage.input_tokens": true, "message.usage.cache_creation_input_tokens": true,
-	"message.usage.cache_read_input_tokens": true, "payload": true, "payload.type": true,
-	"payload.info": true, "payload.info.last_token_usage": true, "payload.info.last_token_usage.input_tokens": true,
+// A path is kept encoded, each member name as <length>:<name>, so a member
+// named "message.usage" or "" is never taken for a nested field, and the
+// encoding of a field starts with the encoding of each of its parents.
+func segment(name string) string { return strconv.Itoa(len(name)) + ":" + name }
+
+func encode(dotted string) string {
+	if dotted == "" {
+		return ""
+	}
+	var b strings.Builder
+	for s := range strings.SplitSeq(dotted, ".") {
+		b.WriteString(segment(s))
+	}
+	return b.String()
 }
 
-// parents are the paths whose members can be wanted.
-var parents = map[string]bool{"": true, "message": true, "message.usage": true, "payload": true, "payload.info": true, "payload.info.last_token_usage": true}
+// fieldNames are the fields the reading needs ("" is the line's value).
+var fieldNames = []string{"", "type", "isSidechain", "message", "message.usage",
+	"message.usage.input_tokens", "message.usage.cache_creation_input_tokens", "message.usage.cache_read_input_tokens",
+	"payload", "payload.type", "payload.info", "payload.info.last_token_usage", "payload.info.last_token_usage.input_tokens"}
+
+// wanted maps an encoded path to its field name; parents are the encoded
+// paths whose members can be wanted.
+var wanted, parents = func() (map[string]string, map[string]bool) {
+	w, p := map[string]string{}, map[string]bool{}
+	for _, n := range fieldNames {
+		w[encode(n)] = n
+		if i := strings.LastIndexByte(n, '.'); i >= 0 {
+			p[encode(n[:i])] = true
+		} else if n != "" {
+			p[""] = true
+		}
+	}
+	return w, p
+}()
 
 type lineReader struct {
 	r    *bufio.Reader
-	got  map[string]capture
-	done bool // the file ended
+	got  map[string]capture // by field name
+	done bool               // the file ended
+	eol  bool               // the line's newline was read
 }
 
 func (l *lineReader) peek() (byte, error) {
@@ -90,7 +122,15 @@ func (l *lineReader) peek() (byte, error) {
 	return b[0], nil
 }
 
-func (l *lineReader) byte() (byte, error) { return l.r.ReadByte() }
+// byte reads one byte and notes a newline, so a parse that stops on it
+// never skips the next line.
+func (l *lineReader) byte() (byte, error) {
+	b, err := l.r.ReadByte()
+	if err == nil && b == '\n' {
+		l.eol = true
+	}
+	return b, err
+}
 
 // space skips blanks inside a line; a newline ends the line, so it is not
 // a blank here.
@@ -104,15 +144,11 @@ func (l *lineReader) space() {
 	}
 }
 
-// rest skips to the end of the line.
+// rest skips to the end of the line, unless its newline was already read.
 func (l *lineReader) rest() {
-	for {
-		b, err := l.byte()
-		if err != nil {
+	for !l.eol {
+		if _, err := l.byte(); err != nil {
 			l.done = true
-			return
-		}
-		if b == '\n' {
 			return
 		}
 	}
@@ -122,6 +158,7 @@ func (l *lineReader) rest() {
 // not exactly one JSON value.
 func (l *lineReader) line() (bool, error) {
 	l.got = map[string]capture{}
+	l.eol = false
 	l.space()
 	b, err := l.peek()
 	if err != nil {
@@ -132,7 +169,7 @@ func (l *lineReader) line() (bool, error) {
 		_, _ = l.byte()
 		return false, nil
 	}
-	if err := l.value("", 0); err != nil {
+	if err := l.value("", true, 0); err != nil {
 		l.rest()
 		return true, errLine
 	}
@@ -148,13 +185,24 @@ func (l *lineReader) line() (bool, error) {
 	return true, nil
 }
 
+// keep records the value that starts at a wanted path, and drops what an
+// earlier value at that path left below it (a repeated member replaces the
+// whole earlier one, as a JSON reader does).
 func (l *lineReader) keep(path string, c capture) {
-	if wanted[path] {
-		l.got[path] = c
+	name, ok := wanted[path]
+	if !ok {
+		return
 	}
+	for k := range l.got {
+		if k != name && (name == "" || strings.HasPrefix(k, name+".")) {
+			delete(l.got, k)
+		}
+	}
+	l.got[name] = c
 }
 
-func (l *lineReader) value(path string, depth int) error {
+// value reads one value at path (tracked: the path can hold a wanted field).
+func (l *lineReader) value(path string, tracked bool, depth int) error {
 	if depth > maxDepth {
 		return errLine
 	}
@@ -163,20 +211,25 @@ func (l *lineReader) value(path string, depth int) error {
 	if err != nil {
 		return errLine
 	}
+	keep := func(c capture) {
+		if tracked {
+			l.keep(path, c)
+		}
+	}
 	switch {
 	case b == '{':
-		l.keep(path, capture{kind: 'o'})
-		return l.object(path, depth)
+		keep(capture{kind: 'o'})
+		return l.object(path, tracked && parents[path], depth)
 	case b == '[':
-		l.keep(path, capture{kind: 'a'})
-		return l.array(path, depth)
+		keep(capture{kind: 'a'})
+		return l.array(depth)
 	case b == '"':
 		s, long, err := l.str()
-		l.keep(path, capture{kind: 's', str: s, long: long})
+		keep(capture{kind: 's', str: s, long: long})
 		return err
-	case b == '-' || b >= '0' && b <= '9':
+	case b == '-' || isDigit(b):
 		n, ok, err := l.number()
-		l.keep(path, capture{kind: 'n', count: n, ok: ok})
+		keep(capture{kind: 'n', count: n, ok: ok})
 		return err
 	}
 	for _, lit := range []string{"true", "false", "null"} {
@@ -186,21 +239,16 @@ func (l *lineReader) value(path string, depth int) error {
 					return errLine
 				}
 			}
-			l.keep(path, capture{kind: map[byte]byte{'t': 't', 'f': 'f', 'n': 'z'}[b]})
+			keep(capture{kind: map[byte]byte{'t': 't', 'f': 'f', 'n': 'z'}[b]})
 			return nil
 		}
 	}
 	return errLine
 }
 
-func join(path, key string) string {
-	if path == "" {
-		return key
-	}
-	return path + "." + key
-}
-
-func (l *lineReader) object(path string, depth int) error {
+// object reads an object at path; its members are tracked when the path is
+// a parent of wanted fields.
+func (l *lineReader) object(path string, tracked bool, depth int) error {
 	_, _ = l.byte() // {
 	l.space()
 	if b, err := l.peek(); err == nil && b == '}' {
@@ -220,28 +268,22 @@ func (l *lineReader) object(path string, depth int) error {
 		if c, err := l.byte(); err != nil || c != ':' {
 			return errLine
 		}
-		sub := "\x00" // a path no field matches
-		if parents[path] && !long {
-			sub = join(path, key)
-		}
-		if err := l.value(sub, depth+1); err != nil {
+		if err := l.value(path+segment(key), tracked && !long, depth+1); err != nil {
 			return err
 		}
 		l.space()
 		c, err := l.byte()
-		if err != nil {
+		if err != nil || c != '}' && c != ',' {
 			return errLine
 		}
 		if c == '}' {
 			return nil
 		}
-		if c != ',' {
-			return errLine
-		}
 	}
 }
 
-func (l *lineReader) array(path string, depth int) error {
+// array reads an array; no wanted field is inside one.
+func (l *lineReader) array(depth int) error {
 	_, _ = l.byte() // [
 	l.space()
 	if b, err := l.peek(); err == nil && b == ']' {
@@ -249,25 +291,23 @@ func (l *lineReader) array(path string, depth int) error {
 		return nil
 	}
 	for {
-		if err := l.value("\x00", depth+1); err != nil {
+		if err := l.value("", false, depth+1); err != nil {
 			return err
 		}
 		l.space()
 		c, err := l.byte()
-		if err != nil {
+		if err != nil || c != ']' && c != ',' {
 			return errLine
 		}
 		if c == ']' {
 			return nil
 		}
-		if c != ',' {
-			return errLine
-		}
 	}
 }
 
-// str reads a string: its value when short (long reports a longer one,
-// which is checked to its end but not kept).
+// str reads a string: its decoded value when its spelling is at most
+// keepRaw bytes (long reports a longer one, which is checked to its end
+// but not kept).
 func (l *lineReader) str() (string, bool, error) {
 	_, _ = l.byte() // "
 	raw := []byte{'"'}
@@ -306,7 +346,7 @@ func (l *lineReader) str() (string, bool, error) {
 				}
 			}
 		}
-		if len(raw) > keepStr {
+		if len(raw) > keepRaw {
 			long, raw = true, nil
 		}
 	}
@@ -314,9 +354,7 @@ func (l *lineReader) str() (string, bool, error) {
 		return "", true, nil
 	}
 	var s string
-	if json.Unmarshal(raw, &s) != nil {
-		return "", false, errLine
-	}
+	_ = json.Unmarshal(raw, &s) // checked above: a valid JSON string
 	return s, false, nil
 }
 
