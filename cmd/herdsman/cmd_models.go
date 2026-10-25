@@ -23,11 +23,14 @@ const modelsUsage = `usage: herdsman models [--harness <kind>] [--json]
        herdsman models last [--json]
        herdsman models save --role <role> [--runner herdr|subagent] --harness <kind> --model <model> [--effort <effort>] [--route <name>]
 
-Asks each harness (claude, codex), or the one --harness names, for its
-version and its models as the harness itself reports them, in its order
+Asks each harness (claude, codex, and the installed ones of muse, agy,
+gemini, opencode, cursor), or the one --harness names, for its version and
+its models as the harness itself reports them, in its order
 (the newest first where it gives one), with each model's efforts and the
 default effort the harness reports ("none" when it reports none), and the
-harness's model page. A harness that is missing or fails gets one line
+harness's model page. A harness whose help lists no models gets one line:
+its --model option, the efforts its help lists and "models: from the
+harness's own list". A harness that is missing or fails gets one line
 saying so; the others still print. --json prints one object
 {"harnesses": [{"kind","version","docs_url","models","error"}]}.
 
@@ -76,11 +79,12 @@ func runModels(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, modelsUsage)
 		return 0
 	}
-	kinds := catalog.Probed
+	all := append(slices.Clone(catalog.Probed), catalog.OtherKinds...)
+	kinds := all
 	if *one != "" {
 		kinds = []string{*one}
 	}
-	if err != nil || fs.NArg() > 0 || (*one != "" && !slices.Contains(catalog.Probed, *one)) {
+	if err != nil || fs.NArg() > 0 || (*one != "" && !slices.Contains(all, *one)) {
 		fmt.Fprint(stderr, modelsUsage)
 		return 2
 	}
@@ -91,6 +95,10 @@ func runModels(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		h := catalog.Probe(ctx, modelsRunner, k)
 		cancel()
 		answered = answered || h.Error == ""
+		// Of the other kinds, only the installed ones are listed unless named.
+		if *one == "" && h.Error == "not found on PATH" && !slices.Contains(catalog.Probed, k) {
+			continue
+		}
 		rep.Harnesses = append(rep.Harnesses, h)
 	}
 	if *asJSON {
@@ -110,6 +118,18 @@ func runModels(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 func writeHarness(w io.Writer, h catalog.Harness) {
 	if h.Error != "" {
 		fmt.Fprintf(w, "%s: %s\n", h.Kind, h.Error)
+		return
+	}
+	if h.Note != "" {
+		flagText := "no --model option"
+		if h.ModelFlag {
+			flagText = "--model"
+		}
+		efforts := "efforts: none listed"
+		if len(h.Efforts) > 0 {
+			efforts = "efforts: " + strings.Join(h.Efforts, ", ") + "; default: " + orNone(h.DefaultEffort)
+		}
+		fmt.Fprintf(w, "%s %s: %s; %s; %s\n", h.Kind, h.Version, flagText, efforts, h.Note)
 		return
 	}
 	fmt.Fprintf(w, "%s %s (models: %s)\n", h.Kind, h.Version, h.DocsURL)

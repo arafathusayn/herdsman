@@ -146,3 +146,29 @@ func TestWebChoices(t *testing.T) {
 		t.Error("a store without a config folder")
 	}
 }
+
+// The other kinds: the installed ones print one line from their --help; a
+// named missing one says so.
+func TestModelsOtherKinds(t *testing.T) {
+	fakeHarnesses(t, "codex")
+	bin := filepath.SplitList(os.Getenv("PATH"))[0]
+	help, err := os.ReadFile(filepath.Join("..", "..", "internal", "catalog", "catalogdata", "agy-help.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "agy-help.txt"), help, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\ncase \"$1\" in --version) echo 'agy 1.0';; --help) while IFS= read -r l; do printf '%s\\n' \"$l\"; done < '" + filepath.Join(bin, "agy-help.txt") + "';; esac\n"
+	if err := os.WriteFile(filepath.Join(bin, "agy"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, _, code := call(t, "models")
+	if code != 0 || !strings.Contains(out, "\nagy agy 1.0: --model; efforts: low, medium, high, xhigh, max; default: none; models: from the harness's own list (agy models)\n") || strings.Contains(out, "gemini") {
+		t.Fatalf("%d %q", code, out)
+	}
+	out, _, code = call(t, "models", "--harness", "gemini")
+	if code != 1 || out != "gemini: not found on PATH\n" {
+		t.Errorf("%d %q", code, out)
+	}
+}

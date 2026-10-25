@@ -133,3 +133,58 @@ func TestExecRunner(t *testing.T) {
 		t.Errorf("%q %v", out, err)
 	}
 }
+
+// The other kinds' real --help output, recorded under catalogdata/.
+func helpFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("catalogdata", name+"-help.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestParseHelp(t *testing.T) {
+	for _, tc := range []struct {
+		kind, program string
+		flag          bool
+		efforts       string
+		def, note     string
+	}{
+		{"muse", "muse", true, "none,minimal,low,medium,high,xhigh,max,ultra", "high", "models: from the harness's own list"},
+		{"agy", "agy", true, "low,medium,high,xhigh,max", "", "models: from the harness's own list (agy models)"},
+		{"gemini", "gemini", true, "", "", "models: from the harness's own list"},
+		{"opencode", "opencode", true, "", "", "models: from the harness's own list (opencode models)"},
+		{"cursor", "cursor-agent", true, "", "", "models: from the harness's own list"},
+	} {
+		h := ParseHelp(tc.kind, tc.program, helpFixture(t, tc.program))
+		if h.ModelFlag != tc.flag || strings.Join(h.Efforts, ",") != tc.efforts || h.DefaultEffort != tc.def || h.Note != tc.note || h.Models != nil {
+			t.Errorf("%s: %+v", tc.kind, h)
+		}
+	}
+	if h := ParseHelp("x", "x", []byte("usage: x\n  --verbose  talk\n")); h.ModelFlag || h.Efforts != nil {
+		t.Errorf("%+v", h)
+	}
+}
+
+func TestProbeOtherKinds(t *testing.T) {
+	out := map[string]string{"muse --help": string(helpFixture(t, "muse")), "muse --version": "muse 1.0\n", "cursor-agent --help": string(helpFixture(t, "cursor-agent"))}
+	h := Probe(context.Background(), fake(out, nil), "muse")
+	if h.Error != "" || h.Version != "muse 1.0" || h.DefaultEffort != "high" {
+		t.Errorf("%+v", h)
+	}
+	if h := Probe(context.Background(), fake(out, map[string]error{"cursor-agent --version": errors.New("x")}), "cursor"); h.Version != "unknown" || !h.ModelFlag {
+		t.Errorf("%+v", h)
+	}
+	if h := Probe(context.Background(), fake(out, map[string]error{"agy": exec.ErrNotFound}), "agy"); h.Error != "not found on PATH" {
+		t.Errorf("%+v", h)
+	}
+	if h := Probe(context.Background(), fake(out, map[string]error{"gemini --help": errors.New("exit status 1")}), "gemini"); h.Error != "gemini --help: exit status 1" {
+		t.Errorf("%+v", h)
+	}
+	for _, k := range OtherKinds {
+		if Others[k] == "" {
+			t.Errorf("%s has no program", k)
+		}
+	}
+}
