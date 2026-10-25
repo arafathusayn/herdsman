@@ -1,6 +1,7 @@
 package message
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -67,8 +68,13 @@ func (e *Env) alertLock(key string) *inbox.Lock {
 // incident already sent stays quiet; a new one is recorded pending and
 // attempted.
 func (e *Env) notify(key, title, body string) error {
-	l := e.alertLock(key)
+	// Another process may hold this incident's lock for a moment: wait for
+	// it (LOCK_WAIT tries, a second apart) instead of dropping the new
+	// incident (A26, D13). A lock that stays busy is said, not swallowed.
+	l := e.hold(inbox.TryDir(e.alert(key, ".lock"), max(e.ch.LockWait, 1), e.sleep))
 	if l == nil {
+		_ = e.ch.LogLine("ALERT " + key + " not recorded: its lock stays busy")
+		fmt.Fprintf(e.Stderr, "WARNING alert %s not recorded; its lock stays busy\n", key)
 		return nil
 	}
 	defer e.release(l)

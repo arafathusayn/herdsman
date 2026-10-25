@@ -207,7 +207,8 @@ func (e *Env) send(args []string) error {
 	if !inbox.Bounded(e.ch.Dir, tmpName) {
 		return die("encoded envelope too large or invalid; not queued")
 	}
-	if err := os.WriteFile(e.path("ids", id, "envelope"), data, 0o600); err != nil {
+	// Atomic (A26, D12): a crash never leaves a torn allocation copy.
+	if err := e.ch.Atomic(e.path("ids", id, "envelope"), data); err != nil {
 		return die("cannot record the allocation copy")
 	}
 	if err := e.ch.MoveUnique(tmpName, filepath.Join(box, "new", id+".md")); err != nil {

@@ -139,30 +139,58 @@ func (e *Env) wait(args []string) error {
 				}
 			}
 			flagText := strings.Join(flags, "\n")
-			text := strings.Join(found, "\n") + "\n" + notices + "\n" + strconv.Itoa(pending) + "\n" + flagText + "\n" + fault + "\n"
-			fingerprint := inbox.Digest([]byte(text))
+			// Three parts, each with its own fingerprint (A26, D1): a new
+			// message is a MESSAGE even while a health flag stays set, and
+			// a health event needs a change of the flags themselves.
+			msgPart := strings.Join(found, "\n") + "\n"
+			healthPart := flagText + "\n" + fault + "\n"
+			otherPart := notices + "\n" + strconv.Itoa(pending) + "\n"
+			fingerprint := inbox.Digest([]byte(msgPart)) + " " + inbox.Digest([]byte(healthPart)) + " " + inbox.Digest([]byte(otherPart))
 			state := e.path("state", "wait-"+me)
 			previous := ""
 			if inbox.Regular(e.ch.Dir, state) {
 				previous = inbox.CatText(state)
 			}
 			if previous != fingerprint {
+				prev := strings.Fields(previous)
+				if len(prev) != 3 {
+					prev = []string{"", "", ""}
+				}
+				now := strings.Fields(fingerprint)
+				var report func() error
+				switch {
+				case prev[0] != now[0] && len(found) > 0:
+					report = func() error {
+						e.event(WaitEvent{Event: "message", Name: me}, fmt.Sprintf("MESSAGE %s: run herdsman message read", me))
+						return nil
+					}
+				case prev[1] != now[1] && flagText+fault != "":
+					report = func() error {
+						e.event(WaitEvent{Event: "health", Flags: flags, Fault: fault}, fmt.Sprintf("HEALTH %s %s", flagText, fault))
+						return exitWith(1)
+					}
+				case prev[2] != now[2] && notices != "":
+					report = func() error {
+						e.event(WaitEvent{Event: "health", Reason: "sender_notice"}, "HEALTH sender notice; inspect herdsman message status")
+						return exitWith(1)
+					}
+				case prev[2] != now[2] && pending > 0:
+					report = func() error {
+						e.event(WaitEvent{Event: "health", Reason: "pending_delivery"}, "HEALTH pending delivery; inspect herdsman message status")
+						return exitWith(1)
+					}
+				}
+				if report != nil {
+					// Report first, then record (A26, D2): a waiter stopped
+					// between the two reports the change again, never loses it.
+					result := report()
+					if err := e.ch.WriteText(state, fingerprint); err != nil {
+						return writeFailed(err)
+					}
+					return result
+				}
 				if err := e.ch.WriteText(state, fingerprint); err != nil {
 					return writeFailed(err)
-				}
-				switch {
-				case flagText+fault != "":
-					e.event(WaitEvent{Event: "health", Flags: flags, Fault: fault}, fmt.Sprintf("HEALTH %s %s", flagText, fault))
-					return exitWith(1)
-				case len(found) > 0:
-					e.event(WaitEvent{Event: "message", Name: me}, fmt.Sprintf("MESSAGE %s: run herdsman message read", me))
-					return nil
-				case notices != "":
-					e.event(WaitEvent{Event: "health", Reason: "sender_notice"}, "HEALTH sender notice; inspect herdsman message status")
-					return exitWith(1)
-				case pending > 0:
-					e.event(WaitEvent{Event: "health", Reason: "pending_delivery"}, "HEALTH pending delivery; inspect herdsman message status")
-					return exitWith(1)
 				}
 			}
 			next = t + int64(recheck)

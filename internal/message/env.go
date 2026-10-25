@@ -45,15 +45,15 @@ type Env struct {
 	// Ctx bounds herdr calls (nil: background).
 	Ctx context.Context
 
-	ch    *inbox.Channel
+	ch      *inbox.Channel
 	mu      sync.Mutex // guards locks and drained: a signal handler releases them
 	locks   []*inbox.Lock
 	drained bool // releaseAll ran: a lock missing from locks is already free
 
 	// Parsed common settings (commonSettings).
-	settingsDone             bool
-	healthAfter, lockWait    string
-	eventReadMax             int
+	settingsDone          bool
+	healthAfter, lockWait string
+	eventReadMax          int
 }
 
 func (e *Env) ctx() context.Context {

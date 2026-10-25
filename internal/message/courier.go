@@ -404,6 +404,9 @@ func (c *courier) sweep() error {
 	if err := r.SafeTouch(e.path("state", "heartbeat")); err != nil {
 		return err
 	}
+	if err := c.pruneRings(); err != nil {
+		return err
+	}
 	e.retryAlerts()
 	if !e.ch.ProofValid() {
 		r.ProofStale = true
@@ -631,4 +634,29 @@ func registrySummary(paths ...string) string {
 		out = out[:300]
 	}
 	return strings.TrimRight(string(out), "\n")
+}
+
+// ringMaxAge is how long a state/ring-<key> marker is kept. A marker only
+// stops a repeated ring event from sweeping again; the sweep itself
+// delivers by scanning, so an old marker has no further use.
+const ringMaxAge = 3600
+
+// pruneRings removes ring markers older than ringMaxAge (A26, D8: the
+// script kept one marker per ring forever).
+func (c *courier) pruneRings() error {
+	e := c.Env
+	rings, err := glob(e.path("state"), "ring-*")
+	if err != nil {
+		return err
+	}
+	now := e.unix()
+	for _, p := range rings {
+		if !inbox.RegularFile(p) {
+			continue
+		}
+		if stamp, err := inbox.Mtime(p); err == nil && now-stamp > ringMaxAge {
+			_ = os.Remove(p)
+		}
+	}
+	return nil
 }
