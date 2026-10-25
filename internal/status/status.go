@@ -83,7 +83,7 @@ type Options struct {
 var (
 	bgRe = regexp.MustCompile(`(running|workflow).*[0-9]+(m|h) ?[0-9]*s?`)
 	// durationRe is one elapsed time: "1h 02m", "23m 45s", "2h".
-	durationRe = regexp.MustCompile(`(?:\b([0-9]+)h ?)?\b([0-9]+)m(?: ?[0-9]+s)?|\b([0-9]+)h\b`)
+	durationRe = regexp.MustCompile(`(?:\b([0-9]+)h ?|\b)([0-9]+)m(?: ?[0-9]+s)?|\b([0-9]+)h\b`)
 	fgRe       = regexp.MustCompile(`Thinking|Calling tools|esc to interrupt`)
 	leadRe     = regexp.MustCompile(`^[^A-Za-z]*`)
 )

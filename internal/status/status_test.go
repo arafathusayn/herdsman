@@ -165,10 +165,29 @@ func TestBackgroundRowElapsedTime(t *testing.T) {
 		{"└ ◆ 3h job  running  1h 08m", 68},
 		{"└ ◆ short  running  08m 1s", 8},
 		{"└ ◆ hours  running  2h", 120},
+		{"└ ◆ job running 1h02m", 62}, {"└ ◆ job running 1h08m", 68}, {"└ ◆ job running 1h02m 5s", 62},
 		{"└ ◆ huge  running  99999999999999999999m", maxMinutes},
 	} {
 		if got := elapsedMinutes(tc.row); got != tc.mins {
 			t.Errorf("%q: %d, want %d", tc.row, got, tc.mins)
 		}
+	}
+}
+
+// R5 finding 1: compact durations (1h02m) in a whole snapshot, and the
+// flag the waiter's health check reads from it.
+func TestCompactDurationsInTheSnapshot(t *testing.T) {
+	srv := herdrtest.Start(t)
+	fx := herdrtest.Serve(srv)
+	a := herdrtest.Agent("w9:p1", "s")
+	a["name"], a["agent_status"] = "im-a", "working"
+	fx.SetAgent("w9:p1", a)
+	fx.SetScreen("w9:p1", "└ ◆ job running 1h02m\n└ ◆ other running 1h08m\n")
+	out := snapshot(t, Options{Specs: ParseSpecs("im-a:w9:p1:"), LimitMin: 30, Client: herdr.New(srv.Socket), Now: time.Now(),
+		Machine: Machine{Load5: "0.10", CPUs: "8", Free: "50"}})
+	match(t, "1h02m is 62 minutes, over 30", `^   bg: job running 1h02m \[62m\]  <-- OVER 30m$`, out)
+	match(t, "1h08m is 68 minutes", `^   bg: other running 1h08m \[68m\]  <-- OVER 30m$`, out)
+	if f := Flags(out); len(f) != 1 || f[0] != "im-a OVER 30m" {
+		t.Errorf("health flags %q", f)
 	}
 }
