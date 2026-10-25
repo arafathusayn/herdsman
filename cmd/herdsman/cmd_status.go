@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -46,6 +47,7 @@ func statusSnapshot(ctx context.Context, w io.Writer, specs string) {
 }
 
 func runStatus(args []string, _ io.Reader, stdout, stderr io.Writer) int {
+	args, asJSON := takeJSON(args)
 	if len(args) > 0 {
 		fmt.Fprintln(stderr, "usage: herdsman status (set HERDSMAN_STATUS_SPECS)")
 		return 2
@@ -61,6 +63,12 @@ func runStatus(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	if asJSON {
+		var b bytes.Buffer
+		statusSnapshot(ctx, &b, specs)
+		_, _ = stdout.Write(statusJSON(b.String()))
+		return 0
+	}
 	statusSnapshot(ctx, stdout, specs)
 	return 0
 }

@@ -26,6 +26,10 @@ func signalContext() (context.Context, context.CancelFunc) {
 }
 
 func runWait(args []string, _ io.Reader, stdout, stderr io.Writer) int {
+	args, asJSON := takeJSON(args)
+	if asJSON {
+		stdout = newEventJSON(stdout)
+	}
 	if len(args) > 0 {
 		fmt.Fprintln(stderr, "usage: herdsman wait (settings in the environment)")
 		return 2
@@ -43,6 +47,10 @@ func runWait(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 const watchUsage = "usage: herdsman watch implementers|reviewer|prs (settings in the environment)"
 
 func runWatch(args []string, _ io.Reader, stdout, stderr io.Writer) int {
+	args, asJSON := takeJSON(args)
+	if asJSON {
+		stdout = newEventJSON(stdout)
+	}
 	if len(args) != 1 {
 		fmt.Fprintln(stderr, watchUsage)
 		return 2
