@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
 // PRs is the pull request watcher (`herdsman watch prs`, from
@@ -38,10 +40,21 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 	prs := strings.Fields(env.get("HERDSMAN_PRS"))
 	repo := env.get("HERDSMAN_REPO")
 	st := state(env.get("HERDSMAN_PR_STATE"))
-	interval := atoi(env.or("HERDSMAN_PR_INTERVAL", "120"))
-	deadlineText := env.or("HERDSMAN_PR_DEADLINE", "1500")
-	deadline := testInt(deadlineText)
+	durs, err := readSettings(env, []durSpec{{"HERDSMAN_PR_INTERVAL", 120 * time.Second, true}, {"HERDSMAN_PR_DEADLINE", 1500 * time.Second, false}})
 	wake := env.or("HERDSMAN_PR_WAKE_CHECKS", "claude-review|test")
+	var wanted *regexp.Regexp
+	if err == nil {
+		// The script handed this to grep -E; a pattern that does not compile is a bad setting.
+		pattern := `^check .*=(FAILURE|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE|ERROR)$|^check (` + wake + `)=SUCCESS$`
+		if wanted, err = regexp.Compile(pattern); err != nil {
+			err = &settings.Error{Var: "HERDSMAN_PR_WAKE_CHECKS", Reason: "not a pattern", Got: wake}
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(d.Stderr, "herdsman watch prs: %v\n", err)
+		return settings.ExitInvalid
+	}
+	interval, deadline := durs[0], durs[1]
 	_ = os.MkdirAll(string(st), 0o755)
 	var ghEnv []string
 	if account := env.get("HERDSMAN_GH_ACCOUNT"); account != "" {
@@ -52,7 +65,6 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 		}
 		ghEnv = []string{"GH_TOKEN=" + strings.TrimSpace(string(tok))}
 	}
-	wanted := regexp.MustCompile(`^check .*=(FAILURE|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE|ERROR)$|^check (` + wake + `)=SUCCESS$`)
 	start := d.Now()
 	for {
 		var events []string
@@ -60,7 +72,7 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 			snap, err := snapshot(ctx, d, ghEnv, repo, n)
 			if err != nil {
 				// A failed read is not "no change". Count the failed polls in a row.
-				failed := atoi(st.read("fail-"+n)) + 1
+				failed := count(st, "fail-"+n, d.Stderr, "watch prs") + 1
 				st.write("fail-"+n, strconv.Itoa(failed)+"\n")
 				if failed >= 3 {
 					for _, e := range events {
@@ -111,7 +123,7 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 			fmt.Fprintf(d.Stdout, "at %s\n", clock(d.Now()))
 			return 0
 		}
-		if int(d.Now().Sub(start)/time.Second) >= deadline {
+		if d.Now().Sub(start) >= deadline {
 			var unread []string
 			for _, n := range prs {
 				if st.has("fail-" + n) {
@@ -122,10 +134,10 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 			if len(unread) > 0 {
 				note = " (not read: " + strings.Join(unread, " ") + ")"
 			}
-			fmt.Fprintf(d.Stdout, "TICK no PR change%s in %ss %s\n", note, deadlineText, clock(d.Now()))
+			fmt.Fprintf(d.Stdout, "TICK no PR change%s in %ds %s\n", note, int64(deadline/time.Second), clock(d.Now()))
 			return 0
 		}
-		if !d.Sleep(time.Duration(interval) * time.Second) {
+		if !d.Sleep(interval) {
 			return 0
 		}
 	}

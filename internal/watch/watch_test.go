@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"os"
@@ -249,8 +250,9 @@ func TestWaiter(t *testing.T) {
 	match(t, "E10b report event", `REPORT b `, out)
 	noMatch(t, "E10c no overdue after the report", `OVERDUE`, out)
 	delete(h.env, "HERDSMAN_DUE_im_b")
-	out = h.wait("HERDSMAN_DUE_im_b", "soon")
-	noMatch(t, "E10d (Go) a due time that is no number never fires", `OVERDUE`, out)
+	if out, code := h.run(Wait, "DEADLINE", "0", "POLL", "1", "HERDSMAN_DUE_im_b", "soon"); code != 2 || !strings.HasPrefix(out, "herdsman wait: HERDSMAN_DUE_im_b: ") {
+		t.Errorf("E10d (A25) a due time that is no number is an invalid setting: %d %q", code, out)
+	}
 
 	h.env["HERDSMAN_INTEGRATOR"], h.env["HERDSMAN_PANE_int_1"], h.env["HERDSMAN_TASK_int_1"] = "int-1", "w9:p4", "i"
 	out = h.wait()
@@ -472,46 +474,111 @@ func TestReviewsInABracketedFolder(t *testing.T) {
 	}
 }
 
-// R3 sweep (b): the waiter reads DEADLINE, HERDSMAN_HEALTH_EVERY and the
-// due times as test reads an integer; a value test refuses never holds.
-func TestWaiterShellNumbers(t *testing.T) {
+// A25: the waiter's settings are strict; padded and leading-zero values
+// read as test reads them, anything else is one line and exit 2.
+func TestWaiterStrictSettings(t *testing.T) {
 	h := newHarness(t)
 	h.screen("w9:p1", "• Working (1s • esc to interrupt)")
 	h.screen("w9:p2", "Pursuing goal (1m)")
 	h.screen("w9:p3", "· Incubating…")
 	match(t, "a padded DEADLINE", `^TICK no event`, h.wait("DEADLINE", " 0 "))
 	match(t, "a DEADLINE of 00", `^TICK no event`, h.wait("DEADLINE", "00"))
-	noMatch(t, "a DEADLINE that test refuses never ends the wait", `TICK`, h.wait("DEADLINE", "0x0"))
-	// HEALTH_EVERY: padded, and refused.
+	for _, tc := range [][3]string{
+		{"DEADLINE", "0x0", "not a duration"}, {"DEADLINE", "-1", "not a duration"}, {"POLL", "0", "must be at least 1 second"},
+		{"POLL", "x", "not a duration"}, {"HERDSMAN_HEALTH_EVERY", "x", "not a duration"}, {"HEALTH_EVERY", "1/0", "not a duration"},
+		{"HERDSMAN_DUE_im_a", "soon", "not a whole number"},
+	} {
+		extra := []string{"DEADLINE", "0", "POLL", "1", tc[0], tc[1]}
+		if tc[0] == "HEALTH_EVERY" {
+			extra = append(extra, "HERDSMAN_HEALTH_EVERY", "\x00")
+		}
+		out, code := h.run(Wait, extra...)
+		want := fmt.Sprintf("herdsman wait: %s: %s", tc[0], tc[2])
+		if code != 2 || !strings.HasPrefix(out, want) || !strings.HasSuffix(out, fmt.Sprintf("(got %q)\n", tc[1])) || strings.Count(out, "\n") != 1 {
+			t.Errorf("%s=%q: %d %q", tc[0], tc[1], code, out)
+		}
+	}
+	// A huge DEADLINE clamps to a day instead of overflowing.
+	noMatch(t, "a huge DEADLINE", `TICK|herdsman wait`, h.wait("DEADLINE", "99999999999999999999"))
 	h.env["HERDSMAN_STATUS_SPECS"] = "im-a:w9:p1:"
 	h.status = "12:00:00\nmachine: load 9.00 (5 min) on 8 cores, memory free 50%\n   <-- LOAD HIGH\n"
 	h.wait("HERDSMAN_HEALTH_EVERY", " 0")
 	match(t, "a padded HERDSMAN_HEALTH_EVERY", `HEALTH machine LOAD HIGH`, h.wait("HERDSMAN_HEALTH_EVERY", " 0"))
-	h.status = "12:00:00\nmachine: load 9.00 (5 min) on 8 cores, memory free 5%\n   <-- MEMORY LOW\n"
-	noMatch(t, "a HERDSMAN_HEALTH_EVERY that test refuses never runs the check", `HEALTH`, h.wait("HERDSMAN_HEALTH_EVERY", "x"))
 	delete(h.env, "HERDSMAN_STATUS_SPECS")
-	// A padded due time.
 	past := strconv.FormatInt(h.now.Add(-time.Hour).Unix(), 10)
 	match(t, "a padded due time is overdue", `OVERDUE im-a due `, h.wait("HERDSMAN_DUE_im_a", " "+past))
 }
 
-// R3 sweep (b): HERDSMAN_PR_DEADLINE as test reads it, printed as written.
-func TestPRWatcherShellNumbers(t *testing.T) {
+// A26: the script's $(( )) on its own state files ended the whole pass on
+// a value bash could not read (08, or junk); the waiter reads 08 as 8 and
+// says what it does with junk.
+func TestWaiterStateNumbers(t *testing.T) {
+	h := newHarness(t)
+	h.screen("w9:p1", "• Working (1s • esc to interrupt)")
+	h.screen("w9:p2", "Pursuing goal (1m)")
+	h.screen("w9:p3", "· Incubating…")
+	h.wait()
+	st := h.env["HERDSMAN_STATE"]
+	h.file(filepath.Join(st, "stall-im-a"), "08\n")
+	match(t, "a stall count of 08 is 8, so the screen has stalled", `STALL im-a screen unchanged`, h.wait())
+	h.file(filepath.Join(st, "stall-im-a"), "x\n")
+	out := h.wait()
+	match(t, "a junk stall count is reported", `herdsman wait: state file stall-im-a is not a number \(got "x"\); counting from 0`, out)
+	if b, _ := os.ReadFile(filepath.Join(st, "stall-im-a")); strings.TrimSpace(string(b)) != "1" {
+		t.Errorf("stall count after junk: %q", b)
+	}
+	// health-at: junk restarts the clock, with a line, and no check runs.
+	h.env["HERDSMAN_STATUS_SPECS"] = "im-a:w9:p1:"
+	h.status = "12:00:00\nmachine: load 9.00 (5 min) on 8 cores, memory free 50%\n   <-- LOAD HIGH\n"
+	h.file(filepath.Join(st, "health-at"), "08x\n")
+	out = h.wait("HERDSMAN_HEALTH_EVERY", "0")
+	match(t, "a junk health time is reported", `herdsman wait: state file health-at is not a number \(got "08x"\); the health clock starts again`, out)
+	noMatch(t, "and no check runs on it", `HEALTH`, out)
+	match(t, "the next pass checks", `HEALTH machine LOAD HIGH`, h.wait("HERDSMAN_HEALTH_EVERY", "0"))
+	h.file(filepath.Join(st, "health-at"), strconv.FormatInt(h.now.Unix(), 10)+"\n")
+	h.status = "12:00:00\nmachine: load 9.00 (5 min) on 8 cores, memory free 5%\n   <-- MEMORY LOW\n"
+	noMatch(t, "a fresh health time waits", `HEALTH`, h.wait("HERDSMAN_HEALTH_EVERY", "300"))
+}
+
+// A25 and A26 for the PR watcher.
+func TestPRWatcherStrictSettings(t *testing.T) {
 	r := newPRRig(t)
 	r.fixture("7-view.json", view("OPEN", "abcd1234ffff"))
 	out, _ := r.run("7", "s1", 0, "HERDSMAN_PR_DEADLINE", " 0")
-	match(t, "a padded deadline is printed as written", `^TICK no PR change in  0s `, out)
-	// A deadline test refuses never ends the watch: stop it after a few polls.
+	match(t, "a padded deadline", `^TICK no PR change in 0s `, out)
+	for _, tc := range [][3]string{
+		{"HERDSMAN_PR_DEADLINE", "x", "not a duration"}, {"HERDSMAN_PR_INTERVAL", "0", "must be at least 1 second"},
+		{"HERDSMAN_PR_INTERVAL", "-3", "not a duration"}, {"HERDSMAN_PR_WAKE_CHECKS", "(", "not a pattern"},
+	} {
+		out, code := r.run("7", "s2", 0, tc[0], tc[1])
+		if code != 2 || !strings.HasPrefix(out, "herdsman watch prs: "+tc[0]+": "+tc[2]) || strings.Count(out, "\n") != 1 {
+			t.Errorf("%s=%q: %d %q", tc[0], tc[1], code, out)
+		}
+	}
+	// A huge interval clamps to a day.
+	var slept time.Duration
+	env := map[string]string{"HERDSMAN_PRS": "7", "HERDSMAN_REPO": "org/repo", "HERDSMAN_PR_STATE": filepath.Join(r.dir, "s3"),
+		"HERDSMAN_PR_INTERVAL": "99999999999999999999"}
 	var b bytes.Buffer
-	polls := 0
-	env := map[string]string{"HERDSMAN_PRS": "7", "HERDSMAN_REPO": "org/repo", "HERDSMAN_PR_STATE": filepath.Join(r.dir, "s2"),
-		"HERDSMAN_PR_DEADLINE": "x", "HERDSMAN_PR_INTERVAL": "1"}
-	now := time.Now()
 	r.gh.err = &b
-	d := Deps{Stdout: &b, Stderr: &b, Gh: r.gh.run, Now: func() time.Time { return now },
-		Sleep: func(dd time.Duration) bool { now = now.Add(time.Hour); polls++; return polls < 5 }}
-	PRs(context.Background(), func(k string) (string, bool) { v, ok := env[k]; return v, ok }, d)
-	if strings.Contains(b.String(), "TICK") || polls != 5 {
-		t.Errorf("a refused deadline: %d polls, %q", polls, b.String())
+	PRs(context.Background(), func(k string) (string, bool) { v, ok := env[k]; return v, ok },
+		Deps{Stdout: &b, Stderr: &b, Gh: r.gh.run, Sleep: func(d time.Duration) bool { slept = d; return false }})
+	if slept != 24*time.Hour {
+		t.Errorf("a huge interval: slept %v", slept)
+	}
+	// A junk fail count is reported and counted from 0.
+	r.touch("8-fail")
+	_ = os.MkdirAll(filepath.Join(r.dir, "s4"), 0o755)
+	_ = os.WriteFile(filepath.Join(r.dir, "s4", "fail-8"), []byte("x\n"), 0o644)
+	out, code := r.run("8", "s4", 0, "_", "")
+	match(t, "a junk fail count", `herdsman watch prs: state file fail-8 is not a number \(got "x"\); counting from 0`, out)
+	if b, _ := os.ReadFile(filepath.Join(r.dir, "s4", "fail-8")); strings.TrimSpace(string(b)) != "1" || code != 0 {
+		t.Errorf("fail count after junk: %q exit %d", b, code)
+	}
+	_ = os.WriteFile(filepath.Join(r.dir, "s4", "fail-8"), []byte("02\n"), 0o644)
+	out, code = r.run("8", "s4", 0, "_", "")
+	match(t, "a fail count of 02 is 2: the third failure", `PR-WATCH-ERROR PR 8 could not be read`, out)
+	if code != 1 {
+		t.Errorf("exit %d", code)
 	}
 }

@@ -6,6 +6,7 @@ package watch
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,7 +18,9 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/inbox"
 
+	"github.com/arafathusayn/herdsman/internal/settings"
 	"github.com/arafathusayn/herdsman/internal/shglob"
+	"github.com/arafathusayn/herdsman/internal/shnum"
 )
 
 // Env looks up one environment variable, as os.LookupEnv.
@@ -195,3 +198,44 @@ func first(re *regexp.Regexp, text string) string {
 }
 
 func clock(t time.Time) string { return t.Format("15:04:05") }
+
+// maxDuration caps the watchers' duration settings: the scripts had no
+// range, so one day (A25).
+const maxDuration = 24 * time.Hour
+
+// readSettings reads a watcher's duration settings strictly (A25): name,
+// default. A poll interval under a second would spin (A24), so the names
+// in atLeastOne must be at least a second.
+func readSettings(env Env, specs []durSpec) ([]time.Duration, error) {
+	r := settings.Reader{Getenv: env.get}
+	out := make([]time.Duration, len(specs))
+	for i, s := range specs {
+		out[i] = r.Duration(s.name, s.def, maxDuration)
+		if r.Err == nil && s.atLeastOne && out[i] < time.Second {
+			r.Err = &settings.Error{Var: s.name, Reason: "must be at least 1 second", Got: env.get(s.name)}
+		}
+	}
+	return out, r.Err
+}
+
+type durSpec struct {
+	name       string
+	def        time.Duration
+	atLeastOne bool
+}
+
+// count reads a counter the watcher keeps in its state file. The scripts
+// read it in $(( )), where 08 or junk ended the whole pass (A26): 08 is
+// 8 here, and junk is reported and counted from 0.
+func count(st state, file string, stderr io.Writer, who string) int {
+	s := strings.TrimSpace(st.read(file))
+	if s == "" {
+		return 0
+	}
+	n, ok := shnum.Test(s)
+	if !ok || n < 0 || n > 1<<30 {
+		fmt.Fprintf(stderr, "herdsman %s: state file %s is not a number (got %q); counting from 0\n", who, file, s)
+		return 0
+	}
+	return int(n)
+}
