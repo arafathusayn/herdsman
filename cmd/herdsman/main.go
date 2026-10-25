@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -42,6 +43,7 @@ Usage:
   herdsman web [--port 7878] [--host <ip>] [--allow-host <name>]... [--inbox <folder>]
                [--client <url>|none] [--public-url <https url>] [--session <name>]
                [--route <folder>]... [--open] [--no-qr]
+  herdsman <command> [args]   (the commands below)
   herdsman version
   herdsman help
 
@@ -54,12 +56,62 @@ Commands:
            printed here. A phone can use the hosted app only through HTTPS:
            with --public-url (for example the address of tailscale serve),
            the QR code opens the hosted app.
-  version  Print the version.
+`
+
+const usageTail = `  version  Print the version.
   help     Print this help.
 `
 
+// command is one subcommand of the binary. Each lives in its own
+// cmd_<name>.go file and registers itself in init.
+type command struct {
+	name    string
+	summary string // one line for help
+	// run returns the exit code; the command prints its own output.
+	run func(args []string, stdin io.Reader, stdout, stderr io.Writer) int
+}
+
+var commands = map[string]command{}
+
+func register(c command) {
+	if _, dup := commands[c.name]; dup {
+		panic("herdsman: command registered twice: " + c.name)
+	}
+	commands[c.name] = c
+}
+
+// printUsage prints the usage with every registered command.
+func printUsage(w io.Writer) {
+	fmt.Fprint(w, usage)
+	names := make([]string, 0, len(commands))
+	for n := range commands {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		fmt.Fprintf(w, "  %-8s %s\n", n, commands[n].summary)
+	}
+	fmt.Fprint(w, usageTail)
+}
+
+// exitError ends the program with a code; its message, when there is one,
+// was not printed yet.
+type exitError struct {
+	code int
+	msg  string
+}
+
+func (e *exitError) Error() string { return e.msg }
+
 func main() {
-	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	err := run(os.Args[1:], os.Stdout, os.Stderr)
+	if e, ok := errors.AsType[*exitError](err); ok {
+		if e.msg != "" {
+			fmt.Fprintln(os.Stderr, "herdsman:", e.msg)
+		}
+		os.Exit(e.code)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "herdsman:", err)
 		os.Exit(1)
 	}
@@ -67,12 +119,12 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		fmt.Fprint(stdout, usage)
+		printUsage(stdout)
 		return nil
 	}
 	switch args[0] {
 	case "help", "-h", "--help":
-		fmt.Fprint(stdout, usage)
+		printUsage(stdout)
 		return nil
 	case "version", "--version":
 		fmt.Fprintf(stdout, "herdsman %s (%s) %s/%s\n", version, commit, runtime.GOOS, runtime.GOARCH)
@@ -80,7 +132,14 @@ func run(args []string, stdout, stderr io.Writer) error {
 	case "web":
 		return runWeb(args[1:], stdout, stderr)
 	}
-	return fmt.Errorf("unknown command %q; run `herdsman help`", args[0])
+	if c, ok := commands[args[0]]; ok {
+		if code := c.run(args[1:], os.Stdin, stdout, stderr); code != 0 {
+			return &exitError{code: code}
+		}
+		return nil
+	}
+	printUsage(stderr)
+	return &exitError{code: 2, msg: fmt.Sprintf("unknown command %q; run `herdsman help`", args[0])}
 }
 
 type multi []string
