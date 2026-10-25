@@ -49,7 +49,10 @@ var agentName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 var errNeedsForce = errors.New("needs_force")
 
 type job struct {
-	a    Action
+	a Action
+	// fn, when set, runs instead of a: a job of several herdr calls that
+	// no other queued mutation may interleave with.
+	fn   func(context.Context) Result
 	done chan Result
 }
 
@@ -76,7 +79,11 @@ func (q *Queue) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case j := <-q.jobs:
-			j.done <- q.safeRun(ctx, j.a)
+			if j.fn != nil {
+				j.done <- safeJob(ctx, j.fn)
+			} else {
+				j.done <- q.safeRun(ctx, j.a)
+			}
 		}
 	}
 }
@@ -92,9 +99,29 @@ func (q *Queue) safeRun(ctx context.Context, a Action) (r Result) {
 	return q.run(ctx, a)
 }
 
+// safeJob runs a multi-step job and turns a panic into its result.
+func safeJob(ctx context.Context, fn func(context.Context) Result) (r Result) {
+	defer func() {
+		if p := recover(); p != nil {
+			r = Result{Code: "internal_error", Error: fmt.Sprintf("the job failed: %v", p)}
+		}
+	}()
+	return fn(ctx)
+}
+
+// DoJob queues a job of several herdr calls and waits for its result. The
+// queue runs nothing else until it returns.
+func (q *Queue) DoJob(ctx context.Context, fn func(context.Context) Result) Result {
+	return q.submit(ctx, job{fn: fn, done: make(chan Result, 1)})
+}
+
 // Do queues an action and waits for its result.
 func (q *Queue) Do(ctx context.Context, a Action) Result {
 	j := job{a: a, done: make(chan Result, 1)}
+	return q.submit(ctx, j)
+}
+
+func (q *Queue) submit(ctx context.Context, j job) Result {
 	select {
 	case q.jobs <- j:
 	case <-ctx.Done():
