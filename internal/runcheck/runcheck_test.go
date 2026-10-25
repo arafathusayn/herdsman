@@ -476,6 +476,9 @@ func TestStrictSettings(t *testing.T) {
 		{"HERDSMAN_MIN_FREE", "x"}, {"HERDSMAN_MIN_FREE", "101"}, {"HERDSMAN_NICE", "abc"}, {"HERDSMAN_NICE", "99"},
 		{"HERDSMAN_GATE_POLL", "x"}, {"HERDSMAN_GATE_POLL", "0"}, {"HERDSMAN_PUBLISH_EVERY", "-5"}, {"HERDSMAN_PUBLISH_EVERY", "0"},
 		{"HERDSMAN_PUBLISH_SECONDS", "1/0"}, {"HERDSMAN_PUBLISH_SECONDS", "-1"}, {"HERDSMAN_LOAD_LIMIT", "many"},
+		// A27: the review's arithmetic programs are invalid settings, not expressions.
+		{"HERDSMAN_PUBLISH_SECONDS", "(X[1]=2,X[1])"}, {"HERDSMAN_PUBLISH_SECONDS", "(READING=0,1)"}, {"HERDSMAN_PUBLISH_SECONDS", "1 || (ERR)"},
+		{"HERDSMAN_PUBLISH_SECONDS", "(1 || (ERR))"}, {"HERDSMAN_PUBLISH_SECONDS", "0 ? (ERR) : 5"}, {"HERDSMAN_PUBLISH_SECONDS", "(1?X=3:Y=4)"},
 	} {
 		_, err := Load(func(k string) string { return map[string]string{tc.k: tc.v}[k] })
 		if err == nil || !strings.HasPrefix(err.Error(), tc.k+": ") || !strings.HasSuffix(err.Error(), fmt.Sprintf("(got %q)", tc.v)) {
