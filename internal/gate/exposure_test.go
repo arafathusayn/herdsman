@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,4 +47,29 @@ func (r *rig) gateValue() *Gate {
 	o := r.c.Options(false)
 	o.Now = r.clock
 	return &Gate{Options: o, Client: r.hc, ctx: context.Background()}
+}
+
+// Landing review P0 (e93bcc1 B3-001): an unknown agent seen only by the
+// gate's first authority check is recorded from that same observation, so
+// a retry after HUMAN/exit 3 stays held instead of consuming on a later
+// clean inventory.
+func TestGateRecordsTheObservationItRefusedOn(t *testing.T) {
+	r := newRig(t)
+	r.gojson("xb4", 600, nil)
+	lists := 0
+	r.srv.Handle("agent.list", func(map[string]any) (any, string) {
+		lists++
+		agents := []any{herdrtest.Agent("sender-pane", "sender-session"), herdrtest.Agent("receiver-pane", "receiver-session")}
+		if lists == 1 {
+			agents = append(agents, herdrtest.Agent("brief-pane", "brief-session"))
+		}
+		return map[string]any{"type": "agent_list", "agents": agents}, ""
+	})
+	match(t, "the first consume is refused", `^HUMAN .*rc=3$`, r.consume("xb4"))
+	b, _ := os.ReadFile(filepath.Join(r.c.Dir, "state", "boundary-tainted"))
+	match(t, "the agent it saw is recorded", `brief-pane`, string(b))
+	match(t, "a retry stays held", `^HUMAN .*rc=3$`, r.consume("xb4"))
+	if exists(r.consumed("xb4")) {
+		t.Error("a retry consumed without the human setup")
+	}
 }

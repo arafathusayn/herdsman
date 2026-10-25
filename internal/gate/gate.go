@@ -299,7 +299,24 @@ func (g *Gate) authority() (string, int) {
 	if (&inbox.Channel{Root: r}).ExposurePending() {
 		return inbox.HumanLine, Human
 	}
-	return r.Authority(g.ctx, g.Client)
+	// One check, in the lock-owning process: the unknown agents it saw are
+	// recorded from this same observation before HUMAN is returned, so a
+	// retry never consumes on a later, cleaner inventory snapshot (e93bcc1
+	// B3-001, landing review P0).
+	ok, fault, unknown := r.BoundaryOK(g.ctx, g.Client)
+	if ok {
+		return inbox.RelayLine, 0
+	}
+	if fault == inbox.FaultInventory {
+		if err := (&inbox.Channel{Root: g.root}).RecordExposure(fault, unknown, true); err != nil {
+			msg, _ := inbox.IsFatal(err)
+			if msg == "" {
+				msg = err.Error()
+			}
+			return msg, Human
+		}
+	}
+	return inbox.HumanLine, Human
 }
 
 func (g *Gate) complete(req, outcome string) exit {
