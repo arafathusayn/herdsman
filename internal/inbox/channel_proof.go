@@ -132,7 +132,6 @@ var cksumTable = func() *[256]uint32 {
 	return &t
 }()
 
-
 // DigestReader is Digest of a stream, table driven, for large files such
 // as the herdsman executable.
 func DigestReader(rd io.Reader) (string, error) {

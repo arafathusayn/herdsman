@@ -175,8 +175,6 @@ func (e *Env) open(readOnly bool) error {
 	return nil
 }
 
-func (e *Env) root() *inbox.Root { return e.ch.Root }
-
 func (e *Env) path(names ...string) string { return e.ch.Path(names...) }
 
 // pane is $HERDR_PANE_ID.

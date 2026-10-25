@@ -34,7 +34,7 @@ func TestJSONOutput(t *testing.T) {
 		t.Errorf("mailboxes %v", boxes)
 	}
 	c.courier()
-	out, code = c.run("receiver-pane", map[string]string{"HERDSMAN_NAME": O, "DEADLINE": "2", "RECHECK": "1"}, "message", "wait", "--json")
+	out, _ = c.run("receiver-pane", map[string]string{"HERDSMAN_NAME": O, "DEADLINE": "2", "RECHECK": "1"}, "message", "wait", "--json")
 	check(t, "wait --json message event", `^\{"event":"message","name":"`+O+`"\}\n$`, out)
 	out, _ = c.run("receiver-pane", map[string]string{"HERDSMAN_NAME": O, "DEADLINE": "2", "RECHECK": "1"}, "message", "wait", "--json")
 	check(t, "wait --json tick", `^\{"event":"tick"\}\n$`, out)

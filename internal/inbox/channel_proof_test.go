@@ -48,9 +48,14 @@ func TestBinaryProof(t *testing.T) {
 		t.Fatalf("a binary proof of the running executable: %v", err)
 	}
 	for name, edit := range map[string]func(){
-		"another executable": func() { binaryProof(c, exe); o2 := filepath.Join(c.Base, "other"); c.Write(o2, "x"); binaryProof(c, o2) },
-		"a changed binary":   func() { binaryProof(c, exe); c.Write(exe, "changed\n") },
-		"a changed rule":     func() { binaryProof(c, exe); c.Write(filepath.Join(c.Base, "ignore-rule"), "changed\n") },
+		"another executable": func() {
+			binaryProof(c, exe)
+			o2 := filepath.Join(c.Base, "other")
+			c.Write(o2, "x")
+			binaryProof(c, o2)
+		},
+		"a changed binary": func() { binaryProof(c, exe); c.Write(exe, "changed\n") },
+		"a changed rule":   func() { binaryProof(c, exe); c.Write(filepath.Join(c.Base, "ignore-rule"), "changed\n") },
 		"no binary entry": func() {
 			binaryProof(c, exe)
 			c.Edit(c.Proof, func(m map[string]any) { delete(m, "binary") })

@@ -294,4 +294,3 @@ func (g *resumer) classify() string {
 	}
 	return "unknown"
 }
-

@@ -162,4 +162,3 @@ func (e *Env) register(args []string) error {
 	}
 	return nil
 }
-

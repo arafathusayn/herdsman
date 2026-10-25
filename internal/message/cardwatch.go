@@ -565,4 +565,3 @@ func (e *Env) resumeCapture(name string, stderr interface{ Write([]byte) (int, e
 	e.Stderr = stderr
 	return e.Resume([]string{name})
 }
-

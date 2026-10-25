@@ -54,7 +54,9 @@ func TestPart03NamesEnvelopes(t *testing.T) {
 	c.courier()
 	check(t, "E2 an edited recipient is quarantined", "^yes$", yn(c.ob("quarantine", "m000000000002.md")))
 	check(t, "E3 an unknown lifecycle keeps the message in new, never rejected", "^yes no$", yn(c.ob("new", ID+".md"))+" "+yn(c.ob("quarantine", ID+".md")))
-	c.srv.Handle("agent.get", func(map[string]any) (any, string) { return map[string]any{"type": "agent_info", "agent": "invalid"}, "" })
+	c.srv.Handle("agent.get", func(map[string]any) (any, string) {
+		return map[string]any{"type": "agent_info", "agent": "invalid"}, ""
+	})
 	c.fx.Edit("sender-pane", "agent_status", "idle")
 	c.courier()
 	check(t, "E4 invalid agent JSON keeps the message in new", "^yes$", yn(c.ob("new", ID+".md")))

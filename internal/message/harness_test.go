@@ -94,11 +94,7 @@ func (c *tc) allowResume() {
 }
 
 func (c *tc) relayBoundary() {
-	var agents []map[string]any
-	for _, r := range c.agentRecords() {
-		agents = append(agents, r)
-	}
-	c.ic.RelayBoundary(agents...)
+	c.ic.RelayBoundary(c.agentRecords()...)
 }
 
 func (c *tc) agentRecords() []map[string]any {
