@@ -159,8 +159,10 @@ func LiveIdentity(ctx context.Context, c *herdr.Client, pane string) (Identity, 
 	rev, revOK := Int(m, "revision")
 	value, _ := String(sess, "value")
 	ready, _ := m["interactive_ready"].(bool)
-	launching, lok := m["launch_pending"].(bool)
-	if pid != pane || !NonEmpty(m, "agent") || !ready || !lok || launching ||
+	// (.launch_pending // false)==false: missing, null and false pass.
+	lp := m["launch_pending"]
+	lok := lp == nil || lp == false
+	if pid != pane || !NonEmpty(m, "agent") || !ready || !lok ||
 		!slices.Contains([]string{"idle", "working", "blocked", "done"}, status) ||
 		!termOK || !wsOK || !tabOK || !focusOK || !revOK || rev < 0 ||
 		sess == nil || sess["kind"] != "id" || !SessionValueOK(value) || !NonEmpty(sess, "source") || !NonEmpty(sess, "agent") {

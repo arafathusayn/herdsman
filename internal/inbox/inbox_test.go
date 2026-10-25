@@ -539,10 +539,24 @@ func TestLiveIdentity(t *testing.T) {
 	if _, code, _ := inbox.LiveIdentity(ctx, c, "gone"); code != inbox.LiveGone {
 		t.Errorf("a pane that is gone: %d", code)
 	}
+	// A15 (02a122d): herdr 0.9.4 sends no launch_pending; a missing or null
+	// field counts as not pending, as (.launch_pending // false)==false does.
+	for _, v := range []any{nil, "missing"} {
+		a := herdrtest.Agent("p1", "s1")
+		if v == nil {
+			a["launch_pending"] = nil
+		} else {
+			delete(a, "launch_pending")
+		}
+		fx.SetAgent("p1", a)
+		if _, code, _ := inbox.LiveIdentity(ctx, c, "p1"); code != inbox.LiveOK {
+			t.Errorf("launch_pending %v: %d", v, code)
+		}
+	}
 	for _, e := range []struct {
 		key string
 		v   any
-	}{{"interactive_ready", false}, {"launch_pending", true}, {"launch_pending", nil}, {"agent_status", "unknown"}, {"agent", ""},
+	}{{"interactive_ready", false}, {"launch_pending", true}, {"launch_pending", "false"}, {"agent_status", "unknown"}, {"agent", ""},
 		{"terminal_id", 1}, {"workspace_id", nil}, {"tab_id", nil}, {"focused", "no"}, {"revision", -1}, {"revision", 1.5},
 		{"pane_id", "p2"}, {"agent_session", nil},
 		{"agent_session", map[string]any{"source": "hook", "agent": "claude", "kind": "path", "value": "s1"}},
