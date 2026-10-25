@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/arafathusayn/herdsman/internal/machine"
 )
 
 // The C cases of the skill's run-tests.sh. The cases that need two
@@ -141,6 +143,9 @@ func TestNiceLowersThePriority(t *testing.T) {
 	max := 19
 	if runtime.GOOS == "darwin" {
 		max = 20
+	}
+	if err := setNice(cur); machine.Denied(err) {
+		t.Skip("sandbox: setpriority was denied: " + err.Error())
 	}
 	want := min(cur+10, max)
 	// The check is this binary in "nice" mode, started through a shell that
@@ -311,6 +316,7 @@ func TestRunningCheckKeepsTheLockAfterItsParentDies(t *testing.T) {
 }
 
 func TestRealProbesFeedTheGate(t *testing.T) {
+	skipDeniedProbes(t)
 	f := newFixture(t)
 	c, _ := f.config()
 	c.Probes, c.Probe = true, nil
@@ -323,6 +329,7 @@ func TestRealProbesFeedTheGate(t *testing.T) {
 }
 
 func TestPublisher(t *testing.T) {
+	skipDeniedProbes(t)
 	f := newFixture(t)
 	c, _ := f.config()
 	c.Probes = true
@@ -545,5 +552,14 @@ func TestGateWaitPrintsSeconds(t *testing.T) {
 	match(t, "GATE_WAIT= 1 gives up after 1s", `NOT RUN \(load gate gave up after 1s`, errs)
 	if code != ExitTempFail {
 		t.Errorf("exit %d", code)
+	}
+}
+
+// skipDeniedProbes skips a test that needs the machine's own reading where
+// a sandbox denies its sysctl (A25), by the error itself.
+func skipDeniedProbes(t *testing.T) {
+	t.Helper()
+	if err := machine.ProbeError(); machine.Denied(err) {
+		t.Skip("sandbox: the machine probes were denied: " + err.Error())
 	}
 }
