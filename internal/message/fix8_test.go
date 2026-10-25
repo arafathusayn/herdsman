@@ -3,6 +3,7 @@ package message
 import (
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,8 +47,9 @@ func TestR3MarkAllocationFaults(t *testing.T) {
 	if err := e.markAllocation(ID); err == nil {
 		t.Error("a marks file in place of the folder was accepted")
 	}
-	out, code := c.run("sender-pane", nil, "send", O, A, "body")
-	if code == 0 || inbox.Exists(c.in("ids", ID)) {
+	c.write(c.base("body.txt"), "body\n")
+	out, code := c.run("sender-pane", nil, "send", A, O, c.base("body.txt"), "brief")
+	if code != 2 || !strings.Contains(out, "state/allocations is not a folder") || inbox.Exists(c.in("ids", ID)) {
 		t.Errorf("send allocated without a mark: exit %d %q", code, out)
 	}
 	os.Remove(c.in("state", "allocations"))

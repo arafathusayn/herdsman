@@ -69,7 +69,7 @@ func reopenedRoot(t *testing.T, e *Env) *inbox.Root {
 // a plausible recipient without an entry; an allocation folder that cannot
 // be searched keeps its aged mark.
 func TestR4UnclearAllocationKept(t *testing.T) {
-	for _, mode := range []string{"schema", "id"} {
+	for _, mode := range []string{"schema", "renamed", "id"} {
 		t.Run(mode, func(t *testing.T) {
 			c := newCase(t, true)
 			c.send()
@@ -77,9 +77,13 @@ func TestR4UnclearAllocationKept(t *testing.T) {
 			var m map[string]any
 			json.Unmarshal([]byte(c.read(alloc)), &m)
 			m["to"] = A // a plausible recipient with no entry: the live entry is in O's queue
-			if mode == "schema" {
+			switch mode {
+			case "schema":
 				delete(m, "version")
-			} else {
+			case "renamed":
+				delete(m, "version")
+				m["versions"] = 1
+			default:
 				m["id"] = "m000000000777"
 			}
 			b, _ := json.Marshal(m)
