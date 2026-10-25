@@ -139,7 +139,7 @@ func TestRouteOrchestratorCheckpointerOn(t *testing.T) {
 	want := []string{
 		`tab.create {"cwd":"` + folder + `","focus":false,"label":"my-repo-git-orchestrator","workspace_id":"w1"}`,
 		`agent.start {"args":["--model","fable","--effort","medium"],"kind":"claude","name":"orch-1","pane_id":"w1:p11","timeout_ms":90000}`,
-		`agent.prompt {"target":"orch-1","text":"/herdsman run \"fix \\\"auth\\\" \\\\ now\""}`,
+		`agent.prompt {"target":"w1:p11","text":"/herdsman run \"fix \\\"auth\\\" \\\\ now\""}`,
 		`pane.split {"cwd":"` + folder + `","direction":"right","focus":false,"target_pane_id":"w1:p11"}`,
 		`pane.rename {"label":"checkpointer","pane_id":"w1:p21"}`,
 		`pane.send_text {"pane_id":"w1:p21","text":"TARGET=w1:p11 INTERVAL=900 LIMIT=250000 /bin/bash '` + f.script + `'"}`,
@@ -233,12 +233,12 @@ func TestRouteAdjutant(t *testing.T) {
 	if m[3].Params["name"] != "orch-1" || m[3].Params["kind"] != "codex" || m[3].Params["pane_id"] != "w1:p12" {
 		t.Fatalf("orchestrator start = %v", m[3].Params)
 	}
-	if m[4].Params["target"] != "orch-1" || m[4].Params["text"] != "$herdsman orchestrator --adjutant adj-1 --name orch-1 --inbox "+inbox+` "ship it"` {
+	if m[4].Params["target"] != "w1:p12" || m[4].Params["text"] != "$herdsman orchestrator --adjutant adj-1 --name orch-1 --inbox "+inbox+` "ship it"` {
 		t.Fatalf("prompt = %v", m[4].Params)
 	}
 	// Nothing is typed or prompted into the adjutant's pane after its start.
 	for _, r := range m[2:] {
-		if r.Params["target"] == "adj-1" || r.Params["pane_id"] == "w1:p11" || r.Params["target_pane_id"] == "w1:p11" {
+		if r.Params["target"] == "adj-1" || r.Params["target"] == "w1:p11" || r.Params["pane_id"] == "w1:p11" || r.Params["target_pane_id"] == "w1:p11" {
 			t.Fatalf("a call reached the adjutant pane: %s %v", r.Method, r.Params)
 		}
 	}
@@ -560,5 +560,34 @@ func TestInboxState(t *testing.T) {
 	}
 	if _, st := get("~/afile"); st.Error == "" || !st.Exists {
 		t.Fatalf("a file: %+v", st)
+	}
+}
+
+func TestRoutePromptWaitsForTheNewAgent(t *testing.T) {
+	f := newRouteFixture(t)
+	promptReadyRetry = time.Millisecond
+	defer func() { promptReadyRetry = 500 * time.Millisecond }()
+	var tries atomic.Int32
+	f.herdr.Handle("agent.prompt", func(map[string]any) (any, string) {
+		if tries.Add(1) < 3 {
+			return nil, "agent_not_ready"
+		}
+		return map[string]any{"type": "agent_prompted"}, ""
+	})
+	req := f.orchestrator()
+	req.Checkpointer.On = false
+	if code, res := f.post(t, req); code != 200 || !res.OK || tries.Load() != 3 {
+		t.Fatalf("status %d, tries %d: %+v", code, tries.Load(), res)
+	}
+}
+
+func TestRoutePromptGivesUpAfterTheWait(t *testing.T) {
+	f := newRouteFixture(t)
+	promptReadyRetry, promptReadyWait = time.Millisecond, 20*time.Millisecond
+	defer func() { promptReadyRetry, promptReadyWait = 500*time.Millisecond, 20*time.Second }()
+	f.herdr.Handle("agent.prompt", func(map[string]any) (any, string) { return nil, "agent_not_ready" })
+	code, res := f.post(t, f.orchestrator())
+	if code != http.StatusBadGateway || res.Code != "agent_not_ready" || res.Steps[2].Status != "failed" {
+		t.Fatalf("status %d: %+v", code, res)
 	}
 }

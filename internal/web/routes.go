@@ -359,7 +359,7 @@ func (p *routePlan) steps(c *herdr.Client, res *RouteResult) []routeStep {
 	}
 	orch := p.coordinators[len(p.coordinators)-1]
 	out = append(out, routeStep{"send the route command to " + orch.name, "agent.prompt", func(ctx context.Context) (string, error) {
-		return res.OrchestratorPane, c.Call(ctx, "agent.prompt", map[string]any{"target": orch.name, "text": p.prompt}, nil)
+		return res.OrchestratorPane, promptWhenReady(ctx, c, res.OrchestratorPane, p.prompt)
 	}})
 	if p.checkpointer == "" {
 		return out
@@ -524,4 +524,30 @@ func readInboxState(p string) InboxState {
 	}
 	st.Proposed, st.Approved = names("peers"), names("peers.approved")
 	return st
+}
+
+// promptReadyWait bounds how long the route command waits for herdr to
+// register the agent it just started: right after agent.start, herdr can
+// still answer agent_not_ready for a moment.
+var (
+	promptReadyWait  = 20 * time.Second
+	promptReadyRetry = 500 * time.Millisecond
+)
+
+// promptWhenReady sends the route command to the agent in pane, retrying
+// while herdr answers agent_not_ready, up to promptReadyWait.
+func promptWhenReady(ctx context.Context, c *herdr.Client, pane, text string) error {
+	deadline := time.Now().Add(promptReadyWait)
+	for {
+		err := c.Call(ctx, "agent.prompt", map[string]any{"target": pane, "text": text}, nil)
+		he, ok := errors.AsType[*herdr.Error](err)
+		if err == nil || !ok || he.Code != "agent_not_ready" || time.Now().After(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(promptReadyRetry):
+		}
+	}
 }
