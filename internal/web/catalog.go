@@ -253,13 +253,25 @@ func (s *Server) catalogNow(r *http.Request) Catalog {
 	}
 	script, why := checkpointerScript(home, s.cfg.SkillDir)
 	c.CheckpointerOK, c.CheckpointerWhy = script != "", why
-	c.Previous = []choices.Pick{}
+	c.Previous = s.savedPicks()
+	return c
+}
+
+// savedPicks is each role's last pick (A30), read without asking any
+// harness; empty when there is no store or it cannot be read.
+func (s *Server) savedPicks() []choices.Pick {
 	if s.cfg.Choices != nil {
-		if f, err := s.cfg.Choices.Load(); err == nil {
-			c.Previous = f.Picks
+		if f, err := s.cfg.Choices.Load(); err == nil && f.Picks != nil {
+			return f.Picks
 		}
 	}
-	return c
+	return []choices.Pick{}
+}
+
+// choicesJSON answers GET /api/choices: the saved picks, runner included,
+// before any probe, so the form can ask "Use previous choice?" at once.
+func (s *Server) choicesJSON(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, choices.File{Picks: s.savedPicks()})
 }
 
 func (s *Server) catalogJSON(w http.ResponseWriter, r *http.Request) {

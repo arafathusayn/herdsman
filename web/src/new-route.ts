@@ -193,7 +193,7 @@ export function previousPicks(f: RouteForm, c: Catalog): ChoicePick[] {
 
 /** One line for a saved pick, as the "Use previous choice" option shows it. */
 export function pickSummary(p: ChoicePick): string {
-  return `${p.role}: ${p.harness}${p.model ? ` ${p.model}` : ""}${p.effort ? `, effort ${p.effort}` : ""}`;
+  return `${p.role} (${p.runner}): ${p.harness}${p.model ? ` ${p.model}` : ""}${p.effort ? `, effort ${p.effort}` : ""}`;
 }
 
 /**

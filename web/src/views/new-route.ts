@@ -4,8 +4,9 @@
 // the channel setup checklist. The steps that belong to the human stay the
 // human's: the app never approves a pair, writes the inbox or types into
 // the adjutant's pane.
-import { AuthError, catalog, createRoute, githubAccess, inboxState } from "../api.ts";
+import { AuthError, catalog, createRoute, githubAccess, inboxState, savedChoices } from "../api.ts";
 import { h, mount } from "../dom.ts";
+import { pickSummary } from "../new-route.ts";
 import { store } from "../store.ts";
 import { dismissOnBackdrop, toast } from "../ui.ts";
 import { routeForm } from "./route-form.ts";
@@ -33,6 +34,21 @@ export function openNewRoute(): void {
   document.body.append(dlg);
   mount(body, h("h2", null, "New route"), h("p", { class: "nr-loading" }, "Reading the harness lists…"));
   dlg.showModal();
+  // The saved picks need no probe: they show while the harness lists load (A30).
+  savedChoices().then(
+    (picks) => {
+      if (!dlg.open || !picks.length || !body.querySelector(".nr-loading")) return;
+      body.append(
+        h("p", { class: "muted" }, "Your previous choice:"),
+        h(
+          "ul",
+          { class: "nr-previous-list" },
+          picks.map((p) => h("li", null, pickSummary(p))),
+        ),
+      );
+    },
+    () => {},
+  );
   catalog().then(
     (c) => {
       if (!dlg.open) return;

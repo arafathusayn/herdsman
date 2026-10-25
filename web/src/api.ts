@@ -5,6 +5,7 @@ import type {
   ArtifactList,
   Catalog,
   Channel,
+  ChoicePick,
   DiffSource,
   Entry,
   GitHubAccess,
@@ -322,6 +323,14 @@ export async function catalog(): Promise<Catalog> {
   if (res.status === 401) throw new AuthError("Session expired.");
   if (!res.ok) throw new Error(`cannot read the harness list (${res.status})`);
   return (await res.json()) as Catalog;
+}
+
+/** Each role's saved pick, read without asking any harness. */
+export async function savedChoices(): Promise<ChoicePick[]> {
+  const res = await call("/api/choices", { headers: headers() });
+  if (res.status === 401) throw new AuthError("Session expired.");
+  if (!res.ok) throw new Error(`cannot read the saved choices (${res.status})`);
+  return ((await res.json()) as { picks: ChoicePick[] }).picks ?? [];
 }
 
 /** The gh accounts that can read the folder's GitHub repository, with the one to confirm. */

@@ -423,8 +423,8 @@ test("the previous choice fills the form's roles from the saved picks", () => {
   expect(filled.main).toEqual({ kind: "claude", model: OTHER, other: "custom-model-1", effort: "max" });
   const adj = setRole(orch, "adjutant");
   expect(previousPicks(adj, c).map(pickSummary)).toEqual([
-    "adjutant: codex gpt-5.6-luna, effort low",
-    "orchestrator: claude custom-model-1, effort max",
+    "adjutant (herdr): codex gpt-5.6-luna, effort low",
+    "orchestrator (herdr): claude custom-model-1, effort max",
   ]);
   const both = usePrevious(adj, c);
   expect(both.main).toEqual({ kind: "codex", model: "gpt-5.6-luna", other: "", effort: "low" });

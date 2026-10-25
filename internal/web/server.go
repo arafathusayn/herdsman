@@ -132,6 +132,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/artifacts/open", s.auth(http.HandlerFunc(s.openArtifact)))
 	mux.HandleFunc("GET /artifact/{cap}/{path...}", s.serveArtifact)
 	mux.Handle("GET /api/catalog", s.auth(http.HandlerFunc(s.catalogJSON)))
+	mux.Handle("GET /api/choices", s.auth(http.HandlerFunc(s.choicesJSON)))
 	mux.Handle("POST /api/routes", s.auth(http.HandlerFunc(s.createRoute)))
 	mux.Handle("GET /api/routes/inbox", s.auth(http.HandlerFunc(s.inboxState)))
 	mux.Handle("GET /api/routes/github", s.auth(http.HandlerFunc(s.githubAccess)))
