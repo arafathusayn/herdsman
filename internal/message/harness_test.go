@@ -201,6 +201,22 @@ func (c *tc) run(pane string, extra map[string]string, cmd string, args ...strin
 	return out.String(), code
 }
 
+// runConcurrent runs a command on the real clock, for cases that race two
+// processes.
+func (c *tc) runConcurrent(pane, cmd string, args ...string) string {
+	env := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed,
+		"HERDR_PANE_ID": pane, "WATCH_REQUIRED": "0"}
+	var out bytes.Buffer
+	e := &Env{Getenv: func(k string) string { return env[k] }, Stdout: &out, Stderr: &out, Client: herdr.New(c.srv.Socket)}
+	switch cmd {
+	case "register":
+		e.Register(args)
+	case "read":
+		e.Read(args)
+	}
+	return out.String()
+}
+
 func (c *tc) mustRun(pane, cmd string, args ...string) string {
 	c.t.Helper()
 	out, code := c.run(pane, nil, cmd, args...)

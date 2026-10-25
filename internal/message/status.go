@@ -50,7 +50,9 @@ func (e *Env) status(args []string) error {
 	}
 	r := e.ch
 	out := e.Stdout
-	e.healthSnapshot()
+	for _, f := range e.healthSnapshot() {
+		fmt.Fprintln(out, f)
+	}
 	now := e.unix()
 	for _, role := range []string{"courier", "watch"} {
 		pid, age := "none", "unknown"
