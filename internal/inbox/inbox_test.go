@@ -544,7 +544,8 @@ func TestLiveIdentity(t *testing.T) {
 	if _, code, _ := inbox.LiveIdentity(ctx, c, "gone"); code != inbox.LiveGone {
 		t.Errorf("a pane that is gone: %d", code)
 	}
-	// A15 (02a122d): herdr 0.9.4 sends no launch_pending; a missing or null
+	// A15 (02a122d), message-tests.sh V6, V6b (the rule; enrollment is slice 3):
+	// herdr 0.9.4 sends no launch_pending; a missing or null
 	// field counts as not pending, as (.launch_pending // false)==false does.
 	for _, v := range []any{nil, "missing"} {
 		a := herdrtest.Agent("p1", "s1")
