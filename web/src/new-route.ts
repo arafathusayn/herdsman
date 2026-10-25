@@ -85,13 +85,12 @@ export function effortsFor(k: CatalogKind | undefined, model: string): string[] 
   return model === OTHER && k.other_model ? (k.models[0]?.efforts ?? []) : [];
 }
 
-/** Medium when the list has it, else the model's default, else the first. */
+/** The model's default as the harness reports it, else none: the form then asks for a choice. */
 export function defaultEffort(k: CatalogKind | undefined, model: string): string {
   const efforts = effortsFor(k, model);
-  if (efforts.includes("medium")) return "medium";
   const m = k?.models.find((x) => x.id === model);
-  if (m && efforts.includes(m.default_effort)) return m.default_effort;
-  return efforts[0] ?? "";
+  if (m && m.default_effort !== "" && efforts.includes(m.default_effort)) return m.default_effort;
+  return "";
 }
 
 /** A harness with its newest model and default effort. */

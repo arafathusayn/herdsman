@@ -173,16 +173,11 @@ func kindLabel(k string) string {
 	return string(r)
 }
 
-// defaultEffort is medium when the list has it, else the given default.
+// defaultEffort is the default the harness reports when its list has it,
+// else none: the user then picks one (A28: no level is preferred by name).
 func defaultEffort(efforts []string, def string) string {
-	if slices.Contains(efforts, "medium") {
-		return "medium"
-	}
-	if slices.Contains(efforts, def) {
+	if def != "" && slices.Contains(efforts, def) {
 		return def
-	}
-	if len(efforts) > 0 {
-		return efforts[0]
 	}
 	return ""
 }

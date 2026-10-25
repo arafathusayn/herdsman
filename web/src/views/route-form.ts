@@ -333,7 +333,7 @@ export function routeForm(
                 id: `${id}-${which}-other`,
                 name: `${which}-other`,
                 value: hn.other,
-                placeholder: "claude-opus-4-1",
+                placeholder: "a model from the harness's list",
                 autocomplete: "off",
                 spellcheck: false,
                 oninput: (e: Event) => harnessChange(which, { other: (e.target as HTMLInputElement).value }, false),

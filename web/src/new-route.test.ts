@@ -135,6 +135,13 @@ test("models and efforts come from the harness's own list", () => {
   expect(effortsFor(cx, OTHER)).toEqual([]);
   expect(effortsFor(kindOf(catalog, "pi"), "x")).toEqual([]);
   expect(defaultEffort(undefined, "x")).toBe("");
+  // No default reported: none is picked, even when the list has a middle level.
+  const none = {
+    ...cx!,
+    models: [{ id: "model-a", label: "model-a", efforts: ["low", "medium"], default_effort: "" }],
+  };
+  expect(defaultEffort(none, "model-a")).toBe("");
+  expect(defaultEffort(kindOf(catalog, "claude"), OTHER)).toBe("");
   const h = pickHarness(catalog, fresh().main, { kind: "codex" });
   expect(h).toEqual({ kind: "codex", model: "gpt-6.1-sol", other: "", effort: "high" });
   expect(pickHarness(catalog, h, { model: "gpt-5.6-luna" }).effort).toBe("high");

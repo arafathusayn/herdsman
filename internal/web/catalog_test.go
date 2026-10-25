@@ -93,7 +93,8 @@ func TestClaudeHelpParse(t *testing.T) {
 		t.Fatalf("kind = %+v", k)
 	}
 	for _, m := range k.Models {
-		if !slices.Equal(m.Efforts, []string{"low", "medium", "high", "xhigh", "max"}) || m.DefaultEffort != "medium" {
+		// Claude's help names no default effort, so there is none (A28).
+		if !slices.Equal(m.Efforts, []string{"low", "medium", "high", "xhigh", "max"}) || m.DefaultEffort != "" {
 			t.Fatalf("model = %+v", m)
 		}
 	}
@@ -280,5 +281,20 @@ func TestCheckpointerScript(t *testing.T) {
 	}
 	if p, _ := checkpointerScript(home, quoted); p != "" {
 		t.Fatalf("a path with a quote was accepted: %q", p)
+	}
+}
+
+// A28: the default effort is the harness's own reported default, never a
+// level preferred by name, and none when the harness reports none.
+func TestDefaultEffortIsTheHarnessDefault(t *testing.T) {
+	list := []string{"effort-a", "medium", "effort-b"}
+	for _, tc := range []struct{ def, want string }{
+		{"effort-b", "effort-b"},
+		{"", ""},
+		{"effort-z", ""},
+	} {
+		if got := defaultEffort(list, tc.def); got != tc.want {
+			t.Errorf("defaultEffort(%q) = %q, want %q", tc.def, got, tc.want)
+		}
 	}
 }
