@@ -709,3 +709,37 @@ func TestInboxApprovalMustMatchTheProposalAndThePair(t *testing.T) {
 		t.Fatalf("stale approval: %+v", st)
 	}
 }
+
+func TestRouteRechecksNamesInsideTheJob(t *testing.T) {
+	f := newRouteFixture(t)
+	// The hub's state is older than herdr's: another browser's route has
+	// since started an agent with the same name.
+	f.herdr.Handle("session.snapshot", func(map[string]any) (any, string) {
+		return map[string]any{"snapshot": map[string]any{
+			"version": "0.9.4", "protocol": 22, "focused_tab_id": f.focused.Load(),
+			"workspaces": []map[string]any{{"workspace_id": "w1", "label": "main", "focused": true}},
+			"agents":     []map[string]any{{"pane_id": "w1:p7", "tab_id": "w1:t7", "workspace_id": "w1", "name": "orch-1"}},
+		}}, ""
+	})
+	code, res := f.post(t, f.orchestrator())
+	if code != 400 || res.Code != "invalid_route" || res.Field != "name" || !strings.Contains(res.Error, "orch-1") {
+		t.Fatalf("status %d: %+v", code, res)
+	}
+	if len(mutations(f.herdr)) != 0 {
+		t.Fatalf("a tab was created: %v", mutations(f.herdr))
+	}
+	adj := f.adjutant()
+	adj.OrchName = "orch-1"
+	if code, res := f.post(t, adj); code != 400 || res.Field != "orch_name" || len(mutations(f.herdr)) != 0 {
+		t.Fatalf("adjutant: status %d: %+v", code, res)
+	}
+}
+
+func TestRouteStopsWhenTheFreshSnapshotFails(t *testing.T) {
+	f := newRouteFixture(t)
+	f.herdr.Handle("session.snapshot", func(map[string]any) (any, string) { return nil, "server_busy" })
+	code, res := f.post(t, f.orchestrator())
+	if code != http.StatusBadGateway || res.Code != "server_busy" || len(mutations(f.herdr)) != 0 {
+		t.Fatalf("status %d: %+v", code, res)
+	}
+}

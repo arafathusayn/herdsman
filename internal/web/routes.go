@@ -393,6 +393,17 @@ func (q *Queue) runRoute(ctx context.Context, p *routePlan) RouteResult {
 	ctx, cancel := context.WithTimeout(ctx, routeJobTimeout)
 	defer cancel()
 	res := RouteResult{Steps: []RouteStep{}, Tabs: []string{}}
+	if err := q.recheckNames(ctx, p); err != nil {
+		res.Error = err.Error()
+		if re, ok := errors.AsType[*routeError](err); ok {
+			res.Code, res.Field = "invalid_route", re.field
+		} else if he, ok := errors.AsType[*herdr.Error](err); ok {
+			res.Code = he.Code
+		} else {
+			res.Code = "herdr_error"
+		}
+		return res
+	}
 	steps := p.steps(q.client, &res)
 	q.hub.Log(Entry{At: q.now(), Source: "web", Kind: "route", Text: fmt.Sprintf("new %s route in %s (request of %d characters)", p.req.Role, p.folder, utf8.RuneCountInString(p.req.Request))})
 	var failed error
@@ -475,7 +486,10 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := http.StatusOK
-	if !res.OK {
+	switch {
+	case res.Code == "invalid_route":
+		status = http.StatusBadRequest
+	case !res.OK:
 		status = http.StatusBadGateway
 	}
 	writeJSON(w, status, res)
@@ -588,4 +602,28 @@ func promptWhenReady(ctx context.Context, c *herdr.Client, pane, text string) er
 		case <-time.After(promptReadyRetry):
 		}
 	}
+}
+
+// recheckNames reads a fresh snapshot inside the queued job, before any tab
+// is made: the hub's state can be older than a route another browser just
+// started, and agent.start would refuse a taken name only after its tab
+// exists.
+func (q *Queue) recheckNames(ctx context.Context, p *routePlan) error {
+	snap, err := q.client.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	for _, l := range p.coordinators {
+		for _, a := range snap.Agents {
+			if a.Name == nil || *a.Name != l.name {
+				continue
+			}
+			field := "name"
+			if l.role == "orchestrator" && p.req.Role == "adjutant" {
+				field = "orch_name"
+			}
+			return refuse(field, "an agent named %s is already running", l.name)
+		}
+	}
+	return nil
 }
