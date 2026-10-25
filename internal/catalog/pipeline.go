@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
 )
 
-// probeTimeout bounds each command of the pipeline.
-const probeTimeout = 10 * time.Second
+// probeTimeout bounds each command of the pipeline; tests shorten it.
+var probeTimeout = 10 * time.Second
+
+// modelProfile is a harness's model interface named model-profile (Muse).
+var modelProfile = regexp.MustCompile(`(?m)^\s+model-profile\b`)
 
 // Pipeline is the one probe `herdsman models` and herdsman web share
 // (A29): the agent kinds `herdr agent start --help` lists (only one when
@@ -121,16 +125,24 @@ func probeKind(ctx context.Context, run Runner, kind string) (Kind, bool) {
 	h := ParseHelp(kind, program, help)
 	base.Version = version(ctx, run, program)
 	base.EffortFlag = effortFlag(help)
-	if !subcommand.Match(help) {
+	// The model interface the --help advertises: a models subcommand, or
+	// Muse's model-profile.
+	sub := ""
+	switch {
+	case subcommand.Match(help):
+		sub = "models"
+	case modelProfile.Match(help):
+		sub = "model-profile"
+	default:
 		return unavailable(base, program+" lists no models"), true
 	}
-	out, err := ask(ctx, run, program, "models")
+	out, err := ask(ctx, run, program, sub)
 	if err != nil {
-		return unavailable(base, program+" models: "+err.Error()), true
+		return unavailable(base, program+" "+sub+": "+err.Error()), true
 	}
 	ms, err := ParseModelLines(out, h.Efforts, h.DefaultEffort)
 	if err != nil {
-		return unavailable(base, program+" models: "+err.Error()), true
+		return unavailable(base, program+" "+sub+": "+err.Error()), true
 	}
 	base.Models, base.DefaultModel = ms, ms[0].ID
 	return base, true

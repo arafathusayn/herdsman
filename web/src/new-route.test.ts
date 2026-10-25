@@ -14,6 +14,7 @@ import {
   initialForm,
   kindOf,
   knownFolders,
+  missingPicks,
   newForm,
   OTHER,
   parseLimit,
@@ -533,4 +534,46 @@ test("a provider/model id is a valid typed model", () => {
   expect(validate(ok, catalog, null)["main"]).toBeUndefined();
   const bad = setHarness(typed, catalog, "main", { model: "a/b/c" });
   expect(validate(bad, catalog, null)["main"]).toBeDefined();
+});
+
+// review-3: a saved effort the lists no longer offer is asked again; a
+// model with no efforts takes none; a kind whose list was not read cannot
+// start unless it is a saved default pick.
+test("previous choices compare exactly; efforts and unread lists follow the server", () => {
+  const pick = (role: string, harness: string, model: string, effort: string) => ({
+    role,
+    runner: "herdr",
+    harness,
+    model,
+    effort,
+    route: "",
+    at: "",
+  });
+  const orch = { ...fresh(), main: { kind: "codex", model: "gpt-6.1-sol", other: "", effort: "high" } };
+  const c = { ...catalog, previous: [pick("orchestrator", "codex", "gpt-6.1-sol", "max")] };
+  expect(missingPicks(orch, c)["main"]).toContain("is no longer offered");
+  const ok = { ...c, previous: [pick("orchestrator", "codex", "gpt-6.1-sol", "high")] };
+  expect(missingPicks(orch, ok)).toEqual({});
+  const listed: Catalog = {
+    ...catalog,
+    kinds: [
+      ...catalog.kinds,
+      {
+        ...catalog.kinds[2]!,
+        kind: "oc",
+        label: "Oc",
+        free_model: false,
+        models: [{ id: "p/m", label: "p/m", efforts: [], default_effort: "" }],
+      },
+      { ...catalog.kinds[2]!, kind: "off", label: "Off", free_model: false, offline: true },
+      { ...catalog.kinds[2]!, kind: "kept", label: "Kept", free_model: false, saved: true },
+    ],
+  };
+  const v = (kind: string, model: string, effort: string) =>
+    validate({ ...fresh(), main: { kind, model, other: "", effort } }, listed, null)["main"];
+  expect(v("oc", "p/m", "")).toBeUndefined();
+  expect(v("oc", "p/m", "low")).toBe("Pick an effort from the list.");
+  expect(v("off", "", "")).toContain("could not be read");
+  expect(v("kept", "", "")).toBeUndefined();
+  expect(v("kept", "x", "")).toContain("could not be read");
 });

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // The harnesses' own model pages, linked so the user can read what each
@@ -20,6 +21,9 @@ type Runner func(ctx context.Context, name string, args ...string) ([]byte, erro
 // ExecRunner runs the program with no standard input.
 func ExecRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	// A killed program's children may hold its output open: stop waiting
+	// for them shortly after the deadline.
+	cmd.WaitDelay = time.Second
 	return cmd.Output()
 }
 
@@ -110,9 +114,10 @@ var probes = map[string]struct {
 	"codex":  {[]string{"debug", "models"}, ParseCodexModels},
 }
 
-// version is the first line of `<program> --version`, or "unknown".
+// version is the first line of `<program> --version`, or "unknown"; it
+// runs under the same per-command deadline as every probe.
 func version(ctx context.Context, run Runner, program string) string {
-	if v, err := run(ctx, program, "--version"); err == nil {
+	if v, err := ask(ctx, run, program, "--version"); err == nil {
 		if line, _, _ := strings.Cut(strings.TrimSpace(string(v)), "\n"); line != "" {
 			return line
 		}

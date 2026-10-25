@@ -79,6 +79,7 @@ func TestRefusesBadPicks(t *testing.T) {
 		{Role: "reviewer", Runner: "herdr", Harness: "codex", Model: "has space"},
 		{Role: "reviewer", Runner: "herdr", Harness: "codex", Effort: "HIGH1"},
 		{Role: "reviewer", Runner: "herdr", Harness: "codex", Route: "a/b"},
+		{Role: "reviewer", Runner: "herdr", Harness: "muse", EffortFlag: "-e; rm"},
 	} {
 		if err := s.Save(p); err == nil {
 			t.Errorf("%+v saved", p)

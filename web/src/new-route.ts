@@ -247,8 +247,14 @@ export function missingPicks(f: RouteForm, c: Catalog): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [role, field] of roles) {
     const p = (c.previous ?? []).find((x) => x.role === role && x.runner === "herdr");
-    if (!p) out[field] = `No saved choice for the ${role}: pick its harness, model and effort.`;
-    else if (!harnessFromPick(c, p))
+    if (!p) {
+      out[field] = `No saved choice for the ${role}: pick its harness, model and effort.`;
+      continue;
+    }
+    // The saved model and effort must both be offered as saved: a silent
+    // fallback to another effort is a fresh choice, so it is asked.
+    const h = harnessFromPick(c, p);
+    if (!h || modelOf(h) !== p.model || h.effort !== p.effort)
       out[field] = `The saved ${role} choice (${pickSummary(p)}) is no longer offered: pick again.`;
   }
   return out;
@@ -394,8 +400,10 @@ function checkHarness(h: Harness, c: Catalog, field: string, out: Record<string,
   }
   const model = modelOf(h);
   if (!k.free_model && !k.other_model && k.models.length === 0) {
-    // No list was read (A29): it starts with its own default model.
-    if (h.model || h.effort) out[field] = `${k.label} lists no models here: it starts with its own default.`;
+    // A29: no list was read, so there is no model and effort to choose; only
+    // a saved default pick (no model) starts again as saved.
+    if (!k.saved || h.model || h.effort)
+      out[field] = `${k.label}'s model list could not be read: pick a harness whose list was read.`;
     return;
   }
   if (k.free_model) {
@@ -405,7 +413,9 @@ function checkHarness(h: Harness, c: Catalog, field: string, out: Record<string,
   if (h.model === OTHER) {
     if (!modelId.test(model)) out[field] = "A model id uses letters, digits and . _ : [ ] - (at most 64).";
   } else if (!k.models.some((m) => m.id === h.model)) out[field] = `Pick a model from ${k.label}'s list.`;
-  if (!effortsFor(k, h.model).includes(h.effort)) out[field] ??= "Pick an effort from the list.";
+  // A model that lists no efforts takes none, as the server accepts.
+  const efforts = effortsFor(k, h.model);
+  if (efforts.length ? !efforts.includes(h.effort) : h.effort !== "") out[field] ??= "Pick an effort from the list.";
 }
 
 /** Field → message for every problem the form can see. Empty when it can be sent. */

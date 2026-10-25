@@ -55,6 +55,9 @@ type Kind struct {
 	// EffortFlag is the effort option a harness other than Claude and Codex
 	// names in its --help, used to pass the picked effort.
 	EffortFlag string `json:"effort_flag,omitempty"`
+	// Saved marks a kind built from the saved picks alone: the user chose
+	// to start the previous choice again, so its picks launch as saved.
+	Saved bool `json:"saved,omitempty"`
 }
 
 // DefaultEffort is the default the harness reports when its list has it,

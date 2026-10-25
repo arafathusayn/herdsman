@@ -536,7 +536,6 @@ func (s *Server) routeRunState(w http.ResponseWriter, r *http.Request) {
 	total := rv.OlderRunState + len(rv.RunState)
 	before = min(before, total)
 	var lines []route.LogLine
-	var err error
 	if rv.runStateLast {
 		lines, err = route.PageRunState(rv.Dir, before, runStateKept, total)
 	} else {

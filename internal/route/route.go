@@ -282,6 +282,10 @@ func cellValue(cell string, path bool) string {
 
 // listFiles lists the readable text files of a route folder, skipping large
 // probe output and anything outside the folder.
+// ListFiles is a route folder's file list as Load reads it; the web hub
+// reads it on each refresh, apart from the parsed route file.
+func ListFiles(dir string) []File { return listFiles(dir) }
+
 func listFiles(dir string) []File {
 	var out []File
 	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {

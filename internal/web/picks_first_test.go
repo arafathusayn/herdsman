@@ -50,4 +50,35 @@ func TestSavedPicksStartWithoutProbe(t *testing.T) {
 	if calls.Load() == 0 {
 		t.Fatal("a new pick was started without the probe")
 	}
+	// After the probe ran, the saved pick is still started as saved, even
+	// when the probed list no longer has its model: Yes never depends on
+	// whether a probe finished.
+	if err := st.Save(choices.Pick{Role: "orchestrator", Runner: "herdr", Harness: "claude", Model: "claude-gone-1", Effort: "medium"}); err != nil {
+		t.Fatal(err)
+	}
+	req = f.orchestrator()
+	req.Name, req.Model = "orch-3", "claude-gone-1"
+	if code, out := f.post(t, req); code != 200 || !out.OK {
+		t.Fatalf("saved pick after the probe: %d %+v", code, out)
+	}
+}
+
+// A saved default pick of another kind starts as saved, but never with the
+// checkpointer, which reads Claude Code and Codex transcripts only.
+func TestSavedDefaultPickRefusesTheCheckpointer(t *testing.T) {
+	f := newRouteFixture(t)
+	st := &choices.Store{Path: filepath.Join(t.TempDir(), "herdsman", "choices.json")}
+	if err := st.Save(choices.Pick{Role: "orchestrator", Runner: "herdr", Harness: "pi"}); err != nil {
+		t.Fatal(err)
+	}
+	f.srv.cfg.Choices = st
+	req := f.orchestrator()
+	req.Kind, req.Model, req.Effort = "pi", "", ""
+	if code, out := f.post(t, req); code != 400 || out.Field != "checkpointer" {
+		t.Fatalf("%d %+v", code, out)
+	}
+	req.Checkpointer.On = false
+	if code, out := f.post(t, req); code != 200 || !out.OK {
+		t.Fatalf("%d %+v", code, out)
+	}
 }

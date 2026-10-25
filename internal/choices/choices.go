@@ -42,13 +42,17 @@ var (
 // effort ("" when the harness takes none), route ("" when none was named)
 // and at (RFC 3339 time of the pick).
 type Pick struct {
-	Role    string    `json:"role"`
-	Runner  string    `json:"runner"`
-	Harness string    `json:"harness"`
-	Model   string    `json:"model"`
-	Effort  string    `json:"effort"`
-	Route   string    `json:"route"`
-	At      time.Time `json:"at"`
+	Role    string `json:"role"`
+	Runner  string `json:"runner"`
+	Harness string `json:"harness"`
+	Model   string `json:"model"`
+	Effort  string `json:"effort"`
+	// EffortFlag is the option that passes the effort to a harness other
+	// than Claude and Codex (its --help names it), so the pick can start
+	// again without a probe.
+	EffortFlag string    `json:"effort_flag,omitempty"`
+	Route      string    `json:"route"`
+	At         time.Time `json:"at"`
 }
 
 // File is the store's content and `herdsman models last --json`.
@@ -71,6 +75,8 @@ func (p Pick) Check() error {
 		return fmt.Errorf("model %q must match %s", p.Model, catalog.ModelID)
 	case p.Effort != "" && !effortWord.MatchString(p.Effort):
 		return fmt.Errorf("effort %q must be lower-case letters", p.Effort)
+	case p.EffortFlag != "" && !flagWord.MatchString(p.EffortFlag):
+		return fmt.Errorf("effort flag %q must be an option such as --effort", p.EffortFlag)
 	case p.Route != "" && !routeWord.MatchString(p.Route):
 		return fmt.Errorf("route %q must be letters, digits, . _ or -", p.Route)
 	}
@@ -79,6 +85,8 @@ func (p Pick) Check() error {
 
 // renameFile replaces the file; tests make it fail.
 var renameFile = os.Rename
+
+var flagWord = regexp.MustCompile(`^--[a-z][a-z-]{0,31}$`)
 
 // Store is the choices file.
 type Store struct{ Path string }

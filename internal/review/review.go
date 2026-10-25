@@ -198,13 +198,18 @@ func ignoredCollisions(ctx context.Context, wt, head string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Names compare case-folded: on a case-insensitive filesystem LOCAL-NOTES
-	// and local-notes are one file (refusing more on a case-sensitive one is
-	// the safe side).
+	// On a case-insensitive filesystem (git's core.ignorecase, which git
+	// sets by testing the disk) LOCAL-NOTES and local-notes are one file, so
+	// names compare case-folded there; elsewhere they compare exactly, and
+	// the checkout's own guard decides the rest.
+	fold := func(p string) string { return p }
+	if ic, _ := git(ctx, wt, "config", "--bool", "core.ignorecase"); ic == "true" {
+		fold = strings.ToLower
+	}
 	target := map[string]bool{}
 	for p := range strings.SplitSeq(tracked, "\x00") {
 		if p != "" {
-			target[strings.ToLower(p)] = true
+			target[fold(p)] = true
 		}
 	}
 	var out []string
@@ -213,7 +218,7 @@ func ignoredCollisions(ctx context.Context, wt, head string) ([]string, error) {
 			continue
 		}
 		p := strings.TrimSuffix(e[3:], "/")
-		lp := strings.ToLower(p)
+		lp := fold(p)
 		hit := target[lp]
 		// A tracked file at any parent folder of the ignored path.
 		for d := filepath.Dir(lp); !hit && d != "."; d = filepath.Dir(d) {

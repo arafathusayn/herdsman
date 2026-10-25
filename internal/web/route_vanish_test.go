@@ -52,3 +52,29 @@ func TestRunStatePageWhenNotLast(t *testing.T) {
 		t.Fatalf("status %d", res.StatusCode)
 	}
 }
+
+// A --route folder whose file disappears, or turns into a folder, leaves
+// the routes and the cache.
+func TestNamedRouteThatStopsReading(t *testing.T) {
+	f := newFixture(t)
+	h := NewHub(f.hub.client, f.hub.pong, []string{f.routeDir})
+	h.refresh(context.Background())
+	if len(h.Current().Routes) != 1 {
+		t.Fatal("no route")
+	}
+	p := filepath.Join(f.routeDir, route.RouteFile)
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	h.refresh(context.Background())
+	if len(h.Current().Routes) != 0 || len(h.routes) != 0 {
+		t.Fatalf("gone file: routes %d, cache %d", len(h.Current().Routes), len(h.routes))
+	}
+	if err := os.Mkdir(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h.refresh(context.Background())
+	if len(h.Current().Routes) != 0 || len(h.routes) != 0 {
+		t.Fatalf("folder: routes %d, cache %d", len(h.Current().Routes), len(h.routes))
+	}
+}

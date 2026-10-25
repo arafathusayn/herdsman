@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"unicode"
 
 	"github.com/arafathusayn/herdsman/internal/catalog"
@@ -84,7 +83,6 @@ type catalogSource struct {
 	run   runner
 	once  sync.Once
 	kinds []CatalogKind
-	built atomic.Bool // the probe has finished
 }
 
 func newCatalogSource(run runner) *catalogSource { return &catalogSource{run: run} }
@@ -92,7 +90,6 @@ func newCatalogSource(run runner) *catalogSource { return &catalogSource{run: ru
 func (s *catalogSource) get(ctx context.Context) Catalog {
 	s.once.Do(func() {
 		s.kinds = s.build(context.WithoutCancel(ctx))
-		s.built.Store(true)
 	})
 	return Catalog{Kinds: slices.Clone(s.kinds)}
 }
@@ -122,12 +119,12 @@ func launchArgs(k *CatalogKind, model, effort string) ([]string, error) {
 		}
 		return []string{"--model", model}, nil
 	}
+	if k.Saved && model == "" && effort == "" {
+		return []string{}, nil // a saved pick of the harness's own default
+	}
 	if len(k.Models) == 0 && !k.OtherModel {
-		// No list was read: the harness starts with its own default model.
-		if model != "" || effort != "" {
-			return nil, fmt.Errorf("%s lists no models here, so none can be picked", k.Label)
-		}
-		return []string{}, nil
+		// A29: no list was read, so there is no model and effort to choose.
+		return nil, fmt.Errorf("%s's model list could not be read: pick a harness whose list was read", k.Label)
 	}
 	var m *CatalogModel
 	for i := range k.Models {
@@ -144,7 +141,7 @@ func launchArgs(k *CatalogKind, model, effort string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("%s has no model %q in its list", k.Label, model)
 	}
-	if len(efforts) == 0 && k.Kind != "claude" && k.Kind != "codex" {
+	if len(efforts) == 0 && (k.Saved || (k.Kind != "claude" && k.Kind != "codex")) {
 		if effort != "" {
 			return nil, fmt.Errorf("%s lists no efforts", k.Label)
 		}
@@ -237,18 +234,20 @@ func (s *Server) catalogNow(r *http.Request) Catalog {
 }
 
 // pickKinds is a catalog of the saved Herdr picks alone (A30): each picked
-// harness offers its picked models with their picked efforts, so "Use
-// previous choice" starts at once; nothing is probed.
+// harness offers each picked model once, with every effort a saved role
+// chose for it, and the effort option a saved pick names; nothing is
+// probed. A saved pick without a model (the harness's own default) keeps
+// its harness, with no model to pick.
 func pickKinds(picks []choices.Pick) []CatalogKind {
 	out := []CatalogKind{}
 	at := map[string]int{}
 	for _, p := range picks {
-		if p.Runner != "herdr" || p.Model == "" {
+		if p.Runner != "herdr" {
 			continue
 		}
 		i, ok := at[p.Harness]
 		if !ok {
-			k := CatalogKind{Kind: p.Harness, Label: p.Harness, Models: []CatalogModel{}, SkillPrefix: "/", DefaultModel: p.Model}
+			k := CatalogKind{Kind: p.Harness, Label: p.Harness, Models: []CatalogModel{}, SkillPrefix: "/", Saved: true}
 			k.Checkpointer = p.Harness == "claude" || p.Harness == "codex"
 			if p.Harness == "codex" {
 				k.SkillPrefix = "$"
@@ -256,20 +255,34 @@ func pickKinds(picks []choices.Pick) []CatalogKind {
 			i, at[p.Harness] = len(out), len(out)
 			out = append(out, k)
 		}
-		m := CatalogModel{ID: p.Model, Label: p.Model, Efforts: []string{}, DefaultEffort: p.Effort}
-		if p.Effort != "" {
-			m.Efforts = []string{p.Effort}
+		k := &out[i]
+		if p.EffortFlag != "" {
+			k.EffortFlag = p.EffortFlag
 		}
-		out[i].Models = append(out[i].Models, m)
+		if p.Model == "" {
+			continue
+		}
+		if k.DefaultModel == "" {
+			k.DefaultModel = p.Model
+		}
+		j := slices.IndexFunc(k.Models, func(m CatalogModel) bool { return m.ID == p.Model })
+		if j < 0 {
+			k.Models = append(k.Models, CatalogModel{ID: p.Model, Label: p.Model, Efforts: []string{}, DefaultEffort: p.Effort})
+			j = len(k.Models) - 1
+		}
+		if p.Effort != "" && !slices.Contains(k.Models[j].Efforts, p.Effort) {
+			k.Models[j].Efforts = append(k.Models[j].Efforts, p.Effort)
+		}
 	}
 	return out
 }
 
 // planCatalog is the catalog a new route is checked against: the saved
-// picks' catalog while the probe has not finished and every coordinator
-// of the request is exactly a saved pick (A30), else the probed one.
+// picks' catalog when every coordinator of the request is exactly a saved
+// pick (A30: the previous choice never waits for, or depends on, a probe),
+// else the probed one.
 func (s *Server) planCatalog(r *http.Request, req RouteRequest) Catalog {
-	if !s.catalog.built.Load() {
+	{
 		picks := s.savedPicks()
 		is := func(role, kind, model, effort string) bool {
 			for _, p := range picks {

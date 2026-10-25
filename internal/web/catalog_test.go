@@ -180,9 +180,9 @@ func checkOffline(t *testing.T, c Catalog) {
 
 func TestOfflineHarnessLaunchesNothing(t *testing.T) {
 	c := newCatalogSource(fakeRunner(nil, map[string]error{"codex debug models": errors.New("x"), "claude --help": errors.New("x"), "herdr agent start --help": errors.New("x")}, nil)).get(context.Background())
-	for _, m := range []string{"model-a", "gpt-6.1-sol"} {
-		if _, err := launchArgs(c.kind("codex"), m, "low"); err == nil {
-			t.Fatalf("%s launched from an offline harness", m)
+	for _, m := range [][2]string{{"model-a", "low"}, {"gpt-6.1-sol", "low"}, {"", ""}, {"", "low"}} {
+		if _, err := launchArgs(c.kind("codex"), m[0], m[1]); err == nil {
+			t.Fatalf("%q %q launched from an offline harness", m[0], m[1])
 		}
 	}
 }
@@ -203,7 +203,7 @@ func TestLaunchArgs(t *testing.T) {
 		{"codex", "gpt-5.6-luna", "ultra", nil, true},
 		{"codex", "gpt-reserve", "low", nil, true},
 		{"pi", "some-model", "", nil, true}, // no list was read: nothing to pick
-		{"pi", "", "", []string{}, false},   // its own default
+		{"pi", "", "", nil, true},           // A29: no list read, no launch
 		{"pi", "x;rm", "", nil, true},
 		{"pi", "", "high", nil, true},
 	}

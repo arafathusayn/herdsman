@@ -476,7 +476,8 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	home, _ := os.UserHomeDir()
-	p, err := planRoute(req, s.hub.Current(), s.planCatalog(r, req), home, s.cfg.SkillDir)
+	cat := s.planCatalog(r, req)
+	p, err := planRoute(req, s.hub.Current(), cat, home, s.cfg.SkillDir)
 	if err != nil {
 		re, _ := errors.AsType[*routeError](err)
 		field := ""
@@ -506,7 +507,7 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.OK {
-		s.savePicks(req)
+		s.savePicks(req, cat)
 	}
 	status := http.StatusOK
 	switch {
@@ -654,7 +655,7 @@ func (q *Queue) recheckNames(ctx context.Context, p *routePlan) error {
 // savePicks records the harness, model and effort a started route launched
 // each role with (A30); the web app starts every agent in a Herdr pane. A store that cannot be written loses the picks,
 // never the route.
-func (s *Server) savePicks(req RouteRequest) {
+func (s *Server) savePicks(req RouteRequest, cat Catalog) {
 	if s.cfg.Choices == nil {
 		return
 	}
@@ -662,6 +663,13 @@ func (s *Server) savePicks(req RouteRequest) {
 	picks := []choices.Pick{{Role: req.Role, Runner: "herdr", Harness: req.Kind, Model: req.Model, Effort: req.Effort, Route: req.RouteName, At: at}}
 	if req.Role == "adjutant" {
 		picks = append(picks, choices.Pick{Role: "orchestrator", Runner: "herdr", Harness: req.OrchKind, Model: req.OrchModel, Effort: req.OrchEffort, Route: req.RouteName, At: at})
+	}
+	// The effort option of a harness other than Claude and Codex goes with
+	// its pick, so the pick can start again without a probe.
+	for i := range picks {
+		if k := cat.kind(picks[i].Harness); k != nil && picks[i].Effort != "" {
+			picks[i].EffortFlag = k.EffortFlag
+		}
 	}
 	if err := s.cfg.Choices.Save(picks...); err != nil {
 		log.Printf("herdsman web: the route's picks were not saved: %v", err)

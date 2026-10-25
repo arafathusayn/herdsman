@@ -357,7 +357,7 @@ func TestRouteRefusals(t *testing.T) {
 		{"limit too high", "limit", func(r *RouteRequest) { r.Checkpointer.Limit = 2000001 }},
 		{"control character", "request", func(r *RouteRequest) { r.Request = "a\x1b[2Jb" }},
 		{"request too long", "request", func(r *RouteRequest) { r.Request = strings.Repeat("x", maxRouteRequest+1) }},
-		{"checkpointer for another kind", "checkpointer", func(r *RouteRequest) { r.Kind, r.Model, r.Effort = "pi", "", "" }},
+		{"a kind whose list was not read", "model", func(r *RouteRequest) { r.Kind, r.Model, r.Effort = "pi", "", "" }},
 		{"adjutant fields on an orchestrator route", "role", func(r *RouteRequest) { r.Inbox = "~/x" }},
 	}
 	adj := []struct {

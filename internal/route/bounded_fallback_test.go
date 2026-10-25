@@ -42,3 +42,20 @@ func TestPageRunStateFallsBack(t *testing.T) {
 		t.Fatalf("partial: %+v", lines)
 	}
 }
+
+// A route "file" that is a folder cannot be read by any of the readers.
+func TestRouteFileThatIsAFolder(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, route.RouteFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := route.Load(dir); err == nil {
+		t.Error("Load read a folder")
+	}
+	if _, err := route.LoadBounded(dir, 10, nil); err == nil {
+		t.Error("LoadBounded read a folder")
+	}
+	if _, err := route.PageRunState(dir, 1, 1, 1); err == nil {
+		t.Error("PageRunState read a folder")
+	}
+}

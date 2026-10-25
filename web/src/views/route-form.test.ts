@@ -496,3 +496,47 @@ test("the recommended summary says the checkpointer is off when unavailable", as
   const dd = find(body, (e) => e.dataset?.["item"] === "Checkpointer");
   expect(dd?.textContent).toBe("Off: no checkpointer.sh");
 });
+
+// review-3: the probed lists update the form in place; the draft stays.
+test("setCatalog keeps the draft and asks again for a pick the lists dropped", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const pick = {
+    role: "orchestrator",
+    runner: "herdr",
+    harness: "claude",
+    model: "fable",
+    effort: "low",
+    route: "",
+    at: "",
+  };
+  const deps = {
+    createRoute: () => new Promise<RouteResult>(() => {}),
+    inboxState: () => new Promise<InboxState>(() => {}),
+    state: () => state,
+    copy: () => {},
+    openPane: () => {},
+    close: () => {},
+    failed: () => {},
+    every: () => () => {},
+    later: () => () => {},
+  } as Deps;
+  const r = routeForm(body as unknown as HTMLElement, { ...catalog, previous: [pick] }, state, deps);
+  const rec = byName(body, "recommended");
+  rec.checked = false;
+  rec.dispatch("change");
+  byName(body, "role-orchestrator").dispatch("click");
+  type(byName(body, "request"), "keep this task");
+  type(byName(body, "folder"), "/r/kept");
+  const claude = catalog.kinds[0]!;
+  r.setCatalog({
+    ...catalog,
+    kinds: [
+      { ...claude, models: claude.models.map((m) => ({ ...m, efforts: ["medium", "high"] })) },
+      ...catalog.kinds.slice(1),
+    ],
+  });
+  expect(r.form().request).toBe("keep this task");
+  expect(r.form().folder).toBe("/r/kept");
+  expect(box(body, "main")?.textContent).toContain("is no longer offered");
+});

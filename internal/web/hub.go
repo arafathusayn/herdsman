@@ -385,7 +385,12 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 		if !ok {
 			continue
 		}
-		r := tail.Route
+		// The parsed file is shared between refreshes; the folder's file
+		// list is read each time, so a new document shows without a change
+		// to the route file.
+		cp := *tail.Route
+		cp.Files = route.ListFiles(d)
+		r := &cp
 		out = append(out, RouteView{Route: r, ID: routeID(r.Dir, r.Name), Live: isLive(r, panes, agentAt, claimed),
 			OlderRunState: tail.Total - len(r.RunState), runStateLast: tail.RunStateLast()})
 	}
@@ -418,7 +423,7 @@ func (h *Hub) loadRoute(dir string) (*route.Tail, bool) {
 		tail, err := route.LoadBounded(dir, runStateKept, c.tail)
 		if err != nil {
 			delete(h.routes, dir)
-			return nil, 0, false
+			return nil, false
 		}
 		if h.routes == nil {
 			h.routes = map[string]cachedRoute{}

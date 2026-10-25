@@ -84,11 +84,12 @@ const checkpointerFields = ["checkpointer", "minutes", "limit"];
  */
 export function routeForm(
   body: HTMLElement,
-  c: Catalog,
+  initial: Catalog,
   st: State | null,
   deps: Deps,
   opts: { usePrevious?: boolean } = {},
-): { stop(): void; form(): RouteForm; sent(): boolean } {
+): { stop(): void; form(): RouteForm; sent(): boolean; setCatalog(next: Catalog): void } {
+  let c = initial;
   let f: RouteForm = newForm(c, st);
   let errors: Record<string, string> = {};
   // "Yes" to the previous choice (A30): the saved picks fill the roles at
@@ -874,5 +875,14 @@ export function routeForm(
     },
     form: () => f,
     sent: () => busy || submitted !== null,
+    // The probed lists arrived: the choices and questions change in place;
+    // the draft (task, folder, names, account) stays.
+    setCatalog: (next: Catalog) => {
+      c = { ...next, previous: next.previous ?? c.previous ?? [] };
+      delete errors["main"];
+      delete errors["orch"];
+      errors = { ...errors, ...missingPicks(f, c) };
+      draw();
+    },
   };
 }
