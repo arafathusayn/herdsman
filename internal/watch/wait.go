@@ -22,7 +22,7 @@ import (
 
 // The waiter's screen patterns.
 var (
-	waitBlockRE = posix(`Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to gpt|Usage limit|Queued follow-up inputs|Type your answer|Allow reads outside|Do you want to proceed|Permission required|Do you trust`)
+	waitBlockRE = posix(`Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to [[:alnum:]][[:alnum:]._-]*|Usage limit|Queued follow-up inputs|Type your answer|Allow reads outside|Do you want to proceed|Permission required|Do you trust`)
 	// Claude Code shows "… (12s ·" while it works; Codex shows "esc to interrupt" or "Pursuing goal".
 	waitWorkRE = posix(`esc to interrupt|Pursuing goal|Incubating|thinking|… \([0-9]`)
 	// A Codex footer can keep this text while the agent works, so it counts as a block only where no work text shows.

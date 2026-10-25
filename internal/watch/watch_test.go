@@ -631,3 +631,18 @@ func TestWaiterHealthEpochBounds(t *testing.T) {
 		_ = os.Remove(filepath.Join(st, "health-flags"))
 	}
 }
+
+// R5 finding 7 (A28): the model-switch prompt is matched by its shape, for
+// any model name, and no model family is written in the detector.
+func TestModelSwitchPromptByShape(t *testing.T) {
+	for _, re := range []*regexp.Regexp{waitBlockRE, implBlockRE} {
+		for _, s := range []string{"Switch to model-z for the rest of this task?", "› Switch to effort-x-model-9 now"} {
+			if got := first(re, s); !strings.HasPrefix(got, "Switch to ") {
+				t.Errorf("%q: %q", s, got)
+			}
+		}
+		if strings.Contains(strings.ToLower(re.String()), "gpt") {
+			t.Errorf("a model family in %s", re)
+		}
+	}
+}

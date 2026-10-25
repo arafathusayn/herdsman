@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	implBlockRE = posix(`Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to gpt|Usage limit|Do you trust|Permission required|Queued follow-up inputs|Type your answer`)
+	implBlockRE = posix(`Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to [[:alnum:]][[:alnum:]._-]*|Usage limit|Do you trust|Permission required|Queued follow-up inputs|Type your answer`)
 	implWorkRE  = posix(`esc to interrupt|Pursuing goal`)
 	revBlockRE  = posix(`Password for|Device not configured|Allow reads outside|Do you want to proceed|Yes, and don|usage limit|rate limit|Permission required`)
 	revWorkRE   = posix(`esc to interrupt|thinking|Incubating|tokens|Pursuing goal`)
