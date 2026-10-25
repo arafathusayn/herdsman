@@ -3,6 +3,7 @@ package runcheck
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -458,5 +459,83 @@ func TestTryLockOnAClosedFile(t *testing.T) {
 	_ = f.Close()
 	if got, err := tryLock(f); got || err == nil {
 		t.Errorf("a closed file locks: %v %v", got, err)
+	}
+}
+
+// R3 sweep (b): the numbers run-check.sh compares with [ -ge ] or reads in
+// $(( )) are read as bash reads them, and GATE_WAIT is printed as written.
+func TestShellNumbers(t *testing.T) {
+	f := newFixture(t)
+	f.env = append(f.env, "HERDSMAN_GATE_WAIT= 1")
+	f.setReading(t, "9.0 50")
+	c, _ := f.config()
+	_, errs, code := runIn(c, "echo", "ran")
+	match(t, "a padded GATE_WAIT gives up, printed as written", `NOT RUN \(load gate gave up after  1s: load 9.0`, errs)
+	if code != ExitTempFail {
+		t.Errorf("exit %d", code)
+	}
+	// GATE_WAIT that test refuses: the gate never gives up (here the load
+	// falls after a few polls).
+	f = newFixture(t)
+	f.env = append(f.env, "HERDSMAN_GATE_WAIT=x")
+	f.setReading(t, "9.0 50")
+	c, _ = f.config()
+	polls := 0
+	c.Sleep = func(time.Duration) {
+		if polls++; polls == 5 {
+			f.setReading(t, "0.5 50")
+		}
+	}
+	out, _, code := run(c, "echo", "ran")
+	if code != 0 || !strings.Contains(out, "ran") || polls < 5 {
+		t.Errorf("GATE_WAIT=x: %d %q after %d polls", code, out, polls)
+	}
+	// MIN_FREE that test refuses: no reading is ever good enough.
+	f = newFixture(t)
+	f.env = append(f.env, "HERDSMAN_MIN_FREE=x", "HERDSMAN_GATE_WAIT=1")
+	f.setReading(t, "0.5 50")
+	c, _ = f.config()
+	_, errs, _ = runIn(c, "echo", "ran")
+	match(t, "MIN_FREE=x fails the gate", `NOT RUN \(load gate gave up`, errs)
+	f = newFixture(t)
+	f.env = append(f.env, "HERDSMAN_MIN_FREE= 060", "HERDSMAN_GATE_WAIT=1")
+	f.setReading(t, "0.5 50")
+	c, _ = f.config()
+	_, errs, _ = runIn(c, "echo", "ran")
+	match(t, "MIN_FREE= 060 is 60 (decimal in test)", `NOT RUN \(load gate gave up`, errs)
+	// $(( )): blanks, octal and hexadecimal.
+	for _, tc := range []struct{ hours, secs string }{{"1", " 0"}, {"1", "00"}, {"1", "0x0"}} {
+		c.PublishSeconds = tc.secs
+		var errb bytes.Buffer
+		if code := Publish(c, tc.hours, &errb); code != 0 {
+			t.Errorf("--publish %q with %q seconds: %d %q", tc.hours, tc.secs, code, errb.String())
+		}
+	}
+	c.PublishSeconds = ""
+	clock := time.Now()
+	end := clock
+	c.Now = func() time.Time { return clock }
+	c.Sleep = func(d time.Duration) { clock = clock.Add(d) }
+	c.Probe = func() string { return "" }
+	var errb bytes.Buffer
+	if code := Publish(c, " 01 ", &errb); code != 0 || clock.Sub(end) < time.Hour || clock.Sub(end) > time.Hour+time.Minute {
+		t.Errorf("--publish \" 01 \": %d, ran %v", code, clock.Sub(end))
+	}
+}
+
+// run is runIn with the config's own clock and sleep.
+func run(c Config, args ...string) (string, string, int) {
+	var out, errb bytes.Buffer
+	code := Run(c, args, nil, &out, &errb)
+	return out.String(), errb.String(), code
+}
+
+func TestGateWaitTextWithoutTheEnvironment(t *testing.T) {
+	c := Config{GateWait: 2 * time.Second}
+	if c.gateWaitText() != "2" {
+		t.Errorf("%q", c.gateWaitText())
+	}
+	if testSecs("9223372036854775807") != math.MaxInt64 {
+		t.Error("a GATE_WAIT past what a duration holds")
 	}
 }

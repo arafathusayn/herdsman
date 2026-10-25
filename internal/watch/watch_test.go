@@ -471,3 +471,47 @@ func TestReviewsInABracketedFolder(t *testing.T) {
 		t.Error("a missing folder has reviews")
 	}
 }
+
+// R3 sweep (b): the waiter reads DEADLINE, HERDSMAN_HEALTH_EVERY and the
+// due times as test reads an integer; a value test refuses never holds.
+func TestWaiterShellNumbers(t *testing.T) {
+	h := newHarness(t)
+	h.screen("w9:p1", "• Working (1s • esc to interrupt)")
+	h.screen("w9:p2", "Pursuing goal (1m)")
+	h.screen("w9:p3", "· Incubating…")
+	match(t, "a padded DEADLINE", `^TICK no event`, h.wait("DEADLINE", " 0 "))
+	match(t, "a DEADLINE of 00", `^TICK no event`, h.wait("DEADLINE", "00"))
+	noMatch(t, "a DEADLINE that test refuses never ends the wait", `TICK`, h.wait("DEADLINE", "0x0"))
+	// HEALTH_EVERY: padded, and refused.
+	h.env["HERDSMAN_STATUS_SPECS"] = "im-a:w9:p1:"
+	h.status = "12:00:00\nmachine: load 9.00 (5 min) on 8 cores, memory free 50%\n   <-- LOAD HIGH\n"
+	h.wait("HERDSMAN_HEALTH_EVERY", " 0")
+	match(t, "a padded HERDSMAN_HEALTH_EVERY", `HEALTH machine LOAD HIGH`, h.wait("HERDSMAN_HEALTH_EVERY", " 0"))
+	h.status = "12:00:00\nmachine: load 9.00 (5 min) on 8 cores, memory free 5%\n   <-- MEMORY LOW\n"
+	noMatch(t, "a HERDSMAN_HEALTH_EVERY that test refuses never runs the check", `HEALTH`, h.wait("HERDSMAN_HEALTH_EVERY", "x"))
+	delete(h.env, "HERDSMAN_STATUS_SPECS")
+	// A padded due time.
+	past := strconv.FormatInt(h.now.Add(-time.Hour).Unix(), 10)
+	match(t, "a padded due time is overdue", `OVERDUE im-a due `, h.wait("HERDSMAN_DUE_im_a", " "+past))
+}
+
+// R3 sweep (b): HERDSMAN_PR_DEADLINE as test reads it, printed as written.
+func TestPRWatcherShellNumbers(t *testing.T) {
+	r := newPRRig(t)
+	r.fixture("7-view.json", view("OPEN", "abcd1234ffff"))
+	out, _ := r.run("7", "s1", 0, "HERDSMAN_PR_DEADLINE", " 0")
+	match(t, "a padded deadline is printed as written", `^TICK no PR change in  0s `, out)
+	// A deadline test refuses never ends the watch: stop it after a few polls.
+	var b bytes.Buffer
+	polls := 0
+	env := map[string]string{"HERDSMAN_PRS": "7", "HERDSMAN_REPO": "org/repo", "HERDSMAN_PR_STATE": filepath.Join(r.dir, "s2"),
+		"HERDSMAN_PR_DEADLINE": "x", "HERDSMAN_PR_INTERVAL": "1"}
+	now := time.Now()
+	r.gh.err = &b
+	d := Deps{Stdout: &b, Stderr: &b, Gh: r.gh.run, Now: func() time.Time { return now },
+		Sleep: func(dd time.Duration) bool { now = now.Add(time.Hour); polls++; return polls < 5 }}
+	PRs(context.Background(), func(k string) (string, bool) { v, ok := env[k]; return v, ok }, d)
+	if strings.Contains(b.String(), "TICK") || polls != 5 {
+		t.Errorf("a refused deadline: %d polls, %q", polls, b.String())
+	}
+}

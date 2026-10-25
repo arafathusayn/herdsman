@@ -74,9 +74,9 @@ type Options struct {
 	// LimitLabel is LIMIT_MIN as written, for the OVER flag (the script
 	// prints ${LIMIT_MIN}m); "" prints LimitMin.
 	LimitLabel string
-	Client   *herdr.Client
-	Now      time.Time
-	Machine  Machine
+	Client     *herdr.Client
+	Now        time.Time
+	Machine    Machine
 }
 
 var (

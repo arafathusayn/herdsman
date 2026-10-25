@@ -39,7 +39,8 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 	repo := env.get("HERDSMAN_REPO")
 	st := state(env.get("HERDSMAN_PR_STATE"))
 	interval := atoi(env.or("HERDSMAN_PR_INTERVAL", "120"))
-	deadline := atoi(env.or("HERDSMAN_PR_DEADLINE", "1500"))
+	deadlineText := env.or("HERDSMAN_PR_DEADLINE", "1500")
+	deadline := testInt(deadlineText)
 	wake := env.or("HERDSMAN_PR_WAKE_CHECKS", "claude-review|test")
 	_ = os.MkdirAll(string(st), 0o755)
 	var ghEnv []string
@@ -121,7 +122,7 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 			if len(unread) > 0 {
 				note = " (not read: " + strings.Join(unread, " ") + ")"
 			}
-			fmt.Fprintf(d.Stdout, "TICK no PR change%s in %ds %s\n", note, deadline, clock(d.Now()))
+			fmt.Fprintf(d.Stdout, "TICK no PR change%s in %ss %s\n", note, deadlineText, clock(d.Now()))
 			return 0
 		}
 		if !d.Sleep(time.Duration(interval) * time.Second) {

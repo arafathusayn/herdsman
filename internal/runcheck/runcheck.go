@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -27,6 +28,8 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/machine"
+
+	"github.com/arafathusayn/herdsman/internal/shnum"
 )
 
 // MachineReading is the probe of a run: the machine's 1-minute load and free
@@ -44,15 +47,18 @@ const (
 // Config is the environment of a run, with the script's defaults filled
 // in by FromEnv.
 type Config struct {
-	Lock      string        // HERDSMAN_LOCK, default /tmp/herdsman-checks.lock
-	Reading   string        // HERDSMAN_READING, default /tmp/herdsman-load
-	LockWait  time.Duration // HERDSMAN_LOCK_WAIT seconds, default 5400
-	GateWait  time.Duration // HERDSMAN_GATE_WAIT seconds, default 600
-	MinFree   int           // HERDSMAN_MIN_FREE percent, default 10
-	Nice      int           // HERDSMAN_NICE, default 10
-	Poll      time.Duration // HERDSMAN_GATE_POLL seconds, default 15
-	LoadLimit string        // HERDSMAN_LOAD_LIMIT, default the core count
-	Probes    bool          // HERDSMAN_PROBES, on unless "off"
+	Lock     string        // HERDSMAN_LOCK, default /tmp/herdsman-checks.lock
+	Reading  string        // HERDSMAN_READING, default /tmp/herdsman-load
+	LockWait time.Duration // HERDSMAN_LOCK_WAIT seconds, default 5400
+	GateWait time.Duration // HERDSMAN_GATE_WAIT seconds, default 600 (never, when test refuses it)
+	// GateWaitText is HERDSMAN_GATE_WAIT as written, for the NOT RUN line;
+	// "" prints GateWait.
+	GateWaitText string
+	MinFree      int           // HERDSMAN_MIN_FREE percent, default 10 (no reading passes when test refuses it)
+	Nice         int           // HERDSMAN_NICE, default 10
+	Poll         time.Duration // HERDSMAN_GATE_POLL seconds, default 15
+	LoadLimit    string        // HERDSMAN_LOAD_LIMIT, default the core count
+	Probes       bool          // HERDSMAN_PROBES, on unless "off"
 
 	PublishSeconds string        // HERDSMAN_PUBLISH_SECONDS, default hours*3600
 	PublishEvery   time.Duration // HERDSMAN_PUBLISH_EVERY seconds, default 15
@@ -68,6 +74,23 @@ type Config struct {
 	// Env is the environment the check runs with (HERDSMAN_CHECK and the
 	// markers are set on top). nil: os.Environ().
 	Env []string
+}
+
+// testInt reads a number the script compares with [ -ge ]: as test reads
+// it, and math.MaxInt (a comparison that never holds) when test refuses it.
+func testInt(s string) int {
+	if n, ok := shnum.Test(s); ok {
+		return int(n)
+	}
+	return math.MaxInt
+}
+
+// testSecs is testInt in seconds; a refused value never elapses.
+func testSecs(s string) time.Duration {
+	if n, ok := shnum.Test(s); ok && n < math.MaxInt64/int64(time.Second) {
+		return time.Duration(n) * time.Second
+	}
+	return math.MaxInt64
 }
 
 // FromEnv reads the settings the script reads, with its defaults.
@@ -96,8 +119,9 @@ func FromEnv(getenv func(string) string) Config {
 		Lock:           or("HERDSMAN_LOCK", "/tmp/herdsman-checks.lock"),
 		Reading:        or("HERDSMAN_READING", "/tmp/herdsman-load"),
 		LockWait:       secs("HERDSMAN_LOCK_WAIT", 5400),
-		GateWait:       secs("HERDSMAN_GATE_WAIT", 600),
-		MinFree:        num("HERDSMAN_MIN_FREE", 10),
+		GateWait:       testSecs(or("HERDSMAN_GATE_WAIT", "600")),
+		GateWaitText:   or("HERDSMAN_GATE_WAIT", "600"),
+		MinFree:        testInt(or("HERDSMAN_MIN_FREE", "10")),
 		Nice:           num("HERDSMAN_NICE", 10),
 		Poll:           secs("HERDSMAN_GATE_POLL", 15),
 		LoadLimit:      getenv("HERDSMAN_LOAD_LIMIT"),
@@ -154,19 +178,20 @@ func Publish(c Config, hours string, stderr io.Writer) int {
 	}
 	span := c.PublishSeconds
 	if span == "" {
-		h, err := strconv.Atoi(hours)
-		if err != nil {
+		// $(( $2 * 3600 )): blanks, octal and hexadecimal as bash reads them.
+		h, ok := shnum.Arith(hours)
+		if !ok {
 			fmt.Fprintln(stderr, "usage: herdsman run-check --publish <hours>")
 			return ExitUsage
 		}
-		span = strconv.Itoa(h * 3600)
+		span = strconv.FormatInt(h*3600, 10)
 	}
-	secs, err := strconv.Atoi(span)
-	if err != nil {
+	secs, ok := shnum.Arith(span)
+	if !ok {
 		fmt.Fprintln(stderr, "usage: herdsman run-check --publish <hours>")
 		return ExitUsage
 	}
-	end := c.Now().Unix() + int64(secs)
+	end := c.Now().Unix() + secs
 	for c.Now().Unix() < end {
 		if r := c.probe(); r != "" {
 			tmp := c.Reading + "." + strconv.Itoa(os.Getpid())
@@ -263,7 +288,7 @@ func (c *Config) gateAndRun(args []string, lock *os.File, stdin io.Reader, stdou
 			break
 		}
 		if c.Now().Sub(start) >= c.GateWait {
-			fmt.Fprintf(stderr, "run-check: NOT RUN (load gate gave up after %ds: load %s, limit %s, free %s%%)\n", int(c.GateWait/time.Second), load, limit, free)
+			fmt.Fprintf(stderr, "run-check: NOT RUN (load gate gave up after %ss: load %s, limit %s, free %s%%)\n", c.gateWaitText(), load, limit, free)
 			return ExitTempFail
 		}
 		c.Sleep(c.Poll)
@@ -432,4 +457,12 @@ func holders(f *os.File) string {
 		return s
 	}
 	return "?"
+}
+
+// gateWaitText is HERDSMAN_GATE_WAIT as the script prints it.
+func (c *Config) gateWaitText() string {
+	if c.GateWaitText != "" {
+		return c.GateWaitText
+	}
+	return strconv.Itoa(int(c.GateWait / time.Second))
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/status"
+
+	"github.com/arafathusayn/herdsman/internal/shnum"
 )
 
 // The waiter's screen patterns.
@@ -43,9 +46,9 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 	_ = os.MkdirAll(string(st), 0o755)
 	rpane := env.or("HERDSMAN_REVIEWER_PANE", "w2:pR")
 	rname := env.or("HERDSMAN_REVIEWER_NAME", "rv-1")
-	deadline := atoi(env.or("DEADLINE", "1500"))
+	deadline := testInt(env.or("DEADLINE", "1500"))
 	poll := atoi(env.or("POLL", "60"))
-	healthEvery := atoi(env.or("HERDSMAN_HEALTH_EVERY", env.or("HEALTH_EVERY", "300")))
+	healthEvery := testInt(env.or("HERDSMAN_HEALTH_EVERY", env.or("HEALTH_EVERY", "300")))
 	reviewers := strings.Fields(env.or("HERDSMAN_REVIEWERS", rname+":"+rpane))
 	start := d.Now()
 	for {
@@ -81,7 +84,7 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 					st.write("duebase-"+name, cur)
 					st.remove("overdue-" + name)
 				}
-				if at, err := strconv.ParseInt(due, 10, 64); err == nil && d.Now().Unix() >= at &&
+				if at, ok := shnum.Test(due); ok && d.Now().Unix() >= at &&
 					!st.has("overdue-"+name) && cur == st.read("duebase-"+name) {
 					st.touch("overdue-" + name)
 					events = append(events, fmt.Sprintf("OVERDUE %s due %s no report since the due time was set %s", name, time.Unix(at, 0).Format("15:04"), now))
@@ -209,6 +212,15 @@ func health(ctx context.Context, env Env, d Deps, st state, specs string, every 
 		}
 	}
 	return events
+}
+
+// testInt reads a number the script compares with [ -ge ]: as test reads
+// it, and math.MaxInt (a comparison that never holds) when test refuses it.
+func testInt(s string) int {
+	if n, ok := shnum.Test(s); ok {
+		return int(n)
+	}
+	return math.MaxInt
 }
 
 // atoi reads a number as the shell's arithmetic would, 0 when it is none.
