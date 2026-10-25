@@ -303,6 +303,14 @@ export interface Catalog {
   previous?: ChoicePick[];
 }
 
+/** The gh accounts that can read a folder's GitHub repository (A32). */
+export interface GitHubAccess {
+  repo: string;
+  accounts: { name: string; active: boolean; can_read: boolean }[];
+  suggested: string;
+  error?: string;
+}
+
 /** One role's saved pick: where its agents ran and the harness, model and effort. */
 export interface ChoicePick {
   role: string;

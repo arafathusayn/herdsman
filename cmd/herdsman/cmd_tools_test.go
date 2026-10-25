@@ -44,8 +44,13 @@ func fakeDoctor(t *testing.T, fail bool) {
 	doctorProbes = func() doctor.Probes {
 		return doctor.Probes{
 			Getenv: os.Getenv, Herdr: herdr.New(sock),
-			LookPath:   func(string) (string, error) { return exe, nil },
-			GhAuth:     func(context.Context, string) error { return nil },
+			LookPath:  func(string) (string, error) { return exe, nil },
+			GhAuth:    func(context.Context, string) error { return nil },
+			GitRemote: func(context.Context, string) (string, error) { return "https://github.com/o/r.git", nil },
+			GhAccounts: func(context.Context, string) ([]doctor.Account, error) {
+				return []doctor.Account{{Name: "u", Active: true}}, nil
+			},
+			GhCanRead:  func(context.Context, string, string, string) error { return nil },
 			Executable: func() (string, error) { return exe, nil },
 			GoCache:    func() (string, error) { return t.TempDir(), nil },
 			WriteDir:   func(string) error { return nil }, ReadMemory: func() error { return nil }, Renice: func() error { return nil },
@@ -59,7 +64,7 @@ func fakeDoctor(t *testing.T, fail bool) {
 func TestDoctorCommand(t *testing.T) {
 	fakeDoctor(t, false)
 	out, errOut, code := call(t, "doctor")
-	if code != 0 || errOut != "" || !regexp.MustCompile(`(?m)^ok herdr herdr 0\.9\.4 protocol 22 at .*\nok gh gh auth status: exit 0 .*\nok binary .*\nok sandbox .*\nok load load 1\.00 \(limit 4\), free 50% \(min 10\)\n$`).MatchString(out) {
+	if code != 0 || errOut != "" || !regexp.MustCompile(`(?m)^ok herdr herdr 0\.9\.4 protocol 22 at .*\nok gh gh auth status: exit 0 .*\nok gh-account o/r: readable by u \(active\); the route will confirm u\nok binary .*\nok sandbox .*\nok load load 1\.00 \(limit 4\), free 50% \(min 10\)\n$`).MatchString(out) {
 		t.Errorf("%d %q %q", code, out, errOut)
 	}
 	out, _, code = call(t, "doctor", "--json")
@@ -67,7 +72,7 @@ func TestDoctorCommand(t *testing.T) {
 		OK     bool `json:"ok"`
 		Checks []struct{ Level, Check, Detail string }
 	}
-	if code != 0 || json.Unmarshal([]byte(out), &rep) != nil || !rep.OK || len(rep.Checks) != 5 || rep.Checks[0].Check != "herdr" || strings.Count(out, "\n") != 1 {
+	if code != 0 || json.Unmarshal([]byte(out), &rep) != nil || !rep.OK || len(rep.Checks) != 6 || rep.Checks[0].Check != "herdr" || strings.Count(out, "\n") != 1 {
 		t.Errorf("%d %q", code, out)
 	}
 
@@ -157,5 +162,13 @@ func TestReviewUsage(t *testing.T) {
 		if code != 2 || !strings.HasPrefix(errOut, "usage: herdsman review start") {
 			t.Errorf("%v: %d %q", args, code, errOut)
 		}
+	}
+}
+
+func TestWebGitHub(t *testing.T) {
+	fakeDoctor(t, false)
+	g, err := webGitHub(context.Background(), t.TempDir())
+	if err != nil || g.Repo != "o/r" || g.Suggested != "u" {
+		t.Errorf("%+v %v", g, err)
 	}
 }

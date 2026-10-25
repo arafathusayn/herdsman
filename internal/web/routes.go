@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/arafathusayn/herdsman/internal/choices"
+	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
@@ -650,4 +651,30 @@ func (s *Server) savePicks(req RouteRequest) {
 	if err := s.cfg.Choices.Save(picks...); err != nil {
 		log.Printf("herdsman web: the route's picks were not saved: %v", err)
 	}
+}
+
+// githubAccess serves GET /api/routes/github?folder=<absolute folder>: the
+// repository of the folder's origin remote and the gh accounts that can
+// read it, with the one to confirm (A32).
+func (s *Server) githubAccess(w http.ResponseWriter, r *http.Request) {
+	dir := r.URL.Query().Get("folder")
+	if s.cfg.GitHub == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no GitHub probe"})
+		return
+	}
+	if st, err := os.Stat(dir); !filepath.IsAbs(dir) || err != nil || !st.IsDir() {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "folder must be an absolute folder"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	g, err := s.cfg.GitHub(ctx, dir)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"repo": g.Repo, "accounts": []doctor.Account{}, "suggested": "", "error": err.Error()})
+		return
+	}
+	if g.Accounts == nil {
+		g.Accounts = []doctor.Account{}
+	}
+	writeJSON(w, http.StatusOK, g)
 }

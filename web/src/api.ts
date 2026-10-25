@@ -7,6 +7,7 @@ import type {
   Channel,
   DiffSource,
   Entry,
+  GitHubAccess,
   InboxState,
   PaneRead,
   RouteRequest,
@@ -309,6 +310,15 @@ export async function catalog(): Promise<Catalog> {
   if (res.status === 401) throw new AuthError("Session expired.");
   if (!res.ok) throw new Error(`cannot read the harness list (${res.status})`);
   return (await res.json()) as Catalog;
+}
+
+/** The gh accounts that can read the folder's GitHub repository, with the one to confirm. */
+export async function githubAccess(folder: string): Promise<GitHubAccess> {
+  const res = await call(`/api/routes/github?folder=${encodeURIComponent(folder)}`, { headers: headers() });
+  if (res.status === 401) throw new AuthError("Session expired.");
+  const body = (await res.json()) as Partial<GitHubAccess>;
+  if (!res.ok) throw new Error(body.error ?? `cannot probe GitHub (${res.status})`);
+  return { repo: "", accounts: [], suggested: "", ...body };
 }
 
 /** Creates a route: a refusal or a failed step comes back in the result, not as a throw. */

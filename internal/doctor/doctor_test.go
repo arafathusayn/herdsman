@@ -32,10 +32,20 @@ func fakes(t *testing.T, env map[string]string) Probes {
 		env["HERDR_ENV"] = "1"
 	}
 	return Probes{
-		Getenv:      func(k string) string { return env[k] },
-		Herdr:       herdr.New(fake.Socket),
-		LookPath:    func(name string) (string, error) { return exe, nil },
-		GhAuth:      func(context.Context, string) error { return nil },
+		Getenv:    func(k string) string { return env[k] },
+		Herdr:     herdr.New(fake.Socket),
+		LookPath:  func(name string) (string, error) { return exe, nil },
+		GhAuth:    func(context.Context, string) error { return nil },
+		GitRemote: func(context.Context, string) (string, error) { return "git@github.com:owner-a/repo-a.git", nil },
+		GhAccounts: func(context.Context, string) ([]Account, error) {
+			return []Account{{Name: "user-a", Active: true}, {Name: "user-b"}}, nil
+		},
+		GhCanRead: func(_ context.Context, _, user, _ string) error {
+			if user == "user-a" {
+				return nil
+			}
+			return errors.New("exit status 1")
+		},
 		Executable:  func() (string, error) { return exe, nil },
 		GoCache:     func() (string, error) { return t.TempDir(), nil },
 		WriteDir:    func(string) error { return nil },
@@ -77,7 +87,7 @@ func one(t *testing.T, cs []Check, name, level, detail string) {
 
 func TestAllOK(t *testing.T) {
 	cs := run(t, fakes(t, nil))
-	for _, n := range []string{"herdr", "gh", "binary", "sandbox", "load"} {
+	for _, n := range []string{"herdr", "gh", "gh-account", "binary", "sandbox", "load"} {
 		if got := find(cs, n); len(got) != 1 || got[0].Level != OK {
 			t.Errorf("%s: %+v", n, got)
 		}

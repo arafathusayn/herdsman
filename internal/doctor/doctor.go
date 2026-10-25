@@ -34,8 +34,8 @@ const (
 
 // Check is one line of the report, `<level> <check> <detail>`.
 //
-// JSON fields: level ("ok", "warn" or "fail"), check (herdr, gh, binary,
-// inbox, sandbox or load) and detail (free text).
+// JSON fields: level ("ok", "warn" or "fail"), check (herdr, gh,
+// gh-account, binary, inbox, sandbox or load) and detail (free text).
 type Check struct {
 	Level  string `json:"level"`
 	Name   string `json:"check"`
@@ -54,10 +54,16 @@ func Failed(cs []Check) bool {
 
 // Probes are what the checks read; tests replace each one.
 type Probes struct {
-	Getenv     func(string) string
-	Herdr      *herdr.Client // nil when no socket path resolves
-	LookPath   func(string) (string, error)
-	GhAuth     func(ctx context.Context, gh string) error
+	Getenv   func(string) string
+	Herdr    *herdr.Client // nil when no socket path resolves
+	LookPath func(string) (string, error)
+	GhAuth   func(ctx context.Context, gh string) error
+	// GitRemote is the origin remote of the repository in dir.
+	GitRemote func(ctx context.Context, dir string) (string, error)
+	// GhAccounts lists the github.com accounts gh knows.
+	GhAccounts func(ctx context.Context, gh string) ([]Account, error)
+	// GhCanRead fails when user cannot read repo ("owner/name").
+	GhCanRead  func(ctx context.Context, gh, user, repo string) error
 	Executable func() (string, error)
 	// GoCache is the default Go build cache folder.
 	GoCache func() (string, error)
@@ -80,6 +86,7 @@ func Default() Probes {
 	}
 	return Probes{
 		Getenv: os.Getenv, Herdr: client, LookPath: exec.LookPath, GhAuth: ghAuth,
+		GitRemote: gitRemote, GhAccounts: ghAccounts, GhCanRead: ghCanRead,
 		Executable: os.Executable, GoCache: goCache, WriteDir: writeDir,
 		ReadMemory: readMemory, Renice: renice,
 		ReadLoad: machine.ReadLoad, FreePercent: machine.FreePercent, CPUs: machine.CPUs,
@@ -157,6 +164,7 @@ func Run(ctx context.Context, p Probes) ([]Check, error) {
 	add := func(level, name, detail string) { cs = append(cs, Check{level, name, detail}) }
 	checkHerdr(ctx, p, add)
 	checkGh(ctx, p, add)
+	checkGitHub(ctx, p, add)
 	checkBinary(p, add)
 	if dir := p.Getenv("HERDSMAN_INBOX"); dir != "" {
 		checkInbox(p, dir, add)

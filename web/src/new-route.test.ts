@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+  accountOptions,
   checklist,
   checkpointerAvailable,
   checkpointerOn,
@@ -13,6 +14,7 @@ import {
   initialForm,
   kindOf,
   knownFolders,
+  newForm,
   OTHER,
   parseLimit,
   pickHarness,
@@ -33,6 +35,7 @@ import {
   update,
   usePrevious,
   validate,
+  withAccount,
 } from "./new-route.ts";
 import type { Catalog, State } from "./types.ts";
 
@@ -449,17 +452,22 @@ test("the previous choice fills the form's roles from the saved picks", () => {
 // A32: the recommended setup is on at first; it fills the role and the
 // checkpointer, and each item says in one sentence what it means.
 test("the recommended setup fills its fields and names no model, effort or runner", () => {
-  const f = initialForm(catalog, null);
+  const f = newForm(catalog, null);
   expect(f.recommended).toBe(true);
-  expect(f.role).toBe("orchestrator");
-  const off = setRecommended(setRole(update(f, { checkpointer: false, minutes: "40" }), "adjutant"), catalog, false);
+  expect(f.role).toBe("adjutant");
+  expect(initialForm(catalog, null).recommended).toBe(false);
+  const off = setRecommended(
+    setRole(update(f, { checkpointer: false, minutes: "40" }), "orchestrator"),
+    catalog,
+    false,
+  );
   expect(off.recommended).toBe(false);
-  expect(off.role).toBe("adjutant");
+  expect(off.role).toBe("orchestrator");
   expect(off.minutes).toBe("40");
   const on = setRecommended(off, catalog, true);
   expect(on).toMatchObject({
     recommended: true,
-    role: "orchestrator",
+    role: "adjutant",
     checkpointer: true,
     minutes: "15",
     limit: "250k",
@@ -470,4 +478,27 @@ test("the recommended setup fills its fields and names no model, effort or runne
     expect(help).toMatch(/^[A-Z].*[.)]$/);
     expect(help).not.toMatch(/model|effort|runner/i);
   }
+});
+
+// A32: the probed account is offered for confirmation, and the confirmed one
+// reaches the orchestrator as the request's last line.
+test("the confirmed GitHub account goes with the request", () => {
+  const g = {
+    repo: "o/r",
+    accounts: [
+      { name: "user-a", active: true, can_read: false },
+      { name: "user-b", active: false, can_read: true },
+      { name: "user-c", active: false, can_read: true },
+    ],
+    suggested: "user-b",
+  };
+  expect(accountOptions(g)).toEqual([
+    ["user-b", "user-b (probed)"],
+    ["user-c", "user-c"],
+  ]);
+  expect(withAccount("ship it", "")).toBe("ship it");
+  expect(withAccount("ship it", "user-b")).toBe("ship it\n\nGitHub account: user-b.");
+  expect(withAccount("", "user-b")).toBe("GitHub account: user-b.");
+  const f = update(initialForm(catalog, null), { request: "x", ghAccount: "user-b" });
+  expect(toRequest(f, catalog).request).toBe("x\n\nGitHub account: user-b.");
 });

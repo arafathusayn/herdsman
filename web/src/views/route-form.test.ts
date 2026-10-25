@@ -103,6 +103,7 @@ async function mountForm(answer?: Promise<RouteResult>, keepRecommended = false)
     const rec = byName(body, "recommended");
     rec.checked = false;
     rec.dispatch("change");
+    byName(body, "role-orchestrator").dispatch("click");
   }
   return { ...(h as Harness), body, form: r.form };
 }
@@ -314,10 +315,71 @@ test("the recommended setup folds its fields into one summary", async () => {
   expect(find(f.body, (e) => e.getAttribute?.("name") === "role-adjutant")).toBeUndefined();
   expect(box(f.body, "checkpointer")).toBeUndefined();
   expect(f.form().recommended).toBe(true);
+  // The recommended setup has an adjutant beside the orchestrator, with the default names.
+  expect(f.form()).toMatchObject({ role: "adjutant", name: "adj-1", orchName: "orch-1" });
   const rec = byName(f.body, "recommended");
   rec.checked = false;
   rec.dispatch("change");
   expect(box(f.body, "recommended-summary")).toBeUndefined();
   expect(byName(f.body, "role-adjutant")).toBeDefined();
   expect(box(f.body, "checkpointer")).toBeDefined();
+});
+
+// A32: the probed GitHub account fills the confirmation; the user may pick
+// another account that can read the repository, and it goes with the request.
+test("the probed GitHub account is offered for confirmation", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const sent: RouteRequest[] = [];
+  const asked: string[] = [];
+  routeForm(body as unknown as HTMLElement, catalog, state, {
+    createRoute: (r) => {
+      sent.push(r);
+      return Promise.resolve({ ok: true, steps: [], tabs: [] } as RouteResult);
+    },
+    inboxState: () => new Promise(() => {}),
+    state: () => state,
+    copy: () => {},
+    openPane: () => {},
+    close: () => {},
+    failed: () => {},
+    every: () => () => {},
+    later: () => () => {},
+    github: (folder) => {
+      asked.push(folder);
+      return Promise.resolve({
+        repo: "o/r",
+        accounts: [
+          { name: "user-a", active: true, can_read: true },
+          { name: "user-b", active: false, can_read: true },
+        ],
+        suggested: "user-a",
+      });
+    },
+  });
+  await flush();
+  expect(asked.length).toBe(1);
+  const picked = () => byName(body, "ghAccount").children.find((o) => o.selected)?.value;
+  expect(picked()).toBe("user-a");
+  choose(byName(body, "ghAccount"), "user-b");
+  expect(picked()).toBe("user-b");
+});
+
+test("a repository no account can read says how to log in", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  routeForm(body as unknown as HTMLElement, catalog, state, {
+    createRoute: () => new Promise(() => {}),
+    inboxState: () => new Promise(() => {}),
+    state: () => state,
+    copy: () => {},
+    openPane: () => {},
+    close: () => {},
+    failed: () => {},
+    every: () => () => {},
+    later: () => () => {},
+    github: () => Promise.resolve({ repo: "o/r", accounts: [], suggested: "", error: "no origin remote" }),
+  });
+  await flush();
+  expect(box(body, "ghAccount")?.textContent).toContain("no origin remote");
 });

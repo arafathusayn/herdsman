@@ -5,6 +5,7 @@ import type {
   Catalog,
   CatalogKind,
   ChoicePick,
+  GitHubAccess,
   InboxState,
   RouteRequest,
   RouteRole,
@@ -53,6 +54,8 @@ export interface RouteForm {
   inboxEdited: boolean;
   /** The recommended setup (A32): its fields are filled and folded into one summary. */
   recommended: boolean;
+  /** The GitHub account the user confirmed for the route, or "" (A32). */
+  ghAccount: string;
 }
 
 /**
@@ -76,7 +79,7 @@ export const RECOMMENDED_SETUP: [string, string][] = [
     "A code-quality skill matched to the diff's languages plus a security pass, chosen from the installed skills.",
   ],
   ["Techniques", "A skill navigator and a progress file per task."],
-  ["Adjutant", "None: you talk to the orchestrator directly."],
+  ["Adjutant", "On: you talk to an adjutant, which relays to the orchestrator through one private inbox per route."],
   ["Context policy", "Compact before a follow-up of an agent's own work; clear before a new task."],
   [
     "Checkpointer",
@@ -87,14 +90,15 @@ export const RECOMMENDED_SETUP: [string, string][] = [
 ];
 
 /**
- * Turns the recommended setup on or off. On fills its fields: the
- * orchestrator role with no adjutant, and the checkpointer on at its usual
- * interval when the skill's script is there. Off keeps the values.
+ * Turns the recommended setup on or off. On fills its fields: an adjutant
+ * beside the orchestrator (the app starts both through Herdr, so both can
+ * enroll), the default names and inbox, and the checkpointer on at its
+ * usual interval when the skill's script is there. Off keeps the values.
  */
 export function setRecommended(f: RouteForm, c: Catalog, on: boolean): RouteForm {
   if (!on) return { ...f, recommended: false };
   return {
-    ...setRole(f, "orchestrator"),
+    ...setRole(f, "adjutant"),
     recommended: true,
     checkpointer: c.checkpointer_ok,
     minutes: "15",
@@ -271,8 +275,14 @@ export function initialForm(c: Catalog, st: State | null): RouteForm {
     routeName,
     inbox: inboxDefault(projectLabel(folder), routeName),
     inboxEdited: false,
-    recommended: true,
+    recommended: false,
+    ghAccount: "",
   };
+}
+
+/** The form a new route opens with: the recommended setup on (A32). */
+export function newForm(c: Catalog, st: State | null): RouteForm {
+  return setRecommended(initialForm(c, st), c, true);
 }
 
 /** Switches the role and keeps every field the user typed; untouched default names follow. */
@@ -417,6 +427,20 @@ export function formField(serverField: string | undefined): string {
   return map[serverField ?? ""] ?? serverField ?? "";
 }
 
+/** The route request with the confirmed GitHub account as its last line, for the orchestrator. */
+export function withAccount(request: string, account: string): string {
+  if (!account) return request;
+  const line = `GitHub account: ${account}.`;
+  return request ? `${request}\n\n${line}` : line;
+}
+
+/** The account choices of a probe: the accounts that can read the repository, the probed one marked. */
+export function accountOptions(g: GitHubAccess): [string, string][] {
+  return g.accounts
+    .filter((a) => a.can_read)
+    .map((a) => [a.name, a.name === g.suggested ? `${a.name} (probed)` : a.name]);
+}
+
 /** The request body for POST /api/routes. */
 export function toRequest(f: RouteForm, c: Catalog): RouteRequest {
   const r: RouteRequest = {
@@ -427,7 +451,7 @@ export function toRequest(f: RouteForm, c: Catalog): RouteRequest {
     model: modelOf(f.main),
     effort: f.main.effort,
     name: f.name,
-    request: f.request,
+    request: withAccount(f.request, f.ghAccount),
     checkpointer: { on: checkpointerOn(f, c), minutes: Number(f.minutes), limit: parseLimit(f.limit) ?? 0 },
   };
   if (f.role === "adjutant") {

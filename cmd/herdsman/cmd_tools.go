@@ -132,3 +132,9 @@ func runReview(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	}
 	return 0
 }
+
+// webGitHub is herdsman web's probe of a folder's GitHub accounts: the
+// doctor's gh-account probe.
+func webGitHub(ctx context.Context, dir string) (doctor.GitHubAccess, error) {
+	return doctor.ProbeGitHub(ctx, doctorProbes(), dir)
+}

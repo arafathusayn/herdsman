@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/choices"
+	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
 )
@@ -65,6 +66,9 @@ type Config struct {
 	// Choices keeps the picks a started route launched with (A30); nil
 	// keeps none.
 	Choices *choices.Store
+	// GitHub probes the GitHub accounts that can read the repository of a
+	// folder (A32), for the form to confirm; nil offers none.
+	GitHub func(ctx context.Context, dir string) (doctor.GitHubAccess, error)
 }
 
 // NewToken returns a random token for one run of the server.
@@ -120,6 +124,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/catalog", s.auth(http.HandlerFunc(s.catalogJSON)))
 	mux.Handle("POST /api/routes", s.auth(http.HandlerFunc(s.createRoute)))
 	mux.Handle("GET /api/routes/inbox", s.auth(http.HandlerFunc(s.inboxState)))
+	mux.Handle("GET /api/routes/github", s.auth(http.HandlerFunc(s.githubAccess)))
 	mux.Handle("GET /api/messages", s.auth(http.HandlerFunc(s.messages)))
 	mux.Handle("GET /api/messages/{box}/{id}", s.auth(http.HandlerFunc(s.messageBody)))
 	mux.HandleFunc("GET /", s.static)

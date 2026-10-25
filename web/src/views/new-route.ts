@@ -4,7 +4,7 @@
 // the channel setup checklist. The steps that belong to the human stay the
 // human's: the app never approves a pair, writes the inbox or types into
 // the adjutant's pane.
-import { AuthError, catalog, createRoute, inboxState } from "../api.ts";
+import { AuthError, catalog, createRoute, githubAccess, inboxState } from "../api.ts";
 import { h, mount } from "../dom.ts";
 import { store } from "../store.ts";
 import { dismissOnBackdrop, toast } from "../ui.ts";
@@ -39,6 +39,7 @@ export function openNewRoute(): void {
       const form = routeForm(body, c, store.app.server, {
         createRoute,
         inboxState,
+        github: githubAccess,
         state: () => store.app.server,
         copy: (text, what) => void copy(text, what),
         openPane: (pane) => store.go({ pane }),

@@ -3,6 +3,7 @@
 // so the form can be driven in tests without a server or the app's store.
 import { h, icon, icons, mount } from "../dom.ts";
 import {
+  accountOptions,
   checklist,
   checkpointerAvailable,
   checkpointerOn,
@@ -11,9 +12,9 @@ import {
   formField,
   type HarnessChange,
   inboxKey,
-  initialForm,
   kindOf,
   knownFolders,
+  newForm,
   OTHER,
   pickSummary,
   preview,
@@ -31,7 +32,7 @@ import {
   usePrevious,
   validate,
 } from "../new-route.ts";
-import type { Catalog, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
+import type { Catalog, GitHubAccess, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
 
 export interface Deps {
   createRoute(r: RouteRequest): Promise<RouteResult>;
@@ -46,6 +47,8 @@ export interface Deps {
   every(ms: number, fn: () => void): () => void;
   /** Delays fn by ms; returns a cancel function. */
   later(ms: number, fn: () => void): () => void;
+  /** Probes the gh accounts that can read a folder's repository (A32); absent offers none. */
+  github?(folder: string): Promise<GitHubAccess>;
 }
 
 /** How often an open adjutant checklist rereads its inbox, so human steps show as they happen. */
@@ -83,7 +86,7 @@ export function routeForm(
   st: State | null,
   deps: Deps,
 ): { stop(): void; form(): RouteForm } {
-  let f: RouteForm = initialForm(c, st);
+  let f: RouteForm = newForm(c, st);
   let errors: Record<string, string> = {};
   let busy = false;
   // The form as it was sent: the result, checklist and inbox reads describe
@@ -109,6 +112,7 @@ export function routeForm(
   let inputs = new Map<string, HTMLInputElement>();
 
   const readInbox = (): void => {
+    probeGitHub();
     const r = active();
     if (r.role !== "adjutant") return;
     const key = inboxKey(r);
@@ -383,6 +387,45 @@ export function routeForm(
     ].filter((x): x is HTMLElement => !!x);
   };
 
+  // A32: the gh accounts that can read the folder's repository; the probed
+  // one fills the confirmation until the user picks another.
+  let gh: GitHubAccess | null = null;
+  let ghFolder = "";
+  const probeGitHub = (): void => {
+    const folder = f.folder.trim();
+    if (!deps.github || folder === ghFolder || !folder.startsWith("/")) return;
+    ghFolder = folder;
+    deps.github(folder).then(
+      (g) => {
+        if (ghFolder !== folder) return;
+        gh = g;
+        if (!busy) f = { ...f, ghAccount: g.suggested };
+        draw();
+      },
+      () => {
+        if (ghFolder === folder) gh = null;
+      },
+    );
+  };
+  const githubField = (): HTMLElement | null => {
+    if (!gh) return null;
+    const opts = accountOptions(gh);
+    if (!opts.length)
+      return field(
+        "ghAccount",
+        "GitHub account",
+        h("span", null, gh.error ?? `No gh account can read ${gh.repo}.`),
+        "Log in with gh auth login, then reopen this form.",
+        true,
+      );
+    return field(
+      "ghAccount",
+      "GitHub account",
+      selectBox("ghAccount", f.ghAccount, opts, (v) => set({ ghAccount: v }, true), `${id}-ghAccount`),
+      `The account the route pushes and opens pull requests with; it can read ${gh.repo}.`,
+    );
+  };
+
   // A30: the last picks of this route's roles, offered before the picking questions.
   const previousRow = (): HTMLElement | null => {
     const picks = previousPicks(f, c);
@@ -508,8 +551,8 @@ export function routeForm(
             : h(
                 "div",
                 { class: "nr-role", role: "radiogroup", "aria-label": "Role" },
-                role("orchestrator", "Orchestrator (Recommended)"),
-                role("adjutant", "Adjutant"),
+                role("orchestrator", "Orchestrator"),
+                role("adjutant", "Adjutant (Recommended)"),
               ),
           h(
             "div",
@@ -545,6 +588,7 @@ export function routeForm(
               live.label,
               true,
             ),
+            githubField(),
             previousRow(),
             f.role === "adjutant"
               ? [
