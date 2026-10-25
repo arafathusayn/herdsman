@@ -110,14 +110,16 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 					events = append(events, fmt.Sprintf("OVERDUE %s due %s no report since the due time was set %s", name, time.Unix(at, 0).Format("15:04"), now))
 				}
 			}
-			text := readPane(ctx, d.Client, paneOf(env, name), 40)
+			pane := paneOf(env, name)
+			text := readPane(ctx, d.Client, pane, 40)
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
+			reason, blocked := blockReason(ctx, d.Client, pane, text, waitBlockRE)
 			switch {
-			case waitBlockRE.MatchString(text):
+			case blocked:
 				if h != prev {
-					events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, first(waitBlockRE, text), now))
+					events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, reason, now))
 				}
 				st.write("stall-"+name, "0")
 			case waitWorkRE.MatchString(text):
@@ -159,8 +161,8 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
-			if waitBlockRE.MatchString(text) && h != prev {
-				events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, first(waitBlockRE, text), now))
+			if reason, blocked := blockReason(ctx, d.Client, pane, text, waitBlockRE); blocked && h != prev {
+				events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, reason, now))
 			} else if !waitWorkRE.MatchString(text) && waitStalledRE.MatchString(text) && h != prev {
 				events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, first(waitStalledRE, text), now))
 			}

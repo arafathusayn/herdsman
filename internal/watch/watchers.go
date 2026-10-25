@@ -47,14 +47,16 @@ func Implementers(ctx context.Context, env Env, d Deps) int {
 					fmt.Fprintf(d.Stdout, "REPORT-UPDATED %s %s %s\n", task, report, clock(d.Now()))
 				}
 			}
-			text := readPane(ctx, d.Client, paneOf(env, name), 40)
+			pane := paneOf(env, name)
+			text := readPane(ctx, d.Client, pane, 40)
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
+			reason, blocked := blockReason(ctx, d.Client, pane, text, implBlockRE)
 			switch {
-			case implBlockRE.MatchString(text):
+			case blocked:
 				if h != prev {
-					fmt.Fprintf(d.Stdout, "BLOCKED %s %s %s\n", name, first(implBlockRE, text), clock(d.Now()))
+					fmt.Fprintf(d.Stdout, "BLOCKED %s %s %s\n", name, reason, clock(d.Now()))
 				}
 			case implWorkRE.MatchString(text):
 				if h == prev {
@@ -95,9 +97,9 @@ func Reviewer(ctx context.Context, env Env, d Deps) int {
 		prev := st.read("hash-" + name)
 		st.write("hash-"+name, h)
 		// Once per screen change, like the waiter: an unchanged prompt on screen is the same event.
-		if revBlockRE.MatchString(text) {
+		if reason, blocked := blockReason(ctx, d.Client, pane, text, revBlockRE); blocked {
 			if h != prev {
-				fmt.Fprintf(d.Stdout, "BLOCKED %s %s %s\n", name, first(revBlockRE, text), clock(d.Now()))
+				fmt.Fprintf(d.Stdout, "BLOCKED %s %s %s\n", name, reason, clock(d.Now()))
 			}
 		} else if !revWorkRE.MatchString(text) && h != prev {
 			fmt.Fprintf(d.Stdout, "IDLE %s %s\n", name, clock(d.Now()))

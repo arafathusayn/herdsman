@@ -239,3 +239,42 @@ func count(st state, file string, stderr io.Writer, who string) int {
 	}
 	return int(n)
 }
+
+// agentStatus is Herdr's status of the pane's agent, "" when unknown.
+func agentStatus(ctx context.Context, c *herdr.Client, pane string) herdr.Status {
+	if c == nil || pane == "" {
+		return ""
+	}
+	a, err := c.AgentGet(ctx, pane)
+	if err != nil {
+		return ""
+	}
+	return a.Status
+}
+
+// blockReason decides BLOCKED from Herdr's agent status first (A25):
+// "blocked" is a block (with the screen's reason when one shows); the
+// screen patterns cover what the status cannot carry (a password, a model
+// switch, a usage limit), and while Herdr reports "working" a match counts
+// only on the screen's last 5 lines, so printed output is no block.
+func blockReason(ctx context.Context, c *herdr.Client, pane, text string, re *regexp.Regexp) (string, bool) {
+	st := agentStatus(ctx, c, pane)
+	if st == "blocked" {
+		if r := first(re, text); r != "" {
+			return r, true
+		}
+		return "agent blocked", true
+	}
+	if !re.MatchString(text) {
+		return "", false
+	}
+	if st == "working" {
+		lines := strings.Split(text, "\n")
+		tail := strings.Join(lines[max(0, len(lines)-5):], "\n")
+		if !re.MatchString(tail) {
+			return "", false
+		}
+		return first(re, tail), true
+	}
+	return first(re, text), true
+}

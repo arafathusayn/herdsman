@@ -582,3 +582,36 @@ func TestPRWatcherStrictSettings(t *testing.T) {
 		t.Errorf("exit %d", code)
 	}
 }
+
+// A25 item 3: Herdr's agent status comes first. A working pane whose
+// printed output shows "Password for" above its last 5 lines raises no
+// BLOCKED; the same text on the last lines does; Herdr's "blocked" does.
+func TestBlockedFromHerdrStatusFirst(t *testing.T) {
+	for _, run := range []struct {
+		name string
+		fn   func(context.Context, Env, Deps) int
+	}{{"wait", Wait}, {"implementers", Implementers}} {
+		h := newHarness(t)
+		h.env["DEADLINE"], h.env["POLL"] = "0", "1"
+		agent := func(pane, st string) {
+			a := herdrtest.Agent(pane, "s")
+			a["agent_status"] = st
+			h.fx.SetAgent(pane, a)
+		}
+		agent("w9:p1", "working")
+		agent("w9:p2", "working")
+		h.screen("w9:p2", "Pursuing goal (1m)")
+		h.screen("w9:p1", "$ git log", "commit abc", "    fix: Password for prompt in the docs", "line", "line", "line", "line",
+			"• Working (3m 10s • esc to interrupt)")
+		h.screen("w9:p3", "· Incubating…")
+		out, _ := h.run(run.fn)
+		noMatch(t, run.name+": printed output of a working pane", `BLOCKED`, out)
+		h.screen("w9:p1", "line", "Password for 'https://x@github.com':")
+		out, _ = h.run(run.fn)
+		match(t, run.name+": the prompt on the last lines", `BLOCKED im-a Password for`, out)
+		agent("w9:p2", "blocked")
+		h.screen("w9:p2", "some question the patterns do not know")
+		out, _ = h.run(run.fn)
+		match(t, run.name+": Herdr's blocked status", `BLOCKED im-b `, out)
+	}
+}
