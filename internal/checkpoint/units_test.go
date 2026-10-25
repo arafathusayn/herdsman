@@ -116,33 +116,95 @@ func TestTailLines(t *testing.T) {
 	for _, tc := range []struct {
 		text string
 		n    int
-		want string
+		want int64
 	}{
-		{"a\nb\nc\n", 2, "b\nc\n"},
-		{"a\nb\nc", 2, "b\nc"},
-		{"a\n", 5, "a\n"},
-		{"", 3, ""},
+		{"a\nb\nc\n", 2, 2},
+		{"a\nb\nc", 2, 2},
+		{"a\n", 5, 0},
+		{"", 3, 0},
+		{"a\n\n\n", 1, 3},
 	} {
 		write(t, p, tc.text)
-		got, err := tailLines(p, tc.n, 1<<20)
-		if err != nil || string(got) != tc.want {
-			t.Errorf("%q %d: %q %v", tc.text, tc.n, got, err)
+		f, err := os.Open(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := lastLinesStart(f, int64(len(tc.text)), tc.n)
+		_ = f.Close()
+		if err != nil || got != tc.want {
+			t.Errorf("%q %d: %d %v", tc.text, tc.n, got, err)
 		}
 	}
-	if _, err := tailLines(dir, 1, 10); err == nil {
+	f, _ := os.Open(dir)
+	defer f.Close()
+	if _, err := lastLinesStart(f, 10, 1); err == nil {
 		t.Error("a folder read")
-	}
-	// The byte bound: a line cut by it is dropped; a window that starts
-	// at a line start keeps its first line; one line longer than the bound
-	// gives nothing.
-	write(t, p, "aaaa\nbb\ncc\n")
-	for limit, want := range map[int64]string{6: "bb\ncc\n", 5: "cc\n", 8: "bb\ncc\n", 2: ""} {
-		if got, _ := tailLines(p, 400, limit); string(got) != want {
-			t.Errorf("limit %d: %q want %q", limit, got, want)
-		}
 	}
 }
 
+// A record of any size keeps its usage, and memory stays flat (A24): an
+// assistant record with 8 MiB of text and usage 300000 reads 300000; a
+// usage value of 0. and 3 MiB of ones is refused without building it.
+func TestLargeRecords(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "t")
+	text := strings.Repeat("x", 8<<20)
+	write(t, p, `{"type":"user"}`+"\n"+`{"type":"assistant","message":{"content":[{"type":"text","text":"`+text+`"}],"usage":{"input_tokens":300000}}}`+"\n")
+	text = ""
+	measure := func(name string, want string, skipped int) {
+		t.Helper()
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		start := time.Now()
+		got := ContextTokens(p)
+		runtime.ReadMemStats(&after)
+		if got.String() != want || got.Skipped != skipped {
+			t.Errorf("%s: %+v", name, got)
+		}
+		if grew := after.TotalAlloc - before.TotalAlloc; grew > 1<<20 {
+			t.Errorf("%s: allocated %d bytes", name, grew)
+		}
+		if d := time.Since(start); d > 5*time.Second {
+			t.Errorf("%s: took %v", name, d)
+		}
+	}
+	measure("8 MiB text", "300000", 0)
+	write(t, p, `{"type":"assistant","message":{"usage":{"input_tokens":0.`+strings.Repeat("1", 3<<20)+`}}}`+"\n")
+	measure("3 MiB fraction", "", 1)
+	write(t, p, `{"type":"assistant","message":{"usage":{"input_tokens":3`+strings.Repeat("0", 3<<20)+`e-3145728}}}`+"\n")
+	measure("3 MiB of zeros, integral", "3", 0)
+}
+
+// The number reducer on spellings: exact integral int64 values only.
+func TestNumbers(t *testing.T) {
+	for in, want := range map[string]string{
+		"0": "0", "-0": "0", "-0.0e5": "0", "7": "7", "10": "10", "3e5": "300000", "3E+5": "300000", "300000.0": "300000",
+		"1.50e1": "15", "0.5e1": "5", "1200e-2": "12", "9223372036854775807": "9223372036854775807",
+		"92233720368547758070e-1": "9223372036854775807", "100000000000000000000e-2": "1000000000000000000",
+		"9223372036854775808": "", "1e19": "", "1.1": "", "1e-300": "", "-1": "", "1e400": "", "10000000000000000001": "",
+		"0.1e1": "1", "1e99999999999999999999": "", "1e-99999999999999999999": "",
+	} {
+		p := filepath.Join(t.TempDir(), "t")
+		write(t, p, `{"type":"assistant","message":{"usage":{"input_tokens":`+in+`}}}`)
+		if got := ContextTokens(p); got.String() != want {
+			t.Errorf("%s: %+v want %q", in, got, want)
+		}
+	}
+	for _, in := range []string{"01", "1.", ".5", "1e", "+1", "--1", "1e+", "0x10", `"\x"`, `"\u12"`, `"a` + "\t" + `"`, "tru", "[1,]", `{"a"}`, `{"a":1,}`, `{1:2}`, "[1 2]"} {
+		p := filepath.Join(t.TempDir(), "t")
+		write(t, p, `{"type":"assistant","message":{"usage":{"input_tokens":`+in+`}}}`)
+		if got := ContextTokens(p); got.OK || got.Skipped != 1 {
+			t.Errorf("%s: %+v", in, got)
+		}
+	}
+	// Deep nesting past the limit is an unreadable line.
+	p := filepath.Join(t.TempDir(), "t")
+	write(t, p, strings.Repeat("[", maxDepth+2)+strings.Repeat("]", maxDepth+2)+"\n")
+	if got := ContextTokens(p); got.Skipped != 1 {
+		t.Errorf("deep: %+v", got)
+	}
+}
 func TestDerivedAndEscape(t *testing.T) {
 	if got := Derived("/Users/a b/é_x.1"); got != "-Users-a-b---x-1" {
 		t.Errorf("derived %q", got)
@@ -556,8 +618,8 @@ func TestLoopResources(t *testing.T) {
 		case i == 1050:
 			cancel()
 		case i == 20:
-			// One 8 MiB user record before the usage lines: never held.
-			big := `{"type":"user","message":{"content":"` + strings.Repeat("x", 8<<20) + `"}}` + "\n"
+			// One 1 MiB user record before the usage lines: never held.
+			big := `{"type":"user","message":{"content":"` + strings.Repeat("x", 1<<20) + `"}}` + "\n"
 			f, _ := os.OpenFile(tr, os.O_APPEND|os.O_WRONLY, 0o600)
 			_, _ = f.WriteString(big)
 			_ = f.Close()

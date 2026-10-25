@@ -1,9 +1,6 @@
 package checkpoint
 
 import (
-	"bytes"
-	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -210,47 +207,4 @@ func newer(a, b string) bool {
 		return true
 	}
 	return sa.ModTime().After(sb.ModTime())
-}
-
-// tailLines is `tail -n n` within the last limit bytes: the last n lines of
-// the file, the last one counted even without a final newline. One read of
-// at most limit bytes; a line cut by that bound is dropped, so a huge record
-// never fills memory.
-func tailLines(p string, n int, limit int64) ([]byte, error) {
-	f, err := os.Open(p)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	size := st.Size()
-	start := max(size-limit, 0)
-	buf := make([]byte, size-start)
-	if _, err := f.ReadAt(buf, start); err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
-	}
-	if start > 0 {
-		// The window starts inside a line unless the byte before it ends one.
-		prev := make([]byte, 1)
-		if _, err := f.ReadAt(prev, start-1); err != nil || prev[0] != '\n' {
-			i := bytes.IndexByte(buf, '\n')
-			if i < 0 {
-				return nil, nil
-			}
-			buf = buf[i+1:]
-		}
-	}
-	body := bytes.TrimSuffix(buf, []byte{'\n'})
-	idx := len(body)
-	for range n {
-		i := bytes.LastIndexByte(body[:idx], '\n')
-		if i < 0 {
-			return buf, nil
-		}
-		idx = i
-	}
-	return buf[idx+1:], nil
 }
