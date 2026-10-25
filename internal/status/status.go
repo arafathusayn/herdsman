@@ -7,6 +7,7 @@ package status
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -80,8 +81,7 @@ type Options struct {
 }
 
 var (
-	modelRe = regexp.MustCompile(`muse-spark-[0-9.a-z-]*|Opus [0-9.]*|gpt-[0-9a-z.-]*`)
-	bgRe    = regexp.MustCompile(`(running|workflow).*[0-9]+(m|h) ?[0-9]*s?`)
+	bgRe = regexp.MustCompile(`(running|workflow).*[0-9]+(m|h) ?[0-9]*s?`)
 	// durationRe is one elapsed time: "1h 02m", "23m 45s", "2h".
 	durationRe = regexp.MustCompile(`(?:\b([0-9]+)h ?)?\b([0-9]+)m(?: ?[0-9]+s)?|\b([0-9]+)h\b`)
 	fgRe       = regexp.MustCompile(`Thinking|Calling tools|esc to interrupt`)
@@ -105,20 +105,22 @@ func Write(ctx context.Context, w io.Writer, o Options) {
 		fmt.Fprintln(w, "   <-- MEMORY LOW")
 	}
 	for _, s := range o.Specs {
-		state, screen := "", ""
+		// The model is what Herdr reports for the agent; no screen pattern
+		// lists model names (A28), so without a report the column is empty.
+		state, screen, model := "", "", ""
 		if o.Client != nil {
 			if a, err := o.Client.AgentGet(ctx, s.Name); err == nil {
 				state = string(a.Status)
+				var m struct {
+					Model *string `json:"model"`
+				}
+				if json.Unmarshal(a.Raw, &m) == nil && m.Model != nil {
+					model = strings.Join(strings.Fields(*m.Model), " ")
+				}
 			}
 			screen, _ = o.Client.ReadText(ctx, s.Pane, herdr.SourceVisible, 60)
 		}
 		lines := strings.Split(strings.TrimRight(screen, "\n"), "\n")
-		model := ""
-		for _, l := range lines {
-			if all := modelRe.FindAllString(l, -1); len(all) > 0 {
-				model = all[len(all)-1]
-			}
-		}
 		fmt.Fprintf(w, "== %s (%s) state=%s model=%s\n", s.Name, s.Pane, state, model)
 		var bg []string
 		for _, l := range lines {

@@ -86,15 +86,15 @@ func TestAgentLines(t *testing.T) {
 	srv := herdrtest.Start(t)
 	fx := herdrtest.Serve(srv)
 	a := herdrtest.Agent("w9:p1", "s")
-	a["name"], a["agent_status"] = "im-a", "working"
+	a["name"], a["agent_status"], a["model"] = "im-a", "working", "model-b"
 	fx.SetAgent("w9:p1", a)
 	fx.SetScreen("w9:p1", strings.Join([]string{
-		"gpt-5.1-codex high · 40% left",
+		"model-a effort-x · 40% left",
 		"└ ◆ npm test  running  23m 45s",
 		"└ ◆ a long job  running  1h 02m",
 		"└ ◆ short  running  2m 1s",
 		"└ ◆ workflow " + strings.Repeat("é", 70) + " 5m",
-		"model Opus 4.7",
+		"model model-c",
 		"• Working (3m • esc to interrupt)",
 	}, "\n")+"\n")
 	out := snapshot(t, Options{Specs: ParseSpecs("im-a:w9:p1: rv-1:w9:p9:"), LimitMin: 30, Client: herdr.New(srv.Socket), Now: time.Date(2026, 1, 1, 12, 0, 1, 0, time.Local),
@@ -102,7 +102,7 @@ func TestAgentLines(t *testing.T) {
 	match(t, "the time", `^12:00:01$`, out)
 	match(t, "LOAD HIGH", `^   <-- LOAD HIGH$`, out)
 	match(t, "MEMORY LOW", `^   <-- MEMORY LOW$`, out)
-	match(t, "state and the last model", `^== im-a \(w9:p1\) state=working model=Opus 4.7$`, out)
+	match(t, "state and the model Herdr reports (A28), not screen text", `^== im-a \(w9:p1\) state=working model=model-b$`, out)
 	noMatch(t, "only the last three jobs", `npm test`, out)
 	match(t, "an hour job is over the limit", `^   bg: a long job  running  1h 02m \[62m\]  <-- OVER 30m$`, out)
 	match(t, "a short job is not", `^   bg: short  running  2m 1s \[2m\]$`, out)
@@ -143,7 +143,7 @@ func TestLimitZeroFlagsEveryJob(t *testing.T) {
 	srv := herdrtest.Start(t)
 	fx := herdrtest.Serve(srv)
 	a := herdrtest.Agent("w9:p1", "s")
-	a["name"], a["agent_status"] = "im-a", "working"
+	a["name"], a["agent_status"], a["model"] = "im-a", "working", "model-b"
 	fx.SetAgent("w9:p1", a)
 	fx.SetScreen("w9:p1", "└ ◆ short  running  2m 1s\n")
 	out := snapshot(t, Options{Specs: ParseSpecs("im-a:w9:p1:"), LimitMin: 0, Client: herdr.New(srv.Socket), Now: time.Now(),
