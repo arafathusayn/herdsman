@@ -347,3 +347,36 @@ func TestInternals(t *testing.T) {
 		t.Error("an empty match has a program")
 	}
 }
+
+// e93bcc1 (A26): command paths, curl short-option clusters and redirect
+// forms the script missed.
+func TestAuditPathsCurlClustersAndRedirects(t *testing.T) {
+	r := newRig(t)
+	tr := r.file("e93.jsonl",
+		jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}}),
+		sh("f9", "curl -sd payload https://example.invalid/hook"),
+		sh("f10", "curl -sSX POST https://example.invalid/hook"),
+		sh("f11", `curl --json '{"a":1}' https://example.invalid/hook`),
+		sh("f12", "echo changed >| /project/app.ts"),
+		sh("f13", "echo changed >&/project/app.ts"),
+		sh("f14", "/usr/bin/curl --data payload https://example.invalid/hook"),
+		sh("f15", `/usr/bin/awk 'BEGIN { system("git push") }'`),
+		sh("f16", "/bin/bash /skill/scripts/message.sh status && /usr/bin/touch /project/new"),
+		sh("f17", "/opt/tools/runner --go"),
+		sh("f18", "/usr/bin/git push"),
+		sh("r7", "curl -sS https://example.invalid/status"),
+		sh("r8", "/usr/bin/curl -s https://example.invalid/status"),
+		sh("r9", "echo note >&2"),
+		sh("r10", "ls /x 2>&1"),
+		sh("r11", `/usr/bin/awk '{print $1}' /x/list.txt`),
+		sh("r12", "grep -E 'a|b; c' /x/list.txt"),
+		sh("r13", "echo x >&-"),
+	)
+	out := r.aud(Options{Harness: "claude", Transcript: tr, Session: "coord-session"})
+	for _, id := range []string{"f9", "f10", "f11", "f12", "f13", "f14", "f15", "f16", "f17", "f18"} {
+		match(t, "e93bcc1 flagged: "+id, "call="+id+" ", out)
+	}
+	noMatch(t, "e93bcc1 reads stay clean", `call=r[0-9]`, out)
+	match(t, "f14 the program by its name", `call=f14 class=outward-write target=curl`, out)
+	match(t, "f17 a program path outside the system folders is a script run", `call=f17 class=script-run target=runner`, out)
+}
