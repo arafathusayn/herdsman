@@ -474,3 +474,33 @@ func TestGateRecordsTheExposureItSees(t *testing.T) {
 		t.Errorf("XB3e the earlier record stands: %q", b)
 	}
 }
+
+// XB4 (a0a1517): an agent that only the gate's first locked list sees is
+// recorded from that same observation (one list, no second check), so a
+// retry after it exits stays held.
+func TestGateRecordsFromTheRefusingCheck(t *testing.T) {
+	r := newRig(t)
+	r.gojson("xb4", 600, nil)
+	var mu sync.Mutex
+	lists := 0
+	r.srv.Handle("agent.list", func(map[string]any) (any, string) {
+		mu.Lock()
+		lists++
+		n := lists
+		mu.Unlock()
+		agents := []any{herdrtest.Agent("sender-pane", "sender-session"), herdrtest.Agent("receiver-pane", "receiver-session")}
+		if n == 1 {
+			agents = append(agents, herdrtest.Agent("brief-pane", "brief-session"))
+		}
+		return map[string]any{"type": "agent_list", "agents": agents}, ""
+	})
+	match(t, "XB4 the gate refuses when only its first list sees the agent", `rc=3`, r.consume("xb4"))
+	b, _ := os.ReadFile(filepath.Join(r.c.Dir, "state", "boundary-tainted"))
+	if !strings.Contains(string(b), "brief-pane") {
+		t.Errorf("XB4b and records the agent from that observation: %q", b)
+	}
+	match(t, "XB4c a retry after the agent exits stays held", `rc=3`, r.consume("xb4"))
+	if exists(r.consumed("xb4")) {
+		t.Error("XB4d nothing is consumed")
+	}
+}

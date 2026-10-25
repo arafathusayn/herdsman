@@ -232,14 +232,14 @@ func (g *Gate) consume(goFile, action, target, revision, draft string) exit {
 		return g.die("input lock busy; retry later, never auto-remove")
 	}
 	g.hold(mutation)
-	if line, code := g.authority(); code != 0 {
-		// e93bcc1 (A26): an agent outside the protected setup that this
-		// locked check saw is recorded, as the script's
-		// `boundary_ok || record_exposure`; the gate holds the input lock.
-		if err := g.recordExposure(); err != nil {
+	// One check in this process, the lock owner (a0a1517): an agent that
+	// this observation saw is recorded from the same observation, so a
+	// retry after that agent exits stays held until human setup (A26).
+	if ok, fault, unknown := g.root.BoundaryOK(g.ctx, g.Client); !ok {
+		if err := g.recordExposure(fault, unknown); err != nil {
 			return g.die("cannot record the exposure: " + err.Error())
 		}
-		fmt.Fprintln(g.Stdout, line)
+		fmt.Fprintln(g.Stdout, inbox.HumanLine)
 		return exit{Human}
 	}
 	// The go can expire while the gate waits for the lock or the authority check: check it again right here.
@@ -284,31 +284,14 @@ func (g *Gate) consume(goFile, action, target, revision, draft string) exit {
 	return exit{OK}
 }
 
-// authority is message-authority.sh run as its own process by the script:
-// the inbox opened again, read-only, and the boundary decided. An inbox it
-// cannot open is no RELAY.
-func (g *Gate) authority() (string, int) {
-	o := g.Options
-	o.ReadOnly = true
-	r, err := inbox.Open(o)
-	if err != nil {
-		msg, _ := inbox.IsFatal(err)
-		return msg, Human
-	}
-	return r.Authority(g.ctx, g.Client)
-}
-
-// recordExposure writes state/boundary-tainted once when the boundary
-// fails on a live agent outside the protected setup (FaultInventory), in
-// the scripts' format: reason, agents, time. The caller holds the input
-// lock. Any other fault, or a record already there, writes nothing.
-func (g *Gate) recordExposure() error {
+// recordExposure writes state/boundary-tainted once when the refusing
+// check failed on a live agent outside the protected setup
+// (FaultInventory), from that check's own result, in the scripts' format:
+// reason, agents, time. The caller holds the input lock. Any other fault,
+// or a record already there, writes nothing.
+func (g *Gate) recordExposure(fault string, unknown []inbox.Unknown) error {
 	target := g.root.Path("state", "boundary-tainted")
-	if inbox.Exists(target) {
-		return nil
-	}
-	ok, fault, unknown := g.root.BoundaryOK(g.ctx, g.Client)
-	if ok || fault != inbox.FaultInventory {
+	if fault != inbox.FaultInventory || inbox.Exists(target) {
 		return nil
 	}
 	if unknown == nil {

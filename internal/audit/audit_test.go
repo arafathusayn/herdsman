@@ -380,3 +380,21 @@ func TestAuditPathsCurlClustersAndRedirects(t *testing.T) {
 	match(t, "f14 the program by its name", `call=f14 class=outward-write target=curl`, out)
 	match(t, "f17 a program path outside the system folders is a script run", `call=f17 class=script-run target=runner`, out)
 }
+
+// 417b204 (A26): a single-quoted command word with a space or shell
+// punctuation is still the program the shell runs; quoted awk and grep
+// text stays clean.
+func TestAuditQuotedCommandWord(t *testing.T) {
+	r := newRig(t)
+	tr := r.file("quoted.jsonl",
+		jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}}),
+		sh("q1", "'/tmp/do-push.sh copy' origin"),
+		sh("q2", "'/tmp/do-push.sh;noop' origin"),
+		sh("q3", `awk '{print $1; print $2}' /x/list.txt | grep 'a b'`),
+	)
+	out := r.aud(Options{Harness: "claude", Transcript: tr, Session: "coord-session"})
+	match(t, "Y6h a quoted executable path with a space is a script run", `call=q1 class=script-run`, out)
+	match(t, "Y6h2 a quoted executable path with shell punctuation is a script run", `call=q2 class=script-run`, out)
+	noMatch(t, "Y6h3 quoted awk and grep text stays clean", `call=q3`, out)
+	match(t, "Y6h4 two flags of three calls", `AUDIT flagged=2 calls=3`, out)
+}

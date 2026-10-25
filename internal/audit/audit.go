@@ -395,9 +395,6 @@ var (
 	// program is classified by its name (e93bcc1).
 	sysDirRE = regexp.MustCompile(`(^|[;&|({[:space:]])(/usr/local/bin|/opt/homebrew/bin|/usr/bin|/usr/sbin|/bin|/sbin)/`)
 	sysPath  = regexp.MustCompile(`^(/usr/local/bin|/opt/homebrew/bin|/usr/bin|/usr/sbin|/bin|/sbin)/([^/]+)$`)
-	// quotedRE is single-quoted text with a space or shell punctuation: it
-	// runs nothing, so it never starts a segment.
-	quotedRE = regexp.MustCompile(`'[^' ]*[ {};|&()][^']*'`)
 	mcpWrite = regexp.MustCompile(`(send|create|update|delete|post|comment|write|add|edit|merge|upload|remove|move|schedule|react|approve|publish|set_|_set|assign|archive|attach|start|stop)`)
 	mcpRead  = regexp.MustCompile(`_(get|list|read|search|query|fetch|view|find|describe|show|count|lookup|retrieve|status|info)_`)
 	segSplit = regexp.MustCompile("[$][(]|[;&|(){}`]")
@@ -555,9 +552,10 @@ var interpreters = regexp.MustCompile(`^(bash|sh|zsh|dash|ksh|fish|python|python
 // starts a channel script by its exact path (or is a channel command of the
 // herdsman binary).
 func (a auditor) scriptRun(cmd string) string {
-	// Single-quoted text with spaces or punctuation (an awk program, a
-	// pattern) runs nothing, so it never starts a segment (e93bcc1).
-	cmd = quotedRE.ReplaceAllString(cmd, "Q")
+	// Single-quoted text is one word to the shell: its spaces and
+	// punctuation never split it or start a segment, and in command
+	// position it is still the program that runs (417b204).
+	cmd = oneWord(cmd)
 	for _, seg := range strings.Split(segSplit.ReplaceAllString(cmd, "\n"), "\n") {
 		words := strings.Fields(stripQuotes(seg))
 		i, wrapped := 0, ""
@@ -629,4 +627,37 @@ func (a auditor) scriptRun(cmd string) string {
 		}
 	}
 	return ""
+}
+
+// oneWord keeps single-quoted text one word, as the scripts' ONEWORD awk
+// program does: inside single quotes (outside double quotes) a blank or a
+// segment character becomes _, and a backslash outside single quotes
+// escapes the next character.
+func oneWord(s string) string {
+	var b strings.Builder
+	sq, dq := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case sq:
+			if c == '\'' {
+				sq = false
+			} else if strings.IndexByte(" \t\n\v\f\r;&|(){}`$", c) >= 0 {
+				c = '_'
+			}
+		case c == '\\':
+			b.WriteByte(c)
+			i++
+			if i >= len(s) {
+				return b.String()
+			}
+			c = s[i]
+		case c == '"':
+			dq = !dq
+		case c == '\'' && !dq:
+			sq = true
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
