@@ -343,3 +343,5 @@ func jqField(t *testing.T, p, field string) string {
 	}
 	return raw(inbox.Object(v)[field])
 }
+
+func digestText(s string) string { return inbox.Digest([]byte(s)) }
