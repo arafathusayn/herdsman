@@ -18,7 +18,7 @@ import (
 
 func TestHelpListsTools(t *testing.T) {
 	out, _, _ := call(t, "help")
-	for _, name := range []string{"doctor", "review", "models"} {
+	for _, name := range []string{"doctor", "review", "models", "afk"} {
 		if !regexp.MustCompile(`(?m)^  ` + name + ` `).MatchString(out) {
 			t.Errorf("help does not list %s", name)
 		}

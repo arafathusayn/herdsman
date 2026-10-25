@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/afk"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/termqr"
 	"github.com/arafathusayn/herdsman/internal/web"
@@ -239,9 +240,10 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	srv := &http.Server{
 		Handler: web.NewServer(client, hub, queue, web.Config{
 			Token: token, Port: actual, Hosts: hosts, Inbox: *inbox, SkillDir: *skillDir,
-			Choices: webChoices(),
-			GitHub:  webGitHub,
-			OnPair:  func(n web.PairNotice) { printPair(stdout, n) },
+			Choices:      webChoices(),
+			GitHub:       webGitHub,
+			ActivityFile: afk.DefaultWebFile(),
+			OnPair:       func(n web.PairNotice) { printPair(stdout, n) },
 			OnRotate: func(t string) {
 				fmt.Fprintln(stdout, "\n  Too many wrong pairing codes: the links above no longer work. Paired browsers keep working. New links:")
 				printLinks(stdout, stderr, makeLinks(hostport, t, publicURL, clientURL), qr)

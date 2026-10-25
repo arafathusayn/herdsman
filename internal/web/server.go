@@ -13,13 +13,16 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/afk"
 	"github.com/arafathusayn/herdsman/internal/choices"
 	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
@@ -42,6 +45,8 @@ type Server struct {
 	// catalog lists the harnesses a new route can start.
 	catalog *catalogSource
 	now     func() time.Time
+	// lastActivity is the unix time of the last recorded user action.
+	lastActivity atomic.Int64
 }
 
 // Config is what one run of the server is set up with.
@@ -69,6 +74,10 @@ type Config struct {
 	// GitHub probes the GitHub accounts that can read the repository of a
 	// folder (A32), for the form to confirm; nil offers none.
 	GitHub func(ctx context.Context, dir string) (doctor.GitHubAccess, error)
+	// ActivityFile is where a paired browser's last action (a request that
+	// changes something, not the app's own polling) is recorded for
+	// `herdsman afk` (A33); "" records nothing.
+	ActivityFile string
 }
 
 // NewToken returns a random token for one run of the server.
@@ -180,6 +189,9 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		if !s.devices.isPaired(bearer(r)) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "this browser is not paired: open the URL that herdsman web printed"})
 			return
+		}
+		if r.Method != http.MethodGet {
+			s.recordActivity()
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -455,4 +467,23 @@ func Listen(host string, port int) (net.Listener, int, error) {
 		return nil, 0, err
 	}
 	return ln, ln.Addr().(*net.TCPAddr).Port, nil
+}
+
+// activityEvery bounds how often the activity file is written.
+const activityEvery = 10 * time.Second
+
+// recordActivity writes the time of a user action for `herdsman afk`, at
+// most once per activityEvery.
+func (s *Server) recordActivity() {
+	if s.cfg.ActivityFile == "" {
+		return
+	}
+	now := s.now()
+	last := s.lastActivity.Load()
+	if now.Unix()-last < int64(activityEvery/time.Second) || !s.lastActivity.CompareAndSwap(last, now.Unix()) {
+		return
+	}
+	if err := afk.WriteWebFile(s.cfg.ActivityFile, now); err != nil {
+		log.Printf("herdsman web: cannot record activity: %v", err)
+	}
 }
