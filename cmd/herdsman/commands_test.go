@@ -150,8 +150,10 @@ func TestRunCheckThroughTheCommand(t *testing.T) {
 	if _, _, code := call(t, "run-check", "--publish"); code == 0 {
 		t.Error("--publish without hours passes")
 	}
-	if _, _, code := call(t, "run-check", "--publish", "x"); code != 64 {
-		t.Errorf("--publish x: %d", code)
+	// As $(( x * 3600 )) in bash: an unset name is 0, so the publisher stops at once.
+	t.Setenv("x", "")
+	if _, errs, code := call(t, "run-check", "--publish", "x"); code != 0 || !strings.Contains(errs, "publisher stopped") {
+		t.Errorf("--publish x: %d %q", code, errs)
 	}
 }
 
