@@ -969,19 +969,11 @@ make build</code></pre>
                   <td>Runs every agent in its own pane.</td>
                 </tr>
                 <tr>
-                  <td><code>/bin/bash</code> 3.2+</td>
-                  <td>Runs the scripts. The macOS default shell works, with either BSD or GNU tools.</td>
-                </tr>
-                <tr>
-                  <td><code>jq</code></td>
+                  <td>The <code>herdsman</code> binary</td>
                   <td>
-                    Used by the checkpointer. The message scripts need a <code>jq</code> with streaming and
-                    <code>IN</code> support.
+                    On <code>PATH</code> (the Homebrew cask or a release archive). The skill runs every command
+                    through it; no bash, <code>jq</code> or <code>nc</code> needed.
                   </td>
-                </tr>
-                <tr>
-                  <td><code>nc</code> with Unix sockets</td>
-                  <td>Only with an adjutant: the message courier and waiter read herdr events through it.</td>
                 </tr>
                 <tr>
                   <td>GitHub CLI (<code>gh</code>)</td>
