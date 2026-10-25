@@ -257,8 +257,7 @@ func agentStatus(ctx context.Context, c *herdr.Client, pane string) herdr.Status
 // screen patterns cover what the status cannot carry (a password, a model
 // switch, a usage limit), and while Herdr reports "working" a match counts
 // only on the screen's last 5 lines, so printed output is no block.
-func blockReason(ctx context.Context, c *herdr.Client, pane, text string, re *regexp.Regexp) (string, bool) {
-	st := agentStatus(ctx, c, pane)
+func blockReason(st herdr.Status, text string, re *regexp.Regexp) (string, bool) {
 	if st == "blocked" {
 		if r := first(re, text); r != "" {
 			return r, true
@@ -277,4 +276,35 @@ func blockReason(ctx context.Context, c *herdr.Client, pane, text string, re *re
 		return first(re, tail), true
 	}
 	return first(re, text), true
+}
+
+// screenBlock is blockReason for the block patterns, then, where no work
+// text shows, the stalled-goal patterns, both through the same status-aware
+// filter (review 5, finding 3).
+func screenBlock(st herdr.Status, text string, block, work, stalled *regexp.Regexp) (string, bool) {
+	if r, ok := blockReason(st, text, block); ok {
+		return r, true
+	}
+	if stalled != nil && !work.MatchString(text) {
+		return blockReason(st, text, stalled)
+	}
+	return "", false
+}
+
+// newBlock records whether name is blocked and says whether to report it:
+// on each new blocked state, and again when its screen changes, so a
+// working -> blocked change from Herdr is reported even when the pane text
+// stays the same (review 5, finding 2).
+func newBlock(st state, name string, blocked bool, h, prev string) bool {
+	was := st.has("blocked-" + name)
+	if !blocked {
+		if was {
+			st.remove("blocked-" + name)
+		}
+		return false
+	}
+	if !was {
+		st.touch("blocked-" + name)
+	}
+	return h != prev || !was
 }

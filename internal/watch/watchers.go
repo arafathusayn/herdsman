@@ -52,10 +52,11 @@ func Implementers(ctx context.Context, env Env, d Deps) int {
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
-			reason, blocked := blockReason(ctx, d.Client, pane, text, implBlockRE)
+			reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, implBlockRE, implWorkRE, nil)
+			tell := newBlock(st, name, blocked, h, prev)
 			switch {
 			case blocked:
-				if h != prev {
+				if tell {
 					fmt.Fprintf(d.Stdout, "BLOCKED %s %s %s\n", name, reason, clock(d.Now()))
 				}
 			case implWorkRE.MatchString(text):
@@ -97,8 +98,10 @@ func Reviewer(ctx context.Context, env Env, d Deps) int {
 		prev := st.read("hash-" + name)
 		st.write("hash-"+name, h)
 		// Once per screen change, like the waiter: an unchanged prompt on screen is the same event.
-		if reason, blocked := blockReason(ctx, d.Client, pane, text, revBlockRE); blocked {
-			if h != prev {
+		reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, revBlockRE, revWorkRE, nil)
+		tell := newBlock(st, name, blocked, h, prev)
+		if blocked {
+			if tell {
 				fmt.Fprintf(d.Stdout, "BLOCKED %s %s %s\n", name, reason, clock(d.Now()))
 			}
 		} else if !revWorkRE.MatchString(text) && h != prev {

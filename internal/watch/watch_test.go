@@ -646,3 +646,46 @@ func TestModelSwitchPromptByShape(t *testing.T) {
 		}
 	}
 }
+
+// R5 findings 2 and 3: a working -> blocked change from Herdr is reported
+// even when the pane text stays the same, once; and a stalled-goal line in
+// a working agent's printed output is no block, on implementer and
+// reviewer panes alike.
+func TestBlockedTransitionsAndStalledFilter(t *testing.T) {
+	for _, tc := range []struct {
+		name, pane, who string
+		fn              func(context.Context, Env, Deps) int
+	}{
+		{"wait implementer", "w9:p1", "im-a", Wait}, {"wait reviewer", "w9:p3", "rv-1", Wait},
+		{"watch implementers", "w9:p1", "im-a", Implementers}, {"watch reviewer", "w9:p3", "rv-1", Reviewer},
+	} {
+		h := newHarness(t)
+		h.env["DEADLINE"], h.env["POLL"] = "0", "1"
+		agent := func(st string) {
+			a := herdrtest.Agent(tc.pane, "s")
+			a["agent_status"] = st
+			h.fx.SetAgent(tc.pane, a)
+		}
+		h.screen("w9:p1", "plain text")
+		h.screen("w9:p2", "Pursuing goal (1m)")
+		h.screen("w9:p3", "plain text")
+		agent("working")
+		h.run(tc.fn)
+		agent("blocked")
+		out, _ := h.run(tc.fn)
+		match(t, tc.name+": blocked with the same text", `BLOCKED `+tc.who+` agent blocked`, out)
+		out, _ = h.run(tc.fn)
+		noMatch(t, tc.name+": reported once", `BLOCKED `+tc.who, out)
+		agent("working")
+		h.run(tc.fn)
+		agent("blocked")
+		out, _ = h.run(tc.fn)
+		match(t, tc.name+": blocked again after working", `BLOCKED `+tc.who, out)
+		if strings.HasPrefix(tc.name, "wait") {
+			agent("working")
+			h.screen(tc.pane, "$ cat notes", "Goal stalled in the old run", "a", "b", "c", "d", "e")
+			out, _ = h.run(tc.fn)
+			noMatch(t, tc.name+": a stalled line in printed output", `BLOCKED `+tc.who, out)
+		}
+	}
+}

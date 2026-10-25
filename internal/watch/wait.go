@@ -115,10 +115,11 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
-			reason, blocked := blockReason(ctx, d.Client, pane, text, waitBlockRE)
+			reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, waitBlockRE, waitWorkRE, waitStalledRE)
+			tell := newBlock(st, name, blocked, h, prev)
 			switch {
 			case blocked:
-				if h != prev {
+				if tell {
 					events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, reason, now))
 				}
 				st.write("stall-"+name, "0")
@@ -136,9 +137,6 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 				}
 			default:
 				st.write("stall-"+name, "0")
-				if h != prev && waitStalledRE.MatchString(text) {
-					events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, first(waitStalledRE, text), now))
-				}
 				if !hasReport && strings.Contains(text, "Goal achieved") && !st.has("goaldone-"+name) {
 					st.touch("goaldone-" + name)
 					events = append(events, fmt.Sprintf("GOAL-DONE-NO-REPORT %s %s", name, now))
@@ -161,10 +159,9 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
-			if reason, blocked := blockReason(ctx, d.Client, pane, text, waitBlockRE); blocked && h != prev {
+			reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, waitBlockRE, waitWorkRE, waitStalledRE)
+			if newBlock(st, name, blocked, h, prev) {
 				events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, reason, now))
-			} else if !waitWorkRE.MatchString(text) && waitStalledRE.MatchString(text) && h != prev {
-				events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, first(waitStalledRE, text), now))
 			}
 		}
 		// Health: the user's periodic check of every agent runs here, so a quiet
