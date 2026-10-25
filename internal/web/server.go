@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/choices"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
 )
@@ -61,6 +62,9 @@ type Config struct {
 	// OnRotate shows the person at the terminal the links for a new token,
 	// after too many wrong codes ended the old one.
 	OnRotate func(token string)
+	// Choices keeps the picks a started route launched with (A30); nil
+	// keeps none.
+	Choices *choices.Store
 }
 
 // NewToken returns a random token for one run of the server.

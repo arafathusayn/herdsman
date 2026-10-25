@@ -182,7 +182,7 @@ func checkHerdr(ctx context.Context, p Probes, add adder) {
 	}
 	detail := fmt.Sprintf("herdr %s protocol %d at %s", pong.Version, pong.Protocol, p.Herdr.Socket)
 	if p.Getenv("HERDR_ENV") != "1" {
-		add(Warn, "herdr", detail+"; HERDR_ENV is not 1, so this shell is not inside herdr")
+		add(Warn, "herdr", detail+"; HERDR_ENV is not 1, so this shell is not inside herdr: a route will ask whether its agents run in Herdr panes or as background subagents")
 		return
 	}
 	add(OK, "herdr", detail)

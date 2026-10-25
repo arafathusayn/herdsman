@@ -3,19 +3,20 @@ package web
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/arafathusayn/herdsman/internal/catalog"
+	"github.com/arafathusayn/herdsman/internal/choices"
 )
 
 // The catalog of harnesses a new route can start: each harness's models and
@@ -32,37 +33,20 @@ var catalogFiles embed.FS
 // catalogTimeout bounds each catalog command.
 const catalogTimeout = 5 * time.Second
 
-// modelID is a model name typed by hand: Claude's "Other model id" and the
-// free-text model of other kinds. It is always one argv element.
-var modelID = regexp.MustCompile(`^[A-Za-z0-9._:\[\]-]{1,64}$`)
+// The catalog's types and parsers live in internal/catalog, which
+// `herdsman models` shares; these names keep this package's code as it was.
+type (
+	CatalogModel = catalog.Model
+	CatalogKind  = catalog.Kind
+)
 
-// CatalogModel is one model of a harness.
-type CatalogModel struct {
-	ID            string   `json:"id"`
-	Label         string   `json:"label"`
-	Efforts       []string `json:"efforts"`
-	DefaultEffort string   `json:"default_effort"`
-}
-
-// CatalogKind is one harness the form can start.
-type CatalogKind struct {
-	Kind         string         `json:"kind"`
-	Label        string         `json:"label"`
-	Models       []CatalogModel `json:"models"`
-	DefaultModel string         `json:"default_model"`
-	// OtherModel offers a full model id beside the listed models (Claude).
-	OtherModel bool `json:"other_model"`
-	// FreeModel means the harness has no list: the model is typed.
-	FreeModel bool `json:"free_model"`
-	// Checkpointer is whether the checkpointer can read this harness's transcripts.
-	Checkpointer bool `json:"checkpointer"`
-	// SkillPrefix starts a skill command in this harness: "/herdsman" or "$herdsman".
-	SkillPrefix string `json:"skill_prefix"`
-	// SkillInstalled is whether the herdsman skill was found for this harness.
-	SkillInstalled bool `json:"skill_installed"`
-	// Offline marks the last-known list, used when the harness could not be asked.
-	Offline bool `json:"offline"`
-}
+var (
+	modelID          = catalog.ModelID
+	defaultEffort    = catalog.DefaultEffort
+	parseCodexModels = catalog.ParseCodexModels
+	parseClaudeHelp  = catalog.ParseClaudeHelp
+	parseKinds       = catalog.ParseKinds
+)
 
 // Catalog is what GET /api/catalog returns.
 type Catalog struct {
@@ -75,6 +59,9 @@ type Catalog struct {
 	// CheckpointerWhy says where it was looked for when it was not.
 	CheckpointerOK  bool   `json:"checkpointer_ok"`
 	CheckpointerWhy string `json:"checkpointer_why,omitempty"`
+	// Previous is the last pick of each role (A30), for "Use previous
+	// choice"; empty when none was saved or the store cannot be read.
+	Previous []choices.Pick `json:"previous"`
 }
 
 func (c *Catalog) kind(k string) *CatalogKind {
@@ -171,131 +158,6 @@ func kindLabel(k string) string {
 	r := []rune(k)
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)
-}
-
-// defaultEffort is the default the harness reports when its list has it,
-// else none: the user then picks one (A28: no level is preferred by name).
-func defaultEffort(efforts []string, def string) string {
-	if def != "" && slices.Contains(efforts, def) {
-		return def
-	}
-	return ""
-}
-
-var effortWord = regexp.MustCompile(`^[a-z]{1,16}$`)
-
-// parseCodexModels reads `codex debug models`: the listed models, in the
-// printed order (the first is the newest), with their efforts.
-func parseCodexModels(b []byte) (CatalogKind, error) {
-	var out struct {
-		Models []struct {
-			Slug        string `json:"slug"`
-			DisplayName string `json:"display_name"`
-			Visibility  string `json:"visibility"`
-			Default     string `json:"default_reasoning_level"`
-			Levels      []struct {
-				Effort string `json:"effort"`
-			} `json:"supported_reasoning_levels"`
-		} `json:"models"`
-	}
-	if err := json.Unmarshal(b, &out); err != nil {
-		return CatalogKind{}, err
-	}
-	k := CatalogKind{Kind: "codex", Label: "Codex", Models: []CatalogModel{}, Checkpointer: true, SkillPrefix: "$"}
-	for _, m := range out.Models {
-		if m.Visibility != "list" {
-			continue
-		}
-		if !modelID.MatchString(m.Slug) {
-			return CatalogKind{}, fmt.Errorf("codex model %q has an unexpected name", m.Slug)
-		}
-		var efforts []string
-		for _, l := range m.Levels {
-			if !effortWord.MatchString(l.Effort) {
-				return CatalogKind{}, fmt.Errorf("codex effort %q has an unexpected name", l.Effort)
-			}
-			efforts = append(efforts, l.Effort)
-		}
-		if len(efforts) == 0 {
-			return CatalogKind{}, fmt.Errorf("codex model %s lists no efforts", m.Slug)
-		}
-		label := m.DisplayName
-		if label == "" {
-			label = m.Slug
-		}
-		k.Models = append(k.Models, CatalogModel{ID: m.Slug, Label: label, Efforts: efforts, DefaultEffort: defaultEffort(efforts, m.Default)})
-	}
-	if len(k.Models) == 0 {
-		return CatalogKind{}, errors.New("codex lists no models")
-	}
-	k.DefaultModel = k.Models[0].ID
-	return k, nil
-}
-
-// helpOption joins an option's description in `--help` output across its
-// wrapped lines.
-func helpOption(help, name string) string {
-	lines := strings.Split(help, "\n")
-	for i, l := range lines {
-		t := strings.TrimSpace(l)
-		if !strings.HasPrefix(t, name+" ") && !strings.Contains(t, ", "+name+" ") {
-			continue
-		}
-		block := []string{t}
-		for _, next := range lines[i+1:] {
-			nt := strings.TrimSpace(next)
-			if nt == "" || strings.HasPrefix(nt, "-") {
-				break
-			}
-			block = append(block, nt)
-		}
-		return strings.Join(block, " ")
-	}
-	return ""
-}
-
-var (
-	quotedAlias = regexp.MustCompile(`'([a-z][a-z0-9.-]*)'`)
-	parenList   = regexp.MustCompile(`\(([a-z]+(?:, [a-z]+)+)\)`)
-)
-
-// parseClaudeHelp reads the model aliases and the efforts from `claude
-// --help`. Each alias resolves to the newest model of its family; the first
-// is preselected.
-func parseClaudeHelp(b []byte) (CatalogKind, error) {
-	help := string(b)
-	var aliases []string
-	for _, m := range quotedAlias.FindAllStringSubmatch(helpOption(help, "--model"), -1) {
-		aliases = append(aliases, m[1])
-	}
-	em := parenList.FindStringSubmatch(helpOption(help, "--effort"))
-	if len(aliases) == 0 || em == nil {
-		return CatalogKind{}, errors.New("claude --help names no model aliases or efforts")
-	}
-	efforts := strings.Split(em[1], ", ")
-	k := CatalogKind{Kind: "claude", Label: "Claude", Models: []CatalogModel{}, OtherModel: true, Checkpointer: true, SkillPrefix: "/"}
-	for _, a := range aliases {
-		k.Models = append(k.Models, CatalogModel{ID: a, Label: a, Efforts: efforts, DefaultEffort: defaultEffort(efforts, "")})
-	}
-	k.DefaultModel = aliases[0]
-	return k, nil
-}
-
-var possibleValues = regexp.MustCompile(`\[possible values: ([a-z0-9, -]+)\]`)
-
-// parseKinds reads the agent kinds herdr can start from `herdr agent start --help`.
-func parseKinds(b []byte) ([]string, error) {
-	m := possibleValues.FindSubmatch(b)
-	if m == nil {
-		return nil, errors.New("herdr agent start --help lists no kinds")
-	}
-	var out []string
-	for k := range strings.SplitSeq(string(m[1]), ",") {
-		if k = strings.TrimSpace(k); k != "" {
-			out = append(out, k)
-		}
-	}
-	return out, nil
 }
 
 // launchArgs builds the agent's argv from the catalog entry: a listed model
@@ -402,6 +264,12 @@ func (s *Server) catalogNow(r *http.Request) Catalog {
 	}
 	script, why := checkpointerScript(home, s.cfg.SkillDir)
 	c.CheckpointerOK, c.CheckpointerWhy = script != "", why
+	c.Previous = []choices.Pick{}
+	if s.cfg.Choices != nil {
+		if f, err := s.cfg.Choices.Load(); err == nil {
+			c.Previous = f.Picks
+		}
+	}
 	return c
 }
 

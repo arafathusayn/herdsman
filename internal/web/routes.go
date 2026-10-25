@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/arafathusayn/herdsman/internal/choices"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
@@ -487,6 +489,9 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 			Steps: []RouteStep{}, Tabs: []string{}})
 		return
 	}
+	if res.OK {
+		s.savePicks(req)
+	}
 	status := http.StatusOK
 	switch {
 	case res.Code == "invalid_route":
@@ -628,4 +633,21 @@ func (q *Queue) recheckNames(ctx context.Context, p *routePlan) error {
 		}
 	}
 	return nil
+}
+
+// savePicks records the harness, model and effort a started route launched
+// each role with (A30); the web app starts every agent in a Herdr pane. A store that cannot be written loses the picks,
+// never the route.
+func (s *Server) savePicks(req RouteRequest) {
+	if s.cfg.Choices == nil {
+		return
+	}
+	at := s.now().UTC().Truncate(time.Second)
+	picks := []choices.Pick{{Role: req.Role, Runner: "herdr", Harness: req.Kind, Model: req.Model, Effort: req.Effort, Route: req.RouteName, At: at}}
+	if req.Role == "adjutant" {
+		picks = append(picks, choices.Pick{Role: "orchestrator", Runner: "herdr", Harness: req.OrchKind, Model: req.OrchModel, Effort: req.OrchEffort, Route: req.RouteName, At: at})
+	}
+	if err := s.cfg.Choices.Save(picks...); err != nil {
+		log.Printf("herdsman web: the route's picks were not saved: %v", err)
+	}
 }

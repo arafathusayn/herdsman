@@ -239,7 +239,8 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	srv := &http.Server{
 		Handler: web.NewServer(client, hub, queue, web.Config{
 			Token: token, Port: actual, Hosts: hosts, Inbox: *inbox, SkillDir: *skillDir,
-			OnPair: func(n web.PairNotice) { printPair(stdout, n) },
+			Choices: webChoices(),
+			OnPair:  func(n web.PairNotice) { printPair(stdout, n) },
 			OnRotate: func(t string) {
 				fmt.Fprintln(stdout, "\n  Too many wrong pairing codes: the links above no longer work. Paired browsers keep working. New links:")
 				printLinks(stdout, stderr, makeLinks(hostport, t, publicURL, clientURL), qr)

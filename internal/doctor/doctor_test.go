@@ -95,7 +95,7 @@ func TestHerdr(t *testing.T) {
 	one(t, run(t, p), "herdr", OK, "herdr 0.9.4 protocol 22 at ")
 
 	p = fakes(t, map[string]string{"HERDR_ENV": ""})
-	one(t, run(t, p), "herdr", Warn, "HERDR_ENV is not 1")
+	one(t, run(t, p), "herdr", Warn, "HERDR_ENV is not 1, so this shell is not inside herdr: a route will ask whether its agents run in Herdr panes or as background subagents")
 
 	p = fakes(t, nil)
 	p.Herdr = herdr.New(filepath.Join(t.TempDir(), "none.sock"))
