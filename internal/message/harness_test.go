@@ -239,6 +239,12 @@ func (c *tc) courier(extra ...string) (string, int) {
 }
 
 func (c *tc) watch(extra ...string) (string, int) {
+	if c.events == nil {
+		// No herdr event stream in these cases: the watcher polls every
+		// INTERVAL on the fake clock (TestD17 drives the stream).
+		c.events = &failingEvents{}
+		defer func() { c.events = nil }()
+	}
 	env := map[string]string{"RUN_FOR": "1", "INTERVAL": "1"}
 	for _, kv := range extra {
 		k, v, _ := strings.Cut(kv, "=")

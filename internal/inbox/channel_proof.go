@@ -1,7 +1,6 @@
 package inbox
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -31,6 +30,9 @@ type Channel struct {
 	// Executable is the absolute path of the running herdsman binary, links
 	// resolved; "" accepts no binary proof.
 	Executable string
+	// MutationHeld: this process owns the shared input lock, so a boundary
+	// check publishes a waiting exposure itself (e93bcc1).
+	MutationHeld bool
 }
 
 // OpenChannel opens an inbox as Open does, accepting a binary proof of exe
@@ -176,6 +178,15 @@ func (ch *Channel) Boundary(ctx context.Context, c *herdr.Client) (bool, string,
 	if _, ok := r.Registry(); !ok || Exists(r.Path("state", "boundary-tainted")) {
 		return false, FaultStatic, nil
 	}
+	if ch.ExposurePending() {
+		// The owner of the input lock publishes it now; any other check
+		// fails closed until the next owner does (e93bcc1).
+		if ch.MutationHeld {
+			_ = ch.FoldExposure()
+			return false, FaultStatic, nil
+		}
+		return false, FaultPending, nil
+	}
 	pb, _ := os.ReadFile(r.Path("peers.approved"))
 	pair, _ := Decode(pb)
 	pb2, _ := os.ReadFile(r.Preflight)
@@ -225,32 +236,4 @@ type exposure struct {
 	Reason string    `json:"reason"`
 	Agents []Unknown `json:"agents"`
 	Time   int64     `json:"time"`
-}
-
-// RecordExposure is the scripts' record_exposure: after an inventory fault
-// it writes state/boundary-tainted once, under the shared input lock unless
-// the caller holds it (mutationHeld); a lock that stays busy still gets the
-// record, logged, because recording fails closed.
-func (ch *Channel) RecordExposure(fault string, unknown []Unknown, mutationHeld bool) error {
-	r := ch.Root
-	target := r.Path("state", "boundary-tainted")
-	if fault != FaultInventory || Exists(target) {
-		return nil
-	}
-	if !mutationHeld {
-		if l := r.Lock(MutationLock); l != nil {
-			defer l.Release()
-		} else if err := r.LogLine("EXPOSURE input lock busy; recorded without it"); err != nil {
-			return err
-		}
-	}
-	if unknown == nil {
-		unknown = []Unknown{}
-	}
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(exposure{Reason: "live agent outside the protected setup", Agents: unknown, Time: r.Unix()})
-	return r.Atomic(target, b.Bytes())
 }

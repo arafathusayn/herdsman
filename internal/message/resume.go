@@ -68,7 +68,11 @@ func (e *Env) resumeRun(args []string, beforeLock func()) error {
 	if err := e.open(false); err != nil {
 		return err
 	}
-	if ok, _, _ := e.ch.Boundary(e.ctx(), e.Client); !ok {
+	if ok, fault, unknown := e.ch.Boundary(e.ctx(), e.Client); !ok {
+		// Every check records what it saw (A26, e93bcc1 B3-004).
+		if err := e.ch.RecordExposure(fault, unknown, e.ch.MutationHeld); err != nil {
+			return err
+		}
 		return held("HUMAN boundary; no automatic input")
 	}
 	g := &resumer{Env: e, name: args[0], beforeLock: beforeLock}
@@ -118,18 +122,20 @@ func (e *Env) resumeRun(args []string, beforeLock func()) error {
 	if g.beforeLock != nil {
 		g.beforeLock()
 	}
-	if err := os.Mkdir(e.path(inbox.MutationLock), 0o700); err != nil {
+	if e.takeMutation(1) == nil {
 		return held("mutation lock busy")
 	}
-	e.hold(inbox.Adopt(e.path(inbox.MutationLock)))
-	_ = os.WriteFile(e.path(inbox.MutationLock, "pid"), []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o600)
 	if inbox.Exists(sent) {
 		return held("reconcile the previous resume")
 	}
 	if !g.guards() {
 		return g.pauseHeld()
 	}
-	if ok, _, _ := e.ch.Boundary(e.ctx(), e.Client); !ok {
+	if ok, fault, unknown := e.ch.Boundary(e.ctx(), e.Client); !ok {
+		// Every check records what it saw (A26, e93bcc1 B3-004).
+		if err := e.ch.RecordExposure(fault, unknown, e.ch.MutationHeld); err != nil {
+			return err
+		}
 		return held("HUMAN boundary changed")
 	}
 	current, ok := g.targetRecord()

@@ -232,6 +232,12 @@ func (g *Gate) consume(goFile, action, target, revision, draft string) exit {
 		return g.die("input lock busy; retry later, never auto-remove")
 	}
 	g.hold(mutation)
+	// As the new owner of the input lock, publish any exposure that waited
+	// for it first (e93bcc1 B3-001), so the check below sees it.
+	if err := (&inbox.Channel{Root: g.root}).FoldExposure(); err != nil {
+		msg, _ := inbox.IsFatal(err)
+		return g.die(msg)
+	}
 	if line, code := g.authority(); code != 0 {
 		fmt.Fprintln(g.Stdout, line)
 		return exit{Human}
@@ -288,6 +294,10 @@ func (g *Gate) authority() (string, int) {
 	if err != nil {
 		msg, _ := inbox.IsFatal(err)
 		return msg, Human
+	}
+	// A waiting exposure fails closed until an owner of the lock publishes it.
+	if (&inbox.Channel{Root: r}).ExposurePending() {
+		return inbox.HumanLine, Human
 	}
 	return r.Authority(g.ctx, g.Client)
 }

@@ -3,6 +3,7 @@ package message
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -39,6 +40,15 @@ type watcher struct {
 	receiver   string
 	senderPane string
 	auto       bool
+	// Update-driven reads (A26, D17): with a herdr pane.updated stream a
+	// target is read only after an update for its pane, at start, after a
+	// reconnect and every reconcileSecs; without a stream every pass reads.
+	stream   Stream
+	backoff  reopen
+	retryAt  int64
+	dirty    map[string]bool
+	lastFull int64
+	allDirty bool
 }
 
 func (e *Env) cardWatch(args []string) error {
@@ -61,6 +71,11 @@ func (e *Env) cardWatch(args []string) error {
 		return die("unapproved pair")
 	}
 	w := &watcher{Env: e, resumeSum: "absent", resumes: []byte("{}")}
+	defer func() {
+		if w.stream != nil {
+			w.stream.Close()
+		}
+	}()
 	wt := e.path("watch-targets.json")
 	b, ok := inbox.ReadStrict(e.ch.Dir, wt)
 	v, _ := inbox.Decode(b)
@@ -108,7 +123,7 @@ func (e *Env) cardWatch(args []string) error {
 		if runFor != 0 && e.unix()-started >= int64(runFor) {
 			return nil
 		}
-		e.sleep(time.Duration(interval) * time.Second)
+		w.await(int64(interval))
 	}
 }
 
@@ -224,10 +239,20 @@ func (w *watcher) pass() error {
 			}
 		}
 	}
+	now := e.unix()
+	full := w.stream == nil || w.allDirty || now-w.lastFull >= reconcileSecs
 	for _, t := range w.targets {
+		pane, _ := inbox.Object(t)["pane"].(string)
+		if !full && !w.dirty[pane] {
+			continue // no update for this pane since its last read
+		}
+		delete(w.dirty, pane)
 		if err := w.watchTarget(t); err != nil {
 			return err
 		}
+	}
+	if full {
+		w.lastFull, w.allDirty = now, false
 	}
 	if !w.coverage() {
 		w.auto = false
@@ -605,4 +630,50 @@ func (w *watcher) writeHeld(text string) error {
 		return nil
 	}
 	return w.ch.WriteText(p, text)
+}
+
+// reconcileSecs is how often every target is read even without updates.
+const reconcileSecs = 300
+
+// await waits one interval. With a pane.updated stream it collects the
+// panes that changed (a stream that cannot be opened is retried with
+// backoff; until then, and after a drop, every target is read). Without
+// one it sleeps.
+func (w *watcher) await(interval int64) {
+	e := w.Env
+	end := e.unix() + interval
+	if w.stream == nil && e.unix() >= w.retryAt {
+		s, err := e.openStream([]map[string]any{{"type": "pane.updated"}})
+		if err != nil {
+			w.retryAt = e.unix() + int64(w.backoff.next()/time.Second)
+		} else {
+			w.stream, w.allDirty = s, true
+			w.backoff.reset()
+		}
+	}
+	if w.stream == nil {
+		e.sleep(time.Duration(interval) * time.Second)
+		return
+	}
+	if w.dirty == nil {
+		w.dirty = map[string]bool{}
+	}
+	for t := e.unix(); t < end; t = e.unix() {
+		l, err := w.stream.Next(time.Duration(end-t) * time.Second)
+		if errors.Is(err, errTimeout) {
+			return
+		}
+		if err != nil {
+			w.stream.Close()
+			w.stream, w.allDirty = nil, true
+			return
+		}
+		if pane, _ := eventPane(l); pane != "" {
+			for _, tg := range w.targets { // only configured panes: the map stays bounded
+				if p, _ := inbox.Object(tg)["pane"].(string); p == pane {
+					w.dirty[pane] = true
+				}
+			}
+		}
+	}
 }

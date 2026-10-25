@@ -46,6 +46,11 @@ func TestPart05ResumeCardsStrict(t *testing.T) {
 	setSession("drifted")
 	out, _ = c.run("sender-pane", nil, "resume", "im-task")
 	check(t, "G5b a relaunched live session is outside the inventory and held", "^HELD HUMAN boundary", out)
+	check(t, "G5c the helper records the exposure it saw (e93bcc1)", `"value": "drifted"`, c.read(c.in("state", "boundary-tainted")))
+	setSession("task-session")
+	out, _ = c.run("sender-pane", nil, "resume", "im-task")
+	check(t, "G5d after that session exits the resume stays held", "^HELD HUMAN boundary", out)
+	os.Remove(c.in("state", "boundary-tainted")) // the human repeats setup
 	setSession("task-session")
 	c.fx.Fail("pane.read", "unavailable")
 	out, _ = c.run("sender-pane", nil, "resume", "im-task")

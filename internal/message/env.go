@@ -45,10 +45,11 @@ type Env struct {
 	// Ctx bounds herdr calls (nil: background).
 	Ctx context.Context
 
-	ch      *inbox.Channel
-	mu      sync.Mutex // guards locks and drained: a signal handler releases them
-	locks   []*inbox.Lock
-	drained bool // releaseAll ran: a lock missing from locks is already free
+	ch       *inbox.Channel
+	mu       sync.Mutex // guards locks and drained: a signal handler releases them
+	locks    []*inbox.Lock
+	drained  bool        // releaseAll ran: a lock missing from locks is already free
+	mutation *inbox.Lock // the held shared input lock, if any
 
 	// Parsed common settings (commonSettings).
 	settingsDone          bool
@@ -152,6 +153,12 @@ func (e *Env) hold(l *inbox.Lock) *inbox.Lock {
 func (e *Env) release(l *inbox.Lock) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if l == e.mutation {
+		e.mutation = nil
+		if e.ch != nil {
+			e.ch.MutationHeld = false
+		}
+	}
 	for i, h := range e.locks {
 		if h == l {
 			e.locks = append(e.locks[:i], e.locks[i+1:]...)
@@ -167,6 +174,10 @@ func (e *Env) release(l *inbox.Lock) error {
 func (e *Env) releaseAll() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.mutation != nil && e.ch != nil {
+		e.ch.MutationHeld = false
+	}
+	e.mutation = nil
 	for i := len(e.locks) - 1; i >= 0; i-- {
 		_ = e.locks[i].Release()
 	}
@@ -227,7 +238,25 @@ func (e *Env) lockChannel() (*inbox.Lock, error) {
 func (e *Env) tryChannel() *inbox.Lock { return e.hold(e.ch.Lock(inbox.ChannelLock)) }
 
 // tryMutation is mutation_lock: the shared input lock, or nil when busy.
-func (e *Env) tryMutation() *inbox.Lock { return e.hold(e.ch.Lock(inbox.MutationLock)) }
+func (e *Env) tryMutation() *inbox.Lock { return e.takeMutation(e.ch.LockWait) }
+
+// takeMutation takes the shared input lock (tries attempts); as its new
+// owner the process first publishes any waiting exposure (e93bcc1).
+func (e *Env) takeMutation(tries int) *inbox.Lock {
+	l, err := e.ch.LockMutation(tries, e.ch.Pause)
+	if l == nil {
+		return nil
+	}
+	e.hold(l)
+	e.mu.Lock()
+	e.mutation = l
+	e.mu.Unlock()
+	e.ch.MutationHeld = true
+	if err != nil {
+		fmt.Fprintln(e.Stderr, err)
+	}
+	return l
+}
 
 // errDisplayBusy is a display call that did not get the input lock.
 var errDisplayBusy = errors.New("display lock busy")
@@ -235,7 +264,7 @@ var errDisplayBusy = errors.New("display lock busy")
 // display is display_call: a display metadata report or a notification,
 // under the shared input lock taken briefly (six tries).
 func (e *Env) display(call func(ctx context.Context) error) error {
-	l := e.hold(inbox.TryDir(e.path(inbox.MutationLock), 6, e.ch.Pause))
+	l := e.takeMutation(6)
 	if l == nil {
 		return errDisplayBusy
 	}
