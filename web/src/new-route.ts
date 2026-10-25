@@ -51,6 +51,55 @@ export interface RouteForm {
   inbox: string;
   /** The inbox stops following the folder and route name once the user edits it. */
   inboxEdited: boolean;
+  /** The recommended setup (A32): its fields are filled and folded into one summary. */
+  recommended: boolean;
+}
+
+/**
+ * The recommended setup (A32), each item with one plain sentence of what it
+ * means. It names no model, effort, runner or task: those are asked.
+ */
+export const RECOMMENDED_SETUP: [string, string][] = [
+  ["Integration", "One pull request per task; the implementers publish their own."],
+  ["Worktrees", "Each task gets its own worktree, named by the task id."],
+  [
+    "Push policy",
+    "Two gates: a local review passes, then a draft pull request goes through the review bots, then it is marked ready.",
+  ],
+  ["Merge", "You merge; branches stay until the route closes."],
+  [
+    "Severity",
+    "P0 and P1 block: data loss, a security hole, a crash, a wrong result or a broken feature. P2 (clarity or a minor defect) is reported, with one fix round after the pass.",
+  ],
+  [
+    "Review skills",
+    "A code-quality skill matched to the diff's languages plus a security pass, chosen from the installed skills.",
+  ],
+  ["Techniques", "A skill navigator and a progress file per task."],
+  ["Adjutant", "None: you talk to the orchestrator directly."],
+  ["Context policy", "Compact before a follow-up of an agent's own work; clear before a new task."],
+  [
+    "Checkpointer",
+    "On: it keeps the orchestrator's memory and compacts its context (the app starts agents inside Herdr).",
+  ],
+  ["Test services", "None, unless the repository declares a database or service; then the route asks about it."],
+  ["GitHub account", "The active gh account, unless it cannot see the repository; then the route asks."],
+];
+
+/**
+ * Turns the recommended setup on or off. On fills its fields: the
+ * orchestrator role with no adjutant, and the checkpointer on at its usual
+ * interval when the skill's script is there. Off keeps the values.
+ */
+export function setRecommended(f: RouteForm, c: Catalog, on: boolean): RouteForm {
+  if (!on) return { ...f, recommended: false };
+  return {
+    ...setRole(f, "orchestrator"),
+    recommended: true,
+    checkpointer: c.checkpointer_ok,
+    minutes: "15",
+    limit: "250k",
+  };
 }
 
 /** Marks the "Other model id" choice in the model list. */
@@ -222,6 +271,7 @@ export function initialForm(c: Catalog, st: State | null): RouteForm {
     routeName,
     inbox: inboxDefault(projectLabel(folder), routeName),
     inboxEdited: false,
+    recommended: true,
   };
 }
 

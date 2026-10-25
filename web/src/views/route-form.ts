@@ -19,8 +19,10 @@ import {
   preview,
   previousPicks,
   projectLabel,
+  RECOMMENDED_SETUP,
   type RouteForm,
   setHarness,
+  setRecommended,
   setRole,
   skillWarnings,
   stepNote,
@@ -325,6 +327,7 @@ export function routeForm(
         which,
         `${who} harness`,
         selectBox(`${which}-kind`, hn.kind, kinds, (v) => harnessChange(which, { kind: v }, true), `${id}-${which}`),
+        "The coding agent program this role runs in.",
       ),
       field(
         `${which}-model`,
@@ -342,6 +345,7 @@ export function routeForm(
               )
             : null,
         ),
+        "The models this harness lists now, newest first; its docs say which suits coding and review.",
       ),
       hn.model === OTHER
         ? field(
@@ -372,9 +376,10 @@ export function routeForm(
               (v) => harnessChange(which, { effort: v }, which === "main" && f.role === "adjutant"),
               `${id}-${which}-effort`,
             ),
+            "How long the model thinks before it answers: more is slower and costs more.",
           )
         : null,
-      field(nameField, `${who} name`, text(nameField)),
+      field(nameField, `${who} name`, text(nameField), "The agent's name in Herdr, used in its tab and its messages."),
     ].filter((x): x is HTMLElement => !!x);
   };
 
@@ -445,7 +450,7 @@ export function routeForm(
           disabled: !ck.ok,
           onchange: (e: Event) => set({ checkpointer: (e.target as HTMLInputElement).checked }, true),
         }),
-        h("span", null, "Checkpointer"),
+        h("span", null, "Checkpointer (Recommended)"),
         h("small", null, ck.ok ? "keeps the orchestrator's memory and compacts its context" : ck.why),
       ),
       ckOn
@@ -478,11 +483,34 @@ export function routeForm(
           "fieldset",
           { class: "nr-fields", disabled: busy },
           h(
-            "div",
-            { class: "nr-role", role: "radiogroup", "aria-label": "Role" },
-            role("orchestrator", "Orchestrator"),
-            role("adjutant", "Adjutant"),
+            "label",
+            { class: "nr-toggle nr-recommended" },
+            h("input", {
+              type: "checkbox",
+              name: "recommended",
+              checked: f.recommended,
+              onchange: (e: Event) => {
+                if (busy) return draw();
+                f = setRecommended(f, c, (e.target as HTMLInputElement).checked);
+                draw();
+                readInbox();
+              },
+            }),
+            h("span", null, "Recommended setup"),
+            h("small", null, "Fills the usual choices below so only the tasks and each role's model are left to pick."),
           ),
+          f.recommended
+            ? h(
+                "dl",
+                { class: "nr-summary", dataset: { field: "recommended-summary" } },
+                RECOMMENDED_SETUP.flatMap(([k, v]) => [h("dt", null, k), h("dd", null, v)]),
+              )
+            : h(
+                "div",
+                { class: "nr-role", role: "radiogroup", "aria-label": "Role" },
+                role("orchestrator", "Orchestrator (Recommended)"),
+                role("adjutant", "Adjutant"),
+              ),
           h(
             "div",
             { class: "nr-grid" },
@@ -499,6 +527,7 @@ export function routeForm(
                 (v) => set({ workspace: v }, true),
                 `${id}-workspace`,
               ),
+              "The Herdr workspace the route's tabs open in.",
             ),
             field(
               "folder",
@@ -523,7 +552,7 @@ export function routeForm(
                   ...harnessFields("main", "name", "Adjutant"),
                   h("h3", { class: "nr-sub" }, "Orchestrator"),
                   ...harnessFields("orch", "orchName", "Orchestrator"),
-                  field("routeName", "Route name", text("routeName")),
+                  field("routeName", "Route name", text("routeName"), "Names the route's folder and its inbox."),
                   field(
                     "inbox",
                     "Private inbox",
@@ -559,10 +588,10 @@ export function routeForm(
                 value: f.request,
                 oninput: (e: Event) => set({ request: (e.target as HTMLTextAreaElement).value }, false),
               }),
-              null,
+              "The tasks, in your words; the orchestrator plans them and asks before it starts anything.",
               true,
             ),
-            ckBox,
+            f.recommended ? null : ckBox,
           ),
         ),
         skillWarnings(f, c).map((w) => h("p", { class: "nr-warn", role: "note" }, w)),

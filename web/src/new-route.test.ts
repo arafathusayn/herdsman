@@ -21,8 +21,10 @@ import {
   previousPicks,
   projectLabel,
   quoteArg,
+  RECOMMENDED_SETUP,
   type RouteForm,
   setHarness,
+  setRecommended,
   setRole,
   skillWarnings,
   stepNote,
@@ -442,4 +444,30 @@ test("the previous choice fills the form's roles from the saved picks", () => {
   expect(usePrevious(orch, catalog)).toBe(orch);
   const gone: Catalog = { ...catalog, previous: [pick("orchestrator", "gone", "m", "")] };
   expect(usePrevious(orch, gone)).toBe(orch);
+});
+
+// A32: the recommended setup is on at first; it fills the role and the
+// checkpointer, and each item says in one sentence what it means.
+test("the recommended setup fills its fields and names no model, effort or runner", () => {
+  const f = initialForm(catalog, null);
+  expect(f.recommended).toBe(true);
+  expect(f.role).toBe("orchestrator");
+  const off = setRecommended(setRole(update(f, { checkpointer: false, minutes: "40" }), "adjutant"), catalog, false);
+  expect(off.recommended).toBe(false);
+  expect(off.role).toBe("adjutant");
+  expect(off.minutes).toBe("40");
+  const on = setRecommended(off, catalog, true);
+  expect(on).toMatchObject({
+    recommended: true,
+    role: "orchestrator",
+    checkpointer: true,
+    minutes: "15",
+    limit: "250k",
+  });
+  expect(setRecommended(off, { ...catalog, checkpointer_ok: false }, true).checkpointer).toBe(false);
+  expect(RECOMMENDED_SETUP.length).toBe(12);
+  for (const [, help] of RECOMMENDED_SETUP) {
+    expect(help).toMatch(/^[A-Z].*[.)]$/);
+    expect(help).not.toMatch(/model|effort|runner/i);
+  }
 });

@@ -70,7 +70,7 @@ interface Harness {
   debounce: (() => void)[];
 }
 
-async function mountForm(answer?: Promise<RouteResult>): Promise<Harness> {
+async function mountForm(answer?: Promise<RouteResult>, keepRecommended = false): Promise<Harness> {
   const { routeForm } = await import("./route-form.ts");
   const body = document.createElement("form") as unknown as FakeElement;
   const h: Partial<Harness> = { sent: [], reads: [], debounce: [] };
@@ -98,6 +98,12 @@ async function mountForm(answer?: Promise<RouteResult>): Promise<Harness> {
     },
   };
   const r = routeForm(body as unknown as HTMLElement, catalog, state, deps);
+  // These tests drive every field, so they start with the recommended setup off.
+  if (!keepRecommended) {
+    const rec = byName(body, "recommended");
+    rec.checked = false;
+    rec.dispatch("change");
+  }
   return { ...(h as Harness), body, form: r.form };
 }
 
@@ -297,4 +303,21 @@ test("a free-text model the orchestrator inherits shows in its own input and is 
   type(byName(f.body, "orchName"), "orch-2");
   submit(f.body);
   expect([f.sent[0]?.model, f.sent[0]?.orch_model]).toEqual(["m-c", "own"]);
+});
+
+// A32: the recommended setup is on at first: its summary shows, the role and
+// the checkpointer are folded, and the route it sends is the orchestrator's
+// with the checkpointer on.
+test("the recommended setup folds its fields into one summary", async () => {
+  const f = await mountForm(undefined, true);
+  expect(box(f.body, "recommended-summary")).toBeDefined();
+  expect(find(f.body, (e) => e.getAttribute?.("name") === "role-adjutant")).toBeUndefined();
+  expect(box(f.body, "checkpointer")).toBeUndefined();
+  expect(f.form().recommended).toBe(true);
+  const rec = byName(f.body, "recommended");
+  rec.checked = false;
+  rec.dispatch("change");
+  expect(box(f.body, "recommended-summary")).toBeUndefined();
+  expect(byName(f.body, "role-adjutant")).toBeDefined();
+  expect(box(f.body, "checkpointer")).toBeDefined();
 });
