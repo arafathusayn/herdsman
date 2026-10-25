@@ -910,9 +910,11 @@ func TestReconnectResetAndReaderErrors(t *testing.T) {
 
 // Review 6, finding 5 (A24): 1000 events, each followed by a server hangup
 // and a reconnect, through wakeOn. Every round wakes the sleeper, and the
-// heap after GC and the goroutine count stay flat.
+// heap after GC and the goroutine count stay flat; once the context ends,
+// the goroutine count returns to its value before wakeOn started.
 func TestWakeOnThousandEventsAndReconnects(t *testing.T) {
 	srv := herdrtest.Start(t)
+	gStart := runtime.NumGoroutine()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var mu sync.Mutex
@@ -964,5 +966,13 @@ func TestWakeOnThousandEventsAndReconnects(t *testing.T) {
 	}
 	if g := runtime.NumGoroutine(); g > g0+2 {
 		t.Errorf("%d goroutines after 1000 rounds, %d after 50", g, g0)
+	}
+	cancel()
+	deadline := time.Now().Add(5 * time.Second)
+	for runtime.NumGoroutine() > gStart && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if g := runtime.NumGoroutine(); g > gStart {
+		t.Errorf("%d goroutines after cancel, %d before wakeOn", g, gStart)
 	}
 }

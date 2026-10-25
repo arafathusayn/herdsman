@@ -472,3 +472,45 @@ func TestSnapshotSortsInBoundedRuns(t *testing.T) {
 		t.Errorf("files left: %v", ents)
 	}
 }
+
+// Review port-core-7 (A24): a prior snapshot in another order (an older
+// writer's sort) is sorted once on disk in bounded runs, kept sorted even
+// when nothing is new, and then compared as a stream: 100,000 ids.
+func TestUnsortedPriorSnapshotIsSortedOnce(t *testing.T) {
+	dir := t.TempDir()
+	old := filepath.Join(dir, "pr-7.txt")
+	next := filepath.Join(dir, "next-7.txt")
+	var ids []string
+	for i := 0; i < 100000; i++ {
+		ids = append(ids, fmt.Sprintf("comment %d u%d", (i*7919)%100000, i%5))
+	}
+	_ = os.WriteFile(old, []byte(strings.Join(ids, "\n")+"\n"), 0o644)
+	sorted := append([]string(nil), ids...)
+	sort.Strings(sorted)
+	// Nothing new: the old file is still sorted on disk afterwards.
+	_ = os.WriteFile(next, []byte(strings.Join(sorted, "\n")+"\n"), 0o644)
+	var m0, m1 runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&m0)
+	if got := addedSince(old, next); len(got) != 0 {
+		t.Fatalf("%d lines added, none new", len(got))
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&m1)
+	if readAll(old) != strings.Join(sorted, "\n")+"\n" {
+		t.Error("the old snapshot was not kept sorted")
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 2 {
+		t.Errorf("files left: %v", ents)
+	}
+	// Nothing of the history stays live (the peak is the binary's
+	// measurement: the sort holds at most runLines lines).
+	if live := m1.HeapAlloc; live > m0.HeapAlloc+1<<20 {
+		t.Errorf("heap after the comparison grew by %d bytes", live-m0.HeapAlloc)
+	}
+	// A growing history then adds only the new ids.
+	_ = os.WriteFile(next, []byte(strings.Join(append(sorted, "comment 99999999 u1"), "\n")+"\n"), 0o644)
+	if got := addedSince(old, next); len(got) != 1 || got[0] != "comment 99999999 u1" {
+		t.Errorf("growing ids: %v", got)
+	}
+}

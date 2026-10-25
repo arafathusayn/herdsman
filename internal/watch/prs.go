@@ -614,7 +614,14 @@ func addedSince(path, next string) []string {
 			continue
 		}
 		if l < prev {
-			return added(fileLines(path), fileLines(next))
+			// An older writer's order: sort the old file once, in bounded
+			// runs, and keep it sorted on disk (also when nothing is new),
+			// then stream the comparison (A24).
+			_ = f.Close()
+			if err := sortFile(path); err != nil {
+				return added(fileLines(path), fileLines(next))
+			}
+			return addedSince(path, next)
 		}
 		prev = l
 		for cur.ok && cur.line < l {
@@ -628,6 +635,27 @@ func addedSince(path, next string) []string {
 		keep()
 	}
 	return out
+}
+
+// sortFile rewrites the file at path in byte order through the bounded
+// external sort.
+func sortFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	w := &runWriter{dst: path}
+	defer w.cleanup()
+	sc := lineScanner(f)
+	for sc.Scan() {
+		w.add(sc.Text())
+	}
+	err = sc.Err()
+	_ = f.Close()
+	if err != nil {
+		return err
+	}
+	return w.finish()
 }
 
 // fileLines is the non-empty lines of the file at p.
