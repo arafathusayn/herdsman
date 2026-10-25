@@ -446,3 +446,31 @@ func TestGateRefusesAProofOfAnUnrelatedCopy(t *testing.T) {
 		t.Errorf("the record changed: %v", st)
 	}
 }
+
+// XB3 (A26, e93bcc1): an agent outside the protected setup that the gate's
+// locked authority check sees is recorded in state/boundary-tainted, the
+// gate answers HUMAN (exit 3), and nothing is consumed.
+func TestGateRecordsTheExposureItSees(t *testing.T) {
+	r := newRig(t)
+	r.gojson("xb3", 600, nil)
+	r.srv.Handle("agent.list", func(map[string]any) (any, string) {
+		return map[string]any{"type": "agent_list", "agents": []any{herdrtest.Agent("sender-pane", "sender-session"),
+			herdrtest.Agent("receiver-pane", "receiver-session"), herdrtest.Agent("brief-pane", "brief-session")}}, ""
+	})
+	out := r.consume("xb3")
+	match(t, "XB3 the gate refuses under the HUMAN boundary", `rc=3`, out)
+	b, _ := os.ReadFile(filepath.Join(r.c.Dir, "state", "boundary-tainted"))
+	if !strings.Contains(string(b), "brief-pane") || !strings.Contains(string(b), "live agent outside the protected setup") {
+		t.Errorf("XB3b and records the agent it saw: %q", b)
+	}
+	if exists(r.consumed("xb3")) {
+		t.Error("XB3c nothing is consumed")
+	}
+	// An exposure already recorded stays as it was.
+	r.c.Write(filepath.Join(r.c.Dir, "state", "boundary-tainted"), "earlier\n")
+	r.gojson("xb3b", 600, nil)
+	match(t, "XB3d a recorded exposure keeps the gate at HUMAN", `rc=3`, r.consume("xb3b"))
+	if b, _ := os.ReadFile(filepath.Join(r.c.Dir, "state", "boundary-tainted")); string(b) != "earlier\n" {
+		t.Errorf("XB3e the earlier record stands: %q", b)
+	}
+}

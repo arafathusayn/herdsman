@@ -233,6 +233,12 @@ func (g *Gate) consume(goFile, action, target, revision, draft string) exit {
 	}
 	g.hold(mutation)
 	if line, code := g.authority(); code != 0 {
+		// e93bcc1 (A26): an agent outside the protected setup that this
+		// locked check saw is recorded, as the script's
+		// `boundary_ok || record_exposure`; the gate holds the input lock.
+		if err := g.recordExposure(); err != nil {
+			return g.die("cannot record the exposure: " + err.Error())
+		}
 		fmt.Fprintln(g.Stdout, line)
 		return exit{Human}
 	}
@@ -290,6 +296,34 @@ func (g *Gate) authority() (string, int) {
 		return msg, Human
 	}
 	return r.Authority(g.ctx, g.Client)
+}
+
+// recordExposure writes state/boundary-tainted once when the boundary
+// fails on a live agent outside the protected setup (FaultInventory), in
+// the scripts' format: reason, agents, time. The caller holds the input
+// lock. Any other fault, or a record already there, writes nothing.
+func (g *Gate) recordExposure() error {
+	target := g.root.Path("state", "boundary-tainted")
+	if inbox.Exists(target) {
+		return nil
+	}
+	ok, fault, unknown := g.root.BoundaryOK(g.ctx, g.Client)
+	if ok || fault != inbox.FaultInventory {
+		return nil
+	}
+	if unknown == nil {
+		unknown = []inbox.Unknown{}
+	}
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(struct {
+		Reason string          `json:"reason"`
+		Agents []inbox.Unknown `json:"agents"`
+		Time   int64           `json:"time"`
+	}{"live agent outside the protected setup", unknown, g.root.Now().Unix()})
+	return g.atomic(target, b.Bytes())
 }
 
 func (g *Gate) complete(req, outcome string) exit {
