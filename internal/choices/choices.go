@@ -77,6 +77,9 @@ func (p Pick) Check() error {
 	return nil
 }
 
+// renameFile replaces the file; tests make it fail.
+var renameFile = os.Rename
+
 // Store is the choices file.
 type Store struct{ Path string }
 
@@ -169,7 +172,7 @@ func (s *Store) Save(picks ...Pick) error {
 	_, werr := tmp.Write(append(b, '\n'))
 	err = errors.Join(werr, tmp.Chmod(0o600), tmp.Close())
 	if err == nil {
-		err = os.Rename(tmp.Name(), s.Path)
+		err = renameFile(tmp.Name(), s.Path)
 	}
 	if err != nil {
 		_ = os.Remove(tmp.Name())

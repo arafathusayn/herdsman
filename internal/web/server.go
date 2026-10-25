@@ -323,7 +323,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	}) {
 		return
 	}
-	ping := time.NewTicker(15 * time.Second)
+	ping := time.NewTicker(streamPing)
 	defer ping.Stop()
 	for {
 		select {
@@ -346,6 +346,10 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 
 // streamWriteTimeout bounds one write of the live stream; tests shorten it.
 var streamWriteTimeout = 30 * time.Second
+
+// streamPing is how often an idle stream sends a comment, so proxies keep it
+// open; tests shorten it.
+var streamPing = 15 * time.Second
 
 func (s *Server) stateJSON(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.hub.Current())

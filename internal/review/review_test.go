@@ -207,3 +207,23 @@ func TestDirtyRename(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// A worktree whose status git cannot read is refused, and not moved.
+func TestUnreadableWorktree(t *testing.T) {
+	dir, first, _ := repo(t)
+	wt := filepath.Join(filepath.Dir(dir), "rv")
+	if _, err := Start(context.Background(), Options{Repo: dir, Worktree: wt, Head: first, CacheRoot: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	index := strings.TrimSpace(gitT(t, wt, "rev-parse", "--git-path", "index"))
+	if !filepath.IsAbs(index) {
+		index = filepath.Join(wt, index)
+	}
+	if err := os.WriteFile(index, []byte("garbage"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Start(context.Background(), Options{Repo: dir, Worktree: wt, Head: first, CacheRoot: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "git status:") {
+		t.Fatalf("%v", err)
+	}
+}

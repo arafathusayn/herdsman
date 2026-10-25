@@ -214,3 +214,22 @@ func TestSaveUnwritableFolder(t *testing.T) {
 		t.Errorf("%+v", f)
 	}
 }
+
+// The rename fails after a good load: the temp file is removed.
+func TestSaveRenameFails(t *testing.T) {
+	s := store(t)
+	if err := s.Save(Pick{Role: "reviewer", Runner: "herdr", Harness: "codex", At: at}); err != nil {
+		t.Fatal(err)
+	}
+	renameFile = func(string, string) error { return os.ErrPermission }
+	t.Cleanup(func() { renameFile = os.Rename })
+	if err := s.Save(Pick{Role: "reviewer", Runner: "herdr", Harness: "claude", At: at}); err == nil {
+		t.Fatal("saved")
+	}
+	entries, _ := os.ReadDir(filepath.Dir(s.Path))
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".choices-") {
+			t.Errorf("temp file left: %s", e.Name())
+		}
+	}
+}

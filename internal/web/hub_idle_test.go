@@ -3,8 +3,11 @@ package web
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"runtime"
 	"strings"
@@ -218,4 +221,44 @@ func TestStalledStreamEndsAfterWriteTimeout(t *testing.T) {
 		f.hub.broadcast(message{event: "state", data: big})
 	}
 	waitUntil(t, func() bool { return !f.hub.watched() })
+}
+
+// failingWriter is a stream whose flush fails after ok flushes.
+type failingWriter struct {
+	header http.Header
+	ok     int
+}
+
+func (w *failingWriter) Header() http.Header         { return w.header }
+func (w *failingWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (w *failingWriter) WriteHeader(int)             {}
+func (w *failingWriter) Flush()                      {}
+func (w *failingWriter) FlushError() error {
+	if w.ok == 0 {
+		return errors.New("gone")
+	}
+	w.ok--
+	return nil
+}
+
+// A stream whose first write or a later ping fails ends at once.
+func TestStreamEndsWhenAWriteFails(t *testing.T) {
+	f := newFixture(t)
+	streamPing = time.Millisecond
+	t.Cleanup(func() { streamPing = 15 * time.Second })
+	for _, ok := range []int{0, 1} {
+		done := make(chan struct{})
+		go func() {
+			f.srv.stream(&failingWriter{header: http.Header{}, ok: ok}, httptest.NewRequest(http.MethodGet, "/api/stream", nil))
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("ok=%d: the stream did not end", ok)
+		}
+	}
+	if f.hub.watched() {
+		t.Error("an ended stream stayed subscribed")
+	}
 }
