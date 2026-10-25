@@ -21,7 +21,7 @@ func init() {
 
 const modelsUsage = `usage: herdsman models [--harness <kind>] [--json]
        herdsman models last [--json]
-       herdsman models save --role <role> [--runner herdr|subagent] --harness <kind> --model <model> [--effort <effort>] [--route <name>]
+       herdsman models save --role <role> [--runner herdr|subagent] --harness <kind> --model <model> [--effort <effort>] [--route <name>] [--json]
 
 Asks each harness (claude, codex, and the installed ones of muse, agy,
 gemini, opencode, cursor), or the one --harness names, for its version and
@@ -39,7 +39,8 @@ adjutant, orchestrator), one "<role> runner=<herdr|subagent> harness=<kind>
 model=<model> effort=<effort|none> route=<name|none> at=<time>" line each,
 from <user config folder>/herdsman/choices.json; --json prints the file's
 object {"picks": [{"role","runner","harness","model","effort","route","at"}]}.
-save records one role's pick there (mode 600, written atomically); its
+save records one role's pick there (mode 600, written atomically; --json
+prints the saved pick as one object); its
 runner says whether the role's agents run in Herdr panes (the default) or
 as background subagents of the orchestrator's harness.
 
@@ -151,6 +152,10 @@ func modelsLast(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(io.Discard)
 	asJSON := fs.Bool("json", false, "")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprint(stdout, modelsUsage)
+			return 0
+		}
 		fmt.Fprint(stderr, modelsUsage)
 		return 2
 	}
@@ -197,7 +202,12 @@ func modelsSave(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&p.Model, "model", "", "")
 	fs.StringVar(&p.Effort, "effort", "", "")
 	fs.StringVar(&p.Route, "route", "", "")
+	asJSON := fs.Bool("json", false, "")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 || p.Role == "" || p.Harness == "" || p.Model == "" {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprint(stdout, modelsUsage)
+			return 0
+		}
 		fmt.Fprint(stderr, modelsUsage)
 		return 2
 	}
@@ -209,6 +219,11 @@ func modelsSave(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "herdsman models save: %v\n", err)
 		return 1
+	}
+	if *asJSON {
+		b, _ := json.Marshal(p)
+		fmt.Fprintln(stdout, string(b))
+		return 0
 	}
 	fmt.Fprintf(stdout, "saved %s runner=%s harness=%s model=%s effort=%s\n", p.Role, p.Runner, p.Harness, p.Model, orNone(p.Effort))
 	return 0

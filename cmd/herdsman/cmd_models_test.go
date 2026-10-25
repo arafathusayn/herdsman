@@ -172,3 +172,19 @@ func TestModelsOtherKinds(t *testing.T) {
 		t.Errorf("%d %q", code, out)
 	}
 }
+
+// models save --json prints the saved pick; last and save show their help.
+func TestModelsSaveJSONAndHelp(t *testing.T) {
+	tempChoices(t)
+	out, _, code := call(t, "models", "save", "--role", "reviewer", "--harness", "codex", "--model", "model-a", "--json")
+	var p choices.Pick
+	if code != 0 || json.Unmarshal([]byte(out), &p) != nil || p.Role != "reviewer" || p.Runner != "herdr" || p.Model != "model-a" {
+		t.Fatalf("%d %q", code, out)
+	}
+	for _, sub := range []string{"last", "save"} {
+		out, _, code := call(t, "models", sub, "--help")
+		if code != 0 || !strings.Contains(out, "Exit codes:") {
+			t.Errorf("%s --help: %d %q", sub, code, out)
+		}
+	}
+}
