@@ -16,12 +16,18 @@ func CPUs() int { return runtime.NumCPU() }
 
 // Reading is "<1-minute load> <free memory %>", as run-check.sh's probe
 // prints it, or "" when either is unknown.
+// The readers of Reading; tests replace them.
+var (
+	readLoad    = ReadLoad
+	freePercent = FreePercent
+)
+
 func Reading() string {
-	l, err := ReadLoad()
+	l, err := readLoad()
 	if err != nil {
 		return ""
 	}
-	free, err := FreePercent()
+	free, err := freePercent()
 	if err != nil {
 		return ""
 	}

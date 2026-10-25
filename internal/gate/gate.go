@@ -378,9 +378,7 @@ func setFields(b []byte, set map[string]string) ([]byte, error) {
 			continue
 		}
 		var c bytes.Buffer
-		if err := json.Compact(&c, raw); err != nil {
-			return nil, err
-		}
+		_ = json.Compact(&c, raw) // raw was just decoded: it compacts
 		put(k, c.Bytes())
 	}
 	for _, k := range []string{"state", "outcome"} {

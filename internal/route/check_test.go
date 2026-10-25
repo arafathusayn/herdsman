@@ -95,6 +95,10 @@ func TestCheckFirstRoute(t *testing.T) {
 	write(t, filepath.Join(kf, "12-task-b.md"), "# Task b")
 	out, _ = check(t, kf, StagePlan)
 	want(t, "K4 a task file without a Due line", `^MISSING Due line in 12-task-b.md$`, out)
+	_ = os.Mkdir(filepath.Join(kf, "13-task-dir.md"), 0o755)
+	out, _ = check(t, kf, StagePlan)
+	notWant(t, "(Go) a folder named as a task file is no task file", `13-task-dir`, out)
+	_ = os.Remove(filepath.Join(kf, "13-task-dir.md"))
 	write(t, filepath.Join(kf, "12-task-b.md"), "# Task b", "Due: 11:00")
 
 	withB := append(append(append([]string{}, route[:9]...), "| b | im-b | tbd |"), route[9:]...)
@@ -342,5 +346,11 @@ func TestSkillChecklistWaitsOnNoCloseStage(t *testing.T) {
 		if strings.HasPrefix(l, "- [ ]") && re.MatchString(l) {
 			t.Errorf("K21 no checklist line waits on the close stage: %s", l)
 		}
+	}
+}
+
+func TestField(t *testing.T) {
+	if field([]string{"a"}, 0) != "" || field([]string{"a"}, 2) != "" || field([]string{"a"}, 1) != "a" {
+		t.Error("awk fields")
 	}
 }

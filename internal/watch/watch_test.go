@@ -3,6 +3,7 @@ package watch
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"maps"
 	"os"
@@ -420,4 +421,39 @@ func TestDefaultSleep(t *testing.T) {
 	if d.Sleep(time.Hour) || time.Since(start) > 10*time.Second {
 		t.Error("an ended context does not stop the sleep")
 	}
+}
+
+func TestSmallHelpers(t *testing.T) {
+	if paneOf(func(string) (string, bool) { return "", false }, "rv-x") != "" {
+		t.Error("an unknown agent has a pane")
+	}
+	if first(regexp.MustCompile("a\nb"), "a\nb") != "" {
+		t.Error("a match across lines is no line")
+	}
+	if jqCompare(json.Number("2"), json.Number("2.0")) != 0 {
+		t.Error("equal numbers")
+	}
+	if jqCompare(json.Number("3"), json.Number("2")) != 1 {
+		t.Error("a greater number")
+	}
+}
+
+// (Go) The waiter's implementer cases the shell suite leaves out: a blocked
+// implementer (once per screen), an updated report, and a pane it cannot read.
+func TestWaiterImplementerEvents(t *testing.T) {
+	h := newHarness(t)
+	reports := h.env["HERDSMAN_REPORTS"]
+	h.screen("w9:p1", "Password for 'https://github.com':")
+	h.screen("w9:p2", "Pursuing goal (1m)")
+	h.screen("w9:p3", "· Incubating…")
+	match(t, "a blocked implementer", `BLOCKED im-a Password for`, h.wait())
+	noMatch(t, "an unchanged blocked screen is silent", `BLOCKED`, h.wait())
+	report := filepath.Join(reports, "a.md")
+	h.file(report, "STATUS: complete\n")
+	match(t, "a report", `REPORT a `, h.wait())
+	later := time.Now().Add(time.Hour)
+	_ = os.Chtimes(report, later, later)
+	match(t, "an updated report", `REPORT-UPDATED a `, h.wait())
+	h.fx.Fail("pane.read", "temporary_failure")
+	h.wait()
 }

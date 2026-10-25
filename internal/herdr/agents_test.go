@@ -149,6 +149,10 @@ func TestWaitAgentStatus(t *testing.T) {
 		for srv.Subscribers() == 0 {
 			time.Sleep(time.Millisecond)
 		}
+		// Events faster than the waiter reads keep one wake-up.
+		for range 5 {
+			srv.Emit("pane.agent_status_changed", map[string]any{"pane_id": "w1:p1", "agent_status": "working"})
+		}
 		fx.Edit("w1:p1", "agent_status", "done")
 		srv.Emit("pane.agent_status_changed", map[string]any{"pane_id": "w1:p1", "agent_status": "done"})
 	}()
@@ -182,8 +186,11 @@ func TestWaitAgentStatusFailures(t *testing.T) {
 	if _, err := c.WaitAgentStatus(ctx, "w1:p1", []herdr.Status{"idle"}, time.Second); err == nil || errors.Is(err, herdr.ErrWaitTimeout) {
 		t.Fatalf("err = %v", err)
 	}
-	// The agent disappears during the wait.
-	srv.Handle("events.subscribe", func(map[string]any) (any, string) { return map[string]any{"type": "subscription_started"}, "" })
+	// The agent disappears during the wait (a fresh server: the refused
+	// subscription above may still count as a subscriber).
+	srv, fx, c = fixture(t)
+	fx.SetAgent("w1:p1", herdrtest.Agent("w1:p1", "s"))
+	fx.Edit("w1:p1", "agent_status", "working")
 	go func() {
 		for srv.Subscribers() == 0 {
 			time.Sleep(time.Millisecond)

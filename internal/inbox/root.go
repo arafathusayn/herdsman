@@ -144,13 +144,10 @@ func Open(o Options) (*Root, error) {
 			return nil, die("sandbox policy or protected installation proof stale; repeat human setup")
 		}
 	}
+	// A linked or non-folder entry of these was refused with adminDirs above.
 	for _, d := range []string{"state", "ids", "enrolled", "alerts"} {
-		p := r.Path(d)
-		if lst, err := os.Lstat(p); err == nil && lst.Mode()&os.ModeSymlink != 0 {
-			return nil, die("symlink: %s", d)
-		}
 		if !r.ReadOnly {
-			if err := os.MkdirAll(p, 0o700); err != nil {
+			if err := os.MkdirAll(r.Path(d), 0o700); err != nil {
 				return nil, die("cannot create %s: %v", d, err)
 			}
 		}
@@ -172,10 +169,7 @@ func storedHealth(root, p string) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	v, err := Decode(b)
-	if err != nil {
-		return 0, false
-	}
+	v, _ := Decode(b) // ReadStrict checked it
 	n, ok := Int(Object(v), "health")
 	if !ok || n < 1 || n > 86400 {
 		return 0, false

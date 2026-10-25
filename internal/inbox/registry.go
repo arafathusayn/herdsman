@@ -144,11 +144,10 @@ func LiveIdentity(ctx context.Context, c *herdr.Client, pane string) (Identity, 
 		}
 		return Identity{}, LiveUnknown, "agent get unavailable: " + msg
 	}
-	v, err := Decode(a.Raw)
+	// a.Raw is the agent object the client decoded; a field it lacks fails
+	// the checks below.
+	v, _ := Decode(a.Raw)
 	m := Object(v)
-	if err != nil || m == nil {
-		return Identity{}, LiveUnknown, ""
-	}
 	sess := Object(m["agent_session"])
 	status, _ := String(m, "agent_status")
 	pid, _ := String(m, "pane_id")

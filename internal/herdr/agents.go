@@ -216,9 +216,9 @@ func (c *Client) WaitAgentStatus(ctx context.Context, target string, want []Stat
 		select {
 		case <-hits:
 		case err := <-errc:
+			// The subscription also ends when wctx does: fail maps that
+			// to the caller's error or ErrWaitTimeout.
 			return fail(err)
-		case <-wctx.Done():
-			return fail(wctx.Err())
 		}
 	}
 }

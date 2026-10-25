@@ -123,6 +123,12 @@ func TestExitStatusAndUsage(t *testing.T) {
 	if code != 128+int(syscall.SIGTERM) {
 		t.Errorf("a check killed by a signal: %d", code)
 	}
+	// A TERM sent to run-check is passed on to the check (the sleep lets
+	// run-check set its handler first).
+	_, _, code = runIn(c, "sh", "-c", "sleep 1; kill -TERM $PPID; exec sleep 10")
+	if code != 128+int(syscall.SIGTERM) {
+		t.Errorf("a TERM passed on: %d", code)
+	}
 }
 
 func TestNiceLowersThePriority(t *testing.T) {
@@ -432,5 +438,16 @@ func TestFromEnvDefaults(t *testing.T) {
 	if c.Lock != "/tmp/herdsman-checks.lock" || c.Reading != "/tmp/herdsman-load" || c.LockWait != 5400*time.Second ||
 		c.GateWait != 600*time.Second || c.MinFree != 10 || c.Nice != 10 || c.Poll != 15*time.Second || !c.Probes || c.PublishEvery != 15*time.Second {
 		t.Fatalf("defaults = %+v", c)
+	}
+}
+
+func TestTryLockOnAClosedFile(t *testing.T) {
+	f, err := os.Create(filepath.Join(t.TempDir(), "lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	if got, err := tryLock(f); got || err == nil {
+		t.Errorf("a closed file locks: %v %v", got, err)
 	}
 }

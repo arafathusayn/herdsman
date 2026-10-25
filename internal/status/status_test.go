@@ -93,7 +93,7 @@ func TestAgentLines(t *testing.T) {
 		"└ ◆ npm test  running  23m 45s",
 		"└ ◆ a long job  running  1h 02m",
 		"└ ◆ short  running  2m 1s",
-		"└ ◆ workflow build 5m",
+		"└ ◆ workflow " + strings.Repeat("é", 70) + " 5m",
 		"model Opus 4.7",
 		"• Working (3m • esc to interrupt)",
 	}, "\n")+"\n")
@@ -106,7 +106,7 @@ func TestAgentLines(t *testing.T) {
 	noMatch(t, "only the last three jobs", `npm test`, out)
 	match(t, "an hour job is over the limit", `^   bg: a long job  running  1h 02m \[62m\]  <-- OVER 30m$`, out)
 	match(t, "a short job is not", `^   bg: short  running  2m 1s \[2m\]$`, out)
-	match(t, "a workflow row", `^   bg: workflow build 5m \[5m\]$`, out)
+	match(t, "a workflow row, cut at 70 characters", "^   bg: workflow "+strings.Repeat("é", 61)+` \[5m\]$`, out)
 	match(t, "the foreground line", `^   fg: • Working \(3m • esc to interrupt\)$`, out)
 	match(t, "an unknown agent", `^== rv-1 \(w9:p9\) state= model=$`, out)
 	noMatch(t, "no tree, no write line", `files changed`, out)

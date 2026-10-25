@@ -160,11 +160,8 @@ func GuardPath(root, p string) bool {
 		if err != nil || !st.IsDir() {
 			return false
 		}
-		i := strings.LastIndex(dir, "/")
-		if i < 0 {
-			return false
-		}
-		dir = dir[:i]
+		// dir keeps the prefix root+"/" until it is root, so it has a slash.
+		dir = dir[:strings.LastIndex(dir, "/")]
 	}
 	return true
 }

@@ -196,11 +196,7 @@ func Run(c Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int
 		fmt.Fprintln(stderr, "usage: herdsman run-check <command> [args]")
 		return ExitUsage
 	}
-	base, err := markerBase(filepath.Dir(c.Lock))
-	if err != nil {
-		fmt.Fprintln(stderr, "run-check: NOT RUN (no name for the start marker)")
-		return ExitMarker
-	}
+	base := markerBase(filepath.Dir(c.Lock))
 	c.CheckIn, c.CheckRan = base+".in", base+".ran"
 	f, err := os.OpenFile(c.Lock, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
@@ -375,12 +371,12 @@ func freeInt(free string) int {
 	return n
 }
 
-func markerBase(dir string) (string, error) {
+// markerBase names the markers as mktemp does; crypto/rand.Read never
+// fails (Go 1.24), so the name never does either.
+func markerBase(dir string) string {
 	b := make([]byte, 6)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "herdsman-check."+hex.EncodeToString(b)[:6]), nil
+	_, _ = rand.Read(b)
+	return filepath.Join(dir, "herdsman-check."+hex.EncodeToString(b)[:6])
 }
 
 func touch(p string) error {

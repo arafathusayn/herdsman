@@ -43,6 +43,9 @@ func (f *fakeGh) run(_ context.Context, env []string, args ...string) ([]byte, e
 	case args[0] == "pr":
 		n, kind = args[2], "view"
 	}
+	if _, err := os.Stat(filepath.Join(f.dir, n+"-viewfail")); err == nil && kind == "view" {
+		return nil, errors.New("exit status 1")
+	}
 	if _, err := os.Stat(filepath.Join(f.dir, n+"-fail")); err == nil {
 		fmt.Fprintf(f.err, "fake gh: HTTP 502 for pull request %s\n", n)
 		return nil, errors.New("exit status 1")
@@ -219,6 +222,9 @@ func TestPRWatcherFailedReads(t *testing.T) {
 	if code != 1 {
 		t.Errorf("W15c exit 1: %d", code)
 	}
+	r.touch("28-viewfail")
+	out, _ = r.run("28", "w16", 0)
+	match(t, "(Go) a failed pr view after good comment reads is a failed read", `not read: 28`, out)
 }
 
 func TestPRWatcherSettings(t *testing.T) {

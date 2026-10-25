@@ -290,6 +290,9 @@ func TestGateBindingsAndErrors(t *testing.T) {
 	_ = os.Symlink(r.c.Base, filepath.Join(r.apr, "cancels"))
 	match(t, "a linked approval folder", `symlink approval state.*rc=2`, r.consume("y12"))
 	_ = os.Remove(filepath.Join(r.apr, "cancels"))
+	_ = os.WriteFile(filepath.Join(r.apr, "cancels"), nil, 0o600)
+	match(t, "(Go) an approvals entry that is a file", `cannot create .*rc=2`, r.consume("y12"))
+	_ = os.Remove(filepath.Join(r.apr, "cancels"))
 	var b bytes.Buffer
 	g := &Gate{Options: inbox.Options{Dir: "rel"}, Stdout: &b, Stderr: &b}
 	if g.Run(context.Background(), []string{"complete", "a", "b"}) != Error || !strings.Contains(b.String(), "inbox must be absolute") {
@@ -387,5 +390,38 @@ func TestSetFieldsAndJQRaw(t *testing.T) {
 	}
 	if jqRaw([]any{1}) != "[1]" {
 		t.Error("array")
+	}
+}
+
+// The state writer refuses each bad write before the rename, and a
+// failed rename leaves the target as it was.
+func TestAtomicRefusals(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	g := &Gate{root: &inbox.Root{Dir: dir}}
+	for name, tc := range map[string]struct {
+		target string
+		data   string
+	}{
+		"outside the inbox": {"/elsewhere/x.json", "{}"},
+		"empty":             {filepath.Join(dir, "state", "a.json"), ""},
+		"not strict JSON":   {filepath.Join(dir, "state", "a.json"), `{"a":1,"a":2}`},
+		"onto a folder":     {filepath.Join(dir, "state"), "x"},
+	} {
+		if g.atomic(tc.target, []byte(tc.data)) == nil {
+			t.Errorf("%s: written", name)
+		}
+	}
+	g.root.Dir = filepath.Join(dir, "none")
+	if g.atomic(filepath.Join(dir, "none", "x"), []byte("x")) == nil {
+		t.Error("no state folder: written")
+	}
+}
+
+func TestSetFieldsRefusesBadJSON(t *testing.T) {
+	if _, err := setFields([]byte(`{"a":`), map[string]string{"b": "c"}); err == nil {
+		t.Error("a broken record is set")
 	}
 }
