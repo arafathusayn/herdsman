@@ -15,12 +15,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
 )
 
-// Artifacts are HTML files that agents leave in the session's folders: a
-// report, a review page, a plan. The Artifacts tab lists them and shows one
-// in a sandboxed frame. The frame loads it from a capability URL that opens
+// Artifacts are HTML files that agents leave in a route's folders: a report,
+// a review page, a plan. A route's Artifacts tab lists the ones in its Herdr
+// workspace's folders and shows one in a sandboxed frame. The frame loads it from a capability URL that opens
 // only the page assets in the file's own folder, and only to the browser that
 // asked for it, so a page's relative images and styles work while its scripts
 // run in an opaque origin that holds no herdsman secret.
@@ -33,11 +34,12 @@ const (
 	artifactMaxSeen  = 6000 // folder entries walked per root
 	artifactMaxFiles = 500
 	artifactMaxSize  = 16 << 20
+	artifactMaxLists = 8 // listings kept, one per set of roots
 	capTTL           = 2 * time.Hour
 	maxCaps          = 64
 )
 
-// Artifact is one HTML file under one of the session's folders.
+// Artifact is one HTML file under one of a route's folders.
 type Artifact struct {
 	Root     string    `json:"root"`
 	Path     string    `json:"path"` // slash-separated, relative to Root
@@ -73,19 +75,26 @@ func clientOf(r *http.Request) string {
 	return host
 }
 
-type artifacts struct {
-	mu         sync.Mutex
-	walk       sync.Mutex // one walk at a time
-	now        func() time.Time
-	key        string
+// artifactList is the last listing of one set of roots.
+type artifactList struct {
 	listed     time.Time
+	used       time.Time
 	list       []Artifact
 	refreshing bool
-	caps       map[string]artifactCap
+}
+
+type artifacts struct {
+	mu   sync.Mutex
+	walk sync.Mutex // one walk at a time
+	now  func() time.Time
+	// lists holds a listing per set of roots, so a list is only ever served
+	// for the roots it was walked from; the least recently used goes first.
+	lists map[string]*artifactList
+	caps  map[string]artifactCap
 }
 
 func newArtifacts() *artifacts {
-	return &artifacts{now: time.Now, caps: map[string]artifactCap{}}
+	return &artifacts{now: time.Now, lists: map[string]*artifactList{}, caps: map[string]artifactCap{}}
 }
 
 // Folders named here are never walked: dependencies, build caches and
@@ -111,25 +120,68 @@ func routeFolders(r *route.Route) []string {
 	return dirs
 }
 
-// artifactRoots are the session's folders: every pane's folders, every route
-// folder and every task worktree.
-func (s *Server) artifactRoots() []string {
-	st := s.hub.Current()
-	var dirs []string
-	add := func(p *string) {
-		if p != nil && *p != "" {
-			dirs = append(dirs, *p)
+// routeWorkspace is the Herdr workspace a route runs in, placed as the web
+// app places it: the workspace of its orchestrator pane, else its adjutant
+// pane, else its first task pane Herdr still has. A stopped route has none,
+// since the panes it names may now belong to another route.
+func routeWorkspace(snap herdr.Snapshot, rv RouteView) string {
+	if !rv.Live {
+		return ""
+	}
+	ws := map[string]string{}
+	for _, p := range snap.Panes {
+		ws[p.ID] = p.WorkspaceID
+	}
+	panes := []string{rv.OrchestratorPane, rv.AdjutantPane}
+	for _, t := range rv.Tasks {
+		panes = append(panes, t.Pane)
+	}
+	for _, p := range panes {
+		if w, ok := ws[p]; ok && p != "" {
+			return w
 		}
 	}
-	for _, p := range st.Snapshot.Panes {
-		add(p.Cwd)
-		add(p.ForegroundCwd)
+	return ""
+}
+
+// routeArtifactRoots are the folders a route's Artifacts tab walks: the
+// folders of the panes in its workspace, its route folder and its task
+// worktrees. Other workspaces' panes are left out, so pages from unrelated
+// projects never show.
+func routeArtifactRoots(snap herdr.Snapshot, rv RouteView, home string) []string {
+	dirs := routeFolders(rv.Route)
+	if ws := routeWorkspace(snap, rv); ws != "" {
+		for _, p := range snap.Panes {
+			if p.WorkspaceID != ws {
+				continue
+			}
+			for _, d := range []*string{p.Cwd, p.ForegroundCwd} {
+				if d != nil && *d != "" {
+					dirs = append(dirs, *d)
+				}
+			}
+		}
 	}
-	for _, r := range st.Routes {
-		dirs = append(dirs, routeFolders(r.Route)...)
-	}
-	home, _ := os.UserHomeDir()
 	return walkRoots(dirs, home)
+}
+
+// artifactRoute is the route a request names, or nil after an error reply.
+func (s *Server) artifactRoute(w http.ResponseWriter, id string) (*RouteView, herdr.Snapshot) {
+	st := s.hub.Current()
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "route is required"})
+		return nil, st.Snapshot
+	}
+	rv := findRoute(st.Routes, id)
+	if rv == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown route"})
+	}
+	return rv, st.Snapshot
+}
+
+func (s *Server) artifactRoots(snap herdr.Snapshot, rv *RouteView) []string {
+	home, _ := os.UserHomeDir()
+	return routeArtifactRoots(snap, *rv, home)
 }
 
 // walkRoots keeps the folders worth walking, once each and sorted. The home
@@ -158,20 +210,19 @@ func walkRoots(dirs []string, home string) []string {
 }
 
 // find lists the HTML files under roots, newest first. Only the first call
-// waits for a walk; later ones get the last listing while a stale one is
-// refreshed in the background.
+// for a set of roots waits for a walk; later ones get that set's last
+// listing while a stale one is refreshed in the background.
 func (a *artifacts) find(roots []string) []Artifact {
 	key := strings.Join(roots, "\x00")
 	a.mu.Lock()
-	list := a.list
-	if list != nil && (a.refreshing || (key == a.key && a.now().Sub(a.listed) < artifactsTTL)) {
+	if e := a.lists[key]; e != nil {
+		e.used = a.now()
+		list := e.list
+		if !e.refreshing && a.now().Sub(e.listed) >= artifactsTTL {
+			e.refreshing = true
+			go a.refresh(roots, key)
+		}
 		a.mu.Unlock()
-		return list
-	}
-	if list != nil {
-		a.refreshing = true
-		a.mu.Unlock()
-		go a.refresh(roots, key)
 		return list
 	}
 	a.mu.Unlock()
@@ -182,17 +233,26 @@ func (a *artifacts) refresh(roots []string, key string) []Artifact {
 	a.walk.Lock()
 	defer a.walk.Unlock()
 	a.mu.Lock()
-	if a.list != nil && key == a.key && a.now().Sub(a.listed) < artifactsTTL {
-		list := a.list
-		a.refreshing = false
+	if e := a.lists[key]; e != nil && a.now().Sub(e.listed) < artifactsTTL {
+		e.refreshing = false
 		a.mu.Unlock()
-		return list
+		return e.list
 	}
 	a.mu.Unlock()
 	list := walkArtifacts(roots)
 	a.mu.Lock()
-	a.key, a.listed, a.list, a.refreshing = key, a.now(), list, false
-	a.mu.Unlock()
+	defer a.mu.Unlock()
+	now := a.now()
+	if _, ok := a.lists[key]; !ok && len(a.lists) >= artifactMaxLists {
+		var oldest string
+		for k, e := range a.lists {
+			if oldest == "" || e.used.Before(a.lists[oldest].used) {
+				oldest = k
+			}
+		}
+		delete(a.lists, oldest)
+	}
+	a.lists[key] = &artifactList{listed: now, used: now, list: list}
 	return list
 }
 
@@ -299,22 +359,33 @@ func (a *artifacts) dir(cap, client string) (string, bool) {
 	return c.dir, true
 }
 
+// listArtifacts lists the HTML files in one route's workspace folders.
 func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
-	roots := s.artifactRoots()
+	rv, snap := s.artifactRoute(w, r.URL.Query().Get("route"))
+	if rv == nil {
+		return
+	}
+	roots := s.artifactRoots(snap, rv)
 	writeJSON(w, http.StatusOK, map[string]any{"roots": roots, "artifacts": s.artifacts.find(roots)})
 }
 
-// openArtifact grants a frame access to one listed artifact's folder.
+// openArtifact grants a frame access to the folder of one artifact in the
+// route's listing.
 func (s *Server) openArtifact(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Root string `json:"root"`
-		Path string `json:"path"`
+		Route string `json:"route"`
+		Root  string `json:"root"`
+		Path  string `json:"path"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
-	for _, a := range s.artifacts.find(s.artifactRoots()) {
+	rv, snap := s.artifactRoute(w, body.Route)
+	if rv == nil {
+		return
+	}
+	for _, a := range s.artifacts.find(s.artifactRoots(snap, rv)) {
 		if a.Root != body.Root || a.Path != body.Path {
 			continue
 		}
@@ -323,7 +394,7 @@ func (s *Server) openArtifact(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"url": "/artifact/" + cap + "/" + url.PathEscape(file)})
 		return
 	}
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such artifact in the session's folders"})
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such artifact in the route's workspace folders"})
 }
 
 // serveArtifact serves a page asset from a granted folder to the browser the

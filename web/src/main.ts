@@ -592,7 +592,7 @@ function progressTip(c: ReturnType<typeof checklistCounts>): string {
 
 function renderMain(app: App, idx: Index): void {
   if (app.view.tab !== "changes" || app.view.route !== changes?.routeId) changes?.stop();
-  if (app.view.tab !== "artifacts") artifacts?.stop();
+  if (app.view.tab !== "artifacts" || app.view.route !== artifacts?.routeId) artifacts?.stop();
   if (app.view.route === SESSION || !app.view.route) {
     mount(main, sessionView(app, idx));
     return;
@@ -616,7 +616,7 @@ function renderMain(app: App, idx: Index): void {
     log: "The orchestrator's run log, newest first",
     docs: "Contracts, reports and notes in the route folder",
     changes: "The code each task changed against its base branch",
-    artifacts: "HTML pages in the session's folders: reports, reviews, plans",
+    artifacts: "HTML pages in the route's workspace folders: reports, reviews, plans",
     messages: "Herdsman messages between the adjutant and the orchestrator",
     activity: "Agent and web events since this page opened",
   };
@@ -711,7 +711,10 @@ function renderMain(app: App, idx: Index): void {
     return;
   }
   if (app.view.tab === "artifacts") {
-    artifacts ??= new ArtifactsView();
+    if (artifacts?.routeId !== r.id) {
+      artifacts?.stop();
+      artifacts = new ArtifactsView(r.id);
+    }
     if (routeBody.firstChild !== artifacts.el) mount(routeBody, artifacts.el);
     artifacts.update(app.view.artifact);
     artifacts.start();
