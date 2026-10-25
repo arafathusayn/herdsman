@@ -454,4 +454,3 @@ func holders(f *os.File) string {
 	}
 	return "?"
 }
-

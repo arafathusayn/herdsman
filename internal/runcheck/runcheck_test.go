@@ -468,7 +468,6 @@ func run(c Config, args ...string) (string, string, int) {
 	return out.String(), errb.String(), code
 }
 
-
 // A25 strict settings: each numeric or duration setting is parsed once, at
 // start; a bad one is an error naming it, and nothing runs.
 func TestStrictSettings(t *testing.T) {
