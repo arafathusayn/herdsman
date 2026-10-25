@@ -378,6 +378,11 @@ func TestPreflight(t *testing.T) {
 	if !open().PreflightValid() {
 		t.Error("Z1g the proof of the changed bytes is the positive control")
 	}
+	c.Write(filepath.Join(c.Base, "skill", "transcript-audit.sh"), "#!/bin/bash\n# changed\n")
+	if open().PreflightValid() {
+		t.Error("Z1h a changed transcript audit makes the proof stale")
+	}
+	c.Prove()
 	c.Write(filepath.Join(c.Installed, "existing-route-check.sh"), "#!/bin/bash\nexit 0\n")
 	c.Prove()
 	if !open().PreflightValid() {
