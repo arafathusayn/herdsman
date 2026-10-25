@@ -208,15 +208,13 @@ test("the checklist follows the inbox and names as they are typed, and drops out
 test("an approval that is not current for this pair is not shown as done", async () => {
   const f = await mountForm();
   byName(f.body, "role-adjutant").dispatch("click");
-  f.reads
-    .at(-1)!
-    .resolve(
-      inbox({
-        approved: ["adj-1 (adjutant)", "orch-1 (orchestrator)"],
-        proposed: ["adj-1 (adjutant)"],
-        pair_approved: false,
-      }),
-    );
+  f.reads.at(-1)!.resolve(
+    inbox({
+      approved: ["adj-1 (adjutant)", "orch-1 (orchestrator)"],
+      proposed: ["adj-1 (adjutant)"],
+      pair_approved: false,
+    }),
+  );
   await flush();
   const approve = items(f.body)[4]!;
   expect(approve.done).toBe(false);
