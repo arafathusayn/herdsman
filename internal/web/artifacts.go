@@ -109,6 +109,9 @@ type artifacts struct {
 	sweepGen uint64
 	// afterFunc sets the sweep timer; tests replace it to fire it by hand.
 	afterFunc func(time.Duration, func()) *time.Timer
+	// beforeOpen, when set, runs before the walk opens each folder (dir is
+	// relative to root). Tests use it to change a folder at that moment.
+	beforeOpen func(root, dir string)
 }
 
 func newArtifacts() *artifacts {
@@ -257,7 +260,7 @@ func (a *artifacts) refresh(roots []string, key string) []Artifact {
 		return e.list
 	}
 	a.mu.Unlock()
-	list := walkArtifacts(roots)
+	list := walkArtifacts(roots, a.beforeOpen)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
@@ -276,10 +279,10 @@ func (a *artifacts) refresh(roots []string, key string) []Artifact {
 
 // walkArtifacts walks roots for HTML files. A file under two roots belongs
 // to the deeper one.
-func walkArtifacts(roots []string) []Artifact {
+func walkArtifacts(roots []string, beforeOpen func(root, dir string)) []Artifact {
 	byPath := map[string]Artifact{}
 	for _, root := range roots {
-		walkRoot(root, byPath)
+		walkRoot(root, byPath, beforeOpen)
 	}
 	list := make([]Artifact, 0, len(byPath))
 	for _, v := range byPath {
@@ -297,7 +300,7 @@ func walkArtifacts(roots []string) []Artifact {
 // walkRoot adds the HTML files under root to byPath. Folders are read in
 // batches that stop at the entry budget, so a folder far wider than the
 // budget is never read or held whole, and os.Root keeps the walk inside root.
-func walkRoot(root string, byPath map[string]Artifact) {
+func walkRoot(root string, byPath map[string]Artifact, beforeOpen func(root, dir string)) {
 	r, err := os.OpenRoot(root)
 	if err != nil {
 		return
@@ -312,7 +315,10 @@ func walkRoot(root string, byPath map[string]Artifact) {
 	for len(stack) > 0 && budget > 0 && len(byPath) < artifactMaxFiles {
 		dir := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		f, err := r.Open(dir)
+		if beforeOpen != nil {
+			beforeOpen(root, dir)
+		}
+		f, err := openWalkDir(r, dir)
 		if err != nil {
 			continue
 		}
@@ -342,6 +348,14 @@ func walkRoot(root string, byPath map[string]Artifact) {
 		}
 		_ = f.Close()
 	}
+}
+
+// openWalkDir opens the folder dir under r to read it. The open itself
+// requires a folder (O_DIRECTORY), so a FIFO or file swapped in after the
+// folder was queued is refused at once instead of blocking the walk, which
+// holds the walk lock, until a writer comes.
+func openWalkDir(r *os.Root, dir string) (*os.File, error) {
+	return r.OpenFile(dir, os.O_RDONLY|openDirFlag, 0)
 }
 
 // addArtifact adds the file a names, found as d, when it is an HTML page.

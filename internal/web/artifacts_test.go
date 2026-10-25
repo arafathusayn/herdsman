@@ -555,7 +555,7 @@ func TestArtifactWalkBoundsAWideFolder(t *testing.T) {
 			runtime.GC()
 			var before, after runtime.MemStats
 			runtime.ReadMemStats(&before)
-			walkArtifacts([]string{root})
+			walkArtifacts([]string{root}, nil)
 			runtime.ReadMemStats(&after)
 			best = min(best, after.TotalAlloc-before.TotalAlloc)
 		}
@@ -785,6 +785,108 @@ func TestArtifactListingIsKeyedByRoots(t *testing.T) {
 	a.mu.Unlock()
 	if n > artifactMaxLists {
 		t.Fatalf("%d listings kept", n)
+	}
+}
+
+// Two requests for the same roots before any listing share one walk: the
+// second waits for the first and gets its result, without walking again.
+func TestArtifactColdListingsShareOneWalk(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "a.html"), "a")
+	a := newArtifacts()
+	var walks atomic.Int32
+	walking, release := make(chan struct{}), make(chan struct{})
+	a.beforeOpen = func(_, dir string) {
+		if dir == "." && walks.Add(1) == 1 {
+			close(walking)
+			<-release
+		}
+	}
+	first, second := make(chan []Artifact, 1), make(chan []Artifact, 1)
+	go func() { first <- a.find([]string{root}) }()
+	<-walking
+	go func() { second <- a.find([]string{root}) }()
+	// The second request is inside refresh, so it takes the walk lock after
+	// the first and finds the first one's listing.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		buf := make([]byte, 1<<20)
+		if strings.Count(string(buf[:runtime.Stack(buf, true)]), "(*artifacts).refresh(") >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second request never reached the walk")
+		}
+	}
+	close(release)
+	one, two := <-first, <-second
+	if len(one) != 1 || len(two) != 1 || one[0] != two[0] {
+		t.Fatalf("listings %+v and %+v", one, two)
+	}
+	if n := walks.Load(); n != 1 {
+		t.Fatalf("%d walks for one set of roots", n)
+	}
+}
+
+// The walk and the open refuse what they cannot vouch for: a root gone
+// before the walk, a page over the size limit, a page a deeper root owns,
+// and an open without a recorded folder, of a root gone since the listing,
+// of a root page whose folder is not the root, or of a folder that cannot
+// be opened.
+func TestArtifactWalkAndOpenEdges(t *testing.T) {
+	tmp := t.TempDir()
+	if got := walkArtifacts([]string{filepath.Join(tmp, "gone")}, nil); len(got) != 0 {
+		t.Fatalf("a missing root listed %+v", got)
+	}
+
+	shallow := filepath.Join(tmp, "s")
+	deep := filepath.Join(shallow, "deep")
+	writeFile(t, filepath.Join(deep, "p.html"), "p")
+	big, err := os.Create(filepath.Join(shallow, "big.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := big.Truncate(artifactMaxSize + 1); err != nil {
+		t.Fatal(err)
+	}
+	_ = big.Close()
+	got := walkArtifacts([]string{deep, shallow}, nil)
+	if len(got) != 1 || got[0].Root != deep || got[0].Path != "p.html" {
+		t.Fatalf("listing = %+v, want only p.html under the deeper root", got)
+	}
+
+	id, err := os.Stat(shallow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := os.Stat(deep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openPageDir(shallow, nil, "", id); err == nil {
+		t.Fatal("an open without a recorded root folder")
+	}
+	if _, err := openPageDir(shallow, id, "", other); err == nil {
+		t.Fatal("a root page whose folder is not the root was opened")
+	}
+	if _, err := openPageDir(filepath.Join(tmp, "gone"), id, "", id); err == nil {
+		t.Fatal("a root gone since the listing was opened")
+	}
+	locked := filepath.Join(shallow, "locked")
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lockedID, err := os.Stat(locked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if os.Getuid() != 0 {
+		if _, err := openPageDir(shallow, id, "locked", lockedID); err == nil {
+			t.Fatal("a folder that cannot be opened was opened")
+		}
 	}
 }
 
