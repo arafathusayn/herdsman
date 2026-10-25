@@ -16,7 +16,7 @@ import (
 
 // ModelID is a model name typed by hand: Claude's "Other model id" and the
 // free-text model of other kinds. It is always one argv element.
-var ModelID = regexp.MustCompile(`^[A-Za-z0-9._:\[\]-]{1,64}$`)
+var ModelID = regexp.MustCompile(`^[A-Za-z0-9._:\[\]-]{1,64}(/[A-Za-z0-9._:\[\]-]{1,64})?$`)
 
 // Model is one model of a harness.
 type Model struct {

@@ -502,3 +502,12 @@ test("the confirmed GitHub account goes with the request", () => {
   const f = update(initialForm(catalog, null), { request: "x", ghAccount: "user-b" });
   expect(toRequest(f, catalog).request).toBe("x\n\nGitHub account: user-b.");
 });
+
+test("a provider/model id is a valid typed model", () => {
+  const f = update(initialForm(catalog, null), { folder: "/r/repo", workspace: "w1" });
+  const typed = setHarness(f, catalog, "main", { kind: "pi" });
+  const ok = setHarness(typed, catalog, "main", { model: "provider/model-a" });
+  expect(validate(ok, catalog, null)["main"]).toBeUndefined();
+  const bad = setHarness(typed, catalog, "main", { model: "a/b/c" });
+  expect(validate(bad, catalog, null)["main"]).toBeDefined();
+});

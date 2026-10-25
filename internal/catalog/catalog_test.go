@@ -188,3 +188,18 @@ func TestProbeOtherKinds(t *testing.T) {
 		}
 	}
 }
+
+// A provider/model id (OpenCode's form) is one model id; more slashes, a
+// leading or trailing slash, or blanks are not.
+func TestModelIDTakesProviderForm(t *testing.T) {
+	for _, ok := range []string{"model-a", "provider/model-a", "p.x/m:1[2]"} {
+		if !ModelID.MatchString(ok) {
+			t.Errorf("%q refused", ok)
+		}
+	}
+	for _, bad := range []string{"/m", "p/", "a/b/c", "a b", ""} {
+		if ModelID.MatchString(bad) {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

@@ -20,7 +20,7 @@ export const CHECKPOINT_MAX_TOKENS = 2000000;
 export const MAX_REQUEST = 8000;
 
 const agentName = /^[a-z][a-z0-9_-]{0,31}$/;
-const modelId = /^[A-Za-z0-9._:[\]-]{1,64}$/;
+const modelId = /^[A-Za-z0-9._:[\]-]{1,64}(\/[A-Za-z0-9._:[\]-]{1,64})?$/;
 const routeNameRe = /^[a-z0-9][a-z0-9-]{0,47}$/;
 const inboxRe = /^[A-Za-z0-9._/@+~-]+$/;
 

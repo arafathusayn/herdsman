@@ -190,7 +190,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "this browser is not paired: open the URL that herdsman web printed"})
 			return
 		}
-		if r.Method != http.MethodGet {
+		if userAction(r) {
 			s.recordActivity()
 		}
 		next.ServeHTTP(w, r)
@@ -471,6 +471,25 @@ func Listen(host string, port int) (net.Listener, int, error) {
 		return nil, 0, err
 	}
 	return ln, ln.Addr().(*net.TCPAddr).Port, nil
+}
+
+// polled are the GET endpoints the app reads on its own timers; a request to
+// any other paired endpoint is the user's action or navigation (A33).
+var polled = []string{"/api/stream", "/api/state", "/api/pane/", "/api/route/diff", "/api/routes/inbox", "/api/messages", "/api/artifacts"}
+
+// userAction says whether a paired request is the user's own: a change, or
+// a GET outside the polled endpoints (opening New route, a file, a message).
+func userAction(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return true
+	}
+	for _, p := range polled {
+		if r.URL.Path == p || (strings.HasSuffix(p, "/") && strings.HasPrefix(r.URL.Path, p)) {
+			return false
+		}
+	}
+	// A message body is opened by the user; the message list is polled.
+	return true
 }
 
 // activityEvery bounds how often the activity file is written.

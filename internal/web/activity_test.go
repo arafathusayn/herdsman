@@ -19,7 +19,9 @@ func TestActivityRecordsUserActions(t *testing.T) {
 	clock := time.Unix(1_800_000_000, 0)
 	f.srv.now = func() time.Time { return clock }
 
-	f.request(t, http.MethodGet, "/api/state", "", f.authed)
+	for _, path := range []string{"/api/state", "/api/pane/w1:p2?lines=5", "/api/route/diff?route=x", "/api/routes/inbox?path=x", "/api/messages", "/api/artifacts"} {
+		f.request(t, http.MethodGet, path, "", f.authed)
+	}
 	if _, err := os.Stat(file); err == nil {
 		t.Fatal("polling counted as activity")
 	}
@@ -54,4 +56,15 @@ func TestActivityRecordsUserActions(t *testing.T) {
 	}
 	f.srv.cfg.ActivityFile = ""
 	f.srv.recordActivity()
+}
+
+// Opening New route (a GET of the catalog) is the user's navigation.
+func TestNavigationIsActivity(t *testing.T) {
+	f := newRouteFixture(t)
+	file := filepath.Join(t.TempDir(), "web-last-action")
+	f.srv.cfg.ActivityFile = file
+	f.request(t, http.MethodGet, "/api/catalog", "", f.authed)
+	if afk.ReadWebFile(file).IsZero() {
+		t.Fatal("opening New route recorded no activity")
+	}
 }

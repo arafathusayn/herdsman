@@ -298,3 +298,12 @@ func TestDefaultEffortIsTheHarnessDefault(t *testing.T) {
 		}
 	}
 }
+
+// A provider/model id reaches the agent as one argv element.
+func TestLaunchArgsProviderModel(t *testing.T) {
+	k := &CatalogKind{Kind: "opencode", Label: "OpenCode", FreeModel: true, Models: []CatalogModel{}}
+	args, err := launchArgs(k, "provider/model-a", "")
+	if err != nil || len(args) != 2 || args[1] != "provider/model-a" {
+		t.Fatalf("%v %v", args, err)
+	}
+}
