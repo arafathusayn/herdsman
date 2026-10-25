@@ -269,3 +269,14 @@ export function nextView(view: View, patch: Partial<View>): View {
   const artifact = patch.route === undefined || patch.route === view.route ? view.artifact : "";
   return { ...view, ws, artifact, ...patch };
 }
+
+/**
+ * The patch that moves a link by bare route name to the route's id, or null
+ * when the view already names a route by id or names none. It is the same
+ * route, so the open artifact stays.
+ */
+export function canonicalRoute(routes: Route[], view: View): Partial<View> | null {
+  const r = routeFor(routes, view.route);
+  if (!r || r.id === view.route) return null;
+  return { route: r.id, artifact: view.artifact };
+}

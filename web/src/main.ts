@@ -15,6 +15,7 @@ import {
 } from "./hosts.ts";
 import {
   ago,
+  canonicalRoute,
   checklistCounts,
   Index,
   type Member,
@@ -260,8 +261,8 @@ function pickDefaultRoute(): void {
   const { view, server } = store.app;
   if (view.route) {
     // A link by bare name moves to the id, so the sidebar marks it.
-    const r = routeFor(server?.routes ?? [], view.route);
-    if (r && r.id !== view.route) store.go({ route: r.id }, false);
+    const patch = canonicalRoute(server?.routes ?? [], view);
+    if (patch) store.go(patch, false);
     return;
   }
   const live = server?.routes?.find((r) => r.live);
