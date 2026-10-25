@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
 // Creating a route from the web app: a tab per coordinator, the agent
@@ -552,13 +553,13 @@ func readInboxState(p, adjutant, orchestrator string) InboxState {
 		st.Error = "not a folder"
 		return st
 	}
-	st.Setup = regularFile(filepath.Join(p, "setup.json"))
+	st.Setup = inbox.RegularFile(filepath.Join(p, "setup.json"))
 	names := func(file string) []string {
 		out := []string{}
-		if !regularFile(filepath.Join(p, file)) {
+		if !inbox.RegularFile(filepath.Join(p, file)) {
 			return out
 		}
-		peers, ok := validRegistry(readBounded(filepath.Join(p, file), envelopeMax))
+		peers, ok := webRegistry(inbox.ReadBounded(filepath.Join(p, file), envelopeMax))
 		if !ok {
 			return out
 		}
@@ -569,12 +570,12 @@ func readInboxState(p, adjutant, orchestrator string) InboxState {
 		return out
 	}
 	st.Proposed, st.Approved = names("peers"), names("peers.approved")
-	peers, perr := readBounded(filepath.Join(p, "peers"), envelopeMax)
-	approved, aerr := readBounded(filepath.Join(p, "peers.approved"), envelopeMax)
-	preg, pok := validRegistry(peers, perr)
-	st.PairProposed = pok && regularFile(filepath.Join(p, "peers")) && isPair(preg, adjutant, orchestrator)
-	_, aok := validRegistry(approved, aerr)
-	st.PairApproved = st.PairProposed && aok && regularFile(filepath.Join(p, "peers.approved")) && bytes.Equal(peers, approved)
+	peers, perr := inbox.ReadBounded(filepath.Join(p, "peers"), envelopeMax)
+	approved, aerr := inbox.ReadBounded(filepath.Join(p, "peers.approved"), envelopeMax)
+	preg, pok := webRegistry(peers, perr)
+	st.PairProposed = pok && inbox.RegularFile(filepath.Join(p, "peers")) && isPair(preg, adjutant, orchestrator)
+	_, aok := webRegistry(approved, aerr)
+	st.PairApproved = st.PairProposed && aok && inbox.RegularFile(filepath.Join(p, "peers.approved")) && bytes.Equal(peers, approved)
 	return st
 }
 
