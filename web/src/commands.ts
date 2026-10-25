@@ -20,6 +20,7 @@ import type { Route } from "./types.ts";
 import { applyTheme, type Theme, toast } from "./ui.ts";
 import { openAppearance } from "./views/appearance.ts";
 import { openHosts, switchTo } from "./views/hosts.ts";
+import { openNewRoute } from "./views/new-route.ts";
 
 export interface Context {
   app: App;
@@ -246,6 +247,14 @@ export function buildCommands(ctx: Context): Command[] {
     }
   }
 
+  out.push({
+    id: "new-route",
+    kind: "command",
+    title: "Route: New route…",
+    detail: "start an orchestrator or an adjutant in a new herdr tab",
+    icon: icons.plus,
+    run: () => openNewRoute(),
+  });
   out.push({
     id: "hosts",
     kind: "command",

@@ -39,6 +39,7 @@ import { DiffView } from "./views/diff.ts";
 import { FilesView } from "./views/files.ts";
 import { confirmHost, keepPendingLink, openHosts, showConnect, takePendingLink } from "./views/hosts.ts";
 import { MessagesView } from "./views/messages.ts";
+import { openNewRoute } from "./views/new-route.ts";
 import { showPairing } from "./views/pair.ts";
 import { card, teamView } from "./views/team.ts";
 
@@ -480,7 +481,24 @@ function renderSidebar(app: App): void {
         h("span", { class: "nav-text" }, "All agents"),
         h("span", { class: "nav-meta" }, String(agents.length)),
       ),
-      h("h3", { class: "nav-head" }, "Workspaces"),
+      h(
+        "div",
+        { class: "nav-head nav-head-row" },
+        h("h3", null, "Workspaces"),
+        h(
+          "button",
+          {
+            class: "nav-new",
+            title: "New route: start an orchestrator or an adjutant in a new herdr tab",
+            onclick: () => {
+              navOpen = false;
+              openNewRoute();
+            },
+          },
+          icon(icons.plus),
+          h("span", null, "New route"),
+        ),
+      ),
       groups.length ? groups.map(workspace) : h("p", { class: "nav-empty" }, "No workspace runs an agent."),
       unplaced.length ? [h("h3", { class: "nav-head" }, "Other live routes"), unplaced.map((r) => item(r))] : null,
       rest.length ? [h("h3", { class: "nav-head" }, "Recent routes"), rest.map((r) => item(r))] : null,
