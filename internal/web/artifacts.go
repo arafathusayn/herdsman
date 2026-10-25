@@ -102,10 +102,12 @@ type artifacts struct {
 	// for the roots it was walked from; the least recently used goes first.
 	lists map[string]*artifactList
 	caps  map[string]artifactCap
+	ttl   time.Duration // how long a grant lasts
+	sweep *time.Timer   // closes expired grants; nil while none is set
 }
 
 func newArtifacts() *artifacts {
-	return &artifacts{now: time.Now, lists: map[string]*artifactList{}, caps: map[string]artifactCap{}}
+	return &artifacts{now: time.Now, lists: map[string]*artifactList{}, caps: map[string]artifactCap{}, ttl: capTTL}
 }
 
 // Folders named here are never walked: dependencies, build caches and
@@ -415,19 +417,12 @@ func (a *artifacts) grant(dir *os.Root, client string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
-	drop := func(k string) {
-		_ = a.caps[k].dir.Close()
-		delete(a.caps, k)
-	}
-	for k, c := range a.caps {
-		if now.After(c.expires) {
-			drop(k)
-		}
-	}
+	a.dropExpired(now)
+	defer a.armSweep(now)
 	for k, c := range a.caps {
 		if c.client == client && info != nil && c.info != nil && os.SameFile(c.info, info) {
 			_ = dir.Close()
-			c.expires = now.Add(capTTL)
+			c.expires = now.Add(a.ttl)
 			a.caps[k] = c
 			return k
 		}
@@ -439,20 +434,63 @@ func (a *artifacts) grant(dir *os.Root, client string) string {
 				oldest = k
 			}
 		}
-		drop(oldest)
+		a.drop(oldest)
 	}
 	k := secret()
-	a.caps[k] = artifactCap{dir: dir, info: info, client: client, expires: now.Add(capTTL)}
+	a.caps[k] = artifactCap{dir: dir, info: info, client: client, expires: now.Add(a.ttl)}
 	return k
 }
 
-// dir is the folder cap opens for client. A use that races a grant closing
-// the folder fails to read it and serves nothing.
+// drop closes a grant's folder and forgets the grant. The caller holds mu.
+func (a *artifacts) drop(k string) {
+	_ = a.caps[k].dir.Close()
+	delete(a.caps, k)
+}
+
+// dropExpired drops the grants that expired by now. The caller holds mu.
+func (a *artifacts) dropExpired(now time.Time) {
+	for k, c := range a.caps {
+		if now.After(c.expires) {
+			a.drop(k)
+		}
+	}
+}
+
+// armSweep sets a timer for the next grant to expire, so expired grants
+// close their folders without waiting for another grant. One timer at most,
+// and none while no grant is live; it holds no goroutine while it waits.
+// The caller holds mu.
+func (a *artifacts) armSweep(now time.Time) {
+	if a.sweep != nil || len(a.caps) == 0 {
+		return
+	}
+	var next time.Time
+	for _, c := range a.caps {
+		if next.IsZero() || c.expires.Before(next) {
+			next = c.expires
+		}
+	}
+	a.sweep = time.AfterFunc(max(next.Sub(now), 0)+time.Millisecond, func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		a.sweep = nil
+		now := a.now()
+		a.dropExpired(now)
+		a.armSweep(now)
+	})
+}
+
+// dir is the folder cap opens for client; an expired grant is dropped. A use
+// that races a grant closing the folder fails to read it and serves nothing.
 func (a *artifacts) dir(cap, client string) (*os.Root, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	c, ok := a.caps[cap]
-	if !ok || c.client != client || a.now().After(c.expires) {
+	if ok && a.now().After(c.expires) {
+		a.drop(cap)
+		return nil, false
+	}
+	if !ok || c.client != client {
 		return nil, false
 	}
 	return c.dir, true

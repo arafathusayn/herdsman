@@ -163,6 +163,67 @@ func TestArtifactCapsAreBounded(t *testing.T) {
 	}
 }
 
+// An expired grant gives back its open folder by itself: a refused use
+// closes it at once, and a timer closes the rest without another grant, so
+// a server that runs for hours holds no folder longer than its grants last.
+func TestArtifactExpiredGrantsAreReleased(t *testing.T) {
+	base := runtime.NumGoroutine()
+	open := func() *os.Root {
+		t.Helper()
+		d := t.TempDir()
+		id, err := os.Stat(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := openPageDir(d, id, "", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	closed := func(r *os.Root) bool {
+		_, err := r.Stat(".")
+		return err != nil
+	}
+	caps := func(a *artifacts) int {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return len(a.caps)
+	}
+
+	// A use after expiry is refused and closes the folder.
+	a := newArtifacts()
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	a.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	r := open()
+	k := a.grant(r, "127.0.0.1")
+	clock.Add(int64(capTTL + time.Second))
+	if _, ok := a.dir(k, "127.0.0.1"); ok {
+		t.Fatal("an expired grant was used")
+	}
+	if !closed(r) || caps(a) != 0 {
+		t.Fatalf("a refused expired grant kept its folder open (closed %v, %d grants)", closed(r), caps(a))
+	}
+
+	// Unused grants are closed when they expire, with no other grant.
+	b := newArtifacts()
+	b.ttl = 30 * time.Millisecond
+	r1, r2 := open(), open()
+	b.grant(r1, "127.0.0.1")
+	b.grant(r2, "192.0.2.9")
+	for deadline := time.Now().Add(5 * time.Second); caps(b) != 0 || !closed(r1) || !closed(r2); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("expired grants kept their folders open (%d grants, closed %v %v)", caps(b), closed(r1), closed(r2))
+		}
+	}
+	for deadline := time.Now().Add(5 * time.Second); runtime.NumGoroutine() > base; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutines %d, were %d", runtime.NumGoroutine(), base)
+		}
+	}
+}
+
 // A grant holds the listed folder itself, not its name: a folder swapped for
 // a link to another workspace before the open is refused, and one swapped
 // after the open still serves only the folder that was granted.
