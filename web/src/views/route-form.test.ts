@@ -357,12 +357,25 @@ test("the probed GitHub account is offered for confirmation", async () => {
       });
     },
   });
+  // Start waits for the probe.
+  expect(byName(body, "start").disabled).toBe(true);
+  submit(body);
+  expect(sent.length).toBe(0);
   await flush();
   expect(asked.length).toBe(1);
   const picked = () => byName(body, "ghAccount").children.find((o) => o.selected)?.value;
-  expect(picked()).toBe("user-a");
+  // The probed account is marked, not chosen for the user: Start waits for the pick.
+  expect(picked()).toBe("");
+  expect(byName(body, "start").disabled).toBe(true);
   choose(byName(body, "ghAccount"), "user-b");
   expect(picked()).toBe("user-b");
+  expect(byName(body, "start").disabled).toBe(false);
+  // A new folder clears the account; its own probe runs.
+  type(byName(body, "folder"), "/r/other");
+  expect(asked).toEqual(["/r/repo", "/r/other"]);
+  expect(byName(body, "start").disabled).toBe(true);
+  await flush();
+  expect(picked()).toBe("");
 });
 
 test("a repository no account can read says how to log in", async () => {
@@ -382,4 +395,6 @@ test("a repository no account can read says how to log in", async () => {
   });
   await flush();
   expect(box(body, "ghAccount")?.textContent).toContain("no origin remote");
+  // Nothing to confirm: Start is open.
+  expect(byName(body, "start").disabled).toBe(false);
 });

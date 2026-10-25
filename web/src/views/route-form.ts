@@ -139,6 +139,7 @@ export function routeForm(
     const before = inboxKey(f);
     f = update(f, change);
     for (const k of Object.keys(change)) delete errors[k];
+    if (change.folder !== undefined) probeGitHub();
     if (redraw) draw();
     else refresh();
     if (inboxKey(f) !== before) {
@@ -208,8 +209,14 @@ export function routeForm(
     );
   };
 
+  let startButton: HTMLButtonElement | null = null;
   // Updates what follows typing without redrawing the inputs under the caret.
   const refresh = (): void => {
+    // Typing a new folder starts its GitHub probe: Start waits for it.
+    if (startButton) {
+      startButton.disabled = busy || ghBlocks() !== "";
+      startButton.title = ghBlocks();
+    }
     live.preview.textContent = preview(f, c).command;
     const project = projectLabel(f.folder) || "<project>";
     live.label.textContent =
@@ -389,25 +396,46 @@ export function routeForm(
 
   // A32: the gh accounts that can read the folder's repository; the probed
   // one fills the confirmation until the user picks another.
+  // The probe and the confirmed account belong to one folder: a new folder
+  // clears both, and Start waits until the new probe answers and, when it
+  // lists accounts, until the user picks one.
   let gh: GitHubAccess | null = null;
   let ghFolder = "";
+  let ghPending = false;
   const probeGitHub = (): void => {
     const folder = f.folder.trim();
-    if (!deps.github || folder === ghFolder || !folder.startsWith("/")) return;
+    if (!deps.github || folder === ghFolder) return;
     ghFolder = folder;
+    gh = null;
+    f = { ...f, ghAccount: "" };
+    if (!folder.startsWith("/")) {
+      ghPending = false;
+      return;
+    }
+    ghPending = true;
     deps.github(folder).then(
       (g) => {
         if (ghFolder !== folder) return;
         gh = g;
-        if (!busy) f = { ...f, ghAccount: g.suggested };
+        ghPending = false;
         draw();
       },
       () => {
-        if (ghFolder === folder) gh = null;
+        if (ghFolder !== folder) return;
+        ghPending = false;
+        draw();
       },
     );
   };
+  /** Why Start must wait for the GitHub account, or "". */
+  const ghBlocks = (): string => {
+    if (!deps.github) return "";
+    if (ghPending) return "Checking which GitHub account can read this repository…";
+    if (gh && accountOptions(gh).length && !f.ghAccount) return "Confirm the GitHub account.";
+    return "";
+  };
   const githubField = (): HTMLElement | null => {
+    if (ghPending) return field("ghAccount", "GitHub account", h("span", null, "Checking…"), null, true);
     if (!gh) return null;
     const opts = accountOptions(gh);
     if (!opts.length)
@@ -421,7 +449,13 @@ export function routeForm(
     return field(
       "ghAccount",
       "GitHub account",
-      selectBox("ghAccount", f.ghAccount, opts, (v) => set({ ghAccount: v }, true), `${id}-ghAccount`),
+      selectBox(
+        "ghAccount",
+        f.ghAccount,
+        [["", "Confirm an account…"], ...opts],
+        (v) => set({ ghAccount: v }, true),
+        `${id}-ghAccount`,
+      ),
       `The account the route pushes and opens pull requests with; it can read ${gh.repo}.`,
     );
   };
@@ -646,11 +680,17 @@ export function routeForm(
         "div",
         { class: "dialog-actions nr-actions" },
         h("button", { value: "cancel", class: "btn ghost", formnovalidate: true }, "Cancel"),
-        h(
+        (startButton = h(
           "button",
-          { type: "submit", class: "btn primary", disabled: busy, name: "start" },
+          {
+            type: "submit",
+            class: "btn primary",
+            disabled: busy || ghBlocks() !== "",
+            title: ghBlocks(),
+            name: "start",
+          },
           busy ? "Starting…" : "Start route",
-        ),
+        ) as HTMLButtonElement),
       ),
     );
     refresh();
@@ -744,6 +784,7 @@ export function routeForm(
     if (submitter?.value === "cancel" || submitter?.value === "ok") return;
     e.preventDefault();
     if (busy) return;
+    if (ghBlocks()) return draw();
     errors = validate(f, c, deps.state());
     if (Object.keys(errors).length) {
       draw();
@@ -772,6 +813,7 @@ export function routeForm(
     );
   });
 
+  probeGitHub();
   draw();
   readInbox();
   return {
