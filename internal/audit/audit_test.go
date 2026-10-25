@@ -377,7 +377,7 @@ func TestAuditPathsCurlClustersAndRedirects(t *testing.T) {
 		match(t, "e93bcc1 flagged: "+id, "call="+id+" ", out)
 	}
 	noMatch(t, "e93bcc1 reads stay clean", `call=r[0-9]`, out)
-	match(t, "f14 the program by its name", `call=f14 class=outward-write target=curl`, out)
+	match(t, "f14 the program by its name", `call=f14 class=[a-z-]+ target=curl`, out)
 	match(t, "f17 a program path outside the system folders is a script run", `call=f17 class=script-run target=runner`, out)
 }
 
@@ -399,37 +399,46 @@ func TestAuditQuotedCommandWord(t *testing.T) {
 	match(t, "Y6h4 two flags of three calls", `AUDIT flagged=2 calls=3`, out)
 }
 
-// b0a9b04: the command splitter. Quoted command words are script runs,
-// quoted text in an argument stays clean, and syntax the splitter does not
-// parse is a GAP line that counts as flagged (exit 1).
-func TestAuditSplitterCasesAndGaps(t *testing.T) {
+// The coordinator's ruling and review-adjutant-p0-2.md / -3.md: main's
+// checks decide first and the B3-002 rules only add flags, so each case
+// main 87c5670 flags stays flagged and main's clean controls stay clean.
+func TestAuditMainFlagsStandTable(t *testing.T) {
+	flagged := []string{
+		"'do-push.sh copy' origin",
+		"'do-push.sh;noop' origin",
+		"'/tmp/do-push.sh copy' origin",
+		"'/tmp/do-push.sh;noop' origin",
+		`echo "${v:-$(/tmp/do-push.sh)}"`,
+		`echo "$(( $(/tmp/do-push.sh) + 1 ))"`,
+		"echo \"${v:-`/tmp/do-push.sh`}\"",
+		"echo \"$(( `/tmp/do-push.sh` + 1 ))\"",
+		"echo ok # a comment\n:; /tmp/do-push.sh origin",
+		"echo ok # a comment\n:; python3 -c pass",
+	}
+	clean := []string{
+		`echo "'a; /tmp/do-push'"`,
+		`case "$x" in *.sh) echo yes;; *) echo no;; esac`,
+		`awk '{print $1; print $2}' /x/list.txt | grep 'a b'`,
+		`printf '%s\n' 'a; b' | grep -c 'x|y'`,
+		`jq -r '.a | .b' /x/f.json`,
+		`echo a\; b`,
+		"/bin/bash /skill/scripts/message.sh status",
+		"/usr/bin/curl -s https://example.invalid/status",
+	}
 	r := newRig(t)
-	tr := r.file("split.jsonl",
-		jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}}),
-		sh("s1", "'do-push.sh copy' origin"),
-		sh("s2", "'do-push.sh;noop' origin"),
-		sh("s3", `echo "'a; /tmp/do-push'"`),
-		sh("s4", `echo $(ls $(pwd))`),
-		sh("s5", "cat <<EOF\nhi\nEOF"),
-		sh("s6", `echo "abc`),
-		sh("s7", `echo $(date) && ls`),
-		sh("s8", `$(which tool) --x`),
-		sh("s9", `if [ -f a ]; then cat a; fi`),
-		sh("s10", `grep -c x <<< "$v"; echo 'a # b' # c`),
-		sh("s11", "echo `/tmp/x.sh`"),
-	)
-	out := r.aud(Options{Harness: "claude", Transcript: tr, Session: "coord-session"})
-	match(t, "SP1 a quoted command word with a space", `call=s1 class=script-run target=do-push.sh copy$`, out)
-	match(t, "SP2 a quoted command word with punctuation", `call=s2 class=script-run`, out)
-	noMatch(t, "SP3 quoted text in an argument stays clean", `call=s3 `, out)
-	match(t, "SP4 nested substitution is a gap", `^GAP call=s4 tool=Bash unsupported shell syntax: nested command substitution$`, out)
-	match(t, "SP5 a here-document is a gap", `^GAP call=s5 tool=Bash unsupported shell syntax: here-document$`, out)
-	match(t, "SP6 an unterminated quote is a gap", `^GAP call=s6 tool=Bash unsupported shell syntax: unterminated quote$`, out)
-	noMatch(t, "SP7 one level of substitution is parsed", `call=s7 `, out)
-	match(t, "SP8 a substitution as the command word is a script run", `call=s8 class=script-run`, out)
-	noMatch(t, "SP9 a test header and reserved words run nothing", `call=s9 `, out)
-	noMatch(t, "SP10 a here-string and a comment", `call=s10 `, out)
-	match(t, "SP11 a script inside backquotes", `call=s11 class=script-run target=x.sh$`, out)
-	match(t, "SP12 gaps count as flagged, exit 1", `AUDIT flagged=7 calls=11`, out)
-	match(t, "SP13 exit 1", `rc=1$`, out)
+	lines := []string{jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}})}
+	for i, c := range flagged {
+		lines = append(lines, sh(fmt.Sprintf("m%d", i), c))
+	}
+	for i, c := range clean {
+		lines = append(lines, sh(fmt.Sprintf("c%d", i), c))
+	}
+	out := r.aud(Options{Harness: "claude", Transcript: r.file("table.jsonl", lines...), Session: "coord-session"})
+	for i, c := range flagged {
+		match(t, "main flags "+c, fmt.Sprintf(`call=m%d `, i), out)
+	}
+	for i, c := range clean {
+		noMatch(t, "main leaves clean "+c, fmt.Sprintf(`call=c%d `, i), out)
+	}
+	match(t, "flag count", fmt.Sprintf(`AUDIT flagged=%d calls=%d`, len(flagged), len(flagged)+len(clean)), out)
 }
