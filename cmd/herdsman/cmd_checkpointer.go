@@ -16,7 +16,7 @@ func init() {
 	register(command{name: "checkpointer", summary: "Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.", run: runCheckpointer})
 }
 
-const checkpointerUsage = `usage: TARGET=<pane> herdsman checkpointer [--once|--probe]
+const checkpointerUsage = `usage: TARGET=<pane> herdsman checkpointer [--once|--probe [--json]]
        herdsman checkpointer guard <orchestrator-name> <pane>
 
 Settings (environment): TARGET (required), INTERVAL=900 (seconds, or with
@@ -24,6 +24,9 @@ an s, m, h or d suffix), LIMIT=250000, LOG=$TMPDIR/checkpointer.log,
 COMPACT=/compact, PROMPT, TRANSCRIPT, CODEX_HOME; adjutant mode:
 HERDSMAN_ORCHESTRATOR, HERDSMAN_INBOX, HERDSMAN_PREFLIGHT,
 HERDSMAN_MESSAGES_DIR, LOCK_WAIT=6.
+
+With --json, --probe prints one object: {"why","hint","file","context"}
+(context: the tokens read, or null).
 
 Exit codes:
   0  --probe printed; --once sent its checkpoint (and compact when due); guard OK
@@ -54,7 +57,8 @@ func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, checkpointerUsage)
 		return 0
 	}
-	if len(args) > 1 || (mode != "" && mode != "--once" && mode != "--probe") {
+	jsonOut := len(args) == 2 && mode == "--probe" && args[1] == "--json"
+	if (len(args) > 1 && !jsonOut) || (mode != "" && mode != "--once" && mode != "--probe") {
 		fmt.Fprint(stderr, checkpointerUsage)
 		return 2
 	}
@@ -65,6 +69,9 @@ func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	c := &checkpoint.Checkpointer{Config: cfg, Client: herdrClient(), Stdout: stdout, Stderr: stderr, WorkingTimeout: checkpointerWorkingTimeout}
+	if jsonOut {
+		return c.ProbeJSON(ctx)
+	}
 	if mode == "--probe" {
 		return c.Probe(ctx)
 	}

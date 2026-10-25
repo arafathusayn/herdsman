@@ -79,6 +79,27 @@ func TestCheckpointerCommands(t *testing.T) {
 	if code != 0 || !strings.Contains(out, tr+" context=5") {
 		t.Errorf("probe: %d %q", code, out)
 	}
+	out, _, code = call(t, "checkpointer", "--probe", "--json")
+	if code != 0 || out != `{"why":"TRANSCRIPT is set; the file is used whatever the session id says","hint":"","file":"`+tr+`","context":5}`+"\n" {
+		t.Errorf("probe --json: %d %q", code, out)
+	}
+	t.Setenv("TRANSCRIPT", filepath.Join(dir, "none.jsonl"))
+	out, _, _ = call(t, "checkpointer", "--probe", "--json")
+	if !strings.Contains(out, `"file":"","context":null}`) {
+		t.Errorf("probe --json, no file: %q", out)
+	}
+	write := func(text string) {
+		if err := os.WriteFile(tr, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("TRANSCRIPT", tr)
+	write("bad\n")
+	out, _, _ = call(t, "checkpointer", "--probe", "--json")
+	if !strings.Contains(out, `"context":null}`) {
+		t.Errorf("probe --json, no reading: %q", out)
+	}
+	write(`{"type":"assistant","message":{"usage":{"input_tokens":5}}}` + "\n")
 	// The orchestrator is blocked, so the idle wait holds the run until
 	// the test frees it. A SIGHUP during the run exits 129.
 	fx.Edit("receiver-pane", "agent_status", "blocked")
