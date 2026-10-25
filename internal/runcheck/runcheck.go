@@ -253,8 +253,12 @@ func (c *Config) gateAndRun(args []string, lock *os.File, stdin io.Reader, stdou
 			fmt.Fprintln(stderr, "run-check: no load reading, running under the lock only")
 			break
 		}
-		fields := strings.Fields(r)
-		load, free := fields[0], fields[len(fields)-1]
+		// As the script's ${r%% *} and ${r##* }: a malformed reading (even
+		// whitespace only) fails the gate below, never panics.
+		load, free := r, r
+		if i := strings.IndexByte(r, ' '); i >= 0 {
+			load, free = r[:i], r[strings.LastIndexByte(r, ' ')+1:]
+		}
 		if under(load, limit) && freeInt(free) >= c.MinFree {
 			break
 		}

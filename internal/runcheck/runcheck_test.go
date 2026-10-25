@@ -221,6 +221,15 @@ func TestLoadGate(t *testing.T) {
 	c, _ = f.config()
 	_, errs, _ = runIn(c, "echo", "ran")
 	match(t, "C6b (Go) a reading with no number fails the gate", `NOT RUN \(load gate gave up`, errs)
+	// R2 finding 7: a reading of whitespace only is no panic; the gate fails it.
+	f.setReading(t, " \t\n")
+	c, _ = f.config()
+	out, errs, code = runIn(c, "echo", "ran")
+	match(t, "(Go) a whitespace-only reading fails the gate", `NOT RUN \(load gate gave up after 1s: load , limit 4, free \t%\)`, errs)
+	noMatch(t, "(Go) and the check did not run", `ran`, out)
+	if code != ExitTempFail {
+		t.Errorf("(Go) a whitespace-only reading: exit %d", code)
+	}
 	f.setReading(t, "x 50")
 	c, _ = f.config()
 	_, errs, _ = runIn(c, "echo", "ran")
