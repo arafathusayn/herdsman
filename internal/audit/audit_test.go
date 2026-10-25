@@ -398,3 +398,38 @@ func TestAuditQuotedCommandWord(t *testing.T) {
 	noMatch(t, "Y6h3 quoted awk and grep text stays clean", `call=q3`, out)
 	match(t, "Y6h4 two flags of three calls", `AUDIT flagged=2 calls=3`, out)
 }
+
+// b0a9b04: the command splitter. Quoted command words are script runs,
+// quoted text in an argument stays clean, and syntax the splitter does not
+// parse is a GAP line that counts as flagged (exit 1).
+func TestAuditSplitterCasesAndGaps(t *testing.T) {
+	r := newRig(t)
+	tr := r.file("split.jsonl",
+		jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}}),
+		sh("s1", "'do-push.sh copy' origin"),
+		sh("s2", "'do-push.sh;noop' origin"),
+		sh("s3", `echo "'a; /tmp/do-push'"`),
+		sh("s4", `echo $(ls $(pwd))`),
+		sh("s5", "cat <<EOF\nhi\nEOF"),
+		sh("s6", `echo "abc`),
+		sh("s7", `echo $(date) && ls`),
+		sh("s8", `$(which tool) --x`),
+		sh("s9", `if [ -f a ]; then cat a; fi`),
+		sh("s10", `grep -c x <<< "$v"; echo 'a # b' # c`),
+		sh("s11", "echo `/tmp/x.sh`"),
+	)
+	out := r.aud(Options{Harness: "claude", Transcript: tr, Session: "coord-session"})
+	match(t, "SP1 a quoted command word with a space", `call=s1 class=script-run target=do-push.sh copy$`, out)
+	match(t, "SP2 a quoted command word with punctuation", `call=s2 class=script-run`, out)
+	noMatch(t, "SP3 quoted text in an argument stays clean", `call=s3 `, out)
+	match(t, "SP4 nested substitution is a gap", `^GAP call=s4 tool=Bash unsupported shell syntax: nested command substitution$`, out)
+	match(t, "SP5 a here-document is a gap", `^GAP call=s5 tool=Bash unsupported shell syntax: here-document$`, out)
+	match(t, "SP6 an unterminated quote is a gap", `^GAP call=s6 tool=Bash unsupported shell syntax: unterminated quote$`, out)
+	noMatch(t, "SP7 one level of substitution is parsed", `call=s7 `, out)
+	match(t, "SP8 a substitution as the command word is a script run", `call=s8 class=script-run`, out)
+	noMatch(t, "SP9 a test header and reserved words run nothing", `call=s9 `, out)
+	noMatch(t, "SP10 a here-string and a comment", `call=s10 `, out)
+	match(t, "SP11 a script inside backquotes", `call=s11 class=script-run target=x.sh$`, out)
+	match(t, "SP12 gaps count as flagged, exit 1", `AUDIT flagged=7 calls=11`, out)
+	match(t, "SP13 exit 1", `rc=1$`, out)
+}

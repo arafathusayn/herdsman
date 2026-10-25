@@ -152,7 +152,12 @@ func run(o Options, w io.Writer) (int, int, error) {
 				return calls, flagged, gap("unsupported tool %s (call %s)", r.tool, r.id)
 			}
 		}
-		if class != "" {
+		if class == "gap" {
+			// A call whose shell syntax the audit does not parse is never
+			// clean: it counts as flagged.
+			flagged++
+			fmt.Fprintf(w, "GAP call=%s tool=%s unsupported shell syntax: %s\n", r.id, r.tool, target)
+		} else if class != "" {
 			flagged++
 			fmt.Fprintf(w, "FLAG tool=%s call=%s class=%s target=%s\n", r.tool, r.id, class, target)
 		}
@@ -397,7 +402,6 @@ var (
 	sysPath  = regexp.MustCompile(`^(/usr/local/bin|/opt/homebrew/bin|/usr/bin|/usr/sbin|/bin|/sbin)/([^/]+)$`)
 	mcpWrite = regexp.MustCompile(`(send|create|update|delete|post|comment|write|add|edit|merge|upload|remove|move|schedule|react|approve|publish|set_|_set|assign|archive|attach|start|stop)`)
 	mcpRead  = regexp.MustCompile(`_(get|list|read|search|query|fetch|view|find|describe|show|count|lookup|retrieve|status|info)_`)
-	segSplit = regexp.MustCompile("[$][(]|[;&|(){}`]")
 	leadSep  = regexp.MustCompile(`^[;&|({[:space:]]*`)
 )
 
@@ -416,6 +420,12 @@ func program(match string) string {
 
 // shellClass returns "class program" for a command, or "".
 func (a auditor) shellClass(raw string) string {
+	// Syntax the command splitter does not parse is a gap, before any
+	// other class: no class is reliable then (b0a9b04).
+	cmds, why := splitCommands(raw)
+	if why != "" {
+		return "gap " + why
+	}
 	var m string
 	class := ""
 	cmd := normalized(raw)
@@ -440,7 +450,7 @@ func (a auditor) shellClass(raw string) string {
 		if w := a.shellWrite(raw); w != "" {
 			return w
 		}
-		return a.scriptRun(raw)
+		return a.scriptRun(cmds)
 	}
 	return class + " " + program(m)
 }
@@ -551,24 +561,33 @@ var interpreters = regexp.MustCompile(`^(bash|sh|zsh|dash|ksh|fish|python|python
 // a script does, so every script or interpreter run is not clean unless it
 // starts a channel script by its exact path (or is a channel command of the
 // herdsman binary).
-func (a auditor) scriptRun(cmd string) string {
-	// Single-quoted text is one word to the shell: its spaces and
-	// punctuation never split it or start a segment, and in command
-	// position it is still the program that runs (417b204).
-	cmd = oneWord(cmd)
-	for _, seg := range strings.Split(segSplit.ReplaceAllString(cmd, "\n"), "\n") {
-		words := strings.Fields(stripQuotes(seg))
-		i, wrapped := 0, ""
+func (a auditor) scriptRun(cmds [][]string) string {
+	for _, words := range cmds {
+		i, wrapped, skip := 0, "", false
 	walk:
 		for i < len(words) {
 			w := words[i]
+			if m := sysPath.FindStringSubmatch(w); m != nil {
+				w = m[2]
+			}
 			switch {
 			case slices.Contains(wrappers, w):
 				wrapped = w
 				i++
+			case slices.Contains(reserved, w):
+				// Reserved words that open or close a compound command
+				// start nothing.
+				if wrapped != "" {
+					break walk
+				}
+				i++
+			case w == "[" || w == "[[" || w == "for" || w == "case" || w == "select":
+				// A test or a for, case or select header runs no program.
+				skip = wrapped == ""
+				break walk
 			case strings.Contains(w, "="):
 				i++
-			case strings.HasPrefix(w, "-") || (w[0] >= '0' && w[0] <= '9'):
+			case w != "" && (w[0] == '-' || (w[0] >= '0' && w[0] <= '9')):
 				// A wrapper with an option or a count hides what it starts.
 				if wrapped != "" {
 					return "script-run " + wrapped
@@ -578,7 +597,7 @@ func (a auditor) scriptRun(cmd string) string {
 				break walk
 			}
 		}
-		if i >= len(words) {
+		if skip || i >= len(words) {
 			continue
 		}
 		first := words[i]
@@ -588,15 +607,18 @@ func (a auditor) scriptRun(cmd string) string {
 		if m := sysPath.FindStringSubmatch(first); m != nil {
 			prog = m[2]
 		}
-		name := prog
-		joined := " " + strings.Join(words, " ") + " "
-		switch {
-		case strings.Contains(prog, "/"):
+		// A command word with a blank, shell punctuation, an expansion or a
+		// pattern is no known program: a quoted name, a variable or a
+		// substitution, whose run cannot be read from the text (b0a9b04).
+		if odd.MatchString(prog) {
 			if a.channelScript(first) {
 				continue
 			}
 			return "script-run " + base(prog)
-		case interpreters.MatchString(name):
+		}
+		joined := " " + strings.Join(words, " ") + " "
+		switch {
+		case interpreters.MatchString(prog):
 			script := ""
 			for _, x := range words[i+1:] {
 				if !strings.HasPrefix(x, "-") {
@@ -604,22 +626,22 @@ func (a auditor) scriptRun(cmd string) string {
 					break
 				}
 			}
-			if (name == "awk" || name == "gawk" || name == "mawk") && !strings.Contains(joined, " -f ") {
+			if (prog == "awk" || prog == "gawk" || prog == "mawk") && !strings.Contains(joined, " -f ") {
 				continue
 			}
 			if script != "" && a.channelScript(script) && !strings.Contains(joined, " -c ") {
 				continue
 			}
-			return "script-run " + name
-		case name == "eval" || name == "source" || name == "." || name == "xargs":
-			return "script-run " + first
-		case strings.HasSuffix(name, ".sh") || strings.HasSuffix(name, ".py") || strings.HasSuffix(name, ".pl") ||
-			strings.HasSuffix(name, ".rb") || strings.HasSuffix(name, ".js"):
+			return "script-run " + prog
+		case prog == "eval" || prog == "source" || prog == "." || prog == "xargs":
+			return "script-run " + prog
+		case strings.Contains(prog, "/") || strings.HasSuffix(prog, ".sh") || strings.HasSuffix(prog, ".py") ||
+			strings.HasSuffix(prog, ".pl") || strings.HasSuffix(prog, ".rb") || strings.HasSuffix(prog, ".js"):
 			if a.channelScript(first) {
 				continue
 			}
-			return "script-run " + name
-		case name == "herdsman":
+			return "script-run " + base(prog)
+		case prog == "herdsman":
 			if channelCommand(words[i:]) {
 				continue
 			}
@@ -629,35 +651,7 @@ func (a auditor) scriptRun(cmd string) string {
 	return ""
 }
 
-// oneWord keeps single-quoted text one word, as the scripts' ONEWORD awk
-// program does: inside single quotes (outside double quotes) a blank or a
-// segment character becomes _, and a backslash outside single quotes
-// escapes the next character.
-func oneWord(s string) string {
-	var b strings.Builder
-	sq, dq := false, false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case sq:
-			if c == '\'' {
-				sq = false
-			} else if strings.IndexByte(" \t\n\v\f\r;&|(){}`$", c) >= 0 {
-				c = '_'
-			}
-		case c == '\\':
-			b.WriteByte(c)
-			i++
-			if i >= len(s) {
-				return b.String()
-			}
-			c = s[i]
-		case c == '"':
-			dq = !dq
-		case c == '\'' && !dq:
-			sq = true
-		}
-		b.WriteByte(c)
-	}
-	return b.String()
-}
+var (
+	reserved = []string{"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "fi", "done", "esac"}
+	odd      = regexp.MustCompile(`[^A-Za-z0-9._+@%:,=/~-]`)
+)
