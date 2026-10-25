@@ -188,6 +188,12 @@ type Event struct {
 // Subscribe starts an event subscription and calls fn for each event until
 // ctx ends or the connection drops. It returns the reason the stream ended.
 func (c *Client) Subscribe(ctx context.Context, subs []map[string]any, fn func(Event)) error {
+	return c.subscribe(ctx, subs, nil, fn)
+}
+
+// subscribe is Subscribe with a call once the server has acknowledged the
+// subscription, before the first event.
+func (c *Client) subscribe(ctx context.Context, subs []map[string]any, started func(), fn func(Event)) error {
 	conn, err := c.dial(ctx)
 	if err != nil {
 		return err
@@ -209,6 +215,9 @@ func (c *Client) Subscribe(ctx context.Context, subs []map[string]any, fn func(E
 	}
 	if ack.Error != nil {
 		return ack.Error
+	}
+	if started != nil {
+		started()
 	}
 	for {
 		line, err := readLine(r)
