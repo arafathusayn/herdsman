@@ -213,6 +213,13 @@ func health(ctx context.Context, env Env, d Deps, st state, specs string, every 
 		st.write("health-at", strconv.FormatInt(at, 10)+"\n")
 		return nil
 	}
+	// Only this waiter writes the time, never negative and never ahead of
+	// now; anything else would make the age overflow or never come due.
+	if lastAt < 0 || lastAt > at {
+		fmt.Fprintf(d.Stderr, "herdsman wait: state file health-at is out of range (got %q); the health clock starts again\n", strings.TrimSpace(last))
+		st.write("health-at", strconv.FormatInt(at, 10)+"\n")
+		return nil
+	}
 	if at-lastAt < int64(every/time.Second) {
 		return nil
 	}

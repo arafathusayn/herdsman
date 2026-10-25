@@ -615,3 +615,19 @@ func TestBlockedFromHerdrStatusFirst(t *testing.T) {
 		match(t, run.name+": Herdr's blocked status", `BLOCKED im-b `, out)
 	}
 }
+
+// R5 finding 11: a stored health time outside 0..now is invalid state:
+// reported, and the clock starts again, so HEALTH is not suppressed forever.
+func TestWaiterHealthEpochBounds(t *testing.T) {
+	h := newHarness(t)
+	h.env["HERDSMAN_STATUS_SPECS"] = "im-a:w9:p1:"
+	h.status = "12:00:00\nmachine: load 9.00 (5 min) on 8 cores, memory free 50%\n   <-- LOAD HIGH\n"
+	st := h.env["HERDSMAN_STATE"]
+	for _, v := range []string{"-9223372036854775808", "-1", strconv.FormatInt(h.now.Add(time.Hour).Unix(), 10)} {
+		h.file(filepath.Join(st, "health-at"), v+"\n")
+		out := h.wait("HERDSMAN_HEALTH_EVERY", "0")
+		match(t, "an out-of-range health time "+v, `herdsman wait: state file health-at is out of range \(got "`+regexp.QuoteMeta(v)+`"\); the health clock starts again`, out)
+		match(t, "the next pass checks after "+v, `HEALTH machine LOAD HIGH`, h.wait("HERDSMAN_HEALTH_EVERY", "0"))
+		_ = os.Remove(filepath.Join(st, "health-flags"))
+	}
+}
