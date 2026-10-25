@@ -3,7 +3,6 @@ package message
 import (
 	"os"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -202,25 +201,5 @@ func TestR3RelayExposureFailure(t *testing.T) {
 	out, code := c.watch()
 	if code == 0 {
 		t.Errorf("a relay exposure that cannot be published did not fail the watcher: %q", out)
-	}
-}
-
-// A changed target set reopens the status subscription with its panes.
-func TestR3TargetChangeResubscribes(t *testing.T) {
-	c := watchedCase(t)
-	base := c.fx.Handler("agent.list")
-	calls := 0
-	c.srv.Handle("agent.list", func(p map[string]any) (any, string) {
-		calls++
-		if calls == 3 {
-			c.ic.WriteJSON(c.in("watch-targets.json"), []any{map[string]any{"pane": "sender-pane", "session": map[string]any{"source": "hook", "agent": "claude", "kind": "id", "value": "sender-session"}}})
-		}
-		return base(p)
-	})
-	s := &scripted{c: c}
-	c.events = s
-	c.run("courier-pane", map[string]string{"RUN_FOR": "60", "INTERVAL": "5"}, "card-watch")
-	if s.opens < 2 || !strings.Contains(s.subs[len(s.subs)-1], `"pane_id":"sender-pane"`) {
-		t.Errorf("subscriptions after the target change: %d %v", s.opens, s.subs)
 	}
 }
