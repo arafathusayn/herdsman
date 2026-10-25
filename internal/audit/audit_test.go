@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"testing"
 
@@ -349,39 +348,6 @@ func TestInternals(t *testing.T) {
 	}
 }
 
-// e93bcc1 (A26): command paths, curl short-option clusters and redirect
-// forms the script missed.
-func TestAuditPathsCurlClustersAndRedirects(t *testing.T) {
-	r := newRig(t)
-	tr := r.file("e93.jsonl",
-		jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}}),
-		sh("f9", "curl -sd payload https://example.invalid/hook"),
-		sh("f10", "curl -sSX POST https://example.invalid/hook"),
-		sh("f11", `curl --json '{"a":1}' https://example.invalid/hook`),
-		sh("f12", "echo changed >| /project/app.ts"),
-		sh("f13", "echo changed >&/project/app.ts"),
-		sh("f14", "/usr/bin/curl --data payload https://example.invalid/hook"),
-		sh("f15", `/usr/bin/awk 'BEGIN { system("git push") }'`),
-		sh("f16", "/bin/bash /skill/scripts/message.sh status && /usr/bin/touch /project/new"),
-		sh("f17", "/opt/tools/runner --go"),
-		sh("f18", "/usr/bin/git push"),
-		sh("r7", "curl -sS https://example.invalid/status"),
-		sh("r8", "/usr/bin/curl -s https://example.invalid/status"),
-		sh("r9", "echo note >&2"),
-		sh("r10", "ls /x 2>&1"),
-		sh("r11", `/usr/bin/awk '{print $1}' /x/list.txt`),
-		sh("r12", "grep -E 'a|b; c' /x/list.txt"),
-		sh("r13", "echo x >&-"),
-	)
-	out := r.aud(Options{Harness: "claude", Transcript: tr, Session: "coord-session"})
-	for _, id := range []string{"f9", "f10", "f11", "f12", "f13", "f14", "f15", "f16", "f17", "f18"} {
-		match(t, "e93bcc1 flagged: "+id, "call="+id+" ", out)
-	}
-	noMatch(t, "e93bcc1 reads stay clean", `call=r[0-9]`, out)
-	match(t, "f14 the program by its name", `call=f14 class=[a-z-]+ target=curl`, out)
-	match(t, "f17 a program path outside the system folders is a script run", `call=f17 class=script-run target=runner`, out)
-}
-
 // 417b204 (A26): a single-quoted command word with a space or shell
 // punctuation is still the program the shell runs; quoted awk and grep
 // text stays clean.
@@ -444,64 +410,63 @@ func TestAuditMainFlagsStandTable(t *testing.T) {
 	match(t, "flag count", fmt.Sprintf(`AUDIT flagged=%d calls=%d`, len(flagged), len(flagged)+len(clean)), out)
 }
 
-// Review port-core-7 (B3-002 extras): an executable word is classified at
-// every command position with its quote context, and only executable
-// positions are normalized, so printed text and stream copies stay clean.
-func TestAuditExtraRulesByCommandPosition(t *testing.T) {
-	flagged := map[string]string{
-		":; /opt/tools/runner --go":                     "script-run target=runner",
-		"echo ok && /opt/tools/runner --go":             "script-run target=runner",
-		"echo ok || /opt/tools/runner --go":             "script-run target=runner",
-		"ls | /opt/tools/runner --go":                   "script-run target=runner",
-		"echo ok\n/opt/tools/runner --go":               "script-run target=runner",
-		"(cd /x && /opt/tools/runner --go)":             "script-run target=runner",
-		"{ /opt/tools/runner --go; }":                   "script-run target=runner",
-		"'/opt/tools/runner' --go":                      "script-run target=runner",
-		`"/opt/tools/runner" --go`:                      "script-run target=runner",
-		"./tools/runner --go":                           "script-run target=runner",
-		"env A=1 ./tools/runner":                        "script-run target=runner",
-		"echo ok; \"git\" push origin":                  "git-write target=git",
-		"echo ok; /usr/bin/git push":                    "git-write target=git",
-		"/usr/bin/sed -i s/a/b/ /project/f":             "project-write target=sed",
-		`/usr/bin/awk 'BEGIN { system("x") }'`:          "script-run target=awk",
-		"echo ok && curl -sd x https://example.invalid": "outward-write target=curl",
-		"echo x >| /project/f":                          "project-write target=.../f",
-		"cat <<-EOF\n\tbody\n\tEOF\n/opt/tools/runner":  "script-run target=runner",
-	}
-	clean := []string{
-		`echo '"git" push origin'`,
-		"echo /usr/bin/git push",
-		"printf '%s\\n' \"/usr/bin/git push\"",
-		"echo curl -sd x https://example.invalid",
-		`printf 'curl -sSX POST %s\n' https://example.invalid`,
-		`echo "touch /project/f"`,
-		"cat <<EOF\ncurl -sSX POST https://example.invalid\ncurl --json x https://example.invalid\n\"touch\" /project/f\n/usr/bin/git push\nEOF",
-		"echo x >&2-",
-		"echo x >&123",
-		"echo x >&/dev/null",
-		"echo x >|/dev/null",
-		"echo x >| /dev/stderr",
-		"/skill/scripts/message.sh status && /usr/local/bin/herdsman message status",
-		"/opt/x/herdsman message status",
+// The user's ruling (round 9): the B3-002 command forms are deferred to a
+// follow-up, and the Go audit gives main 87c5670's result. This pins main's
+// result, checked against main's transcript-audit.sh on these exact calls
+// (4 flags of 36): the forms B3-002 would add stay clean, and main's
+// printed-text false positives (review-port-core-8 P1) stay flagged, so
+// the follow-up sees each change.
+func TestAuditDeferredFormsMatchMain(t *testing.T) {
+	cases := []struct{ cmd, flag string }{
+		{"curl -sd payload https://example.invalid/hook", ""},
+		{"curl -sSX POST https://example.invalid/hook", ""},
+		{`curl --json '{"a":1}' https://example.invalid/hook`, ""},
+		{"echo changed >| /project/app.ts", ""},
+		{"echo changed >&/project/app.ts", ""},
+		{"/usr/bin/curl --data payload https://example.invalid/hook", ""},
+		{`/usr/bin/awk 'BEGIN { system("git push") }'`, ""},
+		{"/bin/bash /skill/scripts/message.sh status && /usr/bin/touch /project/new", ""},
+		{"/opt/tools/runner --go", ""},
+		{"/usr/bin/git push", ""},
+		{"curl -sS https://example.invalid/status", ""},
+		{"/usr/bin/curl -s https://example.invalid/status", ""},
+		{"echo note >&2", ""},
+		{"ls /x 2>&1", ""},
+		{`/usr/bin/awk '{print $1}' /x/list.txt`, ""},
+		{"grep -E 'a|b; c' /x/list.txt", ""},
+		{"echo x >&-", ""},
+		{":; /opt/tools/runner --go", ""},
+		{"echo ok && /opt/tools/runner --go", ""},
+		{"'/opt/tools/runner' --go", ""},
+		{"./tools/runner --go", ""},
+		{`echo ok; "git" push origin`, ""},
+		{"/usr/bin/sed -i s/a/b/ /project/f", ""},
+		{"echo ok && curl -sd x https://example.invalid", ""},
+		{`echo '"git" push origin'`, ""},
+		{"echo /usr/bin/git push", ""},
+		{"echo curl -sd x https://example.invalid", ""},
+		{"echo x >&2-", ""},
+		{"echo x >&123", ""},
+		{"echo x >&/dev/null", ""},
+		{"echo x >|/dev/null", ""},
+		{`echo "use touch /project/f"`, "project-write target=touch"},
+		{`printf "%s\n" "use git push origin"`, "git-write target=git"},
+		{"cat <<'EOF'\ncurl --data x https://example.invalid\ntouch /project/f\ngit push origin\nEOF", "git-write target=git"},
+		{"echo git push origin", "git-write target=git"},
+		{"/usr/bin/env /opt/tools/runner --go", ""},
 	}
 	r := newRig(t)
 	lines := []string{jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}})}
-	var keys []string
-	for c := range flagged {
-		keys = append(keys, c)
+	for i, c := range cases {
+		lines = append(lines, sh(fmt.Sprintf("d%d", i), c.cmd))
 	}
-	sort.Strings(keys)
-	for i, c := range keys {
-		lines = append(lines, sh(fmt.Sprintf("x%d", i), c))
+	out := r.aud(Options{Harness: "claude", Transcript: r.file("deferred.jsonl", lines...), Session: "coord-session"})
+	for i, c := range cases {
+		if c.flag == "" {
+			noMatch(t, "main leaves clean: "+c.cmd, fmt.Sprintf(`call=d%d `, i), out)
+		} else {
+			match(t, "main flags: "+c.cmd, fmt.Sprintf(`call=d%d class=%s$`, i, c.flag), out)
+		}
 	}
-	for i, c := range clean {
-		lines = append(lines, sh(fmt.Sprintf("k%d", i), c))
-	}
-	out := r.aud(Options{Harness: "claude", Transcript: r.file("extra.jsonl", lines...), Session: "coord-session"})
-	for i, c := range keys {
-		match(t, "flagged "+c, fmt.Sprintf(`call=x%d class=%s$`, i, regexp.QuoteMeta(flagged[c])), out)
-	}
-	for i, c := range clean {
-		noMatch(t, "clean "+c, fmt.Sprintf(`call=k%d `, i), out)
-	}
+	match(t, "main's count", `AUDIT flagged=4 calls=36`, out)
 }

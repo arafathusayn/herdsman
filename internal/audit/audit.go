@@ -133,7 +133,7 @@ func run(o Options, w io.Writer) (int, int, error) {
 			if r.cmd == "" {
 				return calls, flagged, gap("malformed tool-call arguments: call %s", r.id)
 			}
-			c := a.shellClass(r.cmd, r.raw)
+			c := a.shellClass(r.cmd)
 			if c != "" && slices.Contains(grants, r.cmd) {
 				c = ""
 			}
@@ -253,14 +253,12 @@ func checkSession(o Options, records []any) error {
 }
 
 // row is one tool call (and, for a patch, one patched path).
-// raw is the command as the transcript holds it, newlines kept, for the
-// B3-002 extra rules only; main's checks read cmd, flattened as main does.
-type row struct{ tool, id, path, cmd, raw string }
+type row struct{ tool, id, path, cmd string }
 
 var unsafeChars = strings.NewReplacer("\t", " ", "\n", " ", "\r", " ", "\x1f", " ")
 
 func newRow(tool, id, path, cmd string) row {
-	return row{unsafeChars.Replace(tool), unsafeChars.Replace(id), unsafeChars.Replace(path), unsafeChars.Replace(cmd), cmd}
+	return row{unsafeChars.Replace(tool), unsafeChars.Replace(id), unsafeChars.Replace(path), unsafeChars.Replace(cmd)}
 }
 
 func claudeRows(records []any) []row {
@@ -332,7 +330,7 @@ func codexRows(records []any) []row {
 			}
 			switch {
 			case args == nil:
-				rows = append(rows, row{"!malformed", id, "", "", ""})
+				rows = append(rows, row{"!malformed", id, "", ""})
 			case p["name"] == "apply_patch":
 				rows = append(rows, patchRows("apply_patch", id, alt(alt(args["input"], args["patch"]), ""))...)
 			default:
@@ -412,19 +410,8 @@ func program(match string) string {
 	return append(strings.Fields(leadSep.ReplaceAllString(match, "")), "")[0]
 }
 
-// shellClass returns "class program" for a command, or "". Main's checks
-// (87c5670's transcript-audit.sh, ported as is) read the command text
-// unchanged and decide first; e93bcc1's B3-002 detections only add flags
-// to a command main leaves clean.
-func (a auditor) shellClass(cmd, raw string) string {
-	if c := a.mainClass(cmd); c != "" {
-		return c
-	}
-	return a.extraClass(raw)
-}
-
-// mainClass is 87c5670's shell_class.
-func (a auditor) mainClass(cmd string) string {
+// shellClass returns "class program" for a command, or "".
+func (a auditor) shellClass(cmd string) string {
 	var m string
 	class := ""
 	switch {
