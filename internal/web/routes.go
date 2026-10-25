@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -454,13 +455,23 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, RouteResult{Code: "invalid_route", Field: field, Error: err.Error(), Steps: []RouteStep{}, Tabs: []string{}})
 		return
 	}
-	var res RouteResult
+	// The result travels in the job's completion message: once the browser
+	// leaves, the handler never reads what the queue's worker writes.
 	done := s.queue.DoJob(r.Context(), func(ctx context.Context) Result {
-		res = s.queue.runRoute(ctx, p)
-		return Result{OK: res.OK}
+		res := s.queue.runRoute(ctx, p)
+		raw, err := json.Marshal(res)
+		if err != nil {
+			return Result{Code: "internal_error", Error: err.Error()}
+		}
+		return Result{OK: res.OK, Result: raw}
 	})
-	if res.Steps == nil { // the browser left before the job ran
-		writeJSON(w, http.StatusServiceUnavailable, RouteResult{Code: "not_run", Error: done.Error, Steps: []RouteStep{}, Tabs: []string{}})
+	var res RouteResult
+	if done.Result == nil || json.Unmarshal(done.Result, &res) != nil {
+		// The browser left (or the job failed before it ran a step): the job
+		// may be queued or running; it is never cancelled half way.
+		writeJSON(w, http.StatusServiceUnavailable, RouteResult{Code: orDefault(done.Code, "not_waited"),
+			Error: "the request ended before the route finished; it may still be running: check the session (" + done.Error + ")",
+			Steps: []RouteStep{}, Tabs: []string{}})
 		return
 	}
 	status := http.StatusOK
@@ -479,7 +490,13 @@ type InboxState struct {
 	Setup    bool     `json:"setup"`   // setup.json is there
 	Proposed []string `json:"proposed"`
 	Approved []string `json:"approved"`
-	Error    string   `json:"error,omitempty"`
+	// PairProposed: the pending registry holds exactly this route's
+	// adjutant and orchestrator. PairApproved: the approved copy is that
+	// same registry, byte for byte, as the channel itself requires; an
+	// approval of an older proposal is stale and does not count.
+	PairProposed bool   `json:"pair_proposed"`
+	PairApproved bool   `json:"pair_approved"`
+	Error        string `json:"error,omitempty"`
 }
 
 // inboxState serves GET /api/routes/inbox?path=...: the state of each
@@ -491,10 +508,25 @@ func (s *Server) inboxState(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, InboxState{Proposed: []string{}, Approved: []string{}, Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, readInboxState(p))
+	q := r.URL.Query()
+	writeJSON(w, http.StatusOK, readInboxState(p, q.Get("adjutant"), q.Get("orchestrator")))
 }
 
-func readInboxState(p string) InboxState {
+// isPair reports whether a registry is exactly this adjutant and orchestrator.
+func isPair(reg []ChannelPeer, adjutant, orchestrator string) bool {
+	if len(reg) != 2 || adjutant == "" || orchestrator == "" {
+		return false
+	}
+	want := map[string]string{adjutant: "adjutant", orchestrator: "orchestrator"}
+	for _, p := range reg {
+		if want[p.Name] != p.Role {
+			return false
+		}
+	}
+	return true
+}
+
+func readInboxState(p, adjutant, orchestrator string) InboxState {
 	st := InboxState{Path: p, Proposed: []string{}, Approved: []string{}}
 	fi, err := os.Lstat(p)
 	if err != nil {
@@ -523,6 +555,12 @@ func readInboxState(p string) InboxState {
 		return out
 	}
 	st.Proposed, st.Approved = names("peers"), names("peers.approved")
+	peers, perr := readBounded(filepath.Join(p, "peers"), envelopeMax)
+	approved, aerr := readBounded(filepath.Join(p, "peers.approved"), envelopeMax)
+	preg, pok := validRegistry(peers, perr)
+	st.PairProposed = pok && regularFile(filepath.Join(p, "peers")) && isPair(preg, adjutant, orchestrator)
+	_, aok := validRegistry(approved, aerr)
+	st.PairApproved = st.PairProposed && aok && regularFile(filepath.Join(p, "peers.approved")) && bytes.Equal(peers, approved)
 	return st
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -601,5 +602,110 @@ func TestDoJobTurnsAPanicIntoAResult(t *testing.T) {
 	// The queue keeps running after it.
 	if r := f.queue.DoJob(context.Background(), func(context.Context) Result { return Result{OK: true} }); !r.OK {
 		t.Fatalf("result = %+v", r)
+	}
+}
+
+// postCtx calls the handler directly with a request context the test controls.
+func (f *routeFixture) postCtx(ctx context.Context, req RouteRequest) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(req)
+	r := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/routes", strings.NewReader(string(b)))
+	w := httptest.NewRecorder()
+	f.srv.createRoute(w, r)
+	return w
+}
+
+func TestRouteCancelledWhileRunningFinishesTheJob(t *testing.T) {
+	f := newRouteFixture(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	f.herdr.Handle("agent.start", func(p map[string]any) (any, string) {
+		close(started)
+		<-release
+		return map[string]any{"type": "agent_started", "agent": map[string]any{"pane_id": p["pane_id"]}, "argv": []string{}}, ""
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan *httptest.ResponseRecorder)
+	go func() { done <- f.postCtx(ctx, f.orchestrator()) }()
+	<-started
+	cancel()
+	w := <-done // the handler returns while the job still runs
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "may still be running") {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	close(release)
+	// The job runs to its end in the queue; the next queued action waits for it.
+	f.queue.Do(context.Background(), Action{Type: "keys", Pane: "w1:p2", Keys: []string{"enter"}})
+	var methods []string
+	for _, r := range mutations(f.herdr) {
+		methods = append(methods, r.Method)
+	}
+	want := []string{"tab.create", "agent.start", "agent.prompt", "pane.split", "pane.rename", "pane.send_text", "pane.send_keys", "pane.send_keys"}
+	if !slices.Equal(methods, want) {
+		t.Fatalf("methods = %v", methods)
+	}
+}
+
+func TestRouteCancelledWhileQueuedNeverRuns(t *testing.T) {
+	f := newRouteFixture(t)
+	busy, release := make(chan struct{}), make(chan struct{})
+	go f.queue.DoJob(context.Background(), func(context.Context) Result {
+		close(busy)
+		<-release
+		return Result{OK: true}
+	})
+	<-busy
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan *httptest.ResponseRecorder)
+	go func() { done <- f.postCtx(ctx, f.orchestrator()) }()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	w := <-done
+	close(release)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	f.queue.Do(context.Background(), Action{Type: "keys", Pane: "w1:p2", Keys: []string{"enter"}})
+	for _, r := range mutations(f.herdr) {
+		if r.Method == "tab.create" {
+			t.Fatal("a cancelled queued route ran")
+		}
+	}
+}
+
+func TestInboxApprovalMustMatchTheProposalAndThePair(t *testing.T) {
+	f := newRouteFixture(t)
+	root := filepath.Join(f.home, "inbox")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	entry := func(name, role, pane, sid string) string {
+		return `"` + name + `":{"role":"` + role + `","identity":{"pane":"` + pane + `","session":{"agent":"claude","kind":"id","source":"herdr","value":"` + sid + `"}}}`
+	}
+	pair := "{" + entry("adj-1", "adjutant", "w1:p4", "s1") + "," + entry("orch-1", "orchestrator", "w1:p5", "s2") + "}"
+	other := "{" + entry("adj-1", "adjutant", "w1:p4", "s1") + "," + entry("orch-1", "orchestrator", "w1:p9", "s3") + "}"
+	write := func(file, body string) {
+		if err := os.WriteFile(filepath.Join(root, file), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get := func(adj, orch string) InboxState {
+		res := f.request(t, http.MethodGet, "/api/routes/inbox?path=~/inbox&adjutant="+adj+"&orchestrator="+orch, "", f.authed)
+		var st InboxState
+		_ = json.NewDecoder(res.Body).Decode(&st)
+		return st
+	}
+	write("peers", pair)
+	if st := get("adj-1", "orch-1"); !st.PairProposed || st.PairApproved {
+		t.Fatalf("proposed only: %+v", st)
+	}
+	write("peers.approved", pair)
+	if st := get("adj-1", "orch-1"); !st.PairProposed || !st.PairApproved {
+		t.Fatalf("approved: %+v", st)
+	}
+	if st := get("adj-2", "orch-1"); st.PairProposed || st.PairApproved {
+		t.Fatalf("another pair: %+v", st)
+	}
+	write("peers", other) // a new proposal makes the old approval stale
+	if st := get("adj-1", "orch-1"); !st.PairProposed || st.PairApproved || len(st.Approved) != 2 {
+		t.Fatalf("stale approval: %+v", st)
 	}
 }
