@@ -410,3 +410,13 @@ func TestAddedSinceTheSnapshotOnDisk(t *testing.T) {
 		t.Errorf("no file: %v", got)
 	}
 }
+
+// The login of each kind of user value, as the scripts' jq printed it.
+func TestGhItemLogin(t *testing.T) {
+	for raw, want := range map[string]string{`{"login":"amy"}`: "amy", `{"login":12}`: "12", `{"login":null}`: "null", `{}`: "null",
+		`{"login":true}`: "true", `{"login":{"a":1}}`: `{"a":1}`, `"x"`: "null", `{"login":`: "null"} {
+		if got := str((ghItem{User: json.RawMessage(raw)}).login()); got != want {
+			t.Errorf("%s: %q, want %q", raw, got, want)
+		}
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/arafathusayn/herdsman/internal/watch"
@@ -26,6 +27,7 @@ func signalContext() (context.Context, context.CancelFunc) {
 }
 
 func runWait(args []string, _ io.Reader, stdout, stderr io.Writer) int {
+	longRunning()
 	args, asJSON := takeJSON(args)
 	if asJSON {
 		stdout = newEventJSON(stdout)
@@ -47,6 +49,7 @@ func runWait(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 const watchUsage = "usage: herdsman watch implementers|reviewer|prs (settings in the environment)"
 
 func runWatch(args []string, _ io.Reader, stdout, stderr io.Writer) int {
+	longRunning()
 	args, asJSON := takeJSON(args)
 	if asJSON {
 		stdout = newEventJSON(stdout)
@@ -73,3 +76,10 @@ func runWatch(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stderr, watchUsage)
 	return 2
 }
+
+// longRunning sets a soft memory limit for the long-running commands (A24:
+// under 30 MB of resident memory): the collector runs earlier as the heap
+// nears it, instead of letting it grow to twice the live data.
+func longRunning() { debug.SetMemoryLimit(longRunningMemory) }
+
+const longRunningMemory = 14 << 20

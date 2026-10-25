@@ -347,16 +347,34 @@ type ghItem struct {
 	State any             `json:"state"`
 }
 
+// login is user.login, read without a decoder per item (A24: a decoder
+// per item was most of a long history's garbage). A number stays its
+// literal text, as UseNumber reads it.
 func (it ghItem) login() any {
+	if len(it.User) == 0 || it.User[0] != '{' {
+		return nil
+	}
 	var u struct {
-		Login any `json:"login"`
+		Login json.RawMessage `json:"login"`
 	}
-	if len(it.User) > 0 && it.User[0] == '{' {
-		dec := json.NewDecoder(bytes.NewReader(it.User))
-		dec.UseNumber()
-		_ = dec.Decode(&u)
+	if json.Unmarshal(it.User, &u) != nil || len(u.Login) == 0 {
+		return nil
 	}
-	return u.Login
+	switch c := u.Login[0]; {
+	case c == '"':
+		var s string
+		_ = json.Unmarshal(u.Login, &s)
+		return s
+	case c == '-' || (c >= '0' && c <= '9'):
+		return json.Number(u.Login)
+	case c == 'n':
+		return nil
+	}
+	var v any
+	dec := json.NewDecoder(bytes.NewReader(u.Login))
+	dec.UseNumber()
+	_ = dec.Decode(&v)
+	return v
 }
 
 // streamPages reads gh's --paginate output (one JSON array per page) item
