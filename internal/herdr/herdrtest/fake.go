@@ -82,6 +82,14 @@ func (s *Server) Requests() []Request {
 	return append([]Request(nil), s.requests...)
 }
 
+// Forget drops the recorded requests, so a long test measures the code
+// under test and not this record.
+func (s *Server) Forget() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requests = nil
+}
+
 // Methods returns the method of each request so far, skipping reads that
 // pollers repeat (snapshot, ping, subscribe, pane.read).
 func (s *Server) Methods() []string {
