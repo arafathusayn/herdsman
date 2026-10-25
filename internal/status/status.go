@@ -80,12 +80,12 @@ type Options struct {
 }
 
 var (
-	modelRe   = regexp.MustCompile(`muse-spark-[0-9.a-z-]*|Opus [0-9.]*|gpt-[0-9a-z.-]*`)
-	bgRe      = regexp.MustCompile(`(running|workflow).*[0-9]+(m|h) ?[0-9]*s?`)
+	modelRe = regexp.MustCompile(`muse-spark-[0-9.a-z-]*|Opus [0-9.]*|gpt-[0-9a-z.-]*`)
+	bgRe    = regexp.MustCompile(`(running|workflow).*[0-9]+(m|h) ?[0-9]*s?`)
 	// durationRe is one elapsed time: "1h 02m", "23m 45s", "2h".
 	durationRe = regexp.MustCompile(`(?:\b([0-9]+)h ?)?\b([0-9]+)m(?: ?[0-9]+s)?|\b([0-9]+)h\b`)
-	fgRe      = regexp.MustCompile(`Thinking|Calling tools|esc to interrupt`)
-	leadRe    = regexp.MustCompile(`^[^A-Za-z]*`)
+	fgRe       = regexp.MustCompile(`Thinking|Calling tools|esc to interrupt`)
+	leadRe     = regexp.MustCompile(`^[^A-Za-z]*`)
 )
 
 // pruned are the dependency and build caches the write count skips.
