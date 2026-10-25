@@ -154,6 +154,9 @@ func TestPart15Regressions(t *testing.T) {
 		c := newCase(t, true)
 		c.send()
 		c.editJSON(c.ob("new", ID+".md"), e.fn)
+		// The allocation copy gets the same bytes, so only the schema
+		// check can refuse the entry (not the allocation comparison).
+		c.write(c.in("ids", ID, "envelope"), c.read(c.ob("new", ID+".md")))
 		c.courier()
 		check(t, "V3R12 a mistyped envelope field is quarantined: "+e.name, "^yes no$", yn(c.ob("quarantine", ID+".md"))+" "+yn(c.ob("ready", ID+".md")))
 	}

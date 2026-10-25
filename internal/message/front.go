@@ -19,9 +19,11 @@ const Help = `usage: herdsman message [--json] <action> [args]   (HERDSMAN_NAME:
   register propose <name> adjutant|orchestrator | approve <checksum> | retire <name> <checksum>
   courier                        SWEEP=60 ALERT_AFTER=600 RUN_FOR=0
   card-watch [--json]            INTERVAL=5 RUN_FOR=0 (it prints no event lines; alerts go to herdr)
-  resume-goal <name>             RESUME_TARGET_SUM
-  authority                      RELAY or HUMAN
+  resume-goal <name>             RESUME_TARGET_SUM (--json: {"type":"resume","status":"held|noop|sent","text"})
+  authority                      RELAY or HUMAN (--json: {"type":"authority","status":"relay|human","text"})
   leak-gate <file> [heading...]  LEAK_ALLOW_FILE LEAK_PATTERN
+settings: SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix); LOCK_WAIT is a count. A bad value exits 2 first.
 
 exit codes:
   0  done (wait: a message or TICK; resume-goal: NOOP or SENT; authority: RELAY; leak-gate: clean)
@@ -137,7 +139,11 @@ func (e *Env) Authority(args []string) int {
 		return e.finish(err)
 	}
 	l, code := e.ch.Authority(e.ctx(), e.Client)
-	fmt.Fprintln(e.Stdout, l)
+	status := "relay"
+	if code != 0 {
+		status = "human"
+	}
+	e.statusLine("authority", status, l)
 	return e.finish(exitCode(code))
 }
 
@@ -146,4 +152,17 @@ func exitCode(code int) error {
 		return nil
 	}
 	return exitWith(code)
+}
+
+// StatusLine is one --json line of authority or resume-goal: type
+// (authority or resume), status (relay or human; held, noop or sent) and
+// the text line the command prints without --json.
+type StatusLine struct {
+	Type   string `json:"type"`
+	Status string `json:"status"`
+	Text   string `json:"text"`
+}
+
+func (e *Env) statusLine(kind, status, text string) {
+	e.event(StatusLine{Type: kind, Status: status, Text: text}, text)
 }

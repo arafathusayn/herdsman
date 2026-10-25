@@ -164,7 +164,7 @@ func (c *tc) run(pane string, extra map[string]string, cmd string, args ...strin
 	}
 	var out bytes.Buffer
 	e := &Env{Getenv: func(k string) string { return env[k] }, Stdout: &out, Stderr: &out, Client: herdr.New(c.srv.Socket),
-		Now: func() time.Time { return c.now }, Sleep: func(d time.Duration) { c.now = c.now.Add(d) }, Events: c.events}
+		Now: func() time.Time { return c.now }, Sleep: func(d time.Duration) { c.now = c.now.Add(d) }, Events: c.events, Executable: env["@EXE"]}
 	var code int
 	switch cmd {
 	case "message":

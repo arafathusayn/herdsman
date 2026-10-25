@@ -187,9 +187,17 @@ func TestLongRunningLoopsStayFlat(t *testing.T) {
 			t.Errorf("%s: goroutines %d -> %d", name, g0, g)
 		}
 	}
+	// The waiter on an idle inbox (nothing queued to become overdue):
+	// DEADLINE=1500 with RECHECK=1 is about 1500 rechecks on the fake clock.
+	idle := newCase(t, true)
+	idleEnv := map[string]string{"DEADLINE": "1500", "RECHECK": "1", "HEALTH_AFTER": "1d"}
+	idle.run("receiver-pane", map[string]string{"DEADLINE": "1", "RECHECK": "1", "HEALTH_AFTER": "1d"}, "wait", O)
 	measure("message wait", func() {
-		// DEADLINE=1500 with RECHECK=1 is 1500 rechecks on the fake clock.
-		c.run("receiver-pane", map[string]string{"DEADLINE": "1500", "RECHECK": "1"}, "wait", O)
+		idle.srv.ResetRequests()
+		out, code := idle.run("receiver-pane", idleEnv, "wait", O)
+		if n := idle.count("^agent get receiver-pane"); n < 1000 || code != 0 || out != "TICK message-wait deadline\n" {
+			t.Errorf("idle wait: %d rechecks, exit %d %q", n, code, out)
+		}
 	})
 	measure("message courier", func() {
 		c.courier("RUN_FOR=1000", "SWEEP=1")

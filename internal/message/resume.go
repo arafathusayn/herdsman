@@ -55,7 +55,7 @@ type resumer struct {
 func (e *Env) resume(args []string) error {
 	err := e.resumeRun(args, nil)
 	if h, ok := err.(*heldErr); ok {
-		fmt.Fprintf(e.Stdout, "HELD %s\n", h.msg)
+		e.statusLine("resume", "held", "HELD "+h.msg)
 		return exitWith(3)
 	}
 	return err
@@ -101,7 +101,7 @@ func (e *Env) resumeRun(args []string, beforeLock func()) error {
 	case "working", "achieved":
 		state := g.classify()
 		_ = os.Remove(sent)
-		fmt.Fprintf(e.Stdout, "NOOP verified %s\n", state)
+		e.statusLine("resume", "noop", "NOOP verified "+state)
 		return nil
 	case "blocked":
 		return held("turn is not idle or is blocked")
@@ -109,7 +109,7 @@ func (e *Env) resumeRun(args []string, beforeLock func()) error {
 		if st, err := os.Stat(sent); err == nil && st.Mode().IsRegular() {
 			return held("reconcile unknown read-back after previous resume")
 		}
-		fmt.Fprintln(e.Stdout, "NOOP no current paused-goal marker")
+		e.statusLine("resume", "noop", "NOOP no current paused-goal marker")
 		return nil
 	}
 	if inbox.Exists(sent) {
@@ -177,7 +177,7 @@ func (e *Env) resumeRun(args []string, beforeLock func()) error {
 		return held("resume submission uncertain; inspect read-back")
 	}
 	if anyLine(sentRe, screen) {
-		fmt.Fprintln(e.Stdout, "SENT /goal resume; working read-back retained")
+		e.statusLine("resume", "sent", "SENT /goal resume; working read-back retained")
 		return nil
 	}
 	return held("resume read-back not working; inspect retained evidence")
