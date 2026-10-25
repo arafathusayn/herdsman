@@ -3,7 +3,6 @@ package runcheck
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -239,7 +238,7 @@ func TestLoadGate(t *testing.T) {
 	// The gate waits for a reading that falls under the limit.
 	f.setReading(t, "9.0 50")
 	c, clock := f.config()
-	c.GateWait = time.Hour
+	c.GateWait, c.GateWaitText = time.Hour, ""
 	polls := 0
 	c.Sleep = func(d time.Duration) {
 		*clock = clock.Add(d)
@@ -315,7 +314,7 @@ func TestRealProbesFeedTheGate(t *testing.T) {
 	f := newFixture(t)
 	c, _ := f.config()
 	c.Probes, c.Probe = true, nil
-	c.LoadLimit, c.MinFree, c.GateWait = "10000", 1, 5*time.Second
+	c.LoadLimit, c.MinFree, c.GateWait, c.GateWaitText = "10000", 1, 5*time.Second, ""
 	out, errs, _ := runIn(c, "echo", "ran")
 	if out != "ran\n" {
 		t.Errorf("C10b the machine's own reading lets a check run: %q %q", out, errs)
@@ -338,7 +337,7 @@ func TestPublisher(t *testing.T) {
 	match(t, "C11 the publisher writes a reading", `^[0-9.]+ [0-9.]+$`, strings.TrimSpace(string(b)))
 	match(t, "C11b and stops by itself", `publisher stopped at [0-9]{2}:[0-9]{2}; sandboxed checks now run without a load gate`, errb.String())
 
-	for _, tc := range []struct{ hours, secs string }{{"", ""}, {"x", ""}, {"1", "y"}} {
+	for _, tc := range []struct{ hours, secs string }{{"", ""}} {
 		c.PublishSeconds = tc.secs
 		errb.Reset()
 		if code := Publish(c, tc.hours, &errb); code != ExitUsage || !strings.Contains(errb.String(), "usage: herdsman run-check --publish <hours>") {
@@ -535,7 +534,79 @@ func TestGateWaitTextWithoutTheEnvironment(t *testing.T) {
 	if c.gateWaitText() != "2" {
 		t.Errorf("%q", c.gateWaitText())
 	}
-	if testSecs("9223372036854775807") != math.MaxInt64 {
-		t.Error("a GATE_WAIT past what a duration holds")
+	if c.gateWaitSecs() != 2 {
+		t.Error("GateWait without its text")
+	}
+}
+
+// R4 finding 2: a negative HERDSMAN_GATE_WAIT past what a duration holds
+// gives up at once, as the script's elapsed -ge negative test does.
+func TestNegativeGateWait(t *testing.T) {
+	f := newFixture(t)
+	f.env = append(f.env, "HERDSMAN_GATE_WAIT=-10000000000")
+	f.setReading(t, "9.0 50")
+	c, _ := f.config()
+	_, errs, code := runIn(c, "echo", "ran")
+	match(t, "gives up at once", `NOT RUN \(load gate gave up after -10000000000s`, errs)
+	if code != ExitTempFail {
+		t.Errorf("exit %d", code)
+	}
+}
+
+// R4 finding 1 and part A: the publisher's end, run-check.sh line
+// end=$(( $(date +%s) + ${HERDSMAN_PUBLISH_SECONDS:-$(( $2 * 3600 ))} )),
+// against /bin/bash with the script's own lines.
+func TestPublishEndMatchesBash(t *testing.T) {
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("no /bin/bash")
+	}
+	src, err := os.ReadFile("../../skills/herdsman/scripts/run-check.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(src), "\n")
+	defaults := strings.Join(lines[17:24], "\n") // LOCK= to POLL=
+	stmt := strings.TrimSpace(lines[53])
+	if !strings.HasPrefix(defaults, "LOCK=") || !strings.HasPrefix(stmt, "end=$(( $(date +%s)") {
+		t.Fatalf("the script moved: %q / %q", defaults, stmt)
+	}
+	stmt = strings.Replace(stmt, "$(date +%s)", "1000", 1)
+	env := map[string]string{"FOO": "5", "A": "B", "B": "7", "BAD": "08"}
+	cases := [][2]string{{"", "1"}, {"", " 01 "}, {"", "08"}, {"", "0x10"}, {"", "1+1"}, {"", "FOO"}, {"", "- 1"}, {"", "x"}, {"", "1/0"},
+		{"30", "1"}, {" 30", "1"}, {"030", "1"}, {"0x1f", "1"}, {"2#0", "1"}, {"64#@_", "1"}, {"-9223372036854775808", "0"},
+		{"9223372036854775807", "0"}, {"9223372036854775808", "0"}, {"- 1", "0"}, {"1-1", "0"}, {"2**3", "0"}, {"1?2:3", "0"},
+		{"(1,2)", "0"}, {"1,2", "0"}, {"FOO", "0"}, {"UNSET", "0"}, {"A", "0"}, {"BAD", "0"}, {"1/0", "0"}, {"1 +", "0"},
+		{"GATE_WAIT", "0"}, {"x=5", "0"}}
+	for _, tc := range cases {
+		e := map[string]string{"HERDSMAN_PUBLISH_SECONDS": tc[0], "__H": tc[1]}
+		for k, v := range env {
+			e[k] = v
+		}
+		cmd := exec.Command("/bin/bash", "-c", defaults+"\nset -- --publish \"$__H\"\n"+stmt+"\necho \"$end\"")
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		for k, v := range e {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+		out, berr := cmd.Output()
+		want := strings.TrimSpace(string(out))
+		c := FromEnv(func(k string) string { return e[k] })
+		got, gerr := publishEnd(c, 1000, tc[1])
+		// On an arithmetic error bash goes on with end empty.
+		if berr != nil || (want == "") != (gerr != nil) || (gerr == nil && want != strconv.FormatInt(got, 10)) {
+			t.Errorf("seconds %q hours %q: bash %q (%v), Go %d (%v)", tc[0], tc[1], want, berr, got, gerr)
+		}
+	}
+	// An arithmetic error: bash prints it, then the publisher stops at once.
+	c := FromEnv(func(k string) string { return map[string]string{"HERDSMAN_PUBLISH_SECONDS": "1/0"}[k] })
+	var errb bytes.Buffer
+	if code := Publish(c, "1", &errb); code != 0 || !strings.Contains(errb.String(), "division by 0") || !strings.Contains(errb.String(), "publisher stopped") {
+		t.Errorf("an arithmetic error: %d %q", code, errb.String())
+	}
+}
+
+func TestPublishEndWithoutFromEnv(t *testing.T) {
+	c := Config{PublishSeconds: "HERDSMAN_TEST_UNSET_NAME + 2"}
+	if end, err := publishEnd(c, 10, "1"); err != nil || end != 12 {
+		t.Errorf("%d %v", end, err)
 	}
 }
