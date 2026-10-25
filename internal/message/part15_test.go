@@ -86,7 +86,7 @@ func TestPart15Regressions(t *testing.T) {
 	c.fx.SetScreen("receiver-pane", "✦ Heads up · again\n")
 	c.watch()
 	again := 0
-	for _, f := range glob(c.in("card-events"), "*.json") {
+	for _, f := range globT(c.in("card-events"), "*.json") {
 		if strings.Contains(c.read(f), "again") {
 			again++
 		}

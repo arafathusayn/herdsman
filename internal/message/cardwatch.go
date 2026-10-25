@@ -25,7 +25,7 @@ var (
 	cardRe    = regexp.MustCompile(`^[ \t]*✦ Heads up`)
 	promptRe  = regexp.MustCompile(`^[ \t]*❯[ \t]*`)
 	squareRe  = regexp.MustCompile(`^[ \t]*■[ \t]*`)
-	blockedPr = regexp.MustCompile(`(?i)^[ \t]*(([>]?[ \t]*[0-9]+[.)]?[ \t]*)?)(Do you want to proceed|Do you trust|Allow reads outside|Allow once|Allow always|Password for|Device not configured|Permission required|approval required|Switch to gpt|Yes, proceed|Yes, and don|escalated execution requires|Queued follow-up inputs|Type your answer|Usage limit|Selected model is at capacity|This content can.t be shown)`)
+	blockedPr = regexp.MustCompile(`(?i)^[ \t]*(([>]?[ \t]*[0-9]+[.)]?[ \t]*)?)(Do you want to proceed|Do you trust|Allow reads outside|Allow once|Allow always|Password for|Device not configured|Permission required|approval required|Switch to [[:alnum:]._-]+|Yes, proceed|Yes, and don|escalated execution requires|Queued follow-up inputs|Type your answer|Usage limit|Selected model is at capacity|This content can.t be shown)`)
 	queuedRe  = regexp.MustCompile(`^m[0-9]{12} queued`)
 )
 
@@ -69,7 +69,7 @@ func (e *Env) cardWatch(args []string) error {
 		return die("invalid watch targets")
 	}
 	w.targets = arr
-	w.watchSum, _ = inbox.DigestFile(wt)
+	w.watchSum = inbox.Digest(b)
 	rt := e.path("resume-targets.json")
 	if inbox.Exists(rt) {
 		b, ok := inbox.ReadStrict(e.ch.Dir, rt)
@@ -79,7 +79,7 @@ func (e *Env) cardWatch(args []string) error {
 			return die("invalid resume targets")
 		}
 		w.resumes = b
-		w.resumeSum, _ = inbox.DigestFile(rt)
+		w.resumeSum = inbox.Digest(b)
 	}
 	if err := os.Mkdir(e.path("watch.lock"), 0o700); err != nil {
 		return die("watcher already owned; inspect lock")
@@ -141,15 +141,29 @@ func validResumes(m map[string]any) bool {
 }
 
 // coverage reports whether the watch and resume targets are the snapshot.
+// Each file is checked (regular, not a link, bounded) before it is read,
+// and read at most MaxSize bytes: a replacement FIFO or a growing file
+// changes coverage without blocking or loading the watcher.
 func (w *watcher) coverage() bool {
 	e := w.Env
 	current := "absent"
-	if inbox.Regular(e.ch.Dir, e.path("resume-targets.json")) {
-		current, _ = inbox.DigestFile(e.path("resume-targets.json"))
+	if rt := e.path("resume-targets.json"); inbox.Exists(rt) {
+		current = boundedSum(e.ch.Dir, rt)
 	}
-	wt := e.path("watch-targets.json")
-	sum, _ := inbox.DigestFile(wt)
-	return inbox.Regular(e.ch.Dir, wt) && sum == w.watchSum && current == w.resumeSum
+	sum := boundedSum(e.ch.Dir, e.path("watch-targets.json"))
+	return sum != "" && sum == w.watchSum && current == w.resumeSum
+}
+
+// boundedSum is the digest of a guarded, bounded file ("" when unsafe).
+func boundedSum(root, p string) string {
+	if !inbox.Bounded(root, p) {
+		return ""
+	}
+	b, err := inbox.ReadBounded(p, inbox.MaxSize)
+	if err != nil {
+		return ""
+	}
+	return inbox.Digest(b)
 }
 
 const heldText = "HUMAN: inspect cards and paused goals; no relay or input. Rebuild protected setup after any unsandboxed launch."
@@ -202,7 +216,7 @@ func (w *watcher) pass() error {
 			_ = os.Remove(lf)
 		}
 		if failures != 1 {
-			if err := r.WriteText(e.path("state", "automation-held"), heldText); err != nil {
+			if err := w.writeHeld(heldText); err != nil {
 				return writeFailed(err)
 			}
 			if err := e.notify("automation-held", "Automatic coordination held", "Human inspection required. No goal resume or card relay; the adjutant must tell the user."); err != nil {
@@ -217,7 +231,7 @@ func (w *watcher) pass() error {
 	}
 	if !w.coverage() {
 		w.auto = false
-		if err := r.WriteText(e.path("state", "automation-held"), "HUMAN changed watch coverage; restart under human setup"); err != nil {
+		if err := w.writeHeld("HUMAN changed watch coverage; restart under human setup"); err != nil {
 			return writeFailed(err)
 		}
 		if err := e.notify("automation-held", "Automatic coordination held", "Watch coverage changed; no resume or card relay. Tell the user."); err != nil {
@@ -241,7 +255,11 @@ func (w *watcher) pass() error {
 func (w *watcher) countJournal(pane, key string) (int, error) {
 	e := w.Env
 	active := 0
-	for _, ev := range glob(e.path("card-events"), "*.json") {
+	g244, err := glob(e.path("card-events"), "*.json")
+	if err != nil {
+		return 0, err
+	}
+	for _, ev := range g244 {
 		if !inbox.Regular(e.ch.Dir, ev) {
 			continue
 		}
@@ -328,7 +346,9 @@ func (w *watcher) watchTarget(t any) error {
 		}
 		cardKey := inbox.Digest([]byte(key + "\n" + card))
 		marker := e.path("state", "card-visible-"+cardKey)
-		if st, err := os.Stat(marker); (err != nil || !st.Mode().IsRegular()) && w.auto {
+		st, serr := os.Stat(marker)
+		captured := serr == nil && st.Mode().IsRegular()
+		if !captured && w.auto {
 			if active < 0 {
 				if active, err = w.countJournal(pane, key); err != nil {
 					return err
@@ -351,15 +371,22 @@ func (w *watcher) watchTarget(t any) error {
 					return writeFailed(err)
 				}
 				active++
+				captured = true
 			}
 		}
-		if w.auto {
+		// The marker means "already captured": a card refused at the
+		// journal cap gets none, so it is captured once capacity returns.
+		if w.auto && captured {
 			if err := r.WriteText(marker, card); err != nil {
 				return writeFailed(err)
 			}
 		}
 	}
-	for _, marker := range glob(e.path("state"), "card-visible-*") {
+	g362, err := glob(e.path("state"), "card-visible-*")
+	if err != nil {
+		return err
+	}
+	for _, marker := range g362 {
 		if !inbox.Regular(r.Dir, marker) {
 			continue
 		}
@@ -430,7 +457,11 @@ func (w *watcher) relay() error {
 	e := w.Env
 	r := e.ch
 	invalid := false
-	for _, ev := range glob(e.path("card-events"), "*.json") {
+	g433, err := glob(e.path("card-events"), "*.json")
+	if err != nil {
+		return err
+	}
+	for _, ev := range g433 {
 		if !inbox.Exists(ev) {
 			continue
 		}
@@ -564,4 +595,14 @@ func (w *watcher) resumeAll() error {
 func (e *Env) resumeCapture(name string, stderr interface{ Write([]byte) (int, error) }) int {
 	e.Stderr = stderr
 	return e.Resume([]string{name})
+}
+
+// writeHeld records automation-held with text, once: a held watcher does
+// not rewrite the same record on every pass (A26, D20).
+func (w *watcher) writeHeld(text string) error {
+	p := w.path("state", "automation-held")
+	if inbox.Regular(w.ch.Dir, p) && inbox.CatText(p) == text {
+		return nil
+	}
+	return w.ch.WriteText(p, text)
 }

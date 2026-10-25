@@ -341,3 +341,9 @@ func jqField(t *testing.T, p, field string) string {
 }
 
 func digestText(s string) string { return inbox.Digest([]byte(s)) }
+
+// globT is glob for test setup, where a listing error cannot happen.
+func globT(dir, pattern string) []string {
+	ms, _ := glob(dir, pattern)
+	return ms
+}

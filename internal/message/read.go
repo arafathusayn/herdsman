@@ -165,8 +165,13 @@ func (e *Env) ack(args []string) error {
 		return die("ack <me> <claim-token> <id> <processing-record-file>")
 	}
 	me, token, id, record := args[0], args[1], args[2], args[3]
-	rec, err := os.ReadFile(record)
-	if !inbox.Bounded("", record) || err != nil || len(rec) == 0 {
+	// Guard first (regular, not a link, bounded), then read at most the
+	// bound: a FIFO or a huge file is refused without being read.
+	if !inbox.Bounded("", record) {
+		return die("nonempty processing record required")
+	}
+	rec, err := inbox.ReadBounded(record, inbox.MaxSize)
+	if err != nil || len(rec) == 0 {
 		return die("nonempty processing record required")
 	}
 	if err := e.open(false); err != nil {
@@ -212,6 +217,12 @@ func (e *Env) ack(args []string) error {
 	}
 	if !r.AckValid(box, id) {
 		ack := pretty(obj("id", id, "claim", token, "time", e.unix(), "processing_record", string(rec), "envelope_checksum", sum))
+		// The record is JSON-escaped into the ACK: a bounded record can
+		// still encode past the bound, and an ACK over it never validates.
+		// Refuse it before anything is written.
+		if len(ack) > inbox.MaxSize {
+			return die("processing record too large once encoded; message remains unhandled")
+		}
 		if err := r.Atomic(filepath.Join(box, "ack", id+".md.json"), ack); err != nil {
 			return writeFailed(err)
 		}

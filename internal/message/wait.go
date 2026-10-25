@@ -114,8 +114,12 @@ func (e *Env) wait(args []string) error {
 					found = append(found, filepath.Base(f))
 				}
 				sort.Strings(found)
-				for _, n := range glob(filepath.Join(box, "notices"), "*.json") {
-					if !inbox.Regular(e.ch.Dir, n) {
+				g117, err := glob(filepath.Join(box, "notices"), "*.json")
+				if err != nil {
+					return err
+				}
+				for _, n := range g117 {
+					if !inbox.Bounded(e.ch.Dir, n) {
 						continue
 					}
 					d, _ := inbox.DigestFile(n)

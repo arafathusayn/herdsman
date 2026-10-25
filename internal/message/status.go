@@ -1,14 +1,17 @@
 package message
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/shglob"
 )
 
 // decodeObject decodes a JSON object (nil, false otherwise).
@@ -18,17 +21,19 @@ func decodeObject(s string) (map[string]any, bool) {
 	return m, err == nil && m != nil
 }
 
-// glob lists dir entries matching pattern, as a bash glob without dot
-// files, sorted.
-func glob(dir, pattern string) []string {
-	ms, _ := filepath.Glob(filepath.Join(dir, pattern))
-	var out []string
-	for _, m := range ms {
-		if !strings.HasPrefix(filepath.Base(m), ".") {
-			out = append(out, m)
-		}
+// glob lists dir entries matching pattern, as the scripts' "$dir"/pattern:
+// the folder is literal (a name with [, * or ? is not a pattern), dot files
+// are left out, names sorted. A missing folder lists nothing, as an
+// unmatched glob does; any other listing failure is an error.
+func glob(dir, pattern string) ([]string, error) {
+	ms, err := shglob.Glob(dir, pattern)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
 	}
-	return out
+	if err != nil {
+		return nil, die("cannot list %s", dir)
+	}
+	return ms, nil
 }
 
 // Status is message-status.sh [me]: the channel's metadata, read-only (no
@@ -114,7 +119,11 @@ func (e *Env) status(args []string) error {
 		}
 	}
 	for _, pat := range []string{"hold-*", "resume-*.sent", "resume-held-*"} {
-		for _, p := range glob(r.Path("state"), pat) {
+		g117, err := glob(r.Path("state"), pat)
+		if err != nil {
+			return err
+		}
+		for _, p := range g117 {
 			if _, err := os.Stat(p); err == nil {
 				holds = append(holds, p)
 			}
@@ -125,14 +134,22 @@ func (e *Env) status(args []string) error {
 		rep.Holds = append(rep.Holds, filepath.Base(p))
 	}
 	pendingAlerts := 0
-	for _, p := range glob(r.Path("alerts"), "*.pending") {
+	g128, err := glob(r.Path("alerts"), "*.pending")
+	if err != nil {
+		return err
+	}
+	for _, p := range g128 {
 		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
 			pendingAlerts++
 		}
 	}
 	fmt.Fprintf(out, "pending-alerts=%d\n", pendingAlerts)
 	rep.PendingAlerts = pendingAlerts
-	for _, box := range glob(r.Dir, "*") {
+	g135, err := glob(r.Dir, "*")
+	if err != nil {
+		return err
+	}
+	for _, box := range g135 {
 		if st, err := os.Stat(filepath.Join(box, "new")); err != nil || !st.IsDir() {
 			continue
 		}
@@ -184,32 +201,42 @@ func (e *Env) status(args []string) error {
 				mb.Partial = append(mb.Partial, filepath.Join(box, "tmp", n))
 			}
 		}
-		for _, f := range glob(filepath.Join(box, "notices"), "*.json") {
-			if st, err := os.Stat(f); err != nil || !st.Mode().IsRegular() {
+		g187, err := glob(filepath.Join(box, "notices"), "*.json")
+		if err != nil {
+			return err
+		}
+		for _, f := range g187 {
+			if !inbox.Exists(f) {
 				continue
 			}
-			v, err := decodeFile(f)
-			m := inbox.Object(v)
-			if err != nil || m == nil {
+			no, ok := readNotice(r.Dir, f)
+			if !ok {
 				fmt.Fprintln(out, "invalid notice")
 				continue
 			}
-			no := obj("id", m["id"], "to", m["to"], "state", m["state"], "authority", m["authority"])
 			out.Write(line(no))
 			mb.Notices = append(mb.Notices, no)
 		}
 		rep.Mailboxes = append(rep.Mailboxes, mb)
 	}
-	for _, f := range glob(r.Path("alerts"), "*.pending") {
+	g203, err := glob(r.Path("alerts"), "*.pending")
+	if err != nil {
+		return err
+	}
+	for _, f := range g203 {
 		if inbox.Regular(r.Dir, f) {
-			b, _ := os.ReadFile(f)
+			b, _ := inbox.ReadBounded(f, inbox.MaxSize)
 			out.Write(b)
 			if v, err := inbox.Decode(b); err == nil {
 				rep.Alerts = append(rep.Alerts, v)
 			}
 		}
 	}
-	for _, f := range glob(r.Path("state"), "diagnostic-*.log") {
+	g212, err := glob(r.Path("state"), "diagnostic-*.log")
+	if err != nil {
+		return err
+	}
+	for _, f := range g212 {
 		if st, err := os.Stat(f); err == nil && st.Mode().IsRegular() {
 			fmt.Fprintf(out, "diagnostic log: %s\n", f)
 			rep.DiagnosticLogs = append(rep.DiagnosticLogs, f)
@@ -293,4 +320,32 @@ type MailboxStatus struct {
 	Suspicious     []string `json:"suspicious"`
 	Partial        []string `json:"partial"`
 	Notices        []any    `json:"notices"`
+}
+
+// readNotice reads a sender notice the guarded way: a regular file, not a
+// link, in real folders under root, at most MaxSize bytes, strict JSON
+// (no duplicate keys), whose shown fields are strings or absent. Anything
+// else is an invalid notice, and none of its content is shown.
+func readNotice(root, p string) (kv, bool) {
+	b, ok := inbox.ReadStrict(root, p)
+	if !ok {
+		return nil, false
+	}
+	v, err := inbox.Decode(b)
+	m := inbox.Object(v)
+	if err != nil || m == nil {
+		return nil, false
+	}
+	var fields []any
+	for _, k := range []string{"id", "to", "state", "authority"} {
+		switch x := m[k].(type) {
+		case nil:
+			fields = append(fields, k, nil)
+		case string:
+			fields = append(fields, k, x)
+		default:
+			return nil, false
+		}
+	}
+	return obj(fields...), true
 }

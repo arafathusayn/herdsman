@@ -400,7 +400,11 @@ func (c *courier) sweep() error {
 	old := false
 	fp := ""
 	invalidBox := false
-	for _, box := range glob(r.Dir, "*") {
+	g403, err := glob(r.Dir, "*")
+	if err != nil {
+		return err
+	}
+	for _, box := range g403 {
 		if !isDirFollow(filepath.Join(box, "new")) {
 			continue
 		}

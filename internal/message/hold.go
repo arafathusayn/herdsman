@@ -103,7 +103,9 @@ func (e *Env) holdCmd(args []string) error {
 		}
 		holds = append(holds[:found], holds[found+1:]...)
 		if len(holds) == 0 {
-			_ = os.Remove(file)
+			if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+				return die("hold removal failed: %s; the hold remains", name)
+			}
 		} else if err := e.ch.Atomic(file, pretty(obj("holds", holds))); err != nil {
 			return writeFailed(err)
 		}

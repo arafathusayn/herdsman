@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
@@ -45,7 +46,9 @@ type Env struct {
 	Ctx context.Context
 
 	ch    *inbox.Channel
-	locks []*inbox.Lock
+	mu      sync.Mutex // guards locks and drained: a signal handler releases them
+	locks   []*inbox.Lock
+	drained bool // releaseAll ran: a lock missing from locks is already free
 }
 
 func (e *Env) ctx() context.Context {
@@ -127,31 +130,52 @@ func (e *Env) finish(err error) int {
 
 func (e *Env) hold(l *inbox.Lock) *inbox.Lock {
 	if l != nil {
-		e.locks = append(e.locks, l)
+		e.mu.Lock()
+		if e.drained {
+			// The signal handler already ran and the process is exiting:
+			// do not leave this lock behind.
+			_ = l.Release()
+		} else {
+			e.locks = append(e.locks, l)
+		}
+		e.mu.Unlock()
 	}
 	return l
 }
 
 // release frees one held lock.
 func (e *Env) release(l *inbox.Lock) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	for i, h := range e.locks {
 		if h == l {
 			e.locks = append(e.locks[:i], e.locks[i+1:]...)
-			break
+			return l.Release()
 		}
+	}
+	if e.drained {
+		return nil // a signal already freed it; another process may own it now
 	}
 	return l.Release()
 }
 
 func (e *Env) releaseAll() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	for i := len(e.locks) - 1; i >= 0; i-- {
 		_ = e.locks[i].Release()
 	}
 	e.locks = nil
 }
 
-// Release frees every lock the run holds (a signal handler calls it).
-func (e *Env) Release() { e.releaseAll() }
+// Release frees every lock the run holds. A signal handler calls it from
+// its own goroutine while the command runs: the lock list is guarded.
+func (e *Env) Release() {
+	e.releaseAll()
+	e.mu.Lock()
+	e.drained = true
+	e.mu.Unlock()
+}
 
 // options are the inbox settings of the environment.
 func (e *Env) options(readOnly bool) inbox.Options {

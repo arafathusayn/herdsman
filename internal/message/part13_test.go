@@ -142,7 +142,7 @@ func TestPart13RefusalsAndRecovery(t *testing.T) {
 
 	c = newCase(t, true)
 	phrases := []string{"Do you want to proceed", "Do you trust", "Allow reads outside", "Allow once", "Allow always", "Password for",
-		"Device not configured", "Permission required", "approval required", "Switch to gpt", "❯ 1. Yes, proceed", "Yes, and don",
+		"Device not configured", "Permission required", "approval required", "Switch to model-a", "❯ 1. Yes, proceed", "Yes, and don",
 		"escalated execution requires", "Queued follow-up inputs", "Type your answer", "Usage limit", "Selected model is at capacity",
 		"This content can't be shown"}
 	pairs := []string{"sender-pane", "sender-session", "receiver-pane", "receiver-session"}

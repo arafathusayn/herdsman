@@ -225,7 +225,7 @@ func (e *Env) healthSnapshot() []string {
 			}
 		}
 	}
-	locks, _ := filepath.Glob(filepath.Join(r.Path("alerts"), "*.lock"))
+	locks, _ := glob(r.Path("alerts"), "*.lock")
 	for _, p := range locks {
 		if strings.HasPrefix(filepath.Base(p), ".") {
 			continue

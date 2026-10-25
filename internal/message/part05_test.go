@@ -80,7 +80,7 @@ func TestPart05ResumeCardsStrict(t *testing.T) {
 	var kinds, texts []string
 	ids := map[string]bool{}
 	exact := 0
-	for _, f := range glob(filepath.Join(ab, "new"), "*.md") {
+	for _, f := range globT(filepath.Join(ab, "new"), "*.md") {
 		v, _ := decodeFile(f)
 		m := v.(map[string]any)
 		kinds = append(kinds, m["kind"].(string))
