@@ -14,13 +14,11 @@ import (
 	neturl "net/url"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/afk"
@@ -219,7 +217,7 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	client := herdr.New(sock)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := webContext()
 	defer stop()
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	pong, err := client.Check(cctx)
@@ -278,6 +276,10 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 
 	return serve(ctx, srv, ln)
 }
+
+// webContext is the server's lifetime: until Ctrl+C or SIGTERM. Tests
+// replace it with a context they cancel.
+var webContext = signalContext
 
 // serve runs srv until ctx ends, then shuts it down. Requests get ctx as
 // their base, so the event streams end with it instead of holding Shutdown
