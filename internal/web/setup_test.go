@@ -65,16 +65,48 @@ func TestCustomSetupAnswers(t *testing.T) {
 func TestSetupIsChecked(t *testing.T) {
 	long := strings.Repeat("x", maxSetupAnswer+1)
 	for name, s := range map[string]RouteSetup{
-		"bad role":    {Roles: []choices.Pick{{Role: "boss", Runner: "herdr", Harness: "claude"}}},
-		"bad runner":  {Roles: []choices.Pick{{Role: "reviewer", Runner: "cloud", Harness: "claude"}}},
-		"long answer": {Answers: []SetupAnswer{{Item: "Merge", Answer: long}}},
-		"newline":     {Answers: []SetupAnswer{{Item: "Merge", Answer: "a\nb"}}},
-		"empty item":  {Answers: []SetupAnswer{{Item: "", Answer: "a"}}},
-		"bad account": {GitHubAccount: "a b"},
-		"too many":    {Answers: make([]SetupAnswer, maxSetupAnswers+1)},
+		"bad role":       {Roles: []choices.Pick{{Role: "boss", Runner: "herdr", Harness: "claude"}}},
+		"bad runner":     {Roles: []choices.Pick{{Role: "reviewer", Runner: "cloud", Harness: "claude"}}},
+		"long answer":    {Answers: []SetupAnswer{{Item: "Merge", Answer: long}}},
+		"newline":        {Answers: []SetupAnswer{{Item: "Merge", Answer: "a\nb"}}},
+		"empty item":     {Answers: []SetupAnswer{{Item: "", Answer: "a"}}},
+		"bad account":    {GitHubAccount: "a b"},
+		"too many":       {Answers: make([]SetupAnswer, maxSetupAnswers+1)},
+		"too many roles": {Roles: make([]choices.Pick, len(choices.Roles)+1)},
+		"role route":     {Roles: []choices.Pick{{Role: "reviewer", Runner: "herdr", Harness: "claude", Route: "r-1"}}},
+		"long item":      {Answers: []SetupAnswer{{Item: strings.Repeat("i", maxSetupItem+1), Answer: "a"}}},
+		"invalid text":   {Answers: []SetupAnswer{{Item: "Merge", Answer: "\xff"}}},
 	} {
 		if err := s.check(); err == nil {
 			t.Errorf("%s accepted", name)
 		}
+	}
+}
+
+// The HTTP boundary refuses a bad setup before any herdr call.
+func TestBadSetupRefusedWithoutMutation(t *testing.T) {
+	f := newRouteFixture(t)
+	req := f.orchestrator()
+	req.Setup = &RouteSetup{Answers: []SetupAnswer{{Item: "Merge", Answer: "a\nb"}}}
+	code, res := f.post(t, req)
+	if code != 400 || res.OK || res.Field != "setup" || !strings.Contains(res.Error, "one line") {
+		t.Fatalf("%d %+v", code, res)
+	}
+	if m := mutations(f.herdr); len(m) != 0 {
+		t.Fatalf("mutations %v", m)
+	}
+}
+
+// Without a request, the setup alone is the prompt's argument.
+func TestSetupWithoutRequest(t *testing.T) {
+	f := newRouteFixture(t)
+	req := f.orchestrator()
+	req.Request, req.Checkpointer.On = "", false
+	req.Setup = &RouteSetup{Roles: []choices.Pick{}, Answers: []SetupAnswer{}}
+	if code, res := f.post(t, req); code != 200 || !res.OK {
+		t.Fatalf("%d %+v", code, res)
+	}
+	if got := promptText(t, f); got != "/herdsman run "+quoteArg("Setup (custom):\n- adjutant: off\n- checkpointer: off") {
+		t.Fatalf("%q", got)
 	}
 }

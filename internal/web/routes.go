@@ -476,7 +476,7 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	home, _ := os.UserHomeDir()
-	p, err := planRoute(req, s.hub.Current(), s.catalog.get(r.Context()), home, s.cfg.SkillDir)
+	p, err := planRoute(req, s.hub.Current(), s.planCatalog(r, req), home, s.cfg.SkillDir)
 	if err != nil {
 		re, _ := errors.AsType[*routeError](err)
 		field := ""

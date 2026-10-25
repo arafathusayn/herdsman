@@ -7,7 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"slices"
+	"regexp"
 	"strings"
 	"time"
 
@@ -23,16 +23,17 @@ const modelsUsage = `usage: herdsman models [--harness <kind>] [--json]
        herdsman models last [--json]
        herdsman models save --role <role> [--runner herdr|subagent] --harness <kind> --model <model> [--effort <effort>] [--route <name>] [--json]
 
-Asks each harness (claude, codex, and the installed ones of muse, agy,
-gemini, opencode, cursor), or the one --harness names, for its version and
-its models as the harness itself reports them, in its order
-(the newest first where it gives one), with each model's efforts and the
-default effort the harness reports ("none" when it reports none), and the
-harness's model page. A harness whose help lists no models gets one line:
-its --model option, the efforts its help lists and "models: from the
-harness's own list". A harness that is missing or fails gets one line
-saying so; the others still print. --json prints one object
-{"harnesses": [{"kind","version","docs_url","models","error"}]}.
+Asks each agent kind herdr can start (herdr agent start --help; claude and
+codex alone when herdr cannot be asked) that is installed, or the one
+--harness names, for its version and its models as the harness itself
+reports them, in its order: Claude from its --help, Codex from codex debug
+models, any other from "<program> models" when its --help lists that
+subcommand, with the efforts its --help lists and the default effort it
+reports ("none" when it reports none). A harness whose list cannot be read
+prints "<kind> <version>: unavailable: <reason>" and offers no models; the
+others still print. herdsman web's New route form uses the same probe.
+--json prints {"harnesses": [{"kind","label","models","version",
+"unavailable","offline","docs_url","effort_flag",...}], "herdr_error"}.
 
 last prints the last pick of each role (implementer, integrator, reviewer,
 adjutant, orchestrator), one "<role> runner=<herdr|subagent> harness=<kind>
@@ -45,8 +46,8 @@ runner says whether the role's agents run in Herdr panes (the default) or
 as background subagents of the orchestrator's harness.
 
 Exit codes:
-  0  at least one harness answered; last: a pick printed; save: saved
-  1  no harness answered; last: no pick saved, or the file is invalid;
+  0  at least one harness listed its models; last: a pick printed; save: saved
+  1  no harness listed its models; last: no pick saved, or the file is invalid;
      save: the pick is invalid or the file cannot be written
   2  usage error
 `
@@ -56,9 +57,11 @@ var modelsRunner catalog.Runner = catalog.ExecRunner
 
 // modelsReport is models' --json output.
 //
-// JSON fields: harnesses (each a catalog.Harness).
+// JSON fields: harnesses (each a catalog.Kind, the same entries the web
+// catalog serves) and herdr_error (why herdr's kinds could not be read).
 type modelsReport struct {
-	Harnesses []catalog.Harness `json:"harnesses"`
+	Harnesses  []catalog.Kind `json:"harnesses"`
+	HerdrError string         `json:"herdr_error,omitempty"`
 }
 
 // choicesStore is the store of picks; tests point HOME at a temp folder.
@@ -80,34 +83,29 @@ func runModels(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, modelsUsage)
 		return 0
 	}
-	all := append(slices.Clone(catalog.Probed), catalog.OtherKinds...)
-	kinds := all
-	if *one != "" {
-		kinds = []string{*one}
-	}
-	if err != nil || fs.NArg() > 0 || (*one != "" && !slices.Contains(all, *one)) {
+	if err != nil || fs.NArg() > 0 || (*one != "" && !kindName.MatchString(*one)) {
 		fmt.Fprint(stderr, modelsUsage)
 		return 2
 	}
-	var rep modelsReport
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	rep := modelsReport{Harnesses: catalog.Pipeline(ctx, modelsRunner, *one)}
+	if *one == "" {
+		rep.HerdrError = catalog.HerdrError(ctx, modelsRunner)
+	}
 	answered := false
-	for _, k := range kinds {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		h := catalog.Probe(ctx, modelsRunner, k)
-		cancel()
-		answered = answered || h.Error == ""
-		// Of the other kinds, only the installed ones are listed unless named.
-		if *one == "" && h.Error == "not found on PATH" && !slices.Contains(catalog.Probed, k) {
-			continue
-		}
-		rep.Harnesses = append(rep.Harnesses, h)
+	for _, k := range rep.Harnesses {
+		answered = answered || k.Unavailable == ""
 	}
 	if *asJSON {
 		b, _ := json.Marshal(rep)
 		fmt.Fprintln(stdout, string(b))
 	} else {
-		for _, h := range rep.Harnesses {
-			writeHarness(stdout, h)
+		if rep.HerdrError != "" {
+			fmt.Fprintf(stdout, "herdr: %s (only claude and codex were asked)\n", rep.HerdrError)
+		}
+		for _, k := range rep.Harnesses {
+			writeKind(stdout, k)
 		}
 	}
 	if !answered {
@@ -116,34 +114,35 @@ func runModels(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func writeHarness(w io.Writer, h catalog.Harness) {
-	if h.Error != "" {
-		fmt.Fprintf(w, "%s: %s\n", h.Kind, h.Error)
+// kindName is a harness kind as herdr names it.
+var kindName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+
+// writeKind prints one harness: a header, then one line per model, or one
+// "unavailable: <reason>" line.
+func writeKind(w io.Writer, k catalog.Kind) {
+	v := k.Version
+	if v == "" {
+		v = "unknown"
+	}
+	if k.Unavailable != "" {
+		fmt.Fprintf(w, "%s %s: unavailable: %s\n", k.Kind, v, k.Unavailable)
 		return
 	}
-	if h.Note != "" {
-		flagText := "no --model option"
-		if h.ModelFlag {
-			flagText = "--model"
-		}
-		efforts := "efforts: none listed"
-		if len(h.Efforts) > 0 {
-			efforts = "efforts: " + strings.Join(h.Efforts, ", ") + "; default: " + orNone(h.DefaultEffort)
-		}
-		fmt.Fprintf(w, "%s %s: %s; %s; %s\n", h.Kind, h.Version, flagText, efforts, h.Note)
-		return
+	docs := k.DocsURL
+	if docs == "" {
+		docs = "its own list"
 	}
-	fmt.Fprintf(w, "%s %s (models: %s)\n", h.Kind, h.Version, h.DocsURL)
-	for _, m := range h.Models {
-		def := m.DefaultEffort
-		if def == "" {
-			def = "none"
-		}
+	fmt.Fprintf(w, "%s %s (models: %s)\n", k.Kind, v, docs)
+	for _, m := range k.Models {
 		label := ""
 		if m.Label != m.ID {
 			label = " (" + m.Label + ")"
 		}
-		fmt.Fprintf(w, "  %s%s  efforts: %s; default: %s\n", m.ID, label, strings.Join(m.Efforts, ", "), def)
+		efforts := "none"
+		if len(m.Efforts) > 0 {
+			efforts = strings.Join(m.Efforts, ", ")
+		}
+		fmt.Fprintf(w, "  %s%s  efforts: %s; default: %s\n", m.ID, label, efforts, orNone(m.DefaultEffort))
 	}
 }
 

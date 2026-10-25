@@ -293,6 +293,10 @@ export interface CatalogKind {
   offline: boolean;
   /** The harness maker's page of its models. */
   docs_url?: string;
+  /** Why the harness's list could not be read (A29); then it offers no models. */
+  unavailable?: string;
+  version?: string;
+  effort_flag?: string;
 }
 
 export interface Catalog {

@@ -36,14 +36,15 @@ func fakeHarnesses(t *testing.T, kinds ...string) {
 func TestModelsCommand(t *testing.T) {
 	fakeHarnesses(t, "claude", "codex")
 	out, errOut, code := call(t, "models")
-	if code != 0 || errOut != "" || !strings.HasPrefix(out, "claude 9.9.9 (fake) (models: https://") || !strings.Contains(out, "\ncodex codex-cli 9.9.9 (models: https://") {
+	// No herdr on PATH: it says so, and claude and codex are still asked.
+	if code != 0 || errOut != "" || !strings.HasPrefix(out, "herdr: herdr agent start --help: ") || !strings.Contains(out, "\nclaude 9.9.9 (fake) (models: https://") || !strings.Contains(out, "\ncodex codex-cli 9.9.9 (models: https://") {
 		t.Fatalf("%d %q %q", code, out, errOut)
 	}
 	if !strings.Contains(out, "; default: none\n") {
 		t.Error("claude's models show no default as none")
 	}
 	out, _, code = call(t, "models", "--harness", "codex", "--json")
-	var rep struct{ Harnesses []catalog.Harness }
+	var rep struct{ Harnesses []catalog.Kind }
 	if code != 0 || json.Unmarshal([]byte(out), &rep) != nil || len(rep.Harnesses) != 1 || rep.Harnesses[0].Kind != "codex" || len(rep.Harnesses[0].Models) == 0 || strings.Count(out, "\n") != 1 {
 		t.Fatalf("%d %q", code, out)
 	}
@@ -56,11 +57,11 @@ func TestModelsCommand(t *testing.T) {
 func TestModelsMissingHarness(t *testing.T) {
 	fakeHarnesses(t, "codex")
 	out, _, code := call(t, "models")
-	if code != 0 || !strings.HasPrefix(out, "claude: not found on PATH\ncodex codex-cli 9.9.9") {
+	if code != 0 || !strings.Contains(out, "\nclaude unknown: unavailable: not found on PATH\ncodex codex-cli 9.9.9") {
 		t.Fatalf("%d %q", code, out)
 	}
 	out, _, code = call(t, "models", "--harness", "claude")
-	if code != 1 || out != "claude: not found on PATH\n" {
+	if code != 1 || out != "claude unknown: unavailable: not found on PATH\n" {
 		t.Fatalf("%d %q", code, out)
 	}
 }
@@ -70,7 +71,7 @@ func TestModelsUsage(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "Exit codes:") {
 		t.Errorf("%d %q", code, out)
 	}
-	for _, args := range [][]string{{"models", "x"}, {"models", "--harness", "nope"}, {"models", "--bad"}} {
+	for _, args := range [][]string{{"models", "x"}, {"models", "--harness", "No such!"}, {"models", "--bad"}} {
 		_, errOut, code := call(t, args...)
 		if code != 2 || !strings.HasPrefix(errOut, "usage: herdsman models") {
 			t.Errorf("%v: %d %q", args, code, errOut)
@@ -147,8 +148,9 @@ func TestWebChoices(t *testing.T) {
 	}
 }
 
-// The other kinds: the installed ones print one line from their --help; a
-// named missing one says so.
+// A29: herdr's other kinds, when installed, list the models their own
+// `models` subcommand prints, with the efforts their --help lists; a named
+// missing one is unavailable.
 func TestModelsOtherKinds(t *testing.T) {
 	fakeHarnesses(t, "codex")
 	bin := filepath.SplitList(os.Getenv("PATH"))[0]
@@ -159,16 +161,20 @@ func TestModelsOtherKinds(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "agy-help.txt"), help, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\ncase \"$1\" in --version) echo 'agy 1.0';; --help) while IFS= read -r l; do printf '%s\\n' \"$l\"; done < '" + filepath.Join(bin, "agy-help.txt") + "';; esac\n"
+	script := "#!/bin/sh\ncase \"$1\" in --version) echo 'agy 1.0';; models) echo 'prov/m1';; --help) while IFS= read -r l; do printf '%s\\n' \"$l\"; done < '" + filepath.Join(bin, "agy-help.txt") + "';; esac\n"
 	if err := os.WriteFile(filepath.Join(bin, "agy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	herdr := "#!/bin/sh\necho '  [possible values: claude, codex, agy, gemini]'\n"
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(herdr), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	out, _, code := call(t, "models")
-	if code != 0 || !strings.Contains(out, "\nagy agy 1.0: --model; efforts: low, medium, high, xhigh, max; default: none; models: from the harness's own list (agy models)\n") || strings.Contains(out, "gemini") {
+	if code != 0 || !strings.Contains(out, "\nagy agy 1.0 (models: its own list)\n  prov/m1  efforts: low, medium, high, xhigh, max; default: none\n") || strings.Contains(out, "gemini") || strings.Contains(out, "herdr:") {
 		t.Fatalf("%d %q", code, out)
 	}
 	out, _, code = call(t, "models", "--harness", "gemini")
-	if code != 1 || out != "gemini: not found on PATH\n" {
+	if code != 1 || out != "gemini unknown: unavailable: not found on PATH\n" {
 		t.Errorf("%d %q", code, out)
 	}
 }

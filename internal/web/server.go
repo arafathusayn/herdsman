@@ -128,6 +128,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/route/diff", s.auth(http.HandlerFunc(s.routeDiff)))
 	mux.Handle("GET /api/route/runstate", s.auth(http.HandlerFunc(s.routeRunState)))
 	mux.Handle("POST /api/actions", s.auth(http.HandlerFunc(s.action)))
+	// The app's explicit "the user is here" (A33): sent, throttled, from the
+	// paired user's own clicks and keys, which may not make any request.
+	mux.Handle("POST /api/activity", s.auth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
 	mux.Handle("GET /api/artifacts", s.auth(http.HandlerFunc(s.listArtifacts)))
 	mux.Handle("POST /api/artifacts/open", s.auth(http.HandlerFunc(s.openArtifact)))
 	mux.HandleFunc("GET /artifact/{cap}/{path...}", s.serveArtifact)

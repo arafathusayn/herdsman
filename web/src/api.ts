@@ -279,6 +279,11 @@ export async function routeDiff(route: string): Promise<DiffSource[]> {
   return body.sources;
 }
 
+/** Tells the server the paired user is here (A33); a failure is ignored. */
+export function sendActivity(): void {
+  call("/api/activity", { method: "POST", headers: headers() }).catch(() => {});
+}
+
 /** The HTML pages in the session's folders. */
 export async function listArtifacts(): Promise<ArtifactList> {
   const res = await call("/api/artifacts", { headers: headers() });
@@ -318,8 +323,8 @@ export async function messageBody(box: string, id: string): Promise<string> {
 }
 
 /** The harnesses a new route can start, with their models and efforts. */
-export async function catalog(): Promise<Catalog> {
-  const res = await call("/api/catalog", { headers: headers() });
+export async function catalog(probe = true): Promise<Catalog> {
+  const res = await call(probe ? "/api/catalog" : "/api/catalog?probe=0", { headers: headers() });
   if (res.status === 401) throw new AuthError("Session expired.");
   if (!res.ok) throw new Error(`cannot read the harness list (${res.status})`);
   return (await res.json()) as Catalog;

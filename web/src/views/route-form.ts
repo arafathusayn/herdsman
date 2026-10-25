@@ -14,6 +14,7 @@ import {
   inboxKey,
   kindOf,
   knownFolders,
+  missingPicks,
   newForm,
   OTHER,
   pickSummary,
@@ -86,9 +87,16 @@ export function routeForm(
   c: Catalog,
   st: State | null,
   deps: Deps,
-): { stop(): void; form(): RouteForm } {
+  opts: { usePrevious?: boolean } = {},
+): { stop(): void; form(): RouteForm; sent(): boolean } {
   let f: RouteForm = newForm(c, st);
   let errors: Record<string, string> = {};
+  // "Yes" to the previous choice (A30): the saved picks fill the roles at
+  // once; a role without a usable pick is asked again, by name.
+  if (opts.usePrevious) {
+    f = usePrevious(f, c);
+    errors = missingPicks(f, c);
+  }
   let busy = false;
   // The form as it was sent: the result, checklist and inbox reads describe
   // this route, whatever the fields show later.
@@ -332,7 +340,7 @@ export function routeForm(
           "span",
           {
             class: "nr-chip",
-            title: "The harness could not be asked, so it offers no models; only a saved pick can be reused.",
+            title: `${k?.unavailable ?? "The harness could not be asked"}: it offers no models and starts with its own default.`,
           },
           "models unavailable",
         )
@@ -482,6 +490,7 @@ export function routeForm(
             f = usePrevious(f, c);
             delete errors["main"];
             delete errors["orch"];
+            errors = { ...errors, ...missingPicks(f, c) };
             draw();
           },
         },
@@ -584,7 +593,18 @@ export function routeForm(
             ? h(
                 "dl",
                 { class: "nr-summary", dataset: { field: "recommended-summary" } },
-                RECOMMENDED_SETUP.flatMap(([k, v]) => [h("dt", null, k), h("dd", null, v)]),
+                // The effective settings: the checkpointer reads Off when the
+                // route will start none.
+                RECOMMENDED_SETUP.flatMap(([k, v]) => [
+                  h("dt", null, k),
+                  h(
+                    "dd",
+                    { dataset: { item: k } },
+                    k === "Checkpointer" && !ckOn
+                      ? `Off: ${c.checkpointer_why || "the checkpointer is not available here"}`
+                      : v,
+                  ),
+                ]),
               )
             : h(
                 "div",
@@ -853,5 +873,6 @@ export function routeForm(
       cancelDebounce();
     },
     form: () => f,
+    sent: () => busy || submitted !== null,
   };
 }

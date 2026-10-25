@@ -1,4 +1,14 @@
-import { AuthError, openStream, pairStatus, readChannel, routeRunState, startSession, useHost } from "./api.ts";
+import { activityPinger } from "./activity.ts";
+import {
+  AuthError,
+  openStream,
+  pairStatus,
+  readChannel,
+  routeRunState,
+  sendActivity,
+  startSession,
+  useHost,
+} from "./api.ts";
 import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "./appearance.ts";
 import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
@@ -109,6 +119,11 @@ applyCodeTheme(loadCodeTheme(), false);
 loadWidths();
 installTooltips();
 store.on(render);
+// The user's own clicks and keys (route tabs, Changes, a terminal) say the
+// user is here, at most every 10 s (A33); timers never do.
+const ping = activityPinger(sendActivity, 10_000);
+document.addEventListener("pointerdown", ping, { capture: true, passive: true });
+document.addEventListener("keydown", ping, { capture: true, passive: true });
 
 boot().catch((e: unknown) => store.set({ fatal: e instanceof Error ? e.message : String(e) }));
 

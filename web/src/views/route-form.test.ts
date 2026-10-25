@@ -412,3 +412,87 @@ test("the custom path asks each setup item and sends the answers", async () => {
   expect(s?.answers.find((a) => a.item === "Merge")?.answer).toBe("");
   expect(s?.roles[0]?.role).toBe("orchestrator");
 });
+
+// A30: "Yes" to the previous choice fills the roles from the saved picks at
+// once; a role with no saved pick, or one the lists no longer offer, is
+// asked again by name, never skipped in silence.
+test("use previous choice asks again for a role without a usable pick", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const pick = (role: string, harness: string, model: string, effort: string) => ({
+    role,
+    runner: "herdr",
+    harness,
+    model,
+    effort,
+    route: "",
+    at: "",
+  });
+  const deps = {
+    createRoute: () => new Promise<RouteResult>(() => {}),
+    inboxState: () => new Promise<InboxState>(() => {}),
+    state: () => state,
+    copy: () => {},
+    openPane: () => {},
+    close: () => {},
+    failed: () => {},
+    every: () => () => {},
+    later: () => () => {},
+  } as Deps;
+  // The recommended setup has an adjutant; only the orchestrator was saved.
+  let body = document.createElement("form") as unknown as FakeElement;
+  let r = routeForm(
+    body as unknown as HTMLElement,
+    { ...catalog, previous: [pick("orchestrator", "codex", "gpt-5.6-luna", "low")] },
+    state,
+    deps,
+    {
+      usePrevious: true,
+    },
+  );
+  expect(r.form().orch).toMatchObject({ kind: "codex", model: "gpt-5.6-luna", effort: "low" });
+  expect(box(body, "main")?.textContent).toContain("No saved choice for the adjutant");
+  // A saved model the lists no longer offer is asked again too.
+  body = document.createElement("form") as unknown as FakeElement;
+  r = routeForm(
+    body as unknown as HTMLElement,
+    {
+      ...catalog,
+      previous: [pick("adjutant", "claude", "fable", "high"), pick("orchestrator", "codex", "gone-model", "low")],
+    },
+    state,
+    deps,
+    { usePrevious: true },
+  );
+  expect(r.form().main).toMatchObject({ kind: "claude", model: "fable", effort: "high" });
+  expect(box(body, "orch")?.textContent).toContain("is no longer offered: pick again");
+  expect(box(body, "main")?.textContent ?? "").not.toContain("pick");
+});
+
+// P2: the recommended summary shows the effective checkpointer: Off when
+// the script is missing, as the request sends it.
+test("the recommended summary says the checkpointer is off when unavailable", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const sent: RouteRequest[] = [];
+  routeForm(
+    body as unknown as HTMLElement,
+    { ...catalog, checkpointer_ok: false, checkpointer_why: "no checkpointer.sh" },
+    state,
+    {
+      createRoute: (r) => {
+        sent.push(r);
+        return new Promise(() => {});
+      },
+      inboxState: () => new Promise(() => {}),
+      state: () => state,
+      copy: () => {},
+      openPane: () => {},
+      close: () => {},
+      failed: () => {},
+      every: () => () => {},
+      later: () => () => {},
+    },
+  );
+  const dd = find(body, (e) => e.dataset?.["item"] === "Checkpointer");
+  expect(dd?.textContent).toBe("Off: no checkpointer.sh");
+});

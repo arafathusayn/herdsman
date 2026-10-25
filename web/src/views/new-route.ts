@@ -6,10 +6,11 @@
 // the adjutant's pane.
 import { AuthError, catalog, createRoute, githubAccess, inboxState, savedChoices } from "../api.ts";
 import { h, mount } from "../dom.ts";
-import { pickSummary } from "../new-route.ts";
+import { missingPicks, pickSummary } from "../new-route.ts";
 import { store } from "../store.ts";
+import type { Catalog } from "../types.ts";
 import { dismissOnBackdrop, toast } from "../ui.ts";
-import { routeForm } from "./route-form.ts";
+import { type Deps, routeForm } from "./route-form.ts";
 
 async function copy(text: string, what: string): Promise<void> {
   try {
@@ -21,6 +22,32 @@ async function copy(text: string, what: string): Promise<void> {
 }
 
 /** Opens the New route dialog. */
+function failed(err: unknown): void {
+  if (err instanceof AuthError) store.set({ fatal: err.message });
+  toast(err instanceof Error ? err.message : String(err), "error");
+}
+
+function formDeps(): Deps {
+  return {
+    createRoute,
+    inboxState,
+    github: githubAccess,
+    state: () => store.app.server,
+    copy: (text, what) => void copy(text, what),
+    openPane: (pane) => store.go({ pane }),
+    close: () => document.querySelector<HTMLDialogElement>("dialog.new-route")?.close(),
+    failed,
+    every: (ms, fn) => {
+      const t = setInterval(fn, ms);
+      return () => clearInterval(t);
+    },
+    later: (ms, fn) => {
+      const t = setTimeout(fn, ms);
+      return () => clearTimeout(t);
+    },
+  };
+}
+
 export function openNewRoute(): void {
   const dlg = h("dialog", { class: "dialog new-route", "aria-label": "New route" });
   const body = h("form", { method: "dialog", novalidate: true });
@@ -34,7 +61,10 @@ export function openNewRoute(): void {
   document.body.append(dlg);
   mount(body, h("h2", null, "New route"), h("p", { class: "nr-loading" }, "Reading the harness lists…"));
   dlg.showModal();
-  // The saved picks need no probe: they show while the harness lists load (A30).
+  // "Use previous choice" needs no probe (A30): Yes starts the form from
+  // the saved picks at once; the harness lists keep loading behind it.
+  let quick: ReturnType<typeof routeForm> | null = null;
+  let full: Catalog | null = null;
   savedChoices().then(
     (picks) => {
       if (!dlg.open || !picks.length || !body.querySelector(".nr-loading")) return;
@@ -45,6 +75,26 @@ export function openNewRoute(): void {
           { class: "nr-previous-list" },
           picks.map((p) => h("li", null, pickSummary(p))),
         ),
+        h(
+          "div",
+          { class: "dialog-actions" },
+          h(
+            "button",
+            {
+              type: "button",
+              class: "btn primary",
+              name: "use-previous",
+              onclick: () => {
+                catalog(false).then((c) => {
+                  if (!dlg.open || full) return;
+                  quick = routeForm(body, c, store.app.server, formDeps(), { usePrevious: true });
+                  stop = quick.stop;
+                }, failed);
+              },
+            },
+            "Use previous choice",
+          ),
+        ),
       );
     },
     () => {},
@@ -52,31 +102,23 @@ export function openNewRoute(): void {
   catalog().then(
     (c) => {
       if (!dlg.open) return;
-      const form = routeForm(body, c, store.app.server, {
-        createRoute,
-        inboxState,
-        github: githubAccess,
-        state: () => store.app.server,
-        copy: (text, what) => void copy(text, what),
-        openPane: (pane) => store.go({ pane }),
-        close: () => dlg.close(),
-        failed: (err) => {
-          if (err instanceof AuthError) store.set({ fatal: err.message });
-          toast(err instanceof Error ? err.message : String(err), "error");
-        },
-        every: (ms, fn) => {
-          const t = setInterval(fn, ms);
-          return () => clearInterval(t);
-        },
-        later: (ms, fn) => {
-          const t = setTimeout(fn, ms);
-          return () => clearTimeout(t);
-        },
-      });
+      full = c;
+      if (quick) {
+        // The form started from the saved picks; once the lists arrive, a
+        // pick they no longer offer is asked again with the full lists.
+        if (quick.sent() || !Object.keys(missingPicks(quick.form(), c)).length) return;
+        quick.stop();
+        quick = null;
+        const again = routeForm(body, c, store.app.server, formDeps(), { usePrevious: true });
+        stop = again.stop;
+        return;
+      }
+      const form = routeForm(body, c, store.app.server, formDeps());
       stop = form.stop;
       body.querySelector<HTMLElement>(form.form().folder ? "textarea" : "input[name=folder]")?.focus();
     },
     (e: unknown) => {
+      if (quick) return failed(e); // the form from the saved picks stays
       if (e instanceof AuthError) store.set({ fatal: e.message });
       mount(
         body,

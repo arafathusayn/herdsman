@@ -135,7 +135,8 @@ func TestCatalogFromCommands(t *testing.T) {
 		t.Fatalf("kinds = %+v", c.Kinds[:2])
 	}
 	pi := c.kind("pi")
-	if pi == nil || len(pi.Models) != 0 || !pi.FreeModel || pi.Checkpointer || pi.SkillPrefix != "/" {
+	// A29: a kind whose --help names no models subcommand offers none, with the reason.
+	if pi == nil || len(pi.Models) != 0 || pi.FreeModel || !pi.Offline || pi.Unavailable != "pi lists no models" || pi.Checkpointer || pi.SkillPrefix != "/" {
 		t.Fatalf("pi = %+v", pi)
 	}
 	if c.kind("claude") == nil || c.kind("nope") != nil {
@@ -144,7 +145,7 @@ func TestCatalogFromCommands(t *testing.T) {
 	// Cached for the server's life: a second read runs nothing.
 	n := calls.Load()
 	src.get(context.Background())
-	if calls.Load() != n || n != 3 {
+	if calls.Load() != n || n == 0 {
 		t.Fatalf("calls = %d then %d", n, calls.Load())
 	}
 }
@@ -201,10 +202,10 @@ func TestLaunchArgs(t *testing.T) {
 		{"codex", "gpt-5.6-luna", "low", []string{"--model", "gpt-5.6-luna", "-c", "model_reasoning_effort=low"}, false},
 		{"codex", "gpt-5.6-luna", "ultra", nil, true},
 		{"codex", "gpt-reserve", "low", nil, true},
-		{"pi", "some-model", "", []string{"--model", "some-model"}, false},
-		{"pi", "", "", []string{}, false},
+		{"pi", "some-model", "", nil, true}, // no list was read: nothing to pick
+		{"pi", "", "", []string{}, false},   // its own default
 		{"pi", "x;rm", "", nil, true},
-		{"pi", "m", "high", nil, true},
+		{"pi", "", "high", nil, true},
 	}
 	for _, tc := range cases {
 		got, err := launchArgs(c.kind(tc.kind), tc.model, tc.effort)
@@ -301,5 +302,34 @@ func TestLaunchArgsProviderModel(t *testing.T) {
 	args, err := launchArgs(k, "provider/model-a", "")
 	if err != nil || len(args) != 2 || args[1] != "provider/model-a" {
 		t.Fatalf("%v %v", args, err)
+	}
+}
+
+// A29: a kind whose own `models` listing was read launches a listed model,
+// with the effort through the option its --help names.
+func TestLaunchArgsListedOtherKind(t *testing.T) {
+	k := &CatalogKind{Kind: "opencode", Label: "Opencode", EffortFlag: "--variant", Models: []CatalogModel{
+		{ID: "prov/a", Label: "prov/a", Efforts: []string{"low", "high"}},
+		{ID: "prov/b", Label: "prov/b"},
+	}}
+	cases := []struct {
+		model, effort string
+		want          []string
+	}{
+		{"prov/a", "high", []string{"--model", "prov/a", "--variant", "high"}},
+		{"prov/b", "", []string{"--model", "prov/b"}},
+		{"prov/a", "max", nil},
+		{"prov/b", "low", nil},
+		{"prov/c", "", nil},
+	}
+	for _, c := range cases {
+		got, err := launchArgs(k, c.model, c.effort)
+		if (c.want == nil) != (err != nil) || !slices.Equal(got, c.want) {
+			t.Errorf("%s %s: %v %v", c.model, c.effort, got, err)
+		}
+	}
+	k.EffortFlag = ""
+	if _, err := launchArgs(k, "prov/a", "high"); err == nil {
+		t.Error("an effort without an effort option")
 	}
 }

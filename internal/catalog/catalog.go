@@ -43,10 +43,18 @@ type Kind struct {
 	SkillPrefix string `json:"skill_prefix"`
 	// SkillInstalled is whether the herdsman skill was found for this harness.
 	SkillInstalled bool `json:"skill_installed"`
-	// Offline marks the last-known list, used when the harness could not be asked.
+	// Offline marks a harness whose list could not be read: it offers no models.
 	Offline bool `json:"offline"`
 	// DocsURL is the harness maker's page of its models, for the user to read.
 	DocsURL string `json:"docs_url,omitempty"`
+	// Version is the first line of the harness's --version, when asked.
+	Version string `json:"version,omitempty"`
+	// Unavailable says why the harness's list could not be read: then
+	// Offline is set and Models is empty (A29).
+	Unavailable string `json:"unavailable,omitempty"`
+	// EffortFlag is the effort option a harness other than Claude and Codex
+	// names in its --help, used to pass the picked effort.
+	EffortFlag string `json:"effort_flag,omitempty"`
 }
 
 // DefaultEffort is the default the harness reports when its list has it,

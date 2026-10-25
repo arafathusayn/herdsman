@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/arafathusayn/herdsman/internal/catalog"
@@ -21,13 +21,11 @@ import (
 // The catalog of harnesses a new route can start: each harness's models and
 // efforts as the harness itself lists them. The commands run with a fixed
 // argv and no user input, read-only, under a short timeout, once per server
-// life. When a command fails or its output does not parse, the last-known
-// list from the checked-in real output under catalogdata/ stands in, marked
-// offline; the form, the validation and the launch all use that same list.
+// life (catalog.Pipeline, shared with `herdsman models`). When a command
+// fails or its output does not parse, the harness offers no models, marked
+// offline with the reason; the form, the validation and the launch all use
+// that same entry.
 // A kind is data: the form and the server treat every kind through its entry.
-
-// catalogTimeout bounds each catalog command.
-const catalogTimeout = 5 * time.Second
 
 // The catalog's types and parsers live in internal/catalog, which
 // `herdsman models` shares; these names keep this package's code as it was.
@@ -58,6 +56,9 @@ type Catalog struct {
 	// Previous is the last pick of each role (A30), for "Use previous
 	// choice"; empty when none was saved or the store cannot be read.
 	Previous []choices.Pick `json:"previous"`
+	// FromPicks marks a catalog of the saved picks alone (?probe=0): no
+	// harness was asked.
+	FromPicks bool `json:"from_picks,omitempty"`
 }
 
 func (c *Catalog) kind(k string) *CatalogKind {
@@ -83,70 +84,23 @@ type catalogSource struct {
 	run   runner
 	once  sync.Once
 	kinds []CatalogKind
+	built atomic.Bool // the probe has finished
 }
 
 func newCatalogSource(run runner) *catalogSource { return &catalogSource{run: run} }
 
 func (s *catalogSource) get(ctx context.Context) Catalog {
-	s.once.Do(func() { s.kinds = s.build(context.WithoutCancel(ctx)) })
+	s.once.Do(func() {
+		s.kinds = s.build(context.WithoutCancel(ctx))
+		s.built.Store(true)
+	})
 	return Catalog{Kinds: slices.Clone(s.kinds)}
 }
 
 func (s *catalogSource) build(ctx context.Context) []CatalogKind {
-	ask := func(name string, args ...string) ([]byte, error) {
-		c, cancel := context.WithTimeout(ctx, catalogTimeout)
-		defer cancel()
-		return s.run(c, name, args...)
-	}
-	var (
-		wg            sync.WaitGroup
-		claude, codex CatalogKind
-		kinds         []string
-	)
-	wg.Go(func() {
-		claude = fromOutput(parseClaudeHelp, CatalogKind{Kind: "claude", Label: "Claude", Checkpointer: true, SkillPrefix: "/"}, func() ([]byte, error) { return ask("claude", "--help") })
-	})
-	wg.Go(func() {
-		codex = fromOutput(parseCodexModels, CatalogKind{Kind: "codex", Label: "Codex", Checkpointer: true, SkillPrefix: "$"}, func() ([]byte, error) { return ask("codex", "debug", "models") })
-	})
-	wg.Go(func() {
-		out, err := ask("herdr", "agent", "start", "--help")
-		if err == nil {
-			kinds, err = parseKinds(out)
-		}
-		if err != nil {
-			kinds = nil // herdr could not be asked: only the probed harnesses are offered
-		}
-	})
-	wg.Wait()
-	all := []CatalogKind{claude, codex}
-	for _, k := range kinds {
-		if k == "claude" || k == "codex" {
-			continue
-		}
-		all = append(all, CatalogKind{Kind: k, Label: kindLabel(k), Models: []CatalogModel{}, FreeModel: true, SkillPrefix: "/"})
-	}
-	return all
-}
-
-// fromOutput parses a command's output. When the command fails or its
-// output does not parse, the harness is offered with no models, marked
-// offline: a captured list is test data, never a production fallback
-// (A28/A29), so nothing launches with a model the harness did not report.
-func fromOutput(parse func([]byte) (CatalogKind, error), unavailable CatalogKind, run func() ([]byte, error)) CatalogKind {
-	if out, err := run(); err == nil {
-		if k, err := parse(out); err == nil {
-			return k
-		}
-	}
-	unavailable.Models, unavailable.Offline = []CatalogModel{}, true
-	return unavailable
-}
-
-func kindLabel(k string) string {
-	r := []rune(k)
-	r[0] = unicode.ToUpper(r[0])
-	return string(r)
+	// The probe `herdsman models` runs too (A29): herdr's installed kinds,
+	// each with its own list, or offline with none and the reason.
+	return catalog.Pipeline(ctx, catalog.Runner(s.run), "")
 }
 
 // launchArgs builds the agent's argv from the catalog entry: a listed model
@@ -168,6 +122,13 @@ func launchArgs(k *CatalogKind, model, effort string) ([]string, error) {
 		}
 		return []string{"--model", model}, nil
 	}
+	if len(k.Models) == 0 && !k.OtherModel {
+		// No list was read: the harness starts with its own default model.
+		if model != "" || effort != "" {
+			return nil, fmt.Errorf("%s lists no models here, so none can be picked", k.Label)
+		}
+		return []string{}, nil
+	}
 	var m *CatalogModel
 	for i := range k.Models {
 		if k.Models[i].ID == model {
@@ -183,11 +144,24 @@ func launchArgs(k *CatalogKind, model, effort string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("%s has no model %q in its list", k.Label, model)
 	}
+	if len(efforts) == 0 && k.Kind != "claude" && k.Kind != "codex" {
+		if effort != "" {
+			return nil, fmt.Errorf("%s lists no efforts", k.Label)
+		}
+		return []string{"--model", model}, nil
+	}
 	if !slices.Contains(efforts, effort) {
 		return nil, fmt.Errorf("effort must be one of %s", strings.Join(efforts, ", "))
 	}
-	if k.Kind == "codex" {
+	switch k.Kind {
+	case "claude":
+	case "codex":
 		return []string{"--model", model, "-c", "model_reasoning_effort=" + effort}, nil
+	default:
+		if k.EffortFlag == "" {
+			return nil, fmt.Errorf("%s names no effort option", k.Label)
+		}
+		return []string{"--model", model, k.EffortFlag, effort}, nil
 	}
 	return []string{"--model", model, "--effort", effort}, nil
 }
@@ -244,7 +218,12 @@ func checkpointerScript(home, skillDir string) (string, string) {
 // catalog serves GET /api/catalog: the cached harness lists plus what
 // changes without a restart (the date, the skill and script lookups).
 func (s *Server) catalogNow(r *http.Request) Catalog {
-	c := s.catalog.get(r.Context())
+	var c Catalog
+	if r.URL.Query().Get("probe") == "0" {
+		c = Catalog{Kinds: pickKinds(s.savedPicks()), FromPicks: true}
+	} else {
+		c = s.catalog.get(r.Context())
+	}
 	home, _ := os.UserHomeDir()
 	c.Home = home
 	c.Today = s.now().Format("2006-01-02")
@@ -255,6 +234,60 @@ func (s *Server) catalogNow(r *http.Request) Catalog {
 	c.CheckpointerOK, c.CheckpointerWhy = script != "", why
 	c.Previous = s.savedPicks()
 	return c
+}
+
+// pickKinds is a catalog of the saved Herdr picks alone (A30): each picked
+// harness offers its picked models with their picked efforts, so "Use
+// previous choice" starts at once; nothing is probed.
+func pickKinds(picks []choices.Pick) []CatalogKind {
+	out := []CatalogKind{}
+	at := map[string]int{}
+	for _, p := range picks {
+		if p.Runner != "herdr" || p.Model == "" {
+			continue
+		}
+		i, ok := at[p.Harness]
+		if !ok {
+			k := CatalogKind{Kind: p.Harness, Label: p.Harness, Models: []CatalogModel{}, SkillPrefix: "/", DefaultModel: p.Model}
+			k.Checkpointer = p.Harness == "claude" || p.Harness == "codex"
+			if p.Harness == "codex" {
+				k.SkillPrefix = "$"
+			}
+			i, at[p.Harness] = len(out), len(out)
+			out = append(out, k)
+		}
+		m := CatalogModel{ID: p.Model, Label: p.Model, Efforts: []string{}, DefaultEffort: p.Effort}
+		if p.Effort != "" {
+			m.Efforts = []string{p.Effort}
+		}
+		out[i].Models = append(out[i].Models, m)
+	}
+	return out
+}
+
+// planCatalog is the catalog a new route is checked against: the saved
+// picks' catalog while the probe has not finished and every coordinator
+// of the request is exactly a saved pick (A30), else the probed one.
+func (s *Server) planCatalog(r *http.Request, req RouteRequest) Catalog {
+	if !s.catalog.built.Load() {
+		picks := s.savedPicks()
+		is := func(role, kind, model, effort string) bool {
+			for _, p := range picks {
+				if p.Role == role && p.Runner == "herdr" && p.Harness == kind && p.Model == model && p.Effort == effort {
+					return true
+				}
+			}
+			return false
+		}
+		ok := is(req.Role, req.Kind, req.Model, req.Effort)
+		if req.Role == "adjutant" {
+			ok = ok && is("orchestrator", req.OrchKind, req.OrchModel, req.OrchEffort)
+		}
+		if ok {
+			return Catalog{Kinds: pickKinds(picks), FromPicks: true}
+		}
+	}
+	return s.catalog.get(r.Context())
 }
 
 // savedPicks is each role's last pick (A30), read without asking any

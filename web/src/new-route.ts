@@ -231,6 +231,29 @@ export function usePrevious(f: RouteForm, c: Catalog): RouteForm {
   return out;
 }
 
+/**
+ * The form's harness fields whose role has no saved Herdr pick, or one this
+ * catalog no longer offers, each with the question to show (A30): such a
+ * role is asked again, never skipped in silence.
+ */
+export function missingPicks(f: RouteForm, c: Catalog): Record<string, string> {
+  const roles: [string, "main" | "orch"][] =
+    f.role === "adjutant"
+      ? [
+          ["adjutant", "main"],
+          ["orchestrator", "orch"],
+        ]
+      : [["orchestrator", "main"]];
+  const out: Record<string, string> = {};
+  for (const [role, field] of roles) {
+    const p = (c.previous ?? []).find((x) => x.role === role && x.runner === "herdr");
+    if (!p) out[field] = `No saved choice for the ${role}: pick its harness, model and effort.`;
+    else if (!harnessFromPick(c, p))
+      out[field] = `The saved ${role} choice (${pickSummary(p)}) is no longer offered: pick again.`;
+  }
+  return out;
+}
+
 /** A change to one coordinator's harness: kind, model, effort or typed model id. */
 export type HarnessChange = Partial<Harness>;
 
@@ -370,6 +393,11 @@ function checkHarness(h: Harness, c: Catalog, field: string, out: Record<string,
     return;
   }
   const model = modelOf(h);
+  if (!k.free_model && !k.other_model && k.models.length === 0) {
+    // No list was read (A29): it starts with its own default model.
+    if (h.model || h.effort) out[field] = `${k.label} lists no models here: it starts with its own default.`;
+    return;
+  }
   if (k.free_model) {
     if (model && !modelId.test(model)) out[field] = "A model id uses letters, digits and . _ : [ ] - (at most 64).";
     return;

@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"context"
-	"errors"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -109,52 +108,6 @@ var probes = map[string]struct {
 }{
 	"claude": {[]string{"--help"}, ParseClaudeHelp},
 	"codex":  {[]string{"debug", "models"}, ParseCodexModels},
-}
-
-// Probe asks one harness for its version and its models.
-func Probe(ctx context.Context, run Runner, kind string) Harness {
-	h := Harness{Kind: kind}
-	p, ok := probes[kind]
-	if !ok {
-		program, known := Others[kind]
-		if !known {
-			h.Error = "no model list to probe"
-			return h
-		}
-		return probeHelp(ctx, run, kind, program)
-	}
-	cmd := kind + " " + strings.Join(p.args, " ")
-	out, err := run(ctx, kind, p.args...)
-	if errors.Is(err, exec.ErrNotFound) {
-		h.Error = "not found on PATH"
-		return h
-	}
-	if err != nil {
-		h.Error = cmd + ": " + err.Error()
-		return h
-	}
-	k, err := p.parse(out)
-	if err != nil {
-		h.Error = cmd + ": " + err.Error()
-		return h
-	}
-	h.Version = version(ctx, run, kind)
-	h.DocsURL, h.Models = k.DocsURL, k.Models
-	return h
-}
-
-// probeHelp reads a harness without a model list from its --help.
-func probeHelp(ctx context.Context, run Runner, kind, program string) Harness {
-	out, err := run(ctx, program, "--help")
-	if errors.Is(err, exec.ErrNotFound) {
-		return Harness{Kind: kind, Error: "not found on PATH"}
-	}
-	if err != nil {
-		return Harness{Kind: kind, Error: program + " --help: " + err.Error()}
-	}
-	h := ParseHelp(kind, program, out)
-	h.Version = version(ctx, run, program)
-	return h
 }
 
 // version is the first line of `<program> --version`, or "unknown".
