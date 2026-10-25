@@ -178,34 +178,41 @@ func DefaultWebFile() string {
 	return filepath.Join(d, "herdsman", "web-last-action")
 }
 
-// AskTimeout parses HERDSMAN_ASK_TIMEOUT (default 5m): plain seconds or a
-// number with s, m, h or d, from 1 s to one day.
+// AskTimeout parses HERDSMAN_ASK_TIMEOUT (default 5m). It is the shared
+// duration form of A25 (Duration): plain seconds or a number with s, m, h
+// or d, decimals allowed, leading zeros read as decimal.
 func AskTimeout(v string) (time.Duration, error) {
 	if v == "" {
 		return 5 * time.Minute, nil
 	}
+	d, err := Duration(v)
+	if err != nil {
+		return 0, fmt.Errorf("HERDSMAN_ASK_TIMEOUT: %v (got %q)", err, v)
+	}
+	return d, nil
+}
+
+// Duration reads a duration setting: a positive decimal number of seconds,
+// or one with an s, m, h or d suffix. A value over one day is clamped to
+// one day before it is multiplied, so nothing overflows; a value under a
+// second reads as one second.
+func Duration(v string) (time.Duration, error) {
 	s := strings.TrimSpace(v)
-	unit := time.Second
+	unit := 1.0
 	if n := len(s); n > 0 {
-		switch s[n-1] {
-		case 's':
-			s = s[:n-1]
-		case 'm':
-			unit, s = time.Minute, s[:n-1]
-		case 'h':
-			unit, s = time.Hour, s[:n-1]
-		case 'd':
-			unit, s = 24*time.Hour, s[:n-1]
+		if u, ok := map[byte]float64{'s': 1, 'm': 60, 'h': 3600, 'd': 86400}[s[n-1]]; ok {
+			unit, s = u, s[:n-1]
 		}
 	}
-	if s == "" || strings.Trim(s, "0123456789") != "" {
-		return 0, fmt.Errorf("HERDSMAN_ASK_TIMEOUT: not a duration (got %q)", v)
+	if s == "" || strings.Trim(s, "0123456789.") != "" || strings.Count(s, ".") > 1 || s == "." {
+		return 0, errors.New("not a duration")
 	}
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || n < 1 || n > int64(24*time.Hour/unit) {
-		return 0, fmt.Errorf("HERDSMAN_ASK_TIMEOUT: out of range 1s to 1d (got %q)", v)
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f <= 0 {
+		return 0, errors.New("not a positive duration")
 	}
-	return time.Duration(n) * unit, nil
+	secs := min(f*unit, 86400)
+	return max(time.Duration(secs*float64(time.Second)), time.Second), nil
 }
 
 // Check reports the smaller of the machine's idle time and the time since

@@ -173,12 +173,21 @@ func TestParseUnixAndAskTimeout(t *testing.T) {
 			t.Errorf("%q parsed", v)
 		}
 	}
-	for v, want := range map[string]time.Duration{"": 5 * time.Minute, "90": 90 * time.Second, "30s": 30 * time.Second, "5m": 5 * time.Minute, "2h": 2 * time.Hour, "1d": 24 * time.Hour, "007m": 7 * time.Minute} {
-		if got, err := AskTimeout(v); err != nil || got != want {
+	for v, want := range map[string]time.Duration{"": 5 * time.Minute, "90": 90 * time.Second, "30s": 30 * time.Second, "5m": 5 * time.Minute,
+		"2h": 2 * time.Hour, "1d": 24 * time.Hour, "007m": 7 * time.Minute, "1.5m": 90 * time.Second, "0.2": time.Second,
+		"2d": 24 * time.Hour, "99999999999999999999": 24 * time.Hour, "1e999d": 0} {
+		got, err := AskTimeout(v)
+		if want == 0 {
+			if err == nil {
+				t.Errorf("%q accepted", v)
+			}
+			continue
+		}
+		if err != nil || got != want {
 			t.Errorf("%q: %v %v", v, got, err)
 		}
 	}
-	for v, want := range map[string]string{"x": "not a duration", "m": "not a duration", "-5m": "not a duration", "0": "out of range", "2d": "out of range", "99999999999999999999": "out of range"} {
+	for v, want := range map[string]string{"x": "not a duration", "m": "not a duration", "-5m": "not a duration", "0": "not a positive duration", "1..2": "not a duration", ".": "not a duration"} {
 		if _, err := AskTimeout(v); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: %v", v, err)
 		}
