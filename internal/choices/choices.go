@@ -139,6 +139,9 @@ func (s *Store) Save(picks ...Pick) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	if err := private(dir); err != nil {
+		return err
+	}
 	lock, err := os.OpenFile(filepath.Join(dir, ".choices.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
@@ -178,4 +181,21 @@ func (s *Store) Save(picks ...Pick) error {
 		_ = os.Remove(tmp.Name())
 	}
 	return err
+}
+
+// private makes an existing store folder private: a real folder owned by
+// this user, mode 700.
+func private(dir string) error {
+	st, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !st.IsDir() || !ok || int(sys.Uid) != os.Getuid() {
+		return fmt.Errorf("%s must be a folder owned by this user", dir)
+	}
+	if st.Mode().Perm() != 0o700 {
+		return os.Chmod(dir, 0o700)
+	}
+	return nil
 }

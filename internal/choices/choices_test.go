@@ -233,3 +233,45 @@ func TestSaveRenameFails(t *testing.T) {
 		}
 	}
 }
+
+// An existing config folder is made private before the store writes.
+func TestExistingFolderMadePrivate(t *testing.T) {
+	s := store(t)
+	dir := filepath.Dir(s.Path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(Pick{Role: "reviewer", Runner: "herdr", Harness: "codex", At: at}); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := os.Stat(dir); st.Mode().Perm() != 0o700 {
+		t.Errorf("folder mode %v", st.Mode())
+	}
+	// A link in the folder's place is refused.
+	s = store(t)
+	real := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(filepath.Dir(s.Path)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Dir(s.Path)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(Pick{Role: "reviewer", Runner: "herdr", Harness: "codex", At: at}); err == nil || !strings.Contains(err.Error(), "owned by this user") {
+		t.Errorf("%v", err)
+	}
+}
+
+// A provider/model pick saves and loads as it was picked.
+func TestProviderModelPick(t *testing.T) {
+	s := store(t)
+	p := Pick{Role: "implementer", Runner: "herdr", Harness: "opencode", Model: "provider/model-a", At: at}
+	if err := s.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := s.Load(); err != nil || f.Picks[0] != p {
+		t.Fatalf("%+v %v", f, err)
+	}
+}
