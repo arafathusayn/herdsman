@@ -907,3 +907,62 @@ func TestReconnectResetAndReaderErrors(t *testing.T) {
 		}
 	}
 }
+
+// Review 6, finding 5 (A24): 1000 events, each followed by a server hangup
+// and a reconnect, through wakeOn. Every round wakes the sleeper, and the
+// heap after GC and the goroutine count stay flat.
+func TestWakeOnThousandEventsAndReconnects(t *testing.T) {
+	srv := herdrtest.Start(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var mu sync.Mutex
+	clock := time.Now()
+	d := Deps{Client: herdr.New(srv.Socket), retry: time.Millisecond, Now: func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		clock = clock.Add(2 * time.Minute) // each subscription "lived" past the backoff reset
+		return clock
+	}}
+	d.defaults(ctx)
+	d.wakeOn(ctx, []string{"w9:p1"})
+	var heap0 uint64
+	g0 := 0
+	for i := range 1000 {
+		deadline := time.Now().Add(5 * time.Second)
+		for srv.Subscribers() == 0 {
+			if time.Now().After(deadline) {
+				t.Fatalf("round %d: no subscription", i)
+			}
+			time.Sleep(200 * time.Microsecond)
+		}
+		srv.Emit("pane.agent_status_changed", map[string]any{"pane_id": "w9:p1", "agent_status": "blocked"})
+		select {
+		case <-d.wake:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("round %d: no wake", i)
+		}
+		srv.Hangup()
+		for srv.Subscribers() != 0 && time.Now().Before(deadline) {
+			time.Sleep(200 * time.Microsecond)
+		}
+		if i%100 == 99 {
+			srv.ForgetRequests()
+		}
+		if i == 49 {
+			runtime.GC()
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			heap0, g0 = m.HeapAlloc, runtime.NumGoroutine()
+		}
+	}
+	srv.ForgetRequests()
+	runtime.GC()
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	if m.HeapAlloc > heap0+512<<10 {
+		t.Errorf("heap grew from %d to %d bytes", heap0, m.HeapAlloc)
+	}
+	if g := runtime.NumGoroutine(); g > g0+2 {
+		t.Errorf("%d goroutines after 1000 rounds, %d after 50", g, g0)
+	}
+}

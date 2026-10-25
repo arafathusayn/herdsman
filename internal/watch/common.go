@@ -59,6 +59,7 @@ type Deps struct {
 
 	wake  chan struct{} // a Herdr event ends the default Sleep (wakeOn)
 	event *atomic.Bool  // set when the default Sleep ended on an event
+	retry time.Duration // first reconnect delay; zero means one second
 }
 
 // defaults fills the clock and the sleep; the default sleep ends early, with
@@ -345,8 +346,12 @@ func (d *Deps) wakeOn(ctx context.Context, panes []string) {
 		}
 	}
 	now := d.Now
+	first := d.retry
+	if first <= 0 {
+		first = time.Second
+	}
 	go func() {
-		backoff := time.Second
+		backoff := first
 		for ctx.Err() == nil {
 			start := now()
 			// Once the server acknowledges (at start and after every
@@ -354,7 +359,7 @@ func (d *Deps) wakeOn(ctx context.Context, panes []string) {
 			// the subscription was registering (review 6, finding 3).
 			_ = d.Client.SubscribeReady(ctx, subs, poke, func(herdr.Event) { poke() })
 			if now().Sub(start) > time.Minute {
-				backoff = time.Second
+				backoff = first
 			}
 			t := time.NewTimer(backoff)
 			select {
