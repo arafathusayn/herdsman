@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"sync"
@@ -105,11 +107,18 @@ type Hub struct {
 	// panesChanged wakes statusLoop when the set of agent panes changes.
 	panesChanged chan struct{}
 	every        time.Duration // refreshEvery; tests shorten it
+	// The event stream's retry: retryBase doubling up to retryMax, waited
+	// through retryWait (time.After); tests shorten and watch them.
+	retryBase, retryMax time.Duration
+	retryWait           func(time.Duration) <-chan time.Time
 
 	// refreshMu serializes refreshes; last is when the latest one ended.
 	refreshMu sync.Mutex
 	last      time.Time
 	lastPanes []string
+	// routes caches each route folder's parsed file by its size and time,
+	// so an unchanged route is not read again (A24); refreshMu guards it.
+	routes map[string]cachedRoute
 
 	mu      sync.Mutex
 	state   State
@@ -129,6 +138,9 @@ func NewHub(c *herdr.Client, pong herdr.Pong, routeDirs []string) *Hub {
 		refreshReq:   make(chan struct{}, 1),
 		panesChanged: make(chan struct{}, 1),
 		every:        refreshEvery,
+		retryBase:    time.Second,
+		retryMax:     30 * time.Second,
+		retryWait:    time.After,
 		subs:         map[chan message]struct{}{},
 	}
 }
@@ -196,7 +208,7 @@ func (h *Hub) Refresh() {
 }
 
 func (h *Hub) subscribeLoop(ctx context.Context, subs func(context.Context) []map[string]any, stop <-chan struct{}) {
-	backoff := time.Second
+	backoff := h.retryBase
 	for ctx.Err() == nil {
 		sctx, cancel := context.WithCancel(ctx)
 		if stop != nil {
@@ -209,7 +221,7 @@ func (h *Hub) subscribeLoop(ctx context.Context, subs func(context.Context) []ma
 			}()
 		}
 		err := h.client.Subscribe(sctx, subs(sctx), func(ev herdr.Event) {
-			backoff = time.Second
+			backoff = h.retryBase
 			h.record(ev)
 			h.Refresh()
 		})
@@ -226,11 +238,11 @@ func (h *Hub) subscribeLoop(ctx context.Context, subs func(context.Context) []ma
 		}
 		log.Printf("herdr event stream ended: %v; retrying in %s", err, backoff)
 		select {
-		case <-time.After(backoff):
+		case <-h.retryWait(backoff):
 		case <-ctx.Done():
 			return
 		}
-		backoff = min(backoff*2, 30*time.Second)
+		backoff = min(backoff*2, h.retryMax)
 	}
 }
 
@@ -377,14 +389,50 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 	claimed := map[string]bool{}
 	var out []RouteView
 	for _, d := range dirs {
-		r, err := route.Load(d)
-		if err != nil {
+		r, older, ok := h.loadRoute(d)
+		if !ok {
 			continue
 		}
-		older := boundRunState(r)
 		out = append(out, RouteView{Route: r, ID: routeID(r.Dir, r.Name), Live: isLive(r, panes, agentAt, claimed), OlderRunState: older})
 	}
+	for d := range h.routes {
+		if !slices.Contains(dirs, d) {
+			delete(h.routes, d)
+		}
+	}
 	return out
+}
+
+// cachedRoute is one parsed route file and the size and time it had.
+type cachedRoute struct {
+	size  int64
+	mod   time.Time
+	r     *route.Route
+	older int
+}
+
+// loadRoute reads a route folder's file only when its size or time
+// changed since the last refresh; the run state is bounded either way.
+func (h *Hub) loadRoute(dir string) (*route.Route, int, bool) {
+	st, err := os.Stat(filepath.Join(dir, route.RouteFile))
+	if err != nil {
+		delete(h.routes, dir)
+		return nil, 0, false
+	}
+	if c, ok := h.routes[dir]; ok && c.size == st.Size() && c.mod.Equal(st.ModTime()) {
+		return c.r, c.older, true
+	}
+	r, err := route.Load(dir)
+	if err != nil {
+		delete(h.routes, dir)
+		return nil, 0, false
+	}
+	older := boundRunState(r)
+	if h.routes == nil {
+		h.routes = map[string]cachedRoute{}
+	}
+	h.routes[dir] = cachedRoute{size: st.Size(), mod: st.ModTime(), r: r, older: older}
+	return r, older, true
 }
 
 // isLive says whether a route's agents run now: a task row whose agent name
