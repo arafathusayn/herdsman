@@ -2,6 +2,7 @@ package message
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -73,9 +74,14 @@ func (e *Env) notify(key, title, body string) error {
 	// incident (A26, D13). A lock that stays busy is said, not swallowed.
 	l := e.hold(inbox.TryDir(e.alert(key, ".lock"), max(e.ch.LockWait, 1), e.sleep))
 	if l == nil {
-		_ = e.ch.LogLine("ALERT " + key + " not recorded: its lock stays busy")
-		fmt.Fprintf(e.Stderr, "WARNING alert %s not recorded; its lock stays busy\n", key)
-		return nil
+		// Keep the incident durably beside the busy lock (never in the
+		// holder's own files); the next retry folds it in under the lock
+		// (A26, D13). A record that cannot be kept fails the command.
+		q := e.alert(key, fmt.Sprintf(".queued-%d-%d-%d", os.Getpid(), e.unix(), rand.IntN(1<<30)))
+		if err := e.ch.Atomic(q, pretty(obj("title", title, "body", body))); err != nil {
+			return die("alert %s busy and its incident cannot be kept", key)
+		}
+		return e.ch.LogLine("ALERT " + key + " queued: its lock stays busy")
 	}
 	defer e.release(l)
 	for _, x := range []string{".sent", ".pending"} {
@@ -162,9 +168,19 @@ func (e *Env) alertAttemptLocked(key string) error {
 
 var errAlertPayload = &exitErr{code: 1}
 
-// retryAlerts is retry_alerts: each pending incident attempted.
+// retryAlerts is retry_alerts: queued incidents folded in under their
+// lock, then each pending incident attempted.
 func (e *Env) retryAlerts() {
 	ents, _ := os.ReadDir(e.path("alerts"))
+	for _, ent := range ents {
+		n := ent.Name()
+		if key, _, ok := strings.Cut(n, ".queued-"); ok && !strings.HasPrefix(n, ".") && key != "" {
+			if err := e.foldQueued(key, e.path("alerts", n)); err != nil {
+				e.Stderr.Write([]byte("HEALTH alert retry failed\n"))
+			}
+		}
+	}
+	ents, _ = os.ReadDir(e.path("alerts"))
 	for _, ent := range ents {
 		n := ent.Name()
 		if strings.HasPrefix(n, ".") || !strings.HasSuffix(n, ".pending") {
@@ -285,4 +301,25 @@ func (e *Env) health() (bool, error) {
 		return false, nil
 	}
 	return true, nil
+}
+
+// foldQueued moves one queued incident into the incident's pending record
+// under its lock: a new incident becomes pending, one already pending or
+// sent needs nothing more.
+func (e *Env) foldQueued(key, q string) error {
+	l := e.alertLock(key)
+	if l == nil {
+		return nil // still busy: the next retry folds it
+	}
+	defer e.release(l)
+	if !inbox.Regular(e.ch.Dir, q) {
+		return nil
+	}
+	if inbox.RegularFile(e.alert(key, ".sent")) || inbox.RegularFile(e.alert(key, ".pending")) {
+		return os.Remove(q)
+	}
+	if err := inbox.SafeLeaf(e.ch.Dir, e.alert(key, ".pending")); err != nil {
+		return die("%s", err.Error())
+	}
+	return e.ch.MoveUnique(q, e.alert(key, ".pending"))
 }

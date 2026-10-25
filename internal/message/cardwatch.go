@@ -195,6 +195,8 @@ func (w *watcher) pass() error {
 		return err
 	}
 	coverage := w.coverage()
+	// The hold reason is chosen once per pass and written once (D20).
+	reason, notice := "", ""
 	w.auto = false
 	ok, fault, unknown := false, "", []inbox.Unknown(nil)
 	if coverage {
@@ -231,12 +233,7 @@ func (w *watcher) pass() error {
 			_ = os.Remove(lf)
 		}
 		if failures != 1 {
-			if err := w.writeHeld(heldText); err != nil {
-				return writeFailed(err)
-			}
-			if err := e.notify("automation-held", "Automatic coordination held", "Human inspection required. No goal resume or card relay; the adjutant must tell the user."); err != nil {
-				return err
-			}
+			reason, notice = heldText, "Human inspection required. No goal resume or card relay; the adjutant must tell the user."
 		}
 	}
 	now := e.unix()
@@ -256,10 +253,13 @@ func (w *watcher) pass() error {
 	}
 	if !w.coverage() {
 		w.auto = false
-		if err := w.writeHeld("HUMAN changed watch coverage; restart under human setup"); err != nil {
+		reason, notice = "HUMAN changed watch coverage; restart under human setup", "Watch coverage changed; no resume or card relay. Tell the user."
+	}
+	if reason != "" {
+		if err := w.writeHeld(reason); err != nil {
 			return writeFailed(err)
 		}
-		if err := e.notify("automation-held", "Automatic coordination held", "Watch coverage changed; no resume or card relay. Tell the user."); err != nil {
+		if err := e.notify("automation-held", "Automatic coordination held", notice); err != nil {
 			return err
 		}
 	}
@@ -430,14 +430,29 @@ func (w *watcher) watchTarget(t any) error {
 			_ = os.Remove(marker)
 		}
 	}
+	// Herdr status first (D18, A25.3): a blocked agent is a notice without any
+	// screen pattern; while it works, only the last five lines can hold a live
+	// prompt (older lines are tool output). Other states scan the read.
+	status := ""
+	if a, err := e.Client.AgentGet(e.ctx(), pane); err == nil {
+		v, _ := inbox.Decode(a.Raw)
+		status, _ = inbox.Object(v)["agent_status"].(string)
+	}
+	scan := lines
+	if status == "working" && len(scan) > 5 {
+		scan = scan[len(scan)-5:]
+	}
 	phrase := ""
-	for _, l := range lines {
+	for _, l := range scan {
 		l = promptRe.ReplaceAllString(l, " ")
 		l = squareRe.ReplaceAllString(l, " ")
 		if blockedPr.MatchString(l) {
 			phrase = l
 			break
 		}
+	}
+	if phrase == "" && status == "blocked" {
+		phrase = "herdr status: blocked"
 	}
 	marker := e.path("state", "blocked-"+key)
 	if phrase != "" {
@@ -648,7 +663,6 @@ func (w *watcher) await(interval int64) {
 			w.retryAt = e.unix() + int64(w.backoff.next()/time.Second)
 		} else {
 			w.stream, w.allDirty = s, true
-			w.backoff.reset()
 		}
 	}
 	if w.stream == nil {
@@ -661,13 +675,16 @@ func (w *watcher) await(interval int64) {
 	for t := e.unix(); t < end; t = e.unix() {
 		l, err := w.stream.Next(time.Duration(end-t) * time.Second)
 		if errors.Is(err, errTimeout) {
+			w.backoff.reset()
 			return
 		}
 		if err != nil {
 			w.stream.Close()
 			w.stream, w.allDirty = nil, true
+			w.retryAt = e.unix() + int64(w.backoff.next()/time.Second)
 			return
 		}
+		w.backoff.reset()
 		if pane, _ := eventPane(l); pane != "" {
 			for _, tg := range w.targets { // only configured panes: the map stays bounded
 				if p, _ := inbox.Object(tg)["pane"].(string); p == pane {

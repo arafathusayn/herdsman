@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -107,7 +108,9 @@ func TestD13BusyAlertLock(t *testing.T) {
 	os.MkdirAll(c.in("alerts", "courier-down.lock"), 0o700)
 	start := c.now
 	out := c.send()
-	check(t, "D13 a busy alert lock is reported, not swallowed", "WARNING alert courier-down not recorded", out)
+	_ = out
+	q, _ := filepath.Glob(c.in("alerts", "courier-down.queued-*"))
+	check(t, "D13 a busy alert lock keeps the incident queued, not dropped", "^1$", strconv.Itoa(len(q)))
 	if c.now.Sub(start) < 2*time.Second {
 		t.Errorf("no wait for the busy lock: %s", c.now.Sub(start))
 	}
@@ -115,6 +118,9 @@ func TestD13BusyAlertLock(t *testing.T) {
 
 	c.send()
 	check(t, "D13 with the lock free the incident is recorded", "^yes$", yn(c.in("alerts", "courier-down.sent")))
+	c.courier()
+	q, _ = filepath.Glob(c.in("alerts", "courier-down.queued-*"))
+	check(t, "D13 the next retry folds the queued incident", "^0$", strconv.Itoa(len(q)))
 }
 
 // D20: a held watcher records automation-held once, not on every pass.

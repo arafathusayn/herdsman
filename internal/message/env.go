@@ -187,10 +187,16 @@ func (e *Env) releaseAll() {
 // Release frees every lock the run holds. A signal handler calls it from
 // its own goroutine while the command runs: the lock list is guarded.
 func (e *Env) Release() {
-	e.releaseAll()
+	// Stop further lock takes first, then free the lock folders. The
+	// channel's ownership flag is left to the command's goroutine: the
+	// process exits right after this.
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.drained = true
-	e.mu.Unlock()
+	for i := len(e.locks) - 1; i >= 0; i-- {
+		_ = e.locks[i].Release()
+	}
+	e.locks, e.mutation = nil, nil
 }
 
 // options are the inbox settings of the environment.
@@ -238,24 +244,34 @@ func (e *Env) lockChannel() (*inbox.Lock, error) {
 func (e *Env) tryChannel() *inbox.Lock { return e.hold(e.ch.Lock(inbox.ChannelLock)) }
 
 // tryMutation is mutation_lock: the shared input lock, or nil when busy.
-func (e *Env) tryMutation() *inbox.Lock { return e.takeMutation(e.ch.LockWait) }
+func (e *Env) tryMutation() (*inbox.Lock, error) { return e.takeMutation(e.ch.LockWait) }
 
 // takeMutation takes the shared input lock (tries attempts); as its new
-// owner the process first publishes any waiting exposure (e93bcc1).
-func (e *Env) takeMutation(tries int) *inbox.Lock {
+// owner the process first publishes any waiting exposure (e93bcc1). A
+// publication failure releases the lock and refuses the mutation; nil
+// without an error means the lock stayed busy (or a signal is ending the
+// run). Ownership changes only in the command's own goroutine; the signal
+// path frees lock folders and nothing else (review 2).
+func (e *Env) takeMutation(tries int) (*inbox.Lock, error) {
 	l, err := e.ch.LockMutation(tries, e.ch.Pause)
 	if l == nil {
-		return nil
+		return nil, nil
 	}
-	e.hold(l)
+	if err != nil {
+		_ = l.Release()
+		return nil, err
+	}
 	e.mu.Lock()
+	if e.drained {
+		e.mu.Unlock()
+		_ = l.Release()
+		return nil, nil
+	}
+	e.locks = append(e.locks, l)
 	e.mutation = l
 	e.mu.Unlock()
 	e.ch.MutationHeld = true
-	if err != nil {
-		fmt.Fprintln(e.Stderr, err)
-	}
-	return l
+	return l, nil
 }
 
 // errDisplayBusy is a display call that did not get the input lock.
@@ -264,11 +280,14 @@ var errDisplayBusy = errors.New("display lock busy")
 // display is display_call: a display metadata report or a notification,
 // under the shared input lock taken briefly (six tries).
 func (e *Env) display(call func(ctx context.Context) error) error {
-	l := e.takeMutation(6)
+	l, err := e.takeMutation(6)
+	if err != nil {
+		return err
+	}
 	if l == nil {
 		return errDisplayBusy
 	}
-	err := call(e.ctx())
+	err = call(e.ctx())
 	if rerr := e.release(l); rerr != nil {
 		return die("cannot release display owner")
 	}

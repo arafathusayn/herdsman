@@ -3,7 +3,9 @@ package inbox
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -23,28 +25,38 @@ const FaultPending = "pending"
 
 func (ch *Channel) pendingDir() string { return ch.Path("state", "exposure-pending") }
 
-// ExposurePending reports whether an exposure record waits for the lock
-// (an entry, or the folder itself as a link).
+// ExposurePending reports whether an exposure record may wait for the lock.
+// Only the folder's absence means none: an entry, a link, a file in its
+// place or a folder that cannot be read all count as pending, so every
+// check fails closed (review 2).
 func (ch *Channel) ExposurePending() bool {
 	d := ch.pendingDir()
-	if st, err := os.Lstat(d); err == nil && st.Mode()&os.ModeSymlink != 0 {
+	st, err := os.Lstat(d)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	if err != nil || !st.IsDir() {
 		return true
 	}
 	ents, err := os.ReadDir(d)
-	return err == nil && len(ents) > 0
+	return err != nil || len(ents) > 0
 }
 
 // FoldExposure publishes every waiting exposure; the caller owns the input
-// lock. An unreadable entry still counts as exposure.
+// lock. An unreadable entry still counts as exposure; a pending path that
+// is not a real, readable folder is refused (the human inspects it).
 func (ch *Channel) FoldExposure() error {
 	if !ch.ExposurePending() {
 		return nil
 	}
 	d := ch.pendingDir()
-	if st, err := os.Lstat(d); err == nil && st.Mode()&os.ModeSymlink != 0 {
-		return &Fatal{Msg: "exposure-pending symlink"}
+	if st, err := os.Lstat(d); err != nil || !st.IsDir() {
+		return &Fatal{Msg: "exposure-pending is not a folder; inspect it"}
 	}
-	ents, _ := os.ReadDir(d)
+	ents, err := os.ReadDir(d)
+	if err != nil {
+		return &Fatal{Msg: "exposure-pending unreadable; inspect it"}
+	}
 	agents := []Unknown{}
 	seen := map[string]bool{}
 	for _, en := range ents {

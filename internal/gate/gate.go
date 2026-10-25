@@ -227,15 +227,16 @@ func (g *Gate) consume(goFile, action, target, revision, draft string) exit {
 	// Admission and exposure writers use the shared input lock. Check the
 	// boundary under it and record the consumption before releasing it, so
 	// no admission falls between the check and the consumption.
-	mutation := g.root.Lock(inbox.MutationLock)
+	// Taken through Channel.LockMutation: as the lock's new owner the gate
+	// publishes any exposure that waited for it (e93bcc1 B3-001), and a
+	// publication failure refuses the consumption.
+	mutation, foldErr := (&inbox.Channel{Root: g.root}).LockMutation(g.root.LockWait, g.root.Pause)
 	if mutation == nil {
 		return g.die("input lock busy; retry later, never auto-remove")
 	}
 	g.hold(mutation)
-	// As the new owner of the input lock, publish any exposure that waited
-	// for it first (e93bcc1 B3-001), so the check below sees it.
-	if err := (&inbox.Channel{Root: g.root}).FoldExposure(); err != nil {
-		msg, _ := inbox.IsFatal(err)
+	if foldErr != nil {
+		msg, _ := inbox.IsFatal(foldErr)
 		return g.die(msg)
 	}
 	if line, code := g.authority(); code != 0 {

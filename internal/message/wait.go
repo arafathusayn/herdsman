@@ -161,22 +161,30 @@ func (e *Env) wait(args []string) error {
 				switch {
 				case prev[0] != now[0] && len(found) > 0:
 					report = func() error {
-						e.event(WaitEvent{Event: "message", Name: me}, fmt.Sprintf("MESSAGE %s: run herdsman message read", me))
+						if err := e.event(WaitEvent{Event: "message", Name: me}, fmt.Sprintf("MESSAGE %s: run herdsman message read", me)); err != nil {
+							return err
+						}
 						return nil
 					}
 				case prev[1] != now[1] && flagText+fault != "":
 					report = func() error {
-						e.event(WaitEvent{Event: "health", Flags: flags, Fault: fault}, fmt.Sprintf("HEALTH %s %s", flagText, fault))
+						if err := e.event(WaitEvent{Event: "health", Flags: flags, Fault: fault}, fmt.Sprintf("HEALTH %s %s", flagText, fault)); err != nil {
+							return err
+						}
 						return exitWith(1)
 					}
 				case prev[2] != now[2] && notices != "":
 					report = func() error {
-						e.event(WaitEvent{Event: "health", Reason: "sender_notice"}, "HEALTH sender notice; inspect herdsman message status")
+						if err := e.event(WaitEvent{Event: "health", Reason: "sender_notice"}, "HEALTH sender notice; inspect herdsman message status"); err != nil {
+							return err
+						}
 						return exitWith(1)
 					}
 				case prev[2] != now[2] && pending > 0:
 					report = func() error {
-						e.event(WaitEvent{Event: "health", Reason: "pending_delivery"}, "HEALTH pending delivery; inspect herdsman message status")
+						if err := e.event(WaitEvent{Event: "health", Reason: "pending_delivery"}, "HEALTH pending delivery; inspect herdsman message status"); err != nil {
+							return err
+						}
 						return exitWith(1)
 					}
 				}
@@ -184,6 +192,9 @@ func (e *Env) wait(args []string) error {
 					// Report first, then record (A26, D2): a waiter stopped
 					// between the two reports the change again, never loses it.
 					result := report()
+					if result == errOutput {
+						return result // not reported: not recorded
+					}
 					if err := e.ch.WriteText(state, fingerprint); err != nil {
 						return writeFailed(err)
 					}
@@ -196,8 +207,7 @@ func (e *Env) wait(args []string) error {
 			next = t + int64(recheck)
 		}
 		if t >= end {
-			e.event(WaitEvent{Event: "tick"}, "TICK message-wait deadline")
-			return nil
+			return e.event(WaitEvent{Event: "tick"}, "TICK message-wait deadline")
 		}
 		if stream == nil && t >= retryAt {
 			s, err := e.openStream([]map[string]any{{"type": "pane.updated"}})
@@ -205,7 +215,6 @@ func (e *Env) wait(args []string) error {
 				retryAt = t + int64(backoff.next()/time.Second)
 			} else {
 				stream = s
-				backoff.reset()
 			}
 		}
 		if stream == nil {
@@ -229,7 +238,8 @@ func (e *Env) wait(args []string) error {
 		if waitFor <= 0 {
 			continue
 		}
-		l, ok := e.nextHint(&stream, waitFor)
+		l, ok := e.nextHint(&stream, waitFor, &backoff)
+		backoff.after(e.unix(), &retryAt)
 		if ok {
 			if pane, _ := eventPane(l); pane == e.pane() {
 				next = 0
@@ -254,19 +264,22 @@ var errNoSocket = &exitErr{code: 1, msg: "no herdr socket"}
 // partial frame, so the script's reconnect-on-timeout safeguard is not
 // needed (A24/A26). A dropped stream or a channel-closing event closes it
 // (the caller opens a new one and rescans); another event is no hint.
-func (e *Env) nextHint(stream *Stream, seconds int64) (string, bool) {
+func (e *Env) nextHint(stream *Stream, seconds int64, b *reopen) (string, bool) {
 	if n := e.eventReadMax; n > 0 && seconds > int64(n) {
 		seconds = int64(n)
 	}
 	l, err := (*stream).Next(time.Duration(seconds) * time.Second)
 	if errors.Is(err, errTimeout) {
+		b.reset() // a stream that stays open through a quiet wait is healthy
 		return "", false
 	}
 	if err != nil {
 		(*stream).Close()
 		*stream = nil
+		b.dropped = true
 		return "", false
 	}
+	b.reset()
 	switch hint(l) {
 	case 0:
 		return l, true
@@ -275,6 +288,7 @@ func (e *Env) nextHint(stream *Stream, seconds int64) (string, bool) {
 	}
 	(*stream).Close()
 	*stream = nil
+	b.dropped = true
 	return "", false
 }
 
@@ -291,10 +305,19 @@ type WaitEvent struct {
 }
 
 // event prints one event: its JSON line with --json, else its text line.
-func (e *Env) event(v any, text string) {
+// event prints one event line; a failed write is an error, so a caller
+// never records a change it could not report (A26, D2).
+func (e *Env) event(v any, text string) error {
+	var err error
 	if e.JSON {
-		e.Stdout.Write(line(v))
-		return
+		_, err = e.Stdout.Write(line(v))
+	} else {
+		_, err = fmt.Fprintln(e.Stdout, text)
 	}
-	fmt.Fprintln(e.Stdout, text)
+	if err != nil {
+		return errOutput
+	}
+	return nil
 }
+
+var errOutput = &inbox.Fatal{Msg: "cannot write the event line; the change stays unreported"}

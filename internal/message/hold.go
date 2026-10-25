@@ -53,7 +53,10 @@ func (e *Env) holdCmd(args []string) error {
 			return die("unknown hold target: %s", name)
 		}
 	}
-	lock := e.tryMutation()
+	lock, lerr := e.tryMutation()
+	if lerr != nil {
+		return lerr
+	}
 	if lock == nil {
 		return die("input lock busy; retry with backoff, never auto-remove")
 	}

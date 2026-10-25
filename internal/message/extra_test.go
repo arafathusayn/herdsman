@@ -95,19 +95,25 @@ func TestJSONOutput(t *testing.T) {
 // anything runs; leading zeros read as decimal.
 func TestStrictSettings(t *testing.T) {
 	c := newCase(t, true)
-	for _, v := range []string{"abc", "-1", "0", "3601", " 5", "1.5"} {
+	for _, v := range []string{"abc", "-1", " 5", "1.5", "5x"} {
 		out, code := c.courier("SWEEP=" + v)
-		check(t, "SWEEP="+v, `^2 herdsman message: SWEEP: invalid SWEEP, want a duration from 1s to 3600s: digits with an optional s, m, h or d \(got "`, strconv.Itoa(code)+" "+out)
+		check(t, "SWEEP="+v, `^2 herdsman message: SWEEP: invalid SWEEP, want a duration: digits with an optional s, m, h or d, clamped to 1s..3600s \(got "`, strconv.Itoa(code)+" "+out)
 	}
 	check(t, "no lock taken", "^no$", yn(c.in("courier.lock")))
 	if _, code := c.courier("SWEEP=060"); code != 0 {
 		t.Error("a leading zero is decimal")
 	}
-	for k, v := range map[string]string{"RECHECK": "0", "DEADLINE": "1501"} {
+	// Out-of-range durations are clamped, as the shared settings rule says.
+	for _, v := range []string{"0", "3601", "2h", "99999999d"} {
+		if n, ok := settingDuration(v, 1, 3600); !ok || n < 1 || n > 3600 {
+			t.Errorf("SWEEP=%s: %d %v", v, n, ok)
+		}
+	}
+	for k, v := range map[string]string{"RECHECK": "x", "DEADLINE": "1.5"} {
 		out, code := c.wait("receiver-pane", O, k+"="+v)
 		check(t, k, "^2 herdsman message: "+k, strconv.Itoa(code)+" "+out)
 	}
-	out, code := c.watch("INTERVAL=61")
+	out, code := c.watch("INTERVAL=-5")
 	check(t, "INTERVAL", "^2 herdsman message: INTERVAL", strconv.Itoa(code)+" "+out)
 }
 

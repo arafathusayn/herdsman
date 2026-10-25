@@ -102,7 +102,10 @@ func (e *Env) send(args []string) error {
 	if kind == "side_agent_data" {
 		// Hold the input lock from the boundary check through the enqueue;
 		// lock order: input lock, then queue lock.
-		if mutation = e.tryMutation(); mutation == nil {
+		var lerr error
+		if mutation, lerr = e.tryMutation(); lerr != nil {
+			return lerr
+		} else if mutation == nil {
 			return die("input lock busy; side-agent data not queued")
 		}
 		if ok, fault, unknown := e.ch.Boundary(e.ctx(), e.Client); !ok {
@@ -212,6 +215,10 @@ func (e *Env) send(args []string) error {
 		return die("cannot record the allocation copy")
 	}
 	if err := e.ch.MoveUnique(tmpName, filepath.Join(box, "new", id+".md")); err != nil {
+		// Not queued: retire the allocation under the queue lock, so no
+		// allocated envelope stays without a queue entry or a terminal
+		// disposition (A26, D12).
+		_ = e.ch.Atomic(e.path("ids", id, "terminal.json"), pretty(obj("id", id, "state", "abandoned")))
 		return err
 	}
 	if err := e.release(lock); err != nil {

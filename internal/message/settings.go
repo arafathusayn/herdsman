@@ -22,12 +22,17 @@ func settingDuration(v string, lo, hi int) (int, bool) {
 			v, mult = v[:n-1], 86400
 		}
 	}
-	n, ok := settingInt(v, 0, 1<<40)
+	n, ok := settingInt(v, 0, 1<<62)
 	if !ok || v == "" {
 		return 0, false
 	}
+	// Clamped to the command's range, as the shared settings rule says (A25):
+	// a well-formed duration is never refused for its size.
+	if n > hi/mult+1 {
+		n = hi/mult + 1 // no overflow before the clamp
+	}
 	n *= mult
-	return n, n >= lo && n <= hi
+	return min(max(n, lo), hi), true
 }
 
 // durEnv reads a duration setting ${K:-def} once, strictly (A25).
@@ -35,7 +40,7 @@ func (e *Env) durEnv(k, def string, lo, hi int) (int, error) {
 	v := e.envDefault(k, def)
 	n, ok := settingDuration(v, lo, hi)
 	if !ok {
-		return 0, die("herdsman message: %s: invalid %s, want a duration from %ds to %ds: digits with an optional s, m, h or d (got %q)", k, k, lo, hi, v)
+		return 0, die("herdsman message: %s: invalid %s, want a duration: digits with an optional s, m, h or d, clamped to %ds..%ds (got %q)", k, k, lo, hi, v)
 	}
 	return n, nil
 }
@@ -78,7 +83,19 @@ func (e *Env) commonSettings() error {
 // reopen is the subscription retry delay: 1 s doubling to 60 s while
 // herdr cannot be subscribed, reset by a success (A26, D4: the script
 // retried every second without backoff).
-type reopen struct{ d time.Duration }
+// dropped: the last stream failed; the caller waits next() before a new one.
+type reopen struct {
+	d       time.Duration
+	dropped bool
+}
+
+// after records a dropped stream: the next open waits for the backoff.
+func (b *reopen) after(now int64, retryAt *int64) {
+	if b.dropped {
+		b.dropped = false
+		*retryAt = now + int64(b.next()/time.Second)
+	}
+}
 
 func (b *reopen) next() time.Duration {
 	if b.d == 0 {

@@ -122,7 +122,9 @@ func (e *Env) resumeRun(args []string, beforeLock func()) error {
 	if g.beforeLock != nil {
 		g.beforeLock()
 	}
-	if e.takeMutation(1) == nil {
+	if l, lerr := e.takeMutation(1); lerr != nil {
+		return lerr
+	} else if l == nil {
 		return held("mutation lock busy")
 	}
 	if inbox.Exists(sent) {
