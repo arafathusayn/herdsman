@@ -519,7 +519,7 @@ func (s *Server) recordActivity() {
 }
 
 // routeRunState pages a route's older run-state lines: up to runStateKept
-// lines ending before line index `before`, read from the route file.
+// lines ending before line index `before`, read backward from the file's end.
 func (s *Server) routeRunState(w http.ResponseWriter, r *http.Request) {
 	rv := findRoute(s.hub.Current().Routes, r.URL.Query().Get("route"))
 	if rv == nil {
@@ -531,12 +531,25 @@ func (s *Server) routeRunState(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "before must be a whole number"})
 		return
 	}
-	rt, err := route.Load(rv.Dir)
+	// The hub's count of the file's run-state lines; the page is read
+	// backward from the file's end (A24).
+	total := rv.OlderRunState + len(rv.RunState)
+	before = min(before, total)
+	var lines []route.LogLine
+	var err error
+	if rv.runStateLast {
+		lines, err = route.PageRunState(rv.Dir, before, runStateKept, total)
+	} else {
+		// Another section follows the run state: read the file whole.
+		var rt *route.Route
+		if rt, err = route.Load(rv.Dir); err == nil {
+			end := min(before, len(rt.RunState))
+			lines = rt.RunState[max(0, end-runStateKept):end]
+		}
+	}
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "the route file could not be read"})
 		return
 	}
-	before = min(before, len(rt.RunState))
-	from := max(0, before-runStateKept)
-	writeJSON(w, http.StatusOK, map[string]any{"lines": rt.RunState[from:before], "older": from})
+	writeJSON(w, http.StatusOK, map[string]any{"lines": lines, "older": before - len(lines)})
 }

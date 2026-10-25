@@ -172,10 +172,7 @@ func ParseModelLines(b []byte, efforts []string, def string) ([]Model, error) {
 }
 
 func label(k string) string {
-	r := []rune(k)
-	if len(r) == 0 {
-		return k
-	}
+	r := []rune(k) // a kind is never empty: herdr lists names, --harness checks them
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)
 }

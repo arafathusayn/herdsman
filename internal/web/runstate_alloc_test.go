@@ -56,3 +56,45 @@ func TestRefreshAllocationIsFlatAsTheRouteGrows(t *testing.T) {
 		t.Fatalf("newest %q", rs[len(rs)-1].Text)
 	}
 }
+
+// A24: a refresh after one appended line reads only that line: it costs
+// the same at 100 lines and at 10,000; and a page of older lines costs the
+// same too.
+func TestAppendedLineAndPageCostStayFlat(t *testing.T) {
+	cost := map[int][2]uint64{}
+	for _, n := range []int{150, 10000} {
+		f := newFixture(t)
+		writeRunState(t, f, n)
+		f.hub.refresh(context.Background())
+		fh, err := os.OpenFile(filepath.Join(f.routeDir, route.RouteFile), os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(fh, "- 12:00 appended %d\n", n)
+		fh.Close()
+		var refresh, page runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&refresh)
+		f.hub.refresh(context.Background())
+		var after runtime.MemStats
+		runtime.ReadMemStats(&after)
+		rv := f.hub.Current().Routes[0]
+		if last := rv.RunState[len(rv.RunState)-1].Text; last != fmt.Sprintf("appended %d", n) || rv.OlderRunState+len(rv.RunState) != n+2 {
+			t.Fatalf("%d: last %q, total %d", n, last, rv.OlderRunState+len(rv.RunState))
+		}
+		runtime.GC()
+		runtime.ReadMemStats(&page)
+		lines, err := route.PageRunState(rv.Dir, rv.OlderRunState, runStateKept, rv.OlderRunState+len(rv.RunState))
+		var pageAfter runtime.MemStats
+		runtime.ReadMemStats(&pageAfter)
+		if err != nil || len(lines) != min(runStateKept, rv.OlderRunState) {
+			t.Fatalf("%d: page %d %v", n, len(lines), err)
+		}
+		cost[n] = [2]uint64{after.TotalAlloc - refresh.TotalAlloc, pageAfter.TotalAlloc - page.TotalAlloc}
+	}
+	for i, what := range []string{"refresh after an append", "page"} {
+		if int64(cost[10000][i])-int64(cost[150][i]) > 128<<10 {
+			t.Errorf("%s costs %d bytes at 150 lines and %d at 10,000", what, cost[150][i], cost[10000][i])
+		}
+	}
+}

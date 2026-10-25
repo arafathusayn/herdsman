@@ -55,21 +55,13 @@ type RouteView struct {
 	// OlderRunState counts the run-state lines before RunState, which keeps
 	// the newest runStateKept only; GET /api/route/runstate pages them (A24).
 	OlderRunState int `json:"older_run_state,omitempty"`
+	// runStateLast: the run state is the file's last section, so its older
+	// lines can be read backward from the end.
+	runStateLast bool
 }
 
 // runStateKept bounds the run-state lines the hub holds per route.
 const runStateKept = 100
-
-// boundRunState keeps the newest runStateKept lines in a fresh array, so the
-// full history is not retained, and returns how many it left out.
-func boundRunState(r *route.Route) int {
-	older := len(r.RunState) - runStateKept
-	if older <= 0 {
-		return 0
-	}
-	r.RunState = slices.Clone(r.RunState[older:])
-	return older
-}
 
 // routeID is the ID of the route in folder dir.
 func routeID(dir, name string) string {
@@ -389,11 +381,13 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 	claimed := map[string]bool{}
 	var out []RouteView
 	for _, d := range dirs {
-		r, older, ok := h.loadRoute(d)
+		tail, ok := h.loadRoute(d)
 		if !ok {
 			continue
 		}
-		out = append(out, RouteView{Route: r, ID: routeID(r.Dir, r.Name), Live: isLive(r, panes, agentAt, claimed), OlderRunState: older})
+		r := tail.Route
+		out = append(out, RouteView{Route: r, ID: routeID(r.Dir, r.Name), Live: isLive(r, panes, agentAt, claimed),
+			OlderRunState: tail.Total - len(r.RunState), runStateLast: tail.RunStateLast()})
 	}
 	for d := range h.routes {
 		if !slices.Contains(dirs, d) {
@@ -405,34 +399,34 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 
 // cachedRoute is one parsed route file and the size and time it had.
 type cachedRoute struct {
-	size  int64
-	mod   time.Time
-	r     *route.Route
-	older int
+	size int64
+	mod  time.Time
+	tail *route.Tail
 }
 
 // loadRoute reads a route folder's file only when its size or time
-// changed since the last refresh; the run state is bounded either way.
-func (h *Hub) loadRoute(dir string) (*route.Route, int, bool) {
+// changed since the last refresh, and then only what was appended when it
+// grew (route.LoadBounded); the run state keeps the newest runStateKept.
+func (h *Hub) loadRoute(dir string) (*route.Tail, bool) {
 	st, err := os.Stat(filepath.Join(dir, route.RouteFile))
 	if err != nil {
 		delete(h.routes, dir)
-		return nil, 0, false
+		return nil, false
 	}
-	if c, ok := h.routes[dir]; ok && c.size == st.Size() && c.mod.Equal(st.ModTime()) {
-		return c.r, c.older, true
+	c, ok := h.routes[dir]
+	if !ok || c.size != st.Size() || !c.mod.Equal(st.ModTime()) {
+		tail, err := route.LoadBounded(dir, runStateKept, c.tail)
+		if err != nil {
+			delete(h.routes, dir)
+			return nil, 0, false
+		}
+		if h.routes == nil {
+			h.routes = map[string]cachedRoute{}
+		}
+		c = cachedRoute{size: st.Size(), mod: st.ModTime(), tail: tail}
+		h.routes[dir] = c
 	}
-	r, err := route.Load(dir)
-	if err != nil {
-		delete(h.routes, dir)
-		return nil, 0, false
-	}
-	older := boundRunState(r)
-	if h.routes == nil {
-		h.routes = map[string]cachedRoute{}
-	}
-	h.routes[dir] = cachedRoute{size: st.Size(), mod: st.ModTime(), r: r, older: older}
-	return r, older, true
+	return c.tail, true
 }
 
 // isLive says whether a route's agents run now: a task row whose agent name
