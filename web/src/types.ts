@@ -289,6 +289,8 @@ export interface CatalogKind {
   skill_prefix: string;
   skill_installed: boolean;
   offline: boolean;
+  /** The harness maker's page of its models. */
+  docs_url?: string;
 }
 
 export interface Catalog {
@@ -297,6 +299,19 @@ export interface Catalog {
   home: string;
   checkpointer_ok: boolean;
   checkpointer_why?: string;
+  /** The last pick of each role, saved when a route started (A30). */
+  previous?: ChoicePick[];
+}
+
+/** One role's saved pick: where its agents ran and the harness, model and effort. */
+export interface ChoicePick {
+  role: string;
+  runner: string;
+  harness: string;
+  model: string;
+  effort: string;
+  route: string;
+  at: string;
 }
 
 export type RouteRole = "orchestrator" | "adjutant";

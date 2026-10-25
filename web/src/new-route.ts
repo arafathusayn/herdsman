@@ -1,7 +1,16 @@
 // The New route form's logic, apart from the DOM: defaults, the folder
 // list, labels, validation and the exact text the app will send. The server
 // checks everything again; this keeps the form honest and quick.
-import type { Catalog, CatalogKind, InboxState, RouteRequest, RouteRole, RouteStep, State } from "./types.ts";
+import type {
+  Catalog,
+  CatalogKind,
+  ChoicePick,
+  InboxState,
+  RouteRequest,
+  RouteRole,
+  RouteStep,
+  State,
+} from "./types.ts";
 
 export const CHECKPOINT_MIN_MINUTES = 5;
 export const CHECKPOINT_MAX_MINUTES = 240;
@@ -93,6 +102,18 @@ export function defaultEffort(k: CatalogKind | undefined, model: string): string
   return "";
 }
 
+/**
+ * The effort choices of a model, in the harness's order: the default the
+ * harness reports is marked; with none reported, a blank first choice asks
+ * the user to pick (no level is preferred by name).
+ */
+export function effortOptions(k: CatalogKind | undefined, model: string): [string, string][] {
+  const efforts = effortsFor(k, model);
+  const def = defaultEffort(k, model);
+  const opts: [string, string][] = efforts.map((e) => [e, e === def ? `${e} (harness default)` : e]);
+  return def === "" && opts.length ? [["", "Choose an effort…"], ...opts] : opts;
+}
+
 /** A harness with its newest model and default effort. */
 export function harness(c: Catalog, kind: string): Harness {
   const k = kindOf(c, kind);
@@ -107,6 +128,51 @@ export function pickHarness(c: Catalog, h: Harness, change: Partial<Pick<Harness
   const k = kindOf(c, h.kind);
   const effort = effortsFor(k, model).includes(h.effort) ? h.effort : defaultEffort(k, model);
   return { ...h, model, effort };
+}
+
+/** The saved picks of the roles this route needs, in the form's order; a role with none is left out. */
+export function previousPicks(f: RouteForm, c: Catalog): ChoicePick[] {
+  const roles = f.role === "adjutant" ? ["adjutant", "orchestrator"] : ["orchestrator"];
+  return roles
+    .map((r) => (c.previous ?? []).find((p) => p.role === r && p.runner === "herdr"))
+    .filter((p): p is ChoicePick => !!p);
+}
+
+/** One line for a saved pick, as the "Use previous choice" option shows it. */
+export function pickSummary(p: ChoicePick): string {
+  return `${p.role}: ${p.harness}${p.model ? ` ${p.model}` : ""}${p.effort ? `, effort ${p.effort}` : ""}`;
+}
+
+/**
+ * A saved pick as a harness choice of this catalog: a listed model, Claude's
+ * Other model id, or a typed model; null when the harness or the model is
+ * gone. An effort the model no longer lists falls back to the harness default.
+ */
+export function harnessFromPick(c: Catalog, p: ChoicePick): Harness | null {
+  const k = kindOf(c, p.harness);
+  if (!k) return null;
+  if (k.free_model) return { kind: k.kind, model: p.model, other: "", effort: "" };
+  let model = p.model;
+  let other = "";
+  if (!k.models.some((m) => m.id === p.model)) {
+    if (!k.other_model || !p.model) return null;
+    model = OTHER;
+    other = p.model;
+  }
+  const effort = effortsFor(k, model).includes(p.effort) ? p.effort : defaultEffort(k, model);
+  return { kind: k.kind, model, other, effort };
+}
+
+/** Fills the form's harness choices from the saved picks of its roles. */
+export function usePrevious(f: RouteForm, c: Catalog): RouteForm {
+  let out = f;
+  for (const p of previousPicks(f, c)) {
+    const h = harnessFromPick(c, p);
+    if (!h) continue;
+    if (p.role === "orchestrator" && f.role === "adjutant") out = { ...out, orch: h, orchEdited: true };
+    else out = { ...out, main: h, orch: out.orchEdited ? out.orch : { ...h } };
+  }
+  return out;
 }
 
 /** A change to one coordinator's harness: kind, model, effort or typed model id. */

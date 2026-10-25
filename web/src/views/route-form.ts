@@ -6,6 +6,7 @@ import {
   checklist,
   checkpointerAvailable,
   checkpointerOn,
+  effortOptions,
   effortsFor,
   formField,
   type HarnessChange,
@@ -14,7 +15,9 @@ import {
   kindOf,
   knownFolders,
   OTHER,
+  pickSummary,
   preview,
+  previousPicks,
   projectLabel,
   type RouteForm,
   setHarness,
@@ -23,6 +26,7 @@ import {
   stepNote,
   toRequest,
   update,
+  usePrevious,
   validate,
 } from "../new-route.ts";
 import type { Catalog, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
@@ -322,7 +326,23 @@ export function routeForm(
         `${who} harness`,
         selectBox(`${which}-kind`, hn.kind, kinds, (v) => harnessChange(which, { kind: v }, true), `${id}-${which}`),
       ),
-      field(`${which}-model`, "Model", h("div", { class: "nr-row" }, model, offline)),
+      field(
+        `${which}-model`,
+        "Model",
+        h(
+          "div",
+          { class: "nr-row" },
+          model,
+          offline,
+          k?.docs_url
+            ? h(
+                "a",
+                { href: k.docs_url, target: "_blank", rel: "noopener", title: `${k.label}'s own page of its models` },
+                "Model docs",
+              )
+            : null,
+        ),
+      ),
       hn.model === OTHER
         ? field(
             `${which}-other`,
@@ -348,7 +368,7 @@ export function routeForm(
             selectBox(
               `${which}-effort`,
               hn.effort,
-              efforts.map((e) => [e, e]),
+              effortOptions(k, hn.model),
               (v) => harnessChange(which, { effort: v }, which === "main" && f.role === "adjutant"),
               `${id}-${which}-effort`,
             ),
@@ -356,6 +376,32 @@ export function routeForm(
         : null,
       field(nameField, `${who} name`, text(nameField)),
     ].filter((x): x is HTMLElement => !!x);
+  };
+
+  // A30: the last picks of this route's roles, offered before the picking questions.
+  const previousRow = (): HTMLElement | null => {
+    const picks = previousPicks(f, c);
+    if (!picks.length) return null;
+    return h(
+      "div",
+      { class: "nr-previous" },
+      h("span", null, `Previous choice: ${picks.map(pickSummary).join("; ")}`),
+      h(
+        "button",
+        {
+          type: "button",
+          class: "chip-btn",
+          onclick: () => {
+            if (busy) return draw();
+            f = usePrevious(f, c);
+            delete errors["main"];
+            delete errors["orch"];
+            draw();
+          },
+        },
+        "Use previous choice",
+      ),
+    );
   };
 
   const draw = (): void => {
@@ -470,6 +516,7 @@ export function routeForm(
               live.label,
               true,
             ),
+            previousRow(),
             f.role === "adjutant"
               ? [
                   h("h3", { class: "nr-sub" }, "Adjutant"),

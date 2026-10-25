@@ -5,8 +5,10 @@ import {
   checkpointerAvailable,
   checkpointerOn,
   defaultEffort,
+  effortOptions,
   effortsFor,
   formField,
+  harnessFromPick,
   inboxKey,
   initialForm,
   kindOf,
@@ -14,7 +16,9 @@ import {
   OTHER,
   parseLimit,
   pickHarness,
+  pickSummary,
   preview,
+  previousPicks,
   projectLabel,
   quoteArg,
   type RouteForm,
@@ -25,6 +29,7 @@ import {
   tilde,
   toRequest,
   update,
+  usePrevious,
   validate,
 } from "./new-route.ts";
 import type { Catalog, State } from "./types.ts";
@@ -135,6 +140,13 @@ test("models and efforts come from the harness's own list", () => {
   expect(effortsFor(cx, OTHER)).toEqual([]);
   expect(effortsFor(kindOf(catalog, "pi"), "x")).toEqual([]);
   expect(defaultEffort(undefined, "x")).toBe("");
+  // The harness's default is marked; with none, a blank choice comes first.
+  expect(effortOptions(cx, "gpt-6.1-sol")).toEqual([
+    ["low", "low"],
+    ["high", "high (harness default)"],
+  ]);
+  expect(effortOptions(kindOf(catalog, "claude"), OTHER)[0]).toEqual(["", "Choose an effort…"]);
+  expect(effortOptions(undefined, "x")).toEqual([]);
   // No default reported: none is picked, even when the list has a middle level.
   const none = {
     ...cx!,
@@ -379,4 +391,55 @@ test("the checklist follows the form and counts only the current pair's approval
   );
   expect(inboxKey(f)).not.toBe(inboxKey({ ...f, orchName: "orch-2" }));
   expect(inboxKey(f)).not.toBe(inboxKey({ ...f, inbox: "~/other" }));
+});
+
+// A30: the previous choice fills each role's harness, model and effort.
+test("the previous choice fills the form's roles from the saved picks", () => {
+  const pick = (role: string, harness: string, model: string, effort: string, runner = "herdr") => ({
+    role,
+    runner,
+    harness,
+    model,
+    effort,
+    route: "",
+    at: "2026-10-25T13:00:00Z",
+  });
+  const c: Catalog = {
+    ...catalog,
+    previous: [
+      pick("adjutant", "codex", "gpt-5.6-luna", "low"),
+      pick("orchestrator", "claude", "custom-model-1", "max"),
+      pick("reviewer", "codex", "gpt-6.1-sol", "high", "subagent"),
+    ],
+  };
+  const orch = initialForm(c, null);
+  expect(previousPicks(orch, c).map((p) => p.role)).toEqual(["orchestrator"]);
+  const filled = usePrevious(orch, c);
+  expect(filled.main).toEqual({ kind: "claude", model: OTHER, other: "custom-model-1", effort: "max" });
+  const adj = setRole(orch, "adjutant");
+  expect(previousPicks(adj, c).map(pickSummary)).toEqual([
+    "adjutant: codex gpt-5.6-luna, effort low",
+    "orchestrator: claude custom-model-1, effort max",
+  ]);
+  const both = usePrevious(adj, c);
+  expect(both.main).toEqual({ kind: "codex", model: "gpt-5.6-luna", other: "", effort: "low" });
+  expect(both.orch.model).toBe(OTHER);
+  expect(both.orchEdited).toBe(true);
+  // A pick whose harness or model is gone is skipped; a lost effort takes the harness default.
+  expect(harnessFromPick(c, pick("x", "gone", "m", ""))).toBeNull();
+  expect(harnessFromPick(c, pick("x", "codex", "model-gone", ""))).toBeNull();
+  expect(harnessFromPick(c, pick("x", "claude", "", ""))).toBeNull();
+  expect(harnessFromPick(c, pick("x", "codex", "gpt-6.1-sol", "effortz"))?.effort).toBe("high");
+  expect(harnessFromPick(c, pick("x", "pi", "typed", ""))).toEqual({
+    kind: "pi",
+    model: "typed",
+    other: "",
+    effort: "",
+  });
+  expect(pickSummary(pick("x", "pi", "", ""))).toBe("x: pi");
+  // No saved pick: nothing to offer, and the form stays as it is.
+  expect(previousPicks(orch, catalog)).toEqual([]);
+  expect(usePrevious(orch, catalog)).toBe(orch);
+  const gone: Catalog = { ...catalog, previous: [pick("orchestrator", "gone", "m", "")] };
+  expect(usePrevious(orch, gone)).toBe(orch);
 });
