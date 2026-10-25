@@ -70,6 +70,20 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 	rpane := env.or("HERDSMAN_REVIEWER_PANE", "w2:pR")
 	rname := env.or("HERDSMAN_REVIEWER_NAME", "rv-1")
 	reviewers := strings.Fields(env.or("HERDSMAN_REVIEWERS", rname+":"+rpane))
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var panes []string
+	for _, name := range watched(env) {
+		panes = append(panes, paneOf(env, name))
+	}
+	for _, spec := range reviewers {
+		_, p, found := strings.Cut(spec, ":")
+		if !found {
+			p = spec
+		}
+		panes = append(panes, p)
+	}
+	d.wakeOn(ctx, panes)
 	start := d.Now()
 	for {
 		var events []string

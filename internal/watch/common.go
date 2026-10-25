@@ -55,6 +55,8 @@ type Deps struct {
 	// GhStream runs gh and hands its stdout to read as a stream (the PR
 	// watcher's paginated reads); nil reads Gh's output.
 	GhStream func(ctx context.Context, env []string, read func(io.Reader) error, args ...string) error
+
+	wake chan struct{} // a Herdr event ends the default Sleep (wakeOn)
 }
 
 // defaults fills the clock and the sleep; the default sleep ends early, with
@@ -64,6 +66,8 @@ func (d *Deps) defaults(ctx context.Context) {
 		d.Now = time.Now
 	}
 	if d.Sleep == nil {
+		wake := make(chan struct{}, 1)
+		d.wake = wake
 		d.Sleep = func(t time.Duration) bool {
 			timer := time.NewTimer(t)
 			defer timer.Stop()
@@ -71,6 +75,8 @@ func (d *Deps) defaults(ctx context.Context) {
 			case <-ctx.Done():
 				return false
 			case <-timer.C:
+				return true
+			case <-wake:
 				return true
 			}
 		}
@@ -310,4 +316,45 @@ func newBlock(st state, name string, blocked bool, h, prev string) bool {
 		st.touch("blocked-" + name)
 	}
 	return h != prev || !was
+}
+
+// wakeOn subscribes to Herdr's agent status events for panes (A24.1): an
+// event ends the current sleep at once, so a blocked or finished agent is
+// seen without waiting out the poll. The poll timer stays for the files,
+// the deadline, the health check and the screen-based checks. A dropped
+// subscription reconnects after 1s, doubling to a minute; ctx ends it.
+func (d *Deps) wakeOn(ctx context.Context, panes []string) {
+	if d.Client == nil || d.wake == nil || len(panes) == 0 {
+		return
+	}
+	subs := make([]map[string]any, 0, len(panes))
+	for _, p := range panes {
+		if p != "" {
+			subs = append(subs, map[string]any{"type": "pane.agent_status_changed", "pane_id": p})
+		}
+	}
+	wake := d.wake
+	go func() {
+		backoff := time.Second
+		for ctx.Err() == nil {
+			start := time.Now()
+			_ = d.Client.Subscribe(ctx, subs, func(herdr.Event) {
+				select {
+				case wake <- struct{}{}:
+				default:
+				}
+			})
+			if time.Since(start) > time.Minute {
+				backoff = time.Second
+			}
+			t := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return
+			case <-t.C:
+			}
+			backoff = min(2*backoff, time.Minute)
+		}
+	}()
 }

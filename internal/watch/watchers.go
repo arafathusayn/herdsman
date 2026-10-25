@@ -32,6 +32,13 @@ func Implementers(ctx context.Context, env Env, d Deps) int {
 	reports := env.or("HERDSMAN_REPORTS", "/ABSOLUTE/PATH/TO/writable-root/reports")
 	st := state(env.or("HERDSMAN_STATE", "/ABSOLUTE/PATH/TO/scratchpad/watch-state"))
 	_ = os.MkdirAll(string(st), 0o755)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var panes []string
+	for _, name := range watched(env) {
+		panes = append(panes, paneOf(env, name))
+	}
+	d.wakeOn(ctx, panes)
 	for {
 		for _, name := range watched(env) {
 			task := strings.TrimPrefix(name, "im-")
@@ -85,6 +92,9 @@ func Reviewer(ctx context.Context, env Env, d Deps) int {
 	pane := env.or("HERDSMAN_REVIEWER_PANE", "w2:pR")
 	name := env.or("HERDSMAN_REVIEWER_NAME", "rv-1")
 	_ = os.MkdirAll(string(st), 0o755)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	d.wakeOn(ctx, []string{pane})
 	for {
 		for _, f := range reviews(reports) {
 			key := filepath.Base(f)

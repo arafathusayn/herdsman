@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -699,4 +700,67 @@ func TestBlockedStatusWithAKnownPrompt(t *testing.T) {
 	h.screen("w9:p1", "Password for 'https://x@github.com':", "a", "b", "c", "d", "e", "f")
 	h.screen("w9:p2", "Pursuing goal (1m)")
 	match(t, "the prompt is the reason", `BLOCKED im-a Password for `, h.wait())
+}
+
+// R5 finding 4 (A24.1): wait and watch subscribe to Herdr's agent status
+// events and wake on one instead of sleeping out a long poll; ending the
+// context stops them; without a socket they keep the timer.
+func TestHerdrEventsWakeTheLoops(t *testing.T) {
+	for _, tc := range []struct {
+		name, pane, who string
+		fn              func(context.Context, Env, Deps) int
+	}{{"wait", "w9:p1", "im-a", Wait}, {"watch implementers", "w9:p1", "im-a", Implementers}, {"watch reviewer", "w9:p3", "rv-1", Reviewer}} {
+		h := newHarness(t)
+		h.env["DEADLINE"], h.env["POLL"] = "1d", "1d"
+		for _, p := range []string{"w9:p1", "w9:p2", "w9:p3"} {
+			a := herdrtest.Agent(p, "s")
+			a["agent_status"] = "working"
+			h.fx.SetAgent(p, a)
+			h.screen(p, "plain text")
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		out := &syncBuffer{}
+		done := make(chan int, 1)
+		env := maps.Clone(h.env)
+		go func() {
+			done <- tc.fn(ctx, func(k string) (string, bool) { v, ok := env[k]; return v, ok }, Deps{Client: h.client, Stdout: out, Stderr: out})
+		}()
+		deadline := time.Now().Add(5 * time.Second)
+		for h.fx.Server().Subscribers() == 0 && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		a := herdrtest.Agent(tc.pane, "s")
+		a["agent_status"] = "blocked"
+		h.fx.SetAgent(tc.pane, a)
+		h.fx.Server().Emit("pane.agent_status_changed", map[string]any{"pane_id": tc.pane, "agent_status": "blocked"})
+		for !strings.Contains(out.String(), "BLOCKED "+tc.who) && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !strings.Contains(out.String(), "BLOCKED "+tc.who) {
+			t.Errorf("%s: no wake on the event: %q", tc.name, out.String())
+		}
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: a cancelled context did not stop it", tc.name)
+		}
+	}
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
