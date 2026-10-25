@@ -178,7 +178,7 @@ func TestPart05ResumeCardsStrict(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
 		"empty-fence.md": "Run this:\n\n```bash\n```\n", "unclosed.md": "Run this:\n\n```bash\nmake test\n", "tilde.md": "Run this:\n\n  ~~~\n  ~~~\n",
-		"model.md": "Reviewed by the sonnet model.\n", "sections.md": "## Summary\n\nText.\n\n## Verification\n\n```bash\n# run the suite\nmake test\n```\n",
+		"model.md": "Reviewed by the model-a model.\n", "sections.md": "## Summary\n\nText.\n\n## Verification\n\n```bash\n# run the suite\nmake test\n```\n",
 		"empty-section.md": "## Summary\n\n## Verification\n\nmake test\n", "allow.md": "Set MODE=fast for the demo.\nSee /Users/someone/x for more.\n",
 		"allow-list": "Set MODE=fast for the demo.\n", "allow-only.md": "Set MODE=fast for the demo.\n", "clean.md": "All checks passed on the current head.\n",
 		"nested.md": "# Tests\n## Unit\nPlain test detail.\n", "sibling.md": "# Tests\n# Other\nPlain test detail.\n",
@@ -194,7 +194,7 @@ func TestPart05ResumeCardsStrict(t *testing.T) {
 	check(t, "L4 an empty shell fence fails", "^1$", gate(nil, f("empty-fence.md")))
 	check(t, "L5 an unclosed fence fails", "^1$", gate(nil, f("unclosed.md")))
 	check(t, "L6 an indented empty tilde fence fails", "^1$", gate(nil, f("tilde.md")))
-	check(t, "L7 a model name fails the default patterns", "^1$", gate(nil, f("model.md")))
+	check(t, "L7 a model name from the harness catalogs fails the default patterns", "^1$", gate(nil, f("model.md")))
 	check(t, "L8 populated required sections pass, a shell comment in the fence included", "^0$", gate(nil, f("sections.md"), "## Summary", "## Verification"))
 	check(t, "L9 an empty required section fails", "^1$", gate(nil, f("empty-section.md"), "## Summary", "## Verification"))
 	allow := map[string]string{"LEAK_ALLOW_FILE": f("allow-list")}

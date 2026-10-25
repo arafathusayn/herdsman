@@ -12,6 +12,52 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
+// The leak gate's catalog in every test: made-up model names (A28), so no
+// test runs an installed harness.
+var testModels = []string{"model-a", "model.b+"}
+
+func init() { harnessModels = func() []string { return testModels } }
+
+// A28: the gate blocks the model names the harness catalogs list, each
+// literally, and no model name of its own.
+func TestLeakGateCatalogModels(t *testing.T) {
+	dir := t.TempDir()
+	gate := func(text string, models []string) int {
+		old := testModels
+		testModels = models
+		defer func() { testModels = old }()
+		p := filepath.Join(dir, "in.md")
+		if err := os.WriteFile(p, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var b strings.Builder
+		return LeakGate([]string{p}, func(string) string { return "" }, &b, &b)
+	}
+	for _, tc := range []struct {
+		text   string
+		models []string
+		want   int
+	}{
+		{"Reviewed by the model-a model.\n", []string{"model-a"}, 1},
+		{"Reviewed by the MODEL-A model.\n", []string{"model-a"}, 1},
+		{"Reviewed by the model-a model.\n", nil, 0},
+		{"Reviewed by the model-a model.\n", []string{"model-z", " "}, 0},
+		{"Uses modelXbb today.\n", []string{"model.b+"}, 0},
+		{"Uses model.b+ today.\n", []string{"model.b+"}, 1},
+	} {
+		if got := gate(tc.text, tc.models); got != tc.want {
+			t.Errorf("%q with %v: exit %d, want %d", tc.text, tc.models, got, tc.want)
+		}
+	}
+	// LEAK_PATTERN still adds its own pattern.
+	p := filepath.Join(dir, "x.md")
+	os.WriteFile(p, []byte("a plain word\n"), 0o600)
+	var b strings.Builder
+	if LeakGate([]string{p}, func(k string) string { return map[string]string{"LEAK_PATTERN": "plain"}[k] }, &b, &b) != 1 {
+		t.Error("LEAK_PATTERN no longer applies")
+	}
+}
+
 func TestJSONOutput(t *testing.T) {
 	c := newCase(t, true)
 	c.send()

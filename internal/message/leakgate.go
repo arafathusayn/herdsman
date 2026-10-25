@@ -1,17 +1,41 @@
 package message
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/arafathusayn/herdsman/internal/web"
 )
 
-// LeakPattern is publish-leak-gate.sh's default pattern (POSIX ERE, read
-// case-insensitively): private paths, home references, tool and model names,
-// agent names, assignments and absolute paths.
-const LeakPattern = `/Users/|/home/|/private/|/tmp/|/var/|/opt/|/Volumes/|~/|\$HOME|\$\{HOME\}|herdsman|herdr|run-check|claude|codex|gpt[- ]|opus|sonnet|(^|[^[:alnum:]_])(im|rv|int)-[[:alnum:]_-]+|[[:alnum:]_]+=|(^|[[:space:](])/[[:alnum:]_.-]+/`
+// LeakPattern is the gate's generic default pattern (POSIX ERE, read
+// case-insensitively): private paths, home references, tool and harness
+// names, agent names, assignments and absolute paths. Model names are not
+// written here (A28): LeakGate adds the ones the installed harnesses list.
+const LeakPattern = `/Users/|/home/|/private/|/tmp/|/var/|/opt/|/Volumes/|~/|\$HOME|\$\{HOME\}|herdsman|herdr|run-check|claude|codex|(^|[^[:alnum:]_])(im|rv|int)-[[:alnum:]_-]+|[[:alnum:]_]+=|(^|[[:space:](])/[[:alnum:]_.-]+/`
+
+// harnessModels lists the model ids to block, read at run time from the
+// installed harnesses' catalogs; tests replace it with a made-up catalog.
+var harnessModels = func() []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return web.HarnessModels(ctx)
+}
+
+// modelPattern is an alternation of the catalog's model ids, each literal.
+func modelPattern(ids []string) string {
+	var alts []string
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			alts = append(alts, regexp.QuoteMeta(id))
+		}
+	}
+	return strings.Join(alts, "|")
+}
 
 // LeakGate is publish-leak-gate.sh <file> [exact-required-heading ...]: exit
 // 0 when no line matches the pattern (LEAK_PATTERN adds one; an exact line
@@ -65,6 +89,11 @@ func LeakGate(args []string, getenv func(string) string, stdout, stderr io.Write
 	}
 	if rc := scan(LeakPattern); rc != 0 {
 		return rc
+	}
+	if p := modelPattern(harnessModels()); p != "" {
+		if rc := scan(p); rc != 0 {
+			return rc
+		}
 	}
 	if p := getenv("LEAK_PATTERN"); p != "" {
 		if rc := scan(p); rc != 0 {
