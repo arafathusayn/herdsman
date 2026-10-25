@@ -104,10 +104,12 @@ type artifacts struct {
 	caps  map[string]artifactCap
 	ttl   time.Duration // how long a grant lasts
 	sweep *time.Timer   // closes expired grants; nil while none is set
+	// afterFunc sets the sweep timer; tests replace it to fire it by hand.
+	afterFunc func(time.Duration, func()) *time.Timer
 }
 
 func newArtifacts() *artifacts {
-	return &artifacts{now: time.Now, lists: map[string]*artifactList{}, caps: map[string]artifactCap{}, ttl: capTTL}
+	return &artifacts{now: time.Now, lists: map[string]*artifactList{}, caps: map[string]artifactCap{}, ttl: capTTL, afterFunc: time.AfterFunc}
 }
 
 // Folders named here are never walked: dependencies, build caches and
@@ -441,10 +443,15 @@ func (a *artifacts) grant(dir *os.Root, client string) string {
 	return k
 }
 
-// drop closes a grant's folder and forgets the grant. The caller holds mu.
+// drop closes a grant's folder and forgets the grant, and stops the sweep
+// timer once no grant is left. The caller holds mu.
 func (a *artifacts) drop(k string) {
 	_ = a.caps[k].dir.Close()
 	delete(a.caps, k)
+	if len(a.caps) == 0 && a.sweep != nil {
+		a.sweep.Stop()
+		a.sweep = nil
+	}
 }
 
 // dropExpired drops the grants that expired by now. The caller holds mu.
@@ -470,7 +477,7 @@ func (a *artifacts) armSweep(now time.Time) {
 			next = c.expires
 		}
 	}
-	a.sweep = time.AfterFunc(max(next.Sub(now), 0)+time.Millisecond, func() {
+	a.sweep = a.afterFunc(max(next.Sub(now), 0)+time.Millisecond, func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		a.sweep = nil

@@ -224,6 +224,106 @@ func TestArtifactExpiredGrantsAreReleased(t *testing.T) {
 	}
 }
 
+// A thousand grants, each renewed across its first deadline and then let
+// expire, leave nothing behind: every folder is closed, no grant and no
+// timer stay set, and the heap and goroutines are where they were. Even
+// cycles expire by the timer, odd ones by a refused use.
+func TestArtifactGrantLoopReleasesEverything(t *testing.T) {
+	var dirs []string
+	var ids []os.FileInfo
+	for range 4 {
+		d := t.TempDir()
+		id, err := os.Stat(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dirs, ids = append(dirs, d), append(ids, id)
+	}
+	open := func(i int) *os.Root {
+		r, err := openPageDir(dirs[i], ids[i], "", ids[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	closed := func(r *os.Root) bool {
+		_, err := r.Stat(".")
+		return err != nil
+	}
+	a := newArtifacts()
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	a.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	var pending func()
+	a.afterFunc = func(_ time.Duration, f func()) *time.Timer {
+		pending = f
+		tm := time.NewTimer(time.Hour)
+		tm.Stop()
+		return tm
+	}
+	fire := func() {
+		t.Helper()
+		if pending == nil {
+			t.Fatal("no sweep was set while a grant is live")
+		}
+		f := pending
+		pending = nil
+		f()
+	}
+	quiet := func(i int) {
+		t.Helper()
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if len(a.caps) != 0 || a.sweep != nil {
+			t.Fatalf("cycle %d: %d grants and sweep %v left", i, len(a.caps), a.sweep != nil)
+		}
+	}
+	cycle := func(i int) {
+		r1 := open(i % len(dirs))
+		k := a.grant(r1, "127.0.0.1")
+		clock.Add(int64(a.ttl * 3 / 4))
+		r2 := open(i % len(dirs))
+		if a.grant(r2, "127.0.0.1") != k || !closed(r2) {
+			t.Fatalf("cycle %d: the renewal made a new grant or kept its duplicate open", i)
+		}
+		clock.Add(int64(a.ttl / 2)) // past the first deadline
+		fire()
+		if _, ok := a.dir(k, "127.0.0.1"); !ok {
+			t.Fatalf("cycle %d: a renewed grant expired at its first deadline", i)
+		}
+		clock.Add(int64(a.ttl))
+		if i%2 == 0 {
+			fire()
+		} else if _, ok := a.dir(k, "127.0.0.1"); ok {
+			t.Fatalf("cycle %d: an expired grant was used", i)
+		}
+		if !closed(r1) {
+			t.Fatalf("cycle %d: an expired grant kept its folder open", i)
+		}
+		quiet(i)
+		pending = nil // a stopped timer never fires
+	}
+	for i := range 10 {
+		cycle(i)
+	}
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	goroutines := runtime.NumGoroutine()
+	for i := range 1000 {
+		cycle(i)
+	}
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	if after.HeapAlloc > before.HeapAlloc && after.HeapAlloc-before.HeapAlloc > 1<<20 {
+		t.Fatalf("heap grew %d bytes over 1000 grant cycles", after.HeapAlloc-before.HeapAlloc)
+	}
+	if n := runtime.NumGoroutine(); n > goroutines {
+		t.Fatalf("goroutines %d, were %d", n, goroutines)
+	}
+}
+
 // A grant holds the listed folder itself, not its name: a folder swapped for
 // a link to another workspace before the open is refused, and one swapped
 // after the open still serves only the folder that was granted.
