@@ -1,4 +1,5 @@
 // Derives what the views show from the raw server state.
+import type { View } from "./store.ts";
 import type { Agent, CheckItem, Pane, Route, Snapshot, State, Status, Tab, Task, Workspace } from "./types.ts";
 
 export type Role = "adjutant" | "orchestrator" | "implementer" | "integrator" | "reviewer" | "checkpointer" | "agent";
@@ -256,4 +257,15 @@ export function routeFor(routes: Route[], key: string): Route | null {
   if (byId) return byId;
   const named = routes.filter((r) => r.name === key);
   return named.length === 1 ? (named[0] ?? null) : null;
+}
+
+/**
+ * The view after a navigation patch. A workspace filter belongs to the view
+ * it was set with, and an open artifact to its route's workspace, so going to
+ * another route opens that route's newest page.
+ */
+export function nextView(view: View, patch: Partial<View>): View {
+  const ws = patch.route === undefined ? view.ws : "";
+  const artifact = patch.route === undefined || patch.route === view.route ? view.artifact : "";
+  return { ...view, ws, artifact, ...patch };
 }

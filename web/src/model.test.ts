@@ -6,12 +6,14 @@ import {
   Index,
   lanes,
   type Member,
+  nextView,
   roleOf,
   routeFor,
   routeLabel,
   team,
   workspaceGroups,
 } from "./model.ts";
+import type { View } from "./store.ts";
 import type { Agent, Pane, Route, State, Workspace } from "./types.ts";
 
 const ws = (id: string, number: number, label = ""): Workspace => ({
@@ -205,4 +207,24 @@ test("a link finds its route by id, or by a name only one route has", () => {
   expect(routeFor([a, b, c], "auth")).toBe(c);
   expect(routeFor([a, b, c], "review")).toBeNull();
   expect(routeFor([a, b, c], "gone~000000")).toBeNull();
+});
+
+// A page picked in one route's Artifacts tab belongs to that route's
+// workspace: going to another route opens that route's newest page instead.
+test("a route change drops the open artifact and the workspace filter", () => {
+  const view: View = {
+    route: "ra~1",
+    tab: "artifacts",
+    file: "",
+    source: "",
+    diffFile: "",
+    artifact: "/a/reports/a.html",
+    pane: "",
+    ws: "w1",
+  };
+  expect(nextView(view, { route: "rb~2" })).toMatchObject({ route: "rb~2", tab: "artifacts", artifact: "", ws: "" });
+  expect(nextView(view, { route: "ra~1" }).artifact).toBe("/a/reports/a.html");
+  expect(nextView(view, { tab: "docs" })).toMatchObject({ artifact: "/a/reports/a.html", ws: "w1" });
+  expect(nextView(view, { route: "rb~2", artifact: "/b/b.html" }).artifact).toBe("/b/b.html");
+  expect(nextView(view, { artifact: "/a/other.html" }).artifact).toBe("/a/other.html");
 });
