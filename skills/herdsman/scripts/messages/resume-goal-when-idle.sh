@@ -42,7 +42,7 @@ pause_held() {
 }
 observe() {
   raw=$(herdr agent get "$pane" </dev/null) || die 'identity unavailable'
-  identity=$(printf '%s' "$raw" | jq -ce '.result.agent|select(.agent=="codex" and .interactive_ready==true and .launch_pending==false)|{pane:.pane_id,session:.agent_session}') || die 'target is not Codex or ready'
+  identity=$(printf '%s' "$raw" | jq -ce '.result.agent|select(.agent=="codex" and .interactive_ready==true and (.launch_pending // false)==false)|{pane:.pane_id,session:.agent_session}') || die 'target is not Codex or ready'
   same_identity "$identity" "$expected" || die 'identity changed'
   status=$(printf '%s' "$raw" | jq -r .result.agent.agent_status)
   screen=$(herdr pane read "$pane" --source recent-unwrapped --lines 60 </dev/null) || die 'pane read failed'

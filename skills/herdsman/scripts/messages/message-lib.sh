@@ -182,7 +182,7 @@ live_identity() {
   fi
   printf '%s' "$raw" | jq -ce --arg p "$1" '.result.agent | select(
     .pane_id==$p and (.agent|type=="string" and length>0) and
-    .interactive_ready==true and .launch_pending==false and (.agent_status|IN("idle","working","blocked","done")) and
+    .interactive_ready==true and (.launch_pending // false)==false and (.agent_status|IN("idle","working","blocked","done")) and
     (.terminal_id|type=="string") and (.workspace_id|type=="string") and (.tab_id|type=="string") and
     (.focused|type=="boolean") and (.revision|type=="number" and floor==. and .>=0) and
     .agent_session.kind=="id" and
