@@ -3,6 +3,7 @@ package runcheck
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -561,5 +562,41 @@ func skipDeniedProbes(t *testing.T) {
 	t.Helper()
 	if err := machine.ProbeError(); machine.Denied(err) {
 		t.Skip("sandbox: the machine probes were denied: " + err.Error())
+	}
+}
+
+// A24: the publisher's loop keeps memory flat over 1000 polls and leaves no
+// goroutine behind.
+func TestPublisherKeepsMemoryFlat(t *testing.T) {
+	f := newFixture(t)
+	c, _ := f.config()
+	c.Probe = func() string { return "0.50 60" }
+	c.Probes = true
+	c.PublishEvery = time.Second
+	heap := func() uint64 {
+		runtime.GC()
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		return m.HeapAlloc
+	}
+	run := func(polls int) int {
+		clock := time.Now()
+		n := 0
+		c.Now = func() time.Time { return clock }
+		c.Sleep = func(d time.Duration) { clock = clock.Add(d); n++ }
+		c.PublishFor = time.Duration(polls) * time.Second
+		Publish(c, "1", io.Discard)
+		return n
+	}
+	run(2)
+	g0, h0 := runtime.NumGoroutine(), heap()
+	if n := run(1000); n != 1000 {
+		t.Fatalf("%d polls", n)
+	}
+	if h1 := heap(); h1 > h0 && h1-h0 >= 1<<20 {
+		t.Errorf("live heap grew by %d bytes", h1-h0)
+	}
+	if g := runtime.NumGoroutine(); g > g0 {
+		t.Errorf("%d goroutines after, %d before", g, g0)
 	}
 }
