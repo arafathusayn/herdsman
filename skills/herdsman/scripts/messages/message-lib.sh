@@ -429,6 +429,10 @@ fold_exposure() {
     die 'cannot publish the waiting exposure record'
   for f in "${seen[@]}"; do rm -f "$f"; done
 }
+# The HUMAN decision line of message-authority.sh and the executor adapter.
+human_authority() {
+  printf 'HUMAN relayed gos authorize nothing outward or irreversible. Human executes the action; automatic resume and card relay are held. Tell the user.\n'
+}
 # shellcheck disable=SC2034 # BOUNDARY_FAULT and BOUNDARY_UNKNOWN are read by the sourcing watcher.
 boundary_ok() {
   # BOUNDARY_FAULT: static (proof, registry, exposure or setup fields), pending (an exposure that waits for the

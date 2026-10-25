@@ -59,8 +59,12 @@ case "${1:-}" in
     # Admission and exposure writers use the shared input lock. Check the boundary under it and record the
     # consumption before releasing it, so no admission falls between the check and the consumption.
     mutation_lock || die 'input lock busy; retry later, never auto-remove'
-    out=$(/bin/bash "$(dirname "$0")/messages/message-authority.sh" 2>&1) || {
-      boundary_ok || record_exposure; printf '%s\n' "$out"; exit 3; }
+    # One check in this process, the lock owner: an agent that this observation saw is recorded from the same
+    # observation, so a retry after that agent exits stays held until human setup.
+    if ! boundary_ok; then
+      record_exposure
+      human_authority; exit 3
+    fi
     # The go can expire while the gate waits for the lock or the authority check: check it again right here.
     [ "$(jq -r '.expires_at' "$GO")" -gt "$(now)" ] || refuse 'go expired'
     safe_leaf "$AP/cancels/$REQ.json"

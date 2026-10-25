@@ -1838,6 +1838,26 @@ out=$(ENVX="PATH=$C/race-bin:$CPATH" consume xb3)
 check "XB3 the gate refuses under the HUMAN boundary" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
 check "XB3b and records the agent it saw" 'brief-pane' "$(cat "$C/inbox/state/boundary-tainted" 2>&1)"
 check "XB3c nothing is consumed" '^no$' "$(yn "$APR/consumed/xb3.json")"
+# XB4: an agent that only the gate's first locked list sees is recorded from that same observation, so a retry
+# after it exits stays held until human setup.
+new_case gate-exposure-once
+relay_boundary
+printf 'reviewed text\n' > "$C/draft.txt"; APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"; gojson xb4 600
+mkdir "$C/race-bin"
+printf '%s\n' '#!/bin/bash' \
+  'if [ "$1 $2" = "agent list" ] && [ -d "$HERDSMAN_INBOX/herdr-mutation.lock" ]; then' \
+  '  n=$(cat "$FIXTURE/lists" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$FIXTURE/lists"' \
+  '  if [ "$n" = 1 ]; then' \
+  '    jq -c "{id:\"fixture-response\",result:{type:\"agent_list\",agents:([.[]]+[.[\"receiver-pane\"]|.pane_id=\"brief-pane\"|.agent_session.value=\"brief-session\"])}}" "$FIXTURE/agents.json"; exit 0' \
+  '  fi' \
+  'fi' "exec $SK/test/fakebin/herdr \"\$@\"" > "$C/race-bin/herdr"
+chmod +x "$C/race-bin/herdr"
+out=$(ENVX="PATH=$C/race-bin:$CPATH" consume xb4)
+check "XB4 the gate refuses when only its first list sees the agent" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "XB4b and records the agent from that observation" 'brief-pane' "$(cat "$C/inbox/state/boundary-tainted" 2>&1)"
+out=$(ENVX="PATH=$C/race-bin:$CPATH" consume xb4)
+check "XB4c a retry after the agent exits stays held" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "XB4d and nothing is consumed" '^no$' "$(yn "$APR/consumed/xb4.json")"
 
 # AR1: after an archive moves the cur copy and its ack aside, a replay of the original bytes is held by the
 # terminal record alone.
