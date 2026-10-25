@@ -1398,6 +1398,17 @@ out=$(aud claude "$TC/y6-flags.jsonl" coord-session "$TC/memory/")
 for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17; do check "Y6e a direct write or effect-capable run is flagged: f$n" "call=f$n " "$out"; done
 nocheck "Y6f reads, a null redirect and an allowed-root write stay clean" 'call=r[0-9]' "$out"
 check "Y6g seventeen flags of twenty-eight calls" 'AUDIT flagged=17 calls=28.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+# Y6h: a quoted command word with a space or shell punctuation is still the program the shell runs.
+{
+  sh_call q1 "'/tmp/do-push.sh copy' origin"
+  sh_call q2 "'/tmp/do-push.sh;noop' origin"
+  sh_call q3 "awk '{print \$1; print \$2}' /x/list.txt | grep 'a b'"
+} > "$TC/y6-quoted.jsonl"
+out=$(aud claude "$TC/y6-quoted.jsonl" coord-session "$TC/memory/")
+check "Y6h a quoted executable path with a space is a script run" 'call=q1 class=script-run' "$out"
+check "Y6h2 a quoted executable path with shell punctuation is a script run" 'call=q2 class=script-run' "$out"
+nocheck "Y6h3 quoted awk and grep text stays clean" 'call=q3' "$out"
+check "Y6h4 two flags of three calls" 'AUDIT flagged=2 calls=3.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
 counts 10 ) > "$T/.part-10.log" 2>&1 & started 10
 
 slot; ( begin 11; pass=0; fail=0

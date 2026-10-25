@@ -104,6 +104,20 @@ channel_script() {
   for n in $CHANNEL; do [ "$1" = "${AUDIT_CHANNEL_DIR%/}/$n" ] && return 0; done
   return 1
 }
+# Inside single quotes, outside double quotes, a blank or a segment character becomes _, so the quoted text stays one
+# word that keeps its program name. A backslash outside single quotes escapes the next character.
+ONEWORD='{
+  out = ""; sq = 0; dq = 0; n = length($0)
+  for (i = 1; i <= n; i++) {
+    c = substr($0, i, 1)
+    if (sq) { if (c == "\047") sq = 0; else if (c ~ /[[:space:];&|(){}`$]/) c = "_" }
+    else if (c == "\\") { out = out c; i++; c = substr($0, i, 1) }
+    else if (c == "\"") dq = !dq
+    else if (c == "\047" && !dq) sq = 1
+    out = out c
+  }
+  print out
+}'
 script_run() { # command -> "script-run <program>" for the first script or interpreter run that is not allowed
   local seg w i first prog wrapped
   local -a words
@@ -136,9 +150,9 @@ script_run() { # command -> "script-run <program>" for the first script or inter
         channel_script "$first" && continue
         printf 'script-run %s\n' "${prog##*/}"; return 0 ;;
     esac
-  # Single-quoted text runs nothing in the shell (an awk program, a pattern), so a quoted text with spaces or shell
-  # punctuation never starts a segment. A quoted single word, such as a script path, stays.
-  done < <(printf '%s\n' "$1" | sed "s/'[^' ]*[ {};|&()][^']*'/Q/g" | awk '{ gsub(/[$]\(|[;&|(){}`]/, "\n"); print }')
+  # Single-quoted text is one word to the shell: its spaces and punctuation never split a word or start a segment
+  # (an awk program, a pattern), and in command position it is still the program that runs ('/x/a b.sh').
+  done < <(printf '%s\n' "$1" | awk "$ONEWORD" | awk '{ gsub(/[$]\(|[;&|(){}`]/, "\n"); print }')
 }
 shell_write() { # command -> "project-write <target>" for a redirect outside the allowed roots or a file mutation
   local rest t op n
