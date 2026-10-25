@@ -68,14 +68,7 @@ func FromEnv(getenv func(string) string, pwd string) (Config, error) {
 		Prompt:       or("PROMPT", DefaultPrompt),
 		PromptSet:    getenv("PROMPT") != "",
 		Orchestrator: getenv("HERDSMAN_ORCHESTRATOR"),
-		Inbox: inbox.Options{
-			Dir:         getenv("HERDSMAN_INBOX"),
-			Preflight:   getenv("HERDSMAN_PREFLIGHT"),
-			Installed:   getenv("HERDSMAN_MESSAGES_DIR"),
-			HealthAfter: getenv("HEALTH_AFTER"),
-			LockWait:    getenv("LOCK_WAIT"),
-		},
-		Env: Env{Transcript: getenv("TRANSCRIPT"), Home: getenv("HOME"), CodexHome: getenv("CODEX_HOME"), PWD: pwd},
+		Env:          Env{Transcript: getenv("TRANSCRIPT"), Home: getenv("HOME"), CodexHome: getenv("CODEX_HOME"), PWD: pwd},
 	}
 	if c.Target == "" {
 		return c, &SettingError{"TARGET", "required, the orchestrator pane id", ""}
@@ -87,11 +80,10 @@ func FromEnv(getenv func(string) string, pwd string) (Config, error) {
 	if c.Limit, err = Integer("LIMIT", c.LimitText, 0, 1<<53); err != nil {
 		return c, err
 	}
-	lw, err := Integer("LOCK_WAIT", or("LOCK_WAIT", "6"), 1, 60)
-	if err != nil {
+	if c.Inbox, err = InboxSettings(getenv); err != nil {
 		return c, err
 	}
-	c.LockWait = int(lw)
+	c.LockWait, _ = strconv.Atoi(c.Inbox.LockWait)
 	if c.Orchestrator != "" && c.Inbox.Dir == "" {
 		return c, &SettingError{"HERDSMAN_INBOX", "required in adjutant mode (HERDSMAN_ORCHESTRATOR is set)", ""}
 	}
@@ -127,11 +119,27 @@ func (c *Checkpointer) now() time.Time {
 }
 
 func (c *Checkpointer) sleep(d time.Duration) {
+	c.pause(context.Background(), d)
+}
+
+// pause sleeps d, or until ctx ends.
+func (c *Checkpointer) pause(ctx context.Context, d time.Duration) {
 	if c.Sleep != nil {
 		c.Sleep(d)
 		return
 	}
-	time.Sleep(d)
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-ctx.Done():
+	}
+}
+
+// seconds is the interval as the log lines show it: the effective number of
+// seconds, after the suffix and the clamp.
+func (c *Checkpointer) seconds() string {
+	return strconv.FormatInt(int64(c.Config.Interval/time.Second), 10) + "s"
 }
 
 func (c *Checkpointer) wait(ctx context.Context, want []herdr.Status, timeout time.Duration) error {
@@ -153,21 +161,28 @@ func (c *Checkpointer) waitIdle(ctx context.Context, then string) bool {
 	case err == nil:
 		return true
 	case errors.Is(err, herdr.ErrWaitTimeout):
-		c.log(fmt.Sprintf("orchestrator not idle within %ss; %s", c.Config.IntervalText, then))
+		c.log(fmt.Sprintf("orchestrator not idle within %s; %s", c.seconds(), then))
 	default:
 		c.log(fmt.Sprintf("agent wait failed: %v; %s", err, then))
 	}
 	return false
 }
 
-// waitWorking waits for the prompted turn to start; a turn that starts
-// and ends before the wait reads it is fine, so its end is not an error.
-func (c *Checkpointer) waitWorking(ctx context.Context) {
+// waitWorking waits for the prompted turn to start. Its timeout is
+// tolerated: a turn that starts and ends before the wait reads it is
+// missed, and the idle wait after it still holds. Any other failure (herdr
+// unreachable, a cancelled run) is logged and ends the cycle.
+func (c *Checkpointer) waitWorking(ctx context.Context) bool {
 	t := c.WorkingTimeout
 	if t == 0 {
 		t = WorkingTimeout
 	}
-	_ = c.wait(ctx, []herdr.Status{"working"}, t)
+	err := c.wait(ctx, []herdr.Status{"working"}, t)
+	if err == nil || errors.Is(err, herdr.ErrWaitTimeout) {
+		return true
+	}
+	c.log(fmt.Sprintf("agent wait failed: %v; no context read; retry next interval", err))
+	return false
 }
 
 // log writes "HH:MM:SS msg" to stdout and appends it to the log file, as
@@ -307,8 +322,7 @@ func (c *Checkpointer) Cycle(ctx context.Context, f string) int {
 	if !c.input(ctx, "memory checkpoint", c.memoryPrompt(), "prompt failed; retry next interval") {
 		return 1
 	}
-	c.waitWorking(ctx)
-	if !c.waitIdle(ctx, "no context read; retry next interval") {
+	if !c.waitWorking(ctx) || !c.waitIdle(ctx, "no context read; retry next interval") {
 		return 1
 	}
 	r := c.reading(f)
@@ -323,8 +337,7 @@ func (c *Checkpointer) Cycle(ctx context.Context, f string) int {
 	if !c.input(ctx, c.Config.Compact, c.Config.Compact, "compact failed; retry next interval") {
 		return 1
 	}
-	c.waitWorking(ctx)
-	if !c.waitIdle(ctx, "no context read; retry next interval") {
+	if !c.waitWorking(ctx) || !c.waitIdle(ctx, "no context read; retry next interval") {
 		return 1
 	}
 	c.log("compact done; context=" + c.reading(f).String())
@@ -369,9 +382,9 @@ func stamp(p string) string {
 // the last one, until ctx ends.
 func (c *Checkpointer) Loop(ctx context.Context) error {
 	last := ""
-	c.log(fmt.Sprintf("checkpointer on %s: every %ss, compact at >= %s tokens", c.Config.Target, c.Config.IntervalText, c.Config.LimitText))
+	c.log(fmt.Sprintf("checkpointer on %s: every %s, compact at >= %d tokens", c.Config.Target, c.seconds(), c.Config.Limit))
 	for {
-		c.sleep(c.Config.Interval)
+		c.pause(ctx, c.Config.Interval)
 		if err := ctx.Err(); err != nil {
 			return err
 		}

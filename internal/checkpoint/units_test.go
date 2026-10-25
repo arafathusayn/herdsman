@@ -31,7 +31,19 @@ func TestContextTokens(t *testing.T) {
 		{"", "", 0},
 		{a(`{"input_tokens":1,"cache_read_input_tokens":2}`), "3", 0},
 		{a(`{"input_tokens":1}`) + `{"type":"assistant","isSidechain":true,"message":{"usage":{"input_tokens":9}}}` + "\n", "1", 0},
-		{a(`{"input_tokens":1}`) + "null\n" + `{"type":"user"}` + "\n[1]\n\n", "1", 0},
+		{a(`{"input_tokens":1}`) + "null\n" + `{"type":"user"}` + "\n\n", "1", 0},
+		{a(`{"input_tokens":1}`) + "[1]\n", "1", 1},
+		// Exactly one JSON value per line: a trailing } or ] is unreadable,
+		// and the next valid record still counts.
+		{a(`{"input_tokens":300000}`)[:len(a(`{"input_tokens":300000}`))-1] + "}\n" + a(`{"input_tokens":4}`), "4", 1},
+		{a(`{"input_tokens":4}`) + a(`{"input_tokens":300000}`)[:len(a(`{"input_tokens":300000}`))-1] + "]\n", "4", 1},
+		// Integral numbers in any spelling count.
+		{a(`{"input_tokens":3e5}`), "300000", 0},
+		{a(`{"input_tokens":300000.0,"cache_read_input_tokens":1E2}`), "300100", 0},
+		{a(`{"input_tokens":-0}`), "0", 0},
+		{a(`{"input_tokens":1e-300}`), "", 1},
+		{a(`{"input_tokens":9.3e18}`), "", 1},
+		{`{"type":"assistant","message":"x"}` + "\n" + `{"type":5,"payload":3}` + "\n", "", 0},
 		// A bad line or a half-written last line hides nothing before or after it.
 		{a(`{"input_tokens":1}`) + "not json\n" + a(`{"input_tokens":5}`), "5", 1},
 		{a(`{"input_tokens":5}`) + `{"type":"assistant","message":{"usa`, "5", 1},
@@ -112,13 +124,22 @@ func TestTailLines(t *testing.T) {
 		{"", 3, ""},
 	} {
 		write(t, p, tc.text)
-		got, err := tailLines(p, tc.n)
+		got, err := tailLines(p, tc.n, 1<<20)
 		if err != nil || string(got) != tc.want {
 			t.Errorf("%q %d: %q %v", tc.text, tc.n, got, err)
 		}
 	}
-	if _, err := tailLines(dir, 1); err == nil {
+	if _, err := tailLines(dir, 1, 10); err == nil {
 		t.Error("a folder read")
+	}
+	// The byte bound: a line cut by it is dropped; a window that starts
+	// at a line start keeps its first line; one line longer than the bound
+	// gives nothing.
+	write(t, p, "aaaa\nbb\ncc\n")
+	for limit, want := range map[int64]string{6: "bb\ncc\n", 5: "cc\n", 8: "bb\ncc\n", 2: ""} {
+		if got, _ := tailLines(p, 400, limit); string(got) != want {
+			t.Errorf("limit %d: %q want %q", limit, got, want)
+		}
 	}
 }
 
@@ -217,6 +238,13 @@ func TestSettings(t *testing.T) {
 			t.Errorf("LOCK_WAIT %q: %v", tc.v, err)
 		}
 	}
+	o, err := InboxSettings(func(k string) string { return map[string]string{"LOCK_WAIT": "06", "HEALTH_AFTER": "0300"}[k] })
+	if err != nil || o.LockWait != "6" || o.HealthAfter != "300" {
+		t.Errorf("canonical inbox settings: %+v %v", o, err)
+	}
+	if o, err := InboxSettings(func(string) string { return "" }); err != nil || o.LockWait != "6" || o.HealthAfter != "" {
+		t.Errorf("default inbox settings: %+v %v", o, err)
+	}
 	base := map[string]string{"TARGET": "w1:p1", "TMPDIR": "/t"}
 	get := func(extra map[string]string) (Config, error) {
 		m := map[string]string{}
@@ -241,6 +269,7 @@ func TestSettings(t *testing.T) {
 		{map[string]string{"INTERVAL": "0"}, `INTERVAL: a whole number`},
 		{map[string]string{"LIMIT": "lots"}, `LIMIT: a whole number from 0 to 9007199254740992 (got "lots")`},
 		{map[string]string{"LOCK_WAIT": "0"}, `LOCK_WAIT: a whole number from 1 to 60 (got "0")`},
+		{map[string]string{"HEALTH_AFTER": "x\ny"}, `HEALTH_AFTER: a whole number from 1 to 86400 (got "x\ny")`},
 		{map[string]string{"HERDSMAN_ORCHESTRATOR": "o"}, `HERDSMAN_INBOX: required in adjutant mode (HERDSMAN_ORCHESTRATOR is set) (got "")`},
 	} {
 		_, err := get(tc.env)
@@ -395,6 +424,37 @@ func TestCycleFailures(t *testing.T) {
 			t.Errorf("%v: %d prompts", tc, sent)
 		}
 	}
+	// A working wait that fails for another reason than its timeout ends
+	// the cycle, before and after the compact.
+	for _, nth := range []int{1, 2} {
+		r.out.Reset()
+		w := 0
+		cp.Wait = func(_ context.Context, _ string, want []herdr.Status, _ time.Duration) (herdr.Status, error) {
+			if want[0] != "working" {
+				return "idle", nil
+			}
+			w++
+			if w == nth {
+				return "", errors.New("socket closed")
+			}
+			return "", herdr.ErrWaitTimeout
+		}
+		if code := cp.Cycle(ctx, tr); code != 1 || !strings.Contains(r.out.String(), "agent wait failed: socket closed; no context read; retry next interval") ||
+			strings.Contains(r.out.String(), "compact done") {
+			t.Errorf("working wait %d: %d %q", nth, code, r.out.String())
+		}
+	}
+	// The timeout line shows the effective seconds.
+	for in, want := range map[string]string{"2m": "within 120s;", "2d": "within 86400s;"} {
+		c2 := r.checkpointer(r.config(r.dir, map[string]string{"INTERVAL": in}))
+		c2.Wait = func(context.Context, string, []herdr.Status, time.Duration) (herdr.Status, error) {
+			return "", herdr.ErrWaitTimeout
+		}
+		c2.Cycle(ctx, tr)
+		if !strings.Contains(r.out.String(), want) {
+			t.Errorf("INTERVAL=%s: %q", in, r.out.String())
+		}
+	}
 	cp.Wait = func(context.Context, string, []herdr.Status, time.Duration) (herdr.Status, error) { return "", nil }
 	calls := 0
 	r.srv.Handle("agent.prompt", func(map[string]any) (any, string) {
@@ -495,8 +555,18 @@ func TestLoopResources(t *testing.T) {
 			goroutines = runtime.NumGoroutine()
 		case i == 1050:
 			cancel()
+		case i == 20:
+			// One 8 MiB user record before the usage lines: never held.
+			big := `{"type":"user","message":{"content":"` + strings.Repeat("x", 8<<20) + `"}}` + "\n"
+			f, _ := os.OpenFile(tr, os.O_APPEND|os.O_WRONLY, 0o600)
+			_, _ = f.WriteString(big)
+			_ = f.Close()
 		case i%2 == 0:
-			usage(t, tr, i) // activity on every other tick: a cycle
+			// Activity on every other tick: the transcript grows by one
+			// usage line, and a cycle runs.
+			f, _ := os.OpenFile(tr, os.O_APPEND|os.O_WRONLY, 0o600)
+			fmt.Fprintf(f, `{"type":"assistant","message":{"usage":{"input_tokens":%d}}}`+"\n", i)
+			_ = f.Close()
 		}
 	}
 	_ = cp.Loop(ctx)

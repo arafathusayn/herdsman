@@ -100,26 +100,8 @@ func TestCheckpointerCommands(t *testing.T) {
 		t.Errorf("probe --json, no reading: %q", out)
 	}
 	write(`{"type":"assistant","message":{"usage":{"input_tokens":5}}}` + "\n")
-	// The orchestrator is blocked, so the idle wait holds the run until
-	// the test frees it. A SIGHUP during the run exits 129.
-	fx.Edit("receiver-pane", "agent_status", "blocked")
-	exited := make(chan int, 1)
-	checkpointerExit = func(c int) { exited <- c }
-	defer func() { checkpointerExit = os.Exit }()
 	checkpointerWorkingTimeout = 20 * time.Millisecond
 	defer func() { checkpointerWorkingTimeout = 0 }()
-	go func() {
-		for srv.Subscribers() == 0 {
-			time.Sleep(5 * time.Millisecond)
-		}
-		_ = syscall.Kill(os.Getpid(), syscall.SIGHUP)
-		c := <-exited
-		if c != 129 {
-			t.Errorf("signal exit %d", c)
-		}
-		fx.Edit("receiver-pane", "agent_status", "idle")
-		srv.Emit("pane.agent_status_changed", map[string]any{"pane_id": "receiver-pane"})
-	}()
 	out, _, code = call(t, "checkpointer", "--once")
 	if code != 0 || !strings.Contains(out, "sending /compact") {
 		t.Errorf("once: %d %q", code, out)
@@ -132,5 +114,58 @@ func TestCheckpointerCommands(t *testing.T) {
 	}
 	if strings.Join(prompts, "|") != "/save-memory now|/compact" {
 		t.Errorf("zsh pane-run form keeps a quoted prompt: %q", prompts)
+	}
+
+	// Inbox settings are checked at start and passed on canonical: an
+	// approved checkpoint with LOCK_WAIT=06 runs; a bad HEALTH_AFTER is one
+	// line and exit 2, for the checkpointer and its guard.
+	t.Setenv("HERDSMAN_ORCHESTRATOR", inboxtest.Orchestrator)
+	t.Setenv("LOCK_WAIT", "06")
+	if out, e, code := call(t, "checkpointer", "--once"); code != 0 || !strings.Contains(out, "sending /compact") {
+		t.Errorf("LOCK_WAIT=06: %d %q %q", code, out, e)
+	}
+	t.Setenv("LOCK_WAIT", "")
+	t.Setenv("HEALTH_AFTER", "bad\nline")
+	for _, args := range [][]string{{"checkpointer", "--once"}, {"checkpointer", "guard", inboxtest.Orchestrator, "receiver-pane"}} {
+		if _, e, code := call(t, args...); code != 2 || e != "herdsman checkpointer: HEALTH_AFTER: a whole number from 1 to 86400 (got \"bad\\nline\")\n" {
+			t.Errorf("%v HEALTH_AFTER: %d %q", args, code, e)
+		}
+	}
+	t.Setenv("HEALTH_AFTER", "")
+	t.Setenv("HERDSMAN_ORCHESTRATOR", "")
+
+	// A signal ends a run: --once blocked on a busy orchestrator, and the
+	// loop after its first checkpoint; each exits 128+n.
+	signalAfter := func(ready func() bool) {
+		go func() {
+			for !ready() {
+				time.Sleep(5 * time.Millisecond)
+			}
+			_ = syscall.Kill(os.Getpid(), syscall.SIGHUP)
+		}()
+	}
+	fx.Edit("receiver-pane", "agent_status", "blocked")
+	signalAfter(func() bool { return srv.Subscribers() > 0 })
+	out, _, code = call(t, "checkpointer", "--once")
+	if code != 129 || !strings.Contains(out, "agent wait failed: context canceled") {
+		t.Errorf("once interrupted: %d %q", code, out)
+	}
+	fx.Edit("receiver-pane", "agent_status", "idle")
+	t.Setenv("INTERVAL", "1")
+	sent := func() int {
+		n := 0
+		for _, q := range srv.Requests() {
+			if q.Method == "agent.prompt" {
+				n++
+			}
+		}
+		return n
+	}
+	before := sent()
+	signalAfter(func() bool { return sent() >= before+2 })
+	out, _, code = call(t, "checkpointer")
+	if code != 129 || !strings.HasPrefix(out[9:], "checkpointer on receiver-pane: every 1s, compact at >= 1 tokens\n") ||
+		!strings.Contains(out, "sending memory checkpoint") {
+		t.Errorf("loop: %d %q", code, out)
 	}
 }

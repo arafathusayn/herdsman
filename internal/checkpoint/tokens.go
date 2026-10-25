@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"math"
+	"math/big"
 	"strconv"
 )
 
@@ -14,10 +15,10 @@ import (
 type Reading struct {
 	Tokens int64
 	OK     bool // a record with usage was read
-	// Skipped counts the lines that are not JSON, and the usage records
-	// whose counts are not whole non-negative numbers: each is passed
-	// over, so a half-written last line or one bad record never hides the
-	// records before it.
+	// Skipped counts the lines that are not exactly one JSON value, and
+	// the usage records whose counts are not whole non-negative numbers:
+	// each is passed over, so a half-written last line or one bad record
+	// never hides the records around it.
 	Skipped int
 }
 
@@ -30,10 +31,14 @@ func (r Reading) String() string {
 	return strconv.FormatInt(r.Tokens, 10)
 }
 
+// TailBytes bounds the transcript read: the last 400 lines within the last
+// 4 MiB, read once.
+const TailBytes = 4 << 20
+
 // ContextTokens reads the context of the transcript p (no reading for a
-// file that cannot be read). The tail read is bounded: 400 lines.
+// file that cannot be read).
 func ContextTokens(p string) Reading {
-	b, err := tailLines(p, 400)
+	b, err := tailLines(p, 400, TailBytes)
 	if err != nil {
 		return Reading{}
 	}
@@ -42,14 +47,7 @@ func ContextTokens(p string) Reading {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
-		dec := json.NewDecoder(bytes.NewReader(line))
-		dec.UseNumber()
-		var v any
-		if dec.Decode(&v) != nil || dec.More() {
-			r.Skipped++
-			continue
-		}
-		n, has, ok := record(v)
+		n, has, ok := record(line)
 		switch {
 		case !ok:
 			r.Skipped++
@@ -60,25 +58,93 @@ func ContextTokens(p string) Reading {
 	return r
 }
 
-// record reads one value: its tokens, whether it carries usage, and false
-// for a usage record whose counts are unreadable.
-func record(v any) (int64, bool, bool) {
-	m, _ := v.(map[string]any)
-	switch m["type"] {
+// The record shapes: only the fields the reading needs are decoded, so the
+// text of a message (often large) is checked but never copied. A field of
+// another JSON type reads as absent, as jq reads .field of null.
+type (
+	loose     string
+	transLine struct {
+		Type        loose           `json:"type"`
+		IsSidechain json.RawMessage `json:"isSidechain"`
+		Message     message         `json:"message"`
+		Payload     payload         `json:"payload"`
+	}
+	message struct {
+		Usage json.RawMessage `json:"usage"`
+	}
+	payload struct {
+		Type loose `json:"type"`
+		Info info  `json:"info"`
+	}
+	info struct {
+		Last json.RawMessage `json:"last_token_usage"`
+	}
+	counts struct {
+		Input    json.RawMessage `json:"input_tokens"`
+		Creation json.RawMessage `json:"cache_creation_input_tokens"`
+		Read     json.RawMessage `json:"cache_read_input_tokens"`
+	}
+)
+
+func (l *loose) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '"' {
+		return json.Unmarshal(b, (*string)(l))
+	}
+	return nil
+}
+
+func object(b []byte) bool { return len(b) > 0 && b[0] == '{' }
+
+func (m *message) UnmarshalJSON(b []byte) error {
+	if !object(b) {
+		return nil
+	}
+	type plain message
+	return json.Unmarshal(b, (*plain)(m))
+}
+
+func (p *payload) UnmarshalJSON(b []byte) error {
+	if !object(b) {
+		return nil
+	}
+	type plain payload
+	return json.Unmarshal(b, (*plain)(p))
+}
+
+func (i *info) UnmarshalJSON(b []byte) error {
+	if !object(b) {
+		return nil
+	}
+	type plain info
+	return json.Unmarshal(b, (*plain)(i))
+}
+
+func absent(b json.RawMessage) bool { return len(b) == 0 || string(b) == "null" }
+
+// record reads one line: its tokens, whether it carries usage, and false
+// for a line that is not exactly one JSON value or a usage record whose
+// counts are unreadable.
+func record(line []byte) (int64, bool, bool) {
+	var l transLine
+	if json.Unmarshal(line, &l) != nil {
+		return 0, false, false
+	}
+	switch l.Type {
 	case "assistant":
-		msg, _ := m["message"].(map[string]any)
-		usage, has := msg["usage"]
-		if !has || usage == nil || m["isSidechain"] == true {
+		if absent(l.Message.Usage) || string(l.IsSidechain) == "true" {
 			return 0, false, true
 		}
-		u, ok := usage.(map[string]any)
-		if !ok {
+		var u counts
+		if !object(l.Message.Usage) || json.Unmarshal(l.Message.Usage, &u) != nil {
 			return 0, true, false
 		}
 		var sum int64
-		for _, k := range []string{"input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"} {
+		for _, raw := range []json.RawMessage{u.Input, u.Creation, u.Read} {
 			// A missing count adds nothing, as the script's null + n.
-			n, ok := count(u[k], true)
+			n, ok := int64(0), true
+			if !absent(raw) {
+				n, ok = count(raw)
+			}
 			if !ok || sum > math.MaxInt64-n {
 				return 0, true, false
 			}
@@ -86,31 +152,38 @@ func record(v any) (int64, bool, bool) {
 		}
 		return sum, true, true
 	case "event_msg":
-		payload, _ := m["payload"].(map[string]any)
-		info, _ := payload["info"].(map[string]any)
-		if payload["type"] != "token_count" || info["last_token_usage"] == nil {
+		if l.Payload.Type != "token_count" || absent(l.Payload.Info.Last) {
 			return 0, false, true
 		}
-		l, ok := info["last_token_usage"].(map[string]any)
-		if !ok {
+		var u counts
+		if !object(l.Payload.Info.Last) || json.Unmarshal(l.Payload.Info.Last, &u) != nil || absent(u.Input) {
 			return 0, true, false
 		}
-		n, ok := count(l["input_tokens"], false)
+		n, ok := count(u.Input)
 		return n, true, ok
 	}
 	return 0, false, true
 }
 
-// count reads a token count: a whole non-negative number. A missing or
-// null count is 0 where optional is true.
-func count(v any, optional bool) (int64, bool) {
-	if v == nil {
-		return 0, optional
+// count reads a token count: a JSON number that is exactly a whole
+// non-negative int64, however it is spelled (300000, 3e5, 300000.0).
+// Strings, fractions and overflow are refused.
+func count(raw json.RawMessage) (int64, bool) {
+	// raw is one valid JSON value (the line was checked whole), so a value
+	// that is not a number fails both parses.
+	s := string(raw)
+	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return i, i >= 0
 	}
-	n, ok := v.(json.Number)
-	if !ok {
+	// Bounded before the exact check: a finite float of at most int64's
+	// size, so the rational below stays small.
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsInf(f, 0) || f < 0 || f > math.MaxInt64 {
 		return 0, false
 	}
-	i, err := strconv.ParseInt(string(n), 10, 64)
-	return i, err == nil && i >= 0
+	r, ok := new(big.Rat).SetString(s)
+	if !ok || !r.IsInt() || !r.Num().IsInt64() {
+		return 0, false
+	}
+	return r.Num().Int64(), true
 }

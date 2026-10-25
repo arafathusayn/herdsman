@@ -34,9 +34,6 @@ Exit codes:
   2  usage, a bad setting, or a guard refusal
 `
 
-// checkpointerExit is os.Exit, replaced in tests.
-var checkpointerExit = os.Exit
-
 // checkpointerWorkingTimeout bounds the wait for a prompted turn (0: the
 // script's 30 s); tests shorten it.
 var checkpointerWorkingTimeout time.Duration
@@ -44,7 +41,12 @@ var checkpointerWorkingTimeout time.Duration
 func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	if len(args) > 0 && args[0] == "guard" {
-		out, errText, code := checkpoint.Guard(ctx, herdrClient(), inboxOptions(), args[1:])
+		o, err := checkpoint.InboxSettings(os.Getenv)
+		if err != nil {
+			fmt.Fprintln(stderr, "herdsman checkpointer:", err)
+			return 2
+		}
+		out, errText, code := checkpoint.Guard(ctx, herdrClient(), o, args[1:])
 		fmt.Fprint(stdout, out)
 		fmt.Fprint(stderr, errText)
 		return code
@@ -75,23 +77,33 @@ func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if mode == "--probe" {
 		return c.Probe(ctx)
 	}
-	// As the script's EXIT trap: an interrupted checkpointer frees the
-	// input lock it holds.
+	// As the script's EXIT trap: a signal frees the input lock, ends the
+	// run (its waits and pause end with the context) and exits 128+n.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer close(sigs)
 	defer signal.Stop(sigs)
+	got := make(chan int, 1)
 	go func() {
-		s, ok := <-sigs
-		if !ok {
-			return
+		select {
+		case s := <-sigs:
+			c.Release()
+			got <- 128 + int(s.(syscall.Signal))
+			cancel()
+		case <-ctx.Done():
 		}
-		c.Release()
-		checkpointerExit(128 + int(s.(syscall.Signal)))
 	}()
+	code := 0
 	if mode == "--once" {
-		return c.Once(ctx)
+		code = c.Once(ctx)
+	} else {
+		_ = c.Loop(ctx) // runs until a signal
 	}
-	_ = c.Loop(ctx) // runs until a signal ends the process
-	return 0
+	select {
+	case n := <-got:
+		return n
+	default:
+		return code
+	}
 }

@@ -212,9 +212,11 @@ func newer(a, b string) bool {
 	return sa.ModTime().After(sb.ModTime())
 }
 
-// tailLines is `tail -n n`: the last n lines of the file, the last one
-// counted even without a final newline.
-func tailLines(p string, n int) ([]byte, error) {
+// tailLines is `tail -n n` within the last limit bytes: the last n lines of
+// the file, the last one counted even without a final newline. One read of
+// at most limit bytes; a line cut by that bound is dropped, so a huge record
+// never fills memory.
+func tailLines(p string, n int, limit int64) ([]byte, error) {
 	f, err := os.Open(p)
 	if err != nil {
 		return nil, err
@@ -225,39 +227,30 @@ func tailLines(p string, n int) ([]byte, error) {
 		return nil, err
 	}
 	size := st.Size()
-	const chunk = 64 << 10
-	var buf []byte
-	pos := size
-	for pos > 0 {
-		step := min(int64(chunk), pos)
-		pos -= step
-		b := make([]byte, step)
-		if _, err := f.ReadAt(b, pos); err != nil && !errors.Is(err, io.EOF) {
-			return nil, err
-		}
-		buf = append(b, buf...)
-		body := buf
-		if pos+int64(len(buf)) == size && len(body) > 0 && body[len(body)-1] == '\n' {
-			body = body[:len(body)-1]
-		}
-		if bytes.Count(body, []byte{'\n'}) >= n {
-			break
+	start := max(size-limit, 0)
+	buf := make([]byte, size-start)
+	if _, err := f.ReadAt(buf, start); err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	if start > 0 {
+		// The window starts inside a line unless the byte before it ends one.
+		prev := make([]byte, 1)
+		if _, err := f.ReadAt(prev, start-1); err != nil || prev[0] != '\n' {
+			i := bytes.IndexByte(buf, '\n')
+			if i < 0 {
+				return nil, nil
+			}
+			buf = buf[i+1:]
 		}
 	}
-	body := buf
-	trail := len(body) > 0 && body[len(body)-1] == '\n'
-	if trail {
-		body = body[:len(body)-1]
-	}
+	body := bytes.TrimSuffix(buf, []byte{'\n'})
 	idx := len(body)
 	for range n {
 		i := bytes.LastIndexByte(body[:idx], '\n')
 		if i < 0 {
-			idx = -1
-			break
+			return buf, nil
 		}
 		idx = i
 	}
-	start := idx + 1
-	return buf[start:], nil
+	return buf[idx+1:], nil
 }
