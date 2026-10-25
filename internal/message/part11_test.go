@@ -17,10 +17,11 @@ import (
 // passes n seconds, "@stage" moves the held envelope to new, "@ready" to
 // ready, "@flood n" sends n unrelated events; any other step is a line.
 type scripted struct {
-	c     *tc
-	steps []string
-	opens int
-	subs  []string
+	c         *tc
+	steps     []string
+	opens     int
+	floodLeft int
+	subs      []string
 }
 
 func (s *scripted) Open(_ context.Context, subs []map[string]any) (Stream, error) {
@@ -57,6 +58,22 @@ func (st *scriptedStream) Next(d time.Duration) (string, error) {
 			}
 			os.Rename(s.c.base("staged", ID+".md"), s.c.ob(dir, ID+".md"))
 			s.steps = s.steps[1:]
+		case strings.HasPrefix(step, "@flood-for "):
+			// Other panes events every 100 ms for n seconds of the fake clock.
+			n, _ := strconv.Atoi(strings.TrimPrefix(step, "@flood-for "))
+			if n <= 0 {
+				s.steps = s.steps[1:]
+				continue
+			}
+			if s.floodLeft == 0 {
+				s.floodLeft = n * 10
+			}
+			s.floodLeft--
+			if s.floodLeft == 0 {
+				s.steps = s.steps[1:]
+			}
+			s.c.now = s.c.now.Add(100 * time.Millisecond)
+			return `{"event":"pane.updated","data":{"pane":{"pane_id":"other-pane","title":"busy"}}}`, nil
 		case strings.HasPrefix(step, "@flood "):
 			n, _ := strconv.Atoi(strings.TrimPrefix(step, "@flood "))
 			if n <= 1 {
