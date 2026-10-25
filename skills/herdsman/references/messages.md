@@ -28,7 +28,7 @@ The file queue is the authority; events are only hints. The sender publishes a J
 ## Envelopes and IDs
 
 - Each `.md` holds one strict JSON object with `version`, `id`, `from`, `to`, the full `from_identity` and `to_identity`, `time`, `kind`, `reply_to` and `body`. The ID matches the file name. The raw body and the encoded envelope are both bounded. Duplicate keys, links, FIFOs, oversized files, a wrong recipient and a wrong generation fail validation. A reply ID must name an allocated envelope. Body text never supplies envelope fields. Identities compare as JSON values, not by key order.
-- Kinds: `brief`, `observation`, `question`, `result`, `cancel`, `user_answer`, `receipt`.
+- Kinds: `brief`, `observation`, `question`, `result`, `cancel`, `user_answer`, `receipt`. A `question` to the user times out ([`adjutant.md`](adjutant.md), Commands): an answer decided at the timeout says "decided without an answer (A33)" and is never a `user_go`; a step that needs a go stays pending until the human answers.
 - One lock-protected sequence allocates fixed-width IDs across the inbox and is never reset. Failed sends may leave gaps; allocation order is not execution order. The original bytes and terminal disposition stay for the life of the sequence, so a consumed or quarantined ID cannot replay after an archive. A duplicate ID is held in view without overwrite and never stops unrelated work. An invalid terminal state is a hold for inspection, never permission to replay.
 - Every state write runs and checks its whole producer before it renames the temporary file, so an empty or failed producer never replaces state. Moves within one filesystem make a crash visible as old or new state; there is no fsync and no promise across power loss.
 
