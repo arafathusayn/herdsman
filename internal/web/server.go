@@ -270,8 +270,7 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
-	fl, ok := w.(http.Flusher)
-	if !ok {
+	if _, ok := w.(http.Flusher); !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
@@ -281,16 +280,28 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	h.Set("Connection", "keep-alive")
 	ch, state, entries := s.hub.subscribe()
 	defer s.hub.unsubscribe(ch)
+	// Each write must reach the browser within streamWriteTimeout: one that
+	// stops reading ends its stream, and with it this handler and its
+	// buffers, instead of blocking here for good.
+	rc := http.NewResponseController(w)
+	send := func(f func()) bool {
+		_ = rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout))
+		f()
+		return rc.Flush() == nil
+	}
 	write := func(event string, data []byte) {
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 	}
-	if state != nil {
-		write("state", state)
+	if !send(func() {
+		if state != nil {
+			write("state", state)
+		}
+		if b, err := json.Marshal(entries); err == nil {
+			write("entries", b)
+		}
+	}) {
+		return
 	}
-	if b, err := json.Marshal(entries); err == nil {
-		write("entries", b)
-	}
-	fl.Flush()
 	ping := time.NewTicker(15 * time.Second)
 	defer ping.Stop()
 	for {
@@ -301,14 +312,19 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return // dropped as stalled; the browser reconnects to a fresh snapshot
 			}
-			write(m.event, m.data)
-			fl.Flush()
+			if !send(func() { write(m.event, m.data) }) {
+				return
+			}
 		case <-ping.C:
-			fmt.Fprint(w, ": ping\n\n")
-			fl.Flush()
+			if !send(func() { fmt.Fprint(w, ": ping\n\n") }) {
+				return
+			}
 		}
 	}
 }
+
+// streamWriteTimeout bounds one write of the live stream; tests shorten it.
+var streamWriteTimeout = 30 * time.Second
 
 func (s *Server) stateJSON(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.hub.Current())

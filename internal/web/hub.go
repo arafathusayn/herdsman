@@ -76,11 +76,23 @@ type State struct {
 	Error    string         `json:"error,omitempty"`
 }
 
+// refreshEvery is how often the hub reads herdr and the route folders
+// while a browser watches, so a route file's change shows within seconds.
+const refreshEvery = 3 * time.Second
+
 type Hub struct {
 	client     *herdr.Client
 	pong       herdr.Pong
 	routeDirs  []string // from --route; searched before pane folders
 	refreshReq chan struct{}
+	// panesChanged wakes statusLoop when the set of agent panes changes.
+	panesChanged chan struct{}
+	every        time.Duration // refreshEvery; tests shorten it
+
+	// refreshMu serializes refreshes; last is when the latest one ended.
+	refreshMu sync.Mutex
+	last      time.Time
+	lastPanes []string
 
 	mu      sync.Mutex
 	state   State
@@ -97,8 +109,10 @@ type message struct {
 func NewHub(c *herdr.Client, pong herdr.Pong, routeDirs []string) *Hub {
 	return &Hub{
 		client: c, pong: pong, routeDirs: routeDirs,
-		refreshReq: make(chan struct{}, 1),
-		subs:       map[chan message]struct{}{},
+		refreshReq:   make(chan struct{}, 1),
+		panesChanged: make(chan struct{}, 1),
+		every:        refreshEvery,
+		subs:         map[chan message]struct{}{},
 	}
 }
 
@@ -113,7 +127,7 @@ func (h *Hub) Run(ctx context.Context) {
 		return subs
 	}, nil)
 	go h.statusLoop(ctx)
-	tick := time.NewTicker(3 * time.Second)
+	tick := time.NewTicker(h.every)
 	defer tick.Stop()
 	for {
 		select {
@@ -128,8 +142,31 @@ func (h *Hub) Run(ctx context.Context) {
 			}
 			h.refresh(ctx)
 		case <-tick.C:
-			h.refresh(ctx)
+			// Nobody watches: skip the herdr call and the route folder walk.
+			// herdr's events still refresh, and the next browser or request
+			// reads a fresh state (see fresh).
+			if h.watched() {
+				h.refresh(ctx)
+			}
 		}
+	}
+}
+
+// watched says whether a browser follows the live stream.
+func (h *Hub) watched() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.subs) > 0
+}
+
+// fresh refreshes the state when no refresh ran for one period, which
+// happens only while no browser watched.
+func (h *Hub) fresh() {
+	h.refreshMu.Lock()
+	stale := time.Since(h.last) >= h.every
+	h.refreshMu.Unlock()
+	if stale {
+		h.refresh(context.Background())
 	}
 }
 
@@ -182,12 +219,11 @@ func (h *Hub) subscribeLoop(ctx context.Context, subs func(context.Context) []ma
 
 // statusLoop keeps one subscription to the status changes of every agent
 // pane, and starts a new one when the set of agent panes changes, because
-// herdr only offers that event per pane.
+// herdr only offers that event per pane. A refresh that sees the set change
+// wakes it; nothing else does.
 func (h *Hub) statusLoop(ctx context.Context) {
 	var current []string
 	var stop chan struct{}
-	tick := time.NewTicker(time.Second)
-	defer tick.Stop()
 	for {
 		panes := h.agentPanes()
 		if !slices.Equal(panes, current) {
@@ -207,8 +243,11 @@ func (h *Hub) statusLoop(ctx context.Context) {
 		}
 		select {
 		case <-ctx.Done():
+			if stop != nil {
+				close(stop)
+			}
 			return
-		case <-tick.C:
+		case <-h.panesChanged:
 		}
 	}
 }
@@ -216,8 +255,12 @@ func (h *Hub) statusLoop(ctx context.Context) {
 func (h *Hub) agentPanes() []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	out := make([]string, 0, len(h.state.Snapshot.Agents))
-	for _, a := range h.state.Snapshot.Agents {
+	return panesOf(h.state.Snapshot)
+}
+
+func panesOf(s herdr.Snapshot) []string {
+	out := make([]string, 0, len(s.Agents))
+	for _, a := range s.Agents {
 		out = append(out, a.PaneID)
 	}
 	sort.Strings(out)
@@ -255,6 +298,9 @@ func (h *Hub) Log(e Entry) {
 }
 
 func (h *Hub) refresh(ctx context.Context) {
+	h.refreshMu.Lock()
+	defer h.refreshMu.Unlock()
+	defer func() { h.last = time.Now() }()
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	snap, err := h.client.Snapshot(cctx)
@@ -273,6 +319,13 @@ func (h *Hub) refresh(ctx context.Context) {
 	h.mu.Unlock()
 	if changed {
 		h.broadcast(message{"state", b})
+	}
+	if panes := panesOf(st.Snapshot); !slices.Equal(panes, h.lastPanes) {
+		h.lastPanes = panes
+		select {
+		case h.panesChanged <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -340,12 +393,14 @@ func isLive(r *route.Route, panes map[string]bool, agentAt map[string]string, cl
 
 // Current returns the latest state.
 func (h *Hub) Current() State {
+	h.fresh()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.state
 }
 
 func (h *Hub) subscribe() (chan message, []byte, []Entry) {
+	h.fresh()
 	ch := make(chan message, 64)
 	h.mu.Lock()
 	defer h.mu.Unlock()
