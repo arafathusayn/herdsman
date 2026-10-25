@@ -138,12 +138,11 @@ func (e *Env) Release() {
 func (o *owner) ownedBy(lockDir string, fn func(held bool) error) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	// Release empties the list, so a drained run holds nothing here.
 	held := false
-	if !o.drained {
-		for _, h := range o.held {
-			if h.mutation && h.l.Dir() == lockDir {
-				held = true
-			}
+	for _, h := range o.held {
+		if h.mutation && h.l.Dir() == lockDir {
+			held = true
 		}
 	}
 	return fn(held)
