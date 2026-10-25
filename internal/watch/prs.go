@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -95,7 +96,7 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 				}
 				continue
 			}
-			added := added(strings.Split(strings.TrimRight(st.read(old), "\n"), "\n"), snap)
+			added := addedSince(st.path(old), snap)
 			if len(added) == 0 {
 				continue
 			}
@@ -426,4 +427,44 @@ func RunGhStream(stderr io.Writer) func(ctx context.Context, env []string, read 
 		}
 		return rerr
 	}
+}
+
+// addedSince is comm -13 of the snapshot file at path and the sorted new
+// lines, counting repeats: the file is streamed and merged against cur
+// (A24: the prior history is never held whole). A file whose lines are not
+// in byte order (an older writer's locale sort) falls back to counting
+// every line; a missing file adds everything.
+func addedSince(path string, cur []string) []string {
+	f, err := os.Open(path)
+	if err != nil {
+		return append([]string(nil), cur...)
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
+	var out []string
+	i, prev := 0, ""
+	for sc.Scan() {
+		l := sc.Text()
+		if l == "" {
+			continue
+		}
+		if l < prev {
+			return added(strings.Split(strings.TrimRight(readAll(path), "\n"), "\n"), cur)
+		}
+		prev = l
+		for i < len(cur) && cur[i] < l {
+			out = append(out, cur[i])
+			i++
+		}
+		if i < len(cur) && cur[i] == l {
+			i++
+		}
+	}
+	return append(out, cur[i:]...)
+}
+
+func readAll(p string) string {
+	b, _ := os.ReadFile(p)
+	return string(b)
 }

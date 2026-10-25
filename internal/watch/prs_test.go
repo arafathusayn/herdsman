@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -376,5 +377,36 @@ func TestStreamPagesAndRunGhStream(t *testing.T) {
 	t.Setenv("PATH", dir+"/none")
 	if err := RunGhStream(&errb)(context.Background(), nil, func(io.Reader) error { return nil }, "api"); err == nil {
 		t.Error("no gh: no error")
+	}
+}
+
+// Review 6, finding 2: the comparison with the snapshot on disk streams
+// the file against the sorted new lines; growing ids add only the new ones,
+// repeats count, and a file in another order falls back to the full count.
+func TestAddedSinceTheSnapshotOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	write := func(lines ...string) string {
+		p := filepath.Join(dir, "pr.txt")
+		_ = os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+		return p
+	}
+	var old, cur []string
+	for i := 0; i < 5000; i++ {
+		old = append(old, fmt.Sprintf("comment %06d u", i))
+	}
+	cur = append(append([]string{}, old...), "comment 005000 u", "comment 005001 u")
+	sort.Strings(cur)
+	got := addedSince(write(old...), cur)
+	if len(got) != 2 || got[0] != "comment 005000 u" || got[1] != "comment 005001 u" {
+		t.Errorf("growing ids: %v", got)
+	}
+	if got := addedSince(write("a", "a", "b"), []string{"a", "a", "a", "b", "c"}); strings.Join(got, ",") != "a,c" {
+		t.Errorf("repeats: %v", got)
+	}
+	if got := addedSince(write("b", "a"), []string{"a", "b", "c"}); strings.Join(got, ",") != "c" {
+		t.Errorf("an unsorted file: %v", got)
+	}
+	if got := addedSince(filepath.Join(dir, "none"), []string{"a"}); strings.Join(got, ",") != "a" {
+		t.Errorf("no file: %v", got)
 	}
 }
