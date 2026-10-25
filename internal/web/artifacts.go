@@ -104,6 +104,9 @@ type artifacts struct {
 	caps  map[string]artifactCap
 	ttl   time.Duration // how long a grant lasts
 	sweep *time.Timer   // closes expired grants; nil while none is set
+	// sweepGen names the current sweep timer. A timer that fired while its
+	// sweep was being replaced or stopped finds a newer one and does nothing.
+	sweepGen uint64
 	// afterFunc sets the sweep timer; tests replace it to fire it by hand.
 	afterFunc func(time.Duration, func()) *time.Timer
 }
@@ -449,8 +452,9 @@ func (a *artifacts) drop(k string) {
 	_ = a.caps[k].dir.Close()
 	delete(a.caps, k)
 	if len(a.caps) == 0 && a.sweep != nil {
-		a.sweep.Stop()
+		a.sweep.Stop() // false when it fired already: sweepGen makes it a no-op
 		a.sweep = nil
+		a.sweepGen++
 	}
 }
 
@@ -477,9 +481,14 @@ func (a *artifacts) armSweep(now time.Time) {
 			next = c.expires
 		}
 	}
+	a.sweepGen++
+	gen := a.sweepGen
 	a.sweep = a.afterFunc(max(next.Sub(now), 0)+time.Millisecond, func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		if gen != a.sweepGen {
+			return // stale: stopped or replaced while it waited for mu
+		}
 		a.sweep = nil
 		now := a.now()
 		a.dropExpired(now)

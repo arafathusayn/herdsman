@@ -324,6 +324,72 @@ func TestArtifactGrantLoopReleasesEverything(t *testing.T) {
 	}
 }
 
+// A sweep that fired and waited for the lock while the last grant was
+// dropped and a new one armed a new timer does nothing when it runs: one
+// timer stays set, and it is the one tracked.
+func TestArtifactStaleSweepIsANoOp(t *testing.T) {
+	open := func() *os.Root {
+		t.Helper()
+		d := t.TempDir()
+		id, err := os.Stat(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := openPageDir(d, id, "", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	a := newArtifacts()
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	a.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	var calls []func()
+	var timers []*time.Timer
+	a.afterFunc = func(_ time.Duration, f func()) *time.Timer {
+		tm := time.NewTimer(time.Hour)
+		tm.Stop()
+		calls, timers = append(calls, f), append(timers, tm)
+		return tm
+	}
+	tracked := func() *time.Timer {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.sweep
+	}
+
+	k1 := a.grant(open(), "127.0.0.1")
+	if len(calls) != 1 || tracked() != timers[0] {
+		t.Fatalf("first grant: %d timers", len(calls))
+	}
+	// The first timer fires now, but its callback waits for the lock while
+	// the last grant expires and is dropped, and a new grant arms a timer.
+	stale := calls[0]
+	clock.Add(int64(a.ttl + time.Second))
+	if _, ok := a.dir(k1, "127.0.0.1"); ok {
+		t.Fatal("an expired grant was used")
+	}
+	r2 := open()
+	k2 := a.grant(r2, "127.0.0.1")
+	if len(calls) != 2 || tracked() != timers[1] {
+		t.Fatalf("second grant: %d timers", len(calls))
+	}
+	stale()
+	if len(calls) != 2 || tracked() != timers[1] {
+		t.Fatalf("a stale sweep set %d timers in all, tracked is the second: %v", len(calls), tracked() == timers[1])
+	}
+	if _, ok := a.dir(k2, "127.0.0.1"); !ok {
+		t.Fatal("a stale sweep dropped a live grant")
+	}
+	// The tracked timer still does its work.
+	clock.Add(int64(a.ttl + time.Second))
+	calls[1]()
+	if _, err := r2.Stat("."); err == nil || tracked() != nil || len(calls) != 2 {
+		t.Fatalf("the current sweep: folder open %v, timer set %v, %d timers", err == nil, tracked() != nil, len(calls))
+	}
+}
+
 // A grant holds the listed folder itself, not its name: a folder swapped for
 // a link to another workspace before the open is refused, and one swapped
 // after the open still serves only the folder that was granted.
