@@ -134,3 +134,36 @@ func TestPageRunStateReadsBackward(t *testing.T) {
 		t.Fatalf("a page costs %d bytes at 150 lines and %d at 10,000", cost[150], cost[10000])
 	}
 }
+
+func TestTailSectionAndFileList(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("route.md", head+"- 10:00 one\n")
+	tail, err := route.LoadBounded(dir, 100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tail.RunStateLast() {
+		t.Fatal("the run state is the last section")
+	}
+	write("route.md", head+"- 10:00 one\n\n## Notes\n\nlater\n")
+	tail, err = route.LoadBounded(dir, 100, tail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tail.RunStateLast() {
+		t.Fatal("a section after the run state")
+	}
+	write("notes.md", "n\n")
+	names := []string{}
+	for _, f := range route.ListFiles(dir) {
+		names = append(names, f.Path)
+	}
+	if !strings.Contains(strings.Join(names, ","), "notes.md") {
+		t.Fatalf("files %v lack notes.md", names)
+	}
+}
