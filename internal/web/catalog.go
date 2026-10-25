@@ -328,7 +328,7 @@ func launchArgs(k *CatalogKind, model, effort string) ([]string, error) {
 			m = &k.Models[i]
 		}
 	}
-	efforts := []string{}
+	var efforts []string
 	switch {
 	case m != nil:
 		efforts = m.Efforts
