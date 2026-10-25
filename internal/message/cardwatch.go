@@ -45,11 +45,11 @@ func (e *Env) cardWatch(args []string) error {
 	if len(args) != 0 {
 		return die("usage: herdsman message card-watch")
 	}
-	interval, err := e.uintEnv("INTERVAL", "5", 1, 60)
+	interval, err := e.durEnv("INTERVAL", "5", 1, 60)
 	if err != nil {
 		return err
 	}
-	runFor, err := e.uintEnv("RUN_FOR", "0", 0, 86400)
+	runFor, err := e.durEnv("RUN_FOR", "0", 0, 86400)
 	if err != nil {
 		return err
 	}

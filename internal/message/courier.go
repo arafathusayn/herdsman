@@ -33,15 +33,15 @@ func (e *Env) courier(args []string) error {
 	if len(args) != 0 {
 		return die("usage: herdsman message courier")
 	}
-	sweep, err := e.uintEnv("SWEEP", "60", 1, 3600)
+	sweep, err := e.durEnv("SWEEP", "60", 1, 3600)
 	if err != nil {
 		return err
 	}
-	alertAfter, err := e.uintEnv("ALERT_AFTER", "600", 1, 86400)
+	alertAfter, err := e.durEnv("ALERT_AFTER", "600", 1, 86400)
 	if err != nil {
 		return err
 	}
-	runFor, err := e.uintEnv("RUN_FOR", "0", 0, 86400)
+	runFor, err := e.durEnv("RUN_FOR", "0", 0, 86400)
 	if err != nil {
 		return err
 	}
@@ -72,6 +72,8 @@ func (e *Env) courier(args []string) error {
 	started := e.unix()
 	next := started + int64(sweep)
 	var stream Stream
+	var backoff reopen
+	retryAt := int64(0)
 	defer func() {
 		if stream != nil {
 			stream.Close()
@@ -91,13 +93,26 @@ func (e *Env) courier(args []string) error {
 			swept = true
 			next = e.unix() + int64(sweep)
 		}
+		if stream == nil && t < retryAt {
+			// No subscription yet: sweep on schedule until the next try.
+			until := min(next, retryAt)
+			if runFor != 0 {
+				until = min(until, started+int64(runFor))
+			}
+			if until <= t {
+				until = t + 1
+			}
+			e.sleep(time.Duration(until-t) * time.Second)
+			continue
+		}
 		if stream == nil {
 			s, err := e.openStream(subs)
 			if err != nil {
-				e.sleep(time.Second)
+				retryAt = t + int64(backoff.next()/time.Second)
 				continue
 			}
 			stream = s
+			backoff.reset()
 			if !swept {
 				if err := c.sweep(); err != nil {
 					return err
@@ -175,6 +190,9 @@ func (c *courier) processEntryIn(e *Env, f, name string) int {
 		return fail(die("suspicious queue entry held"))
 	}
 	id := strings.TrimSuffix(filepath.Base(f), ".md")
+	// The bytes the checks below verify: delivery happens only if the queue
+	// entry still holds exactly these bytes under channel.lock (A26).
+	snap, _ := inbox.ReadBounded(f, inbox.MaxSize)
 	target, ok := r.Peer(name)
 	if !ok {
 		return fail(die("orphaned mailbox"))
@@ -236,6 +254,17 @@ func (c *courier) processEntryIn(e *Env, f, name string) int {
 			return fail(err)
 		}
 		return 0
+	}
+	if rc == 0 {
+		now, err1 := inbox.ReadBounded(f, inbox.MaxSize)
+		alloc, err2 := inbox.ReadBounded(e.path("ids", id, "envelope"), inbox.MaxSize)
+		switch {
+		case err1 != nil || err2 != nil || !bytes.Equal(now, alloc):
+			rc = 3 // changed against its allocation copy while verified
+		case !bytes.Equal(now, snap):
+			e.releaseAll() // replaced by an equal copy: verify it again next sweep
+			return 0
+		}
 	}
 	switch rc {
 	case 0:

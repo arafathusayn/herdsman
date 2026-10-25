@@ -183,15 +183,19 @@ func TestReviewerSignalLocks(t *testing.T) {
 	e.Release()
 }
 
+// A stable idle fixture (no queued message to become overdue): a wait
+// with RECHECK=1 runs to its 1500 s deadline, about 1500 identity rechecks,
+// and ends with TICK.
 func TestReviewerWaitIterations(t *testing.T) {
 	c := newCase(t, true)
-	c.send()
+	env := map[string]string{"DEADLINE": "1500", "RECHECK": "1", "HEALTH_AFTER": "1d"}
+	c.run("receiver-pane", map[string]string{"DEADLINE": "1", "RECHECK": "1", "HEALTH_AFTER": "1d"}, "wait", O) // record the fingerprint
 	c.srv.ResetRequests()
 	start := c.now
-	out, code := c.run("receiver-pane", map[string]string{"DEADLINE": "1500", "RECHECK": "1"}, "wait", O)
+	out, code := c.run("receiver-pane", env, "wait", O)
 	count := c.count("^agent get receiver-pane")
-	if count < 1000 {
-		t.Fatalf("A24 wait scenario returns after %d identity rechecks, elapsed %s, exit %d: %q", count, c.now.Sub(start), code, out)
+	if count < 1000 || code != 0 || out != "TICK message-wait deadline\n" {
+		t.Fatalf("A24 idle wait: %d identity rechecks, elapsed %s, exit %d: %q", count, c.now.Sub(start), code, out)
 	}
 }
 

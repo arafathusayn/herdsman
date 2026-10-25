@@ -97,7 +97,7 @@ func TestStrictSettings(t *testing.T) {
 	c := newCase(t, true)
 	for _, v := range []string{"abc", "-1", "0", "3601", " 5", "1.5"} {
 		out, code := c.courier("SWEEP=" + v)
-		check(t, "SWEEP="+v, `^2 herdsman message: SWEEP: invalid SWEEP, want an integer from 1 to 3600 \(got "`, strconv.Itoa(code)+" "+out)
+		check(t, "SWEEP="+v, `^2 herdsman message: SWEEP: invalid SWEEP, want a duration from 1s to 3600s: digits with an optional s, m, h or d \(got "`, strconv.Itoa(code)+" "+out)
 	}
 	check(t, "no lock taken", "^no$", yn(c.in("courier.lock")))
 	if _, code := c.courier("SWEEP=060"); code != 0 {

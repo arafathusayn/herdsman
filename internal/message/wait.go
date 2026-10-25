@@ -1,6 +1,7 @@
 package message
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,11 +67,11 @@ func (e *Env) wait(args []string) error {
 		return die("wait <me>")
 	}
 	me := args[0]
-	recheck, err := e.uintEnv("RECHECK", "60", 1, 3600)
+	recheck, err := e.durEnv("RECHECK", "60", 1, 3600)
 	if err != nil {
 		return err
 	}
-	deadline, err := e.uintEnv("DEADLINE", "1500", 1, 1500)
+	deadline, err := e.durEnv("DEADLINE", "1500", 1, 1500)
 	if err != nil {
 		return err
 	}
@@ -87,6 +88,8 @@ func (e *Env) wait(args []string) error {
 	end := e.unix() + int64(deadline)
 	next := int64(0)
 	var stream Stream
+	var backoff reopen
+	retryAt := int64(0)
 	defer func() {
 		if stream != nil {
 			stream.Close()
@@ -168,13 +171,24 @@ func (e *Env) wait(args []string) error {
 			e.event(WaitEvent{Event: "tick"}, "TICK message-wait deadline")
 			return nil
 		}
-		if stream == nil {
+		if stream == nil && t >= retryAt {
 			s, err := e.openStream([]map[string]any{{"type": "pane.updated"}})
 			if err != nil {
-				e.sleep(time.Second)
-				continue
+				retryAt = t + int64(backoff.next()/time.Second)
+			} else {
+				stream = s
+				backoff.reset()
 			}
-			stream = s
+		}
+		if stream == nil {
+			// No subscription: sleep to the next recheck, the deadline or
+			// the next subscription try, whichever comes first.
+			until := min(next, end, retryAt)
+			if until <= t {
+				until = t + 1
+			}
+			e.sleep(time.Duration(until-t) * time.Second)
+			continue
 		}
 		t = e.unix()
 		waitFor := next - t
@@ -208,15 +222,18 @@ func (e *Env) openStream(subs []map[string]any) (Stream, error) {
 var errNoSocket = &exitErr{code: 1, msg: "no herdr socket"}
 
 // nextHint is events_next: the next channel hint within seconds, capped by
-// EVENT_READ_MAX. A timeout or a dropped stream closes the stream (the
-// caller opens a new one and rescans); another event is no hint.
+// EVENT_READ_MAX. A quiet timeout keeps the stream: the Go reader keeps a
+// partial frame, so the script's reconnect-on-timeout safeguard is not
+// needed (A24/A26). A dropped stream or a channel-closing event closes it
+// (the caller opens a new one and rescans); another event is no hint.
 func (e *Env) nextHint(stream *Stream, seconds int64) (string, bool) {
-	if v := e.env("EVENT_READ_MAX"); v != "" {
-		if n, ok := settingInt(v, 1, 3600); ok && seconds > int64(n) {
-			seconds = int64(n)
-		}
+	if n := e.eventReadMax; n > 0 && seconds > int64(n) {
+		seconds = int64(n)
 	}
 	l, err := (*stream).Next(time.Duration(seconds) * time.Second)
+	if errors.Is(err, errTimeout) {
+		return "", false
+	}
 	if err != nil {
 		(*stream).Close()
 		*stream = nil

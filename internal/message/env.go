@@ -49,6 +49,11 @@ type Env struct {
 	mu      sync.Mutex // guards locks and drained: a signal handler releases them
 	locks   []*inbox.Lock
 	drained bool // releaseAll ran: a lock missing from locks is already free
+
+	// Parsed common settings (commonSettings).
+	settingsDone             bool
+	healthAfter, lockWait    string
+	eventReadMax             int
 }
 
 func (e *Env) ctx() context.Context {
@@ -181,13 +186,18 @@ func (e *Env) Release() {
 func (e *Env) options(readOnly bool) inbox.Options {
 	return inbox.Options{
 		Dir: e.env("HERDSMAN_INBOX"), Preflight: e.env("HERDSMAN_PREFLIGHT"), Installed: e.env("HERDSMAN_MESSAGES_DIR"),
-		HealthAfter: e.env("HEALTH_AFTER"), LockWait: e.env("LOCK_WAIT"), ReadOnly: readOnly, Now: e.Now, Sleep: e.Sleep,
+		HealthAfter: e.healthAfter, LockWait: e.lockWait, ReadOnly: readOnly, Now: e.Now, Sleep: e.Sleep,
 	}
 }
 
 // open is root_init. An unset HERDSMAN_INBOX ends the run with exit 1, as
 // the scripts' ${HERDSMAN_INBOX:?} does under set -e.
 func (e *Env) open(readOnly bool) error {
+	if !e.settingsDone {
+		if err := e.commonSettings(); err != nil {
+			return err
+		}
+	}
 	if e.env("HERDSMAN_INBOX") == "" {
 		return &exitErr{code: 1, msg: "HERDSMAN_INBOX: set HERDSMAN_INBOX"}
 	}
