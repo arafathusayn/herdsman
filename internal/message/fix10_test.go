@@ -104,10 +104,15 @@ func TestR4WaitHealthOutputFailure(t *testing.T) {
 			me, pane, want := O, "receiver-pane", ""
 			switch mode {
 			case "flags":
+				c.courier()
+				old := c.now.Add(-24 * time.Hour)
+				os.Chtimes(c.in("state", "heartbeat"), old, old) // the courier stopped a day ago
 				want = "HEALTH courier-down"
 			case "pending":
 				c.courier()
 				c.send()
+				old := c.now.Add(-time.Hour)
+				os.Chtimes(c.ob("new", ID+".md"), old, old) // older than a sweep
 				want = "HEALTH pending delivery"
 			case "notice":
 				c.courier()
