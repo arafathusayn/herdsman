@@ -70,7 +70,7 @@ func ReadMachine() Machine {
 // Options are the inputs of a snapshot.
 type Options struct {
 	Specs    []Spec
-	LimitMin int // LIMIT_MIN, default 30
+	LimitMin int // LIMIT_MIN as given (the command defaults it to 30)
 	Client   *herdr.Client
 	Now      time.Time
 	Machine  Machine
@@ -90,9 +90,6 @@ var pruned = map[string]bool{"node_modules": true, ".git": true, ".next": true, 
 
 // Write prints the snapshot to w.
 func Write(ctx context.Context, w io.Writer, o Options) {
-	if o.LimitMin == 0 {
-		o.LimitMin = 30
-	}
 	fmt.Fprintln(w, o.Now.Format("15:04:05"))
 	m := o.Machine
 	fmt.Fprintf(w, "machine: load %s (5 min) on %s cores, memory free %s%%\n", or(m.Load5, "?"), or(m.CPUs, "?"), or(m.Free, "?"))

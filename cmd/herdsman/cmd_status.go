@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -28,9 +29,15 @@ func herdrClient() *herdr.Client {
 
 // statusSnapshot writes the snapshot of HERDSMAN_STATUS_SPECS.
 func statusSnapshot(ctx context.Context, w io.Writer, specs string) {
-	limit, err := strconv.Atoi(os.Getenv("LIMIT_MIN"))
-	if err != nil {
-		limit = 30
+	// As ${LIMIT_MIN:-30}: unset or empty is 30, an explicit 0 flags every
+	// job, and a value that is no number flags none (the script's test fails).
+	limit := 30
+	if v := os.Getenv("LIMIT_MIN"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			n = math.MaxInt
+		}
+		limit = n
 	}
 	status.Write(ctx, w, status.Options{Specs: status.ParseSpecs(specs), LimitMin: limit, Client: herdrClient(), Now: now(), Machine: status.ReadMachine()})
 }

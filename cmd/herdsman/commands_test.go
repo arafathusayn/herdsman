@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 )
 
 // call runs one command line as main does and returns its output and exit code.
@@ -196,5 +199,56 @@ func TestWatchersEndOnInterrupt(t *testing.T) {
 		}()
 		call(t, args...)
 		close(done)
+	}
+}
+
+// R2 finding 2: LIMIT_MIN defaults to 30 only when unset or empty; an
+// explicit 0 flags a two-minute job (and so gives wait its HEALTH event);
+// a value that is no number flags nothing, as the script's test fails.
+func TestStatusLimitFromTheEnvironment(t *testing.T) {
+	srv := herdrtest.Start(t)
+	fx := herdrtest.Serve(srv)
+	a := herdrtest.Agent("w9:p1", "s")
+	a["name"], a["agent_status"] = "im-a", "working"
+	fx.SetAgent("w9:p1", a)
+	fx.SetScreen("w9:p1", "└ ◆ short  running  2m 1s\n└ ◆ long  running  45m 0s\n")
+	t.Setenv("HERDR_SOCKET_PATH", srv.Socket)
+	for _, tc := range []struct{ limit, want, not string }{
+		{"0", `short .*<-- OVER 0m`, `^$`},
+		{"", `long .*<-- OVER 30m`, `short .*OVER`},
+		{"x", `long  running  45m 0s \[45m\]$`, `OVER`},
+	} {
+		t.Setenv("LIMIT_MIN", tc.limit)
+		var b bytes.Buffer
+		statusSnapshot(context.Background(), &b, "im-a:w9:p1:")
+		if !regexp.MustCompile("(?m)" + tc.want).MatchString(b.String()) || (tc.not != `^$` && regexp.MustCompile("(?m)"+tc.not).MatchString(b.String())) {
+			t.Errorf("LIMIT_MIN=%q:\n%s", tc.limit, b.String())
+		}
+	}
+}
+
+// R2 finding 2, the health side: with LIMIT_MIN=0 the waiter's in-process
+// status check flags the two-minute job as a HEALTH event.
+func TestWaitHealthWithAZeroLimit(t *testing.T) {
+	srv := herdrtest.Start(t)
+	fx := herdrtest.Serve(srv)
+	a := herdrtest.Agent("w9:p1", "s")
+	a["name"], a["agent_status"] = "im-a", "working"
+	fx.SetAgent("w9:p1", a)
+	fx.SetScreen("w9:p1", "└ ◆ short  running  2m 1s\n")
+	dir := t.TempDir()
+	for k, v := range map[string]string{"HERDR_SOCKET_PATH": srv.Socket, "HERDSMAN_STATE": filepath.Join(dir, "state"),
+		"HERDSMAN_REPORTS": filepath.Join(dir, "reports"), "HERDSMAN_IMPLEMENTERS": "", "HERDSMAN_REVIEWERS": "",
+		"HERDSMAN_STATUS_SPECS": "im-a:w9:p1:", "HERDSMAN_HEALTH_EVERY": "0", "LIMIT_MIN": "0", "DEADLINE": "0", "POLL": "1"} {
+		t.Setenv(k, v)
+	}
+	t.Setenv("HERDSMAN_STATUS_SCRIPT", "") // empty: the in-process check (A12)
+	out := ""
+	for range 2 {
+		o, _, _ := call(t, "wait")
+		out += o
+	}
+	if !regexp.MustCompile(`(?m)^HEALTH .*OVER 0m`).MatchString(out) {
+		t.Errorf("no HEALTH event for a zero limit:\n%s", out)
 	}
 }

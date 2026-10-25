@@ -44,7 +44,7 @@ func TestMachineLineAndTrees(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	o := Options{Specs: ParseSpecs("im-a:w9:p1:" + quiet), Now: now, Machine: ReadMachine()}
+	o := Options{Specs: ParseSpecs("im-a:w9:p1:" + quiet), LimitMin: 30, Now: now, Machine: ReadMachine()}
 	out := snapshot(t, o)
 	match(t, "A1 machine line", `^machine: load [0-9.]+ \(5 min\) on [0-9]+ cores, memory free [0-9?]+%`, out)
 	match(t, "A1b quiet tree flagged", `under quiet-tree: 0  <-- NO WRITES in 10m`, out)
@@ -75,7 +75,7 @@ func TestWriteCountSkipsCachesAndStopsAtFifty(t *testing.T) {
 	for i := range 60 {
 		_ = os.WriteFile(filepath.Join(tree, "src", fmt.Sprintf("n%d", i)), nil, 0o644)
 	}
-	out := snapshot(t, Options{Specs: []Spec{{Name: "im-a", Pane: "p", Tree: tree}}, Now: time.Now()})
+	out := snapshot(t, Options{Specs: []Spec{{Name: "im-a", Pane: "p", Tree: tree}}, LimitMin: 30, Now: time.Now()})
 	match(t, "fifty or more writes", `under [^ ]+: 50\+$`, out)
 	if n := RecentWrites(filepath.Join(tree, "nope"), time.Now(), 50); n != 0 {
 		t.Fatal("a missing tree counts nothing")
@@ -97,7 +97,7 @@ func TestAgentLines(t *testing.T) {
 		"model Opus 4.7",
 		"• Working (3m • esc to interrupt)",
 	}, "\n")+"\n")
-	out := snapshot(t, Options{Specs: ParseSpecs("im-a:w9:p1: rv-1:w9:p9:"), Client: herdr.New(srv.Socket), Now: time.Date(2026, 1, 1, 12, 0, 1, 0, time.Local),
+	out := snapshot(t, Options{Specs: ParseSpecs("im-a:w9:p1: rv-1:w9:p9:"), LimitMin: 30, Client: herdr.New(srv.Socket), Now: time.Date(2026, 1, 1, 12, 0, 1, 0, time.Local),
 		Machine: Machine{Load5: "9.50", CPUs: "8", Free: "5"}})
 	match(t, "the time", `^12:00:01$`, out)
 	match(t, "LOAD HIGH", `^   <-- LOAD HIGH$`, out)
@@ -135,4 +135,18 @@ func TestFlags(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %q", got)
 	}
+}
+
+// R2 finding 2: an explicit LIMIT_MIN=0 flags every job, as the script's
+// [ "$mins" -ge 0 ] does; Write takes the limit as given.
+func TestLimitZeroFlagsEveryJob(t *testing.T) {
+	srv := herdrtest.Start(t)
+	fx := herdrtest.Serve(srv)
+	a := herdrtest.Agent("w9:p1", "s")
+	a["name"], a["agent_status"] = "im-a", "working"
+	fx.SetAgent("w9:p1", a)
+	fx.SetScreen("w9:p1", "└ ◆ short  running  2m 1s\n")
+	out := snapshot(t, Options{Specs: ParseSpecs("im-a:w9:p1:"), LimitMin: 0, Client: herdr.New(srv.Socket), Now: time.Now(),
+		Machine: Machine{Load5: "0.10", CPUs: "8", Free: "50"}})
+	match(t, "a two-minute job is over a zero limit", `^   bg: short  running  2m 1s \[2m\]  <-- OVER 0m$`, out)
 }

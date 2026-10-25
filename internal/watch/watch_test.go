@@ -332,7 +332,7 @@ func TestWaiterHealthWithTheRealSnapshot(t *testing.T) {
 	var b bytes.Buffer
 	d := Deps{Client: h.client, Now: func() time.Time { return h.now }, Stdout: &b, Stderr: &b, Sleep: func(time.Duration) bool { return false },
 		Status: func(ctx context.Context, w io.Writer, specs string) {
-			status.Write(ctx, w, status.Options{Specs: status.ParseSpecs(specs), Client: h.client, Now: h.now})
+			status.Write(ctx, w, status.Options{Specs: status.ParseSpecs(specs), LimitMin: 30, Client: h.client, Now: h.now})
 		}}
 	env := func(k string) (string, bool) {
 		m := map[string]string{"DEADLINE": "0", "POLL": "1", "HERDSMAN_STATE": s, "HERDSMAN_IMPLEMENTERS": "",
