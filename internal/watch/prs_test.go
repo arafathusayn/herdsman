@@ -340,3 +340,41 @@ func TestPRSnapshotStreamsLargeHistory(t *testing.T) {
 		t.Errorf("one poll of a 16 MiB history allocated %d bytes", alloc)
 	}
 }
+
+// R5 finding 9: the streaming reader's branches, and the streaming runner.
+func TestStreamPagesAndRunGhStream(t *testing.T) {
+	n := 0
+	count := func(ghItem) { n++ }
+	if err := streamPages(strings.NewReader(`null [{"id":1,"user":"x"}] [] [{"id":2}]`), count); err != nil || n != 2 {
+		t.Errorf("null and empty pages: %d %v", n, err)
+	}
+	for _, bad := range []string{`{"id":1}`, `[1]`, `[{"id":1}`, `[{"id":1} x`, `[`} {
+		if err := streamPages(strings.NewReader(bad), count); err == nil {
+			t.Errorf("%q: no error", bad)
+		}
+	}
+	if (ghItem{User: json.RawMessage(`"x"`)}).login() != nil {
+		t.Error("a user that is no object has no login")
+	}
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "gh"), []byte("#!/bin/sh\nif [ \"$1\" = fail ]; then echo boom >&2; exit 3; fi\necho \"[{\\\"id\\\":7,\\\"user\\\":{\\\"login\\\":\\\"$GH_TOKEN\\\"}}]\"\n"), 0o755)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var errb bytes.Buffer
+	var got []string
+	err := RunGhStream(&errb)(context.Background(), []string{"GH_TOKEN=t"}, func(r io.Reader) error {
+		return streamPages(r, func(it ghItem) { got = append(got, str(it.ID)+" "+str(it.login())) })
+	}, "api", "x")
+	if err != nil || len(got) != 1 || got[0] != "7 t" {
+		t.Errorf("%v %v", got, err)
+	}
+	if err := RunGhStream(&errb)(context.Background(), nil, func(r io.Reader) error { _, err := io.ReadAll(r); return err }, "fail"); err == nil || !strings.Contains(errb.String(), "boom") {
+		t.Errorf("a failing gh: %v %q", err, errb.String())
+	}
+	if err := RunGhStream(&errb)(context.Background(), nil, func(io.Reader) error { return io.ErrUnexpectedEOF }, "api"); err != io.ErrUnexpectedEOF {
+		t.Errorf("a reader error: %v", err)
+	}
+	t.Setenv("PATH", dir+"/none")
+	if err := RunGhStream(&errb)(context.Background(), nil, func(io.Reader) error { return nil }, "api"); err == nil {
+		t.Error("no gh: no error")
+	}
+}

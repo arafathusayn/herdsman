@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -763,4 +764,33 @@ func (s *syncBuffer) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.b.String()
+}
+
+// R5 finding 4: without a Herdr socket the subscription retries on its
+// backoff, the timer still paces the loop, and ending the context stops it.
+func TestWakeOnWithoutASocket(t *testing.T) {
+	g0 := runtime.NumGoroutine()
+	ctx, cancel := context.WithCancel(context.Background())
+	d := Deps{Client: herdr.New(filepath.Join(t.TempDir(), "none.sock"))}
+	d.defaults(ctx)
+	d.wakeOn(ctx, []string{"w9:p1", ""})
+	start := time.Now()
+	if !d.Sleep(1300 * time.Millisecond) {
+		t.Error("the timer ends the sleep")
+	}
+	if time.Since(start) < time.Second {
+		t.Error("a failed subscription woke the loop")
+	}
+	cancel()
+	if d.Sleep(time.Hour) {
+		t.Error("an ended context ends the sleep with false")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for runtime.NumGoroutine() > g0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if g := runtime.NumGoroutine(); g > g0 {
+		t.Errorf("%d goroutines after, %d before", g, g0)
+	}
+	(&Deps{}).wakeOn(ctx, []string{"w9:p1"}) // no client: nothing to start
 }

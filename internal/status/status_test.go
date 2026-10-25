@@ -166,6 +166,7 @@ func TestBackgroundRowElapsedTime(t *testing.T) {
 		{"└ ◆ short  running  08m 1s", 8},
 		{"└ ◆ hours  running  2h", 120},
 		{"└ ◆ job running 1h02m", 62}, {"└ ◆ job running 1h08m", 68}, {"└ ◆ job running 1h02m 5s", 62},
+		{"no time here", 0}, {"└ ◆ huge running 99999999999999999999h", maxMinutes},
 		{"└ ◆ huge  running  99999999999999999999m", maxMinutes},
 	} {
 		if got := elapsedMinutes(tc.row); got != tc.mins {
