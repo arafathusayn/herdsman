@@ -441,7 +441,7 @@ test("the previous choice fills the form's roles from the saved picks", () => {
     other: "",
     effort: "",
   });
-  expect(pickSummary(pick("x", "pi", "", ""))).toBe("x: pi");
+  expect(pickSummary(pick("x", "pi", "", ""))).toBe("x (herdr): pi");
   // No saved pick: nothing to offer, and the form stays as it is.
   expect(previousPicks(orch, catalog)).toEqual([]);
   expect(usePrevious(orch, catalog)).toBe(orch);
