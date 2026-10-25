@@ -80,6 +80,10 @@ export function routeForm(
   let f: RouteForm = initialForm(c, st);
   let errors: Record<string, string> = {};
   let busy = false;
+  // The form as it was sent: the result, checklist and inbox reads describe
+  // this route, whatever the fields show later.
+  let submitted: RouteForm | null = null;
+  const active = (): RouteForm => submitted ?? f;
   let result: RouteResult | null = null;
   // The inbox state, valid only for the key it was read for.
   let inbox: { key: string; state: InboxState } | null = null;
@@ -95,15 +99,18 @@ export function routeForm(
   // Each field's box and its error line, by field name.
   let boxes = new Map<string, HTMLElement>();
   let messages = new Map<string, HTMLElement>();
+  // The typed-model inputs, so an inherited orchestrator value can be shown.
+  let inputs = new Map<string, HTMLInputElement>();
 
   const readInbox = (): void => {
-    if (f.role !== "adjutant") return;
-    const key = inboxKey(f);
+    const r = active();
+    if (r.role !== "adjutant") return;
+    const key = inboxKey(r);
     const seq = ++reqSeq;
-    deps.inboxState(f.inbox, f.name, f.orchName).then(
+    deps.inboxState(r.inbox, r.name, r.orchName).then(
       (s) => {
         // A reply for an older request or another inbox or pair is outdated.
-        if (seq !== reqSeq || key !== inboxKey(f)) return;
+        if (seq !== reqSeq || key !== inboxKey(active())) return;
         inbox = { key, state: s };
         drawChecklist();
       },
@@ -117,6 +124,8 @@ export function routeForm(
   const stopPoll = deps.every(INBOX_POLL_MS, readInbox);
 
   const set = (change: Partial<RouteForm>, redraw: boolean): void => {
+    // The fields are frozen while the route is being created.
+    if (busy) return draw();
     const before = inboxKey(f);
     f = update(f, change);
     for (const k of Object.keys(change)) delete errors[k];
@@ -128,6 +137,7 @@ export function routeForm(
     }
   };
   const harnessChange = (which: "main" | "orch", change: HarnessChange, redraw: boolean): void => {
+    if (busy) return draw();
     delete errors[which];
     if (which === "main") delete errors["orch"];
     f = setHarness(f, c, which, change);
@@ -136,12 +146,13 @@ export function routeForm(
   };
 
   const drawChecklist = (): void => {
-    if (f.role !== "adjutant" || (result && !result.adjutant_pane)) {
+    const r = active();
+    if (r.role !== "adjutant" || (result && !result.adjutant_pane)) {
       mount(live.checklist);
       return;
     }
-    const s = inbox && inbox.key === inboxKey(f) ? inbox.state : null;
-    const items = checklist(f, c, s, result?.attach_command);
+    const s = inbox && inbox.key === inboxKey(r) ? inbox.state : null;
+    const items = checklist(r, c, s, result?.attach_command);
     mount(
       live.checklist,
       h("h3", null, "Channel setup"),
@@ -206,6 +217,17 @@ export function routeForm(
         messages.delete(name);
       }
     }
+    // An orchestrator still following the adjutant shows the typed model it
+    // inherits; the input under the caret is never rewritten.
+    if (!f.orchEdited) {
+      for (const [key, value] of [
+        ["orch-model", f.orch.model],
+        ["orch-other", f.orch.other],
+      ] as const) {
+        const el = inputs.get(key);
+        if (el && el !== document.activeElement && el.value !== value) el.value = value;
+      }
+    }
     if (!result) drawChecklist();
   };
 
@@ -252,21 +274,29 @@ export function routeForm(
     return el;
   };
 
+  const track = (key: string, el: HTMLInputElement): HTMLInputElement => {
+    inputs.set(key, el);
+    return el;
+  };
+
   const harnessFields = (which: "main" | "orch", nameField: "name" | "orchName", who: string): HTMLElement[] => {
     const hn = f[which];
     const k = kindOf(c, hn.kind);
     const kinds: [string, string][] = c.kinds.map((x) => [x.kind, x.label]);
     let model: Node;
     if (!k || k.free_model) {
-      model = h("input", {
-        id: `${id}-${which}-model`,
-        name: `${which}-model`,
-        value: hn.model,
-        placeholder: "model id (optional)",
-        autocomplete: "off",
-        spellcheck: false,
-        oninput: (e: Event) => harnessChange(which, { model: (e.target as HTMLInputElement).value }, false),
-      });
+      model = track(
+        `${which}-model`,
+        h("input", {
+          id: `${id}-${which}-model`,
+          name: `${which}-model`,
+          value: hn.model,
+          placeholder: "model id (optional)",
+          autocomplete: "off",
+          spellcheck: false,
+          oninput: (e: Event) => harnessChange(which, { model: (e.target as HTMLInputElement).value }, false),
+        }),
+      );
     } else {
       const opts: [string, string][] = k.models.map((m) => [m.id, m.label === m.id ? m.id : `${m.label} (${m.id})`]);
       if (k.other_model) opts.push([OTHER, "Other model id…"]);
@@ -297,15 +327,18 @@ export function routeForm(
         ? field(
             `${which}-other`,
             "Model id",
-            h("input", {
-              id: `${id}-${which}-other`,
-              name: `${which}-other`,
-              value: hn.other,
-              placeholder: "claude-opus-4-1",
-              autocomplete: "off",
-              spellcheck: false,
-              oninput: (e: Event) => harnessChange(which, { other: (e.target as HTMLInputElement).value }, false),
-            }),
+            track(
+              `${which}-other`,
+              h("input", {
+                id: `${id}-${which}-other`,
+                name: `${which}-other`,
+                value: hn.other,
+                placeholder: "claude-opus-4-1",
+                autocomplete: "off",
+                spellcheck: false,
+                oninput: (e: Event) => harnessChange(which, { other: (e.target as HTMLInputElement).value }, false),
+              }),
+            ),
           )
         : null,
       efforts.length
@@ -330,6 +363,7 @@ export function routeForm(
     const focused = (document.activeElement as HTMLElement | null)?.getAttribute?.("name");
     boxes = new Map();
     messages = new Map();
+    inputs = new Map();
     result = null;
     const ws = st?.snapshot.workspaces ?? [];
     const ck = checkpointerAvailable(f, c);
@@ -395,87 +429,94 @@ export function routeForm(
         "div",
         { class: "nr-body" },
         h(
-          "div",
-          { class: "nr-role", role: "radiogroup", "aria-label": "Role" },
-          role("orchestrator", "Orchestrator"),
-          role("adjutant", "Adjutant"),
-        ),
-        h(
-          "div",
-          { class: "nr-grid" },
-          field(
-            "workspace",
-            "Workspace",
-            selectBox(
-              "workspace",
-              f.workspace,
-              ws.map((w) => [w.workspace_id, `${w.label || `Workspace ${w.number}`}${w.focused ? " (focused)" : ""}`]),
-              (v) => set({ workspace: v }, true),
-              `${id}-workspace`,
-            ),
+          "fieldset",
+          { class: "nr-fields", disabled: busy },
+          h(
+            "div",
+            { class: "nr-role", role: "radiogroup", "aria-label": "Role" },
+            role("orchestrator", "Orchestrator"),
+            role("adjutant", "Adjutant"),
           ),
-          field(
-            "folder",
-            "Folder",
-            h(
-              "span",
-              { class: "nr-folder" },
-              text("folder", { list: `${id}-folders`, placeholder: "/path/to/repo" }),
-              h(
-                "datalist",
-                { id: `${id}-folders` },
-                folders.map((p) => h("option", { value: p })),
+          h(
+            "div",
+            { class: "nr-grid" },
+            field(
+              "workspace",
+              "Workspace",
+              selectBox(
+                "workspace",
+                f.workspace,
+                ws.map((w) => [
+                  w.workspace_id,
+                  `${w.label || `Workspace ${w.number}`}${w.focused ? " (focused)" : ""}`,
+                ]),
+                (v) => set({ workspace: v }, true),
+                `${id}-workspace`,
               ),
             ),
-            live.label,
-            true,
-          ),
-          f.role === "adjutant"
-            ? [
-                h("h3", { class: "nr-sub" }, "Adjutant"),
-                ...harnessFields("main", "name", "Adjutant"),
-                h("h3", { class: "nr-sub" }, "Orchestrator"),
-                ...harnessFields("orch", "orchName", "Orchestrator"),
-                field("routeName", "Route name", text("routeName")),
-                field(
-                  "inbox",
-                  "Private inbox",
-                  h(
-                    "span",
-                    { class: "nr-inbox" },
-                    (live.inbox = text("inbox")),
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        class: "chip-btn",
-                        title: "Copy the inbox path",
-                        "aria-label": "Copy the inbox path",
-                        onclick: () => deps.copy(f.inbox, "inbox path"),
-                      },
-                      icon(icons.copy),
-                    ),
-                  ),
-                  "One inbox per route. The app never creates or writes it.",
-                  true,
+            field(
+              "folder",
+              "Folder",
+              h(
+                "span",
+                { class: "nr-folder" },
+                text("folder", { list: `${id}-folders`, placeholder: "/path/to/repo" }),
+                h(
+                  "datalist",
+                  { id: `${id}-folders` },
+                  folders.map((p) => h("option", { value: p })),
                 ),
-              ]
-            : harnessFields("main", "name", "Orchestrator"),
-          field(
-            "request",
-            "Route request",
-            h("textarea", {
-              id: `${id}-request`,
-              name: "request",
-              rows: 4,
-              placeholder: "What should this route do?",
-              value: f.request,
-              oninput: (e: Event) => set({ request: (e.target as HTMLTextAreaElement).value }, false),
-            }),
-            null,
-            true,
+              ),
+              live.label,
+              true,
+            ),
+            f.role === "adjutant"
+              ? [
+                  h("h3", { class: "nr-sub" }, "Adjutant"),
+                  ...harnessFields("main", "name", "Adjutant"),
+                  h("h3", { class: "nr-sub" }, "Orchestrator"),
+                  ...harnessFields("orch", "orchName", "Orchestrator"),
+                  field("routeName", "Route name", text("routeName")),
+                  field(
+                    "inbox",
+                    "Private inbox",
+                    h(
+                      "span",
+                      { class: "nr-inbox" },
+                      (live.inbox = text("inbox")),
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          class: "chip-btn",
+                          title: "Copy the inbox path",
+                          "aria-label": "Copy the inbox path",
+                          onclick: () => deps.copy(f.inbox, "inbox path"),
+                        },
+                        icon(icons.copy),
+                      ),
+                    ),
+                    "One inbox per route. The app never creates or writes it.",
+                    true,
+                  ),
+                ]
+              : harnessFields("main", "name", "Orchestrator"),
+            field(
+              "request",
+              "Route request",
+              h("textarea", {
+                id: `${id}-request`,
+                name: "request",
+                rows: 4,
+                placeholder: "What should this route do?",
+                value: f.request,
+                oninput: (e: Event) => set({ request: (e.target as HTMLTextAreaElement).value }, false),
+              }),
+              null,
+              true,
+            ),
+            ckBox,
           ),
-          ckBox,
         ),
         skillWarnings(f, c).map((w) => h("p", { class: "nr-warn", role: "note" }, w)),
         h("div", { class: "nr-sends" }, h("span", null, "Sends"), live.preview),
@@ -551,6 +592,7 @@ export function routeForm(
                 class: "btn ghost",
                 onclick: () => {
                   busy = false;
+                  submitted = null;
                   draw();
                 },
               },
@@ -588,11 +630,13 @@ export function routeForm(
       return;
     }
     busy = true;
+    submitted = f;
     draw();
     deps.createRoute(toRequest(f, c)).then(
       (r) => {
         busy = false;
         if (r.code === "invalid_route" || r.code === "bad_request") {
+          submitted = null;
           errors = { [formField(r.field) || "request"]: r.error ?? "Refused." };
           draw();
           return;
@@ -601,6 +645,7 @@ export function routeForm(
       },
       (err: unknown) => {
         busy = false;
+        submitted = null;
         deps.failed(err);
         draw();
       },

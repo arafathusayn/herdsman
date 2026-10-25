@@ -4356,3 +4356,11 @@ mark {
 .new-route .nr-ck input.nr-num.invalid {
   border-color: var(--danger);
 }
+
+/* The form's fields sit in one fieldset, disabled while the route is created. */
+.nr-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

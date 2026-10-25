@@ -38,6 +38,18 @@ const catalog: Catalog = {
       skill_installed: true,
       offline: false,
     },
+    {
+      kind: "pi",
+      label: "Pi",
+      models: [],
+      default_model: "",
+      other_model: false,
+      free_model: true,
+      checkpointer: false,
+      skill_prefix: "/",
+      skill_installed: true,
+      offline: false,
+    },
   ],
 };
 
@@ -58,14 +70,14 @@ interface Harness {
   debounce: (() => void)[];
 }
 
-async function mountForm(): Promise<Harness> {
+async function mountForm(answer?: Promise<RouteResult>): Promise<Harness> {
   const { routeForm } = await import("./route-form.ts");
   const body = document.createElement("form") as unknown as FakeElement;
   const h: Partial<Harness> = { sent: [], reads: [], debounce: [] };
   const deps: Deps = {
     createRoute: (r) => {
       h.sent!.push(r);
-      return Promise.resolve({ ok: true, steps: [], tabs: [] } as RouteResult);
+      return answer ?? Promise.resolve({ ok: true, steps: [], tabs: [] } as RouteResult);
     },
     inboxState: (path, adj, orch) =>
       new Promise((resolve) => {
@@ -221,4 +233,68 @@ test("an approval that is not current for this pair is not shown as done", async
   const approve = items(f.body)[4]!;
   expect(approve.done).toBe(false);
   expect(approve.text).toContain("you do this");
+});
+
+test("edits made while a route is being created do not change what the result and checklist describe", async () => {
+  let finish: (r: RouteResult) => void = () => {};
+  const answer = new Promise<RouteResult>((r) => {
+    finish = r;
+  });
+  const f = await mountForm(answer);
+  byName(f.body, "role-adjutant").dispatch("click");
+  type(byName(f.body, "orchName"), "orch-2");
+  type(byName(f.body, "inbox"), "~/inbox-a");
+  submit(f.body);
+  expect(f.sent[0]?.inbox).toBe("~/inbox-a");
+  // An attempted edit during the launch is refused.
+  type(byName(f.body, "inbox"), "~/inbox-b");
+  type(byName(f.body, "name"), "adj-9");
+  expect(f.form().inbox).toBe("~/inbox-a");
+  expect(f.form().name).toBe("adj-1");
+  finish({
+    ok: true,
+    steps: [],
+    tabs: ["w1:t1", "w1:t2"],
+    adjutant_pane: "w1:p1",
+    orchestrator_pane: "w1:p2",
+    attach_command: "/herdsman adjutant --name adj-1 --orchestrator w1:p2 --inbox /Users/me/inbox-a",
+  });
+  await flush();
+  const it = items(f.body);
+  expect(it[0]?.text).toContain("mkdir -m 700 -p ~/inbox-a");
+  expect(it[2]?.text).toContain("--inbox /Users/me/inbox-a");
+  expect(f.reads.at(-1)?.path).toBe("~/inbox-a");
+  f.poll();
+  expect([f.reads.at(-1)?.path, f.reads.at(-1)?.adj, f.reads.at(-1)?.orch]).toEqual(["~/inbox-a", "adj-1", "orch-2"]);
+});
+
+test("a typed model id the orchestrator inherits shows in its own input and is what is sent", async () => {
+  const f = await mountForm();
+  byName(f.body, "role-adjutant").dispatch("click");
+  choose(byName(f.body, "main-model"), "__other__");
+  type(byName(f.body, "main-other"), "claude-a");
+  choose(byName(f.body, "main-effort"), "high"); // redraws the orchestrator's fields
+  expect(byName(f.body, "orch-other").value).toBe("claude-a");
+  type(byName(f.body, "main-other"), "claude-b");
+  expect(byName(f.body, "orch-other").value).toBe("claude-b");
+  type(byName(f.body, "orchName"), "orch-2");
+  submit(f.body);
+  expect([f.sent[0]?.model, f.sent[0]?.orch_model]).toEqual(["claude-b", "claude-b"]);
+});
+
+test("a free-text model the orchestrator inherits shows in its own input and is what is sent", async () => {
+  const f = await mountForm();
+  byName(f.body, "role-adjutant").dispatch("click");
+  choose(byName(f.body, "main-kind"), "pi");
+  type(byName(f.body, "main-model"), "m-a");
+  expect(byName(f.body, "orch-model").value).toBe("m-a");
+  type(byName(f.body, "main-model"), "m-b");
+  expect(byName(f.body, "orch-model").value).toBe("m-b");
+  // Once the orchestrator's own model is typed, it no longer follows.
+  type(byName(f.body, "orch-model"), "own");
+  type(byName(f.body, "main-model"), "m-c");
+  expect(byName(f.body, "orch-model").value).toBe("own");
+  type(byName(f.body, "orchName"), "orch-2");
+  submit(f.body);
+  expect([f.sent[0]?.model, f.sent[0]?.orch_model]).toEqual(["m-c", "own"]);
 });
