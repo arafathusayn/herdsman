@@ -47,6 +47,9 @@ type Artifact struct {
 	Path     string    `json:"path"` // slash-separated, relative to Root
 	Size     int64     `json:"size"`
 	Modified time.Time `json:"modified"`
+	// rootID is the folder the walk opened at Root, so a grant opens only
+	// that folder, even when Root's path leads elsewhere by then.
+	rootID os.FileInfo
 }
 
 // A capability is bound to the address of the browser that opened it: a page
@@ -290,6 +293,10 @@ func walkRoot(root string, byPath map[string]Artifact) {
 		return
 	}
 	defer r.Close()
+	id, err := r.Stat(".")
+	if err != nil {
+		return
+	}
 	budget := artifactMaxSeen
 	stack := []string{"."} // folders left to read, relative to root
 	for len(stack) > 0 && budget > 0 && len(byPath) < artifactMaxFiles {
@@ -312,7 +319,7 @@ func walkRoot(root string, byPath map[string]Artifact) {
 					}
 					continue
 				}
-				addArtifact(root, rel, d, byPath)
+				addArtifact(root, id, rel, d, byPath)
 			}
 			if err != nil { // io.EOF at the folder's end
 				break
@@ -323,7 +330,7 @@ func walkRoot(root string, byPath map[string]Artifact) {
 }
 
 // addArtifact adds the file rel under root when it is an HTML page.
-func addArtifact(root, rel string, d fs.DirEntry, byPath map[string]Artifact) {
+func addArtifact(root string, id os.FileInfo, rel string, d fs.DirEntry, byPath map[string]Artifact) {
 	if len(byPath) >= artifactMaxFiles || !d.Type().IsRegular() || !isHTML(d.Name()) {
 		return
 	}
@@ -335,7 +342,7 @@ func addArtifact(root, rel string, d fs.DirEntry, byPath map[string]Artifact) {
 	if old, ok := byPath[p]; ok && len(old.Root) >= len(root) {
 		return
 	}
-	byPath[p] = Artifact{Root: root, Path: filepath.ToSlash(rel), Size: info.Size(), Modified: info.ModTime()}
+	byPath[p] = Artifact{Root: root, Path: filepath.ToSlash(rel), Size: info.Size(), Modified: info.ModTime(), rootID: id}
 }
 
 func isHTML(name string) bool {
@@ -347,17 +354,19 @@ func isHTML(name string) bool {
 var errNotListed = errors.New("the folder changed since it was listed")
 
 // openPageDir opens the folder rel (slash-separated) under a listed root and
-// pins it: root must still be the folder, not a link put in its place, and
-// no link may sit on the way to rel, so the handle reaches nothing outside
-// root. os.Root keeps a link swapped in during the open inside root too.
-func openPageDir(root, rel string) (*os.Root, error) {
+// pins it: the folder opened at root must be the one the walk listed (id),
+// whatever link now sits at root or any folder above it, and no link may sit
+// on the way to rel, so the handle reaches nothing outside the listed root.
+// os.Root keeps a link swapped in during the open inside the root too.
+func openPageDir(root string, id os.FileInfo, rel string) (*os.Root, error) {
+	if id == nil {
+		return nil, errNotListed
+	}
 	r, err := os.OpenRoot(root)
 	if err != nil {
 		return nil, err
 	}
-	at, err := os.Lstat(root)
-	opened, err2 := r.Stat(".")
-	if err != nil || err2 != nil || at.Mode()&os.ModeSymlink != 0 || !os.SameFile(at, opened) {
+	if opened, err := r.Stat("."); err != nil || !os.SameFile(id, opened) {
 		_ = r.Close()
 		return nil, errNotListed
 	}
@@ -459,7 +468,7 @@ func (s *Server) openArtifact(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		dir, file := path.Split(a.Path)
-		d, err := openPageDir(a.Root, dir)
+		d, err := openPageDir(a.Root, a.rootID, dir)
 		if err != nil {
 			break
 		}

@@ -134,7 +134,11 @@ func TestArtifactCapsAreBounded(t *testing.T) {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		r, err := openPageDir(d, "")
+		id, err := os.Stat(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := openPageDir(d, id, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -214,6 +218,65 @@ func TestArtifactGrantIsPinnedToTheListedFolder(t *testing.T) {
 	// but the open refuses to step through the link.
 	if code, u := open(); code != http.StatusNotFound {
 		t.Fatalf("an open through a swapped folder: %d %q", code, serve(u))
+	}
+}
+
+// The listing records each root's folder: when an ancestor of a listed root
+// is swapped for a link to another workspace, an open of the cached listing
+// is refused, and a grant made before the swap keeps serving its own folder.
+func TestArtifactGrantRefusesASwappedAncestor(t *testing.T) {
+	f := newFixture(t)
+	container := filepath.Join(t.TempDir(), "container")
+	wt := filepath.Join(container, "workspace")
+	writeFile(t, filepath.Join(wt, "reports", "page.html"), "ORIGINAL")
+	outside := t.TempDir()
+	writeFile(t, filepath.Join(outside, "workspace", "reports", "page.html"), "OTHER WORKSPACE")
+	md := strings.Replace(routeMD, "| Task | Agent | Pane |\n| --- | --- | --- |\n| auth | im-auth | w1:p2 |",
+		"| Task | Agent | Pane | Worktree |\n| --- | --- | --- | --- |\n| auth | im-auth | w1:p2 | "+wt+" |", 1)
+	if md == routeMD {
+		t.Fatal("route table not rewritten")
+	}
+	writeFile(t, filepath.Join(f.routeDir, route.RouteFile), md)
+	f.hub.refresh(context.Background())
+	id := f.hub.Current().Routes[0].ID
+	res := f.request(t, http.MethodGet, "/api/artifacts?route="+id, "", f.authed)
+	var list struct {
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(list.Artifacts, func(a Artifact) bool { return a.Root == wt && a.Path == "reports/page.html" }) {
+		t.Fatalf("page under %s not listed: %+v", wt, list.Artifacts)
+	}
+	open := func() (int, string) {
+		b, _ := json.Marshal(map[string]string{"route": id, "root": wt, "path": "reports/page.html"})
+		res := f.request(t, http.MethodPost, "/api/artifacts/open", string(b), f.authed)
+		var o struct {
+			URL string `json:"url"`
+		}
+		_ = json.NewDecoder(res.Body).Decode(&o)
+		return res.StatusCode, o.URL
+	}
+	serve := func(u string) string {
+		res := f.request(t, http.MethodGet, u, "", nil)
+		return fmt.Sprint(res.StatusCode, " ", readBody(t, res))
+	}
+	code, u := open()
+	if code != 200 || serve(u) != "200 ORIGINAL" {
+		t.Fatalf("open before the swap: %d %q", code, serve(u))
+	}
+	if err := os.Rename(container, container+"-old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, container); err != nil {
+		t.Fatal(err)
+	}
+	if got := serve(u); got != "200 ORIGINAL" {
+		t.Fatalf("a grant did not keep its folder after an ancestor swap: %q", got)
+	}
+	if code, u := open(); code != http.StatusNotFound {
+		t.Fatalf("an open through a swapped ancestor: %d %q", code, serve(u))
 	}
 }
 
@@ -304,6 +367,43 @@ func TestArtifactCacheLoopKeepsMemoryFlat(t *testing.T) {
 	a.mu.Unlock()
 	if kept > artifactMaxLists {
 		t.Fatalf("%d listings kept", kept)
+	}
+
+	// One kept key: every round its listing goes stale, the stale one is
+	// served, and a background walk replaces it before the next round.
+	kept0 := roots[0]
+	key := strings.Join(kept0, "\x00")
+	listed := func() time.Time {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if e := a.lists[key]; e != nil {
+			return e.listed
+		}
+		return time.Time{}
+	}
+	a.find(kept0)
+	heap, goroutines = settle()
+	for i := range 1000 {
+		clock.Add(int64(artifactsTTL + time.Second))
+		if got := a.find(kept0); len(got) != 1 {
+			t.Fatalf("refresh round %d: %v", i, got)
+		}
+		waitRefreshed(t, a)
+		if !listed().Equal(a.now()) {
+			t.Fatalf("refresh round %d: no background walk replaced the stale listing", i)
+		}
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		if _, n := settle(); n <= goroutines || time.Now().After(deadline) {
+			break
+		}
+	}
+	after, n = settle()
+	if n > goroutines {
+		t.Fatalf("after 1000 refreshes: goroutines %d, were %d", n, goroutines)
+	}
+	if after > heap && after-heap > 1<<20 {
+		t.Fatalf("heap grew %d bytes over 1000 background refreshes", after-heap)
 	}
 }
 
