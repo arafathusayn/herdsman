@@ -136,16 +136,22 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 		return err
 	}
 	defer conn.Close()
-	if dl, ok := ctx.Deadline(); ok {
-		_ = conn.SetDeadline(dl)
-	} else {
+	// The context ends the request (its deadline or a cancellation) through
+	// AfterFunc, so a failed read after it always reports ctx.Err(); a
+	// context without a deadline gets 30 s.
+	if _, ok := ctx.Deadline(); !ok {
 		_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Unix(1, 0)) })
+	defer stop()
 	if _, err := c.send(conn, method, params); err != nil {
 		return err
 	}
 	line, err := readLine(bufio.NewReaderSize(conn, 1<<16))
 	if err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("%s: %w", method, ctx.Err())
+		}
 		return fmt.Errorf("%s: %w", method, err)
 	}
 	var resp response

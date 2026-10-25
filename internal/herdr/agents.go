@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"slices"
 	"time"
 )
@@ -175,14 +174,6 @@ func (c *Client) WaitAgentStatus(ctx context.Context, target string, want []Stat
 		defer tcancel()
 	}
 	fail := func(err error) (Status, error) {
-		// A connection deadline is wctx's and can fire just before the
-		// context notices: let it catch up, then name the deadline.
-		if errors.Is(err, os.ErrDeadlineExceeded) {
-			select {
-			case <-wctx.Done():
-			case <-time.After(time.Second): // the client's own deadline
-			}
-		}
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
@@ -191,7 +182,16 @@ func (c *Client) WaitAgentStatus(ctx context.Context, target string, want []Stat
 		}
 		return "", err
 	}
-	a, err := c.AgentGet(wctx, target)
+	// get reads the agent; an answer that comes after wctx ended counts for
+	// nothing (Call itself ends at once when wctx does).
+	get := func() (AgentRecord, error) {
+		a, err := c.AgentGet(wctx, target)
+		if err == nil {
+			err = wctx.Err()
+		}
+		return a, err
+	}
+	a, err := get()
 	if err != nil {
 		return fail(err)
 	}
@@ -216,7 +216,7 @@ func (c *Client) WaitAgentStatus(ctx context.Context, target string, want []Stat
 		return fail(err)
 	}
 	for {
-		a, err := c.AgentGet(wctx, target)
+		a, err := get()
 		if err != nil {
 			return fail(err)
 		}

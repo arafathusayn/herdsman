@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -219,5 +220,73 @@ func TestWaitAgentStatusTimesTheFirstRead(t *testing.T) {
 	}
 	if d := time.Since(start); d > 250*time.Millisecond {
 		t.Errorf("the wait took %v, past its timeout", d)
+	}
+}
+
+// R3 finding 3: a caller's cancellation ends the wait at once, during the
+// first read and during a later one, whatever the server does after.
+func TestWaitAgentStatusCancelledDuringARead(t *testing.T) {
+	for _, later := range []bool{false, true} {
+		for _, timeout := range []time.Duration{0, time.Second} {
+			srv, _, c := fixture(t)
+			received := make(chan struct{}, 4)
+			var reads int
+			var mu sync.Mutex
+			srv.Handle("agent.get", func(map[string]any) (any, string) {
+				mu.Lock()
+				reads++
+				n := reads
+				mu.Unlock()
+				a := herdrtest.Agent("w1:p1", "s")
+				if later && n == 1 {
+					a["agent_status"] = "working"
+					return map[string]any{"type": "agent_info", "agent": a}, ""
+				}
+				received <- struct{}{}
+				time.Sleep(300 * time.Millisecond)
+				return map[string]any{"type": "agent_info", "agent": a}, "" // idle, after the cancellation
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				if later {
+					for srv.Subscribers() == 0 {
+						time.Sleep(time.Millisecond)
+					}
+					srv.Emit("pane.agent_status_changed", map[string]any{"pane_id": "w1:p1"})
+				}
+				<-received
+				cancel()
+			}()
+			start := time.Now()
+			s, err := c.WaitAgentStatus(ctx, "w1:p1", []herdr.Status{"idle"}, timeout)
+			if !errors.Is(err, context.Canceled) || s != "" {
+				t.Errorf("later=%v timeout=%v: %q %v, want the cancellation", later, timeout, s, err)
+			}
+			if d := time.Since(start); d > 250*time.Millisecond {
+				t.Errorf("later=%v timeout=%v: took %v", later, timeout, d)
+			}
+			cancel()
+		}
+	}
+}
+
+// R3 sweep (c): Call ends when its context is cancelled, not at the
+// connection deadline.
+func TestCallEndsOnCancel(t *testing.T) {
+	srv, _, c := fixture(t)
+	received := make(chan struct{}, 1)
+	srv.Handle("pane.list", func(map[string]any) (any, string) {
+		received <- struct{}{}
+		time.Sleep(300 * time.Millisecond)
+		return map[string]any{"panes": []any{}}, ""
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { <-received; cancel() }()
+	start := time.Now()
+	if _, err := c.PaneList(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want the cancellation", err)
+	}
+	if d := time.Since(start); d > 250*time.Millisecond {
+		t.Errorf("took %v", d)
 	}
 }
