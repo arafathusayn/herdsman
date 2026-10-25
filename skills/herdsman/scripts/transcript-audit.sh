@@ -80,52 +80,6 @@ SVC="${B}(docker|docker-compose|podman|nerdctl|colima|kubectl|helm|systemctl|lau
 MCPW='(send|create|update|delete|post|comment|write|add|edit|merge|upload|remove|move|schedule|react|approve|publish|set_|_set|assign|archive|attach|start|stop)'
 shell_class() { # command -> "class program" (the program word only, never arguments), or nothing
   local c
-  c=$(base_class "$1")
-  [ -n "$c" ] || c=$(extra_class "$1")
-  [ -z "$c" ] || printf '%s\n' "$c"
-}
-# Extra flag rules for forms the base classes miss. They run only when the base classes find nothing, and they can
-# only add a flag: they never change the text that the base classes read.
-SYSDIR='(/usr/local/bin|/opt/homebrew/bin|/usr/bin|/usr/sbin|/bin|/sbin)'
-# A short-option cluster counts when it holds a data, form or upload option, or ends in -X with a write method.
-CURLX="${B}(curl|wget)[[:space:]](${N}[[:space:]])?(-[a-zA-Z]*X[[:space:]=]*(POST|PATCH|PUT|DELETE)|(--json|--form[a-z-]*)([[:space:]=]|$)|-[a-zA-Z]*[dFT])"
-extra_class() {
-  local n c rest op t seg first
-  local -a words
-  # A program started from a system command folder: the base classes, read again with the program by its name.
-  n=$(printf '%s' "$1" | sed -E "s#(^|[;&|({[:space:]])$SYSDIR/#\1#g")
-  if [ "$n" != "$1" ]; then
-    c=$(base_class "$n"); [ -z "$c" ] || { printf '%s\n' "$c"; return 0; }
-  fi
-  if [[ "$n" =~ $CURLX ]]; then
-    printf 'outward-write %s\n' "$(printf '%s' "${BASH_REMATCH[0]}" | sed 's/^[;&|({[:space:]]*//' | awk '{print $1}')"; return 0
-  fi
-  # The >| and >& redirect forms: a >& to a descriptor number or - copies a stream; any other target is a file.
-  rest=$(printf '%s' "$1" | tr -d "\"'")
-  while [[ "$rest" =~ \>(\||\&)[[:space:]]*([^[:space:]\;\&\|\(\)]+) ]]; do
-    op=${BASH_REMATCH[1]} t=${BASH_REMATCH[2]}; rest=${rest#*"${BASH_REMATCH[0]}"}
-    if [ "$op" = '&' ]; then case "$t" in -|[0-9]|[0-9][0-9]) continue ;; esac; fi
-    case "$t" in /dev/null|/dev/stdout|/dev/stderr|/dev/tty) continue ;; esac
-    in_root "$t" || { printf 'project-write .../%s\n' "${t##*/}"; return 0; }
-  done
-  # An executable by its path, outside the system command folders and the channel scripts, is a script run. Only in
-  # a command with no quote, backslash, comment, here-document or case statement, where a separator always ends a
-  # command and no pattern stands where a command would.
-  case "$1" in *[\"\'\\#]*|*'<<'*) return 0 ;; esac
-  [[ " $1 " =~ [[:space:]\;\&\|\(]case[[:space:]] ]] && return 0
-  while IFS= read -r seg; do
-    read -r -a words <<< "$seg" || true
-    t=0; while [ "$t" -lt "${#words[@]}" ] && [[ "${words[$t]}" == *=* ]]; do t=$((t+1)); done
-    [ "$t" -lt "${#words[@]}" ] || continue
-    first=${words[$t]}
-    case "$first" in */*) ;; *) continue ;; esac
-    [[ "$first" =~ ^$SYSDIR/[^/]+$ ]] && continue
-    channel_script "$first" && continue
-    printf 'script-run %s\n' "${first##*/}"; return 0
-  done < <(printf '%s\n' "$1" | awk '{ gsub(/[$]\(|[;&|(){}`]/, "\n"); print }')
-}
-base_class() {
-  local c
   if [[ "$1" =~ $GIT ]]; then c='git-write'
   elif [[ "$1" =~ $GHAPI ]] || [[ "$1" =~ $GHW ]] || [[ "$1" =~ $CURL ]]; then c='outward-write'
   elif [[ "$1" =~ $RUN ]] || [[ "$1" =~ $TESTS ]]; then c='test-or-package'

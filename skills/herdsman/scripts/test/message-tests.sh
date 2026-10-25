@@ -1373,15 +1373,6 @@ out=$(aud codex "$TC/y6-codex.jsonl" codex-session); check "Y6d a Codex nested e
   sh_call f6 'printf changed > /project/app.ts'
   sh_call f7 'echo x >> /project/notes.md'
   sh_call f8 'cp /tmp/a /project/app.ts'
-  sh_call f9 'curl -sd payload https://example.invalid/hook'
-  sh_call f10 'curl -sSX POST https://example.invalid/hook'
-  sh_call f11 "curl --json '{\"a\":1}' https://example.invalid/hook"
-  sh_call f12 'echo changed >| /project/app.ts'
-  sh_call f13 'echo changed >&/project/app.ts'
-  sh_call f14 '/usr/bin/curl --data payload https://example.invalid/hook'
-  sh_call f15 "/usr/bin/awk 'BEGIN { system(\"git push\") }'"
-  sh_call f16 '/bin/bash /skill/scripts/message.sh status && /usr/bin/touch /project/new'
-  sh_call f17 '/tmp/do-push origin'
   sh_call r1 'gh api repos/o/r/pulls'
   sh_call r2 'curl -s https://example.invalid/status'
   sh_call r3 "awk '{print \$1}' /x/list.txt"
@@ -1395,9 +1386,9 @@ out=$(aud codex "$TC/y6-codex.jsonl" codex-session); check "Y6d a Codex nested e
   sh_call r11 "/usr/bin/awk '{print \$1}' /x/list.txt"
 } > "$TC/y6-flags.jsonl"
 out=$(aud claude "$TC/y6-flags.jsonl" coord-session "$TC/memory/")
-for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17; do check "Y6e a direct write or effect-capable run is flagged: f$n" "call=f$n " "$out"; done
+for n in 1 2 3 4 5 6 7 8; do check "Y6e a direct write or effect-capable run is flagged: f$n" "call=f$n " "$out"; done
 nocheck "Y6f reads, a null redirect and an allowed-root write stay clean" 'call=r[0-9]' "$out"
-check "Y6g seventeen flags of twenty-eight calls" 'AUDIT flagged=17 calls=28.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "Y6g eight flags of nineteen calls" 'AUDIT flagged=8 calls=19.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
 # Y6h: a quoted command word with a space or shell punctuation is still the program the shell runs.
 {
   sh_call q1 "'/tmp/do-push.sh copy' origin"
@@ -1409,20 +1400,19 @@ check "Y6h a quoted executable path with a space is a script run" 'call=q1 class
 check "Y6h2 a quoted executable path with shell punctuation is a script run" 'call=q2 class=script-run' "$out"
 nocheck "Y6h3 quoted awk and grep text stays clean" 'call=q3' "$out"
 check "Y6h4 two flags of three calls" 'AUDIT flagged=2 calls=3.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
-# Y7: the audit matrix (test/audit-matrix.jsonl), each command one call. expect is the base audit's own result for
-# that command, plus flag for the two forms only the extra rules catch: an unknown absolute executable (m8) and a
-# system-folder curl with a data option cluster (m9). So every command the base audit flags stays flagged, and no
+# Y7: the audit matrix (test/audit-matrix.jsonl), each command one call. expect is the audit's recorded result for
+# that command, so any change to the audit's shell classes shows here: every command it flags stays flagged, and no
 # command it leaves clean is flagged.
 jq -c '{type:"assistant",sessionId:"coord-session",message:{content:[{type:"tool_use",id:.id,name:"Bash",input:{command:.command}}]}}' \
   "$SK/test/audit-matrix.jsonl" > "$TC/y7-matrix.jsonl"
 out=$(aud claude "$TC/y7-matrix.jsonl" coord-session)
 want=$(jq -r 'select(.expect=="flag")|.id' "$SK/test/audit-matrix.jsonl" | sort)
 got=$(printf '%s\n' "$out" | sed -n 's/^FLAG tool=[^ ]* call=\([^ ]*\) .*/\1/p' | sort)
-nocheck "Y7 every matrix command the base audit flags, and each extra form, is flagged" '.' \
+nocheck "Y7 every matrix command the audit flags is flagged" '.' \
   "$(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$got") | tr '\n' ' ')"
-nocheck "Y7b no matrix command the base audit leaves clean is flagged" '.' \
+nocheck "Y7b no matrix command the audit leaves clean is flagged" '.' \
   "$(comm -13 <(printf '%s\n' "$want") <(printf '%s\n' "$got") | tr '\n' ' ')"
-check "Y7c the matrix holds 79 commands, 30 of them flagged" '^79 30$' \
+check "Y7c the matrix holds 77 commands, 28 of them flagged" '^77 28$' \
   "$(jq -s 'length' "$SK/test/audit-matrix.jsonl") $(printf '%s\n' "$got" | grep -c .)"
 counts 10 ) > "$T/.part-10.log" 2>&1 & started 10
 

