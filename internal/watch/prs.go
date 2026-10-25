@@ -70,8 +70,8 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 	for {
 		var events []string
 		for _, n := range prs {
-			snap, err := snapshot(ctx, d, ghEnv, repo, n)
-			if err != nil {
+			next := st.path("next-" + n + ".txt")
+			if err := snapshotTo(ctx, d, ghEnv, repo, n, next); err != nil {
 				// A failed read is not "no change". Count the failed polls in a row.
 				failed := count(st, "fail-"+n, d.Stderr, "watch prs") + 1
 				st.write("fail-"+n, strconv.Itoa(failed)+"\n")
@@ -87,20 +87,19 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 			st.remove("fail-" + n)
 			old := "pr-" + n + ".txt"
 			if !st.has(old) {
-				st.write(old, strings.Join(snap, "\n")+"\n")
+				_ = os.Rename(next, st.path(old))
 				// A baseline is silent, except for a pull request that is already merged.
-				for _, l := range snap {
-					if l == "state MERGED" {
-						events = append(events, fmt.Sprintf("PR %s NEW state MERGED", n))
-					}
+				if hasLine(st.path(old), "state MERGED") {
+					events = append(events, fmt.Sprintf("PR %s NEW state MERGED", n))
 				}
 				continue
 			}
-			added := addedSince(st.path(old), snap)
+			added := addedSince(st.path(old), next)
 			if len(added) == 0 {
+				_ = os.Remove(next)
 				continue
 			}
-			st.write(old, strings.Join(snap, "\n")+"\n")
+			_ = os.Rename(next, st.path(old))
 			// Wake only on what needs a decision: comments, reviews, heads, state,
 			// failed checks, and the named checks reaching SUCCESS.
 			var checks []string
@@ -162,11 +161,13 @@ func added(a, b []string) []string {
 	return out
 }
 
-// snapshot reads one pull request: its comments, inline comments and
-// reviews by id, its state, head and the newest run of each check, as
-// sorted lines.
-func snapshot(ctx context.Context, d Deps, env []string, repo, n string) ([]string, error) {
-	var lines []string
+// snapshotTo writes one pull request to dst: its comments, inline
+// comments and reviews by id, its state, head and the newest run of each
+// check, as lines in byte order. At most runLines lines are held at once
+// (A24): full runs are sorted into files next to dst and merged.
+func snapshotTo(ctx context.Context, d Deps, env []string, repo, n, dst string) error {
+	w := &runWriter{dst: dst}
+	defer w.cleanup()
 	for _, q := range []struct{ path, kind string }{
 		{"repos/" + repo + "/issues/" + n + "/comments", "comment"},
 		{"repos/" + repo + "/pulls/" + n + "/comments", "inline"},
@@ -181,30 +182,163 @@ func snapshot(ctx context.Context, d Deps, env []string, repo, n string) ([]stri
 				case "review":
 					l += " " + str(it.State)
 				}
-				lines = append(lines, l)
+				w.add(l)
 			})
 		}, "api", q.path, "--paginate")
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 	out, err := d.Gh(ctx, env, "pr", "view", n, "--repo", repo, "--json", "state,headRefOid,statusCheckRollup")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	view, err := prView(out)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	lines = append(lines, view...)
-	var kept []string
-	for _, l := range lines {
-		if l != "" {
-			kept = append(kept, l)
+	for _, l := range view {
+		w.add(l)
+	}
+	return w.finish()
+}
+
+// runLines bounds the snapshot lines held in memory at once.
+var runLines = 4096
+
+// runWriter is an external sort: lines are buffered up to runLines, each
+// full buffer is sorted into a run file, and finish merges the runs and the
+// last buffer into dst.
+type runWriter struct {
+	dst  string
+	buf  []string
+	runs []string
+	err  error
+}
+
+func (w *runWriter) add(l string) {
+	if l == "" || w.err != nil {
+		return
+	}
+	w.buf = append(w.buf, l)
+	if len(w.buf) >= runLines {
+		sort.Strings(w.buf)
+		p := w.dst + ".run" + strconv.Itoa(len(w.runs))
+		w.runs = append(w.runs, p)
+		w.err = writeLines(p, w.buf)
+		clear(w.buf)
+		w.buf = w.buf[:0]
+	}
+}
+
+func (w *runWriter) cleanup() {
+	for _, p := range w.runs {
+		_ = os.Remove(p)
+	}
+	_ = os.Remove(w.dst + ".tmp")
+}
+
+// mergeSource is one sorted run being merged.
+type mergeSource struct {
+	sc   *bufio.Scanner
+	line string
+	ok   bool
+}
+
+func (s *mergeSource) next() { s.ok = s.sc.Scan(); s.line = s.sc.Text() }
+
+func (w *runWriter) finish() error {
+	if w.err != nil {
+		return w.err
+	}
+	sort.Strings(w.buf)
+	var srcs []*mergeSource
+	for _, p := range w.runs {
+		f, err := os.Open(p)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		s := &mergeSource{sc: lineScanner(f)}
+		s.next()
+		srcs = append(srcs, s)
+	}
+	f, err := os.Create(w.dst + ".tmp")
+	if err != nil {
+		return err
+	}
+	bw := bufio.NewWriter(f)
+	i := 0
+	for {
+		var best *mergeSource
+		for _, s := range srcs {
+			if s.ok && (best == nil || s.line < best.line) {
+				best = s
+			}
+		}
+		if i < len(w.buf) && (best == nil || w.buf[i] <= best.line) {
+			_, _ = bw.WriteString(w.buf[i] + "\n")
+			i++
+			continue
+		}
+		if best == nil {
+			break
+		}
+		_, _ = bw.WriteString(best.line + "\n")
+		best.next()
+	}
+	for _, s := range srcs {
+		if err := s.sc.Err(); err != nil {
+			_ = f.Close()
+			return err
 		}
 	}
-	sort.Strings(kept)
-	return kept, nil
+	if err := bw.Flush(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(w.dst+".tmp", w.dst)
+}
+
+func lineScanner(r io.Reader) *bufio.Scanner {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 4<<10), 1<<20)
+	return sc
+}
+
+func writeLines(p string, lines []string) error {
+	f, err := os.Create(p)
+	if err != nil {
+		return err
+	}
+	bw := bufio.NewWriter(f)
+	for _, l := range lines {
+		_, _ = bw.WriteString(l + "\n")
+	}
+	if err := bw.Flush(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// hasLine reports whether the file at p has the line l.
+func hasLine(p, l string) bool {
+	f, err := os.Open(p)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	sc := lineScanner(f)
+	for sc.Scan() {
+		if sc.Text() == l {
+			return true
+		}
+	}
+	return false
 }
 
 // prView reads `gh pr view --json state,headRefOid,statusCheckRollup`:
@@ -448,38 +582,63 @@ func RunGhStream(stderr io.Writer) func(ctx context.Context, env []string, read 
 }
 
 // addedSince is comm -13 of the snapshot file at path and the sorted new
-// lines, counting repeats: the file is streamed and merged against cur
-// (A24: the prior history is never held whole). A file whose lines are not
+// snapshot file at next, counting repeats: both files are streamed and
+// merged (A24: no history is held whole). An old file whose lines are not
 // in byte order (an older writer's locale sort) falls back to counting
-// every line; a missing file adds everything.
-func addedSince(path string, cur []string) []string {
+// every line; a missing old file adds everything.
+func addedSince(path, next string) []string {
 	f, err := os.Open(path)
 	if err != nil {
-		return append([]string(nil), cur...)
+		return fileLines(next)
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
+	g, err := os.Open(next)
+	if err != nil {
+		return nil
+	}
+	defer g.Close()
+	sc := lineScanner(f)
+	cur := &mergeSource{sc: lineScanner(g)}
+	cur.next()
 	var out []string
-	i, prev := 0, ""
+	keep := func() {
+		if cur.line != "" {
+			out = append(out, cur.line)
+		}
+		cur.next()
+	}
+	prev := ""
 	for sc.Scan() {
 		l := sc.Text()
 		if l == "" {
 			continue
 		}
 		if l < prev {
-			return added(strings.Split(strings.TrimRight(readAll(path), "\n"), "\n"), cur)
+			return added(fileLines(path), fileLines(next))
 		}
 		prev = l
-		for i < len(cur) && cur[i] < l {
-			out = append(out, cur[i])
-			i++
+		for cur.ok && cur.line < l {
+			keep()
 		}
-		if i < len(cur) && cur[i] == l {
-			i++
+		if cur.ok && cur.line == l {
+			cur.next()
 		}
 	}
-	return append(out, cur[i:]...)
+	for cur.ok {
+		keep()
+	}
+	return out
+}
+
+// fileLines is the non-empty lines of the file at p.
+func fileLines(p string) []string {
+	var out []string
+	for _, l := range strings.Split(readAll(p), "\n") {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 func readAll(p string) string {

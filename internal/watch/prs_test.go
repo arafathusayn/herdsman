@@ -328,12 +328,14 @@ func TestPRSnapshotStreamsLargeHistory(t *testing.T) {
 		}
 		return read(bytes.NewReader(out))
 	}}
-	snapshot(context.Background(), d, nil, "org/repo", "7") // warm up
+	dst := filepath.Join(r.dir, "snap.txt")
+	_ = snapshotTo(context.Background(), d, nil, "org/repo", "7", dst) // warm up
 	var m0, m1 runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&m0)
-	snap, err := snapshot(context.Background(), d, nil, "org/repo", "7")
+	err := snapshotTo(context.Background(), d, nil, "org/repo", "7", dst)
 	runtime.ReadMemStats(&m1)
+	snap := strings.Split(strings.TrimRight(readAll(dst), "\n"), "\n")
 	if err != nil || len(snap) != 1002 || snap[0] != "comment 0 u0" {
 		t.Fatalf("%d lines, %v, first %q", len(snap), err, snap[0])
 	}
@@ -390,6 +392,12 @@ func TestAddedSinceTheSnapshotOnDisk(t *testing.T) {
 		_ = os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 		return p
 	}
+	// The new snapshot is a sorted file too (A24: never held whole).
+	addedSince := func(old string, cur []string) []string {
+		p := filepath.Join(dir, "next.txt")
+		_ = os.WriteFile(p, []byte(strings.Join(cur, "\n")+"\n"), 0o644)
+		return addedSince(old, p)
+	}
 	var old, cur []string
 	for i := 0; i < 5000; i++ {
 		old = append(old, fmt.Sprintf("comment %06d u", i))
@@ -418,5 +426,49 @@ func TestGhItemLogin(t *testing.T) {
 		if got := str((ghItem{User: json.RawMessage(raw)}).login()); got != want {
 			t.Errorf("%s: %q, want %q", raw, got, want)
 		}
+	}
+}
+
+// Review 6, finding 2 (A24): the snapshot is sorted in bounded runs. Items
+// arrive in reverse order across several runs; the file on disk is the
+// byte-order sort of all of them, and no run file is left behind.
+func TestSnapshotSortsInBoundedRuns(t *testing.T) {
+	r := newPRRig(t)
+	defer func(n int) { runLines = n }(runLines)
+	runLines = 64
+	var b strings.Builder
+	b.WriteString("[")
+	var want []string
+	for i := 300; i > 0; i-- {
+		if i < 300 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"id":%d,"user":{"login":"u%d"}}`, i, i%3)
+		want = append(want, fmt.Sprintf("comment %d u%d", i, i%3))
+	}
+	b.WriteString("]")
+	r.fixture("7-view.json", view("OPEN", "abcd1234ffff"))
+	d := Deps{Gh: r.gh.run, GhStream: func(ctx context.Context, env []string, read func(io.Reader) error, args ...string) error {
+		if strings.Contains(strings.Join(args, " "), "issues/7/comments") {
+			return read(strings.NewReader(b.String()))
+		}
+		out, err := r.gh.run(ctx, env, args...)
+		if err != nil {
+			return err
+		}
+		return read(bytes.NewReader(out))
+	}}
+	out := t.TempDir()
+	dst := filepath.Join(out, "next-7.txt")
+	if err := snapshotTo(context.Background(), d, nil, "org/repo", "7", dst); err != nil {
+		t.Fatal(err)
+	}
+	want = append(want, "head abcd1234", "state OPEN")
+	sort.Strings(want)
+	if got := readAll(dst); got != strings.Join(want, "\n")+"\n" {
+		t.Errorf("sorted snapshot:\n%s", got)
+	}
+	if ents, _ := os.ReadDir(out); len(ents) != 1 {
+		t.Errorf("files left: %v", ents)
 	}
 }
