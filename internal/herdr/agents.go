@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"slices"
 	"time"
 )
@@ -174,6 +175,14 @@ func (c *Client) WaitAgentStatus(ctx context.Context, target string, want []Stat
 		defer tcancel()
 	}
 	fail := func(err error) (Status, error) {
+		// A connection deadline is wctx's and can fire just before the
+		// context notices: let it catch up, then name the deadline.
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			select {
+			case <-wctx.Done():
+			case <-time.After(time.Second): // the client's own deadline
+			}
+		}
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
