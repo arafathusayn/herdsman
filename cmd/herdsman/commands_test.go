@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -333,5 +334,30 @@ func TestHelpListsExitCodes(t *testing.T) {
 				t.Errorf("%s --help: no row for exit %s in %q", name, c, table)
 			}
 		}
+	}
+}
+
+// R5 finding 6: approval-gate reads HEALTH_AFTER and LOCK_WAIT through the
+// strict parser: one line naming the variable, exit 2, before the inbox.
+func TestGateSettingsAreStrict(t *testing.T) {
+	t.Setenv("HERDSMAN_INBOX", filepath.Join(t.TempDir(), "none"))
+	for _, tc := range []struct{ k, v, reason string }{
+		{"HEALTH_AFTER", "bad", "not a whole number"}, {"HEALTH_AFTER", "0", "must be from 1 to 86400"},
+		{"HEALTH_AFTER", "1\n2", "not a whole number"}, {"LOCK_WAIT", "61", "must be from 1 to 60"}, {"LOCK_WAIT", "x", "not a whole number"},
+	} {
+		t.Setenv("HEALTH_AFTER", "")
+		t.Setenv("LOCK_WAIT", "")
+		t.Setenv(tc.k, tc.v)
+		out, errs, code := call(t, "approval-gate", "complete", "r1", "done")
+		want := fmt.Sprintf("herdsman approval-gate: %s: %s (got %q)\n", tc.k, tc.reason, tc.v)
+		if code != 2 || out != "" || errs != want {
+			t.Errorf("%s=%q: %d %q, want %q", tc.k, tc.v, code, errs, want)
+		}
+	}
+	// Valid values pass on to the inbox, which then reports its own error.
+	t.Setenv("HEALTH_AFTER", " 0180 ")
+	t.Setenv("LOCK_WAIT", "6")
+	if _, errs, _ := call(t, "approval-gate", "complete", "r1", "done"); strings.Contains(errs, "HEALTH_AFTER") || strings.Contains(errs, "LOCK_WAIT") {
+		t.Errorf("valid values: %q", errs)
 	}
 }
