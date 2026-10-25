@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"fmt"
 	"net/http"
@@ -26,9 +25,6 @@ import (
 // list from the checked-in real output under catalogdata/ stands in, marked
 // offline; the form, the validation and the launch all use that same list.
 // A kind is data: the form and the server treat every kind through its entry.
-
-//go:embed catalogdata
-var catalogFiles embed.FS
 
 // catalogTimeout bounds each catalog command.
 const catalogTimeout = 5 * time.Second
@@ -108,10 +104,10 @@ func (s *catalogSource) build(ctx context.Context) []CatalogKind {
 		kinds         []string
 	)
 	wg.Go(func() {
-		claude = fromOutput(parseClaudeHelp, "claude-help.txt", func() ([]byte, error) { return ask("claude", "--help") })
+		claude = fromOutput(parseClaudeHelp, CatalogKind{Kind: "claude", Label: "Claude", Checkpointer: true, SkillPrefix: "/"}, func() ([]byte, error) { return ask("claude", "--help") })
 	})
 	wg.Go(func() {
-		codex = fromOutput(parseCodexModels, "codex-debug-models.json", func() ([]byte, error) { return ask("codex", "debug", "models") })
+		codex = fromOutput(parseCodexModels, CatalogKind{Kind: "codex", Label: "Codex", Checkpointer: true, SkillPrefix: "$"}, func() ([]byte, error) { return ask("codex", "debug", "models") })
 	})
 	wg.Go(func() {
 		out, err := ask("herdr", "agent", "start", "--help")
@@ -119,8 +115,7 @@ func (s *catalogSource) build(ctx context.Context) []CatalogKind {
 			kinds, err = parseKinds(out)
 		}
 		if err != nil {
-			b, _ := catalogFiles.ReadFile("catalogdata/herdr-agent-start-help.txt")
-			kinds, _ = parseKinds(b)
+			kinds = nil // herdr could not be asked: only the probed harnesses are offered
 		}
 	})
 	wg.Wait()
@@ -134,24 +129,18 @@ func (s *catalogSource) build(ctx context.Context) []CatalogKind {
 	return all
 }
 
-// fromOutput parses a command's output, or the checked-in output, offline,
-// when the command fails or its output does not parse.
-func fromOutput(parse func([]byte) (CatalogKind, error), file string, run func() ([]byte, error)) CatalogKind {
+// fromOutput parses a command's output. When the command fails or its
+// output does not parse, the harness is offered with no models, marked
+// offline: a captured list is test data, never a production fallback
+// (A28/A29), so nothing launches with a model the harness did not report.
+func fromOutput(parse func([]byte) (CatalogKind, error), unavailable CatalogKind, run func() ([]byte, error)) CatalogKind {
 	if out, err := run(); err == nil {
 		if k, err := parse(out); err == nil {
 			return k
 		}
 	}
-	b, err := catalogFiles.ReadFile("catalogdata/" + file)
-	if err != nil {
-		panic(err) // embedded at build time
-	}
-	k, err := parse(b)
-	if err != nil {
-		panic(fmt.Sprintf("catalogdata/%s does not parse: %v", file, err))
-	}
-	k.Offline = true
-	return k
+	unavailable.Models, unavailable.Offline = []CatalogModel{}, true
+	return unavailable
 }
 
 func kindLabel(k string) string {

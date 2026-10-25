@@ -329,8 +329,8 @@ export function routeForm(
     const offline = k?.offline
       ? h(
           "span",
-          { class: "nr-chip", title: "The harness could not be asked; this is the last-known list." },
-          "offline list",
+          { class: "nr-chip", title: "The harness could not be asked, so it offers no models; only a saved pick can be reused." },
+          "models unavailable",
         )
       : null;
     return [

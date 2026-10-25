@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"os"
 	"path/filepath"
@@ -16,6 +17,11 @@ import (
 // `codex debug models` cut down to the fields the parser reads (the real
 // output is about 559 KB, almost all of it each model's base_instructions;
 // the models, their order and their efforts are unchanged).
+
+// catalogFiles are the captured outputs; only tests read them (A28/A29).
+//
+//go:embed catalogdata
+var catalogFiles embed.FS
 
 func catalogFixture(t *testing.T, name string) []byte {
 	t.Helper()
@@ -155,38 +161,28 @@ func TestCatalogOfflineOnBadOutput(t *testing.T) {
 	checkOffline(t, c)
 }
 
+// A harness that could not be asked offers no models: no captured list
+// stands in (A28/A29), and nothing it might name is accepted.
 func checkOffline(t *testing.T, c Catalog) {
 	t.Helper()
 	cl, cx := c.kind("claude"), c.kind("codex")
-	if cl == nil || cx == nil || !cl.Offline || !cx.Offline {
+	if cl == nil || cx == nil || !cl.Offline || !cx.Offline || len(cl.Models) != 0 || len(cx.Models) != 0 || cl.FreeModel || cx.FreeModel {
 		t.Fatalf("claude=%+v codex=%+v", cl, cx)
 	}
-	if ids(cx.Models)[0] != "gpt-6.1-sol" || len(cx.Models) != 7 || cx.OtherModel {
-		t.Fatalf("codex offline = %v", ids(cx.Models))
+	if cx.SkillPrefix != "$" || cl.SkillPrefix != "/" {
+		t.Fatalf("prefixes %q %q", cl.SkillPrefix, cx.SkillPrefix)
 	}
-	if !slices.Equal(ids(cl.Models), []string{"fable", "opus", "sonnet"}) || !cl.OtherModel {
-		t.Fatalf("claude offline = %v", ids(cl.Models))
-	}
-	if c.kind("gemini") == nil {
-		t.Fatal("the offline kind list is missing")
+	if c.kind("gemini") != nil {
+		t.Fatal("a kind list without herdr's answer")
 	}
 }
 
-func TestOfflineListIsWhatValidationAccepts(t *testing.T) {
+func TestOfflineHarnessLaunchesNothing(t *testing.T) {
 	c := newCatalogSource(fakeRunner(nil, map[string]error{"codex debug models": errors.New("x"), "claude --help": errors.New("x"), "herdr agent start --help": errors.New("x")}, nil)).get(context.Background())
-	cx := c.kind("codex")
-	for _, m := range cx.Models {
-		for _, e := range m.Efforts {
-			if _, err := launchArgs(cx, m.ID, e); err != nil {
-				t.Fatalf("%s %s: %v", m.ID, e, err)
-			}
+	for _, m := range []string{"model-a", "gpt-6.1-sol"} {
+		if _, err := launchArgs(c.kind("codex"), m, "low"); err == nil {
+			t.Fatalf("%s launched from an offline harness", m)
 		}
-	}
-	if _, err := launchArgs(cx, "gpt-4o", "low"); err == nil {
-		t.Fatal("a codex model outside the list was accepted")
-	}
-	if _, err := launchArgs(cx, "gpt-6.1-sol", "tiny"); err == nil {
-		t.Fatal("an effort outside the list was accepted")
 	}
 }
 
