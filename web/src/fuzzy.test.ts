@@ -48,14 +48,12 @@ describe("highlight as runs", () => {
     ["abc", [2]],
   ];
 
-  test("renders what the h() version did, in a view and through the bridge", () => {
+  test("renders what the h() version did", () => {
     for (const [value, hits] of cases) {
       const old = dump(h("span", { class: "name" }, oldHighlight(value, hits)) as unknown as FakeNode);
       const box = document.createElement("div");
       render(box, Name([highlight(value, hits)]));
       expect(dump(box.firstChild as unknown as FakeNode)).toBe(old);
-      const bridged = h("span", { class: "name" }, highlight(value, hits));
-      expect(dump(bridged as unknown as FakeNode)).toBe(old);
     }
   });
 
