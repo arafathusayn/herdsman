@@ -376,7 +376,7 @@ func (d *Daemon) removeRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	if rt != nil {
 		_ = rt.do(r.Context(), func() *APIError {
 			for s := range rt.subs {
-				s.push(frame{ev: &Event{Type: "route_removed", Route: name}, last: s.party != ""})
+				s.push(frame{ev: &Event{Type: "route_removed", Time: d.now().Unix(), Route: name}, last: s.party != ""})
 				if s.party != "" {
 					s.close()
 				}
@@ -1095,7 +1095,7 @@ func (d *Daemon) viewEvents(w http.ResponseWriter, r *http.Request) *APIError {
 			_ = rt.do(context.Background(), func() *APIError { rt.unsubscribe(s); return nil })
 		}
 	}()
-	reg := &Event{Type: "registry", Routes: []RouteRef{}}
+	reg := &Event{Type: "registry", Time: d.now().Unix(), Routes: []RouteRef{}}
 	for _, rt := range routes {
 		var ep string
 		_ = rt.do(r.Context(), func() *APIError { ep = rt.epoch; return nil })

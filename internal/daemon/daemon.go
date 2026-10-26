@@ -341,14 +341,14 @@ func (d *Daemon) Stop(reason string) {
 			routes = append(routes, r)
 		}
 		for s := range d.views {
-			s.push(frame{ev: &Event{Type: "shutdown", Reason: reason}})
+			s.push(frame{ev: &Event{Type: "shutdown", Time: d.now().Unix(), Reason: reason}})
 			s.close()
 		}
 		d.mu.Unlock()
 		for _, r := range routes {
 			_ = r.do(context.Background(), func() *APIError {
 				for s := range r.subs {
-					s.push(frame{ev: &Event{Type: "shutdown", Reason: reason}})
+					s.push(frame{ev: &Event{Type: "shutdown", Time: d.now().Unix(), Reason: reason}})
 					s.close()
 				}
 				return nil

@@ -174,7 +174,7 @@ func (r *Route) unsubscribe(s *subscriber) { delete(r.subs, s) }
 
 func (r *Route) resetEvent(reason string) *Event {
 	last := r.visible
-	return &Event{Type: "reset", Route: r.name, Epoch: r.epoch, Seq: last, Reason: reason, LastSeq: &last}
+	return &Event{Type: "reset", Time: r.now().Unix(), Route: r.name, Epoch: r.epoch, Seq: last, Reason: reason, LastSeq: &last}
 }
 
 // snapshot is the route's status at visible_seq (never bodies), with the
@@ -182,7 +182,7 @@ func (r *Route) resetEvent(reason string) *Event {
 func (r *Route) snapshot(party string) *Event {
 	last := r.visible
 	st := r.status()
-	ev := &Event{Type: "snapshot", Route: r.name, Epoch: r.epoch, Seq: last, LastSeq: &last, Snapshot: &st}
+	ev := &Event{Type: "snapshot", Time: r.now().Unix(), Route: r.name, Epoch: r.epoch, Seq: last, LastSeq: &last, Snapshot: &st}
 	if party != "" {
 		ev.Unread = r.unread(party)
 	}

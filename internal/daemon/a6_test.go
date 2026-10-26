@@ -375,3 +375,35 @@ func TestRequestNullRefused(t *testing.T) {
 		}
 	}
 }
+
+// TestDerivedFramesCarryTime: every frame's data has the envelope's
+// mandatory time, derived frames included (5.3).
+func TestDerivedFramesCarryTime(t *testing.T) {
+	h := newHarness(t)
+	_, orch, _ := h.route("r")
+	for _, path := range []string{"/v1/routes/r/events", "/v1/events"} {
+		c := orch.c
+		if path == "/v1/events" {
+			c = h.client()
+		}
+		ev, err := c.Events(context.Background(), path, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 2; i++ {
+			f, err := ev.Next()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var m map[string]any
+			_ = json.Unmarshal(f.Data, &m)
+			if tm, ok := m["time"].(float64); !ok || tm <= 0 {
+				t.Errorf("%s %s frame without time: %s", path, f.Event, f.Data)
+			}
+			if f.Event == "snapshot" {
+				break
+			}
+		}
+		ev.Close()
+	}
+}
