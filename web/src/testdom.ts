@@ -11,10 +11,12 @@ import {
   SVG_NS,
 } from "./herdsman-blocks.testdom.ts";
 
-/** A bubbling event with what form and key handlers read: the submitter, the key and its modifiers, and preventDefault. */
+/** A bubbling event with what form and key handlers read: the submitter, the key, its code and modifiers, and preventDefault. */
 export class FakeEvent extends BaseEvent {
   submitter: FakeElement | null = null;
   key = "";
+  code = "";
+  isComposing = false;
   ctrlKey = false;
   metaKey = false;
   shiftKey = false;
@@ -22,6 +24,18 @@ export class FakeEvent extends BaseEvent {
   defaultPrevented = false;
   preventDefault(): void {
     this.defaultPrevented = true;
+  }
+  /** Only the four plain modifiers are ever held; AltGraph, CapsLock and the rest read as off. */
+  getModifierState(name: string): boolean {
+    return name === "Control"
+      ? this.ctrlKey
+      : name === "Meta"
+        ? this.metaKey
+        : name === "Shift"
+          ? this.shiftKey
+          : name === "Alt"
+            ? this.altKey
+            : false;
   }
 }
 
@@ -141,6 +155,8 @@ export function byName(root: BaseElement, name: string): FakeElement {
 export interface EventExtras {
   submitter?: FakeElement | null;
   key?: string;
+  code?: string;
+  isComposing?: boolean;
   ctrlKey?: boolean;
   metaKey?: boolean;
   shiftKey?: boolean;
@@ -157,6 +173,8 @@ export function dispatch(target: BaseElement, type: string, extra: EventExtras =
   const e = new FakeEvent(type);
   if (extra.submitter !== undefined) e.submitter = extra.submitter;
   if (extra.key !== undefined) e.key = extra.key;
+  if (extra.code !== undefined) e.code = extra.code;
+  e.isComposing = extra.isComposing ?? false;
   e.ctrlKey = extra.ctrlKey ?? false;
   e.metaKey = extra.metaKey ?? false;
   e.shiftKey = extra.shiftKey ?? false;
