@@ -4,7 +4,7 @@ import {
   html,
   list,
   type ListNode,
-  render,
+  renderDirect,
   svg,
   type View,
   type ViewNode,
@@ -163,7 +163,10 @@ function flatten(children: readonly Child[], out: Node[]): Node[] {
 //
 // A view description (or a view list) given where h()-style children are
 // expected is rendered once into a scratch element and its element roots are
-// moved out: one-shot, which suits h() parents that rebuild anyway.
+// moved out: one-shot, which suits h() parents that rebuild anyway. It is
+// rendered with renderDirect, so each handler sits on its own element and
+// keeps working after the move (render() would delegate to the scratch
+// element, which the moved nodes leave).
 //
 // Each moved-out root is stamped with a data-key no other render uses
 // ("view:<n>", or "<item key>|view:<n>" for an each() row), so patch()'s
@@ -179,7 +182,7 @@ const isElement = (n: Node): n is Element => n.nodeType === 1;
 
 function materialize(c: ViewNode | ListNode, key?: string): Element[] {
   const box = document.createElement("div");
-  render(box, Scratch([c]));
+  renderDirect(box, Scratch([c])); // handlers on the nodes themselves, since they move out
   const holder = box.firstChild;
   const out: Element[] = [];
   if (holder === null) return out;
