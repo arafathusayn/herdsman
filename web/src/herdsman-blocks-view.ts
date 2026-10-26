@@ -14,9 +14,10 @@
 // that to C. The same template patches in place; a different template or kind
 // replaces the content. `svg` makes views of SVG content.
 //
-// Event handlers (`on()` holes) are stored indirectly: each such element gets
-// one shared trampoline at mount that calls the handler the last render
-// passed. A new closure per render then costs no DOM write.
+// Event handlers (`on()` holes) are stored indirectly. Bubbling events are
+// delegated: each render() root listens once per event type and calls the
+// handler the last render passed, as the element. Other events get one shared
+// trampoline per element. A new closure per render costs no DOM write.
 //
 // Every type below is erased: markers are constants evaluated once per
 // template, and descriptions carry their value types only at compile time.
@@ -49,6 +50,7 @@ export {
 
 declare const VIEW_NODE: unique symbol;
 declare const LIST_NODE: unique symbol;
+declare const RUNS_NODE: unique symbol;
 declare const ANY_VALUES: unique symbol;
 
 /** Stands for "any value tuple" in `ViewNode`; never a real value tuple. */
@@ -87,11 +89,17 @@ export interface ListNode<N extends ViewNode = ViewNode, K extends Key = Key> {
   readonly [LIST_NODE]: readonly [N, K];
 }
 
+/** A positional sequence of text and descriptions, made by `runs`: its views are N. */
+export interface RunsNode<N extends ViewNode = ViewNode> {
+  readonly [RUNS_NODE]: readonly [N];
+}
+
 /** What a child hole accepts. null, undefined and false render nothing; a Node is inserted as is. */
-export type Child = string | number | null | undefined | false | Node | ViewNode | ListNode;
+export type Child = string | number | null | undefined | false | Node | ViewNode | ListNode | RunsNode;
 
 /** What a child hole inside SVG content should take: no HTML views. */
-export type SvgChild = string | number | null | undefined | false | SVGElement | SvgNode | ListNode<SvgNode>;
+export type SvgChild =
+  string | number | null | undefined | false | SVGElement | SvgNode | ListNode<SvgNode> | RunsNode<SvgNode>;
 
 /** A view: call it with its values tuple to describe one instance. */
 export interface View<V extends readonly unknown[], NS extends Namespace = "html"> {
@@ -159,18 +167,55 @@ export function list<T, K extends Key, N extends ViewNode>(
 }
 
 /**
+ * Unkeyed inline content for a child hole: text runs and descriptions side by
+ * side, with no wrapper element, such as highlighted text between `<mark>`
+ * elements or inline markdown. Runs are matched by position: text stays the
+ * same text node with its data updated, a description patches the view at its
+ * position (or replaces it, for another view), and anything else is replaced.
+ * Nothing is keyed, so use `list` for items with identity.
+ */
+export function runs<N extends ViewNode>(items: readonly (string | number | N)[]): RunsNode<N> {
+  return new RunsOf(items) as unknown as RunsNode<N>;
+}
+
+/**
  * Render a description into `container`. The first render replaces the
  * container's content; later ones patch it (a different view replaces it).
  */
 export function render(container: Node, d: ViewNode): void {
-  const c = container as Node & { [ROOT]?: Inst };
-  const inst = c[ROOT];
-  if (inst !== undefined) return patch(inst, d as unknown as Desc);
-  const fresh = mount(d as unknown as Desc);
-  container.textContent = "";
-  container.appendChild(fresh.root);
-  c[ROOT] = fresh;
+  const c = container as Container;
+  if (c[LISTENING] !== used.length) listen(c);
+  draw(c, d as unknown as Desc, false);
 }
+
+/**
+ * Like `render`, but every handler gets a direct trampoline on its element
+ * and the container listens for nothing, so the rendered nodes keep their
+ * handlers wherever they are moved. For code that moves a view's nodes out
+ * of its container (a bridge into a tree another library manages); `render`
+ * is faster. Use one of the two per container.
+ */
+export function renderDirect(container: Node, d: ViewNode): void {
+  draw(container as Container, d as unknown as Desc, true);
+}
+
+function draw(c: Container, d: Desc, dir: boolean): void {
+  const outer = direct;
+  direct = dir;
+  try {
+    const inst = c[ROOT];
+    if (inst !== undefined) return patch(inst, d);
+    const fresh = mount(d);
+    c.textContent = "";
+    c.appendChild(fresh.root);
+    c[ROOT] = fresh;
+  } finally {
+    direct = outer;
+  }
+}
+
+// Whether the render running now mounts handlers directly (renderDirect).
+let direct = false;
 
 // ---------------------------------------------------------------------------
 // Internals
@@ -180,9 +225,13 @@ type AnyTemplate = Template<readonly unknown[]>;
 type Values = readonly unknown[];
 
 const ROOT: unique symbol = Symbol("herdsman-blocks-view.root");
-// An element with handler holes holds its instance's state array here.
+// The root element of an instance with handler holes holds the instance here.
 const STATE: unique symbol = Symbol("herdsman-blocks-view.state");
-type Holder = Node & { [STATE]?: unknown[] };
+type Holder = Node & { [STATE]?: Inst };
+
+// A render root: its instance, and how many of `used` it listens for.
+const LISTENING: unique symbol = Symbol("herdsman-blocks-view.listening");
+type Container = Node & { [ROOT]?: Inst; [LISTENING]?: number };
 
 const views = new WeakMap<TemplateStringsArray, View<Values>>();
 
@@ -191,6 +240,37 @@ const WRITE = 0;
 const HANDLER = 1;
 const PROPERTY = 2;
 const CHILD = 3;
+const DELEGATED = 4;
+
+// Bubbling events whose handlers are delegated to the render root. Others
+// (focus, blur, mouseenter, load, scroll, ...) and passive-sensitive ones
+// (touch, wheel) get a direct trampoline on the element.
+const BUBBLING = new Set([
+  "auxclick",
+  "beforeinput",
+  "change",
+  "click",
+  "contextmenu",
+  "dblclick",
+  "focusin",
+  "focusout",
+  "input",
+  "keydown",
+  "keyup",
+  "mousedown",
+  "mousemove",
+  "mouseout",
+  "mouseover",
+  "mouseup",
+  "pointerdown",
+  "pointermove",
+  "pointerout",
+  "pointerover",
+  "pointerup",
+  "submit",
+]);
+// Every delegated event type any view uses; render roots listen for these.
+const used: string[] = [];
 
 /** What a view knows about its template, computed once per template. */
 class Shape {
@@ -199,8 +279,20 @@ class Shape {
   readonly flags: Uint8Array;
   /** Whether mount must locate holes: any handler, property or child hole. */
   readonly eager: boolean;
-  /** Per handler hole, the trampoline every instance's element gets. */
+  /** Per handler hole, the trampoline a directly mounted element gets. */
   readonly fns: (((this: Holder, e: Event) => unknown) | undefined)[];
+  /** Whether any hole is a handler: the instance is then kept on its root. */
+  readonly handlers: boolean;
+  /** Whether any hole is a delegated handler. */
+  readonly delegates: boolean;
+  /** Per delegated handler hole, its event type. */
+  readonly types: (string | undefined)[];
+  /** Finds the delegated handler hole nodes, on the first delegated event. */
+  readonly findDelegated: (root: Node, out: unknown[]) => void;
+  /** Finds the handler, property and child hole nodes, for mount. */
+  readonly findEager: (root: Node, out: unknown[]) => void;
+  /** Finds the plain write hole nodes, on their first update. */
+  readonly findWrite: (root: Node, out: unknown[]) => void;
 
   constructor(t: AnyTemplate) {
     const n = t.n;
@@ -208,27 +300,115 @@ class Shape {
     this.n = n;
     this.flags = new Uint8Array(n);
     this.fns = new Array(n);
-    let eager = false;
+    this.types = new Array(n);
+    let handlers = false;
+    const eager: number[] = [],
+      write: number[] = [],
+      delegated: number[] = [];
     for (let i = 0; i < n; i++) {
-      const k = t.kind(i);
+      const k = t.kind(i),
+        name = t.names[i];
       if (k === "slot") this.flags[i] = CHILD;
-      else if (k === "prop" && t.names[i]!.startsWith("on")) {
+      else if (k === "prop" && name!.startsWith("on")) {
+        handlers = true;
+        const type = name!.slice(2);
+        if (BUBBLING.has(type)) {
+          this.flags[i] = DELEGATED;
+          this.types[i] = type;
+          if (!used.includes(type)) used.push(type);
+          this.fns[i] = trampoline(i); // used when rendered with renderDirect
+          delegated.push(i);
+          continue;
+        }
         this.flags[i] = HANDLER;
-        this.fns[i] = trampoline(n + i);
+        this.fns[i] = trampoline(i);
       } else if (k === "prop") this.flags[i] = PROPERTY;
-      else continue;
-      eager = true;
+      else {
+        write.push(i);
+        continue;
+      }
+      eager.push(i);
     }
-    this.eager = eager;
+    this.eager = eager.length > 0;
+    this.handlers = handlers;
+    this.delegates = delegated.length > 0;
+    this.findEager = eager.length === n ? t.locate : t.locator(eager);
+    this.findWrite = write.length === n ? t.locate : t.locator(write);
+    this.findDelegated = delegated.length === n ? t.locate : t.locator(delegated);
   }
 }
 
-// Calls the handler hole j of the instance the element belongs to, as the element.
-function trampoline(j: number): (this: Holder, e: Event) => unknown {
+// Calls the handler hole i of the instance the element belongs to, as the
+// element. The instance is kept on its root only: the walk up from the
+// element passes only the template's own nodes before reaching it.
+function trampoline(i: number): (this: Holder, e: Event) => unknown {
   return function (this: Holder, e: Event): unknown {
-    const f = this[STATE]![j];
+    let h: Holder = this;
+    while (h[STATE] === undefined) h = h.parentNode!;
+    const f = h[STATE].v[i];
     return typeof f === "function" ? (f as (this: Holder, e: Event) => unknown).call(this, e) : undefined;
   };
+}
+
+// Listen on a render root for every delegated event type not yet listened for.
+function listen(c: Container): void {
+  for (let k = c[LISTENING] ?? 0; k < used.length; k++) c.addEventListener(used[k]!, delegate);
+  c[LISTENING] = used.length;
+}
+
+// Scratch for one delegated dispatch: handler elements, instances and holes,
+// innermost first. Dispatches can nest (a handler can dispatch an event), so
+// each takes its own arrays only when it finds something.
+function delegate(this: Container, e: Event): void {
+  const type = e.type;
+  let els: Node[] | null = null,
+    insts: Inst[] | null = null,
+    holes: number[] | null = null;
+  let depth = 0; // nodes walked so far; a handler element's position
+  let pos: number[] | null = null;
+  const path: Node[] = [];
+  for (let node = e.target as Node | null; node !== null && node !== this; node = node.parentNode) {
+    path.push(node);
+    if ((node as Container)[LISTENING] !== undefined) {
+      // Another render root below this one: its own listener handled what is inside it.
+      els = insts = holes = pos = null;
+      continue;
+    }
+    const inst = (node as Holder)[STATE];
+    if (inst === undefined || inst.d) continue; // a renderDirect instance runs its own trampolines
+    const sh = inst.shape,
+      types = sh.types;
+    for (let i = 0; i < sh.n; i++) {
+      if (types[i] !== type) continue;
+      let s = inst.s;
+      if (s === null) s = inst.s = new Array(sh.n);
+      if (s[i] === undefined) sh.findDelegated(inst.root, s);
+      const at = path.lastIndexOf(s[i] as Node);
+      if (at < 0) continue; // the handler element is not on the event's path
+      ((els ??= []), (insts ??= []), (holes ??= []), (pos ??= []));
+      // Keep innermost first: insert by path position.
+      let j = pos.length;
+      while (j > 0 && pos[j - 1]! > at) j--;
+      els.splice(j, 0, s[i] as Node);
+      insts.splice(j, 0, inst);
+      holes.splice(j, 0, i);
+      pos.splice(j, 0, at);
+    }
+    depth++;
+  }
+  if (els === null) return;
+  for (let k = 0; k < els.length; k++) {
+    if (k > 0 && els[k] !== els[k - 1] && e.cancelBubble) break; // stopPropagation: no outer handlers
+    const f = insts![k]!.v[holes![k]!];
+    if (typeof f !== "function") continue;
+    const el = els[k]!;
+    Object.defineProperty(e, "currentTarget", { configurable: true, get: () => el });
+    try {
+      (f as (this: Node, e: Event) => unknown).call(el, e);
+    } finally {
+      delete (e as { currentTarget?: unknown }).currentTarget;
+    }
+  }
 }
 
 function makeView(t: AnyTemplate): View<Values> {
@@ -250,6 +430,13 @@ class Desc {
   }
 }
 
+class RunsOf {
+  readonly items: readonly unknown[];
+  constructor(items: readonly unknown[]) {
+    this.items = items;
+  }
+}
+
 class ListOf {
   readonly items: readonly unknown[];
   readonly key: (item: unknown) => Key;
@@ -262,79 +449,96 @@ class ListOf {
 }
 
 /**
- * A mounted view. `s` holds hole nodes in [0, n) (a Slot for child holes) and
- * the last values in [n, 2n), as a Block's state does. All fields change when
- * a different view replaces this one in place, so lists and parents that hold
- * the instance need no update.
+ * A mounted view. `v` is the values array of the description last rendered
+ * (descriptions are never mutated, so it is kept, not copied); `s` holds the
+ * hole nodes (a Slot for child holes), or null until a hole is first written.
+ * All fields change when a different view replaces this one in place, so
+ * lists and parents that hold the instance need no update.
  */
 class Inst {
   shape: Shape;
   root: Element;
-  s: unknown[];
-  constructor(shape: Shape, root: Element, s: unknown[]) {
+  v: Values;
+  s: unknown[] | null;
+  /** Mounted by renderDirect: its handlers are on its elements, never delegated. */
+  d: boolean;
+  constructor(shape: Shape, root: Element, v: Values, s: unknown[] | null, d: boolean) {
     this.shape = shape;
     this.root = root;
+    this.v = v;
     this.s = s;
+    this.d = d;
   }
 }
 
 function mount(d: Desc): Inst {
   const sh = d.s,
     vals = d.v,
-    n = sh.n,
     t = sh.t;
   const root = t.clone(vals);
-  const s: unknown[] = new Array(2 * n);
-  for (let i = 0; i < n; i++) s[n + i] = vals[i];
-  if (sh.eager) {
-    t.locate(root, s);
-    const flags = sh.flags;
-    for (let i = 0; i < n; i++) {
-      const f = flags[i],
-        v = vals[i];
-      if (f === WRITE) continue;
-      const node = s[i] as Node;
-      if (f === HANDLER) {
-        (node as Holder)[STATE] = s;
-        t.write(i, node, sh.fns[i]);
-      } else if (f === PROPERTY) {
-        if (v != null) t.write(i, node, v);
-      } else {
-        const sl = new Slot(node);
-        s[i] = sl;
-        setChild(sl, v);
-      }
+  const dir = direct && sh.delegates;
+  if (!sh.eager && !dir) {
+    const inst = new Inst(sh, root, vals, null, direct);
+    if (sh.handlers) (root as Holder)[STATE] = inst;
+    return inst;
+  }
+  const n = sh.n,
+    s: unknown[] = new Array(n);
+  if (sh.eager) sh.findEager(root, s);
+  if (dir) sh.findDelegated(root, s);
+  const inst = new Inst(sh, root, vals, s, direct);
+  if (sh.handlers) (root as Holder)[STATE] = inst;
+  const flags = sh.flags;
+  for (let i = 0; i < n; i++) {
+    const f = flags[i];
+    if (f === WRITE || (f === DELEGATED && !dir)) continue;
+    const node = s[i] as Node,
+      v = vals[i];
+    if (f === HANDLER || f === DELEGATED) {
+      t.write(i, node, sh.fns[i]);
+    } else if (f === PROPERTY) {
+      if (v != null) t.write(i, node, v);
+    } else {
+      const sl = new Slot(node);
+      s[i] = sl;
+      setChild(sl, v);
     }
   }
-  return new Inst(sh, root, s);
+  return inst;
 }
 
 // Bring a mounted instance to `d`: patch it, or replace it with a fresh mount
 // when `d` is another view.
 function patch(inst: Inst, d: Desc): void {
-  const sh = d.s;
+  const sh = d.s,
+    vals = d.v;
   if (sh !== inst.shape) {
     const fresh = mount(d);
     inst.root.parentNode!.replaceChild(fresh.root, inst.root);
     inst.shape = sh;
     inst.root = fresh.root;
+    inst.v = vals;
     inst.s = fresh.s;
+    inst.d = fresh.d;
+    if (sh.handlers) (fresh.root as Holder)[STATE] = inst;
     return;
   }
-  const vals = d.v,
-    s = inst.s,
-    n = sh.n,
+  const old = inst.v;
+  if (old === vals) return; // the same description again: nothing can have changed
+  inst.v = vals;
+  const n = sh.n,
     flags = sh.flags;
+  let s = inst.s;
   for (let i = 0; i < n; i++) {
-    const v = vals[i],
-      j = n + i;
-    if (s[j] === v) continue;
-    s[j] = v;
+    const v = vals[i];
+    if (old[i] === v) continue;
     const f = flags[i];
-    if (f === HANDLER) continue; // the trampoline reads s[j]
-    if (f === CHILD) setChild(s[i] as Slot, v);
+    if (f === HANDLER || f === DELEGATED) continue; // handlers read inst.v when they run
+    if (f === CHILD) setChild(s![i] as Slot, v);
     else {
-      if (s[0] === undefined) sh.t.locate(inst.root, s); // first real update: find the holes now
+      if (s === null)
+        sh.findWrite(inst.root, (s = inst.s = new Array(n))); // first real update: find the holes now
+      else if (s[i] === undefined) sh.findWrite(inst.root, s);
       sh.t.write(i, s[i] as Node, v);
     }
   }
@@ -350,6 +554,7 @@ const TEXT = 1;
 const NODE = 2;
 const VIEW = 3;
 const LIST = 4;
+const RUNS = 5;
 
 const kindOf = (v: unknown): number =>
   v == null || v === false
@@ -360,7 +565,9 @@ const kindOf = (v: unknown): number =>
         ? VIEW
         : v instanceof ListOf
           ? LIST
-          : NODE;
+          : v instanceof RunsOf
+            ? RUNS
+            : NODE;
 
 /**
  * A child hole's state. Its content sits just before `anchor`, the slot's empty
@@ -377,6 +584,8 @@ class Slot {
   list: List<unknown, Inst, Key> | null = null;
   key: (item: unknown) => Key = noKey;
   render: (item: unknown) => ViewNode = noRender;
+  /** For runs: a text node or an instance per run, in order. */
+  runs: (Text | Inst)[] | null = null;
   constructor(anchor: Node) {
     this.anchor = anchor as Text;
     this.parent = anchor.parentNode!;
@@ -405,6 +614,8 @@ function setChild(sl: Slot, v: unknown): void {
         return patch(sl.inst!, v as Desc);
       case LIST:
         return setList(sl, v as ListOf);
+      case RUNS:
+        return setRuns(sl, (v as RunsOf).items);
     }
     return;
   }
@@ -432,8 +643,44 @@ function setChild(sl: Slot, v: unknown): void {
       });
       return setList(sl, v as ListOf);
     }
+    case RUNS:
+      sl.runs = [];
+      return setRuns(sl, (v as RunsOf).items);
   }
 }
+
+// Bring a slot's runs to `items` by position.
+function setRuns(sl: Slot, items: readonly unknown[]): void {
+  const old = sl.runs!,
+    p = sl.parent,
+    n = items.length;
+  for (let i = 0; i < n; i++) {
+    const v = items[i],
+      cur = old[i];
+    if (v instanceof Desc) {
+      if (cur instanceof Inst) {
+        patch(cur, v);
+        continue;
+      }
+      const inst = mount(v);
+      if (cur === undefined) p.insertBefore(inst.root, sl.anchor);
+      else p.replaceChild(inst.root, cur);
+      old[i] = inst;
+    } else {
+      const t = "" + (v as string | number);
+      if (cur instanceof Inst || cur === undefined) {
+        const node = document.createTextNode(t);
+        if (cur === undefined) p.insertBefore(node, sl.anchor);
+        else p.replaceChild(node, cur.root);
+        old[i] = node;
+      } else if (cur.data !== t) cur.data = t;
+    }
+  }
+  for (let i = n; i < old.length; i++) p.removeChild(runRoot(old[i]!));
+  old.length = n;
+}
+
+const runRoot = (r: Text | Inst): Node => (r instanceof Inst ? r.root : r);
 
 function setList(sl: Slot, l: ListOf): void {
   sl.key = l.key;
@@ -460,6 +707,10 @@ function clearChild(sl: Slot): void {
       sl.key = noKey;
       sl.render = noRender;
       if (sl.anchor.parentNode === null) sl.parent.appendChild(sl.anchor); // an owning list's clear drops it
+      break;
+    case RUNS:
+      for (const r of sl.runs!) sl.parent.removeChild(runRoot(r));
+      sl.runs = null;
       break;
   }
   sl.kind = EMPTY;
