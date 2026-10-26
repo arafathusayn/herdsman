@@ -40,3 +40,27 @@ func TestWebHealthDaemonInbox(t *testing.T) {
 		t.Fatalf("foreign lock: %v", ch.Flags)
 	}
 }
+
+// TestWebForeignStaleServiceLock: the web reader flags a stale courier or
+// watch lock without the daemon's record on a daemon-owned inbox.
+func TestWebForeignStaleServiceLock(t *testing.T) {
+	root := newInbox(t)
+	inboxtest.DaemonOwn(t, root, "e1", true)
+	old := time.Now().Add(-time.Hour)
+	for _, l := range []string{"courier.lock", "watch.lock"} {
+		os.Mkdir(filepath.Join(root, l), 0o700)
+		os.WriteFile(filepath.Join(root, l, "owner.json"), []byte(`{"owner":"daemon","epoch":"e1"}`), 0o600)
+		os.Chtimes(filepath.Join(root, l), old, old)
+	}
+	if ch := readChannel(root, time.Now()); slices.Contains(ch.Flags, "courier-lock-stale") || slices.Contains(ch.Flags, "watch-lock-stale") {
+		t.Fatalf("retained locks flagged: %v", ch.Flags)
+	}
+	os.WriteFile(filepath.Join(root, "courier.lock", "owner.json"), []byte(`{"owner":"courier","owner":"daemon","epoch":"e1"}`), 0o600)
+	os.Remove(filepath.Join(root, "watch.lock", "owner.json"))
+	os.Chtimes(filepath.Join(root, "courier.lock"), old, old)
+	os.Chtimes(filepath.Join(root, "watch.lock"), old, old)
+	ch := readChannel(root, time.Now())
+	if !slices.Contains(ch.Flags, "courier-lock-stale") || !slices.Contains(ch.Flags, "watch-lock-stale") {
+		t.Fatalf("foreign locks: %v", ch.Flags)
+	}
+}

@@ -158,7 +158,8 @@ type Channel struct {
 	Health      []ChannelHealth `json:"health"`
 	HealthAfter int64           `json:"health_after"`
 	// Flags are the health problems `message status` reports beyond the heartbeats:
-	// timing-invalid, mutation-lock-stale, channel-lock-stale, alert-lock-stale, automation-held.
+	// timing-invalid, mutation-lock-stale, channel-lock-stale, alert-lock-stale, automation-held,
+	// and on a daemon-owned inbox courier-lock-stale and watch-lock-stale.
 	Flags []string `json:"flags"`
 	// Holds are the hold and resume intents in state/: route-paused, route-frozen, hold-*, resume-*.sent, resume-held-*.
 	Holds    []ChannelHold    `json:"holds"`
@@ -253,9 +254,17 @@ func readChannel(root string, now time.Time) Channel {
 			ch.Flags = append(ch.Flags, "timing-invalid")
 		}
 	}
-	for _, l := range []struct{ dir, flag string }{{"herdr-mutation.lock", "mutation-lock-stale"}, {"channel.lock", "channel-lock-stale"}} {
-		// The daemon's retained queue lock is never stale (design 4.5).
-		if l.dir == "channel.lock" && inbox.DaemonRetainedLock(root, filepath.Join(root, l.dir)) {
+	locks := []struct{ dir, flag string }{{"herdr-mutation.lock", "mutation-lock-stale"}, {"channel.lock", "channel-lock-stale"}}
+	if inbox.DaemonOwned(root) {
+		// The daemon retains the service locks too; one without its
+		// record is a foreign or old writer's (design 4.5).
+		for _, s := range inbox.DaemonServiceLocks {
+			locks = append(locks, struct{ dir, flag string }{s + ".lock", s + "-lock-stale"})
+		}
+	}
+	for _, l := range locks {
+		// The daemon's retained locks are never stale (design 4.5).
+		if l.dir != "herdr-mutation.lock" && inbox.DaemonRetainedLock(root, filepath.Join(root, l.dir)) {
 			continue
 		}
 		if staleDir(filepath.Join(root, l.dir), now, ch.HealthAfter) {
