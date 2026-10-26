@@ -5,7 +5,8 @@
 // human's: the app never approves a pair, writes the inbox or types into
 // the adjutant's pane.
 import { AuthError, catalog, createRoute, inboxState } from "../api.ts";
-import { h, mount } from "../dom.ts";
+import { mountElement } from "../dom.ts";
+import { html, on, text } from "../herdsman-blocks-view.ts";
 import { store } from "../store.ts";
 import { dismissOnBackdrop, toast } from "../ui.ts";
 import { routeForm } from "./route-form.ts";
@@ -19,19 +20,34 @@ async function copy(text: string, what: string): Promise<void> {
   }
 }
 
+// The dialog and its form are elements the dialog owns: the route form
+// renders into the form, and until it does, the form holds the loading or
+// the failure parts, each made once.
+const Dialog = html`<dialog
+  class="dialog new-route"
+  aria-label="New route"
+  onclose=${on<"close", HTMLDialogElement>()}
+></dialog>`;
+const Body = html`<form method="dialog" novalidate></form>`;
+const Heading = html`<h2>New route</h2>`;
+const Loading = html`<p class="nr-loading">Reading the harness lists…</p>`;
+const Failure = html`<p class="error">${text()}</p>`;
+const CloseAction = html`<div class="dialog-actions"><button value="cancel" class="btn ghost">Close</button></div>`;
+
 /** Opens the New route dialog. */
 export function openNewRoute(): void {
-  const dlg = h("dialog", { class: "dialog new-route", "aria-label": "New route" });
-  const body = h("form", { method: "dialog", novalidate: true });
   let stop = (): void => {};
+  const dlg = mountElement("dialog", Dialog, [
+    function () {
+      stop();
+      this.remove();
+    },
+  ]);
+  const body = mountElement("form", Body, []);
   dlg.append(body);
-  dlg.addEventListener("close", () => {
-    stop();
-    dlg.remove();
-  });
   dismissOnBackdrop(dlg);
   document.body.append(dlg);
-  mount(body, h("h2", null, "New route"), h("p", { class: "nr-loading" }, "Reading the harness lists…"));
+  body.replaceChildren(mountElement("h2", Heading, []), mountElement("p", Loading, []));
   dlg.showModal();
   catalog().then(
     (c) => {
@@ -61,11 +77,10 @@ export function openNewRoute(): void {
     },
     (e: unknown) => {
       if (e instanceof AuthError) store.set({ fatal: e.message });
-      mount(
-        body,
-        h("h2", null, "New route"),
-        h("p", { class: "error" }, e instanceof Error ? e.message : String(e)),
-        h("div", { class: "dialog-actions" }, h("button", { value: "cancel", class: "btn ghost" }, "Close")),
+      body.replaceChildren(
+        mountElement("h2", Heading, []),
+        mountElement("p", Failure, [e instanceof Error ? e.message : String(e)]),
+        mountElement("div", CloseAction, []),
       );
     },
   );
