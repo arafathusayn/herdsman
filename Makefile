@@ -15,8 +15,11 @@ BUN_GLOBAL  := $(or $(BUN_INSTALL),$(HOME)/.bun)/install/global/node_modules
 WEB_DIST    := internal/web/dist
 # Two pages: the app at / and the docs at /docs/. Names keep their folder, so
 # both pages can be index.html; the app's files keep the names they had.
-BUN_BUILD   := bun build ./index.html ./docs/index.html --outdir ../$(WEB_DIST) --minify \
-               --entry-naming '[dir]/[name].[ext]' --asset-naming '[name].[ext]' --chunk-naming '[dir]/[name].[ext]'
+# web/build.ts is `bun build` with the herdsman-blocks plugin, which compiles
+# the views at build time (the CLI takes no plugins); WEB_COMPILE=0 builds
+# without it, so the views compile at run time.
+WEB_COMPILE ?= 1
+BUN_BUILD   := bun build.ts --outdir ../$(WEB_DIST) $(if $(filter 0,$(WEB_COMPILE)),--no-compile,)
 
 .PHONY: all tools web pages web-check web-e2e web-fmt build check test lint vuln release-check clean
 
@@ -48,7 +51,7 @@ web-check:
 web-e2e: web
 	cd web/e2e && bun install --frozen-lockfile
 	cd web && bun check --no-pretty -p e2e/tsconfig.json --typeRoots "$(BUN_GLOBAL)"
-	cd web/e2e && bun run e2e
+	cd web/e2e && WEB_COMPILE=$(WEB_COMPILE) bun run e2e
 
 ## web-fmt: format the web app
 web-fmt:

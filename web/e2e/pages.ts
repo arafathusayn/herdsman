@@ -6,13 +6,18 @@ import { join } from "node:path";
 import { Glob } from "bun";
 import type { Browser } from "puppeteer-core";
 
+import { herdsmanBlocks } from "../src/herdsman-blocks-plugin.ts";
 import type { Check } from "./app.ts";
+
+// The page scripts' views compile at build time like the app's (make web),
+// unless WEB_COMPILE=0.
+const plugins = process.env["WEB_COMPILE"] === "0" ? [] : [herdsmanBlocks()];
 
 export async function pageChecks(browser: Browser, check: Check): Promise<void> {
   const dir = join(import.meta.dir, "pages");
   const entries = [...new Glob("*.page.ts").scanSync(dir)].sort();
   for (const name of entries) {
-    const built = await Bun.build({ entrypoints: [join(dir, name)], target: "browser" });
+    const built = await Bun.build({ entrypoints: [join(dir, name)], target: "browser", plugins });
     if (!built.success) {
       check(`${name}: builds`, false, built.logs.join("\n"));
       continue;
