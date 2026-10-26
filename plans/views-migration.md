@@ -1,6 +1,6 @@
 # Migrating herdsman web to views
 
-How every part of the web app moves from `h()` + `patch()` (dom.ts) to herdsman-blocks' declarative view layer (`web/src/herdsman-blocks-view.ts`, spec in `plans/herdsman-blocks.md`, Layer 4 and Types). These are the conventions every migration agent follows. Status as of 2026-10-27: stage 1 (the foundation and the temporary bridge) is done except `fuzzy.ts` and `markdown.ts`, which wait for an API decision (see "What views cannot express yet").
+How every part of the web app moves from `h()` + `patch()` (dom.ts) to herdsman-blocks' declarative view layer (`web/src/herdsman-blocks-view.ts`, spec in `plans/herdsman-blocks.md`, Layer 4 and Types). These are the conventions every migration agent follows. Status as of 2026-10-27: stage 1 (the foundation and the temporary bridge) is done, on herdsman-blocks 0.0.8 (delegated events, `renderDirect`, `runs`).
 
 ## Why
 
@@ -24,9 +24,11 @@ render(container, Rows([() => pick(), list(items, (it) => it.id, (it) => Row([it
 | `attr<V>()`          | any other attribute         | string by default; null, undefined and false remove it, true sets it "" |
 | `prop<E, P>()`       | `.name=`                    | exactly `E[P]`; both type arguments required                             |
 | `on<K, E>()`         | `onname=`                   | `(this: E, ev: EventOf<E, K>) => void`, or null; the only marker for on* |
-| `child<C>()`         | element content             | C, a subset of: text, nothing, a Node, a view description, a list        |
+| `child<C>()`         | element content             | C, a subset of: text, nothing, a Node, a description, a list, runs       |
 
-Calling a view with its value tuple returns a description (`ViewNodeOf<typeof Row>`); `render(container, description)` mounts it the first time and patches it after. `svg` is `html` for SVG fragments.
+Calling a view with its value tuple returns a description (`ViewNodeOf<typeof Row>`); `render(container, description)` mounts it the first time and patches it after. `svg` is `html` for SVG fragments. A child hole takes three kinds of sequence: `list(items, key, render)` (keyed, for items with identity), `runs([...])` (positional text and descriptions with no wrapper, for inline content) and nothing else: a plain array is never a child.
+
+`render` delegates the handlers of bubbling events to its container (one listener per event type), so a view's elements carry no `on*` property. `renderDirect(container, description)` puts every handler on its own element instead; it is for nodes that move out of their container, which today means only the bridge.
 
 ## Conventions
 
@@ -154,8 +156,13 @@ Every handler is an `on<K, E>()` hole; K is the event name, E the element type (
 
 1. Pass a fresh closure every render: a handler hole records the new function and writes nothing to the DOM.
 2. The markup's `onname` is not checked against K (TypeScript sees the markup only as strings): keep them identical by eye.
-3. Never read or assign `el.onclick` and never `addEventListener` on an element a view renders: the runtime may soon delegate events at each `render()` root, and the handler contract is the only promise.
-4. Listeners that come and go with an interaction (a drag's `pointermove` and `pointerup`) are the exception: they are added in the handler that starts it and removed when it ends (`resize.ts`).
+3. Handlers of bubbling events (click, input, change, submit, keydown, pointer and mouse events, and the rest of the delegated set in plans/herdsman-blocks.md) are delegated: the `render()` container listens once per event type and calls the handlers on the path from the target, innermost first, with the element as `this` and `currentTarget`; `stopPropagation()` stops the outer ones. Non-bubbling events (focus, blur, mouseenter, scroll, close) get a handler on the element itself. So:
+   - Never read or assign `el.onclick`: it is not set.
+   - An element moved out of its render container gets no delegated events. Do not move a view's nodes; render where they live (the bridge is the one exception, with `renderDirect`).
+   - A delegated handler runs when the event reaches the container: after native listeners on elements between, before listeners above it. A native listener inside the view that stops propagation hides the event from the view's handlers.
+4. Never `addEventListener` on an element a view renders, except for listeners that come and go with an interaction (a drag's `pointermove` and `pointerup`), added in the handler that starts it and removed when it ends (`resize.ts`).
+5. An element made with `mountElement` (convention 8) is not rendered by `render`: its handlers are set on it directly at creation, so it works wherever it is attached.
+6. Do not reuse or mutate a value tuple between renders: a description rendered again with the same array is skipped as unchanged.
 
 ### 6. Text safety
 
@@ -183,6 +190,37 @@ export function icon(paths: readonly string[], label?: string): IconNode {
 ```
 
 `icons` stays path data (`string[]` per icon), so commands and menus keep passing glyphs around as data; `icon(glyph)` makes the view. Path data is unique within an icon (a test checks), so it keys the paths, and swapping one icon for another in place keeps the paths they share.
+
+### 7a. Inline content: runs()
+
+Text and inline elements side by side, of data-driven length, with no wrapper element: `runs(items)` with items that are strings, numbers or descriptions, in a hole typed `child<RunsNode<ViewNodeOf<typeof Mark>>>()` (or a union of inline views). Runs are positional, like `unkeyed()`: text stays the same text node with its data updated, a description patches the view at its position (or replaces it for another view). Use them for content with no identity; anything with identity is a `list`. Markdown blocks are runs of block views too: they have no identity, and a re-render patches them by position.
+
+Before (`fuzzy.ts`):
+
+```ts
+export function highlight(text: string, hits: number[]): Unkeyed {
+  // ...
+  out.push(inHit ? h("mark", null, run) : run);
+  return unkeyed(out);
+}
+```
+
+After:
+
+```ts
+const Mark = html`<mark>${text()}</mark>`;
+export type HighlightNode = RunsNode<ViewNodeOf<typeof Mark>>;
+
+export function highlight(value: string, hits: readonly number[]): HighlightNode {
+  if (!hits.length) return runs<ViewNodeOf<typeof Mark>>([value]);
+  // ...
+  out.push(inHit ? Mark([run]) : run);
+  return runs(out);
+}
+// in a view: html`<span class="name">${child<HighlightNode>()}</span>`
+```
+
+Give `runs` its type argument where the items are all text (`runs<V>([value])`), or it infers runs of any view. Markdown (`markdown.ts`) shows the larger case: `InlineNode` is runs of text and `<code>`, `<strong>` and link views; `CodeNode` is a string or runs of text and token spans; a document is runs of heading, list, table, quote, paragraph and code views. Templates whose root is `<tr>`, `<th>` or `<td>` compile fine (a template element parses table parts on their own).
 
 ### 8. Components that own an element
 
@@ -230,32 +268,31 @@ bun fmt formats the markup of `html` and `svg` literals as HTML. It may put two 
 
 ### 12. Testing with the fake DOM
 
-1. Tests run on herdsman-blocks' linked-list fake DOM (`herdsman-blocks.testdom.ts`, installed by `installFakeDocument()`), which parses templates, clones, records namespaces and counts DOM writes (`ops`, `resetOps()`). `testdom.ts` extends it with what the app's forms need (form properties, `classList`, readable `dataset`, bubbling `dispatch()` with `submitter`) and keeps `all`, `find` and `byName`.
+1. Tests run on herdsman-blocks' linked-list fake DOM (`herdsman-blocks.testdom.ts`, installed by `installFakeDocument()`), which parses templates, clones, records namespaces, dispatches bubbling events (`dispatchEvent`) and counts DOM writes (`ops`, `resetOps()`). `testdom.ts` extends it with what the app's forms need (form properties, `classList`, readable `dataset`) and keeps `all`, `find` and `byName`.
 2. Render into a scratch container: `const box = document.createElement("div"); render(box, view(...));` and inspect `box.firstChild`.
-3. When migrating, keep the old builder in the test (or build the old markup with `h()` while it exists) and compare a dump of both: tag, namespace, sorted attributes, text. `dom.test.ts` (icons) and `ui.test.ts` (pill, theme switch, dialogs) show the pattern. Where the fake DOM and the browser differ (the browser reflects `tabIndex` as `tabindex` and `spellcheck = false` as `spellcheck="false"`; the fake records them as given), write the reference with the browser's result and say so in a comment.
-4. Test behavior through events and data, and assert node identity (`toBe`) to prove a patch kept nodes. To fire a handler, use `testdom.ts`'s `dispatch()`, which runs listeners and on* handlers; if event delegation lands, that helper is the one place to update.
+3. When migrating, keep the old builder in the test (or build the old markup with `h()` while it exists) and compare `dump()` (testdom.ts) of both: tags, SVG namespace, sorted attributes, text, with empty text (slot anchors) and the bridge's stamps left out. `dom.test.ts` (icons), `ui.test.ts` (pill, theme switch, dialogs), `fuzzy.test.ts` (highlight) and `markdown.test.ts` (every block kind, then each block alone) show the pattern. Where the fake DOM and the browser differ (the browser reflects `tabIndex` as `tabindex` and `spellcheck = false` as `spellcheck="false"`; the fake records them as given), write the reference with the browser's result and say so in a comment.
+4. Test behavior through events and data, and assert node identity (`toBe`) to prove a patch kept nodes. Fire events only with `testdom.ts`'s `dispatch(el, type, { submitter })`: it dispatches a bubbling event from the element, so the render container's delegated listener sees it as in a browser. Never call `el.onclick` in a test: delegated handlers are not there.
 5. Use `ops` to prove that an unchanged render writes nothing.
 
-### What views cannot express yet
+### What views cannot express
 
-1. **Mixed inline content of data-driven length**: text runs between elements, such as `highlight()`'s text and `<mark>` runs, a markdown paragraph's text, code, bold and links, and highlighted code's text and `<span class="hl-*">` runs. Every view and every list item has exactly one element root, so text items cannot be listed. Keeping the DOM identical needs an API addition (proposed: list items that render to text as well as views, or a positional `runs([...])` child kind for content without identity, the view-layer counterpart of `unkeyed`). Until it is decided, `fuzzy.ts` and `markdown.ts` stay on `h()` and reach views through the bridge's other direction: a view takes their output as a Node in a child hole.
-2. **DocumentFragments in child holes**: a fragment's nodes move out when it is inserted, so the slot cannot remove them later. Never pass a fragment to a child hole.
+1. **DocumentFragments in child holes**: a fragment's nodes move out when it is inserted, so the slot cannot remove them later. Never pass a fragment to a child hole; inline sequences are `runs()`.
 
 ## The temporary bridge (stage 1 to stage 3)
 
 Files migrate in parallel, so for a while views and `h()` trees nest in both directions. dom.ts carries a bridge, marked TEMPORARY, that stage 3 deletes:
 
-1. `h()`, `mount()` and `patch()` accept a view description or a view list wherever they accept a child. The bridge renders it once into a scratch element and moves its element roots out (one-shot; the `h()` parent rebuilds anyway).
+1. `h()`, `mount()` and `patch()` accept a view description, a view list or runs wherever they accept a child. The bridge renders it once into a scratch element with `renderDirect` and moves its nodes out (one-shot; the `h()` parent rebuilds anyway). `renderDirect` puts each handler on its own element, so handlers keep working after the move; `render` would delegate them to the scratch element, which the nodes leave. A bridged node that ends up inside a `render()` root runs its handler once: render roots skip instances mounted by `renderDirect`.
 2. `each()`'s render may return a view description instead of an element.
-3. Every root the bridge moves out is stamped with a `data-key` no other render uses: `view:<n>`, or `<item key>|view:<n>` for an `each()` row. `patch()`'s morph therefore never matches an old materialization to a new one: it replaces it. Morphing would keep the old element and, with it, the old render's event handlers.
+3. Every element the bridge moves out is stamped with a `data-key` no other render uses: `view:<n>`, or `<item key>|view:<n>` for an `each()` row (text runs are not stamped; they hold no handlers). `patch()`'s morph therefore never matches an old materialization to a new one: it replaces it. Morphing would keep the old element and, with it, the old render's handlers.
 
-Costs, all temporary: a view crossing the bridge is rebuilt on every `patch()` of its parent (no node identity, focus or caret inside it survives), its root carries the stamp in the DOM, and its handlers are bound to the scratch render. If the runtime starts delegating events at each `render()` root, materialized subtrees (moved out of their scratch container) lose their handlers, and the bridge must render in place instead; check this when that change lands.
+Costs, all temporary: a view crossing the bridge is rebuilt on every `patch()` of its parent (no node identity, focus or caret inside it survives), its root carries the stamp in the DOM, and its handlers are direct (one property per element) instead of delegated.
 
 The other direction needs no bridge: an `h()` element is a Node, and a view takes it through a `child<HTMLElement>()` hole. A fresh element per render replaces the old one each time, so do this only for parts that are about to migrate.
 
 ## Migration order
 
-1. **Stage 1, foundation (done except as noted)**: dom.ts `icon()`, `logoMark()` and `mountElement()`; ui.ts `pill()`, toasts, `confirmDialog()`, `formDialog()`, `themeSwitch()`; resize.ts handles; the bridge; the test DOM. Waiting on the API decision: fuzzy.ts `highlight()`, markdown.ts `renderMarkdown()` and `codeBlock()`.
+1. **Stage 1, foundation (done)**: dom.ts `icon()`, `logoMark()` and `mountElement()`; ui.ts `pill()`, toasts, `confirmDialog()`, `formDialog()`, `themeSwitch()`; resize.ts handles; fuzzy.ts `highlight()`; markdown.ts `renderMarkdown()` and `codeBlock()`; the bridge; the test DOM. highlight.ts `renderPieces()` still builds a fragment for diff.ts and views/appearance.ts; those agents turn it into runs the way `codeBlock()` does.
 2. **Stage 2, views, leaves before containers** (files can go in parallel; each agent owns its files):
    1. `views/team.ts` (cards and board), `views/pair.ts`, `views/appearance.ts`, `views/new-route.ts`.
    2. `palette.ts`, `views/messages.ts`, `views/files.ts`, `views/artifacts.ts`, `views/hosts.ts`.
@@ -278,9 +315,12 @@ The other direction needs no bridge: an `h()` element is a Node, and a view take
 | `mountElement(tag, view, vals)`         | (new)                     | `HTMLElementTagNameMap[K]`                                            |
 | `pill(status)`                          | `HTMLElement`             | `PillNode`                                                            |
 | `themeSwitch(current, onChange)`        | `HTMLElement`             | `ThemeSwitchNode`                                                     |
+| `highlight(value, hits)`                | `(string, number[])` → `Unkeyed` | `(string, readonly number[])` → `HighlightNode` (runs of text and `<mark>`) |
+| `renderMarkdown(src)`                   | `HTMLElement`             | `MarkdownNode` (also exported: `InlineNode`)                          |
+| `codeBlock(lines, lang)`                | `Node \| string`          | `CodeNode` = `string \| RunsNode<token span>`                          |
 | `each(items, key, render)`              | render returns `Element`  | render returns `Element \| ViewNode` (bridge)                         |
-| `h()`, `mount()`, `patch()` children    | Node, text, lists         | also `ViewNode` and `ListNode` (bridge)                               |
+| `h()`, `mount()`, `patch()` children    | Node, text, lists         | also `ViewNode`, `ListNode` and `RunsNode` (bridge)                   |
 | `toast`, `confirmDialog`, `formDialog`, `dismissOnBackdrop`, `panelResizer`, `navResizer` | unchanged | unchanged |
-| testdom.ts `FakeElement`                | its own fake              | extends herdsman-blocks.testdom's `FakeElement`; `FakeEvent.target` is never null |
+| testdom.ts                              | its own fake              | `FakeElement` extends herdsman-blocks.testdom's; `FakeEvent` is a class extending its bubbling event (with `submitter`, `preventDefault`); `dispatch(el, type, extras)` and `dump(node)` are exported |
 
 A caller that used a returned element as an element (`el.append(icon(...))`) passes the description to a child hole instead, or, until it migrates, to `mount()`/`h()` (docs.ts's copy button does `mount(btn, icon(icons.copy), label)`).

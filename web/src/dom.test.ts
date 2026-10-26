@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { each, h, icon, icons, logoMark, mount, patch, unkeyed } from "./dom.ts";
-import { cls, html, list, on, render, text, type ViewNode } from "./herdsman-blocks-view.ts";
+import { child, cls, html, list, on, render, text, type ViewNode } from "./herdsman-blocks-view.ts";
 import { asDom, FakeElement, type FakeNode, installFakeDocument, SVG_NS } from "./herdsman-blocks.testdom.ts";
 import { dispatch, installDom } from "./testdom.ts";
 
@@ -206,6 +206,22 @@ describe("views through h(), mount(), patch() and each()", () => {
     for (const e of after) expect(before.includes(e)).toBe(false);
     press(after[0]!);
     expect(calls).toEqual(["new2"]);
+  });
+
+  test("handlers survive the move: an event bubbling from inside a moved node runs the handler once", () => {
+    const Labelled = html`<button onclick=${on<"click">()}><b>${text()}</b></button>`;
+    const calls: string[] = [];
+    // A render() root that delegates events, holding an h() tree, holding a bridged view.
+    const Shell = html`<main onclick=${on<"click">()}>${child<HTMLElement>()}</main>`;
+    const root = document.createElement("div");
+    const draw = (tag: string) =>
+      render(root, Shell([() => calls.push("shell"), h("section", null, Labelled([() => calls.push(tag), "Go"]))]));
+    draw("first");
+    draw("second");
+    const b = fake(root).firstChild!.firstChild!.firstChild!.firstChild as FakeElement;
+    expect(b.tagName).toBe("B");
+    dispatch(b, "click");
+    expect(calls).toEqual(["second", "shell"]); // each once, innermost first
   });
 
   test("a view list child and mount() work too", () => {
