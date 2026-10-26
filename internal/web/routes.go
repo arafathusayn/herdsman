@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
+
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 

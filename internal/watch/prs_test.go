@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -290,5 +292,225 @@ func TestRunGh(t *testing.T) {
 	}
 	if _, err := exec.LookPath("gh"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// R5 finding 5 (A24): a large unchanged history is read as a stream that
+// keeps only the fields the snapshot needs: 1000 comments of 16 KiB each
+// (16 MiB of JSON) allocate far less than the JSON's size per poll.
+func TestPRSnapshotStreamsLargeHistory(t *testing.T) {
+	r := newPRRig(t)
+	body := strings.Repeat("x", 16<<10)
+	var b strings.Builder
+	b.WriteString("[")
+	for i := 0; i < 1000; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"id":%d,"user":{"login":"u%d"},"body":%q}`, i, i%7, body)
+	}
+	b.WriteString("]")
+	big := filepath.Join(r.dir, "big.json")
+	_ = os.WriteFile(big, []byte(b.String()), 0o644)
+	r.fixture("7-view.json", view("OPEN", "abcd1234ffff"))
+	d := Deps{Gh: r.gh.run, GhStream: func(ctx context.Context, env []string, read func(io.Reader) error, args ...string) error {
+		if strings.Contains(strings.Join(args, " "), "issues/7/comments") {
+			f, err := os.Open(big)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			return read(f)
+		}
+		out, err := r.gh.run(ctx, env, args...)
+		if err != nil {
+			return err
+		}
+		return read(bytes.NewReader(out))
+	}}
+	dst := filepath.Join(r.dir, "snap.txt")
+	_ = snapshotTo(context.Background(), d, nil, "org/repo", "7", dst) // warm up
+	var m0, m1 runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&m0)
+	err := snapshotTo(context.Background(), d, nil, "org/repo", "7", dst)
+	runtime.ReadMemStats(&m1)
+	snap := strings.Split(strings.TrimRight(readAll(dst), "\n"), "\n")
+	if err != nil || len(snap) != 1002 || snap[0] != "comment 0 u0" {
+		t.Fatalf("%d lines, %v, first %q", len(snap), err, snap[0])
+	}
+	if alloc := m1.TotalAlloc - m0.TotalAlloc; alloc > 4<<20 {
+		t.Errorf("one poll of a 16 MiB history allocated %d bytes", alloc)
+	}
+}
+
+// R5 finding 9: the streaming reader's branches, and the streaming runner.
+func TestStreamPagesAndRunGhStream(t *testing.T) {
+	n := 0
+	count := func(ghItem) { n++ }
+	if err := streamPages(strings.NewReader(`null [{"id":1,"user":"x"}] [] [{"id":2}]`), count); err != nil || n != 2 {
+		t.Errorf("null and empty pages: %d %v", n, err)
+	}
+	for _, bad := range []string{`{"id":1}`, `[1]`, `[{"id":1}`, `[{"id":1} x`, `[`} {
+		if err := streamPages(strings.NewReader(bad), count); err == nil {
+			t.Errorf("%q: no error", bad)
+		}
+	}
+	if (ghItem{User: json.RawMessage(`"x"`)}).login() != nil {
+		t.Error("a user that is no object has no login")
+	}
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "gh"), []byte("#!/bin/sh\nif [ \"$1\" = fail ]; then echo boom >&2; exit 3; fi\necho \"[{\\\"id\\\":7,\\\"user\\\":{\\\"login\\\":\\\"$GH_TOKEN\\\"}}]\"\n"), 0o755)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var errb bytes.Buffer
+	var got []string
+	err := RunGhStream(&errb)(context.Background(), []string{"GH_TOKEN=t"}, func(r io.Reader) error {
+		return streamPages(r, func(it ghItem) { got = append(got, str(it.ID)+" "+str(it.login())) })
+	}, "api", "x")
+	if err != nil || len(got) != 1 || got[0] != "7 t" {
+		t.Errorf("%v %v", got, err)
+	}
+	if err := RunGhStream(&errb)(context.Background(), nil, func(r io.Reader) error { _, err := io.ReadAll(r); return err }, "fail"); err == nil || !strings.Contains(errb.String(), "boom") {
+		t.Errorf("a failing gh: %v %q", err, errb.String())
+	}
+	if err := RunGhStream(&errb)(context.Background(), nil, func(io.Reader) error { return io.ErrUnexpectedEOF }, "api"); err != io.ErrUnexpectedEOF {
+		t.Errorf("a reader error: %v", err)
+	}
+	t.Setenv("PATH", dir+"/none")
+	if err := RunGhStream(&errb)(context.Background(), nil, func(io.Reader) error { return nil }, "api"); err == nil {
+		t.Error("no gh: no error")
+	}
+}
+
+// Review 6, finding 2: the comparison with the snapshot on disk streams
+// the file against the sorted new lines; growing ids add only the new ones,
+// repeats count, and a file in another order falls back to the full count.
+func TestAddedSinceTheSnapshotOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	write := func(lines ...string) string {
+		p := filepath.Join(dir, "pr.txt")
+		_ = os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+		return p
+	}
+	// The new snapshot is a sorted file too (A24: never held whole).
+	addedSince := func(old string, cur []string) []string {
+		p := filepath.Join(dir, "next.txt")
+		_ = os.WriteFile(p, []byte(strings.Join(cur, "\n")+"\n"), 0o644)
+		return addedSince(old, p)
+	}
+	var old, cur []string
+	for i := 0; i < 5000; i++ {
+		old = append(old, fmt.Sprintf("comment %06d u", i))
+	}
+	cur = append(append([]string{}, old...), "comment 005000 u", "comment 005001 u")
+	sort.Strings(cur)
+	got := addedSince(write(old...), cur)
+	if len(got) != 2 || got[0] != "comment 005000 u" || got[1] != "comment 005001 u" {
+		t.Errorf("growing ids: %v", got)
+	}
+	if got := addedSince(write("a", "a", "b"), []string{"a", "a", "a", "b", "c"}); strings.Join(got, ",") != "a,c" {
+		t.Errorf("repeats: %v", got)
+	}
+	if got := addedSince(write("b", "a"), []string{"a", "b", "c"}); strings.Join(got, ",") != "c" {
+		t.Errorf("an unsorted file: %v", got)
+	}
+	if got := addedSince(filepath.Join(dir, "none"), []string{"a"}); strings.Join(got, ",") != "a" {
+		t.Errorf("no file: %v", got)
+	}
+}
+
+// The login of each kind of user value, as the scripts' jq printed it.
+func TestGhItemLogin(t *testing.T) {
+	for raw, want := range map[string]string{`{"login":"amy"}`: "amy", `{"login":12}`: "12", `{"login":null}`: "null", `{}`: "null",
+		`{"login":true}`: "true", `{"login":{"a":1}}`: `{"a":1}`, `"x"`: "null", `{"login":`: "null"} {
+		if got := str((ghItem{User: json.RawMessage(raw)}).login()); got != want {
+			t.Errorf("%s: %q, want %q", raw, got, want)
+		}
+	}
+}
+
+// Review 6, finding 2 (A24): the snapshot is sorted in bounded runs. Items
+// arrive in reverse order across several runs; the file on disk is the
+// byte-order sort of all of them, and no run file is left behind.
+func TestSnapshotSortsInBoundedRuns(t *testing.T) {
+	r := newPRRig(t)
+	defer func(n int) { runLines = n }(runLines)
+	runLines = 64
+	var b strings.Builder
+	b.WriteString("[")
+	var want []string
+	for i := 300; i > 0; i-- {
+		if i < 300 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"id":%d,"user":{"login":"u%d"}}`, i, i%3)
+		want = append(want, fmt.Sprintf("comment %d u%d", i, i%3))
+	}
+	b.WriteString("]")
+	r.fixture("7-view.json", view("OPEN", "abcd1234ffff"))
+	d := Deps{Gh: r.gh.run, GhStream: func(ctx context.Context, env []string, read func(io.Reader) error, args ...string) error {
+		if strings.Contains(strings.Join(args, " "), "issues/7/comments") {
+			return read(strings.NewReader(b.String()))
+		}
+		out, err := r.gh.run(ctx, env, args...)
+		if err != nil {
+			return err
+		}
+		return read(bytes.NewReader(out))
+	}}
+	out := t.TempDir()
+	dst := filepath.Join(out, "next-7.txt")
+	if err := snapshotTo(context.Background(), d, nil, "org/repo", "7", dst); err != nil {
+		t.Fatal(err)
+	}
+	want = append(want, "head abcd1234", "state OPEN")
+	sort.Strings(want)
+	if got := readAll(dst); got != strings.Join(want, "\n")+"\n" {
+		t.Errorf("sorted snapshot:\n%s", got)
+	}
+	if ents, _ := os.ReadDir(out); len(ents) != 1 {
+		t.Errorf("files left: %v", ents)
+	}
+}
+
+// Review port-core-7 (A24): a prior snapshot in another order (an older
+// writer's sort) is sorted once on disk in bounded runs, kept sorted even
+// when nothing is new, and then compared as a stream: 100,000 ids.
+func TestUnsortedPriorSnapshotIsSortedOnce(t *testing.T) {
+	dir := t.TempDir()
+	old := filepath.Join(dir, "pr-7.txt")
+	next := filepath.Join(dir, "next-7.txt")
+	var ids []string
+	for i := 0; i < 100000; i++ {
+		ids = append(ids, fmt.Sprintf("comment %d u%d", (i*7919)%100000, i%5))
+	}
+	_ = os.WriteFile(old, []byte(strings.Join(ids, "\n")+"\n"), 0o644)
+	sorted := append([]string(nil), ids...)
+	sort.Strings(sorted)
+	// Nothing new: the old file is still sorted on disk afterwards.
+	_ = os.WriteFile(next, []byte(strings.Join(sorted, "\n")+"\n"), 0o644)
+	var m0, m1 runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&m0)
+	if got := addedSince(old, next); len(got) != 0 {
+		t.Fatalf("%d lines added, none new", len(got))
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&m1)
+	if readAll(old) != strings.Join(sorted, "\n")+"\n" {
+		t.Error("the old snapshot was not kept sorted")
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 2 {
+		t.Errorf("files left: %v", ents)
+	}
+	// Nothing of the history stays live (the peak is the binary's
+	// measurement: the sort holds at most runLines lines).
+	if live := m1.HeapAlloc; live > m0.HeapAlloc+1<<20 {
+		t.Errorf("heap after the comparison grew by %d bytes", live-m0.HeapAlloc)
+	}
+	// A growing history then adds only the new ids.
+	_ = os.WriteFile(next, []byte(strings.Join(append(sorted, "comment 99999999 u1"), "\n")+"\n"), 0o644)
+	if got := addedSince(old, next); len(got) != 1 || got[0] != "comment 99999999 u1" {
+		t.Errorf("growing ids: %v", got)
 	}
 }

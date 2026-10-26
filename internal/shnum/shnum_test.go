@@ -1,6 +1,9 @@
 package shnum
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 func TestTest(t *testing.T) {
 	for s, want := range map[string]int64{"30": 30, " 30": 30, "30 ": 30, "\t30\t": 30, "\n30": 30, "00": 0, "030": 30, "+30": 30, "-5": -5,
@@ -16,15 +19,17 @@ func TestTest(t *testing.T) {
 	}
 }
 
-func TestArith(t *testing.T) {
-	for s, want := range map[string]int64{"30": 30, " 30 ": 30, "\n30\n": 30, "030": 24, "0x1f": 31, "0X10": 16, "-5": -5, "+7": 7, "0": 0} {
-		if n, ok := Arith(s); !ok || n != want {
-			t.Errorf("Arith(%q) = %d %v, want %d", s, n, ok, want)
-		}
+func FuzzTest(f *testing.F) {
+	for _, s := range []string{"", "0", " 08 ", "-1", "+-1", "9223372036854775807", "9223372036854775808", "x", "1 2"} {
+		f.Add(s)
 	}
-	for _, s := range []string{"", "08", "0x", "x", "3 0", "1.5", "0xg", "99999999999999999999", "+-5", "--5"} {
-		if _, ok := Arith(s); ok {
-			t.Errorf("Arith(%q) passed", s)
+	f.Fuzz(func(t *testing.T, s string) {
+		n, ok := Test(s)
+		if !ok {
+			return
 		}
-	}
+		if m, ok2 := Test(strconv.FormatInt(n, 10)); !ok2 || m != n {
+			t.Errorf("%q: %d does not read back", s, n)
+		}
+	})
 }

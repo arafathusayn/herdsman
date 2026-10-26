@@ -260,7 +260,11 @@ func TestScriptRuns(t *testing.T) {
 		sh("h3", "herdsman approval-gate consume /x/go.json post pr-comment head1 -"),
 		sh("h4", "herdsman checkpointer guard route-orchestrator w1:p2"),
 		sh("h5", "herdsman message leak-gate /x/pr.md"),
-		sh("f1", "herdsman message courier"),
+		sh("h6", "herdsman message courier"),
+		sh("h7", "herdsman message card-watch route-adjutant"),
+		sh("h8", "herdsman message resume-goal im-a"),
+		sh("h9", "herdsman message register --name route-adjutant"),
+		sh("f1", "herdsman message folder"),
 		sh("f2", "herdsman checkpointer --once"),
 		sh("f3", "herdsman route log /x/00-route.md done"),
 		sh("f4", "herdsman"),
@@ -342,4 +346,127 @@ func TestInternals(t *testing.T) {
 	if program("") != "" {
 		t.Error("an empty match has a program")
 	}
+}
+
+// 417b204 (A26): a single-quoted command word with a space or shell
+// punctuation is still the program the shell runs; quoted awk and grep
+// text stays clean.
+func TestAuditQuotedCommandWord(t *testing.T) {
+	r := newRig(t)
+	tr := r.file("quoted.jsonl",
+		jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}}),
+		sh("q1", "'/tmp/do-push.sh copy' origin"),
+		sh("q2", "'/tmp/do-push.sh;noop' origin"),
+		sh("q3", `awk '{print $1; print $2}' /x/list.txt | grep 'a b'`),
+	)
+	out := r.aud(Options{Harness: "claude", Transcript: tr, Session: "coord-session"})
+	match(t, "Y6h a quoted executable path with a space is a script run", `call=q1 class=script-run`, out)
+	match(t, "Y6h2 a quoted executable path with shell punctuation is a script run", `call=q2 class=script-run`, out)
+	noMatch(t, "Y6h3 quoted awk and grep text stays clean", `call=q3`, out)
+	match(t, "Y6h4 two flags of three calls", `AUDIT flagged=2 calls=3`, out)
+}
+
+// The coordinator's ruling and review-adjutant-p0-2.md / -3.md: main's
+// checks decide first and the B3-002 rules only add flags, so each case
+// main 87c5670 flags stays flagged and main's clean controls stay clean.
+func TestAuditMainFlagsStandTable(t *testing.T) {
+	flagged := []string{
+		"'do-push.sh copy' origin",
+		"'do-push.sh;noop' origin",
+		"'/tmp/do-push.sh copy' origin",
+		"'/tmp/do-push.sh;noop' origin",
+		`echo "${v:-$(/tmp/do-push.sh)}"`,
+		`echo "$(( $(/tmp/do-push.sh) + 1 ))"`,
+		"echo \"${v:-`/tmp/do-push.sh`}\"",
+		"echo \"$(( `/tmp/do-push.sh` + 1 ))\"",
+		"echo ok # a comment\n:; /tmp/do-push.sh origin",
+		"echo ok # a comment\n:; python3 -c pass",
+	}
+	clean := []string{
+		`echo "'a; /tmp/do-push'"`,
+		`case "$x" in *.sh) echo yes;; *) echo no;; esac`,
+		`awk '{print $1; print $2}' /x/list.txt | grep 'a b'`,
+		`printf '%s\n' 'a; b' | grep -c 'x|y'`,
+		`jq -r '.a | .b' /x/f.json`,
+		`echo a\; b`,
+		"/bin/bash /skill/scripts/message.sh status",
+		"/usr/bin/curl -s https://example.invalid/status",
+	}
+	r := newRig(t)
+	lines := []string{jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}})}
+	for i, c := range flagged {
+		lines = append(lines, sh(fmt.Sprintf("m%d", i), c))
+	}
+	for i, c := range clean {
+		lines = append(lines, sh(fmt.Sprintf("c%d", i), c))
+	}
+	out := r.aud(Options{Harness: "claude", Transcript: r.file("table.jsonl", lines...), Session: "coord-session"})
+	for i, c := range flagged {
+		match(t, "main flags "+c, fmt.Sprintf(`call=m%d `, i), out)
+	}
+	for i, c := range clean {
+		noMatch(t, "main leaves clean "+c, fmt.Sprintf(`call=c%d `, i), out)
+	}
+	match(t, "flag count", fmt.Sprintf(`AUDIT flagged=%d calls=%d`, len(flagged), len(flagged)+len(clean)), out)
+}
+
+// The user's ruling (round 9): the B3-002 command forms are deferred to a
+// follow-up, and the Go audit gives main 87c5670's result. This pins main's
+// result, checked against main's transcript-audit.sh on these exact calls
+// (4 flags of 36): the forms B3-002 would add stay clean, and main's
+// printed-text false positives (review-port-core-8 P1) stay flagged, so
+// the follow-up sees each change.
+func TestAuditDeferredFormsMatchMain(t *testing.T) {
+	cases := []struct{ cmd, flag string }{
+		{"curl -sd payload https://example.invalid/hook", ""},
+		{"curl -sSX POST https://example.invalid/hook", ""},
+		{`curl --json '{"a":1}' https://example.invalid/hook`, ""},
+		{"echo changed >| /project/app.ts", ""},
+		{"echo changed >&/project/app.ts", ""},
+		{"/usr/bin/curl --data payload https://example.invalid/hook", ""},
+		{`/usr/bin/awk 'BEGIN { system("git push") }'`, ""},
+		{"/bin/bash /skill/scripts/message.sh status && /usr/bin/touch /project/new", ""},
+		{"/opt/tools/runner --go", ""},
+		{"/usr/bin/git push", ""},
+		{"curl -sS https://example.invalid/status", ""},
+		{"/usr/bin/curl -s https://example.invalid/status", ""},
+		{"echo note >&2", ""},
+		{"ls /x 2>&1", ""},
+		{`/usr/bin/awk '{print $1}' /x/list.txt`, ""},
+		{"grep -E 'a|b; c' /x/list.txt", ""},
+		{"echo x >&-", ""},
+		{":; /opt/tools/runner --go", ""},
+		{"echo ok && /opt/tools/runner --go", ""},
+		{"'/opt/tools/runner' --go", ""},
+		{"./tools/runner --go", ""},
+		{`echo ok; "git" push origin`, ""},
+		{"/usr/bin/sed -i s/a/b/ /project/f", ""},
+		{"echo ok && curl -sd x https://example.invalid", ""},
+		{`echo '"git" push origin'`, ""},
+		{"echo /usr/bin/git push", ""},
+		{"echo curl -sd x https://example.invalid", ""},
+		{"echo x >&2-", ""},
+		{"echo x >&123", ""},
+		{"echo x >&/dev/null", ""},
+		{"echo x >|/dev/null", ""},
+		{`echo "use touch /project/f"`, "project-write target=touch"},
+		{`printf "%s\n" "use git push origin"`, "git-write target=git"},
+		{"cat <<'EOF'\ncurl --data x https://example.invalid\ntouch /project/f\ngit push origin\nEOF", "git-write target=git"},
+		{"echo git push origin", "git-write target=git"},
+		{"/usr/bin/env /opt/tools/runner --go", ""},
+	}
+	r := newRig(t)
+	lines := []string{jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}})}
+	for i, c := range cases {
+		lines = append(lines, sh(fmt.Sprintf("d%d", i), c.cmd))
+	}
+	out := r.aud(Options{Harness: "claude", Transcript: r.file("deferred.jsonl", lines...), Session: "coord-session"})
+	for i, c := range cases {
+		if c.flag == "" {
+			noMatch(t, "main leaves clean: "+c.cmd, fmt.Sprintf(`call=d%d `, i), out)
+		} else {
+			match(t, "main flags: "+c.cmd, fmt.Sprintf(`call=d%d class=%s$`, i, c.flag), out)
+		}
+	}
+	match(t, "main's count", `AUDIT flagged=4 calls=36`, out)
 }

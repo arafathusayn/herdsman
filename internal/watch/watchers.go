@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	implBlockRE = posix(`Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to gpt|Usage limit|Do you trust|Permission required|Queued follow-up inputs|Type your answer`)
+	implBlockRE = posix(`Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to [[:alnum:]][[:alnum:]._-]*|Usage limit|Do you trust|Permission required|Queued follow-up inputs|Type your answer`)
 	implWorkRE  = posix(`esc to interrupt|Pursuing goal`)
 	revBlockRE  = posix(`Password for|Device not configured|Allow reads outside|Do you want to proceed|Yes, and don|usage limit|rate limit|Permission required`)
 	revWorkRE   = posix(`esc to interrupt|thinking|Incubating|tokens|Pursuing goal`)
@@ -32,6 +32,15 @@ func Implementers(ctx context.Context, env Env, d Deps) int {
 	reports := env.or("HERDSMAN_REPORTS", "/ABSOLUTE/PATH/TO/writable-root/reports")
 	st := state(env.or("HERDSMAN_STATE", "/ABSOLUTE/PATH/TO/scratchpad/watch-state"))
 	_ = os.MkdirAll(string(st), 0o755)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var panes []string
+	var targets []target
+	for _, name := range watched(env) {
+		panes = append(panes, paneOf(env, name))
+		targets = append(targets, target{name, paneOf(env, name)})
+	}
+	d.wakeOn(ctx, panes)
 	for {
 		for _, name := range watched(env) {
 			task := strings.TrimPrefix(name, "im-")
@@ -47,14 +56,17 @@ func Implementers(ctx context.Context, env Env, d Deps) int {
 					fmt.Fprintf(d.Stdout, "REPORT-UPDATED %s %s %s\n", task, report, clock(d.Now()))
 				}
 			}
-			text := readPane(ctx, d.Client, paneOf(env, name), 40)
+			pane := paneOf(env, name)
+			text := readPane(ctx, d.Client, pane, 40)
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
+			reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, implBlockRE, implWorkRE, nil)
+			tell := newBlock(st, name, blocked, h, prev)
 			switch {
-			case implBlockRE.MatchString(text):
-				if h != prev {
-					fmt.Fprintf(d.Stdout, "BLOCKED %s %s %s\n", name, first(implBlockRE, text), clock(d.Now()))
+			case blocked:
+				if tell {
+					fmt.Fprintf(d.Stdout, "BLOCKED %s %s %s\n", name, reason, clock(d.Now()))
 				}
 			case implWorkRE.MatchString(text):
 				if h == prev {
@@ -66,8 +78,22 @@ func Implementers(ctx context.Context, env Env, d Deps) int {
 				}
 			}
 		}
-		if !d.Sleep(ImplementersPoll) {
-			return 0
+		// The watcher never ends on its own: an event's BLOCKED lines are
+		// printed and the sleep goes on to the next scheduled sample.
+		next := d.Now().Add(ImplementersPoll)
+		for {
+			ok, lines := d.sleepUntil(next, func() []string {
+				return statusRecheck(ctx, d, st, targets, implBlockRE, implWorkRE, nil)
+			})
+			for _, l := range lines {
+				fmt.Fprintln(d.Stdout, l+" "+clock(d.Now()))
+			}
+			if !ok {
+				return 0
+			}
+			if len(lines) == 0 {
+				break
+			}
 		}
 	}
 }
@@ -82,6 +108,9 @@ func Reviewer(ctx context.Context, env Env, d Deps) int {
 	pane := env.or("HERDSMAN_REVIEWER_PANE", "w2:pR")
 	name := env.or("HERDSMAN_REVIEWER_NAME", "rv-1")
 	_ = os.MkdirAll(string(st), 0o755)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	d.wakeOn(ctx, []string{pane})
 	for {
 		for _, f := range reviews(reports) {
 			key := filepath.Base(f)
@@ -95,15 +124,29 @@ func Reviewer(ctx context.Context, env Env, d Deps) int {
 		prev := st.read("hash-" + name)
 		st.write("hash-"+name, h)
 		// Once per screen change, like the waiter: an unchanged prompt on screen is the same event.
-		if revBlockRE.MatchString(text) {
-			if h != prev {
-				fmt.Fprintf(d.Stdout, "BLOCKED %s %s %s\n", name, first(revBlockRE, text), clock(d.Now()))
+		reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, revBlockRE, revWorkRE, nil)
+		tell := newBlock(st, name, blocked, h, prev)
+		if blocked {
+			if tell {
+				fmt.Fprintf(d.Stdout, "BLOCKED %s %s %s\n", name, reason, clock(d.Now()))
 			}
 		} else if !revWorkRE.MatchString(text) && h != prev {
 			fmt.Fprintf(d.Stdout, "IDLE %s %s\n", name, clock(d.Now()))
 		}
-		if !d.Sleep(ReviewerPoll) {
-			return 0
+		next := d.Now().Add(ReviewerPoll)
+		for {
+			ok, lines := d.sleepUntil(next, func() []string {
+				return statusRecheck(ctx, d, st, []target{{name, pane}}, revBlockRE, revWorkRE, nil)
+			})
+			for _, l := range lines {
+				fmt.Fprintln(d.Stdout, l+" "+clock(d.Now()))
+			}
+			if !ok {
+				return 0
+			}
+			if len(lines) == 0 {
+				break
+			}
 		}
 	}
 }

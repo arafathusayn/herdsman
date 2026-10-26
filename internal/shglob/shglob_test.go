@@ -36,3 +36,16 @@ func TestGlobErrors(t *testing.T) {
 		t.Error("a bad pattern lists a folder with entries")
 	}
 }
+
+// R4 finding 3: a bad pattern is an error before any entry is read, so an
+// empty folder and a folder of hidden entries refuse it too.
+func TestGlobBadPatternWithoutEntries(t *testing.T) {
+	if _, err := Glob(t.TempDir(), "["); err == nil {
+		t.Error("an empty folder accepts a bad pattern")
+	}
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, ".hidden"), nil, 0o644)
+	if _, err := Glob(dir, "*["); err == nil {
+		t.Error("a folder of hidden entries accepts a bad pattern")
+	}
+}
