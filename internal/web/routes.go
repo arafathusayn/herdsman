@@ -488,9 +488,14 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The result travels in the job's completion message: once the browser
-	// leaves, the handler never reads what the queue's worker writes.
+	// leaves, the handler never reads what the queue's worker writes. The job
+	// saves the picks of a started route itself, so they do not depend on the
+	// browser waiting.
 	done := s.queue.DoJob(r.Context(), func(ctx context.Context) Result {
 		res := s.queue.runRoute(ctx, p)
+		if res.OK {
+			s.savePicks(req, cats)
+		}
 		raw, err := json.Marshal(res)
 		if err != nil {
 			return Result{Code: "internal_error", Error: err.Error()}
@@ -505,9 +510,6 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 			Error: "the request ended before the route finished; it may still be running: check the session (" + done.Error + ")",
 			Steps: []RouteStep{}, Tabs: []string{}})
 		return
-	}
-	if res.OK {
-		s.savePicks(req, cats)
 	}
 	status := http.StatusOK
 	switch {
