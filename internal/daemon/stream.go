@@ -192,7 +192,7 @@ func (r *Route) snapshot(party string) *Event {
 // unread is a party's unacked message ids in ready and cur.
 func (r *Route) unread(party string) []string {
 	out := []string{}
-	for _, f := range r.root().Unacked(r.path(party)) {
+	for _, f := range r.unacked(r.path(party)) {
 		out = append(out, strings.TrimSuffix(filepath.Base(f), ".md"))
 	}
 	sort.Strings(out)
@@ -260,7 +260,7 @@ func (r *Route) status() StatusReport {
 		box := r.path(b)
 		c := BoxCount{Name: b, New: inbox.CountState(filepath.Join(box, "new")), Ready: inbox.CountState(filepath.Join(box, "ready")),
 			Cur: inbox.CountState(filepath.Join(box, "cur")), Quarantine: inbox.CountState(filepath.Join(box, "quarantine")),
-			Unacked: len(rt.Unacked(box)), Claim: rt.ClaimValid(box)}
+			Unacked: len(r.unacked(box)), Claim: rt.ClaimValid(box)}
 		st.Boxes = append(st.Boxes, c)
 	}
 	if ents, err := os.ReadDir(r.path("state")); err == nil {

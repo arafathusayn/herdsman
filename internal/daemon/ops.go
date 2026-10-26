@@ -206,7 +206,7 @@ func (r *Route) caps(q SendRequest) *APIError {
 	for _, d := range []string{"new", "ready", "cur", "quarantine"} {
 		for _, f := range inbox.MdFiles(filepath.Join(box, d)) {
 			id := strings.TrimSuffix(filepath.Base(f), ".md")
-			if rt.AckValid(box, id) {
+			if r.acks.valid(rt, box, id) {
 				continue
 			}
 			var m map[string]any
@@ -520,7 +520,7 @@ func (r *Route) manifest(me, token string) (ClaimResult, *APIError) {
 	res := ClaimResult{Claim: token, Manifest: []ManifestEntry{}}
 	for _, f := range inbox.MdFiles(filepath.Join(box, "cur")) {
 		id := strings.TrimSuffix(filepath.Base(f), ".md")
-		if strings.TrimSpace(readText(r.path("ids", id, "claim"))) != token || rt.AckValid(box, id) {
+		if r.acks.valid(rt, box, id) || strings.TrimSpace(readText(r.path("ids", id, "claim"))) != token {
 			continue
 		}
 		m, ok := inbox.Envelope(r.inbox, f)
@@ -655,7 +655,7 @@ func (r *Route) release(me, token string) *APIError {
 	if active == "" || active != token {
 		return Errf("no_claim", "no such active claim")
 	}
-	if len(r.root().Unacked(r.path(me))) > 0 {
+	if len(r.unacked(r.path(me))) > 0 {
 		return Errf("unacked_work", "acknowledge all delivered work before releasing claim; read again first")
 	}
 	rec := &Record{Op: "release", Box: me, Token: token}

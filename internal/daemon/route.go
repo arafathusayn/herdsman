@@ -125,6 +125,7 @@ type Route struct {
 	retained   []*inbox.Lock
 	creds      map[string]credential // party name to its credential record
 	proof      proofCache
+	acks       ackCache
 }
 
 // routeStatus is the route's status in health.
