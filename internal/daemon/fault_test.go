@@ -463,6 +463,18 @@ func TestMissingSequenceNoReuse(t *testing.T) {
 	if x.r.lastID < idNumber(m2.ID) {
 		t.Fatalf("high-water %d", x.r.lastID)
 	}
+	// An id allocated by a send that crashed before its record is past
+	// the checkpoint and the journal: its folder alone keeps the mark.
+	if !x.at("send.envelope", func() { _, _ = x.send("lost", key()) }) {
+		t.Fatal("no crash")
+	}
+	lost := x.r.lastID
+	x.kill()
+	_ = os.Remove(x.path("state", "sequence"))
+	x.open()
+	if m4, e := x.send("four", key()); e != nil || idNumber(m4.ID) <= lost {
+		t.Fatalf("%s after the lost id %d: %v", m4.ID, lost, e)
+	}
 	// An allocated id is refused before any file changes.
 	x.r.lastID = 0
 	seq, _ := os.ReadFile(x.path("state", "sequence"))
@@ -491,6 +503,15 @@ func TestCheckpointKeepsHighWater(t *testing.T) {
 	x.open()
 	if x.r.lastID != idNumber(m.ID) {
 		t.Fatalf("high-water %d, want %d", x.r.lastID, idNumber(m.ID))
+	}
+	// A send still in the journal keeps it too.
+	m2, _ := x.send("two", key())
+	x.kill()
+	_ = os.Remove(x.path("state", "sequence"))
+	_ = os.Rename(x.path("ids", m2.ID), x.path("moved2"))
+	x.open()
+	if x.r.lastID != idNumber(m2.ID) {
+		t.Fatalf("high-water %d, want %d (journal)", x.r.lastID, idNumber(m2.ID))
 	}
 }
 
@@ -544,7 +565,7 @@ func TestReplayStrict(t *testing.T) {
 		}
 	}
 	cases := map[string]edit{
-		"gap":           set(1, func(m map[string]any) { m["seq"] = m["seq"].(float64) + 1 }),
+		"gap":           set(2, func(m map[string]any) { m["seq"] = m["seq"].(float64) + 5 }),
 		"unknown op":    set(1, func(m map[string]any) { m["op"] = "not-an-operation" }),
 		"unknown field": set(1, func(m map[string]any) { m["extra"] = 1 }),
 		"epoch":         set(1, func(m map[string]any) { m["epoch"] = "0000" }),
