@@ -179,30 +179,19 @@ func skillInstalled(home, kind string) bool {
 	return false
 }
 
-// checkpointerScript finds the skill's checkpointer.sh: under --skill-dir
-// when given, else under the installed skill (following its link). It
-// returns "" and the reason when there is none. A path with a quote or a
-// control character is refused: it goes into a shell line.
-func checkpointerScript(home, skillDir string) (string, string) {
-	dirs := []string{skillDir}
-	if skillDir == "" {
-		dirs = []string{filepath.Join(home, ".claude", "skills", "herdsman"), filepath.Join(home, ".codex", "skills", "herdsman"), filepath.Join(home, ".agents", "skills", "herdsman")}
+// checkpointerCommand is the program a new route's checkpointer pane runs:
+// this herdsman binary (exe, the running binary with links resolved),
+// started as `<exe> checkpointer`. It returns "" and the reason when there
+// is none. A path with a quote or a control character is refused: it goes
+// into a shell line.
+func checkpointerCommand(exe string) (string, string) {
+	if exe == "" {
+		return "", "the herdsman binary was not found: turn the checkpointer off"
 	}
-	for _, d := range dirs {
-		p := realPath(filepath.Join(d, "scripts", "checkpointer.sh"))
-		st, err := os.Stat(p)
-		if err != nil || !st.Mode().IsRegular() {
-			continue
-		}
-		if strings.ContainsFunc(p, func(r rune) bool { return r == '\'' || unicode.IsControl(r) }) {
-			return "", "the checkpointer path " + p + " holds a quote or a control character"
-		}
-		return p, ""
+	if strings.ContainsFunc(exe, func(r rune) bool { return r == '\'' || unicode.IsControl(r) }) {
+		return "", "the herdsman path " + exe + " holds a quote or a control character"
 	}
-	if skillDir != "" {
-		return "", "no scripts/checkpointer.sh under --skill-dir " + skillDir
-	}
-	return "", "the herdsman skill's checkpointer.sh was not found: install the skill, pass --skill-dir, or turn the checkpointer off"
+	return exe, ""
 }
 
 // catalog serves GET /api/catalog: the cached harness lists plus what
@@ -220,8 +209,8 @@ func (s *Server) catalogNow(r *http.Request) Catalog {
 	for i := range c.Kinds {
 		c.Kinds[i].SkillInstalled = skillInstalled(home, c.Kinds[i].Kind)
 	}
-	script, why := checkpointerScript(home, s.cfg.SkillDir)
-	c.CheckpointerOK, c.CheckpointerWhy = script != "", why
+	exe, why := checkpointerCommand(s.cfg.Executable)
+	c.CheckpointerOK, c.CheckpointerWhy = exe != "", why
 	c.Previous = s.savedPicks()
 	return c
 }

@@ -23,6 +23,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/afk"
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/termqr"
 	"github.com/arafathusayn/herdsman/internal/web"
 )
@@ -39,7 +40,7 @@ var (
 const usage = `herdsman: run a team of coding agents inside herdr.
 
 Usage:
-  herdsman web [--port 7878] [--host <ip>] [--allow-host <name>]... [--inbox <folder>] [--skill-dir <folder>]
+  herdsman web [--port 7878] [--host <ip>] [--allow-host <name>]... [--inbox <folder>]
                [--client <url>|none] [--public-url <https url>] [--session <name>]
                [--route <folder>]... [--open] [--no-qr]
   herdsman <command> [args]   (the commands below)
@@ -162,7 +163,6 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	session := fs.String("session", "", "herdr session name (default: HERDR_SESSION or the default session)")
 	open := fs.Bool("open", false, "open the app in the default browser")
 	inbox := fs.String("inbox", os.Getenv("HERDSMAN_INBOX"), "private herdsman message folder of the adjutant channel (default: HERDSMAN_INBOX)")
-	skillDir := fs.String("skill-dir", "", "herdsman skill folder whose scripts/checkpointer.sh a new route runs (default: the installed skill)")
 	clientDefault := defaultClient
 	if v, ok := os.LookupEnv("HERDSMAN_CLIENT"); ok {
 		clientDefault = v
@@ -177,9 +177,6 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	}
 	if ip := net.ParseIP(*host); ip != nil && ip.IsUnspecified() {
 		return fmt.Errorf("--host %s listens on every interface; name the one address to use, such as a LAN or Tailscale IP", *host)
-	}
-	if *skillDir != "" && !filepath.IsAbs(*skillDir) {
-		return fmt.Errorf("--skill-dir %s must be an absolute path", *skillDir)
 	}
 	if *inbox != "" && !filepath.IsAbs(*inbox) {
 		return fmt.Errorf("--inbox %s must be an absolute path", *inbox)
@@ -244,7 +241,7 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	qr := !*noQR && isTerminal(stdout)
 	srv := &http.Server{
 		Handler: web.NewServer(client, hub, queue, web.Config{
-			Token: token, Port: actual, Hosts: hosts, Inbox: *inbox, SkillDir: *skillDir,
+			Token: token, Port: actual, Hosts: hosts, Inbox: *inbox, Executable: runningBinary(),
 			Choices:      webChoices(),
 			GitHub:       webGitHub,
 			ActivityFile: afk.DefaultWebFile(),
@@ -441,3 +438,7 @@ func openBrowser(url string) {
 	}
 	_ = cmd.Start()
 }
+
+// runningBinary is this herdsman binary, links resolved: a new route's
+// checkpointer pane runs it as `<binary> checkpointer`.
+func runningBinary() string { return inbox.RunningExecutable() }

@@ -61,9 +61,10 @@ type Config struct {
 	Hosts []string
 	// Inbox is the private herdsman message folder, or "" for none.
 	Inbox string
-	// SkillDir is the herdsman skill folder (--skill-dir), for the
-	// checkpointer of a new route; "" looks for the installed skill.
-	SkillDir string
+	// Executable is this herdsman binary (links resolved), which a new
+	// route's checkpointer pane runs as `<Executable> checkpointer`; ""
+	// turns the checkpointer of a new route off.
+	Executable string
 	// OnPair shows a pairing code to the person at the terminal.
 	OnPair func(PairNotice)
 	// OnRotate shows the person at the terminal the links for a new token,

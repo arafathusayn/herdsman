@@ -19,7 +19,7 @@ import (
 
 // routeFixture is the web fixture with a workspace in its snapshot, herdr
 // answers for the route calls, the real catalog output, a skill folder with
-// a checkpointer script and a home folder of its own.
+// a herdsman binary path for the checkpointer and a home folder of its own.
 type routeFixture struct {
 	*fixture
 	folder, script, home string
@@ -37,16 +37,8 @@ func newRouteFixture(t *testing.T) *routeFixture {
 	if err := os.MkdirAll(f.folder, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	skill := filepath.Join(t.TempDir(), "herdsman")
-	if err := os.MkdirAll(filepath.Join(skill, "scripts"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	f.script = filepath.Join(skill, "scripts", "checkpointer.sh")
-	if err := os.WriteFile(f.script, []byte("#!/bin/bash\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	f.script = realPath(f.script)
-	f.srv.cfg.SkillDir = skill
+	f.script = filepath.Join(t.TempDir(), "bin", "herdsman")
+	f.srv.cfg.Executable = f.script
 	f.srv.catalog = newCatalogSource(fakeRunner(realOutputs(t), nil, nil))
 
 	prev := f.herdr
@@ -143,7 +135,7 @@ func TestRouteOrchestratorCheckpointerOn(t *testing.T) {
 		`agent.prompt {"target":"w1:p11","text":"/herdsman run \"fix \\\"auth\\\" \\\\ now\""}`,
 		`pane.split {"cwd":"` + folder + `","direction":"right","focus":false,"target_pane_id":"w1:p11"}`,
 		`pane.rename {"label":"checkpointer","pane_id":"w1:p21"}`,
-		`pane.send_text {"pane_id":"w1:p21","text":"TARGET=w1:p11 INTERVAL=900 LIMIT=250000 /bin/bash '` + f.script + `'"}`,
+		`pane.send_text {"pane_id":"w1:p21","text":"TARGET=w1:p11 INTERVAL=900 LIMIT=250000 '` + f.script + `' checkpointer"}`,
 		`pane.send_keys {"keys":["enter"],"pane_id":"w1:p21"}`,
 	}
 	var got []string
@@ -245,7 +237,7 @@ func TestRouteAdjutant(t *testing.T) {
 	}
 	// The checkpointer targets the orchestrator and carries the guard's settings.
 	line := m[7].Params["text"]
-	wantLine := "TARGET=w1:p12 HERDSMAN_ORCHESTRATOR=orch-1 HERDSMAN_INBOX=" + inbox + " HERDSMAN_PREFLIGHT=" + inbox + "/setup.json INTERVAL=900 LIMIT=250000 /bin/bash '" + f.script + "'"
+	wantLine := "TARGET=w1:p12 HERDSMAN_ORCHESTRATOR=orch-1 HERDSMAN_INBOX=" + inbox + " HERDSMAN_PREFLIGHT=" + inbox + "/setup.json INTERVAL=900 LIMIT=250000 '" + f.script + "' checkpointer"
 	if line != wantLine || m[5].Params["target_pane_id"] != "w1:p12" {
 		t.Fatalf("checkpointer line = %q\nwant %q", line, wantLine)
 	}
@@ -396,11 +388,11 @@ func TestRouteRefusals(t *testing.T) {
 		c.edit(&r)
 		run("adjutant "+c.name, c.field, r)
 	}
-	t.Run("missing checkpointer script", func(t *testing.T) {
-		f.srv.cfg.SkillDir = filepath.Join(t.TempDir(), "none")
-		defer func() { f.srv.cfg.SkillDir = filepath.Dir(filepath.Dir(f.script)) }()
+	t.Run("no herdsman binary", func(t *testing.T) {
+		f.srv.cfg.Executable = ""
+		defer func() { f.srv.cfg.Executable = f.script }()
 		code, res := f.post(t, f.orchestrator())
-		if code != 400 || res.Field != "checkpointer" || !strings.Contains(res.Error, "--skill-dir") || len(mutations(f.herdr)) != 0 {
+		if code != 400 || res.Field != "checkpointer" || !strings.Contains(res.Error, "herdsman binary was not found") || len(mutations(f.herdr)) != 0 {
 			t.Fatalf("status %d: %+v", code, res)
 		}
 	})
@@ -472,7 +464,7 @@ func TestCheckpointerLineOnlyValidated(t *testing.T) {
 	for _, r := range mutations(f.herdr) {
 		if r.Method == "pane.send_text" {
 			line := r.Params["text"].(string)
-			if line != "TARGET=w1:p11 INTERVAL=300 LIMIT=2000000 /bin/bash '"+f.script+"'" {
+			if line != "TARGET=w1:p11 INTERVAL=300 LIMIT=2000000 '"+f.script+"' checkpointer" {
 				t.Fatalf("line = %q", line)
 			}
 		}
@@ -506,7 +498,7 @@ func TestCatalogEndpoint(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(f.home, ".claude", "skills", "herdsman", "SKILL.md"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f.srv.cfg.SkillDir = filepath.Join(f.home, "none")
+	f.srv.cfg.Executable = ""
 	res = f.request(t, http.MethodGet, "/api/catalog", "", f.authed)
 	c = Catalog{}
 	_ = json.NewDecoder(res.Body).Decode(&c)
