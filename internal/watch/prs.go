@@ -41,7 +41,7 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 	}
 	prs := strings.Fields(env.get("HERDSMAN_PRS"))
 	repo := env.get("HERDSMAN_REPO")
-	st := state(env.get("HERDSMAN_PR_STATE"))
+	stateDir := env.get("HERDSMAN_PR_STATE")
 	durs, err := readSettings(env, []durSpec{{"HERDSMAN_PR_INTERVAL", 120 * time.Second, true}, {"HERDSMAN_PR_DEADLINE", 1500 * time.Second, false}})
 	wake := env.or("HERDSMAN_PR_WAKE_CHECKS", "claude-review|test")
 	var wanted *regexp.Regexp
@@ -57,26 +57,56 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 		return settings.ExitInvalid
 	}
 	interval, deadline := durs[0], durs[1]
-	_ = os.MkdirAll(string(st), 0o755)
+	st, err := openState(stateDir)
+	if err != nil {
+		fmt.Fprintf(d.Stderr, "herdsman watch prs: cannot save state: %v\n", err)
+		return 1
+	}
+	start := d.Now()
+	// The script waited on gh for as long as it ran (A26): a gh that hung
+	// held the watcher past its deadline. Each gh run gets what is left of
+	// the deadline (helperLimit), and one that does not finish in it is a
+	// failed read.
+	gh := func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(ctx, helperLimit(deadline-d.Now().Sub(start), interval))
+	}
 	var ghEnv []string
 	if account := env.get("HERDSMAN_GH_ACCOUNT"); account != "" {
-		tok, err := d.Gh(ctx, nil, "auth", "token", "--user", account)
+		actx, cancel := gh()
+		tok, err := d.Gh(actx, nil, "auth", "token", "--user", account)
+		cancel()
 		if err != nil {
 			fmt.Fprintf(d.Stdout, "PR-WATCH-ERROR no gh token for %s\n", account)
 			return 1
 		}
 		ghEnv = []string{"GH_TOKEN=" + strings.TrimSpace(string(tok))}
 	}
-	start := d.Now()
 	for {
 		var events []string
 		for _, n := range prs {
 			next := st.path("next-" + n + ".txt")
-			if err := snapshotTo(ctx, d, ghEnv, repo, n, next); err != nil {
-				// A failed read is not "no change". Count the failed polls in a row.
+			old := "pr-" + n + ".txt"
+			baseline := !st.has(old)
+			pctx, cancel := gh()
+			err := snapshotTo(pctx, d, ghEnv, repo, n, next)
+			cancel()
+			var added []string
+			if err == nil && !baseline {
+				// A comparison that fails (an old snapshot that cannot be
+				// sorted, a read error) is a failed read too, never "no
+				// change", and never a whole-history fallback (A24).
+				added, err = addedSince(st.path(old), next)
+			}
+			if err != nil {
+				// A failed read is not "no change". Count the failed polls in a
+				// row; the last committed snapshot stays.
+				_ = os.Remove(next)
 				failed := count(st, "fail-"+n, d.Stderr, "watch prs") + 1
 				st.write("fail-"+n, strconv.Itoa(failed)+"\n")
 				if failed >= 3 {
+					if stateFailed(st, d.Stderr, "watch prs") {
+						return 1
+					}
 					for _, e := range events {
 						fmt.Fprintln(d.Stdout, e)
 					}
@@ -85,22 +115,28 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 				}
 				continue
 			}
+			if baseline || len(added) > 0 {
+				// The script ignored a failed rename (A26): the snapshot was
+				// never committed, and each run took a silent new baseline.
+				if err := os.Rename(next, st.path(old)); err != nil {
+					_ = os.Remove(next)
+					st.fail(err)
+					continue
+				}
+			} else {
+				_ = os.Remove(next)
+			}
 			st.remove("fail-" + n)
-			old := "pr-" + n + ".txt"
-			if !st.has(old) {
-				_ = os.Rename(next, st.path(old))
+			if baseline {
 				// A baseline is silent, except for a pull request that is already merged.
 				if hasLine(st.path(old), "state MERGED") {
 					events = append(events, fmt.Sprintf("PR %s NEW state MERGED", n))
 				}
 				continue
 			}
-			added := addedSince(st.path(old), next)
 			if len(added) == 0 {
-				_ = os.Remove(next)
 				continue
 			}
-			_ = os.Rename(next, st.path(old))
 			// Wake only on what needs a decision: comments, reviews, heads, state,
 			// failed checks, and the named checks reaching SUCCESS.
 			var checks []string
@@ -116,6 +152,9 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 			for _, l := range checks {
 				events = append(events, fmt.Sprintf("PR %s NEW %s", n, l))
 			}
+		}
+		if stateFailed(st, d.Stderr, "watch prs") {
+			return 1
 		}
 		if len(events) > 0 {
 			for _, e := range events {
@@ -142,24 +181,6 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 			return 0
 		}
 	}
-}
-
-// added is comm -13 of two line lists: the lines of b that a lacks,
-// counting repeats.
-func added(a, b []string) []string {
-	have := map[string]int{}
-	for _, l := range a {
-		have[l]++
-	}
-	var out []string
-	for _, l := range b {
-		if have[l] > 0 {
-			have[l]--
-			continue
-		}
-		out = append(out, l)
-	}
-	return out
 }
 
 // snapshotTo writes one pull request to dst: its comments, inline
@@ -469,6 +490,8 @@ func RunGh(stderr io.Writer) func(ctx context.Context, env []string, args ...str
 		cmd := exec.CommandContext(ctx, "gh", args...)
 		cmd.Env = append(os.Environ(), env...)
 		cmd.Stderr = stderr
+		// A gh stopped by ctx does not wait on a child holding its pipes.
+		cmd.WaitDelay = helperWaitDelay
 		return cmd.Output()
 	}
 }
@@ -564,6 +587,7 @@ func RunGhStream(stderr io.Writer) func(ctx context.Context, env []string, read 
 		cmd := exec.CommandContext(ctx, "gh", args...)
 		cmd.Env = append(os.Environ(), env...)
 		cmd.Stderr = stderr
+		cmd.WaitDelay = helperWaitDelay
 		out, err := cmd.StdoutPipe()
 		if err != nil {
 			return err
@@ -571,6 +595,9 @@ func RunGhStream(stderr io.Writer) func(ctx context.Context, env []string, read 
 		if err := cmd.Start(); err != nil {
 			return err
 		}
+		// The read ends with ctx too: a child gh left behind can hold the
+		// pipe open after gh itself is stopped.
+		defer context.AfterFunc(ctx, func() { _ = out.Close() })()
 		rerr := read(out)
 		if rerr != nil {
 			_, _ = io.Copy(io.Discard, out)
@@ -585,17 +612,18 @@ func RunGhStream(stderr io.Writer) func(ctx context.Context, env []string, read 
 // addedSince is comm -13 of the snapshot file at path and the sorted new
 // snapshot file at next, counting repeats: both files are streamed and
 // merged (A24: no history is held whole). An old file whose lines are not
-// in byte order (an older writer's locale sort) falls back to counting
-// every line; a missing old file adds everything.
-func addedSince(path, next string) []string {
+// in byte order (an older writer's locale sort) is sorted once on disk
+// through the bounded sort. Any error (a file that cannot be read, a sort
+// that fails) is returned: the caller counts it as a failed read.
+func addedSince(path, next string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return fileLines(next)
+		return nil, err
 	}
 	defer f.Close()
 	g, err := os.Open(next)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer g.Close()
 	sc := lineScanner(f)
@@ -620,7 +648,7 @@ func addedSince(path, next string) []string {
 			// then stream the comparison (A24).
 			_ = f.Close()
 			if err := sortFile(path); err != nil {
-				return added(fileLines(path), fileLines(next))
+				return nil, err
 			}
 			return addedSince(path, next)
 		}
@@ -632,10 +660,16 @@ func addedSince(path, next string) []string {
 			cur.next()
 		}
 	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
 	for cur.ok {
 		keep()
 	}
-	return out
+	if err := cur.sc.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // sortFile rewrites the file at path in byte order through the bounded
@@ -657,20 +691,4 @@ func sortFile(path string) error {
 		return err
 	}
 	return w.finish()
-}
-
-// fileLines is the non-empty lines of the file at p.
-func fileLines(p string) []string {
-	var out []string
-	for _, l := range strings.Split(readAll(p), "\n") {
-		if l != "" {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
-func readAll(p string) string {
-	b, _ := os.ReadFile(p)
-	return string(b)
 }

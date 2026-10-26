@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -65,8 +64,11 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 	}
 	deadline, poll, healthEvery := durs[0], durs[1], durs[2]
 	reports := env.or("HERDSMAN_REPORTS", "/ABSOLUTE/PATH/TO/writable-root/reports")
-	st := state(env.or("HERDSMAN_STATE", "/ABSOLUTE/PATH/TO/scratchpad/watch-state"))
-	_ = os.MkdirAll(string(st), 0o755)
+	st, err := openState(env.or("HERDSMAN_STATE", "/ABSOLUTE/PATH/TO/scratchpad/watch-state"))
+	if err != nil {
+		fmt.Fprintf(d.Stderr, "herdsman wait: cannot save state: %v\n", err)
+		return 1
+	}
 	rpane := env.or("HERDSMAN_REVIEWER_PANE", "w2:pR")
 	rname := env.or("HERDSMAN_REVIEWER_NAME", "rv-1")
 	reviewers := strings.Fields(env.or("HERDSMAN_REVIEWERS", rname+":"+rpane))
@@ -184,7 +186,10 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 		// Health: the user's periodic check of every agent runs here, so a quiet
 		// route needs no orchestrator turn. Each flag is reported once, until it clears.
 		if specs := env.get("HERDSMAN_STATUS_SPECS"); specs != "" {
-			events = append(events, health(ctx, env, d, st, specs, healthEvery, now)...)
+			events = append(events, health(ctx, env, d, st, specs, healthEvery, helperLimit(deadline-d.Now().Sub(start), poll), now)...)
+		}
+		if stateFailed(st, d.Stderr, "wait") {
+			return 1
 		}
 		if len(events) > 0 {
 			for _, e := range events {
@@ -200,6 +205,9 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 		ok, lines := d.sleepUntil(d.Now().Add(poll), func() []string {
 			return statusRecheck(ctx, d, st, targets, waitBlockRE, waitWorkRE, waitStalledRE)
 		})
+		if stateFailed(st, d.Stderr, "wait") {
+			return 1
+		}
 		if len(lines) > 0 {
 			for _, l := range lines {
 				fmt.Fprintln(d.Stdout, l+" "+clock(d.Now()))
@@ -214,7 +222,7 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 
 // health runs the status check when it is due and returns the HEALTH
 // events of the flags that are new since the last check.
-func health(ctx context.Context, env Env, d Deps, st state, specs string, every time.Duration, now string) []string {
+func health(ctx context.Context, env Env, d Deps, st *state, specs string, every, limit time.Duration, now string) []string {
 	script, scripted := env("HERDSMAN_STATUS_SCRIPT")
 	if scripted && script == "" {
 		scripted = false
@@ -247,20 +255,30 @@ func health(ctx context.Context, env Env, d Deps, st state, specs string, every 
 		return nil
 	}
 	var out bytes.Buffer
+	// The script waited on its status program for as long as it ran (A26):
+	// one that hung held the waiter past its deadline. The check gets
+	// limit, and one that does not finish in it is a failed check.
+	hctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
 	if scripted {
 		if syscall.Access(script, 1) != nil { // X_OK
 			fmt.Fprintf(d.Stderr, "herdsman wait: HERDSMAN_STATUS_SCRIPT %s is not executable; no health check\n", script)
 			return nil
 		}
 		st.write("health-at", strconv.FormatInt(at, 10)+"\n")
-		cmd := exec.CommandContext(ctx, script)
+		cmd := exec.CommandContext(hctx, script)
 		cmd.Stdout = &out
+		cmd.WaitDelay = helperWaitDelay
 		_ = cmd.Run()
 	} else {
 		st.write("health-at", strconv.FormatInt(at, 10)+"\n")
 		if d.Status != nil {
-			d.Status(ctx, &out, specs)
+			d.Status(hctx, &out, specs)
 		}
+	}
+	if hctx.Err() != nil && ctx.Err() == nil {
+		fmt.Fprintf(d.Stderr, "herdsman wait: the status check did not finish in %v; no health check\n", limit)
+		return nil
 	}
 	flags := status.Flags(out.String())
 	prev := strings.Split(st.read("health-flags"), "\n")

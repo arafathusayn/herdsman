@@ -6,8 +6,10 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -141,12 +143,28 @@ func hash(text string) string {
 	return crc
 }
 
-// state is a watcher's state folder.
-type state string
+// state is a watcher's state folder. The scripts dropped every failed
+// write (A26), so a watcher with no saved state reported the same events
+// again on each run and lost its stall and health counts. Here the first
+// failed write, touch or remove is kept (err), and the watcher stops with
+// a nonzero exit before it prints anything that rests on unsaved state.
+type state struct {
+	dir string
+	err error
+}
 
-func (s state) path(name string) string { return filepath.Join(string(s), name) }
+// openState makes the state folder.
+func openState(dir string) (*state, error) {
+	s := &state{dir: dir}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
 
-func (s state) read(name string) string {
+func (s *state) path(name string) string { return filepath.Join(s.dir, name) }
+
+func (s *state) read(name string) string {
 	b, err := os.ReadFile(s.path(name))
 	if err != nil {
 		return ""
@@ -154,23 +172,46 @@ func (s state) read(name string) string {
 	return strings.TrimRight(string(b), "\n")
 }
 
-func (s state) write(name, v string) { _ = os.WriteFile(s.path(name), []byte(v), 0o644) }
-
-func (s state) touch(name string) {
-	p := s.path(name)
-	if f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE, 0o644); err == nil {
-		_ = f.Close()
+func (s *state) fail(err error) {
+	if err != nil && s.err == nil {
+		s.err = err
 	}
-	now := time.Now()
-	_ = os.Chtimes(p, now, now)
 }
 
-func (s state) has(name string) bool {
+func (s *state) write(name, v string) { s.fail(os.WriteFile(s.path(name), []byte(v), 0o644)) }
+
+func (s *state) touch(name string) {
+	p := s.path(name)
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		s.fail(err)
+		return
+	}
+	s.fail(f.Close())
+	now := time.Now()
+	s.fail(os.Chtimes(p, now, now))
+}
+
+func (s *state) has(name string) bool {
 	st, err := os.Stat(s.path(name))
 	return err == nil && st.Mode().IsRegular()
 }
 
-func (s state) remove(name string) { _ = os.Remove(s.path(name)) }
+func (s *state) remove(name string) {
+	if err := os.Remove(s.path(name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		s.fail(err)
+	}
+}
+
+// stateFailed prints the state error of a watcher, who, and says whether
+// it must stop (exit 1).
+func stateFailed(s *state, stderr io.Writer, who string) bool {
+	if s.err == nil {
+		return false
+	}
+	fmt.Fprintf(stderr, "herdsman %s: cannot save state in %s: %v\n", who, s.dir, s.err)
+	return true
+}
 
 // mtime is a file's modification time in seconds, "" when it has none.
 func mtime(p string) string {
@@ -241,7 +282,7 @@ type durSpec struct {
 // count reads a counter the watcher keeps in its state file. The scripts
 // read it in $(( )), where 08 or junk ended the whole pass (A26): 08 is
 // 8 here, and junk is reported and counted from 0.
-func count(st state, file string, stderr io.Writer, who string) int {
+func count(st *state, file string, stderr io.Writer, who string) int {
 	s := strings.TrimSpace(st.read(file))
 	if s == "" {
 		return 0
@@ -309,7 +350,7 @@ func screenBlock(st herdr.Status, text string, block, work, stalled *regexp.Rege
 // on each new blocked state, and again when its screen changes, so a
 // working -> blocked change from Herdr is reported even when the pane text
 // stays the same (review 5, finding 2).
-func newBlock(st state, name string, blocked bool, h, prev string) bool {
+func newBlock(st *state, name string, blocked bool, h, prev string) bool {
 	was := st.has("blocked-" + name)
 	if !blocked {
 		if was {
@@ -380,7 +421,7 @@ type target struct{ name, pane string }
 // blocked state of each target, from Herdr's status and the screen's block
 // patterns. It never samples the screen for STALL or IDLE and never moves
 // the screen hash, so another pane's events cannot age a healthy pane.
-func statusRecheck(ctx context.Context, d Deps, st state, targets []target, block, work, stalled *regexp.Regexp) []string {
+func statusRecheck(ctx context.Context, d Deps, st *state, targets []target, block, work, stalled *regexp.Regexp) []string {
 	var out []string
 	for _, t := range targets {
 		text := readPane(ctx, d.Client, t.pane, 40)
@@ -410,3 +451,17 @@ func (d Deps) sleepUntil(next time.Time, recheck func() []string) (bool, []strin
 		}
 	}
 }
+
+// helperLimit is how long one helper run (gh, the status check) may take:
+// what is left of the watch's deadline, or one poll when the deadline is
+// already due, so DEADLINE=0 still gets its one whole poll.
+func helperLimit(left, poll time.Duration) time.Duration {
+	if left > 0 {
+		return left
+	}
+	return poll
+}
+
+// helperWaitDelay bounds the wait for a stopped helper's output pipes: a
+// child it left behind that holds them open does not hold the watcher.
+const helperWaitDelay = time.Second
