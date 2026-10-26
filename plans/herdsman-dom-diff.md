@@ -373,6 +373,17 @@ Effect, measured as the median time per reconcile over many back-and-forth recon
 
 In Chrome the reconciler became 2 to 4 times faster for integer keys at every size; string keys, which still use the hash map, were unchanged, as expected. JavaScriptCore gained at 1,000 and 100,000 items but not for shuffles and reverses of 10,000. In absolute terms the saving is about 50 microseconds per 1,000-row operation, small next to the browser's rendering work in the benchmark, and 0.5 to 10 milliseconds per update for lists of 10,000 to 100,000 items.
 
+### Branchless and bitwise techniques (measured, not adopted, 2026-10-26)
+
+Each variant passed the full test suite and was timed against 0.0.4 with the same null-DOM harness, in Bun and in Chrome 156, two interleaved rounds each; "noise" below is the baseline's own difference between its two rounds.
+
+1. **All at once** (a branchless lower-bound search in the LIS that always halves and picks the step with a mask, a bitwise append test, an unsigned single-compare range check and a mask instead of a ternary for the table lookup, minimum and maximum instead of compare-and-branch in the integer-range scan, and an OR'd moved flag with a running maximum): no case became meaningfully faster on either engine, and nearly sorted input became much slower (LIS 2.3 to 7.5 times, moving one item 1.8 to 2.8 times). Cause: the rewrite also removed the append fast path, a branch that is almost always taken on nearly sorted input and lets the search be skipped.
+2. **Only the bitwise lookup, range and flag changes**: no consistent gain; often slower, up to 1.5 to 1.7 times in Bun.
+3. **Only the branchless search, keeping the append fast path**: 15 to 25% faster on large random reorders (100,000-item shuffle 0.81 in Chrome and 0.77 in Bun; random LIS of 100,000 0.75 and 0.79), but slower on small random input (1,000-item random LIS 2.35 and 3.06 times) and on nearly sorted input (1.1 to 1.6 times).
+4. **Hybrid** (branchless search only when the tails array is longer than 128): the only gains beyond noise were 100,000-item random reorders (shuffle 0.78 in Chrome with 6% noise, 0.73 in Bun with 11% noise); nearly sorted input in Bun was 1.33 to 1.38 times slower.
+
+Why branches mostly won here: in the prefix and suffix loops, the hole-kind switch and the swap check, every branch goes the same way for a whole operation, so prediction is nearly perfect; only a binary search over long random tails mispredicts, and that is a small share of the reconciler. The library keeps the classic search, because the one reliable win (huge random shuffles) is rare in a UI, while nearly sorted reorders (moving one card, inserting, re-sorting an already sorted list) are common.
+
 ### Microbenchmarks in Chrome 156 (2026-10-26)
 
 1. **Batched cloning** (cloning a fragment of 10, 50 or 250 prefilled rows at once, as vanillajs-lite does) against one clone per row, timed to forced layout, medians of 41 runs for 1,000 rows and 15 runs for 10,000 rows: 1,000 rows took 34.6 ms singly and 36.1 to 39.6 ms batched; 10,000 rows took 409.6 ms singly and 407.6 to 422.3 ms batched. Batching brought no gain, so the library clones one row at a time.
@@ -417,6 +428,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-26: Branchless and bitwise variants of the reconciler and the LIS measured in Bun and Chrome; not adopted (results in the spec).
 - 2026-10-26: Version 0.0.4. Direct-address table for dense integer keys in the general case (hash map otherwise, scan for small windows); scratch buffers per nesting depth for the source and LIS arrays. The reconciler alone became 2 to 4 times faster in Chrome for integer keys. Tests for every lookup mode and for a reconcile nested inside update.
 - 2026-10-26: Version 0.0.3. Mounting without a block (`mountRoot`) with on-demand blocks (`block`) that cannot read values; list entries may be any value given a root function; morph keeps no wrapper per node; moves use `moveBefore` when the parent is in the document. Batched cloning measured and rejected. Research notes added.
 - 2026-10-26: Chrome A/B of 0.0.1 against 0.0.2 and an A/A noise control: no measurable runtime cost from the types. Corrected the head-to-head reading: within this machine's noise, herdsman-dom-diff is tied with `re`, not ahead.
