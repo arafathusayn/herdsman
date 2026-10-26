@@ -13,7 +13,7 @@
 // paths (mount, set, List.set) for the sake of types.
 
 /** Library version, bumped with every release of the zip package. */
-export const VERSION = "0.0.2";
+export const VERSION = "0.0.3";
 
 // ---------------------------------------------------------------------------
 // Hole markers: typed at compile time, small negative numbers at runtime
@@ -86,6 +86,14 @@ export type BlockOf<T> = T extends Template<infer V> ? Block<V> : never;
 // ---------------------------------------------------------------------------
 
 type Path = readonly number[];
+
+// Marks a hole whose current value is unknown, so its next set always writes.
+const UNSET: unique symbol = Symbol("unset");
+// Caches a lazily created block on its element.
+const BLOCK: unique symbol = Symbol("herdsman-dom-diff.block");
+
+/** A block obtained from `Template.block` for an element made by `mountRoot`: it can write holes but does not know their values. */
+export type RootBlock<V extends readonly unknown[]> = Pick<Block<V>, "t" | "root" | "set" | "patch">;
 type Locator = (root: Node, out: unknown[]) => void;
 
 const cache = new WeakMap<TemplateStringsArray, Template<readonly unknown[]>>();
@@ -199,29 +207,71 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
    * survive cloning, so a non-null property hole is set on the clone directly.
    */
   mount(vals: V): Block<V> {
+    const root = this.cloneWith(vals);
+    const s: unknown[] = new Array(2 * this.n);
+    for (let i = 0; i < this.n; i++) s[this.n + i] = vals[i];
+    if (this.props(vals)) this.setProps(root, s, vals);
+    return new Block<V>(this, root, s);
+  }
+
+  /**
+   * Like `mount`, but returns only the new element: no JavaScript object is
+   * kept per instance. Ask `block(root)` for a block when the element first
+   * needs an update. This is the cheapest way to create rows that mostly
+   * never change.
+   */
+  mountRoot(vals: V): Element {
+    const root = this.cloneWith(vals);
+    if (this.props(vals)) this.setProps(root, new Array(2 * this.n), vals);
+    return root;
+  }
+
+  /**
+   * The block for an element made by `mountRoot`, created on first request
+   * and cached on the element. It does not know the values the element was
+   * created with, so it offers `set` and `patch` (each hole's first set
+   * always writes) but not `get`.
+   */
+  block(root: Element): RootBlock<V> {
+    const holder = root as Element & { [BLOCK]?: Block<V> };
+    let b = holder[BLOCK];
+    if (b === undefined) {
+      const n = this.n,
+        s: unknown[] = new Array(2 * n);
+      for (let i = 0; i < n; i++) s[n + i] = UNSET;
+      holder[BLOCK] = b = new Block<V>(this, root, s);
+    }
+    return b;
+  }
+
+  // Bake the non-property values into the prototype and deep-clone it.
+  private cloneWith(vals: V): Element {
     const n = this.n,
       kinds = this.kinds,
       names = this.names,
       proto = this.proto;
-    let props = false;
     for (let i = 0; i < n; i++) {
       const v = vals[i];
-      if (kinds[i] === PROP) {
-        if (v != null) props = true;
-      } else if (proto[n + i] !== v) {
+      if (kinds[i] !== PROP && proto[n + i] !== v) {
         proto[n + i] = v;
         apply(kinds[i] as KindCode, names[i], proto[i] as Node, v);
       }
     }
-    const s: unknown[] = new Array(2 * n);
-    for (let i = 0; i < n; i++) s[n + i] = vals[i];
-    const root = this.root.cloneNode(true) as Element;
-    if (props) {
-      this.locate(root, s);
-      for (let i = 0; i < n; i++)
-        if (kinds[i] === PROP && s[n + i] != null) apply(PROP, names[i], s[i] as Node, s[n + i]);
+    return this.root.cloneNode(true) as Element;
+  }
+
+  // Whether any property hole has a value. Properties do not survive cloning.
+  private props(vals: V): boolean {
+    for (let i = 0; i < this.n; i++) if (this.kinds[i] === PROP && vals[i] != null) return true;
+    return false;
+  }
+
+  // Locate the clone's holes into `s` and set its non-null properties.
+  private setProps(root: Element, s: unknown[], vals: V): void {
+    this.locate(root, s);
+    for (let i = 0; i < this.n; i++) {
+      if (this.kinds[i] === PROP && vals[i] != null) apply(PROP, this.names[i], s[i] as Node, vals[i]);
     }
-    return new Block<V>(this, root, s);
   }
 }
 
@@ -384,8 +434,16 @@ export interface Entry {
   readonly root: Node;
 }
 
+/** How a list finds an entry's root node: optional for entries with a `root`, required otherwise. */
+export type RootOption<E> = E extends Entry
+  ? { readonly root?: (entry: E) => Node }
+  : { readonly root: (entry: E) => Node };
+
 /** How a list maps items to DOM. */
-export interface ListOptions<T, E extends Entry, K extends Key = Key> {
+export type ListOptions<T, E, K extends Key = Key> = ListBase<T, E, K> & RootOption<E>;
+
+/** The options every list takes. */
+export interface ListBase<T, E, K extends Key = Key> {
   /** Unique, stable key for an item. */
   readonly key: (item: T) => K;
   /** Build the DOM for a new item. */
@@ -407,7 +465,7 @@ export interface ListOptions<T, E extends Entry, K extends Key = Key> {
 }
 
 /** A keyed list of items rendered into a parent node. Call `set` with each new array. */
-export class List<T, E extends Entry = Entry, K extends Key = Key> {
+export class List<T, E = Entry, K extends Key = Key> {
   /** The parent the list renders into. */
   readonly parent: Node;
   /** Keys of the last render, in order. */
@@ -420,6 +478,7 @@ export class List<T, E extends Entry = Entry, K extends Key = Key> {
   private readonly key: (item: T) => K;
   private readonly create: (item: T) => E;
   private readonly update: (entry: E, item: T) => void;
+  private readonly r: (entry: E) => Node;
 
   constructor(parent: Node, o: ListOptions<T, E, K>) {
     this.parent = parent;
@@ -429,14 +488,16 @@ export class List<T, E extends Entry = Entry, K extends Key = Key> {
     this.key = o.key;
     this.create = o.create;
     this.update = o.update;
+    this.r = (o as { readonly root?: (entry: E) => Node }).root ?? (entryRoot as (entry: E) => Node);
   }
 
   /** Remove every entry. */
   clear(): void {
     const p = this.parent,
-      e = this.entries;
+      e = this.entries,
+      r = this.r;
     if (this.owns) p.textContent = "";
-    else for (let i = 0; i < e.length; i++) p.removeChild(e[i]!.root);
+    else for (let i = 0; i < e.length; i++) p.removeChild(r(e[i]!));
     this.keys = [];
     this.entries = [];
   }
@@ -447,7 +508,8 @@ export class List<T, E extends Entry = Entry, K extends Key = Key> {
       a = this.anchor,
       key = this.key,
       upd = this.update,
-      mk = this.create;
+      mk = this.create,
+      r = this.r;
     const oldK = this.keys,
       oldE = this.entries;
     const n = items.length,
@@ -485,11 +547,11 @@ export class List<T, E extends Entry = Entry, K extends Key = Key> {
 
     if (s > oe) {
       // 2a. Only insertions left.
-      const ref = ne + 1 < n ? newE[ne + 1]!.root : a;
-      for (let i = s; i <= ne; i++) p.insertBefore((newE[i] = mk(items[i]!)).root, ref);
+      const ref = ne + 1 < n ? r(newE[ne + 1]!) : a;
+      for (let i = s; i <= ne; i++) place(p, r((newE[i] = mk(items[i]!))), ref);
     } else if (s > ne) {
       // 2b. Only removals left.
-      for (let i = s; i <= oe; i++) p.removeChild(oldE[i]!.root);
+      for (let i = s; i <= oe; i++) p.removeChild(r(oldE[i]!));
     } else if (
       oe === ne &&
       oe > s &&
@@ -500,9 +562,11 @@ export class List<T, E extends Entry = Entry, K extends Key = Key> {
       // 3. Two ends swapped, middle unchanged: two moves, no Map, no LIS.
       const first = oldE[s]!,
         last = oldE[oe]!;
-      const ref = last.root.nextSibling;
-      p.insertBefore(last.root, first.root);
-      if (oe - s > 1) p.insertBefore(first.root, ref); // adjacent: one move is enough
+      const lastRoot = r(last),
+        firstRoot = r(first);
+      const ref = lastRoot.nextSibling;
+      move(p, lastRoot, firstRoot);
+      if (oe - s > 1) move(p, firstRoot, ref); // adjacent: one move is enough
       newE[s] = last;
       upd(last, items[s]!);
       newE[ne] = first;
@@ -521,11 +585,12 @@ export class List<T, E extends Entry = Entry, K extends Key = Key> {
     const p = this.parent,
       a = this.anchor,
       mk = this.create,
+      r = this.r,
       n = items.length;
     const host = this.detach ? p.parentNode : null;
     const next = host ? p.nextSibling : null;
     if (host) host.removeChild(p);
-    for (let i = 0; i < n; i++) p.insertBefore((newE[i] = mk(items[i]!)).root, a);
+    for (let i = 0; i < n; i++) p.insertBefore(r((newE[i] = mk(items[i]!))), a);
     if (host) host.insertBefore(p, next);
   }
 
@@ -534,7 +599,8 @@ export class List<T, E extends Entry = Entry, K extends Key = Key> {
     const p = this.parent,
       a = this.anchor,
       upd = this.update,
-      mk = this.create;
+      mk = this.create,
+      r = this.r;
     const oldK = this.keys,
       oldE = this.entries;
     const n = newK.length,
@@ -578,7 +644,7 @@ export class List<T, E extends Entry = Entry, K extends Key = Key> {
     if (kept < oe - s + 1) {
       for (let i = s; i <= oe; i++) {
         const gone = idx ? !idx.has(oldK[i]!) : !includes(newK, oldK[i]!, s, ne);
-        if (gone) p.removeChild(oldE[i]!.root);
+        if (gone) p.removeChild(r(oldE[i]!));
       }
     }
     for (let j = 0; j < len; j++) if (src[j] !== -1) upd(newE[j + s]!, items[j + s]!);
@@ -589,15 +655,35 @@ export class List<T, E extends Entry = Entry, K extends Key = Key> {
     let li = seq ? seq.length - 1 : -1;
     for (let j = len - 1; j >= 0; j--) {
       const pos = j + s;
-      const ref = pos + 1 < n ? newE[pos + 1]!.root : a;
+      const ref = pos + 1 < n ? r(newE[pos + 1]!) : a;
       if (src[j] === -1) {
-        p.insertBefore((newE[pos] = mk(items[pos]!)).root, ref);
+        place(p, r((newE[pos] = mk(items[pos]!))), ref);
       } else if (moved) {
         if (li >= 0 && seq![li] === j) li--;
-        else p.insertBefore(newE[pos]!.root, ref);
+        else move(p, r(newE[pos]!), ref);
       }
     }
   }
+}
+
+const entryRoot = (e: Entry): Node => e.root;
+
+type Movable = Node & { moveBefore?: (node: Node, child: Node | null) => void };
+
+// Move a child that is already in `p`. moveBefore (Chrome 133+) keeps focus,
+// iframe and animation state that insertBefore resets, at the same speed; it
+// throws off-document, so a detached parent uses insertBefore.
+function move(p: Node, node: Node, ref: Node | null): void {
+  const m = p as Movable;
+  if (m.moveBefore !== undefined && p.isConnected) m.moveBefore(node, ref);
+  else p.insertBefore(node, ref);
+}
+
+// Insert a new entry's node. A node that is already in the document elsewhere
+// (a persistent element a view reuses) is moved with its state kept.
+function place(p: Node, node: Node, ref: Node | null): void {
+  if (node.parentNode !== null && node.isConnected) move(p, node, ref);
+  else p.insertBefore(node, ref);
 }
 
 function sameRange(x: readonly Key[], y: readonly Key[], from: number, to: number): boolean {
@@ -662,10 +748,6 @@ export const KEY_ATTR = "data-key";
 /** Attribute that tells morph to patch an element's attributes but leave its children alone. */
 export const SKIP_ATTR = "data-morph-skip";
 
-interface Slot {
-  readonly root: Node;
-}
-
 /**
  * Make `target`'s children match `next`, a list of freshly built nodes.
  *
@@ -697,19 +779,22 @@ function morphChildren(live: Node, next: readonly Node[], o: MorphOptions): void
     return seen === 0 && k !== null ? base : base + "#" + seen;
   };
 
-  const list = new List<Node, Slot, string>(live, {
+  const list = new List<Node, Node, string>(live, {
     owns: true,
     key: keyOf,
-    create: (n) => ({ root: n }),
-    update: (slot, n) => morphNode(slot.root, n, o),
+    root: nodeRoot,
+    create: nodeRoot,
+    update: (liveNode, n) => morphNode(liveNode, n, o),
   });
   for (let c = live.firstChild; c; c = c.nextSibling) {
     list.keys.push(keyOf(c));
-    list.entries.push({ root: c });
+    list.entries.push(c);
   }
   counts.clear();
   list.set(next);
 }
+
+const nodeRoot = (n: Node): Node => n;
 
 function morphNode(live: Node, next: Node, o: MorphOptions): void {
   if (live === next) return;

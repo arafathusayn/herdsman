@@ -255,6 +255,56 @@ describe("List", () => {
   });
 });
 
+describe("state-preserving moves", () => {
+  const ids = (n: number): Item[] => Array.from({ length: n }, (_, i) => ({ id: i }));
+
+  test("moves use moveBefore when the parent is in the document", () => {
+    const doc = document.createElement("html") as unknown as FakeElement;
+    doc.isDocument = true;
+    const parent = document.createElement("ul") as unknown as FakeElement;
+    doc.appendChild(parent);
+    const { list } = makeList(parent, true);
+    list.set(ids(20));
+    resetOps();
+    const reversed = ids(20).reverse();
+    list.set(reversed);
+    expect(keysOf(parent)).toEqual(reversed.map((x) => x.id));
+    expect(ops.moves).toBe(19);
+    expect(ops.stateMoves).toBe(19); // every move kept state
+  });
+
+  test("a detached parent falls back to insertBefore", () => {
+    const parent = document.createElement("ul") as unknown as FakeElement;
+    const { list } = makeList(parent, true);
+    list.set(ids(20));
+    resetOps();
+    list.set(ids(20).reverse());
+    expect(ops.moves).toBe(19);
+    expect(ops.stateMoves).toBe(0);
+  });
+});
+
+describe("lists of plain nodes", () => {
+  test("entries can be the nodes themselves, given a root function", () => {
+    const parent = document.createElement("ul") as unknown as FakeElement;
+    const list = new List<Item, FakeElement, number>(asDom(parent), {
+      key: (it) => it.id,
+      root: (el) => asDom(el),
+      create: (it) => {
+        const li = document.createElement("li") as unknown as FakeElement;
+        li["key"] = it.id;
+        return li;
+      },
+      update: () => {},
+    });
+    list.set([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    const [a, b, c] = parent.childNodes;
+    list.set([{ id: 3 }, { id: 1 }, { id: 2 }]);
+    expect(parent.childNodes).toEqual([c!, a!, b!]);
+    expect(list.entries[0]).toBe(c as FakeElement);
+  });
+});
+
 describe("html templates", () => {
   test("mount fills text, class, attribute and property holes", () => {
     const T = html`<tr class="${0}">
@@ -306,6 +356,33 @@ describe("html templates", () => {
     expect(fake(b.root).className).toBe("");
     const withEmptyAttr = T.mount(["", "", ""]);
     expect(fake(withEmptyAttr.root).getAttribute("data-x")).toBe(""); // "" on an attribute still means present
+  });
+
+  test("mountRoot makes an element with no block; block() attaches one on demand", () => {
+    const T = html`<tr class=${0}>
+      <td>${1}</td>
+    </tr>`;
+    const tr = fake(T.mountRoot(["", "first"]));
+    expect(tr.textContent).toBe("first");
+    const b = T.block(asDom(tr));
+    expect(T.block(asDom(tr))).toBe(b); // cached on the element
+    resetOps();
+    b.set(0, ""); // value unknown to a lazy block: the first set always writes
+    expect(ops.classWrites).toBe(1);
+    b.set(0, ""); // now known: no write
+    expect(ops.classWrites).toBe(1);
+    b.set(1, "second");
+    expect(tr.textContent).toBe("second");
+    const other = fake(T.mountRoot(["x", "other"]));
+    expect([tr.className, tr.textContent]).toEqual(["", "second"]);
+    expect([other.className, other.textContent]).toEqual(["x", "other"]);
+  });
+
+  test("mountRoot sets property holes on the clone", () => {
+    const T = html`<button onclick=${0}>${1}</button>`;
+    const fn = (): void => {};
+    expect(fake(T.mountRoot([fn, "a"]))["onclick"]).toBe(fn);
+    expect(fake(T.mountRoot([null, "b"]))["onclick"]).toBeUndefined();
   });
 
   test("clones are independent and the template compiles once per call site", () => {

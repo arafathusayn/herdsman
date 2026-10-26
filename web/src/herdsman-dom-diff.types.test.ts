@@ -71,6 +71,15 @@ describe("typed holes", () => {
         create: () => b,
         update: () => {},
       });
+      // @ts-expect-error entries without a root property need a root function
+      new List<{ id: number }, Element, number>(asDom(document.createElement("ul") as never), {
+        key: (r) => r.id,
+        create: () => Row.mountRoot(["", 1, 2, () => {}]),
+        update: () => {},
+      });
+      // @ts-expect-error a block from block() does not know values, so it has no get
+      Row.block(Row.mountRoot(["", 1, 2, () => {}])).get(0);
+      Row.block(Row.mountRoot(["", 1, 2, () => {}])).set(1, 5);
       void wrong;
     };
     void neverRun;

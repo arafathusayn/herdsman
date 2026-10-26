@@ -3,7 +3,7 @@
 A living document. It explains why herdsman-dom-diff exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
 - Status: draft, on branch `herdsman-dom-diff`
-- Library version: 0.0.2 (the module exports this as `VERSION`)
+- Library version: 0.0.3 (the module exports this as `VERSION`)
 - Last updated: 2026-10-26
 - Module: `web/src/herdsman-dom-diff.ts`, used by `web/src/dom.ts`
 
@@ -101,6 +101,21 @@ A block is the template, its root element, and a single state array of length tw
 3. Create the block with the clone as root, a fresh state array, and the new values recorded in its second half. Do not locate the clone's hole nodes.
 4. Properties do not survive cloning. If any property hole has a non-null value, locate the clone's holes now and set those properties on the clone. Property values are never written to the prototype.
 
+#### Mounting without a block
+
+For rows that mostly never change, a second mount returns only the new element and keeps no JavaScript object for the instance:
+
+1. Bake and clone exactly as in steps 1 and 2 above.
+2. If any property hole has a non-null value, locate the clone's holes into a temporary array and set those properties.
+3. Return the clone.
+
+When such an element first needs an update, ask the template for its block:
+
+1. If the element already carries a block (cached on the element under a private symbol), return it.
+2. Otherwise create one with the element as root, hole nodes not yet located, and every hole's last value set to a private "unknown" marker, so the first set of each hole always writes. Cache it on the element.
+
+Such a block does not know the values the element was created with, so its type offers setting holes but not reading them.
+
 Why this shape: in a browser, every DOM node that JavaScript touches gets a JavaScript wrapper object that must later be garbage-collected. Filling a row by walking its cloned nodes touches about six nodes per row; filling the prototype and cloning touches none of the clone's inner nodes. A row that is never updated is never walked. Writes into the prototype only happen where consecutive rows differ, and the prototype is not in the document, so they cost no style or layout work.
 
 #### Updating a hole
@@ -117,6 +132,8 @@ Why this shape: in a browser, every DOM node that JavaScript touches gets a Java
 Values are never parsed as HTML. A string with angle brackets becomes literal text.
 
 ### Layer 2: Keyed lists
+
+A list's entries are either objects exposing the item's root node, or anything else together with a function that returns an entry's root node (for example the root element itself, so the list keeps no object per item). The type requires that function exactly when entries have no root property.
 
 A list is bound to a parent node and, optionally, an anchor (a node before which the list lives; none means the end of the parent). It is configured with a key function, a create function (item to entry), an update function (entry and item), an `owns` flag (the list is the parent's only content) and a `detach` flag. It remembers the keys and entries of the last render.
 
@@ -166,6 +183,10 @@ Let `m` be the old length and `n` the new length.
 
 Walking right to left guarantees the reference node is already in its final place when it is used.
 
+#### Moving and placing nodes
+
+Every move of a surviving entry (the swap path and the general case) uses the state-preserving move when the browser has it and the parent is in the document, and plain insertion otherwise. The state-preserving move (`moveBefore`, Chrome 133+) keeps focus, iframe, video and CSS animation state that insertion resets; it throws when the parent is not in the document, which is the case while `detach` fills it. Inserting a new entry's node uses the state-preserving move only when that node is already in the document elsewhere (a persistent element a view reuses), and plain insertion otherwise.
+
 #### Longest increasing subsequence
 
 Use patience sorting with predecessor links, O(n log n):
@@ -193,7 +214,7 @@ The same rule computes the live children's keys and the fresh children's keys, s
 
 #### Morphing a child list
 
-1. Seed a keyed list over the live parent with the live children as its current entries and their computed keys. The list owns the parent.
+1. Seed a keyed list over the live parent with the live children themselves as its entries (no wrapper object per node) and their computed keys. The list owns the parent.
 2. Reconcile it to the fresh children. Its create step adopts the fresh node itself, moving it into the live tree with no copy. Its update step morphs the matched live node toward its fresh partner.
 
 #### Morphing one node
@@ -259,7 +280,8 @@ The tag function captures its interpolations as a constant tuple type and maps e
 2. A block's valid hole indexes are the tuple's numeric keys, so setting or reading hole number n, where n is past the last hole, is a compile error.
 3. Setting hole i takes exactly the i-th value type, and reading hole i returns exactly the i-th value type.
 4. A helper type gives the block type a template mounts, so code that stores blocks (a list's entries, a selected row) names it without repeating the tuple.
-5. A keyed list is generic in its item type, its entry type and its key type; the key function must return the declared key type, and the reconciler's key arrays and index map carry that type.
+5. A keyed list is generic in its item type, its entry type and its key type; the key function must return the declared key type, and the reconciler's key arrays and index map carry that type. When the entry type has no root property, a root function is required.
+6. A block obtained for an element made without one exposes setting and patching but not reading values.
 
 #### What cannot be inferred, and how it is covered
 
@@ -289,6 +311,9 @@ Tests run on a small linked-list fake DOM with counters for inserts, moves, remo
 8. Values baked into the prototype never leak: an earlier instance keeps its values after later mounts and after the prototype changes, and a later instance's first update locates its own holes. Property holes land on the clone, never on the prototype.
 9. Morph keeps matching nodes, patches text and attributes, moves keyed children with the fewest moves, replaces a changed tag, leaves a persistent reused node and `data-morph-skip` children alone, and keeps a focused field's value.
 10. `patch()` keeps the live element and runs only the newest handler for each event type, including a type added or dropped between renders.
+11. Moves use the state-preserving move when the parent is in the document (every move of a reversed twenty-item list), and plain insertion when it is not; move counts stay minimal either way.
+12. A list whose entries are the nodes themselves reorders them and keeps their identity.
+13. An element made without a block gets one on demand, cached on the element; the first set of each hole writes, the second identical set does not; instances stay independent; property holes are set on the clone.
 
 The same behaviors were also checked in real Chrome 156 (not the fake DOM): a focused input kept its node, focus, typed value and caret position through a `patch()` that reordered siblings; the kept button ran the newest handler; keyed rows kept their nodes; an unfocused input re-synced from the store; an indented template inside a table compiled correctly; and a blank class hole produced no class attribute.
 
@@ -320,6 +345,11 @@ The runner can also report, per test, how the click-to-commit window splits into
 1. Replace 1,000 rows: with phases measured, herdsman-dom-diff took 73.9 ms against vanilla's 79.1 ms, with every phase equal or lower. The earlier 1.28 times gap was machine noise.
 2. Create rows: the remaining cost was JavaScript allocation per row. Before the changes, script was 10.6 ms against vanilla's 6.2 ms on 1,000 rows; on 10,000 rows garbage collection was 96 ms for us, 74 ms for vanilla and 44 ms for vanillajs-lite, which never touches a cloned row's inner nodes. After merging block state into one array, reusing the argument array, dropping a per-row expando, and baking values into the prototype with lazy hole lookup, create 1,000 rows scored 1.01 times the best of vanilla, vanillajs-lite and herdsman-dom-diff (vanillajs-lite 1.07), and create 10,000 rows 1.02 times. Garbage collection on 10,000 rows was still 88 ms, so per-row objects (the block and its state array) remain the next target.
 
+### Microbenchmarks in Chrome 156 (2026-10-26)
+
+1. **Batched cloning** (cloning a fragment of 10, 50 or 250 prefilled rows at once, as vanillajs-lite does) against one clone per row, timed to forced layout, medians of 41 runs for 1,000 rows and 15 runs for 10,000 rows: 1,000 rows took 34.6 ms singly and 36.1 to 39.6 ms batched; 10,000 rows took 409.6 ms singly and 407.6 to 422.3 ms batched. Batching brought no gain, so the library clones one row at a time.
+2. **State-preserving move against insertion**, 1,000 rows, medians of 31 runs: swapping two rows took 2.6 ms with `moveBefore` and 2.3 ms with `insertBefore`; reversing 999 rows took 29.2 ms and 31.6 ms. Same speed within noise. A focused input inside a moved row kept focus with `moveBefore` and lost it with `insertBefore`; `moveBefore` on a parent outside the document threw a hierarchy request error.
+
 ## Part 4: Versioning and packaging
 
 The version starts at 0.0.1 and lives in one place, the module's exported `VERSION` constant; the package's `VERSION` file and change log repeat it. Bump the patch number for fixes and speedups that keep behavior, the minor number for new behavior or options, and record each release in this document's change log and the package's.
@@ -334,17 +364,32 @@ Each release is a zip named after the library and version, holding one folder of
 
 Type checking uses `bun check` (Bun 1.4.4, the latest release on 2026-10-26), never `tsc`: once with the herdsman settings and once with the stricter library settings. A release is ready when, from a fresh unzip, formatting of the authored files passes, both type checks pass, the tests pass, and the built module imports and reports the same version as the source.
 
+## Part 5: Research notes (2026-10-26)
+
+What published work and current browser engineering say about the costs this library targets.
+
+1. **General tree diff is too slow for UI.** Tree edit distance takes cubic time even with the best decomposition algorithms: Demaine, Mozes, Rossman and Weimann give an O(n³) algorithm and prove it optimal within that class (earlier bounds: Zhang and Shasha O(n⁴), Klein O(n³ log n)) ([arXiv cs/0604037](https://arxiv.org/pdf/cs/0604037)). UI libraries therefore restrict the problem to keyed child lists and known dynamic holes, as this library does.
+2. **Keyed moves.** Million.js (Bai, arXiv 2202.08409, ACM SAC 2023) pairs a compiler that flattens and hoists static structure with keyed moves based on O(ND) difference algorithms ([arXiv 2202.08409](https://ar5iv.labs.arxiv.org/html/2202.08409)). This library takes the minimum-move route instead: the longest increasing subsequence gives the exact minimum number of moves.
+3. **Why per-row objects cost main-thread time.** Blink's DOM objects and V8's JavaScript objects form one traced heap; sweeping moved to background threads in Chrome 78, but destructors of dead DOM objects still run on the main thread ([V8 blog, May 2020](https://v8.dev/blog/high-performance-cpp-gc)). Creating fewer JavaScript objects and touching fewer DOM nodes from JavaScript reduces that work, which is what lazy hole lookup and mounting without a block aim at.
+4. **State-preserving moves.** `moveBefore()` shipped in Chrome 133 (February 2025) and moves a node without resetting focus, iframe, video, animation, fullscreen or dialog state ([Chrome for Developers](https://developer.chrome.com/blog/movebefore-api)). The library uses it for every move when available (measured above: same speed as insertion).
+5. **Native template instantiation is not here yet.** As of the W3C web components meeting of 2025-03-26, DOM Parts and template instantiation were still proposals; an experiment showed mixed performance, some benchmarks faster and others 10 to 20% slower ([minutes](https://www.w3.org/2025/03/26-webcomponents-minutes.html)).
+6. **Benchmark rules.** The official benchmark notes, but does not reject, explicit event delegation in client code (note 801), manual DOM manipulation (note 772) and per-row selection flags (note 800); frameworks themselves may delegate events, and the HTML must match the vanillajs reference ([README](https://github.com/krausest/js-framework-benchmark)). The current leader's entry carries notes 772, 801 and 1261. Built-in event delegation in the library would let an entry avoid note 801.
+7. **Rendering work outside any diff.** In our traces, script was about 11 to 12% of the measured window for creating rows; style, layout and paint were the rest. CSS containment and `content-visibility: auto` let the browser skip layout and paint for offscreen content ([web.dev](https://web.dev/articles/content-visibility)); that is where herdsman's long views can gain more than from any diff algorithm.
+
 ## Open questions
 
-1. Can rows that are never updated avoid the per-row block object entirely (for example, created on first update), to bring garbage collection down to vanillajs-lite's level? The clear rows result (bimodal, 1.17 times the best) suggests this is now the main remaining cost.
-2. Morph's per-node cost on large herdsman views has not been measured yet.
-3. Whether `patch()` should become the default for all of herdsman's re-rendered views, or stay per call site.
-4. The other top entries of the official table that need an npm install and their own build step (thane, doohtml, sonnet, deleight, alien-signals, mikado) have not been run in the replica; installing and running their build tools needs the owner's approval.
+1. Mounting without a block (0.0.3) removes the per-row block object; its effect on garbage collection and on the clear rows test is being measured.
+2. Should the library offer built-in event delegation (for `on*` holes), which would avoid per-row handler closures and benchmark note 801?
+3. Which herdsman views benefit from `content-visibility: auto` and `contain: content`?
+4. Morph's per-node cost on large herdsman views has not been measured yet.
+5. Whether `patch()` should become the default for all of herdsman's re-rendered views, or stay per call site.
+6. The other top entries of the official table that need an npm install and their own build step (thane, doohtml, sonnet, deleight, alien-signals, mikado) have not been run in the replica; installing and running their build tools needs the owner's approval.
 
 ## Change log
 
 Newest first.
 
+- 2026-10-26: Version 0.0.3. Mounting without a block (`mountRoot`) with on-demand blocks (`block`) that cannot read values; list entries may be any value given a root function; morph keeps no wrapper per node; moves use `moveBefore` when the parent is in the document. Batched cloning measured and rejected. Research notes added.
 - 2026-10-26: Chrome A/B of 0.0.1 against 0.0.2 and an A/A noise control: no measurable runtime cost from the types. Corrected the head-to-head reading: within this machine's noise, herdsman-dom-diff is tied with `re`, not ahead.
 - 2026-10-26: Version 0.0.2. Strict types: typed hole markers for text, class, attribute and property holes; the value tuple, hole indexes and per-hole value types inferred from them; a once-per-template position check for markers; keyed lists generic in their key type; the library compiled under an extra strict settings file that herdsman's web check now runs; type tests with expected errors. Kind codes are plain constants and constructor parameter properties are gone (erasable syntax only). The package's declaration file re-exports the source's types instead of a `tsc` build. No runtime slowdown in profiling.
 - 2026-10-26: Version 0.0.1 packaged as a zip. `VERSION` exported. The `patch()` tests moved to `dom.test.ts` so the library's own tests run without herdsman's `dom.ts`.

@@ -5,9 +5,9 @@
 // a CPU profile over it shows the library's own cost, not a browser's.
 
 /** Counts the DOM work done; tests assert on it. */
-export const ops = { inserts: 0, moves: 0, removes: 0, clones: 0, classWrites: 0 };
+export const ops = { inserts: 0, moves: 0, stateMoves: 0, removes: 0, clones: 0, classWrites: 0 };
 export function resetOps(): void {
-  ops.inserts = ops.moves = ops.removes = ops.clones = ops.classWrites = 0;
+  ops.inserts = ops.moves = ops.stateMoves = ops.removes = ops.clones = ops.classWrites = 0;
 }
 
 export class FakeNode {
@@ -28,6 +28,21 @@ export class FakeNode {
   }
   set nodeValue(_v: string | null) {}
   readonly ownerDocument: { activeElement: unknown } | null = null;
+
+  /** True on the fake document root: nodes under it are "in the document". */
+  isDocument = false;
+  get isConnected(): boolean {
+    let n: FakeNode = this;
+    while (n.parentNode) n = n.parentNode;
+    return n.isDocument;
+  }
+
+  /** Like Chrome's moveBefore: keeps state, throws when either node is off-document. */
+  moveBefore(n: FakeNode, ref: FakeNode | null): void {
+    if (!this.isConnected || !n.isConnected) throw new Error("HierarchyRequestError");
+    ops.stateMoves++;
+    this.insertBefore(n, ref);
+  }
 
   insertBefore(n: FakeNode, ref: FakeNode | null): FakeNode {
     if (n.parentNode) {
