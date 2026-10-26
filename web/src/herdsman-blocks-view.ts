@@ -50,6 +50,7 @@ export {
 
 declare const VIEW_NODE: unique symbol;
 declare const LIST_NODE: unique symbol;
+declare const RUNS_NODE: unique symbol;
 declare const ANY_VALUES: unique symbol;
 
 /** Stands for "any value tuple" in `ViewNode`; never a real value tuple. */
@@ -88,11 +89,17 @@ export interface ListNode<N extends ViewNode = ViewNode, K extends Key = Key> {
   readonly [LIST_NODE]: readonly [N, K];
 }
 
+/** A positional sequence of text and descriptions, made by `runs`: its views are N. */
+export interface RunsNode<N extends ViewNode = ViewNode> {
+  readonly [RUNS_NODE]: readonly [N];
+}
+
 /** What a child hole accepts. null, undefined and false render nothing; a Node is inserted as is. */
-export type Child = string | number | null | undefined | false | Node | ViewNode | ListNode;
+export type Child = string | number | null | undefined | false | Node | ViewNode | ListNode | RunsNode;
 
 /** What a child hole inside SVG content should take: no HTML views. */
-export type SvgChild = string | number | null | undefined | false | SVGElement | SvgNode | ListNode<SvgNode>;
+export type SvgChild =
+  string | number | null | undefined | false | SVGElement | SvgNode | ListNode<SvgNode> | RunsNode<SvgNode>;
 
 /** A view: call it with its values tuple to describe one instance. */
 export interface View<V extends readonly unknown[], NS extends Namespace = "html"> {
@@ -157,6 +164,18 @@ export function list<T, K extends Key, N extends ViewNode>(
     key as (item: unknown) => Key,
     render as (item: unknown) => ViewNode,
   ) as unknown as ListNode<N, K>;
+}
+
+/**
+ * Unkeyed inline content for a child hole: text runs and descriptions side by
+ * side, with no wrapper element, such as highlighted text between `<mark>`
+ * elements or inline markdown. Runs are matched by position: text stays the
+ * same text node with its data updated, a description patches the view at its
+ * position (or replaces it, for another view), and anything else is replaced.
+ * Nothing is keyed, so use `list` for items with identity.
+ */
+export function runs<N extends ViewNode>(items: readonly (string | number | N)[]): RunsNode<N> {
+  return new RunsOf(items) as unknown as RunsNode<N>;
 }
 
 /**
@@ -411,6 +430,13 @@ class Desc {
   }
 }
 
+class RunsOf {
+  readonly items: readonly unknown[];
+  constructor(items: readonly unknown[]) {
+    this.items = items;
+  }
+}
+
 class ListOf {
   readonly items: readonly unknown[];
   readonly key: (item: unknown) => Key;
@@ -528,6 +554,7 @@ const TEXT = 1;
 const NODE = 2;
 const VIEW = 3;
 const LIST = 4;
+const RUNS = 5;
 
 const kindOf = (v: unknown): number =>
   v == null || v === false
@@ -538,7 +565,9 @@ const kindOf = (v: unknown): number =>
         ? VIEW
         : v instanceof ListOf
           ? LIST
-          : NODE;
+          : v instanceof RunsOf
+            ? RUNS
+            : NODE;
 
 /**
  * A child hole's state. Its content sits just before `anchor`, the slot's empty
@@ -555,6 +584,8 @@ class Slot {
   list: List<unknown, Inst, Key> | null = null;
   key: (item: unknown) => Key = noKey;
   render: (item: unknown) => ViewNode = noRender;
+  /** For runs: a text node or an instance per run, in order. */
+  runs: (Text | Inst)[] | null = null;
   constructor(anchor: Node) {
     this.anchor = anchor as Text;
     this.parent = anchor.parentNode!;
@@ -583,6 +614,8 @@ function setChild(sl: Slot, v: unknown): void {
         return patch(sl.inst!, v as Desc);
       case LIST:
         return setList(sl, v as ListOf);
+      case RUNS:
+        return setRuns(sl, (v as RunsOf).items);
     }
     return;
   }
@@ -610,8 +643,44 @@ function setChild(sl: Slot, v: unknown): void {
       });
       return setList(sl, v as ListOf);
     }
+    case RUNS:
+      sl.runs = [];
+      return setRuns(sl, (v as RunsOf).items);
   }
 }
+
+// Bring a slot's runs to `items` by position.
+function setRuns(sl: Slot, items: readonly unknown[]): void {
+  const old = sl.runs!,
+    p = sl.parent,
+    n = items.length;
+  for (let i = 0; i < n; i++) {
+    const v = items[i],
+      cur = old[i];
+    if (v instanceof Desc) {
+      if (cur instanceof Inst) {
+        patch(cur, v);
+        continue;
+      }
+      const inst = mount(v);
+      if (cur === undefined) p.insertBefore(inst.root, sl.anchor);
+      else p.replaceChild(inst.root, cur);
+      old[i] = inst;
+    } else {
+      const t = "" + (v as string | number);
+      if (cur instanceof Inst || cur === undefined) {
+        const node = document.createTextNode(t);
+        if (cur === undefined) p.insertBefore(node, sl.anchor);
+        else p.replaceChild(node, cur.root);
+        old[i] = node;
+      } else if (cur.data !== t) cur.data = t;
+    }
+  }
+  for (let i = n; i < old.length; i++) p.removeChild(runRoot(old[i]!));
+  old.length = n;
+}
+
+const runRoot = (r: Text | Inst): Node => (r instanceof Inst ? r.root : r);
 
 function setList(sl: Slot, l: ListOf): void {
   sl.key = l.key;
@@ -638,6 +707,10 @@ function clearChild(sl: Slot): void {
       sl.key = noKey;
       sl.render = noRender;
       if (sl.anchor.parentNode === null) sl.parent.appendChild(sl.anchor); // an owning list's clear drops it
+      break;
+    case RUNS:
+      for (const r of sl.runs!) sl.parent.removeChild(runRoot(r));
+      sl.runs = null;
       break;
   }
   sl.kind = EMPTY;

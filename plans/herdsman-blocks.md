@@ -299,15 +299,16 @@ A slot hole is typed with the slot marker and must sit where a text hole would (
 
 #### Child holes
 
-A child hole accepts text (a string or number), nothing (null, undefined or false), a DOM node, a description, or a keyed list description. Its content always sits just before the slot's text node, the **anchor**, which never moves. Text is written into the anchor itself.
+A child hole accepts text (a string or number), nothing (null, undefined or false), a DOM node, a description, a keyed list description, or a runs description. Its content always sits just before the slot's text node, the **anchor**, which never moves. Text is written into the anchor itself.
 
-1. Classify the new value: nothing, text, node, view description or list description.
+1. Classify the new value: nothing, text, node, view description, list description or runs description.
 2. If the class is the same as the current content's:
    - Text: set the anchor's data to the value as a string.
    - Node: if it is the same node, do nothing. Otherwise replace the old node with the new one when the old one is still in the slot's parent, or insert the new one before the anchor when the old one was moved elsewhere.
    - View: patch the held instance toward the description (which replaces it when the view differs).
    - List: reconcile the list (below).
-3. Otherwise clear the current content (text: empty the anchor; node: remove it if still in the parent; view: remove the instance's root; list: clear the list, then put the anchor back at the end of the parent if an owning list removed it), then set the new content: write text into the anchor, insert the node before the anchor, mount the description and insert its root before the anchor, or create a list.
+   - Runs: reconcile the runs (below).
+3. Otherwise clear the current content (text: empty the anchor; node: remove it if still in the parent; view: remove the instance's root; list: clear the list, then put the anchor back at the end of the parent if an owning list removed it; runs: remove every run's node), then set the new content: write text into the anchor, insert the node before the anchor, mount the description and insert its root before the anchor, create a list, or start empty runs and reconcile them.
 
 #### Keyed list descriptions
 
@@ -316,6 +317,16 @@ A child hole accepts text (a string or number), nothing (null, undefined or fals
 1. Creating the list in a slot: if the anchor has no siblings, the list **owns** the parent (Layer 2: clearing is one native text-content write, and the anchor is dropped while the list is shown); otherwise the list is anchored before the slot's anchor, so content around the hole is never touched.
 2. The Layer 2 list's create mounts `render(item)`, its update patches the entry's instance toward `render(item)`, and its key calls the key function. Entries are view instances. These callbacks read the slot's current key and render functions, which are replaced on every reconcile, so closures passed by the latest render are the ones used.
 3. Reconciling: store the description's key and render functions on the slot and set the list to the items (Layer 2). Kept items are patched; moved items are moved with the minimum number of DOM moves; an item whose render returns a different view is replaced where it stands.
+
+#### Runs descriptions
+
+`runs(items)` describes unkeyed inline content: a positional sequence of text (strings or numbers) and descriptions, with no wrapper element per run, such as text between `<mark>` elements or inline markdown. It is the view-layer counterpart of `dom.ts`'s `unkeyed`. The slot keeps, per run in order, either its text node or its view instance; all of them sit before the anchor.
+
+1. For each position i of the new items:
+   - A description: if run i is an instance, patch it toward the description (which replaces it when the view differs). Otherwise mount the description and put its root in place of run i's text node, or insert it before the anchor if there is no run i.
+   - Text: if run i is a text node, set its data when it differs. Otherwise create a text node with the text and put it in place of run i's root, or insert it before the anchor if there is no run i.
+2. Remove the nodes of runs past the new length, and forget them.
+3. Types: `runs` is generic in the description type N of its views and returns a branded runs description of N; a child hole typed for runs of N takes only runs whose views are N.
 
 #### SVG views
 
@@ -472,7 +483,7 @@ Tests run on a small linked-list fake DOM with counters for inserts, moves, remo
 13. An element made without a block gets one on demand, cached on the element; the first set of each hole writes, the second identical set does not; instances stay independent; property holes are set on the clone.
 14. Slot holes: a slot marker in content compiles to a slot, blocks never write it, and a slot marker in an attribute position is rejected.
 15. SVG: `svg` templates and views are in the SVG namespace, SVG views render and reorder in child holes inside SVG content, and `class` there is an attribute; checked on the fake DOM and in headless Chrome.
-16. Views: every child kind renders in place and switching kinds replaces the content; the same view patches and another view replaces, at a child hole and at the root; unchanged values write nothing; a keyed list reorders with every node kept and the minimum number of moves, stays between its siblings, owns and clears its parent and gives the slot back; an item whose view changes is replaced where it stands; nested lists move cards between lanes; a new handler each render costs no DOM write and the latest one runs, with the element as `this` and `currentTarget`; delegated handlers run innermost first and `stopPropagation` stops outer ones; a stopped keydown never reaches a listener above the render root; a render root inside another dispatches its handlers once; a non-bubbling event gets a direct trampoline; `renderDirect` sets handlers on the elements, so nodes moved under a delegating root run each handler once; a focused input keeps its node and typed value across renders.
+16. Views: every child kind renders in place and switching kinds replaces the content; the same view patches and another view replaces, at a child hole and at the root; unchanged values write nothing; a keyed list reorders with every node kept and the minimum number of moves, stays between its siblings, owns and clears its parent and gives the slot back; an item whose view changes is replaced where it stands; nested lists move cards between lanes; a new handler each render costs no DOM write and the latest one runs, with the element as `this` and `currentTarget`; delegated handlers run innermost first and `stopPropagation` stops outer ones; a stopped keydown never reaches a listener above the render root; a render root inside another dispatches its handlers once; a non-bubbling event gets a direct trampoline; `renderDirect` sets handlers on the elements, so nodes moved under a delegating root run each handler once; runs render in order without wrappers between siblings, keep text nodes and same views by position and replace the rest, and clear when the hole switches kind; a focused input keeps its node and typed value across renders.
 17. The benchmark runner's gate: the declarative benchmark app's DOM is identical to the reference app's after every step.
 
 The same behaviors were also checked in real Chrome 156 (not the fake DOM): a focused input kept its node, focus, typed value and caret position through a `patch()` that reordered siblings; the kept button ran the newest handler; keyed rows kept their nodes; an unfocused input re-synced from the store; an indented template inside a table compiled correctly; and a blank class hole produced no class attribute.
@@ -597,6 +608,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-27: `runs(items)`: unkeyed inline content for child holes, text and views reconciled by position with no wrapper elements; typed `RunsNode<N>` in `Child` and `SvgChild`. Part of 0.0.8.
 - 2026-10-27: `renderDirect(container, view)`: renders with every handler on its own element and no listener on the container, for bridges that move a view's nodes elsewhere; render roots skip such instances when delegating. Part of 0.0.8.
 - 2026-10-27: Version 0.0.8. Views delegate handlers of bubbling events to the render root (one listener per event type on the `render` container; `this` and `currentTarget` are the element; innermost first; `stopPropagation` honored), so mounting a row with handlers walks none of its nodes; non-bubbling events keep direct trampolines, which now find their instance on the template root. Instances keep the description's values array instead of copying it, skip a description rendered again, and locate write, eager and delegated holes separately (Layer 1 gains `Template.locator` for a subset of holes). Official benchmark, Chrome script time pooled over 10 samples against 0.0.7's layer: create 10,000 rows 18.7 to 13.5 ms (raw blocks 12.0), create 1,000 rows 2.1 to 1.4 (raw 1.4).
 - 2026-10-27: Version 0.0.7. Strict view types at no runtime cost: an `on<event, element>()` marker is the only one an `on*` name takes (a property marker there now fails at compile time); `prop<element, property>()` takes exactly that property's type; `svg` templates and views parse inside an `<svg>`, and `class` on SVG elements is an attribute hole; descriptions carry their view's exact value tuple and namespace, list descriptions their description and key types; `child<C>()` narrows what a hole takes; views reject untyped holes. Three more strict compiler settings. Headless Chrome check for SVG and typed holes. Bundles before and after differ only in markers and once-per-template compiling.

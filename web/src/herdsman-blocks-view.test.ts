@@ -12,6 +12,8 @@ import {
   prop,
   render,
   renderDirect,
+  runs,
+  type RunsNode,
   svg,
   type SvgChild,
   type SvgNode,
@@ -251,6 +253,48 @@ describe("keyed lists", () => {
     expect(shape(root)).toBe(
       "<main><div><section><h2>b</h2><button>1</button></section><section><h2>a</h2></section></div></main>",
     );
+  });
+});
+
+describe("runs", () => {
+  const Mark = html`<mark>${text()}</mark>`;
+  const Code = html`<code>${text()}</code>`;
+  const Line = html`<p>${text()}${child()}<i>end</i></p>`;
+  const kids = (root: FakeElement): FakeNode[] => first(root).childNodes;
+
+  test("text and views render in order with no wrapper, between their siblings", () => {
+    const root = box();
+    render(asDom(root), Line(["> ", runs(["a", Mark(["b"]), "c", 4])]));
+    expect(shape(first(root))).toBe("<p>> a<mark>b</mark>c4<i>end</i></p>");
+  });
+
+  test("runs are matched by position: text nodes and same views are kept, others replaced", () => {
+    const root = box();
+    render(asDom(root), Line(["", runs(["a", Mark(["b"]), "c"])]));
+    const [, a, mark, c] = kids(root);
+    resetOps();
+    render(asDom(root), Line(["", runs(["A", Mark(["B"]), "c"])]));
+    expect(kids(root).slice(1, 4)).toEqual([a!, mark!, c!]);
+    expect(ops.inserts + ops.removes + ops.moves).toBe(0);
+    expect(shape(first(root))).toBe("<p>A<mark>B</mark>c<i>end</i></p>");
+    render(asDom(root), Line(["", runs([Code(["x"]), Mark(["y"])])]));
+    expect(shape(first(root))).toBe("<p><code>x</code><mark>y</mark><i>end</i></p>");
+    expect(kids(root)[2]).toBe(mark!); // same view at the same position: patched
+    render(asDom(root), Line(["", runs(["only"])]));
+    expect(shape(first(root))).toBe("<p>only<i>end</i></p>");
+    render(asDom(root), Line(["", runs([])]));
+    expect(shape(first(root))).toBe("<p><i>end</i></p>");
+  });
+
+  test("switching between runs and other child kinds clears the runs", () => {
+    const root = box();
+    render(asDom(root), Line(["", runs(["a", Mark(["b"])])]));
+    render(asDom(root), Line(["", "text"]));
+    expect(shape(first(root))).toBe("<p>text<i>end</i></p>");
+    render(asDom(root), Line(["", runs([Mark(["m"]), "z"])]));
+    expect(shape(first(root))).toBe("<p><mark>m</mark>z<i>end</i></p>");
+    render(asDom(root), Line(["", null]));
+    expect(shape(first(root))).toBe("<p><i>end</i></p>");
   });
 });
 
@@ -557,6 +601,19 @@ describe("types", () => {
       OneRow([rows]);
       // @ts-expect-error an SVG hole does not take an HTML view
       Svg([Row(["a"])]);
+      const Mark = html`<mark>${text()}</mark>`;
+      const Hit = html`<span>${child<RunsNode<ViewNodeOf<typeof Mark>>>()}</span>`;
+      Hit([runs(["a", Mark(["b"]), "c", 4])]);
+      // @ts-expect-error a runs hole for Mark views does not take a Num view among its runs
+      Hit([runs(["a", Num([1])])]);
+      // @ts-expect-error a runs hole does not take plain text
+      Hit(["a"]);
+      // @ts-expect-error runs take text and views, not nothing
+      runs(["a", null]);
+      OneRow([
+        // @ts-expect-error a Row hole does not take runs
+        runs(["a"]),
+      ]);
       // @ts-expect-error child holes take Child types only
       child<boolean>();
       // @ts-expect-error a plain array is not a child: use list()
