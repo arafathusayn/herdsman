@@ -1,9 +1,9 @@
 // Property-based tests: the library's behavior stated as properties and
 // checked on thousands of generated inputs, with shrinking to the smallest
-// counterexample on failure. See herdsman-dom-diff.prop.ts.
+// counterexample on failure. See herdsman-blocks.prop.ts.
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { assertProperty, type Choices, type Gen, keyOf, type KeyStyle, listCase } from "./herdsman-dom-diff.prop.ts";
+import { assertProperty, type Choices, type Gen, keyOf, type KeyStyle, listCase } from "./herdsman-blocks.prop.ts";
 import {
   asDom,
   type FakeElement,
@@ -11,8 +11,8 @@ import {
   installFakeDocument,
   ops,
   resetOps,
-} from "./herdsman-dom-diff.testdom.ts";
-import { attr, cls, html, lis, List, morph, text } from "./herdsman-dom-diff.ts";
+} from "./herdsman-blocks.testdom.ts";
+import { attr, cls, html, lis, List, morph, text } from "./herdsman-blocks.ts";
 
 beforeEach(installFakeDocument);
 

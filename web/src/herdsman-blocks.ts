@@ -1,4 +1,4 @@
-// herdsman-dom-diff: a zero-dependency DOM diff for the herdsman web app.
+// herdsman-blocks: a zero-dependency DOM diff for the herdsman web app.
 //
 //   1. Blocks: a template is parsed once. Each instance is a cloneNode(true)
 //      of a prototype that already holds the instance's values; its hole nodes
@@ -90,7 +90,7 @@ type Path = readonly number[];
 // Marks a hole whose current value is unknown, so its next set always writes.
 const UNSET: unique symbol = Symbol("unset");
 // Caches a lazily created block on its element.
-const BLOCK: unique symbol = Symbol("herdsman-dom-diff.block");
+const BLOCK: unique symbol = Symbol("herdsman-blocks.block");
 
 /** A block obtained from `Template.block` for an element made by `mountRoot`: it can write holes but does not know their values. */
 export type RootBlock<V extends readonly unknown[]> = Pick<Block<V>, "t" | "root" | "set" | "patch">;
@@ -156,7 +156,7 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
       }
       if (inTag) {
         const m = ATTR_HOLE.exec(s);
-        if (!m) throw new Error(`herdsman-dom-diff: hole ${i} is inside a tag but not an attribute value`);
+        if (!m) throw new Error(`herdsman-blocks: hole ${i} is inside a tag but not an attribute value`);
         src += s.slice(0, m.index) + ` bk${i}="${encodeURIComponent(m[1]!)}"`;
         if (m[2]) parts[i + 1] = parts[i + 1]!.replace(m[2], ""); // drop the closing quote
       } else {
@@ -168,7 +168,7 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
     tpl.innerHTML = src.trim();
     const root = tpl.content.firstChild;
     if (!root || root.nextSibling || root.nodeType !== 1) {
-      throw new Error("herdsman-dom-diff: a template must have exactly one root element");
+      throw new Error("herdsman-blocks: a template must have exactly one root element");
     }
 
     this.n = n;
@@ -177,13 +177,13 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
     const paths: (Path | undefined)[] = new Array(n);
     walk(root, [], paths, this.kinds, names);
     for (let i = 0; i < n; i++) {
-      if (!paths[i]) throw new Error(`herdsman-dom-diff: hole ${i} could not be located`);
+      if (!paths[i]) throw new Error(`herdsman-blocks: hole ${i} could not be located`);
       // A typed marker must sit where its kind says. Checked once per template.
       const h = holes[i];
       if (h !== undefined && h < 0 && -1 - h !== this.kinds[i]) {
         const want = KIND_NAMES[-1 - h] ?? "unknown",
           got = KIND_NAMES[this.kinds[i]!] ?? "unknown";
-        throw new Error(`herdsman-dom-diff: hole ${i} is typed ${want}, but its position makes it ${got}`);
+        throw new Error(`herdsman-blocks: hole ${i} is typed ${want}, but its position makes it ${got}`);
       }
     }
     this.names = names;

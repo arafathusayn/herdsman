@@ -1,4 +1,4 @@
-// A small property-based testing engine for herdsman-dom-diff's tests, with no
+// A small property-based testing engine for herdsman-blocks's tests, with no
 // dependencies. Properties are checked against many generated inputs
 // (QuickCheck, Claessen and Hughes, ICFP 2000). Generators draw every random
 // decision from a recorded choice sequence; on a failure the engine shrinks

@@ -8,8 +8,8 @@ import {
   installFakeDocument,
   ops,
   resetOps,
-} from "./herdsman-dom-diff.testdom.ts";
-import { type Entry, html, lis, List, morph } from "./herdsman-dom-diff.ts";
+} from "./herdsman-blocks.testdom.ts";
+import { type Entry, html, lis, List, morph } from "./herdsman-blocks.ts";
 
 beforeEach(installFakeDocument);
 

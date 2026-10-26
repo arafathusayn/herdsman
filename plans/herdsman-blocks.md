@@ -1,11 +1,11 @@
-# herdsman-dom-diff: article and design spec
+# herdsman-blocks: article and design spec
 
-A living document. It explains why herdsman-dom-diff exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
+A living document. It explains why herdsman-blocks exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
-- Status: draft, on branch `herdsman-dom-diff`
+- Status: draft, on branch `herdsman-blocks`
 - Library version: 0.0.5 (the module exports this as `VERSION`)
-- Last updated: 2026-10-26
-- Module: `web/src/herdsman-dom-diff.ts`, used by `web/src/dom.ts`
+- Last updated: 2026-10-27
+- Module: `web/src/herdsman-blocks.ts`, used by `web/src/dom.ts`
 
 ---
 
@@ -43,7 +43,7 @@ Our measurements come from a local replica of the official method in headless Ch
 
 **Latest run** (2026-10-26, after the allocation work in the change log), median of 12 iterations:
 
-| Test               | re (official #1) | vanillajs-lite (official #3) | vanillajs | herdsman-dom-diff |
+| Test               | re (official #1) | vanillajs-lite (official #3) | vanillajs | herdsman-blocks |
 | ------------------ | ---------------: | ---------------------------: | --------: | ----------------: |
 | create 1,000 rows  |          74.3 ms |                      68.2 ms |   87.1 ms |           74.2 ms |
 | replace 1,000 rows |          75.8 ms |                      76.3 ms |   76.1 ms |           77.6 ms |
@@ -56,15 +56,15 @@ Our measurements come from a local replica of the official method in headless Ch
 | clear 1,000 rows   |          30.2 ms |                      29.3 ms |   29.7 ms |           34.2 ms |
 | **weighted score** |        **1.065** |                    **1.004** | **1.080** |         **1.052** |
 
-Assessment: in this replica herdsman-dom-diff ranks second of four by score, but the noise control below shows that differences under about 4% are not meaningful on this machine, so it is effectively tied with `re` (the official leader) and `vanillajs`, and about 4.8% behind `vanillajs-lite`, a gap at the edge of the noise. It is fastest on swap and ties the fastest on create 10,000 rows. Its one clear loss is clear rows (1.17 times the best): its samples split between about 30 ms and about 50 ms, which points to garbage collection of the per-row block objects landing inside the measured window. Whether these placements hold on the official table can only be settled by the official run.
+Assessment: in this replica herdsman-blocks ranks second of four by score, but the noise control below shows that differences under about 4% are not meaningful on this machine, so it is effectively tied with `re` (the official leader) and `vanillajs`, and about 4.8% behind `vanillajs-lite`, a gap at the edge of the noise. It is fastest on swap and ties the fastest on create 10,000 rows. Its one clear loss is clear rows (1.17 times the best): its samples split between about 30 ms and about 50 ms, which points to garbage collection of the per-row block objects landing inside the measured window. Whether these placements hold on the official table can only be settled by the official run.
 
-**0.0.3 run** (2026-10-26, lazy rows and state-preserving moves), median of 12 interleaved iterations, weighted scores: herdsman-dom-diff 0.0.3 1.036, `vanillajs-lite` 1.045, herdsman-dom-diff 0.0.2 1.066, `re` 1.070. 0.0.3 ranked first, but its margins over `vanillajs-lite` (0.9%) and over 0.0.2 (3%) are under the 4.3% noise floor below, so this shows no regression and at most a small gain. Clear rows, which looked bound by garbage collection before, took 30.0 ms with one slow sample in twelve (0.0.2: four). A focused rerun of the four tests where 0.0.3 had the slower median (select, swap, create 10,000, append; 15 interleaved iterations) gave 0.0.2 1.020 and 0.0.3 1.011: create 10,000 and append flipped in 0.0.3's favor (707.1 ms against 735.8 ms; 78.0 ms against 78.8 ms), select (12.3 ms against 11.5 ms) and swap (59.9 ms against 58.5 ms) stayed slightly slower, all within the noise floor. No regression.
+**0.0.3 run** (2026-10-26, lazy rows and state-preserving moves), median of 12 interleaved iterations, weighted scores: herdsman-blocks 0.0.3 1.036, `vanillajs-lite` 1.045, herdsman-blocks 0.0.2 1.066, `re` 1.070. 0.0.3 ranked first, but its margins over `vanillajs-lite` (0.9%) and over 0.0.2 (3%) are under the 4.3% noise floor below, so this shows no regression and at most a small gain. Clear rows, which looked bound by garbage collection before, took 30.0 ms with one slow sample in twelve (0.0.2: four). A focused rerun of the four tests where 0.0.3 had the slower median (select, swap, create 10,000, append; 15 interleaved iterations) gave 0.0.2 1.020 and 0.0.3 1.011: create 10,000 and append flipped in 0.0.3's favor (707.1 ms against 735.8 ms; 78.0 ms against 78.8 ms), select (12.3 ms against 11.5 ms) and swap (59.9 ms against 58.5 ms) stayed slightly slower, all within the noise floor. No regression.
 
-**Every version against the references** (2026-10-26), median of 10 interleaved iterations, all nine tests, each version built from its own release or commit: herdsman-dom-diff 0.0.4 1.034, 0.0.1 1.050, `vanillajs-lite` 1.054, herdsman-dom-diff 0.0.3 1.059, 0.0.2 1.067, 0.0.5 1.073, `re` 1.094, `vanillajs` 1.109. Versions 0.0.4 and 0.0.5 produce byte-for-byte equal benchmark code apart from the version string (0.0.5 changed only morph, which the benchmark does not use), so their 3.9% gap is this run's own noise control. Read with it: the herdsman-dom-diff versions are indistinguishable from each other and from `vanillajs-lite`, and all scored at or ahead of `re` and `vanillajs` in this run (best version 5.8% ahead of `re`, worst 2%). Earlier runs placed `re` and `vanillajs` higher, so only the official run can settle the order.
+**Every version against the references** (2026-10-26), median of 10 interleaved iterations, all nine tests, each version built from its own release or commit: herdsman-blocks 0.0.4 1.034, 0.0.1 1.050, `vanillajs-lite` 1.054, herdsman-blocks 0.0.3 1.059, 0.0.2 1.067, 0.0.5 1.073, `re` 1.094, `vanillajs` 1.109. Versions 0.0.4 and 0.0.5 produce byte-for-byte equal benchmark code apart from the version string (0.0.5 changed only morph, which the benchmark does not use), so their 3.9% gap is this run's own noise control. Read with it: the herdsman-blocks versions are indistinguishable from each other and from `vanillajs-lite`, and all scored at or ahead of `re` and `vanillajs` in this run (best version 5.8% ahead of `re`, worst 2%). Earlier runs placed `re` and `vanillajs` higher, so only the official run can settle the order.
 
 **Noise control** (2026-10-26): the same 0.0.1 build run against a byte-identical copy of itself, 10 interleaved iterations, scored 1.052 and 1.009, a 4.3% gap from noise alone; per-test factors between the identical builds reached 1.17. Any replica difference smaller than that is not evidence.
 
-**Earlier run** (same day, before the allocation work), median of 15 iterations, three frameworks: vanillajs 1.029, herdsman-dom-diff 1.076, `re` 1.086.
+**Earlier run** (same day, before the allocation work), median of 15 iterations, three frameworks: vanillajs 1.029, herdsman-blocks 1.076, `re` 1.086.
 
 ---
 
@@ -375,8 +375,8 @@ Frameworks are interleaved within each iteration, rotating which goes first, so 
 
 The runner can also report, per test, how the click-to-commit window splits into script, style, layout, pre-paint, paint, commit and garbage collection (medians).
 
-1. Replace 1,000 rows: with phases measured, herdsman-dom-diff took 73.9 ms against vanilla's 79.1 ms, with every phase equal or lower. The earlier 1.28 times gap was machine noise.
-2. Create rows: the remaining cost was JavaScript allocation per row. Before the changes, script was 10.6 ms against vanilla's 6.2 ms on 1,000 rows; on 10,000 rows garbage collection was 96 ms for us, 74 ms for vanilla and 44 ms for vanillajs-lite, which never touches a cloned row's inner nodes. After merging block state into one array, reusing the argument array, dropping a per-row expando, and baking values into the prototype with lazy hole lookup, create 1,000 rows scored 1.01 times the best of vanilla, vanillajs-lite and herdsman-dom-diff (vanillajs-lite 1.07), and create 10,000 rows 1.02 times. Garbage collection on 10,000 rows was still 88 ms, so per-row objects (the block and its state array) remain the next target.
+1. Replace 1,000 rows: with phases measured, herdsman-blocks took 73.9 ms against vanilla's 79.1 ms, with every phase equal or lower. The earlier 1.28 times gap was machine noise.
+2. Create rows: the remaining cost was JavaScript allocation per row. Before the changes, script was 10.6 ms against vanilla's 6.2 ms on 1,000 rows; on 10,000 rows garbage collection was 96 ms for us, 74 ms for vanilla and 44 ms for vanillajs-lite, which never touches a cloned row's inner nodes. After merging block state into one array, reusing the argument array, dropping a per-row expando, and baking values into the prototype with lazy hole lookup, create 1,000 rows scored 1.01 times the best of vanilla, vanillajs-lite and herdsman-blocks (vanillajs-lite 1.07), and create 10,000 rows 1.02 times. Garbage collection on 10,000 rows was still 88 ms, so per-row objects (the block and its state array) remain the next target.
 
 ### Profiling the reconciler alone (2026-10-26)
 
@@ -470,15 +470,16 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-27: Renamed from herdsman-dom-diff to herdsman-blocks: the module, its tests, this spec and the release name. No behavior change; the version stays 0.0.5.
 - 2026-10-26: `each()` and `unkeyed()` in herdsman's `dom.ts`, with branded `Keyed` and `Unkeyed` types and a duplicate-key check removed from production builds by a build-time constant. Five patched lists migrated; migration guide in `plans/each-migration.md`. Compatibility verified against the real `herdsman web` with a fake herdr in Chrome 156.
 - 2026-10-26: Full run of every version (0.0.1 to 0.0.5) against `re`, `vanillajs` and `vanillajs-lite`, with 0.0.4 and 0.0.5 as an identical-code control.
 - 2026-10-26: Version 0.0.5. Morph trims deeply identical children at both ends (native compare, handlers and form state still carried over) and keys the differing window by content for unkeyed nodes, falling back to order among leftovers. Found by a PerfFuzz-style fuzzer (worst DOM work per unit of change: 61 before, 1 after); unchanged re-renders of 1,000 rows about 8 times faster in Chrome. Property-based tests with a choice-sequence shrinker.
 - 2026-10-26: Branchless and bitwise variants of the reconciler and the LIS measured in Bun and Chrome; not adopted (results in the spec).
 - 2026-10-26: Version 0.0.4. Direct-address table for dense integer keys in the general case (hash map otherwise, scan for small windows); scratch buffers per nesting depth for the source and LIS arrays. The reconciler alone became 2 to 4 times faster in Chrome for integer keys. Tests for every lookup mode and for a reconcile nested inside update.
 - 2026-10-26: Version 0.0.3. Mounting without a block (`mountRoot`) with on-demand blocks (`block`) that cannot read values; list entries may be any value given a root function; morph keeps no wrapper per node; moves use `moveBefore` when the parent is in the document. Batched cloning measured and rejected. Research notes added.
-- 2026-10-26: Chrome A/B of 0.0.1 against 0.0.2 and an A/A noise control: no measurable runtime cost from the types. Corrected the head-to-head reading: within this machine's noise, herdsman-dom-diff is tied with `re`, not ahead.
+- 2026-10-26: Chrome A/B of 0.0.1 against 0.0.2 and an A/A noise control: no measurable runtime cost from the types. Corrected the head-to-head reading: within this machine's noise, herdsman-blocks is tied with `re`, not ahead.
 - 2026-10-26: Version 0.0.2. Strict types: typed hole markers for text, class, attribute and property holes; the value tuple, hole indexes and per-hole value types inferred from them; a once-per-template position check for markers; keyed lists generic in their key type; the library compiled under an extra strict settings file that herdsman's web check now runs; type tests with expected errors. Kind codes are plain constants and constructor parameter properties are gone (erasable syntax only). The package's declaration file re-exports the source's types instead of a `tsc` build. No runtime slowdown in profiling.
 - 2026-10-26: Version 0.0.1 packaged as a zip. `VERSION` exported. The `patch()` tests moved to `dom.test.ts` so the library's own tests run without herdsman's `dom.ts`.
-- 2026-10-26: Head-to-head replica run against `re`, `vanillajs` and `vanillajs-lite`: herdsman-dom-diff 1.052, second of four, ahead of `re`.
+- 2026-10-26: Head-to-head replica run against `re`, `vanillajs` and `vanillajs-lite`: herdsman-blocks 1.052, second of four, ahead of `re`.
 - 2026-10-26: Templates ignore formatter indentation (herdsman's `bun fmt` reformats tagged templates). Morph call sites in herdsman web keyed by tab and view. Block state merged into one array; mount bakes values into the prototype and looks up holes lazily. Real-Chrome verification of `patch()`. Per-phase benchmark findings.
 - 2026-10-26: First version. Blocks, keyed lists with prefix and suffix trimming, the two-item swap path and the LIS general case; blank-write skipping on mount; `detach`; morph and `patch()` with handler transfer for herdsman web; test, profiling and benchmark method; first replica results.

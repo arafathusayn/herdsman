@@ -1,4 +1,4 @@
-// A small linked-list DOM for tests and profiling: just what herdsman-dom-diff
+// A small linked-list DOM for tests and profiling: just what herdsman-blocks
 // touches (template parsing, cloneNode, sibling pointers, insertBefore,
 // removeChild, text data, classes, attributes). Bun ships no DOM and the
 // repository takes no npm packages. Every operation is O(1) pointer work, so

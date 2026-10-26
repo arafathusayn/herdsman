@@ -3,7 +3,7 @@
 // lines live in functions that never run: they test the compiler, not the DOM.
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { asDom, type FakeElement, installFakeDocument } from "./herdsman-dom-diff.testdom.ts";
+import { asDom, type FakeElement, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import {
   attr,
   type Block,
@@ -16,7 +16,7 @@ import {
   type Template,
   text,
   type ValuesOf,
-} from "./herdsman-dom-diff.ts";
+} from "./herdsman-blocks.ts";
 
 beforeEach(installFakeDocument);
 

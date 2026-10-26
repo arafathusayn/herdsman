@@ -1,6 +1,6 @@
 // A small DOM builder. Strings always become text nodes, so nothing a pane
 // or a route file holds is ever parsed as HTML.
-import { KEY_ATTR, morph } from "./herdsman-dom-diff.ts";
+import { KEY_ATTR, morph } from "./herdsman-blocks.ts";
 
 declare const KEYED: unique symbol;
 

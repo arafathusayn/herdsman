@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { each, h, patch } from "./dom.ts";
-import { asDom, type FakeElement, installFakeDocument } from "./herdsman-dom-diff.testdom.ts";
+import { asDom, type FakeElement, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 
 beforeEach(installFakeDocument);
 

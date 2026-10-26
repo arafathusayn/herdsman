@@ -1,5 +1,5 @@
 {
-  // The strictest settings, for herdsman-dom-diff only, on top of tsconfig.json.
+  // The strictest settings, for herdsman-blocks only, on top of tsconfig.json.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "isolatedDeclarations": true,
@@ -12,5 +12,5 @@
     "noUncheckedSideEffectImports": true,
     "strictBuiltinIteratorReturn": true
   },
-  "include": ["src/herdsman-dom-diff*.ts"]
+  "include": ["src/herdsman-blocks*.ts"]
 }

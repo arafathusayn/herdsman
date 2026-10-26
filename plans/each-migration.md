@@ -7,7 +7,7 @@ How to move the web app's lists to keyed rendering with `each()`, why it matters
 `patch()` keeps the DOM nodes that still match the new render. How well it can match depends on the children:
 
 - **Keyed children** match by identity. A row that moves keeps its node (and its focus, scroll and selection), and the move costs exactly one DOM operation.
-- **Unkeyed children** match by content, then by order. Since herdsman-dom-diff 0.0.5 this is cheap for most edits (a performance fuzzer found at most one DOM write per changed row), but a row whose content changes has no identity: if it also moves, it is matched by position, and state inside it (an open `<details>`, a focused input) can end up on the wrong row.
+- **Unkeyed children** match by content, then by order. Since herdsman-blocks 0.0.5 this is cheap for most edits (a performance fuzzer found at most one DOM write per changed row), but a row whose content changes has no identity: if it also moves, it is matched by position, and state inside it (an open `<details>`, a focused input) can end up on the wrong row.
 
 `each()` makes identity explicit, and it is the only way to get a `Keyed` list, so the type checker can tell keyed lists from accidental arrays.
 
@@ -125,7 +125,7 @@ Suggested order: files that `patch()` renders first (they gain identity), then t
 1. Pick the key from the data's identity; never an index.
 2. Make sure `render` returns one element per item.
 3. `bun fmt`, `bun check`, `bun test` (or `make web-check`, which also runs the stricter library check).
-4. For a list that moves or holds focus, add a test with the fake DOM in `herdsman-dom-diff.testdom.ts`: render, reorder, and assert the nodes are the same objects.
+4. For a list that moves or holds focus, add a test with the fake DOM in `herdsman-blocks.testdom.ts`: render, reorder, and assert the nodes are the same objects.
 5. `make web` and confirm the bundle still has no development checks (`grep -c "duplicate key" internal/web/dist/*.js` prints 0).
 
 ## Questions
