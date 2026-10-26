@@ -5,7 +5,7 @@ A living document. It explains why herdsman-blocks exists and specifies its beha
 - Status: draft, on branch `herdsman-blocks`
 - Library version: 0.0.8 (the module exports this as `VERSION`)
 - Last updated: 2026-10-27
-- Modules: `web/src/herdsman-blocks.ts`, used by `web/src/dom.ts`; the view layer `web/src/herdsman-blocks-view.ts`
+- Modules: `web/src/herdsman-blocks.ts` and the view layer `web/src/herdsman-blocks-view.ts`, which herdsman web renders with
 
 ---
 
@@ -25,7 +25,7 @@ Keep the immediate-mode style, because views stay plain functions of the store. 
 
 The library has three layers, each usable alone, and a declarative view layer on top of blocks and lists:
 
-1. **Morph** patches a live subtree to match a freshly built one. `dom.ts` exposes it as `patch()`, a drop-in for `mount()`.
+1. **Morph** patches a live subtree to match a freshly built one. herdsman web used it through a `patch()` drop-in for `mount()` until the views migration; it has no app user now.
 2. **Keyed lists** reconcile an old ordered list of keyed children with a new one in the minimum number of DOM moves. Morph uses this for every child list.
 3. **Blocks** are a faster path for hot, repeated markup: a template is parsed once, each instance is one deep clone, and updates write straight to the few nodes that can change. They suit large tables and logs where even building the fresh tree is too much work.
 4. **Views** keep the immediate-mode style on top of blocks: a view function returns light descriptions (a template and its values) on every render, and `render` writes only the holes whose values changed. Optional content and nested views go in child holes, keyed lists in `list()`, and event handlers through per-template trampolines so a fresh closure per render costs no DOM write.
@@ -217,7 +217,7 @@ Values are strictly increasing; old indexes are distinct, so ties never occur.
 
 ### Layer 3: Morph
 
-Morph makes a live parent's children match a list of fresh nodes. It is what `patch()` in `dom.ts` runs.
+Morph makes a live parent's children match a list of fresh nodes. It is what the former `patch()` in `dom.ts` ran (the herdsman-cases reference app keeps a copy).
 
 #### Keys for arbitrary nodes
 
@@ -320,7 +320,7 @@ A child hole accepts text (a string or number), nothing (null, undefined or fals
 
 #### Runs descriptions
 
-`runs(items)` describes unkeyed inline content: a positional sequence of text (strings or numbers) and descriptions, with no wrapper element per run, such as text between `<mark>` elements or inline markdown. It is the view-layer counterpart of `dom.ts`'s `unkeyed`. The slot keeps, per run in order, either its text node or its view instance; all of them sit before the anchor.
+`runs(items)` describes unkeyed inline content: a positional sequence of text (strings or numbers) and descriptions, with no wrapper element per run, such as text between `<mark>` elements or inline markdown. It is the view-layer counterpart of the former `dom.ts`'s `unkeyed`. The slot keeps, per run in order, either its text node or its view instance; all of them sit before the anchor.
 
 1. For each position i of the new items:
    - A description: if run i is an instance, patch it toward the description (which replaces it when the view differs). Otherwise mount the description and put its root in place of run i's text node, or insert it before the anchor if there is no run i.
@@ -358,49 +358,15 @@ For code that moves a view's nodes out of its container, such as a bridge that r
 2. The delegated listener of any render root skips direct instances, so a direct instance moved under a render root runs each handler once, from its own element.
 3. A container is used with one of the two functions.
 
-### Integration with dom.ts
+### Integration with herdsman web
 
-`patch(el, children...)` takes the same arguments as `mount()`. It flattens them the same way (nested lists, strings and numbers to text nodes, null, undefined and false dropped) and morphs `el` toward the result. A nested list is a literal tuple, a keyed list from `each` or an unkeyed list from `unkeyed`; a plain array does not type-check (see below).
+Since the views migration (2026-10-27) herdsman web renders with the view layer only: 24 modules use `html` views, `render` for containers it owns, `mount` and `update` for persistent components that place their own root (panels, the messages and changes views, the team board), `list` for every keyed list and `runs` for inline content of data-driven length (search highlights, inline markdown, highlighted code). `dom.ts` became `icons.ts`, which only builds icon views; it no longer has `h()`, `patch()` or `each()`.
 
-Event handlers need one change in `h()`, because a listener added with `addEventListener` cannot be read back or compared. Instead:
+1. Morph (Layer 3) and `renderDirect` have no user in the app. Both stay exported: morph for code that patches a tree it did not render, `renderDirect` for nodes moved out of their container.
+2. The `herdsman-patch` app of the herdsman-cases benchmark keeps its own copy of the old `h()`, `patch()` and `each()` as the reference renderer the other apps are checked against.
+3. A browser suite (`make web-e2e`) runs the built app and its forms in headless Chrome; view-layer changes run it before they are committed.
 
-1. Each element has a handler map from event type to the current handler, held in a weak map so it never keeps an element alive.
-2. The first handler for a type adds a single real listener that looks up the element's current handler for that type and calls it with the element as `this`.
-3. When morph keeps a live element, the keep hook gives it the fresh element's handlers: every type the live element already listens for is set to the fresh handler or to nothing, and any new type gets its own listener.
-
-The result is that a kept button runs the closure the view just built, never a stale one from an earlier render.
-
-Views opt in one call site at a time by replacing `mount(container, view)` with `patch(container, view)`, and by rendering lists with `each` when items can reorder, appear or disappear.
-
-#### Keyed lists in views: `each` and `unkeyed`
-
-`dom.ts` offers two ways to put a list of children into a view, each with a branded type that only it can produce:
-
-1. **`each(items, key, render)`** renders every item, sets the key attribute (`data-key`) on the element the render function returns, and returns a keyed list. The key function receives the item only, so a position cannot be used as a key; its type rejects a function of two parameters. Keys must be stable across renders and unique among siblings; when the data has no id, the fields that identify an item are joined.
-2. **`unkeyed(nodes)`** marks a list whose items have no identity (the blocks of rendered markdown, the options of a fixed select): morph matches them by content and order, as an explicit choice.
-
-Literal tuples of children remain plain children: a fixed set of children is not a list.
-
-**Development checks that cost nothing in production.** `each` reports duplicate keys (which morph tolerates by falling back to order) only when a `HERDSMAN_DEV` global is true; tests set it. The production build defines `HERDSMAN_DEV` as false, so the bundler folds the condition to false and removes the check: the shipped bundle contains none of it. The condition has to be written inline: behind a helper function the bundler cannot fold it, and the check stays in the bundle (measured: present, with the bundle only 80 bytes smaller instead of 431).
-
-**Enforcing keys with types (phase 2 of the migration, done 2026-10-27).** The children type of `h()`, `mount()` and `patch()` accepts a keyed list, an unkeyed list, or a literal tuple, not "any array": every plain `.map()` result is a compile error, while tuple literals still type-check. The 67 sites this found in 14 files were each changed to `each` or `unkeyed`, or typed as a tuple; `plans/each-migration.md` records the choices.
-
-#### Rule: key a view root whenever its container also holds other elements
-
-Unkeyed children match by tag and order, so a container that sometimes holds a persistent component's element (one a class owns and updates itself) and sometimes a rebuilt view would have the component's element morphed into the view when both are the same tag. Giving the rebuilt view's root a key that the persistent element never carries makes them never match: switching between them is a replacement, never a morph.
-
-#### Call sites converted in herdsman web
-
-1. The route tab body for Team, Checklist, Run state and Activity. Its root is keyed by tab ("tab-" plus the tab id), because the same container also holds the persistent Docs, Artifacts, Messages and Changes elements.
-2. The session view in the main area. Its root is keyed "session", because the same container also holds the persistent route shell.
-3. Team cards, the session view's cards, checklist lines, run-state lines and activity events are rendered with `each`, keyed by pane id, line id (or text), time and text, and the event's fields respectively.
-4. Since phase 2, every other list in herdsman web is an `each` or `unkeyed` list too, including the Team board's lanes (by lane id) and the session view's tab groups (by tab id), which are rendered through `patch`.
-
-Every other `mount()` call still rebuilds, unchanged.
-
-#### Compatibility check against the real app (2026-10-26)
-
-The `herdsman` binary was built with `make build` (the web app embedded as shipped) and `herdsman web` was run against a fake herdr socket server serving one workspace, one tab and three agents. Chrome 156 paired with the server, showed the three agent cards (rendered through `patch` and `each`, each carrying its pane id as key), and, when the server changed one agent from idle to working and emitted the status event, updated that card while keeping all three card elements as the same DOM nodes. Clicking the kept card opened that agent's panel, so the handler transferred by `patch` was the latest one. The page logged no errors.
+The history of the earlier `patch()` integration (handler transfer in `h()`, `each` and `unkeyed`, and the call sites converted step by step) is in this document's change log and in `plans/each-migration.md`.
 
 ---
 
@@ -618,6 +584,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-27: "Integration with dom.ts" rewritten as "Integration with herdsman web": the app uses views only; morph and `renderDirect` have no app user and stay exported.
 - 2026-10-27: Event names ignore index signatures, so `on<"submit", HTMLFormElement>()` types `this` as the form and the event as a submit event. Types only. Part of 0.0.8.
 - 2026-10-27: The fake DOM decodes character references in template markup (numeric and common named ones), as browsers do. Test infrastructure only.
 - 2026-10-27: `mount(view)` creates a view's root element as its own delegating render root, and `update(root, view)` patches it, for components that place their root themselves; any view works, child holes included. Part of 0.0.8.
