@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -324,9 +325,24 @@ func (r *Route) open() error {
 		return fmt.Errorf("route %s: inbox %s has no daemon owner record; human inspection required", r.name, r.inbox)
 	}
 	r.epoch = o.Epoch
-	if err := r.retainLocks(); err != nil {
+	// An epoch change a crash interrupted (state/epoch-change.json) is
+	// finished first: its retained locks may carry either epoch.
+	m, migrating := r.readEpochChange()
+	migrating = migrating && (o.Epoch == m.From || o.Epoch == m.To)
+	accept := []string{r.epoch}
+	if migrating {
+		accept = []string{m.From, m.To}
+	}
+	if err := r.retainLocks(accept...); err != nil {
 		r.closeFiles()
 		return err
+	}
+	if migrating {
+		r.d.logf("route %s: finishing an interrupted epoch change to %s", r.name, m.To)
+		if err := r.setEpoch(m.To); err != nil {
+			r.closeFiles()
+			return fmt.Errorf("route %s: epoch change: %w", r.name, err)
+		}
 	}
 	if r.journalLost() {
 		// The history is gone but the route's files are not: the old
@@ -414,10 +430,10 @@ var retainedLocks = []string{inbox.ChannelLock, "courier.lock", "watch.lock"}
 
 // retainLocks takes (or, after a crash, keeps) the retained locks with the
 // daemon's owner record. A lock folder held by anyone else holds the route.
-func (r *Route) retainLocks() error {
+func (r *Route) retainLocks(accept ...string) error {
 	r.retained = r.retained[:0]
 	for _, name := range retainedLocks {
-		l, err := takeDaemonLock(r.path(name), r.epoch)
+		l, err := takeDaemonLock(r.path(name), accept...)
 		if err != nil {
 			return fmt.Errorf("route %s: %w", r.name, err)
 		}
@@ -438,12 +454,16 @@ type lockOwner struct {
 // <pid>" in pid, owner.json naming the daemon and epoch). A folder that
 // already holds the daemon's record of this epoch is the daemon's own lock
 // from before a restart and is kept.
-func takeDaemonLock(dir, epoch string) (*inbox.Lock, error) {
+func takeDaemonLock(dir string, accept ...string) (*inbox.Lock, error) {
+	epoch := ""
+	if len(accept) > 0 {
+		epoch = accept[len(accept)-1]
+	}
 	if err := mkdirDurable(dir); err != nil {
 		if !errors.Is(err, os.ErrExist) {
 			return nil, err
 		}
-		if o, ok := daemonLockOwner(dir); ok && (epoch == "" || o.Epoch == epoch) {
+		if o, ok := daemonLockOwner(dir); ok && (epoch == "" || slices.Contains(accept, o.Epoch)) {
 			_ = writeDurable(filepath.Join(dir, "pid"), []byte("daemon "+strconv.Itoa(os.Getpid())+"\n"), 0o600)
 			return inbox.Adopt(dir), nil
 		}
@@ -574,19 +594,51 @@ func (r *Route) setEpoch(epoch string) error {
 	if !ok {
 		return errors.New("owner record missing")
 	}
-	o.Epoch = epoch
-	b, _ := encode(o)
-	if err := writeDurable(r.path("state", "owner.json"), append(b, '\n'), 0o600); err != nil {
+	// One recoverable transaction: the intent first, then the retained
+	// locks and owner.json, then the intent goes. A crash anywhere leaves
+	// the intent, and the next open finishes it under the route lock.
+	from := o.Epoch
+	if m, ok := r.readEpochChange(); ok && m.To == epoch {
+		from = m.From
+	}
+	b, _ := encode(epochChange{From: from, To: epoch})
+	if err := writeDurable(r.path("state", epochChangeFile), append(b, '\n'), 0o600); err != nil {
 		return err
 	}
-	r.epoch = epoch
 	for _, l := range r.retained {
 		b, _ := encode(lockOwner{Owner: "daemon", Epoch: epoch, PID: os.Getpid(), Start: r.now().Unix()})
 		if err := writeDurable(filepath.Join(l.Dir(), "owner.json"), append(b, '\n'), 0o600); err != nil {
 			return err
 		}
 	}
-	return nil
+	o.Epoch = epoch
+	b, _ = encode(o)
+	if err := writeDurable(r.path("state", "owner.json"), append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	r.epoch = epoch
+	if err := os.Remove(r.path("state", epochChangeFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return syncDir(r.path("state"))
+}
+
+// epochChangeFile records an epoch change in progress.
+const epochChangeFile = "epoch-change.json"
+
+type epochChange struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// readEpochChange reads an interrupted epoch change.
+func (r *Route) readEpochChange() (epochChange, bool) {
+	var m epochChange
+	b, err := readSmall(r.path("state", epochChangeFile), 4096)
+	if err != nil || strictDecode(b, &m) != nil || m.From == "" || m.To == "" {
+		return epochChange{}, false
+	}
+	return m, true
 }
 
 // loadCheckpoint restores the key indexes from a checkpoint payload.
@@ -659,25 +711,44 @@ func (r *Route) commit(rec *Record) error {
 	rec.Seq = r.seq + 1
 	rec.Epoch = r.epoch
 	rec.Time = r.now().Unix()
-	if err := r.j.append(rec); err != nil {
-		if !r.j.broken {
-			return err // refused before any byte was written
-		}
-		landed, rerr := r.recoverTail(rec.Seq)
-		if rerr != nil {
-			r.degraded.Store(true)
-			r.d.logf("route %s: journal tail unknown after a failed write (%v), then %v; route stopped", r.name, err, rerr)
-			return err
-		}
-		if !landed {
-			return err
-		}
-		r.d.logf("route %s: record %d is durable after a reported write failure: %v", r.name, rec.Seq, err)
+	if err := r.appendRecord(rec); err != nil {
+		return err
 	}
 	r.seq = rec.Seq
 	if r.oldest == 0 {
 		r.oldest = rec.Seq
 	}
+	return nil
+}
+
+// appendRecord appends one record durably. Every failed append, of an
+// operation's record or of a checkpoint, goes through tail recovery: the
+// record either landed (nil), or did not and the journal ends before it,
+// or the tail is unknown and the route is degraded. A sequence number is
+// never reused.
+func (r *Route) appendRecord(rec *Record) error {
+	err := r.j.append(rec)
+	if err == nil {
+		return nil
+	}
+	if !r.j.broken {
+		return err // refused before any byte was written
+	}
+	return r.afterFailedWrite(rec.Seq, err)
+}
+
+// afterFailedWrite resolves a failed journal write of record seq.
+func (r *Route) afterFailedWrite(seq int64, err error) error {
+	landed, rerr := r.recoverTail(seq)
+	if rerr != nil {
+		r.degraded.Store(true)
+		r.d.logf("route %s: journal tail unknown after a failed write (%v), then %v; route stopped", r.name, err, rerr)
+		return err
+	}
+	if !landed {
+		return err
+	}
+	r.d.logf("route %s: record %d is durable after a reported write failure: %v", r.name, seq, err)
 	return nil
 }
 
@@ -766,12 +837,18 @@ func (r *Route) writeCheckpoint(rotate bool) error {
 	r.crash("checkpoint.payload")
 	if rotate {
 		if err := r.j.rotate(); err != nil {
+			// The files may be half rotated: rescan them; the journal
+			// must still end at the last committed record.
+			if rerr := r.afterFailedWrite(next, err); rerr == nil {
+				r.degraded.Store(true)
+				r.d.logf("route %s: a checkpoint landed during a failed rotation; route stopped for a restart", r.name)
+			}
 			return err
 		}
 		r.crash("checkpoint.rotated")
 	}
 	rec := &Record{Op: "checkpoint", CompletedThrough: r.seq, Payload: pl, Seq: next, Epoch: r.epoch, Time: r.now().Unix()}
-	if err := r.j.append(rec); err != nil {
+	if err := r.appendRecord(rec); err != nil {
 		return err
 	}
 	r.seq = next

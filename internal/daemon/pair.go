@@ -662,7 +662,15 @@ func (r *Route) redoHold(rec *Record) error {
 // old it is: the caller waits up to LockWait seconds, then is busy, and a
 // stale lock is the human's to inspect (mutation-lock-stale). It runs
 // outside the route actor; the lock order is input lock, then actor.
-func (r *Route) inputLock() (func(), *APIError) {
+func (r *Route) inputLock() (func(), *APIError) { return r.takeInputLock(r.d.cfg.LockWait) }
+
+// tryInputLock takes the input lock with one attempt and no wait: the
+// actor uses it to retry a committed protected write, where waiting would
+// invert the lock order (input lock, then actor) and a refusal only
+// leaves the record unfinished for the next turn.
+func (r *Route) tryInputLock() (func(), *APIError) { return r.takeInputLock(1) }
+
+func (r *Route) takeInputLock(attempts int) (func(), *APIError) {
 	dir := r.path(inbox.MutationLock)
 	token := randomHex(16)
 	for try := 0; ; try++ {
@@ -682,7 +690,7 @@ func (r *Route) inputLock() (func(), *APIError) {
 		if !errors.Is(err, os.ErrExist) {
 			return nil, Errf("internal", "input lock: %v", err)
 		}
-		if try+1 >= r.d.cfg.LockWait {
+		if try+1 >= attempts {
 			return nil, Errf("busy", "input lock held (%s); retry with backoff, never auto-remove", lockHolder(dir))
 		}
 		r.d.sleep(time.Second)

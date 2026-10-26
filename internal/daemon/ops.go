@@ -712,6 +712,77 @@ func (r *Route) replay(recs []*Record) error {
 // redo is one committed record's step 4, idempotent, with the key indexes
 // it restores.
 func (r *Route) redo(rec *Record) error {
+	if err := r.redoFiles(rec); err != nil {
+		return err
+	}
+	return r.settle(rec)
+}
+
+// settle fsyncs every folder a record's step 4 changes. A retry or a
+// replay may find an effect already visible (a rename done, a file
+// written) whose folder fsync failed or never ran; the folders are synced
+// again whatever the effect's state, so no checkpoint passes an unsynced
+// move (4.2).
+func (r *Route) settle(rec *Record) error {
+	var dirs []string
+	box := func(b string, qs ...string) {
+		if !inbox.NameOK(b) {
+			return
+		}
+		dirs = append(dirs, r.path(b))
+		for _, q := range qs {
+			dirs = append(dirs, r.path(b, q))
+		}
+	}
+	id := func(i string) {
+		if inbox.IDOK(i) {
+			dirs = append(dirs, r.path("ids"), r.path("ids", i))
+		}
+	}
+	switch rec.Op {
+	case "send":
+		box(rec.To, "ready")
+	case "claim", "claim_extend":
+		box(rec.Box, "ready", "cur", "tmp")
+		if rec.Payload != nil {
+			if b, err := r.readPayload(rec.Payload, 64<<10); err == nil {
+				var p claimPayload
+				if json.Unmarshal(b, &p) == nil {
+					for _, i := range p.IDs {
+						id(i)
+					}
+				}
+			}
+		}
+	case "ack":
+		box(rec.Box, "ack", "cur")
+		id(rec.ID)
+	case "release":
+		box(rec.Box, "tmp")
+	case "pair":
+		dirs = append(dirs, r.inbox, r.path("enrolled"), r.path("state"), r.path("state", "credentials"))
+	case "hold", "unhold":
+		dirs = append(dirs, r.path("state"))
+	case "notice":
+		id(rec.ID)
+	case "intake":
+		box(rec.To, "new", "ready", "quarantine")
+		box(rec.From, "notices")
+		id(rec.ID)
+	}
+	for _, d := range dirs {
+		if !exists(d) {
+			continue
+		}
+		if err := syncDir(d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// redoFiles applies one record's step 4 files.
+func (r *Route) redoFiles(rec *Record) error {
 	switch rec.Op {
 	case "send":
 		r.rememberSend(rec)
@@ -768,7 +839,21 @@ func (r *Route) unfinish(rec *Record, err error) *APIError {
 func (r *Route) finishUnfinished() *APIError {
 	for len(r.unfinished) > 0 {
 		rec := r.unfinished[0]
-		if err := r.redo(rec); err != nil {
+		// A protected write is retried only as the input lock's owner,
+		// as its handler wrote it (3.7).
+		var unlock func()
+		if protectedRecord(rec) {
+			u, e := r.tryInputLock()
+			if e != nil {
+				return Errf("busy", "route %s: committed record %d waits for the input lock (%s); retry", r.name, rec.Seq, e.Message)
+			}
+			unlock = u
+		}
+		err := r.redo(rec)
+		if unlock != nil {
+			unlock()
+		}
+		if err != nil {
 			r.d.logf("route %s: %s %d still unfinished: %v", r.name, rec.Op, rec.Seq, err)
 			return Errf("busy", "route %s cannot finish committed record %d (%v); retry", r.name, rec.Seq, err)
 		}
@@ -776,6 +861,12 @@ func (r *Route) finishUnfinished() *APIError {
 		r.publish(rec)
 	}
 	return nil
+}
+
+// protectedRecord reports a record whose files the shared input lock
+// guards: holds, and side-agent data queued under the boundary check.
+func protectedRecord(rec *Record) bool {
+	return rec.Op == "hold" || rec.Op == "unhold" || rec.Op == "send" && rec.Kind == "side_agent_data"
 }
 
 // recoverOrphans handles state no record names (4.4 step 5): an envelope
