@@ -2,7 +2,7 @@ import { AuthError, openStream, pairStatus, readChannel, startSession, useHost }
 import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "./appearance.ts";
 import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
-import { h, icon, icons, logoMark, mount } from "./dom.ts";
+import { h, icon, icons, logoMark, mount, patch } from "./dom.ts";
 import {
   blockedReason,
   type Host,
@@ -595,7 +595,9 @@ function renderMain(app: App, idx: Index): void {
   if (app.view.tab !== "changes" || app.view.route !== changes?.routeId) changes?.stop();
   if (app.view.tab !== "artifacts" || app.view.route !== artifacts?.routeId) artifacts?.stop();
   if (app.view.route === SESSION || !app.view.route) {
-    mount(main, sessionView(app, idx));
+    const view = sessionView(app, idx);
+    view.dataset["key"] = "session"; // never morphed into the route shell
+    patch(main, view);
     return;
   }
   const r = currentRoute(app);
@@ -736,16 +738,18 @@ function renderMain(app: App, idx: Index): void {
     changes.start();
     return;
   }
-  mount(
-    routeBody,
+  const body =
     app.view.tab === "checklist"
       ? checklistView(r)
       : app.view.tab === "log"
         ? logView(r)
         : app.view.tab === "activity"
           ? activityView(app, team(r, idx))
-          : teamView(team(r, idx), app),
-  );
+          : teamView(team(r, idx), app);
+  // Keyed by tab, so switching tabs replaces the view instead of morphing it
+  // into another tab's (or a persistent component's) element.
+  body.dataset["key"] = `tab-${app.view.tab}`;
+  patch(routeBody, body);
 }
 
 function sessionView(app: App, idx: Index): HTMLElement {

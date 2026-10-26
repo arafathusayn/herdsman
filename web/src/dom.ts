@@ -1,5 +1,6 @@
 // A small DOM builder. Strings always become text nodes, so nothing a pane
 // or a route file holds is ever parsed as HTML.
+import { morph } from "./herdsman-dom-diff.ts";
 
 type Child = Node | string | number | false | null | undefined | Child[];
 
@@ -21,9 +22,8 @@ export function h<K extends keyof HTMLElementTagNameMap>(
       if (v === undefined || v === null || v === false) continue;
       if (k === "class") el.className = String(v);
       else if (k === "dataset") Object.assign(el.dataset, v);
-      else if (k.startsWith("on") && typeof v === "function") {
-        el.addEventListener(k.slice(2).toLowerCase(), v as EventListener);
-      } else if (k in el && k !== "style" && k !== "list" && k !== "form") {
+      else if (k.startsWith("on") && typeof v === "function") on(el, k.slice(2).toLowerCase(), v as EventListener);
+      else if (k in el && k !== "style" && k !== "list" && k !== "form") {
         (el as unknown as Record<string, unknown>)[k] = v;
       } else el.setAttribute(k, v === true ? "" : String(v));
     }
@@ -45,6 +45,48 @@ function append(el: Node, children: Child[]): void {
 export function mount(el: Element, ...children: Child[]): void {
   el.replaceChildren();
   append(el, children);
+}
+
+/**
+ * Like mount, but keeps the live nodes that still match the new children and
+ * patches them in place, so focus, the caret, selection and scroll positions
+ * survive a re-render. Give list items a `key` in their dataset (data-key) so
+ * they move with their data instead of being rebuilt.
+ */
+export function patch(el: Element, ...children: Child[]): void {
+  morph(el, flatten(children, []), { onKeep: keepHandlers });
+}
+
+function flatten(children: Child[], out: Node[]): Node[] {
+  for (const c of children) {
+    if (c === null || c === undefined || c === false) continue;
+    if (Array.isArray(c)) flatten(c, out);
+    else out.push(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return out;
+}
+
+// Handlers live in a map behind one listener per event type, so patch() can
+// give a kept element the fresh closures of the element it was matched to.
+// A type the fresh element lacks maps to null and its listener does nothing.
+const handlers = new WeakMap<Element, Record<string, EventListener | null>>();
+
+function on(el: Element, type: string, fn: EventListener): void {
+  let map = handlers.get(el);
+  if (!map) handlers.set(el, (map = {}));
+  if (!(type in map)) {
+    el.addEventListener(type, function (this: Element, e: Event) {
+      handlers.get(el)?.[type]?.call(this, e);
+    });
+  }
+  map[type] = fn;
+}
+
+function keepHandlers(live: Element, fresh: Element): void {
+  const want = handlers.get(fresh);
+  const have = handlers.get(live);
+  if (have) for (const type in have) have[type] = want?.[type] ?? null;
+  if (want) for (const type in want) if (!have || !(type in have)) on(live, type, want[type]!);
 }
 
 const SVG = "http://www.w3.org/2000/svg";

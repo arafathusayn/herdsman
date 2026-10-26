@@ -28,7 +28,7 @@ export function card(m: Member, app: App, role = false): HTMLElement {
     {
       class: `card r-${m.role} s-${m.status}${app.view.pane === m.pane_id ? " selected" : ""}`,
       title: `Open ${m.title} (${m.pane_id}): its output, keys and actions`,
-      dataset: { pane: m.pane_id },
+      dataset: { pane: m.pane_id, key: m.pane_id },
       onclick: () => store.go({ pane: m.pane_id }),
     },
     h("div", { class: "card-top" }, h("span", { class: "card-title" }, m.title), pill(m.status)),
