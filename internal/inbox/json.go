@@ -19,23 +19,49 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // MaxSize bounds every state file the channel reads: 128 KiB, as the
 // scripts' `bounded` does.
 const MaxSize = 131072
 
-// ReadBounded reads a regular, non-link file of at most max bytes.
+// beforeOpen runs just before ReadBounded opens its file; tests replace or
+// grow the file there.
+var beforeOpen func(p string)
+
+// ReadBounded reads a regular, non-link file of at most max bytes. The
+// checks hold for the file actually read: it is opened once without
+// following a link (and without blocking on a fifo), its type is checked
+// on the open file, and at most max+1 bytes are read, so a file replaced
+// or grown after an earlier check of its path is refused, never read whole.
 func ReadBounded(p string, max int64) ([]byte, error) {
-	st, err := os.Lstat(p)
+	if beforeOpen != nil {
+		beforeOpen(p)
+	}
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
-	if !st.Mode().IsRegular() || st.Size() > max {
-		return nil, errors.New("not a bounded regular file")
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
 	}
-	return os.ReadFile(p)
+	if !st.Mode().IsRegular() {
+		return nil, errNotBounded
+	}
+	b, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > max {
+		return nil, errNotBounded
+	}
+	return b, nil
 }
+
+var errNotBounded = errors.New("not a bounded regular file")
 
 // StrictJSON fails on malformed JSON, trailing data, an empty input and
 // duplicate keys at any depth (escaped spellings of one key included), as

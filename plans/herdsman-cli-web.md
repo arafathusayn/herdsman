@@ -99,7 +99,7 @@ The browser gets live state over one SSE stream and sends every action as a POST
 4. Toggle light, dark and system, and narrow the window to 375 px.
 5. A request without the device secret gets 401; a request for another `Host` gets 403.
 6. Serve `internal/web/dist` from another origin, open the printed hosted link, pair, and use the app; add a second host from the Hosts dialog.
-7. Artifacts lists the HTML pages in the session's folders and shows one; Messages shows the adjutant's channel when `--inbox` names it.
+7. Artifacts lists the HTML pages in the route's workspace folders and shows one; Messages shows the adjutant's channel when `--inbox` names it.
 
 ## PR 2: Landing page (`site/`), replaced by the docs page at `/docs/`
 

@@ -284,20 +284,20 @@ export function sendActivity(): void {
   call("/api/activity", { method: "POST", headers: headers() }).catch(() => {});
 }
 
-/** The HTML pages in the session's folders. */
-export async function listArtifacts(): Promise<ArtifactList> {
-  const res = await call("/api/artifacts", { headers: headers() });
+/** The HTML pages in a route's workspace folders. */
+export async function listArtifacts(route: string): Promise<ArtifactList> {
+  const res = await call(`/api/artifacts?${new URLSearchParams({ route })}`, { headers: headers() });
   if (res.status === 401) throw new AuthError("Session expired.");
   if (!res.ok) throw new Error(`cannot list artifacts (${res.status})`);
   return (await res.json()) as ArtifactList;
 }
 
-/** A short-lived URL that shows one artifact in a sandboxed frame. */
-export async function openArtifact(root: string, path: string): Promise<string> {
+/** A short-lived URL that shows one of a route's artifacts in a sandboxed frame. */
+export async function openArtifact(route: string, root: string, path: string): Promise<string> {
   const res = await call("/api/artifacts/open", {
     method: "POST",
     headers: headers({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ root, path }),
+    body: JSON.stringify({ route, root, path }),
   });
   if (res.status === 401) throw new AuthError("Session expired.");
   const body = (await res.json()) as { url?: string; error?: string };

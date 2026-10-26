@@ -7,18 +7,19 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/arafathusayn/herdsman/internal/watch"
 )
 
 func init() {
-	register(command{name: "wait", summary: "Wait for the next event of the loop (a report, a review, a blocked or stalled agent, a health flag), or TICK.", run: runWait})
-	register(command{name: "watch", summary: "Watch implementers, the reviewer or pull requests: herdsman watch implementers|reviewer|prs.", run: runWatch})
+	register(command{name: "wait", summary: "Wait for the next event of the loop (a report, a review, a blocked or stalled agent, a health flag), or TICK.", help: waitHelp, run: runWait})
+	register(command{name: "watch", summary: "Watch implementers, the reviewer or pull requests: herdsman watch implementers|reviewer|prs.", help: watchHelp, run: runWatch})
 }
 
 func watchDeps(stdout, stderr io.Writer) watch.Deps {
-	return watch.Deps{Client: herdrClient(), Now: now, Stdout: stdout, Stderr: stderr, Status: statusSnapshot, Gh: watch.RunGh(stderr)}
+	return watch.Deps{Client: herdrClient(), Now: now, Stdout: stdout, Stderr: stderr, Status: statusSnapshot, Gh: watch.RunGh(stderr), GhStream: watch.RunGhStream(stderr)}
 }
 
 func signalContext() (context.Context, context.CancelFunc) {
@@ -26,8 +27,18 @@ func signalContext() (context.Context, context.CancelFunc) {
 }
 
 func runWait(args []string, _ io.Reader, stdout, stderr io.Writer) int {
+	longRunning()
+	args, asJSON := takeJSON(args)
+	if asJSON {
+		stdout = newEventJSON(stdout)
+	}
 	if len(args) > 0 {
 		fmt.Fprintln(stderr, "usage: herdsman wait (settings in the environment)")
+		return 2
+	}
+	// LIMIT_MIN feeds the in-process health check.
+	if _, _, err := statusLimit(); err != nil {
+		fmt.Fprintf(stderr, "herdsman wait: %v\n", err)
 		return 2
 	}
 	ctx, cancel := signalContext()
@@ -38,6 +49,11 @@ func runWait(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 const watchUsage = "usage: herdsman watch implementers|reviewer|prs (settings in the environment)"
 
 func runWatch(args []string, _ io.Reader, stdout, stderr io.Writer) int {
+	longRunning()
+	args, asJSON := takeJSON(args)
+	if asJSON {
+		stdout = newEventJSON(stdout)
+	}
 	if len(args) != 1 {
 		fmt.Fprintln(stderr, watchUsage)
 		return 2
@@ -60,3 +76,10 @@ func runWatch(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stderr, watchUsage)
 	return 2
 }
+
+// longRunning sets a soft memory limit for the long-running commands (A24:
+// under 30 MB of resident memory): the collector runs earlier as the heap
+// nears it, instead of letting it grow to twice the live data.
+func longRunning() { debug.SetMemoryLimit(longRunningMemory) }
+
+const longRunningMemory = 14 << 20

@@ -239,3 +239,10 @@ func (c *Client) subscribe(ctx context.Context, subs []map[string]any, started f
 		}
 	}
 }
+
+// SubscribeReady is Subscribe with ready called once the server has
+// acknowledged the subscription, before the first event, so a caller can
+// recheck the state it may have missed while registering.
+func (c *Client) SubscribeReady(ctx context.Context, subs []map[string]any, ready func(), fn func(Event)) error {
+	return c.subscribe(ctx, subs, ready, fn)
+}

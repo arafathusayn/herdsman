@@ -1,5 +1,6 @@
-// Package shnum reads a number from settings text as bash does, so a
-// ported command accepts and refuses the same values as its script.
+// Package shnum reads a plain integer as bash's test builtin does: the
+// strict settings parser and the watchers' state counters use it (no
+// arithmetic evaluator: a setting is a typed value, A27).
 package shnum
 
 import (
