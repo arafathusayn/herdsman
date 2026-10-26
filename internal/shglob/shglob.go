@@ -14,6 +14,11 @@ import (
 // starts with "." (bash without dotglob). An unreadable folder or a bad
 // pattern is an error, so a caller can fail closed.
 func Glob(dir, pattern string) ([]string, error) {
+	// Check the pattern before any entry: an empty folder or one of hidden
+	// entries refuses a bad pattern too.
+	if _, err := filepath.Match(pattern, ""); err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -24,11 +29,7 @@ func Glob(dir, pattern string) ([]string, error) {
 		if strings.HasPrefix(name, ".") && !strings.HasPrefix(pattern, ".") {
 			continue
 		}
-		ok, err := filepath.Match(pattern, name)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
+		if ok, _ := filepath.Match(pattern, name); ok { // the pattern is checked above
 			out = append(out, filepath.Join(dir, name))
 		}
 	}

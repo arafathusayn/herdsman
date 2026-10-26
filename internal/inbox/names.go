@@ -191,12 +191,14 @@ func Bounded(root, p string) bool {
 }
 
 // ReadStrict reads a file the way the scripts' strict_json accepts one:
-// bounded, regular, guarded, and strict JSON.
+// bounded, regular, guarded, and strict JSON. The path checks are
+// Regular's; the type and the bound are checked again on the file read
+// (ReadBounded), so a file replaced or grown after the checks is refused.
 func ReadStrict(root, p string) ([]byte, bool) {
 	if !Bounded(root, p) {
 		return nil, false
 	}
-	b, err := os.ReadFile(p)
+	b, err := ReadBounded(p, MaxSize)
 	if err != nil || StrictJSON(b) != nil {
 		return nil, false
 	}

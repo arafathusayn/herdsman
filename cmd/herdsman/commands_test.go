@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -122,7 +123,7 @@ func TestRouteCheckThroughTheCommand(t *testing.T) {
 func TestStatusNeedsSpecs(t *testing.T) {
 	t.Setenv("HERDSMAN_STATUS_SPECS", "")
 	_, errOut, code := call(t, "status")
-	if code != 1 || errOut != "herdsman status: HERDSMAN_STATUS_SPECS: set HERDSMAN_STATUS_SPECS\n" {
+	if code != 2 || errOut != "herdsman status: HERDSMAN_STATUS_SPECS: required, not set (got \"\")\n" {
 		t.Errorf("%d %q", code, errOut)
 	}
 }
@@ -130,7 +131,7 @@ func TestStatusNeedsSpecs(t *testing.T) {
 func TestStatusThroughTheCommand(t *testing.T) {
 	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(t.TempDir(), "none.sock"))
 	t.Setenv("HERDSMAN_STATUS_SPECS", "im-a:w1:p1")
-	t.Setenv("LIMIT_MIN", "x")
+	t.Setenv("LIMIT_MIN", "")
 	// No socket path, no config folder and no home: the client has no socket.
 	t.Setenv("HERDR_SOCKET_PATH", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -150,8 +151,15 @@ func TestRunCheckThroughTheCommand(t *testing.T) {
 	if _, _, code := call(t, "run-check", "--publish"); code == 0 {
 		t.Error("--publish without hours passes")
 	}
-	if _, _, code := call(t, "run-check", "--publish", "x"); code != 64 {
-		t.Errorf("--publish x: %d", code)
+	// A26: hours bash could not read are refused, not run as a check.
+	if _, errs, code := call(t, "run-check", "--publish", "x"); code != 2 || errs != "herdsman run-check: --publish: not a whole number of hours (got \"x\")\n" {
+		t.Errorf("--publish x: %d %q", code, errs)
+	}
+	// A25: an invalid setting is one line naming it, exit 2, and nothing runs.
+	t.Setenv("HERDSMAN_GATE_POLL", "soon")
+	if out, errs, code := call(t, "run-check", "echo", "ran"); code != 2 || out != "" ||
+		errs != "herdsman run-check: HERDSMAN_GATE_POLL: not a duration (seconds, or a number with s, m, h or d) (got \"soon\")\n" {
+		t.Errorf("GATE_POLL=soon: %d %q %q", code, out, errs)
 	}
 }
 
@@ -216,14 +224,12 @@ func TestStatusLimitFromTheEnvironment(t *testing.T) {
 	for _, tc := range []struct{ limit, want, not string }{
 		{"0", `short .*<-- OVER 0m`, `^$`},
 		{"", `long .*<-- OVER 30m`, `short .*OVER`},
-		{"x", `long  running  45m 0s \[45m\]$`, `OVER`},
 		// R3 finding 2: the shell's integer syntax, and the label as written.
 		{" 30", `long .*<-- OVER  30m$`, `short .*OVER`},
 		{"30 ", `long .*<-- OVER 30 m$`, `short .*OVER`},
 		{"00", `short .*<-- OVER 00m$`, `^$`},
 		{"030", `long .*<-- OVER 030m$`, `short .*OVER`},
 		{"+30", `long .*<-- OVER \+30m$`, `short .*OVER`},
-		{" ", `long  running  45m 0s \[45m\]$`, `OVER`},
 	} {
 		t.Setenv("LIMIT_MIN", tc.limit)
 		var b bytes.Buffer
@@ -283,5 +289,121 @@ func TestWaitHealthWithAPaddedLimit(t *testing.T) {
 	}
 	if !regexp.MustCompile(`(?m)^HEALTH .*OVER  30m`).MatchString(out) {
 		t.Errorf("no HEALTH event for a padded limit:\n%s", out)
+	}
+}
+
+// A25: LIMIT_MIN is a strict setting for status and for wait's health
+// check: one line naming it, exit 2, nothing printed on stdout.
+func TestStatusLimitIsStrict(t *testing.T) {
+	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(t.TempDir(), "none.sock"))
+	t.Setenv("HERDSMAN_STATUS_SPECS", "im-a:w1:p1")
+	for _, v := range []string{"x", " ", "1/0", "-1"} {
+		t.Setenv("LIMIT_MIN", v)
+		out, errs, code := call(t, "status")
+		if code != 2 || out != "" || !strings.HasPrefix(errs, "herdsman status: LIMIT_MIN: ") || strings.Count(errs, "\n") != 1 {
+			t.Errorf("status LIMIT_MIN=%q: %d %q %q", v, code, out, errs)
+		}
+		t.Setenv("DEADLINE", "0")
+		t.Setenv("POLL", "1")
+		t.Setenv("HERDSMAN_STATE", t.TempDir())
+		out, errs, code = call(t, "wait")
+		if code != 2 || out != "" || !strings.HasPrefix(errs, "herdsman wait: LIMIT_MIN: ") {
+			t.Errorf("wait LIMIT_MIN=%q: %d %q %q", v, code, out, errs)
+		}
+	}
+}
+
+// A25 item 2: each slice-1 command's --help ends in one table of its exit
+// codes.
+func TestHelpListsExitCodes(t *testing.T) {
+	for name, codes := range map[string][]string{
+		"run-check": {"64", "69", "70", "75", "2"},
+		"status":    {"0", "2"}, // a missing HERDSMAN_STATUS_SPECS exits 2 (A25)
+		"route":     {"0", "1", "2"},
+		"wait":      {"0", "2"},
+		"watch":     {"0", "1", "2"},
+	} {
+		out, _, code := call(t, name, "--help")
+		if code != 0 || !strings.Contains(out, "usage: herdsman "+name) || !strings.Contains(out, "\nexit codes:\n") {
+			t.Errorf("%s --help: %d %q", name, code, out)
+			continue
+		}
+		table := out[strings.Index(out, "\nexit codes:\n"):]
+		for _, c := range codes {
+			if !regexp.MustCompile(`(?m)^  ` + c + ` +\S`).MatchString(table) {
+				t.Errorf("%s --help: no row for exit %s in %q", name, c, table)
+			}
+		}
+	}
+}
+
+// R5 finding 6: approval-gate reads HEALTH_AFTER and LOCK_WAIT through the
+// strict parser: one line naming the variable, exit 2, before the inbox.
+func TestGateSettingsAreStrict(t *testing.T) {
+	t.Setenv("HERDSMAN_INBOX", filepath.Join(t.TempDir(), "none"))
+	for _, tc := range []struct{ k, v, reason string }{
+		{"HEALTH_AFTER", "bad", "not a whole number"}, {"HEALTH_AFTER", "0", "must be from 1 to 86400"},
+		{"HEALTH_AFTER", "1\n2", "not a whole number"}, {"LOCK_WAIT", "61", "must be from 1 to 60"}, {"LOCK_WAIT", "x", "not a whole number"},
+	} {
+		t.Setenv("HEALTH_AFTER", "")
+		t.Setenv("LOCK_WAIT", "")
+		t.Setenv(tc.k, tc.v)
+		out, errs, code := call(t, "approval-gate", "complete", "r1", "done")
+		want := fmt.Sprintf("herdsman approval-gate: %s: %s (got %q)\n", tc.k, tc.reason, tc.v)
+		if code != 2 || out != "" || errs != want {
+			t.Errorf("%s=%q: %d %q, want %q", tc.k, tc.v, code, errs, want)
+		}
+	}
+	// Valid values pass on to the inbox, which then reports its own error.
+	t.Setenv("HEALTH_AFTER", " 0180 ")
+	t.Setenv("LOCK_WAIT", "6")
+	if _, errs, _ := call(t, "approval-gate", "complete", "r1", "done"); strings.Contains(errs, "HEALTH_AFTER") || strings.Contains(errs, "LOCK_WAIT") {
+		t.Errorf("valid values: %q", errs)
+	}
+}
+
+// Route ruling A25: a missing required setting is a settings error. Each
+// slice 1 command with a required setting prints the one-line settings
+// error and exits 2 before it runs anything. (wait, watch implementers and
+// reviewer, run-check and route have no required setting; transcript-audit
+// keeps main's GAP lines, which already exit 2.)
+func TestMissingRequiredSettingsExit2(t *testing.T) {
+	line := func(cmd, v string) string {
+		return "herdsman " + cmd + ": " + v + `: required, not set (got "")` + "\n"
+	}
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		args []string
+		want string
+	}{
+		{"status", map[string]string{"HERDSMAN_STATUS_SPECS": ""}, []string{"status"}, line("status", "HERDSMAN_STATUS_SPECS")},
+		{"watch prs PRS", map[string]string{"HERDSMAN_PRS": "", "HERDSMAN_REPO": "o/r", "HERDSMAN_PR_STATE": t.TempDir()}, []string{"watch", "prs"}, line("watch prs", "HERDSMAN_PRS")},
+		{"watch prs REPO", map[string]string{"HERDSMAN_PRS": "7", "HERDSMAN_REPO": "", "HERDSMAN_PR_STATE": t.TempDir()}, []string{"watch", "prs"}, line("watch prs", "HERDSMAN_REPO")},
+		{"watch prs STATE", map[string]string{"HERDSMAN_PRS": "7", "HERDSMAN_REPO": "o/r", "HERDSMAN_PR_STATE": ""}, []string{"watch", "prs"}, line("watch prs", "HERDSMAN_PR_STATE")},
+		{"approval-gate consume", map[string]string{"HERDSMAN_INBOX": ""}, []string{"approval-gate", "consume", "/x/go", "push", "t", "r", "-"}, line("approval-gate", "HERDSMAN_INBOX")},
+		{"approval-gate complete", map[string]string{"HERDSMAN_INBOX": ""}, []string{"approval-gate", "complete", "id", "done"}, line("approval-gate", "HERDSMAN_INBOX")},
+		// Review head-2 P2: an unconfigured install is told apart from a changed proof.
+		{"approval-gate MESSAGES_DIR", map[string]string{"HERDSMAN_INBOX": t.TempDir(), "HERDSMAN_MESSAGES_DIR": ""}, []string{"approval-gate", "consume", "/x/go", "push", "t", "r", "-"}, line("approval-gate", "HERDSMAN_MESSAGES_DIR")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			out, errOut, code := call(t, tc.args...)
+			if code != 2 || errOut != tc.want || out != "" {
+				t.Errorf("%d %q %q, want 2 %q", code, out, errOut, tc.want)
+			}
+		})
+	}
+}
+
+// Review head-2 P2: approval-gate --help names the settings it needs.
+func TestGateHelpNamesItsSettings(t *testing.T) {
+	out, _, code := call(t, "approval-gate", "--help")
+	for _, s := range []string{"HERDSMAN_INBOX", "HERDSMAN_MESSAGES_DIR", "HERDSMAN_PREFLIGHT", "HEALTH_AFTER", "LOCK_WAIT"} {
+		if code != 0 || !strings.Contains(out, s) {
+			t.Errorf("approval-gate --help does not name %s: %d %q", s, code, out)
+		}
 	}
 }

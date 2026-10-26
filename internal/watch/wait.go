@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -16,12 +15,13 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/status"
 
+	"github.com/arafathusayn/herdsman/internal/settings"
 	"github.com/arafathusayn/herdsman/internal/shnum"
 )
 
 // The waiter's screen patterns.
 var (
-	waitBlockRE = posix(`Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to gpt|Usage limit|Queued follow-up inputs|Type your answer|Allow reads outside|Do you want to proceed|Permission required|Do you trust`)
+	waitBlockRE = posix(`Password for|Device not configured|Allow once|Allow always|Yes, proceed|approval required|Switch to [[:alnum:]][[:alnum:]._-]*|Usage limit|Queued follow-up inputs|Type your answer|Allow reads outside|Do you want to proceed|Permission required|Do you trust`)
 	// Claude Code shows "… (12s ·" while it works; Codex shows "esc to interrupt" or "Pursuing goal".
 	waitWorkRE = posix(`esc to interrupt|Pursuing goal|Incubating|thinking|… \([0-9]`)
 	// A Codex footer can keep this text while the agent works, so it counts as a block only where no work text shows.
@@ -41,15 +41,54 @@ var (
 // shell), which must be executable, and reads its output as a snapshot.
 func Wait(ctx context.Context, env Env, d Deps) int {
 	d.defaults(ctx)
+	healthName := "HERDSMAN_HEALTH_EVERY"
+	if env.get(healthName) == "" && env.get("HEALTH_EVERY") != "" {
+		healthName = "HEALTH_EVERY"
+	}
+	durs, err := readSettings(env, []durSpec{{"DEADLINE", 1500 * time.Second, false}, {"POLL", 60 * time.Second, true}, {healthName, 300 * time.Second, false}})
+	dues := map[string]int64{}
+	if err == nil {
+		for _, name := range watched(env) {
+			k := "HERDSMAN_DUE_" + underscore(name)
+			if v := env.get(k); v != "" {
+				dues[name], err = settings.Int(k, v, 0, 0, math.MaxInt64)
+				if err != nil {
+					break
+				}
+			}
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(d.Stderr, "herdsman wait: %v\n", err)
+		return settings.ExitInvalid
+	}
+	deadline, poll, healthEvery := durs[0], durs[1], durs[2]
 	reports := env.or("HERDSMAN_REPORTS", "/ABSOLUTE/PATH/TO/writable-root/reports")
-	st := state(env.or("HERDSMAN_STATE", "/ABSOLUTE/PATH/TO/scratchpad/watch-state"))
-	_ = os.MkdirAll(string(st), 0o755)
+	st, err := openState(env.or("HERDSMAN_STATE", "/ABSOLUTE/PATH/TO/scratchpad/watch-state"))
+	if err != nil {
+		fmt.Fprintf(d.Stderr, "herdsman wait: cannot save state: %v\n", err)
+		return 1
+	}
 	rpane := env.or("HERDSMAN_REVIEWER_PANE", "w2:pR")
 	rname := env.or("HERDSMAN_REVIEWER_NAME", "rv-1")
-	deadline := testInt(env.or("DEADLINE", "1500"))
-	poll := atoi(env.or("POLL", "60"))
-	healthEvery := testInt(env.or("HERDSMAN_HEALTH_EVERY", env.or("HEALTH_EVERY", "300")))
 	reviewers := strings.Fields(env.or("HERDSMAN_REVIEWERS", rname+":"+rpane))
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var panes []string
+	var targets []target
+	for _, name := range watched(env) {
+		panes = append(panes, paneOf(env, name))
+		targets = append(targets, target{name, paneOf(env, name)})
+	}
+	for _, spec := range reviewers {
+		name, p, found := strings.Cut(spec, ":")
+		if !found {
+			p = spec
+		}
+		panes = append(panes, p)
+		targets = append(targets, target{name, p})
+	}
+	d.wakeOn(ctx, panes)
 	start := d.Now()
 	for {
 		var events []string
@@ -84,26 +123,29 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 					st.write("duebase-"+name, cur)
 					st.remove("overdue-" + name)
 				}
-				if at, ok := shnum.Test(due); ok && d.Now().Unix() >= at &&
+				if at := dues[name]; d.Now().Unix() >= at &&
 					!st.has("overdue-"+name) && cur == st.read("duebase-"+name) {
 					st.touch("overdue-" + name)
 					events = append(events, fmt.Sprintf("OVERDUE %s due %s no report since the due time was set %s", name, time.Unix(at, 0).Format("15:04"), now))
 				}
 			}
-			text := readPane(ctx, d.Client, paneOf(env, name), 40)
+			pane := paneOf(env, name)
+			text := readPane(ctx, d.Client, pane, 40)
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
+			reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, waitBlockRE, waitWorkRE, waitStalledRE)
+			tell := newBlock(st, name, blocked, h, prev)
 			switch {
-			case waitBlockRE.MatchString(text):
-				if h != prev {
-					events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, first(waitBlockRE, text), now))
+			case blocked:
+				if tell {
+					events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, reason, now))
 				}
 				st.write("stall-"+name, "0")
 			case waitWorkRE.MatchString(text):
 				st.remove("goaldone-" + name)
 				if h == prev {
-					c := atoi(st.read("stall-"+name)) + 1
+					c := count(st, "stall-"+name, d.Stderr, "wait") + 1
 					st.write("stall-"+name, strconv.Itoa(c))
 					if c >= 3 {
 						st.write("stall-"+name, "0")
@@ -114,9 +156,6 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 				}
 			default:
 				st.write("stall-"+name, "0")
-				if h != prev && waitStalledRE.MatchString(text) {
-					events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, first(waitStalledRE, text), now))
-				}
 				if !hasReport && strings.Contains(text, "Goal achieved") && !st.has("goaldone-"+name) {
 					st.touch("goaldone-" + name)
 					events = append(events, fmt.Sprintf("GOAL-DONE-NO-REPORT %s %s", name, now))
@@ -139,16 +178,18 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
-			if waitBlockRE.MatchString(text) && h != prev {
-				events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, first(waitBlockRE, text), now))
-			} else if !waitWorkRE.MatchString(text) && waitStalledRE.MatchString(text) && h != prev {
-				events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, first(waitStalledRE, text), now))
+			reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, waitBlockRE, waitWorkRE, waitStalledRE)
+			if newBlock(st, name, blocked, h, prev) {
+				events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, reason, now))
 			}
 		}
 		// Health: the user's periodic check of every agent runs here, so a quiet
 		// route needs no orchestrator turn. Each flag is reported once, until it clears.
 		if specs := env.get("HERDSMAN_STATUS_SPECS"); specs != "" {
-			events = append(events, health(ctx, env, d, st, specs, healthEvery, now)...)
+			events = append(events, health(ctx, env, d, st, specs, healthEvery, helperLimit(deadline-d.Now().Sub(start), poll), now)...)
+		}
+		if stateFailed(st, d.Stderr, "wait") {
+			return 1
 		}
 		if len(events) > 0 {
 			for _, e := range events {
@@ -156,12 +197,24 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 			}
 			return 0
 		}
-		elapsed := int(d.Now().Sub(start) / time.Second)
+		elapsed := d.Now().Sub(start)
 		if elapsed >= deadline {
-			fmt.Fprintf(d.Stdout, "TICK no event in %ds %s\n", elapsed, now)
+			fmt.Fprintf(d.Stdout, "TICK no event in %ds %s\n", int64(elapsed/time.Second), now)
 			return 0
 		}
-		if !d.Sleep(time.Duration(poll) * time.Second) {
+		ok, lines := d.sleepUntil(d.Now().Add(poll), func() []string {
+			return statusRecheck(ctx, d, st, targets, waitBlockRE, waitWorkRE, waitStalledRE)
+		})
+		if stateFailed(st, d.Stderr, "wait") {
+			return 1
+		}
+		if len(lines) > 0 {
+			for _, l := range lines {
+				fmt.Fprintln(d.Stdout, l+" "+clock(d.Now()))
+			}
+			return 0
+		}
+		if !ok {
 			return 0
 		}
 	}
@@ -169,7 +222,7 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 
 // health runs the status check when it is due and returns the HEALTH
 // events of the flags that are new since the last check.
-func health(ctx context.Context, env Env, d Deps, st state, specs string, every int, now string) []string {
+func health(ctx context.Context, env Env, d Deps, st *state, specs string, every, limit time.Duration, now string) []string {
 	script, scripted := env("HERDSMAN_STATUS_SCRIPT")
 	if scripted && script == "" {
 		scripted = false
@@ -183,24 +236,49 @@ func health(ctx context.Context, env Env, d Deps, st state, specs string, every 
 		st.write("health-at", strconv.FormatInt(at, 10)+"\n")
 		return nil
 	}
-	if at-int64(atoi(last)) < int64(every) {
+	// The script's $(( now - last )) ended the whole pass on a time bash
+	// could not read (A26): the clock starts again instead, with a line.
+	lastAt, ok := shnum.Test(strings.TrimSpace(last))
+	if !ok {
+		fmt.Fprintf(d.Stderr, "herdsman wait: state file health-at is not a number (got %q); the health clock starts again\n", strings.TrimSpace(last))
+		st.write("health-at", strconv.FormatInt(at, 10)+"\n")
+		return nil
+	}
+	// Only this waiter writes the time, never negative and never ahead of
+	// now; anything else would make the age overflow or never come due.
+	if lastAt < 0 || lastAt > at {
+		fmt.Fprintf(d.Stderr, "herdsman wait: state file health-at is out of range (got %q); the health clock starts again\n", strings.TrimSpace(last))
+		st.write("health-at", strconv.FormatInt(at, 10)+"\n")
+		return nil
+	}
+	if at-lastAt < int64(every/time.Second) {
 		return nil
 	}
 	var out bytes.Buffer
+	// The script waited on its status program for as long as it ran (A26):
+	// one that hung held the waiter past its deadline. The check gets
+	// limit, and one that does not finish in it is a failed check.
+	hctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
 	if scripted {
 		if syscall.Access(script, 1) != nil { // X_OK
 			fmt.Fprintf(d.Stderr, "herdsman wait: HERDSMAN_STATUS_SCRIPT %s is not executable; no health check\n", script)
 			return nil
 		}
 		st.write("health-at", strconv.FormatInt(at, 10)+"\n")
-		cmd := exec.CommandContext(ctx, script)
+		cmd := exec.CommandContext(hctx, script)
 		cmd.Stdout = &out
+		cmd.WaitDelay = helperWaitDelay
 		_ = cmd.Run()
 	} else {
 		st.write("health-at", strconv.FormatInt(at, 10)+"\n")
 		if d.Status != nil {
-			d.Status(ctx, &out, specs)
+			d.Status(hctx, &out, specs)
 		}
+	}
+	if hctx.Err() != nil && ctx.Err() == nil {
+		fmt.Fprintf(d.Stderr, "herdsman wait: the status check did not finish in %v; no health check\n", limit)
+		return nil
 	}
 	flags := status.Flags(out.String())
 	prev := strings.Split(st.read("health-flags"), "\n")
@@ -212,19 +290,4 @@ func health(ctx context.Context, env Env, d Deps, st state, specs string, every 
 		}
 	}
 	return events
-}
-
-// testInt reads a number the script compares with [ -ge ]: as test reads
-// it, and math.MaxInt (a comparison that never holds) when test refuses it.
-func testInt(s string) int {
-	if n, ok := shnum.Test(s); ok {
-		return int(n)
-	}
-	return math.MaxInt
-}
-
-// atoi reads a number as the shell's arithmetic would, 0 when it is none.
-func atoi(s string) int {
-	n, _ := strconv.Atoi(strings.TrimSpace(s))
-	return n
 }
