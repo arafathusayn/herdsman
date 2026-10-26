@@ -38,24 +38,26 @@ So the list algorithm aims to never exceed that move count, and to avoid computi
 
 The reference is the js-framework-benchmark Chrome 156 run, published 2026-10-25 (krausest/js-framework-benchmark, release "chrome156", 201 frameworks, keyed only). Recomputed from that run's raw results with the official weights, the top of the keyed table is `re` at 1.014, then `thane` at 1.019, `vanillajs-lite` at 1.021 and `vanillajs` at 1.024, where 1.000 would be the best result on every test. The top ten sit within about 3% of each other.
 
-Our measurements, from a local replica of the official method in headless Chrome 156 (2 CPU cores, about 3.5 times slower than the official machine, with run-to-run spread of up to about 30%), median of 15 interleaved iterations per framework, run on 2026-10-26:
+Our measurements come from a local replica of the official method in headless Chrome 156 (2 CPU cores, about 3.5 times slower than the official machine, with run-to-run spread of up to about 30%). Frameworks are interleaved within each iteration. Scores are relative to the best of the frameworks in that run on each test, not to the official table.
 
-| Test | vanilla | re (official #1) | herdsman-dom-diff |
-|---|---:|---:|---:|
-| create 1,000 rows | 69.0 ms | 80.1 ms | 75.2 ms |
-| replace 1,000 rows | 75.0 ms | 77.7 ms | 95.9 ms |
-| partial update | 62.5 ms | 59.8 ms | 56.5 ms |
-| select row | 13.9 ms | 13.3 ms | 16.3 ms |
-| swap rows | 66.6 ms | 68.3 ms | 63.9 ms |
-| remove row | 43.3 ms | 46.1 ms | 46.3 ms |
-| create 10,000 rows | 780.7 ms | 817.6 ms | 831.2 ms |
-| append 1,000 rows | 85.4 ms | 87.4 ms | 80.8 ms |
-| clear 1,000 rows | 30.8 ms | 36.0 ms | 29.7 ms |
-| **weighted score** | **1.029** | **1.086** | **1.076** |
+**Latest run** (2026-10-26, after the allocation work in the change log), median of 12 iterations:
 
-The score is relative to the best of these three on each test, not to the official table.
+| Test | re (official #1) | vanillajs-lite (official #3) | vanillajs | herdsman-dom-diff |
+|---|---:|---:|---:|---:|
+| create 1,000 rows | 74.3 ms | 68.2 ms | 87.1 ms | 74.2 ms |
+| replace 1,000 rows | 75.8 ms | 76.3 ms | 76.1 ms | 77.6 ms |
+| partial update | 61.3 ms | 53.7 ms | 54.1 ms | 55.2 ms |
+| select row | 11.1 ms | 11.2 ms | 12.3 ms | 11.8 ms |
+| swap rows | 66.6 ms | 62.5 ms | 69.1 ms | 57.9 ms |
+| remove row | 46.7 ms | 44.2 ms | 44.3 ms | 44.9 ms |
+| create 10,000 rows | 771.0 ms | 734.2 ms | 819.2 ms | 734.7 ms |
+| append 1,000 rows | 87.3 ms | 81.0 ms | 87.6 ms | 87.6 ms |
+| clear 1,000 rows | 30.2 ms | 29.3 ms | 29.7 ms | 34.2 ms |
+| **weighted score** | **1.065** | **1.004** | **1.080** | **1.052** |
 
-Assessment: in this replica herdsman-dom-diff scored slightly ahead of the official leader and about 4.6% behind vanilla. With this much noise, the replace gap (1.28 times the best) is the only loss clearly larger than the run-to-run spread; select (1.23) is borderline. Whether the library would beat the official table can only be settled by the official run.
+Assessment: in this replica herdsman-dom-diff ranks second of four, ahead of `re` (the official leader) and `vanillajs`, and about 4.8% behind `vanillajs-lite`. It is fastest on swap and ties the fastest on create 10,000 rows. Its one clear loss is clear rows (1.17 times the best): its samples split between about 30 ms and about 50 ms, which points to garbage collection of the per-row block objects landing inside the measured window. Whether these placements hold on the official table can only be settled by the official run.
+
+**Earlier run** (same day, before the allocation work), median of 15 iterations, three frameworks: vanillajs 1.029, herdsman-dom-diff 1.076, `re` 1.086.
 
 ---
 
@@ -276,7 +278,7 @@ The runner can also report, per test, how the click-to-commit window splits into
 
 ## Open questions
 
-1. Can rows that are never updated avoid the per-row block object entirely (for example, created on first update), to bring garbage collection down to vanillajs-lite's level?
+1. Can rows that are never updated avoid the per-row block object entirely (for example, created on first update), to bring garbage collection down to vanillajs-lite's level? The clear rows result (bimodal, 1.17 times the best) suggests this is now the main remaining cost.
 2. Morph's per-node cost on large herdsman views has not been measured yet.
 3. Whether `patch()` should become the default for all of herdsman's re-rendered views, or stay per call site.
 4. The other top entries of the official table that need an npm install and their own build step (thane, doohtml, sonnet, deleight, alien-signals, mikado) have not been run in the replica; installing and running their build tools needs the owner's approval.
@@ -284,4 +286,5 @@ The runner can also report, per test, how the click-to-commit window splits into
 ## Change log
 
 - 2026-10-26: First version. Blocks, keyed lists with prefix and suffix trimming, the two-item swap path and the LIS general case; blank-write skipping on mount; `detach`; morph and `patch()` with handler transfer for herdsman web; test, profiling and benchmark method; first replica results.
+- 2026-10-26: Head-to-head replica run against `re`, `vanillajs` and `vanillajs-lite`: herdsman-dom-diff 1.052, second of four, ahead of `re`.
 - 2026-10-26: Templates ignore formatter indentation (herdsman's `bun fmt` reformats tagged templates). Morph call sites in herdsman web keyed by tab and view. Block state merged into one array; mount bakes values into the prototype and looks up holes lazily. Real-Chrome verification of `patch()`. Per-phase benchmark findings.
