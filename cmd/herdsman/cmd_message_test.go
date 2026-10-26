@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -71,5 +72,44 @@ func TestMessageHelpOnDaemonPath(t *testing.T) {
 		if code := runMessage(args, nil, &out, &errb); code != 0 || !strings.Contains(out.String(), "wait [--after <cursor>]") {
 			t.Fatalf("%v: %d %q %q", args, code, out.String(), errb.String())
 		}
+	}
+}
+
+// TestCLINamesOtherHome (F5): a daemon-owned HERDSMAN_INBOX whose route is
+// not in the selected private home's registry still takes the daemon path,
+// so the real CLI names the private home of the daemon that runs.
+func TestCLINamesOtherHome(t *testing.T) {
+	base, err := os.MkdirTemp("", "hm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	base, _ = filepath.EvalSymlinks(base)
+	home, live, selected, owned := filepath.Join(base, "h"), filepath.Join(base, "live"), filepath.Join(base, "other"), filepath.Join(base, "inbox")
+	for _, dir := range []string{home, filepath.Join(owned, "state")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(owned, "state", "owner.json"), []byte(`{"owner":"daemon","epoch":"0123456789abcdef0123456789abcdef","contract":2,"protocol":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := daemon.New(daemon.Config{Home: home, PrivateHome: live, Version: daemonVersion()})
+	if err := d.Start(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- d.Serve(ctx) }()
+	defer func() { cancel(); <-done }()
+	for k, v := range map[string]string{"HOME": home, "HERDSMAN_PRIVATE_HOME": selected, "HERDSMAN_INBOX": owned,
+		"HERDSMAN_ROUTE": "r", "HERDSMAN_NAME": "orch", "HERDR_PANE_ID": "p2"} {
+		t.Setenv(k, v)
+	}
+	var out, errOut bytes.Buffer
+	code := runMessage([]string{"authority"}, nil, &out, &errOut)
+	want := "the running daemon uses " + live + "; set HERDSMAN_PRIVATE_HOME"
+	if code != 75 || !strings.Contains(errOut.String(), want) {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want %q", code, out.String(), errOut.String(), want)
 	}
 }

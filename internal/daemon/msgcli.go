@@ -372,35 +372,42 @@ func (e *MessageEnv) line(v any) {
 }
 
 // retry repeats a keyed request after a lost connection or a retryable
-// refusal for at most 60 s, backing off 0.2 s doubling to 5 s (5.4). Each
-// attempt has its own deadline, so one unanswered call cannot outlast the
-// window.
+// refusal inside one 60 s window, backing off 0.2 s doubling to 5 s (5.4).
+// Every attempt and every wait is capped to what is left of the window,
+// and no attempt starts after it.
 func (e *MessageEnv) retry(ctx context.Context, fn func(context.Context) error) error {
-	start := e.now()
+	end := e.now().Add(retryWindow)
 	wait := 200 * time.Millisecond
 	per := e.AttemptTimeout
 	if per == 0 {
 		per = 10 * time.Second
 	}
 	for {
-		actx, cancel := context.WithTimeout(ctx, per)
+		actx, cancel := context.WithTimeout(ctx, min(per, end.Sub(e.now())))
 		err := fn(actx)
 		cancel()
-		if err != nil && errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-			err = &DownError{Err: err}
-		}
 		if err == nil {
 			return nil
 		}
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil && !IsDown(err) {
+			err = &DownError{Err: err}
+		}
 		a, isAPI := AsAPIError(err)
 		retryable := IsDown(err) || (isAPI && a.Retryable && a.Code != "internal")
-		if !retryable || e.now().Sub(start) >= 60*time.Second {
+		left := end.Sub(e.now())
+		if !retryable || left <= 0 {
 			return err
 		}
-		e.sleep(wait)
+		e.sleep(min(wait, left))
+		if !e.now().Before(end) {
+			return err
+		}
 		wait = min(wait*2, 5*time.Second)
 	}
 }
+
+// retryWindow is the keyed requests' retry window (5.4).
+const retryWindow = 60 * time.Second
 
 // status asks the daemon; when it does not answer within 1 s, it reads
 // the files read-only and reports daemon=down with exit 1 (4.5).
@@ -602,6 +609,10 @@ func (e *MessageEnv) wait(c *Client, base, me string, args []string) int {
 	return w.run(deadline)
 }
 
+// stableStream is how long a stream must stay open before its end resets
+// the reconnect backoff.
+const stableStream = 5 * time.Second
+
 // waiter is one wait's state: the cursor it resumes from.
 type waiter struct {
 	e      *MessageEnv
@@ -676,9 +687,14 @@ func (w *waiter) run(deadline time.Duration) int {
 			return code
 		}
 		// A stream that ended is reopened after the backoff too; only a
-		// stream that delivered frames counts as stable and resets it.
+		// stream that stayed open for stableStream resets it, so a daemon
+		// that answers shutdown and closes at once is not retried in a
+		// tight loop (6.1).
 		if frames > 0 {
-			downSince, backoff = time.Time{}, 200*time.Millisecond
+			downSince = time.Time{}
+		}
+		if w.e.now().Sub(attempt) >= stableStream {
+			backoff = 200 * time.Millisecond
 		}
 		w.e.sleep(backoff)
 		backoff = min(backoff*2, 5*time.Second)

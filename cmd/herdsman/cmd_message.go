@@ -64,11 +64,14 @@ func daemonPath(args []string, getenv func(string) string) (route string, rest [
 	if ph, err := daemon.PrivateHome("", getenv); err == nil {
 		routes, _ = daemon.ReadRoutes(ph)
 	}
+	// A route missing from this private home's registry may be served by
+	// a daemon of another private home: its daemon-owned HERDSMAN_INBOX
+	// still selects the daemon path, whose discovery names that home (3.6).
 	dir := routes.Routes[route].Inbox
-	if dir == "" && route == "" {
+	if dir == "" {
 		dir = getenv("HERDSMAN_INBOX")
 		for name, e := range routes.Routes {
-			if dir != "" && e.Inbox == dir {
+			if route == "" && dir != "" && e.Inbox == dir {
 				route = name
 			}
 		}

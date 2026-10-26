@@ -36,10 +36,39 @@ func settingDuration(v string, lo, hi int) (int, bool) {
 }
 
 // SettingDuration is the strict duration setting (A25) for the commands
-// outside this package: the parser above, clamped to lo..hi.
+// outside this package: decimal digits (leading zeros read as decimal)
+// with an optional s, m, h or d suffix, clamped to lo..hi. The digits are
+// read with saturation, so a valid duration of any length is clamped, never
+// refused for its size or wrapped by an overflow.
 func SettingDuration(v string, lo, hi time.Duration) (time.Duration, bool) {
-	n, ok := settingDuration(v, int(lo/time.Second), int(hi/time.Second))
-	return time.Duration(n) * time.Second, ok
+	unit := time.Second
+	if n := len(v); n > 0 {
+		switch v[n-1] {
+		case 's':
+			v = v[:n-1]
+		case 'm':
+			v, unit = v[:n-1], time.Minute
+		case 'h':
+			v, unit = v[:n-1], time.Hour
+		case 'd':
+			v, unit = v[:n-1], 24*time.Hour
+		}
+	}
+	if v == "" {
+		return 0, false
+	}
+	limit := int64(hi/unit) + 1 // past the bound; no overflow below it
+	var n int64
+	for _, c := range []byte(v) {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		if n < limit {
+			n = n*10 + int64(c-'0')
+		}
+	}
+	d := time.Duration(min(n, limit)) * unit
+	return min(max(d, lo), hi), true
 }
 
 // durEnv reads a duration setting ${K:-def} once, strictly (A25).
