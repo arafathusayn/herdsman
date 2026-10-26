@@ -1,0 +1,12 @@
+{
+  "name": "herdsman-cases",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build.ts",
+    "bench": "bun run.ts"
+  },
+  "dependencies": {
+    "puppeteer-core": "25.16.0"
+  }
+}
