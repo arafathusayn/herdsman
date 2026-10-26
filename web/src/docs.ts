@@ -50,7 +50,7 @@ function setupCopy(): void {
     btn.type = "button";
     btn.className = "copy";
     btn.setAttribute("aria-label", "Copy the commands");
-    btn.append(icon(icons.copy), label);
+    mount(btn, icon(icons.copy), label);
     let timer = 0;
     btn.addEventListener("click", async () => {
       // Comment lines are for reading; the copy holds only the commands.

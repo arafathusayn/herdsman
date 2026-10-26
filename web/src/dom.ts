@@ -1,4 +1,14 @@
-import { child, html, type ListNode, render, type ViewNode } from "./herdsman-blocks-view.ts";
+import {
+  attr,
+  child,
+  html,
+  list,
+  type ListNode,
+  render,
+  svg,
+  type ViewNode,
+  type ViewNodeOf,
+} from "./herdsman-blocks-view.ts";
 // A small DOM builder. Strings always become text nodes, so nothing a pane
 // or a route file holds is ever parsed as HTML.
 import { KEY_ATTR, morph } from "./herdsman-blocks.ts";
@@ -211,53 +221,59 @@ function keepHandlers(live: Element, fresh: Element): void {
   if (want) for (const type in want) if (!have || !(type in have)) on(live, type, want[type]!);
 }
 
-const SVG = "http://www.w3.org/2000/svg";
+// An icon path, a view of its own so an icon's paths are a keyed list. svg``
+// parses it inside an <svg>, so the path is an SVG element.
+const IconPath = svg`<path d=${attr()} />`;
 
-/** Builds an inline SVG icon from path data on a 24 unit grid. */
-export function icon(paths: string[], label?: string): SVGSVGElement {
-  const svg = document.createElementNS(SVG, "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("class", "icon");
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "1.8");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  if (label) svg.setAttribute("aria-label", label);
-  else svg.setAttribute("aria-hidden", "true");
-  for (const d of paths) {
-    const p = document.createElementNS(SVG, "path");
-    p.setAttribute("d", d);
-    svg.appendChild(p);
-  }
-  return svg;
+const Icon = html`<svg
+  viewBox="0 0 24 24"
+  class="icon"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.8"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-label=${attr<string | null>()}
+  aria-hidden=${attr<"true" | null>()}
+>
+  ${child<ListNode<ViewNodeOf<typeof IconPath>, string>>()}
+</svg>`;
+
+/** What `icon` returns: put it in a child hole (or, until stage 3, an h() child). */
+export type IconNode = ViewNodeOf<typeof Icon>;
+
+/**
+ * An inline SVG icon from path data on a 24 unit grid (see `icons`). With a
+ * label it is named for assistive technology; without one it is hidden.
+ * The paths are keyed by their data, which is unique within an icon.
+ */
+export function icon(paths: readonly string[], label?: string): IconNode {
+  return Icon([
+    label || null,
+    label ? null : "true",
+    list(
+      paths,
+      (d) => d,
+      (d) => IconPath([d]),
+    ),
+  ]);
 }
 
+const Logo = html`<svg viewBox="0 0 32 32" class="logo" aria-hidden="true">
+  <rect width="32" height="32" rx="8" fill="#1d4d38" />
+  <g fill="none" stroke="#e9f6ef" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 6.5V26" />
+    <path d="M10 17.5a5.5 5.5 0 0 1 11 0v5.5a3 3 0 0 0 3 3" />
+  </g>
+  <circle cx="15.5" cy="24" r="2" fill="#5cc093" />
+</svg>`;
+
+/** What `logoMark` returns. */
+export type LogoNode = ViewNodeOf<typeof Logo>;
+
 /** The herdsman mark: an h whose leg flicks out like a shepherd's crook, with one of the herd under its arch. */
-export function logoMark(): SVGSVGElement {
-  const svg = document.createElementNS(SVG, "svg");
-  svg.setAttribute("viewBox", "0 0 32 32");
-  svg.setAttribute("class", "logo");
-  svg.setAttribute("aria-hidden", "true");
-  const el = (tag: string, attrs: Record<string, string>): SVGElement => {
-    const e = document.createElementNS(SVG, tag);
-    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
-    return e;
-  };
-  const strokes = el("g", {
-    fill: "none",
-    stroke: "#e9f6ef",
-    "stroke-width": "2.6",
-    "stroke-linecap": "round",
-    "stroke-linejoin": "round",
-  });
-  strokes.append(el("path", { d: "M10 6.5V26" }), el("path", { d: "M10 17.5a5.5 5.5 0 0 1 11 0v5.5a3 3 0 0 0 3 3" }));
-  svg.append(
-    el("rect", { width: "32", height: "32", rx: "8", fill: "#1d4d38" }),
-    strokes,
-    el("circle", { cx: "15.5", cy: "24", r: "2", fill: "#5cc093" }),
-  );
-  return svg;
+export function logoMark(): LogoNode {
+  return Logo([]);
 }
 
 export const icons = {
