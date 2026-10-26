@@ -220,7 +220,7 @@ export function buildCommands(ctx: Context): Command[] {
     out.push({
       id: "artifact-search",
       kind: "command",
-      title: "Artifacts: Search the session's HTML pages",
+      title: "Artifacts: Search the route's HTML pages",
       icon: icons.artifact,
       run: () => {
         store.go({ tab: "artifacts" });
