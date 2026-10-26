@@ -39,6 +39,15 @@ export interface TransformOptions {
   readonly runtime: string;
   /** "error" (the default): template mistakes fail. "runtime": leave such literals to the run-time compiler. */
   readonly mistakes?: "error" | "runtime";
+  /** The module is JSX or TSX: left as it is, with a warning when it uses views. */
+  readonly jsx?: boolean;
+}
+
+/** One replacement of source text: [a, b) became `text`. */
+export interface Edit {
+  readonly a: number;
+  readonly b: number;
+  readonly text: string;
 }
 
 export interface TransformResult {
@@ -51,13 +60,28 @@ export interface TransformResult {
   readonly views: number;
   /** View calls turned into direct constructions. */
   readonly calls: number;
+  /**
+   * What changed, for checking: `head` (the runtime import and the
+   * definitions) went in at offset `at`, and each edit replaced its span.
+   * Every other byte of the source is in `code` as it was.
+   */
+  readonly edits: readonly Edit[];
+  readonly head: string;
+  readonly at: number;
 }
 
 const LIB = /(?:^|\/)herdsman-blocks(-view)?(?:\.ts|\.js)?$/;
+const LIB_IMPORT = /["'](?:[^"'\n]*\/)?herdsman-blocks-view(?:\.ts|\.js)?["']/;
 
 /** Compile the views of one module. Fast path: a module that never names herdsman-blocks is returned as is. */
 export function transform(source: string, opt: TransformOptions): TransformResult {
   if (source.indexOf("herdsman-blocks") < 0) return unchanged(source, [], []);
+  if (opt.jsx === true)
+    return unchanged(
+      source,
+      [],
+      LIB_IMPORT.test(source) ? [diag(source, 0, "not compiled: JSX and TSX modules are left to run time")] : [],
+    );
   let lx: Lexed;
   try {
     lx = lex(source);
@@ -92,7 +116,7 @@ export function checkTemplate(strings: readonly string[], markers: readonly numb
 }
 
 function unchanged(code: string, errors: Diagnostic[], warnings: Diagnostic[]): TransformResult {
-  return { code, changed: false, errors, warnings, views: 0, calls: 0 };
+  return { code, changed: false, errors, warnings, views: 0, calls: 0, edits: [], head: "", at: 0 };
 }
 
 function diag(src: string, at: number, message: string): Diagnostic {
@@ -159,6 +183,9 @@ const REGEX_AFTER = new Set([
   "await",
 ]);
 
+// Statement heads: a slash after their closing parenthesis starts a regular expression.
+const HEADS = new Set(["if", "while", "for", "with"]);
+
 // Character classes of ASCII: 1 whitespace, 2 identifier start, 4 digit. Beyond ASCII: identifier.
 const CLASS = new Uint8Array(128);
 for (const c of [9, 10, 11, 12, 13, 32]) CLASS[c] = 1;
@@ -201,6 +228,11 @@ function lex(s: string): Lexed {
   };
   // Brace stack: 0 for a plain brace, 1 for a template substitution.
   const braces: number[] = [];
+  // Parenthesis stack: whether each open one starts the head of if, while,
+  // for or with; a slash after the head's closing parenthesis starts a
+  // regular expression (the statement body), not a division.
+  const parens: boolean[] = [];
+  let headClose = -1;
   let i = 0;
   if (s.charCodeAt(0) === 35 && s.charCodeAt(1) === 33) while (i < len && s.charCodeAt(i) !== 10) i++; // #!
 
@@ -227,7 +259,8 @@ function lex(s: string): Lexed {
     const t = type[n - 1]!;
     if (t === PUNCT) {
       const v = val[n - 1]!;
-      return v !== 41 && v !== 93 && v !== INC && v !== DEC; // not ) ] ++ --
+      if (v === 41) return headClose === n - 1; // ) ends an expression, unless it ends a statement head
+      return v !== 93 && v !== INC && v !== DEC; // not ] ++ --
     }
     if (t === HEAD || t === MID) return true;
     if (t === IDENT) return REGEX_AFTER.has(s.slice(start[n - 1]!, end[n - 1]!));
@@ -367,6 +400,10 @@ function lex(s: string): Lexed {
       i += 2;
       continue;
     }
+    if (c === 40) {
+      const p = n - 1;
+      parens.push(p >= 0 && type[p] === IDENT && HEADS.has(s.slice(start[p]!, end[p]!)));
+    } else if (c === 41 && parens.pop() === true) headClose = n;
     push(PUNCT, i, i + 1, c);
     i++;
   }
@@ -777,6 +814,7 @@ function rewrite(src: string, lx: Lexed, opt: TransformOptions): TransformResult
       if (k > 0 && isId(src, lx, k - 1, "typeof")) continue;
       safe.set(name, false);
     }
+    const tails = new Set<number>();
     for (let k = 0; k + 1 < lx.n; k++) {
       if (lx.type[k] !== IDENT || !isP(lx, k + 1, 40) || !isP(lx, k + 2, 91) || !maybe(k)) continue;
       if (k > 0 && isP(lx, k - 1, 46)) continue;
@@ -794,8 +832,13 @@ function rewrite(src: string, lx: Lexed, opt: TransformOptions): TransformResult
         if (u === PUNCT) {
           const c = lx.val[q]!;
           if (c === 40 || c === 91 || c === 123) depth++;
-          else if (c === 41 || c === 125) depth--;
-          else if (c === 93) {
+          else if (c === 41 || c === 125) {
+            if (depth === 0) {
+              ok = false; // closes something outside the array: not a call of ours
+              break;
+            }
+            depth--;
+          } else if (c === 93) {
             if (depth === 0) break;
             depth--;
           } else if (depth === 0 && c === 44) {
@@ -809,7 +852,8 @@ function rewrite(src: string, lx: Lexed, opt: TransformOptions): TransformResult
         empty = false;
       }
       if (!empty) count++;
-      if (!ok || q >= lx.n || count !== v.n || !isP(lx, q + 1, 41)) continue;
+      if (!ok || q >= lx.n || count !== v.n || !isP(lx, q, 93) || !isP(lx, q + 1, 41) || tails.has(q)) continue;
+      tails.add(q);
       edits.push({ a: lx.start[k]!, b: lx.end[k + 2]!, text: `new ${v.d}(` });
       edits.push({ a: lx.start[q]!, b: lx.end[q + 1]!, text: ")" });
       calls++;
@@ -819,7 +863,8 @@ function rewrite(src: string, lx: Lexed, opt: TransformOptions): TransformResult
   if (errors.length > 0) return unchanged(src, errors, warnings);
   // 3. Point imports of the view module at the compiled runtime.
   const runtime = JSON.stringify(opt.runtime);
-  for (const q of bd.viewSources) edits.push({ a: lx.start[q]!, b: lx.end[q]!, text: runtime });
+  // (A specifier is pointed once, even if two broken import clauses reach it.)
+  for (const q of new Set(bd.viewSources)) edits.push({ a: lx.start[q]!, b: lx.end[q]!, text: runtime });
   if (edits.length === 0) return unchanged(src, errors, warnings);
 
   edits.sort((x, y) => x.a - y.a);
@@ -840,7 +885,7 @@ function rewrite(src: string, lx: Lexed, opt: TransformOptions): TransformResult
     at = e.b;
   }
   out += src.slice(at);
-  return { code: out, changed: true, errors, warnings, views, calls };
+  return { code: out, changed: true, errors, warnings, views, calls, edits, head, at: insert };
 }
 
 // Whether the expression ends before token k (`;`, `,`, `)`, `}`, end, or a statement keyword).

@@ -121,6 +121,53 @@ describe("scanner", () => {
     }
   });
 
+  test("code on the low-level API passes through the plugin byte for byte", async () => {
+    // The plugin's load hook, called as Bun calls it.
+    type Load = (args: { path: string; loader: string }) => Promise<{ contents: string }>;
+    const hook = (mistakes: "error" | "runtime"): Load => {
+      let load: Load | undefined;
+      herdsmanBlocks({ quiet: true, mistakes }).setup({ onLoad: (_: unknown, f: Load) => void (load = f) } as never);
+      return load!;
+    };
+    const root = join(import.meta.dir, "../..");
+    // The tests build broken templates on purpose: they go through as the
+    // preload sends them, leaving template mistakes to run time.
+    const files = [
+      ["bench/herdsman-cases/apps/herdsman-blocks/main.ts", "error"], // the hand-written low-level app
+      ["bench/herdsman-cases/apps/herdsman-patch/dom.ts", "error"],
+      ["web/src/herdsman-blocks.test.ts", "runtime"],
+      ["web/src/herdsman-blocks.prop.test.ts", "runtime"],
+    ] as const;
+    for (const [f, mistakes] of files) {
+      const path = join(root, f),
+        src = await Bun.file(path).text();
+      expect(src).toContain("herdsman-blocks");
+      expect({ f, same: (await hook(mistakes)({ path, loader: "ts" })).contents === src }).toEqual({ f, same: true });
+    }
+    // Template, Block, List, mountRoot and morph next to a checked core template.
+    const src = [
+      'import { Block, List, Template, cls, html, lis, morph, mountRoot, text } from "./herdsman-blocks.ts";',
+      "const T = html`<tr class=${cls()}><td>${text()}</td></tr>`;",
+      "const b: Block<[string, string]> = T.clone();",
+      "b.set(0, 'x');",
+      "const l = new List(document.body, { key: (x: number) => x, create: () => T.clone(), update: () => {} });",
+      "mountRoot; morph; lis; Template;",
+    ].join("\n");
+    const r = run(src);
+    expect(r.changed).toBe(false);
+    expect(r.code).toBe(src);
+  });
+
+  test("JSX and TSX modules are left as they are, with a warning when they use views", () => {
+    const src = IMPORT + "const V = html`<p>${text()}</p>`;\nconst j = <div>{V}</div>;\n";
+    const r = transform(src, { runtime: RT, jsx: true });
+    expect(r.code).toBe(src);
+    expect(r.warnings.map((w) => w.message)).toEqual(["not compiled: JSX and TSX modules are left to run time"]);
+    expect(transform('import { html } from "./herdsman-blocks.ts";\n', { runtime: RT, jsx: true }).warnings).toEqual(
+      [],
+    );
+  });
+
   test("every module in web/src transforms to code that parses, with the same line count", () => {
     const dir = import.meta.dir;
     const tr = new Bun.Transpiler({ loader: "ts" });

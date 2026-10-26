@@ -40,13 +40,18 @@ export function herdsmanBlocks(options: PluginOptions = {}): BunPlugin {
   return {
     name: "herdsman-blocks",
     setup(build) {
-      build.onLoad({ filter: /\.[cm]?[jt]s$/ }, async (args) => {
+      build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, async (args) => {
         const source = await Bun.file(args.path).text();
         // (Run-time plugins must return contents, so untouched files are returned as read.)
         if (args.path.includes("/node_modules/") || OWN.test(args.path))
           return { contents: source, loader: args.loader };
         const t0 = performance.now();
-        const r = transform(source, { runtime: RUNTIME, mistakes: options.mistakes ?? "error" });
+        // JSX and TSX are never rewritten (a warning says so when they use views).
+        const r = transform(source, {
+          runtime: RUNTIME,
+          mistakes: options.mistakes ?? "error",
+          jsx: args.path.endsWith("x"),
+        });
         const st = options.stats;
         if (st) {
           st.ms += performance.now() - t0;
