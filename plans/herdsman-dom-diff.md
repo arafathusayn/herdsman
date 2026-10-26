@@ -3,7 +3,7 @@
 A living document. It explains why herdsman-dom-diff exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
 - Status: draft, on branch `herdsman-dom-diff`
-- Library version: 0.0.1 (the module exports this as `VERSION`)
+- Library version: 0.0.2 (the module exports this as `VERSION`)
 - Last updated: 2026-10-26
 - Module: `web/src/herdsman-dom-diff.ts`, used by `web/src/dom.ts`
 
@@ -75,7 +75,7 @@ Assessment: in this replica herdsman-dom-diff ranks second of four, ahead of `re
 
 #### Compiling a template
 
-A template is written as a tagged template literal whose interpolations are placeholders only; the value at each position is ignored, and the Nth placeholder is hole number N. Compilation happens once per call site, cached by the identity of the literal's string array.
+A template is written as a tagged template literal whose interpolations mark holes; the Nth interpolation is hole number N. An interpolation is either a typed hole marker (see Types below), whose runtime value is a small negative number naming the hole's kind, or a plain non-negative number, an untyped hole. Interpolated values never reach the DOM. Compilation happens once per call site, cached by the identity of the literal's string array.
 
 1. Walk the literal's string parts in order, tracking whether the scan is inside a tag (an unclosed `<`).
 2. For a placeholder inside a tag, the text before it must end with an attribute name, an equals sign and optionally an opening quote. Replace that ending with a marker attribute named `bk` plus the hole number, whose value is the original attribute name (percent-encoded). If a quote was opened, drop the matching closing quote from the next string part. A placeholder inside a tag that is not an attribute value is an error.
@@ -84,7 +84,7 @@ A template is written as a tagged template literal whose interpolations are plac
 5. Walk the parsed tree depth first, recording for each hole its path, the list of child indexes from the root. Before indexing an element's children, remove every text child that is only whitespace and contains a line break, unless the element is a `pre` or a `textarea`. Such text is indentation from a formatter (herdsman's `bun fmt` formats tagged `html` literals as HTML), not content; whitespace within a line, such as the spaces around a hole in "a, hole, b", is kept. Then:
    - A marker attribute is removed. The hole's kind comes from the original name: `class` is a class hole; a name starting with `on` or with a dot is a property hole (the dot is stripped, an `on` name is lowercased); anything else is an attribute hole.
    - A marker comment is replaced by an empty text node at the same position, and the hole is a text hole pointing at that text node.
-6. Every hole must have been found, or compilation fails.
+6. Every hole must have been found, or compilation fails. For each hole whose marker names a kind, the kind found from the hole's position must be the same, or compilation fails with an error naming the hole, the declared kind and the kind its position implies. This check runs once per template, never per instance.
 7. Generate a locator: one straight-line function that walks from a root through `firstChild` and `nextSibling` steps to each hole's node, sharing common path prefixes so each node is reached once, and writes the nodes into the first half of a given array. If generating functions at runtime is not allowed (a strict content security policy), fall back to walking each path in a loop.
 8. Run the locator once on the parsed root itself, the **prototype**, and keep its hole nodes. Record what the prototype holds in each hole: the empty string for text and class holes, absent (null) for attribute holes.
 
@@ -234,6 +234,43 @@ Every other `mount()` call still rebuilds, unchanged.
 
 ---
 
+### Types
+
+The types are designed to make wrong uses fail to compile while erasing completely: nothing on the hot paths (mount, update, list reconciliation) runs for the sake of types.
+
+#### Hole markers
+
+There is one marker per hole kind: text, class, attribute and property. Each is a generic function that takes a value type and returns a branded number. At runtime the function returns the kind's small negative code and is called once per template call site, when the literal is evaluated. At compile time the brand records two things: the value type the hole accepts and the kind of position it must sit in. Value types are bounded by kind:
+
+1. Text holes accept strings, numbers, bigints, booleans, null and undefined (null and undefined write empty text); string by default.
+2. Class holes accept strings, null and undefined; string by default.
+3. Attribute holes accept strings, numbers, bigints, booleans, null and undefined (null, undefined and false remove the attribute; true sets it empty); string by default.
+4. Property holes accept any type; unknown by default.
+
+A plain number in a hole position is an untyped hole that accepts unknown, so untyped templates keep compiling.
+
+#### What is inferred
+
+The tag function captures its interpolations as a constant tuple type and maps each element to its value type, giving the template's value tuple, a readonly tuple with one entry per hole. From that tuple:
+
+1. Mounting takes exactly that tuple: a missing value, an extra value, or a value of the wrong type is a compile error.
+2. A block's valid hole indexes are the tuple's numeric keys, so setting or reading hole number n, where n is past the last hole, is a compile error.
+3. Setting hole i takes exactly the i-th value type, and reading hole i returns exactly the i-th value type.
+4. A helper type gives the block type a template mounts, so code that stores blocks (a list's entries, a selected row) names it without repeating the tuple.
+5. A keyed list is generic in its item type, its entry type and its key type; the key function must return the declared key type, and the reconciler's key arrays and index map carry that type.
+
+#### What cannot be inferred, and how it is covered
+
+TypeScript sees a tagged template literal's text only as an untyped string array, so it cannot see where a hole sits. The position-to-kind rule is therefore checked when the template compiles (step 6 of compiling), once per template, which catches a class marker placed in text, a property marker placed on a plain attribute, and so on, the first time the code runs.
+
+#### Compiler settings
+
+The library compiles under herdsman's settings (strict, unchecked index access, exact optional property types, no implicit override, no unused locals or parameters, no switch fall-through, verbatim module syntax, isolated modules) plus a stricter set applied only to the library's files: isolated declarations (every export has an explicit type, so declarations follow from syntax alone), erasable syntax only (no enums, no namespaces with values, no constructor parameter properties, so the source runs under any type-stripping runtime), no property access from index signatures, no implicit returns, no unreachable code, no unused labels, unchecked side-effect imports reported, and strict built-in iterator returns. Kind codes are plain top-level constants rather than an enum, which also lets minifiers inline them.
+
+#### Type tests
+
+A type test file asserts exact inferred types with a compile-time equality check (the template type, the hole index union, the block type, the untyped value tuple) and lists mistakes that must not compile, each marked as an expected error: a wrong value type, an index past the last hole, a short or long value tuple, a non-function for a handler, a number for a class marker, an object for a text marker, and a key function returning the wrong key type. An expected-error line that starts compiling makes the type check fail. The test file also checks at runtime that a marker in the wrong position throws when its template compiles. Weakening the update method to accept any value made the type check fail on the expected-error line for a wrong value type; restoring it made it pass, so the type tests do catch loosened types.
+
 ## Part 3: Verification
 
 ### Correctness properties the tests check
@@ -256,6 +293,8 @@ The same behaviors were also checked in real Chrome 156 (not the fake DOM): a fo
 ### Profiling
 
 Bun's CPU profiler with markdown output profiles the benchmark app over the fake DOM, where DOM work is pointer updates, so the profile shows the library's own JavaScript. After the changes above, the library's own functions account for a small share of samples; the rest is fake-DOM node construction.
+
+Typing the library (0.0.1 to 0.0.2) did not slow it down. Over three profiling runs each, the medians of every operation were the same or lower afterwards: create 10,000 rows 11.8 ms before and 10.7 ms after, replace 1.43 ms and 1.25 ms, append 0.86 ms and 0.69 ms, create 1,000 rows 1.45 ms both; operations that take microseconds were within rounding. The minified benchmark bundle grew by 261 bytes (8,115 to 8,376), the marker functions and the position-check message.
 
 ### Benchmark method (replica of the official one)
 
@@ -284,12 +323,12 @@ The version starts at 0.0.1 and lives in one place, the module's exported `VERSI
 Each release is a zip named after the library and version, holding one folder of the same name with:
 
 1. The library source as a single TypeScript module, with no dependencies and no package.json.
-2. A minified ES module build of it for JavaScript consumers, with a TypeScript declaration file beside it.
+2. A minified ES module build of it for JavaScript consumers, with a declaration file beside it that re-exports the types from the TypeScript source in the same package. No separate declaration build is needed: the source is what `bun check` verifies, and code importing the minified module is type-checked against it.
 3. The library's tests and the fake DOM they run on, runnable with Bun alone.
 4. The benchmark tools: the js-framework-benchmark app built with the library, its page and entry, the site builder, the Chrome runner, the Bun profiling script, and the raw result files of the runs this document reports.
 5. This document as the package's spec, a README with usage and checks, a change log, the GPL-3.0 license of the herdsman repository it comes from, and a `VERSION` file.
 
-A release is ready when, from a fresh unzip, the type check passes, the tests pass, and the built module imports and reports the same version as the source.
+Type checking uses `bun check` (Bun 1.4.4, the latest release on 2026-10-26), never `tsc`: once with the herdsman settings and once with the stricter library settings. A release is ready when, from a fresh unzip, formatting of the authored files passes, both type checks pass, the tests pass, and the built module imports and reports the same version as the source.
 
 ## Open questions
 
@@ -300,7 +339,10 @@ A release is ready when, from a fresh unzip, the type check passes, the tests pa
 
 ## Change log
 
+Newest first.
+
+- 2026-10-26: Version 0.0.2. Strict types: typed hole markers for text, class, attribute and property holes; the value tuple, hole indexes and per-hole value types inferred from them; a once-per-template position check for markers; keyed lists generic in their key type; the library compiled under an extra strict settings file that herdsman's web check now runs; type tests with expected errors. Kind codes are plain constants and constructor parameter properties are gone (erasable syntax only). The package's declaration file re-exports the source's types instead of a `tsc` build. No runtime slowdown in profiling.
 - 2026-10-26: Version 0.0.1 packaged as a zip. `VERSION` exported. The `patch()` tests moved to `dom.test.ts` so the library's own tests run without herdsman's `dom.ts`.
-- 2026-10-26: First version. Blocks, keyed lists with prefix and suffix trimming, the two-item swap path and the LIS general case; blank-write skipping on mount; `detach`; morph and `patch()` with handler transfer for herdsman web; test, profiling and benchmark method; first replica results.
 - 2026-10-26: Head-to-head replica run against `re`, `vanillajs` and `vanillajs-lite`: herdsman-dom-diff 1.052, second of four, ahead of `re`.
 - 2026-10-26: Templates ignore formatter indentation (herdsman's `bun fmt` reformats tagged templates). Morph call sites in herdsman web keyed by tab and view. Block state merged into one array; mount bakes values into the prototype and looks up holes lazily. Real-Chrome verification of `patch()`. Per-phase benchmark findings.
+- 2026-10-26: First version. Blocks, keyed lists with prefix and suffix trimming, the two-item swap path and the LIS general case; blank-write skipping on mount; `detach`; morph and `patch()` with handler transfer for herdsman web; test, profiling and benchmark method; first replica results.

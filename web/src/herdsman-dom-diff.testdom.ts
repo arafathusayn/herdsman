@@ -16,7 +16,10 @@ export class FakeNode {
   lastChild: FakeNode | null = null;
   nextSibling: FakeNode | null = null;
   previousSibling: FakeNode | null = null;
-  constructor(readonly nodeType: number) {}
+  readonly nodeType: number;
+  constructor(nodeType: number) {
+    this.nodeType = nodeType;
+  }
   get nodeName(): string {
     return "#node";
   }
@@ -93,8 +96,10 @@ export class FakeNode {
 }
 
 export class FakeText extends FakeNode {
-  constructor(public data: string) {
+  data: string;
+  constructor(data: string) {
     super(3);
+    this.data = data;
   }
   override get nodeName(): string {
     return "#text";
@@ -114,8 +119,10 @@ export class FakeText extends FakeNode {
 }
 
 export class FakeComment extends FakeNode {
-  constructor(public data: string) {
+  data: string;
+  constructor(data: string) {
     super(8);
+    this.data = data;
   }
   override get nodeName(): string {
     return "#comment";
@@ -148,8 +155,10 @@ export class FakeElement extends FakeNode {
 
   private listeners: Map<string, ((e: { type: string; target: FakeNode }) => void)[]> | null = null;
 
-  constructor(readonly tagName: string) {
+  readonly tagName: string;
+  constructor(tagName: string) {
     super(1);
+    this.tagName = tagName;
   }
   override get nodeName(): string {
     return this.tagName;

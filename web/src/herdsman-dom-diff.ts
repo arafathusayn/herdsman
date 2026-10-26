@@ -1,32 +1,94 @@
-// herdsman-dom-diff: a zero-dependency block renderer with a keyed list reconciler.
+// herdsman-dom-diff: a zero-dependency DOM diff for the herdsman web app.
 //
-// Two ideas, nothing else:
 //   1. Blocks: a template is parsed once. Each instance is a cloneNode(true)
-//      plus direct pointers to its dynamic "holes". An update compares the new
-//      value with the last one and touches exactly that node. No tree diff.
+//      of a prototype that already holds the instance's values; its hole nodes
+//      are looked up on the first update that changes something. No tree diff.
 //   2. Lists: keyed reconciliation that trims the common prefix and suffix,
-//      handles a two-element swap in O(window) without a Map, and otherwise
-//      keeps a longest increasing subsequence in place and moves only the rest.
-//      That is the minimum number of DOM moves.
+//      handles a two-element swap without a Map, and otherwise keeps a longest
+//      increasing subsequence in place and moves only the rest. That is the
+//      minimum number of DOM moves.
+//   3. Morph: patches a live subtree to match a freshly built one.
+//
+// Types are strict and erase completely: nothing below adds work on the hot
+// paths (mount, set, List.set) for the sake of types.
 
 /** Library version, bumped with every release of the zip package. */
-export const VERSION = "0.0.1";
+export const VERSION = "0.0.2";
+
+// ---------------------------------------------------------------------------
+// Hole markers: typed at compile time, small negative numbers at runtime
+// ---------------------------------------------------------------------------
+
+/** Where a hole sits in a template, which decides how its value is written. */
+export type HoleKind = "text" | "class" | "attr" | "prop";
+
+declare const HOLE: unique symbol;
+
+/**
+ * A typed hole marker for `html`. At runtime it is a small number; its type
+ * records the value type the hole accepts and the position it must sit in.
+ */
+export type Hole<V, K extends HoleKind = HoleKind> = number & { readonly [HOLE]: readonly [V, K] };
+
+/** Values a text hole accepts. null and undefined write empty text. */
+export type TextValue = string | number | bigint | boolean | null | undefined;
+/** Values a class hole accepts. null and undefined clear the class. */
+export type ClassValue = string | null | undefined;
+/** Values an attribute hole accepts. null, undefined and false remove it; true sets it empty. */
+export type AttrValue = string | number | bigint | boolean | null | undefined;
+
+// Runtime kind codes. Plain numbers (erasable syntax), inlined by minifiers.
+const TEXT = 0;
+const CLASS = 1;
+const PROP = 2;
+const ATTR = 3;
+type KindCode = typeof TEXT | typeof CLASS | typeof PROP | typeof ATTR;
+const KIND_NAMES: readonly HoleKind[] = ["text", "class", "prop", "attr"];
+
+/** A text hole: element content, between tags. */
+export function text<V extends TextValue = string>(): Hole<V, "text"> {
+  return (-1 - TEXT) as Hole<V, "text">;
+}
+/** A class hole: the value of a `class` attribute. */
+export function cls<V extends ClassValue = string>(): Hole<V, "class"> {
+  return (-1 - CLASS) as Hole<V, "class">;
+}
+/** An attribute hole: the value of any attribute other than `class`, `on*` or `.name`. */
+export function attr<V extends AttrValue = string>(): Hole<V, "attr"> {
+  return (-1 - ATTR) as Hole<V, "attr">;
+}
+/** A property hole: the value of an `on*` attribute or a `.name` property. */
+export function prop<V = unknown>(): Hole<V, "prop"> {
+  return (-1 - PROP) as Hole<V, "prop">;
+}
+
+/** The value tuple of a template whose holes are `H`; an untyped hole (a plain number) accepts unknown. */
+export type ValuesOf<H extends readonly number[]> = {
+  readonly [I in keyof H]: H[I] extends Hole<infer V, HoleKind> ? V : unknown;
+};
+
+type NumericKey<S> = S extends `${infer N extends number}` ? N : never;
+
+/** The valid hole indexes of a value tuple: 0 | 1 | ... | n - 1 (number for a non-tuple array). */
+export type HoleIndex<V extends readonly unknown[]> = (number extends V["length"]
+  ? number
+  : NumericKey<Extract<keyof V, `${number}`>>) &
+  number;
+
+/** The value type of hole `I` in value tuple `V`. */
+export type HoleValue<V extends readonly unknown[], I extends number> = I extends keyof V ? V[I] : never;
+
+/** The block type a template mounts. */
+export type BlockOf<T> = T extends Template<infer V> ? Block<V> : never;
 
 // ---------------------------------------------------------------------------
 // Blocks
 // ---------------------------------------------------------------------------
 
-const enum Kind {
-  Text,
-  Class,
-  Prop,
-  Attr,
-}
-
 type Path = readonly number[];
 type Locator = (root: Node, out: unknown[]) => void;
 
-const cache = new WeakMap<TemplateStringsArray, Template>();
+const cache = new WeakMap<TemplateStringsArray, Template<readonly unknown[]>>();
 const ATTR_HOLE = /([^\s"'=<>/]+)\s*=\s*(["']?)$/;
 const MARKER = /^bk\d+$/;
 // Whitespace-only text containing a line break: formatting between tags.
@@ -34,32 +96,42 @@ const FORMATTING = /^\s*\n\s*$/;
 
 /**
  * Tagged template that compiles once per call site.
- * Holes are positional: the Nth `${}` is slot N. The expression value is ignored.
  *
- *   const Row = html`<tr class=${0}><td>${1}</td></tr>`;
- *   const b = Row.mount(["danger", "hello"]);
- *   b.set(1, "world");
+ *   const Row = html`<tr class=${cls()}><td>${text<number>()}</td></tr>`;
+ *   const b = Row.mount(["danger", 7]);   // typed: readonly [string, number]
+ *   b.set(1, 8);
+ *
+ * Holes are positional: the Nth `${}` is hole N. Use `text`, `cls`, `attr` and
+ * `prop` markers to type each hole; a marker in the wrong position throws when
+ * the template is first compiled. A plain number (`${0}`) is an untyped hole.
  *
  * Attribute rules: `class` sets className, `on*` and `.name` set a property,
- * anything else uses setAttribute (null or false removes it).
+ * anything else uses setAttribute (null, undefined or false removes it).
  */
-export function html(strings: TemplateStringsArray, ..._holes: unknown[]): Template {
+export function html<const H extends readonly number[]>(
+  strings: TemplateStringsArray,
+  ...holes: H
+): Template<ValuesOf<H>> {
   let t = cache.get(strings);
-  if (!t) cache.set(strings, (t = new Template(strings)));
-  return t;
+  if (!t) cache.set(strings, (t = new Template(strings, holes)));
+  return t as Template<ValuesOf<H>>;
 }
 
-export class Template {
+/** A compiled template. Make instances with `mount`. */
+export class Template<V extends readonly unknown[] = readonly unknown[]> {
+  /** Number of holes. */
   readonly n: number;
+  /** Runtime kind code of each hole. */
   readonly kinds: Uint8Array;
-  readonly names: (string | undefined)[];
+  /** Attribute or property name of each attribute and property hole. */
+  readonly names: readonly (string | undefined)[];
   /** Fills out[0, n) with the hole nodes under a clone of this template. */
   readonly locate: Locator;
   private readonly root: Element;
   // The prototype's own hole nodes and the values last written into them.
   private readonly proto: unknown[];
 
-  constructor(strings: readonly string[]) {
+  constructor(strings: readonly string[], holes: readonly number[] = []) {
     const n = strings.length - 1;
     const parts = strings.slice();
     let src = "";
@@ -93,18 +165,26 @@ export class Template {
 
     this.n = n;
     this.kinds = new Uint8Array(n);
-    this.names = new Array(n);
+    const names: (string | undefined)[] = new Array(n);
     const paths: (Path | undefined)[] = new Array(n);
-    this.walk(root, [], paths);
+    walk(root, [], paths, this.kinds, names);
     for (let i = 0; i < n; i++) {
       if (!paths[i]) throw new Error(`herdsman-dom-diff: hole ${i} could not be located`);
+      // A typed marker must sit where its kind says. Checked once per template.
+      const h = holes[i];
+      if (h !== undefined && h < 0 && -1 - h !== this.kinds[i]) {
+        const want = KIND_NAMES[-1 - h] ?? "unknown",
+          got = KIND_NAMES[this.kinds[i]!] ?? "unknown";
+        throw new Error(`herdsman-dom-diff: hole ${i} is typed ${want}, but its position makes it ${got}`);
+      }
     }
+    this.names = names;
     this.root = root as Element;
     this.locate = compileLocator(paths as Path[]);
     this.proto = new Array(2 * n);
     this.locate(root, this.proto);
     // What the parsed prototype holds: empty text and class, absent attributes.
-    for (let i = 0; i < n; i++) this.proto[n + i] = this.kinds[i] === Kind.Attr ? null : "";
+    for (let i = 0; i < n; i++) this.proto[n + i] = this.kinds[i] === ATTR ? null : "";
   }
 
   /**
@@ -118,7 +198,7 @@ export class Template {
    * objects and garbage collection that walking would cost. Properties do not
    * survive cloning, so a non-null property hole is set on the clone directly.
    */
-  mount(vals: ArrayLike<unknown>): Block {
+  mount(vals: V): Block<V> {
     const n = this.n,
       kinds = this.kinds,
       names = this.names,
@@ -126,75 +206,81 @@ export class Template {
     let props = false;
     for (let i = 0; i < n; i++) {
       const v = vals[i];
-      if (kinds[i] === Kind.Prop) {
+      if (kinds[i] === PROP) {
         if (v != null) props = true;
       } else if (proto[n + i] !== v) {
         proto[n + i] = v;
-        apply(kinds[i]!, names[i], proto[i] as Node, v);
+        apply(kinds[i] as KindCode, names[i], proto[i] as Node, v);
       }
     }
     const s: unknown[] = new Array(2 * n);
     for (let i = 0; i < n; i++) s[n + i] = vals[i];
-    const b = new Block(this, this.root.cloneNode(true) as Element, s);
+    const root = this.root.cloneNode(true) as Element;
     if (props) {
-      this.locate(b.root, s);
+      this.locate(root, s);
       for (let i = 0; i < n; i++)
-        if (kinds[i] === Kind.Prop && s[n + i] != null) apply(Kind.Prop, names[i], s[i] as Node, s[n + i]);
+        if (kinds[i] === PROP && s[n + i] != null) apply(PROP, names[i], s[i] as Node, s[n + i]);
     }
-    return b;
+    return new Block<V>(this, root, s);
   }
+}
 
-  private walk(node: Node, path: Path, paths: (Path | undefined)[]): void {
-    if (node.nodeType !== 1) return;
-    const el = node as Element;
-    const attrs = el.attributes;
-    for (let a = attrs.length - 1; a >= 0; a--) {
-      const nm = attrs[a]!.name;
-      if (!MARKER.test(nm)) continue;
-      const i = +nm.slice(2);
-      const name = decodeURIComponent(attrs[a]!.value);
-      el.removeAttribute(nm);
-      paths[i] = path;
-      if (name === "class") this.kinds[i] = Kind.Class;
-      else if (name[0] === "." || name.startsWith("on")) {
-        this.kinds[i] = Kind.Prop;
-        this.names[i] = name[0] === "." ? name.slice(1) : name.toLowerCase();
-      } else {
-        this.kinds[i] = Kind.Attr;
-        this.names[i] = name;
-      }
+function walk(
+  node: Node,
+  path: Path,
+  paths: (Path | undefined)[],
+  kinds: Uint8Array,
+  names: (string | undefined)[],
+): void {
+  if (node.nodeType !== 1) return;
+  const el = node as Element;
+  const attrs = el.attributes;
+  for (let a = attrs.length - 1; a >= 0; a--) {
+    const nm = attrs[a]!.name;
+    if (!MARKER.test(nm)) continue;
+    const i = +nm.slice(2);
+    const name = decodeURIComponent(attrs[a]!.value);
+    el.removeAttribute(nm);
+    paths[i] = path;
+    if (name === "class") kinds[i] = CLASS;
+    else if (name[0] === "." || name.startsWith("on")) {
+      kinds[i] = PROP;
+      names[i] = name[0] === "." ? name.slice(1) : name.toLowerCase();
+    } else {
+      kinds[i] = ATTR;
+      names[i] = name;
     }
-    let child = el.firstChild,
-      k = 0;
-    const keepSpace = el.nodeName === "PRE" || el.nodeName === "TEXTAREA";
-    while (child) {
-      const next = child.nextSibling;
-      if (!keepSpace && child.nodeType === 3 && FORMATTING.test((child as Text).data)) {
-        // Indentation from a formatter (bun fmt formats html`` as HTML), not content.
-        el.removeChild(child);
-        child = next;
-        continue;
-      }
-      if (child.nodeType === 8 && MARKER.test((child as Comment).data)) {
-        // Swap the marker comment for a real text node so clones need no fixup.
-        el.replaceChild(document.createTextNode(""), child);
-        const i = +(child as Comment).data.slice(2);
-        paths[i] = path.concat(k);
-        this.kinds[i] = Kind.Text;
-      } else {
-        this.walk(child, path.concat(k), paths);
-      }
+  }
+  let child = el.firstChild,
+    k = 0;
+  const keepSpace = el.nodeName === "PRE" || el.nodeName === "TEXTAREA";
+  while (child) {
+    const next = child.nextSibling;
+    if (!keepSpace && child.nodeType === 3 && FORMATTING.test((child as Text).data)) {
+      // Indentation from a formatter (bun fmt formats html`` as HTML), not content.
+      el.removeChild(child);
       child = next;
-      k++;
+      continue;
     }
+    if (child.nodeType === 8 && MARKER.test((child as Comment).data)) {
+      // Swap the marker comment for a real text node so clones need no fixup.
+      el.replaceChild(document.createTextNode(""), child);
+      const i = +(child as Comment).data.slice(2);
+      paths[i] = path.concat(k);
+      kinds[i] = TEXT;
+    } else {
+      walk(child, path.concat(k), paths, kinds, names);
+    }
+    child = next;
+    k++;
   }
 }
 
 // Turn hole paths into one straight-line function of firstChild/nextSibling
 // hops that shares common prefixes. Falls back to a loop where eval is blocked (CSP).
-// It returns the block's single state array: hole nodes in [0, n), with
-// [n, 2n) left for the holes' last values, so a block costs one array.
-function compileLocator(paths: Path[]): Locator {
+// It fills the first half of a block's single state array: hole nodes in
+// [0, n), with [n, 2n) left for the holes' last values.
+function compileLocator(paths: readonly Path[]): Locator {
   try {
     let body = "";
     const seen = new Map<string, string>();
@@ -230,50 +316,59 @@ function compileLocator(paths: Path[]): Locator {
   }
 }
 
-function apply(kind: number, name: string | undefined, node: Node, v: unknown): void {
+function apply(kind: KindCode, name: string | undefined, node: Node, v: unknown): void {
   switch (kind) {
-    case Kind.Text:
-      (node as Text).data = v == null ? "" : "" + v;
+    case TEXT:
+      (node as Text).data = v == null ? "" : "" + (v as TextValue);
       break;
-    case Kind.Class:
-      (node as Element).className = v == null ? "" : "" + v;
+    case CLASS:
+      (node as Element).className = v == null ? "" : "" + (v as ClassValue);
       break;
-    case Kind.Prop:
+    case PROP:
       (node as unknown as Record<string, unknown>)[name!] = v;
       break;
-    default:
+    case ATTR:
       if (v == null || v === false) (node as Element).removeAttribute(name!);
-      else (node as Element).setAttribute(name!, v === true ? "" : "" + v);
+      else (node as Element).setAttribute(name!, v === true ? "" : "" + (v as AttrValue));
+      break;
   }
 }
 
-export class Block {
-  constructor(
-    readonly t: Template,
-    readonly root: Element,
-    /** Hole nodes in [0, n), their last values in [n, 2n). One allocation per block. */
-    readonly s: unknown[],
-  ) {}
+/** One instance of a template: its root element and the last value of each hole. */
+export class Block<V extends readonly unknown[] = readonly unknown[]> {
+  /** The template this block was mounted from. */
+  readonly t: Template<V>;
+  /** The instance's root element. */
+  readonly root: Element;
+  // Hole nodes in [0, n) (empty until the first real update), their last
+  // values in [n, 2n). One allocation per block.
+  private readonly s: unknown[];
+
+  constructor(t: Template<V>, root: Element, s: unknown[]) {
+    this.t = t;
+    this.root = root;
+    this.s = s;
+  }
 
   /** The last value set for hole i. */
-  get(i: number): unknown {
-    return this.s[this.t.n + i];
+  get<I extends HoleIndex<V>>(i: I): HoleValue<V, I> {
+    return this.s[this.t.n + i] as HoleValue<V, I>;
   }
 
   /** Set one hole. A no-op when the value is identical (===) to the last one. */
-  set(i: number, v: unknown): void {
+  set<I extends HoleIndex<V>>(i: I, v: HoleValue<V, I>): void {
     const s = this.s,
       t = this.t,
       j = t.n + i;
     if (s[j] === v) return;
     s[j] = v;
     if (s[0] === undefined) t.locate(this.root, s); // first real update: find the holes now
-    apply(t.kinds[i]!, t.names[i], s[i] as Node, v);
+    apply(t.kinds[i] as KindCode, t.names[i], s[i] as Node, v);
   }
 
-  /** Set every hole from an array. */
-  patch(vals: ArrayLike<unknown>): void {
-    for (let i = 0; i < vals.length; i++) this.set(i, vals[i]);
+  /** Set every hole. */
+  patch(vals: V): void {
+    for (let i = 0; i < vals.length; i++) this.set(i as HoleIndex<V>, vals[i] as HoleValue<V, HoleIndex<V>>);
   }
 }
 
@@ -281,22 +376,26 @@ export class Block {
 // Keyed lists
 // ---------------------------------------------------------------------------
 
+/** A list item's key: unique among its siblings and stable across renders. */
 export type Key = string | number;
+
+/** What a list keeps per item: at least the item's root node. */
 export interface Entry {
   readonly root: Node;
 }
 
-export interface ListOptions<T, E extends Entry> {
+/** How a list maps items to DOM. */
+export interface ListOptions<T, E extends Entry, K extends Key = Key> {
   /** Unique, stable key for an item. */
-  key: (item: T) => Key;
+  readonly key: (item: T) => K;
   /** Build the DOM for a new item. */
-  create: (item: T) => E;
+  readonly create: (item: T) => E;
   /** Refresh an existing entry for a (possibly new) item. */
-  update: (entry: E, item: T) => void;
+  readonly update: (entry: E, item: T) => void;
   /** Insert before this node; null appends at the end of the parent. */
-  anchor?: Node | null;
+  readonly anchor?: Node | null;
   /** True when the list is the parent's only content: enables textContent clears. */
-  owns?: boolean;
+  readonly owns?: boolean;
   /**
    * With `owns`: when the list is built from empty (first render or full
    * replacement), take the parent out of the document, fill it, and put it
@@ -304,31 +403,35 @@ export interface ListOptions<T, E extends Entry> {
    * row. Detaching resets the parent's own scroll position and drops focus
    * inside it, so leave this off for scrolling containers.
    */
-  detach?: boolean;
+  readonly detach?: boolean;
 }
 
-export class List<T, E extends Entry> {
-  keys: Key[] = [];
+/** A keyed list of items rendered into a parent node. Call `set` with each new array. */
+export class List<T, E extends Entry = Entry, K extends Key = Key> {
+  /** The parent the list renders into. */
+  readonly parent: Node;
+  /** Keys of the last render, in order. */
+  keys: K[] = [];
+  /** Entries of the last render, in order. */
   entries: E[] = [];
   private readonly anchor: Node | null;
   private readonly owns: boolean;
   private readonly detach: boolean;
-  private readonly key: (item: T) => Key;
+  private readonly key: (item: T) => K;
   private readonly create: (item: T) => E;
   private readonly update: (entry: E, item: T) => void;
 
-  constructor(
-    readonly parent: Node,
-    o: ListOptions<T, E>,
-  ) {
+  constructor(parent: Node, o: ListOptions<T, E, K>) {
+    this.parent = parent;
     this.anchor = o.anchor ?? null;
-    this.owns = !!o.owns && this.anchor === null;
-    this.detach = this.owns && !!o.detach;
+    this.owns = o.owns === true && this.anchor === null;
+    this.detach = this.owns && o.detach === true;
     this.key = o.key;
     this.create = o.create;
     this.update = o.update;
   }
 
+  /** Remove every entry. */
   clear(): void {
     const p = this.parent,
       e = this.entries;
@@ -338,6 +441,7 @@ export class List<T, E extends Entry> {
     this.entries = [];
   }
 
+  /** Render `items`, reusing the entries of items whose keys were already there. */
   set(items: readonly T[]): void {
     const p = this.parent,
       a = this.anchor,
@@ -354,7 +458,7 @@ export class List<T, E extends Entry> {
       return;
     }
 
-    const newK: Key[] = new Array(n),
+    const newK: K[] = new Array(n),
       newE: E[] = new Array(n);
     for (let i = 0; i < n; i++) newK[i] = key(items[i]!);
 
@@ -426,7 +530,7 @@ export class List<T, E extends Entry> {
   }
 
   // 4. General case on the middle window [s..oe] (old) vs [s..ne] (new).
-  private general(items: readonly T[], newK: Key[], newE: E[], s: number, oe: number, ne: number): void {
+  private general(items: readonly T[], newK: readonly K[], newE: E[], s: number, oe: number, ne: number): void {
     const p = this.parent,
       a = this.anchor,
       upd = this.update,
@@ -442,7 +546,7 @@ export class List<T, E extends Entry> {
       kept = 0;
 
     // Small windows: a linear scan beats building a Map.
-    let idx: Map<Key, number> | null = null;
+    let idx: Map<K, number> | null = null;
     if (len > 16) {
       idx = new Map();
       for (let i = s; i <= ne; i++) idx.set(newK[i]!, i);
@@ -543,13 +647,14 @@ export function lis(a: ArrayLike<number>): number[] {
 // Morph: patch live DOM to match freshly built DOM
 // ---------------------------------------------------------------------------
 
+/** Options for `morph`. */
 export interface MorphOptions {
   /**
    * Called for every live element that is kept and patched, with the fresh
    * element it was matched to. Use it to carry over state the DOM cannot
    * compare, such as event handlers.
    */
-  onKeep?: (live: Element, next: Element) => void;
+  readonly onKeep?: (live: Element, next: Element) => void;
 }
 
 /** Attribute that keys a child among its siblings, so it is moved rather than rebuilt. */
@@ -582,7 +687,7 @@ export function morph(target: Node, next: readonly Node[], options: MorphOptions
 
 function morphChildren(live: Node, next: readonly Node[], o: MorphOptions): void {
   const counts = new Map<string, number>();
-  const keyOf = (n: Node): Key => {
+  const keyOf = (n: Node): string => {
     const tag = n.nodeName;
     const k = n.nodeType === 1 ? (n as Element).getAttribute(KEY_ATTR) : null;
     const base = k === null ? "#" + tag : "k:" + tag + ":" + k;
@@ -592,7 +697,7 @@ function morphChildren(live: Node, next: readonly Node[], o: MorphOptions): void
     return seen === 0 && k !== null ? base : base + "#" + seen;
   };
 
-  const list = new List<Node, Slot>(live, {
+  const list = new List<Node, Slot, string>(live, {
     owns: true,
     key: keyOf,
     create: (n) => ({ root: n }),
@@ -642,15 +747,15 @@ function syncAttributes(el: Element, fresh: Element): void {
 function syncFormState(el: Element, fresh: Element): void {
   const tag = el.nodeName;
   if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT" && tag !== "OPTION") return;
-  const a = el as HTMLInputElement,
-    b = fresh as HTMLInputElement;
-  const focused = el.ownerDocument?.activeElement === el;
   if (tag === "OPTION") {
     const ao = el as HTMLOptionElement,
       bo = fresh as HTMLOptionElement;
     if (ao.selected !== bo.selected) ao.selected = bo.selected;
     return;
   }
+  const a = el as HTMLInputElement,
+    b = fresh as HTMLInputElement;
+  const focused = el.ownerDocument?.activeElement === el;
   if (!focused && "value" in b && a.value !== b.value) a.value = b.value;
   if (tag === "INPUT" && a.checked !== b.checked) a.checked = b.checked;
 }

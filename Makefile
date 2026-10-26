@@ -39,6 +39,7 @@ pages: web
 web-check:
 	cd web && bun fmt --check
 	cd web && bun check --no-pretty --typeRoots "$(BUN_GLOBAL)"
+	cd web && bun check --no-pretty -p tsconfig.strict.json --typeRoots "$(BUN_GLOBAL)"
 	cd web && bun test
 
 ## web-fmt: format the web app
