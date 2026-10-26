@@ -22,6 +22,7 @@ import {
 import {
   asDom,
   type FakeElement,
+  FakeEvent,
   type FakeNode,
   installFakeDocument,
   ops,
@@ -260,27 +261,122 @@ describe("events and form state", () => {
       oninput=${on<"input", HTMLInputElement>()}
   /></label>`;
 
-  test("a new handler each render costs no DOM write and the latest one runs", () => {
+  const fire = (el: FakeElement, type: string): FakeEvent => {
+    const e = new FakeEvent(type);
+    el.dispatchEvent(e);
+    return e;
+  };
+
+  test("a new handler each render costs no DOM write and the latest one runs, delegated to the root", () => {
     const root = box();
-    const calls: string[] = [];
-    const draw = (tag: string) => render(asDom(root), Field(["Name", "f", "v", () => calls.push(tag)]));
+    const calls: unknown[] = [];
+    const draw = (tag: string) =>
+      render(
+        asDom(root),
+        Field([
+          "Name",
+          "f",
+          "v",
+          function (e) {
+            calls.push(tag, this, e.currentTarget);
+          },
+        ]),
+      );
     draw("one");
     const input = first(root).lastChild as FakeElement;
-    const trampoline = input["oninput"];
     let writes = 0;
-    const real = trampoline;
-    Object.defineProperty(input, "oninput", {
-      get: () => real,
-      set: () => writes++,
-    });
+    Object.defineProperty(input, "oninput", { get: () => undefined, set: () => writes++ });
     draw("two");
     draw("three");
-    expect(writes).toBe(0);
-    (input["oninput"] as (this: FakeElement, e: unknown) => void).call(input, {});
-    expect(calls).toEqual(["three"]);
+    expect(writes).toBe(0); // delegated: the element's property is never set
+    const e = fire(input, "input");
+    expect(calls).toEqual(["three", input, input]); // this and currentTarget are the element
+    expect(e.currentTarget).toBe(null); // restored after the handler
     render(asDom(root), Field(["Name", "f", "v", null]));
-    (input["oninput"] as (this: FakeElement, e: unknown) => void).call(input, {});
-    expect(calls).toEqual(["three"]);
+    fire(input, "input");
+    expect(calls.length).toBe(3);
+  });
+
+  test("delegated handlers run innermost first and stopPropagation stops the outer ones", () => {
+    const Inner = html`<span onclick=${on<"click">()}><b>${text()}</b></span>`;
+    const Outer = html`<div onclick=${on<"click">()}><p onclick=${on<"click">()}>${child()}</p></div>`;
+    const root = box();
+    const calls: string[] = [];
+    const draw = (stop: boolean) =>
+      render(
+        asDom(root),
+        Outer([
+          () => calls.push("div"),
+          () => calls.push("p"),
+          Inner([
+            (e) => {
+              calls.push("span");
+              if (stop) e.stopPropagation();
+            },
+            "x",
+          ]),
+        ]),
+      );
+    draw(false);
+    const b = first(root).firstChild!.firstChild!.firstChild as FakeElement;
+    fire(b, "click");
+    expect(calls).toEqual(["span", "p", "div"]);
+    calls.length = 0;
+    draw(true);
+    fire(b, "click");
+    expect(calls).toEqual(["span"]);
+    calls.length = 0;
+    fire(first(root).firstChild as FakeElement, "click"); // on the p: the span's handler is not on the path
+    expect(calls).toEqual(["p", "div"]);
+  });
+
+  test("a handler that stops a keydown keeps it from listeners above the render root", () => {
+    const Key = html`<input onkeydown=${on<"keydown">()} />`;
+    const page = box();
+    const root = box();
+    page.appendChild(root);
+    const seen: string[] = [];
+    page.addEventListener("keydown", () => seen.push("page"));
+    const draw = (stop: boolean) =>
+      render(
+        asDom(root),
+        Key([
+          (e) => {
+            seen.push("input");
+            if (stop) e.stopPropagation();
+          },
+        ]),
+      );
+    draw(false);
+    fire(first(root), "keydown");
+    expect(seen).toEqual(["input", "page"]);
+    seen.length = 0;
+    draw(true);
+    fire(first(root), "keydown");
+    expect(seen).toEqual(["input"]);
+  });
+
+  test("a render root inside another one dispatches its own handlers once", () => {
+    const Outer = html`<div onclick=${on<"click">()}>${child()}</div>`;
+    const Inner = html`<button onclick=${on<"click">()}></button>`;
+    const inner = box();
+    const root = box();
+    const calls: string[] = [];
+    render(asDom(inner), Inner([() => calls.push("inner")]));
+    render(asDom(root), Outer([() => calls.push("outer"), asDom(inner)]));
+    fire(first(inner), "click");
+    expect(calls).toEqual(["inner", "outer"]);
+  });
+
+  test("events that do not bubble get a trampoline on the element", () => {
+    const Focus = html`<input onfocus=${on<"focus">()} />`;
+    const root = box();
+    const calls: string[] = [];
+    render(asDom(root), Focus([() => calls.push("one")]));
+    render(asDom(root), Focus([() => calls.push("two")]));
+    const input = first(root);
+    (input["onfocus"] as (this: FakeElement, e: unknown) => void).call(input, new FakeEvent("focus"));
+    expect(calls).toEqual(["two"]);
   });
 
   test("a focused input keeps its node and its typed value across renders", () => {
