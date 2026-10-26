@@ -60,18 +60,27 @@ func TestForeignStaleLockStillFlagged(t *testing.T) {
 	check(t, "a foreign stale lock", "channel-lock-stale", out)
 }
 
-// TestStatusHealthFrozenClock: a daemon heartbeat written after the
-// reader's clock (a negative age) is a live daemon, not daemon-down.
+// TestStatusHealthFrozenClock: a daemon heartbeat dated more than a
+// second after the reader's clock is invalid (daemon-down); one within
+// the second of the reader's own clock read is fresh.
 func TestStatusHealthFrozenClock(t *testing.T) {
 	c := newCase(t, true)
 	inboxtest.DaemonOwn(t, c.ic.Dir, "e1", true)
 	hb := c.ic.Dir + "/../daemon/heartbeat"
-	future := c.now.Add(time.Second + time.Millisecond)
-	if err := os.Chtimes(hb, future, future); err != nil {
-		t.Fatal(err)
+	for _, d := range []time.Duration{time.Second + time.Millisecond, time.Hour} {
+		future := c.now.Add(d)
+		if err := os.Chtimes(hb, future, future); err != nil {
+			t.Fatal(err)
+		}
+		out, _ := c.run("receiver-pane", map[string]string{"WATCH_REQUIRED": "1", "HERDSMAN_NAME": O}, "message", "status")
+		if !strings.Contains(out, "daemon-down") {
+			t.Fatalf("a heartbeat %v in the future reads as fresh:\n%s", d, out)
+		}
 	}
+	near := c.now.Add(500 * time.Millisecond)
+	_ = os.Chtimes(hb, near, near)
 	out, _ := c.run("receiver-pane", map[string]string{"WATCH_REQUIRED": "1", "HERDSMAN_NAME": O}, "message", "status")
 	if strings.Contains(out, "daemon-down") {
-		t.Fatalf("a heartbeat newer than the reader's clock reads as down:\n%s", out)
+		t.Fatalf("a heartbeat within the clock read reads as down:\n%s", out)
 	}
 }
