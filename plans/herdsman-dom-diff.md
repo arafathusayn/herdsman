@@ -56,7 +56,9 @@ Our measurements come from a local replica of the official method in headless Ch
 | clear 1,000 rows   |          30.2 ms |                      29.3 ms |   29.7 ms |           34.2 ms |
 | **weighted score** |        **1.065** |                    **1.004** | **1.080** |         **1.052** |
 
-Assessment: in this replica herdsman-dom-diff ranks second of four, ahead of `re` (the official leader) and `vanillajs`, and about 4.8% behind `vanillajs-lite`. It is fastest on swap and ties the fastest on create 10,000 rows. Its one clear loss is clear rows (1.17 times the best): its samples split between about 30 ms and about 50 ms, which points to garbage collection of the per-row block objects landing inside the measured window. Whether these placements hold on the official table can only be settled by the official run.
+Assessment: in this replica herdsman-dom-diff ranks second of four by score, but the noise control below shows that differences under about 4% are not meaningful on this machine, so it is effectively tied with `re` (the official leader) and `vanillajs`, and about 4.8% behind `vanillajs-lite`, a gap at the edge of the noise. It is fastest on swap and ties the fastest on create 10,000 rows. Its one clear loss is clear rows (1.17 times the best): its samples split between about 30 ms and about 50 ms, which points to garbage collection of the per-row block objects landing inside the measured window. Whether these placements hold on the official table can only be settled by the official run.
+
+**Noise control** (2026-10-26): the same 0.0.1 build run against a byte-identical copy of itself, 10 interleaved iterations, scored 1.052 and 1.009, a 4.3% gap from noise alone; per-test factors between the identical builds reached 1.17. Any replica difference smaller than that is not evidence.
 
 **Earlier run** (same day, before the allocation work), median of 15 iterations, three frameworks: vanillajs 1.029, herdsman-dom-diff 1.076, `re` 1.086.
 
@@ -296,6 +298,8 @@ Bun's CPU profiler with markdown output profiles the benchmark app over the fake
 
 Typing the library (0.0.1 to 0.0.2) did not slow it down. Over three profiling runs each, the medians of every operation were the same or lower afterwards: create 10,000 rows 11.8 ms before and 10.7 ms after, replace 1.43 ms and 1.25 ms, append 0.86 ms and 0.69 ms, create 1,000 rows 1.45 ms both; operations that take microseconds were within rounding. The minified benchmark bundle grew by 261 bytes (8,115 to 8,376), the marker functions and the position-check message.
 
+In Chrome, an A/B of the 0.0.1 build against the typed build (10 interleaved iterations, all 9 tests) scored 1.006 and 1.044, with the per-test direction changing between tests and the largest test (create 10,000 rows) within 0.25%. That 3.8% gap is smaller than the 4.3% gap the noise control found between two identical builds, so it is noise. The minified hot paths of both builds were compared directly and do the same work: kind codes are inlined as literals, and the marker functions run once at module load.
+
 ### Benchmark method (replica of the official one)
 
 For each test and iteration, in a fresh browser context:
@@ -341,6 +345,7 @@ Type checking uses `bun check` (Bun 1.4.4, the latest release on 2026-10-26), ne
 
 Newest first.
 
+- 2026-10-26: Chrome A/B of 0.0.1 against 0.0.2 and an A/A noise control: no measurable runtime cost from the types. Corrected the head-to-head reading: within this machine's noise, herdsman-dom-diff is tied with `re`, not ahead.
 - 2026-10-26: Version 0.0.2. Strict types: typed hole markers for text, class, attribute and property holes; the value tuple, hole indexes and per-hole value types inferred from them; a once-per-template position check for markers; keyed lists generic in their key type; the library compiled under an extra strict settings file that herdsman's web check now runs; type tests with expected errors. Kind codes are plain constants and constructor parameter properties are gone (erasable syntax only). The package's declaration file re-exports the source's types instead of a `tsc` build. No runtime slowdown in profiling.
 - 2026-10-26: Version 0.0.1 packaged as a zip. `VERSION` exported. The `patch()` tests moved to `dom.test.ts` so the library's own tests run without herdsman's `dom.ts`.
 - 2026-10-26: Head-to-head replica run against `re`, `vanillajs` and `vanillajs-lite`: herdsman-dom-diff 1.052, second of four, ahead of `re`.
