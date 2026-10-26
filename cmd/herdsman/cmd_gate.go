@@ -57,9 +57,14 @@ func runGate(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "herdsman approval-gate: %v\n", err)
 		return settings.ExitInvalid
 	}
-	if opts.Dir == "" {
-		fmt.Fprintf(stderr, "herdsman approval-gate: %v\n", settings.Missing("HERDSMAN_INBOX"))
-		return settings.ExitInvalid
+	// The scripts found their installation from where they ran; the binary
+	// is told it. Without it every proof would read as stale (exit 3, a
+	// repeated setup), so an unconfigured install is a missing setting.
+	for _, s := range []struct{ name, v string }{{"HERDSMAN_INBOX", opts.Dir}, {"HERDSMAN_MESSAGES_DIR", opts.Installed}} {
+		if s.v == "" {
+			fmt.Fprintf(stderr, "herdsman approval-gate: %v\n", settings.Missing(s.name))
+			return settings.ExitInvalid
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
