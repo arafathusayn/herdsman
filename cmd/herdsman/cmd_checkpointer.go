@@ -42,7 +42,12 @@ var checkpointerWorkingTimeout time.Duration
 func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	if len(args) > 0 && args[0] == "guard" {
+		// The guard always reads the inbox: an unset or empty
+		// HERDSMAN_INBOX is the shared required line, exit 2.
 		o, err := checkpoint.InboxSettings(os.Getenv)
+		if err == nil && o.Dir == "" {
+			err = settings.Missing("HERDSMAN_INBOX")
+		}
 		if err != nil {
 			fmt.Fprintln(stderr, "herdsman checkpointer:", err)
 			return settings.ExitInvalid

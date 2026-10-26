@@ -29,9 +29,23 @@ func TestCheckpointerCommandLine(t *testing.T) {
 	t.Setenv("TARGET", "w9:p9")
 	t.Setenv("HERDSMAN_ORCHESTRATOR", "o")
 	t.Setenv("HERDSMAN_INBOX", "")
-	if _, e, code := call(t, "checkpointer", "--once"); code != 2 || e != "herdsman checkpointer: HERDSMAN_INBOX: required, not set (got \"\")\n" {
-		t.Errorf("no inbox: %d %q", code, e)
+	// A missing inbox is the shared required line on every path that needs
+	// one: once, the loop and the probe in adjutant mode, and the guard;
+	// empty and unset alike, nothing on stdout, exit 2.
+	for _, unset := range []bool{false, true} {
+		if unset {
+			if err := os.Unsetenv("HERDSMAN_INBOX"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, args := range [][]string{{"checkpointer", "--once"}, {"checkpointer"}, {"checkpointer", "--probe"},
+			{"checkpointer", "guard", "o", "scratch-pane"}} {
+			if out, e, code := call(t, args...); code != 2 || out != "" || e != "herdsman checkpointer: HERDSMAN_INBOX: required, not set (got \"\")\n" {
+				t.Errorf("no inbox (unset %v) %v: %d %q %q", unset, args, code, out, e)
+			}
+		}
 	}
+	t.Setenv("HERDSMAN_INBOX", "")
 	t.Setenv("HERDSMAN_ORCHESTRATOR", "")
 	t.Setenv("INTERVAL", "soon")
 	if _, e, code := call(t, "checkpointer"); code != 2 || !strings.HasPrefix(e, "herdsman checkpointer: INTERVAL: ") || !strings.HasSuffix(e, "(got \"soon\")\n") {
