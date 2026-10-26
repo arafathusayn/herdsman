@@ -267,17 +267,36 @@ func (g *Gate) consume(goFile, action, target, revision, draft string) exit {
 	if !same("action") || !same("target") || !same("draft_hash") {
 		return g.refuse("trusted interaction approves another action, target or draft")
 	}
+	// PR 28: in a route with an adjutant every question goes through it, so
+	// the go is the approved adjutant's ask-tool answer, and an answer to
+	// the orchestrator's own ask is no go.
+	if e := g.askedByAdjutant(im); e != nil {
+		return *e
+	}
 	if e := g.lockAction(); e != nil {
 		return *e
 	}
 	// Admission and exposure writers use the shared input lock. Check the
 	// boundary under it and record the consumption before releasing it, so
 	// no admission falls between the check and the consumption.
-	mutation := g.root.Lock(inbox.MutationLock)
+	// Taken through Channel.LockMutation: as the lock's new owner the gate
+	// publishes any exposure that waited for it (e93bcc1 B3-001), and a
+	// publication failure refuses the consumption.
+	mutation, foldErr := (&inbox.Channel{Root: g.root}).LockMutation(g.root.LockWait, g.root.Pause)
 	if mutation == nil {
 		return g.die("input lock busy; retry later, never auto-remove")
 	}
 	g.hold(mutation)
+	if foldErr != nil {
+		msg, _ := inbox.IsFatal(foldErr)
+		return g.die(msg)
+	}
+	// A waiting exposure fails closed until an owner of the lock publishes
+	// it: the fold above did, or kept a path it could not inspect.
+	if (&inbox.Channel{Root: g.root}).ExposurePending() {
+		fmt.Fprintln(g.Stdout, inbox.HumanLine)
+		return exit{Human}
+	}
 	// One check in this process, the lock owner (a0a1517): an agent that
 	// this observation saw is recorded from the same observation, so a
 	// retry after that agent exits stays held until human setup (A26).
@@ -333,7 +352,7 @@ func (g *Gate) consume(goFile, action, target, revision, draft string) exit {
 // recordExposure writes state/boundary-tainted once when the refusing
 // check failed on a live agent outside the protected setup
 // (FaultInventory), from that check's own result, in the scripts' format:
-// reason, agents, time. The caller holds the input lock. Any other fault,
+// reason, agents, time (and omitted when bounded). The caller holds the input lock. Any other fault,
 // or a record already there, writes nothing.
 func (g *Gate) recordExposure(fault string, unknown []inbox.Unknown) error {
 	target := g.root.Path("state", "boundary-tainted")
@@ -343,16 +362,9 @@ func (g *Gate) recordExposure(fault string, unknown []inbox.Unknown) error {
 	if unknown == nil {
 		unknown = []inbox.Unknown{}
 	}
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(struct {
-		Reason string          `json:"reason"`
-		Agents []inbox.Unknown `json:"agents"`
-		Time   int64           `json:"time"`
-	}{"live agent outside the protected setup", unknown, g.root.Now().Unix()})
-	return g.atomic(target, b.Bytes())
+	// The record stays within the strict reader's bound (PR 24): the agents
+	// that fit, the rest counted in omitted.
+	return g.atomic(target, inbox.TaintedRecord(unknown, g.root.Now().Unix()))
 }
 
 func (g *Gate) complete(req, outcome string) exit {

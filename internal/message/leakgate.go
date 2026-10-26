@@ -1,0 +1,198 @@
+package message
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"regexp"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/arafathusayn/herdsman/internal/web"
+)
+
+// LeakPattern is the gate's generic default pattern (POSIX ERE, read
+// case-insensitively): private paths, home references, tool and harness
+// names, agent names, assignments and absolute paths. Model names are not
+// written here (A28): LeakGate adds the ones the installed harnesses list.
+const LeakPattern = `/Users/|/home/|/private/|/tmp/|/var/|/opt/|/Volumes/|~/|\$HOME|\$\{HOME\}|herdsman|herdr|run-check|claude|codex|(^|[^[:alnum:]_])(im|rv|int)-[[:alnum:]_-]+|[[:alnum:]_]+=|(^|[[:space:](])/[[:alnum:]_.-]+/`
+
+// harnessModels lists the model ids to block, read at run time from the
+// installed harnesses' catalogs; tests replace it with a made-up catalog.
+var harnessModels = func() []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return web.HarnessModels(ctx)
+}
+
+// modelPattern is an alternation of the catalog's model ids, each literal.
+func modelPattern(ids []string) string {
+	var alts []string
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			alts = append(alts, regexp.QuoteMeta(id))
+		}
+	}
+	return strings.Join(alts, "|")
+}
+
+// LeakGate is publish-leak-gate.sh <file> [exact-required-heading ...]: exit
+// 0 when no line matches the pattern (LEAK_PATTERN adds one; an exact line
+// of LEAK_ALLOW_FILE is allowed) and the fences and required sections are
+// complete; 1 on a leak or a structure fault; 2 on an input error.
+func LeakGate(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "usage: herdsman message leak-gate <file> [required heading ...]")
+		return 2
+	}
+	input := args[0]
+	b, err := readRegular(input)
+	if err != nil {
+		fmt.Fprintln(stderr, "cannot read regular input")
+		return 2
+	}
+	text := string(b)
+	lines := strings.Split(text, "\n")
+	if strings.HasSuffix(text, "\n") {
+		lines = lines[:len(lines)-1]
+	}
+	scan := func(pattern string) int {
+		re, err := regexp.Compile("(?i)" + pattern)
+		if err != nil {
+			fmt.Fprintln(stderr, "pattern or input error")
+			return 2
+		}
+		for i, l := range lines {
+			if !re.MatchString(l) {
+				continue
+			}
+			if allow := getenv("LEAK_ALLOW_FILE"); allow != "" {
+				ab, err := readRegular(allow)
+				if err != nil {
+					fmt.Fprintln(stderr, "invalid exact-line allow list")
+					return 2
+				}
+				if exactLine(string(ab), l) {
+					continue
+				}
+			}
+			fmt.Fprintf(stdout, "LEAK: preserve content while removing private wrappers:\n%d:%s\n", i+1, l)
+			return 1
+		}
+		return 0
+	}
+	if rc := scan(LeakPattern); rc != 0 {
+		return rc
+	}
+	if p := modelPattern(harnessModels()); p != "" {
+		if rc := scan(p); rc != 0 {
+			return rc
+		}
+	}
+	if p := getenv("LEAK_PATTERN"); p != "" {
+		if rc := scan(p); rc != 0 {
+			return rc
+		}
+	}
+	if !structureOK(lines, "") {
+		fmt.Fprintln(stderr, "EMPTY, incomplete, or unreadable code fence: restore content")
+		return 1
+	}
+	for _, h := range args[1:] {
+		if !structureOK(lines, h) {
+			fmt.Fprintf(stderr, "missing or empty required section: %s\n", h)
+			return 1
+		}
+	}
+	fmt.Fprintln(stdout, "pattern and structure checks passed; manual policy/read-back review required")
+	return 0
+}
+
+func exactLine(list, l string) bool {
+	for _, x := range strings.Split(list, "\n") {
+		if x == l {
+			return true
+		}
+	}
+	return false
+}
+
+var blankRe = regexp.MustCompile(`^[ \t\r\f\v]*$`)
+
+// structureOK is the gate's awk check: every fence closed and not empty;
+// with wanted, that heading present with text in its section (its child
+// headings included; a heading of the same or a higher level ends it).
+func structureOK(lines []string, wanted string) bool {
+	opened, bad, active, seen, body, content := false, false, false, false, false, false
+	var mark byte
+	width, wantedLevel := 0, 0
+	for _, l := range lines {
+		s := strings.TrimLeft(l, " \t\r\f\v")
+		if strings.HasPrefix(s, "```") || strings.HasPrefix(s, "~~~") {
+			c := s[0]
+			n := 0
+			for n < len(s) && s[n] == c {
+				n++
+			}
+			if !opened {
+				opened, mark, width, content = true, c, n, false
+				continue
+			}
+			if c == mark && n >= width && blankRe.MatchString(s[n:]) {
+				if !content {
+					bad = true
+				}
+				opened = false
+				continue
+			}
+		}
+		if !opened && strings.HasPrefix(l, "#") {
+			level := strings.IndexFunc(l, func(r rune) bool { return r != '#' })
+			if level < 1 {
+				level = len(l)
+			}
+			if active && level > wantedLevel {
+				continue
+			}
+			active = l == wanted
+			if active {
+				seen, wantedLevel = true, level
+			}
+			continue
+		}
+		if strings.TrimSpace(l) != "" {
+			if opened {
+				content = true
+			}
+			if active {
+				body = true
+			}
+		}
+	}
+	return !(opened || bad || (wanted != "" && !(seen && body)))
+}
+
+// errNotRegular is a leak-gate file that is not a regular file.
+var errNotRegular = errors.New("not a regular file")
+
+// readRegular reads p only when it is a regular file that is not a link:
+// checked by Lstat, then opened without blocking (a FIFO without a writer
+// opens at once) and checked again on the open descriptor, so a file
+// swapped in between is refused too.
+func readRegular(p string) ([]byte, error) {
+	if st, err := os.Lstat(p); err != nil || !st.Mode().IsRegular() {
+		return nil, errNotRegular
+	}
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return nil, errNotRegular
+	}
+	return io.ReadAll(f)
+}
