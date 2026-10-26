@@ -7,7 +7,19 @@ import { run } from "../actions.ts";
 import { arrowKeys, keySet, renamePane, sendOtherKeys, startAgent } from "../agent-actions.ts";
 import { readPalette, renderAnsi } from "../ansi.ts";
 import { act, AuthError, forgetPane, readPane } from "../api.ts";
-import { h, icon, icons, mount, unkeyed } from "../dom.ts";
+import { icon, type IconNode, icons, mountElement } from "../dom.ts";
+import {
+  attr,
+  child,
+  cls,
+  html,
+  list,
+  type ListNode,
+  on,
+  renderDirect,
+  text,
+  type ViewNodeOf,
+} from "../herdsman-blocks-view.ts";
 import { afterSend, type Member, roleName } from "../model.ts";
 import { isMac } from "../palette.ts";
 import { panelResizer } from "../resize.ts";
@@ -25,7 +37,7 @@ import {
   zoomKey,
 } from "../terminal.ts";
 import type { Action } from "../types.ts";
-import { pill, toast } from "../ui.ts";
+import { pill, type PillNode, toast } from "../ui.ts";
 
 type PaneView = "log" | "terminal";
 
@@ -49,31 +61,168 @@ function loadView(): PaneView {
   }
 }
 
+function loadInfoOpen(): boolean {
+  try {
+    return localStorage.getItem(infoKey) === "open";
+  } catch {
+    return false;
+  }
+}
+
+// The elements the panel owns and works on directly: the screen, the typing
+// field, the composer's box and mode, and the width probe. Each is made once,
+// with its handlers, and placed in the panel's view through a child hole.
+const Tail = html`<pre
+  class="tail"
+  tabindex="0"
+  aria-label="Pane output"
+  onscroll=${on<"scroll", HTMLPreElement>()}
+  onmouseup=${on<"mouseup", HTMLPreElement>()}
+  onkeydown=${on<"keydown", HTMLPreElement>()}
+  onwheel=${on<"wheel", HTMLPreElement>()}
+></pre>`;
+const TermInput = html`<textarea
+  class="term-input"
+  rows="1"
+  autocapitalize="off"
+  autocomplete="off"
+  autocorrect="off"
+  aria-label="Type into the pane"
+  spellcheck="false"
+  onkeydown=${on<"keydown", HTMLTextAreaElement>()}
+  oninput=${on<"input", HTMLTextAreaElement>()}
+  onfocus=${on<"focus", HTMLTextAreaElement>()}
+  onblur=${on<"blur", HTMLTextAreaElement>()}
+></textarea>`;
+const Want = html`<div class="panel-want" aria-hidden="true"></div>`;
+const MessageBox = html`<textarea
+  rows="3"
+  placeholder=${attr()}
+  spellcheck="true"
+  aria-label="Message"
+  onkeydown=${on<"keydown", HTMLTextAreaElement>()}
+></textarea>`;
+const Mode = html`<select aria-label="Send as" title="Prompt goes through the agent; Type sends raw text into the pane">
+  <option value="prompt">Prompt</option>
+  <option value="text">Type raw</option>
+</select>`;
+// What fitRows measures a row and a cell with.
+const RowProbe = html`<span>Ag│█</span>`;
+const CellProbe = html`<span>MMMMMMMMMMMMMMMMMMMM</span>`;
+const probeCells = 20;
+
+// The panel's view: its parts are rendered from the panel's state.
+const Close = html`<button class="icon-btn" title="Close panel" aria-label="Close panel" onclick=${on<"click">()}>
+  ${child<IconNode>()}
+</button>`;
+const Chip = html`<span class=${cls()}>${text()}</span>`;
+const Title = html`<div class="panel-title">
+  <h2>${text()}</h2>
+  <div class="sub">
+    ${child<PillNode>()}${child<ViewNodeOf<typeof Chip> | null>()}${child<ViewNodeOf<typeof Chip> | null>()}
+  </div>
+</div>`;
+const Tool = html`<button class=${cls()} title=${attr()} aria-label=${attr()} onclick=${on<"click">()}>
+  ${child<IconNode>()}
+</button>`;
+const Tools = html`<div class="panel-tools">${child<ListNode<ViewNodeOf<typeof Tool>, string>>()}</div>`;
+const Head = html`<div class="panel-head">
+  ${child<ViewNodeOf<typeof Close> | null>()}${child<ViewNodeOf<typeof Title> | null>()}${child<ViewNodeOf<
+    typeof Tools
+  > | null>()}
+</div>`;
+
+const ViewOption = html`<button
+  type="button"
+  title=${attr()}
+  onclick=${on<"click">()}
+  class=${cls()}
+  aria-pressed=${attr<"true" | "false">()}
+>
+  ${child<IconNode>()}${text()}
+</button>`;
+const PaneBar = html`<div class="pane-bar">
+  <button
+    type="button"
+    class="pane-info"
+    title="Show or hide the pane's details"
+    aria-controls=${attr()}
+    aria-expanded=${attr<"true" | "false">()}
+    onclick=${on<"click">()}
+  >
+    ${child<IconNode>()}<span class="pane-info-label">Details</span><span class="pane-info-line">${text()}</span>
+  </button>
+  <div class="term-hint">${text()}</div>
+  <div class="view-switch" role="group" aria-label="Pane view">
+    ${child<ListNode<ViewNodeOf<typeof ViewOption>, PaneView>>()}
+  </div>
+</div>`;
+
+// A details row is a term and its value, siblings in the list: two items.
+const Term = html`<dt>${text()}</dt>`;
+const Value = html`<dd title=${attr()}>${text()}</dd>`;
+type RowPart = ViewNodeOf<typeof Term> | ViewNodeOf<typeof Value>;
+const Meta = html`<dl class="meta" id=${attr()} hidden=${attr<boolean>()}>${child<ListNode<RowPart, string>>()}</dl>`;
+
+const TailWrap = html`<div class="tail-wrap">
+  ${child<HTMLPreElement>()}
+  <div class="tail-note">${text()}</div>
+  ${child<HTMLTextAreaElement>()}
+</div>`;
+
+const Key = html`<button class="key" title=${attr()} onclick=${on<"click">()}>${text()}</button>`;
+const ArrowKey = html`<button class="key arrow" title=${attr()} aria-label=${attr()} onclick=${on<"click">()}>
+  ${text()}
+</button>`;
+const Keys = html`<div class="keys" role="group" aria-label="Send a key">
+  ${child<IconNode>()}${child<ListNode<ViewNodeOf<typeof Key>, string>>()}
+  <span class="key-group" role="group" aria-label="Arrow keys">
+    ${child<ListNode<ViewNodeOf<typeof ArrowKey>, string>>()}
+  </span>
+  <button class="key" title="Send other key names, separated by spaces" onclick=${on<"click">()}>Other…</button>
+</div>`;
+
+const Composer = html`<form class="composer" onsubmit=${on<"submit">()}>
+  ${child<HTMLTextAreaElement>()}
+  <div class="composer-bar">
+    <label class="select">${child<HTMLSelectElement>()}${child<IconNode>()}</label>
+    <span class="grow"></span>
+    <button class="btn primary" type="submit" disabled=${attr<boolean>()}>${child<IconNode>()}Send</button>
+  </div>
+</form>`;
+
+const Panel = html`<aside class=${cls()} aria-label="Agent">
+  ${child<ViewNodeOf<typeof Head>>()}${child<ViewNodeOf<typeof PaneBar>>()}${child<ViewNodeOf<typeof Meta>>()}${child<
+    ViewNodeOf<typeof TailWrap>
+  >()}${child<ViewNodeOf<typeof Keys>>()}${child<ViewNodeOf<typeof Composer>>()}${child<HTMLDivElement>()}${child<HTMLElement | null>()}
+</aside>`;
+
+const views: readonly { id: PaneView; glyph: readonly string[]; label: string; tip: string }[] = [
+  { id: "log", glyph: icons.list, label: "Log", tip: "The pane's recent output, with a box to message the agent" },
+  {
+    id: "terminal",
+    glyph: icons.terminal,
+    label: "Terminal",
+    tip: "The pane's screen: type straight into it, and the wheel scrolls it",
+  },
+];
+
+// A checked narrowing, not a cast: the view's root is an HTML element.
+const isHTML = (n: Node | null): n is HTMLElement => n !== null && n.nodeType === 1;
+
 export class AgentPanel {
   readonly el: HTMLElement;
-  private readonly head = h("div", { class: "panel-head" });
-  private readonly meta = h("dl", { class: "meta" });
-  /** The pane's id and tab on one line, shown while its details are folded. */
-  private readonly infoLine = h("span", { class: "pane-info-line" });
-  private readonly tail = h("pre", {
-    class: "tail",
-    tabIndex: 0,
-    "aria-label": "Pane output",
-  });
-  private readonly tailNote = h("div", { class: "tail-note" });
+  // The view is rendered into box, and its root (el) moves to wherever
+  // main.ts puts it: out of box, so box would never see the events to
+  // delegate, and the handlers are direct (renderDirect) instead. The
+  // keydown handlers that stop propagation then run on their own element.
+  private readonly box = document.createElement("div");
+  /** Whether the details are open below the bar; the choice is kept. */
+  private infoOpen = loadInfoOpen();
+  /** The note under the tail: a cut tail or a read error. */
+  private note = "";
   /** Whether the last text read was cut to its line limit. */
   private truncated = false;
-  /** Takes the typing of the terminal view, so IME, paste and phone keyboards work. */
-  private readonly termInput = h("textarea", {
-    class: "term-input",
-    rows: 1,
-    autocapitalize: "off",
-    autocomplete: "off",
-    autocorrect: "off",
-    "aria-label": "Type into the pane",
-  });
-  private readonly termHint = h("div", { class: "term-hint" });
-  private readonly viewBtns = new Map<PaneView, HTMLButtonElement>();
   private view = loadView();
   private readonly wheel = new WheelLines();
   private readonly inputs = new InputQueue((i) => this.sendInput(i));
@@ -86,24 +235,14 @@ export class AgentPanel {
   /** A cell's width per px of font size. */
   private unit = 0;
   private readonly fit = new ResizeObserver(() => this.fitFont());
+  private readonly tail: HTMLPreElement;
+  /** Takes the typing of the terminal view, so IME, paste and phone keyboards work. */
+  private readonly termInput: HTMLTextAreaElement;
   /** Measures the width the panel asks for, which the window may cut. */
-  private readonly want = h("div", { class: "panel-want", "aria-hidden": "true" });
-  private readonly input = h("textarea", {
-    rows: 3,
-    placeholder: defaultPlaceholder,
-    spellcheck: true,
-    "aria-label": "Message",
-  });
-  private readonly mode = h(
-    "select",
-    {
-      "aria-label": "Send as",
-      title: "Prompt goes through the agent; Type sends raw text into the pane",
-    },
-    h("option", { value: "prompt" }, "Prompt"),
-    h("option", { value: "text" }, "Type raw"),
-  );
-  private readonly sendBtn = h("button", { class: "btn primary", type: "submit" }, icon(icons.send), "Send");
+  private readonly want = mountElement("div", Want, []);
+  private readonly input: HTMLTextAreaElement;
+  private readonly mode = mountElement("select", Mode, []);
+  private readonly resizer: HTMLElement;
   private timer = 0;
   private stuck = true;
   private text = "";
@@ -122,137 +261,24 @@ export class AgentPanel {
     readonly pane: string,
     private readonly kinds: () => string[],
   ) {
-    this.tail.addEventListener("scroll", () => {
-      const t = this.tail;
-      this.stuck = t.scrollHeight - t.scrollTop - t.clientHeight < 24;
-    });
-    this.input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        void this.send();
-      }
-    });
-    const composer = h(
-      "form",
-      {
-        class: "composer",
-        onsubmit: (e: Event) => {
-          e.preventDefault();
-          void this.send();
-        },
+    this.tail = mountElement("pre", Tail, [
+      () => {
+        const t = this.tail;
+        this.stuck = t.scrollHeight - t.scrollTop - t.clientHeight < 24;
       },
-      this.input,
-      h(
-        "div",
-        { class: "composer-bar" },
-        h("label", { class: "select" }, this.mode, icon(icons.chevronDown)),
-        h("span", { class: "grow" }),
-        this.sendBtn,
-      ),
-    );
-    const keys = h(
-      "div",
-      { class: "keys", role: "group", "aria-label": "Send a key" },
-      icon(icons.keyboard),
-      unkeyed(
-        keySet.map((k) =>
-          h(
-            "button",
-            {
-              class: "key",
-              title: k.hint,
-              onclick: () => this.sendKeys(k.keys),
-            },
-            k.label,
-          ),
-        ),
-      ),
-      h(
-        "span",
-        { class: "key-group", role: "group", "aria-label": "Arrow keys" },
-        unkeyed(
-          arrowKeys.map((k) =>
-            h(
-              "button",
-              {
-                class: "key arrow",
-                title: `${k.name} arrow`,
-                "aria-label": `${k.name} arrow`,
-                onclick: () => this.sendKeys(k.keys),
-              },
-              k.label,
-            ),
-          ),
-        ),
-      ),
-      h(
-        "button",
-        {
-          class: "key",
-          title: "Send other key names, separated by spaces",
-          onclick: () => void sendOtherKeys((keys) => this.sendKeys(keys)),
-        },
-        "Other…",
-      ),
-    );
-    const viewSwitch = h(
-      "div",
-      { class: "view-switch", role: "group", "aria-label": "Pane view" },
-      unkeyed(
-        (
-          [
-            ["log", icons.list, "Log", "The pane's recent output, with a box to message the agent"],
-            [
-              "terminal",
-              icons.terminal,
-              "Terminal",
-              "The pane's screen: type straight into it, and the wheel scrolls it",
-            ],
-          ] as const
-        ).map(([v, glyph, label, tip]) => {
-          const b = h("button", { type: "button", title: tip, onclick: () => this.setView(v) }, icon(glyph), label);
-          this.viewBtns.set(v, b);
-          return b;
-        }),
-      ),
-    );
-    this.termInput.spellcheck = false;
-    this.termInput.addEventListener("keydown", (e) => {
-      if (this.view !== "terminal") return;
-      if (this.zoomFor(e)) return;
-      const i = keyInput(keyLike(e), isMac);
-      if (!i) return;
-      // Esc, Tab and the rest belong to the pane, not to the page.
-      e.preventDefault();
-      e.stopPropagation();
-      this.inputs.push(i);
-    });
-    const takeText = (): void => {
-      const text = typedText(this.termInput.value);
-      this.termInput.value = "";
-      if (text && this.view === "terminal") this.inputs.push({ text });
-    };
-    this.termInput.addEventListener("input", (e) => {
-      if (!(e as InputEvent).isComposing) takeText();
-    });
-    this.termInput.addEventListener("compositionend", takeText);
-    this.termInput.addEventListener("focus", () => this.showTyping());
-    this.termInput.addEventListener("blur", () => this.showTyping());
-    // A click on the screen starts typing there, unless it selected text to copy.
-    this.tail.addEventListener("mouseup", () => {
-      if (this.view === "terminal" && (window.getSelection()?.isCollapsed ?? true)) {
-        this.termInput.focus({ preventScroll: true });
-      }
-    });
-    this.tail.addEventListener("keydown", (e) => {
-      if (this.zoomFor(e)) return;
-      if (this.view === "terminal" && e.key === "Enter") {
-        e.preventDefault();
-        this.termInput.focus({ preventScroll: true });
-      }
-    });
-    this.tail.addEventListener(
-      "wheel",
+      // A click on the screen starts typing there, unless it selected text to copy.
+      () => {
+        if (this.view === "terminal" && (window.getSelection()?.isCollapsed ?? true)) {
+          this.termInput.focus({ preventScroll: true });
+        }
+      },
+      (e) => {
+        if (this.zoomFor(e)) return;
+        if (this.view === "terminal" && e.key === "Enter") {
+          e.preventDefault();
+          this.termInput.focus({ preventScroll: true });
+        }
+      },
       (e) => {
         // A sideways scroll moves along a screen wider than the panel.
         if (this.view !== "terminal" || e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
@@ -260,55 +286,159 @@ export class AgentPanel {
         const lines = this.wheel.add(e.deltaY, e.deltaMode, this.text.split("\n").length);
         if (lines) this.inputs.push({ lines, ...this.cellAt(e.clientX, e.clientY) });
       },
-      { passive: false },
-    );
-    // The details fold to one line in the bar, so the screen gets the room;
-    // they open below the bar, and the choice is kept.
-    this.meta.id = `meta-${pane}`;
-    const info = h(
-      "button",
-      {
-        type: "button",
-        class: "pane-info",
-        title: "Show or hide the pane's details",
-        "aria-controls": this.meta.id,
-      },
-      icon(icons.chevronDown),
-      h("span", { class: "pane-info-label" }, "Details"),
-      this.infoLine,
-    );
-    const fold = (open: boolean): void => {
-      info.setAttribute("aria-expanded", String(open));
-      this.meta.hidden = !open;
+    ]);
+    const takeText = (): void => {
+      const text = typedText(this.termInput.value);
+      this.termInput.value = "";
+      if (text && this.view === "terminal") this.inputs.push({ text });
     };
-    try {
-      fold(localStorage.getItem(infoKey) === "open");
-    } catch {
-      fold(false);
-    }
-    info.addEventListener("click", () => {
-      fold(this.meta.hidden !== false);
-      try {
-        localStorage.setItem(infoKey, this.meta.hidden ? "closed" : "open");
-      } catch {
-        // The choice lasts for this page only.
-      }
-    });
-    this.el = h(
-      "aside",
-      { class: "panel", "aria-label": "Agent" },
-      this.head,
-      h("div", { class: "pane-bar" }, info, this.termHint, viewSwitch),
-      this.meta,
-      h("div", { class: "tail-wrap" }, this.tail, this.tailNote, this.termInput),
-      keys,
-      composer,
-    );
-    this.el.append(this.want, panelResizer(this.el));
+    this.termInput = mountElement("textarea", TermInput, [
+      (e) => {
+        if (this.view !== "terminal") return;
+        if (this.zoomFor(e)) return;
+        const i = keyInput(keyLike(e), isMac);
+        if (!i) return;
+        // Esc, Tab and the rest belong to the pane, not to the page.
+        e.preventDefault();
+        e.stopPropagation();
+        this.inputs.push(i);
+      },
+      // An input event that is not an InputEvent is not composing either.
+      (e) => {
+        if (!("isComposing" in e && e.isComposing === true)) takeText();
+      },
+      () => this.paint(),
+      () => this.paint(),
+    ]);
+    // No element has an oncompositionend property, so no on() hole can take
+    // it: the listener goes on the element this panel owns (mountElement,
+    // not render(), so event delegation would not change it).
+    this.termInput.addEventListener("compositionend", takeText);
+    this.input = mountElement("textarea", MessageBox, [
+      defaultPlaceholder,
+      (e) => {
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          void this.send();
+        }
+      },
+    ]);
+    renderDirect(this.box, this.describe(null));
+    const root = this.box.firstChild;
+    if (!isHTML(root)) throw new Error("AgentPanel: the view rendered no element");
+    this.el = root;
+    this.resizer = panelResizer(this.el);
     this.fit.observe(this.tail);
     this.fit.observe(this.want);
     this.applyView();
     this.start();
+  }
+
+  /** Renders the panel's view from its state; only what changed is written. */
+  private paint(): void {
+    renderDirect(this.box, this.describe(this.resizer));
+  }
+
+  private describe(resizer: HTMLElement | null): ViewNodeOf<typeof Panel> {
+    const term = this.view === "terminal";
+    const typing = term && document.activeElement === this.termInput;
+    const zoom = this.zoom === 1 ? "" : ` · ${Math.round(this.zoom * 100)}%`;
+    const m = this.member;
+    const gone = m?.status === "gone";
+    return Panel([
+      ["panel", term && "terminal-view", typing && "typing"].filter(Boolean).join(" "),
+      this.head(m),
+      PaneBar([
+        `meta-${this.pane}`,
+        this.infoOpen ? "true" : "false",
+        () => this.fold(!this.infoOpen),
+        icon(icons.chevronDown),
+        m ? [m.pane_id, m.tab ? m.tab.label || m.tab.tab_id : ""].filter(Boolean).join(" · ") : "",
+        !term ? "" : typing ? `Typing into the pane${zoom} · click outside to stop` : `Click the screen to type${zoom}`,
+        list(
+          views,
+          (v) => v.id,
+          (v) =>
+            ViewOption([
+              v.tip,
+              () => this.setView(v.id),
+              v.id === this.view ? "active" : "",
+              v.id === this.view ? "true" : "false",
+              icon(v.glyph),
+              v.label,
+            ]),
+        ),
+      ]),
+      Meta([`meta-${this.pane}`, !this.infoOpen, list(m ? details(m) : [], (p) => p.key, part)]),
+      TailWrap([this.tail, this.note, this.termInput]),
+      Keys([
+        icon(icons.keyboard),
+        list(
+          keySet,
+          (k) => k.label,
+          (k) => Key([k.hint, () => this.sendKeys(k.keys), k.label]),
+        ),
+        list(
+          arrowKeys,
+          (k) => k.name,
+          (k) => ArrowKey([`${k.name} arrow`, `${k.name} arrow`, () => this.sendKeys(k.keys), k.label]),
+        ),
+        () => void sendOtherKeys((keys) => this.sendKeys(keys)),
+      ]),
+      Composer([
+        (e) => {
+          e.preventDefault();
+          void this.send();
+        },
+        this.input,
+        this.mode,
+        icon(icons.chevronDown),
+        this.busy || gone,
+        icon(icons.send),
+      ]),
+      this.want,
+      resizer,
+    ]);
+  }
+
+  private head(m: Member | null): ViewNodeOf<typeof Head> {
+    if (m === null) return Head([null, null, null]);
+    const a = m.agent;
+    return Head([
+      Close([() => store.go({ pane: "" }), icon(icons.close)]),
+      Title([
+        m.title,
+        pill(m.status),
+        m.role === "adjutant" || m.role === "orchestrator" ? Chip([`chip role-${m.role}`, roleName[m.role]]) : null,
+        a?.agent ? Chip(["chip", a.display_agent ?? a.agent]) : null,
+      ]),
+      Tools([
+        list(
+          [
+            tool(icons.focus, "Focus in herdr", () => run({ type: "focus", pane: this.pane })),
+            tool(icons.play, "Start an agent in this pane", () => startAgent(this.pane, this.kinds())),
+            tool(icons.tag, "Rename", () => this.member && renamePane(this.member)),
+            tool(icons.split, "Split right", () => run({ type: "split", pane: this.pane, direction: "right" })),
+            tool(icons.splitDown, "Split down", () => run({ type: "split", pane: this.pane, direction: "down" })),
+            tool(icons.trash, "Delete pane", () => run({ type: "close", pane: this.pane }), true),
+          ],
+          (t) => t.label,
+          (t) => Tool([t.danger ? "icon-btn danger" : "icon-btn", t.label, t.label, () => void t.fn(), icon(t.glyph)]),
+        ),
+      ]),
+    ]);
+  }
+
+  // The details fold to one line in the bar, so the screen gets the room;
+  // they open below the bar, and the choice is kept.
+  private fold(open: boolean): void {
+    this.infoOpen = open;
+    try {
+      localStorage.setItem(infoKey, open ? "open" : "closed");
+    } catch {
+      // The choice lasts for this page only.
+    }
+    this.paint();
   }
 
   private setView(v: PaneView): void {
@@ -330,30 +460,13 @@ export class AgentPanel {
 
   private applyView(): void {
     const term = this.view === "terminal";
-    this.el.classList.toggle("terminal-view", term);
     this.tail.setAttribute("aria-label", term ? "Pane screen: press Enter to type into it" : "Pane output");
-    for (const [v, b] of this.viewBtns) {
-      b.classList.toggle("active", v === this.view);
-      b.setAttribute("aria-pressed", String(v === this.view));
-    }
     // The typing field exists only for the terminal view: off it, nothing
     // can focus it, tab to it or type into the pane through it.
     if (!term) this.termInput.blur();
     this.termInput.disabled = !term || this.member?.status === "gone";
-    this.showTyping();
+    this.paint();
     this.fitFont();
-  }
-
-  private showTyping(): void {
-    const typing = this.view === "terminal" && document.activeElement === this.termInput;
-    this.el.classList.toggle("typing", typing);
-    const zoom = this.zoom === 1 ? "" : ` · ${Math.round(this.zoom * 100)}%`;
-    this.termHint.textContent =
-      this.view !== "terminal"
-        ? ""
-        : typing
-          ? `Typing into the pane${zoom} · click outside to stop`
-          : `Click the screen to type${zoom}`;
   }
 
   /**
@@ -372,7 +485,7 @@ export class AgentPanel {
       this.zoom = z;
       saveZoom(z);
       this.fitFont();
-      this.showTyping();
+      this.paint();
     }
     return true;
   }
@@ -428,58 +541,10 @@ export class AgentPanel {
       this.cols = size?.cols ?? 0;
       this.fitFont();
     }
-    const a = m.agent;
-    mount(
-      this.head,
-      h(
-        "button",
-        {
-          class: "icon-btn",
-          title: "Close panel",
-          "aria-label": "Close panel",
-          onclick: () => store.go({ pane: "" }),
-        },
-        icon(icons.close),
-      ),
-      h(
-        "div",
-        { class: "panel-title" },
-        h("h2", null, m.title),
-        h(
-          "div",
-          { class: "sub" },
-          pill(m.status),
-          m.role === "adjutant" || m.role === "orchestrator"
-            ? h("span", { class: `chip role-${m.role}` }, roleName[m.role])
-            : null,
-          a?.agent ? h("span", { class: "chip" }, a.display_agent ?? a.agent) : null,
-        ),
-      ),
-      h(
-        "div",
-        { class: "panel-tools" },
-        tool(icons.focus, "Focus in herdr", () => run({ type: "focus", pane: this.pane })),
-        tool(icons.play, "Start an agent in this pane", () => startAgent(this.pane, this.kinds())),
-        tool(icons.tag, "Rename", () => this.member && renamePane(this.member)),
-        tool(icons.split, "Split right", () => run({ type: "split", pane: this.pane, direction: "right" })),
-        tool(icons.splitDown, "Split down", () => run({ type: "split", pane: this.pane, direction: "down" })),
-        tool(icons.trash, "Delete pane", () => run({ type: "close", pane: this.pane }), true),
-      ),
-    );
-    this.infoLine.textContent = [m.pane_id, m.tab ? m.tab.label || m.tab.tab_id : ""].filter(Boolean).join(" · ");
-    mount(
-      this.meta,
-      row("Pane", m.pane_id),
-      m.tab ? row("Tab", m.tab.label || m.tab.tab_id) : null,
-      m.task?.task ? row("Task", m.task.task) : null,
-      m.task?.branch ? row("Branch", m.task.branch) : null,
-      m.task?.contract ? row("Contract", m.task.contract) : null,
-      m.pane?.cwd ? row("Folder", m.pane.cwd) : null,
-    );
     const gone = m.status === "gone";
     this.input.disabled = gone;
-    this.sendBtn.disabled = gone;
     this.termInput.disabled = gone || this.view !== "terminal";
+    this.paint();
   }
 
   destroy(): void {
@@ -500,11 +565,11 @@ export class AgentPanel {
    */
   private fitRows(): void {
     if (this.rowFitted || !this.tail.isConnected) return;
-    const probe = h("span", null, "Ag│█");
-    const wide = h("span", null, "M".repeat(20));
+    const probe = mountElement("span", RowProbe, []);
+    const wide = mountElement("span", CellProbe, []);
     this.tail.append(probe, wide);
     const height = probe.getBoundingClientRect().height;
-    const width = wide.getBoundingClientRect().width / 20;
+    const width = wide.getBoundingClientRect().width / probeCells;
     probe.remove();
     wide.remove();
     if (height > 0) {
@@ -595,7 +660,7 @@ export class AgentPanel {
         const palKey = JSON.stringify(pal);
         if (r) this.truncated = !!r.truncated;
         // Any answer, a 304 too, means the pane reads again, so an old error note goes.
-        this.tailNote.textContent = this.truncated && !term ? "Showing the last 400 lines." : "";
+        this.setNote(this.truncated && !term ? "Showing the last 400 lines." : "");
         if (r || palKey !== this.palKey) {
           if (r) this.text = r.text;
           this.palKey = palKey;
@@ -606,20 +671,26 @@ export class AgentPanel {
         }
       } catch (e) {
         if (e instanceof AuthError) store.set({ fatal: e.message });
-        else this.tailNote.textContent = e instanceof Error ? e.message : String(e);
+        else this.setNote(e instanceof Error ? e.message : String(e));
       }
     }
+  }
+
+  private setNote(note: string): void {
+    if (note === this.note) return;
+    this.note = note;
+    this.paint();
   }
 
   private async send(): Promise<void> {
     const text = this.input.value;
     if (!text.trim() || this.busy) return;
     this.busy = true;
-    this.sendBtn.disabled = true;
+    this.paint();
     const type = this.mode.value === "text" ? "text" : "prompt";
     const ok = await run({ type, pane: this.pane, text });
     this.busy = false;
-    this.sendBtn.disabled = false;
+    this.paint();
     if (ok) {
       // The box stays editable while the send is out; keep what was typed meanwhile.
       this.input.value = afterSend(text, this.input.value);
@@ -642,19 +713,38 @@ function keyLike(e: KeyboardEvent): KeyLike {
   };
 }
 
-function row(k: string, v: string): [HTMLElement, HTMLElement] {
-  return [h("dt", null, k), h("dd", { title: v }, v)];
+/** A details row's term or value, keyed by the row and the part. */
+interface Part {
+  key: string;
+  term: string;
+  value: string | null;
 }
 
-function tool(glyph: string[], label: string, fn: () => unknown, danger = false): HTMLElement {
-  return h(
-    "button",
-    {
-      class: danger ? "icon-btn danger" : "icon-btn",
-      title: label,
-      "aria-label": label,
-      onclick: () => void fn(),
-    },
-    icon(glyph),
-  );
+/** The pane's details: a term and a value per row, as list items. */
+function details(m: Member): Part[] {
+  const rows: [string, string][] = [["Pane", m.pane_id]];
+  if (m.tab) rows.push(["Tab", m.tab.label || m.tab.tab_id]);
+  if (m.task?.task) rows.push(["Task", m.task.task]);
+  if (m.task?.branch) rows.push(["Branch", m.task.branch]);
+  if (m.task?.contract) rows.push(["Contract", m.task.contract]);
+  if (m.pane?.cwd) rows.push(["Folder", m.pane.cwd]);
+  return rows.flatMap(([k, v]): Part[] => [
+    { key: `${k}|dt`, term: k, value: null },
+    { key: `${k}|dd`, term: k, value: v },
+  ]);
+}
+
+function part(p: Part): RowPart {
+  return p.value === null ? Term([p.term]) : Value([p.value, p.value]);
+}
+
+interface ToolSpec {
+  glyph: readonly string[];
+  label: string;
+  fn: () => unknown;
+  danger: boolean;
+}
+
+function tool(glyph: readonly string[], label: string, fn: () => unknown, danger = false): ToolSpec {
+  return { glyph, label, fn, danger };
 }
