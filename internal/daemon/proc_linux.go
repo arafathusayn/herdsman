@@ -108,3 +108,13 @@ func procIdentity(pid int) ([]string, time.Time, error) {
 	const hz = 100 // USER_HZ on every Linux the release builds for
 	return p.Args, time.Unix(boot+ticks/hz, (ticks%hz)*int64(time.Second/hz)), nil
 }
+
+// splitNUL splits a NUL-separated block (an argument vector or an
+// environment) into its strings.
+func splitNUL(b []byte) []string {
+	b = bytes.TrimRight(b, "\x00")
+	if len(b) == 0 {
+		return []string{}
+	}
+	return strings.Split(string(b), "\x00")
+}

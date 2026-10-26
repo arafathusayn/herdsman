@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -537,16 +536,6 @@ func (d *Daemon) procs() ([]Proc, error) {
 		return d.cfg.Procs()
 	}
 	return systemProcs()
-}
-
-// splitNUL splits a NUL-separated block (an argument vector or an
-// environment) into its strings.
-func splitNUL(b []byte) []string {
-	b = bytes.TrimRight(b, "\x00")
-	if len(b) == 0 {
-		return []string{}
-	}
-	return strings.Split(string(b), "\x00")
 }
 
 // crash is the daemon-level crash hook (tests only).
