@@ -4,7 +4,7 @@
 // only when its message is opened, and never for unverified entries.
 import { messageBody } from "../api.ts";
 import { describeFlag, kindLabel, stateLabel, stateTip } from "../channel.ts";
-import { h, icon, type IconNode, icons, unkeyed } from "../dom.ts";
+import { icon, type IconNode, icons } from "../dom.ts";
 import {
   attr,
   child,
@@ -36,30 +36,19 @@ function seconds(n: number): string {
 }
 
 const MsgText = html`<pre class="msg-text">${text()}</pre>`;
-const JsonBody = html`<div>${child<ViewNodeOf<typeof MsgText> | null>()}${child<HTMLDListElement | null>()}</div>`;
+// A field is a term and its value, siblings in the list: two items.
+const Term = html`<dt>${text()}</dt>`;
+const Value = html`<dd>${text()}</dd>`;
+type FieldPart = ViewNodeOf<typeof Term> | ViewNodeOf<typeof Value>;
+const Fields = html`<dl class="msg-fields">${child<ListNode<FieldPart, string>>()}</dl>`;
+const JsonBody = html`<div>
+  ${child<ViewNodeOf<typeof MsgText> | null>()}${child<ViewNodeOf<typeof Fields> | null>()}
+</div>`;
 
 type BodyNode = ViewNodeOf<typeof MsgText> | ViewNodeOf<typeof JsonBody>;
 
-/**
- * A body's fields: a term and a value each, as siblings in a <dl>. A view
- * item has one element root, so the pairs stay on h() until views can list
- * them; the element is made once per loaded body (see `fieldsOf`).
- */
-function fields(rest: [string, unknown][]): HTMLDListElement {
-  return h(
-    "dl",
-    { class: "msg-fields" },
-    unkeyed(
-      rest.map(([k, val]): [HTMLElement, HTMLElement] => [
-        h("dt", null, k),
-        h("dd", null, typeof val === "string" ? val : JSON.stringify(val)),
-      ]),
-    ),
-  );
-}
-
 /** A body as the parties write it: versioned JSON with a text field, or plain text. */
-function renderBody(body: string, fieldsOf: (rest: [string, unknown][]) => HTMLDListElement): BodyNode {
+function renderBody(body: string): BodyNode {
   let v: unknown;
   try {
     v = JSON.parse(body);
@@ -68,8 +57,25 @@ function renderBody(body: string, fieldsOf: (rest: [string, unknown][]) => HTMLD
   }
   if (!v || typeof v !== "object" || Array.isArray(v)) return MsgText([body]);
   const said: unknown = "text" in v ? v.text : undefined;
-  const rest: [string, unknown][] = Object.entries(v).filter(([k]) => k !== "text" && k !== "version");
-  return JsonBody([typeof said === "string" ? MsgText([said]) : null, rest.length ? fieldsOf(rest) : null]);
+  // A JSON object's keys are unique, so each keys its term and its value.
+  const parts = Object.entries(v)
+    .filter(([k]) => k !== "text" && k !== "version")
+    .flatMap(([k, val]: [string, unknown]) => [
+      { key: `${k}|dt`, text: k, term: true },
+      { key: `${k}|dd`, text: typeof val === "string" ? val : JSON.stringify(val), term: false },
+    ]);
+  return JsonBody([
+    typeof said === "string" ? MsgText([said]) : null,
+    parts.length
+      ? Fields([
+          list(
+            parts,
+            (p) => p.key,
+            (p): FieldPart => (p.term ? Term([p.text]) : Value([p.text])),
+          ),
+        ])
+      : null,
+  ]);
 }
 
 const Loading = html`<p class="muted">Reading the message channel…</p>`;
@@ -156,8 +162,6 @@ export class MessagesView {
   // render() keeps the view's instance on box; the root moves to wherever main.ts puts el.
   private readonly box = document.createElement("div");
   private readonly bodies = new Map<string, Loaded>();
-  /** A loaded body's fields element, made once per load. */
-  private readonly fieldEls = new WeakMap<Loaded, HTMLDListElement>();
   private readonly expanded = new Set<string>();
   private lastKey = "";
 
@@ -338,12 +342,7 @@ export class MessagesView {
   private body(id: string): BodyNode | ViewNodeOf<typeof BodyError> | ViewNodeOf<typeof BodyLoading> {
     const b = this.bodies.get(id);
     if (b?.text !== undefined) {
-      const loaded = b;
-      return renderBody(b.text, (rest) => {
-        let dl = this.fieldEls.get(loaded);
-        if (dl === undefined) this.fieldEls.set(loaded, (dl = fields(rest)));
-        return dl;
-      });
+      return renderBody(b.text);
     }
     return b?.error ? BodyError([b.error]) : BodyLoading([]);
   }

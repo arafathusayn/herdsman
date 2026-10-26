@@ -204,7 +204,7 @@ test("a message opens, loads its body once, and its reply link scrolls to the me
   expect(dump(body)).toBe(
     '<div class="msg-body"><div ><pre class="msg-text">hi</pre><dl class="msg-fields"><dt >k</dt><dd >v</dd></dl></div></div>',
   );
-  // The fields element is made once per loaded body.
+  // A render that changes nothing keeps the fields' nodes.
   const dl = elements(elements(body)[0]!)[1]!;
   (v as unknown as Internals).lastKey = "";
   v.render(ch, panes);
