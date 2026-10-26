@@ -83,6 +83,7 @@ describe("ui views render what the h() versions did", () => {
             h(
               "button",
               {
+                type: "button",
                 role: "radio",
                 "aria-checked": String(id === current),
                 class: id === current ? "active" : "",

@@ -213,6 +213,7 @@ const themes: readonly { id: Theme; label: string; glyph: readonly string[] }[] 
 ];
 
 const ThemeOption = html`<button
+  type="button"
   role="radio"
   aria-checked=${attr<"true" | "false">()}
   class=${cls()}

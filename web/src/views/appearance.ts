@@ -171,7 +171,7 @@ const AppearanceForm = html`<form method="dialog">
   <h2>Appearance</h2>
   <section class="appearance-section">
     <h3>Theme</h3>
-    <div class="appearance-theme" onclick=${on<"click">()}>${child<ThemeSwitchNode>()}${child<ChoicesNode>()}</div>
+    <div class="appearance-theme">${child<ThemeSwitchNode>()}${child<ChoicesNode>()}</div>
   </section>
   ${child<ChoicesNode>()}${child<ChoicesNode>()}
   <div class="dialog-actions"><button value="ok" class="btn primary">Done</button></div>
@@ -191,9 +191,6 @@ export function appearanceForm(redraw: () => void): AppearanceFormNode {
     redraw();
   };
   return AppearanceForm([
-    // The theme switch's buttons have no type, so in this form they would
-    // submit it and close the dialog: a choice here never submits.
-    (e) => e.preventDefault(),
     themeSwitch(store.app.theme, pick),
     choices("Color themes", appThemes, store.app.theme, appPreview, pick),
     choices("Terminal colors", termItems, loadTermScheme(), termPreview, (id) => {

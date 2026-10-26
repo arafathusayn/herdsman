@@ -140,6 +140,7 @@ function oldForm(theme: string, term: string, code: string): FakeElement {
         h(
           "button",
           {
+            type: "button",
             role: "radio",
             "aria-checked": String(id === theme),
             class: id === theme ? "active" : "",
@@ -253,9 +254,9 @@ test("the theme switch and the color themes are one choice", () => {
   expect(elements(colors!)[0]!.className).toBe("choice active");
   const themeSwitch = elements(elements(elements(form)[1]!)[1]!)[0]!;
   expect(elements(themeSwitch).map((b) => b.getAttribute("aria-checked"))).toEqual(["false", "false", "false"]);
-  // Its buttons have no type: a click must not submit the dialog's form.
-  const e = dispatch(elements(themeSwitch)[1]!, "click");
-  expect(e.defaultPrevented).toBe(true);
+  // Its buttons are type="button": a click picks the theme and does not submit the dialog's form.
+  expect(elements(themeSwitch).map((b) => b.getAttribute("type"))).toEqual(["button", "button", "button"]);
+  dispatch(elements(themeSwitch)[1]!, "click");
   expect(store.app.theme).toBe("light");
   expect(elements(themeSwitch)[1]!.getAttribute("aria-checked")).toBe("true");
 });
