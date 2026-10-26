@@ -3,7 +3,8 @@
 # falls back to its bounded queue scans. With $FIXTURE/events (or events-<n> for the n-th connection) it is a fake
 # event stream: it logs the subscribe request to subscriptions.log, answers subscription_started, then plays the
 # script line by line and stays connected until its input closes. Script lines: `@sleep <s>`, `@part <text>` (a
-# frame fragment without its newline), `@flood <n>` (n unrelated pane events), `@stage` (move staged envelopes into
+# frame fragment without its newline), `@flood <n>` (n unrelated pane events), `@flood-for <s>` (unrelated pane
+# events without a pause for s seconds, or until the reader closes), `@stage` (move staged envelopes into
 # the orchestrator's new/ folder, as a send would) and `@exit` (drop the connection); any other line is one frame.
 if [ -n "${FIXTURE:-}" ]; then printf 'nc %s\n' "$*" >> "$FIXTURE/calls.log"; fi
 [ -n "${FIXTURE:-}" ] && [ -f "$FIXTURE/events" ] || exit 1
@@ -18,6 +19,7 @@ while IFS= read -r line; do
     '@sleep '*) sleep "${line#@sleep }" ;;
     '@part '*) printf '%s' "${line#@part }" ;;
     '@flood '*) i=0; while [ "$i" -lt "${line#@flood }" ]; do printf '{"event":"pane.updated","data":{"pane":{"pane_id":"flood-pane"}}}\n'; i=$((i+1)); done ;;
+    '@flood-for '*) end=$((SECONDS+${line#@flood-for })); while [ "$SECONDS" -lt "$end" ]; do printf '{"event":"pane.updated","data":{"pane":{"pane_id":"flood-pane"}}}\n' || exit 0; done ;;
     '@stage') for f in "$FIXTURE"/staged/*.md; do [ ! -e "$f" ] || mv "$f" "$HERDSMAN_INBOX/route-orchestrator/new/"; done ;;
     '@ready') for f in "$FIXTURE"/staged/*.md; do [ ! -e "$f" ] || mv "$f" "$HERDSMAN_INBOX/route-orchestrator/ready/"; done ;;
     '@exit') exit 0 ;;

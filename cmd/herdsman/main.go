@@ -67,6 +67,9 @@ const usageTail = `  version  Print the version.
 type command struct {
 	name    string
 	summary string // one line for help
+	// help is `herdsman <name> --help`: the usage and one table of exit
+	// codes; "" prints the summary.
+	help string
 	// run returns the exit code; the command prints its own output.
 	run func(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 }
@@ -133,6 +136,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runWeb(args[1:], stdout, stderr)
 	}
 	if c, ok := commands[args[0]]; ok {
+		if c.help != "" && len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+			fmt.Fprint(stdout, c.help)
+			return nil
+		}
 		if code := c.run(args[1:], os.Stdin, stdout, stderr); code != 0 {
 			return &exitError{code: code}
 		}

@@ -63,3 +63,13 @@ func taintedRecord(unknown []Unknown, omitted int, now int64) []byte {
 		return b.Bytes()
 	})
 }
+
+// TaintedRecord is the bounded state/boundary-tainted record of unknown
+// agents at now, for a writer that writes it itself (the approval gate,
+// whose writes stop with the gate).
+func TaintedRecord(unknown []Unknown, now int64) []byte {
+	if unknown == nil {
+		unknown = []Unknown{}
+	}
+	return taintedRecord(unknown, 0, now)
+}

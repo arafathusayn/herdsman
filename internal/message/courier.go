@@ -581,9 +581,9 @@ func isDirFollow(p string) bool {
 	return err == nil && st.IsDir()
 }
 
-// readCount is `read -r previous stamp < count-<name>` and the stamp as
-// $((t-stamp)) reads it: bash arithmetic on a literal; an empty or bad
-// stamp counts as 0 (a resend, never a crash).
+// readCount is `read -r previous stamp < count-<name>`; the stamp is a
+// plain integer the courier wrote (shnum.Test, no arithmetic evaluator,
+// A27): an empty or bad stamp counts as 0 (a resend, never a crash).
 func readCount(s string) (string, int64) {
 	f := strings.Fields(strings.SplitN(s, "\n", 2)[0])
 	prev, stamp := "", ""
@@ -593,7 +593,7 @@ func readCount(s string) (string, int64) {
 	if len(f) > 1 {
 		stamp = strings.Join(f[1:], " ")
 	}
-	n, ok := shnum.Arith(stamp)
+	n, ok := shnum.Test(stamp)
 	if !ok {
 		n = 0
 	}

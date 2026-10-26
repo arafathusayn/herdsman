@@ -1,11 +1,12 @@
 package gate
 
 import (
-	"context"
-	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 )
 
 // e93bcc1 XB1d (B3-001): an exposure that waited for the input lock is
@@ -31,22 +32,18 @@ func TestGatePublishesAWaitingExposure(t *testing.T) {
 	}
 }
 
-// A waiting exposure alone fails the gate's authority closed.
+// A waiting exposure alone fails the gate closed: HUMAN, exit 3, nothing
+// consumed.
 func TestGateAuthorityFailsClosedOnPendingExposure(t *testing.T) {
 	r := newRig(t)
 	pending := filepath.Join(r.c.Dir, "state", "exposure-pending")
 	os.MkdirAll(pending, 0o700)
 	r.c.Write(filepath.Join(pending, "x.json"), "{}\n")
-	g := r.gateValue()
-	if line, code := g.authority(); code != Human {
-		t.Errorf("pending exposure: %d %q", code, line)
+	r.gojson("pe", 600, nil)
+	out, code := r.gate("consume", r.goFile("pe"), "post", "pr-comment", "head1", r.draft)
+	if code != 3 || !strings.Contains(out, "HUMAN") || exists(r.consumed("pe")) {
+		t.Errorf("pending exposure: %d %q", code, out)
 	}
-}
-
-func (r *rig) gateValue() *Gate {
-	o := r.c.Options(false)
-	o.Now = r.clock
-	return &Gate{Options: o, Client: r.hc, ctx: context.Background()}
 }
 
 // Landing review P0 (e93bcc1 B3-001): an unknown agent seen only by the

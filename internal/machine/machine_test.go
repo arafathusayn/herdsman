@@ -2,11 +2,16 @@ package machine
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
+	"syscall"
 	"testing"
 )
 
 func TestReading(t *testing.T) {
+	if err := ProbeError(); Denied(err) {
+		t.Skip("sandbox: the machine probes were denied: " + err.Error())
+	}
 	r := Reading()
 	if !regexp.MustCompile(`^[0-9]+\.[0-9]{2} [0-9]+$`).MatchString(r) {
 		t.Fatalf("reading %q", r)
@@ -34,5 +39,11 @@ func TestReadingUnknown(t *testing.T) {
 	freePercent = func() (int, error) { return 0, errors.New("no memory") }
 	if Reading() != "" {
 		t.Error("an unknown free memory reads")
+	}
+}
+
+func TestDenied(t *testing.T) {
+	if !Denied(syscall.EPERM) || !Denied(fmt.Errorf("sysctl: %w", syscall.EACCES)) || Denied(errors.New("no load")) || Denied(nil) {
+		t.Error("Denied")
 	}
 }

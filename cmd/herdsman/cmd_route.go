@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +14,7 @@ import (
 var now = time.Now
 
 func init() {
-	register(command{name: "route", summary: "Check a route folder (route check) or append a run-state line (route log).", run: runRoute})
+	register(command{name: "route", summary: "Check a route folder (route check) or append a run-state line (route log).", help: routeHelp, run: runRoute})
 }
 
 const (
@@ -28,6 +29,8 @@ func runRoute(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	}
 	switch sub {
 	case "check":
+		var asJSON bool
+		args, asJSON = takeJSON(args)
 		stage := route.StagePlan
 		if len(args) > 1 {
 			stage = args[1]
@@ -41,6 +44,12 @@ func runRoute(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		default:
 			fmt.Fprintln(stderr, routeCheckUsage)
 			return 2
+		}
+		if asJSON {
+			var b bytes.Buffer
+			code := route.Check(args[0], stage, &b)
+			_, _ = stdout.Write(checkJSON(b.String(), code))
+			return code
 		}
 		return route.Check(args[0], stage, stdout)
 	case "log":

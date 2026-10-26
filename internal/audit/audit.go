@@ -502,8 +502,10 @@ func (a auditor) channelScript(p string) bool {
 	return false
 }
 
-// channelActions are the herdsman message actions of the channel scripts.
-var channelActions = []string{"status", "wait", "read", "release", "ack", "send", "hold", "unhold", "register", "authority", "leak-gate"}
+// channelActions are the herdsman message actions the skill text names:
+// the channel scripts' actions and the loops (courier, card-watch,
+// resume-goal) that replace the channel's watcher scripts.
+var channelActions = []string{"status", "wait", "read", "release", "ack", "send", "hold", "unhold", "register", "authority", "leak-gate", "courier", "card-watch", "resume-goal"}
 
 // channelCommand reports whether words (from the herdsman program on) run
 // a channel command of the binary.

@@ -1,16 +1,23 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
 )
 
@@ -47,7 +54,8 @@ func TestArtifactsListAndServeInASandbox(t *testing.T) {
 	writeFile(t, filepath.Join(proj, ".git", "x.html"), `x`)
 	writeFile(t, filepath.Join(proj, "notes.md"), `x`)
 
-	res := f.request(t, http.MethodGet, "/api/artifacts", "", f.authed)
+	id := f.hub.Current().Routes[0].ID
+	res := f.request(t, http.MethodGet, "/api/artifacts?route="+id, "", f.authed)
 	var list struct {
 		Roots     []string   `json:"roots"`
 		Artifacts []Artifact `json:"artifacts"`
@@ -62,19 +70,19 @@ func TestArtifactsListAndServeInASandbox(t *testing.T) {
 	if strings.Join(got, ",") != ".lavish/plan.html,reports/summary.html" && strings.Join(got, ",") != "reports/summary.html,.lavish/plan.html" {
 		t.Fatalf("artifacts = %v (roots %v)", got, list.Roots)
 	}
-	if res := f.request(t, http.MethodGet, "/api/artifacts", "", nil); res.StatusCode != http.StatusUnauthorized {
+	if res := f.request(t, http.MethodGet, "/api/artifacts?route="+id, "", nil); res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unpaired listing: %d", res.StatusCode)
 	}
 
 	root := list.Artifacts[0].Root
-	res = f.request(t, http.MethodPost, "/api/artifacts/open", `{"root":"`+root+`","path":"reports/summary.html"}`, f.authed)
+	res = f.request(t, http.MethodPost, "/api/artifacts/open", `{"route":"`+id+`","root":"`+root+`","path":"reports/summary.html"}`, f.authed)
 	var opened struct {
 		URL string `json:"url"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&opened); err != nil || !strings.HasPrefix(opened.URL, "/artifact/") {
 		t.Fatalf("open: %d %+v %v", res.StatusCode, opened, err)
 	}
-	if res := f.request(t, http.MethodPost, "/api/artifacts/open", `{"root":"/etc","path":"passwd"}`, f.authed); res.StatusCode != http.StatusNotFound {
+	if res := f.request(t, http.MethodPost, "/api/artifacts/open", `{"route":"`+id+`","root":"/etc","path":"passwd"}`, f.authed); res.StatusCode != http.StatusNotFound {
 		t.Fatalf("open outside the listing: %d", res.StatusCode)
 	}
 
@@ -121,21 +129,575 @@ func TestArtifactsListAndServeInASandbox(t *testing.T) {
 
 func TestArtifactCapsAreBounded(t *testing.T) {
 	a := newArtifacts()
-	first := a.grant("/a", "127.0.0.1")
-	if a.grant("/a", "127.0.0.1") != first {
+	open := func(d string) *os.Root {
+		t.Helper()
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		id, err := os.Stat(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := openPageDir(d, id, "", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	tmp := t.TempDir()
+	first := a.grant(open(filepath.Join(tmp, "a")), "127.0.0.1")
+	if a.grant(open(filepath.Join(tmp, "a")), "127.0.0.1") != first {
 		t.Fatal("a live capability was not reused")
 	}
-	if a.grant("/a", "192.0.2.9") == first {
+	if a.grant(open(filepath.Join(tmp, "a")), "192.0.2.9") == first {
 		t.Fatal("another browser got the same capability")
 	}
 	if _, ok := a.dir(first, "192.0.2.9"); ok {
 		t.Fatal("a capability opened its folder to another browser")
 	}
 	for i := range maxCaps + 5 {
-		a.grant("/d"+string(rune('a'+i%26))+strings.Repeat("x", i), "127.0.0.1")
+		a.grant(open(filepath.Join(tmp, fmt.Sprintf("d%d", i))), "127.0.0.1")
 	}
 	if len(a.caps) > maxCaps {
 		t.Fatalf("%d capabilities kept", len(a.caps))
+	}
+}
+
+// An expired grant gives back its open folder by itself: a refused use
+// closes it at once, and a timer closes the rest without another grant, so
+// a server that runs for hours holds no folder longer than its grants last.
+func TestArtifactExpiredGrantsAreReleased(t *testing.T) {
+	base := runtime.NumGoroutine()
+	open := func() *os.Root {
+		t.Helper()
+		d := t.TempDir()
+		id, err := os.Stat(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := openPageDir(d, id, "", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	closed := func(r *os.Root) bool {
+		_, err := r.Stat(".")
+		return err != nil
+	}
+	caps := func(a *artifacts) int {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return len(a.caps)
+	}
+
+	// A use after expiry is refused and closes the folder.
+	a := newArtifacts()
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	a.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	r := open()
+	k := a.grant(r, "127.0.0.1")
+	clock.Add(int64(capTTL + time.Second))
+	if _, ok := a.dir(k, "127.0.0.1"); ok {
+		t.Fatal("an expired grant was used")
+	}
+	if !closed(r) || caps(a) != 0 {
+		t.Fatalf("a refused expired grant kept its folder open (closed %v, %d grants)", closed(r), caps(a))
+	}
+
+	// Unused grants are closed when they expire, with no other grant.
+	b := newArtifacts()
+	b.ttl = 30 * time.Millisecond
+	r1, r2 := open(), open()
+	b.grant(r1, "127.0.0.1")
+	b.grant(r2, "192.0.2.9")
+	for deadline := time.Now().Add(5 * time.Second); caps(b) != 0 || !closed(r1) || !closed(r2); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("expired grants kept their folders open (%d grants, closed %v %v)", caps(b), closed(r1), closed(r2))
+		}
+	}
+	for deadline := time.Now().Add(5 * time.Second); runtime.NumGoroutine() > base; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutines %d, were %d", runtime.NumGoroutine(), base)
+		}
+	}
+}
+
+// A thousand grants, each renewed across its first deadline and then let
+// expire, leave nothing behind: every folder is closed, no grant and no
+// timer stay set, and the heap and goroutines are where they were. Even
+// cycles expire by the timer, odd ones by a refused use.
+func TestArtifactGrantLoopReleasesEverything(t *testing.T) {
+	var dirs []string
+	var ids []os.FileInfo
+	for range 4 {
+		d := t.TempDir()
+		id, err := os.Stat(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dirs, ids = append(dirs, d), append(ids, id)
+	}
+	open := func(i int) *os.Root {
+		r, err := openPageDir(dirs[i], ids[i], "", ids[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	closed := func(r *os.Root) bool {
+		_, err := r.Stat(".")
+		return err != nil
+	}
+	a := newArtifacts()
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	a.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	var pending func()
+	a.afterFunc = func(_ time.Duration, f func()) *time.Timer {
+		pending = f
+		tm := time.NewTimer(time.Hour)
+		tm.Stop()
+		return tm
+	}
+	fire := func() {
+		t.Helper()
+		if pending == nil {
+			t.Fatal("no sweep was set while a grant is live")
+		}
+		f := pending
+		pending = nil
+		f()
+	}
+	quiet := func(i int) {
+		t.Helper()
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if len(a.caps) != 0 || a.sweep != nil {
+			t.Fatalf("cycle %d: %d grants and sweep %v left", i, len(a.caps), a.sweep != nil)
+		}
+	}
+	cycle := func(i int) {
+		r1 := open(i % len(dirs))
+		k := a.grant(r1, "127.0.0.1")
+		clock.Add(int64(a.ttl * 3 / 4))
+		r2 := open(i % len(dirs))
+		if a.grant(r2, "127.0.0.1") != k || !closed(r2) {
+			t.Fatalf("cycle %d: the renewal made a new grant or kept its duplicate open", i)
+		}
+		clock.Add(int64(a.ttl / 2)) // past the first deadline
+		fire()
+		if _, ok := a.dir(k, "127.0.0.1"); !ok {
+			t.Fatalf("cycle %d: a renewed grant expired at its first deadline", i)
+		}
+		clock.Add(int64(a.ttl))
+		if i%2 == 0 {
+			fire()
+		} else if _, ok := a.dir(k, "127.0.0.1"); ok {
+			t.Fatalf("cycle %d: an expired grant was used", i)
+		}
+		if !closed(r1) {
+			t.Fatalf("cycle %d: an expired grant kept its folder open", i)
+		}
+		quiet(i)
+		pending = nil // a stopped timer never fires
+	}
+	for i := range 10 {
+		cycle(i)
+	}
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	goroutines := runtime.NumGoroutine()
+	for i := range 1000 {
+		cycle(i)
+	}
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	if after.HeapAlloc > before.HeapAlloc && after.HeapAlloc-before.HeapAlloc > 1<<20 {
+		t.Fatalf("heap grew %d bytes over 1000 grant cycles", after.HeapAlloc-before.HeapAlloc)
+	}
+	if n := runtime.NumGoroutine(); n > goroutines {
+		t.Fatalf("goroutines %d, were %d", n, goroutines)
+	}
+}
+
+// A sweep that fired and waited for the lock while the last grant was
+// dropped and a new one armed a new timer does nothing when it runs: one
+// timer stays set, and it is the one tracked.
+func TestArtifactStaleSweepIsANoOp(t *testing.T) {
+	open := func() *os.Root {
+		t.Helper()
+		d := t.TempDir()
+		id, err := os.Stat(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := openPageDir(d, id, "", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	a := newArtifacts()
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	a.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	var calls []func()
+	var timers []*time.Timer
+	a.afterFunc = func(_ time.Duration, f func()) *time.Timer {
+		tm := time.NewTimer(time.Hour)
+		tm.Stop()
+		calls, timers = append(calls, f), append(timers, tm)
+		return tm
+	}
+	tracked := func() *time.Timer {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.sweep
+	}
+
+	k1 := a.grant(open(), "127.0.0.1")
+	if len(calls) != 1 || tracked() != timers[0] {
+		t.Fatalf("first grant: %d timers", len(calls))
+	}
+	// The first timer fires now, but its callback waits for the lock while
+	// the last grant expires and is dropped, and a new grant arms a timer.
+	stale := calls[0]
+	clock.Add(int64(a.ttl + time.Second))
+	if _, ok := a.dir(k1, "127.0.0.1"); ok {
+		t.Fatal("an expired grant was used")
+	}
+	r2 := open()
+	k2 := a.grant(r2, "127.0.0.1")
+	if len(calls) != 2 || tracked() != timers[1] {
+		t.Fatalf("second grant: %d timers", len(calls))
+	}
+	stale()
+	if len(calls) != 2 || tracked() != timers[1] {
+		t.Fatalf("a stale sweep set %d timers in all, tracked is the second: %v", len(calls), tracked() == timers[1])
+	}
+	if _, ok := a.dir(k2, "127.0.0.1"); !ok {
+		t.Fatal("a stale sweep dropped a live grant")
+	}
+	// The tracked timer still does its work.
+	clock.Add(int64(a.ttl + time.Second))
+	calls[1]()
+	if _, err := r2.Stat("."); err == nil || tracked() != nil || len(calls) != 2 {
+		t.Fatalf("the current sweep: folder open %v, timer set %v, %d timers", err == nil, tracked() != nil, len(calls))
+	}
+}
+
+// A grant holds the listed folder itself, not its name: a folder swapped for
+// a link to another workspace before the open is refused, and one swapped
+// after the open still serves only the folder that was granted.
+func TestArtifactGrantIsPinnedToTheListedFolder(t *testing.T) {
+	f := newFixture(t)
+	proj := filepath.Dir(filepath.Dir(f.routeDir))
+	reports := filepath.Join(proj, "reports")
+	writeFile(t, filepath.Join(reports, "page.html"), "ORIGINAL")
+	outside := t.TempDir()
+	writeFile(t, filepath.Join(outside, "page.html"), "OTHER WORKSPACE")
+	id := f.hub.Current().Routes[0].ID
+	res := f.request(t, http.MethodGet, "/api/artifacts?route="+id, "", f.authed)
+	var list struct {
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil || len(list.Artifacts) != 1 {
+		t.Fatalf("list: %d %+v %v", res.StatusCode, list, err)
+	}
+	root := list.Artifacts[0].Root
+	open := func() (int, string) {
+		b, _ := json.Marshal(map[string]string{"route": id, "root": root, "path": "reports/page.html"})
+		res := f.request(t, http.MethodPost, "/api/artifacts/open", string(b), f.authed)
+		var o struct {
+			URL string `json:"url"`
+		}
+		_ = json.NewDecoder(res.Body).Decode(&o)
+		return res.StatusCode, o.URL
+	}
+	swap := func(to string) {
+		t.Helper()
+		if err := os.Rename(reports, to); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, reports); err != nil {
+			t.Fatal(err)
+		}
+	}
+	serve := func(u string) string {
+		res := f.request(t, http.MethodGet, u, "", nil)
+		return fmt.Sprint(res.StatusCode, " ", readBody(t, res))
+	}
+
+	// After the grant: the link put in the folder's place is not followed.
+	code, u := open()
+	if code != 200 || serve(u) != "200 ORIGINAL" {
+		t.Fatalf("open before the swap: %d %q", code, serve(u))
+	}
+	swap(reports + "-old")
+	if got := serve(u); got != "200 ORIGINAL" {
+		t.Fatalf("a grant did not keep its folder after a swap: %q", got)
+	}
+	// Before the grant: the listing still names the old folder (it is cached),
+	// but the open refuses to step through the link.
+	if code, u := open(); code != http.StatusNotFound {
+		t.Fatalf("an open through a swapped folder: %d %q", code, serve(u))
+	}
+}
+
+// The listing records each page's folder too: a folder replaced by an
+// ordinary folder of the same name, inside the same root, is not the one
+// listed, so an open of the cached listing is refused.
+func TestArtifactGrantRefusesAReplacedPageFolder(t *testing.T) {
+	f := newFixture(t)
+	proj := filepath.Dir(filepath.Dir(f.routeDir))
+	reports := filepath.Join(proj, "reports")
+	writeFile(t, filepath.Join(reports, "page.html"), "ORIGINAL")
+	id := f.hub.Current().Routes[0].ID
+	res := f.request(t, http.MethodGet, "/api/artifacts?route="+id, "", f.authed)
+	var list struct {
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil || len(list.Artifacts) != 1 {
+		t.Fatalf("list: %d %+v %v", res.StatusCode, list, err)
+	}
+	if err := os.Rename(reports, reports+"-old"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(reports, "page.html"), "REPLACED")
+	b, _ := json.Marshal(map[string]string{"route": id, "root": list.Artifacts[0].Root, "path": "reports/page.html"})
+	if res := f.request(t, http.MethodPost, "/api/artifacts/open", string(b), f.authed); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("an open of a replaced page folder: %d %s", res.StatusCode, readBody(t, res))
+	}
+}
+
+// A page directly in a listed root is opened only in the root folder the
+// walk listed: a new folder made at the root's path is refused, even though
+// the page's folder is the root itself.
+func TestArtifactGrantRefusesAReplacedRoot(t *testing.T) {
+	f := newFixture(t)
+	wt := filepath.Join(t.TempDir(), "wt")
+	writeFile(t, filepath.Join(wt, "page.html"), "ORIGINAL")
+	md := strings.Replace(routeMD, "| Task | Agent | Pane |\n| --- | --- | --- |\n| auth | im-auth | w1:p2 |",
+		"| Task | Agent | Pane | Worktree |\n| --- | --- | --- | --- |\n| auth | im-auth | w1:p2 | "+wt+" |", 1)
+	writeFile(t, filepath.Join(f.routeDir, route.RouteFile), md)
+	f.hub.refresh(context.Background())
+	id := f.hub.Current().Routes[0].ID
+	res := f.request(t, http.MethodGet, "/api/artifacts?route="+id, "", f.authed)
+	var list struct {
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(list.Artifacts, func(a Artifact) bool { return a.Root == wt && a.Path == "page.html" }) {
+		t.Fatalf("page.html under %s not listed: %+v", wt, list.Artifacts)
+	}
+	if err := os.Rename(wt, wt+"-old"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(wt, "page.html"), "REPLACED")
+	b, _ := json.Marshal(map[string]string{"route": id, "root": wt, "path": "page.html"})
+	res = f.request(t, http.MethodPost, "/api/artifacts/open", string(b), f.authed)
+	if res.StatusCode != http.StatusNotFound {
+		var o struct {
+			URL string `json:"url"`
+		}
+		_ = json.NewDecoder(res.Body).Decode(&o)
+		served := ""
+		if o.URL != "" {
+			served = readBody(t, f.request(t, http.MethodGet, o.URL, "", nil))
+		}
+		t.Fatalf("an open of a replaced root: %d, served %q", res.StatusCode, served)
+	}
+}
+
+// The listing records each root's folder: when an ancestor of a listed root
+// is swapped for a link to another workspace, an open of the cached listing
+// is refused, and a grant made before the swap keeps serving its own folder.
+func TestArtifactGrantRefusesASwappedAncestor(t *testing.T) {
+	f := newFixture(t)
+	container := filepath.Join(t.TempDir(), "container")
+	wt := filepath.Join(container, "workspace")
+	writeFile(t, filepath.Join(wt, "reports", "page.html"), "ORIGINAL")
+	outside := t.TempDir()
+	writeFile(t, filepath.Join(outside, "workspace", "reports", "page.html"), "OTHER WORKSPACE")
+	md := strings.Replace(routeMD, "| Task | Agent | Pane |\n| --- | --- | --- |\n| auth | im-auth | w1:p2 |",
+		"| Task | Agent | Pane | Worktree |\n| --- | --- | --- | --- |\n| auth | im-auth | w1:p2 | "+wt+" |", 1)
+	if md == routeMD {
+		t.Fatal("route table not rewritten")
+	}
+	writeFile(t, filepath.Join(f.routeDir, route.RouteFile), md)
+	f.hub.refresh(context.Background())
+	id := f.hub.Current().Routes[0].ID
+	res := f.request(t, http.MethodGet, "/api/artifacts?route="+id, "", f.authed)
+	var list struct {
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(list.Artifacts, func(a Artifact) bool { return a.Root == wt && a.Path == "reports/page.html" }) {
+		t.Fatalf("page under %s not listed: %+v", wt, list.Artifacts)
+	}
+	open := func() (int, string) {
+		b, _ := json.Marshal(map[string]string{"route": id, "root": wt, "path": "reports/page.html"})
+		res := f.request(t, http.MethodPost, "/api/artifacts/open", string(b), f.authed)
+		var o struct {
+			URL string `json:"url"`
+		}
+		_ = json.NewDecoder(res.Body).Decode(&o)
+		return res.StatusCode, o.URL
+	}
+	serve := func(u string) string {
+		res := f.request(t, http.MethodGet, u, "", nil)
+		return fmt.Sprint(res.StatusCode, " ", readBody(t, res))
+	}
+	code, u := open()
+	if code != 200 || serve(u) != "200 ORIGINAL" {
+		t.Fatalf("open before the swap: %d %q", code, serve(u))
+	}
+	if err := os.Rename(container, container+"-old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, container); err != nil {
+		t.Fatal(err)
+	}
+	if got := serve(u); got != "200 ORIGINAL" {
+		t.Fatalf("a grant did not keep its folder after an ancestor swap: %q", got)
+	}
+	if code, u := open(); code != http.StatusNotFound {
+		t.Fatalf("an open through a swapped ancestor: %d %q", code, serve(u))
+	}
+}
+
+// The walk reads a folder in bounded batches, so a folder far wider than the
+// entry budget costs no more than one at the budget.
+func TestArtifactWalkBoundsAWideFolder(t *testing.T) {
+	if testing.Short() {
+		t.Skip("creates many files")
+	}
+	root := t.TempDir()
+	fill := func(from, to int) {
+		for i := from; i < to; i++ {
+			f, err := os.Create(filepath.Join(root, fmt.Sprintf("p%06d.txt", i)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = f.Close()
+		}
+	}
+	cost := func() uint64 {
+		best := uint64(math.MaxUint64)
+		for range 3 {
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			walkArtifacts([]string{root}, nil)
+			runtime.ReadMemStats(&after)
+			best = min(best, after.TotalAlloc-before.TotalAlloc)
+		}
+		return best
+	}
+	fill(0, artifactMaxSeen)
+	narrow := cost()
+	fill(artifactMaxSeen, 8*artifactMaxSeen)
+	wide := cost()
+	if wide > narrow*3/2+256<<10 {
+		t.Fatalf("a folder of %d entries allocated %d bytes, one of %d allocated %d", 8*artifactMaxSeen, wide, artifactMaxSeen, narrow)
+	}
+}
+
+// The listing cache runs for hours: a thousand rounds of refreshes and
+// evictions leave the heap and the goroutine count where they were.
+func TestArtifactCacheLoopKeepsMemoryFlat(t *testing.T) {
+	var roots [][]string
+	for i := range artifactMaxLists + 4 {
+		d := t.TempDir()
+		writeFile(t, filepath.Join(d, fmt.Sprintf("p%d.html", i)), "p")
+		roots = append(roots, []string{d})
+	}
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	a := newArtifacts()
+	a.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	round := func(i int) {
+		clock.Add(int64(artifactsTTL / 4))
+		if got := a.find(roots[i%len(roots)]); len(got) != 1 {
+			t.Fatalf("round %d: %v", i, got)
+		}
+	}
+	settle := func() (uint64, int) {
+		waitRefreshed(t, a)
+		runtime.GC()
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		return m.HeapAlloc, runtime.NumGoroutine()
+	}
+	for i := range 2 * len(roots) {
+		round(i)
+	}
+	heap, goroutines := settle()
+	for i := range 1000 {
+		round(i)
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		if _, n := settle(); n <= goroutines || time.Now().After(deadline) {
+			break
+		}
+	}
+	after, n := settle()
+	if n > goroutines {
+		t.Fatalf("goroutines %d, were %d", n, goroutines)
+	}
+	if after > heap && after-heap > 1<<20 {
+		t.Fatalf("heap grew %d bytes over 1000 rounds", after-heap)
+	}
+	a.mu.Lock()
+	kept := len(a.lists)
+	a.mu.Unlock()
+	if kept > artifactMaxLists {
+		t.Fatalf("%d listings kept", kept)
+	}
+
+	// One kept key: every round its listing goes stale, the stale one is
+	// served, and a background walk replaces it before the next round.
+	kept0 := roots[0]
+	key := strings.Join(kept0, "\x00")
+	listed := func() time.Time {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if e := a.lists[key]; e != nil {
+			return e.listed
+		}
+		return time.Time{}
+	}
+	a.find(kept0)
+	heap, goroutines = settle()
+	for i := range 1000 {
+		clock.Add(int64(artifactsTTL + time.Second))
+		if got := a.find(kept0); len(got) != 1 {
+			t.Fatalf("refresh round %d: %v", i, got)
+		}
+		waitRefreshed(t, a)
+		if !listed().Equal(a.now()) {
+			t.Fatalf("refresh round %d: no background walk replaced the stale listing", i)
+		}
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		if _, n := settle(); n <= goroutines || time.Now().After(deadline) {
+			break
+		}
+	}
+	after, n = settle()
+	if n > goroutines {
+		t.Fatalf("after 1000 refreshes: goroutines %d, were %d", n, goroutines)
+	}
+	if after > heap && after-heap > 1<<20 {
+		t.Fatalf("heap grew %d bytes over 1000 background refreshes", after-heap)
 	}
 }
 
@@ -158,14 +720,7 @@ func TestArtifactListingRefreshesInTheBackground(t *testing.T) {
 	if got := a.find([]string{root}); len(got) != 1 {
 		t.Fatalf("stale listing was not served at once: %v", got)
 	}
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
-		a.mu.Lock()
-		done := !a.refreshing
-		a.mu.Unlock()
-		if done || time.Now().After(deadline) {
-			break
-		}
-	}
+	waitRefreshed(t, a)
 	if got := a.find([]string{root}); len(got) != 2 {
 		t.Fatalf("after the background walk: %v", got)
 	}
@@ -203,5 +758,310 @@ func TestWalkRootsResolveALinkedFolder(t *testing.T) {
 	}
 	if got := newArtifacts().find(roots); len(got) != 1 || got[0].Path != "page.html" {
 		t.Fatalf("pages = %+v", got)
+	}
+}
+
+// waitRefreshed waits for every background walk to end.
+func waitRefreshed(t *testing.T, a *artifacts) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		a.mu.Lock()
+		busy := false
+		for _, e := range a.lists {
+			busy = busy || e.refreshing
+		}
+		a.mu.Unlock()
+		if !busy {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("a background walk did not end")
+		}
+	}
+}
+
+// A listing is only ever served for the roots it was walked from: a route
+// shown after another never gets the other's list, fresh, stale or while a
+// walk runs, and the cache keeps a bounded number of listings.
+func TestArtifactListingIsKeyedByRoots(t *testing.T) {
+	one, two := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(one, "one.html"), "1")
+	writeFile(t, filepath.Join(two, "two.html"), "2")
+	a := newArtifacts()
+	now := time.Now()
+	a.now = func() time.Time { return now }
+	names := func(l []Artifact) string {
+		var s []string
+		for _, x := range l {
+			s = append(s, x.Path)
+		}
+		return strings.Join(s, ",")
+	}
+	if got := names(a.find([]string{one})); got != "one.html" {
+		t.Fatalf("first route: %s", got)
+	}
+	if got := names(a.find([]string{two})); got != "two.html" {
+		t.Fatalf("second route got %s", got)
+	}
+	now = now.Add(artifactsTTL + time.Second)
+	if got := names(a.find([]string{one})); got != "one.html" {
+		t.Fatalf("stale first route: %s", got)
+	}
+	// The first route's list is refreshing; the second still gets its own.
+	if got := names(a.find([]string{two})); got != "two.html" {
+		t.Fatalf("second route during a walk got %s", got)
+	}
+	waitRefreshed(t, a)
+	for i := range artifactMaxLists + 3 {
+		d := t.TempDir()
+		writeFile(t, filepath.Join(d, "p.html"), "p")
+		now = now.Add(time.Millisecond * time.Duration(i+1))
+		if got := names(a.find([]string{d})); got != "p.html" {
+			t.Fatalf("root %d: %s", i, got)
+		}
+	}
+	waitRefreshed(t, a)
+	a.mu.Lock()
+	n := len(a.lists)
+	a.mu.Unlock()
+	if n > artifactMaxLists {
+		t.Fatalf("%d listings kept", n)
+	}
+}
+
+// Two requests for the same roots before any listing share one walk: the
+// second waits for the first and gets its result, without walking again.
+func TestArtifactColdListingsShareOneWalk(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "a.html"), "a")
+	a := newArtifacts()
+	var walks atomic.Int32
+	walking, release := make(chan struct{}), make(chan struct{})
+	a.beforeOpen = func(_, dir string) {
+		if dir == "." && walks.Add(1) == 1 {
+			close(walking)
+			<-release
+		}
+	}
+	first, second := make(chan []Artifact, 1), make(chan []Artifact, 1)
+	go func() { first <- a.find([]string{root}) }()
+	<-walking
+	go func() { second <- a.find([]string{root}) }()
+	// The second request is inside refresh, so it takes the walk lock after
+	// the first and finds the first one's listing.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		buf := make([]byte, 1<<20)
+		if strings.Count(string(buf[:runtime.Stack(buf, true)]), "(*artifacts).refresh(") >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second request never reached the walk")
+		}
+	}
+	close(release)
+	one, two := <-first, <-second
+	if len(one) != 1 || len(two) != 1 || one[0] != two[0] {
+		t.Fatalf("listings %+v and %+v", one, two)
+	}
+	if n := walks.Load(); n != 1 {
+		t.Fatalf("%d walks for one set of roots", n)
+	}
+}
+
+// The walk and the open refuse what they cannot vouch for: a root gone
+// before the walk, a page over the size limit, a page a deeper root owns,
+// and an open without a recorded folder, of a root gone since the listing,
+// of a root page whose folder is not the root, or of a folder that cannot
+// be opened.
+func TestArtifactWalkAndOpenEdges(t *testing.T) {
+	tmp := t.TempDir()
+	if got := walkArtifacts([]string{filepath.Join(tmp, "gone")}, nil); len(got) != 0 {
+		t.Fatalf("a missing root listed %+v", got)
+	}
+
+	shallow := filepath.Join(tmp, "s")
+	deep := filepath.Join(shallow, "deep")
+	writeFile(t, filepath.Join(deep, "p.html"), "p")
+	big, err := os.Create(filepath.Join(shallow, "big.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := big.Truncate(artifactMaxSize + 1); err != nil {
+		t.Fatal(err)
+	}
+	_ = big.Close()
+	got := walkArtifacts([]string{deep, shallow}, nil)
+	if len(got) != 1 || got[0].Root != deep || got[0].Path != "p.html" {
+		t.Fatalf("listing = %+v, want only p.html under the deeper root", got)
+	}
+
+	id, err := os.Stat(shallow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := os.Stat(deep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openPageDir(shallow, nil, "", id); err == nil {
+		t.Fatal("an open without a recorded root folder")
+	}
+	if _, err := openPageDir(shallow, id, "", other); err == nil {
+		t.Fatal("a root page whose folder is not the root was opened")
+	}
+	if _, err := openPageDir(filepath.Join(tmp, "gone"), id, "", id); err == nil {
+		t.Fatal("a root gone since the listing was opened")
+	}
+	locked := filepath.Join(shallow, "locked")
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lockedID, err := os.Stat(locked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if os.Getuid() != 0 {
+		if _, err := openPageDir(shallow, id, "locked", lockedID); err == nil {
+			t.Fatal("a folder that cannot be opened was opened")
+		}
+	}
+}
+
+const twoWorkspaceRoute = "# Route %s\n\nOrchestrator: this session, pane %s (tab %s).\n\n" +
+	"## Task table\n\n| Task | Agent | Pane | Worktree |\n| --- | --- | --- | --- |\n" +
+	"| t | im-%s | %s | %s |\n"
+
+// A route's Artifacts tab lists only its own Herdr workspace's folders and
+// its own route folder and worktrees, never another workspace's pages.
+func TestArtifactsAreScopedToTheRoutesWorkspace(t *testing.T) {
+	f := newFixture(t)
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	projA, projB, wtA := filepath.Join(tmp, "a"), filepath.Join(tmp, "b"), filepath.Join(tmp, "wt-a")
+	dirA, dirB := filepath.Join(projA, ".herdsman", "ra-2026-10-25"), filepath.Join(projB, ".herdsman", "rb-2026-10-25")
+	writeFile(t, filepath.Join(dirA, route.RouteFile), fmt.Sprintf(twoWorkspaceRoute, "ra", "w1:p1", "w1:t1", "a", "w1:p2", wtA))
+	writeFile(t, filepath.Join(dirB, route.RouteFile), fmt.Sprintf(twoWorkspaceRoute, "rb", "w2:p1", "w2:t1", "b", "w2:p2", "-"))
+	writeFile(t, filepath.Join(projA, "reports", "a.html"), "a")
+	writeFile(t, filepath.Join(dirA, "route-page.html"), "r")
+	writeFile(t, filepath.Join(wtA, "wt.html"), "w")
+	writeFile(t, filepath.Join(projB, "reports", "b.html"), "b")
+	fg := filepath.Join(tmp, "fg-a")
+	writeFile(t, filepath.Join(fg, "fg.html"), "f")
+	f.herdr.Handle("session.snapshot", func(map[string]any) (any, string) {
+		return map[string]any{"snapshot": map[string]any{
+			"version": "0.9.4", "protocol": 22, "focused_tab_id": "w1:t1",
+			"workspaces": []map[string]any{{"workspace_id": "w1", "number": 1}, {"workspace_id": "w2", "number": 2}},
+			"panes": []map[string]any{
+				{"pane_id": "w1:p1", "tab_id": "w1:t1", "workspace_id": "w1", "cwd": projA, "foreground_cwd": fg, "agent_status": "idle"},
+				{"pane_id": "w1:p2", "tab_id": "w1:t2", "workspace_id": "w1", "cwd": projA, "agent_status": "working"},
+				{"pane_id": "w2:p1", "tab_id": "w2:t1", "workspace_id": "w2", "cwd": projB, "agent_status": "idle"},
+				{"pane_id": "w2:p2", "tab_id": "w2:t2", "workspace_id": "w2", "cwd": projB, "agent_status": "working"},
+			},
+			"agents": []map[string]any{
+				{"pane_id": "w1:p2", "tab_id": "w1:t2", "workspace_id": "w1", "name": "im-a", "agent_status": "working"},
+				{"pane_id": "w2:p2", "tab_id": "w2:t2", "workspace_id": "w2", "name": "im-b", "agent_status": "working"},
+			},
+		}}, ""
+	})
+	f.hub.refresh(context.Background())
+	ids := map[string]string{}
+	for _, r := range f.hub.Current().Routes {
+		ids[strings.SplitN(r.Name, "-", 2)[0]] = r.ID
+	}
+	if ids["ra"] == "" || ids["rb"] == "" {
+		t.Fatalf("routes = %v", ids)
+	}
+
+	type listing struct {
+		Roots     []string   `json:"roots"`
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	list := func(id string) listing {
+		t.Helper()
+		res := f.request(t, http.MethodGet, "/api/artifacts?route="+url.QueryEscape(id), "", f.authed)
+		var l listing
+		if err := json.NewDecoder(res.Body).Decode(&l); err != nil || res.StatusCode != 200 {
+			t.Fatalf("list %s: %d %v", id, res.StatusCode, err)
+		}
+		return l
+	}
+	pages := func(l listing) []string {
+		var out []string
+		for _, a := range l.Artifacts {
+			out = append(out, filepath.Join(a.Root, filepath.FromSlash(a.Path)))
+		}
+		slices.Sort(out)
+		return out
+	}
+	wantA := []string{filepath.Join(dirA, "route-page.html"), filepath.Join(fg, "fg.html"), filepath.Join(projA, "reports", "a.html"), filepath.Join(wtA, "wt.html")}
+	slices.Sort(wantA)
+	wantB := []string{filepath.Join(projB, "reports", "b.html")}
+	// Switching back and forth never shows the other route's pages.
+	for range 2 {
+		if got := pages(list(ids["ra"])); !slices.Equal(got, wantA) {
+			t.Fatalf("route a pages = %v, want %v", got, wantA)
+		}
+		if got := pages(list(ids["rb"])); !slices.Equal(got, wantB) {
+			t.Fatalf("route b pages = %v, want %v", got, wantB)
+		}
+	}
+
+	open := func(id, root, path string) int {
+		b, _ := json.Marshal(map[string]string{"route": id, "root": root, "path": path})
+		return f.request(t, http.MethodPost, "/api/artifacts/open", string(b), f.authed).StatusCode
+	}
+	if code := open(ids["ra"], projA, "reports/a.html"); code != 200 {
+		t.Fatalf("open own page: %d", code)
+	}
+	if code := open(ids["ra"], projB, "reports/b.html"); code != http.StatusNotFound {
+		t.Fatalf("open another workspace's page: %d", code)
+	}
+	if code := open("nope~000000", projA, "reports/a.html"); code != http.StatusNotFound {
+		t.Fatalf("open with an unknown route: %d", code)
+	}
+	if code := open("", projA, "reports/a.html"); code != http.StatusBadRequest {
+		t.Fatalf("open without a route: %d", code)
+	}
+	for path, want := range map[string]int{"/api/artifacts": 400, "/api/artifacts?route=nope~000000": 404} {
+		res := f.request(t, http.MethodGet, path, "", f.authed)
+		var e struct {
+			Error string `json:"error"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&e); err != nil || res.StatusCode != want || e.Error == "" {
+			t.Fatalf("%s: %d %+v %v", path, res.StatusCode, e, err)
+		}
+	}
+}
+
+// A route no workspace holds gets only its own folders.
+func TestArtifactRootsOfAnUnplacedRoute(t *testing.T) {
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, pane := filepath.Join(tmp, "p", ".herdsman", "r"), filepath.Join(tmp, "pane")
+	for _, d := range []string{dir, pane} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snap := herdr.Snapshot{Panes: []herdr.Pane{{ID: "w1:p1", WorkspaceID: "w1", Cwd: &pane}}}
+	rv := RouteView{Route: &route.Route{Dir: dir, OrchestratorPane: "w9:p9"}, Live: true}
+	if got := routeArtifactRoots(snap, rv, ""); !slices.Equal(got, []string{dir}) {
+		t.Fatalf("roots = %v", got)
+	}
+	rv.OrchestratorPane = "w1:p1"
+	if got := routeArtifactRoots(snap, rv, ""); !slices.Equal(got, []string{dir, pane}) {
+		t.Fatalf("placed roots = %v", got)
+	}
+	rv.Live = false
+	if got := routeArtifactRoots(snap, rv, ""); !slices.Equal(got, []string{dir}) {
+		t.Fatalf("a stopped route took a workspace: %v", got)
 	}
 }
