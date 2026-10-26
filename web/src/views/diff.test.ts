@@ -25,6 +25,8 @@ g["ResizeObserver"] = class {
   observe(el: unknown): void {
     observed = el;
   }
+  // Other test files share this global; the agent panel disconnects its observer.
+  disconnect(): void {}
 };
 
 const { store } = await import("../store.ts");
