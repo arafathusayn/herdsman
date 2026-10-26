@@ -5,10 +5,10 @@
 // human's: the app never approves a pair, writes the inbox or types into
 // the adjutant's pane.
 import { AuthError, catalog, createRoute, inboxState } from "../api.ts";
-import { mountElement } from "../dom.ts";
 import { html, on, text } from "../herdsman-blocks-view.ts";
 import { store } from "../store.ts";
 import { dismissOnBackdrop, toast } from "../ui.ts";
+import { element } from "./element-view.ts";
 import { routeForm } from "./route-form.ts";
 
 async function copy(text: string, what: string): Promise<void> {
@@ -37,17 +37,20 @@ const CloseAction = html`<div class="dialog-actions"><button value="cancel" clas
 /** Opens the New route dialog. */
 export function openNewRoute(): void {
   let stop = (): void => {};
-  const dlg = mountElement("dialog", Dialog, [
-    function () {
-      stop();
-      this.remove();
-    },
-  ]);
-  const body = mountElement("form", Body, []);
+  const dlg = element(
+    "dialog",
+    Dialog([
+      function () {
+        stop();
+        this.remove();
+      },
+    ]),
+  );
+  const body = element("form", Body([]));
   dlg.append(body);
   dismissOnBackdrop(dlg);
   document.body.append(dlg);
-  body.replaceChildren(mountElement("h2", Heading, []), mountElement("p", Loading, []));
+  body.replaceChildren(element("h2", Heading([])), element("p", Loading([])));
   dlg.showModal();
   catalog().then(
     (c) => {
@@ -78,9 +81,9 @@ export function openNewRoute(): void {
     (e: unknown) => {
       if (e instanceof AuthError) store.set({ fatal: e.message });
       body.replaceChildren(
-        mountElement("h2", Heading, []),
-        mountElement("p", Failure, [e instanceof Error ? e.message : String(e)]),
-        mountElement("div", CloseAction, []),
+        element("h2", Heading([])),
+        element("p", Failure([e instanceof Error ? e.message : String(e)])),
+        element("div", CloseAction([])),
       );
     },
   );

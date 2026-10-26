@@ -1,7 +1,7 @@
 // Draggable widths: the agent panel at its left edge and the sidebar at its
 // right edge, each kept for next time.
-import { mountElement } from "./dom.ts";
 import { attr, cls, html, on } from "./herdsman-blocks-view.ts";
+import { element } from "./views/element-view.ts";
 
 /** One resizable column: where its width lives and how far it may go. */
 interface Edge {
@@ -111,40 +111,43 @@ function resizer(col: HTMLElement, e: Edge): HTMLElement {
   // The arrow toward the column's free side widens it.
   const grow = e.side === "left" ? "ArrowLeft" : "ArrowRight";
   const shrink = e.side === "left" ? "ArrowRight" : "ArrowLeft";
-  return mountElement("div", Handle, [
-    `col-resize ${e.side}`,
-    e.label,
-    function (ev) {
-      if (ev.button !== 0) return;
-      ev.preventDefault();
-      const handle = this;
-      handle.setPointerCapture(ev.pointerId);
-      const r = col.getBoundingClientRect();
-      let w = r.width;
-      document.body.classList.add("resizing");
-      const move = (m: PointerEvent): void => {
-        w = apply(handle, e.side === "left" ? r.right - m.clientX : m.clientX - r.left);
-      };
-      const up = (): void => {
-        handle.removeEventListener("pointermove", move);
-        handle.removeEventListener("pointerup", up);
-        handle.removeEventListener("pointercancel", up);
-        document.body.classList.remove("resizing");
-        saveWidth(e, w);
-      };
-      handle.addEventListener("pointermove", move);
-      handle.addEventListener("pointerup", up);
-      handle.addEventListener("pointercancel", up);
-    },
-    function (k) {
-      const d = k.key === grow ? step : k.key === shrink ? -step : 0;
-      if (!d) return;
-      k.preventDefault();
-      saveWidth(e, apply(this, col.getBoundingClientRect().width + d));
-    },
-    () => {
-      document.documentElement.style.removeProperty(e.prop);
-      saveWidth(e, null);
-    },
-  ]);
+  return element(
+    "div",
+    Handle([
+      `col-resize ${e.side}`,
+      e.label,
+      function (ev) {
+        if (ev.button !== 0) return;
+        ev.preventDefault();
+        const handle = this;
+        handle.setPointerCapture(ev.pointerId);
+        const r = col.getBoundingClientRect();
+        let w = r.width;
+        document.body.classList.add("resizing");
+        const move = (m: PointerEvent): void => {
+          w = apply(handle, e.side === "left" ? r.right - m.clientX : m.clientX - r.left);
+        };
+        const up = (): void => {
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", up);
+          handle.removeEventListener("pointercancel", up);
+          document.body.classList.remove("resizing");
+          saveWidth(e, w);
+        };
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+        handle.addEventListener("pointercancel", up);
+      },
+      function (k) {
+        const d = k.key === grow ? step : k.key === shrink ? -step : 0;
+        if (!d) return;
+        k.preventDefault();
+        saveWidth(e, apply(this, col.getBoundingClientRect().width + d));
+      },
+      () => {
+        document.documentElement.style.removeProperty(e.prop);
+        saveWidth(e, null);
+      },
+    ]),
+  );
 }

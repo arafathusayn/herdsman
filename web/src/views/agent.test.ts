@@ -417,10 +417,16 @@ test("the terminal view takes typing and keeps keys from the page", async () => 
   input.value = "ls";
   dispatch(input, "input");
   expect(input.value).toBe("");
+  // Composed text (IME, dictation) waits for the composition to end.
+  input.value = "日本";
+  dispatch(input, "input", { isComposing: true });
+  expect(input.value).toBe("日本");
+  dispatch(input, "compositionend");
+  expect(input.value).toBe("");
   await flush();
   expect(actions).toEqual([
     { type: "input", pane: "p7", keys: ["esc"] },
-    { type: "input", pane: "p7", text: "ls" },
+    { type: "input", pane: "p7", text: "ls日本" }, // queued text goes out together
   ]);
 
   // Back to the log view: the typing field is off and keys go to the pane as actions.

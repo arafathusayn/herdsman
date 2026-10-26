@@ -13,12 +13,13 @@ import {
   list,
   type ListNode,
   on,
-  renderDirect,
   text,
+  update,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
 import { store } from "../store.ts";
 import type { Channel, ChannelMessage } from "../types.ts";
+import { element } from "./element-view.ts";
 
 function when(t: number): string {
   const d = new Date(t * 1000);
@@ -153,33 +154,23 @@ const Messages = html`<div class="messages">
 type Peers = { adjutant: string; orchestrator: string };
 type Loaded = { text?: string; error?: string };
 
-// A checked narrowing, not a cast: the view's root is an HTML element.
-const isHTML = (n: Node | null): n is HTMLElement => n !== null && n.nodeType === 1;
-
 export class MessagesView {
   /** The view's root, made once; render() patches what is in it. */
   readonly el: HTMLElement;
-  // The view is rendered into box, and its root (el) moves to wherever
-  // main.ts puts it: out of box, so box would never see the events to
-  // delegate, and the handlers are direct (renderDirect) instead.
-  private readonly box = document.createElement("div");
   private readonly bodies = new Map<string, Loaded>();
   private readonly expanded = new Set<string>();
   private lastKey = "";
 
   constructor() {
-    renderDirect(this.box, Messages([null, null, null]));
-    const root = this.box.firstChild;
-    if (!isHTML(root)) throw new Error("MessagesView: the view rendered no element");
-    this.el = root;
+    this.el = element("div", Messages([null, null, null]));
   }
 
   render(ch: Channel | null, panes: Peers): void {
     const key = JSON.stringify([ch, panes, [...this.expanded], [...this.bodies.keys()]]);
     if (key === this.lastKey) return;
     this.lastKey = key;
-    renderDirect(
-      this.box,
+    update(
+      this.el,
       !ch
         ? Messages([Loading([]), null, null])
         : !ch.configured

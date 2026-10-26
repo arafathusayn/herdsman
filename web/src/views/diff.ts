@@ -7,7 +7,7 @@
 import { AuthError, routeDiff } from "../api.ts";
 import { highlighting } from "../appearance.ts";
 import { type DiffLine, parseSection, sideBySide, splitPatch } from "../diff.ts";
-import { icon, type IconNode, icons, mountElement } from "../dom.ts";
+import { icon, type IconNode, icons } from "../dom.ts";
 import { fuzzy, highlight, type HighlightNode } from "../fuzzy.ts";
 import {
   attr,
@@ -17,16 +17,17 @@ import {
   list,
   type ListNode,
   on,
-  renderDirect,
   runs,
   type RunsNode,
   text,
+  update,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
 import { languageOf, type Piece, type State, tokenizeLine } from "../highlight.ts";
 import { store } from "../store.ts";
 import type { DiffFile, DiffSource } from "../types.ts";
 import { toast } from "../ui.ts";
+import { element } from "./element-view.ts";
 
 const pollMs = 5000;
 /** Rows drawn before "Show all"; a generated file can have tens of thousands. */
@@ -284,18 +285,15 @@ const Shell = html`<div class="files diff">
   </section>
 </div>`;
 
-// Checked narrowings, not casts: the shell's root is a <div>, its last child the viewer <section>.
-const isDiv = (n: Node | null): n is HTMLDivElement => n !== null && n.nodeType === 1 && n.nodeName === "DIV";
+// A checked narrowing, not a cast: the shell's last child is the viewer <section>.
 const isElement = (n: Node | null): n is Element => n !== null && n.nodeType === 1;
 
 export class DiffView {
   readonly el: HTMLElement;
   private readonly search: HTMLInputElement;
-  // The shell renders into this holder, which stays out of the document; its
-  // root, the element main.ts places, is `el`. Later renders patch it there.
-  // The root moves out of the holder, so it renders with renderDirect:
-  // delegated handlers would listen on the holder, which no event reaches.
-  private readonly holder = document.createElement("div");
+  // The shell's root, the element main.ts places (`el`): mounted on the
+  // first draw, patched where it stands after.
+  private root: HTMLDivElement | null = null;
   /** The viewer is too narrow for side by side. */
   private narrow = false;
   private sources: DiffSource[] | null = null;
@@ -318,24 +316,25 @@ export class DiffView {
   private loading = false;
 
   constructor(readonly routeId: string) {
-    this.search = mountElement("input", SearchInput, [
-      () => this.draw(),
-      (e) => {
-        if (e.key === "Escape") {
-          if (this.search.value) {
-            e.preventDefault();
-            this.search.value = "";
-            this.draw();
-          } else this.search.blur();
-        } else if (e.key === "Enter") {
-          const first = this.listed[0];
-          if (first) this.choose(first);
-        }
-      },
-    ]);
-    this.draw();
-    const root = this.holder.firstChild;
-    if (!isDiv(root)) throw new Error("DiffView: the shell rendered no root");
+    this.search = element(
+      "input",
+      SearchInput([
+        () => this.draw(),
+        (e) => {
+          if (e.key === "Escape") {
+            if (this.search.value) {
+              e.preventDefault();
+              this.search.value = "";
+              this.draw();
+            } else this.search.blur();
+          } else if (e.key === "Enter") {
+            const first = this.listed[0];
+            if (first) this.choose(first);
+          }
+        },
+      ]),
+    );
+    const root = this.draw();
     this.el = root;
     const viewer = root.lastChild;
     if (!isElement(viewer)) throw new Error("DiffView: the shell has no viewer");
@@ -428,13 +427,13 @@ export class DiffView {
     store.go({ diffFile: f.path, source: this.source()?.id ?? "" }, false);
   }
 
-  private draw(): void {
+  private draw(): HTMLDivElement {
     const files = this.fileList(); // sets the count
     this.syncViewer();
-    renderDirect(
-      this.holder,
-      Shell([this.sourceList(), searchIcon, this.search, this.count, files, ...this.head, ...this.body]),
-    );
+    const d = Shell([this.sourceList(), searchIcon, this.search, this.count, files, ...this.head, ...this.body]);
+    if (this.root === null) this.root = element("div", d);
+    else update(this.root, d);
+    return this.root;
   }
 
   private sourceList(): ListNode<SourceNode, string> | EmptyNode {

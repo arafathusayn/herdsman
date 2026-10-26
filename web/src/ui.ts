@@ -1,6 +1,6 @@
 // Shared bits: status pills, toasts, the confirm and form dialogs and the theme.
 import { appThemes, installAppTheme } from "./appearance.ts";
-import { icon, type IconNode, icons, mountElement } from "./dom.ts";
+import { icon, type IconNode, icons } from "./dom.ts";
 import {
   attr,
   child,
@@ -15,6 +15,7 @@ import {
   type ViewNodeOf,
 } from "./herdsman-blocks-view.ts";
 import { type Member, statusLabel } from "./model.ts";
+import { element } from "./views/element-view.ts";
 
 const Pill = html`<span class=${cls()}><span class="dot" aria-hidden="true"></span>${text()}</span>`;
 
@@ -33,10 +34,10 @@ let toastHost: HTMLDivElement | null = null;
 
 export function toast(message: string, kind: "ok" | "error" = "ok"): void {
   if (!toastHost) {
-    toastHost = mountElement("div", ToastHost, []);
+    toastHost = element("div", ToastHost([]));
     document.body.append(toastHost);
   }
-  const t = mountElement("div", Toast, [`toast ${kind}`, message]);
+  const t = element("div", Toast([`toast ${kind}`, message]));
   toastHost.append(t);
   setTimeout(() => t.classList.add("leave"), kind === "error" ? 6000 : 3000);
   setTimeout(() => t.remove(), kind === "error" ? 6400 : 3400);
@@ -67,7 +68,7 @@ type OnClose = (this: HTMLDialogElement, e: Event) => void;
 const Dialog = html`<dialog class="dialog" onclose=${on<"close", HTMLDialogElement>()}></dialog>`;
 
 function openDialog(onClose: OnClose): HTMLDialogElement {
-  return mountElement("dialog", Dialog, [onClose]);
+  return element("dialog", Dialog([onClose]));
 }
 
 const ConfirmForm = html`<form method="dialog">

@@ -1,7 +1,7 @@
 // Hosts: the dialog that lists the herdsman servers this app knows, adds one
 // from its pairing link or address, renames, forgets and switches; and the
 // connect screen shown when there is no host to talk to yet.
-import { icon, type IconNode, icons, logoMark, type LogoNode, mountElement } from "../dom.ts";
+import { icon, type IconNode, icons, logoMark, type LogoNode } from "../dom.ts";
 import {
   attr,
   child,
@@ -12,8 +12,8 @@ import {
   on,
   prop,
   render,
-  renderDirect,
   text,
+  update,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
 import {
@@ -27,6 +27,7 @@ import {
   upsert,
 } from "../hosts.ts";
 import { dismissOnBackdrop, toast } from "../ui.ts";
+import { element } from "./element-view.ts";
 
 const pairKey = "herdsman.pending-link";
 
@@ -235,20 +236,23 @@ function hostList(s: HostsState, redraw: () => void): HostListNode {
       s.renaming = null;
       redraw();
     };
-    const field = mountElement("input", RenameField, [
-      host.name,
-      (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          done(true);
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          e.stopPropagation();
-          done(false);
-        }
-      },
-      () => done(true),
-    ]);
+    const field = element(
+      "input",
+      RenameField([
+        host.name,
+        (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            done(true);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            done(false);
+          }
+        },
+        () => done(true),
+      ]),
+    );
     s.renaming = { id: host.id, field };
     redraw();
     field.focus();
@@ -314,34 +318,25 @@ export function hostsDialog(s: HostsState, redraw: () => void): HostsDialogNode 
   ]);
 }
 
-// A checked narrowing, not a cast.
-const isDialog = (n: Node | null): n is HTMLDialogElement => n !== null && n.nodeName === "DIALOG";
-
 /** Opens the Hosts dialog. */
 export function openHosts(): void {
   const s = hostsState();
-  // The dialog is the view's root (its children are the dialog's own: a view
-  // cannot fill a container with several roots), so it is rendered in a
-  // holder and moved to the page. renderDirect, not render: render's
-  // delegated handlers listen on the holder, which the dialog leaves. Later
-  // renders of the same view patch it where it is.
-  const holder = document.createElement("div");
-  const redraw = (): void => renderDirect(holder, hostsDialog(s, redraw));
-  redraw();
-  const dlg = holder.firstChild;
-  if (!isDialog(dlg)) throw new Error("hosts: the view's root is not a dialog");
+  // The dialog is the view's root, mounted on its own and moved to the page;
+  // later renders of the same view patch it where it is.
+  const redraw = (): void => update(dlg, hostsDialog(s, redraw));
+  const dlg = element("dialog", hostsDialog(s, redraw));
   dismissOnBackdrop(dlg);
   document.body.append(dlg);
   dlg.showModal();
 }
 
 // The pairing screens replace the app's root with a <main> they own: main.ts
-// also fills that root with mount(), so a render() kept on the root itself
-// would go stale.
+// also fills that root (with its frame, by replaceChildren), so a render()
+// kept on the root itself would go stale.
 const PairMain = html`<main class="pair"></main>`;
 
 function showScreen(root: HTMLElement): HTMLElement {
-  const main = mountElement("main", PairMain, []);
+  const main = element("main", PairMain([]));
   root.replaceChildren(main);
   return main;
 }

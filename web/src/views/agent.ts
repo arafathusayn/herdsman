@@ -7,7 +7,7 @@ import { run } from "../actions.ts";
 import { arrowKeys, keySet, renamePane, sendOtherKeys, startAgent } from "../agent-actions.ts";
 import { readPalette, renderAnsi } from "../ansi.ts";
 import { act, AuthError, forgetPane, readPane } from "../api.ts";
-import { icon, type IconNode, icons, mountElement } from "../dom.ts";
+import { icon, type IconNode, icons } from "../dom.ts";
 import {
   attr,
   child,
@@ -16,8 +16,8 @@ import {
   list,
   type ListNode,
   on,
-  renderDirect,
   text,
+  update,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
 import { afterSend, type Member, roleName } from "../model.ts";
@@ -38,6 +38,7 @@ import {
 } from "../terminal.ts";
 import type { Action } from "../types.ts";
 import { pill, type PillNode, toast } from "../ui.ts";
+import { element } from "./element-view.ts";
 
 type PaneView = "log" | "terminal";
 
@@ -93,6 +94,7 @@ const TermInput = html`<textarea
   oninput=${on<"input", HTMLTextAreaElement>()}
   onfocus=${on<"focus", HTMLTextAreaElement>()}
   onblur=${on<"blur", HTMLTextAreaElement>()}
+  oncompositionend=${on<"compositionend", HTMLTextAreaElement>()}
 ></textarea>`;
 const Want = html`<div class="panel-want" aria-hidden="true"></div>`;
 const MessageBox = html`<textarea
@@ -207,16 +209,8 @@ const views: readonly { id: PaneView; glyph: readonly string[]; label: string; t
   },
 ];
 
-// A checked narrowing, not a cast: the view's root is an HTML element.
-const isHTML = (n: Node | null): n is HTMLElement => n !== null && n.nodeType === 1;
-
 export class AgentPanel {
   readonly el: HTMLElement;
-  // The view is rendered into box, and its root (el) moves to wherever
-  // main.ts puts it: out of box, so box would never see the events to
-  // delegate, and the handlers are direct (renderDirect) instead. The
-  // keydown handlers that stop propagation then run on their own element.
-  private readonly box = document.createElement("div");
   /** Whether the details are open below the bar; the choice is kept. */
   private infoOpen = loadInfoOpen();
   /** The note under the tail: a cut tail or a read error. */
@@ -239,9 +233,9 @@ export class AgentPanel {
   /** Takes the typing of the terminal view, so IME, paste and phone keyboards work. */
   private readonly termInput: HTMLTextAreaElement;
   /** Measures the width the panel asks for, which the window may cut. */
-  private readonly want = mountElement("div", Want, []);
+  private readonly want = element("div", Want([]));
   private readonly input: HTMLTextAreaElement;
-  private readonly mode = mountElement("select", Mode, []);
+  private readonly mode = element("select", Mode([]));
   private readonly resizer: HTMLElement;
   private timer = 0;
   private stuck = true;
@@ -261,72 +255,76 @@ export class AgentPanel {
     readonly pane: string,
     private readonly kinds: () => string[],
   ) {
-    this.tail = mountElement("pre", Tail, [
-      () => {
-        const t = this.tail;
-        this.stuck = t.scrollHeight - t.scrollTop - t.clientHeight < 24;
-      },
-      // A click on the screen starts typing there, unless it selected text to copy.
-      () => {
-        if (this.view === "terminal" && (window.getSelection()?.isCollapsed ?? true)) {
-          this.termInput.focus({ preventScroll: true });
-        }
-      },
-      (e) => {
-        if (this.zoomFor(e)) return;
-        if (this.view === "terminal" && e.key === "Enter") {
+    this.tail = element(
+      "pre",
+      Tail([
+        () => {
+          const t = this.tail;
+          this.stuck = t.scrollHeight - t.scrollTop - t.clientHeight < 24;
+        },
+        // A click on the screen starts typing there, unless it selected text to copy.
+        () => {
+          if (this.view === "terminal" && (window.getSelection()?.isCollapsed ?? true)) {
+            this.termInput.focus({ preventScroll: true });
+          }
+        },
+        (e) => {
+          if (this.zoomFor(e)) return;
+          if (this.view === "terminal" && e.key === "Enter") {
+            e.preventDefault();
+            this.termInput.focus({ preventScroll: true });
+          }
+        },
+        (e) => {
+          // A sideways scroll moves along a screen wider than the panel.
+          if (this.view !== "terminal" || e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
           e.preventDefault();
-          this.termInput.focus({ preventScroll: true });
-        }
-      },
-      (e) => {
-        // A sideways scroll moves along a screen wider than the panel.
-        if (this.view !== "terminal" || e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
-        e.preventDefault();
-        const lines = this.wheel.add(e.deltaY, e.deltaMode, this.text.split("\n").length);
-        if (lines) this.inputs.push({ lines, ...this.cellAt(e.clientX, e.clientY) });
-      },
-    ]);
+          const lines = this.wheel.add(e.deltaY, e.deltaMode, this.text.split("\n").length);
+          if (lines) this.inputs.push({ lines, ...this.cellAt(e.clientX, e.clientY) });
+        },
+      ]),
+    );
     const takeText = (): void => {
       const text = typedText(this.termInput.value);
       this.termInput.value = "";
       if (text && this.view === "terminal") this.inputs.push({ text });
     };
-    this.termInput = mountElement("textarea", TermInput, [
-      (e) => {
-        if (this.view !== "terminal") return;
-        if (this.zoomFor(e)) return;
-        const i = keyInput(keyLike(e), isMac);
-        if (!i) return;
-        // Esc, Tab and the rest belong to the pane, not to the page.
-        e.preventDefault();
-        e.stopPropagation();
-        this.inputs.push(i);
-      },
-      // An input event that is not an InputEvent is not composing either.
-      (e) => {
-        if (!("isComposing" in e && e.isComposing === true)) takeText();
-      },
-      () => this.paint(),
-      () => this.paint(),
-    ]);
-    // No element has an oncompositionend property, so no on() hole can take
-    // it: the listener goes on the element this panel owns (mountElement,
-    // not render(), so event delegation would not change it).
-    this.termInput.addEventListener("compositionend", takeText);
-    this.input = mountElement("textarea", MessageBox, [
-      defaultPlaceholder,
-      (e) => {
-        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    this.termInput = element(
+      "textarea",
+      TermInput([
+        (e) => {
+          if (this.view !== "terminal") return;
+          if (this.zoomFor(e)) return;
+          const i = keyInput(keyLike(e), isMac);
+          if (!i) return;
+          // Esc, Tab and the rest belong to the pane, not to the page.
           e.preventDefault();
-          void this.send();
-        }
-      },
-    ]);
-    renderDirect(this.box, this.describe(null));
-    const root = this.box.firstChild;
-    if (!isHTML(root)) throw new Error("AgentPanel: the view rendered no element");
-    this.el = root;
+          e.stopPropagation();
+          this.inputs.push(i);
+        },
+        // An input event that is not an InputEvent is not composing either.
+        (e) => {
+          if (!("isComposing" in e && e.isComposing === true)) takeText();
+        },
+        () => this.paint(),
+        () => this.paint(),
+        // A finished composition (IME, dictation) is typed text.
+        takeText,
+      ]),
+    );
+    this.input = element(
+      "textarea",
+      MessageBox([
+        defaultPlaceholder,
+        (e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            void this.send();
+          }
+        },
+      ]),
+    );
+    this.el = element("aside", this.describe(null));
     this.resizer = panelResizer(this.el);
     this.fit.observe(this.tail);
     this.fit.observe(this.want);
@@ -336,7 +334,7 @@ export class AgentPanel {
 
   /** Renders the panel's view from its state; only what changed is written. */
   private paint(): void {
-    renderDirect(this.box, this.describe(this.resizer));
+    update(this.el, this.describe(this.resizer));
   }
 
   private describe(resizer: HTMLElement | null): ViewNodeOf<typeof Panel> {
@@ -565,8 +563,8 @@ export class AgentPanel {
    */
   private fitRows(): void {
     if (this.rowFitted || !this.tail.isConnected) return;
-    const probe = mountElement("span", RowProbe, []);
-    const wide = mountElement("span", CellProbe, []);
+    const probe = element("span", RowProbe([]));
+    const wide = element("span", CellProbe([]));
     this.tail.append(probe, wide);
     const height = probe.getBoundingClientRect().height;
     const width = wide.getBoundingClientRect().width / probeCells;

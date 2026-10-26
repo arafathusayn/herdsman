@@ -14,7 +14,7 @@ import {
   termSchemes,
   termVars,
 } from "../appearance.ts";
-import { icon, type IconNode, icons, mountElement } from "../dom.ts";
+import { icon, type IconNode, icons } from "../dom.ts";
 import {
   attr,
   child,
@@ -32,6 +32,7 @@ import {
 import { tokenizeLines } from "../highlight.ts";
 import { store } from "../store.ts";
 import { applyTheme, dismissOnBackdrop, themeSwitch, type ThemeSwitchNode } from "../ui.ts";
+import { element } from "./element-view.ts";
 
 const sample = [
   "// Load reads a route folder.",
@@ -208,11 +209,14 @@ export function appearanceForm(redraw: () => void): AppearanceFormNode {
 }
 
 export function openAppearance(): void {
-  const dlg = mountElement("dialog", AppearanceDialog, [
-    function () {
-      this.remove();
-    },
-  ]);
+  const dlg = element(
+    "dialog",
+    AppearanceDialog([
+      function () {
+        this.remove();
+      },
+    ]),
+  );
   const redraw = (): void => render(dlg, appearanceForm(redraw));
   redraw();
   dismissOnBackdrop(dlg);

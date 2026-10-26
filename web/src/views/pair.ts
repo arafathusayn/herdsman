@@ -1,8 +1,9 @@
 // The pairing screen: the browser opened the URL, and now the person types
 // the code that `herdsman web` printed in their terminal.
 import { pair } from "../api.ts";
-import { icon, type IconNode, icons, logoMark, type LogoNode, mountElement } from "../dom.ts";
+import { icon, type IconNode, icons, logoMark, type LogoNode } from "../dom.ts";
 import { attr, child, cls, html, on, render, text, type ViewNodeOf } from "../herdsman-blocks-view.ts";
+import { element } from "./element-view.ts";
 import { openHosts } from "./hosts.ts";
 
 const digits = 6;
@@ -68,18 +69,21 @@ export function showPairing(root: HTMLElement, hostName: string, onPaired: (devi
   let note = { error: false, text: "" };
   let ended: string | null = null;
 
-  const page = mountElement("main", Page, []);
-  const input = mountElement("input", CodeInput, [
-    digits + 1,
-    function () {
-      const code = clean();
-      // Show the code as "123 456", the way the terminal prints it.
-      this.value = code.length > 3 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
-      complete = code.length === digits;
-      draw();
-      if (complete) void send();
-    },
-  ]);
+  const page = element("main", Page([]));
+  const input = element(
+    "input",
+    CodeInput([
+      digits + 1,
+      function () {
+        const code = clean();
+        // Show the code as "123 456", the way the terminal prints it.
+        this.value = code.length > 3 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+        complete = code.length === digits;
+        draw();
+        if (complete) void send();
+      },
+    ]),
+  );
 
   const clean = (): string => input.value.replace(/\D/g, "").slice(0, digits);
 

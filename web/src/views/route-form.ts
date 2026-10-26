@@ -11,8 +11,8 @@ import {
   type ListNode,
   on,
   prop,
-  renderDirect,
   text,
+  update as updateView,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
 import {
@@ -40,6 +40,7 @@ import {
   validate,
 } from "../new-route.ts";
 import type { Catalog, InboxState, RouteRequest, RouteResult, RouteStep, State } from "../types.ts";
+import { element } from "./element-view.ts";
 
 export interface Deps {
   createRoute(r: RouteRequest): Promise<RouteResult>;
@@ -304,9 +305,6 @@ const Root = html`<form method="dialog" novalidate onsubmit=${on<"submit", HTMLF
 
 /** What `routeForm` renders: the dialog's form. */
 export type RouteFormNode = ViewNodeOf<typeof Root>;
-
-// A checked narrowing, not a cast.
-const isForm = (n: Node | null): n is HTMLFormElement => n !== null && n.nodeName === "FORM";
 
 let uid = 0;
 
@@ -740,16 +738,13 @@ export function routeForm(
   };
 
   // The form is the view's root (its head, body and actions are the dialog
-  // form's own children: a view cannot fill a container with several roots),
-  // so it is rendered in a holder and put in body's place. renderDirect, not
-  // render: render's delegated handlers listen on the holder, which the form
-  // leaves. Later renders of the same view patch it where it is.
-  const holder = document.createElement("div");
+  // form's own children), mounted on its own and put in body's place. Later
+  // renders of the same view patch it where it is.
   const draw = (): void => {
     // A control a render replaced hands the keyboard focus to its successor of the same name.
     const was = document.activeElement;
     const focused = was?.getAttribute?.("name");
-    renderDirect(holder, result ? resultScreen(result) : formScreen());
+    updateView(el, result ? resultScreen(result) : formScreen());
     if (focused && was && !was.isConnected) {
       el.querySelector?.<HTMLElement>(`[name="${focused.replace(/["\\]/g, "")}"]`)?.focus();
     }
@@ -790,10 +785,7 @@ export function routeForm(
     );
   }
 
-  renderDirect(holder, formScreen());
-  const root = holder.firstChild;
-  if (!isForm(root)) throw new Error("route form: the view's root is not a form");
-  const el = root;
+  const el = element("form", formScreen());
   body.parentNode?.replaceChild(el, body);
   el.querySelector?.<HTMLElement>(f.folder ? "textarea" : "input[name=folder]")?.focus();
   readInbox();

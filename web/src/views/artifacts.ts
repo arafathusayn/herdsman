@@ -3,7 +3,7 @@
 // sandboxed frame. The list refreshes while the tab shows. A view belongs to
 // one route, so it never shows another route's list.
 import { listArtifacts, openArtifact } from "../api.ts";
-import { icon, type IconNode, icons, mountElement } from "../dom.ts";
+import { icon, type IconNode, icons } from "../dom.ts";
 import { fuzzy, highlight, type HighlightNode } from "../fuzzy.ts";
 import {
   attr,
@@ -13,14 +13,15 @@ import {
   list,
   type ListNode,
   on,
-  renderDirect,
   text,
+  update,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
 import { ago } from "../model.ts";
 import { store } from "../store.ts";
 import type { Artifact } from "../types.ts";
 import { toast } from "../ui.ts";
+import { element } from "./element-view.ts";
 
 const refreshEvery = 5000;
 
@@ -148,17 +149,12 @@ const Shell = html`<div class="files artifacts">
   </section>
 </div>`;
 
-// A checked narrowing, not a cast: the shell's root is a <div>.
-const isDiv = (n: Node | null): n is HTMLDivElement => n !== null && n.nodeType === 1 && n.nodeName === "DIV";
-
 export class ArtifactsView {
   readonly el: HTMLElement;
   private readonly search: HTMLInputElement;
-  // The shell renders into this holder, which stays out of the document; its
-  // root, the element main.ts places, is `el`. Later renders patch it there.
-  // The root moves out of the holder, so it renders with renderDirect:
-  // delegated handlers would listen on the holder, which no event reaches.
-  private readonly holder = document.createElement("div");
+  // The shell's root, the element main.ts places (`el`): mounted on the
+  // first draw, patched where it stands after.
+  private root: HTMLDivElement | null = null;
   private items: Artifact[] = [];
   private loaded = false;
   private error = "";
@@ -175,17 +171,17 @@ export class ArtifactsView {
   private readonly open = new Map<string, boolean>();
 
   constructor(readonly routeId: string) {
-    this.search = mountElement("input", SearchInput, [
-      () => {
-        this.active = 0;
-        this.draw();
-      },
-      (e) => this.onKey(e),
-    ]);
-    this.draw();
-    const root = this.holder.firstChild;
-    if (!isDiv(root)) throw new Error("ArtifactsView: the shell rendered no root");
-    this.el = root;
+    this.search = element(
+      "input",
+      SearchInput([
+        () => {
+          this.active = 0;
+          this.draw();
+        },
+        (e) => this.onKey(e),
+      ]),
+    );
+    this.el = this.draw();
   }
 
   focusSearch(): void {
@@ -266,9 +262,12 @@ export class ArtifactsView {
     }
   }
 
-  private draw(): void {
+  private draw(): HTMLDivElement {
     const items = this.listContent(); // sets the count
-    renderDirect(this.holder, Shell([searchIcon, this.search, this.count, items, ...this.head(), this.body]));
+    const d = Shell([searchIcon, this.search, this.count, items, ...this.head(), this.body]);
+    if (this.root === null) this.root = element("div", d);
+    else update(this.root, d);
+    return this.root;
   }
 
   private row(a: Artifact, hits: number[], cursor: boolean, showRoot: boolean): RowNode {

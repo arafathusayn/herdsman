@@ -2,7 +2,7 @@
 // finds agents, routes and files and runs every action. A leading ">" shows
 // only commands, "@" only agents and "#" only files. A command that needs
 // text (a prompt) turns the box into an input for that text.
-import { icon, type IconNode, icons, mountElement } from "./dom.ts";
+import { icon, type IconNode, icons } from "./dom.ts";
 import { fuzzy, highlight, type HighlightNode } from "./fuzzy.ts";
 import {
   attr,
@@ -16,7 +16,7 @@ import {
   text,
   type ViewNodeOf,
 } from "./herdsman-blocks-view.ts";
-import { ElementView } from "./views/element-view.ts";
+import { element, ElementView } from "./views/element-view.ts";
 
 export type CommandKind = "command" | "agent" | "route" | "file";
 
@@ -135,15 +135,18 @@ export function openPalette(provider: () => Command[], initial = ""): void {
   let asking: Command | null = null;
   let rows: ListContent = Empty(["Nothing here yet."]);
 
-  const input = mountElement("input", SearchInput, [
-    initial,
-    searchHint,
-    () => {
-      active = 0;
-      draw();
-    },
-    (e) => keydown(e),
-  ]);
+  const input = element(
+    "input",
+    SearchInput([
+      initial,
+      searchHint,
+      () => {
+        active = 0;
+        draw();
+      },
+      (e) => keydown(e),
+    ]),
+  );
   const listbox = new ElementView("div", ListBox([false, rows]));
   const frame = (): ViewNodeOf<typeof Palette> =>
     Palette([

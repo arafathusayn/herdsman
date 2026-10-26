@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 
-import { h } from "./dom.ts";
 import { type FakeElement, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import { clampWidth, navResizer } from "./resize.ts";
 
@@ -17,16 +16,14 @@ test("a resize handle has the markup the h() version had", () => {
   const col = document.createElement("aside");
   const handle = navResizer(col) as unknown as FakeElement;
   // The h() version set tabIndex as a property, which the browser reflects as tabindex.
-  const old = h("div", {
-    class: "col-resize right",
-    role: "separator",
-    tabindex: "0",
-    "aria-orientation": "vertical",
-    "aria-label": "Resize the sidebar",
-    title: "Drag to resize · double-click for the default width",
-  }) as unknown as FakeElement;
-  const attrs = (e: FakeElement) => e.attributes.map((a) => `${a.name}=${a.value}`).sort();
+  const attrs = handle.attributes.map((a) => `${a.name}=${a.value}`).sort();
   expect(handle.tagName).toBe("DIV");
-  expect(attrs(handle)).toEqual(attrs(old));
-  for (const ev of ["onpointerdown", "onkeydown", "ondblclick"]) expect(typeof handle[ev]).toBe("function");
+  expect(attrs).toEqual([
+    "aria-label=Resize the sidebar",
+    "aria-orientation=vertical",
+    "class=col-resize right",
+    "role=separator",
+    "tabindex=0",
+    "title=Drag to resize · double-click for the default width",
+  ]);
 });

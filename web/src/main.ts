@@ -2,7 +2,6 @@ import { AuthError, openStream, pairStatus, readChannel, startSession, useHost }
 import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "./appearance.ts";
 import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
-import { mountElement } from "./dom.ts";
 import { render } from "./herdsman-blocks-view.ts";
 import {
   blockedReason,
@@ -25,7 +24,7 @@ import { AgentPanel } from "./views/agent.ts";
 import { openAppearance } from "./views/appearance.ts";
 import { ArtifactsView } from "./views/artifacts.ts";
 import { DiffView } from "./views/diff.ts";
-import { ElementView } from "./views/element-view.ts";
+import { element, ElementView } from "./views/element-view.ts";
 import { FilesView } from "./views/files.ts";
 import { confirmHost, keepPendingLink, openHosts, showConnect, takePendingLink } from "./views/hosts.ts";
 import { MessagesView } from "./views/messages.ts";
@@ -128,15 +127,18 @@ const sidebarOf = (app: App): SidebarNode =>
 // column is a render container for whatever shows there.
 const topbarView = new ElementView("header", topbarOf(store.app));
 const nav = new ElementView("nav", sidebarOf(store.app));
-const main = mountElement("main", MainColumn, []);
+const main = element("main", MainColumn([]));
 const panelHost = new ElementView("div", PanelHost([null]));
 // Behind the drawer on phones: a tap outside closes it.
-const scrim = mountElement("div", Scrim, [
-  () => {
-    navOpen = false;
-    store.emit();
-  },
-]);
+const scrim = element(
+  "div",
+  Scrim([
+    () => {
+      navOpen = false;
+      store.emit();
+    },
+  ]),
+);
 const frameBody = new ElementView("div", Body([nav.el, navResizer(nav.el), scrim, main, panelHost.el]));
 root.replaceChildren(topbarView.el, frameBody.el);
 // The route's tab row is kept, so the open tab can be scrolled into view.

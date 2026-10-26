@@ -4,7 +4,7 @@
 // updates live.
 import { routeFile } from "../api.ts";
 import { highlighting } from "../appearance.ts";
-import { icon, type IconNode, icons, mountElement } from "../dom.ts";
+import { icon, type IconNode, icons } from "../dom.ts";
 import { fuzzy, highlight, type HighlightNode } from "../fuzzy.ts";
 import {
   attr,
@@ -14,8 +14,8 @@ import {
   list,
   type ListNode,
   on,
-  renderDirect,
   text,
+  update,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
 import { codeBlock, type CodeNode, type MarkdownNode, renderMarkdown } from "../markdown.ts";
@@ -23,6 +23,7 @@ import { ago } from "../model.ts";
 import { store } from "../store.ts";
 import type { Route, RouteFile } from "../types.ts";
 import { toast } from "../ui.ts";
+import { element } from "./element-view.ts";
 
 /** Folder order in the list; anything else sorts between doc/ref and probes. */
 const folderRank = ["", "reports", "doc", "ref"];
@@ -145,17 +146,12 @@ const Shell = html`<div class="files">
   </section>
 </div>`;
 
-// A checked narrowing, not a cast: the shell's root is a <div>.
-const isDiv = (n: Node | null): n is HTMLDivElement => n !== null && n.nodeType === 1 && n.nodeName === "DIV";
-
 export class FilesView {
   readonly el: HTMLElement;
   private readonly search: HTMLInputElement;
-  // The shell renders into this holder, which stays out of the document; its
-  // root, the element main.ts places, is `el`. Later renders patch it there.
-  // The root moves out of the holder, so it renders with renderDirect:
-  // delegated handlers would listen on the holder, which no event reaches.
-  private readonly holder = document.createElement("div");
+  // The shell's root, the element main.ts places (`el`): mounted on the
+  // first draw, patched where it stands after.
+  private root: HTMLDivElement | null = null;
   private route: Route | null = null;
   private selected = "";
   private loadedKey = "";
@@ -170,17 +166,17 @@ export class FilesView {
   private readonly open = new Map<string, boolean>();
 
   constructor(readonly routeId: string) {
-    this.search = mountElement("input", SearchInput, [
-      () => {
-        this.active = 0;
-        this.draw();
-      },
-      (e) => this.onKey(e),
-    ]);
-    this.draw();
-    const root = this.holder.firstChild;
-    if (!isDiv(root)) throw new Error("FilesView: the shell rendered no root");
-    this.el = root;
+    this.search = element(
+      "input",
+      SearchInput([
+        () => {
+          this.active = 0;
+          this.draw();
+        },
+        (e) => this.onKey(e),
+      ]),
+    );
+    this.el = this.draw();
   }
 
   focusSearch(): void {
@@ -226,12 +222,12 @@ export class FilesView {
     store.go({ file: path }, false);
   }
 
-  private draw(): void {
+  private draw(): HTMLDivElement {
     const items = this.listContent(); // sets the count
-    renderDirect(
-      this.holder,
-      Shell([searchIcon, this.search, this.count, items, ...this.head(), this.body, this.retry]),
-    );
+    const d = Shell([searchIcon, this.search, this.count, items, ...this.head(), this.body, this.retry]);
+    if (this.root === null) this.root = element("div", d);
+    else update(this.root, d);
+    return this.root;
   }
 
   private row(f: RouteFile, hits: number[], cursor: boolean, showFolder: boolean): RowNode {
