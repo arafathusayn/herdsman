@@ -2,6 +2,8 @@ package inbox
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -68,4 +70,50 @@ func BoundaryV2(ctx context.Context, c *herdr.Client, dir string, boundary map[s
 		return false, FaultInventory, unknown
 	}
 	return true, "", nil
+}
+
+// ProofV2Valid checks a daemon-owned inbox's version 2 setup proof
+// (design 4.6, 7.3): setup.json of this inbox with version 2, a verified
+// policy, at least one rule, and every rule and the binary an absolute
+// regular file whose SHA-256 matches. The script and CRC binary forms of
+// contract 1 are not version 2 and fail.
+func ProofV2Valid(dir string) bool {
+	b, ok := ReadStrict(dir, filepath.Join(dir, "setup.json"))
+	if !ok {
+		return false
+	}
+	var doc struct {
+		Version        int    `json:"version"`
+		Inbox          string `json:"inbox"`
+		PolicyVerified bool   `json:"policy_verified"`
+		Rules          []struct {
+			Path   string `json:"path"`
+			SHA256 string `json:"sha256"`
+		} `json:"rules"`
+		Binary struct {
+			Path   string `json:"path"`
+			SHA256 string `json:"sha256"`
+		} `json:"binary"`
+	}
+	if json.Unmarshal(b, &doc) != nil || doc.Version != 2 || doc.Inbox != dir || !doc.PolicyVerified || len(doc.Rules) == 0 {
+		return false
+	}
+	for _, f := range append(doc.Rules, doc.Binary) {
+		if !filepath.IsAbs(f.Path) || len(f.SHA256) != 64 {
+			return false
+		}
+		st, err := os.Lstat(f.Path)
+		if err != nil || !st.Mode().IsRegular() {
+			return false
+		}
+		data, err := os.ReadFile(f.Path)
+		if err != nil {
+			return false
+		}
+		sum := sha256.Sum256(data)
+		if hex.EncodeToString(sum[:]) != f.SHA256 {
+			return false
+		}
+	}
+	return true
 }
