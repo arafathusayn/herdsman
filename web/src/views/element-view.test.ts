@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 
-import { child, cls, html, on, text } from "../herdsman-blocks-view.ts";
-import { type FakeElement, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
+import { child, cls, html, on, render, text } from "../herdsman-blocks-view.ts";
+import { asDom, type FakeElement, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { dispatch } from "../testdom.ts";
 import { ElementView } from "./element-view.ts";
 
@@ -36,4 +36,15 @@ test("an element view is placed by its caller and patched where it stands", () =
 test("the root must have the tag asked for", () => {
   const Span = html`<span>${text()}</span>`;
   expect(() => new ElementView("button", Span(["x"]))).toThrow("not a <button>");
+});
+
+test("an element view inside another render root runs each handler once", () => {
+  const Button = html`<button onclick=${on<"click">()}>${text()}</button>`;
+  const Outer = html`<div onclick=${on<"click">()}>${child<HTMLElement>()}</div>`;
+  const clicks: string[] = [];
+  const v = new ElementView("button", Button([() => clicks.push("button"), "Go"]));
+  const box = fake(document.createElement("div"));
+  render(asDom(box), Outer([() => clicks.push("outer"), v.el]));
+  dispatch(fake(v.el), "click");
+  expect(clicks).toEqual(["button", "outer"]);
 });
