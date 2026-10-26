@@ -13,7 +13,7 @@
 // paths (mount, set, List.set) for the sake of types.
 
 /** Library version, bumped with every release of the zip package. */
-export const VERSION = "0.0.7";
+export const VERSION = "0.0.8";
 
 // ---------------------------------------------------------------------------
 // Hole markers: typed at compile time, small negative numbers at runtime
@@ -240,6 +240,7 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
   private readonly root: Element;
   // The prototype's own hole nodes and the values last written into them.
   private readonly proto: unknown[];
+  private readonly paths: readonly Path[];
 
   constructor(strings: readonly string[], holes: readonly number[] = [], svg = false) {
     const n = strings.length - 1;
@@ -300,7 +301,8 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
     }
     this.names = names;
     this.root = root as Element;
-    this.locate = compileLocator(paths as Path[]);
+    this.paths = paths as Path[];
+    this.locate = compileLocator(this.paths);
     this.proto = new Array(2 * n);
     this.locate(root, this.proto);
     // What the parsed prototype holds: empty text and class, absent attributes.
@@ -375,6 +377,17 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
       }
     }
     return this.root.cloneNode(true) as Element;
+  }
+
+  /**
+   * A locator like `locate` that finds only the given holes: it writes
+   * out[i] for each i in `holes` and leaves the other entries alone, so a
+   * layer can look up the nodes it needs at mount and the rest later.
+   */
+  locator(holes: readonly number[]): (root: Node, out: unknown[]) => void {
+    const sub: (Path | undefined)[] = new Array(this.n);
+    for (const i of holes) sub[i] = this.paths[i];
+    return compileLocator(sub);
   }
 
   /** The kind of hole i, from its position (and its marker, for a slot). */
@@ -458,7 +471,7 @@ function walk(
 // hops that shares common prefixes. Falls back to a loop where eval is blocked (CSP).
 // It fills the first half of a block's single state array: hole nodes in
 // [0, n), with [n, 2n) left for the holes' last values.
-function compileLocator(paths: readonly Path[]): Locator {
+function compileLocator(paths: readonly (Path | undefined)[]): Locator {
   try {
     let body = "";
     const seen = new Map<string, string>();
@@ -476,6 +489,7 @@ function compileLocator(paths: readonly Path[]): Locator {
       return name;
     };
     paths.forEach((p, i) => {
+      if (p === undefined) return;
       const r = ref(p); // must run before reading `body`: ref() appends declarations
       body += "n[" + i + "]=" + r + ";";
     });
@@ -483,6 +497,7 @@ function compileLocator(paths: readonly Path[]): Locator {
   } catch {
     return (r, out) => {
       paths.forEach((p, i) => {
+        if (p === undefined) return;
         let node = r;
         for (const k of p) {
           node = node.firstChild!;

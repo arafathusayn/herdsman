@@ -3,7 +3,7 @@
 A living document. It explains why herdsman-blocks exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
 - Status: draft, on branch `herdsman-blocks`
-- Library version: 0.0.7 (the module exports this as `VERSION`)
+- Library version: 0.0.8 (the module exports this as `VERSION`)
 - Last updated: 2026-10-27
 - Modules: `web/src/herdsman-blocks.ts`, used by `web/src/dom.ts`; the view layer `web/src/herdsman-blocks-view.ts`
 
@@ -259,43 +259,56 @@ Module: `web/src/herdsman-blocks-view.ts`. Views are a declarative layer over bl
 #### Views and descriptions
 
 1. A view is made with one of the view module's own tagged template tags, `html` or `svg`. Each compiles the literal into a block template exactly as Layer 1 does with the tag of the same name (once per call site, cached by the string array) and accepts the same hole markers plus the child marker. Every hole of a view must have a typed marker; untyped holes are a compile error in views.
-2. Once per template the view records, for each hole, how it is written: a **child** hole (a slot), a **handler** hole (a property hole whose name starts with `on`, which only the event marker may type), a **property** hole (any other property hole), or a plain **write** hole (text, class, attribute). If any hole is a child, handler or property hole, mounting must locate the clone's holes (the view is **eager**); otherwise hole lookup stays lazy, as for blocks.
-3. Calling a view with its value tuple returns a description: the view's recorded shape and the values. A description is inert; nothing is created until it is rendered. The view also exposes its compiled template.
+2. Once per template the view records, for each hole, how it is written: a **child** hole (a slot), a **delegated** handler hole (a property hole whose name starts with `on`, which only the event marker may type, for an event type in the delegated set below), a **direct** handler hole (the same, for any other event type), a **property** hole (any other property hole), or a plain **write** hole (text, class, attribute). If any hole is a child, direct handler or property hole, mounting must locate those holes (the view is **eager**); write and delegated handler holes are located lazily, each group on its first use, by a locator generated for just that group (Layer 1 offers a locator for any subset of holes).
+3. The **delegated set** is the bubbling events: auxclick, beforeinput, change, click, contextmenu, dblclick, focusin, focusout, input, keydown, keyup, mousedown, mousemove, mouseout, mouseover, mouseup, pointerdown, pointermove, pointerout, pointerover, pointerup and submit. Events that do not bubble (focus, blur, mouseenter, mouseleave, load, error, scroll, and so on) and those whose listeners affect scrolling (touch and wheel events) are direct. Each delegated event type a template uses is added, once, to a module-wide list of used types.
+4. Calling a view with its value tuple returns a description: the view's recorded shape and the values array itself. A description is inert; nothing is created until it is rendered. The values array is kept by the instance it is rendered into, not copied, so it must not be changed after the call. The view also exposes its compiled template.
 
 #### Slot holes (Layer 1 addition)
 
-A slot hole is typed with the slot marker and must sit where a text hole would (element content); compilation then records it as a slot instead of a text hole. Its node is the empty text node the comment marker became. Blocks never write a slot: mounting leaves it empty, baking skips it, and setting it only records the value. The template exposes, for layers above, a bake-and-clone that leaves property and slot holes unwritten, the kind of each hole, and a write of one value into one located hole node by its kind.
+A slot hole is typed with the slot marker and must sit where a text hole would (element content); compilation then records it as a slot instead of a text hole. Its node is the empty text node the comment marker became. Blocks never write a slot: mounting leaves it empty, baking skips it, and setting it only records the value. The template exposes, for layers above, a bake-and-clone that leaves property and slot holes unwritten, the kind of each hole, a write of one value into one located hole node by its kind, and a locator generated for any subset of the holes (it fills only those entries of the node array).
 
 #### Mounting a description
 
-1. Bake the values into the prototype and deep-clone it (Layer 1, steps 1 and 2). Create a state array of twice the hole count and record the values in its second half.
-2. If the view is eager, locate the clone's holes, then for each hole in order:
-   - Handler: store the state array on the element under a private symbol and set the handler property to the hole's **trampoline** (below).
+1. Bake the values into the prototype and deep-clone it (Layer 1, steps 1 and 2).
+2. The mounted **instance** is the shape, the root element, the description's values array (kept as the last values) and a node array, absent until some hole is located. If the view has any handler hole, store the instance on its root element under a private symbol.
+3. If the view is eager, create the node array, locate the eager holes into it, then for each eager hole in order:
+   - Direct handler: set the handler property to the hole's **trampoline** (below).
    - Property: if the value is not null or undefined, assign it.
    - Child: wrap the slot's text node in a **child slot** (below), keep that in the hole's node position, and set the child to the value.
-3. The mounted **instance** is the shape, the root element and the state array.
+4. Delegated handler holes are not touched at mount: an instance whose view has only write and delegated holes walks no node of its clone.
 
 #### Event handler trampolines
 
-1. Each handler hole of a view has one trampoline function, made once per template: when called as an event handler, it reads the hole's current value from the state array stored on its element and, if that value is a function, calls it with the element as `this` and the event; otherwise it does nothing.
+1. Each direct handler hole of a view has one trampoline function, made once per template: when called as an event handler, it walks from its element up to the nearest node holding an instance (the template's own nodes lie between them, so that is the element's instance), reads the hole's current value from the instance's last values and, if that value is a function, calls it with the element as `this` and the event; otherwise it does nothing.
 2. Every instance's element gets that same trampoline at mount and keeps it. Updating a handler hole only records the new value; it costs no DOM write. A view can therefore pass a new closure on every render.
+
+#### Delegated events
+
+1. Every `render` call first makes sure its container listens for every type in the used list: it adds one shared listener per type it does not yet listen for, and records how many it listens for, so the check is one comparison when no new type appeared.
+2. When the listener runs on a container for an event, walk from the event's target up to the container, excluding it, recording the path. At each node:
+   - A node that is itself a render container (it listens) is another render root below this one, whose own listener already ran for what lies inside it: forget every handler found so far and go on.
+   - A node holding an instance: for each delegated hole of its view whose event type is the event's, locate the view's delegated holes if they were never located, and if the hole's element is on the path walked so far, record the element, the instance and the hole, ordered by the element's position on the path (innermost first).
+3. Run the recorded handlers innermost first. Before moving on to a different element, stop if propagation was stopped. For each, read the hole's current value; if it is a function, make the event's `currentTarget` read as the element, call the function with the element as `this` and the event, then restore `currentTarget`.
+4. Visible differences from a direct handler: the element's `on*` property is never set; an element outside a render root (detached, or moved out of it) gets no delegated events; delegated handlers run when the event reaches the render root, after native listeners on nodes between the element and the root and before listeners above the root, so stopping propagation in a handler still keeps the event from document and window listeners.
 
 #### Patching an instance toward a description
 
-1. If the description is of a different view than the instance, mount it fresh, replace the instance's root with the new root in the instance's parent, and move the new shape, root and state into the same instance object, so lists and parents that hold the instance need no update. Stop.
-2. Otherwise, for each hole whose new value is not strictly equal to the recorded one, record it, then by kind: a handler does nothing more; a child sets the child slot to the value; any other hole locates the holes first if they were never located, then writes the value by Layer 1's update rules.
+1. If the description is of a different view than the instance, mount it fresh, replace the instance's root with the new root in the instance's parent, and move the new shape, root, values and nodes into the same instance object (and store that object on the new root), so lists and parents that hold the instance need no update. Stop.
+2. If the description's values array is the instance's last values array (the same description rendered again), stop: nothing can have changed.
+3. Otherwise keep the new values array as the last values, and for each hole whose new value is not strictly equal to the old one, by kind: a handler does nothing (handlers read the last values when they run); a child sets the child slot to the value; any other hole locates the write holes first if they were never located, then writes the value by Layer 1's update rules.
 
 #### Child holes
 
-A child hole accepts text (a string or number), nothing (null, undefined or false), a DOM node, a description, or a keyed list description. Its content always sits just before the slot's text node, the **anchor**, which never moves. Text is written into the anchor itself.
+A child hole accepts text (a string or number), nothing (null, undefined or false), a DOM node, a description, a keyed list description, or a runs description. Its content always sits just before the slot's text node, the **anchor**, which never moves. Text is written into the anchor itself.
 
-1. Classify the new value: nothing, text, node, view description or list description.
+1. Classify the new value: nothing, text, node, view description, list description or runs description.
 2. If the class is the same as the current content's:
    - Text: set the anchor's data to the value as a string.
    - Node: if it is the same node, do nothing. Otherwise replace the old node with the new one when the old one is still in the slot's parent, or insert the new one before the anchor when the old one was moved elsewhere.
    - View: patch the held instance toward the description (which replaces it when the view differs).
    - List: reconcile the list (below).
-3. Otherwise clear the current content (text: empty the anchor; node: remove it if still in the parent; view: remove the instance's root; list: clear the list, then put the anchor back at the end of the parent if an owning list removed it), then set the new content: write text into the anchor, insert the node before the anchor, mount the description and insert its root before the anchor, or create a list.
+   - Runs: reconcile the runs (below).
+3. Otherwise clear the current content (text: empty the anchor; node: remove it if still in the parent; view: remove the instance's root; list: clear the list, then put the anchor back at the end of the parent if an owning list removed it; runs: remove every run's node), then set the new content: write text into the anchor, insert the node before the anchor, mount the description and insert its root before the anchor, create a list, or start empty runs and reconcile them.
 
 #### Keyed list descriptions
 
@@ -304,6 +317,16 @@ A child hole accepts text (a string or number), nothing (null, undefined or fals
 1. Creating the list in a slot: if the anchor has no siblings, the list **owns** the parent (Layer 2: clearing is one native text-content write, and the anchor is dropped while the list is shown); otherwise the list is anchored before the slot's anchor, so content around the hole is never touched.
 2. The Layer 2 list's create mounts `render(item)`, its update patches the entry's instance toward `render(item)`, and its key calls the key function. Entries are view instances. These callbacks read the slot's current key and render functions, which are replaced on every reconcile, so closures passed by the latest render are the ones used.
 3. Reconciling: store the description's key and render functions on the slot and set the list to the items (Layer 2). Kept items are patched; moved items are moved with the minimum number of DOM moves; an item whose render returns a different view is replaced where it stands.
+
+#### Runs descriptions
+
+`runs(items)` describes unkeyed inline content: a positional sequence of text (strings or numbers) and descriptions, with no wrapper element per run, such as text between `<mark>` elements or inline markdown. It is the view-layer counterpart of `dom.ts`'s `unkeyed`. The slot keeps, per run in order, either its text node or its view instance; all of them sit before the anchor.
+
+1. For each position i of the new items:
+   - A description: if run i is an instance, patch it toward the description (which replaces it when the view differs). Otherwise mount the description and put its root in place of run i's text node, or insert it before the anchor if there is no run i.
+   - Text: if run i is a text node, set its data when it differs. Otherwise create a text node with the text and put it in place of run i's root, or insert it before the anchor if there is no run i.
+2. Remove the nodes of runs past the new length, and forget them.
+3. Types: `runs` is generic in the description type N of its views and returns a branded runs description of N; a child hole typed for runs of N takes only runs whose views are N.
 
 #### SVG views
 
@@ -314,8 +337,17 @@ A child hole accepts text (a string or number), nothing (null, undefined or fals
 
 #### render(container, description)
 
-1. If the container already holds a rendered instance (kept on the container under a private symbol), patch it toward the description and stop.
-2. Otherwise mount the description, empty the container (one text-content write), append the instance's root, and keep the instance on the container.
+1. Make the container listen for every used delegated event type (Delegated events, step 1).
+2. If the container already holds a rendered instance (kept on the container under a private symbol), patch it toward the description and stop.
+3. Otherwise mount the description, empty the container (one text-content write), append the instance's root, and keep the instance on the container.
+
+#### renderDirect(container, description)
+
+For code that moves a view's nodes out of its container, such as a bridge that renders into a scratch container and moves the roots into a tree another library manages, where root-delegated handlers would be lost.
+
+1. Render exactly as `render` does (steps 2 and 3), except that the container listens for nothing and, for the duration of the call (including nested mounts by child holes, lists and replacements), every instance is mounted **direct**: its delegated handler holes are located at mount and set to the hole's trampoline like direct handler holes, and the instance is marked direct.
+2. The delegated listener of any render root skips direct instances, so a direct instance moved under a render root runs each handler once, from its own element.
+3. A container is used with one of the two functions.
 
 ### Integration with dom.ts
 
@@ -451,7 +483,7 @@ Tests run on a small linked-list fake DOM with counters for inserts, moves, remo
 13. An element made without a block gets one on demand, cached on the element; the first set of each hole writes, the second identical set does not; instances stay independent; property holes are set on the clone.
 14. Slot holes: a slot marker in content compiles to a slot, blocks never write it, and a slot marker in an attribute position is rejected.
 15. SVG: `svg` templates and views are in the SVG namespace, SVG views render and reorder in child holes inside SVG content, and `class` there is an attribute; checked on the fake DOM and in headless Chrome.
-16. Views: every child kind renders in place and switching kinds replaces the content; the same view patches and another view replaces, at a child hole and at the root; unchanged values write nothing; a keyed list reorders with every node kept and the minimum number of moves, stays between its siblings, owns and clears its parent and gives the slot back; an item whose view changes is replaced where it stands; nested lists move cards between lanes; a new handler each render costs no DOM write and the latest one runs; a focused input keeps its node and typed value across renders.
+16. Views: every child kind renders in place and switching kinds replaces the content; the same view patches and another view replaces, at a child hole and at the root; unchanged values write nothing; a keyed list reorders with every node kept and the minimum number of moves, stays between its siblings, owns and clears its parent and gives the slot back; an item whose view changes is replaced where it stands; nested lists move cards between lanes; a new handler each render costs no DOM write and the latest one runs, with the element as `this` and `currentTarget`; delegated handlers run innermost first and `stopPropagation` stops outer ones; a stopped keydown never reaches a listener above the render root; a render root inside another dispatches its handlers once; a non-bubbling event gets a direct trampoline; `renderDirect` sets handlers on the elements, so nodes moved under a delegating root run each handler once; runs render in order without wrappers between siblings, keep text nodes and same views by position and replace the rest, and clear when the hole switches kind; a focused input keeps its node and typed value across renders.
 17. The benchmark runner's gate: the declarative benchmark app's DOM is identical to the reference app's after every step.
 
 The same behaviors were also checked in real Chrome 156 (not the fake DOM): a focused input kept its node, focus, typed value and caret position through a `patch()` that reordered siblings; the kept button ran the newest handler; keyed rows kept their nodes; an unfocused input re-synced from the store; an indented template inside a table compiled correctly; and a blank class hole produced no class attribute.
@@ -576,6 +608,9 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-27: `runs(items)`: unkeyed inline content for child holes, text and views reconciled by position with no wrapper elements; typed `RunsNode<N>` in `Child` and `SvgChild`. Part of 0.0.8.
+- 2026-10-27: `renderDirect(container, view)`: renders with every handler on its own element and no listener on the container, for bridges that move a view's nodes elsewhere; render roots skip such instances when delegating. Part of 0.0.8.
+- 2026-10-27: Version 0.0.8. Views delegate handlers of bubbling events to the render root (one listener per event type on the `render` container; `this` and `currentTarget` are the element; innermost first; `stopPropagation` honored), so mounting a row with handlers walks none of its nodes; non-bubbling events keep direct trampolines, which now find their instance on the template root. Instances keep the description's values array instead of copying it, skip a description rendered again, and locate write, eager and delegated holes separately (Layer 1 gains `Template.locator` for a subset of holes). Official benchmark, Chrome script time pooled over 10 samples against 0.0.7's layer: create 10,000 rows 18.7 to 13.5 ms (raw blocks 12.0), create 1,000 rows 2.1 to 1.4 (raw 1.4).
 - 2026-10-27: Version 0.0.7. Strict view types at no runtime cost: an `on<event, element>()` marker is the only one an `on*` name takes (a property marker there now fails at compile time); `prop<element, property>()` takes exactly that property's type; `svg` templates and views parse inside an `<svg>`, and `class` on SVG elements is an attribute hole; descriptions carry their view's exact value tuple and namespace, list descriptions their description and key types; `child<C>()` narrows what a hole takes; views reject untyped holes. Three more strict compiler settings. Headless Chrome check for SVG and typed holes. Bundles before and after differ only in markers and once-per-template compiling.
 - 2026-10-27: Version 0.0.6. Layer 4, views (`herdsman-blocks-view.ts`): templates called with values return descriptions, `render` patches only changed holes, child holes take text, nothing, nodes, views or keyed `list()`s, and handlers go through per-template trampolines. Blocks gain the slot hole kind and, for layers above, `Template.clone`, `kind` and `write`. Declarative benchmark app added.
 - 2026-10-27: Phase 2 of the `each()` migration: plain arrays are a type error in `dom.ts` children. The 67 sites in herdsman web use `each` (keyed by the data's identity), `unkeyed`, or a literal tuple. No change to the library.

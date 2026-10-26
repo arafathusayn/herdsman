@@ -11,6 +11,9 @@ import {
   on,
   prop,
   render,
+  renderDirect,
+  runs,
+  type RunsNode,
   svg,
   type SvgChild,
   type SvgNode,
@@ -22,6 +25,7 @@ import {
 import {
   asDom,
   type FakeElement,
+  FakeEvent,
   type FakeNode,
   installFakeDocument,
   ops,
@@ -252,6 +256,48 @@ describe("keyed lists", () => {
   });
 });
 
+describe("runs", () => {
+  const Mark = html`<mark>${text()}</mark>`;
+  const Code = html`<code>${text()}</code>`;
+  const Line = html`<p>${text()}${child()}<i>end</i></p>`;
+  const kids = (root: FakeElement): FakeNode[] => first(root).childNodes;
+
+  test("text and views render in order with no wrapper, between their siblings", () => {
+    const root = box();
+    render(asDom(root), Line(["> ", runs(["a", Mark(["b"]), "c", 4])]));
+    expect(shape(first(root))).toBe("<p>> a<mark>b</mark>c4<i>end</i></p>");
+  });
+
+  test("runs are matched by position: text nodes and same views are kept, others replaced", () => {
+    const root = box();
+    render(asDom(root), Line(["", runs(["a", Mark(["b"]), "c"])]));
+    const [, a, mark, c] = kids(root);
+    resetOps();
+    render(asDom(root), Line(["", runs(["A", Mark(["B"]), "c"])]));
+    expect(kids(root).slice(1, 4)).toEqual([a!, mark!, c!]);
+    expect(ops.inserts + ops.removes + ops.moves).toBe(0);
+    expect(shape(first(root))).toBe("<p>A<mark>B</mark>c<i>end</i></p>");
+    render(asDom(root), Line(["", runs([Code(["x"]), Mark(["y"])])]));
+    expect(shape(first(root))).toBe("<p><code>x</code><mark>y</mark><i>end</i></p>");
+    expect(kids(root)[2]).toBe(mark!); // same view at the same position: patched
+    render(asDom(root), Line(["", runs(["only"])]));
+    expect(shape(first(root))).toBe("<p>only<i>end</i></p>");
+    render(asDom(root), Line(["", runs([])]));
+    expect(shape(first(root))).toBe("<p><i>end</i></p>");
+  });
+
+  test("switching between runs and other child kinds clears the runs", () => {
+    const root = box();
+    render(asDom(root), Line(["", runs(["a", Mark(["b"])])]));
+    render(asDom(root), Line(["", "text"]));
+    expect(shape(first(root))).toBe("<p>text<i>end</i></p>");
+    render(asDom(root), Line(["", runs([Mark(["m"]), "z"])]));
+    expect(shape(first(root))).toBe("<p><mark>m</mark>z<i>end</i></p>");
+    render(asDom(root), Line(["", null]));
+    expect(shape(first(root))).toBe("<p><i>end</i></p>");
+  });
+});
+
 describe("events and form state", () => {
   const Field = html`<label
     >${text()}<input
@@ -260,27 +306,149 @@ describe("events and form state", () => {
       oninput=${on<"input", HTMLInputElement>()}
   /></label>`;
 
-  test("a new handler each render costs no DOM write and the latest one runs", () => {
+  const fire = (el: FakeElement, type: string): FakeEvent => {
+    const e = new FakeEvent(type);
+    el.dispatchEvent(e);
+    return e;
+  };
+
+  test("a new handler each render costs no DOM write and the latest one runs, delegated to the root", () => {
     const root = box();
-    const calls: string[] = [];
-    const draw = (tag: string) => render(asDom(root), Field(["Name", "f", "v", () => calls.push(tag)]));
+    const calls: unknown[] = [];
+    const draw = (tag: string) =>
+      render(
+        asDom(root),
+        Field([
+          "Name",
+          "f",
+          "v",
+          function (e) {
+            calls.push(tag, this, e.currentTarget);
+          },
+        ]),
+      );
     draw("one");
     const input = first(root).lastChild as FakeElement;
-    const trampoline = input["oninput"];
     let writes = 0;
-    const real = trampoline;
-    Object.defineProperty(input, "oninput", {
-      get: () => real,
-      set: () => writes++,
-    });
+    Object.defineProperty(input, "oninput", { get: () => undefined, set: () => writes++ });
     draw("two");
     draw("three");
-    expect(writes).toBe(0);
-    (input["oninput"] as (this: FakeElement, e: unknown) => void).call(input, {});
-    expect(calls).toEqual(["three"]);
+    expect(writes).toBe(0); // delegated: the element's property is never set
+    const e = fire(input, "input");
+    expect(calls).toEqual(["three", input, input]); // this and currentTarget are the element
+    expect(e.currentTarget).toBe(null); // restored after the handler
     render(asDom(root), Field(["Name", "f", "v", null]));
-    (input["oninput"] as (this: FakeElement, e: unknown) => void).call(input, {});
-    expect(calls).toEqual(["three"]);
+    fire(input, "input");
+    expect(calls.length).toBe(3);
+  });
+
+  test("delegated handlers run innermost first and stopPropagation stops the outer ones", () => {
+    const Inner = html`<span onclick=${on<"click">()}><b>${text()}</b></span>`;
+    const Outer = html`<div onclick=${on<"click">()}><p onclick=${on<"click">()}>${child()}</p></div>`;
+    const root = box();
+    const calls: string[] = [];
+    const draw = (stop: boolean) =>
+      render(
+        asDom(root),
+        Outer([
+          () => calls.push("div"),
+          () => calls.push("p"),
+          Inner([
+            (e) => {
+              calls.push("span");
+              if (stop) e.stopPropagation();
+            },
+            "x",
+          ]),
+        ]),
+      );
+    draw(false);
+    const b = first(root).firstChild!.firstChild!.firstChild as FakeElement;
+    fire(b, "click");
+    expect(calls).toEqual(["span", "p", "div"]);
+    calls.length = 0;
+    draw(true);
+    fire(b, "click");
+    expect(calls).toEqual(["span"]);
+    calls.length = 0;
+    fire(first(root).firstChild as FakeElement, "click"); // on the p: the span's handler is not on the path
+    expect(calls).toEqual(["p", "div"]);
+  });
+
+  test("a handler that stops a keydown keeps it from listeners above the render root", () => {
+    const Key = html`<input onkeydown=${on<"keydown">()} />`;
+    const page = box();
+    const root = box();
+    page.appendChild(root);
+    const seen: string[] = [];
+    page.addEventListener("keydown", () => seen.push("page"));
+    const draw = (stop: boolean) =>
+      render(
+        asDom(root),
+        Key([
+          (e) => {
+            seen.push("input");
+            if (stop) e.stopPropagation();
+          },
+        ]),
+      );
+    draw(false);
+    fire(first(root), "keydown");
+    expect(seen).toEqual(["input", "page"]);
+    seen.length = 0;
+    draw(true);
+    fire(first(root), "keydown");
+    expect(seen).toEqual(["input"]);
+  });
+
+  test("a render root inside another one dispatches its own handlers once", () => {
+    const Outer = html`<div onclick=${on<"click">()}>${child()}</div>`;
+    const Inner = html`<button onclick=${on<"click">()}></button>`;
+    const inner = box();
+    const root = box();
+    const calls: string[] = [];
+    render(asDom(inner), Inner([() => calls.push("inner")]));
+    render(asDom(root), Outer([() => calls.push("outer"), asDom(inner)]));
+    fire(first(inner), "click");
+    expect(calls).toEqual(["inner", "outer"]);
+  });
+
+  test("events that do not bubble get a trampoline on the element", () => {
+    const Focus = html`<input onfocus=${on<"focus">()} />`;
+    const root = box();
+    const calls: string[] = [];
+    render(asDom(root), Focus([() => calls.push("one")]));
+    render(asDom(root), Focus([() => calls.push("two")]));
+    const input = first(root);
+    (input["onfocus"] as (this: FakeElement, e: unknown) => void).call(input, new FakeEvent("focus"));
+    expect(calls).toEqual(["two"]);
+  });
+
+  test("renderDirect puts handlers on the elements, so moved nodes keep them, once", () => {
+    const Item = html`<li onclick=${on<"click">()}>${child()}</li>`;
+    const Tag = html`<b onclick=${on<"click">()}>${text()}</b>`;
+    const scratch = box();
+    const calls: unknown[] = [];
+    const draw = (n: number) =>
+      renderDirect(
+        asDom(scratch),
+        Item([
+          function () {
+            calls.push("li" + n, this);
+          },
+          Tag([() => calls.push("b" + n), "x"]),
+        ]),
+      );
+    draw(1);
+    draw(2);
+    const li = first(scratch);
+    const b = li.firstChild as FakeElement;
+    expect(typeof li["onclick"]).toBe("function");
+    // Moved into a tree that is a delegating render root: still exactly once each.
+    const host = box();
+    render(asDom(host), html`<div onclick=${on<"click">()}>${child()}</div>`([() => calls.push("host"), asDom(li)]));
+    fire(b, "click");
+    expect(calls).toEqual(["b2", "li2", li, "host"]);
   });
 
   test("a focused input keeps its node and its typed value across renders", () => {
@@ -433,6 +601,19 @@ describe("types", () => {
       OneRow([rows]);
       // @ts-expect-error an SVG hole does not take an HTML view
       Svg([Row(["a"])]);
+      const Mark = html`<mark>${text()}</mark>`;
+      const Hit = html`<span>${child<RunsNode<ViewNodeOf<typeof Mark>>>()}</span>`;
+      Hit([runs(["a", Mark(["b"]), "c", 4])]);
+      // @ts-expect-error a runs hole for Mark views does not take a Num view among its runs
+      Hit([runs(["a", Num([1])])]);
+      // @ts-expect-error a runs hole does not take plain text
+      Hit(["a"]);
+      // @ts-expect-error runs take text and views, not nothing
+      runs(["a", null]);
+      OneRow([
+        // @ts-expect-error a Row hole does not take runs
+        runs(["a"]),
+      ]);
       // @ts-expect-error child holes take Child types only
       child<boolean>();
       // @ts-expect-error a plain array is not a child: use list()

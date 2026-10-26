@@ -193,6 +193,20 @@ export class FakeComment extends FakeNode {
 export const HTML_NS = "http://www.w3.org/1999/xhtml";
 export const SVG_NS = "http://www.w3.org/2000/svg";
 
+/** A bubbling event for `FakeElement.dispatchEvent`. */
+export class FakeEvent {
+  readonly type: string;
+  target: FakeNode | null = null;
+  currentTarget: FakeNode | null = null;
+  cancelBubble = false;
+  constructor(type: string) {
+    this.type = type;
+  }
+  stopPropagation(): void {
+    this.cancelBubble = true;
+  }
+}
+
 export class FakeElement extends FakeNode {
   private cls = "";
   get className(): string {
@@ -244,6 +258,23 @@ export class FakeElement extends FakeNode {
   /** Calls this element's listeners for `type` with this element as `this`. */
   fire(type: string): void {
     for (const fn of this.listeners?.get(type) ?? []) fn.call(this, { type, target: this });
+  }
+  /**
+   * Dispatches a bubbling event from this element: at each element up to the
+   * top, its listeners and its `on<type>` property run with the element as
+   * `this` and as `currentTarget`, until a handler stops propagation.
+   */
+  dispatchEvent(e: FakeEvent): boolean {
+    e.target ??= this;
+    for (let n: FakeNode | null = this; n !== null && !e.cancelBubble; n = n.parentNode) {
+      if (!(n instanceof FakeElement)) continue;
+      e.currentTarget = n;
+      for (const fn of n.listeners?.get(e.type) ?? []) fn.call(n, e as unknown as { type: string; target: FakeNode });
+      const p = (n as unknown as Record<string, unknown>)["on" + e.type];
+      if (typeof p === "function") (p as (this: FakeNode, e: FakeEvent) => void).call(n, e);
+    }
+    e.currentTarget = null;
+    return true;
   }
   setAttribute(k: string, v: string): void {
     if (k === "class") {
