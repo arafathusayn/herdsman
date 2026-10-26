@@ -361,26 +361,13 @@ func (e *MessageEnv) retry(_ context.Context, fn func() error) error {
 	}
 }
 
-// statusOut is message status --json on the daemon path (5.5).
-type statusOut struct {
-	Daemon daemonState `json:"daemon"`
-	StatusReport
-}
-
-type daemonState struct {
-	State        string `json:"state"`
-	Version      string `json:"version,omitempty"`
-	HeartbeatAge *int64 `json:"heartbeat_age,omitempty"`
-}
-
 // status asks the daemon; when it does not answer within 1 s, it reads
 // the files read-only and reports daemon=down with exit 1 (4.5).
 func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir string) int {
 	cctx, cancel := context.WithTimeout(ctx, time.Second)
-	var st StatusReport
-	_, err := c.Do(cctx, "GET", base+"/status", nil, &st)
+	var out RouteStatus
+	_, err := c.Do(cctx, "GET", base+"/status", nil, &out)
 	cancel()
-	out := statusOut{Daemon: daemonState{State: "up", Version: e.Version}, StatusReport: st}
 	code := 0
 	if err != nil {
 		if !IsDown(err) && !errors.Is(err, context.DeadlineExceeded) {
@@ -389,16 +376,21 @@ func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir str
 			}
 		}
 		ph, _ := PrivateHome("", e.env)
-		out = statusOut{Daemon: daemonState{State: "down"}, StatusReport: FileStatus(route, dir)}
+		out = RouteStatus{Daemon: DaemonState{State: "down", HeartbeatAge: heartbeatAge(ph, e.now())}, StatusReport: FileStatus(route, dir)}
 		if b, err := readSmall(filepath.Join(ph, "daemon", "daemon.json"), 4096); err == nil {
 			var info DaemonInfo
 			if json.Unmarshal(b, &info) == nil {
 				out.Daemon.Version = info.Version
 			}
 		}
-		if st, err := os.Stat(filepath.Join(ph, "daemon", "heartbeat")); err == nil {
-			age := int64(e.now().Sub(st.ModTime()) / time.Second)
-			out.Daemon.HeartbeatAge = &age
+		rt := &inbox.Root{Dir: dir}
+		boxes := make([]string, 0, len(out.Boxes))
+		for _, b := range out.Boxes {
+			boxes = append(boxes, b.Name)
+		}
+		out.Messages, out.Alerts = []MessageHeader{}, []json.RawMessage{}
+		if dir != "" {
+			out.Messages, out.Alerts = statusDetail(rt, boxes, rt.AckValid)
 		}
 		code = 1
 	}
@@ -468,7 +460,7 @@ func FileStatus(route, dir string) StatusReport {
 		}
 		st.Boxes = append(st.Boxes, BoxCount{Name: n, New: inbox.CountState(filepath.Join(box, "new")), Ready: inbox.CountState(filepath.Join(box, "ready")),
 			Cur: inbox.CountState(filepath.Join(box, "cur")), Quarantine: inbox.CountState(filepath.Join(box, "quarantine")),
-			Unacked: len(rt.Unacked(box)), Claim: rt.ClaimValid(box)})
+			Unacked: len(rt.Unacked(box)), Claim: rt.ClaimValid(box), Orphan: !hasPeer(st.Peers, n)})
 	}
 	return st
 }

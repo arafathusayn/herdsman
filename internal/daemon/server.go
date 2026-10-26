@@ -507,8 +507,8 @@ func (d *Daemon) routeStatus(w http.ResponseWriter, r *http.Request) *APIError {
 			return e
 		}
 	}
-	var st StatusReport
-	if e := rt.do(r.Context(), func() *APIError { st = rt.status(); return nil }); e != nil {
+	var st RouteStatus
+	if e := rt.do(r.Context(), func() *APIError { st = rt.fullStatus(); return nil }); e != nil {
 		return e
 	}
 	writeJSON(w, 200, st)

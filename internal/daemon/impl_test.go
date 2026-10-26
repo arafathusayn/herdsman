@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -219,4 +221,70 @@ func TestReplayReadsFilesInSteps(t *testing.T) {
 			t.Fatalf("record %d has seq %d (range %d..%d)", i, seq, start, barrier)
 		}
 	}
+}
+
+// checkStatusShape asserts the status --json object of 5.5: the daemon
+// object, every mailbox with orphan, message headers without bodies and
+// the pending alerts.
+func checkStatusShape(t *testing.T, raw []byte, state string, orch string) {
+	t.Helper()
+	var st map[string]any
+	if err := json.Unmarshal(raw, &st); err != nil {
+		t.Fatalf("%v: %s", err, raw)
+	}
+	d, _ := st["daemon"].(map[string]any)
+	if d == nil || d["state"] != state || d["version"] != testVersion {
+		t.Fatalf("daemon object %v", st["daemon"])
+	}
+	if _, ok := d["heartbeat_age"].(float64); !ok {
+		t.Fatalf("no heartbeat_age: %v", d)
+	}
+	orphan := map[string]any{}
+	for _, b := range st["boxes"].([]any) {
+		m := b.(map[string]any)
+		orphan[m["name"].(string)] = m["orphan"]
+	}
+	if orphan["stray"] != true || orphan[orch] != false {
+		t.Fatalf("orphan flags %v", orphan)
+	}
+	msgs, _ := st["messages"].([]any)
+	if len(msgs) != 1 {
+		t.Fatalf("messages %v", st["messages"])
+	}
+	m := msgs[0].(map[string]any)
+	if m["to"] != orch || m["kind"] != "brief" || m["state"] != "ready" || m["box"] != orch || m["id"] == "" {
+		t.Fatalf("message header %v", m)
+	}
+	if _, ok := m["body"]; ok || strings.Contains(string(raw), "secret-body") {
+		t.Fatal("status carries a body")
+	}
+	alerts, _ := st["alerts"].([]any)
+	if len(alerts) != 1 || alerts[0].(map[string]any)["key"] != "k1" {
+		t.Fatalf("alerts %v", st["alerts"])
+	}
+}
+
+func TestStatusFullShape(t *testing.T) {
+	h := newHarness(t)
+	adj, orch, dir := h.route("r")
+	adj.send(t, "r", orch.name, "secret-body")
+	_ = os.MkdirAll(filepath.Join(dir, "alerts"), 0o700)
+	_ = os.WriteFile(filepath.Join(dir, "alerts", "k1.pending"), []byte(`{"key":"k1","title":"t"}`), 0o600)
+	for _, s := range []string{"new", "ready", "cur"} {
+		_ = os.MkdirAll(filepath.Join(dir, "stray", s), 0o700)
+	}
+	var raw json.RawMessage
+	h.do("GET", "/v1/routes/r/status", nil, &raw)
+	checkStatusShape(t, raw, "up", orch.name)
+	out, _, code := h.msg(adj, "r", "--json", "status")
+	if code != 0 {
+		t.Fatalf("%d %s", code, out)
+	}
+	checkStatusShape(t, []byte(out), "up", orch.name)
+	h.stop()
+	out, _, code = h.msg(adj, "r", "--json", "status")
+	if code != 1 {
+		t.Fatalf("%d %s", code, out)
+	}
+	checkStatusShape(t, []byte(out), "down", orch.name)
 }

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
@@ -292,6 +293,89 @@ type StatusReport struct {
 	Holds    []HoldInfo    `json:"holds"`
 }
 
+// RouteStatus is GET /v1/routes/{route}/status and message status --json
+// (5.5): the daemon object, the route's status, every message's headers
+// (never a body) and the pending alerts' payloads.
+type RouteStatus struct {
+	Daemon DaemonState `json:"daemon"`
+	StatusReport
+	Messages []MessageHeader   `json:"messages"`
+	Alerts   []json.RawMessage `json:"alerts"`
+}
+
+// DaemonState is the daemon as a status reader sees it: state "up" or
+// "down", its version, and the age of its heartbeat in seconds.
+type DaemonState struct {
+	State        string `json:"state"`
+	Version      string `json:"version,omitempty"`
+	HeartbeatAge *int64 `json:"heartbeat_age,omitempty"`
+}
+
+// MessageHeader is one queued message's envelope headers, its mailbox and
+// state folder, and whether it has a valid ack.
+type MessageHeader struct {
+	Box          string `json:"box"`
+	ID           string `json:"id"`
+	From         string `json:"from"`
+	To           string `json:"to"`
+	Kind         string `json:"kind"`
+	ReplyTo      string `json:"reply_to"`
+	State        string `json:"state"`
+	Acknowledged bool   `json:"acknowledged"`
+}
+
+// statusDetail is the message headers and pending alerts of an inbox,
+// read the guarded way; a file that does not read as its kind is left
+// out. acked reports a message's ack.
+func statusDetail(rt *inbox.Root, boxes []string, acked func(box, id string) bool) ([]MessageHeader, []json.RawMessage) {
+	msgs, alerts := []MessageHeader{}, []json.RawMessage{}
+	for _, b := range boxes {
+		box := filepath.Join(rt.Dir, b)
+		for _, state := range []string{"new", "ready", "cur", "quarantine"} {
+			for _, f := range inbox.MdFiles(filepath.Join(box, state)) {
+				m, ok := inbox.Envelope(rt.Dir, f)
+				if !ok {
+					continue
+				}
+				str := func(k string) string { v, _ := m[k].(string); return v }
+				id := strings.TrimSuffix(filepath.Base(f), ".md")
+				msgs = append(msgs, MessageHeader{Box: b, ID: str("id"), From: str("from"), To: str("to"), Kind: str("kind"),
+					ReplyTo: str("reply_to"), State: state, Acknowledged: acked(box, id)})
+			}
+		}
+	}
+	files, _ := filepath.Glob(filepath.Join(rt.Dir, "alerts", "*.pending"))
+	for _, f := range files {
+		if !inbox.Regular(rt.Dir, f) {
+			continue
+		}
+		if b, err := inbox.ReadBounded(f, inbox.MaxSize); err == nil && inbox.StrictJSON(b) == nil {
+			alerts = append(alerts, json.RawMessage(b))
+		}
+	}
+	return msgs, alerts
+}
+
+// heartbeatAge is the age of a private home's daemon heartbeat in whole
+// seconds (nil when it cannot be read).
+func heartbeatAge(privateHome string, now time.Time) *int64 {
+	st, err := os.Stat(filepath.Join(privateHome, "daemon", "heartbeat"))
+	if err != nil {
+		return nil
+	}
+	age := max(int64(now.Sub(st.ModTime())/time.Second), 0)
+	return &age
+}
+
+// fullStatus is the route's RouteStatus as the daemon serves it.
+func (r *Route) fullStatus() RouteStatus {
+	st := RouteStatus{Daemon: DaemonState{State: "up", Version: r.d.cfg.Version, HeartbeatAge: heartbeatAge(r.d.cfg.PrivateHome, r.now())},
+		StatusReport: r.status()}
+	rt := r.root()
+	st.Messages, st.Alerts = statusDetail(rt, r.boxes(), func(box, id string) bool { return r.acks.valid(rt, box, id) })
+	return st
+}
+
 // RegistryState is the pair's state: empty, pending or approved, with the
 // pending registry's SHA-256 while a change waits.
 type RegistryState struct {
@@ -308,6 +392,8 @@ type BoxCount struct {
 	Unacked    int    `json:"unacked"`
 	Quarantine int    `json:"quarantine"`
 	Claim      bool   `json:"claim"`
+	// Orphan is a mailbox of no approved peer.
+	Orphan bool `json:"orphan"`
 }
 
 // HoldInfo is one held target and its owners.
@@ -338,7 +424,7 @@ func (r *Route) status() StatusReport {
 		box := r.path(b)
 		c := BoxCount{Name: b, New: inbox.CountState(filepath.Join(box, "new")), Ready: inbox.CountState(filepath.Join(box, "ready")),
 			Cur: inbox.CountState(filepath.Join(box, "cur")), Quarantine: inbox.CountState(filepath.Join(box, "quarantine")),
-			Unacked: len(r.unacked(box)), Claim: rt.ClaimValid(box)}
+			Unacked: len(r.unacked(box)), Claim: rt.ClaimValid(box), Orphan: !hasPeer(st.Peers, b)}
 		st.Boxes = append(st.Boxes, c)
 	}
 	if ents, err := os.ReadDir(r.path("state")); err == nil {
@@ -379,4 +465,14 @@ func writeFrame(w io.Writer, route string, f frame) error {
 	}
 	fmt.Fprintf(bw, "event: %s\ndata: %s\n\n", ev.Type, data)
 	return bw.Flush()
+}
+
+// hasPeer reports a name among the approved peers.
+func hasPeer(peers []PeerInfo, name string) bool {
+	for _, p := range peers {
+		if p.Name == name {
+			return true
+		}
+	}
+	return false
 }
