@@ -436,3 +436,125 @@ func TestSupervisorUserDomain(t *testing.T) {
 		}
 	}
 }
+
+// TestSupervisorErrorPaths: every manager failure in install, start and
+// restart is returned, a hello that never comes ends at the deadline, and
+// an inactive or unreadable manager state reads as not loaded.
+func TestSupervisorErrorPaths(t *testing.T) {
+	t.Run("reinstall bootout fails", func(t *testing.T) {
+		h, f, s := newSup(t, "darwin")
+		h.stop()
+		if _, err := s.Install(); err != nil {
+			t.Fatal(err)
+		}
+		f.fail = map[string]error{"bootout": errors.New("manager refused")}
+		if _, err := s.Install(); err == nil || !strings.Contains(err.Error(), "manager refused") {
+			t.Fatalf("got %v", err)
+		}
+	})
+	t.Run("reinstall lock stays held", func(t *testing.T) {
+		h, f, s := newSup(t, "darwin")
+		h.stop()
+		if _, err := s.Install(); err != nil {
+			t.Fatal(err)
+		}
+		run := f.run
+		s.Run = func(name string, args ...string) error {
+			if strings.Contains(strings.Join(args, " "), "bootout") {
+				f.loaded = false // unloaded, but the daemon keeps the lock
+				return nil
+			}
+			return run(name, args...)
+		}
+		s.Wait = 300 * time.Millisecond
+		if _, err := s.Install(); err == nil || !strings.Contains(err.Error(), "still holds the account lock") {
+			t.Fatalf("got %v", err)
+		}
+	})
+	for _, c := range []struct{ goos, fail string }{{"darwin", "launchctl enable"}, {"linux", "daemon-reload"}, {"linux", "restart"}} {
+		t.Run(c.goos+" "+c.fail, func(t *testing.T) {
+			h, f, s := newSup(t, c.goos)
+			h.stop()
+			if _, err := s.Install(); err != nil {
+				t.Fatal(err)
+			}
+			f.fail = map[string]error{c.fail: errors.New("manager refused")}
+			if _, err := s.Install(); err == nil || !strings.Contains(err.Error(), "manager refused") {
+				t.Fatalf("install: %v", err)
+			}
+			if c.fail == "restart" {
+				if _, err := s.Restart(); err == nil {
+					t.Fatal("restart: no error")
+				}
+			}
+		})
+	}
+	t.Run("no hello", func(t *testing.T) {
+		h, _, s := newSup(t, "darwin")
+		h.stop()
+		s.Run = func(string, ...string) error { return nil } // bootstrap starts nothing
+		s.Wait = 300 * time.Millisecond
+		if _, err := s.Install(); err == nil || !strings.Contains(err.Error(), "no hello") {
+			t.Fatalf("got %v", err)
+		}
+	})
+	t.Run("manager state unreadable", func(t *testing.T) {
+		_, _, s := newSup(t, "linux")
+		s.Query = func(string, ...string) (string, error) { return "", errors.New("no user manager") }
+		if loaded, pid := s.managed(); loaded || pid != 0 {
+			t.Fatalf("%v %d", loaded, pid)
+		}
+		s.Query = func(string, ...string) (string, error) { return "ActiveState=active\n", nil }
+		if loaded, pid := s.managed(); !loaded || pid != 0 {
+			t.Fatalf("no MainPID: %v %d", loaded, pid)
+		}
+	})
+	t.Run("deadline without begin", func(t *testing.T) {
+		s := &Supervisor{Wait: time.Minute}
+		if r := s.remaining(); r <= 0 || r > time.Minute {
+			t.Fatalf("%v", r)
+		}
+	})
+}
+
+// TestManualIdentityEdges: a lock that names no process is refused, the
+// system's identity reader is used by default (this test process is not
+// a daemon run, so it is refused), and restart stops on that refusal.
+func TestManualIdentityEdges(t *testing.T) {
+	h, _, s := newSup(t, "linux")
+	s.Identity = nil
+	if err := s.Stop(); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("default identity: %v", err)
+	}
+	if _, err := s.Restart(); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("restart: %v", err)
+	}
+	if !AccountLockHeld(h.home) {
+		t.Fatal("signalled")
+	}
+	// The lock file's content names pid 1 while the daemon holds it.
+	b, _ := os.ReadFile(AccountLockPath(h.home))
+	_ = os.WriteFile(AccountLockPath(h.home), []byte(strings.Replace(string(b), fmt.Sprintf(`"pid":%d`, os.Getpid()), `"pid":1`, 1)), 0o600)
+	if err := s.Stop(); err == nil || !strings.Contains(err.Error(), "names no process") {
+		t.Fatalf("pid 1: %v", err)
+	}
+}
+
+// TestLifecycleExecSuccess: a manager program that answers is run with
+// its output read (the exec path of query and run).
+func TestLifecycleExecSuccess(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "launchctl"), []byte("#!/bin/sh\necho 'pid = 4242'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	_, _, s := newSup(t, "darwin")
+	s.Run, s.Query = nil, nil
+	s.begin()
+	if loaded, pid := s.managed(); !loaded || pid != 4242 {
+		t.Fatalf("%v %d", loaded, pid)
+	}
+	if err := s.run("launchctl", "enable", s.service()); err != nil {
+		t.Fatal(err)
+	}
+}

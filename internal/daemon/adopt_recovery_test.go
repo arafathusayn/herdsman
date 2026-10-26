@@ -169,3 +169,31 @@ func TestReleaseInputLockLeavesOthers(t *testing.T) {
 		t.Fatalf("own lock: %v", err)
 	}
 }
+
+// TestReleaseInputLockErrors: a release that cannot rename the lock away
+// (a read-only inbox) or cannot remove the renamed folder reports it.
+func TestReleaseInputLockErrors(t *testing.T) {
+	dir := t.TempDir()
+	lk := filepath.Join(dir, inbox.MutationLock)
+	_ = os.Mkdir(lk, 0o700)
+	_ = os.WriteFile(filepath.Join(lk, "owner.json"), []byte(`{"owner":"daemon","epoch":"adopt-e1"}`), 0o600)
+	_ = os.Chmod(dir, 0o500)
+	err := releaseInputLock(dir)
+	_ = os.Chmod(dir, 0o700)
+	if err == nil || !strings.Contains(err.Error(), "releasing the input lock") || !exists(lk) {
+		t.Fatalf("read-only inbox: %v", err)
+	}
+	stuck := filepath.Join(lk, "stuck")
+	_ = os.Mkdir(stuck, 0o700)
+	_ = os.WriteFile(filepath.Join(stuck, "f"), nil, 0o600)
+	_ = os.Chmod(stuck, 0o500)
+	t.Cleanup(func() {
+		ents, _ := filepath.Glob(filepath.Join(dir, ".released.*", "stuck"))
+		for _, e := range ents {
+			_ = os.Chmod(e, 0o700)
+		}
+	})
+	if err := releaseInputLock(dir); err == nil || !strings.Contains(err.Error(), "removing the released input lock") || exists(lk) {
+		t.Fatalf("unremovable leftover: %v", err)
+	}
+}

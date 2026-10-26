@@ -2,12 +2,15 @@ package daemon
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestAskTimeout(t *testing.T) {
@@ -53,5 +56,86 @@ func TestDaemonLogBounded(t *testing.T) {
 	l.Close()
 	if b, _ := os.ReadFile(big); string(b) != "new\n" {
 		t.Fatalf("not rotated: %d bytes", len(b))
+	}
+}
+
+// TestDaemonLogFollowsStderr: when stderr is the log file (the
+// LaunchAgent's StandardErrorPath), lines are not doubled onto stderr
+// and fd 2 moves to the new file at each rotation.
+func TestDaemonLogFollowsStderr(t *testing.T) {
+	ph := t.TempDir()
+	_ = os.Mkdir(filepath.Join(ph, "daemon"), 0o700)
+	p := filepath.Join(ph, "daemon", "daemon.log")
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := unix.Dup(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = f
+	t.Cleanup(func() {
+		os.Stderr = old
+		_ = unix.Dup2(saved, 2)
+		_ = unix.Close(saved)
+		f.Close()
+	})
+	l := newBoundedLog(ph, os.Stderr)
+	if !l.redirect {
+		t.Fatal("stderr is the log file but was not detected")
+	}
+	l.max = 64
+	for range 3 {
+		l.Line(strings.Repeat("a", 40))
+	}
+	_, _ = fmt.Fprintln(os.NewFile(2, "fd2"), "panic text")
+	l.Close()
+	b, _ := os.ReadFile(p)
+	if !strings.HasSuffix(string(b), "panic text\n") || len(b) > 64+11 {
+		t.Fatalf("fd 2 did not follow the rotation: %q", b)
+	}
+}
+
+// TestDaemonLogOpenFailures: a log that cannot be opened (no private
+// home, or daemon.log a folder) drops the line from the file and keeps
+// the copy on stderr.
+func TestDaemonLogOpenFailures(t *testing.T) {
+	var echo bytes.Buffer
+	l := newBoundedLog(filepath.Join(t.TempDir(), "missing", "ph"), &echo)
+	l.Line("x")
+	ph := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(ph, "daemon", "daemon.log"), 0o700)
+	l2 := newBoundedLog(ph, &echo)
+	l2.Line("y")
+	l.Close()
+	l2.Close()
+	if echo.String() != "x\ny\n" {
+		t.Fatalf("%q", echo.String())
+	}
+}
+
+// TestAdminDownJSON: a command whose daemon does not answer exits 75
+// with the daemon_down error object.
+func TestAdminDownJSON(t *testing.T) {
+	h, _, sup := newSup(t, "linux")
+	h.stop()
+	out, _, code := adminRun(h, sup, nil, nil, false, "--json", "route", "list")
+	if code != 75 || !strings.HasPrefix(out, `{"error":{"code":"daemon_down"`) {
+		t.Fatalf("%d %q", code, out)
+	}
+}
+
+// TestSetupLastQuestionUnanswered: input that ends at the last question
+// (policy_verified) records nothing either; extra input lines are left.
+func TestSetupLastQuestionUnanswered(t *testing.T) {
+	h, _, sup := newSup(t, "linux")
+	adminRun(h, sup, nil, nil, false, "route", "create", "--repo", "repo", "--route", "r")
+	if _, errOut, code := adminRun(h, sup, strings.NewReader(strings.Repeat("y\n", 5)), nil, true, "setup", "r", "--rule", h.rules); code != 2 || !strings.Contains(errOut, "no answer") {
+		t.Fatalf("%d %q", code, errOut)
+	}
+	if out, errOut, code := adminRun(h, sup, strings.NewReader(strings.Repeat("y\n", 9)), nil, true, "setup", "r", "--rule", h.rules); code != 0 {
+		t.Fatalf("extra lines: %d %q %q", code, out, errOut)
 	}
 }

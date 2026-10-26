@@ -129,3 +129,15 @@ func TestDaemonLockReadersStrict(t *testing.T) {
 		t.Fatalf("pid %s", pid)
 	}
 }
+
+// TestDaemonLivenessNoHeartbeat: a live daemon without a heartbeat file
+// has its pid and no age.
+func TestDaemonLivenessNoHeartbeat(t *testing.T) {
+	ph := t.TempDir()
+	dir := filepath.Join(ph, "r")
+	inboxtest.DaemonOwn(t, dir, "e1", true)
+	os.Remove(filepath.Join(ph, "daemon", "heartbeat"))
+	if pid, age := inbox.DaemonLiveness(dir, time.Now()); pid != "1" || age != -1 {
+		t.Fatalf("pid %s age %d", pid, age)
+	}
+}
