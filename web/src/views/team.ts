@@ -18,11 +18,11 @@ function loadBy(): BoardBy {
 let boardBy = loadBy();
 
 const CardTask = html`<div class="card-task">${text()}</div>`;
-const CardSub = html`<div class="card-sub">${text()}</div>`;
-const CardTab = html`<span class="muted">${text()}</span>`;
+const CardSub = html`<div class="card-sub" title=${attr()}>${text()}</div>`;
+const CardTab = html`<span class="card-tab muted clip" title=${attr()}>${text()}</span>`;
 const CardTitle = html`<span class="muted clip" title=${attr()}>${text()}</span>`;
 const Card = html`<button class=${cls()} title=${attr()} data-pane=${attr()} onclick=${on<"click">()}>
-  <div class="card-top"><span class="card-title">${text()}</span>${child<PillNode>()}</div>
+  <div class="card-top"><span class="card-title" title=${attr()}>${text()}</span>${child<PillNode>()}</div>
   ${child<ViewNodeOf<typeof CardTask> | null>()}${child<ViewNodeOf<typeof CardSub> | null>()}
   <div class="card-foot">
     <code>${text()}</code>${child<ViewNodeOf<typeof CardTab> | null>()}${child<ViewNodeOf<typeof CardTitle> | null>()}
@@ -44,11 +44,12 @@ export function card(m: Member, app: App, role = false): CardNode {
     m.pane_id,
     () => store.go({ pane: m.pane_id }),
     m.title,
+    m.title,
     pill(m.status),
     m.task?.task && m.task.task !== m.title ? CardTask([m.task.task]) : null,
-    sub ? CardSub([sub]) : null,
+    sub ? CardSub([sub, sub]) : null,
     m.pane_id,
-    m.tab ? CardTab([m.tab.label]) : null,
+    m.tab ? CardTab([m.tab.label, m.tab.label]) : null,
     title ? CardTitle([title, title]) : null,
   ]);
 }
