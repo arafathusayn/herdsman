@@ -4,7 +4,7 @@
 [ $# = 1 ] && name_ok "$1" || die 'resume <registered-name>'
 NAME=$1
 root_init
-boundary_ok || { printf 'HELD HUMAN boundary; no automatic input\n'; exit 3; }
+boundary_ok || { record_exposure; printf 'HELD HUMAN boundary; no automatic input\n'; exit 3; }
 target_record() {
   registry || return 1
   if [ -n "${RESUME_TARGET_SUM:-}" ]; then
@@ -64,13 +64,12 @@ case "$state" in
   unknown) [ ! -f "$ROOT/state/resume-$key.sent" ] || held 'reconcile unknown read-back after previous resume'; printf 'NOOP no current paused-goal marker\n'; exit 0 ;;
 esac
 [ ! -e "$ROOT/state/resume-$key.sent" ] || held 'reconcile the previous resume'
-mkdir "$ROOT/herdr-mutation.lock" 2>/dev/null || held 'mutation lock busy'
-export MUTATION_OWNED=1
-printf '%s\n' "$$" > "$ROOT/herdr-mutation.lock/pid"
+LOCK_WAIT=1 mutation_lock || held 'mutation lock busy'
+export MUTATION_OWNED
 # Recheck the intent under the lock: an overlapping helper may have sent in this episode since the first check.
 [ ! -e "$ROOT/state/resume-$key.sent" ] || held 'reconcile the previous resume'
 guards || pause_held
-boundary_ok || held 'HUMAN boundary changed'
+boundary_ok || { record_exposure; held 'HUMAN boundary changed'; }
 current=$(target_record) || held 'target changed'
 [ "$(printf '%s' "$current" | jq -Sc .)" = "$(printf '%s' "$target" | jq -Sc .)" ] || held 'target changed'
 observe

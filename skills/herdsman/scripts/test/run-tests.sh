@@ -486,6 +486,29 @@ printf '%s\n' '# Shared rules' '## Must prove' > "$K2F/10-shared-rules.md"
 out=$(/bin/bash "$RK" "$K2F" launch 2>&1); rc=$?
 check "K22 an aligned separator row passes the launch stage" '^0$' "$rc"; nocheck "K22b and is not read as a row" ':---' "$out"
 rm -f "$K2F/10-shared-rules.md" "$K2F/11-task-a.md" "$K2F/12-task-b.md" "$K2F/15-task-i.md"
+# K23: a route with an adjutant records that every question, gos included, goes through the adjutant, and keeps C2.13
+kadj() { # adjutant line, questions line ("" for none), checklist lines...
+  local a="$1" q="$2"; shift 2
+  { printf '%s\n' '# Route r2' '## Decisions' "$a"; [ -z "$q" ] || printf '%s\n' "$q"
+    printf '%s\n' '## Must prove' '## Task table' '| Task | Agent | Pane |' '| --- | --- | --- |' '| a | im-a | w1:p2 |' '## Checklist'
+    printf '%s\n' "$@" '## Run state'; } > "$K2F/00-route.md"
+}
+KADJ='- [ ] C2.13 adj: questions through the adjutant'
+kadj 'Adjutant: `front`, pane w1:p6' 'Questions: through the adjutant (every question, gos included)' "$KADJ"
+out=$(/bin/bash "$RK" "$K2F" 2>&1); rc=$?
+check "K23 an adjutant route that records its questions passes" '^0$' "$rc"; check "K23b and says so" '^ok questions through the adjutant \(C2.13\)$' "$out"
+kadj '- Adjutant: `front`, pane w1:p6' '' "$KADJ"
+out=$(/bin/bash "$RK" "$K2F" 2>&1); rc=$?
+check "K23c an adjutant route without the Questions line is MISSING" '^MISSING a "Questions: through the adjutant" line' "$out"; check "K23d and fails" '^1$' "$rc"
+kadj 'Adjutant: `front`, pane w1:p6' 'Questions: through the adjutant' '- [-] C2.13 adj: questions through the adjutant -- not needed'
+out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K23e an adjutant route cannot drop C2.13" '^MISSING the checklist line C2.13 adj' "$out"
+kadj 'Adjutant: `front`, pane w1:p6' 'Questions: through the adjutant' '- [x] C0.1 all: read guards -- done'
+out=$(/bin/bash "$RK" "$K2F" 2>&1); check "K23f nor leave it out" '^MISSING the checklist line C2.13 adj' "$out"
+kadj 'Adjutant: none' '' '- [x] C0.1 all: read guards -- done'
+out=$(/bin/bash "$RK" "$K2F" 2>&1); rc=$?
+check "K23g a route without an adjutant needs neither" '^0$' "$rc"; nocheck "K23h and checks no adjutant line" 'C2.13' "$out"
+check "K23i the skill's checklist has the C2.13 adj line that route-check requires" '^- \[ \] C2\.13 adj: .*Questions: through the adjutant' \
+  "$(grep 'C2.13' "$SK/../references/checklist.md")"
 # K20: a route without agent panes keeps the nopane line; launch and close then skip the pane check
 kroute '| Task | Agent | Pane |' '| a | stage-a | none |' '- [x] C3.2 nopane: agents as subagents -- user picked Without agent panes'
 out=$(/bin/bash "$RK" "$K2F" launch 2>&1); rc=$?
@@ -572,10 +595,10 @@ fi
 # M0: a message test part that stops before its last case fails the run, even in a reused work dir that holds the
 # counts of an earlier run. MESSAGE_TEST_STOP=all stops every part before its first case.
 mkdir -p "$T/messages-stop"
-i=1; while [ "$i" -le 18 ]; do printf '999 0\n' > "$T/messages-stop/.part-$(printf '%02d' "$i").counts"; i=$((i+1)); done
+i=1; while [ "$i" -le 19 ]; do printf '999 0\n' > "$T/messages-stop/.part-$(printf '%02d' "$i").counts"; i=$((i+1)); done
 out=$(MESSAGE_TEST_STOP=all /bin/bash "$SK/test/message-tests.sh" "$T/messages-stop" 2>/dev/null); st=$?
 check "M0 stopped parts fail the message run and old counts are ignored" \
-  '^1 .*FAIL part 01 stopped before its last case \(exit 3\).*FAIL part 18 stopped.*RESULT pass=[0-9]{1,2} fail=18 ' \
+  '^1 .*FAIL part 01 stopped before its last case \(exit 3\).*FAIL part 19 stopped.*RESULT pass=[0-9]{1,2} fail=19 ' \
   "$st $(printf '%s' "$out" | tr '\n' ' ')"
 
 # M: the message channel tests run here too, so every run of this file (CI included) covers them; their counts
