@@ -54,7 +54,11 @@ func (c *ackCache) valid(r *inbox.Root, box, id string) bool {
 		c.mu.Lock()
 		hit := c.m[key] == e
 		c.mu.Unlock()
-		if hit {
+		// A hit keeps AckValid's path guards: every folder from the
+		// inbox down to each file is a real folder, not a link.
+		if hit && inbox.GuardPath(r.Dir, filepath.Join(box, "cur", id+".md")) &&
+			inbox.GuardPath(r.Dir, filepath.Join(box, "ack", id+".md.json")) &&
+			inbox.GuardPath(r.Dir, r.Path("ids", id, "claim")) {
 			return true
 		}
 	}

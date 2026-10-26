@@ -290,6 +290,10 @@ func (r *Route) runOp(fn func() *APIError) *APIError {
 	// listens, and retried while one waits.
 	if r.intakeDue && r.now().Sub(r.intakeAt) >= intakeRetry {
 		r.intake()
+		// An intake whose files failed holds every later operation.
+		if e := r.finishUnfinished(); e != nil {
+			return e
+		}
 	}
 	// Rotation happens only between operations, so no payload of an
 	// operation in flight is pruned by its checkpoint (4.2).

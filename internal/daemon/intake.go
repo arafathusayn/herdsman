@@ -50,8 +50,11 @@ func (r *Route) intake() bool {
 		switch state := r.verifyEntry(e[0], e[1]); state {
 		case "verified", "quarantined":
 			if err := r.dispose(e[0], e[1], state); err != nil {
+				// A committed intake whose files failed is unfinished:
+				// nothing after it runs or publishes (the step-4 barrier).
 				r.d.logf("route %s: intake of %s: %v", r.name, e[1], err)
-				waiting = true
+				r.intakeDue = true
+				return true
 			}
 		case "wait":
 			waiting = true
@@ -87,13 +90,18 @@ func (r *Route) verifyEntry(box, id string) string {
 	from, _ := m["from"].(string)
 	reply, _ := m["reply_to"].(string)
 	sender, ok := r.root().Peer(from)
-	snap, err1 := readSmall(f, inbox.MaxSize)
-	alloc, err2 := readSmall(r.path("ids", id, "envelope"), inbox.MaxSize)
+	// The courier's guarded reads: every folder under the inbox is real.
+	allocPath := r.path("ids", id, "envelope")
+	snap, err1 := inbox.ReadBounded(f, inbox.MaxSize)
+	alloc, err2 := inbox.ReadBounded(allocPath, inbox.MaxSize)
+	if !inbox.Regular(r.inbox, allocPath) {
+		err2 = os.ErrNotExist
+	}
 	switch {
 	case !ok, m["id"] != id, m["to"] != box,
 		!inbox.Equal(m["from_identity"], decoded(identityObj(sender.Identity))),
 		!inbox.Equal(m["to_identity"], decoded(identityObj(target.Identity))),
-		reply != "" && !regular(r.path("ids", reply, "envelope")),
+		reply != "" && (!inbox.IDOK(reply) || !inbox.Regular(r.inbox, r.path("ids", reply, "envelope"))),
 		err1 != nil || err2 != nil || !bytes.Equal(snap, alloc):
 		return "quarantined"
 	}
@@ -164,8 +172,16 @@ func (r *Route) dispose(box, id, state string) error {
 // redoIntake applies a recorded disposition, idempotently.
 func (r *Route) redoIntake(rec *Record) error {
 	src := r.path(rec.To, "new", rec.ID+".md")
+	// A copy in new/ is never moved over a later state of the message:
+	// once it is ready, claimed or acknowledged, a new/ copy is a
+	// duplicate kept for the human, and replay changes nothing.
+	later := r.inQueues(rec.To, rec.ID, "ready", "cur") || exists(r.path("ids", rec.ID, "claim")) ||
+		exists(r.path(rec.To, "ack", rec.ID+".md.json"))
+	if later {
+		return nil
+	}
 	if rec.State == "verified" {
-		if exists(src) && !exists(r.path(rec.To, "ready", rec.ID+".md")) {
+		if exists(src) && !r.inQueues(rec.To, rec.ID, "quarantine") && !exists(r.path("ids", rec.ID, "terminal.json")) {
 			if err := mkdirs(r.inbox, rec.To+"/ready"); err != nil {
 				return err
 			}
