@@ -134,3 +134,64 @@ func TestArtifactWalkSkipsAnUnsearchableRoot(t *testing.T) {
 		t.Fatalf("listing = %+v, want only o.html under %s", got, other)
 	}
 }
+
+// openRefuses checks that opening a page folder for a grant fails promptly
+// when beforeOpen swaps the folder at swapDir ("" for the root) for a FIFO
+// at that exact moment. A blocked open is freed through the FIFO, so a
+// failure cannot hang the suite.
+func openRefuses(t *testing.T, swapDir string) {
+	t.Helper()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "pages", "p.html"), "p")
+	id, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirID, err := os.Stat(filepath.Join(root, "pages"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fifo := filepath.Join(root, swapDir)
+	hook := func(r, dir string) {
+		if r == root && dir == swapDir {
+			if err := os.RemoveAll(fifo); err != nil {
+				t.Error(err)
+			}
+			if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	done := make(chan error, 1)
+	go func() {
+		r, err := openPageDirWith(root, id, "pages", dirID, hook)
+		if err == nil {
+			_ = r.Close()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a folder swapped for a FIFO was opened")
+		}
+	case <-time.After(3 * time.Second):
+		if f, err := os.OpenFile(fifo, os.O_RDWR, 0); err == nil {
+			_ = f.Close()
+		}
+		<-done
+		t.Fatalf("opening for a grant blocked on a FIFO in place of %q", swapDir)
+	}
+}
+
+// A grant's root swapped for a FIFO just before it is opened is refused at
+// once instead of blocking the request.
+func TestArtifactOpenRefusesARootSwappedForAFIFO(t *testing.T) {
+	openRefuses(t, "")
+}
+
+// A page folder swapped for a FIFO after its checks and just before it is
+// opened is refused at once instead of blocking the request.
+func TestArtifactOpenRefusesAPageFolderSwappedForAFIFO(t *testing.T) {
+	openRefuses(t, "pages")
+}

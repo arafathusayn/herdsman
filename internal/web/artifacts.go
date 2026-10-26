@@ -412,8 +412,18 @@ var errNotListed = errors.New("the folder changed since it was listed")
 // the page in (dirID), so the handle reaches only the folder listed. os.Root
 // keeps a link swapped in during the open inside the root too.
 func openPageDir(root string, id os.FileInfo, rel string, dirID os.FileInfo) (*os.Root, error) {
+	return openPageDirWith(root, id, rel, dirID, nil)
+}
+
+// openPageDirWith is openPageDir with the walk's beforeOpen hook: it runs
+// just before root is opened (dir "") and just before the page folder is,
+// after its checks (dir rel).
+func openPageDirWith(root string, id os.FileInfo, rel string, dirID os.FileInfo, beforeOpen func(root, dir string)) (*os.Root, error) {
 	if id == nil || dirID == nil {
 		return nil, errNotListed
+	}
+	if beforeOpen != nil {
+		beforeOpen(root, "")
 	}
 	r, err := openDirRoot(root)
 	if err != nil {
@@ -438,6 +448,9 @@ func openPageDir(root string, id os.FileInfo, rel string, dirID os.FileInfo) (*o
 			_ = r.Close()
 			return nil, errNotListed
 		}
+	}
+	if beforeOpen != nil {
+		beforeOpen(root, rel)
 	}
 	sub, err := r.OpenRoot(filepath.FromSlash(rel + "/.")) // a folder only, as in openDirRoot
 	_ = r.Close()
@@ -579,7 +592,7 @@ func (s *Server) openArtifact(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		dir, file := path.Split(a.Path)
-		d, err := openPageDir(a.Root, a.rootID, dir, a.dirID)
+		d, err := openPageDirWith(a.Root, a.rootID, dir, a.dirID, s.artifacts.beforeOpen)
 		if err != nil {
 			break
 		}
