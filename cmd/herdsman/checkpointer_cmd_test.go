@@ -23,13 +23,13 @@ func TestCheckpointerCommandLine(t *testing.T) {
 			t.Errorf("%v: %d %q", args, code, e)
 		}
 	}
-	if _, e, code := call(t, "checkpointer", "--probe"); code != 2 || e != "herdsman checkpointer: TARGET: required, the orchestrator pane id (got \"\")\n" {
+	if _, e, code := call(t, "checkpointer", "--probe"); code != 2 || e != "herdsman checkpointer: TARGET: required, not set (got \"\")\n" {
 		t.Errorf("no TARGET: %d %q", code, e)
 	}
 	t.Setenv("TARGET", "w9:p9")
 	t.Setenv("HERDSMAN_ORCHESTRATOR", "o")
 	t.Setenv("HERDSMAN_INBOX", "")
-	if _, e, code := call(t, "checkpointer", "--once"); code != 2 || e != "herdsman checkpointer: HERDSMAN_INBOX: required in adjutant mode (HERDSMAN_ORCHESTRATOR is set) (got \"\")\n" {
+	if _, e, code := call(t, "checkpointer", "--once"); code != 2 || e != "herdsman checkpointer: HERDSMAN_INBOX: required, not set (got \"\")\n" {
 		t.Errorf("no inbox: %d %q", code, e)
 	}
 	t.Setenv("HERDSMAN_ORCHESTRATOR", "")

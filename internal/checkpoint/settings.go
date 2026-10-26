@@ -29,11 +29,6 @@ func interval(v string) (time.Duration, error) {
 	return d, nil
 }
 
-// required is the error of a setting that must be set.
-func required(name, reason string) error {
-	return &settings.Error{Var: name, Reason: reason, Got: ""}
-}
-
 // InboxSettings reads the inbox settings the checkpointer and its guard
 // pass to the inbox, checked at start and in canonical form (LOCK_WAIT=06
 // becomes 6): HERDSMAN_INBOX, HERDSMAN_PREFLIGHT, HERDSMAN_MESSAGES_DIR,

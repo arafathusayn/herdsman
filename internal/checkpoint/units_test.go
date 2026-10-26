@@ -326,14 +326,14 @@ func TestSettings(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{map[string]string{"TARGET": ""}, `TARGET: required, the orchestrator pane id (got "")`},
+		{map[string]string{"TARGET": ""}, `TARGET: required, not set (got "")`},
 		{map[string]string{"INTERVAL": "0"}, `INTERVAL: must be at least 1s (got "0")`},
 		{map[string]string{"LIMIT": "lots"}, `LIMIT: not a whole number (got "lots")`},
 		{map[string]string{"LIMIT": "9007199254740993"}, `LIMIT: must be from 0 to 9007199254740992 (got "9007199254740993")`},
 		{map[string]string{"LOCK_WAIT": "0"}, `LOCK_WAIT: must be from 1 to 60 (got "0")`},
 		{map[string]string{"HEALTH_AFTER": "x\ny"}, `HEALTH_AFTER: not a whole number (got "x\ny")`},
 		{map[string]string{"HEALTH_AFTER": "0"}, `HEALTH_AFTER: must be from 1 to 86400 (got "0")`},
-		{map[string]string{"HERDSMAN_ORCHESTRATOR": "o"}, `HERDSMAN_INBOX: required in adjutant mode (HERDSMAN_ORCHESTRATOR is set) (got "")`},
+		{map[string]string{"HERDSMAN_ORCHESTRATOR": "o"}, `HERDSMAN_INBOX: required, not set (got "")`},
 	} {
 		_, err := get(tc.env)
 		var se *settings.Error

@@ -69,7 +69,7 @@ func FromEnv(getenv func(string) string, pwd string) (Config, error) {
 		Env:          Env{Transcript: getenv("TRANSCRIPT"), Home: getenv("HOME"), CodexHome: getenv("CODEX_HOME"), PWD: pwd},
 	}
 	if c.Target == "" {
-		return c, required("TARGET", "required, the orchestrator pane id")
+		return c, settings.Missing("TARGET")
 	}
 	var err error
 	if c.Interval, err = interval(getenv("INTERVAL")); err != nil {
@@ -83,7 +83,7 @@ func FromEnv(getenv func(string) string, pwd string) (Config, error) {
 	}
 	c.LockWait, _ = strconv.Atoi(c.Inbox.LockWait)
 	if c.Orchestrator != "" && c.Inbox.Dir == "" {
-		return c, required("HERDSMAN_INBOX", "required in adjutant mode (HERDSMAN_ORCHESTRATOR is set)")
+		return c, settings.Missing("HERDSMAN_INBOX")
 	}
 	return c, nil
 }
