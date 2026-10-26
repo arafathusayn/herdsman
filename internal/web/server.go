@@ -544,5 +544,5 @@ func (s *Server) routeRunState(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "the route file could not be read"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"lines": lines, "older": before - len(lines), "from": rv.tail.From()})
+	writeJSON(w, http.StatusOK, map[string]any{"lines": lines, "older": before - len(lines), "from": rv.tail.From(), "history": rv.tail.History()})
 }

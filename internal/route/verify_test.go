@@ -364,3 +364,50 @@ func TestBlockChecksOwedAfterAChange(t *testing.T) {
 		t.Errorf("%d loads paid a 5 MiB file's cycle, want 2", loads)
 	}
 }
+
+// The history generation stays while the file only grows, so the browser
+// keeps the pages it loaded, and changes once an edit of an old record is
+// found, so it drops them.
+func TestHistoryChangesOnAnEditOnly(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, RouteFile)
+	var b strings.Builder
+	b.WriteString("# R\n## Run state\n")
+	for i := range 3000 {
+		fmt.Fprintf(&b, "- 10:00 r%04d\n", i)
+	}
+	body := b.String()
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := LoadBounded(dir, 100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendTo(t, file, "- 10:01 more\n")
+	grown, err := LoadBounded(dir, 100, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.History() == "" || grown.History() != first.History() {
+		t.Fatalf("after an append: %q, before: %q", grown.History(), first.History())
+	}
+	f, err := os.OpenFile(file, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteAt([]byte("- 10:00 e2500"), int64(strings.Index(body, "- 10:00 r2500"))); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	tail := grown
+	for i := range 3 {
+		appendTo(t, file, fmt.Sprintf("- 10:02 again %d\n", i))
+		if tail, err = LoadBounded(dir, 100, tail); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tail.History() == first.History() {
+		t.Fatalf("the edit of r2500 kept the history %q", tail.History())
+	}
+}

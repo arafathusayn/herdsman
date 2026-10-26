@@ -161,3 +161,58 @@ test("loaded pages are kept for the last few routes only", async () => {
   expect(again(`lru${SEEN_ROUTES}`)).toBe(201);
   expect(again("lru0")).toBe(100);
 });
+
+// An edit of a loaded older record gives the route a new history: the view
+// drops the pages it loaded, while an append under the same history keeps
+// them.
+test("a new history drops the loaded pages", async () => {
+  const { logView } = await import("./log-view.ts");
+  const span = (a: number, b: number): LogLine[] =>
+    Array.from({ length: b - a }, (_, i) => ({
+      time: "09:00",
+      text: `l${a + i}`,
+    }));
+  const page = (_id: string, before: number) =>
+    Promise.resolve({
+      lines: span(before - 100, before),
+      older: before - 100,
+      history: "g1",
+    });
+  const view = (r: object) => logView({ id: "hist", ...r } as unknown as Route, page) as unknown as FakeElement;
+  const first = view({
+    run_state: span(300, 400),
+    older_run_state: 300,
+    history: "g1",
+  });
+  find(first, (e) => e.tagName === "button")!.dispatch("click");
+  await flush();
+  expect(text(first)).toContain("l250");
+  expect(text(view({ run_state: span(301, 401), older_run_state: 301, history: "g1" }))).toContain("l250");
+  const edited = view({
+    run_state: span(301, 401),
+    older_run_state: 301,
+    history: "g2",
+  });
+  expect(text(edited)).not.toContain("l250");
+  expect(all(edited).filter((e) => e.tagName === "li").length).toBe(100);
+});
+
+// A page read from a newer history than the view's is not joined to it.
+test("a page from another history is refused", async () => {
+  const { logView } = await import("./log-view.ts");
+  const before = toasts.length;
+  const lines = [{ time: "09:00", text: "from g2" }];
+  const v = logView(
+    {
+      id: "hist2",
+      run_state: [{ time: "10:00", text: "newest" }],
+      older_run_state: 1,
+      history: "g1",
+    } as unknown as Route,
+    () => Promise.resolve({ lines, older: 0, history: "g2" }),
+  ) as unknown as FakeElement;
+  find(v, (e) => e.tagName === "button")!.dispatch("click");
+  await flush();
+  expect(text(v)).not.toContain("from g2");
+  expect(toasts.length).toBe(before + 1);
+});

@@ -59,6 +59,9 @@ type RouteView struct {
 	// view holds the newest route.Window records; older ones are read in
 	// the route file.
 	RunStateFrom int `json:"run_state_from,omitempty"`
+	// History names the run state's history (route.Tail.History): the
+	// browser keeps older lines it paged only while it stays the same.
+	History string `json:"history"`
 	// tail is the parse this view was made from: older lines are paged from
 	// that snapshot of the file, and refused once the file changed.
 	tail *route.Tail
@@ -396,7 +399,7 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 		cp.Files = route.ListFiles(d)
 		r := &cp
 		out = append(out, RouteView{Route: r, ID: routeID(r.Dir, r.Name), Live: isLive(r, panes, agentAt, claimed),
-			OlderRunState: tail.Total - len(r.RunState), RunStateFrom: tail.From(), tail: tail})
+			OlderRunState: tail.Total - len(r.RunState), RunStateFrom: tail.From(), History: tail.History(), tail: tail})
 	}
 	for d := range h.routes {
 		if !slices.Contains(dirs, d) {

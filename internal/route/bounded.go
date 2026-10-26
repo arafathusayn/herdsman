@@ -11,7 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 // Window is how many of the newest run-state records the route view shows
@@ -98,6 +101,10 @@ type Tail struct {
 	part  []byte
 	chunk hash.Hash
 	next  int
+	// history names the parse the run state came from: an append keeps it,
+	// a full parse (the file was edited, replaced or first read) gives a new
+	// one (History).
+	history string
 	// owed counts the blocks not yet checked since the file last changed
 	// without a full parse; while it is above zero the file is not proven
 	// and the caller loads it again, unchanged or not (Unverified).
@@ -108,6 +115,18 @@ type Tail struct {
 // file last changed: the caller loads the file again even when its size
 // and times are the same, and each load checks verifyChunks more blocks.
 func (t *Tail) Unverified() bool { return t.owed > 0 }
+
+// History names the run state's history: it stays while the file only
+// grows and changes with each full parse, so a reader that kept older
+// records drops them when it changes. It is unique to this process run.
+func (t *Tail) History() string { return t.history }
+
+var (
+	historyRun = strconv.FormatInt(time.Now().UnixNano(), 36)
+	historySeq atomic.Uint64
+)
+
+func newHistory() string { return historyRun + "." + strconv.FormatUint(historySeq.Add(1), 36) }
 
 // tracked are the sections whose lines the parse takes metadata from.
 var tracked = map[string]bool{"": true, "task table": true, "checklist": true}
@@ -144,7 +163,7 @@ func LoadBounded(dir string, keep int, prev *Tail) (*Tail, error) {
 		} else {
 			t.owed = len(prev.sums) + 1 - checked
 		}
-		t.parser = prev.parser
+		t.parser, t.history = prev.parser, prev.history
 		r := *prev.parser.r
 		r.Tasks, r.Checklist, r.RunState = slices.Clone(r.Tasks), slices.Clone(r.Checklist), slices.Clone(r.RunState)
 		t.parser.r, t.parser.header = &r, slices.Clone(prev.parser.header)
@@ -153,7 +172,7 @@ func LoadBounded(dir string, keep int, prev *Tail) (*Tail, error) {
 		t.chunk = restore(prev.part)
 	} else {
 		h.Reset()
-		t.parser = parser{r: &Route{Dir: dir, Name: filepath.Base(dir)}, keep: keep}
+		t.parser, t.history = parser{r: &Route{Dir: dir, Name: filepath.Base(dir)}, keep: keep}, newHistory()
 		t.winH, t.chunk, t.next = nil, sha256.New(), 0
 	}
 	br.Reset(io.NewSectionReader(f, t.size, st.Size()-t.size))
