@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -207,5 +209,116 @@ func TestCheckpointerCommands(t *testing.T) {
 	if code != 129 || !strings.HasPrefix(out[9:], "checkpointer on receiver-pane: every 1s, compact at >= 1 tokens\n") ||
 		!strings.Contains(out, "sending memory checkpoint") {
 		t.Errorf("loop: %d %q", code, out)
+	}
+}
+
+// blockedOutput holds the first "sending memory checkpoint" line until
+// released, which pauses the input inside its locked critical section.
+type blockedOutput struct {
+	ready, unblock chan struct{}
+	once           sync.Once
+}
+
+func (w *blockedOutput) Write(b []byte) (int, error) {
+	if strings.Contains(string(b), "sending memory checkpoint") {
+		w.once.Do(func() { close(w.ready) })
+		<-w.unblock
+	}
+	return len(b), nil
+}
+
+// adjutantRun sets up an adjutant-mode checkpointer environment on a fake
+// herdr and returns the inbox's input lock path.
+func adjutantRun(t *testing.T, lockWait string) string {
+	t.Helper()
+	srv := herdrtest.Start(t)
+	fx := herdrtest.Serve(srv)
+	box := inboxtest.New(t)
+	box.Enroll("sender-pane", "sender-session", "receiver-pane", "receiver-session")
+	fx.SetAgent("receiver-pane", herdrtest.Agent("receiver-pane", "receiver-session"))
+	for _, kv := range box.Env() {
+		k, v, _ := strings.Cut(kv, "=")
+		t.Setenv(k, v)
+	}
+	dir := t.TempDir()
+	tr := filepath.Join(dir, "t.jsonl")
+	if err := os.WriteFile(tr, []byte(`{"type":"assistant","message":{"usage":{"input_tokens":7}}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range map[string]string{"HERDR_SOCKET_PATH": srv.Socket, "TARGET": "receiver-pane", "HERDSMAN_ORCHESTRATOR": inboxtest.Orchestrator,
+		"TRANSCRIPT": tr, "LOG": filepath.Join(dir, "log"), "INTERVAL": "900", "LOCK_WAIT": lockWait} {
+		t.Setenv(k, v)
+	}
+	return filepath.Join(box.Dir, inbox.MutationLock)
+}
+
+// A signal while an input is inside its locked critical section only
+// cancels the run: no second writer can take the input lock until that
+// input has unwound, and the run then frees it and exits 128+n.
+func TestCheckpointerSignalKeepsInputLock(t *testing.T) {
+	lock := adjutantRun(t, "1")
+	out := &blockedOutput{ready: make(chan struct{}), unblock: make(chan struct{})}
+	done := make(chan int, 1)
+	go func() { done <- runCheckpointer([]string{"--once"}, nil, out, io.Discard) }()
+	select {
+	case <-out.ready:
+	case <-time.After(3 * time.Second):
+		t.Fatal("input did not reach the blocked output")
+	}
+	if _, err := os.Stat(lock); err != nil {
+		t.Fatal("no input lock before the signal")
+	}
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	second := inbox.TryDir(lock, 1, func(time.Duration) {})
+	if second != nil {
+		_ = second.Release()
+		t.Error("a second writer took the input lock while the first input was still active")
+	}
+	close(out.unblock)
+	select {
+	case code := <-done:
+		if code != 143 {
+			t.Errorf("signal exit %d", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the run did not exit")
+	}
+	if _, err := os.Stat(lock); err == nil {
+		t.Error("the input lock was not freed after the run")
+	}
+}
+
+// A signal while the input lock stays busy ends the lock wait at once
+// (LOCK_WAIT=60 would otherwise hold the exit for about a minute); the
+// other writer's lock stays in place and nothing is sent.
+func TestCheckpointerSignalDuringBusyLock(t *testing.T) {
+	lock := adjutantRun(t, "60")
+	if err := os.Mkdir(lock, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var stdout strings.Builder
+	done := make(chan int, 1)
+	go func() { done <- runCheckpointer([]string{"--once"}, nil, &stdout, io.Discard) }()
+	time.Sleep(1500 * time.Millisecond) // inside the lock wait
+	start := time.Now()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case code := <-done:
+		if code != 143 || time.Since(start) > 2*time.Second {
+			t.Errorf("busy lock: exit %d after %v", code, time.Since(start))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the run kept waiting for the busy lock after the signal")
+	}
+	if _, err := os.Stat(lock); err != nil {
+		t.Error("the other writer's lock was removed")
+	}
+	if strings.Contains(stdout.String(), "sending") {
+		t.Errorf("sent input without the lock: %q", stdout.String())
 	}
 }
