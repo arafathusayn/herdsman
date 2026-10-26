@@ -16,7 +16,7 @@ import {
   text,
   type ViewNodeOf,
 } from "./herdsman-blocks-view.ts";
-import { ElementView, type ViewValues } from "./views/element-view.ts";
+import { ElementView } from "./views/element-view.ts";
 
 export type CommandKind = "command" | "agent" | "route" | "file";
 
@@ -146,31 +146,32 @@ export function openPalette(provider: () => Command[], initial = ""): void {
     },
     (e) => keydown(e),
   ]);
-  const listbox = new ElementView("div", ListBox, [false, rows]);
-  const frame = (): ViewValues<typeof Palette> => [
-    function (e) {
-      if (e.target === this) close(); // a click on the backdrop
-    },
-    // Esc: leave the text input first, then the palette.
-    (e) => {
-      e.preventDefault();
-      if (asking) back();
-      else close();
-    },
-    function () {
-      this.remove();
-      openInput = null;
-      if (returnFocus && "focus" in returnFocus && typeof returnFocus.focus === "function") returnFocus.focus();
-    },
-    icon(icons.search),
-    input,
-    asking ? "palette-ask on" : "palette-ask",
-    asking ? icon(icons.arrow) : null,
-    asking?.ask ? AskPrompt([asking.ask.prompt]) : null,
-    asking ? AskHint([]) : null,
-    listbox.el,
-  ];
-  const dlg = new ElementView("dialog", Palette, frame());
+  const listbox = new ElementView("div", ListBox([false, rows]));
+  const frame = (): ViewNodeOf<typeof Palette> =>
+    Palette([
+      function (e) {
+        if (e.target === this) close(); // a click on the backdrop
+      },
+      // Esc: leave the text input first, then the palette.
+      (e) => {
+        e.preventDefault();
+        if (asking) back();
+        else close();
+      },
+      function () {
+        this.remove();
+        openInput = null;
+        if (returnFocus && "focus" in returnFocus && typeof returnFocus.focus === "function") returnFocus.focus();
+      },
+      icon(icons.search),
+      input,
+      asking ? "palette-ask on" : "palette-ask",
+      asking ? icon(icons.arrow) : null,
+      asking?.ask ? AskPrompt([asking.ask.prompt]) : null,
+      asking ? AskHint([]) : null,
+      listbox.el,
+    ]);
+  const dlg = new ElementView("dialog", frame());
 
   const close = (): void => {
     dlg.el.close();
@@ -243,7 +244,7 @@ export function openPalette(provider: () => Command[], initial = ""): void {
 
   const draw = (): void => {
     if (!asking) query();
-    listbox.update([asking !== null, rows]);
+    listbox.update(ListBox([asking !== null, rows]));
     dlg.update(frame());
     if (!asking) listbox.el.querySelector(".palette-row.active")?.scrollIntoView({ block: "nearest" });
   };

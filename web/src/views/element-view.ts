@@ -5,13 +5,17 @@
 // an element. ElementView renders the view into a holder of its own, which is
 // never attached, and hands out the root for the caller to place once; later
 // updates patch the root where it stands, keeping its nodes, focus and
-// scroll. The view is fixed, so the root stays the same element.
+// scroll.
+//
+// Every update must describe the same view as the first (the type parameter
+// N, a description type exact in its value tuple, holds it to that): another
+// view would replace the root, and `el` would no longer be on the page.
 //
 // render() keeps no reference to its container while it patches, so the root
 // may live anywhere. If the view runtime starts delegating events at each
 // render() root, the root's handlers would stay behind on the holder: this
 // class is then the one place to change (see plans/views-migration.md).
-import { render, type View } from "../herdsman-blocks-view.ts";
+import { render, type ViewNode } from "../herdsman-blocks-view.ts";
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 
@@ -19,26 +23,21 @@ const HTML_NS = "http://www.w3.org/1999/xhtml";
 const isTag = <K extends keyof HTMLElementTagNameMap>(n: Node, tag: K): n is HTMLElementTagNameMap[K] =>
   n.nodeType === 1 && "namespaceURI" in n && n.namespaceURI === HTML_NS && n.nodeName.toLowerCase() === tag;
 
-/** The value tuple of a view: `ViewValues<typeof Row>`. */
-export type ViewValues<T> = T extends View<infer V> ? V : never;
-
-export class ElementView<K extends keyof HTMLElementTagNameMap, V extends readonly unknown[]> {
+export class ElementView<K extends keyof HTMLElementTagNameMap, N extends ViewNode> {
   /** The view's root: place it once; it stays the same element. */
   readonly el: HTMLElementTagNameMap[K];
   readonly #holder: Node;
-  readonly #view: View<V>;
 
-  constructor(tag: K, view: View<V>, vals: V) {
-    this.#view = view;
+  constructor(tag: K, d: N) {
     this.#holder = document.createElement("div");
-    render(this.#holder, view(vals));
+    render(this.#holder, d);
     const root = this.#holder.firstChild;
     if (root === null || !isTag(root, tag)) throw new Error(`ElementView: the view's root is not a <${tag}>`);
     this.el = root;
   }
 
-  /** Patches the element toward the view with these values. */
-  update(vals: V): void {
-    render(this.#holder, this.#view(vals));
+  /** Patches the element toward the description, of the same view as the first. */
+  update(d: N): void {
+    render(this.#holder, d);
   }
 }

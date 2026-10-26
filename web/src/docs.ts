@@ -2,9 +2,9 @@
 // theme switch (shared with the app), copy buttons, the contents filter, the
 // current section in the contents, the install tabs and the narrow-screen menu.
 import { icon, type IconNode, icons } from "./dom.ts";
-import { child, cls, html, on, render, text } from "./herdsman-blocks-view.ts";
+import { child, cls, html, on, render, text, type ViewNodeOf } from "./herdsman-blocks-view.ts";
 import { applyTheme, loadTheme, themeSwitch } from "./ui.ts";
-import { ElementView, type ViewValues } from "./views/element-view.ts";
+import { ElementView } from "./views/element-view.ts";
 
 function setupTheme(): void {
   applyTheme(loadTheme());
@@ -60,18 +60,14 @@ function setupCopy(): void {
         .replace(/\n{3,}/g, "\n\n")
         .trim();
       const ok = await copyText(text);
-      btn.update(values(ok ? "Copied" : "Press ⌘C", ok));
+      btn.update(button(ok ? "Copied" : "Press ⌘C", ok));
       clearTimeout(timer);
-      timer = window.setTimeout(() => btn.update(values("Copy", false)), 1600);
+      timer = window.setTimeout(() => btn.update(button("Copy", false)), 1600);
     };
-    const values = (label: string, done: boolean): ViewValues<typeof CopyButton> => [
-      done ? "copy done" : "copy",
-      () => void copy(),
-      icon(icons.copy),
-      label,
-    ];
+    const button = (label: string, done: boolean): ViewNodeOf<typeof CopyButton> =>
+      CopyButton([done ? "copy done" : "copy", () => void copy(), icon(icons.copy), label]);
     // The button sits after the <pre>'s code, so it is an element of its own.
-    const btn = new ElementView("button", CopyButton, values("Copy", false));
+    const btn = new ElementView("button", button("Copy", false));
     pre.classList.add("has-copy");
     pre.append(btn.el);
   }
