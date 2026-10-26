@@ -43,8 +43,9 @@ func TestBoundaryFoldsAsLockOwner(t *testing.T) {
 	}
 }
 
-// A pending path that is a link is refused, never followed or published.
-func TestFoldRefusesAnExposureLink(t *testing.T) {
+// Round 6 (shell 160c070): a pending path that is a link is not followed;
+// it is published as a generic exposure (no agents) and kept for the human.
+func TestFoldPublishesAnExposureLink(t *testing.T) {
 	c, ch := exposureChannel(t)
 	outside := filepath.Join(c.Base, "outside")
 	os.MkdirAll(outside, 0o700)
@@ -55,10 +56,14 @@ func TestFoldRefusesAnExposureLink(t *testing.T) {
 	if !ch.ExposurePending() {
 		t.Fatal("a link is pending exposure")
 	}
-	if err := ch.FoldExposure(); err == nil {
-		t.Fatal("a link was folded")
+	if err := ch.FoldExposure(); err != nil {
+		t.Fatalf("an uninspectable pending path was not published: %v", err)
 	}
-	if inbox.Exists(filepath.Join(c.Dir, "state", "boundary-tainted")) || !inbox.Exists(filepath.Join(outside, "x.json")) {
-		t.Error("the link was followed")
+	b, _ := os.ReadFile(filepath.Join(c.Dir, "state", "boundary-tainted"))
+	if !strings.Contains(string(b), `"agents": []`) {
+		t.Errorf("the generic exposure record: %q", b)
+	}
+	if st, err := os.Lstat(filepath.Join(c.Dir, "state", "exposure-pending")); err != nil || st.Mode()&os.ModeSymlink == 0 || !inbox.Exists(filepath.Join(outside, "x.json")) {
+		t.Error("the link was not kept as it was, or was followed")
 	}
 }

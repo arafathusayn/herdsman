@@ -160,13 +160,9 @@ func TestReviewDeltaPendingFailsClosed(t *testing.T) {
 func TestReviewDeltaFoldErrorRefusesMutation(t *testing.T) {
 	c := newCase(t, true)
 	c.mustRun("receiver-pane", "hold", O, "hold", A, "must remain until the fold succeeds")
-	outside := c.base("pending-external")
-	if err := os.Mkdir(outside, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, c.in("state", "exposure-pending")); err != nil {
-		t.Fatal(err)
-	}
+	// Round 6: an uninspectable pending path is now published as a generic
+	// exposure; a publication that fails is the refusal kept here.
+	publishFault(t, c)
 	out, code := c.run("receiver-pane", nil, "hold", O, "unhold", A)
 	if code == 0 || !inbox.Exists(c.in("state", "hold-"+A)) {
 		t.Errorf("failed exposure publication did not refuse the mutation: exit %d %q hold=%s", code, out, yn(c.in("state", "hold-"+A)))

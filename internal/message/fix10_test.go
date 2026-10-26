@@ -17,19 +17,20 @@ import (
 // exposure fold stops, retirement errors stop the courier, queued-alert
 // folding edges, and failed health output.
 
-func pendingLink(t *testing.T, c *tc) {
+// publishFault leaves a waiting exposure that cannot be published: a
+// pending record, and a state folder that takes no new file.
+func publishFault(t *testing.T, c *tc) {
 	t.Helper()
-	os.Mkdir(c.base("outside"), 0o700)
-	if err := os.Symlink(c.base("outside"), c.in("state", "exposure-pending")); err != nil {
-		t.Fatal(err)
-	}
+	os.MkdirAll(c.in("state", "exposure-pending"), 0o700)
+	c.write(c.in("state", "exposure-pending", "1.json"), `{"agents":[],"time":1}`+"\n")
+	chmodT(t, c.in("state"), 0o500)
 }
 
 func TestR4FoldRefusalStopsEveryCaller(t *testing.T) {
 	t.Run("display", func(t *testing.T) {
 		c := newCase(t, true)
 		e := openEnv(t, c, nil)
-		pendingLink(t, c)
+		publishFault(t, c)
 		called := false
 		if err := e.display(func(context.Context) error { called = true; return nil }); err == nil || called {
 			t.Errorf("display went on after a refused fold: %v %v", err, called)
@@ -44,9 +45,9 @@ func TestR4FoldRefusalStopsEveryCaller(t *testing.T) {
 		e := &Env{Getenv: func(k string) string {
 			return map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed, "HERDR_PANE_ID": "sender-pane"}[k]
 		}, Stdout: &buf, Stderr: &buf, Client: herdr.New(c.srv.Socket)}
-		err := e.resumeRun([]string{"im-task"}, func() { pendingLink(t, c) })
+		err := e.resumeRun([]string{"im-task"}, func() { publishFault(t, c) })
 		e.releaseAll()
-		if msg, ok := inbox.IsFatal(err); !ok || !strings.Contains(msg, "exposure-pending") {
+		if msg, ok := inbox.IsFatal(err); !ok || !strings.Contains(msg, "exposure") {
 			t.Errorf("resume went on after a refused fold: %v", err)
 		}
 		if c.prompts() != 0 {
@@ -56,10 +57,10 @@ func TestR4FoldRefusalStopsEveryCaller(t *testing.T) {
 	t.Run("side-agent send", func(t *testing.T) {
 		c := newCase(t, true)
 		c.relayBoundary()
-		pendingLink(t, c)
+		publishFault(t, c)
 		c.write(c.base("body.txt"), "card\n")
 		out, code := c.run("sender-pane", nil, "send", A, O, c.base("body.txt"), "side_agent_data")
-		if code != 2 || !strings.Contains(out, "exposure-pending") {
+		if code != 2 || !strings.Contains(out, "exposure") {
 			t.Errorf("side-agent send after a refused fold: %d %q", code, out)
 		}
 	})

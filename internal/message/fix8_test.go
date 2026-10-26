@@ -175,9 +175,7 @@ func TestR3OwnershipEdges(t *testing.T) {
 		t.Errorf("a pending fault with the lock busy: %v", err)
 	}
 	os.Remove(c.in(inbox.MutationLock))
-	os.RemoveAll(c.in("state", "exposure-pending"))
-	os.Mkdir(c.base("outside"), 0o700)
-	os.Symlink(c.base("outside"), c.in("state", "exposure-pending"))
+	publishFault(t, c)
 	if err := e.recordExposure(inbox.FaultInventory, nil); err == nil {
 		t.Error("a refused fold did not propagate from the exposure record")
 	}
@@ -195,8 +193,7 @@ func TestR3RelayExposureFailure(t *testing.T) {
 	c.srv.Handle("agent.list", func(p map[string]any) (any, string) {
 		calls++
 		if calls == 1 {
-			os.Mkdir(c.base("outside"), 0o700)
-			os.Symlink(c.base("outside"), c.in("state", "exposure-pending"))
+			publishFault(t, c)
 		}
 		return base(p)
 	})

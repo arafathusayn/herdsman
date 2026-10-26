@@ -70,3 +70,25 @@ func TestR5OversizedAgentCounted(t *testing.T) {
 		t.Errorf("published %d agents, omitted %d; want 0 and 1", len(r.Agents), r.Omitted)
 	}
 }
+
+// Round 6: a pending folder whose listing fails is published as a generic
+// exposure and kept with its entries for the human.
+func TestR6FoldPublishesAnUnlistablePath(t *testing.T) {
+	c, ch := exposureChannel(t)
+	pending := filepath.Join(c.Dir, "state", "exposure-pending")
+	c.Write(filepath.Join(pending, "x.json"), `{"agents":[{"pane":"rogue","agent":"claude","session":null}],"time":1}`+"\n")
+	if err := os.Chmod(pending, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(pending, 0o700)
+	if err := ch.FoldExposure(); err != nil {
+		t.Fatalf("an unlistable pending path was not published: %v", err)
+	}
+	if r := readRecord(t, filepath.Join(c.Dir, "state", "boundary-tainted")); len(r.Agents) != 0 {
+		t.Errorf("published %d agents from an unlistable path", len(r.Agents))
+	}
+	os.Chmod(pending, 0o700)
+	if _, err := os.Stat(filepath.Join(pending, "x.json")); err != nil {
+		t.Error("the unlistable path's entry was removed")
+	}
+}
