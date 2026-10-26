@@ -276,15 +276,21 @@ func health(ctx context.Context, env Env, d Deps, st *state, specs string, every
 			d.Status(hctx, &out, specs)
 		}
 	}
-	if hctx.Err() != nil && ctx.Err() == nil {
-		fmt.Fprintf(d.Stderr, "herdsman wait: the status check did not finish in %v; no health check\n", limit)
+	// A check that was stopped (its limit, or the waiter's own end), a
+	// status program that failed, or one whose output pipe a child held
+	// past WaitDelay (exec.ErrWaitDelay) is a failed check: its output is
+	// not health, and the stored flags stay as they were. The line is
+	// printed only while the waiter itself is still running.
+	if hctx.Err() != nil {
+		if ctx.Err() == nil {
+			fmt.Fprintf(d.Stderr, "herdsman wait: the status check did not finish in %v; no health check\n", limit)
+		}
 		return nil
 	}
-	// A status program that failed, or whose output pipe a child held past
-	// WaitDelay (exec.ErrWaitDelay), is a failed check: its output is not
-	// health, and the stored flags stay as they were.
-	if runErr != nil && ctx.Err() == nil {
-		fmt.Fprintf(d.Stderr, "herdsman wait: the status program %s failed (%v); no health check\n", script, runErr)
+	if runErr != nil {
+		if ctx.Err() == nil {
+			fmt.Fprintf(d.Stderr, "herdsman wait: the status program %s failed (%v); no health check\n", script, runErr)
+		}
 		return nil
 	}
 	flags := status.Flags(out.String())

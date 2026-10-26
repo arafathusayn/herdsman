@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,18 +72,20 @@ func TestReachableStateAndSnapshotErrors(t *testing.T) {
 			t.Errorf("exit %d %q", code, out)
 		}
 	})
-	t.Run("the third failed read cannot save its count", func(t *testing.T) {
+	t.Run("the third failed read in a pass whose state failed", func(t *testing.T) {
+		// No file permissions (root writes through them): PR 8's baseline
+		// cannot be committed over a folder that is not empty, then PR 7
+		// fails its third read in the same pass.
 		r := newPRRig(t)
 		st := filepath.Join(r.dir, "state")
-		if err := os.MkdirAll(st, 0o700); err != nil {
+		if err := os.MkdirAll(filepath.Join(st, "pr-8.txt", "x"), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		p := filepath.Join(st, "fail-7")
-		if err := os.WriteFile(p, []byte("2\n"), 0o400); err != nil {
+		if err := os.WriteFile(filepath.Join(st, "fail-7"), []byte("2\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		r.touch("7-fail")
-		out, code := r.run("7", "state", 0)
+		out, code := r.run("8 7", "state", 0)
 		if code != 1 || !strings.Contains(out, "PR-WATCH-ERROR PR 7 could not be read") || !strings.Contains(out, "cannot save state in "+st) {
 			t.Errorf("exit %d %q", code, out)
 		}
@@ -175,6 +178,76 @@ func TestStateFailureDuringSleep(t *testing.T) {
 				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("the watcher did not stop")
+			}
+		})
+	}
+}
+
+// PR #29 review P1: a waiter stopped while its status check runs must not
+// parse the partial output as health: no HEALTH line and no flag write,
+// for a status program and for the in-process check.
+func TestStoppedStatusCheckIsNotHealth(t *testing.T) {
+	for _, scripted := range []bool{true, false} {
+		name := "in process"
+		if scripted {
+			name = "status program"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			st := filepath.Join(h.dir, "stopped-state")
+			h.file(filepath.Join(st, "health-at"), "1\n")
+			h.file(filepath.Join(st, "health-flags"), "kept\n")
+			env := map[string]string{"HERDSMAN_IMPLEMENTERS": "", "HERDSMAN_REVIEWERS": "none", "HERDSMAN_STATE": st,
+				"HERDSMAN_STATUS_SPECS": "im-a:w9:p1:/x", "DEADLINE": "60", "POLL": "1"}
+			started := make(chan struct{})
+			d := Deps{Client: h.client, Now: func() time.Time { return h.now },
+				Sleep: func(time.Duration) bool { return false }}
+			if scripted {
+				prog := filepath.Join(h.dir, "status-prog")
+				marker := filepath.Join(h.dir, "started")
+				h.file(prog, "#!/bin/sh\nprintf 'machine  <-- LOAD HIGH\\n'\n: > '"+marker+"'\nexec sleep 30\n")
+				if err := os.Chmod(prog, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				env["HERDSMAN_STATUS_SCRIPT"] = prog
+				go func() {
+					for i := 0; i < 500; i++ {
+						if _, err := os.Stat(marker); err == nil {
+							close(started)
+							return
+						}
+						time.Sleep(10 * time.Millisecond)
+					}
+				}()
+			} else {
+				d.Status = func(ctx context.Context, w io.Writer, _ string) {
+					_, _ = io.WriteString(w, "machine  <-- LOAD HIGH\n")
+					close(started)
+					<-ctx.Done()
+				}
+			}
+			var out syncBuffer
+			d.Stdout, d.Stderr = &out, &out
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan int, 1)
+			go func() { done <- Wait(ctx, func(k string) (string, bool) { v, ok := env[k]; return v, ok }, d) }()
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the status check did not start")
+			}
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the waiter did not stop")
+			}
+			if strings.Contains(out.String(), "HEALTH ") {
+				t.Errorf("a stopped check printed HEALTH: %q", out.String())
+			}
+			if b, _ := os.ReadFile(filepath.Join(st, "health-flags")); string(b) != "kept\n" {
+				t.Errorf("a stopped check wrote the flags: %q", b)
 			}
 		})
 	}
