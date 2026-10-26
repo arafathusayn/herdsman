@@ -25,8 +25,8 @@ const (
 // Implementers is the implementer and integrator watcher (`herdsman watch
 // implementers`, from watch-implementers.sh). It never ends on its own:
 // REPORT, REPORT-UPDATED, BLOCKED (once per screen change), STALL and IDLE
-// lines, every ImplementersPoll. A pass's lines are printed after its
-// state is saved; state it cannot save stops it with exit 1.
+// lines, every ImplementersPoll. A pass whose state cannot be saved
+// prints its lines, then stops with exit 1.
 func Implementers(ctx context.Context, env Env, d Deps) int {
 	d.defaults(ctx)
 	reports := env.or("HERDSMAN_REPORTS", "/ABSOLUTE/PATH/TO/writable-root/reports")
@@ -146,16 +146,15 @@ func Reviewer(ctx context.Context, env Env, d Deps) int {
 	}
 }
 
-// printSaved prints a pass's lines once its state is saved, and says
-// false (with the state error on stderr) when it is not.
+// printSaved prints a pass's lines, then says false (with the state error
+// on stderr) when a state write of the pass failed. The lines are printed
+// either way: an event whose marker was saved would never be reported
+// again, and one whose marker failed is reported again on the next run.
 func printSaved(d Deps, st *state, who string, lines []string) bool {
-	if stateFailed(st, d.Stderr, who) {
-		return false
-	}
 	for _, l := range lines {
 		fmt.Fprintln(d.Stdout, l)
 	}
-	return true
+	return !stateFailed(st, d.Stderr, who)
 }
 
 // sleepPass sleeps to next, printing the BLOCKED lines of each event's

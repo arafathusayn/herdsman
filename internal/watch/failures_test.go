@@ -45,7 +45,7 @@ func TestStateThatCannotBeSavedStopsTheWatchers(t *testing.T) {
 				if code != 1 || !strings.Contains(out, "herdsman "+w.who+": cannot save state in "+st+": ") {
 					t.Errorf("exit %d %q", code, out)
 				}
-				noMatch(t, "no event is printed", `REPORT|REVIEW|IDLE|TICK`, out)
+				noMatch(t, "no TICK rests on unsaved state", `TICK`, out)
 			}
 		})
 	}
@@ -235,4 +235,55 @@ func TestHangingStatusProgramEndsAtTheDeadline(t *testing.T) {
 	if code != 0 || !strings.Contains(errb.String(), "did not finish") {
 		t.Errorf("in process: exit %d %q", code, errb.String())
 	}
+}
+
+// Round 14 (PR #25 review bot P1): an event whose marker was saved is
+// printed even when a later state write of the same pass fails; else the
+// saved marker hides it for good once the bad file is fixed. Each watcher:
+// the event shows in the failing run (exit 1), and not again after the fix.
+func TestSavedEventsAreNotLost(t *testing.T) {
+	h := newHarness(t)
+	h.file(filepath.Join(h.env["HERDSMAN_REPORTS"], "a.md"), "STATUS: complete\n")
+	h.file(filepath.Join(h.env["HERDSMAN_REPORTS"], "review-a.md"), "VERDICT: pass\n")
+	for _, w := range []struct {
+		name, event, broken string
+		fn                  func(context.Context, Env, Deps) int
+	}{
+		{"wait", `^REPORT a `, "hash-im-a", Wait},
+		{"implementers", `^REPORT a `, "hash-im-a", Implementers},
+		{"reviewer", `^REVIEW .*review-a.md `, "hash-rv-1", Reviewer},
+	} {
+		t.Run(w.name, func(t *testing.T) {
+			st := filepath.Join(h.dir, "saved-"+w.name)
+			// A folder that is not empty where the pass writes a later file.
+			_ = os.MkdirAll(filepath.Join(st, w.broken, "x"), 0o755)
+			out, code := h.run(w.fn, "DEADLINE", "0", "POLL", "1", "HERDSMAN_STATE", st)
+			if code != 1 || !strings.Contains(out, "cannot save state in "+st) {
+				t.Errorf("broken run: exit %d %q", code, out)
+			}
+			match(t, "the saved event is printed before the stop", w.event, out)
+			_ = os.RemoveAll(filepath.Join(st, w.broken))
+			out, _ = h.run(w.fn, "DEADLINE", "0", "POLL", "1", "HERDSMAN_STATE", st)
+			noMatch(t, "and not again once its marker is saved", w.event, out)
+		})
+	}
+}
+
+// Round 14: a PR change committed in a pass is printed even when another
+// pull request's snapshot cannot be committed in the same pass.
+func TestSavedPRChangesAreNotLost(t *testing.T) {
+	r := newPRRig(t)
+	st := filepath.Join(r.dir, "pr-state")
+	r.fixture("7-view.json", view("OPEN", "abcd1234ffff"))
+	r.run("7", "pr-state", 0)
+	r.fixture("7-view.json", view("OPEN", "ffff0000aaaa"))
+	_ = os.MkdirAll(filepath.Join(st, "pr-8.txt", "x"), 0o755)
+	out, code := r.run("7 8", "pr-state", 0)
+	if code != 1 || !strings.Contains(out, "herdsman watch prs: cannot save state in "+st) {
+		t.Errorf("broken run: exit %d %q", code, out)
+	}
+	match(t, "the committed change is printed", `^PR 7 NEW head ffff0000$`, out)
+	_ = os.RemoveAll(filepath.Join(st, "pr-8.txt"))
+	out, _ = r.run("7 8", "pr-state", 0)
+	noMatch(t, "and not again", `PR 7 NEW`, out)
 }
