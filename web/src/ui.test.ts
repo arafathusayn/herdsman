@@ -4,6 +4,7 @@ import { h, icon, icons, unkeyed } from "./dom.ts";
 import { render, type ViewNode } from "./herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import { type Member, statusLabel } from "./model.ts";
+import { dispatch } from "./testdom.ts";
 import { confirmDialog, formDialog, pill, themeSwitch } from "./ui.ts";
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
@@ -107,8 +108,7 @@ describe("ui views render what the h() versions did", () => {
     );
     expect(elements(sw)).toEqual(buttons); // patched in place
     expect(dump(sw)).toBe(dump(fake(old("dark"))));
-    const click = buttons[0]!["onclick"];
-    if (typeof click === "function") click.call(buttons[0], { type: "click" });
+    dispatch(buttons[0]!, "click");
     expect(picked).toEqual(["b:system"]);
   });
 
@@ -134,8 +134,7 @@ describe("ui views render what the h() versions did", () => {
     expect(dump(dlg)).toBe(dump(fake(old)));
     expect(dlg["open"]).toBe(true);
     dlg["returnValue"] = "ok";
-    const close = dlg["onclose"];
-    if (typeof close === "function") close.call(dlg, { type: "close" });
+    dispatch(dlg, "close");
     expect(await answer).toBe(true);
     expect(elements(body)).toEqual([]);
   });

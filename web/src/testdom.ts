@@ -75,24 +75,12 @@ export class FakeElement extends BaseElement {
   override addEventListener(type: string, fn: Listener): void {
     (this.handlers[type] ??= []).push(fn);
   }
+  /** The listeners `dispatch` calls, by event type. */
+  listenersOf(type: string): readonly Listener[] {
+    return this.handlers[type] ?? [];
+  }
   dispatch(type: string, extra: Partial<FakeEvent> = {}): FakeEvent {
-    const e: FakeEvent = {
-      type,
-      target: this,
-      defaultPrevented: false,
-      preventDefault() {
-        this.defaultPrevented = true;
-      },
-      ...extra,
-    };
-    // Events bubble to the ancestors, as submit and input do; view handlers
-    // (on* properties) run as well as listeners.
-    for (let n: FakeNode | null = this; n; n = n.parentNode) {
-      if (n instanceof FakeElement) for (const fn of n.handlers[type] ?? []) fn(e);
-      const prop = (n as BaseElement)["on" + type];
-      if (typeof prop === "function") prop.call(n, e);
-    }
-    return e;
+    return dispatch(this, type, extra);
   }
   append(...cs: (FakeNode | string)[]): void {
     for (const c of cs) this.appendChild(typeof c === "string" ? new FakeText(c) : c);
@@ -150,4 +138,30 @@ export function byName(root: BaseElement, name: string): FakeElement {
   const el = find(root, (e) => e.name === name);
   if (!el) throw new Error(`no element named ${name}`);
   return el;
+}
+
+/**
+ * Fires an event at any fake element, including one a view rendered: it
+ * bubbles to the ancestors (as submit and input do) and runs, on each,
+ * listeners and the on* handler a view or template set. This is the one place
+ * to change if the view runtime starts delegating events.
+ */
+export function dispatch(target: BaseElement, type: string, extra: Partial<FakeEvent> = {}): FakeEvent {
+  const e: FakeEvent = {
+    type,
+    target,
+    defaultPrevented: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+    ...extra,
+  };
+  for (let n: FakeNode | null = target; n; n = n.parentNode) {
+    if (!(n instanceof BaseElement)) continue;
+    if (n instanceof FakeElement) for (const fn of n.listenersOf(type)) fn(e);
+    else n.fire(type);
+    const handler = n["on" + type];
+    if (typeof handler === "function") handler.call(n, e);
+  }
+  return e;
 }

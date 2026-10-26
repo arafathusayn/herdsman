@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { each, h, icon, icons, logoMark, mount, patch, unkeyed } from "./dom.ts";
 import { cls, html, list, on, render, text, type ViewNode } from "./herdsman-blocks-view.ts";
 import { asDom, FakeElement, type FakeNode, installFakeDocument, SVG_NS } from "./herdsman-blocks.testdom.ts";
-import { installDom } from "./testdom.ts";
+import { dispatch, installDom } from "./testdom.ts";
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
 
@@ -133,12 +133,7 @@ describe("views through h(), mount(), patch() and each()", () => {
   const Button = html`<button class=${cls()} onclick=${on<"click">()}>${text()}</button>`;
   const Item = html`<li>${text()}</li>`;
   const kids = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
-  // Runs the element's click handler as the browser would (the view's
-  // trampoline lives in the onclick property).
-  const press = (el: FakeElement): void => {
-    const f = el["onclick"];
-    if (typeof f === "function") f.call(el, { type: "click" });
-  };
+  const press = (el: FakeElement): void => void dispatch(el, "click");
   const button = (label: string, fn: Click) => Button(["btn", fn, label]);
 
   test("a view child is rendered in place with its classes, text and handler", () => {
