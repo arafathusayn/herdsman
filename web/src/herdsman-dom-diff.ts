@@ -13,7 +13,7 @@
 // paths (mount, set, List.set) for the sake of types.
 
 /** Library version, bumped with every release of the zip package. */
-export const VERSION = "0.0.4";
+export const VERSION = "0.0.5";
 
 // ---------------------------------------------------------------------------
 // Hole markers: typed at compile time, small negative numbers at runtime
@@ -869,30 +869,97 @@ export function morph(target: Node, next: readonly Node[], options: MorphOptions
 }
 
 function morphChildren(live: Node, next: readonly Node[], o: MorphOptions): void {
-  const counts = new Map<string, number>();
-  const keyOf = (n: Node): string => {
-    const tag = n.nodeName;
-    const k = n.nodeType === 1 ? (n as Element).getAttribute(KEY_ATTR) : null;
-    const base = k === null ? "#" + tag : "k:" + tag + ":" + k;
-    const seen = counts.get(base) ?? 0;
-    counts.set(base, seen + 1);
-    // Unkeyed nodes match by order; a repeated key also falls back to order.
-    return seen === 0 && k !== null ? base : base + "#" + seen;
-  };
+  const old: Node[] = [];
+  for (let c = live.firstChild; c; c = c.nextSibling) old.push(c);
+  const m = old.length,
+    n = next.length;
 
+  // Children already identical at either end (one native deep compare each)
+  // are kept as they are: no diff below them, only handlers and form state
+  // carried over. An unkeyed prepend then costs one insert, not a rewrite of
+  // every sibling that would otherwise shift its order-based match.
+  let s = 0;
+  while (s < m && s < n && same(old[s]!, next[s]!)) (keep(old[s]!, next[s]!, o), s++);
+  let oe = m - 1,
+    ne = n - 1;
+  while (oe >= s && ne >= s && same(old[oe]!, next[ne]!)) (keep(old[oe]!, next[ne]!, o), oe--, ne--);
+  if (s > oe && s > ne) return;
+
+  const oldWin = s === 0 && oe === m - 1 ? old : old.slice(s, oe + 1);
+  const newWin = s === 0 && ne === n - 1 ? next : next.slice(s, ne + 1);
+  const [oldKeys, newKeys] = windowKeys(oldWin, newWin);
+  const keyOf = new Map<Node, string>();
+  for (let i = 0; i < newWin.length; i++) keyOf.set(newWin[i]!, newKeys[i]!);
+
+  // The differing middle, reconciled as a keyed list.
+  const whole = s === 0 && oe === m - 1;
   const list = new List<Node, Node, string>(live, {
-    owns: true,
-    key: keyOf,
+    owns: whole,
+    anchor: whole ? null : (old[oe + 1] ?? null),
+    key: (fresh) => keyOf.get(fresh)!,
     root: nodeRoot,
     create: nodeRoot,
-    update: (liveNode, n) => morphNode(liveNode, n, o),
+    update: (liveNode, fresh) => morphNode(liveNode, fresh, o),
   });
-  for (let c = live.firstChild; c; c = c.nextSibling) {
-    list.keys.push(keyOf(c));
-    list.entries.push(c);
+  list.keys = oldKeys;
+  list.entries = oldWin.slice();
+  list.set(newWin);
+}
+
+// Keys for the old and new window, so the keyed reconciler can match them:
+//  - an element with data-key: tag and key (a repeated key falls back to order);
+//  - an unkeyed node whose content (tag and text) appears on both sides: that
+//    content, so a moved row keeps its node and costs one move;
+//  - any other unkeyed node: tag and order among those leftovers, so a row
+//    whose text changed is patched in place rather than replaced.
+function windowKeys(a: readonly Node[], b: readonly Node[]): [string[], string[]] {
+  const content = (n: Node): string | null =>
+    n.nodeType === 1 && (n as Element).hasAttribute(KEY_ATTR)
+      ? null
+      : n.nodeName + "\u0001" + (n.nodeType === 1 ? n.textContent : n.nodeValue);
+  const ca = a.map(content),
+    cb = b.map(content);
+  const countA = new Map<string, number>(),
+    countB = new Map<string, number>();
+  for (const c of ca) if (c !== null) countA.set(c, (countA.get(c) ?? 0) + 1);
+  for (const c of cb) if (c !== null) countB.set(c, (countB.get(c) ?? 0) + 1);
+  const keys = (side: readonly Node[], cs: readonly (string | null)[]): string[] => {
+    const seen = new Map<string, number>();
+    const take = (base: string): number => {
+      const j = seen.get(base) ?? 0;
+      seen.set(base, j + 1);
+      return j;
+    };
+    return side.map((node, i) => {
+      const c = cs[i];
+      if (c === null || c === undefined) {
+        const base = "k:" + node.nodeName + ":" + (node as Element).getAttribute(KEY_ATTR);
+        const j = take(base);
+        return j === 0 ? base : base + "#" + j;
+      }
+      const shared = Math.min(countA.get(c) ?? 0, countB.get(c) ?? 0);
+      const j = take("c:" + c);
+      if (j < shared) return "c:" + c + "#" + j;
+      return "#" + node.nodeName + "#" + take("#" + node.nodeName);
+    });
+  };
+  return [keys(a, ca), keys(b, cb)];
+}
+
+const same = (a: Node, b: Node): boolean => a === b || a.isEqualNode(b);
+
+// A kept identical subtree: give each element the fresh partner's handlers
+// (onKeep) and form state, which a structural compare cannot see.
+function keep(a: Node, b: Node, o: MorphOptions): void {
+  if (a === b || a.nodeType !== 1) return;
+  const el = a as Element,
+    fresh = b as Element;
+  o.onKeep?.(el, fresh);
+  if (!el.hasAttribute(SKIP_ATTR)) {
+    for (let x = el.firstChild, y = fresh.firstChild; x !== null && y !== null; x = x.nextSibling, y = y.nextSibling)
+      keep(x, y, o);
   }
-  counts.clear();
-  list.set(next);
+  syncFormState(el, fresh);
 }
 
 const nodeRoot = (n: Node): Node => n;

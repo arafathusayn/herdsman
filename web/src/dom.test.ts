@@ -25,6 +25,19 @@ describe("patch (dom.ts)", () => {
     expect(calls).toEqual(["second", "hover"]);
   });
 
+  test("an identical-looking element still gets the newest handler", () => {
+    const root = document.createElement("ul");
+    const calls: string[] = [];
+    const view = (tag: string) =>
+      [1, 2, 3].map((i) => h("li", null, h("button", { onclick: () => calls.push(`${tag}${i}`) }, "Go")));
+    patch(root, view("old"));
+    const buttons = (root as unknown as FakeElement).childNodes.map((li) => li.firstChild as FakeElement);
+    patch(root, view("new")); // same structure and attributes, new closures
+    (root as unknown as FakeElement).childNodes.forEach((li, i) => expect(li.firstChild).toBe(buttons[i]!));
+    buttons[1]!.fire("click");
+    expect(calls).toEqual(["new2"]);
+  });
+
   test("keyed rows from h() keep their nodes across reorders", () => {
     const root = document.createElement("ul");
     const view = (ids: string[]) => ids.map((id) => h("li", { dataset: { key: id } }, id));

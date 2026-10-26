@@ -3,7 +3,7 @@
 A living document. It explains why herdsman-dom-diff exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
 - Status: draft, on branch `herdsman-dom-diff`
-- Library version: 0.0.4 (the module exports this as `VERSION`)
+- Library version: 0.0.5 (the module exports this as `VERSION`)
 - Last updated: 2026-10-26
 - Module: `web/src/herdsman-dom-diff.ts`, used by `web/src/dom.ts`
 
@@ -212,19 +212,24 @@ Morph makes a live parent's children match a list of fresh nodes. It is what `pa
 
 #### Keys for arbitrary nodes
 
-Within one child list, each child gets a key from its node name plus:
+Keys are computed for the differing window of both sides together, so they can depend on what both sides contain:
 
-- its `data-key` attribute when it has one, giving a key unique to that value; or
-- for children without one, an ordinal: the first unkeyed `DIV` is "DIV number 0", the next "DIV number 1", and so on, separately per node name (text nodes and comments included).
+1. **Keyed elements:** an element with a `data-key` attribute gets its node name plus that value; a repeated value falls back to adding an occurrence number, so keys stay unique.
+2. **Content keys:** every other node gets a content signature, its node name plus its text (`textContent` for elements, the data for text and comments). When a signature occurs on both sides, the first occurrences up to the smaller of the two counts are keyed by the signature plus an occurrence number. A moved row then keeps its node and costs one move.
+3. **Leftovers:** remaining unkeyed nodes (new content, changed content, extra repeats) are keyed by node name plus their order among the leftovers of that name. A row whose text changed therefore pairs with the old row in the same leftover position and is patched in place, not replaced.
 
-A repeated `data-key` value falls back to the ordinal form so keys stay unique. The node name is part of every key, so a key never matches a node of a different tag; a changed tag is a removal plus an insertion.
-
-The same rule computes the live children's keys and the fresh children's keys, so unkeyed children match by tag and order, and keyed children match by identity wherever they move.
+The node name is part of every key, so a key never matches a node of a different tag; a changed tag is a removal plus an insertion.
 
 #### Morphing a child list
 
-1. Seed a keyed list over the live parent with the live children themselves as its entries (no wrapper object per node) and their computed keys. The list owns the parent.
-2. Reconcile it to the fresh children. Its create step adopts the fresh node itself, moving it into the live tree with no copy. Its update step morphs the matched live node toward its fresh partner.
+1. Collect the live children.
+2. **Trim identical ends.** Walking from the start while both sides have children, keep any live child that is the same node as its fresh partner or deeply equal to it (the DOM's native `isEqualNode`). Do the same from the end. A kept pair gets no diff: only the keep step below.
+3. If nothing is left on either side, stop.
+4. **Key the differing window** on both sides (see Keys for arbitrary nodes).
+5. Seed a keyed list over the window: its entries are the live window's children themselves, its keys the computed old keys. It owns the parent only when no ends were trimmed; otherwise it is anchored before the first trimmed suffix child.
+6. Reconcile it to the fresh window. Its create step adopts the fresh node itself, moving it into the live tree with no copy. Its update step morphs the matched live node toward its fresh partner.
+
+**The keep step** for an identical pair: a structural compare cannot see event handlers or form-field properties, so walk both subtrees in lockstep, call the keep hook (which hands over handlers) for every element pair, skip below `data-morph-skip` elements, and sync form state after each element's children.
 
 #### Morphing one node
 
@@ -373,6 +378,24 @@ Effect, measured as the median time per reconcile over many back-and-forth recon
 
 In Chrome the reconciler became 2 to 4 times faster for integer keys at every size; string keys, which still use the hash map, were unchanged, as expected. JavaScriptCore gained at 1,000 and 100,000 items but not for shuffles and reverses of 10,000. In absolute terms the saving is about 50 microseconds per 1,000-row operation, small next to the browser's rendering work in the benchmark, and 0.5 to 10 milliseconds per update for lists of 10,000 to 100,000 items.
 
+### Property-based testing (2026-10-26)
+
+The library ships a small property testing engine for its own tests, with no dependencies: properties are executable statements checked on generated inputs (after QuickCheck, Claessen and Hughes, ICFP 2000), and every random decision a generator makes is recorded, so a failure is reduced by shrinking that sequence of choices and re-running the generator (internal test-case reduction, as in Hypothesis: MacIver and Donaldson, ECOOP 2020). Reduced cases are therefore always valid inputs (a key list never gains duplicates). Shrinking deletes chunks of choices, largest first, then lowers single choices, keeping any change that still fails, within 4,000 attempts and 5 seconds.
+
+Properties checked, each over 1,500 to 3,000 generated cases per run: keyed reconcile output, entry reuse and exactly minimal moves across every lookup mode, with and without `owns`, anchors and an attached parent (where every move must be state-preserving); setting the same items twice does no DOM work; the LIS matches an O(n²) reference; eager and lazy blocks end in the same DOM as a fresh mount of their final values; morph turns any live tree into any fresh tree (random tags, keys, attributes and text, up to three levels), and morphing again does no DOM work. A planted bug (two moves for an adjacent swap) shrinks to the two-item list zero, one becoming one, zero within a second.
+
+Two lessons recorded: a property's measurement must not include building its own input (twice a test counted fresh-tree construction as the library's work), and a shrinker must be bounded by attempts, not by successful reductions, or a failing slow property hangs.
+
+### Performance fuzzing (2026-10-26)
+
+A mutational fuzzer in the style of PerfFuzz (Lemieux, Padhye, Sen and Song, ISSTA 2018) searched edits of sibling rows (keyed, unkeyed and mixed, with insertions, removals, moves and swaps) for the largest DOM work per unit of required change, where the required change is inserted plus removed plus moved rows (moved: survivors outside the longest run already in order). It keeps any input that sets a new maximum for any counter (all writes, text writes, attribute writes, moves, time).
+
+1. **Before:** an unkeyed prepend of one row to 60 cost 61 writes (every row shifted its order-based match and had its text rewritten); among mixed `li` and `p` rows, one prepend cost 18 moves and 20 text writes. Keyed lists were already optimal.
+2. **After trimming identical ends:** the worst case fell to 29 writes per unit of change: an unkeyed row moved to the front still shifted every match inside the window.
+3. **After content keys:** over 30,000 inputs the worst case was 1 write per unit of change: a prepend is one insert, a move one move, a changed row one text write.
+
+In Chrome 156, the new morph on 1,000 rows (median of 25, two rounds): unchanged unkeyed re-render 0.7 to 0.8 ms (before 5.7 to 8.6 ms), one text change 0.8 ms (4.4 to 7.0), unkeyed prepend 0.8 to 0.9 ms (4.6 to 6.3), unkeyed move 2.4 to 3.5 ms (5.1 to 6.1), unchanged keyed 0.7 ms (5.7 to 7.0), keyed reverse 3.3 ms (6.2 to 6.5).
+
 ### Branchless and bitwise techniques (measured, not adopted, 2026-10-26)
 
 Each variant passed the full test suite and was timed against 0.0.4 with the same null-DOM harness, in Bun and in Chrome 156, two interleaved rounds each; "noise" below is the baseline's own difference between its two rounds.
@@ -428,6 +451,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-26: Version 0.0.5. Morph trims deeply identical children at both ends (native compare, handlers and form state still carried over) and keys the differing window by content for unkeyed nodes, falling back to order among leftovers. Found by a PerfFuzz-style fuzzer (worst DOM work per unit of change: 61 before, 1 after); unchanged re-renders of 1,000 rows about 8 times faster in Chrome. Property-based tests with a choice-sequence shrinker.
 - 2026-10-26: Branchless and bitwise variants of the reconciler and the LIS measured in Bun and Chrome; not adopted (results in the spec).
 - 2026-10-26: Version 0.0.4. Direct-address table for dense integer keys in the general case (hash map otherwise, scan for small windows); scratch buffers per nesting depth for the source and LIS arrays. The reconciler alone became 2 to 4 times faster in Chrome for integer keys. Tests for every lookup mode and for a reconcile nested inside update.
 - 2026-10-26: Version 0.0.3. Mounting without a block (`mountRoot`) with on-demand blocks (`block`) that cannot read values; list entries may be any value given a root function; morph keeps no wrapper per node; moves use `moveBefore` when the parent is in the document. Batched cloning measured and rejected. Research notes added.

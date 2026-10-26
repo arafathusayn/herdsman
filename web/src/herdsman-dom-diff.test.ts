@@ -622,6 +622,35 @@ describe("morph", () => {
     expect(term.childNodes.length).toBe(1);
   });
 
+  test("identical children at the ends are kept; an unkeyed prepend is one insert", () => {
+    const row = (t: string): FakeElement => {
+      const li = el("li");
+      li.appendChild(text(t));
+      return li;
+    };
+    const root = el("ul");
+    const live = Array.from({ length: 50 }, (_, i) => row(`item ${i}`));
+    for (const li of live) root.appendChild(li);
+    const fresh = kids(row("new"), ...Array.from({ length: 50 }, (_, i) => row(`item ${i}`)));
+    resetOps(); // count only morph's work, not building the fresh rows
+    morph(asDom(root), fresh);
+    expect(root.textContent).toBe("new" + live.map((_, i) => `item ${i}`).join(""));
+    live.forEach((li, i) => expect(root.childNodes[i + 1]).toBe(li));
+    expect([ops.inserts, ops.moves, ops.removes, ops.textWrites]).toEqual([1, 0, 0, 0]);
+  });
+
+  test("an identical field still takes the store's value when it lacks focus", () => {
+    const root = el("form");
+    const input = el("input");
+    input["value"] = "old";
+    root.appendChild(input);
+    const fresh = el("input");
+    fresh["value"] = "new"; // a property: invisible to a structural compare
+    morph(asDom(root), kids(fresh));
+    expect(root.firstChild).toBe(input);
+    expect(input["value"]).toBe("new");
+  });
+
   test("form values sync unless the field has focus", () => {
     const root = el("form");
     const input = el("input");

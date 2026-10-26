@@ -104,6 +104,22 @@ export class FakeNode {
     else this.lastChild = n.previousSibling;
     n.parentNode = n.nextSibling = n.previousSibling = null;
   }
+  /** Like the DOM's: same type, name, attributes (any order), data and children, compared deeply. */
+  isEqualNode(other: FakeNode | null): boolean {
+    if (other === null || other.nodeType !== this.nodeType || other.nodeName !== this.nodeName) return false;
+    if (this.nodeValue !== other.nodeValue) return false;
+    if (this.nodeType === 1) {
+      const a = (this as unknown as FakeElement).attributes,
+        b = (other as unknown as FakeElement).attributes;
+      if (a.length !== b.length) return false;
+      for (const { name, value } of a) if ((other as unknown as FakeElement).getAttribute(name) !== value) return false;
+    }
+    let x = this.firstChild,
+      y = other.firstChild;
+    for (; x !== null && y !== null; x = x.nextSibling, y = y.nextSibling) if (!x.isEqualNode(y)) return false;
+    return x === null && y === null;
+  }
+
   get childNodes(): FakeNode[] {
     const out: FakeNode[] = [];
     for (let c = this.firstChild; c; c = c.nextSibling) out.push(c);
