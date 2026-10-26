@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -196,25 +197,41 @@ func (d *Daemon) healthBody(ctx context.Context) Health {
 	}
 	sort.Slice(h.Routes, func(i, j int) bool { return h.Routes[i].Route < h.Routes[j].Route })
 	sockets := map[string]bool{}
+	routeSocket := map[string]string{}
 	if rf, err := ReadRoutes(d.cfg.PrivateHome); err == nil {
-		for _, e := range rf.Routes {
+		for name, e := range rf.Routes {
 			s := e.HerdrSocket
 			if s == "" {
 				s = d.cfg.HerdrSocket
 			}
 			if s != "" {
 				sockets[s] = true
+				routeSocket[name] = s
 			}
 		}
 	}
+	down := map[string]bool{}
 	for s := range sockets {
 		st := "ok"
 		cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		if _, err := d.herdr(s).Check(cctx); err != nil {
 			st = "unreachable"
+			down[s] = true
 		}
 		cancel()
 		h.Herdr = append(h.Herdr, HerdrHealth{Socket: s, Status: st})
+	}
+	// A route whose Herdr does not answer cannot verify identities or
+	// relay: it is degraded, and so is the daemon.
+	for i := range h.Routes {
+		if down[routeSocket[h.Routes[i].Route]] {
+			if !slices.Contains(h.Routes[i].Flags, "herdr-unreachable") {
+				h.Routes[i].Flags = append(h.Routes[i].Flags, "herdr-unreachable")
+			}
+			if h.Routes[i].Status == "ok" {
+				h.Routes[i].Status = "degraded"
+			}
+		}
 	}
 	sort.Slice(h.Herdr, func(i, j int) bool { return h.Herdr[i].Socket < h.Herdr[j].Socket })
 	for _, r := range h.Routes {

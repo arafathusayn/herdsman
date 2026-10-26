@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -405,5 +406,23 @@ func TestDerivedFramesCarryTime(t *testing.T) {
 			}
 		}
 		ev.Close()
+	}
+}
+
+// TestHealthReportsHerdrDown: a route's Herdr that does not answer makes
+// the route and the daemon's overall health degraded (5.1).
+func TestHealthReportsHerdrDown(t *testing.T) {
+	h := newHarness(t)
+	_, _, _ = h.route("r")
+	var hl Health
+	h.do("GET", "/v1/health", nil, &hl)
+	if hl.Status != "ok" {
+		t.Fatalf("baseline: %+v", hl)
+	}
+	h.srv.Handle("ping", func(map[string]any) (any, string) { return nil, "internal" })
+	hl = Health{}
+	h.do("GET", "/v1/health", nil, &hl)
+	if hl.Status != "degraded" || len(hl.Routes) != 1 || hl.Routes[0].Status != "degraded" || !slices.Contains(hl.Routes[0].Flags, "herdr-unreachable") {
+		t.Fatalf("herdr down: %+v", hl)
 	}
 }
