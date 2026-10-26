@@ -149,3 +149,19 @@ export function dispatch(target: BaseElement, type: string, extra: EventExtras =
   target.dispatchEvent(e);
   return e;
 }
+
+/**
+ * A node as a string for comparing DOM built two ways: tags (with the
+ * namespace for SVG), attributes sorted, text. Left out: empty text (a view
+ * slot's anchor), the bridge's data-key stamps, and the order of attributes.
+ * Properties a view sets that the old code set as attributes (`checked`) are
+ * read as attributes, as a browser serializes the state they show.
+ */
+export function dump(n: FakeNode): string {
+  if (n.nodeType === 3) return n.textContent;
+  if (!(n instanceof BaseElement)) return "";
+  const attrs = n.attributes.filter((a) => a.name !== "data-key").map((a) => `${a.name}="${a.value}"`);
+  if (n["checked"] === true && !n.hasAttribute("checked")) attrs.push(`checked=""`);
+  const tag = n.namespaceURI === SVG_NS ? `svg:${n.tagName}` : n.tagName.toLowerCase();
+  return `<${[tag, ...attrs.sort()].join(" ")}>${n.childNodes.map(dump).join("")}</${tag}>`;
+}

@@ -5,6 +5,7 @@ import {
   list,
   type ListNode,
   renderDirect,
+  type RunsNode,
   svg,
   type View,
   type ViewNode,
@@ -39,6 +40,7 @@ type Child =
   | Unkeyed
   | ViewNode
   | ListNode
+  | RunsNode
   | readonly [Child, ...Child[]];
 
 // Development checks run only when the HERDSMAN_DEV global is true (tests set
@@ -161,9 +163,9 @@ function flatten(children: readonly Child[], out: Node[]): Node[] {
 // TEMPORARY BRIDGE: views inside h(), mount(), patch() and each(). Stage 3 of
 // plans/views-migration.md removes this section together with h().
 //
-// A view description (or a view list) given where h()-style children are
-// expected is rendered once into a scratch element and its element roots are
-// moved out: one-shot, which suits h() parents that rebuild anyway. It is
+// A view description, view list or runs given where h()-style children are
+// expected is rendered once into a scratch element and its nodes are moved
+// out: one-shot, which suits h() parents that rebuild anyway. It is
 // rendered with renderDirect, so each handler sits on its own element and
 // keeps working after the move (render() would delegate to the scratch
 // element, which the moved nodes leave).
@@ -180,25 +182,27 @@ let materialized = 0;
 
 const isElement = (n: Node): n is Element => n.nodeType === 1;
 
-function materialize(c: ViewNode | ListNode, key?: string): Element[] {
+function materialize(c: ViewNode | ListNode | RunsNode, key?: string): Node[] {
   const box = document.createElement("div");
   renderDirect(box, Scratch([c])); // handlers on the nodes themselves, since they move out
   const holder = box.firstChild;
-  const out: Element[] = [];
+  const out: Node[] = [];
   if (holder === null) return out;
-  // Element roots only: the slot's empty anchor text stays behind.
-  for (let n = holder.firstChild; n; n = n.nextSibling) if (isElement(n)) out.push(n);
-  for (const el of out) {
-    holder.removeChild(el);
+  // Everything but empty text: the slot's anchor is one (wherever a list put
+  // it), and an empty text run left behind loses nothing.
+  for (let n = holder.firstChild; n; n = n.nextSibling) if (n.nodeType !== 3 || n.nodeValue !== "") out.push(n);
+  for (const n of out) {
+    holder.removeChild(n);
+    if (!isElement(n)) continue; // text runs need no stamp: they hold no handlers
     const stamp = `view:${++materialized}`;
-    el.setAttribute(KEY_ATTR, key === undefined ? stamp : `${key}|${stamp}`);
+    n.setAttribute(KEY_ATTR, key === undefined ? stamp : `${key}|${stamp}`);
   }
   return out;
 }
 
 function materializeView(v: ViewNode, key: string): Element {
   const [el] = materialize(v, key);
-  if (el === undefined) throw new Error("dom.ts bridge: a view rendered no element");
+  if (el === undefined || !isElement(el)) throw new Error("dom.ts bridge: a view rendered no element");
   return el;
 }
 
