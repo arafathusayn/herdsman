@@ -1,6 +1,6 @@
 // Shared bits: status pills, toasts, the confirm dialog and the theme.
 import { appThemes, installAppTheme } from "./appearance.ts";
-import { h, icon, icons } from "./dom.ts";
+import { h, icon, icons, unkeyed } from "./dom.ts";
 import { type Member, statusLabel } from "./model.ts";
 
 export function pill(status: Member["status"]): HTMLElement {
@@ -123,13 +123,7 @@ export function formDialog(
         { class: "field", for: id },
         h("span", null, f.label),
         input,
-        listId
-          ? h(
-              "datalist",
-              { id: listId },
-              (f.list ?? []).map((v) => h("option", { value: v })),
-            )
-          : null,
+        listId ? h("datalist", { id: listId }, unkeyed((f.list ?? []).map((v) => h("option", { value: v })))) : null,
         f.hint ? h("small", null, f.hint) : null,
       );
     });
@@ -137,7 +131,7 @@ export function formDialog(
       "form",
       { method: "dialog" },
       h("h2", null, title),
-      inputs,
+      unkeyed(inputs),
       h(
         "div",
         { class: "dialog-actions" },
@@ -194,18 +188,20 @@ export function themeSwitch(current: Theme, onChange: (t: Theme) => void): HTMLE
   return h(
     "div",
     { class: "theme-switch", role: "radiogroup", "aria-label": "Theme" },
-    themes.map((t) =>
-      h(
-        "button",
-        {
-          role: "radio",
-          "aria-checked": String(t.id === current),
-          class: t.id === current ? "active" : "",
-          title: `${t.label} theme`,
-          onclick: () => onChange(t.id),
-        },
-        icon(t.glyph),
-        h("span", null, t.label),
+    unkeyed(
+      themes.map((t) =>
+        h(
+          "button",
+          {
+            role: "radio",
+            "aria-checked": String(t.id === current),
+            class: t.id === current ? "active" : "",
+            title: `${t.label} theme`,
+            onclick: () => onChange(t.id),
+          },
+          icon(t.glyph),
+          h("span", null, t.label),
+        ),
       ),
     ),
   );

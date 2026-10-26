@@ -1,7 +1,7 @@
 // The New route form inside its dialog. Everything outside the DOM (the
 // server calls, the live state, navigation, toasts) comes in through Deps,
 // so the form can be driven in tests without a server or the app's store.
-import { h, icon, icons, mount } from "../dom.ts";
+import { each, h, icon, icons, mount, unkeyed } from "../dom.ts";
 import {
   checklist,
   checkpointerAvailable,
@@ -57,7 +57,11 @@ function selectBox(
   const sel = h(
     "select",
     { name, id, onchange: (e: Event) => onchange((e.target as HTMLSelectElement).value) },
-    options.map(([v, label]) => h("option", { value: v, selected: v === value }, label)),
+    each(
+      options,
+      ([v]) => v,
+      ([v, label]) => h("option", { value: v, selected: v === value }, label),
+    ),
   );
   return h("span", { class: "select" }, sel, icon(icons.chevronDown));
 }
@@ -159,38 +163,40 @@ export function routeForm(
       h(
         "ol",
         null,
-        items.map((it, i) =>
-          h(
-            "li",
-            { class: it.done ? "done" : "", dataset: { item: String(i) } },
-            h("span", { class: "nr-check", "aria-hidden": "true" }, it.done ? icon(icons.check) : null),
+        unkeyed(
+          items.map((it, i) =>
             h(
-              "span",
-              { class: "nr-item" },
-              h("span", null, it.title),
-              it.code && i === 2
-                ? h(
-                    "span",
-                    { class: "nr-attach" },
-                    h("code", null, it.code),
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        class: "chip-btn",
-                        title: "Copy the command",
-                        "aria-label": "Copy the command",
-                        onclick: () => deps.copy(it.code ?? "", "attach command"),
-                      },
-                      icon(icons.copy),
-                    ),
-                  )
-                : it.code
-                  ? h("code", null, it.code)
-                  : null,
-              it.note ? h("small", null, it.note) : null,
+              "li",
+              { class: it.done ? "done" : "", dataset: { item: String(i) } },
+              h("span", { class: "nr-check", "aria-hidden": "true" }, it.done ? icon(icons.check) : null),
+              h(
+                "span",
+                { class: "nr-item" },
+                h("span", null, it.title),
+                it.code && i === 2
+                  ? h(
+                      "span",
+                      { class: "nr-attach" },
+                      h("code", null, it.code),
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          class: "chip-btn",
+                          title: "Copy the command",
+                          "aria-label": "Copy the command",
+                          onclick: () => deps.copy(it.code ?? "", "attach command"),
+                        },
+                        icon(icons.copy),
+                      ),
+                    )
+                  : it.code
+                    ? h("code", null, it.code)
+                    : null,
+                it.note ? h("small", null, it.note) : null,
+              ),
+              h("span", { class: `nr-who${it.who === "you do this" ? " you" : ""}` }, it.done ? "done" : it.who),
             ),
-            h("span", { class: `nr-who${it.who === "you do this" ? " you" : ""}` }, it.done ? "done" : it.who),
           ),
         ),
       ),
@@ -279,7 +285,11 @@ export function routeForm(
     return el;
   };
 
-  const harnessFields = (which: "main" | "orch", nameField: "name" | "orchName", who: string): HTMLElement[] => {
+  const harnessFields = (
+    which: "main" | "orch",
+    nameField: "name" | "orchName",
+    who: string,
+  ): [HTMLElement, HTMLElement, HTMLElement | null, HTMLElement | null, HTMLElement] => {
     const hn = f[which];
     const k = kindOf(c, hn.kind);
     const kinds: [string, string][] = c.kinds.map((x) => [x.kind, x.label]);
@@ -355,7 +365,7 @@ export function routeForm(
           )
         : null,
       field(nameField, `${who} name`, text(nameField)),
-    ].filter((x): x is HTMLElement => !!x);
+    ];
   };
 
   const draw = (): void => {
@@ -410,7 +420,7 @@ export function routeForm(
             h("label", { class: "nr-inline" }, "compact at", numInput("limit"), "tokens"),
           )
         : null,
-      checkpointerFields.map(errorLine),
+      unkeyed(checkpointerFields.map(errorLine)),
     );
     boxes.set("checkpointer", ckBox);
     mount(
@@ -464,7 +474,11 @@ export function routeForm(
                 h(
                   "datalist",
                   { id: `${id}-folders` },
-                  folders.map((p) => h("option", { value: p })),
+                  each(
+                    folders,
+                    (p) => p,
+                    (p) => h("option", { value: p }),
+                  ),
                 ),
               ),
               live.label,
@@ -473,9 +487,9 @@ export function routeForm(
             f.role === "adjutant"
               ? [
                   h("h3", { class: "nr-sub" }, "Adjutant"),
-                  ...harnessFields("main", "name", "Adjutant"),
+                  harnessFields("main", "name", "Adjutant"),
                   h("h3", { class: "nr-sub" }, "Orchestrator"),
-                  ...harnessFields("orch", "orchName", "Orchestrator"),
+                  harnessFields("orch", "orchName", "Orchestrator"),
                   field("routeName", "Route name", text("routeName")),
                   field(
                     "inbox",
@@ -518,7 +532,7 @@ export function routeForm(
             ckBox,
           ),
         ),
-        skillWarnings(f, c).map((w) => h("p", { class: "nr-warn", role: "note" }, w)),
+        unkeyed(skillWarnings(f, c).map((w) => h("p", { class: "nr-warn", role: "note" }, w))),
         h("div", { class: "nr-sends" }, h("span", null, "Sends"), live.preview),
         live.checklist,
       ),
@@ -556,22 +570,24 @@ export function routeForm(
         h(
           "ol",
           { class: "nr-steps" },
-          r.steps.map((s) =>
-            h(
-              "li",
-              { class: `s-${s.status}` },
+          unkeyed(
+            r.steps.map((s) =>
               h(
-                "span",
-                { class: "nr-check", "aria-hidden": "true" },
-                mark[s.status] ? icon(mark[s.status] as string[]) : "–",
+                "li",
+                { class: `s-${s.status}` },
+                h(
+                  "span",
+                  { class: "nr-check", "aria-hidden": "true" },
+                  mark[s.status] ? icon(mark[s.status] as string[]) : "–",
+                ),
+                h(
+                  "span",
+                  { class: "nr-item" },
+                  h("span", null, s.step),
+                  s.status === "ok" ? null : h("small", null, stepNote(s)),
+                ),
+                s.id ? h("code", null, s.id) : null,
               ),
-              h(
-                "span",
-                { class: "nr-item" },
-                h("span", null, s.step),
-                s.status === "ok" ? null : h("small", null, stepNote(s)),
-              ),
-              s.id ? h("code", null, s.id) : null,
             ),
           ),
         ),

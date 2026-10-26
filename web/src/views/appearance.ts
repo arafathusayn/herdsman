@@ -14,7 +14,7 @@ import {
   termSchemes,
   termVars,
 } from "../appearance.ts";
-import { h, icon, icons, mount } from "../dom.ts";
+import { h, icon, icons, mount, unkeyed } from "../dom.ts";
 import { renderPieces, tokenizeLines } from "../highlight.ts";
 import { store } from "../store.ts";
 import { applyTheme, dismissOnBackdrop, themeSwitch } from "../ui.ts";
@@ -36,7 +36,7 @@ function termPreview(id: string): HTMLElement {
   const dots = h(
     "span",
     { class: "swatches" },
-    [1, 2, 3, 4, 5, 6].map((i) => h("span", { class: "dot", style: `background: var(--t${i})` })),
+    unkeyed([1, 2, 3, 4, 5, 6].map((i) => h("span", { class: "dot", style: `background: var(--t${i})` }))),
   );
   const el = h(
     "span",
@@ -80,24 +80,26 @@ function choices(
   const draw = () =>
     mount(
       grid,
-      items.map((it) => {
-        const on = it.id === current();
-        return h(
-          "button",
-          {
-            type: "button",
-            role: "radio",
-            "aria-checked": String(on),
-            class: on ? "choice active" : "choice",
-            onclick: () => {
-              choose(it.id);
-              draw();
+      unkeyed(
+        items.map((it) => {
+          const on = it.id === current();
+          return h(
+            "button",
+            {
+              type: "button",
+              role: "radio",
+              "aria-checked": String(on),
+              class: on ? "choice active" : "choice",
+              onclick: () => {
+                choose(it.id);
+                draw();
+              },
             },
-          },
-          preview(it.id),
-          h("span", { class: "choice-label" }, it.label, on ? icon(icons.check) : null),
-        );
-      }),
+            preview(it.id),
+            h("span", { class: "choice-label" }, it.label, on ? icon(icons.check) : null),
+          );
+        }),
+      ),
     );
   draw();
   return h("section", { class: "appearance-section" }, h("h3", null, label), grid);

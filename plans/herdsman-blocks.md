@@ -247,7 +247,7 @@ The node name is part of every key, so a key never matches a node of a different
 
 ### Integration with dom.ts
 
-`patch(el, children...)` takes the same arguments as `mount()`. It flattens them the same way (nested arrays, strings and numbers to text nodes, null, undefined and false dropped) and morphs `el` toward the result.
+`patch(el, children...)` takes the same arguments as `mount()`. It flattens them the same way (nested lists, strings and numbers to text nodes, null, undefined and false dropped) and morphs `el` toward the result. A nested list is a literal tuple, a keyed list from `each` or an unkeyed list from `unkeyed`; a plain array does not type-check (see below).
 
 Event handlers need one change in `h()`, because a listener added with `addEventListener` cannot be read back or compared. Instead:
 
@@ -257,7 +257,7 @@ Event handlers need one change in `h()`, because a listener added with `addEvent
 
 The result is that a kept button runs the closure the view just built, never a stale one from an earlier render.
 
-Views opt in one call site at a time by replacing `mount(container, view)` with `patch(container, view)`, and by giving list items a `key` in their dataset when items can reorder, appear or disappear.
+Views opt in one call site at a time by replacing `mount(container, view)` with `patch(container, view)`, and by rendering lists with `each` when items can reorder, appear or disappear.
 
 #### Keyed lists in views: `each` and `unkeyed`
 
@@ -270,7 +270,7 @@ Literal tuples of children remain plain children: a fixed set of children is not
 
 **Development checks that cost nothing in production.** `each` reports duplicate keys (which morph tolerates by falling back to order) only when a `HERDSMAN_DEV` global is true; tests set it. The production build defines `HERDSMAN_DEV` as false, so the bundler folds the condition to false and removes the check: the shipped bundle contains none of it. The condition has to be written inline: behind a helper function the bundler cannot fold it, and the check stays in the bundle (measured: present, with the bundle only 80 bytes smaller instead of 431).
 
-**Enforcing keys with types (phase 2 of the migration).** Changing the children type of `h()` and `patch()` from "any array" to "a keyed list, an unkeyed list, or a literal tuple" makes every plain `.map()` result a compile error, while tuple literals still type-check. A trial on 2026-10-26 found 67 such sites in 14 files; `plans/each-migration.md` lists them and the migration steps.
+**Enforcing keys with types (phase 2 of the migration, done 2026-10-27).** The children type of `h()`, `mount()` and `patch()` accepts a keyed list, an unkeyed list, or a literal tuple, not "any array": every plain `.map()` result is a compile error, while tuple literals still type-check. The 67 sites this found in 14 files were each changed to `each` or `unkeyed`, or typed as a tuple; `plans/each-migration.md` records the choices.
 
 #### Rule: key a view root whenever its container also holds other elements
 
@@ -281,6 +281,7 @@ Unkeyed children match by tag and order, so a container that sometimes holds a p
 1. The route tab body for Team, Checklist, Run state and Activity. Its root is keyed by tab ("tab-" plus the tab id), because the same container also holds the persistent Docs, Artifacts, Messages and Changes elements.
 2. The session view in the main area. Its root is keyed "session", because the same container also holds the persistent route shell.
 3. Team cards, the session view's cards, checklist lines, run-state lines and activity events are rendered with `each`, keyed by pane id, line id (or text), time and text, and the event's fields respectively.
+4. Since phase 2, every other list in herdsman web is an `each` or `unkeyed` list too, including the Team board's lanes (by lane id) and the session view's tab groups (by tab id), which are rendered through `patch`.
 
 Every other `mount()` call still rebuilds, unchanged.
 
@@ -470,6 +471,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-27: Phase 2 of the `each()` migration: plain arrays are a type error in `dom.ts` children. The 67 sites in herdsman web use `each` (keyed by the data's identity), `unkeyed`, or a literal tuple. No change to the library.
 - 2026-10-27: Renamed from herdsman-dom-diff to herdsman-blocks: the module, its tests, this spec and the release name. No behavior change; the version stays 0.0.5.
 - 2026-10-26: `each()` and `unkeyed()` in herdsman's `dom.ts`, with branded `Keyed` and `Unkeyed` types and a duplicate-key check removed from production builds by a build-time constant. Five patched lists migrated; migration guide in `plans/each-migration.md`. Compatibility verified against the real `herdsman web` with a fake herdr in Chrome 156.
 - 2026-10-26: Full run of every version (0.0.1 to 0.0.5) against `re`, `vanillajs` and `vanillajs-lite`, with 0.0.4 and 0.0.5 as an identical-code control.

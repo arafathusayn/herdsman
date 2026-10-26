@@ -1,6 +1,6 @@
 // The Team tab: the route's agents as a kanban board, in columns by role or
 // by status, and the agent card the session view shares.
-import { each, h } from "../dom.ts";
+import { each, h, unkeyed } from "../dom.ts";
 import { type BoardBy, lanes, type Member, roleName } from "../model.ts";
 import { type App, store } from "../store.ts";
 import { pill } from "../ui.ts";
@@ -48,30 +48,32 @@ export function teamView(members: Member[], app: App): HTMLElement {
   const switcher = h(
     "div",
     { class: "view-switch board-switch", role: "group", "aria-label": "Columns" },
-    (
-      [
-        ["role", "Role", "A column for each role in the route"],
-        ["status", "Status", "A column for each status; cards move as agents work"],
-      ] as const
-    ).map(([by, label, tip]) =>
-      h(
-        "button",
-        {
-          type: "button",
-          class: by === boardBy ? "active" : "",
-          "aria-pressed": String(by === boardBy),
-          title: tip,
-          onclick: () => {
-            boardBy = by;
-            try {
-              localStorage.setItem(byKey, by);
-            } catch {
-              // The choice lasts for this page only.
-            }
-            store.emit();
+    unkeyed(
+      (
+        [
+          ["role", "Role", "A column for each role in the route"],
+          ["status", "Status", "A column for each status; cards move as agents work"],
+        ] as const
+      ).map(([by, label, tip]) =>
+        h(
+          "button",
+          {
+            type: "button",
+            class: by === boardBy ? "active" : "",
+            "aria-pressed": String(by === boardBy),
+            title: tip,
+            onclick: () => {
+              boardBy = by;
+              try {
+                localStorage.setItem(byKey, by);
+              } catch {
+                // The choice lasts for this page only.
+              }
+              store.emit();
+            },
           },
-        },
-        label,
+          label,
+        ),
       ),
     ),
   );
@@ -84,25 +86,28 @@ export function teamView(members: Member[], app: App): HTMLElement {
       ? h(
           "div",
           { class: "kanban" },
-          cols.map((lane) =>
-            h(
-              "section",
-              { class: lane.status ? `lane s-${lane.status}` : "lane", "aria-label": lane.title },
+          each(
+            cols,
+            (lane) => lane.id,
+            (lane) =>
               h(
-                "h2",
-                null,
-                lane.status ? h("span", { class: "lane-dot", "aria-hidden": "true" }) : null,
-                lane.title,
-                h("span", { class: "count" }, String(lane.members.length)),
+                "section",
+                { class: lane.status ? `lane s-${lane.status}` : "lane", "aria-label": lane.title },
+                h(
+                  "h2",
+                  null,
+                  lane.status ? h("span", { class: "lane-dot", "aria-hidden": "true" }) : null,
+                  lane.title,
+                  h("span", { class: "count" }, String(lane.members.length)),
+                ),
+                lane.members.length
+                  ? each(
+                      lane.members,
+                      (m) => m.pane_id,
+                      (m) => card(m, app, boardBy === "status"),
+                    )
+                  : h("p", { class: "lane-empty" }, "None"),
               ),
-              lane.members.length
-                ? each(
-                    lane.members,
-                    (m) => m.pane_id,
-                    (m) => card(m, app, boardBy === "status"),
-                  )
-                : h("p", { class: "lane-empty" }, "None"),
-            ),
           ),
         )
       : h("p", { class: "muted" }, "This route's task table names no panes."),

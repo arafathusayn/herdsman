@@ -1,7 +1,7 @@
 // Hosts: the dialog that lists the herdsman servers this app knows, adds one
 // from its pairing link or address, renames, forgets and switches; and the
 // connect screen shown when there is no host to talk to yet.
-import { h, icon, icons, logoMark, mount } from "../dom.ts";
+import { each, h, icon, icons, logoMark, mount } from "../dom.ts";
 import {
   blockedReason,
   type Host,
@@ -122,86 +122,94 @@ function hostList(redraw: () => void): HTMLElement {
   return h(
     "ul",
     { class: "hosts-list" },
-    hs.hosts.map((host) => {
-      const current = host.id === hs.current;
-      const blocked = blockedReason(location.protocol, host.url);
-      const nameEl = h("span", { class: "host-name" }, host.name);
-      const rename = (): void => {
-        const field = h("input", { class: "input host-rename", value: host.name, "aria-label": "Host name" });
-        const done = (save: boolean): void => {
-          if (save && field.value.trim()) {
-            const all = loadHosts();
-            const x = all.hosts.find((y) => y.id === host.id);
-            if (x) x.name = field.value.trim();
-            saveHosts(all);
-          }
-          redraw();
+    each(
+      hs.hosts,
+      (host) => host.id,
+      (host) => {
+        const current = host.id === hs.current;
+        const blocked = blockedReason(location.protocol, host.url);
+        const nameEl = h("span", { class: "host-name" }, host.name);
+        const rename = (): void => {
+          const field = h("input", { class: "input host-rename", value: host.name, "aria-label": "Host name" });
+          const done = (save: boolean): void => {
+            if (save && field.value.trim()) {
+              const all = loadHosts();
+              const x = all.hosts.find((y) => y.id === host.id);
+              if (x) x.name = field.value.trim();
+              saveHosts(all);
+            }
+            redraw();
+          };
+          field.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              done(true);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              done(false);
+            }
+          });
+          field.addEventListener("blur", () => done(true));
+          nameEl.replaceWith(field);
+          field.focus();
+          field.select();
         };
-        field.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            done(true);
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            done(false);
-          }
-        });
-        field.addEventListener("blur", () => done(true));
-        nameEl.replaceWith(field);
-        field.focus();
-        field.select();
-      };
-      return h(
-        "li",
-        { class: current ? "host current" : "host" },
-        h(
-          "div",
-          { class: "host-main" },
-          h("div", { class: "host-title" }, nameEl, current ? h("span", { class: "host-chip" }, "Current") : null),
-          h("code", { class: "host-url" }, host.url),
-          h("span", { class: host.device ? "host-state paired" : "host-state" }, host.device ? "Paired" : "Not paired"),
-          blocked ? h("p", { class: "hosts-note error" }, blocked) : null,
-        ),
-        h(
-          "div",
-          { class: "host-actions" },
-          current
-            ? null
-            : h("button", { type: "button", class: "btn", onclick: () => switchTo(loadHosts(), host) }, "Connect"),
+        return h(
+          "li",
+          { class: current ? "host current" : "host" },
           h(
-            "button",
-            {
-              type: "button",
-              class: "icon-btn",
-              "aria-label": `Rename ${host.name}`,
-              "data-tip": "Rename",
-              onclick: rename,
-            },
-            icon(icons.tag),
+            "div",
+            { class: "host-main" },
+            h("div", { class: "host-title" }, nameEl, current ? h("span", { class: "host-chip" }, "Current") : null),
+            h("code", { class: "host-url" }, host.url),
+            h(
+              "span",
+              { class: host.device ? "host-state paired" : "host-state" },
+              host.device ? "Paired" : "Not paired",
+            ),
+            blocked ? h("p", { class: "hosts-note error" }, blocked) : null,
           ),
           h(
-            "button",
-            {
-              type: "button",
-              class: "icon-btn",
-              "aria-label": `Forget ${host.name}`,
-              "data-tip": "Forget",
-              onclick: () => {
-                const all = loadHosts();
-                all.hosts = all.hosts.filter((y) => y.id !== host.id);
-                if (all.current === host.id) all.current = all.hosts[0]?.id ?? "";
-                saveHosts(all);
-                toast(`Forgot ${host.name}`);
-                if (current) location.assign(location.pathname);
-                else redraw();
+            "div",
+            { class: "host-actions" },
+            current
+              ? null
+              : h("button", { type: "button", class: "btn", onclick: () => switchTo(loadHosts(), host) }, "Connect"),
+            h(
+              "button",
+              {
+                type: "button",
+                class: "icon-btn",
+                "aria-label": `Rename ${host.name}`,
+                "data-tip": "Rename",
+                onclick: rename,
               },
-            },
-            icon(icons.trash),
+              icon(icons.tag),
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                class: "icon-btn",
+                "aria-label": `Forget ${host.name}`,
+                "data-tip": "Forget",
+                onclick: () => {
+                  const all = loadHosts();
+                  all.hosts = all.hosts.filter((y) => y.id !== host.id);
+                  if (all.current === host.id) all.current = all.hosts[0]?.id ?? "";
+                  saveHosts(all);
+                  toast(`Forgot ${host.name}`);
+                  if (current) location.assign(location.pathname);
+                  else redraw();
+                },
+              },
+              icon(icons.trash),
+            ),
           ),
-        ),
-      );
-    }),
+        );
+      },
+    ),
   );
 }
 

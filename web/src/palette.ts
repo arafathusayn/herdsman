@@ -2,7 +2,7 @@
 // finds agents, routes and files and runs every action. A leading ">" shows
 // only commands, "@" only agents and "#" only files. A command that needs
 // text (a prompt) turns the box into an input for that text.
-import { h, icon, icons, mount } from "./dom.ts";
+import { each, h, icon, icons, mount } from "./dom.ts";
 import { fuzzy, highlight } from "./fuzzy.ts";
 
 export type CommandKind = "command" | "agent" | "route" | "file";
@@ -139,28 +139,31 @@ export function openPalette(provider: () => Command[], initial = ""): void {
     }
     mount(
       list,
-      rows.map(({ c, hits }, i) =>
-        h(
-          "div",
-          {
-            id: `pal-${i}`,
-            class: i === active ? "palette-row active" : "palette-row",
-            role: "option",
-            "aria-selected": String(i === active),
-            onmousemove: () => {
-              if (active !== i) {
-                active = i;
-                render();
-              }
+      each(
+        rows.map((r, i) => ({ ...r, i })),
+        ({ c }) => c.id,
+        ({ c, hits, i }) =>
+          h(
+            "div",
+            {
+              id: `pal-${i}`,
+              class: i === active ? "palette-row active" : "palette-row",
+              role: "option",
+              "aria-selected": String(i === active),
+              onmousemove: () => {
+                if (active !== i) {
+                  active = i;
+                  render();
+                }
+              },
+              onmousedown: (e: Event) => e.preventDefault(),
+              onclick: () => void execute(c),
             },
-            onmousedown: (e: Event) => e.preventDefault(),
-            onclick: () => void execute(c),
-          },
-          icon(c.icon ?? kindIcon[c.kind]),
-          h("span", { class: "palette-title" }, highlight(c.title, hits)),
-          c.detail ? h("span", { class: "palette-detail" }, c.detail) : null,
-          c.keys ? h("kbd", null, c.keys) : null,
-        ),
+            icon(c.icon ?? kindIcon[c.kind]),
+            h("span", { class: "palette-title" }, highlight(c.title, hits)),
+            c.detail ? h("span", { class: "palette-detail" }, c.detail) : null,
+            c.keys ? h("kbd", null, c.keys) : null,
+          ),
       ),
     );
     input.setAttribute("aria-activedescendant", `pal-${active}`);

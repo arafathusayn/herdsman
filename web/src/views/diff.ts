@@ -5,7 +5,7 @@
 import { AuthError, routeDiff } from "../api.ts";
 import { highlighting } from "../appearance.ts";
 import { type DiffLine, parseSection, sideBySide, splitPatch } from "../diff.ts";
-import { h, icon, icons, mount } from "../dom.ts";
+import { each, h, icon, icons, mount, unkeyed } from "../dom.ts";
 import { fuzzy, highlight } from "../fuzzy.ts";
 import { languageOf, type Piece, renderPieces, type State, tokenizeLine } from "../highlight.ts";
 import { store } from "../store.ts";
@@ -93,7 +93,7 @@ function colorLines(lines: DiffLine[], lang: string): (DocumentFragment | null)[
  * appending a fragment empties it.
  */
 function splitTable(lines: DiffLine[], code: Map<DiffLine, DocumentFragment | null>): HTMLElement {
-  const side = (l: DiffLine | null, num: number | undefined, right: boolean): HTMLElement[] => {
+  const side = (l: DiffLine | null, num: number | undefined, right: boolean): [HTMLElement, HTMLElement] => {
     if (!l) return [h("td", { class: "ln blank" }), h("td", { class: "code blank" })];
     const colored = code.get(l);
     const text = colored ? (!right && l.kind === "ctx" ? colored.cloneNode(true) : colored) : l.text || " ";
@@ -109,10 +109,12 @@ function splitTable(lines: DiffLine[], code: Map<DiffLine, DocumentFragment | nu
     h(
       "tbody",
       null,
-      sideBySide(lines).map((r) =>
-        "kind" in r
-          ? h("tr", { class: `d-${r.kind}` }, h("td", { colspan: "4", class: "code" }, r.text))
-          : h("tr", null, side(r.left, r.left?.old, false), side(r.right, r.right?.new, true)),
+      unkeyed(
+        sideBySide(lines).map((r) =>
+          "kind" in r
+            ? h("tr", { class: `d-${r.kind}` }, h("td", { colspan: "4", class: "code" }, r.text))
+            : h("tr", null, side(r.left, r.left?.old, false), side(r.right, r.right?.new, true)),
+        ),
       ),
     ),
   );
@@ -201,30 +203,32 @@ export class DiffView {
     return h(
       "div",
       { class: "view-switch diff-layout", role: "group", "aria-label": "Diff layout" },
-      (
-        [
-          ["inline", "Inline", "Removed and added lines in one column"],
-          ["split", "Side by side", "The old file on the left, the new one on the right"],
-        ] as const
-      ).map(([v, label, tip]) =>
-        h(
-          "button",
-          {
-            type: "button",
-            class: v === layout ? "active" : "",
-            "aria-pressed": String(v === layout),
-            title: tip,
-            onclick: () => {
-              layout = v;
-              try {
-                localStorage.setItem(layoutKey, v);
-              } catch {
-                // The choice lasts for this page only.
-              }
-              this.renderViewer();
+      unkeyed(
+        (
+          [
+            ["inline", "Inline", "Removed and added lines in one column"],
+            ["split", "Side by side", "The old file on the left, the new one on the right"],
+          ] as const
+        ).map(([v, label, tip]) =>
+          h(
+            "button",
+            {
+              type: "button",
+              class: v === layout ? "active" : "",
+              "aria-pressed": String(v === layout),
+              title: tip,
+              onclick: () => {
+                layout = v;
+                try {
+                  localStorage.setItem(layoutKey, v);
+                } catch {
+                  // The choice lasts for this page only.
+                }
+                this.renderViewer();
+              },
             },
-          },
-          label,
+            label,
+          ),
         ),
       ),
     );
@@ -319,44 +323,48 @@ export class DiffView {
     const cur = this.source();
     mount(
       this.sourceList,
-      all.map((s) => {
-        const files = s.diff?.files ?? [];
-        const t = totals(files);
-        const active = s.id === cur?.id;
-        return h(
-          "button",
-          {
-            class: active ? "diff-source active" : "diff-source",
-            role: "option",
-            "aria-selected": String(active),
-            title: s.dir ?? s.label,
-            onclick: () => store.go({ source: s.id, diffFile: "" }, false),
-          },
-          h(
-            "span",
-            { class: "diff-source-top" },
-            h("strong", null, s.label),
-            s.error ? h("span", { class: "chip warn" }, "unavailable") : counts(t.add, t.del),
-          ),
-          s.agents?.length
-            ? h(
-                "span",
-                {
-                  class: "diff-source-agents",
-                  title: "Agents working in this folder",
-                },
-                s.agents.map((a) => h("span", { class: "who" }, a)),
-              )
-            : null,
-          h(
-            "span",
-            { class: "diff-source-sub" },
-            icon(s.kind === "checkout" ? icons.folder : icons.branch),
-            s.diff ? `${s.diff.head} ← ${s.diff.base}` : (s.branch ?? s.dir ?? ""),
-            s.diff ? h("span", { class: "n" }, `${files.length} ${files.length === 1 ? "file" : "files"}`) : null,
-          ),
-        );
-      }),
+      each(
+        all,
+        (s) => s.id,
+        (s) => {
+          const files = s.diff?.files ?? [];
+          const t = totals(files);
+          const active = s.id === cur?.id;
+          return h(
+            "button",
+            {
+              class: active ? "diff-source active" : "diff-source",
+              role: "option",
+              "aria-selected": String(active),
+              title: s.dir ?? s.label,
+              onclick: () => store.go({ source: s.id, diffFile: "" }, false),
+            },
+            h(
+              "span",
+              { class: "diff-source-top" },
+              h("strong", null, s.label),
+              s.error ? h("span", { class: "chip warn" }, "unavailable") : counts(t.add, t.del),
+            ),
+            s.agents?.length
+              ? h(
+                  "span",
+                  {
+                    class: "diff-source-agents",
+                    title: "Agents working in this folder",
+                  },
+                  unkeyed(s.agents.map((a) => h("span", { class: "who" }, a))),
+                )
+              : null,
+            h(
+              "span",
+              { class: "diff-source-sub" },
+              icon(s.kind === "checkout" ? icons.folder : icons.branch),
+              s.diff ? `${s.diff.head} ← ${s.diff.base}` : (s.branch ?? s.dir ?? ""),
+              s.diff ? h("span", { class: "n" }, `${files.length} ${files.length === 1 ? "file" : "files"}`) : null,
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -421,7 +429,11 @@ export class DiffView {
       this.count.textContent = String(files.length);
       mount(
         this.list,
-        files.map((f) => this.row(f, [], true)),
+        each(
+          files,
+          (f) => f.path,
+          (f) => this.row(f, [], true),
+        ),
       );
       return;
     }
@@ -433,7 +445,11 @@ export class DiffView {
     mount(
       this.list,
       matches.length
-        ? matches.map((x) => this.row(x.f, x.m?.hits ?? [], true))
+        ? each(
+            matches,
+            (x) => x.f.path,
+            (x) => this.row(x.f, x.m?.hits ?? [], true),
+          )
         : h("p", { class: "file-empty" }, `No changed file matches “${q}”.`),
     );
   }
@@ -559,16 +575,18 @@ export class DiffView {
             h(
               "tbody",
               null,
-              shown.map((l, i) =>
-                l.kind === "hunk" || l.kind === "note"
-                  ? h("tr", { class: `d-${l.kind}` }, h("td", { colspan: "3", class: "code" }, l.text))
-                  : h(
-                      "tr",
-                      { class: `d-${l.kind}` },
-                      h("td", { class: "ln" }, l.old === undefined ? "" : String(l.old)),
-                      h("td", { class: "ln" }, l.new === undefined ? "" : String(l.new)),
-                      h("td", { class: "code" }, code[i] ?? (l.text || " ")),
-                    ),
+              unkeyed(
+                shown.map((l, i) =>
+                  l.kind === "hunk" || l.kind === "note"
+                    ? h("tr", { class: `d-${l.kind}` }, h("td", { colspan: "3", class: "code" }, l.text))
+                    : h(
+                        "tr",
+                        { class: `d-${l.kind}` },
+                        h("td", { class: "ln" }, l.old === undefined ? "" : String(l.old)),
+                        h("td", { class: "ln" }, l.new === undefined ? "" : String(l.new)),
+                        h("td", { class: "code" }, code[i] ?? (l.text || " ")),
+                      ),
+                ),
               ),
             ),
           );

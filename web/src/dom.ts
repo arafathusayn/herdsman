@@ -12,7 +12,10 @@ export type Keyed = readonly Element[] & { readonly [KEYED]: true };
 /** A list of nodes the author chose to match by order and content, not by key. Only `unkeyed` makes one. */
 export type Unkeyed = readonly Child[] & { readonly [UNKEYED]: true };
 
-type Child = Node | string | number | false | null | undefined | Keyed | Unkeyed | Child[];
+// A list of children is a literal tuple (a fixed set), or a list made by each
+// or unkeyed. A plain array, such as a .map() result, does not type-check, so
+// every list says whether its items have identity.
+type Child = Node | string | number | false | null | undefined | Keyed | Unkeyed | readonly [Child, ...Child[]];
 
 // Development checks run only when the HERDSMAN_DEV global is true (tests set
 // it). A production build defines HERDSMAN_DEV as false, so the bundler
@@ -102,8 +105,8 @@ export function mount(el: Element, ...children: Child[]): void {
 /**
  * Like mount, but keeps the live nodes that still match the new children and
  * patches them in place, so focus, the caret, selection and scroll positions
- * survive a re-render. Give list items a `key` in their dataset (data-key) so
- * they move with their data instead of being rebuilt.
+ * survive a re-render. Render lists with `each` so their items move with their
+ * data instead of being rebuilt.
  */
 export function patch(el: Element, ...children: Child[]): void {
   morph(el, flatten(children, []), { onKeep: keepHandlers });

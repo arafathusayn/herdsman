@@ -4,7 +4,7 @@
 // only when its message is opened, and never for unverified entries.
 import { messageBody } from "../api.ts";
 import { describeFlag, kindLabel, stateLabel, stateTip } from "../channel.ts";
-import { h, icon, icons, mount } from "../dom.ts";
+import { each, h, icon, icons, mount, unkeyed } from "../dom.ts";
 import { store } from "../store.ts";
 import type { Channel, ChannelMessage } from "../types.ts";
 
@@ -42,10 +42,12 @@ function renderBody(body: string): HTMLElement {
       ? h(
           "dl",
           { class: "msg-fields" },
-          rest.map(([k, val]) => [
-            h("dt", null, k),
-            h("dd", null, typeof val === "string" ? val : JSON.stringify(val)),
-          ]),
+          unkeyed(
+            rest.map(([k, val]): [HTMLElement, HTMLElement] => [
+              h("dt", null, k),
+              h("dd", null, typeof val === "string" ? val : JSON.stringify(val)),
+            ]),
+          ),
         )
       : null,
   );
@@ -131,41 +133,51 @@ export class MessagesView {
           },
           ch.approved ? "Pair approved" : "Approval pending",
         ),
-        ch.health.map((s) =>
-          h(
-            "span",
-            {
-              class: s.ok ? "chip ok" : "chip bad",
-              "data-tip": `Heartbeat ${seconds(s.age)}; down after ${ch.health_after}s`,
-            },
-            `${s.name === "courier" ? "Courier" : "Watcher"} ${s.ok ? "up" : "down"}`,
+        unkeyed(
+          ch.health.map((s) =>
+            h(
+              "span",
+              {
+                class: s.ok ? "chip ok" : "chip bad",
+                "data-tip": `Heartbeat ${seconds(s.age)}; down after ${ch.health_after}s`,
+              },
+              `${s.name === "courier" ? "Courier" : "Watcher"} ${s.ok ? "up" : "down"}`,
+            ),
           ),
         ),
-        (ch.flags ?? []).map((f) => {
-          const [text, tip] = describeFlag(f);
-          return h("span", { class: "chip bad", "data-tip": tip }, text);
-        }),
-        (ch.holds ?? []).map((x) =>
-          h(
-            "span",
-            {
-              class: "chip warn",
-              "data-tip": x.owners?.length
-                ? `Held by ${x.owners.map((o) => (o.reason ? `${o.by}: ${o.reason}` : o.by)).join("; ")}`
-                : "A hold or resume intent in the channel's state folder",
-            },
-            x.name,
-          ),
+        unkeyed(
+          (ch.flags ?? []).map((f) => {
+            const [text, tip] = describeFlag(f);
+            return h("span", { class: "chip bad", "data-tip": tip }, text);
+          }),
         ),
-        boxes.map((b) =>
-          h(
-            "span",
-            { class: b.counts["quarantine"] || b.orphan ? "chip warn" : "chip" },
-            `${b.name}: ${b.unacked} unread`,
-            b.claim !== "none" ? ` · claim ${b.claim}` : "",
-            b.counts["quarantine"] ? ` · ${b.counts["quarantine"]} quarantined` : "",
-            b.orphan ? " · not enrolled" : "",
-          ),
+        each(
+          ch.holds ?? [],
+          (x) => x.name,
+          (x) =>
+            h(
+              "span",
+              {
+                class: "chip warn",
+                "data-tip": x.owners?.length
+                  ? `Held by ${x.owners.map((o) => (o.reason ? `${o.by}: ${o.reason}` : o.by)).join("; ")}`
+                  : "A hold or resume intent in the channel's state folder",
+              },
+              x.name,
+            ),
+        ),
+        each(
+          boxes,
+          (b) => b.name,
+          (b) =>
+            h(
+              "span",
+              { class: b.counts["quarantine"] || b.orphan ? "chip warn" : "chip" },
+              `${b.name}: ${b.unacked} unread`,
+              b.claim !== "none" ? ` · claim ${b.claim}` : "",
+              b.counts["quarantine"] ? ` · ${b.counts["quarantine"]} quarantined` : "",
+              b.orphan ? " · not enrolled" : "",
+            ),
         ),
       ),
     );
@@ -176,7 +188,9 @@ export class MessagesView {
     return h(
       "div",
       { class: "msg-alerts", role: "alert" },
-      ch.alerts.map((a) => h("div", { class: "msg-alert" }, h("strong", null, a.title), h("span", null, a.body))),
+      unkeyed(
+        ch.alerts.map((a) => h("div", { class: "msg-alert" }, h("strong", null, a.title), h("span", null, a.body))),
+      ),
     );
   }
 
@@ -188,81 +202,85 @@ export class MessagesView {
     return h(
       "ol",
       { class: "msg-thread" },
-      [...ch.messages].reverse().map((m) => {
-        const side = roles.get(m.from) === "orchestrator" ? "right" : "left";
-        const label = stateLabel(m);
-        const open = this.expanded.has(m.id);
-        const body = this.bodies.get(m.id);
-        const readable = m.state === "ready" || m.state === "cur";
-        return h(
-          "li",
-          { class: `msg ${side} k-${m.kind}${m.state === "quarantine" ? " quarantined" : ""}`, id: `msg-${m.id}` },
-          h(
-            "div",
-            { class: "msg-meta" },
-            h("span", { class: `msg-kind k-${m.kind}` }, kindLabel[m.kind] ?? m.kind),
-            h("span", { class: "msg-route" }, `${m.from} → ${m.to}`),
+      each(
+        [...ch.messages].reverse(),
+        (m) => m.id,
+        (m) => {
+          const side = roles.get(m.from) === "orchestrator" ? "right" : "left";
+          const label = stateLabel(m);
+          const open = this.expanded.has(m.id);
+          const body = this.bodies.get(m.id);
+          const readable = m.state === "ready" || m.state === "cur";
+          return h(
+            "li",
+            { class: `msg ${side} k-${m.kind}${m.state === "quarantine" ? " quarantined" : ""}`, id: `msg-${m.id}` },
             h(
-              "span",
-              { class: `msg-state s-${label.replace(" ", "-").toLowerCase()}`, "data-tip": stateTip[label] },
-              label,
+              "div",
+              { class: "msg-meta" },
+              h("span", { class: `msg-kind k-${m.kind}` }, kindLabel[m.kind] ?? m.kind),
+              h("span", { class: "msg-route" }, `${m.from} → ${m.to}`),
+              h(
+                "span",
+                { class: `msg-state s-${label.replace(" ", "-").toLowerCase()}`, "data-tip": stateTip[label] },
+                label,
+              ),
+              h("time", { title: new Date(m.time * 1000).toLocaleString() }, when(m.time)),
             ),
-            h("time", { title: new Date(m.time * 1000).toLocaleString() }, when(m.time)),
-          ),
-          h(
-            "div",
-            { class: "msg-sub" },
-            h("code", null, m.id),
-            m.reply_to
-              ? h(
-                  "a",
-                  {
-                    class: "msg-reply",
-                    href: `#msg-${m.reply_to}`,
-                    onclick: (e: Event) => {
-                      e.preventDefault();
-                      if (ids.has(m.reply_to))
-                        document
-                          .getElementById(`msg-${m.reply_to}`)
-                          ?.scrollIntoView({ block: "center", behavior: "smooth" });
+            h(
+              "div",
+              { class: "msg-sub" },
+              h("code", null, m.id),
+              m.reply_to
+                ? h(
+                    "a",
+                    {
+                      class: "msg-reply",
+                      href: `#msg-${m.reply_to}`,
+                      onclick: (e: Event) => {
+                        e.preventDefault();
+                        if (ids.has(m.reply_to))
+                          document
+                            .getElementById(`msg-${m.reply_to}`)
+                            ?.scrollIntoView({ block: "center", behavior: "smooth" });
+                      },
                     },
+                    `↩ ${m.reply_to}`,
+                  )
+                : null,
+            ),
+            readable
+              ? h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "btn ghost msg-toggle",
+                    "aria-expanded": String(open),
+                    onclick: () => this.toggle(m),
                   },
-                  `↩ ${m.reply_to}`,
+                  icon(icons.chevronDown),
+                  open ? "Hide" : "Show message",
+                )
+              : h(
+                  "p",
+                  { class: "msg-note" },
+                  m.state === "quarantine"
+                    ? "Failed the courier's checks. The body is not shown; the sender must send a fresh message."
+                    : "Waiting for the courier to verify it.",
+                ),
+            open && readable
+              ? h(
+                  "div",
+                  { class: "msg-body" },
+                  body?.text !== undefined
+                    ? renderBody(body.text)
+                    : body?.error
+                      ? h("p", { class: "error" }, body.error)
+                      : h("p", { class: "muted" }, "Loading…"),
                 )
               : null,
-          ),
-          readable
-            ? h(
-                "button",
-                {
-                  type: "button",
-                  class: "btn ghost msg-toggle",
-                  "aria-expanded": String(open),
-                  onclick: () => this.toggle(m),
-                },
-                icon(icons.chevronDown),
-                open ? "Hide" : "Show message",
-              )
-            : h(
-                "p",
-                { class: "msg-note" },
-                m.state === "quarantine"
-                  ? "Failed the courier's checks. The body is not shown; the sender must send a fresh message."
-                  : "Waiting for the courier to verify it.",
-              ),
-          open && readable
-            ? h(
-                "div",
-                { class: "msg-body" },
-                body?.text !== undefined
-                  ? renderBody(body.text)
-                  : body?.error
-                    ? h("p", { class: "error" }, body.error)
-                    : h("p", { class: "muted" }, "Loading…"),
-              )
-            : null,
-        );
-      }),
+          );
+        },
+      ),
     );
   }
 

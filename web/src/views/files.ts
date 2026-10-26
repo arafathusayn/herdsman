@@ -3,7 +3,7 @@
 // its focus and text while the route updates live.
 import { routeFile } from "../api.ts";
 import { highlighting } from "../appearance.ts";
-import { h, icon, icons, mount } from "../dom.ts";
+import { each, h, icon, icons, mount } from "../dom.ts";
 import { fuzzy, highlight } from "../fuzzy.ts";
 import { codeBlock, renderMarkdown } from "../markdown.ts";
 import { ago } from "../model.ts";
@@ -166,7 +166,11 @@ export class FilesView {
       mount(
         this.list,
         matches.length
-          ? matches.map((m, i) => this.row(m.file, m.hits, i === this.active, true))
+          ? each(
+              matches.map((m, i) => ({ ...m, i })),
+              (m) => m.file.path,
+              (m) => this.row(m.file, m.hits, m.i === this.active, true),
+            )
           : h("p", { class: "file-empty" }, `No file matches “${q}”.`),
       );
       return;
@@ -185,25 +189,33 @@ export class FilesView {
     const order = [...groups.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
     mount(
       this.list,
-      order.map((d) => {
-        const items = (groups.get(d) ?? []).sort((a, b) => a.path.localeCompare(b.path));
-        const holdsSelected = items.some((f) => f.path === this.selected);
-        const isOpen = this.open.get(d) ?? (holdsSelected || !collapsedByDefault.has(d));
-        const details = h(
-          "details",
-          { class: "file-group", open: isOpen },
-          h(
-            "summary",
-            null,
-            icon(icons.folder),
-            h("span", null, d ? `${d}/` : "Route files"),
-            h("span", { class: "count" }, String(items.length)),
-          ),
-          items.map((f) => this.row(f, [], false, false)),
-        );
-        details.addEventListener("toggle", () => this.open.set(d, details.open));
-        return details;
-      }),
+      each(
+        order,
+        (d) => d,
+        (d) => {
+          const items = (groups.get(d) ?? []).sort((a, b) => a.path.localeCompare(b.path));
+          const holdsSelected = items.some((f) => f.path === this.selected);
+          const isOpen = this.open.get(d) ?? (holdsSelected || !collapsedByDefault.has(d));
+          const details = h(
+            "details",
+            { class: "file-group", open: isOpen },
+            h(
+              "summary",
+              null,
+              icon(icons.folder),
+              h("span", null, d ? `${d}/` : "Route files"),
+              h("span", { class: "count" }, String(items.length)),
+            ),
+            each(
+              items,
+              (f) => f.path,
+              (f) => this.row(f, [], false, false),
+            ),
+          );
+          details.addEventListener("toggle", () => this.open.set(d, details.open));
+          return details;
+        },
+      ),
     );
   }
 

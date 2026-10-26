@@ -1,6 +1,6 @@
 # Migrating herdsman web lists to `each()`
 
-How to move the web app's lists to keyed rendering with `each()`, why it matters, and how the type checker will eventually enforce it. Status as of 2026-10-26: phase 1 is done (the API exists and the lists rendered through `patch()` use it); phase 2 (making plain arrays a type error) is ready to start.
+How to move the web app's lists to keyed rendering with `each()`, why it matters, and how the type checker will eventually enforce it. Status as of 2026-10-27: phase 1 is done (the API exists and the lists rendered through `patch()` use it), and so is phase 2 (plain arrays are a type error; every list in the app is an `each()` or `unkeyed()` list).
 
 ## Why
 
@@ -33,12 +33,17 @@ unkeyed(blocks); // Unkeyed: matched by content and order, on purpose
 
 A key must be **stable** (the same item gets the same key on every render) and **unique** among its siblings.
 
-| Data            | Key used                                                                           |
-| --------------- | ---------------------------------------------------------------------------------- |
-| Agent cards     | `m.pane_id`                                                                        |
-| Checklist lines | `i.id`, or `text:` plus the text when the line has no id                           |
-| Run-state lines | time and text joined with `\|`                                                     |
-| Activity events | `at`, `kind`, `pane_id`, `status` and `text` joined with `\|` (events carry no id) |
+| Data                        | Key used                                                                           |
+| --------------------------- | ---------------------------------------------------------------------------------- |
+| Agent cards                 | `m.pane_id`                                                                        |
+| Checklist lines             | `i.id`, or `text:` plus the text when the line has no id                           |
+| Run-state lines             | time and text joined with `\|`                                                     |
+| Activity events             | `at`, `kind`, `pane_id`, `status` and `text` joined with `\|` (events carry no id) |
+| Team board lanes            | `lane.id` (the role or the status)                                                 |
+| Session tab groups          | the tab id                                                                         |
+| Routes, workspaces, panes   | `r.id`, `workspace_id`, `pane_id`                                                  |
+| Files, changed files, pages | the path (pages: root and path, `artifactPath`); folders by name                   |
+| Messages, hosts, commands   | message id, host id, command id                                                    |
 
 When the data has no id, join the fields that identify an item. Never use the array index or a random value.
 
@@ -86,9 +91,9 @@ h(
 );
 ```
 
-## Phase 2: make plain arrays a type error
+## Phase 2: done (2026-10-27)
 
-Change one line in `dom.ts`:
+One line in `dom.ts` changed:
 
 ```ts
 // from
@@ -97,28 +102,34 @@ type Child = Node | string | number | false | null | undefined | Keyed | Unkeyed
 type Child = Node | string | number | false | null | undefined | Keyed | Unkeyed | readonly [Child, ...Child[]];
 ```
 
-Literal tuples still type-check (TypeScript infers a tuple for an array literal where a tuple is expected), but any `.map()` result, which is a plain array, no longer does. Run `bun check` and fix each error with `each()` or `unkeyed()`.
+Literal tuples still type-check (TypeScript infers a tuple for an array literal where a tuple is expected), but any `.map()` result, which is a plain array, no longer does. A fresh trial flip found the same 67 sites in the same 14 files as the 2026-10-26 trial. Each was fixed before the flip landed, so `bun check` was clean with it:
 
-A trial flip on 2026-10-26 reported 67 sites:
+| File                  | Sites | Fix                                                                                                                                                                                                                                                 |
+| --------------------- | ----: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `markdown.ts`         |    11 | `inline()` returns an `Unkeyed` run, which covers 8 sites; table header cells, rows and cells are `unkeyed()`                                                                                                                                       |
+| `views/diff.ts`       |    10 | `each()` for sources (by id) and file rows (by path); `unkeyed()` for diff lines, the layout switch and agent name chips; `highlight()` (in `fuzzy.ts`) returns `Unkeyed`; the split view's cell pair is a tuple                                    |
+| `views/route-form.ts` |     7 | `each()` for `<select>` options (by value) and folder suggestions (by path); `unkeyed()` for the fixed channel checklist, checkpointer errors, skill warnings and the start steps; the harness fields are a tuple (its nulls are dropped as before) |
+| `main.ts`             |     7 | `each()` for routes (by id), workspace groups (by workspace id), route tabs (by tab id), session tab groups (by tab id), idle workspaces and their panes; the activity body is a tuple                                                              |
+| `views/files.ts`      |     5 | `each()` for folders (by name) and files (by path); `highlight()` as above                                                                                                                                                                          |
+| `views/artifacts.ts`  |     5 | `each()` for root folders (by root) and pages (by `artifactPath`); `highlight()` as above                                                                                                                                                           |
+| `views/messages.ts`   |     4 | `each()` for the thread (by message id), holds and inboxes (by name); `unkeyed()` for health chips, flags, alerts and a message's fields                                                                                                            |
+| `views/agent.ts`      |     4 | `unkeyed()` for the fixed key buttons, arrow keys and view switch; the meta rows are tuples                                                                                                                                                         |
+| `dom.test.ts`         |     4 | the old `patch()` tests wrap their arrays in `unkeyed()`; a new type test checks that a plain array is rejected                                                                                                                                     |
+| `ui.ts`               |     3 | `unkeyed()` for the theme switch, a form's fields and its suggestions                                                                                                                                                                               |
+| `views/team.ts`       |     2 | `each()` for the lanes (by lane id); `unkeyed()` for the column switch                                                                                                                                                                              |
+| `views/appearance.ts` |     2 | `unkeyed()` for the fixed swatches and choices                                                                                                                                                                                                      |
+| `palette.ts`          |     2 | `each()` by command id; `highlight()` as above                                                                                                                                                                                                      |
+| `views/hosts.ts`      |     1 | `each()` by host id                                                                                                                                                                                                                                 |
 
-| File                  | Sites | Likely fix                                                                     |
-| --------------------- | ----: | ------------------------------------------------------------------------------ |
-| `markdown.ts`         |    11 | `unkeyed()` for rendered blocks and inline runs                                |
-| `views/diff.ts`       |    10 | `each()` by file path for file rows; `unkeyed()` for diff lines                |
-| `views/route-form.ts` |     7 | `unkeyed()` for fixed `<option>` lists; `each()` by value for data-driven ones |
-| `main.ts`             |     7 | `each()` for route items (by route id) and nav sections                        |
-| `views/files.ts`      |     5 | `each()` by path                                                               |
-| `views/artifacts.ts`  |     5 | `each()` by artifact path                                                      |
-| `views/messages.ts`   |     4 | `each()` by message id                                                         |
-| `views/agent.ts`      |     4 | case by case                                                                   |
-| `dom.test.ts`         |     4 | the old `patch()` tests pass arrays on purpose: wrap in `unkeyed()`            |
-| `ui.ts`               |     3 | case by case                                                                   |
-| `views/team.ts`       |     2 | the lane columns: `each()` by lane status or role                              |
-| `views/appearance.ts` |     2 | fixed swatches: `unkeyed()`                                                    |
-| `palette.ts`          |     2 | `each()` by command id                                                         |
-| `views/hosts.ts`      |     1 | `each()` by host URL                                                           |
+In all, 25 lists became `each()`, 26 became `unkeyed()` (two of them helpers, `inline()` and `highlight()`, that every caller shares), and 4 fixed sets became tuples. Where a row needs its position (the palette's and the search results' active row), the items are mapped to carry their index before `each()`, which keys them by identity all the same.
 
-Suggested order: files that `patch()` renders first (they gain identity), then the rest one file per change, so each change is small and its `bun check` output short. Flip the type last, when `bun check` is clean with it.
+Behavior is unchanged apart from the `data-key` attribute on newly keyed elements; most of these lists are still rebuilt by `mount()`, where keys only document identity. Two newly keyed lists are rendered through `patch()` and move: the Team board's lanes and the session view's tab groups. `views/team.test.ts` renders the board in the fake DOM, adds a lane ahead of the others and a card to a lane, and checks that the lanes and the kept card are the same nodes (with every lane given the same key, it fails).
+
+Keys chosen with some doubt:
+
+1. The agent name chips on a Changes source are `unkeyed()`: two agents can share a display name, so the name is not an identity.
+2. The start steps of a new route are `unkeyed()`: a fixed procedure, rendered once.
+3. Folder suggestions are keyed by path; `knownFolders()` removes duplicates, so the keys are unique.
 
 ## Checklist for each change
 

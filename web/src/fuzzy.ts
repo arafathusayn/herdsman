@@ -1,5 +1,5 @@
 // Fuzzy matching for the file search and the command palette.
-import { h } from "./dom.ts";
+import { h, type Unkeyed, unkeyed } from "./dom.ts";
 
 const separators = "/-_. :";
 
@@ -67,8 +67,8 @@ export function fuzzy(query: string, text: string): { score: number; hits: numbe
   return finish(hits, score);
 }
 
-export function highlight(text: string, hits: number[]): (Node | string)[] {
-  if (!hits.length) return [text];
+export function highlight(text: string, hits: number[]): Unkeyed {
+  if (!hits.length) return unkeyed([text]);
   const set = new Set(hits);
   const out: (Node | string)[] = [];
   let run = "";
@@ -83,5 +83,5 @@ export function highlight(text: string, hits: number[]): (Node | string)[] {
     run += text[i];
   }
   if (run) out.push(inHit ? h("mark", null, run) : run);
-  return out;
+  return unkeyed(out);
 }

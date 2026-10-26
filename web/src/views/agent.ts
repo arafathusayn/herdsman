@@ -7,7 +7,7 @@ import { run } from "../actions.ts";
 import { arrowKeys, keySet, renamePane, sendOtherKeys, startAgent } from "../agent-actions.ts";
 import { readPalette, renderAnsi } from "../ansi.ts";
 import { act, AuthError, forgetPane, readPane } from "../api.ts";
-import { h, icon, icons, mount } from "../dom.ts";
+import { h, icon, icons, mount, unkeyed } from "../dom.ts";
 import { afterSend, type Member, roleName } from "../model.ts";
 import { isMac } from "../palette.ts";
 import { panelResizer } from "../resize.ts";
@@ -154,30 +154,34 @@ export class AgentPanel {
       "div",
       { class: "keys", role: "group", "aria-label": "Send a key" },
       icon(icons.keyboard),
-      keySet.map((k) =>
-        h(
-          "button",
-          {
-            class: "key",
-            title: k.hint,
-            onclick: () => this.sendKeys(k.keys),
-          },
-          k.label,
+      unkeyed(
+        keySet.map((k) =>
+          h(
+            "button",
+            {
+              class: "key",
+              title: k.hint,
+              onclick: () => this.sendKeys(k.keys),
+            },
+            k.label,
+          ),
         ),
       ),
       h(
         "span",
         { class: "key-group", role: "group", "aria-label": "Arrow keys" },
-        arrowKeys.map((k) =>
-          h(
-            "button",
-            {
-              class: "key arrow",
-              title: `${k.name} arrow`,
-              "aria-label": `${k.name} arrow`,
-              onclick: () => this.sendKeys(k.keys),
-            },
-            k.label,
+        unkeyed(
+          arrowKeys.map((k) =>
+            h(
+              "button",
+              {
+                class: "key arrow",
+                title: `${k.name} arrow`,
+                "aria-label": `${k.name} arrow`,
+                onclick: () => this.sendKeys(k.keys),
+              },
+              k.label,
+            ),
           ),
         ),
       ),
@@ -194,21 +198,23 @@ export class AgentPanel {
     const viewSwitch = h(
       "div",
       { class: "view-switch", role: "group", "aria-label": "Pane view" },
-      (
-        [
-          ["log", icons.list, "Log", "The pane's recent output, with a box to message the agent"],
+      unkeyed(
+        (
           [
-            "terminal",
-            icons.terminal,
-            "Terminal",
-            "The pane's screen: type straight into it, and the wheel scrolls it",
-          ],
-        ] as const
-      ).map(([v, glyph, label, tip]) => {
-        const b = h("button", { type: "button", title: tip, onclick: () => this.setView(v) }, icon(glyph), label);
-        this.viewBtns.set(v, b);
-        return b;
-      }),
+            ["log", icons.list, "Log", "The pane's recent output, with a box to message the agent"],
+            [
+              "terminal",
+              icons.terminal,
+              "Terminal",
+              "The pane's screen: type straight into it, and the wheel scrolls it",
+            ],
+          ] as const
+        ).map(([v, glyph, label, tip]) => {
+          const b = h("button", { type: "button", title: tip, onclick: () => this.setView(v) }, icon(glyph), label);
+          this.viewBtns.set(v, b);
+          return b;
+        }),
+      ),
     );
     this.termInput.spellcheck = false;
     this.termInput.addEventListener("keydown", (e) => {
@@ -636,7 +642,7 @@ function keyLike(e: KeyboardEvent): KeyLike {
   };
 }
 
-function row(k: string, v: string): HTMLElement[] {
+function row(k: string, v: string): [HTMLElement, HTMLElement] {
   return [h("dt", null, k), h("dd", { title: v }, v)];
 }
 

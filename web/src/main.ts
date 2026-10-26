@@ -458,7 +458,11 @@ function renderSidebar(app: App): void {
         h("span", { class: "nav-text" }, name),
         h("span", { class: "nav-meta" }, String(n)),
       ),
-      rs.map((r) => item(r, true)),
+      each(
+        rs,
+        (r) => r.id,
+        (r) => item(r, true),
+      ),
     );
   };
   mount(
@@ -500,9 +504,29 @@ function renderSidebar(app: App): void {
           h("span", null, "New route"),
         ),
       ),
-      groups.length ? groups.map(workspace) : h("p", { class: "nav-empty" }, "No workspace runs an agent."),
-      unplaced.length ? [h("h3", { class: "nav-head" }, "Other live routes"), unplaced.map((r) => item(r))] : null,
-      rest.length ? [h("h3", { class: "nav-head" }, "Recent routes"), rest.map((r) => item(r))] : null,
+      groups.length
+        ? each(groups, (g) => g.workspace.workspace_id, workspace)
+        : h("p", { class: "nav-empty" }, "No workspace runs an agent."),
+      unplaced.length
+        ? [
+            h("h3", { class: "nav-head" }, "Other live routes"),
+            each(
+              unplaced,
+              (r) => r.id,
+              (r) => item(r),
+            ),
+          ]
+        : null,
+      rest.length
+        ? [
+            h("h3", { class: "nav-head" }, "Recent routes"),
+            each(
+              rest,
+              (r) => r.id,
+              (r) => item(r),
+            ),
+          ]
+        : null,
     ),
     navFoot(app),
   );
@@ -680,22 +704,25 @@ function renderMain(app: App, idx: Index): void {
   );
   mount(
     routeTabs,
-    shown.map(([id, label, glyph]) =>
-      h(
-        "button",
-        {
-          role: "tab",
-          class: app.view.tab === id ? "tab active" : "tab",
-          title: tabTips[id],
-          "aria-selected": String(app.view.tab === id),
-          onclick: () => store.go({ tab: id }),
-        },
-        icon(glyph),
-        label,
-        id === "messages" && pending
-          ? h("span", { class: "tab-count", "aria-label": `${pending} unread` }, String(pending))
-          : null,
-      ),
+    each(
+      shown,
+      ([id]) => id,
+      ([id, label, glyph]) =>
+        h(
+          "button",
+          {
+            role: "tab",
+            class: app.view.tab === id ? "tab active" : "tab",
+            title: tabTips[id],
+            "aria-selected": String(app.view.tab === id),
+            onclick: () => store.go({ tab: id }),
+          },
+          icon(glyph),
+          label,
+          id === "messages" && pending
+            ? h("span", { class: "tab-count", "aria-label": `${pending} unread` }, String(pending))
+            : null,
+        ),
     ),
   );
   // On a phone the tab row scrolls; keep the open tab in view, Docs included.
@@ -793,28 +820,32 @@ function sessionView(app: App, idx: Index): HTMLElement {
     h(
       "div",
       { class: "board" },
-      [...byTab].map(([tabId, ms]) => {
-        const t = idx.tabs.get(tabId);
-        return h(
-          "section",
-          { class: "group" },
-          h(
-            "h2",
-            null,
-            only ? t?.label || tabId : `${wsLabel.get(t?.workspace_id ?? "") ?? ""} › ${t?.label || tabId}`,
-            h("span", { class: "count" }, String(ms.length)),
-          ),
-          h(
-            "div",
-            { class: "cards" },
-            each(
-              ms,
-              (m) => m.pane_id,
-              (m) => card(m, app),
+      each(
+        [...byTab],
+        ([tabId]) => tabId,
+        ([tabId, ms]) => {
+          const t = idx.tabs.get(tabId);
+          return h(
+            "section",
+            { class: "group" },
+            h(
+              "h2",
+              null,
+              only ? t?.label || tabId : `${wsLabel.get(t?.workspace_id ?? "") ?? ""} › ${t?.label || tabId}`,
+              h("span", { class: "count" }, String(ms.length)),
             ),
-          ),
-        );
-      }),
+            h(
+              "div",
+              { class: "cards" },
+              each(
+                ms,
+                (m) => m.pane_id,
+                (m) => card(m, app),
+              ),
+            ),
+          );
+        },
+      ),
       idle.length
         ? h(
             "details",
@@ -823,39 +854,46 @@ function sessionView(app: App, idx: Index): HTMLElement {
             h(
               "div",
               { class: "shell-list" },
-              idle.map(({ w, panes }) => {
-                const tabs = new Set(panes.map((p) => p.tab_id)).size;
-                return h(
-                  "details",
-                  { class: "workspace-row" },
-                  h(
-                    "summary",
-                    {
-                      title: `${w.label || w.workspace_id}: ${tabs} tabs, ${panes.length} panes, no agent`,
-                    },
-                    h("code", null, w.workspace_id),
-                    h("span", null, w.label || ""),
+              each(
+                idle,
+                ({ w }) => w.workspace_id,
+                ({ w, panes }) => {
+                  const tabs = new Set(panes.map((p) => p.tab_id)).size;
+                  return h(
+                    "details",
+                    { class: "workspace-row" },
                     h(
-                      "span",
-                      { class: "muted" },
-                      `${tabs} ${tabs === 1 ? "tab" : "tabs"} · ${panes.length} ${panes.length === 1 ? "pane" : "panes"}`,
-                    ),
-                  ),
-                  panes.map((p) =>
-                    h(
-                      "button",
+                      "summary",
                       {
-                        class: "shell-row",
-                        title: `Open pane ${p.pane_id}${p.cwd ? ` in ${p.cwd}` : ""}`,
-                        onclick: () => store.go({ pane: p.pane_id }),
+                        title: `${w.label || w.workspace_id}: ${tabs} tabs, ${panes.length} panes, no agent`,
                       },
-                      h("code", null, p.pane_id),
-                      h("span", null, p.label || idx.tabs.get(p.tab_id)?.label || ""),
-                      h("span", { class: "muted clip" }, p.cwd ?? ""),
+                      h("code", null, w.workspace_id),
+                      h("span", null, w.label || ""),
+                      h(
+                        "span",
+                        { class: "muted" },
+                        `${tabs} ${tabs === 1 ? "tab" : "tabs"} · ${panes.length} ${panes.length === 1 ? "pane" : "panes"}`,
+                      ),
                     ),
-                  ),
-                );
-              }),
+                    each(
+                      panes,
+                      (p) => p.pane_id,
+                      (p) =>
+                        h(
+                          "button",
+                          {
+                            class: "shell-row",
+                            title: `Open pane ${p.pane_id}${p.cwd ? ` in ${p.cwd}` : ""}`,
+                            onclick: () => store.go({ pane: p.pane_id }),
+                          },
+                          h("code", null, p.pane_id),
+                          h("span", null, p.label || idx.tabs.get(p.tab_id)?.label || ""),
+                          h("span", { class: "muted clip" }, p.cwd ?? ""),
+                        ),
+                    ),
+                  );
+                },
+              ),
             ),
           )
         : null,
@@ -931,7 +969,7 @@ function activityView(app: App, members: Member[]): HTMLElement {
       (e) => `${e.at}|${e.kind}|${e.pane_id ?? ""}|${e.status ?? ""}|${e.text ?? ""}`,
       (e) => {
         const who = e.pane_id ? h("strong", null, byPane.get(e.pane_id)?.title ?? e.pane_id) : null;
-        const body =
+        const body: [Node | null, Node | null] =
           e.source === "web"
             ? [h("span", { class: "chip accent" }, "web"), h("span", null, e.text ?? "")]
             : e.status

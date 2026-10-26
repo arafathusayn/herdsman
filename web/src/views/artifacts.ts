@@ -3,7 +3,7 @@
 // sandboxed frame. The list refreshes while the tab shows. A view belongs to
 // one route, so it never shows another route's list.
 import { listArtifacts, openArtifact } from "../api.ts";
-import { h, icon, icons, mount } from "../dom.ts";
+import { each, h, icon, icons, mount } from "../dom.ts";
 import { fuzzy, highlight } from "../fuzzy.ts";
 import { ago } from "../model.ts";
 import { store } from "../store.ts";
@@ -206,7 +206,11 @@ export class ArtifactsView {
       mount(
         this.list,
         matches.length
-          ? matches.map((x, i) => this.row(x.a, x.m.hits, i === this.active, true))
+          ? each(
+              matches.map((x, i) => ({ ...x, i })),
+              (x) => artifactPath(x.a),
+              (x) => this.row(x.a, x.m.hits, x.i === this.active, true),
+            )
           : h("p", { class: "file-empty" }, `No page matches “${q}”.`),
       );
       return;
@@ -229,24 +233,28 @@ export class ArtifactsView {
     for (const a of this.items) groups.set(a.root, [...(groups.get(a.root) ?? []), a]);
     mount(
       this.list,
-      [...groups.keys()].map((root) => {
-        const items = groups.get(root) ?? [];
-        const isOpen = this.open.get(root) ?? true;
-        const details = h(
-          "details",
-          { class: "file-group", open: isOpen },
-          h(
-            "summary",
-            { title: root },
-            icon(icons.folder),
-            h("span", null, rootLabel(root)),
-            h("span", { class: "count" }, String(items.length)),
-          ),
-          items.map((a) => this.row(a, [], false, false)),
-        );
-        details.addEventListener("toggle", () => this.open.set(root, details.open));
-        return details;
-      }),
+      each(
+        [...groups.keys()],
+        (root) => root,
+        (root) => {
+          const items = groups.get(root) ?? [];
+          const isOpen = this.open.get(root) ?? true;
+          const details = h(
+            "details",
+            { class: "file-group", open: isOpen },
+            h(
+              "summary",
+              { title: root },
+              icon(icons.folder),
+              h("span", null, rootLabel(root)),
+              h("span", { class: "count" }, String(items.length)),
+            ),
+            each(items, artifactPath, (a) => this.row(a, [], false, false)),
+          );
+          details.addEventListener("toggle", () => this.open.set(root, details.open));
+          return details;
+        },
+      ),
     );
   }
 

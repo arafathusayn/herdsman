@@ -2,12 +2,12 @@
 // tables, fenced code, quotes, links and inline code. It builds DOM nodes
 // through h(), so file text is never parsed as HTML.
 import { highlighting } from "./appearance.ts";
-import { h } from "./dom.ts";
+import { h, type Unkeyed, unkeyed } from "./dom.ts";
 import { languageOf, renderPieces, tokenizeLines } from "./highlight.ts";
 
 const inlinePattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))/g;
 
-function inline(text: string): (Node | string)[] {
+function inline(text: string): Unkeyed {
   const out: (Node | string)[] = [];
   let last = 0;
   for (const m of text.matchAll(inlinePattern)) {
@@ -38,7 +38,7 @@ function inline(text: string): (Node | string)[] {
     last = i + tok.length;
   }
   if (last < text.length) out.push(text.slice(last));
-  return out;
+  return unkeyed(out);
 }
 
 function cells(line: string): string[] {
@@ -94,26 +94,8 @@ export function renderMarkdown(src: string): HTMLElement {
           h(
             "table",
             null,
-            h(
-              "thead",
-              null,
-              h(
-                "tr",
-                null,
-                head.map((c) => h("th", null, inline(c))),
-              ),
-            ),
-            h(
-              "tbody",
-              null,
-              rows.map((r) =>
-                h(
-                  "tr",
-                  null,
-                  r.map((c) => h("td", null, inline(c))),
-                ),
-              ),
-            ),
+            h("thead", null, h("tr", null, unkeyed(head.map((c) => h("th", null, inline(c)))))),
+            h("tbody", null, unkeyed(rows.map((r) => h("tr", null, unkeyed(r.map((c) => h("td", null, inline(c)))))))),
           ),
         ),
       );

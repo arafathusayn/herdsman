@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { each, h, patch } from "./dom.ts";
+import { each, h, patch, unkeyed } from "./dom.ts";
 import { asDom, type FakeElement, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 
 beforeEach(installFakeDocument);
@@ -29,7 +29,7 @@ describe("patch (dom.ts)", () => {
     const root = document.createElement("ul");
     const calls: string[] = [];
     const view = (tag: string) =>
-      [1, 2, 3].map((i) => h("li", null, h("button", { onclick: () => calls.push(`${tag}${i}`) }, "Go")));
+      unkeyed([1, 2, 3].map((i) => h("li", null, h("button", { onclick: () => calls.push(`${tag}${i}`) }, "Go"))));
     patch(root, view("old"));
     const buttons = (root as unknown as FakeElement).childNodes.map((li) => li.firstChild as FakeElement);
     patch(root, view("new")); // same structure and attributes, new closures
@@ -40,7 +40,7 @@ describe("patch (dom.ts)", () => {
 
   test("keyed rows from h() keep their nodes across reorders", () => {
     const root = document.createElement("ul");
-    const view = (ids: string[]) => ids.map((id) => h("li", { dataset: { key: id } }, id));
+    const view = (ids: string[]) => unkeyed(ids.map((id) => h("li", { dataset: { key: id } }, id)));
     patch(root, view(["1", "2", "3"]));
     const [one, two, three] = (root as unknown as FakeElement).childNodes;
     patch(root, view(["3", "1", "2", "4"]));
@@ -70,6 +70,23 @@ describe("each", () => {
     patch(root, view([rows[3]!, rows[0]!, rows[2]!, rows[1]!]));
     expect((root as unknown as FakeElement).childNodes).toEqual([nodes[3]!, nodes[0]!, nodes[2]!, nodes[1]!]);
     expect(root.textContent).toBe("row 4row 1row 3row 2");
+  });
+
+  test("a plain array is not a child; a literal tuple, each() and unkeyed() are", () => {
+    const neverRun = (): void => {
+      const items = h("li");
+      const rows = [1, 2].map(() => h("li"));
+      // @ts-expect-error a .map() result has no identity: wrap it in each() or unkeyed()
+      h("ul", null, rows);
+      h(
+        "ul",
+        null,
+        [h("li"), items],
+        unkeyed(rows),
+        each([1], String, () => h("li")),
+      );
+    };
+    void neverRun;
   });
 
   test("an index cannot be a key", () => {
