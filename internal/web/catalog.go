@@ -275,8 +275,8 @@ func pickKinds(picks []choices.Pick) []CatalogKind {
 // an adjutant route (the same as main on an orchestrator route).
 type roleCatalogs struct{ main, orch Catalog }
 
-// planCatalogs gives each coordinator its own catalog (A30, per role): the
-// saved picks' catalog when that role is exactly its usable saved pick, so
+// planCatalogs gives each coordinator its own catalog (A30, per role): its
+// own saved pick's entry when that role is exactly its usable saved pick, so
 // the previous choice never waits for or depends on a probe; else the
 // probed one, built only when a role needs it.
 func (s *Server) planCatalogs(r *http.Request, req RouteRequest) roleCatalogs {
@@ -285,7 +285,9 @@ func (s *Server) planCatalogs(r *http.Request, req RouteRequest) roleCatalogs {
 	of := func(role, kind, model, effort string) Catalog {
 		for _, p := range picks {
 			if p.Role == role && p.Runner == "herdr" && usable(p) && p.Harness == kind && p.Model == model && p.Effort == effort {
-				return Catalog{Kinds: pickKinds(picks), FromPicks: true}
+				// That role's own pick alone: another role's pick of the
+				// same harness adds nothing to it (each role is its own unit).
+				return Catalog{Kinds: pickKinds([]choices.Pick{p}), FromPicks: true}
 			}
 		}
 		if probed == nil {

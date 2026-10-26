@@ -457,14 +457,14 @@ test("use previous choice asks again for a role without a usable pick", async ()
     body as unknown as HTMLElement,
     {
       ...catalog,
-      previous: [pick("adjutant", "claude", "fable", "high"), pick("orchestrator", "codex", "gone-model", "low")],
+      previous: [pick("adjutant", "claude", "fable", "high"), pick("orchestrator", "pi", "typed", "high")],
     },
     state,
     deps,
     { usePrevious: true },
   );
   expect(r.form().main).toMatchObject({ kind: "claude", model: "fable", effort: "high" });
-  expect(box(body, "orch")?.textContent).toContain("is no longer offered: pick again");
+  expect(box(body, "orch")?.textContent).toContain("does not say how to pass its effort: pick again");
   expect(box(body, "main")?.textContent ?? "").not.toContain("pick");
 });
 
@@ -498,7 +498,7 @@ test("the recommended summary says the checkpointer is off when unavailable", as
 });
 
 // review-3: the probed lists update the form in place; the draft stays.
-test("setCatalog keeps the draft and asks again for a pick the lists dropped", async () => {
+test("setCatalog keeps the draft and each role's saved pick", async () => {
   const { routeForm } = await import("./route-form.ts");
   const body = document.createElement("form") as unknown as FakeElement;
   const pick = {
@@ -538,7 +538,9 @@ test("setCatalog keeps the draft and asks again for a pick the lists dropped", a
   });
   expect(r.form().request).toBe("keep this task");
   expect(r.form().folder).toBe("/r/kept");
-  expect(box(body, "main")?.textContent).toContain("is no longer offered");
+  // Each role keeps its own saved pick exactly, whatever the new lists say.
+  expect(r.form().main).toMatchObject({ kind: "claude", model: "fable" });
+  expect(box(body, "main")?.textContent ?? "").not.toContain("pick again");
 });
 
 const bareDeps = {

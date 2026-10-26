@@ -55,8 +55,12 @@ type RouteView struct {
 	// OlderRunState counts the run-state lines before RunState, which keeps
 	// the newest runStateKept only; GET /api/route/runstate pages them (A24).
 	OlderRunState int `json:"older_run_state,omitempty"`
+	// RunStateFrom is the index of the oldest record the view pages to: the
+	// view holds the newest route.Window records; older ones are read in
+	// the route file.
+	RunStateFrom int `json:"run_state_from,omitempty"`
 	// tail is the parse this view was made from: older lines are paged from
-	// its place in the file, so a line appended since does not shift them.
+	// that snapshot of the file, and refused once the file changed.
 	tail *route.Tail
 }
 
@@ -392,7 +396,7 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 		cp.Files = route.ListFiles(d)
 		r := &cp
 		out = append(out, RouteView{Route: r, ID: routeID(r.Dir, r.Name), Live: isLive(r, panes, agentAt, claimed),
-			OlderRunState: tail.Total - len(r.RunState), tail: tail})
+			OlderRunState: tail.Total - len(r.RunState), RunStateFrom: tail.From(), tail: tail})
 	}
 	for d := range h.routes {
 		if !slices.Contains(dirs, d) {
@@ -404,8 +408,7 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 
 // cachedRoute is one parsed route file and the size and time it had.
 type cachedRoute struct {
-	size int64
-	mod  time.Time
+	info os.FileInfo
 	tail *route.Tail
 }
 
@@ -419,7 +422,7 @@ func (h *Hub) loadRoute(dir string) (*route.Tail, bool) {
 		return nil, false
 	}
 	c, ok := h.routes[dir]
-	if !ok || c.size != st.Size() || !c.mod.Equal(st.ModTime()) {
+	if !ok || !os.SameFile(c.info, st) || c.info.Size() != st.Size() || !c.info.ModTime().Equal(st.ModTime()) {
 		tail, err := route.LoadBounded(dir, runStateKept, c.tail)
 		if err != nil {
 			delete(h.routes, dir)
@@ -428,7 +431,7 @@ func (h *Hub) loadRoute(dir string) (*route.Tail, bool) {
 		if h.routes == nil {
 			h.routes = map[string]cachedRoute{}
 		}
-		c = cachedRoute{size: st.Size(), mod: st.ModTime(), tail: tail}
+		c = cachedRoute{info: st, tail: tail}
 		h.routes[dir] = c
 	}
 	return c.tail, true

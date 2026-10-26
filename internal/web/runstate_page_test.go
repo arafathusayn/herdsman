@@ -51,31 +51,38 @@ func pageAt(t *testing.T, f *fixture, before int) (int, runStatePage) {
 func TestOldestPageCostIsFlat(t *testing.T) {
 	for _, after := range []string{"", "\n## Notes\n\nlater\n"} {
 		cost := map[int]uint64{}
-		for _, n := range []int{100, 10000} {
+		for _, n := range []int{2500, 10000} {
 			f := newFixture(t)
 			writeLongRunState(t, f, n, 200, after)
 			f.hub.refresh(context.Background())
-			pageAt(t, f, 1)
+			from := f.hub.Current().Routes[0].RunStateFrom
+			pageAt(t, f, from+1)
 			var a, b runtime.MemStats
 			runtime.GC()
 			runtime.ReadMemStats(&a)
-			code, p := pageAt(t, f, 1)
+			code, p := pageAt(t, f, from+1)
 			runtime.ReadMemStats(&b)
-			// The fixture's own "started" line is index 0.
-			if code != http.StatusOK || len(p.Lines) != 1 || p.Lines[0].Text != "started" || p.Older != 0 {
+			// The oldest record the view pages to: the fixture's own
+			// "started" line (index 0) when the route fits the window.
+			want := "started"
+			if from > 0 {
+				want = fmt.Sprintf("line %d %s", from-1, strings.Repeat("x", 200))
+			}
+			if code != http.StatusOK || len(p.Lines) != 1 || p.Lines[0].Text != want || p.Older != from {
 				t.Fatalf("after %q, %d lines: %d %+v", after, n, code, p)
 			}
 			cost[n] = b.TotalAlloc - a.TotalAlloc
 		}
-		t.Logf("A24 oldest page, after %q: %d bytes at 100 lines, %d at 10,000", after, cost[100], cost[10000])
-		if int64(cost[10000])-int64(cost[100]) > 256<<10 {
-			t.Errorf("after %q: the oldest page costs %d bytes at 100 lines and %d at 10,000", after, cost[100], cost[10000])
+		t.Logf("A24 oldest page, after %q: %d bytes at 2,500 lines, %d at 10,000", after, cost[2500], cost[10000])
+		if int64(cost[10000])-int64(cost[2500]) > 256<<10 {
+			t.Errorf("after %q: the oldest page costs %d bytes at 2,500 lines and %d at 10,000", after, cost[2500], cost[10000])
 		}
 	}
 }
 
-// A page is read from the snapshot the hub showed: a line appended since
-// does not shift it.
+// A page is read from the snapshot the hub showed: a file changed since
+// (here one appended line) is refused until the hub reads it again; then
+// the indices, counted from the file's start, give the same lines.
 func TestPageIsAnchoredToTheSnapshot(t *testing.T) {
 	f := newFixture(t)
 	writeLongRunState(t, f, 150, 2048, "")
@@ -86,6 +93,10 @@ func TestPageIsAnchoredToTheSnapshot(t *testing.T) {
 	}
 	fmt.Fprintf(fh, "- 12:00 appended\n")
 	fh.Close()
+	if code, _ := pageAt(t, f, 141); code != http.StatusConflict {
+		t.Fatalf("a changed file paged: %d", code)
+	}
+	f.hub.refresh(context.Background())
 	// Index 0 is "started"; "line k" is index k+1.
 	code, p := pageAt(t, f, 141)
 	if code != http.StatusOK || len(p.Lines) != 100 || p.Older != 41 {

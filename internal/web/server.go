@@ -520,8 +520,9 @@ func (s *Server) recordActivity() {
 }
 
 // routeRunState pages a route's older run-state lines: up to runStateKept
-// lines ending before line index `before`, as the shown snapshot counts
-// them, read from that snapshot's place in the file (A24).
+// lines ending before line index `before`, within the newest route.Window
+// records, read backward from the hub's snapshot of the file; a file that
+// changed since gives 409 (A24).
 func (s *Server) routeRunState(w http.ResponseWriter, r *http.Request) {
 	rv := findRoute(s.hub.Current().Routes, r.URL.Query().Get("route"))
 	if rv == nil {
@@ -533,7 +534,7 @@ func (s *Server) routeRunState(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "before must be a whole number"})
 		return
 	}
-	before = min(before, rv.tail.Total)
+	before = max(rv.tail.From(), min(before, rv.tail.Total))
 	lines, err := rv.tail.Page(before, runStateKept)
 	switch {
 	case errors.Is(err, route.ErrChanged):
@@ -543,5 +544,5 @@ func (s *Server) routeRunState(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "the route file could not be read"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"lines": lines, "older": before - len(lines)})
+	writeJSON(w, http.StatusOK, map[string]any{"lines": lines, "older": before - len(lines), "from": rv.tail.From()})
 }

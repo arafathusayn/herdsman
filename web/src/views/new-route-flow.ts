@@ -4,7 +4,7 @@
 // arguments, so tests drive it.
 import { h, mount } from "../dom.ts";
 import { missingPicks, pickSummary, RECOMMENDED_SETUP } from "../new-route.ts";
-import type { Catalog, CatalogKind, ChoicePick } from "../types.ts";
+import type { Catalog, ChoicePick } from "../types.ts";
 import type { routeForm } from "./route-form.ts";
 
 /** What the flow asks the server; tests pass their own. */
@@ -30,35 +30,11 @@ export const FIRST_SUMMARY: [string, string][] = RECOMMENDED_SETUP.map(([k, v]) 
 );
 
 /**
- * The probed lists with the saved picks' kinds merged in: a role that keeps
- * its saved pick still finds its exact model and effort, while the roles
- * that need a fresh pick choose from the probed lists (A30, per role).
- */
-export function mergeSaved(probed: Catalog, saved: Catalog): Catalog {
-  const kinds: CatalogKind[] = probed.kinds.map((k) => ({ ...k, models: k.models.map((m) => ({ ...m })) }));
-  for (const s of saved.kinds) {
-    const k = kinds.find((x) => x.kind === s.kind);
-    if (!k) {
-      kinds.push(s);
-      continue;
-    }
-    k.saved = true;
-    if (s.effort_flag && !k.effort_flag) k.effort_flag = s.effort_flag;
-    for (const sm of s.models) {
-      const m = k.models.find((x) => x.id === sm.id);
-      if (!m) k.models.push({ ...sm });
-      else m.efforts = [...m.efforts, ...sm.efforts.filter((e) => !m.efforts.includes(e))];
-    }
-  }
-  return { ...probed, kinds, previous: saved.previous ?? [] };
-}
-
-/**
  * The New route flow (A32, A30): "Use the recommended setup?" first, with
  * the setup in one summary; then, when picks were saved, "Use your previous
  * choice?". Yes opens the form from the saved picks without a probe; the
  * harness lists are probed only when a role needs a fresh choice, and they
- * then update the form in place, the saved roles keeping their picks. No,
+ * then update the form in place; each saved role keeps its own pick. No,
  * or no saved picks, probes the lists and opens the form.
  */
 export function newRouteFlow(
@@ -86,7 +62,7 @@ export function newRouteFlow(
       // Only a role without a usable saved pick needs the harness lists.
       if (!Object.keys(missingPicks(f.form(), c)).length) return;
       api.catalog(true).then((full) => {
-        if (!stopped && !f.sent()) f.setCatalog(mergeSaved(full, c));
+        if (!stopped && !f.sent()) f.setCatalog({ ...full, previous: c.previous ?? [] });
       }, failed);
     }, failed);
   };

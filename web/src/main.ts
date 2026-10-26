@@ -1,14 +1,5 @@
 import { activityPinger } from "./activity.ts";
-import {
-  AuthError,
-  openStream,
-  pairStatus,
-  readChannel,
-  routeRunState,
-  sendActivity,
-  startSession,
-  useHost,
-} from "./api.ts";
+import { AuthError, openStream, pairStatus, readChannel, sendActivity, startSession, useHost } from "./api.ts";
 import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "./appearance.ts";
 import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
@@ -40,7 +31,7 @@ import { isMac, openPalette, paletteKeys, paletteOpen, sidebarKeys } from "./pal
 import { loadWidths, navResizer } from "./resize.ts";
 import { type App, type RouteTab, store } from "./store.ts";
 import { installTooltips } from "./tooltip.ts";
-import type { LogLine, Route, Workspace } from "./types.ts";
+import type { Route, Workspace } from "./types.ts";
 import { applyTheme, pill, themeSwitch, toast } from "./ui.ts";
 import { AgentPanel } from "./views/agent.ts";
 import { openAppearance } from "./views/appearance.ts";
@@ -48,6 +39,7 @@ import { ArtifactsView } from "./views/artifacts.ts";
 import { DiffView } from "./views/diff.ts";
 import { FilesView } from "./views/files.ts";
 import { confirmHost, keepPendingLink, openHosts, showConnect, takePendingLink } from "./views/hosts.ts";
+import { logView } from "./views/log-view.ts";
 import { MessagesView } from "./views/messages.ts";
 import { openNewRoute } from "./views/new-route.ts";
 import { showPairing } from "./views/pair.ts";
@@ -886,42 +878,6 @@ function checklistView(r: Route): HTMLElement {
       );
     }),
   );
-}
-
-function logView(r: Route): HTMLElement {
-  const lines = [...(r.run_state ?? [])].reverse();
-  if (!lines.length) return h("p", { class: "muted pad" }, "No run-state lines yet.");
-  const line = (l: LogLine): HTMLElement =>
-    h("li", { class: l.text.startsWith("web:") ? "web" : "" }, h("time", null, l.time), h("p", null, l.text));
-  const list = h("ol", { class: "timeline" }, lines.map(line));
-  // The app holds the newest lines only; earlier ones load a page at a time.
-  let older = r.older_run_state ?? 0;
-  if (!older) return list;
-  const more: HTMLButtonElement = h(
-    "button",
-    {
-      class: "btn ghost",
-      type: "button",
-      onclick: () => {
-        more.disabled = true;
-        routeRunState(r.id, older).then(
-          (page) => {
-            for (const l of [...page.lines].reverse()) list.appendChild(line(l));
-            older = page.older;
-            more.disabled = false;
-            more.textContent = `Show ${older} earlier lines`;
-            if (!older) more.remove();
-          },
-          (err: Error) => {
-            more.disabled = false;
-            toast(`Could not load earlier lines: ${err.message}`, "error");
-          },
-        );
-      },
-    },
-    `Show ${older} earlier lines`,
-  ) as HTMLButtonElement;
-  return h("div", null, list, more);
 }
 
 const clock = new Intl.DateTimeFormat(undefined, {

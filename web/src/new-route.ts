@@ -59,6 +59,12 @@ export interface RouteForm {
   ghAccount: string;
   /** The custom path's answer to each setup item, by item name (A32). */
   custom: Record<string, string>;
+  /**
+   * The saved pick a role keeps exactly (A30, per role): it is checked
+   * against that pick alone; a role without one is a fresh choice from the
+   * live lists. Editing the role's harness makes it fresh.
+   */
+  saved: { main?: ChoicePick; orch?: ChoicePick };
 }
 
 /**
@@ -199,45 +205,83 @@ export function pickSummary(p: ChoicePick): string {
   return `${p.role} (${p.runner}): ${p.harness}${p.model ? ` ${p.model}` : ""}${p.effort ? `, effort ${p.effort}` : ""}`;
 }
 
-/**
- * A saved pick as a harness choice of this catalog: a listed model, Claude's
- * Other model id, or a typed model; null when the harness or the model is
- * gone. An effort the model no longer lists falls back to the harness default.
- */
-export function harnessFromPick(c: Catalog, p: ChoicePick): Harness | null {
-  const k = kindOf(c, p.harness);
-  if (!k) return null;
-  if (k.free_model) return { kind: k.kind, model: p.model, other: "", effort: "" };
-  // A saved pick of the harness's own default starts as saved (the server's
-  // launchArgs agrees).
-  if (k.saved && !p.model && !p.effort) return { kind: k.kind, model: "", other: "", effort: "" };
-  let model = p.model;
-  let other = "";
-  if (!k.models.some((m) => m.id === p.model)) {
-    if (!k.other_model || !p.model) return null;
-    model = OTHER;
-    other = p.model;
-  }
-  const effort = effortsFor(k, model).includes(p.effort) ? p.effort : defaultEffort(k, model);
-  return { kind: k.kind, model, other, effort };
+/** A saved pick that can start as saved: an effort of a harness other than Claude and Codex needs its option. */
+export function usablePick(p: ChoicePick): boolean {
+  return !p.effort || !!p.effort_flag || p.harness === "claude" || p.harness === "codex";
 }
 
-/** Fills the form's harness choices from the saved picks of its roles. */
+/** The catalog entry of one role's own saved pick: its model, effort and effort option, nothing of another role's. */
+export function savedKind(c: Catalog, p: ChoicePick): CatalogKind {
+  const known = kindOf(c, p.harness);
+  const flag = p.effort_flag ? { effort_flag: p.effort_flag } : {};
+  return {
+    kind: p.harness,
+    label: known?.label ?? p.harness,
+    models: p.model
+      ? [{ id: p.model, label: p.model, efforts: p.effort ? [p.effort] : [], default_effort: p.effort }]
+      : [],
+    default_model: p.model,
+    other_model: false,
+    free_model: false,
+    checkpointer: p.harness === "claude" || p.harness === "codex",
+    skill_prefix: p.harness === "codex" ? "$" : "/",
+    skill_installed: known?.skill_installed ?? true,
+    offline: false,
+    saved: true,
+    ...flag,
+  };
+}
+
+/** The live lists a fresh role picks from: none while only the saved picks are known. */
+export function liveCatalog(c: Catalog): Catalog {
+  return c.from_picks ? { ...c, kinds: [] } : c;
+}
+
+/** The catalog one role is checked against: its own saved pick, or the live lists. */
+export function roleCatalog(f: RouteForm, c: Catalog, which: "main" | "orch"): Catalog {
+  const p = f.saved[which];
+  return p ? { ...c, kinds: [savedKind(c, p)] } : liveCatalog(c);
+}
+
+/** A saved pick as the role's exact harness choice; null when it cannot start as saved. */
+export function harnessFromPick(p: ChoicePick): Harness | null {
+  if (!usablePick(p)) return null;
+  return { kind: p.harness, model: p.model, other: "", effort: p.effort };
+}
+
+/**
+ * When the live lists arrive, a fresh role whose harness they do not list
+ * takes their first harness and its newest model; saved roles and valid
+ * fresh choices stay.
+ */
+export function freshFromLists(f: RouteForm, c: Catalog): RouteForm {
+  const live = liveCatalog(c);
+  const fix = (which: "main" | "orch", h: Harness): Harness => {
+    if (f.saved[which]) return h;
+    const k = kindOf(live, h.kind);
+    if (k && (k.free_model || k.models.some((m) => m.id === h.model) || h.model === OTHER)) return h;
+    return harness(live, k ? k.kind : (live.kinds[0]?.kind ?? h.kind));
+  };
+  return { ...f, main: fix("main", f.main), orch: fix("orch", f.orch) };
+}
+
+/** Fills each role of the form from its own saved pick, which it then keeps exactly. */
 export function usePrevious(f: RouteForm, c: Catalog): RouteForm {
   let out = f;
   for (const p of previousPicks(f, c)) {
-    const h = harnessFromPick(c, p);
+    const h = harnessFromPick(p);
     if (!h) continue;
-    if (p.role === "orchestrator" && f.role === "adjutant") out = { ...out, orch: h, orchEdited: true };
-    else out = { ...out, main: h, orch: out.orchEdited ? out.orch : { ...h } };
+    if (p.role === "orchestrator" && f.role === "adjutant")
+      out = { ...out, orch: h, orchEdited: true, saved: { ...out.saved, orch: p } };
+    else out = { ...out, main: h, saved: { ...out.saved, main: p } };
   }
   return out;
 }
 
 /**
- * The form's harness fields whose role has no saved Herdr pick, or one this
- * catalog no longer offers, each with the question to show (A30): such a
- * role is asked again, never skipped in silence.
+ * The form's harness fields whose role has no usable saved Herdr pick,
+ * each with the question to show (A30): such a role is asked again from
+ * the live lists, never skipped in silence. Each role reads its own pick.
  */
 export function missingPicks(f: RouteForm, c: Catalog): Record<string, string> {
   const roles: [string, "main" | "orch"][] =
@@ -250,15 +294,9 @@ export function missingPicks(f: RouteForm, c: Catalog): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [role, field] of roles) {
     const p = (c.previous ?? []).find((x) => x.role === role && x.runner === "herdr");
-    if (!p) {
-      out[field] = `No saved choice for the ${role}: pick its harness, model and effort.`;
-      continue;
-    }
-    // The saved model and effort must both be offered as saved: a silent
-    // fallback to another effort is a fresh choice, so it is asked.
-    const h = harnessFromPick(c, p);
-    if (!h || modelOf(h) !== p.model || h.effort !== p.effort)
-      out[field] = `The saved ${role} choice (${pickSummary(p)}) is no longer offered: pick again.`;
+    if (!p) out[field] = `No saved choice for the ${role}: pick its harness, model and effort.`;
+    else if (!usablePick(p))
+      out[field] = `The saved ${role} choice (${pickSummary(p)}) does not say how to pass its effort: pick again.`;
   }
   return out;
 }
@@ -270,7 +308,14 @@ export type HarnessChange = Partial<Harness>;
  * Applies a harness change. The adjutant's choice (main) carries over to the
  * orchestrator until the user edits the orchestrator's own choice.
  */
-export function setHarness(f: RouteForm, c: Catalog, which: "main" | "orch", change: HarnessChange): RouteForm {
+export function setHarness(f0: RouteForm, c0: Catalog, which: "main" | "orch", change: HarnessChange): RouteForm {
+  // An edited role is a fresh choice from the live lists; so is the
+  // orchestrator that follows the adjutant.
+  const c = liveCatalog(c0);
+  const saved = { ...f0.saved };
+  delete saved[which];
+  if (which === "main" && !f0.orchEdited) delete saved.orch;
+  const f = { ...f0, saved };
   const cur = f[which];
   let h: Harness;
   if (change.kind !== undefined && change.kind !== cur.kind) h = harness(c, change.kind);
@@ -292,19 +337,21 @@ export function initialForm(c: Catalog, st: State | null): RouteForm {
   const ws = st?.snapshot.workspaces ?? [];
   const focused = ws.find((w) => w.focused) ?? ws[0];
   const folder = knownFolders(st)[0] ?? "";
-  const first = c.kinds[0]?.kind ?? "claude";
+  // A fresh role starts from the live lists, never from a saved pick.
+  const live = liveCatalog(c);
+  const first = live.kinds[0]?.kind ?? "claude";
   const routeName = `route-${c.today}`;
   return {
     role: "orchestrator",
     workspace: focused?.workspace_id ?? "",
     folder,
-    main: harness(c, first),
+    main: harness(live, first),
     name: "orch-1",
     request: "",
     checkpointer: c.checkpointer_ok,
     minutes: "15",
     limit: "250k",
-    orch: harness(c, first),
+    orch: harness(live, first),
     orchEdited: false,
     orchName: "orch-1",
     routeName,
@@ -313,6 +360,7 @@ export function initialForm(c: Catalog, st: State | null): RouteForm {
     recommended: false,
     ghAccount: "",
     custom: {},
+    saved: {},
   };
 }
 
@@ -356,17 +404,22 @@ function modelOf(h: Harness): string {
   return h.model === OTHER ? h.other.trim() : h.model;
 }
 
-/** The coordinator whose kind the route command and the checkpointer follow. */
-function coordinator(f: RouteForm): Harness {
-  return f.role === "adjutant" ? f.orch : f.main;
+/** A role's catalog entry: its saved pick's, or the live list's. */
+export function roleKind(f: RouteForm, c: Catalog, which: "main" | "orch"): CatalogKind | undefined {
+  return kindOf(roleCatalog(f, c, which), f[which].kind);
+}
+
+/** The coordinator's entry: the route command and the checkpointer follow its kind. */
+function coordKind(f: RouteForm, c: Catalog): CatalogKind | undefined {
+  return roleKind(f, c, f.role === "adjutant" ? "orch" : "main");
 }
 
 /** The exact text sent to the orchestrator, and the adjutant's attach command for the human. */
 export function preview(f: RouteForm, c: Catalog): { command: string; attach?: string } {
-  const prefix = `${kindOf(c, coordinator(f).kind)?.skill_prefix ?? "/"}herdsman`;
+  const prefix = `${coordKind(f, c)?.skill_prefix ?? "/"}herdsman`;
   const req = f.request === "" ? "" : ` ${quoteArg(f.request)}`;
   if (f.role === "orchestrator") return { command: `${prefix} run${req}` };
-  const adjPrefix = `${kindOf(c, f.main.kind)?.skill_prefix ?? "/"}herdsman`;
+  const adjPrefix = `${roleKind(f, c, "main")?.skill_prefix ?? "/"}herdsman`;
   return {
     command: `${prefix} orchestrator --adjutant ${f.name} --name ${f.orchName} --inbox ${f.inbox}${req}`,
     attach: `${adjPrefix} adjutant --name ${f.name} --orchestrator <orchestrator pane> --inbox ${f.inbox}`,
@@ -375,7 +428,7 @@ export function preview(f: RouteForm, c: Catalog): { command: string; attach?: s
 
 /** Whether the checkpointer can run for this route, and why not. */
 export function checkpointerAvailable(f: RouteForm, c: Catalog): { ok: boolean; why: string } {
-  const k = kindOf(c, coordinator(f).kind);
+  const k = coordKind(f, c);
   if (!k?.checkpointer) return { ok: false, why: "the checkpointer reads Claude Code and Codex transcripts only" };
   if (!c.checkpointer_ok) return { ok: false, why: c.checkpointer_why ?? "the checkpointer script was not found" };
   return { ok: true, why: "" };
@@ -388,14 +441,14 @@ export function checkpointerOn(f: RouteForm, c: Catalog): boolean {
 
 /** The warnings that do not block a start: a harness without the herdsman skill. */
 export function skillWarnings(f: RouteForm, c: Catalog): string[] {
-  const kinds = f.role === "adjutant" ? [f.main.kind, f.orch.kind] : [f.main.kind];
-  return [...new Set(kinds)]
-    .map((k) => kindOf(c, k))
-    .filter((k): k is CatalogKind => !!k && !k.skill_installed)
-    .map((k) => `herdsman skill not found for ${k.kind}: the route command will not run until it is installed`);
+  const which: ("main" | "orch")[] = f.role === "adjutant" ? ["main", "orch"] : ["main"];
+  const kinds = which.map((w) => roleKind(f, c, w)).filter((k): k is CatalogKind => !!k && !k.skill_installed);
+  return [...new Map(kinds.map((k) => [k.kind, k])).values()].map(
+    (k) => `herdsman skill not found for ${k.kind}: the route command will not run until it is installed`,
+  );
 }
 
-function checkHarness(h: Harness, c: Catalog, field: string, out: Record<string, string>): void {
+function checkHarness(h: Harness, c: Catalog, field: string, out: Record<string, string>, saved: boolean): void {
   const k = kindOf(c, h.kind);
   if (!k) {
     out[field] = "Pick a harness.";
@@ -405,7 +458,7 @@ function checkHarness(h: Harness, c: Catalog, field: string, out: Record<string,
   if (!k.free_model && !k.other_model && k.models.length === 0) {
     // A29: no list was read, so there is no model and effort to choose; only
     // a saved default pick (no model) starts again as saved.
-    if (!k.saved || h.model || h.effort)
+    if (!saved || h.model || h.effort)
       out[field] = `${k.label}'s model list could not be read: pick a harness whose list was read.`;
     return;
   }
@@ -433,11 +486,11 @@ export function validate(f: RouteForm, c: Catalog, st: State | null): Record<str
     else if (live.has(n)) out[field] = `An agent named ${n} is already running.`;
   };
   name("name", f.name);
-  checkHarness(f.main, c, "main", out);
+  checkHarness(f.main, roleCatalog(f, c, "main"), "main", out, !!f.saved.main);
   if (f.role === "adjutant") {
     name("orchName", f.orchName);
     if (f.orchName === f.name) out["orchName"] = "The orchestrator needs a name of its own.";
-    checkHarness(f.orch, c, "orch", out);
+    checkHarness(f.orch, roleCatalog(f, c, "orch"), "orch", out, !!f.saved.orch);
     if (!routeNameRe.test(f.routeName)) out["routeName"] = "a-z, 0-9 and -, starting with a letter or digit.";
     if (
       !(f.inbox.startsWith("~/") || f.inbox.startsWith(`${c.home}/`)) ||

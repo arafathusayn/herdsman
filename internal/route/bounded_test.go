@@ -132,8 +132,10 @@ func TestPageReadsFromTheSnapshot(t *testing.T) {
 		if err != nil || len(lines) != 50 || !strings.HasPrefix(lines[0].Text, fmt.Sprintf("line %d ", n-100)) || !strings.HasPrefix(lines[49].Text, fmt.Sprintf("line %d ", n-51)) {
 			t.Fatalf("%d: %d lines %v", n, len(lines), err)
 		}
-		if len(first) != 3 || !strings.HasPrefix(first[0].Text, "line 0 ") {
-			t.Fatalf("first page %+v", first)
+		// Past the 2,000-record window nothing is read; inside it the file's
+		// first records are.
+		if n > 2000 && len(first) != 0 || n <= 2000 && (len(first) != 3 || !strings.HasPrefix(first[0].Text, "line 0 ")) {
+			t.Fatalf("%d: first page %+v", n, first)
 		}
 	}
 	for i, what := range []string{"a page", "the oldest page"} {

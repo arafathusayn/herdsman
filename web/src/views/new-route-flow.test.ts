@@ -7,6 +7,8 @@ import type { Catalog, ChoicePick } from "../types.ts";
 beforeAll(installDom);
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
+/** A select's chosen value: the selected option's, as the fake DOM keeps it. */
+const chosen = (sel: FakeElement): string => sel.children.find((o) => o.selected)?.value ?? sel.value;
 const pick = (role: string): ChoicePick => ({
   role,
   runner: "herdr",
@@ -124,9 +126,10 @@ test("a role without a saved pick probes the lists; the saved role keeps its pic
   expect(r.probes).toEqual([false, true]);
   expect(r.opened).toEqual([{ previous: true, recommended: true }]);
   expect(r.updated.length).toBe(1);
+  // The live lists only: the saved role keeps its pick from its own entry.
   const claude = r.updated[0]!.kinds.find((k) => k.kind === "claude")!;
-  expect(claude.models.map((m) => m.id).sort()).toEqual(["fable", "newer"]);
-  expect(claude.models.find((m) => m.id === "fable")!.efforts).toEqual(["medium"]);
+  expect(claude.models.map((m) => m.id)).toEqual(["newer"]);
+  expect(r.updated[0]!.previous).toEqual([pick("orchestrator")]);
 });
 
 test("Choose again probes and opens the form", async () => {
@@ -148,4 +151,78 @@ test("the first summary states when the checkpointer runs", async () => {
   expect(text).not.toContain("On: it keeps");
   expect(text).toContain("Checkpointer");
   expect(text).toContain("Claude Code or Codex");
+});
+
+// A fresh role is offered the live lists only: another role's saved model
+// that the probe did not list is not among its choices.
+test("a fresh role does not see another role's saved model", async () => {
+  const { newRouteFlow } = await import("./new-route-flow.ts");
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const saved: ChoicePick = {
+    role: "adjutant",
+    runner: "herdr",
+    harness: "claude",
+    model: "fable-old",
+    effort: "medium",
+    route: "",
+    at: "",
+  };
+  const deps = {
+    createRoute: () => new Promise<never>(() => {}),
+    inboxState: () => new Promise<never>(() => {}),
+    state: () => null,
+    copy: () => {},
+    openPane: () => {},
+    close: () => {},
+    failed: () => {},
+    every: () => () => {},
+    later: () => () => {},
+  };
+  const live: Catalog = {
+    ...probed,
+    kinds: [{ ...probed.kinds[0]!, other_model: false }],
+  };
+  newRouteFlow(
+    body as unknown as HTMLElement,
+    {
+      savedChoices: () => Promise.resolve([saved]),
+      catalog: (probe = true) =>
+        Promise.resolve(
+          probe
+            ? { ...live, previous: [saved] }
+            : {
+                ...quick,
+                from_picks: true,
+                kinds: [
+                  {
+                    ...quick.kinds[0]!,
+                    models: [{ id: "fable-old", label: "fable-old", efforts: ["medium"], default_effort: "medium" }],
+                  },
+                ],
+                previous: [saved],
+              },
+        ),
+    },
+    (c, previous, recommended?: boolean) =>
+      routeForm(body as unknown as HTMLElement, c, null, deps, {
+        usePrevious: previous,
+        recommended: recommended ?? true,
+      }),
+    () => {},
+  );
+  await flush();
+  byName(body, "use-recommended").dispatch("click");
+  await flush();
+  byName(body, "use-previous").dispatch("click");
+  await flush();
+  await flush();
+  await flush();
+  const options = (name: string) =>
+    byName(body, name)
+      .children.map((o) => o.getAttribute?.("value") ?? (o as unknown as { value: string }).value)
+      .filter(Boolean);
+  expect(chosen(byName(body, "main-model"))).toBe("fable-old");
+  expect(options("orch-model")).not.toContain("fable-old");
+  expect(options("orch-model")).toContain("newer");
 });

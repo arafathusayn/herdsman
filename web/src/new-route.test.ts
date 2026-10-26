@@ -422,8 +422,10 @@ test("the previous choice fills the form's roles from the saved picks", () => {
   };
   const orch = initialForm(c, null);
   expect(previousPicks(orch, c).map((p) => p.role)).toEqual(["orchestrator"]);
+  // Each role takes its own saved pick exactly, whatever the lists say.
   const filled = usePrevious(orch, c);
-  expect(filled.main).toEqual({ kind: "claude", model: OTHER, other: "custom-model-1", effort: "max" });
+  expect(filled.main).toEqual({ kind: "claude", model: "custom-model-1", other: "", effort: "max" });
+  expect(filled.saved.main?.model).toBe("custom-model-1");
   const adj = setRole(orch, "adjutant");
   expect(previousPicks(adj, c).map(pickSummary)).toEqual([
     "adjutant (herdr): codex gpt-5.6-luna, effort low",
@@ -431,25 +433,22 @@ test("the previous choice fills the form's roles from the saved picks", () => {
   ]);
   const both = usePrevious(adj, c);
   expect(both.main).toEqual({ kind: "codex", model: "gpt-5.6-luna", other: "", effort: "low" });
-  expect(both.orch.model).toBe(OTHER);
+  expect(both.orch.model).toBe("custom-model-1");
   expect(both.orchEdited).toBe(true);
-  // A pick whose harness or model is gone is skipped; a lost effort takes the harness default.
-  expect(harnessFromPick(c, pick("x", "gone", "m", ""))).toBeNull();
-  expect(harnessFromPick(c, pick("x", "codex", "model-gone", ""))).toBeNull();
-  expect(harnessFromPick(c, pick("x", "claude", "", ""))).toBeNull();
-  expect(harnessFromPick(c, pick("x", "codex", "gpt-6.1-sol", "effortz"))?.effort).toBe("high");
-  expect(harnessFromPick(c, pick("x", "pi", "typed", ""))).toEqual({
-    kind: "pi",
-    model: "typed",
+  // A pick is taken as saved; only an effort without its option is not.
+  expect(harnessFromPick(pick("x", "codex", "model-gone", "effortz"))).toEqual({
+    kind: "codex",
+    model: "model-gone",
     other: "",
-    effort: "",
+    effort: "effortz",
   });
+  expect(harnessFromPick(pick("x", "pi", "typed", "high"))).toBeNull();
   expect(pickSummary(pick("x", "pi", "", ""))).toBe("x (herdr): pi");
   // No saved pick: nothing to offer, and the form stays as it is.
   expect(previousPicks(orch, catalog)).toEqual([]);
   expect(usePrevious(orch, catalog)).toBe(orch);
-  const gone: Catalog = { ...catalog, previous: [pick("orchestrator", "gone", "m", "")] };
-  expect(usePrevious(orch, gone)).toBe(orch);
+  const unusable: Catalog = { ...catalog, previous: [pick("orchestrator", "pi", "m", "high")] };
+  expect(usePrevious(orch, unusable)).toBe(orch);
 });
 
 // A32: the recommended setup is on at first; it fills the role and the
@@ -549,11 +548,13 @@ test("previous choices compare exactly; efforts and unread lists follow the serv
     route: "",
     at: "",
   });
-  const orch = { ...fresh(), main: { kind: "codex", model: "gpt-6.1-sol", other: "", effort: "high" } };
+  // A saved pick is used exactly, even an effort the lists no longer
+  // offer: it is the role's own choice, as the server starts it.
   const c = { ...catalog, previous: [pick("orchestrator", "codex", "gpt-6.1-sol", "max")] };
-  expect(missingPicks(orch, c)["main"]).toContain("is no longer offered");
-  const ok = { ...c, previous: [pick("orchestrator", "codex", "gpt-6.1-sol", "high")] };
-  expect(missingPicks(orch, ok)).toEqual({});
+  const kept = usePrevious(fresh(), c);
+  expect(missingPicks(kept, c)).toEqual({});
+  expect(kept.main.effort).toBe("max");
+  expect(validate(kept, c, null)["main"]).toBeUndefined();
   const listed: Catalog = {
     ...catalog,
     kinds: [
@@ -574,8 +575,8 @@ test("previous choices compare exactly; efforts and unread lists follow the serv
   expect(v("oc", "p/m", "")).toBeUndefined();
   expect(v("oc", "p/m", "low")).toBe("Pick an effort from the list.");
   expect(v("off", "", "")).toContain("could not be read");
-  expect(v("kept", "", "")).toBeUndefined();
-  expect(v("kept", "x", "")).toContain("could not be read");
+  // A kind marked saved gives a fresh role no way around the lists.
+  expect(v("kept", "", "")).toContain("could not be read");
 });
 
 // A saved pick of the harness's own default (no model, no effort) is reused
@@ -602,5 +603,53 @@ test("a saved default pick is reused, not asked again", () => {
     ],
     previous: [{ role: "orchestrator", runner: "herdr", harness: "pi", model: "", effort: "", route: "", at: "" }],
   };
-  expect(harnessFromPick(c, c.previous[0]!)).toEqual({ kind: "pi", model: "", other: "", effort: "" });
+  expect(harnessFromPick(c.previous[0]!)).toEqual({ kind: "pi", model: "", other: "", effort: "" });
+});
+
+// Each role is its own unit (A30): its saved pick, launch metadata and
+// checks never read another role's pick.
+const oc = (role: string, model: string, effort: string, flag?: string) => ({
+  role,
+  runner: "herdr",
+  harness: "opencode",
+  model,
+  effort,
+  route: "",
+  at: "",
+  ...(flag ? { effort_flag: flag } : {}),
+});
+const fromPicks = (previous: ReturnType<typeof oc>[]): Catalog => ({
+  ...catalog,
+  from_picks: true,
+  // The saved-picks catalog the server gives (?probe=0): one kind per
+  // harness, its effort option from whichever pick named one.
+  kinds: [
+    {
+      ...catalog.kinds[2]!,
+      kind: "opencode",
+      label: "Opencode",
+      free_model: false,
+      saved: true,
+      effort_flag: "--variant",
+      models: [{ id: "p/m1", label: "p/m1", efforts: ["high"], default_effort: "high" }],
+      default_model: "p/m1",
+    },
+  ],
+  previous,
+});
+
+test("a role's saved effort without its option is asked again, whatever another role saved", () => {
+  const c = fromPicks([oc("adjutant", "p/m1", "high", "--variant"), oc("orchestrator", "p/m1", "high")]);
+  const f = usePrevious(setRole(fresh(), "adjutant"), c);
+  expect(missingPicks(f, c)["orch"]).toBeDefined();
+  expect(missingPicks(f, c)["main"]).toBeUndefined();
+});
+
+test("a role's saved default passes beside another role's saved model of the same harness", () => {
+  const c = fromPicks([oc("adjutant", "", ""), oc("orchestrator", "p/m1", "high", "--variant")]);
+  const f = usePrevious(setRole(fresh(), "adjutant"), c);
+  expect(missingPicks(f, c)).toEqual({});
+  const errs = validate(f, c, state);
+  expect(errs["main"]).toBeUndefined();
+  expect(errs["orch"]).toBeUndefined();
 });

@@ -131,6 +131,8 @@ export interface Route {
   run_state: LogLine[] | null;
   /** Run-state lines before run_state, which holds the newest only; paged by routeRunState. */
   older_run_state?: number;
+  /** The oldest record the view pages to (the newest 2,000 only); older ones are in 00-route.md. */
+  run_state_from?: number;
   files: RouteFile[] | null;
   modified: string;
   live: boolean;
@@ -311,6 +313,8 @@ export interface Catalog {
   checkpointer_why?: string;
   /** The last pick of each role, saved when a route started (A30). */
   previous?: ChoicePick[];
+  /** A catalog of the saved picks alone (?probe=0): no harness list was read. */
+  from_picks?: boolean;
 }
 
 /** The gh accounts that can read a folder's GitHub repository (A32). */
@@ -328,6 +332,8 @@ export interface ChoicePick {
   harness: string;
   model: string;
   effort: string;
+  /** The option a harness other than Claude and Codex takes the effort with. */
+  effort_flag?: string;
   route: string;
   at: string;
 }

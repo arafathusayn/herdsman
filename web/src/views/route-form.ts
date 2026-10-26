@@ -10,10 +10,12 @@ import {
   effortOptions,
   effortsFor,
   formField,
+  freshFromLists,
   type HarnessChange,
   inboxKey,
   kindOf,
   knownFolders,
+  liveCatalog,
   missingPicks,
   newForm,
   OTHER,
@@ -22,6 +24,7 @@ import {
   previousPicks,
   projectLabel,
   RECOMMENDED_SETUP,
+  roleKind,
   type RouteForm,
   setHarness,
   setRecommended,
@@ -310,8 +313,12 @@ export function routeForm(
 
   const harnessFields = (which: "main" | "orch", nameField: "name" | "orchName", who: string): HTMLElement[] => {
     const hn = f[which];
-    const k = kindOf(c, hn.kind);
-    const kinds: [string, string][] = c.kinds.map((x) => [x.kind, x.label]);
+    // A role keeps its own saved pick (A30, per role); it is offered with
+    // the live lists, and choosing from them makes the role fresh.
+    const live = liveCatalog(c).kinds;
+    const k = roleKind(f, c, which);
+    const kinds: [string, string][] = live.map((x) => [x.kind, x.label]);
+    if (k && !live.some((x) => x.kind === k.kind)) kinds.unshift([k.kind, k.label]);
     let model: Node;
     if (!k || k.free_model) {
       model = track(
@@ -327,7 +334,10 @@ export function routeForm(
         }),
       );
     } else {
-      const opts: [string, string][] = k.models.map((m) => [m.id, m.label === m.id ? m.id : `${m.label} (${m.id})`]);
+      const listed = [...k.models, ...(k.saved ? (kindOf(liveCatalog(c), k.kind)?.models ?? []) : [])];
+      const opts: [string, string][] = listed
+        .filter((m, i) => listed.findIndex((x) => x.id === m.id) === i)
+        .map((m) => [m.id, m.label === m.id ? m.id : `${m.label} (${m.id})`]);
       if (k.other_model) opts.push([OTHER, "Other model id…"]);
       model = selectBox(
         `${which}-model`,
@@ -883,6 +893,7 @@ export function routeForm(
     // the draft (task, folder, names, account) stays.
     setCatalog: (next: Catalog) => {
       c = { ...next, previous: next.previous ?? c.previous ?? [] };
+      f = freshFromLists(f, c);
       delete errors["main"];
       delete errors["orch"];
       errors = { ...errors, ...missingPicks(f, c) };

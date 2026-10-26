@@ -125,6 +125,25 @@ export class FakeElement extends FakeNode {
   focus(): void {}
   close(): void {
     this.open = false;
+    this.dispatch("close");
+  }
+  showModal(): void {
+    this.open = true;
+  }
+  /** The first descendant matching "tag", "tag[name=x]" or ".class" (all a test needs). */
+  querySelector(sel: string): FakeElement | null {
+    const m = /^([a-z]*)(?:\[name=([^\]]+)\])?(?:\.([\w-]+))?$/.exec(sel);
+    const [, tag, name, cls] = m ?? [];
+    const hit = (e: FakeElement): boolean =>
+      (!tag || e.tagName.toLowerCase() === tag) && (!name || e.name === name) && (!cls || e.classList.contains(cls));
+    const walk = (e: FakeElement): FakeElement | null => {
+      for (const c of e.children) {
+        const found = hit(c) ? c : walk(c);
+        if (found) return found;
+      }
+      return null;
+    };
+    return m ? walk(this) : null;
   }
   get children(): FakeElement[] {
     return this.childNodes.filter((c): c is FakeElement => c instanceof FakeElement);
@@ -140,6 +159,7 @@ export function installDom(): void {
     createElement: (tag: string) => new FakeElement(tag),
     createElementNS: (_ns: string, tag: string) => new FakeElement(tag),
     createTextNode: (s: string) => new FakeText(s),
+    body: new FakeElement("body"),
   };
 }
 
