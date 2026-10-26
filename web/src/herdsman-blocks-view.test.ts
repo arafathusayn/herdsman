@@ -8,6 +8,7 @@ import {
   html,
   list,
   type ListNode,
+  mount,
   on,
   prop,
   render,
@@ -18,6 +19,7 @@ import {
   type SvgChild,
   type SvgNode,
   text,
+  update,
   type View,
   type ViewNode,
   type ViewNodeOf,
@@ -453,6 +455,38 @@ describe("events and form state", () => {
     expect("oncompositionstart" in first(scratch)).toBe(false);
     fire(first(scratch), "compositionstart");
     expect(seen).toEqual(["delegated", "compositionstart", "direct2", "compositionstart"]);
+  });
+
+  test("mount makes a root that is its own render root; update patches it", () => {
+    const Panel = html`<section class=${cls()} onclick=${on<"click">()}>
+      ${child()}<button onclick=${on<"click">()}>${text()}</button>
+    </section>`;
+    const Note = html`<em>${text()}</em>`;
+    const calls: string[] = [];
+    const desc = (n: number) =>
+      Panel([`p${n}`, () => calls.push(`panel${n}`), Note([`note${n}`]), () => calls.push(`button${n}`), `b${n}`]);
+    const root = mount(desc(1)) as unknown as FakeElement;
+    const page = box();
+    const host = box();
+    page.appendChild(host);
+    host.appendChild(root); // placed by the caller, under no render root
+    update(asDom(root), desc(2));
+    expect(shape(root)).toBe("<section><em>note2</em><button>b2</button></section>");
+    expect(root.className).toBe("p2");
+    const button = root.lastChild as FakeElement;
+    fire(button, "click");
+    expect(calls).toEqual(["button2", "panel2"]);
+    // Inside a delegating render root as well: still once each.
+    calls.length = 0;
+    const outer = box();
+    render(
+      asDom(outer),
+      html`<div onclick=${on<"click">()}>${child()}</div>`([() => calls.push("outer"), asDom(root)]),
+    );
+    fire(button, "click");
+    expect(calls).toEqual(["button2", "panel2", "outer"]);
+    expect(() => update(asDom(root), Note(["x"]))).toThrow(/different view/);
+    expect(() => update(asDom(box()), desc(3))).toThrow(/made by mount/);
   });
 
   test("renderDirect puts handlers on the elements, so moved nodes keep them, once", () => {
