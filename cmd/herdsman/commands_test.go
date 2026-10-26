@@ -292,6 +292,35 @@ func TestWaitHealthWithAPaddedLimit(t *testing.T) {
 	}
 }
 
+func TestMessageCommand(t *testing.T) {
+	out, _, code := call(t, "help")
+	if code != 0 || !strings.Contains(out, "  message ") {
+		t.Errorf("help does not list message: %q", out)
+	}
+	out, _, code = call(t, "message", "--help")
+	if code != 0 || !strings.Contains(out, "exit codes:") {
+		t.Errorf("message --help: %d %q", code, out)
+	}
+	t.Setenv("HERDSMAN_NAME", "")
+	_, errOut, code := call(t, "message", "status")
+	if code != 1 || !strings.Contains(errOut, "HERDSMAN_NAME") {
+		t.Errorf("no name: %d %q", code, errOut)
+	}
+	t.Setenv("HERDSMAN_NAME", "route-orchestrator")
+	t.Setenv("HERDSMAN_INBOX", filepath.Join(t.TempDir(), "missing"))
+	_, errOut, code = call(t, "message", "status")
+	if code != 2 || !strings.Contains(errOut, "pre-create a private inbox directory") {
+		t.Errorf("missing inbox: %d %q", code, errOut)
+	}
+	_, errOut, code = call(t, "message", "bogus")
+	if code != 2 || !strings.HasPrefix(errOut, "message: status|wait|read") {
+		t.Errorf("unknown action: %d %q", code, errOut)
+	}
+	if executable() == "" {
+		t.Error("no executable path")
+	}
+}
+
 // A25: LIMIT_MIN is a strict setting for status and for wait's health
 // check: one line naming it, exit 2, nothing printed on stdout.
 func TestStatusLimitIsStrict(t *testing.T) {
