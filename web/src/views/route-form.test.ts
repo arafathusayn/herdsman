@@ -1,7 +1,7 @@
 import { beforeAll, expect, test } from "bun:test";
 
-import { FakeElement, FakeEvent } from "../herdsman-blocks.testdom.ts";
-import { dispatch, installDom } from "../testdom.ts";
+import { FakeElement } from "../herdsman-blocks.testdom.ts";
+import { all, byName, dispatch, find, installDom } from "../testdom.ts";
 import type { Catalog, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
 import type { Deps } from "./route-form.ts";
 
@@ -109,16 +109,6 @@ const fake = (n: unknown): FakeElement => {
   if (!(n instanceof FakeElement)) throw new Error("not a fake element");
   return n;
 };
-const all = (n: FakeElement): FakeElement[] => [
-  n,
-  ...n.childNodes.flatMap((c) => (c instanceof FakeElement ? all(c) : [])),
-];
-const find = (b: FakeElement, pred: (e: FakeElement) => boolean): FakeElement | undefined => all(b).find(pred);
-const byName = (b: FakeElement, name: string): FakeElement => {
-  const el = find(b, (e) => e.getAttribute("name") === name);
-  if (!el) throw new Error(`no element named ${name}`);
-  return el;
-};
 const hasClass = (e: FakeElement | undefined, c: string): boolean => !!e?.className.split(" ").includes(c);
 const valueOf = (e: FakeElement): unknown => e["value"];
 const type = (el: FakeElement, v: string): void => {
@@ -129,22 +119,9 @@ const choose = (el: FakeElement, v: string): void => {
   el["value"] = v;
   dispatch(el, "change");
 };
-// A submit by the Start button. testdom's dispatch() takes only its own
-// FakeElement as the submitter, and view-rendered elements are the base fake's,
-// so the test makes the event dispatch() would make, with this submitter.
-class SubmitEvent extends FakeEvent {
-  readonly submitter: FakeElement;
-  defaultPrevented = false;
-  constructor(submitter: FakeElement) {
-    super("submit");
-    this.submitter = submitter;
-  }
-  preventDefault(): void {
-    this.defaultPrevented = true;
-  }
-}
+// A submit by the Start button.
 const submit = (b: FakeElement): void => {
-  b.dispatchEvent(new SubmitEvent(byName(b, "start")));
+  dispatch(b, "submit", { submitter: byName(b, "start") });
 };
 const errorOf = (b: FakeElement, name: string): string | undefined =>
   find(b, (e) => e.getAttribute("data-error") === name)?.textContent;

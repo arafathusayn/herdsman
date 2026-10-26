@@ -13,7 +13,8 @@ import {
 
 /** A bubbling event with what form and key handlers read: the submitter, the key, its code and modifiers, and preventDefault. */
 export class FakeEvent extends BaseEvent {
-  submitter: FakeElement | null = null;
+  /** The button that submitted a form: any element, a view's included. */
+  submitter: BaseElement | null = null;
   key = "";
   code = "";
   isComposing = false;
@@ -130,30 +131,35 @@ export function installDom(): void {
   };
 }
 
-/** Every element under root, depth first, root included. */
-export function all(root: BaseElement): FakeElement[] {
-  const out: FakeElement[] = [];
+/**
+ * Every element under root, depth first, root included: the ones a view
+ * rendered (clones of its template, the base fake DOM's elements) as well
+ * as the ones createElement made.
+ */
+export function all(root: BaseElement): BaseElement[] {
+  const out: BaseElement[] = [];
   const walk = (e: BaseElement): void => {
-    if (e instanceof FakeElement) out.push(e);
+    out.push(e);
     for (const c of elementsOf(e)) walk(c);
   };
   walk(root);
   return out;
 }
 
-export function find(root: BaseElement, pred: (e: FakeElement) => boolean): FakeElement | undefined {
+export function find(root: BaseElement, pred: (e: BaseElement) => boolean): BaseElement | undefined {
   return all(root).find(pred);
 }
 
-export function byName(root: BaseElement, name: string): FakeElement {
-  const el = find(root, (e) => e.name === name);
+/** The element whose name (attribute, or property set by a view) is `name`. */
+export function byName(root: BaseElement, name: string): BaseElement {
+  const el = find(root, (e) => e.getAttribute("name") === name || e["name"] === name);
   if (!el) throw new Error(`no element named ${name}`);
   return el;
 }
 
 /** What a test can set on a dispatched event. */
 export interface EventExtras {
-  submitter?: FakeElement | null;
+  submitter?: BaseElement | null;
   key?: string;
   code?: string;
   isComposing?: boolean;
