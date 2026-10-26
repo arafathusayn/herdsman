@@ -151,8 +151,11 @@ await run(async () => {
     stored().hosts.map((h) => h.id),
     ["a", "b"],
   );
+  // A dialog fires close in a later task, which a busy machine can run
+  // after a zero timeout, so the check waits for the event itself.
+  const closed = new Promise((r) => d.addEventListener("close", r, { once: true }));
   d.close();
-  await flush();
+  await closed;
   check("closing removes the dialog", document.querySelector("dialog.hosts") === null);
 
   // The connect screen: the title, the text, the add form focused, the known hosts.

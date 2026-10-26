@@ -100,9 +100,13 @@ async function frameAndNavigation(browser: Browser, mock: Mock, check: Check, er
   await page.keyboard.press("Escape");
   await sleep(50);
   check("palette closes", (await page.$("dialog.palette")) === null);
-  await page.keyboard.down("Meta");
+  // The app's shortcut is ⌘K on a Mac and Ctrl+K elsewhere (CI runs Linux).
+  const mod = (await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)))
+    ? "Meta"
+    : "Control";
+  await page.keyboard.down(mod);
   await page.keyboard.press("k");
-  await page.keyboard.up("Meta");
+  await page.keyboard.up(mod);
   await page.waitForSelector("dialog.palette[open]", { timeout: 2000 });
   await page.keyboard.press("ArrowDown");
   await sleep(30);
