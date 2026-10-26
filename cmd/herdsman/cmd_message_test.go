@@ -75,10 +75,17 @@ func TestMessageHelpOnDaemonPath(t *testing.T) {
 	}
 }
 
-// TestCLINamesOtherHome (F5): a daemon-owned HERDSMAN_INBOX whose route is
-// not in the selected private home's registry still takes the daemon path,
-// so the real CLI names the private home of the daemon that runs.
+// TestCLINamesOtherHome (F5): a route missing from the selected private
+// home's registry, with a daemon-owned HERDSMAN_INBOX or with none at all,
+// takes the daemon path while another private home's daemon runs, so the
+// real CLI names that home.
 func TestCLINamesOtherHome(t *testing.T) {
+	for _, inbox := range []bool{true, false} {
+		t.Run(map[bool]string{true: "inbox", false: "no_inbox"}[inbox], func(t *testing.T) { cliNamesOtherHome(t, inbox) })
+	}
+}
+
+func cliNamesOtherHome(t *testing.T, withInbox bool) {
 	base, err := os.MkdirTemp("", "hm")
 	if err != nil {
 		t.Fatal(err)
@@ -102,6 +109,9 @@ func TestCLINamesOtherHome(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- d.Serve(ctx) }()
 	defer func() { cancel(); <-done }()
+	if !withInbox {
+		owned = ""
+	}
 	for k, v := range map[string]string{"HOME": home, "HERDSMAN_PRIVATE_HOME": selected, "HERDSMAN_INBOX": owned,
 		"HERDSMAN_ROUTE": "r", "HERDSMAN_NAME": "orch", "HERDR_PANE_ID": "p2"} {
 		t.Setenv(k, v)
@@ -111,5 +121,19 @@ func TestCLINamesOtherHome(t *testing.T) {
 	want := "the running daemon uses " + live + "; set HERDSMAN_PRIVATE_HOME"
 	if code != 75 || !strings.Contains(errOut.String(), want) {
 		t.Fatalf("exit %d, stdout %q, stderr %q; want %q", code, out.String(), errOut.String(), want)
+	}
+}
+
+// TestNoInboxNoDaemonStaysFileMode: with no inbox and no live daemon of
+// another private home, a route-only party keeps the file channel's
+// answer.
+func TestNoInboxNoDaemonStaysFileMode(t *testing.T) {
+	base := t.TempDir()
+	for k, v := range map[string]string{"HOME": filepath.Join(base, "h"), "HERDSMAN_PRIVATE_HOME": filepath.Join(base, "p"),
+		"HERDSMAN_INBOX": "", "HERDSMAN_ROUTE": "r", "HERDSMAN_NAME": "orch", "HERDR_PANE_ID": "p2"} {
+		t.Setenv(k, v)
+	}
+	if _, _, _, ok := daemonPath([]string{"authority"}, os.Getenv); ok {
+		t.Fatal("daemon path taken with no inbox and no live daemon")
 	}
 }

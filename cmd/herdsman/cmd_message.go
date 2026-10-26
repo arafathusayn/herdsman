@@ -76,7 +76,13 @@ func daemonPath(args []string, getenv func(string) string) (route string, rest [
 			}
 		}
 	}
-	return route, rest, json, route != "" && dir != "" && inbox.DaemonOwned(dir)
+	if route != "" && dir == "" {
+		// No inbox to judge by: a live daemon of another private home
+		// takes the daemon path, whose discovery names that home (3.6,
+		// 6.2: parties need no HERDSMAN_INBOX).
+		return route, rest, json, daemon.OtherHome(getenv) != ""
+	}
+	return route, rest, json, route != "" && inbox.DaemonOwned(dir)
 }
 
 func runMessage(args []string, _ io.Reader, stdout, stderr io.Writer) int {

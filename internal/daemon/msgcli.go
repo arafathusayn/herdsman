@@ -123,13 +123,18 @@ func (e *MessageEnv) fail(action string, err error) int {
 
 // otherHome is the 3.6 diagnostic when this private home's daemon does
 // not answer but a live daemon of this account uses another private home
-// ("" otherwise): the account lock, not its content, decides it is live.
-func (e *MessageEnv) otherHome() string {
-	home := e.env("HOME")
+// ("" otherwise).
+func (e *MessageEnv) otherHome() string { return OtherHome(e.env) }
+
+// OtherHome names the private home of a live daemon of this account when
+// it is not the selected one ("" otherwise): the account lock, not its
+// content, decides it is live.
+func OtherHome(getenv func(string) string) string {
+	home := getenv("HOME")
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
-	ph, err := PrivateHome("", e.env)
+	ph, err := PrivateHome("", getenv)
 	if home == "" || err != nil || !AccountLockHeld(home) {
 		return ""
 	}
