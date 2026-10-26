@@ -63,15 +63,7 @@ func runGate(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// A lock wait ends at once when the run is stopped.
-	opts.Sleep = func(d time.Duration) {
-		t := time.NewTimer(d)
-		defer t.Stop()
-		select {
-		case <-ctx.Done():
-		case <-t.C:
-		}
-	}
+	opts.Sleep = ctxSleep(ctx)
 	g := &gate.Gate{Options: opts, Client: herdrClient(), Stdout: stdout, Stderr: stderr}
 	// As the script's traps: an interrupted gate frees its locks and exits
 	// 130, 143 or 129. The running gate owns that cleanup: the signal only
@@ -90,4 +82,17 @@ func runGate(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		cancel()
 	}()
 	return g.Run(ctx, args)
+}
+
+// ctxSleep is a lock wait that ends at once when ctx ends, so a stopped
+// gate does not wait out LOCK_WAIT.
+func ctxSleep(ctx context.Context) func(time.Duration) {
+	return func(d time.Duration) {
+		t := time.NewTimer(d)
+		defer t.Stop()
+		select {
+		case <-ctx.Done():
+		case <-t.C:
+		}
+	}
 }
