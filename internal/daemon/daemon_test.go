@@ -633,7 +633,8 @@ func TestHoldOwners(t *testing.T) {
 	if _, err := orch.c.Do(context.Background(), "PUT", "/v1/routes/r/holds/"+orch.name, HoldRequest{Reason: "me too"}, &res); err != nil || len(res.Holds) != 2 {
 		t.Fatalf("%+v %v", res, err)
 	}
-	if _, err := adj.c.Do(context.Background(), "DELETE", "/v1/routes/r/holds/"+orch.name, nil, &res); err != nil || len(res.Holds) != 1 || res.Holds[0] != orch.name {
+	res = HoldResult{}
+	if _, err := adj.c.Do(context.Background(), "DELETE", "/v1/routes/r/holds/"+orch.name, nil, &res); err != nil || len(res.Holds) != 1 || res.Holds[orch.name].Reason != "me too" || res.Holds[orch.name].Time == 0 {
 		t.Fatalf("%+v %v", res, err)
 	}
 	if _, err := adj.c.Do(context.Background(), "DELETE", "/v1/routes/r/holds/"+orch.name, nil, nil); code(err) != "no_hold" {
@@ -649,9 +650,56 @@ func TestHoldOwners(t *testing.T) {
 	if !strings.Contains(string(b), `"holds"`) || !strings.Contains(string(b), orch.name) {
 		t.Fatalf("hold file %s", b)
 	}
+	// The answer is the documented owners object (5.1).
+	var raw map[string]map[string]map[string]any
+	if _, err := orch.c.Do(context.Background(), "PUT", "/v1/routes/r/holds/"+orch.name, HoldRequest{Reason: "again"}, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if o := raw["holds"][orch.name]; len(raw) != 1 || len(o) != 2 || o["reason"] != "again" || o["time"] == nil {
+		t.Fatalf("hold answer %v", raw)
+	}
 	_, _ = orch.c.Do(context.Background(), "DELETE", "/v1/routes/r/holds/"+orch.name, nil, nil)
 	if exists(filepath.Join(dir, "state", "hold-"+orch.name)) {
 		t.Fatal("hold file left with no owner")
+	}
+}
+
+// TestCorruptHoldRefused: a hold file that is not strictly in the owner
+// format is refused and left byte for byte for human inspection.
+func TestCorruptHoldRefused(t *testing.T) {
+	h := newHarness(t)
+	adj, orch, dir := h.route("r")
+	p := filepath.Join(dir, "state", "hold-"+orch.name)
+	for _, bad := range []string{
+		`{"holds":[]}`,
+		`{"holds":"x"}`,
+		`{"holds":{},"extra":1}`,
+		`{"holds":{"a1":"x"}}`,
+		`{"holds":{"a1":{"reason":"r"}}}`,
+		`{"holds":{"a1":{"reason":1,"time":1}}}`,
+		`{"holds":{"a1":{"reason":"r","time":"1"}}}`,
+		`{"holds":{"a1":{"reason":"r","time":1.5}}}`,
+		`{"holds":{"a1":{"reason":"r","time":1,"by":"x"}}}`,
+		`{"holds":{"Bad Name":{"reason":"r","time":1}}}`,
+	} {
+		if err := os.WriteFile(p, []byte(bad+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range []string{"PUT", "DELETE"} {
+			_, err := adj.c.Do(context.Background(), m, "/v1/routes/r/holds/"+orch.name, HoldRequest{Reason: "x"}, nil)
+			if code(err) != "internal" {
+				t.Errorf("%s over %s: %v", m, bad, err)
+			}
+		}
+		if now, _ := os.ReadFile(p); string(now) != bad+"\n" {
+			t.Errorf("%s was rewritten to %s", bad, now)
+		}
+	}
+	good := `{"holds":{"` + adj.name + `":{"reason":"r","time":1}}}`
+	_ = os.WriteFile(p, []byte(good+"\n"), 0o600)
+	var res HoldResult
+	if _, err := orch.c.Do(context.Background(), "PUT", "/v1/routes/r/holds/"+orch.name, HoldRequest{Reason: "x"}, &res); err != nil || len(res.Holds) != 2 || res.Holds[adj.name] != (HoldOwner{"r", 1}) {
+		t.Fatalf("a valid hold file: %+v %v", res, err)
 	}
 }
 

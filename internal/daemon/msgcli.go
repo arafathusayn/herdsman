@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -293,7 +294,7 @@ func RunMessage(e *MessageEnv, args []string) int {
 		case action == "hold":
 			fmt.Fprintf(e.Stdout, "HOLD %s by %s\n", rest[0], me)
 		case len(res.Holds) > 0:
-			fmt.Fprintf(e.Stdout, "UNHOLD %s by %s; still held by: %s\n", rest[0], me, strings.Join(res.Holds, " "))
+			fmt.Fprintf(e.Stdout, "UNHOLD %s by %s; still held by: %s\n", rest[0], me, strings.Join(slices.Sorted(maps.Keys(res.Holds)), " "))
 		default:
 			fmt.Fprintf(e.Stdout, "UNHOLD %s by %s; no hold remains\n", rest[0], me)
 		}

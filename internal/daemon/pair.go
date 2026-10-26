@@ -433,12 +433,20 @@ type HoldRequest struct {
 	Reason string `json:"reason"`
 }
 
-// HoldResult is a hold's or unhold's answer: the owners of the hold.
-type HoldResult struct {
-	Holds []string `json:"holds"`
+// HoldOwner is one owner's hold in the owner format.
+type HoldOwner struct {
+	Reason string `json:"reason"`
+	Time   int64  `json:"time"`
 }
 
-// holdOwners reads state/hold-<name> in the owner format.
+// HoldResult is a hold's or unhold's answer: the hold's owners (5.1).
+type HoldResult struct {
+	Holds map[string]HoldOwner `json:"holds"`
+}
+
+// holdOwners reads state/hold-<name> strictly in the owner format
+// {"holds":{<owner>:{"reason":string,"time":integer}}}; anything else is
+// left as it is for human inspection.
 func (r *Route) holdOwners(name string) (ordered, bool) {
 	p := r.path("state", "hold-"+name)
 	if !exists(p) {
@@ -452,7 +460,30 @@ func (r *Route) holdOwners(name string) (ordered, bool) {
 	if len(top) != 1 || top[0].K != "holds" {
 		return nil, false
 	}
-	return rawRegistry(top[0].V.(json.RawMessage)), true
+	raw := top[0].V.(json.RawMessage)
+	if v, _ := inbox.Decode(raw); inbox.Object(v) == nil {
+		return nil, false
+	}
+	owners := rawRegistry(raw)
+	for _, o := range owners {
+		if _, ok := holdOwner(o.V.(json.RawMessage)); !ok || !inbox.NameOK(o.K) {
+			return nil, false
+		}
+	}
+	return owners, true
+}
+
+// holdOwner decodes one owner's entry: exactly a string reason of at most
+// 300 characters and an integer time.
+func holdOwner(raw json.RawMessage) (HoldOwner, bool) {
+	v, _ := inbox.Decode(raw)
+	m := inbox.Object(v)
+	reason, rok := m["reason"].(string)
+	t, tok := inbox.Int(m, "time")
+	if len(m) != 2 || !rok || !tok || utf8.RuneCountInString(reason) > 300 {
+		return HoldOwner{}, false
+	}
+	return HoldOwner{Reason: reason, Time: t}, true
 }
 
 // hold sets or clears (reason nil) me's hold of a target, under the
@@ -511,11 +542,11 @@ func (r *Route) hold(me, name string, reason *string) (HoldResult, *APIError) {
 		return HoldResult{}, r.unfinish(rec, err)
 	}
 	r.publish(rec)
-	res := HoldResult{Holds: []string{}}
+	res := HoldResult{Holds: map[string]HoldOwner{}}
 	for _, o := range owners {
-		res.Holds = append(res.Holds, o.K)
+		raw, _ := encode(o.V)
+		res.Holds[o.K], _ = holdOwner(raw)
 	}
-	sort.Strings(res.Holds)
 	return res, nil
 }
 
