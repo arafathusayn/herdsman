@@ -24,21 +24,48 @@ const FaultPending = "pending"
 
 func (ch *Channel) pendingDir() string { return ch.Path("state", "exposure-pending") }
 
-// ExposurePending reports whether an exposure record may wait for the lock.
-// Only the folder's absence means none: an entry, a link, a file in its
-// place or a folder that cannot be read all count as pending, so every
-// check fails closed (review 2).
+// ExposurePending reports whether an exposure record may wait for the lock:
+// any pending state but none (pendingState), so every check fails closed.
 func (ch *Channel) ExposurePending() bool {
+	s, _ := ch.pendingState()
+	return s != pendingNone
+}
+
+// The waiting-exposure path's state, as the shell's pending_state (160c070).
+const (
+	pendingNone          = iota // absent, or a real folder this process can read and search with no entry
+	pendingEntries              // such a folder with any entry
+	pendingUninspectable        // anything else: a link, another file type, missing read or search access, a failed listing
+)
+
+// pendingState classifies the pending path once for every caller
+// (ExposurePending, FoldExposure and through them the gate) and returns
+// the entries it listed.
+func (ch *Channel) pendingState() (int, []os.DirEntry) {
 	d := ch.pendingDir()
 	st, err := os.Lstat(d)
 	if errors.Is(err, fs.ErrNotExist) {
-		return false
+		return pendingNone, nil
 	}
 	if err != nil || !st.IsDir() {
-		return true
+		return pendingUninspectable, nil
 	}
 	ents, err := os.ReadDir(d)
-	return err != nil || len(ents) > 0
+	if err != nil || !searchable(d) {
+		return pendingUninspectable, nil
+	}
+	if len(ents) > 0 {
+		return pendingEntries, ents
+	}
+	return pendingNone, nil
+}
+
+// searchable reports whether this process may look up names in folder d
+// (search access for its effective user): a lookup of a child name either
+// finds it or reports its absence; a refused lookup means no search access.
+func searchable(d string) bool {
+	_, err := os.Lstat(filepath.Join(d, ".herdsman-search-probe"))
+	return err == nil || errors.Is(err, fs.ErrNotExist)
 }
 
 // FoldExposure publishes every waiting exposure; the caller owns the input
@@ -49,15 +76,15 @@ func (ch *Channel) ExposurePending() bool {
 // read is removed, so the incident survives a retry after the path turns
 // clean (round 6, shell 160c070 fold_exposure).
 func (ch *Channel) FoldExposure() error {
-	if !ch.ExposurePending() {
+	state, ents := ch.pendingState()
+	switch state {
+	case pendingNone:
 		return nil
-	}
-	d := ch.pendingDir()
-	ents, inspectable := inspectPending(d)
-	if !inspectable {
+	case pendingUninspectable:
 		_ = ch.LogLine("EXPOSURE pending path cannot be inspected; recorded and kept for the human")
 		return ch.publishWaiting(nil, 0)
 	}
+	d := ch.pendingDir()
 	agents := []Unknown{}
 	omitted := 0
 	seen := map[string]bool{}
@@ -87,17 +114,6 @@ func (ch *Channel) FoldExposure() error {
 		_ = os.Remove(filepath.Join(d, en.Name()))
 	}
 	return nil
-}
-
-// inspectPending lists the pending folder d; false when it is not a real
-// folder that this process can read and search, or its listing fails.
-func inspectPending(d string) ([]os.DirEntry, bool) {
-	st, err := os.Lstat(d)
-	if err != nil || !st.IsDir() {
-		return nil, false
-	}
-	ents, err := os.ReadDir(d)
-	return ents, err == nil
 }
 
 // publishWaiting writes boundary-tainted unless one is already published.
