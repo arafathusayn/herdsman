@@ -1,6 +1,6 @@
 # Migrating herdsman web to views
 
-How every part of the web app moves from `h()` + `patch()` (dom.ts) to herdsman-blocks' declarative view layer (`web/src/herdsman-blocks-view.ts`, spec in `plans/herdsman-blocks.md`, Layer 4 and Types). These are the conventions every migration agent follows. Status as of 2026-10-27: stage 1 (the foundation and the temporary bridge) is done, on herdsman-blocks 0.0.8 (delegated events, `renderDirect`, `runs`).
+How every part of the web app moved from `h()` + `patch()` (dom.ts) to herdsman-blocks' declarative view layer (`web/src/herdsman-blocks-view.ts`, spec in `plans/herdsman-blocks.md`, Layer 4 and Types), and the conventions the views follow. Status as of 2026-10-27: **the migration is complete.** Stage 3 removed `h()`, `patch()`, `each()`, the bridge and `mountElement`; dom.ts is now `icons.ts` (the icon path data and the icon and logo views). See [Stage 3: what replaced what](#stage-3-what-replaced-what).
 
 ## Why
 
@@ -28,7 +28,7 @@ render(container, Rows([() => pick(), list(items, (it) => it.id, (it) => Row([it
 
 Calling a view with its value tuple returns a description (`ViewNodeOf<typeof Row>`); `render(container, description)` mounts it the first time and patches it after. `svg` is `html` for SVG fragments. A child hole takes three kinds of sequence: `list(items, key, render)` (keyed, for items with identity), `runs([...])` (positional text and descriptions with no wrapper, for inline content) and nothing else: a plain array is never a child.
 
-`render` delegates the handlers of bubbling events to its container (one listener per event type), so a view's elements carry no `on*` property. `renderDirect(container, description)` puts every handler on its own element instead; it is for nodes that move out of their container, which today means only the bridge.
+`render` delegates the handlers of bubbling events to its container (one listener per event type), so a view's elements carry no `on*` property. `mount(description)` makes a view's root on its own, as its own delegating render root, for a component that places the root itself; `update(root, description)` patches it (convention 8). `renderDirect` (every handler on its own element) was for the bridge and has no user in the app any more.
 
 ## Conventions
 
@@ -62,7 +62,7 @@ Rules:
 1. The value tuple is in hole order, top to bottom, left to right. Keep the tuple short by giving one element one class hole and computing the string in the function; put long tuples one value per line (bun fmt does this) with the markup in the same order.
 2. Every hole has a typed marker. Narrow it where the data is narrow: `attr<"true" | "false">()` for an ARIA state, `child<PillNode>()` for a hole that only ever holds a pill.
 3. Templates compile when their module loads, so a document must exist then. The browser always has one; tests get one from `web/src/test-setup.ts`, which `web/bunfig.toml` preloads. Never build a template inside a function per call: `html` caches by call site, so a template literal inside a function is fine, but a constant is clearer and its type can be named.
-4. No casts. If a type does not fit, narrow the marker or the data; a cast that is truly unavoidable gets a comment saying why. `mountElement` (below) narrows an element with a checked type predicate, never `as`.
+4. No casts. If a type does not fit, narrow the marker or the data; a cast that is truly unavoidable gets a comment saying why. `element()` (convention 8) narrows the mounted root with a checked type predicate, never `as`.
 
 ### 2. Conditionals: a child hole and null
 
@@ -158,10 +158,10 @@ Every handler is an `on<K, E>()` hole; K is the event name, E the element type (
 2. The markup's `onname` is not checked against K (TypeScript sees the markup only as strings): keep them identical by eye.
 3. Handlers of bubbling events (click, input, change, submit, keydown, pointer and mouse events, and the rest of the delegated set in plans/herdsman-blocks.md) are delegated: the `render()` container listens once per event type and calls the handlers on the path from the target, innermost first, with the element as `this` and `currentTarget`; `stopPropagation()` stops the outer ones. Non-bubbling events (focus, blur, mouseenter, scroll, close) get a handler on the element itself. So:
    - Never read or assign `el.onclick`: it is not set.
-   - An element moved out of its render container gets no delegated events. Do not move a view's nodes; render where they live (the bridge is the one exception, with `renderDirect`).
+   - An element moved out of its render container gets no delegated events. Do not move a view's nodes; render where they live, or mount a root of its own (convention 8) for an element its owner places.
    - A delegated handler runs when the event reaches the container: after native listeners on elements between, before listeners above it. A native listener inside the view that stops propagation hides the event from the view's handlers.
 4. Never `addEventListener` on an element a view renders, except for listeners that come and go with an interaction (a drag's `pointermove` and `pointerup`), added in the handler that starts it and removed when it ends (`resize.ts`).
-5. An element made with `mountElement` (convention 8) is not rendered by `render`: its handlers are set on it directly at creation, so it works wherever it is attached.
+5. A root made with `mount()` (or `element()`, `ElementView`, convention 8) is its own render root: it delegates its own and its descendants' handlers wherever it is placed, and inside another render root each handler still runs once.
 6. Do not reuse or mutate a value tuple between renders: a description rendered again with the same array is skipped as unchanged.
 
 ### 6. Text safety
@@ -175,7 +175,7 @@ Values are never parsed as HTML: a text hole sets a text node's data, an attribu
 3. `class` on an SVG element is a static attribute or an `attr()` hole, never `cls()` (className is read-only on SVG elements; a class marker there fails when the template compiles).
 4. A child hole inside SVG content is typed with `SvgChild` (or a narrower type) so HTML views cannot go in it.
 
-After (`dom.ts`):
+After (`icons.ts`, then dom.ts):
 
 ```ts
 const IconPath = svg`<path d=${attr()} />`;
@@ -226,22 +226,24 @@ Give `runs` its type argument where the items are all text (`runs<V>([value])`),
 
 Some elements are made once and then changed by their owner rather than re-rendered: dialogs, toasts, resize handles, the terminal, the agent panel. Two tools:
 
-1. **Making the element**: `mountElement(tag, View, vals)` (dom.ts) creates a view's root once and returns it typed by tag (`HTMLDialogElement` for "dialog"). Text, class, attribute, property and event holes are written at creation; handlers are set on the element directly. A view with a child hole is refused (it would stay empty). Content that changes is rendered into the element with `render(el, ContentView(...))`: the element is the render container.
+1. **Making the element**: `element(tag, View(vals))` (`views/element-view.ts`) mounts a view's root with herdsman-blocks' `mount()` and returns it typed by tag (`HTMLDialogElement` for "dialog"). Any view works, child holes included. The root is its own render root: it delegates its handlers (and its descendants'), so it works wherever its owner puts it. Patch it with `update(el, View(newVals))`, a description of the same view (another view throws: it would need another element). `ElementView(tag, description)` wraps the pair and holds updates to the first view's exact type. Content that changes inside an owned element can also be rendered into it with `render(el, ContentView(...))`.
 
-   Before (`ui.ts` confirmDialog): one `h("dialog", ..., h("form", ...))` tree plus `dlg.addEventListener("close", ...)`.
+   Before (stage 1, `mountElement`, now removed): `mountElement("dialog", Dialog, [onClose])` wrote the holes at creation and set handlers on the element.
 
    After:
 
    ```ts
    const Dialog = html`<dialog class="dialog" onclose=${on<"close", HTMLDialogElement>()}></dialog>`;
-   const dlg = mountElement("dialog", Dialog, [
+   const dlg = element("dialog", Dialog([
      function () {
        resolve(this.returnValue === "ok");
        this.remove();
      },
-   ]);
+   ]));
    render(dlg, ConfirmForm([title, body, danger ? "btn danger" : "btn primary", confirmLabel]));
    ```
+
+   Components whose whole markup is one view (the agent panel, Messages, Files, Artifacts, Changes, the Hosts dialog, the route form) mount it once (`this.el = element("aside", this.describe())`) and patch it on every change (`update(this.el, this.describe())`). Before stage 3 they rendered into a scratch holder with `renderDirect` and moved the root out.
 
 2. **Placing the element in a view**: a component object that owns an element is put into a parent view through a `child<HTMLElement>()` hole (or a narrower element type) by passing the element itself. The slot inserts that node and keeps it; it never morphs it into anything. Pass the same node every render; passing a new node replaces the old one.
 
@@ -249,7 +251,7 @@ Some elements are made once and then changed by their owner rather than re-rende
 
 1. Form state goes through property holes: `.value=${prop<HTMLInputElement, "value">()}`, `.checked=${prop<HTMLInputElement, "checked">()}`.
 2. A property hole is written only when its value differs from the value the last render passed, not from what the element holds. While the user types, the state the view reads can lag or stay the same, and the field is not overwritten. To reset a field the user edited back to a value the view already passed, change the state through another value (or write the property in the handler that resets it).
-3. Focus, caret and selection survive because nodes survive: a patched view keeps its elements, and a keyed list moves rows with their nodes. They are lost where an element is replaced: a different template in a hole, a list item whose render switches views, a node passed fresh through a child hole, and every view that crosses the bridge (below). Keep a focused field in a stable template.
+3. Focus, caret and selection survive because nodes survive: a patched view keeps its elements, and a keyed list moves rows with their nodes. They are lost where an element is replaced: a different template in a hole, a list item whose render switches views, or a node passed fresh through a child hole. Keep a focused field in a stable template.
 
 ### 10. Class composition
 
@@ -270,41 +272,49 @@ bun fmt formats the markup of `html` and `svg` literals as HTML. It may put two 
 
 1. Tests run on herdsman-blocks' linked-list fake DOM (`herdsman-blocks.testdom.ts`, installed by `installFakeDocument()`), which parses templates, clones, records namespaces, dispatches bubbling events (`dispatchEvent`) and counts DOM writes (`ops`, `resetOps()`). `testdom.ts` extends it with what the app's forms need (form properties, `classList`, readable `dataset`) and keeps `all`, `find` and `byName`.
 2. Render into a scratch container: `const box = document.createElement("div"); render(box, view(...));` and inspect `box.firstChild`.
-3. When migrating, keep the old builder in the test (or build the old markup with `h()` while it exists) and compare `dump()` (testdom.ts) of both: tags, SVG namespace, sorted attributes, text, with empty text (slot anchors) and the bridge's stamps left out. `dom.test.ts` (icons), `ui.test.ts` (pill, theme switch, dialogs), `fuzzy.test.ts` (highlight) and `markdown.test.ts` (every block kind, then each block alone) show the pattern. Where the fake DOM and the browser differ (the browser reflects `tabIndex` as `tabindex` and `spellcheck = false` as `spellcheck="false"`; the fake records them as given), write the reference with the browser's result and say so in a comment.
-4. Test behavior through events and data, and assert node identity (`toBe`) to prove a patch kept nodes. Fire events only with `testdom.ts`'s `dispatch(el, type, { submitter })`: it dispatches a bubbling event from the element, so the render container's delegated listener sees it as in a browser. Never call `el.onclick` in a test: delegated handlers are not there.
+3. Markup tests compare `dump()` (testdom.ts) of a view's DOM with a reference: tags, SVG namespace, sorted attributes, text, with empty text (slot anchors) left out. The references are the pre-views builders, kept in the tests and written with `testref.ts`, a test-only `h()` with no morph, keys or handlers (a view given to it as a child is rendered once for its markup). `icons.test.ts` (icons), `ui.test.ts` (pill, theme switch, dialogs), `fuzzy.test.ts` (highlight) and `markdown.test.ts` (every block kind, then each block alone) show the pattern. Where the fake DOM and the browser differ (the browser reflects `tabIndex` as `tabindex` and `spellcheck = false` as `spellcheck="false"`; the fake records them as given), write the reference with the browser's result and say so in a comment.
+4. Test behavior through events and data, and assert node identity (`toBe`) to prove a patch kept nodes. Fire events only with `testdom.ts`'s `dispatch(el, type, { submitter })` (the submitter may be any element, a view's included; `all`, `find` and `byName` see view-rendered elements too): it dispatches a bubbling event from the element, so the render container's delegated listener sees it as in a browser. Never call `el.onclick` in a test: delegated handlers are not there.
 5. Use `ops` to prove that an unchanged render writes nothing.
 
 ### What views cannot express
 
 1. **DocumentFragments in child holes**: a fragment's nodes move out when it is inserted, so the slot cannot remove them later. Never pass a fragment to a child hole; inline sequences are `runs()`.
 
-## The temporary bridge (stage 1 to stage 3)
+## The temporary bridge (stage 1 to stage 3, removed)
 
-Files migrate in parallel, so for a while views and `h()` trees nest in both directions. dom.ts carries a bridge, marked TEMPORARY, that stage 3 deletes:
-
-1. `h()`, `mount()` and `patch()` accept a view description, a view list or runs wherever they accept a child. The bridge renders it once into a scratch element with `renderDirect` and moves its nodes out (one-shot; the `h()` parent rebuilds anyway). `renderDirect` puts each handler on its own element, so handlers keep working after the move; `render` would delegate them to the scratch element, which the nodes leave. A bridged node that ends up inside a `render()` root runs its handler once: render roots skip instances mounted by `renderDirect`.
-2. `each()`'s render may return a view description instead of an element.
-3. Every element the bridge moves out is stamped with a `data-key` no other render uses: `view:<n>`, or `<item key>|view:<n>` for an `each()` row (text runs are not stamped; they hold no handlers). `patch()`'s morph therefore never matches an old materialization to a new one: it replaces it. Morphing would keep the old element and, with it, the old render's handlers.
-
-Costs, all temporary: a view crossing the bridge is rebuilt on every `patch()` of its parent (no node identity, focus or caret inside it survives), its root carries the stamp in the DOM, and its handlers are direct (one property per element) instead of delegated.
-
-The other direction needs no bridge: an `h()` element is a Node, and a view takes it through a `child<HTMLElement>()` hole. A fresh element per render replaces the old one each time, so do this only for parts that are about to migrate.
+While files migrated in parallel, views and `h()` trees nested in both directions. dom.ts carried a bridge that rendered a view given as an `h()`, `mount()`, `patch()` or `each()` child into a scratch element with `renderDirect` and moved its nodes out, stamping each moved root with a `data-key` (`view:<n>`) so `patch()` replaced it instead of morphing it. Stage 3 deleted it with `h()`: nothing in the app builds DOM outside views now, so no node is rendered in one place and moved to another, and no `data-key` stamps remain.
 
 ## Migration order
 
-1. **Stage 1, foundation (done)**: dom.ts `icon()`, `logoMark()` and `mountElement()`; ui.ts `pill()`, toasts, `confirmDialog()`, `formDialog()`, `themeSwitch()`; resize.ts handles; fuzzy.ts `highlight()`; markdown.ts `renderMarkdown()` and `codeBlock()`; the bridge; the test DOM. highlight.ts `renderPieces()` still builds a fragment for diff.ts and views/appearance.ts; those agents turn it into runs the way `codeBlock()` does.
-2. **Stage 2, views, leaves before containers** (files can go in parallel; each agent owns its files):
+1. **Stage 1, foundation (done)**: dom.ts `icon()`, `logoMark()` and `mountElement()`; ui.ts `pill()`, toasts, `confirmDialog()`, `formDialog()`, `themeSwitch()`; resize.ts handles; fuzzy.ts `highlight()`; markdown.ts `renderMarkdown()` and `codeBlock()`; the bridge; the test DOM.
+2. **Stage 2, views, leaves before containers (done)** (files went in parallel; each agent owned its files):
    1. `views/team.ts` (cards and board), `views/pair.ts`, `views/appearance.ts`, `views/new-route.ts`.
    2. `palette.ts`, `views/messages.ts`, `views/files.ts`, `views/artifacts.ts`, `views/hosts.ts`.
    3. `views/diff.ts`, `views/route-form.ts` (forms: convention 9), `views/agent.ts` (owns elements: convention 8).
    4. `main.ts` last: the shell, the sidebar, the route tabs, and the `render()` roots that replace its `patch()` calls. `docs.ts` with it.
    Each file's views return descriptions; a container still on `h()` takes them through the bridge until it migrates.
-3. **Stage 3, removal**: when nothing calls `h()`, delete:
-   - dom.ts: `h()`, `mount()`, `patch()`, `each()`, `unkeyed()`, the `Keyed`, `Unkeyed` and `Child` types, the handler map (`handlers`, `on()`, `keepHandlers()`), the bridge section (`Scratch`, `materialize()`, `materializeView()`, `isElement()`, `isList()`), and the `KEY_ATTR` and `morph` imports. dom.ts keeps `icons`, `icon()`, `logoMark()` and `mountElement()`.
-   - dom.test.ts: the `patch`, `each` and bridge tests.
-   - ui.test.ts and the other comparison tests: the `h()` reference builders (keep the expected markup as literals).
-   - plans/each-migration.md: mark superseded by this plan; plans/herdsman-blocks.md "Integration with dom.ts": rewrite for views.
-   - Check that Layer 3 (`morph`) still has a user in the app; if not, say so in plans/herdsman-blocks.md (the library keeps it).
+3. **Stage 3, removal (done 2026-10-27)**: every component that owns its root mounts it with `mount()` and patches it with `update()`; the Team board and the session view's card grid are views in child holes (the card grid a keyed `list()` of `card()` views); then the old machinery went, as listed below.
+
+## Stage 3: what replaced what
+
+| Removed                                                    | Replaced by                                                                                     |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `h(tag, props, ...children)`                               | a template constant and its view function (conventions 1 to 3)                                  |
+| `mount(el, ...children)` (dom.ts)                          | `render(container, description)`                                                                |
+| `patch(el, ...children)` and the morph it ran              | `render()` / `update()`: views write only changed holes; nothing in the app imports `morph`     |
+| `each(items, key, render)` and the `Keyed` type            | `list(items, key, render)` in a child hole typed `ListNode<…, K>`                               |
+| `unkeyed(nodes)` and the `Unkeyed` type                    | `runs([...])` for inline content; a fixed set of parts is separate holes                        |
+| the `Child` type, the handler map (`on`, `keepHandlers`)   | typed `child<C>()` holes and `on<K, E>()` holes, delegated by the render root                   |
+| the bridge (`materialize`, `Scratch`, `data-key` stamps)   | nothing: no view crosses into an `h()` tree                                                     |
+| `mountElement(tag, View, vals)`                            | `element(tag, View(vals))` or `ElementView` (views/element-view.ts), on herdsman-blocks `mount()` |
+| scratch holder + `renderDirect` + `isHTML`/`isDiv` checks  | `element(tag, description)` once, then `update(el, description)`                                |
+| `teamView()` (temporary)                                   | `teamBoard()` in the route shell's child hole                                                   |
+| `addEventListener("compositionend")` on the terminal field | an `on<"compositionend", HTMLTextAreaElement>()` hole                                           |
+| `HERDSMAN_DEV` (only `each()` read it)                     | nothing; the build no longer defines it                                                         |
+| dom.ts                                                     | `icons.ts`: `icons`, `icon()`, `logoMark()`, `IconNode`, `LogoNode`                             |
+| dom.test.ts's `patch`, `each` and bridge tests             | deleted with what they tested; the icon tests are `icons.test.ts`                               |
+
+Herdsman-blocks still exports `renderDirect` and `morph` (Layer 3) for other users; the app uses neither. Browser checks of the whole app and its forms live in `web/e2e` (`make web-e2e`).
 
 ## Helper signatures changed in stage 1
 
@@ -323,4 +333,4 @@ The other direction needs no bridge: an `h()` element is a Node, and a view take
 | `toast`, `confirmDialog`, `formDialog`, `dismissOnBackdrop`, `panelResizer`, `navResizer` | unchanged | unchanged |
 | testdom.ts                              | its own fake              | `FakeElement` extends herdsman-blocks.testdom's; `FakeEvent` is a class extending its bubbling event (with `submitter`, `preventDefault`); `dispatch(el, type, extras)` and `dump(node)` are exported |
 
-A caller that used a returned element as an element (`el.append(icon(...))`) passes the description to a child hole instead, or, until it migrates, to `mount()`/`h()` (docs.ts's copy button does `mount(btn, icon(icons.copy), label)`).
+A caller that used a returned element as an element (`el.append(icon(...))`) passes the description to a child hole instead.

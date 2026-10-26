@@ -1,5 +1,7 @@
 # Migrating herdsman web lists to `each()`
 
+> **Superseded, 2026-10-27.** The app no longer has `each()`, `unkeyed()` or `patch()`: the views migration (`plans/views-migration.md`) replaced them. A keyed list is now `list(items, key, render)` from herdsman-blocks-view in a child hole typed `ListNode<…, K>`, and unkeyed inline content is `runs([...])`. The keys chosen below carried over to `list()` unchanged, except the Changes tab's diff lines, which are keyed by an id each line gets when the diff is parsed. Kept as the record of how the keys were chosen.
+
 How to move the web app's lists to keyed rendering with `each()`, why it matters, and how the type checker will eventually enforce it. Status as of 2026-10-27: phase 1 is done (the API exists and the lists rendered through `patch()` use it), and so is phase 2 (plain arrays are a type error; every list in the app is an `each()` or `unkeyed()` list).
 
 ## Why
