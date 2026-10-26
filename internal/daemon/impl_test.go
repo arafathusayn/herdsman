@@ -288,3 +288,68 @@ func TestStatusFullShape(t *testing.T) {
 	}
 	checkStatusShape(t, []byte(out), "down", orch.name)
 }
+
+// Item 2 (review a-2 P1s on daemon.go).
+
+// TestStartUnwindsOnFailure: a Start that fails after the account lock
+// frees the lock and every route it opened, early or late.
+func TestStartUnwindsOnFailure(t *testing.T) {
+	h := newHarness(t)
+	_, _, _ = h.route("r")
+	h.stop()
+	// Late: the routes are open when the socket cannot be made.
+	sock := SocketPath(h.ph)
+	_ = os.Remove(sock)
+	_ = os.MkdirAll(filepath.Join(sock, "x"), 0o700)
+	if err := New(h.cfg).Start(); err == nil {
+		t.Fatal("Start succeeded with a folder at the socket path")
+	}
+	_ = os.RemoveAll(sock)
+	d := New(h.cfg)
+	if err := d.Start(); err != nil {
+		t.Fatalf("after a late failure: %v", err)
+	}
+	if _, e := d.route("r"); e != nil {
+		t.Fatalf("route held after a late failure: %v", e)
+	}
+	d.Stop("stop")
+	// Early: daemon/ is a regular file.
+	dd := filepath.Join(h.ph, "daemon")
+	_ = os.Rename(dd, dd+".kept")
+	_ = os.WriteFile(dd, []byte("x"), 0o600)
+	if err := New(h.cfg).Start(); err == nil {
+		t.Fatal("Start succeeded with a file at daemon/")
+	}
+	_ = os.Remove(dd)
+	_ = os.Rename(dd+".kept", dd)
+	d = New(h.cfg)
+	if err := d.Start(); err != nil {
+		t.Fatalf("after an early failure: %v", err)
+	}
+	d.Stop("stop")
+}
+
+// TestSchedulerPublishesProofHealth: a policy file changed while the
+// route is idle reaches an open stream as a health event on the next
+// scheduler tick.
+func TestSchedulerPublishesProofHealth(t *testing.T) {
+	h := newHarness(t)
+	h.stop()
+	h.cfg.HeartbeatEvery = 20 * time.Millisecond
+	h.start()
+	_, orch, _ := h.route("r")
+	ev, err := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ev.Close()
+	ch := frames(ev)
+	nextFrame(t, ch, "snapshot")
+	if err := os.WriteFile(h.rules, []byte("(deny default)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hl := nextFrame(t, ch, "health")
+	if hl.Status != "held" || len(hl.Flags) != 1 || hl.Flags[0] != "setup-proof-stale" {
+		t.Fatalf("health %+v", hl)
+	}
+}

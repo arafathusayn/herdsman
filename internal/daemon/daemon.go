@@ -255,14 +255,20 @@ func checkPrivateHome(p string) error {
 }
 
 // Start takes the singleton, opens every route and listens on the socket.
-// Serve runs until Stop.
-func (d *Daemon) Start() error {
+// Serve runs until Stop. A failure after the account lock unwinds what
+// this Start took: the routes it opened, the listener and the lock.
+func (d *Daemon) Start() (err error) {
 	if err := checkPrivateHome(d.cfg.PrivateHome); err != nil {
 		return err
 	}
 	if err := d.takeAccountLock(); err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			d.unwindStart()
+		}
+	}()
 	for _, dir := range []string{d.daemonDir(), d.runDir()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
@@ -306,6 +312,29 @@ func (d *Daemon) Start() error {
 	d.ln = &peerListener{Listener: ln}
 	d.srv = &http.Server{Handler: d.handler(), ReadHeaderTimeout: 10 * time.Second}
 	return nil
+}
+
+// unwindStart frees what a failed Start took. The retained inbox locks
+// stay, as on any stop, for the next start to take back.
+func (d *Daemon) unwindStart() {
+	d.mu.Lock()
+	routes := make([]*Route, 0, len(d.routes))
+	for _, r := range d.routes {
+		routes = append(routes, r)
+	}
+	d.routes = map[string]*Route{}
+	d.mu.Unlock()
+	for _, r := range routes {
+		r.stop()
+	}
+	if d.ln != nil {
+		_ = d.ln.Close()
+		d.ln = nil
+	}
+	if d.acct != nil {
+		_ = d.acct.Close()
+		d.acct = nil
+	}
 }
 
 // Serve answers requests until Stop; it runs the scheduler too.
@@ -491,7 +520,27 @@ func (d *Daemon) scheduler(ctx context.Context) {
 			return
 		}
 		d.retryHeld()
+		d.checkHealth(ctx)
 		t.Reset(d.cfg.HeartbeatEvery)
+	}
+}
+
+// checkHealth rechecks each served route's proof files (stat-gated by the
+// hash cache) on its actor, so a policy changed while the route is idle
+// publishes its health event without waiting for a write (9.2).
+func (d *Daemon) checkHealth(ctx context.Context) {
+	d.mu.Lock()
+	routes := make([]*Route, 0, len(d.routes))
+	for _, r := range d.routes {
+		routes = append(routes, r)
+	}
+	d.mu.Unlock()
+	for _, r := range routes {
+		// A route busy with a long operation is checked on the next tick;
+		// the heartbeat never waits behind it.
+		rctx, cancel := context.WithTimeout(ctx, time.Second)
+		_ = r.do(rctx, func() *APIError { r.healthChanged(); return nil })
+		cancel()
 	}
 }
 
