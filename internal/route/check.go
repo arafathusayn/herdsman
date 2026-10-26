@@ -29,8 +29,13 @@ var (
 	openLine     = regexp.MustCompile(`^- \[ \] `)
 	closedLine   = regexp.MustCompile(`^- \[[x-]\] `)
 	nopaneLine   = regexp.MustCompile(`^- \[[ x]\] C3\.2 nopane: `)
-	separatorRow = regexp.MustCompile(`^\| *:?-+:? *\|`)
-	cellTrim     = regexp.MustCompile(`^ +| +$`)
+	// The adjutant rule's patterns, as route-check.sh greps them.
+	adjutantLine  = regexp.MustCompile(`(?i)^[^[:alnum:]]*adjutant:[[:space:]]*[^[:space:]]`)
+	noAdjutant    = regexp.MustCompile(`(?i)adjutant:[[:space:]]*(none|no|-)([[:space:]]|$)`)
+	questionsLine = regexp.MustCompile(`^[^[:alnum:]]*Questions: through the adjutant`)
+	adjLine       = regexp.MustCompile(`^- \[[ x]\] C2.13 adj: `)
+	separatorRow  = regexp.MustCompile(`^\| *:?-+:? *\|`)
+	cellTrim      = regexp.MustCompile(`^ +| +$`)
 )
 
 // section returns the lines under the first heading that starts with
@@ -245,6 +250,24 @@ func Check(dir, stage string, w io.Writer) int {
 			ok("run-check.sh executable")
 		} else {
 			missing("executable run-check.sh (C2.8 or a contract names it)")
+		}
+	}
+
+	// A route with an adjutant (an "Adjutant:" line whose value is not
+	// none) sends every question, gos included, through the adjutant: the
+	// route file records that in a "Questions: through the adjutant" line,
+	// and the checklist keeps C2.13 open or done (a dropped line does not
+	// count).
+	if slices.ContainsFunc(all, func(l string) bool { return adjutantLine.MatchString(l) && !noAdjutant.MatchString(l) }) {
+		if slices.ContainsFunc(all, questionsLine.MatchString) {
+			ok("questions through the adjutant (C2.13)")
+		} else {
+			missing(`a "Questions: through the adjutant" line in 00-route.md of a route with an adjutant (C2.13)`)
+		}
+		if slices.ContainsFunc(lines, adjLine.MatchString) {
+			ok("adjutant question line kept (C2.13)")
+		} else {
+			missing("the checklist line C2.13 adj, open or done, in a route with an adjutant")
 		}
 	}
 

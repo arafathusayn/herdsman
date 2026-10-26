@@ -398,3 +398,56 @@ func TestCheckDroppedRequirements(t *testing.T) {
 	out, _ = check(t, k2, StagePlan)
 	want(t, "an open line is a requirement", `^MISSING executable run-check.sh`, out)
 }
+
+// The K23 cases of PR 28's run-tests.sh (feat/adjutant-owns-questions): a
+// route with an adjutant records that every question, gos included, goes
+// through the adjutant, and keeps C2.13 open or done.
+func TestCheckAdjutantOwnsQuestions(t *testing.T) {
+	repo := krepo(t)
+	k2 := filepath.Join(repo, ".herdsman", "r2")
+	kadj := func(a, q string, checklist ...string) {
+		lines := []string{"# Route r2", "## Decisions", a}
+		if q != "" {
+			lines = append(lines, q)
+		}
+		lines = append(lines, "## Must prove", "## Task table", "| Task | Agent | Pane |", "| --- | --- | --- |", "| a | im-a | w1:p2 |", "## Checklist")
+		write(t, filepath.Join(k2, "00-route.md"), append(append(lines, checklist...), "## Run state")...)
+	}
+	const kadjLine = "- [ ] C2.13 adj: questions through the adjutant"
+	kadj("Adjutant: `front`, pane w1:p6", "Questions: through the adjutant (every question, gos included)", kadjLine)
+	out, rc := check(t, k2, StagePlan)
+	wantRC(t, "K23 (adj) an adjutant route that records its questions passes", rc, 0)
+	want(t, "K23b (adj) and says so", `^ok questions through the adjutant \(C2.13\)$`, out)
+	kadj("- Adjutant: `front`, pane w1:p6", "", kadjLine)
+	out, rc = check(t, k2, StagePlan)
+	want(t, "K23c (adj) an adjutant route without the Questions line is MISSING", `^MISSING a "Questions: through the adjutant" line`, out)
+	wantRC(t, "K23d (adj) and fails", rc, 1)
+	kadj("Adjutant: `front`, pane w1:p6", "Questions: through the adjutant", "- [-] C2.13 adj: questions through the adjutant -- not needed")
+	out, _ = check(t, k2, StagePlan)
+	want(t, "K23e (adj) an adjutant route cannot drop C2.13", `^MISSING the checklist line C2.13 adj`, out)
+	kadj("Adjutant: `front`, pane w1:p6", "Questions: through the adjutant", "- [x] C0.1 all: read guards -- done")
+	out, _ = check(t, k2, StagePlan)
+	want(t, "K23f (adj) nor leave it out", `^MISSING the checklist line C2.13 adj`, out)
+	kadj("Adjutant: none", "", "- [x] C0.1 all: read guards -- done")
+	out, rc = check(t, k2, StagePlan)
+	wantRC(t, "K23g (adj) a route without an adjutant needs neither", rc, 0)
+	notWant(t, "K23h (adj) and checks no adjutant line", `C2.13`, out)
+	for _, v := range []string{"no", "-", "NONE (solo route)"} {
+		kadj("Adjutant: "+v, "", "- [x] C0.1 all: read guards -- done")
+		out, rc = check(t, k2, StagePlan)
+		if rc != 0 || strings.Contains(out, "C2.13") {
+			t.Errorf("K23g (Go) Adjutant: %s: %d %q", v, rc, out)
+		}
+	}
+	// K23i: the skill's checklist carries the line route check requires.
+	// The checklist is PR 28's to change; until it merges into this branch
+	// the line is not there, and the case says so instead of failing.
+	b, err := os.ReadFile("../../skills/herdsman/references/checklist.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "C2.13") {
+		t.Skip("K23i: the skill's checklist has no C2.13 line before PR 28 merges")
+	}
+	want(t, "K23i (adj) the skill's checklist has the C2.13 adj line that route check requires", `^- \[ \] C2\.13 adj: .*Questions: through the adjutant`, string(b))
+}
