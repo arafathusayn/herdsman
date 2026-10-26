@@ -160,11 +160,27 @@ func queuedInChannel(e *Env, to, id string) bool {
 
 // queuedAnywhere reports whether id has an entry in one of to's queue
 // folders; a folder that cannot be checked counts as holding it.
+// Absence counts only under real folders: a mailbox or queue folder that
+// is missing, a link (dangling or not) or another file type is unclear and
+// counts as holding the entry (review 6).
 func queuedAnywhere(e *Env, to, id string) bool {
+	if !realDir(e.path(to)) {
+		return true
+	}
 	for _, s := range []string{"new", "ready", "cur", "quarantine"} {
-		if _, err := os.Lstat(e.path(to, s, id+".md")); !errors.Is(err, fs.ErrNotExist) {
+		q := e.path(to, s)
+		if !realDir(q) {
+			return true
+		}
+		if _, err := os.Lstat(filepath.Join(q, id+".md")); !errors.Is(err, fs.ErrNotExist) {
 			return true
 		}
 	}
 	return false
+}
+
+// realDir reports whether p is a folder itself, not a link to one.
+func realDir(p string) bool {
+	st, err := os.Lstat(p)
+	return err == nil && st.IsDir()
 }

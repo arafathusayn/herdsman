@@ -42,19 +42,21 @@ func (ch *Channel) ExposurePending() bool {
 }
 
 // FoldExposure publishes every waiting exposure; the caller owns the input
-// lock. An unreadable entry still counts as exposure; a pending path that
-// is not a real, readable folder is refused (the human inspects it).
+// lock. An unreadable entry still counts as exposure. A pending path that
+// cannot be inspected (a link, another file type, a folder that cannot be
+// read or searched, a failed listing) is published as a generic exposure
+// without agents and kept as it is, never followed: nothing that was not
+// read is removed, so the incident survives a retry after the path turns
+// clean (round 6, shell 160c070 fold_exposure).
 func (ch *Channel) FoldExposure() error {
 	if !ch.ExposurePending() {
 		return nil
 	}
 	d := ch.pendingDir()
-	if st, err := os.Lstat(d); err != nil || !st.IsDir() {
-		return &Fatal{Msg: "exposure-pending is not a folder; inspect it"}
-	}
-	ents, err := os.ReadDir(d)
-	if err != nil {
-		return &Fatal{Msg: "exposure-pending unreadable; inspect it"}
+	ents, inspectable := inspectPending(d)
+	if !inspectable {
+		_ = ch.LogLine("EXPOSURE pending path cannot be inspected; recorded and kept for the human")
+		return ch.publishWaiting(nil, 0)
 	}
 	agents := []Unknown{}
 	omitted := 0
@@ -78,13 +80,33 @@ func (ch *Channel) FoldExposure() error {
 			}
 		}
 	}
-	if !Exists(ch.Path("state", "boundary-tainted")) {
-		if err := ch.writeTaintedOmitted(agents, omitted); err != nil {
-			return &Fatal{Msg: "cannot publish the waiting exposure record"}
-		}
+	if err := ch.publishWaiting(agents, omitted); err != nil {
+		return err
 	}
 	for _, en := range ents {
 		_ = os.Remove(filepath.Join(d, en.Name()))
+	}
+	return nil
+}
+
+// inspectPending lists the pending folder d; false when it is not a real
+// folder that this process can read and search, or its listing fails.
+func inspectPending(d string) ([]os.DirEntry, bool) {
+	st, err := os.Lstat(d)
+	if err != nil || !st.IsDir() || st.Mode().Perm()&0o500 != 0o500 {
+		return nil, false
+	}
+	ents, err := os.ReadDir(d)
+	return ents, err == nil
+}
+
+// publishWaiting writes boundary-tainted unless one is already published.
+func (ch *Channel) publishWaiting(agents []Unknown, omitted int) error {
+	if Exists(ch.Path("state", "boundary-tainted")) {
+		return nil
+	}
+	if err := ch.writeTaintedOmitted(agents, omitted); err != nil {
+		return &Fatal{Msg: "cannot publish the waiting exposure record"}
 	}
 	return nil
 }
