@@ -332,7 +332,12 @@ class Shape {
     this.eager = eager.length > 0;
     this.handlers = handlers;
     this.delegates = delegated.length > 0;
-    this.findEager = eager.length === n ? t.locate : t.locator(eager);
+    // Hole paths hold only in the pristine clone: once a child hole puts
+    // content before its anchor, a path through that parent's children points
+    // at the wrong node. A view with child holes therefore locates every hole
+    // at mount, before any child content goes in; without child holes the
+    // clone's structure never changes, and the rest can wait.
+    this.findEager = eager.length === n || this.flags.includes(CHILD) ? t.locate : t.locator(eager);
     this.findWrite = write.length === n ? t.locate : t.locator(write);
     this.findDelegated = delegated.length === n ? t.locate : t.locator(delegated);
   }
