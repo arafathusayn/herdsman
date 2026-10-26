@@ -1,0 +1,6 @@
+{
+  // The browser checks: their own runner code and page scripts, on the app's settings.
+  "extends": "../tsconfig.json",
+  "include": ["."],
+  "exclude": ["node_modules"]
+}

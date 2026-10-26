@@ -3,7 +3,8 @@
 # Tools: Go (the version in go.mod's toolchain line) and Bun. Bun builds,
 # type-checks, formats and tests the web app; it is not needed at run time.
 # The web app has no package.json and no node_modules: Bun's own types come
-# from a global install (`make tools`).
+# from a global install (`make tools`). Only its browser checks (web/e2e) have
+# a package.json, for puppeteer-core, and they need Chrome or Chromium.
 
 BUN_TYPES_VERSION := 1.4.4
 STATICCHECK       := honnef.co/go/tools/cmd/staticcheck@v0.8.2
@@ -17,7 +18,7 @@ WEB_DIST    := internal/web/dist
 BUN_BUILD   := bun build ./index.html ./docs/index.html --outdir ../$(WEB_DIST) --minify \
                --entry-naming '[dir]/[name].[ext]' --asset-naming '[name].[ext]' --chunk-naming '[dir]/[name].[ext]'
 
-.PHONY: all tools web pages web-check web-fmt build check test lint vuln release-check clean
+.PHONY: all tools web pages web-check web-e2e web-fmt build check test lint vuln release-check clean
 
 all: check build
 
@@ -41,6 +42,13 @@ web-check:
 	cd web && bun check --no-pretty --typeRoots "$(BUN_GLOBAL)"
 	cd web && bun check --no-pretty -p tsconfig.strict.json --typeRoots "$(BUN_GLOBAL)"
 	cd web && bun test
+
+## web-e2e: the built app and its forms in headless Chrome (CHROME=path picks
+## the browser)
+web-e2e: web
+	cd web/e2e && bun install --frozen-lockfile
+	cd web && bun check --no-pretty -p e2e/tsconfig.json --typeRoots "$(BUN_GLOBAL)"
+	cd web/e2e && bun run e2e
 
 ## web-fmt: format the web app
 web-fmt:
