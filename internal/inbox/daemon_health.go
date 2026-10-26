@@ -77,5 +77,7 @@ func DaemonHeartbeatAge(dir string, now time.Time) int64 {
 	if err != nil || !st.Mode().IsRegular() {
 		return -1
 	}
-	return int64(now.Sub(st.ModTime()) / time.Second)
+	// A heartbeat written after the reader took its clock is fresh, not
+	// down: a live daemon's heartbeat is never older than a negative age.
+	return max(0, int64(now.Sub(st.ModTime())/time.Second))
 }
