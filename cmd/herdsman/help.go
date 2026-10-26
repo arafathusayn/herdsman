@@ -86,14 +86,20 @@ const gateHelp = `usage: herdsman approval-gate consume <go-file> <action> <targ
 Binds a relayed go to one effect: consume checks the go and records the
 request (CONSUME, DUPLICATE, RECONCILE or REFUSED lines); complete records
 its outcome (COMPLETED). --json prints each line as an Event object.
-HEALTH_AFTER (1 to 86400) and LOCK_WAIT (1 to 60) are strict settings.
+
+settings: HERDSMAN_INBOX (the inbox folder) and HERDSMAN_MESSAGES_DIR (the
+installed skill's scripts/messages folder, absolute; the setup proof must
+list its scripts) are required. HERDSMAN_PREFLIGHT names the setup proof,
+<inbox>/setup.json. HEALTH_AFTER (1 to 86400) and LOCK_WAIT (1 to 60) are
+strict settings. Herdr is reached through HERDR_SOCKET_PATH.
 
 exit codes:
   0  consumed or completed; act once
   1  refused: the go does not bind this effect
-  2  usage error, HERDSMAN_INBOX is not set, an invalid setting, or the
-     inbox cannot be used
-  3  a human must repeat the setup
+  2  usage error, HERDSMAN_INBOX or HERDSMAN_MESSAGES_DIR is not set, an
+     invalid setting, or the inbox cannot be used
+  3  a human must repeat the setup: the proof is missing, stale, or does
+     not list the scripts of HERDSMAN_MESSAGES_DIR
   4  a duplicate: the request already has an outcome
   5  reconcile: consumed without an outcome; inspect external state first
 `

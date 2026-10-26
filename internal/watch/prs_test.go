@@ -271,9 +271,6 @@ func TestPRViewHelpers(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(lines, want) {
 		t.Fatalf("lines %q %v", lines, err)
 	}
-	if got := added([]string{"a", "a", "b"}, []string{"a", "a", "a", "c"}); !reflect.DeepEqual(got, []string{"a", "c"}) {
-		t.Fatalf("added %q", got)
-	}
 	if jqCompare(map[string]any{}, []any{}) != 0 || jqCompare("a", "b") >= 0 {
 		t.Fatal("compare")
 	}
@@ -393,10 +390,14 @@ func TestAddedSinceTheSnapshotOnDisk(t *testing.T) {
 		return p
 	}
 	// The new snapshot is a sorted file too (A24: never held whole).
-	addedSince := func(old string, cur []string) []string {
+	since := func(old string, cur []string) []string {
 		p := filepath.Join(dir, "next.txt")
 		_ = os.WriteFile(p, []byte(strings.Join(cur, "\n")+"\n"), 0o644)
-		return addedSince(old, p)
+		got, err := addedSince(old, p)
+		if err != nil {
+			t.Fatalf("addedSince %s: %v", old, err)
+		}
+		return got
 	}
 	var old, cur []string
 	for i := 0; i < 5000; i++ {
@@ -404,17 +405,19 @@ func TestAddedSinceTheSnapshotOnDisk(t *testing.T) {
 	}
 	cur = append(append([]string{}, old...), "comment 005000 u", "comment 005001 u")
 	sort.Strings(cur)
-	got := addedSince(write(old...), cur)
+	got := since(write(old...), cur)
 	if len(got) != 2 || got[0] != "comment 005000 u" || got[1] != "comment 005001 u" {
 		t.Errorf("growing ids: %v", got)
 	}
-	if got := addedSince(write("a", "a", "b"), []string{"a", "a", "a", "b", "c"}); strings.Join(got, ",") != "a,c" {
+	if got := since(write("a", "a", "b"), []string{"a", "a", "a", "b", "c"}); strings.Join(got, ",") != "a,c" {
 		t.Errorf("repeats: %v", got)
 	}
-	if got := addedSince(write("b", "a"), []string{"a", "b", "c"}); strings.Join(got, ",") != "c" {
+	if got := since(write("b", "a"), []string{"a", "b", "c"}); strings.Join(got, ",") != "c" {
 		t.Errorf("an unsorted file: %v", got)
 	}
-	if got := addedSince(filepath.Join(dir, "none"), []string{"a"}); strings.Join(got, ",") != "a" {
+	// Review head-2: an old snapshot that cannot be read is an error, not
+	// "everything is new"; the watcher keeps a baseline only after a rename.
+	if got, err := addedSince(filepath.Join(dir, "none"), filepath.Join(dir, "next.txt")); err == nil {
 		t.Errorf("no file: %v", got)
 	}
 }
@@ -492,8 +495,8 @@ func TestUnsortedPriorSnapshotIsSortedOnce(t *testing.T) {
 	var m0, m1 runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&m0)
-	if got := addedSince(old, next); len(got) != 0 {
-		t.Fatalf("%d lines added, none new", len(got))
+	if got, err := addedSince(old, next); err != nil || len(got) != 0 {
+		t.Fatalf("%d lines added, none new: %v", len(got), err)
 	}
 	runtime.GC()
 	runtime.ReadMemStats(&m1)
@@ -510,7 +513,12 @@ func TestUnsortedPriorSnapshotIsSortedOnce(t *testing.T) {
 	}
 	// A growing history then adds only the new ids.
 	_ = os.WriteFile(next, []byte(strings.Join(append(sorted, "comment 99999999 u1"), "\n")+"\n"), 0o644)
-	if got := addedSince(old, next); len(got) != 1 || got[0] != "comment 99999999 u1" {
-		t.Errorf("growing ids: %v", got)
+	if got, err := addedSince(old, next); err != nil || len(got) != 1 || got[0] != "comment 99999999 u1" {
+		t.Errorf("growing ids: %v %v", got, err)
 	}
+}
+
+func readAll(p string) string {
+	b, _ := os.ReadFile(p)
+	return string(b)
 }

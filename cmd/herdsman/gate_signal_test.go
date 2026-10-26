@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,5 +94,23 @@ func TestGateSignalReleasesItsLocks(t *testing.T) {
 				t.Error("an interrupted gate recorded a consumption")
 			}
 		})
+	}
+}
+
+// PR #25 (P1): the gate's lock wait ends at once when its context ends
+// (a stopped gate), and otherwise waits the time given.
+func TestGateLockWaitEndsWithItsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sleep := ctxSleep(ctx)
+	start := time.Now()
+	sleep(5 * time.Millisecond)
+	if time.Since(start) < 5*time.Millisecond {
+		t.Error("a running gate's wait ended early")
+	}
+	cancel()
+	start = time.Now()
+	sleep(time.Hour)
+	if time.Since(start) > time.Second {
+		t.Error("a stopped gate's wait did not end at once")
 	}
 }

@@ -193,13 +193,7 @@ func Publish(c Config, hours string, stderr io.Writer) int {
 		if r := c.probe(); r != "" {
 			// The script ignored a failed write or rename (A26): checks then
 			// ran on a stale or missing reading while it went on.
-			tmp := c.Reading + "." + strconv.Itoa(os.Getpid())
-			err := os.WriteFile(tmp, []byte(r+"\n"), 0o644)
-			if err == nil {
-				err = os.Rename(tmp, c.Reading)
-			}
-			if err != nil {
-				_ = os.Remove(tmp)
+			if err := publishReading(c.Reading, r+"\n"); err != nil {
 				fmt.Fprintf(stderr, "run-check: NOT PUBLISHED (cannot write the reading %s: %v)\n", c.Reading, err)
 				return ExitPublish
 			}
@@ -208,6 +202,33 @@ func Publish(c Config, hours string, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stderr, "run-check: publisher stopped at %s; sandboxed checks now run without a load gate\n", c.Now().Format("15:04"))
 	return 0
+}
+
+// publishReading replaces the reading at path with text. The script wrote
+// a predictable <reading>.<pid> leaf, following a link already there and
+// truncating its target (A26); here the temporary file is new and
+// exclusive (O_CREATE|O_EXCL under a random name), gets the reading's
+// 0644 mode, and is renamed over the reading.
+func publishReading(path, text string) error {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	_, err = f.WriteString(text)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, 0o644)
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+	}
+	return err
 }
 
 // Run runs args as one check. It returns the check's exit code, or one of
@@ -321,14 +342,24 @@ func (c *Config) start(args []string, lock *os.File, stdin io.Reader, stdout, st
 	if lock != nil {
 		cmd.ExtraFiles = []*os.File{lock}
 	}
-	if nice {
-		// The child inherits this process's niceness: lower it by Nice
-		// first (the kernel caps it at its maximum), as `nice -n` does.
-		if cur, err := getNice(); err == nil {
-			_ = setNice(cur + c.Nice)
+	started := make(chan error, 1)
+	go func() {
+		// The child inherits the niceness of the thread that forks it:
+		// lower it by Nice first (the kernel caps it at its maximum), as
+		// `nice -n` does. Linux sets the priority of the calling thread
+		// only, so one locked thread lowers it and starts the child, and it
+		// is never unlocked: it ends with this goroutine instead of going
+		// back to the pool at the lower priority. Darwin lowers the whole
+		// process, as before.
+		runtime.LockOSThread()
+		if nice {
+			if cur, err := getNice(); err == nil {
+				_ = setNice(cur + c.Nice)
+			}
 		}
-	}
-	if err := cmd.Start(); err != nil {
+		started <- cmd.Start()
+	}()
+	if err := <-started; err != nil {
 		fmt.Fprintf(stderr, "run-check: %v\n", err)
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			return 127
