@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -54,11 +55,50 @@ type Gate struct {
 	Stdout  io.Writer
 	Stderr  io.Writer
 
-	root  *inbox.Root
-	ap    string
-	ctx   context.Context
-	mu    sync.Mutex // guards locks: a signal may release them
-	locks []*inbox.Lock
+	root    *inbox.Root
+	ap      string
+	ctx     context.Context
+	mu      sync.Mutex // guards locks, stopped and every state write
+	locks   []*inbox.Lock
+	stopped int // the exit code of a stop (128+signal), 0 while running
+
+	beforeWrite func(target string) // a test pauses here, before a write
+}
+
+// errStopped is the write a stopped gate refuses.
+var errStopped = errors.New("the gate was stopped")
+
+// Stop ends the run at its next write with the exit code given (128+signal),
+// as the scripts' traps end on a signal. It never frees a lock: the running
+// gate does that itself when Run returns, so no write can follow a freed
+// lock. The caller also ends the run's context, so a Herdr call or a lock
+// wait ends at once.
+func (g *Gate) Stop(code int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.stopped == 0 {
+		g.stopped = code
+	}
+}
+
+func (g *Gate) halted() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.stopped
+}
+
+// quiet drops a stopped gate's lines: after an interrupt it prints nothing
+// that could read as a result.
+type quiet struct {
+	g *Gate
+	w io.Writer
+}
+
+func (q quiet) Write(p []byte) (int, error) {
+	if q.g.halted() != 0 {
+		return len(p), nil
+	}
+	return q.w.Write(p)
 }
 
 func (g *Gate) hold(l *inbox.Lock) {
@@ -81,6 +121,7 @@ func (g *Gate) die(msg string) exit {
 }
 
 // Release frees every lock the run holds, as the script's exit trap does.
+// Run calls it when the run ends.
 func (g *Gate) Release() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -93,8 +134,13 @@ func (g *Gate) Release() {
 // Run runs the gate with the command's arguments and returns the exit code.
 func (g *Gate) Run(ctx context.Context, args []string) int {
 	g.ctx = ctx
+	g.Stdout, g.Stderr = quiet{g, g.Stdout}, quiet{g, g.Stderr}
 	defer g.Release()
-	return g.run(args).code
+	code := g.run(args).code
+	if s := g.halted(); s != 0 {
+		return s
+	}
+	return code
 }
 
 func (g *Gate) run(args []string) exit {
@@ -435,6 +481,16 @@ func jqRaw(v any) string {
 // atomic writes a state file as the scripts' atomic does: a temporary file
 // under state/, checked as strict JSON for a .json target, then renamed.
 func (g *Gate) atomic(target string, data []byte) error {
+	if g.beforeWrite != nil {
+		g.beforeWrite(target)
+	}
+	// A write and a stop exclude each other: once Stop returns, no write
+	// starts, and a write under way ends before Stop takes effect.
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.stopped != 0 {
+		return errStopped
+	}
 	if err := inbox.SafeLeaf(g.root.Dir, target); err != nil {
 		return err
 	}

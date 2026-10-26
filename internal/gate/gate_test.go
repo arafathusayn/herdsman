@@ -504,3 +504,60 @@ func TestGateRecordsFromTheRefusingCheck(t *testing.T) {
 		t.Error("XB4d nothing is consumed")
 	}
 }
+
+// PR #25 (P1): an interrupt during consume stops the gate at its next
+// write. The running gate frees its own locks; no record is written after
+// a stop, nothing panics, and the run ends 128+signal (130, 143, 129).
+func TestGateStopDuringConsume(t *testing.T) {
+	for _, code := range []int{130, 143, 129} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			r := newRig(t)
+			req := fmt.Sprintf("st%d", code)
+			r.gojson(req, 600, nil)
+			var out bytes.Buffer
+			o := r.c.Options(false)
+			o.Now = r.clock
+			o.Sleep = func(time.Duration) {}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			g := &Gate{Options: o, Client: r.hc, Stdout: &out, Stderr: &out}
+			paused, resume := make(chan struct{}, 1), make(chan struct{})
+			g.beforeWrite = func(target string) {
+				if filepath.Base(filepath.Dir(target)) == "consumed" {
+					paused <- struct{}{}
+					<-resume
+				}
+			}
+			done := make(chan int, 1)
+			go func() { done <- g.Run(ctx, []string{"consume", r.goFile(req), "post", "pr-comment", "head1", r.draft}) }()
+			select {
+			case <-paused:
+			case <-time.After(10 * time.Second):
+				t.Fatal("consume never reached its record write")
+			}
+			// Both locks are still held by the running gate.
+			for _, l := range []string{filepath.Join(r.apr, inbox.ActionLock), filepath.Join(r.c.Dir, inbox.MutationLock)} {
+				if !exists(l) {
+					t.Fatalf("%s was freed before the gate ended", l)
+				}
+			}
+			g.Stop(code)
+			cancel()
+			close(resume)
+			if got := <-done; got != code {
+				t.Errorf("exit %d, want %d", got, code)
+			}
+			if exists(r.consumed(req)) {
+				t.Error("a stopped gate recorded a consumption")
+			}
+			for _, l := range []string{filepath.Join(r.apr, inbox.ActionLock), filepath.Join(r.c.Dir, inbox.MutationLock)} {
+				if exists(l) {
+					t.Errorf("%s is left behind", l)
+				}
+			}
+			if strings.Contains(out.String(), "CONSUME") {
+				t.Errorf("a stopped gate printed %q", out.String())
+			}
+		})
+	}
+}

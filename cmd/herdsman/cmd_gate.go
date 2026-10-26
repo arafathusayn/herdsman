@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/arafathusayn/herdsman/internal/gate"
 	"github.com/arafathusayn/herdsman/internal/inbox"
@@ -60,9 +61,22 @@ func runGate(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "herdsman approval-gate: %v\n", settings.Missing("HERDSMAN_INBOX"))
 		return settings.ExitInvalid
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// A lock wait ends at once when the run is stopped.
+	opts.Sleep = func(d time.Duration) {
+		t := time.NewTimer(d)
+		defer t.Stop()
+		select {
+		case <-ctx.Done():
+		case <-t.C:
+		}
+	}
 	g := &gate.Gate{Options: opts, Client: herdrClient(), Stdout: stdout, Stderr: stderr}
 	// As the script's traps: an interrupted gate frees its locks and exits
-	// 130, 143 or 129.
+	// 130, 143 or 129. The running gate owns that cleanup: the signal only
+	// stops it at its next write and ends its context; Run then frees the
+	// locks on its own goroutine, so no write follows a freed lock.
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer close(sigs)
@@ -72,8 +86,8 @@ func runGate(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		if !ok {
 			return
 		}
-		g.Release()
-		os.Exit(128 + int(s.(syscall.Signal)))
+		g.Stop(128 + int(s.(syscall.Signal)))
+		cancel()
 	}()
-	return g.Run(context.Background(), args)
+	return g.Run(ctx, args)
 }
