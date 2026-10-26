@@ -1,6 +1,7 @@
 import { beforeAll, expect, test } from "bun:test";
 
-import { all, byName, type FakeElement, find, installDom } from "../testdom.ts";
+import { FakeElement, FakeEvent } from "../herdsman-blocks.testdom.ts";
+import { dispatch, installDom } from "../testdom.ts";
 import type { Catalog, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
 import type { Deps } from "./route-form.ts";
 
@@ -72,7 +73,7 @@ interface Harness {
 
 async function mountForm(answer?: Promise<RouteResult>): Promise<Harness> {
   const { routeForm } = await import("./route-form.ts");
-  const body = document.createElement("form") as unknown as FakeElement;
+  const placeholder = document.createElement("form");
   const h: Partial<Harness> = { sent: [], reads: [], debounce: [] };
   const deps: Deps = {
     createRoute: (r) => {
@@ -97,24 +98,58 @@ async function mountForm(answer?: Promise<RouteResult>): Promise<Harness> {
       return () => {};
     },
   };
-  const r = routeForm(body as unknown as HTMLElement, catalog, state, deps);
-  return { ...(h as Harness), body, form: r.form };
+  const r = routeForm(placeholder, catalog, state, deps);
+  return { ...(h as Harness), body: fake(r.el), form: r.form };
 }
 
+// The form is rendered from views, so its elements are the fake DOM's own
+// (attributes, no dataset or classList): these helpers read attributes.
+// A checked narrowing, not a cast: the fake document makes FakeElements.
+const fake = (n: unknown): FakeElement => {
+  if (!(n instanceof FakeElement)) throw new Error("not a fake element");
+  return n;
+};
+const all = (n: FakeElement): FakeElement[] => [
+  n,
+  ...n.childNodes.flatMap((c) => (c instanceof FakeElement ? all(c) : [])),
+];
+const find = (b: FakeElement, pred: (e: FakeElement) => boolean): FakeElement | undefined => all(b).find(pred);
+const byName = (b: FakeElement, name: string): FakeElement => {
+  const el = find(b, (e) => e.getAttribute("name") === name);
+  if (!el) throw new Error(`no element named ${name}`);
+  return el;
+};
+const hasClass = (e: FakeElement | undefined, c: string): boolean => !!e?.className.split(" ").includes(c);
+const valueOf = (e: FakeElement): unknown => e["value"];
 const type = (el: FakeElement, v: string): void => {
-  el.value = v;
-  el.dispatch("input");
+  el["value"] = v;
+  dispatch(el, "input");
 };
 const choose = (el: FakeElement, v: string): void => {
-  el.value = v;
-  el.dispatch("change");
+  el["value"] = v;
+  dispatch(el, "change");
 };
+// A submit by the Start button. testdom's dispatch() takes only its own
+// FakeElement as the submitter, and view-rendered elements are the base fake's,
+// so the test makes the event dispatch() would make, with this submitter.
+class SubmitEvent extends FakeEvent {
+  readonly submitter: FakeElement;
+  defaultPrevented = false;
+  constructor(submitter: FakeElement) {
+    super("submit");
+    this.submitter = submitter;
+  }
+  preventDefault(): void {
+    this.defaultPrevented = true;
+  }
+}
 const submit = (b: FakeElement): void => {
-  b.dispatch("submit", { submitter: byName(b, "start") });
+  b.dispatchEvent(new SubmitEvent(byName(b, "start")));
 };
 const errorOf = (b: FakeElement, name: string): string | undefined =>
-  find(b, (e) => e.dataset["error"] === name)?.textContent;
-const box = (b: FakeElement, name: string): FakeElement | undefined => find(b, (e) => e.dataset["field"] === name);
+  find(b, (e) => e.getAttribute("data-error") === name)?.textContent;
+const box = (b: FakeElement, name: string): FakeElement | undefined =>
+  find(b, (e) => e.getAttribute("data-field") === name);
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const inbox = (over: Partial<InboxState> = {}): InboxState => ({
   path: "/Users/me/x",
@@ -129,8 +164,8 @@ const inbox = (over: Partial<InboxState> = {}): InboxState => ({
 });
 const items = (b: FakeElement) =>
   all(b)
-    .filter((e) => e.dataset["item"] !== undefined)
-    .map((e) => ({ text: e.textContent, done: e.classList.contains("done") }));
+    .filter((e) => e.getAttribute("data-item") !== null)
+    .map((e) => ({ text: e.textContent, done: hasClass(e, "done") }));
 
 test("each checkpointer bound refusal shows its own message and marks the group", async () => {
   for (const [field, value, message] of [
@@ -144,15 +179,15 @@ test("each checkpointer bound refusal shows its own message and marks the group"
     submit(f.body);
     expect(f.sent).toEqual([]);
     expect(errorOf(f.body, field)).toBe(message);
-    expect(byName(f.body, field).classList.contains("invalid")).toBe(true);
-    expect(byName(f.body, field === "minutes" ? "limit" : "minutes").classList.contains("invalid")).toBe(false);
-    expect(box(f.body, "checkpointer")?.classList.contains("invalid")).toBe(true);
+    expect(hasClass(byName(f.body, field), "invalid")).toBe(true);
+    expect(hasClass(byName(f.body, field === "minutes" ? "limit" : "minutes"), "invalid")).toBe(false);
+    expect(hasClass(box(f.body, "checkpointer"), "invalid")).toBe(true);
     // Typing elsewhere keeps the message; fixing the field clears it.
     type(byName(f.body, "request"), "go");
     expect(errorOf(f.body, field)).toBe(message);
     type(byName(f.body, field), field === "minutes" ? "15" : "250k");
     expect(errorOf(f.body, field)).toBeUndefined();
-    expect(box(f.body, "checkpointer")?.classList.contains("invalid")).toBe(false);
+    expect(hasClass(box(f.body, "checkpointer"), "invalid")).toBe(false);
   }
 });
 
@@ -165,12 +200,12 @@ test("both checkpointer messages show together, and a fixed one leaves the other
   expect(errorOf(f.body, "limit")).toContain("50k to 2m");
   type(byName(f.body, "minutes"), "15");
   expect(errorOf(f.body, "limit")).toContain("50k to 2m");
-  expect(box(f.body, "checkpointer")?.classList.contains("invalid")).toBe(true);
+  expect(hasClass(box(f.body, "checkpointer"), "invalid")).toBe(true);
 });
 
 test("the orchestrator's harness follows the adjutant's until edited", async () => {
   const f = await mountForm();
-  byName(f.body, "role-adjutant").dispatch("click");
+  dispatch(byName(f.body, "role-adjutant"), "click");
   choose(byName(f.body, "main-kind"), "codex");
   expect(f.form().orch).toEqual({ kind: "codex", model: "gpt-5.6-luna", other: "", effort: "medium" });
   choose(byName(f.body, "main-effort"), "xhigh");
@@ -189,13 +224,13 @@ test("a choice made before the role switch carries to the orchestrator", async (
   const f = await mountForm();
   choose(byName(f.body, "main-model"), "sonnet");
   choose(byName(f.body, "main-effort"), "high");
-  byName(f.body, "role-adjutant").dispatch("click");
+  dispatch(byName(f.body, "role-adjutant"), "click");
   expect(f.form().orch).toEqual({ kind: "claude", model: "sonnet", other: "", effort: "high" });
 });
 
 test("the checklist follows the inbox and names as they are typed, and drops outdated replies", async () => {
   const f = await mountForm();
-  byName(f.body, "role-adjutant").dispatch("click");
+  dispatch(byName(f.body, "role-adjutant"), "click");
   const a = f.reads.at(-1)!;
   type(byName(f.body, "inbox"), "~/inbox-b");
   // The commands change at once, before any reread.
@@ -221,7 +256,7 @@ test("the checklist follows the inbox and names as they are typed, and drops out
 
 test("an approval that is not current for this pair is not shown as done", async () => {
   const f = await mountForm();
-  byName(f.body, "role-adjutant").dispatch("click");
+  dispatch(byName(f.body, "role-adjutant"), "click");
   f.reads.at(-1)!.resolve(
     inbox({
       approved: ["adj-1 (adjutant)", "orch-1 (orchestrator)"],
@@ -241,7 +276,7 @@ test("edits made while a route is being created do not change what the result an
     finish = r;
   });
   const f = await mountForm(answer);
-  byName(f.body, "role-adjutant").dispatch("click");
+  dispatch(byName(f.body, "role-adjutant"), "click");
   type(byName(f.body, "orchName"), "orch-2");
   type(byName(f.body, "inbox"), "~/inbox-a");
   submit(f.body);
@@ -270,13 +305,13 @@ test("edits made while a route is being created do not change what the result an
 
 test("a typed model id the orchestrator inherits shows in its own input and is what is sent", async () => {
   const f = await mountForm();
-  byName(f.body, "role-adjutant").dispatch("click");
+  dispatch(byName(f.body, "role-adjutant"), "click");
   choose(byName(f.body, "main-model"), "__other__");
   type(byName(f.body, "main-other"), "claude-a");
   choose(byName(f.body, "main-effort"), "high"); // redraws the orchestrator's fields
-  expect(byName(f.body, "orch-other").value).toBe("claude-a");
+  expect(valueOf(byName(f.body, "orch-other"))).toBe("claude-a");
   type(byName(f.body, "main-other"), "claude-b");
-  expect(byName(f.body, "orch-other").value).toBe("claude-b");
+  expect(valueOf(byName(f.body, "orch-other"))).toBe("claude-b");
   type(byName(f.body, "orchName"), "orch-2");
   submit(f.body);
   expect([f.sent[0]?.model, f.sent[0]?.orch_model]).toEqual(["claude-b", "claude-b"]);
@@ -284,17 +319,51 @@ test("a typed model id the orchestrator inherits shows in its own input and is w
 
 test("a free-text model the orchestrator inherits shows in its own input and is what is sent", async () => {
   const f = await mountForm();
-  byName(f.body, "role-adjutant").dispatch("click");
+  dispatch(byName(f.body, "role-adjutant"), "click");
   choose(byName(f.body, "main-kind"), "pi");
   type(byName(f.body, "main-model"), "m-a");
-  expect(byName(f.body, "orch-model").value).toBe("m-a");
+  expect(valueOf(byName(f.body, "orch-model"))).toBe("m-a");
   type(byName(f.body, "main-model"), "m-b");
-  expect(byName(f.body, "orch-model").value).toBe("m-b");
+  expect(valueOf(byName(f.body, "orch-model"))).toBe("m-b");
   // Once the orchestrator's own model is typed, it no longer follows.
   type(byName(f.body, "orch-model"), "own");
   type(byName(f.body, "main-model"), "m-c");
-  expect(byName(f.body, "orch-model").value).toBe("own");
+  expect(valueOf(byName(f.body, "orch-model"))).toBe("own");
   type(byName(f.body, "orchName"), "orch-2");
   submit(f.body);
   expect([f.sent[0]?.model, f.sent[0]?.orch_model]).toEqual(["m-c", "own"]);
+});
+
+test("typing keeps every control's node, and the inbox follows the folder until edited", async () => {
+  const f = await mountForm();
+  dispatch(byName(f.body, "role-adjutant"), "click");
+  const names = ["folder", "name", "orchName", "routeName", "inbox", "request", "minutes", "limit", "main-kind"];
+  const before = names.map((n) => byName(f.body, n));
+  type(byName(f.body, "folder"), "/r/proj");
+  type(byName(f.body, "request"), "do it");
+  expect(names.map((n) => byName(f.body, n))).toEqual(before);
+  for (const [i, n] of names.entries()) expect(byName(f.body, n)).toBe(before[i]!);
+  expect(valueOf(byName(f.body, "folder"))).toBe("/r/proj");
+  expect(valueOf(byName(f.body, "inbox"))).toBe(f.form().inbox);
+  expect(f.form().inbox).toContain("proj");
+  type(byName(f.body, "inbox"), "~/mine");
+  type(byName(f.body, "folder"), "/r/other");
+  expect(valueOf(byName(f.body, "inbox"))).toBe("~/mine");
+  // Switching back to the orchestrator role keeps the fields both roles share.
+  dispatch(byName(f.body, "role-orchestrator"), "click");
+  expect(byName(f.body, "folder")).toBe(before[0]!);
+  expect(byName(f.body, "name")).toBe(before[1]!);
+  expect(byName(f.body, "request")).toBe(before[5]!);
+  expect(() => byName(f.body, "inbox")).toThrow();
+});
+
+test("an edit made while the route starts is undone in the control", async () => {
+  const f = await mountForm(new Promise<RouteResult>(() => {}));
+  type(byName(f.body, "folder"), "/r/repo");
+  submit(f.body);
+  expect(f.sent.length).toBe(1);
+  expect(byName(f.body, "start").getAttribute("disabled")).toBe("");
+  type(byName(f.body, "request"), "late");
+  expect(valueOf(byName(f.body, "request"))).toBe("");
+  expect(f.form().request).toBe("");
 });
