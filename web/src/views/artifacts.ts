@@ -1,6 +1,7 @@
-// Artifacts: the HTML pages agents leave in the session's folders (reports,
-// review pages, plans), listed like the Docs tab and shown in a sandboxed
-// frame. The list refreshes while the tab shows.
+// Artifacts: the HTML pages agents leave in a route's workspace folders
+// (reports, review pages, plans), listed like the Docs tab and shown in a
+// sandboxed frame. The list refreshes while the tab shows. A view belongs to
+// one route, so it never shows another route's list.
 import { listArtifacts, openArtifact } from "../api.ts";
 import { h, icon, icons, mount } from "../dom.ts";
 import { fuzzy, highlight } from "../fuzzy.ts";
@@ -14,7 +15,7 @@ const refreshEvery = 5000;
 /** An artifact's full path, the key the URL keeps. */
 export const artifactPath = (a: Artifact): string => `${a.root}/${a.path}`;
 
-/** A session folder as the list names it: its last two parts. */
+/** A workspace folder as the list names it: its last two parts. */
 export function rootLabel(root: string): string {
   const parts = root.split("/").filter(Boolean);
   return parts.slice(-2).join("/") || "/";
@@ -55,7 +56,7 @@ export class ArtifactsView {
   private run = 0;
   private readonly open = new Map<string, boolean>();
 
-  constructor() {
+  constructor(readonly routeId: string) {
     this.search.addEventListener("input", () => {
       this.active = 0;
       this.renderList();
@@ -111,7 +112,7 @@ export class ArtifactsView {
 
   private async load(): Promise<void> {
     try {
-      const l = await listArtifacts();
+      const l = await listArtifacts(this.routeId);
       const before = JSON.stringify(this.items);
       this.items = l.artifacts ?? [];
       const recovered = this.error !== "";
@@ -218,7 +219,7 @@ export class ArtifactsView {
         h(
           "p",
           { class: "file-empty" },
-          "No HTML pages in the session's folders yet. Pages agents write (for example under .lavish/ or reports/) show here.",
+          "No HTML pages in this route's workspace folders yet. Pages agents write (for example under .lavish/ or reports/) show here.",
         ),
       );
       return;
@@ -258,7 +259,9 @@ export class ArtifactsView {
         h(
           "p",
           { class: "muted artifact-empty" },
-          this.loaded && this.selected ? "This page is no longer in the session's folders." : "Pick a page to show it.",
+          this.loaded && this.selected
+            ? "This page is no longer in the route's workspace folders."
+            : "Pick a page to show it.",
         ),
       );
       this.shownKey = "";
@@ -323,7 +326,7 @@ export class ArtifactsView {
     if (key === this.shownKey) return;
     this.shownKey = key;
     mount(this.viewerBody, h("p", { class: "muted" }, "Loading…"));
-    openArtifact(a.root, a.path)
+    openArtifact(this.routeId, a.root, a.path)
       .then((url) => {
         if (this.shownKey !== key) return;
         this.frameUrl = url;
