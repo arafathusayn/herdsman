@@ -19,7 +19,7 @@
 
 import { type Hole, html as blocks, type Key, List, slot, type Template, type ValuesOf } from "./herdsman-blocks.ts";
 
-export { attr, cls, type Key, prop, text } from "./herdsman-blocks.ts";
+export { attr, cls, type Key, on, prop, text } from "./herdsman-blocks.ts";
 
 declare const VIEW_NODE: unique symbol;
 declare const LIST_NODE: unique symbol;

@@ -4,7 +4,7 @@
 // no-op when the value is unchanged), and List for keyed reconciliation. No
 // fresh tree is built per render and nothing is morphed.
 
-import { type Block, html, List, type ListOptions, type Template, attr, cls, prop, text } from "../../../../web/src/herdsman-blocks.ts";
+import { type Block, html, List, type ListOptions, type Template, attr, cls, on, text } from "../../../../web/src/herdsman-blocks.ts";
 import { start } from "../../shared/driver.ts";
 import {
   type Check,
@@ -29,8 +29,8 @@ type Click = ((this: HTMLElement) => void) | null;
 // per shape; holes are positional, so each shape lists its holes in order.
 // ---------------------------------------------------------------------------
 
-const CardTask = html`<button class=${cls()} title=${attr()} data-pane=${attr()} onclick=${prop<Click>()}><div class="card-top"><span class="card-title">${text()}</span><span class=${cls()}><span class="dot" aria-hidden="true"></span>${text()}</span></div><div class="card-task">${text()}</div><div class="card-sub">${text()}</div><div class="card-foot"><code>${text()}</code><span class="muted">${text()}</span><span class="muted clip" title=${attr()}>${text()}</span></div></button>`;
-const CardPlain = html`<button class=${cls()} title=${attr()} data-pane=${attr()} onclick=${prop<Click>()}><div class="card-top"><span class="card-title">${text()}</span><span class=${cls()}><span class="dot" aria-hidden="true"></span>${text()}</span></div><div class="card-sub">${text()}</div><div class="card-foot"><code>${text()}</code><span class="muted">${text()}</span><span class="muted clip" title=${attr()}>${text()}</span></div></button>`;
+const CardTask = html`<button class=${cls()} title=${attr()} data-pane=${attr()} onclick=${on<"click">()}><div class="card-top"><span class="card-title">${text()}</span><span class=${cls()}><span class="dot" aria-hidden="true"></span>${text()}</span></div><div class="card-task">${text()}</div><div class="card-sub">${text()}</div><div class="card-foot"><code>${text()}</code><span class="muted">${text()}</span><span class="muted clip" title=${attr()}>${text()}</span></div></button>`;
+const CardPlain = html`<button class=${cls()} title=${attr()} data-pane=${attr()} onclick=${on<"click">()}><div class="card-top"><span class="card-title">${text()}</span><span class=${cls()}><span class="dot" aria-hidden="true"></span>${text()}</span></div><div class="card-sub">${text()}</div><div class="card-foot"><code>${text()}</code><span class="muted">${text()}</span><span class="muted clip" title=${attr()}>${text()}</span></div></button>`;
 const LaneT = html`<section class=${cls()} aria-label=${attr()}><h2><span class="lane-dot" aria-hidden="true"></span>${text()}<span class="count">${text<number>()}</span></h2></section>`;
 const NoneT = html`<p class="lane-empty">None</p>`;
 const Board = html`<div class="team"><div class="kanban"></div></div>`;

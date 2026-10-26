@@ -4,7 +4,7 @@
 // keyed lists are list(), handlers are fresh closures (stored indirectly, so a
 // new one costs no DOM write). No hand-written per-hole updates.
 
-import { attr, child, cls, html, list, prop, render, text, type ViewNode } from "../../../../web/src/herdsman-blocks-view.ts";
+import { attr, child, cls, html, list, on, render, text, type ViewNode } from "../../../../web/src/herdsman-blocks-view.ts";
 import { start } from "../../shared/driver.ts";
 import {
   type Check,
@@ -36,7 +36,7 @@ const strong = (who: string | null): ViewNode | null => (who !== null ? Strong([
 const Team = html`<div class="team"><div class="kanban">${child()}</div></div>`;
 const LaneV = html`<section class=${cls()} aria-label=${attr()}><h2><span class="lane-dot" aria-hidden="true"></span>${text()}<span class="count">${text<number>()}</span></h2>${child()}</section>`;
 const None = html`<p class="lane-empty">None</p>`;
-const Card = html`<button class=${cls()} title=${attr()} data-pane=${attr()} onclick=${prop<() => void>()}><div class="card-top"><span class="card-title">${text()}</span>${child()}</div>${child()}<div class="card-sub">${text()}</div><div class="card-foot"><code>${text()}</code><span class="muted">${text()}</span><span class="muted clip" title=${attr()}>${text()}</span></div></button>`;
+const Card = html`<button class=${cls()} title=${attr()} data-pane=${attr()} onclick=${on<"click">()}><div class="card-top"><span class="card-title">${text()}</span>${child()}</div>${child()}<div class="card-sub">${text()}</div><div class="card-foot"><code>${text()}</code><span class="muted">${text()}</span><span class="muted clip" title=${attr()}>${text()}</span></div></button>`;
 const Task = html`<div class="card-task">${text()}</div>`;
 
 function card(m: Member, selected: boolean, onSelect: (pane: string) => void): ViewNode {

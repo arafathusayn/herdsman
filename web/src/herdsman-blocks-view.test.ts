@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { child, cls, html, list, prop, render, text, type ViewNode } from "./herdsman-blocks-view.ts";
+import { child, cls, html, list, on, prop, render, text, type ViewNode } from "./herdsman-blocks-view.ts";
 import {
   asDom,
   type FakeElement,
@@ -232,9 +232,11 @@ describe("keyed lists", () => {
 });
 
 describe("events and form state", () => {
-  type Handler = (this: HTMLElement, e: Event) => void;
   const Field = html`<label
-    >${text()}<input class=${cls()} .value=${prop<string>()} oninput=${prop<Handler | null>()}
+    >${text()}<input
+      class=${cls()}
+      .value=${prop<HTMLInputElement, "value">()}
+      oninput=${on<"input", HTMLInputElement>()}
   /></label>`;
 
   test("a new handler each render costs no DOM write and the latest one runs", () => {
