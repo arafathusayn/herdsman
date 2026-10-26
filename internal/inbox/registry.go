@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -300,9 +299,8 @@ func (r *Root) BoundaryOK(ctx context.Context, c *herdr.Client) (bool, string, [
 	if Exists(r.Path("state", "boundary-tainted")) {
 		return false, FaultStatic, nil
 	}
-	pb, _ := os.ReadFile(r.Path("peers.approved"))
-	pair, _ := Decode(pb)
-	pb2, _ := os.ReadFile(r.Preflight)
+	pair, _ := Decode(readState(r.Path("peers.approved")))
+	pb2 := readState(r.Preflight)
 	pv, _ := Decode(pb2)
 	b := Object(Object(pv)["boundary"])
 	if !boundaryFields(b, pair) {

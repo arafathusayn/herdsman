@@ -322,8 +322,8 @@ func isDir(p string) bool {
 }
 
 func sameBytes(a, b string) bool {
-	x, err1 := os.ReadFile(a)
-	y, err2 := os.ReadFile(b)
+	x, err1 := inbox.ReadFile(a)
+	y, err2 := inbox.ReadFile(b)
 	return err1 == nil && err2 == nil && bytes.Equal(x, y)
 }
 
@@ -608,7 +608,7 @@ func readCount(s string) (string, int64) {
 func registrySummary(paths ...string) string {
 	var out []byte
 	for _, p := range paths {
-		b, err := os.ReadFile(p)
+		b, err := inbox.ReadFile(p)
 		if err != nil {
 			return "unavailable"
 		}

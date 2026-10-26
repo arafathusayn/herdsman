@@ -325,7 +325,7 @@ func sortedCompact(v any) string {
 
 // decodeFile reads and decodes a JSON file (no checks; callers check).
 func decodeFile(p string) (any, error) {
-	b, err := os.ReadFile(p)
+	b, err := inbox.ReadFile(p)
 	if err != nil {
 		return nil, err
 	}

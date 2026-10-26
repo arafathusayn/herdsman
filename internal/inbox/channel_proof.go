@@ -161,9 +161,9 @@ func DigestReader(rd io.Reader) (string, error) {
 	return strconv.FormatUint(uint64(^crc), 10) + "-" + strconv.FormatInt(n, 10), nil
 }
 
-// DigestFileFast is DigestReader of a file.
+// DigestFileFast is DigestReader of a regular file that is not a link.
 func DigestFileFast(p string) (string, error) {
-	f, err := os.Open(p)
+	f, err := openRegular(p, false)
 	if err != nil {
 		return "", err
 	}
@@ -196,9 +196,8 @@ func (ch *Channel) Boundary(ctx context.Context, c *herdr.Client) (bool, string,
 		}
 		return false, FaultPending, nil
 	}
-	pb, _ := os.ReadFile(r.Path("peers.approved"))
-	pair, _ := Decode(pb)
-	pb2, _ := os.ReadFile(r.Preflight)
+	pair, _ := Decode(readState(r.Path("peers.approved")))
+	pb2 := readState(r.Preflight)
 	pv, _ := Decode(pb2)
 	b := Object(Object(pv)["boundary"])
 	if !boundaryFields(b, pair) {
