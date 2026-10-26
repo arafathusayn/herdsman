@@ -352,3 +352,37 @@ func TestExpiredApproveLeavesNothing(t *testing.T) {
 	x.r.stop()
 	x.open()
 }
+
+// TestCancelledRequestOutlivesItsEffect: a request cancelled after its
+// operation started waits for the operation's effect before it answers,
+// so the input lock its handler holds is released only after the write
+// (3.7); one cancelled while queued is withdrawn and never runs.
+func TestCancelledRequestOutlivesItsEffect(t *testing.T) {
+	x := newPairRoute(t)
+	x.r.start()
+	defer func() { x.r.stop(); x.open() }()
+	started, release := make(chan struct{}), make(chan struct{})
+	wrote := false
+	ctx, cancel := context.WithCancel(context.Background())
+	answered := make(chan *APIError, 1)
+	go func() {
+		answered <- x.r.do(ctx, func() *APIError {
+			close(started)
+			<-release
+			wrote = true
+			return nil
+		})
+	}()
+	<-started
+	cancel()
+	select {
+	case e := <-answered:
+		close(release)
+		t.Fatalf("the request answered (%v) while its effect was still running", e)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	if e := <-answered; e != nil || !wrote {
+		t.Fatalf("after the effect: %v %v", e, wrote)
+	}
+}

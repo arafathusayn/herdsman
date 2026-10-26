@@ -218,7 +218,15 @@ func (r *Route) closeFiles() {
 // (503); a panic in fn is recovered, counted and answered internal (3.2).
 func (r *Route) do(ctx context.Context, fn func() *APIError) *APIError {
 	done := make(chan *APIError, 1)
+	// state: 0 queued, 1 started, 2 withdrawn. A request that gives up
+	// withdraws its operation only while it is still queued; once started,
+	// the request waits for the effect, so whatever the caller holds for
+	// it (the shared input lock) outlives the effect (3.7).
+	var state atomic.Int32
 	op := func() {
+		if !state.CompareAndSwap(0, 1) {
+			return // withdrawn: the request already answered busy
+		}
 		defer func() {
 			if p := recover(); p != nil {
 				if _, ok := p.(crashSignal); ok {
@@ -229,11 +237,6 @@ func (r *Route) do(ctx context.Context, fn func() *APIError) *APIError {
 				done <- Errf("internal", "the route's operation failed; see the daemon log")
 			}
 		}()
-		// Work whose request expired while it waited is never started.
-		if ctx.Err() != nil {
-			done <- Errf("busy", "request cancelled before it ran; retry")
-			return
-		}
 		done <- r.runOp(fn)
 	}
 	select {
@@ -245,12 +248,16 @@ func (r *Route) do(ctx context.Context, fn func() *APIError) *APIError {
 	case e := <-done:
 		return e
 	case <-r.quit:
-		return Errf("busy", "route %s is stopping; retry", r.name)
+		if state.CompareAndSwap(0, 2) {
+			return Errf("busy", "route %s is stopping; retry", r.name)
+		}
 	case <-ctx.Done():
-		// The operation still runs to its end on the actor; only the
-		// answer is lost, and the client retries with its key.
-		return Errf("busy", "request cancelled")
+		if state.CompareAndSwap(0, 2) {
+			return Errf("busy", "request cancelled before it ran; retry")
+		}
 	}
+	// The operation started: its effect completes before the answer.
+	return <-done
 }
 
 // runOp is one operation's turn on the actor: refused on a degraded or
