@@ -124,8 +124,7 @@ func (s *Supervisor) remaining() time.Duration {
 func (s *Supervisor) exec(name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.remaining())
 	defer cancel()
-	_ = ctx
-	out, err := exec.Command(name, args...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("%s %s: %v: %s", name, strings.Join(args, " "), err, bytes.TrimSpace(out))
 	}

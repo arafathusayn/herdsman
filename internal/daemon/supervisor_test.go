@@ -400,7 +400,7 @@ func TestStopReportsManagerErrors(t *testing.T) {
 func TestLifecycleDeadline(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{"launchctl", "systemctl"} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexec sleep 30\n"), 0o700); err != nil {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexec /bin/sleep 30\n"), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
