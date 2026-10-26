@@ -4,7 +4,7 @@ import { h, icon, icons, unkeyed } from "./dom.ts";
 import { highlight } from "./fuzzy.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import { type Command, openPalette, paletteOpen } from "./palette.ts";
-import { dispatch } from "./testdom.ts";
+import { dispatch, dump, FakeEvent } from "./testdom.ts";
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
 const g = globalThis as unknown as { document: Record<string, unknown> };
@@ -40,16 +40,11 @@ afterEach(() => {
   for (const k in stubs) delete proto[k];
 });
 
-const dump = (n: FakeNode): string => {
-  if (n.nodeType === 3) return n.textContent;
-  if (n.nodeType !== 1) return "";
-  const e = fake(n);
-  const attrs = e.attributes
-    .filter((a) => a.name !== "data-key")
-    .map((a) => `${a.name}="${a.value}"`)
-    .sort()
-    .join(" ");
-  return `<${e.tagName.toLowerCase()} ${attrs}>${e.childNodes.map(dump).join("")}</${e.tagName.toLowerCase()}>`;
+// testdom.ts's dispatch() carries no key, so a key press is its event with one.
+const press = (el: FakeElement, key: string): void => {
+  const e = new FakeEvent("keydown");
+  Object.assign(e, { key });
+  el.dispatchEvent(e);
 };
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 
@@ -149,7 +144,7 @@ test("palette: markup of the h() version, filtering and moving keep row nodes, a
   const [rowA, rowB, rowC] = elements(listbox);
 
   // Moving the selection patches the rows in place.
-  dispatch(input, "keydown", { key: "ArrowDown" } as never);
+  press(input, "ArrowDown");
   expect(dump(dlg)).toBe(dump(fake(oldPalette(all, 1))));
   expect(elements(listbox)).toEqual([rowA!, rowB!, rowC!]);
   dispatch(rowC!, "mousemove");
@@ -167,13 +162,13 @@ test("palette: markup of the h() version, filtering and moving keep row nodes, a
   // A command that asks turns the box into an input; Esc goes back.
   input["value"] = "prompt";
   dispatch(input, "input");
-  dispatch(input, "keydown", { key: "Enter" } as never);
+  press(input, "Enter");
   const rows = elements(listbox);
   expect(input["placeholder"]).toBe("What to do");
   expect(elements(dlg)[1]!.className).toBe("palette-ask on");
   expect(listbox.hasAttribute("hidden")).toBe(true);
   expect(elements(listbox)).toEqual(rows); // kept, hidden
-  dispatch(input, "keydown", { key: "Escape" } as never);
+  press(input, "Escape");
   expect(dump(dlg)).toBe(
     dump(fake(oldPalette(all, 0, { placeholder: "Search agents, routes and files, or type > for commands" }))),
   );
@@ -183,7 +178,7 @@ test("palette: markup of the h() version, filtering and moving keep row nodes, a
   dispatch(input, "input");
   dispatch(rowC!, "click");
   input["value"] = "fix the tests";
-  dispatch(input, "keydown", { key: "Enter" } as never);
+  press(input, "Enter");
   expect(sent).toEqual(["fix the tests"]);
   expect(paletteOpen()).toBe(false);
   expect(elements(body)).toEqual([]);

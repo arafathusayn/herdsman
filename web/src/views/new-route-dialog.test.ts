@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { h } from "../dom.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
-import { dispatch } from "../testdom.ts";
+import { dispatch, dump } from "../testdom.ts";
 
 // The store reads the URL and listens for history changes when it loads.
 const g = globalThis as unknown as Record<string, unknown>;
@@ -38,17 +38,6 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-const dump = (n: FakeNode): string => {
-  if (n.nodeType === 3) return n.textContent;
-  if (n.nodeType !== 1) return "";
-  const e = fake(n);
-  const attrs = e.attributes
-    .filter((a) => a.name !== "data-key")
-    .map((a) => `${a.name}="${a.value}"`)
-    .sort()
-    .join(" ");
-  return `<${e.tagName.toLowerCase()} ${attrs}>${e.childNodes.map(dump).join("")}</${e.tagName.toLowerCase()}>`;
-};
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 
 // The old h() dialog, with the form's method property written as the

@@ -2,8 +2,8 @@
 // finds agents, routes and files and runs every action. A leading ">" shows
 // only commands, "@" only agents and "#" only files. A command that needs
 // text (a prompt) turns the box into an input for that text.
-import { h, icon, type IconNode, icons, mountElement } from "./dom.ts";
-import { fuzzy, highlight } from "./fuzzy.ts";
+import { icon, type IconNode, icons, mountElement } from "./dom.ts";
+import { fuzzy, highlight, type HighlightNode } from "./fuzzy.ts";
 import {
   attr,
   child,
@@ -66,11 +66,9 @@ const SearchInput = html`<input
   onkeydown=${on<"keydown", HTMLInputElement>()}
 />`;
 
-const Title = html`<span class="palette-title">${text()}</span>`;
 const Detail = html`<span class="palette-detail">${text()}</span>`;
 const Keys = html`<kbd>${text()}</kbd>`;
-// A row's title with the matched letters marked comes from fuzzy.ts's
-// highlight(), which still builds nodes with h(); a title without marks is a view.
+// prettier-ignore
 const Row = html`<div
   id=${attr()}
   class=${cls()}
@@ -80,7 +78,7 @@ const Row = html`<div
   onmousedown=${on<"mousedown">()}
   onclick=${on<"click">()}
 >
-  ${child<IconNode>()}${child<ViewNodeOf<typeof Title> | HTMLElement>()}${child<ViewNodeOf<typeof Detail> | null>()}${child<ViewNodeOf<typeof Keys> | null>()}
+  ${child<IconNode>()}<span class="palette-title">${child<HighlightNode>()}</span>${child<ViewNodeOf<typeof Detail> | null>()}${child<ViewNodeOf<typeof Keys> | null>()}
 </div>`;
 const Empty = html`<p class="palette-empty">${text()}</p>`;
 
@@ -234,7 +232,7 @@ export function openPalette(provider: () => Command[], initial = ""): void {
           (e) => e.preventDefault(),
           () => void execute(c),
           icon(c.icon ?? kindIcon[c.kind]),
-          hits.length ? h("span", { class: "palette-title" }, highlight(c.title, hits)) : Title([c.title]),
+          highlight(c.title, hits),
           c.detail ? Detail([c.detail]) : null,
           c.keys ? Keys([c.keys]) : null,
         ]),

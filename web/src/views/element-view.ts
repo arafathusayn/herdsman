@@ -11,11 +11,12 @@
 // N, a description type exact in its value tuple, holds it to that): another
 // view would replace the root, and `el` would no longer be on the page.
 //
-// render() keeps no reference to its container while it patches, so the root
-// may live anywhere. If the view runtime starts delegating events at each
-// render() root, the root's handlers would stay behind on the holder: this
-// class is then the one place to change (see plans/views-migration.md).
-import { render, type ViewNode } from "../herdsman-blocks-view.ts";
+// render() delegates handlers to its container, which the root leaves, so the
+// view is rendered with renderDirect: every handler sits on its own element
+// and works wherever the root is placed (inside a render() root too, which
+// skips instances mounted this way). renderDirect keeps no reference to its
+// container while it patches.
+import { renderDirect, type ViewNode } from "../herdsman-blocks-view.ts";
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 
@@ -30,7 +31,7 @@ export class ElementView<K extends keyof HTMLElementTagNameMap, N extends ViewNo
 
   constructor(tag: K, d: N) {
     this.#holder = document.createElement("div");
-    render(this.#holder, d);
+    renderDirect(this.#holder, d);
     const root = this.#holder.firstChild;
     if (root === null || !isTag(root, tag)) throw new Error(`ElementView: the view's root is not a <${tag}>`);
     this.el = root;
@@ -38,6 +39,6 @@ export class ElementView<K extends keyof HTMLElementTagNameMap, N extends ViewNo
 
   /** Patches the element toward the description, of the same view as the first. */
   update(d: N): void {
-    render(this.#holder, d);
+    renderDirect(this.#holder, d);
   }
 }

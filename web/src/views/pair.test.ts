@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { h, icon, icons, logoMark } from "../dom.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
-import { dispatch, FakeElement as FormElement } from "../testdom.ts";
+import { dispatch, dump, FakeElement as FormElement } from "../testdom.ts";
 import { showPairing } from "./pair.ts";
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
@@ -19,19 +19,6 @@ afterEach(() => {
   delete proto["focus"];
 });
 
-// Elements and text with attributes sorted and the bridge's data-key left
-// out; a slot's empty anchor text is not content.
-const dump = (n: FakeNode): string => {
-  if (n.nodeType === 3) return n.textContent;
-  if (n.nodeType !== 1) return "";
-  const e = fake(n);
-  const attrs = e.attributes
-    .filter((a) => a.name !== "data-key")
-    .map((a) => `${a.name}="${a.value}"`)
-    .sort()
-    .join(" ");
-  return `<${e.tagName.toLowerCase()} ${attrs}>${e.childNodes.map(dump).join("")}</${e.tagName.toLowerCase()}>`;
-};
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 
 // The old h() screen, with its properties written as the attributes the
