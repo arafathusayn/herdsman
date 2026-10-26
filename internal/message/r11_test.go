@@ -117,7 +117,9 @@ func TestR11SharedSettings(t *testing.T) {
 			if tc.cmd == "status" {
 				args = []string{O}
 			} else {
-				env["RUN_FOR"] = "1"
+				// The courier's own rule still holds: HEALTH_AFTER must exceed
+				// SWEEP (clamped to 3600 s) plus its scan allowance.
+				env["RUN_FOR"], env["HEALTH_AFTER"] = "1", "1d"
 			}
 			if out, code := c.run("receiver-pane", env, tc.cmd, args...); code != 0 {
 				t.Errorf("%s=%q is a valid shared setting: exit %d %q", tc.k, tc.v, code, out)
