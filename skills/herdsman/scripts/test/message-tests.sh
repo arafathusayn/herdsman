@@ -111,8 +111,8 @@ gojson() { # request-id expires-offset [jq edit]
   jq -n --arg r "$1" --arg d "$(digest "$C/draft.txt")" --argjson e "$(( $(date +%s) + $2 ))" \
     '{version:1,type:"user_go",question_id:"choice",request_id:$r,action:"post",target:"pr-comment",revision:"head1",
       draft_hash:$d,expires_at:$e,text:"post this draft",human_interaction:("ask-"+$r)}' | jq -c "${3:-.}" > "$C/go-$1.json"
-  jq -n --arg r "$1" --arg d "$(digest "$C/draft.txt")" '{source:"ask-tool",question_id:"choice",request_id:$r,revision:"head1",
-    approved:true,action:"post",target:"pr-comment",draft_hash:$d}' > "$APR/interactions/ask-$1.json"
+  jq -n --arg r "$1" --arg d "$(digest "$C/draft.txt")" '{source:"ask-tool",asked_by:"route-adjutant",question_id:"choice",
+    request_id:$r,revision:"head1",approved:true,action:"post",target:"pr-comment",draft_hash:$d}' > "$APR/interactions/ask-$1.json"
 }
 # The approval gate. The L2 cases define their own gate() for the leak gate; their part uses no other.
 gate() { msg receiver-pane approval-gate.sh "$@"; echo "rc=$?"; }
@@ -878,6 +878,14 @@ jq_edit '.policy_verified=true' "$C/inbox/setup.json"
 out=$(gate consume "$C/go-r13.json" post pr-comment head1 -); check "AG13 no draft for a draft-bound go is refused" 'draft differs.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
 gojson r14 600 '.draft_hash="none"'; jq_edit '.draft_hash="none"' "$APR/interactions/ask-r14.json"
 out=$(gate consume "$C/go-r14.json" post pr-comment head1 -); check "AG13b a go without a draft binds to no draft" '^CONSUME r14.*rc=0' "$(printf '%s' "$out" | tr '\n' ' ')"
+# AG15: with an adjutant every question goes through it, so only the approved adjutant's ask-tool answer is the go.
+gojson r15 600; jq_edit '.asked_by="route-orchestrator"' "$APR/interactions/ask-r15.json"
+out=$(consume r15); check "AG15 an answer to the orchestrator's own ask is no go" "orchestrator's own ask is no go.*rc=1" "$(printf '%s' "$out" | tr '\n' ' ')"
+check "AG15b and records nothing" '^no$' "$(yn "$APR/consumed/r15.json")"
+gojson r16 600; jq_edit 'del(.asked_by)' "$APR/interactions/ask-r16.json"
+out=$(consume r16); check "AG15c an answer that names no asker is no go" 'not asked by the approved adjutant.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
+gojson r17 600; jq_edit '.asked_by="route-nobody"' "$APR/interactions/ask-r17.json"
+out=$(consume r17); check "AG15d an answer asked by an unknown name is no go" 'not asked by the approved adjutant.*rc=1' "$(printf '%s' "$out" | tr '\n' ' ')"
 check "AG14 the gate typed nothing and called no display mutation" '^0$' "$(grep -c -E '^(agent prompt|pane |notification)' "$C/calls.log")"
 
 # TA: the read-only transcript audit reads tool-call records, never prose, for the named current session.
