@@ -17,6 +17,7 @@ import (
 // alert cannot be written; send still prints the queued receipt, exit 0.
 func TestR11SendQueuedDespiteHealthFault(t *testing.T) {
 	c := newCase(t, true)
+	os.Remove(c.in("state", "heartbeat")) // the courier is down
 	os.Symlink(c.base("elsewhere"), c.in("alerts", "courier-down.pending"))
 	out, code := c.run("sender-pane", nil, "send", A, O, c.base("body.txt"), "brief")
 	if code != 0 || !strings.Contains(out, ID+" queued") {
@@ -33,6 +34,7 @@ func TestR11SendQueuedDespiteHealthFault(t *testing.T) {
 // The watcher's pass runs `health || :` too: the same fault does not end it.
 func TestR11WatcherPassDespiteHealthFault(t *testing.T) {
 	c := watchedCase(t)
+	os.Remove(c.in("state", "heartbeat")) // the courier is down
 	os.Symlink(c.base("elsewhere"), c.in("alerts", "courier-down.pending"))
 	if out, code := c.watch(); code != 0 {
 		t.Errorf("the watcher ended on a health fault: exit %d %q", code, out)
