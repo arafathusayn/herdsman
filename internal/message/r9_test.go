@@ -98,3 +98,27 @@ func TestR9ReadonlyPendingWatcher(t *testing.T) {
 		t.Errorf("XB11b another writer could not take the input lock: %d %q", code, out)
 	}
 }
+
+// A large inventory exposure recorded with the input lock free is
+// published at once as a bounded record: the agents that fit, the rest
+// counted (round 4's bound, kept for the published record).
+func TestR9LargeInventoryPublishedBounded(t *testing.T) {
+	c := newCase(t, true)
+	e := openEnv(t, c, nil)
+	var unknown []inbox.Unknown
+	for i := range 700 {
+		s, _ := json.Marshal(map[string]string{"agent": "claude", "kind": "id", "source": "hook", "value": fmt.Sprintf("s%d-%s", i, strings.Repeat("x", 300))})
+		unknown = append(unknown, inbox.Unknown{Pane: fmt.Sprintf("rogue-%d", i), Agent: "claude", Session: s})
+	}
+	if err := e.recordExposure(inbox.FaultInventory, unknown); err != nil {
+		t.Fatal(err)
+	}
+	b, ok := inbox.ReadStrict(c.ic.Dir, c.in("state", "boundary-tainted"))
+	var r struct {
+		Agents  []any `json:"agents"`
+		Omitted int   `json:"omitted"`
+	}
+	if !ok || json.Unmarshal(b, &r) != nil || len(r.Agents) == 0 || len(r.Agents)+r.Omitted != 700 {
+		t.Errorf("published %d agents, omitted %d (strict %v)", len(r.Agents), r.Omitted, ok)
+	}
+}

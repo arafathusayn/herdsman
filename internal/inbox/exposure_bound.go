@@ -32,10 +32,8 @@ func fitAgents(unknown []Unknown, build func(agents []Unknown, omitted int) []by
 // keeps it (PR 24, a38ff72): every agent when the record fits MaxSize;
 // otherwise the first twenty, marked truncated with the full count; when
 // even those do not fit, the minimal record without agents, truncated.
+// keepPending passes a non-nil list.
 func pendingRecord(unknown []Unknown, now int64) []byte {
-	if unknown == nil {
-		unknown = []Unknown{}
-	}
 	enc := func(rec map[string]any) []byte {
 		b, _ := json.Marshal(rec)
 		return append(b, '\n')
