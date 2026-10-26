@@ -215,7 +215,7 @@ func openJournal(dir, epoch string) (*journal, *loaded, error) {
 
 // journalOps are the operations a record may carry (4.2, Phase A).
 var journalOps = map[string]bool{"send": true, "claim": true, "claim_extend": true, "ack": true, "release": true,
-	"pair": true, "hold": true, "unhold": true, "notice": true, "health": true, "checkpoint": true}
+	"pair": true, "intake": true, "hold": true, "unhold": true, "notice": true, "health": true, "checkpoint": true}
 
 // checkRecord validates one decoded record against what came before it:
 // a known operation, the route's epoch, the next sequence number, and for

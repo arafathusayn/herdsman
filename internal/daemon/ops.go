@@ -733,6 +733,8 @@ func (r *Route) redo(rec *Record) error {
 		return r.redoHold(rec)
 	case "notice":
 		return r.redoNotice(rec)
+	case "intake":
+		return r.redoIntake(rec)
 	}
 	return nil
 }

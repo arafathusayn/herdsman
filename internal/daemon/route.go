@@ -134,6 +134,10 @@ type Route struct {
 	unfinished []*Record
 	// cpLastID is the last checkpoint's last_message_id, as a number.
 	cpLastID int64
+	// intakeDue: a legacy new/ entry waits for its verification;
+	// intakeAt is the last attempt (12.2).
+	intakeDue bool
+	intakeAt  time.Time
 }
 
 // routeStatus is the route's status in health.
@@ -174,6 +178,9 @@ func (r *Route) start() {
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
+		if r.intakeDue {
+			_ = r.runOp(func() *APIError { return nil })
+		}
 		for {
 			select {
 			case op := <-r.ops:
@@ -274,6 +281,11 @@ func (r *Route) runOp(fn func() *APIError) *APIError {
 	if e := r.finishUnfinished(); e != nil {
 		return e
 	}
+	// Legacy new/ entries are verified on the actor, never before it
+	// listens, and retried while one waits.
+	if r.intakeDue && r.now().Sub(r.intakeAt) >= intakeRetry {
+		r.intake()
+	}
 	// Rotation happens only between operations, so no payload of an
 	// operation in flight is pruned by its checkpoint (4.2).
 	if r.j != nil && r.j.needsRotation() {
@@ -365,6 +377,7 @@ func (r *Route) open() error {
 		return fmt.Errorf("route %s: credentials: %w", r.name, err)
 	}
 	r.recoverOrphans()
+	r.intakeDue = len(r.intakeEntries()) > 0
 	// Step 6: a checkpoint completes everything replayed.
 	if err := r.writeCheckpoint(false); err != nil {
 		r.closeFiles()
