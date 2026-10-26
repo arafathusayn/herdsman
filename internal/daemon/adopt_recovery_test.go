@@ -36,9 +36,7 @@ func adoptCrashUnattended(t *testing.T, point string) {
 	ents, _ := os.ReadDir(dir)
 	for _, e := range ents {
 		if e.Name() == inbox.MutationLock || strings.HasPrefix(e.Name(), ".released.") {
-			b, _ := os.ReadFile(filepath.Join(dir, e.Name(), "owner.json"))
-			ob, _ := os.ReadFile(filepath.Join(dir, "state", "owner.json")); o := struct{ Epoch string }{string(ob)}
-			t.Fatalf("after %s: %s left (%s; inbox epoch %s)", point, e.Name(), b, o.Epoch)
+			t.Fatalf("after %s: %s left", point, e.Name())
 		}
 	}
 	if exists(filepath.Join(dir, "state", "adopting.json")) || len(h.d.readPending().Inboxes) != 0 {
