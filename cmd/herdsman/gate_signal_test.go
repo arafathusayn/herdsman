@@ -48,7 +48,7 @@ func TestGateSignalReleasesItsLocks(t *testing.T) {
 			c.WriteJSON(goFile, map[string]any{"version": 1, "type": "user_go", "question_id": "choice", "request_id": "s1", "action": "post",
 				"target": "pr-comment", "revision": "head1", "draft_hash": sum, "expires_at": time.Now().Unix() + 600, "text": "post this draft",
 				"human_interaction": "ask-s1"})
-			c.WriteJSON(filepath.Join(apr, "interactions", "ask-s1.json"), map[string]any{"source": "ask-tool", "question_id": "choice",
+			c.WriteJSON(filepath.Join(apr, "interactions", "ask-s1.json"), map[string]any{"source": "ask-tool", "asked_by": inboxtest.Adjutant, "question_id": "choice",
 				"request_id": "s1", "revision": "head1", "approved": true, "action": "post", "target": "pr-comment", "draft_hash": sum})
 			// The authority check lists the agents: hold it there.
 			called, release := make(chan struct{}, 1), make(chan struct{})

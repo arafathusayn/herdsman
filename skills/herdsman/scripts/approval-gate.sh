@@ -2,8 +2,9 @@
 # Executor adapter for relayed gos. It performs no effect itself; the owning executor acts only after CONSUME.
 #   consume <go-file> <action> <target> <revision> <draft-file|->   check every binding, then record consumption
 #   complete <request-id> <outcome>                                   record the outcome after the effect
-# Private state under <inbox>/approvals: interactions/<ref>.json (the adjutant's recorded ask-tool answers; this
-# gate trusts them and does not prove them against the transcript),
+# Private state under <inbox>/approvals: interactions/<ref>.json (the adjutant's recorded ask-tool answers, each with
+# asked_by: the approved adjutant's name, so an answer to the orchestrator's own ask is refused; this gate trusts them
+# and does not prove them against the transcript),
 # cancels/<request-id>.json, consumed/<request-id>.json and action.lock.
 # Exit 0: CONSUME or completed; 1: refused, a new go is needed; 2: error or busy lock; 3: HUMAN boundary;
 # 4: DUPLICATE, the recorded outcome stands; 5: RECONCILE, a consumption has no outcome: inspect external state first.
@@ -55,6 +56,16 @@ case "${1:-}" in
     jq -e '.approved==true' "$I" >/dev/null || refuse 'trusted interaction is not an affirmative answer'
     jq -e --slurpfile g "$GO" '.action==$g[0].action and .target==$g[0].target and .draft_hash==$g[0].draft_hash' "$I" >/dev/null ||
       refuse 'trusted interaction approves another action, target or draft'
+    # An inbox means a route with an adjutant: every question goes through it, so the go is the approved adjutant's
+    # ask-tool answer, and an answer to the orchestrator's own ask is no go.
+    valid_registry "$ROOT/peers.approved" || refuse 'no approved pair to name the adjutant'
+    ADJ=$(jq -r 'to_entries[] | select(.value.role=="adjutant") | .key' "$ROOT/peers.approved")
+    [ -n "$ADJ" ] || refuse 'no approved adjutant'
+    if ! jq -e --arg a "$ADJ" '.asked_by==$a' "$I" >/dev/null; then
+      jq -e --slurpfile p "$ROOT/peers.approved" '.asked_by as $b | $p[0][$b|tostring].role=="orchestrator"' "$I" >/dev/null &&
+        refuse "the orchestrator's own ask is no go in a route with an adjutant; ask again through the adjutant"
+      refuse 'trusted interaction was not asked by the approved adjutant'
+    fi
     gate_lock
     # Admission and exposure writers use the shared input lock. Check the boundary under it and record the
     # consumption before releasing it, so no admission falls between the check and the consumption.
