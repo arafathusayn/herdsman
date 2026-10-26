@@ -132,3 +132,26 @@ test("loaded pages stay when a new line rebuilds the view", async () => {
     ),
   ).toBe(100);
 });
+
+// The loaded pages are kept for the few routes viewed last only: a route
+// not viewed since starts again from its newest lines.
+test("loaded pages are kept for the last few routes only", async () => {
+  const { logView, SEEN_ROUTES } = await import("./log-view.ts");
+  const span = (a: number, b: number): LogLine[] =>
+    Array.from({ length: b - a }, (_, i) => ({ time: "09:00", text: `l${a + i}` }));
+  const page = (_id: string, before: number) =>
+    Promise.resolve({ lines: span(before - 100, before), older: before - 100 });
+  const items = (v: FakeElement) => all(v).filter((e) => e.tagName === "li").length;
+  const visit = async (id: string) => {
+    const v = logView({ id, run_state: span(300, 400), older_run_state: 300 } as unknown as Route, page);
+    find(v as unknown as FakeElement, (e) => e.tagName === "button")!.dispatch("click");
+    await flush();
+  };
+  for (let i = 0; i <= SEEN_ROUTES; i++) await visit(`lru${i}`);
+  const again = (id: string) =>
+    items(
+      logView({ id, run_state: span(301, 401), older_run_state: 301 } as unknown as Route) as unknown as FakeElement,
+    );
+  expect(again(`lru${SEEN_ROUTES}`)).toBe(201);
+  expect(again("lru0")).toBe(100);
+});

@@ -16,8 +16,19 @@ interface Seen {
 }
 
 // By route: the app builds the view again on every update, and the pages
-// already loaded stay (at most the window's records per route).
+// already loaded stay (at most the window's records per route), for the
+// SEEN_ROUTES routes viewed last; the oldest viewed is dropped first.
+export const SEEN_ROUTES = 4;
 const seen = new Map<string, Seen>();
+
+function remember(id: string, s: Seen): void {
+  seen.delete(id);
+  seen.set(id, s);
+  for (const old of seen.keys()) {
+    if (seen.size <= SEEN_ROUTES) break;
+    seen.delete(old);
+  }
+}
 
 /**
  * The records to show: the new newest ones, after the loaded older ones
@@ -43,7 +54,7 @@ function joined(r: Route, from: number): Seen {
   }
   const lo = Math.max(prev.lo, from);
   const s = { lo, lines: [...prev.lines.slice(lo - prev.lo, at - prev.lo), ...newest] };
-  seen.set(r.id, s);
+  remember(r.id, s);
   return s;
 }
 
@@ -76,7 +87,7 @@ export function logView(
             if (shown.lo !== before) return;
             for (const l of [...p.lines].reverse()) list.appendChild(line(l));
             shown = { lo: p.older, lines: [...p.lines, ...shown.lines] };
-            seen.set(r.id, shown);
+            remember(r.id, shown);
             more.textContent = label();
             if (shown.lo <= from) {
               more.remove();
