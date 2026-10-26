@@ -16,7 +16,7 @@ import {
   list,
   type ListNode,
   on,
-  render,
+  renderDirect,
   text,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
@@ -212,7 +212,10 @@ const isHTML = (n: Node | null): n is HTMLElement => n !== null && n.nodeType ==
 
 export class AgentPanel {
   readonly el: HTMLElement;
-  // render() keeps the panel's view instance on box; the root moves to wherever main.ts puts el.
+  // The view is rendered into box, and its root (el) moves to wherever
+  // main.ts puts it: out of box, so box would never see the events to
+  // delegate, and the handlers are direct (renderDirect) instead. The
+  // keydown handlers that stop propagation then run on their own element.
   private readonly box = document.createElement("div");
   /** Whether the details are open below the bar; the choice is kept. */
   private infoOpen = loadInfoOpen();
@@ -320,7 +323,7 @@ export class AgentPanel {
         }
       },
     ]);
-    render(this.box, this.describe(null));
+    renderDirect(this.box, this.describe(null));
     const root = this.box.firstChild;
     if (!isHTML(root)) throw new Error("AgentPanel: the view rendered no element");
     this.el = root;
@@ -333,7 +336,7 @@ export class AgentPanel {
 
   /** Renders the panel's view from its state; only what changed is written. */
   private paint(): void {
-    render(this.box, this.describe(this.resizer));
+    renderDirect(this.box, this.describe(this.resizer));
   }
 
   private describe(resizer: HTMLElement | null): ViewNodeOf<typeof Panel> {

@@ -13,7 +13,7 @@ import {
   list,
   type ListNode,
   on,
-  render,
+  renderDirect,
   text,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
@@ -159,14 +159,16 @@ const isHTML = (n: Node | null): n is HTMLElement => n !== null && n.nodeType ==
 export class MessagesView {
   /** The view's root, made once; render() patches what is in it. */
   readonly el: HTMLElement;
-  // render() keeps the view's instance on box; the root moves to wherever main.ts puts el.
+  // The view is rendered into box, and its root (el) moves to wherever
+  // main.ts puts it: out of box, so box would never see the events to
+  // delegate, and the handlers are direct (renderDirect) instead.
   private readonly box = document.createElement("div");
   private readonly bodies = new Map<string, Loaded>();
   private readonly expanded = new Set<string>();
   private lastKey = "";
 
   constructor() {
-    render(this.box, Messages([null, null, null]));
+    renderDirect(this.box, Messages([null, null, null]));
     const root = this.box.firstChild;
     if (!isHTML(root)) throw new Error("MessagesView: the view rendered no element");
     this.el = root;
@@ -176,7 +178,7 @@ export class MessagesView {
     const key = JSON.stringify([ch, panes, [...this.expanded], [...this.bodies.keys()]]);
     if (key === this.lastKey) return;
     this.lastKey = key;
-    render(
+    renderDirect(
       this.box,
       !ch
         ? Messages([Loading([]), null, null])

@@ -4,7 +4,7 @@ import { icon, icons } from "../dom.ts";
 import { render, type ViewNode } from "../herdsman-blocks-view.ts";
 import { FakeElement as BaseElement, type FakeNode } from "../herdsman-blocks.testdom.ts";
 import { type Member, roleName } from "../model.ts";
-import { dispatch, FakeElement, installDom } from "../testdom.ts";
+import { dispatch, FakeElement, FakeEvent, installDom } from "../testdom.ts";
 import { pill } from "../ui.ts";
 
 // What the panel needs beyond the test DOM: the store's URL and frames, the
@@ -82,6 +82,21 @@ const byClass = (root: unknown, c: string): FakeElement => {
   const found = all(fake(root)).find((e) => e.getAttribute("class") === c);
   if (!found) throw new Error(`no .${c}`);
   return found;
+};
+// A key press with everything keyLike() reads (code, isComposing,
+// getModifierState), which dispatch()'s events do not carry.
+const key = (target: BaseElement, k: { key: string; code: string; ctrlKey?: boolean }): FakeEvent => {
+  const e = Object.assign(new FakeEvent("keydown"), {
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    isComposing: false,
+    getModifierState: () => false,
+    ...k,
+  });
+  target.dispatchEvent(e);
+  return e;
 };
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -387,17 +402,18 @@ test("the terminal view takes typing and keeps keys from the page", async () => 
   dispatch(input, "blur");
   expect(dump(fake(p.el))).toBe(dump(oldPanel(member, { view: "terminal", open: false, resizer: resizerOf(p) })));
 
-  let stopped = false;
-  const e = dispatch(input, "keydown", {
-    key: "Escape",
-    code: "Escape",
-    getModifierState: () => false,
-    stopPropagation: () => {
-      stopped = true;
-    },
-  } as never);
+  // A key the pane takes does not reach the page's shortcuts above the panel.
+  const page = new BaseElement("BODY");
+  page.appendChild(fake(p.el));
+  const seen: string[] = [];
+  page.addEventListener("keydown", (ev) => seen.push(ev.type));
+  const e = key(input, { key: "Escape", code: "Escape" });
   expect(e.defaultPrevented).toBe(true);
-  expect(stopped).toBe(true);
+  expect(e.cancelBubble).toBe(true);
+  expect(seen).toEqual([]);
+  // In the log view the typing field lets keys through.
+  key(byClass(p.el, "tail"), { key: "a", code: "KeyA" });
+  expect(seen).toEqual(["keydown"]);
   input.value = "ls";
   dispatch(input, "input");
   expect(input.value).toBe("");
@@ -427,7 +443,7 @@ test("the composer sends with Ctrl+Enter and submit, and the close button closes
     "This route has an adjutant: talk through it. Text here bypasses the message channel.",
   );
   box.value = "hello";
-  dispatch(box, "keydown", { key: "Enter", ctrlKey: true } as never);
+  dispatch(box, "keydown", { key: "Enter", ctrlKey: true });
   const send = all(byClass(p.el, "composer-bar")).find((e) => e.tagName === "BUTTON")!;
   expect(send.getAttribute("disabled")).toBe("");
   await flush();

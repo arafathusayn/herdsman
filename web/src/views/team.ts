@@ -8,7 +8,7 @@ import {
   list,
   type ListNode,
   on,
-  render,
+  renderDirect,
   text,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
@@ -161,8 +161,9 @@ const isHTML = (n: Node | null): n is HTMLElement => n !== null && n.nodeType ==
 let teamRoot: HTMLElement | null = null;
 
 export function teamView(members: Member[], app: App): HTMLElement {
-  render(teamBox, teamBoard(members, app));
-  // render() keeps its instance on teamBox while the root lives in the route body.
+  // The root lives in the route body, out of teamBox, so its handlers must be
+  // direct (renderDirect): teamBox would never see the events to delegate.
+  renderDirect(teamBox, teamBoard(members, app));
   if (teamRoot === null) {
     const root = teamBox.firstChild;
     if (!isHTML(root)) throw new Error("teamView: the board rendered no element");
