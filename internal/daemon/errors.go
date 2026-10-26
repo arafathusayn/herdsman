@@ -69,7 +69,6 @@ var errorTable = map[string]errorSpec{
 	"option_unavailable":   {409, false, 2},
 	"daemon_running":       {0, false, 2},
 	"not_found":            {404, false, 2},
-	"method_not_allowed":   {405, false, 2},
 }
 
 // Errf builds the error of a code with a formatted message. An unknown code

@@ -318,7 +318,7 @@ func (d *Daemon) createRoute(w http.ResponseWriter, r *http.Request) *APIError {
 		return Errf("route_exists", "route %s is already registered", q.Route)
 	}
 	dir := filepath.Join(d.cfg.PrivateHome, q.Repo+"-"+q.Route)
-	if err := os.Mkdir(dir, 0o700); err != nil {
+	if err := mkdirDurable(dir); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return Errf("route_exists", "inbox %s exists; a new route never shares an inbox", dir)
 		}
@@ -422,25 +422,23 @@ func (d *Daemon) resetEvents(w http.ResponseWriter, r *http.Request) *APIError {
 // one starts with a checkpoint rebuilt from the files, and every attached
 // stream gets reset then a snapshot of the new epoch (5.4).
 func (r *Route) resetEpoch(epoch string) error {
-	o, ok := ReadOwner(r.inbox)
-	if !ok {
-		return errors.New("owner record missing")
+	// The old journal goes first: a crash before the new epoch is written
+	// leaves a route whose journal is lost, which open rebuilds under a
+	// new epoch of its own.
+	r.j.close()
+	r.j = nil
+	for _, f := range []string{journalPrev, journalCurrent} {
+		if err := os.Remove(filepath.Join(r.path("state", "events"), f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
-	o.Epoch = epoch
-	b, _ := encode(o)
-	if err := writeDurable(r.path("state", "owner.json"), append(b, '\n'), 0o600); err != nil {
+	if err := syncDir(r.path("state", "events")); err != nil {
 		return err
 	}
-	r.epoch = epoch
-	for _, l := range r.retained {
-		b, _ := encode(lockOwner{Owner: "daemon", Epoch: epoch, PID: os.Getpid(), Start: r.now().Unix()})
-		_ = writeDurable(filepath.Join(l.Dir(), "owner.json"), append(b, '\n'), 0o600)
+	if err := r.setEpoch(epoch); err != nil {
+		return err
 	}
-	r.j.close()
-	for _, f := range []string{journalPrev, journalCurrent} {
-		_ = os.Remove(filepath.Join(r.path("state", "events"), f))
-	}
-	j, _, err := openJournal(r.path("state", "events"))
+	j, _, err := openJournal(r.path("state", "events"), r.epoch)
 	if err != nil {
 		return err
 	}

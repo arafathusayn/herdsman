@@ -223,10 +223,9 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string) (AdoptRes
 		for n := 2; exists(dst); n++ {
 			dst = filepath.Join(dir, "state", "legacy", "setup-v1."+strconv.Itoa(n)+".json")
 		}
-		if err := os.Rename(filepath.Join(dir, "setup.json"), dst); err != nil {
+		if err := renameDurable(filepath.Join(dir, "setup.json"), dst); err != nil {
 			return AdoptResult{}, Errf("internal", "moving the old proof: %v", err)
 		}
-		_ = syncDir(dir)
 		legacy = true
 	}
 	if m.Phase == "invalidate" || m.Phase == "locks" {

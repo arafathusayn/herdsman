@@ -162,7 +162,7 @@ func (r *Route) enroll(name, role string, id inbox.Identity) (string, *APIError)
 		return "", Errf("internal", "journal: %v", err)
 	}
 	if err := r.redoPair(rec); err != nil {
-		return "", Errf("internal", "registry: %v", err)
+		return "", r.unfinish(rec, err)
 	}
 	r.publish(rec)
 	return sum, nil
@@ -287,7 +287,7 @@ func (r *Route) approve(q ApproveRequest) (ApproveResult, *APIError) {
 		return ApproveResult{}, Errf("internal", "journal: %v", err)
 	}
 	if err := r.redoPair(rec); err != nil {
-		return ApproveResult{}, Errf("internal", "registry: %v", err)
+		return ApproveResult{}, r.unfinish(rec, err)
 	}
 	r.publish(rec)
 	r.healthChanged()
@@ -327,7 +327,7 @@ func (r *Route) retire(name, sum string) (string, *APIError) {
 		return "", Errf("internal", "journal: %v", err)
 	}
 	if err := r.redoPair(rec); err != nil {
-		return "", Errf("internal", "registry: %v", err)
+		return "", r.unfinish(rec, err)
 	}
 	r.publish(rec)
 	return sha256Hex(nb), nil
@@ -343,7 +343,7 @@ func (r *Route) revoke(name string) *APIError {
 		return Errf("internal", "journal: %v", err)
 	}
 	if err := r.redoPair(rec); err != nil {
-		return Errf("internal", "credentials: %v", err)
+		return r.unfinish(rec, err)
 	}
 	r.publish(rec)
 	return nil
@@ -538,7 +538,7 @@ func (r *Route) hold(me, name string, reason *string) (HoldResult, *APIError) {
 		return HoldResult{}, Errf("internal", "journal: %v", err)
 	}
 	if err := r.redoHold(rec); err != nil {
-		return HoldResult{}, Errf("internal", "hold: %v", err)
+		return HoldResult{}, r.unfinish(rec, err)
 	}
 	r.publish(rec)
 	res := HoldResult{Holds: []string{}}

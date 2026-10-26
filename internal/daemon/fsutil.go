@@ -46,7 +46,7 @@ func writeDurable(path string, data []byte, perm os.FileMode) error {
 		_ = os.Remove(tmp)
 		return werr
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
@@ -87,12 +87,46 @@ func mkdirs(root string, rel ...string) error {
 			if !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
-			if err := os.Mkdir(p, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+			if err := os.Mkdir(p, 0o700); err != nil {
+				if errors.Is(err, os.ErrExist) {
+					continue
+				}
+				return err
+			}
+			// The new folder's entry is durable in its parent.
+			if err := syncDir(filepath.Dir(p)); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// rename is os.Rename; tests replace it to inject a failure or a crash.
+var rename = os.Rename
+
+// renameDurable renames and fsyncs the folders of both sides, so the move
+// survives a power loss once it returns.
+func renameDurable(src, dst string) error {
+	if err := rename(src, dst); err != nil {
+		return err
+	}
+	if err := syncDir(filepath.Dir(dst)); err != nil {
+		return err
+	}
+	if filepath.Dir(src) != filepath.Dir(dst) {
+		return syncDir(filepath.Dir(src))
+	}
+	return nil
+}
+
+// mkdirDurable creates one folder, failing if it exists, and fsyncs its
+// parent.
+func mkdirDurable(p string) error {
+	if err := os.Mkdir(p, 0o700); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(p))
 }
 
 // exists reports whether p is present (a link included).

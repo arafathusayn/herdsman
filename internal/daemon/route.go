@@ -126,6 +126,10 @@ type Route struct {
 	creds      map[string]credential // party name to its credential record
 	proof      proofCache
 	acks       ackCache
+	// unfinished are committed records whose step 4 failed, in order.
+	unfinished []*Record
+	// cpLastID is the last checkpoint's last_message_id, as a number.
+	cpLastID int64
 }
 
 // routeStatus is the route's status in health.
@@ -221,23 +225,7 @@ func (r *Route) do(ctx context.Context, fn func() *APIError) *APIError {
 				done <- Errf("internal", "the route's operation failed; see the daemon log")
 			}
 		}()
-		if r.degraded.Load() {
-			done <- Errf("busy", "route %s is degraded after repeated failures; run herdsman daemon restart", r.name)
-			return
-		}
-		if r.removed {
-			done <- Errf("unknown_route", "route %s was removed", r.name)
-			return
-		}
-		// Rotation happens only between operations, so no payload of an
-		// operation in flight is pruned by its checkpoint (4.2).
-		if r.j != nil && r.j.needsRotation() {
-			if err := r.writeCheckpoint(true); err != nil {
-				done <- Errf("internal", "journal rotation: %v", err)
-				return
-			}
-		}
-		done <- fn()
+		done <- r.runOp(fn)
 	}
 	select {
 	case r.ops <- op:
@@ -254,6 +242,30 @@ func (r *Route) do(ctx context.Context, fn func() *APIError) *APIError {
 		// answer is lost, and the client retries with its key.
 		return Errf("busy", "request cancelled")
 	}
+}
+
+// runOp is one operation's turn on the actor: refused on a degraded or
+// removed route, after any unfinished committed record is finished and
+// any due rotation is done.
+func (r *Route) runOp(fn func() *APIError) *APIError {
+	if r.degraded.Load() {
+		return Errf("busy", "route %s is degraded after repeated failures; run herdsman daemon restart", r.name)
+	}
+	if r.removed {
+		return Errf("unknown_route", "route %s was removed", r.name)
+	}
+	// A committed operation is finished before any other is admitted.
+	if e := r.finishUnfinished(); e != nil {
+		return e
+	}
+	// Rotation happens only between operations, so no payload of an
+	// operation in flight is pruned by its checkpoint (4.2).
+	if r.j != nil && r.j.needsRotation() {
+		if err := r.writeCheckpoint(true); err != nil {
+			return Errf("internal", "journal rotation: %v", err)
+		}
+	}
+	return fn()
 }
 
 // failed records one recovered failure; three in ten minutes degrade the
@@ -288,7 +300,18 @@ func (r *Route) open() error {
 		r.closeFiles()
 		return err
 	}
-	j, ld, err := openJournal(r.path("state", "events"))
+	if r.journalLost() {
+		// The history is gone but the route's files are not: the old
+		// epoch's cursors and keys cannot be trusted. A new durable epoch
+		// starts; the mailboxes and their unacked files stay (4.3).
+		epoch := r.d.newOwner(false).Epoch
+		r.d.logf("route %s: journal missing for an inbox with history; new event epoch %s", r.name, epoch)
+		if err := r.setEpoch(epoch); err != nil {
+			r.closeFiles()
+			return fmt.Errorf("route %s: new epoch: %w", r.name, err)
+		}
+	}
+	j, ld, err := openJournal(r.path("state", "events"), r.epoch)
 	if err != nil {
 		r.closeFiles()
 		return fmt.Errorf("route %s: %w", r.name, err)
@@ -299,22 +322,18 @@ func (r *Route) open() error {
 	}
 	if ld.last != nil {
 		r.seq = ld.last.Seq
-		if ld.last.Epoch != r.epoch {
-			r.closeFiles()
-			return fmt.Errorf("route %s: %w: journal epoch differs from owner.json", r.name, errHeld)
-		}
 	}
 	r.oldest = ld.oldest
 	r.ring = ld.ring
-	if err := r.loadSequence(); err != nil {
-		r.closeFiles()
-		return err
-	}
 	if ld.checkpoint != nil {
 		if err := r.loadCheckpoint(ld.checkpoint); err != nil {
 			r.closeFiles()
 			return err
 		}
+	}
+	if err := r.loadSequence(ld.pending); err != nil {
+		r.closeFiles()
+		return err
 	}
 	r.loadCredentials()
 	if err := r.replay(ld.pending); err != nil {
@@ -383,7 +402,7 @@ type lockOwner struct {
 // already holds the daemon's record of this epoch is the daemon's own lock
 // from before a restart and is kept.
 func takeDaemonLock(dir, epoch string) (*inbox.Lock, error) {
-	if err := os.Mkdir(dir, 0o700); err != nil {
+	if err := mkdirDurable(dir); err != nil {
 		if !errors.Is(err, os.ErrExist) {
 			return nil, err
 		}
@@ -449,21 +468,87 @@ func releaseLock(l *inbox.Lock) {
 	_ = l.Release()
 }
 
-// loadSequence reads state/sequence, the message id sequence.
-func (r *Route) loadSequence() error {
+// loadSequence sets the message id high-water mark: the largest of
+// state/sequence, the checkpoint's last_message_id, every send record
+// still in the journal and every allocated ids/<id> folder, so a lost or
+// stale sequence file never lets an id be allocated twice.
+func (r *Route) loadSequence(pending []*Record) error {
+	var n int64
 	b, err := readSmall(r.path("state", "sequence"), 64)
-	if errors.Is(err, os.ErrNotExist) {
-		r.lastID = 0
-		return nil
-	}
-	if err != nil {
+	switch {
+	case err == nil:
+		n, err = strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+		if err != nil || n < 0 || n > 999999999999 {
+			return fmt.Errorf("route %s: %w: invalid state/sequence", r.name, errHeld)
+		}
+	case !errors.Is(err, os.ErrNotExist):
 		return err
 	}
-	n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
-	if err != nil || n < 0 || n > 999999999999 {
-		return fmt.Errorf("route %s: invalid state/sequence", r.name)
+	high := max(n, r.cpLastID)
+	for _, rec := range pending {
+		if rec.Op == "send" {
+			high = max(high, idNumber(rec.ID))
+		}
 	}
-	r.lastID = n
+	if ents, err := os.ReadDir(r.path("ids")); err == nil {
+		for _, e := range ents {
+			if inbox.IDOK(e.Name()) {
+				high = max(high, idNumber(e.Name()))
+			}
+		}
+	}
+	if high != n {
+		r.d.logf("route %s: state/sequence %d is behind the route's files; continuing from %d", r.name, n, high)
+	}
+	r.lastID = high
+	return nil
+}
+
+// idNumber is a message id's number (0 for an invalid id).
+func idNumber(id string) int64 {
+	if !inbox.IDOK(id) {
+		return 0
+	}
+	n, _ := strconv.ParseInt(id[1:], 10, 64)
+	return n
+}
+
+// journalLost reports an inbox whose journal is gone while its history
+// is not: no journal file, but a checkpoint payload, an allocated id or a
+// sequence on disk.
+func (r *Route) journalLost() bool {
+	dir := r.path("state", "events")
+	if exists(filepath.Join(dir, journalCurrent)) || exists(filepath.Join(dir, journalPrev)) {
+		return false
+	}
+	if cps, _ := os.ReadDir(r.path("state", "checkpoints")); len(cps) > 0 {
+		return true
+	}
+	if ids, _ := os.ReadDir(r.path("ids")); len(ids) > 0 {
+		return true
+	}
+	return exists(r.path("state", "sequence"))
+}
+
+// setEpoch writes a new epoch to owner.json and to the retained locks'
+// owner records, durably, before any record of it is written.
+func (r *Route) setEpoch(epoch string) error {
+	o, ok := ReadOwner(r.inbox)
+	if !ok {
+		return errors.New("owner record missing")
+	}
+	o.Epoch = epoch
+	b, _ := encode(o)
+	if err := writeDurable(r.path("state", "owner.json"), append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	r.epoch = epoch
+	for _, l := range r.retained {
+		b, _ := encode(lockOwner{Owner: "daemon", Epoch: epoch, PID: os.Getpid(), Start: r.now().Unix()})
+		if err := writeDurable(filepath.Join(l.Dir(), "owner.json"), append(b, '\n'), 0o600); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -477,9 +562,10 @@ func (r *Route) loadCheckpoint(c *Record) error {
 		return fmt.Errorf("route %s: checkpoint payload: %w", r.name, err)
 	}
 	var cp checkpoint
-	if err := json.Unmarshal(b, &cp); err != nil {
-		return fmt.Errorf("route %s: checkpoint payload: %w", r.name, err)
+	if err := strictDecode(b, &cp); err != nil {
+		return fmt.Errorf("route %s: %w: checkpoint payload: %v", r.name, errHeld, err)
 	}
+	r.cpLastID = idNumber(cp.LastMessageID)
 	for i := range cp.SendKeys {
 		k := cp.SendKeys[i]
 		r.sendKeys[k.Key] = &k
@@ -534,13 +620,56 @@ func (r *Route) commit(rec *Record) error {
 	rec.Epoch = r.epoch
 	rec.Time = r.now().Unix()
 	if err := r.j.append(rec); err != nil {
-		return err
+		if !r.j.broken {
+			return err // refused before any byte was written
+		}
+		landed, rerr := r.recoverTail(rec.Seq)
+		if rerr != nil {
+			r.degraded.Store(true)
+			r.d.logf("route %s: journal tail unknown after a failed write (%v), then %v; route stopped", r.name, err, rerr)
+			return err
+		}
+		if !landed {
+			return err
+		}
+		r.d.logf("route %s: record %d is durable after a reported write failure: %v", r.name, rec.Seq, err)
 	}
 	r.seq = rec.Seq
 	if r.oldest == 0 {
 		r.oldest = rec.Seq
 	}
 	return nil
+}
+
+// recoverTail reopens the journal after a failed append: it rescans the
+// file (cutting a torn tail), fsyncs it, and reports whether record seq
+// is durable in it. Any other last sequence is an error: a sequence is
+// never reused.
+func (r *Route) recoverTail(seq int64) (bool, error) {
+	r.j.close()
+	r.j = nil
+	j, ld, err := openJournal(r.path("state", "events"), r.epoch)
+	if err != nil {
+		return false, err
+	}
+	if err := fsync(j.f); err != nil {
+		j.close()
+		return false, err
+	}
+	var last int64
+	if ld.last != nil {
+		last = ld.last.Seq
+	}
+	switch last {
+	case seq:
+		r.j = j
+		return true, nil
+	case seq - 1:
+		r.j = j
+		return false, nil
+	}
+	j.close()
+	return false, fmt.Errorf("journal ends at %d, expected %d or %d", last, seq-1, seq)
 }
 
 // publish raises visible_seq to the record (step 5) and sends its event to
@@ -565,6 +694,9 @@ func (r *Route) publish(rec *Record) {
 // rotate, the journal rotates first, so the checkpoint is the first record
 // of the new file.
 func (r *Route) writeCheckpoint(rotate bool) error {
+	if len(r.unfinished) > 0 {
+		return fmt.Errorf("record %d is committed but unfinished; no checkpoint may pass it", r.unfinished[0].Seq)
+	}
 	r.pruneKeys()
 	cp := checkpoint{LastMessageID: fmt.Sprintf("m%012d", r.lastID), SendKeys: []sendKey{}, ReadKeys: []claimKey{}, ExtendKeys: []claimKey{}, Questions: []any{}}
 	for _, k := range r.sendKeys {
@@ -667,13 +799,14 @@ func (r *Route) pruneKeys() {
 			delete(r.sendKeys, k)
 		}
 	}
+	// Claim keys are kept only for open claims (4.2).
 	for k, v := range r.readKeys {
-		if now-v.Time > int64(keyWindow/time.Second) && r.activeToken(v.Box) != v.Token {
+		if r.activeToken(v.Box) != v.Token {
 			delete(r.readKeys, k)
 		}
 	}
 	for k, v := range r.extendKeys {
-		if now-v.Time > int64(keyWindow/time.Second) {
+		if now-v.Time > int64(keyWindow/time.Second) || r.activeToken(v.Box) != v.Token {
 			delete(r.extendKeys, k)
 		}
 	}

@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -119,11 +118,16 @@ func (r *Route) send(from string, q SendRequest) (SendResult, *APIError) {
 	// Step 2: allocate the id and write the envelope, not yet visible.
 	n := r.lastID + 1
 	id := fmt.Sprintf("m%012d", n)
+	// An allocated id is never reused: an existing ids/<id> fails closed
+	// before any file changes.
+	if exists(r.path("ids", id)) {
+		return SendResult{}, Errf("internal", "message id %s is already allocated; the route's sequence is behind its files, inspect state/sequence", id)
+	}
 	if err := writeDurable(r.path("state", "sequence"), []byte(strconv.FormatInt(n, 10)+"\n"), 0o600); err != nil {
 		return SendResult{}, Errf("internal", "sequence: %v", err)
 	}
 	r.lastID = n
-	if err := os.Mkdir(r.path("ids", id), 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+	if err := mkdirDurable(r.path("ids", id)); err != nil {
 		return SendResult{}, Errf("internal", "allocation: %v", err)
 	}
 	env := prettyJSON(obj("version", 1, "id", id, "from", from, "to", q.To,
@@ -147,7 +151,7 @@ func (r *Route) send(from string, q SendRequest) (SendResult, *APIError) {
 	r.crash("send.record")
 	// Step 4: the visible file.
 	if err := r.redoSend(rec); err != nil {
-		r.d.logf("route %s: send %s committed, queue file deferred to replay: %v", r.name, id, err)
+		return SendResult{}, r.unfinish(rec, err)
 	}
 	r.crash("send.queue")
 	r.publish(rec)
@@ -379,7 +383,7 @@ func (r *Route) firstClaim(me, readKey string) (ClaimResult, *APIError) {
 	r.readKeys[readKey] = &claimKey{Key: readKey, Token: token, Box: me, N: 1, Time: rec.Time}
 	r.crash("claim.record")
 	if err := r.redoClaim(rec); err != nil {
-		return ClaimResult{}, Errf("internal", "claim publication: %v", err)
+		return ClaimResult{}, r.unfinish(rec, err)
 	}
 	r.publish(rec)
 	return r.manifest(me, token)
@@ -416,7 +420,7 @@ func (r *Route) extendClaim(me, token, extendKey string) (ClaimResult, *APIError
 	r.extendKeys[extendKey] = &claimKey{Key: extendKey, Token: token, Box: me, N: n, Empty: rec.Empty, Time: rec.Time}
 	r.crash("extend.record")
 	if err := r.redoClaim(rec); err != nil {
-		return ClaimResult{}, Errf("internal", "claim extension: %v", err)
+		return ClaimResult{}, r.unfinish(rec, err)
 	}
 	r.publish(rec)
 	return r.manifest(me, token)
@@ -444,10 +448,7 @@ func (r *Route) redoClaim(rec *Record) error {
 				return err
 			}
 			r.crash("claim.staged")
-			if err := os.Rename(stage, filepath.Join(box, "claim")); err != nil {
-				return err
-			}
-			if err := syncDir(box); err != nil {
+			if err := renameDurable(stage, filepath.Join(box, "claim")); err != nil {
 				return err
 			}
 			r.crash("claim.published")
@@ -488,10 +489,7 @@ func (r *Route) redoClaim(rec *Record) error {
 			if exists(dst) {
 				return fmt.Errorf("%w: %s is in both ready and cur", errHeld, id)
 			}
-			if err := os.Rename(src, dst); err != nil {
-				return err
-			}
-			if err := syncDir(filepath.Join(box, "cur")); err != nil {
+			if err := renameDurable(src, dst); err != nil {
 				return err
 			}
 			r.crash("claim.moved")
@@ -611,7 +609,7 @@ func (r *Route) ack(me, token string, q AckRequest) (AckResult, *APIError) {
 	}
 	r.crash("ack.record")
 	if err := r.redoAck(rec); err != nil {
-		return AckResult{}, Errf("internal", "ack: %v", err)
+		return AckResult{}, r.unfinish(rec, err)
 	}
 	r.publish(rec)
 	return AckResult{ID: q.ID, Seq: rec.Seq}, nil
@@ -662,9 +660,10 @@ func (r *Route) release(me, token string) *APIError {
 	if err := r.commit(rec); err != nil {
 		return Errf("internal", "journal: %v", err)
 	}
+	r.dropClaimKeys(token)
 	r.crash("release.record")
 	if err := r.redoRelease(rec); err != nil {
-		return Errf("internal", "release: %v", err)
+		return r.unfinish(rec, err)
 	}
 	r.publish(rec)
 	return nil
@@ -680,10 +679,7 @@ func (r *Route) redoRelease(rec *Record) error {
 		return err
 	}
 	if r.activeToken(rec.Box) == rec.Token {
-		if err := os.Rename(filepath.Join(box, "claim"), gone); err != nil {
-			return err
-		}
-		if err := syncDir(box); err != nil {
+		if err := renameDurable(filepath.Join(box, "claim"), gone); err != nil {
 			return err
 		}
 		r.crash("release.renamed")
@@ -706,31 +702,76 @@ func dropClaimDir(p string) error {
 // step 4), in order, idempotently.
 func (r *Route) replay(recs []*Record) error {
 	for _, rec := range recs {
-		var err error
-		switch rec.Op {
-		case "send":
-			r.rememberSend(rec)
-			err = r.redoSend(rec)
-		case "claim":
-			r.readKeys[rec.ReadKey] = &claimKey{Key: rec.ReadKey, Token: rec.Token, Box: rec.Box, N: rec.N, Time: rec.Time}
-			err = r.redoClaim(rec)
-		case "claim_extend":
-			r.extendKeys[rec.ExtendKey] = &claimKey{Key: rec.ExtendKey, Token: rec.Token, Box: rec.Box, N: rec.N, Empty: rec.Empty, Time: rec.Time}
-			err = r.redoClaim(rec)
-		case "ack":
-			err = r.redoAck(rec)
-		case "release":
-			err = r.redoRelease(rec)
-		case "pair":
-			err = r.redoPair(rec)
-		case "hold", "unhold":
-			err = r.redoHold(rec)
-		case "notice":
-			err = r.redoNotice(rec)
-		}
-		if err != nil {
+		if err := r.redo(rec); err != nil {
 			return fmt.Errorf("route %s: replay of %s %d: %w", r.name, rec.Op, rec.Seq, err)
 		}
+	}
+	return nil
+}
+
+// redo is one committed record's step 4, idempotent, with the key indexes
+// it restores.
+func (r *Route) redo(rec *Record) error {
+	switch rec.Op {
+	case "send":
+		r.rememberSend(rec)
+		return r.redoSend(rec)
+	case "claim":
+		r.readKeys[rec.ReadKey] = &claimKey{Key: rec.ReadKey, Token: rec.Token, Box: rec.Box, N: rec.N, Time: rec.Time}
+		return r.redoClaim(rec)
+	case "claim_extend":
+		r.extendKeys[rec.ExtendKey] = &claimKey{Key: rec.ExtendKey, Token: rec.Token, Box: rec.Box, N: rec.N, Empty: rec.Empty, Time: rec.Time}
+		return r.redoClaim(rec)
+	case "ack":
+		return r.redoAck(rec)
+	case "release":
+		r.dropClaimKeys(rec.Token)
+		return r.redoRelease(rec)
+	case "pair":
+		return r.redoPair(rec)
+	case "hold", "unhold":
+		return r.redoHold(rec)
+	case "notice":
+		return r.redoNotice(rec)
+	}
+	return nil
+}
+
+// dropClaimKeys forgets a released claim's read and extend keys, so the
+// key state stays bounded by the open claims (4.2).
+func (r *Route) dropClaimKeys(token string) {
+	for k, v := range r.readKeys {
+		if v.Token == token {
+			delete(r.readKeys, k)
+		}
+	}
+	for k, v := range r.extendKeys {
+		if v.Token == token {
+			delete(r.extendKeys, k)
+		}
+	}
+}
+
+// unfinish keeps a committed record whose step 4 failed: the route admits
+// no other operation, publishes nothing past it and writes no checkpoint
+// until its files are finished (do retries them first).
+func (r *Route) unfinish(rec *Record, err error) *APIError {
+	r.unfinished = append(r.unfinished, rec)
+	r.d.logf("route %s: %s %d committed; its files are not finished: %v", r.name, rec.Op, rec.Seq, err)
+	return Errf("busy", "the %s is committed (record %d) but its files are not finished; retry with the same key", rec.Op, rec.Seq)
+}
+
+// finishUnfinished applies the step 4 of every unfinished record in
+// order and publishes each; the first failure stops the route's work.
+func (r *Route) finishUnfinished() *APIError {
+	for len(r.unfinished) > 0 {
+		rec := r.unfinished[0]
+		if err := r.redo(rec); err != nil {
+			r.d.logf("route %s: %s %d still unfinished: %v", r.name, rec.Op, rec.Seq, err)
+			return Errf("busy", "route %s cannot finish committed record %d (%v); retry", r.name, rec.Seq, err)
+		}
+		r.unfinished = r.unfinished[1:]
+		r.publish(rec)
 	}
 	return nil
 }
@@ -820,7 +861,7 @@ func (r *Route) abandon(id string) error {
 		return err
 	}
 	if err := r.redoNotice(rec); err != nil {
-		return err
+		return r.unfinish(rec, err)
 	}
 	r.publish(rec)
 	return nil
