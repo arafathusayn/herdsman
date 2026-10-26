@@ -1,13 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { fuzzy, highlight } from "../fuzzy.ts";
-import type { Child } from "../herdsman-blocks-view.ts";
+import { render } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { icon, icons } from "../icons.ts";
-import { renderMarkdown } from "../markdown.ts";
 import { ago } from "../model.ts";
-import { dispatch } from "../testdom.ts";
-import { each, h } from "../testref.ts";
+import { dispatch, markup } from "../testdom.ts";
 import type { Route, RouteFile } from "../types.ts";
 
 // The store reads the URL and listens for history changes when it loads.
@@ -30,10 +27,7 @@ beforeEach(() => {
   installFakeDocument();
   const doc = g["document"] as Record<string, unknown>;
   doc["documentElement"] = { dataset: {} }; // code highlighting on
-  // markdown.ts appends; the view scrolls the cursor row into view.
-  proto["append"] = function (this: FakeElement, ...ns: FakeNode[]) {
-    for (const n of ns) this.appendChild(n);
-  };
+  // The view scrolls the cursor row into view.
   proto["querySelector"] = () => null;
   proto["value"] = ""; // the search input's
   went = [];
@@ -49,7 +43,6 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await settle(); // loads still pending render before the fakes go
-  delete proto["append"];
   delete proto["querySelector"];
   delete proto["value"];
   store.go = realGo;
@@ -69,6 +62,11 @@ const dump = (n: FakeNode): string => {
   return `<${e.tagName.toLowerCase()} ${attrs}>${e.childNodes.map(dump).join("")}</${e.tagName.toLowerCase()}>`;
 };
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
+const iconMarkup = (paths: readonly string[], label?: string): string => {
+  const box = document.createElement("div");
+  render(box, icon(paths, label));
+  return dump(box.firstChild as unknown as FakeNode);
+};
 const child = (n: unknown, ...path: number[]): FakeElement => {
   let e = fake(n);
   for (const i of path) e = elements(e)[i]!;
@@ -90,140 +88,119 @@ const routeOf = (files: RouteFile[]): Route => ({
   live: true,
 });
 
-// The h() markup FilesView made before it was a view. The browser reflects
-// the properties h() set (type, spellcheck, open) as attributes, as the fake
-// records them here.
-function oldRow(f: RouteFile, selected: string, hits: number[], cursor: boolean, showFolder: boolean): HTMLElement {
-  const slash = f.path.lastIndexOf("/");
-  const name = f.path.slice(slash + 1);
-  const dir = slash < 0 ? "" : f.path.slice(0, slash + 1);
-  const nameHits = hits.filter((i) => i > slash).map((i) => i - slash - 1);
-  const dirHits = hits.filter((i) => i <= slash);
-  const cls = ["file-row", f.path === selected ? "active" : "", cursor ? "cursor" : ""].filter(Boolean).join(" ");
-  return h(
-    "button",
-    { class: cls, role: "option", "aria-selected": String(f.path === selected), title: f.path },
-    icon(icons.file),
-    h(
-      "span",
-      { class: "file-name" },
-      h("span", { class: "name" }, highlight(name, nameHits)),
-      showFolder && dir ? h("span", { class: "dir" }, highlight(dir, dirHits)) : null,
-    ),
-    h("small", null, ago(f.modified)),
-  );
-}
-function oldGroup(d: string, items: RouteFile[], selected: string, open: boolean): HTMLElement {
-  return h(
-    "details",
-    { class: "file-group", open },
-    h(
-      "summary",
-      null,
-      icon(icons.folder),
-      h("span", null, d ? `${d}/` : "Route files"),
-      h("span", { class: "count" }, String(items.length)),
-    ),
-    each(
-      items,
-      (f) => f.path,
-      (f) => oldRow(f, selected, [], false, false),
-    ),
-  );
-}
-function oldShell(count: string, list: Child[], head: Child[], body: Child[]): HTMLElement {
-  return h(
-    "div",
-    { class: "files" },
-    h(
-      "div",
-      { class: "file-pane" },
-      h(
-        "label",
-        { class: "file-search" },
-        icon(icons.search),
-        h("input", {
-          type: "search",
-          placeholder: "Search files…",
-          "aria-label": "Search files",
-          autocomplete: "off",
-          spellcheck: "false",
-        }),
-        h("span", { class: "files-count" }, count),
-      ),
-      h("div", { class: "file-groups", role: "listbox", "aria-label": "Files" }, ...list),
-    ),
-    h(
-      "section",
-      { class: "viewer", "aria-live": "polite" },
-      h("div", { class: "viewer-head" }, ...head),
-      h("div", { class: "viewer-body" }, ...body),
-    ),
-  );
-}
-function oldHead(selected: string, f: RouteFile | undefined, raw: boolean): Node[] {
-  const slash = selected.lastIndexOf("/");
-  return [
-    h(
-      "div",
-      { class: "viewer-title" },
-      h(
-        "h2",
-        { title: selected },
-        slash >= 0 ? h("span", { class: "dir" }, selected.slice(0, slash + 1)) : null,
-        selected.slice(slash + 1),
-      ),
-      f ? h("p", null, `${f.size} B · ${ago(f.modified)}`) : null,
-    ),
-    h(
-      "div",
-      { class: "seg", role: "radiogroup", "aria-label": "View" },
-      ...(["Rendered", "Raw"] as const).map((label) =>
-        h(
-          "button",
-          {
-            role: "radio",
-            title: label === "Raw" ? "Show the Markdown source" : "Show the file formatted",
-            "aria-checked": String(raw === (label === "Raw")),
-            // h() set an empty class on the inactive button; a class hole leaves none.
-            class: raw === (label === "Raw") ? "active" : undefined,
-          },
-          label,
-        ),
-      ),
-    ),
-    h(
-      "button",
-      { class: "icon-btn", title: "Copy the file path", "aria-label": "Copy the file path" },
-      icon(icons.copy),
-    ),
-  ];
-}
-
 const files = [file("00-route.md"), file("reports/b.md"), file("reports/a.md"), file("probes/p.md"), file("doc/x.md")];
 
 test("before the first update it is an empty shell", () => {
   const v = new FilesView("r1");
-  expect(dump(fake(v.el))).toBe(dump(fake(oldShell("", [], [], []))));
+  expect(dump(fake(v.el))).toBe(markup`
+    <div class="files">
+      <div class="file-pane">
+        <label class="file-search">
+          ${iconMarkup(icons.search)}
+          <input aria-label="Search files" autocomplete="off" placeholder="Search files…" spellcheck="false" type="search"></input>
+          <span class="files-count"></span>
+        </label>
+        <div aria-label="Files" class="file-groups" role="listbox"></div>
+      </div>
+      <section aria-live="polite" class="viewer">
+        <div class="viewer-head"></div>
+        <div class="viewer-body"></div>
+      </section>
+    </div>
+  `);
 });
 
 test("groups, the viewer and the loaded markdown render what the h() version did", async () => {
   served["00-route.md"] = "# Route\n\nSome *text*.";
   const v = new FilesView("r1");
   v.update(routeOf(files), "");
-  const loading = [h("p", { class: "muted" }, "Loading…")];
-  const groups = (open: boolean) => [
-    oldGroup("", [files[0]!], "00-route.md", true),
-    oldGroup("reports", [files[2]!, files[1]!], "00-route.md", true),
-    oldGroup("doc", [files[4]!], "00-route.md", true),
-    oldGroup("probes", [files[3]!], "00-route.md", open),
-  ];
-  const head = () => oldHead("00-route.md", files[0], false);
-  expect(dump(fake(v.el))).toBe(dump(fake(oldShell("5", groups(false), head(), loading))));
+  // The groups (probes closed), the head of 00-route.md, and a body.
+  const shell = (body: string): string => markup`
+    <div class="files">
+      <div class="file-pane">
+        <label class="file-search">
+          ${iconMarkup(icons.search)}
+          <input aria-label="Search files" autocomplete="off" placeholder="Search files…" spellcheck="false" type="search"></input>
+          <span class="files-count">5</span>
+        </label>
+        <div aria-label="Files" class="file-groups" role="listbox">
+          <details class="file-group" open="">
+            <summary >
+              ${iconMarkup(icons.folder)}
+              <span >Route files</span>
+              <span class="count">1</span>
+            </summary>
+            <button aria-selected="true" class="file-row active" role="option" title="00-route.md">
+              ${iconMarkup(icons.file)}
+              <span class="file-name"><span class="name">00-route.md</span></span>
+              <small >${ago(when)}</small>
+            </button>
+          </details>
+          <details class="file-group" open="">
+            <summary >
+              ${iconMarkup(icons.folder)}
+              <span >reports/</span>
+              <span class="count">2</span>
+            </summary>
+            <button aria-selected="false" class="file-row" role="option" title="reports/a.md">
+              ${iconMarkup(icons.file)}
+              <span class="file-name"><span class="name">a.md</span></span>
+              <small >${ago(when)}</small>
+            </button>
+            <button aria-selected="false" class="file-row" role="option" title="reports/b.md">
+              ${iconMarkup(icons.file)}
+              <span class="file-name"><span class="name">b.md</span></span>
+              <small >${ago(when)}</small>
+            </button>
+          </details>
+          <details class="file-group" open="">
+            <summary >
+              ${iconMarkup(icons.folder)}
+              <span >doc/</span>
+              <span class="count">1</span>
+            </summary>
+            <button aria-selected="false" class="file-row" role="option" title="doc/x.md">
+              ${iconMarkup(icons.file)}
+              <span class="file-name"><span class="name">x.md</span></span>
+              <small >${ago(when)}</small>
+            </button>
+          </details>
+          <details class="file-group">
+            <summary >
+              ${iconMarkup(icons.folder)}
+              <span >probes/</span>
+              <span class="count">1</span>
+            </summary>
+            <button aria-selected="false" class="file-row" role="option" title="probes/p.md">
+              ${iconMarkup(icons.file)}
+              <span class="file-name"><span class="name">p.md</span></span>
+              <small >${ago(when)}</small>
+            </button>
+          </details>
+        </div>
+      </div>
+      <section aria-live="polite" class="viewer">
+        <div class="viewer-head">
+          <div class="viewer-title">
+            <h2 title="00-route.md">00-route.md</h2>
+            <p >10 B · ${ago(when)}</p>
+          </div>
+          <div aria-label="View" class="seg" role="radiogroup">
+            <button aria-checked="true" class="active" role="radio" title="Show the file formatted">Rendered</button>
+            <button aria-checked="false" role="radio" title="Show the Markdown source">Raw</button>
+          </div>
+          <button aria-label="Copy the file path" class="icon-btn" title="Copy the file path">
+            ${iconMarkup(icons.copy)}
+          </button>
+        </div>
+        <div class="viewer-body">${body}</div>
+      </section>
+    </div>
+  `;
+  expect(dump(fake(v.el))).toBe(shell('<p class="muted">Loading…</p>'));
   await settle();
   expect(fetched).toEqual(["00-route.md"]);
-  const md = renderMarkdown(served["00-route.md"]!);
-  expect(dump(fake(v.el))).toBe(dump(fake(oldShell("5", groups(false), head(), [md]))));
+  expect(dump(fake(v.el))).toBe(shell('<div class="md"><h2 >Route</h2><p >Some *text*.</p></div>'));
 });
 
 test("an unchanged update writes nothing and keeps every node", async () => {
@@ -251,9 +228,26 @@ test("search: marked matches, a cursor, Enter opens the cursor's file and Escape
   expect(rows.length).toBe(2);
   expect(child(v.el, 0, 0, 2).textContent).toBe("2/5");
   // Equal scores keep the route's order.
-  const hits = fuzzy("reports", "reports/b.md")!.hits;
-  expect(dump(rows[0]!)).toBe(dump(fake(oldRow(files[1]!, "doc/x.md", hits, true, true))));
-  expect(dump(rows[1]!)).toBe(dump(fake(oldRow(files[2]!, "doc/x.md", hits, false, true))));
+  expect(dump(rows[0]!)).toBe(markup`
+    <button aria-selected="false" class="file-row cursor" role="option" title="reports/b.md">
+      ${iconMarkup(icons.file)}
+      <span class="file-name">
+        <span class="name">b.md</span>
+        <span class="dir"><mark >reports</mark>/</span>
+      </span>
+      <small >${ago(when)}</small>
+    </button>
+  `);
+  expect(dump(rows[1]!)).toBe(markup`
+    <button aria-selected="false" class="file-row" role="option" title="reports/a.md">
+      ${iconMarkup(icons.file)}
+      <span class="file-name">
+        <span class="name">a.md</span>
+        <span class="dir"><mark >reports</mark>/</span>
+      </span>
+      <small >${ago(when)}</small>
+    </button>
+  `);
 
   dispatch(search, "keydown", { key: "ArrowDown" });
   expect(elements(list)).toEqual(rows); // the cursor moved; the rows stayed
@@ -265,15 +259,11 @@ test("search: marked matches, a cursor, Enter opens the cursor's file and Escape
   search["value"] = "zzz";
   dispatch(search, "input");
   expect(dump(child(v.el, 0, 1))).toBe(
-    dump(
-      fake(
-        h(
-          "div",
-          { class: "file-groups", role: "listbox", "aria-label": "Files" },
-          h("p", { class: "file-empty" }, "No file matches “zzz”."),
-        ),
-      ),
-    ),
+    markup`
+      <div aria-label="Files" class="file-groups" role="listbox">
+        <p class="file-empty">No file matches “zzz”.</p>
+      </div>
+    `,
   );
   dispatch(search, "keydown", { key: "Escape" });
   expect(search["value"]).toBe("");
@@ -307,26 +297,22 @@ test("Raw shows the source; a failed load offers Try again", async () => {
   await settle();
   dispatch(child(v.el, 1, 0, 1, 1), "click"); // Raw
   const body = child(v.el, 1, 1);
-  expect(dump(body)).toBe(dump(fake(h("div", { class: "viewer-body" }, h("pre", { class: "raw" }, "# Title")))));
+  expect(dump(body)).toBe('<div class="viewer-body"><pre class="raw"># Title</pre></div>');
   expect(child(v.el, 1, 0, 1, 1).getAttribute("aria-checked")).toBe("true");
   expect(fetched).toEqual(["00-route.md"]); // the switch reuses the text
 
   v.update(routeOf(files), "doc/x.md");
   await settle();
   expect(dump(body)).toBe(
-    dump(
-      fake(
-        h(
-          "div",
-          { class: "viewer-body" },
-          h("p", { class: "error" }, "cannot read doc/x.md (404)"),
-          h("button", { type: "button", class: "btn" }, "Try again"),
-        ),
-      ),
-    ),
+    markup`
+      <div class="viewer-body">
+        <p class="error">cannot read doc/x.md (404)</p>
+        <button class="btn" type="button">Try again</button>
+      </div>
+    `,
   );
   served["doc/x.md"] = "x";
   dispatch(child(body, 1), "click");
   await settle();
-  expect(dump(body)).toBe(dump(fake(h("div", { class: "viewer-body" }, h("pre", { class: "raw" }, "x")))));
+  expect(dump(body)).toBe('<div class="viewer-body"><pre class="raw">x</pre></div>');
 });

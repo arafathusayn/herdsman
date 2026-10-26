@@ -3,9 +3,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { render, type ViewNode } from "./herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import { icon, icons } from "./icons.ts";
-import { type Member, statusLabel } from "./model.ts";
-import { dispatch } from "./testdom.ts";
-import { h, unkeyed } from "./testref.ts";
+import type { Member } from "./model.ts";
+import { dispatch, markup } from "./testdom.ts";
 import { confirmDialog, formDialog, pill, themeSwitch } from "./ui.ts";
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
@@ -50,89 +49,91 @@ const rendered = (v: ViewNode): FakeElement => {
   render(box, v);
   return fake(box).firstChild as FakeElement;
 };
+const iconMarkup = (paths: readonly string[]): string => dump(rendered(icon(paths)));
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 
 describe("ui views render what the h() versions did", () => {
   test("pill", () => {
-    const statuses: Member["status"][] = ["working", "idle", "blocked", "done", "unknown", "gone"];
-    for (const s of statuses) {
-      const old = h(
-        "span",
-        { class: `pill s-${s}` },
-        h("span", { class: "dot", "aria-hidden": "true" }),
-        statusLabel[s],
+    const labels: [Member["status"], string][] = [
+      ["working", "Working"],
+      ["idle", "Idle"],
+      ["blocked", "Needs input"],
+      ["done", "Done"],
+      ["unknown", "Unknown"],
+      ["gone", "Pane gone"],
+    ];
+    for (const [s, label] of labels) {
+      expect(dump(rendered(pill(s)))).toBe(
+        `<span class="pill s-${s}"><span aria-hidden="true" class="dot"></span>${label}</span>`,
       );
-      expect(dump(rendered(pill(s)))).toBe(dump(fake(old)));
     }
   });
 
   test("theme switch, and its buttons call back with their theme", () => {
     const picked: string[] = [];
-    const old = (current: string) =>
-      h(
-        "div",
-        { class: "theme-switch", role: "radiogroup", "aria-label": "Theme" },
-        unkeyed(
-          (
-            [
-              ["system", "System", icons.monitor],
-              ["light", "Light", icons.sun],
-              ["dark", "Dark", icons.moon],
-            ] as const
-          ).map(([id, label, glyph]) =>
-            h(
-              "button",
-              {
-                type: "button",
-                role: "radio",
-                "aria-checked": String(id === current),
-                class: id === current ? "active" : "",
-                title: `${label} theme`,
-              },
-              icon(glyph),
-              h("span", null, label),
-            ),
-          ),
-        ),
-      );
     const box = document.createElement("div");
     render(
       box,
       themeSwitch("light", (t) => picked.push(`a:${t}`)),
     );
     const sw = fake(box).firstChild as FakeElement;
-    expect(dump(sw)).toBe(dump(fake(old("light"))));
+    expect(dump(sw)).toBe(markup`
+      <div aria-label="Theme" class="theme-switch" role="radiogroup">
+        <button aria-checked="false" role="radio" title="System theme" type="button">
+          ${iconMarkup(icons.monitor)}
+          <span >System</span>
+        </button>
+        <button aria-checked="true" class="active" role="radio" title="Light theme" type="button">
+          ${iconMarkup(icons.sun)}
+          <span >Light</span>
+        </button>
+        <button aria-checked="false" role="radio" title="Dark theme" type="button">
+          ${iconMarkup(icons.moon)}
+          <span >Dark</span>
+        </button>
+      </div>
+    `);
     const buttons = elements(sw);
     render(
       box,
       themeSwitch("dark", (t) => picked.push(`b:${t}`)),
     );
     expect(elements(sw)).toEqual(buttons); // patched in place
-    expect(dump(sw)).toBe(dump(fake(old("dark"))));
+    expect(dump(sw)).toBe(markup`
+      <div aria-label="Theme" class="theme-switch" role="radiogroup">
+        <button aria-checked="false" role="radio" title="System theme" type="button">
+          ${iconMarkup(icons.monitor)}
+          <span >System</span>
+        </button>
+        <button aria-checked="false" role="radio" title="Light theme" type="button">
+          ${iconMarkup(icons.sun)}
+          <span >Light</span>
+        </button>
+        <button aria-checked="true" class="active" role="radio" title="Dark theme" type="button">
+          ${iconMarkup(icons.moon)}
+          <span >Dark</span>
+        </button>
+      </div>
+    `);
     dispatch(buttons[0]!, "click");
     expect(picked).toEqual(["b:system"]);
   });
 
   test("confirm dialog: markup, and closing resolves with the button's value", async () => {
-    const old = h(
-      "dialog",
-      { class: "dialog" },
-      h(
-        "form",
-        { method: "dialog" },
-        h("h2", null, "Delete this pane?"),
-        h("p", null, "It is gone for good."),
-        h(
-          "div",
-          { class: "dialog-actions" },
-          h("button", { value: "cancel", class: "btn ghost" }, "Cancel"),
-          h("button", { value: "ok", class: "btn danger", autofocus: true }, "Delete pane"),
-        ),
-      ),
-    );
     const answer = confirmDialog("Delete this pane?", "It is gone for good.", "Delete pane", true);
     const dlg = elements(body)[0]!;
-    expect(dump(dlg)).toBe(dump(fake(old)));
+    expect(dump(dlg)).toBe(markup`
+      <dialog class="dialog">
+        <form method="dialog">
+          <h2 >Delete this pane?</h2>
+          <p >It is gone for good.</p>
+          <div class="dialog-actions">
+            <button class="btn ghost" value="cancel">Cancel</button>
+            <button autofocus="" class="btn danger" value="ok">Delete pane</button>
+          </div>
+        </form>
+      </dialog>
+    `);
     expect(dlg["open"]).toBe(true);
     dlg["returnValue"] = "ok";
     dispatch(dlg, "close");
@@ -144,39 +145,6 @@ describe("ui views render what the h() versions did", () => {
     const random = Math.random;
     Math.random = () => 0.5;
     try {
-      const id = `f-name-${(0.5).toString(36).slice(2, 8)}`;
-      // The browser reflects the old h() properties (value aside) as these attributes.
-      const old = h(
-        "dialog",
-        { class: "dialog" },
-        h(
-          "form",
-          { method: "dialog" },
-          h("h2", null, "Rename"),
-          h(
-            "label",
-            { class: "field", for: id },
-            h("span", null, "Name"),
-            h("input", {
-              id,
-              name: "name",
-              placeholder: "orch-2",
-              required: true,
-              autocomplete: "off",
-              spellcheck: "false",
-              list: `${id}-list`,
-            }),
-            h("datalist", { id: `${id}-list` }, h("option", { value: "a" }), h("option", { value: "b" })),
-            h("small", null, "A short name"),
-          ),
-          h(
-            "div",
-            { class: "dialog-actions" },
-            h("button", { value: "cancel", class: "btn ghost", formnovalidate: true }, "Cancel"),
-            h("button", { value: "ok", class: "btn primary" }, "Rename"),
-          ),
-        ),
-      );
       void formDialog(
         "Rename",
         [
@@ -193,7 +161,24 @@ describe("ui views render what the h() versions did", () => {
         "Rename",
       );
       const dlg = elements(body)[0]!;
-      expect(dump(dlg)).toBe(dump(fake(old)));
+      // Math.random is 0.5, so the field's id is f-name-i.
+      expect(dump(dlg)).toBe(markup`
+        <dialog class="dialog">
+          <form method="dialog">
+            <h2 >Rename</h2>
+            <label class="field" for="f-name-i">
+              <span >Name</span>
+              <input autocomplete="off" id="f-name-i" list="f-name-i-list" name="name" placeholder="orch-2" required="" spellcheck="false"></input>
+              <datalist id="f-name-i-list"><option value="a"></option><option value="b"></option></datalist>
+              <small >A short name</small>
+            </label>
+            <div class="dialog-actions">
+              <button class="btn ghost" formnovalidate="" value="cancel">Cancel</button>
+              <button class="btn primary" value="ok">Rename</button>
+            </div>
+          </form>
+        </dialog>
+      `);
       const input = elements(elements(elements(dlg)[0]!)[1]!)[1]!;
       expect(input["value"]).toBe("orch"); // a property, as h() set it
     } finally {

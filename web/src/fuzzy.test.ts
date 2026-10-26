@@ -4,7 +4,6 @@ import { fuzzy, highlight, type HighlightNode } from "./fuzzy.ts";
 import { child, html, render } from "./herdsman-blocks-view.ts";
 import { type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import { dump } from "./testdom.ts";
-import { h, type Unkeyed, unkeyed } from "./testref.ts";
 test("fuzzy", () => {
   expect(fuzzy("split", "probes/rv-codex/cases-1792832794680869000/replaced-recipient/x.md")).toBeNull();
   expect(fuzzy("split", "Pane: Split im-adjutant right")).not.toBeNull();
@@ -19,41 +18,26 @@ test("fuzzy", () => {
 
 describe("highlight as runs", () => {
   beforeEach(installFakeDocument);
-  // The h() version highlight() replaced, kept to prove the runs render the same DOM.
-  const oldHighlight = (value: string, hits: number[]): Unkeyed => {
-    if (!hits.length) return unkeyed([value]);
-    const set = new Set(hits);
-    const out: (Node | string)[] = [];
-    let run = "";
-    let inHit = false;
-    for (let i = 0; i < value.length; i++) {
-      const hit = set.has(i);
-      if (hit !== inHit && run) {
-        out.push(inHit ? h("mark", null, run) : run);
-        run = "";
-      }
-      inHit = hit;
-      run += value[i];
-    }
-    if (run) out.push(inHit ? h("mark", null, run) : run);
-    return unkeyed(out);
-  };
   const Name = html`<span class="name">${child<HighlightNode>()}</span>`;
-  const cases: [string, number[]][] = [
-    ["", []],
-    ["plain", []],
-    ["rv-codex", [0, 1, 3]],
-    ["Pane: Split im-adjutant right", [6, 7, 8, 9, 10, 25]],
-    ["abc", [0, 1, 2]],
-    ["abc", [2]],
+  // A value, its hits, and the markup: a mark per run of hits.
+  const cases: [string, number[], string][] = [
+    ["", [], '<span class="name"></span>'],
+    ["plain", [], '<span class="name">plain</span>'],
+    ["rv-codex", [0, 1, 3], '<span class="name"><mark>rv</mark>-<mark>c</mark>odex</span>'],
+    [
+      "Pane: Split im-adjutant right",
+      [6, 7, 8, 9, 10, 25],
+      '<span class="name">Pane: <mark>Split</mark> im-adjutant r<mark>i</mark>ght</span>',
+    ],
+    ["abc", [0, 1, 2], '<span class="name"><mark>abc</mark></span>'],
+    ["abc", [2], '<span class="name">ab<mark>c</mark></span>'],
   ];
 
-  test("renders what the h() version did", () => {
-    for (const [value, hits] of cases) {
-      const old = dump(h("span", { class: "name" }, oldHighlight(value, hits)) as unknown as FakeNode);
+  test("renders a mark per run of hits", () => {
+    for (const [value, hits, want] of cases) {
       const box = document.createElement("div");
       render(box, Name([highlight(value, hits)]));
-      expect(dump(box.firstChild as unknown as FakeNode)).toBe(old);
+      expect(dump(box.firstChild as unknown as FakeNode)).toBe(want);
     }
   });
 

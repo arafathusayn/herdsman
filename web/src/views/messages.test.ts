@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { describeFlag, kindLabel, stateLabel, stateTip } from "../channel.ts";
+import { render } from "../herdsman-blocks-view.ts";
 import type { FakeElement, FakeNode } from "../herdsman-blocks.testdom.ts";
 import { icon, icons } from "../icons.ts";
-import { dispatch, FakeElement as FormElement, installDom } from "../testdom.ts";
-import { each, h, mount, unkeyed } from "../testref.ts";
+import { dispatch, installDom, markup } from "../testdom.ts";
 import type { Channel, ChannelMessage } from "../types.ts";
 
 // The store reads the URL and listens for history changes when it loads,
@@ -32,25 +31,19 @@ afterEach(() => {
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
-// The attributes a browser reflects from the properties h() assigns
-// ("k in el"), which the test DOM's elements keep as plain fields.
-const reflected = (e: FakeElement): { name: string; value: string }[] => {
-  if (!(e instanceof FormElement)) return [];
-  const out: { name: string; value: string }[] = [];
-  if (e.id && e.getAttribute("id") === null) out.push({ name: "id", value: e.id });
-  if (e.type && e.getAttribute("type") === null) out.push({ name: "type", value: e.type });
-  if (e.disabled && e.getAttribute("disabled") === null) out.push({ name: "disabled", value: "" });
-  return out;
+const iconMarkup = (paths: readonly string[], label?: string): string => {
+  const box = document.createElement("div");
+  render(box, icon(paths, label));
+  return dump(box.firstChild as unknown as FakeNode);
 };
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
 // Elements and text with attributes sorted; empty text (a slot's anchor) is not content, and adjacent text joins.
 const dump = (n: FakeNode): string => {
   if (n.nodeType === 3) return n.textContent;
   if (n.nodeType !== 1) return "";
   const e = fake(n);
-  const attrs = [...e.attributes, ...reflected(e)]
+  const attrs = e.attributes
     .map((a) => `${a.name}="${a.value}"`)
     .sort()
     .join(" ");
@@ -129,42 +122,234 @@ const open = (v: object, ids: string[], loaded: typeof bodies): void => {
   i.lastKey = "";
 };
 
+// The markup of each state. A message's time shows month, day and time
+// (1700000000 is not today); both it and its title follow the time zone.
+const sent = new Date(1700000000 * 1000);
+const stamp = sent.toLocaleString();
+const shown = sent.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+const loading = '<div class="messages"><p class="muted">Reading the message channel…</p></div>';
+const unconfigured = (): string => markup`
+  <div class="messages">
+    <div class="empty">
+      ${iconMarkup(icons.message)}
+      <h2 >No message channel</h2>
+      <p >With an adjutant, the user talks to it and it relays to the orchestrator through herdsman messages. Start <code >herdsman web --inbox <private inbox folder></code> (or set <code >HERDSMAN_INBOX</code>) to show them here.</p>
+    </div>
+  </div>
+`;
+const failed = markup`
+  <div class="messages">
+    <div class="empty"><h2 >Cannot read the message channel</h2><p >no inbox <here></p></div>
+  </div>
+`;
+const head = (approved: boolean): string => markup`
+  <div class="msg-head">
+    <div class="msg-pair">
+      <button class="msg-peer adjutant" title="Open adjutant pane p1" type="button">
+        <span class="msg-role">Adjutant</span>
+        <span class="msg-name">adj</span>
+      </button>
+      ${iconMarkup(icons.arrow)}
+      <button class="msg-peer orchestrator" disabled="" title="No orchestrator enrolled" type="button">
+        <span class="msg-role">Orchestrator</span>
+        <span class="msg-name">orch</span>
+      </button>
+    </div>
+    <div class="msg-chips">
+      ${
+        approved
+          ? '<span class="chip ok" data-tip="The human approved this pair; delivery runs">Pair approved</span>'
+          : `<span class="chip warn" data-tip="A registry change waits for the human's approval; delivery is held">Approval pending</span>`
+      }
+      <span class="chip ok" data-tip="Heartbeat 12s ago; down after 120s">Courier up</span>
+      <span class="chip bad" data-tip="Heartbeat no heartbeat; down after 120s">Watcher down</span>
+      <span class="chip bad" data-tip="Automation is held until the human releases it">Automation held</span>
+      <span class="chip bad" data-tip="Reported by the message channel">odd-flag</span>
+      <span class="chip warn" data-tip="Held by ann: freeze; bob">deploy</span>
+      <span class="chip warn" data-tip="A hold or resume intent in the channel's state folder">x</span>
+      <span class="chip warn">orch: 3 unread · claim held · 2 quarantined</span>
+      <span class="chip warn">adj: 0 unread · not enrolled</span>
+    </div>
+  </div>
+`;
+const alerts = markup`
+  <div class="msg-alerts" role="alert">
+    <div class="msg-alert"><strong >Stuck</strong><span >The courier <b>stopped</b></span></div>
+    <div class="msg-alert"><strong >Late</strong><span >A reply is overdue</span></div>
+  </div>
+`;
+// A readable message's toggle, and its body when open.
+const toggle = (open: boolean): string => markup`
+  <button aria-expanded="${String(open)}" class="btn ghost msg-toggle" type="button">
+    ${iconMarkup(icons.chevronDown)}${open ? "Hide" : "Show message"}
+  </button>
+`;
+// Each message, newest first, with what follows its meta lines: a toggle and
+// body, or a note.
+const thread: Record<string, (rest: string) => string> = {
+  m6: (rest) => markup`
+    <li class="msg left k-brief" id="msg-m6">
+      <div class="msg-meta">
+        <span class="msg-kind k-brief">Brief</span>
+        <span class="msg-route">adj → orch</span>
+        <span class="msg-state s-delivered" data-tip="Verified, not yet read">Delivered</span>
+        <time title="${stamp}">${shown}</time>
+      </div>
+      <div class="msg-sub"><code >m6</code></div>
+      ${rest}
+    </li>
+  `,
+  m5: (rest) => markup`
+    <li class="msg left k-brief" id="msg-m5">
+      <div class="msg-meta">
+        <span class="msg-kind k-brief">Brief</span>
+        <span class="msg-route">adj → orch</span>
+        <span class="msg-state s-read" data-tip="Claimed by its reader; intake not recorded yet">Read</span>
+        <time title="${stamp}">${shown}</time>
+      </div>
+      <div class="msg-sub"><code >m5</code></div>
+      ${rest}
+    </li>
+  `,
+  m4: (rest) => markup`
+    <li class="msg left k-question" id="msg-m4">
+      <div class="msg-meta">
+        <span class="msg-kind k-question">Question</span>
+        <span class="msg-route">adj → orch</span>
+        <span class="msg-state s-queued" data-tip="Waiting for the courier to verify it">Queued</span>
+        <time title="${stamp}">${shown}</time>
+      </div>
+      <div class="msg-sub"><code >m4</code></div>
+      ${rest}
+    </li>
+  `,
+  m3: (rest) => markup`
+    <li class="msg left k-brief quarantined" id="msg-m3">
+      <div class="msg-meta">
+        <span class="msg-kind k-brief">Brief</span>
+        <span class="msg-route">adj → orch</span>
+        <span class="msg-state s-quarantined" data-tip="Failed the courier's checks; never trusted">Quarantined</span>
+        <time title="${stamp}">${shown}</time>
+      </div>
+      <div class="msg-sub"><code >m3</code><a class="msg-reply" href="#msg-gone">↩ gone</a></div>
+      ${rest}
+    </li>
+  `,
+  m2: (rest) => markup`
+    <li class="msg right k-result" id="msg-m2">
+      <div class="msg-meta">
+        <span class="msg-kind k-result">Result</span>
+        <span class="msg-route">orch → adj</span>
+        <span class="msg-state s-taken-in" data-tip="The reader recorded it in the route">Taken in</span>
+        <time title="${stamp}">${shown}</time>
+      </div>
+      <div class="msg-sub"><code >m2</code><a class="msg-reply" href="#msg-m1">↩ m1</a></div>
+      ${rest}
+    </li>
+  `,
+  m1: (rest) => markup`
+    <li class="msg left k-brief" id="msg-m1">
+      <div class="msg-meta">
+        <span class="msg-kind k-brief">Brief</span>
+        <span class="msg-route">adj → orch</span>
+        <span class="msg-state s-delivered" data-tip="Verified, not yet read">Delivered</span>
+        <time title="${stamp}">${shown}</time>
+      </div>
+      <div class="msg-sub"><code >m1</code></div>
+      ${rest}
+    </li>
+  `,
+};
+const queued = '<p class="msg-note">Waiting for the courier to verify it.</p>';
+const quarantined =
+  '<p class="msg-note">Failed the courier\'s checks. The body is not shown; the sender must send a fresh message.</p>';
+// The channel with every message closed, its oldest skip messages left out.
+const closed = (skip: number): string => markup`
+  <div class="messages">
+    ${head(false)}
+    ${alerts}
+    <ol class="msg-thread">
+      ${[
+        thread["m6"]!(toggle(false)),
+        thread["m5"]!(toggle(false)),
+        thread["m4"]!(queued),
+        thread["m3"]!(quarantined),
+        thread["m2"]!(toggle(false)),
+        thread["m1"]!(toggle(false)),
+      ]
+        .slice(0, 6 - skip)
+        .join("")}
+    </ol>
+  </div>
+`;
+// The channel with m1, m2, m3, m5 and m6 open: a body each, as loaded (m3 is
+// quarantined and stays shut).
+const opened = (): string => markup`
+  <div class="messages">
+    ${head(false)}
+    ${alerts}
+    <ol class="msg-thread">
+      ${thread["m6"]!(toggle(true) + '<div class="msg-body"><p class="muted">Loading…</p></div>')}
+      ${thread["m5"]!(toggle(true) + '<div class="msg-body"><p class="error">cannot read m5 (500)</p></div>')}
+      ${thread["m4"]!(queued)}
+      ${thread["m3"]!(quarantined)}
+      ${thread["m2"]!(toggle(true) + '<div class="msg-body"><pre class="msg-text">plain & simple</pre></div>')}
+      ${thread["m1"]!(
+        toggle(true) +
+          markup`
+            <div class="msg-body">
+              <div >
+                <pre class="msg-text">hello <i></pre>
+                <dl class="msg-fields"><dt >n</dt><dd >2</dd><dt >why</dt><dd >because</dd></dl>
+              </div>
+            </div>
+          `,
+      )}
+    </ol>
+  </div>
+`;
+
 test("every state renders what the h() version did", () => {
-  const cases: [Channel | null, string[]][] = [
-    [null, []],
-    [{ ...channel([]), configured: false }, []],
-    [{ ...channel([]), error: "no inbox <here>" }, []],
-    [{ ...channel([]), alerts: [], approved: true }, []],
-    [channel(messages), []],
-    [channel(messages), ["m1", "m2", "m3", "m5", "m6"]],
+  const cases: [Channel | null, string[], () => string][] = [
+    [null, [], () => loading],
+    [{ ...channel([]), configured: false }, [], unconfigured],
+    [{ ...channel([]), error: "no inbox <here>" }, [], () => failed],
+    [
+      { ...channel([]), alerts: [], approved: true },
+      [],
+      () => markup`
+        <div class="messages">
+          ${head(true)}
+          <p class="muted msg-none">No messages yet. The pair's first message is the handshake.</p>
+        </div>
+      `,
+    ],
+    [channel(messages), [], () => closed(0)],
+    [channel(messages), ["m1", "m2", "m3", "m5", "m6"], opened],
   ];
-  for (const [ch, ids] of cases) {
+  for (const [ch, ids, want] of cases) {
     const now = new MessagesView();
-    const then = new OldMessagesView();
     open(now, ids, bodies);
-    open(then, ids, bodies);
     now.render(ch, panes);
-    then.render(ch, panes);
-    expect(dump(fake(now.el))).toBe(dump(fake(then.el)));
+    expect(dump(fake(now.el))).toBe(want());
   }
 });
 
 test("one view moves between states and still renders what the h() version did", () => {
   const now = new MessagesView();
   const el = now.el;
-  const states: (Channel | null)[] = [
-    null,
-    channel(messages),
-    { ...channel([]), configured: false },
-    channel(messages.slice(2)),
-    null,
+  const states: [Channel | null, () => string][] = [
+    [null, () => loading],
+    [channel(messages), () => closed(0)],
+    [{ ...channel([]), configured: false }, unconfigured],
+    [channel(messages.slice(2)), () => closed(2)],
+    [null, () => loading],
   ];
-  for (const ch of states) {
-    const then = new OldMessagesView();
+  for (const [ch, want] of states) {
     now.render(ch, panes);
-    then.render(ch, panes);
     expect(now.el).toBe(el);
-    expect(dump(fake(now.el))).toBe(dump(fake(then.el)));
+    expect(dump(fake(now.el))).toBe(want());
   }
 });
 
@@ -230,280 +415,3 @@ test("a peer opens its pane", () => {
   dispatch(adj!, "click");
   expect(store.app.view.pane).toBe("p1");
 });
-
-// ---------------------------------------------------------------------------
-// The h() version the view replaces, for the comparison: views/messages.ts as
-// it was, without toggle() (the tests set its state directly).
-// ---------------------------------------------------------------------------
-
-function when(t: number): string {
-  const d = new Date(t * 1000);
-  const today = new Date().toDateString() === d.toDateString();
-  return today
-    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-function seconds(n: number): string {
-  if (n < 0) return "no heartbeat";
-  if (n < 90) return `${n}s ago`;
-  if (n < 5400) return `${Math.round(n / 60)}m ago`;
-  return `${Math.round(n / 3600)}h ago`;
-}
-function renderBody(body: string): HTMLElement {
-  let v: unknown;
-  try {
-    v = JSON.parse(body);
-  } catch {
-    return h("pre", { class: "msg-text" }, body);
-  }
-  if (!v || typeof v !== "object" || Array.isArray(v)) return h("pre", { class: "msg-text" }, body);
-  const o = v as Record<string, unknown>;
-  const rest = Object.entries(o).filter(([k]) => k !== "text" && k !== "version");
-  return h(
-    "div",
-    null,
-    typeof o["text"] === "string" ? h("pre", { class: "msg-text" }, o["text"]) : null,
-    rest.length
-      ? h(
-          "dl",
-          { class: "msg-fields" },
-          unkeyed(
-            rest.map(([k, val]): [HTMLElement, HTMLElement] => [
-              h("dt", null, k),
-              h("dd", null, typeof val === "string" ? val : JSON.stringify(val)),
-            ]),
-          ),
-        )
-      : null,
-  );
-}
-class OldMessagesView {
-  readonly el = h("div", { class: "messages" });
-  private readonly bodies = new Map<string, { text?: string; error?: string }>();
-  private readonly expanded = new Set<string>();
-  private lastKey = "";
-
-  render(ch: Channel | null, panes: { adjutant: string; orchestrator: string }): void {
-    const key = JSON.stringify([ch, panes, [...this.expanded], [...this.bodies.keys()]]);
-    if (key === this.lastKey) return;
-    this.lastKey = key;
-    if (!ch) {
-      mount(this.el, h("p", { class: "muted" }, "Reading the message channel…"));
-      return;
-    }
-    if (!ch.configured) {
-      mount(
-        this.el,
-        h(
-          "div",
-          { class: "empty" },
-          icon(icons.message),
-          h("h2", null, "No message channel"),
-          h(
-            "p",
-            null,
-            "With an adjutant, the user talks to it and it relays to the orchestrator through herdsman messages. Start ",
-            h("code", null, "herdsman web --inbox <private inbox folder>"),
-            " (or set ",
-            h("code", null, "HERDSMAN_INBOX"),
-            ") to show them here.",
-          ),
-        ),
-      );
-      return;
-    }
-    if (ch.error) {
-      mount(
-        this.el,
-        h("div", { class: "empty" }, h("h2", null, "Cannot read the message channel"), h("p", null, ch.error)),
-      );
-      return;
-    }
-    mount(this.el, this.header(ch, panes), this.alerts(ch), this.thread(ch));
-  }
-
-  private header(ch: Channel, panes: { adjutant: string; orchestrator: string }): HTMLElement {
-    const peer = (role: "adjutant" | "orchestrator") => {
-      const p = ch.peers.find((x) => x.role === role);
-      const pane = p?.pane || panes[role];
-      return h(
-        "button",
-        {
-          type: "button",
-          class: `msg-peer ${role}`,
-          disabled: !pane,
-          title: pane ? `Open ${role} pane ${pane}` : `No ${role} enrolled`,
-          onclick: () => pane && store.go({ pane }),
-        },
-        h("span", { class: "msg-role" }, role === "adjutant" ? "Adjutant" : "Orchestrator"),
-        h("span", { class: "msg-name" }, p?.name ?? "—"),
-      );
-    };
-    const boxes = ch.boxes.filter((b) => b.unacked || b.claim !== "none" || b.counts["quarantine"] || b.orphan);
-    return h(
-      "div",
-      { class: "msg-head" },
-      h("div", { class: "msg-pair" }, peer("adjutant"), icon(icons.arrow), peer("orchestrator")),
-      h(
-        "div",
-        { class: "msg-chips" },
-        h(
-          "span",
-          {
-            class: ch.approved ? "chip ok" : "chip warn",
-            "data-tip": ch.approved
-              ? "The human approved this pair; delivery runs"
-              : "A registry change waits for the human's approval; delivery is held",
-          },
-          ch.approved ? "Pair approved" : "Approval pending",
-        ),
-        unkeyed(
-          ch.health.map((s) =>
-            h(
-              "span",
-              {
-                class: s.ok ? "chip ok" : "chip bad",
-                "data-tip": `Heartbeat ${seconds(s.age)}; down after ${ch.health_after}s`,
-              },
-              `${s.name === "courier" ? "Courier" : "Watcher"} ${s.ok ? "up" : "down"}`,
-            ),
-          ),
-        ),
-        unkeyed(
-          (ch.flags ?? []).map((f) => {
-            const [text, tip] = describeFlag(f);
-            return h("span", { class: "chip bad", "data-tip": tip }, text);
-          }),
-        ),
-        each(
-          ch.holds ?? [],
-          (x) => x.name,
-          (x) =>
-            h(
-              "span",
-              {
-                class: "chip warn",
-                "data-tip": x.owners?.length
-                  ? `Held by ${x.owners.map((o) => (o.reason ? `${o.by}: ${o.reason}` : o.by)).join("; ")}`
-                  : "A hold or resume intent in the channel's state folder",
-              },
-              x.name,
-            ),
-        ),
-        each(
-          boxes,
-          (b) => b.name,
-          (b) =>
-            h(
-              "span",
-              { class: b.counts["quarantine"] || b.orphan ? "chip warn" : "chip" },
-              `${b.name}: ${b.unacked} unread`,
-              b.claim !== "none" ? ` · claim ${b.claim}` : "",
-              b.counts["quarantine"] ? ` · ${b.counts["quarantine"]} quarantined` : "",
-              b.orphan ? " · not enrolled" : "",
-            ),
-        ),
-      ),
-    );
-  }
-
-  private alerts(ch: Channel): HTMLElement | null {
-    if (!ch.alerts.length) return null;
-    return h(
-      "div",
-      { class: "msg-alerts", role: "alert" },
-      unkeyed(
-        ch.alerts.map((a) => h("div", { class: "msg-alert" }, h("strong", null, a.title), h("span", null, a.body))),
-      ),
-    );
-  }
-
-  private thread(ch: Channel): HTMLElement {
-    if (!ch.messages.length)
-      return h("p", { class: "muted msg-none" }, "No messages yet. The pair's first message is the handshake.");
-    const roles = new Map(ch.peers.map((p) => [p.name, p.role]));
-    const ids = new Set(ch.messages.map((m) => m.id));
-    return h(
-      "ol",
-      { class: "msg-thread" },
-      each(
-        [...ch.messages].reverse(),
-        (m) => m.id,
-        (m) => {
-          const side = roles.get(m.from) === "orchestrator" ? "right" : "left";
-          const label = stateLabel(m);
-          const open = this.expanded.has(m.id);
-          const body = this.bodies.get(m.id);
-          const readable = m.state === "ready" || m.state === "cur";
-          return h(
-            "li",
-            { class: `msg ${side} k-${m.kind}${m.state === "quarantine" ? " quarantined" : ""}`, id: `msg-${m.id}` },
-            h(
-              "div",
-              { class: "msg-meta" },
-              h("span", { class: `msg-kind k-${m.kind}` }, kindLabel[m.kind] ?? m.kind),
-              h("span", { class: "msg-route" }, `${m.from} → ${m.to}`),
-              h(
-                "span",
-                { class: `msg-state s-${label.replace(" ", "-").toLowerCase()}`, "data-tip": stateTip[label] },
-                label,
-              ),
-              h("time", { title: new Date(m.time * 1000).toLocaleString() }, when(m.time)),
-            ),
-            h(
-              "div",
-              { class: "msg-sub" },
-              h("code", null, m.id),
-              m.reply_to
-                ? h(
-                    "a",
-                    {
-                      class: "msg-reply",
-                      href: `#msg-${m.reply_to}`,
-                      onclick: (e: Event) => {
-                        e.preventDefault();
-                        if (ids.has(m.reply_to))
-                          document
-                            .getElementById(`msg-${m.reply_to}`)
-                            ?.scrollIntoView({ block: "center", behavior: "smooth" });
-                      },
-                    },
-                    `↩ ${m.reply_to}`,
-                  )
-                : null,
-            ),
-            readable
-              ? h(
-                  "button",
-                  {
-                    type: "button",
-                    class: "btn ghost msg-toggle",
-                    "aria-expanded": String(open),
-                  },
-                  icon(icons.chevronDown),
-                  open ? "Hide" : "Show message",
-                )
-              : h(
-                  "p",
-                  { class: "msg-note" },
-                  m.state === "quarantine"
-                    ? "Failed the courier's checks. The body is not shown; the sender must send a fresh message."
-                    : "Waiting for the courier to verify it.",
-                ),
-            open && readable
-              ? h(
-                  "div",
-                  { class: "msg-body" },
-                  body?.text !== undefined
-                    ? renderBody(body.text)
-                    : body?.error
-                      ? h("p", { class: "error" }, body.error)
-                      : h("p", { class: "muted" }, "Loading…"),
-                )
-              : null,
-          );
-        },
-      ),
-    );
-  }
-}

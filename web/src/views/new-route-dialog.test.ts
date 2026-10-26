@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
-import { dispatch, dump } from "../testdom.ts";
-import { h } from "../testref.ts";
+import { dispatch, dump, markup } from "../testdom.ts";
 
 // The store reads the URL and listens for history changes when it loads.
 const g = globalThis as unknown as Record<string, unknown>;
@@ -10,7 +9,6 @@ g["location"] ??= { search: "" };
 g["window"] ??= { addEventListener: () => {} };
 const { openNewRoute } = await import("./new-route.ts");
 
-const fake = (n: unknown): FakeElement => n as FakeElement;
 const doc = (): Record<string, unknown> => g["document"] as Record<string, unknown>;
 const proto = FakeElement.prototype as unknown as Record<string, unknown>;
 const realFetch = globalThis.fetch;
@@ -40,34 +38,33 @@ afterEach(() => {
 
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 
-// The old h() dialog, with the form's method property written as the
-// attribute the browser reflects it to.
-const oldDialog = (...content: HTMLElement[]): HTMLElement =>
-  h(
-    "dialog",
-    { class: "dialog new-route", "aria-label": "New route" },
-    h("form", { method: "dialog", novalidate: true }, h("h2", null, "New route"), ...content),
-  );
-
 test("new route dialog: loading, then the failure as the h() version showed them, and closing removes it", async () => {
   let fail: (r: Response) => void = () => {};
   globalThis.fetch = (() => new Promise<Response>((resolve) => (fail = resolve))) as unknown as typeof fetch;
   openNewRoute();
   const dlg = elements(body)[0]!;
   expect(dlg["open"]).toBe(true);
-  expect(dump(dlg)).toBe(dump(fake(oldDialog(h("p", { class: "nr-loading" }, "Reading the harness lists…")))));
+  expect(dump(dlg)).toBe(markup`
+    <dialog aria-label="New route" class="dialog new-route">
+      <form method="dialog" novalidate="">
+        <h2>New route</h2>
+        <p class="nr-loading">Reading the harness lists…</p>
+      </form>
+    </dialog>
+  `);
 
   fail(new Response("", { status: 500 }));
   await new Promise((r) => setTimeout(r, 0));
   expect(dump(dlg)).toBe(
-    dump(
-      fake(
-        oldDialog(
-          h("p", { class: "error" }, "cannot read the harness list (500)"),
-          h("div", { class: "dialog-actions" }, h("button", { value: "cancel", class: "btn ghost" }, "Close")),
-        ),
-      ),
-    ),
+    markup`
+      <dialog aria-label="New route" class="dialog new-route">
+        <form method="dialog" novalidate="">
+          <h2>New route</h2>
+          <p class="error">cannot read the harness list (500)</p>
+          <div class="dialog-actions"><button class="btn ghost" value="cancel">Close</button></div>
+        </form>
+      </dialog>
+    `,
   );
 
   dispatch(dlg, "close");

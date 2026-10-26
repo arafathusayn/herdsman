@@ -3,8 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { icon, icons } from "../icons.ts";
-import { dispatch, dump } from "../testdom.ts";
-import { h } from "../testref.ts";
+import { dispatch, dump, markup } from "../testdom.ts";
 import { hostsDialog, hostsState } from "./hosts.ts";
 
 const g = globalThis as unknown as Record<string, unknown>;
@@ -57,6 +56,11 @@ afterEach(() => {
 });
 
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
+const iconMarkup = (paths: readonly string[], label?: string): string => {
+  const box = document.createElement("div");
+  render(box, icon(paths, label));
+  return dump(box.firstChild as unknown as FakeNode);
+};
 const all = (n: FakeElement): FakeElement[] => [n, ...elements(n).flatMap(all)];
 const byAttr = (n: FakeElement, k: string, v: string): FakeElement => {
   const el = all(n).find((e) => e.getAttribute(k) === v);
@@ -81,34 +85,24 @@ const typeIn = (el: FakeElement, v: string): void => {
 test("a host row renders what the h() version did", () => {
   const { dlg } = open();
   const rows = byClass(dlg, "host");
-  // The h() row of the second host.
-  const old = h(
-    "li",
-    { class: "host" },
-    h(
-      "div",
-      { class: "host-main" },
-      h("div", { class: "host-title" }, h("span", { class: "host-name" }, "box")),
-      h("code", { class: "host-url" }, "https://box.example.com"),
-      h("span", { class: "host-state" }, "Not paired"),
-    ),
-    h(
-      "div",
-      { class: "host-actions" },
-      h("button", { type: "button", class: "btn" }, "Connect"),
-      h(
-        "button",
-        { type: "button", class: "icon-btn", "aria-label": "Rename box", "data-tip": "Rename" },
-        icon(icons.tag),
-      ),
-      h(
-        "button",
-        { type: "button", class: "icon-btn", "aria-label": "Forget box", "data-tip": "Forget" },
-        icon(icons.trash),
-      ),
-    ),
-  );
-  expect(dump(rows[1]!)).toBe(dump(fake(old)));
+  expect(dump(rows[1]!)).toBe(markup`
+    <li class="host">
+      <div class="host-main">
+        <div class="host-title"><span class="host-name">box</span></div>
+        <code class="host-url">https://box.example.com</code>
+        <span class="host-state">Not paired</span>
+      </div>
+      <div class="host-actions">
+        <button class="btn" type="button">Connect</button>
+        <button aria-label="Rename box" class="icon-btn" data-tip="Rename" type="button">
+          ${iconMarkup(icons.tag)}
+        </button>
+        <button aria-label="Forget box" class="icon-btn" data-tip="Forget" type="button">
+          ${iconMarkup(icons.trash)}
+        </button>
+      </div>
+    </li>
+  `);
   expect(rows[0]!.className).toBe("host current");
   expect(dump(rows[0]!)).toContain('<span class="host-chip">Current</span>');
   expect(dump(rows[0]!)).toContain('<span class="host-state paired">Paired</span>');
