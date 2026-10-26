@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
+	"encoding"
 	"errors"
 	"hash"
 	"io"
@@ -26,6 +27,21 @@ const markEvery = 64
 // the metadata and the window, for the file to count as only grown.
 const tailCheck = 4096
 
+// chunkSize is the size of the blocks of the whole file whose hashes are
+// kept; verifyChunks of them are read again on each refresh, in turn, so an
+// edit no kept line shows is found within one cycle of refreshes.
+const (
+	chunkSize    = 1 << 20
+	verifyChunks = 2
+)
+
+// maxSpans bounds the window's kept line ranges; past it they become one
+// range (a file of many empty sections: correct, but read whole).
+const maxSpans = 4 * (Window + markEvery)
+
+// lineCap is how much of a line a page holds that it does not return.
+const lineCap = 64 << 10
+
 // ErrChanged says the route file is not the one a page was asked from (it
 // was replaced, rotated, edited or it shrank): the caller reloads.
 var ErrChanged = errors.New("the route file changed since it was read")
@@ -33,10 +49,12 @@ var ErrChanged = errors.New("the route file changed since it was read")
 // span is a byte range of the route file.
 type span struct{ start, end int64 }
 
-// mark is the offset of a run-state record and its index.
+// mark is the offset of a run-state record, its index, and the header line
+// that opened its section.
 type mark struct {
 	off   int64
 	index int
+	head  span
 }
 
 // Tail is a route file parsed up to its last complete line, with the run
@@ -47,24 +65,39 @@ type Tail struct {
 	// the newest of them.
 	Total int
 	size  int64
-	// info is the file as it was read: identity, size and time.
+	// info is the file as it was read: identity, size, time and change time.
 	info   os.FileInfo
 	parser parser
 	// meta are the lines the parse takes metadata from: the lines before
 	// the first section, the task table and checklist sections with the
-	// header that ends each, and any line that set the title or a pane;
-	// metaSum is their hash. Other sections (notes, repeated run-state
-	// headers) are not kept.
+	// header that ends each, and any line, a record too, that set the title
+	// or a pane; metaSum is their hash. Other sections are not kept.
 	meta    []span
 	metaSum []byte
 	// tailSum is the hash of the bytes just before size.
 	tailSum []byte
 	// marks are the offsets of every markEvery-th record, the oldest at or
-	// before the window's start (at most Window/markEvery+2 of them);
-	// winSum is the hash of the bytes from the window's start to size: the
-	// shown records and the pages come from one version of the file.
-	marks  []mark
+	// before the window's start (at most Window/markEvery+2 of them).
+	marks []mark
+	// head is the header line that opened the run-state section being read.
+	head span
+	// win are the window's run-state lines and the headers that open or
+	// end its run-state sections, from the window's start; winSum is the
+	// hash of the oldest mark's header and of win. Other sections between
+	// them are not read: their cost does not count against the window.
+	win    []span
 	winSum []byte
+	// winH, while a refresh parses, holds the hash of the window as it was
+	// checked, so appended window lines extend it and it is not read twice.
+	winH     hash.Hash
+	winStart int64
+	// sums are the hashes of the file's whole chunkSize blocks; part is
+	// the hash state of the bytes after them; next is the block the next
+	// refresh checks first (len(sums) is the partial one).
+	sums  [][]byte
+	part  []byte
+	chunk hash.Hash
+	next  int
 }
 
 // tracked are the sections whose lines the parse takes metadata from.
@@ -73,10 +106,12 @@ var tracked = map[string]bool{"": true, "task table": true, "checklist": true}
 // LoadBounded reads a route folder keeping the newest keep run-state
 // records. Given the previous Tail of the same file, it parses only what
 // was appended when the file is the same one, did not shrink, and its
-// metadata lines, its window of the newest records and the bytes just
-// before the old end are unchanged; else it parses the file whole. The
-// check reads those bytes only, so its cost does not grow with history.
-// prev is not changed.
+// metadata lines, its window, the bytes just before the old end and the
+// blocks this refresh checks in turn are unchanged; else it parses the
+// file whole. Each refresh reads the metadata lines, the window's
+// run-state lines, verifyChunks blocks and what was appended, so its cost
+// does not grow with history or with other sections; an edit elsewhere is
+// found within one cycle of refreshes. prev is not changed.
 func LoadBounded(dir string, keep int, prev *Tail) (*Tail, error) {
 	f, err := os.Open(filepath.Join(dir, RouteFile))
 	if err != nil {
@@ -87,18 +122,22 @@ func LoadBounded(dir string, keep int, prev *Tail) (*Tail, error) {
 	if err != nil {
 		return nil, err
 	}
+	buf := make([]byte, 64<<10)
 	br := bufio.NewReaderSize(nil, 64<<10)
 	t := &Tail{info: st}
 	h := sha256.New()
-	if prev != nil && os.SameFile(prev.info, st) && st.Size() >= prev.size && unchanged(f, prev, h, br) {
+	if prev != nil && os.SameFile(prev.info, st) && st.Size() >= prev.size && t.unchanged(f, prev, h, buf) {
 		t.parser = prev.parser
 		r := *prev.parser.r
 		r.Tasks, r.Checklist, r.RunState = slices.Clone(r.Tasks), slices.Clone(r.Checklist), slices.Clone(r.RunState)
 		t.parser.r, t.parser.header = &r, slices.Clone(prev.parser.header)
-		t.size, t.meta, t.marks = prev.size, slices.Clone(prev.meta), slices.Clone(prev.marks)
+		t.size, t.meta, t.marks, t.win, t.head = prev.size, slices.Clone(prev.meta), slices.Clone(prev.marks), slices.Clone(prev.win), prev.head
+		t.sums = slices.Clip(prev.sums)
+		t.chunk = restore(prev.part)
 	} else {
 		h.Reset()
 		t.parser = parser{r: &Route{Dir: dir, Name: filepath.Base(dir)}, keep: keep}
+		t.winH, t.chunk, t.next = nil, sha256.New(), 0
 	}
 	br.Reset(io.NewSectionReader(f, t.size, st.Size()-t.size))
 	for {
@@ -117,37 +156,94 @@ func LoadBounded(dir string, keep int, prev *Tail) (*Tail, error) {
 	}
 	r.Modified, r.Files = st.ModTime(), listFiles(dir)
 	t.Route, t.Total, t.metaSum = r, t.parser.total, h.Sum(nil)
-	t.tailSum = sumOf(f, max(0, t.size-tailCheck), t.size, br)
-	t.winSum = sumOf(f, t.windowStart(), t.size, br)
+	t.tailSum = sumOf(f, max(0, t.size-tailCheck), t.size, buf)
+	if t.winH == nil || t.winStart != t.windowStart() {
+		t.winH, t.winStart = t.winHash(f, buf)
+	}
+	t.winSum, t.winH = t.winH.Sum(nil), nil
+	t.part, _ = t.chunk.(encoding.BinaryMarshaler).MarshalBinary()
+	t.chunk = nil
 	return t, nil
+}
+
+// restore is a hash in the state part saved.
+func restore(part []byte) hash.Hash {
+	h := sha256.New()
+	if err := h.(encoding.BinaryUnmarshaler).UnmarshalBinary(part); err != nil {
+		h.Reset()
+	}
+	return h
 }
 
 // add parses one line at the parse's end and files it.
 func (t *Tail) add(line string, h hash.Hash) {
 	start := t.size
 	t.size += int64(len(line))
+	t.feed(line, start)
 	text := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 	r := t.parser.r
 	before, title, adj, orch := t.parser.total, r.Title, r.AdjutantPane, r.OrchestratorPane
-	// A header that ends a tracked section is kept: it bounds that section.
-	ends := strings.HasPrefix(text, "## ") && tracked[t.parser.section]
+	section := t.parser.section
+	header := strings.HasPrefix(text, "## ")
 	t.parser.line(text)
-	switch {
-	case t.parser.total > before:
+	// A header that ends a tracked section is kept: it bounds that section.
+	if tracked[t.parser.section] || (header && tracked[section]) ||
+		r.Title != title || r.AdjutantPane != adj || r.OrchestratorPane != orch {
+		_, _ = io.WriteString(h, line)
+		t.meta = grow(t.meta, start, t.size)
+	}
+	if header && t.parser.section == "run state" {
+		t.head = span{start, t.size}
+	}
+	if section == "run state" || (header && t.parser.section == "run state") {
+		t.win = grow(t.win, start, t.size)
+		if t.winH != nil {
+			_, _ = io.WriteString(t.winH, line)
+		}
+		if len(t.win) > maxSpans {
+			t.win = []span{{t.win[0].start, t.size}}
+			t.winH = nil
+		}
+	}
+	if t.parser.total > before {
 		if before%markEvery == 0 {
-			t.marks = append(t.marks, mark{start, before})
+			t.marks = append(t.marks, mark{start, before, t.head})
 		}
 		// Keep the marks the window needs: the second one still has Window
-		// records from it on, the first is dropped.
+		// records from it on, the first is dropped, with the window's lines
+		// before the new start.
 		for len(t.marks) > 1 && t.parser.total-t.marks[1].index >= Window {
 			t.marks = t.marks[1:]
 		}
-	case tracked[t.parser.section] || ends || r.Title != title || r.AdjutantPane != adj || r.OrchestratorPane != orch:
-		_, _ = io.WriteString(h, line)
-		if n := len(t.meta); n > 0 && t.meta[n-1].end == start {
-			t.meta[n-1].end = t.size
-		} else {
-			t.meta = append(t.meta, span{start, t.size})
+		ws := t.windowStart()
+		for len(t.win) > 0 && t.win[0].end <= ws {
+			t.win = t.win[1:]
+		}
+		if len(t.win) > 0 && t.win[0].start < ws {
+			t.win[0].start = ws
+		}
+	}
+}
+
+// grow adds the line from start to end to spans, joining it to the last
+// span it follows.
+func grow(spans []span, start, end int64) []span {
+	if n := len(spans); n > 0 && spans[n-1].end == start {
+		spans[n-1].end = end
+		return spans
+	}
+	return append(spans, span{start, end})
+}
+
+// feed adds a line at start to the block hashes.
+func (t *Tail) feed(line string, start int64) {
+	for line != "" {
+		n := min(int64(len(line)), chunkSize-start%chunkSize)
+		_, _ = io.WriteString(t.chunk, line[:n])
+		line, start = line[n:], start+n
+		if start%chunkSize == 0 {
+			t.sums = append(t.sums, t.chunk.Sum(nil))
+			t.chunk.Reset()
 		}
 	}
 }
@@ -161,34 +257,87 @@ func (t *Tail) windowStart() int64 {
 	return t.marks[0].off
 }
 
-// unchanged says whether prev's metadata lines, its window and the bytes
-// just before its end are still the same; h is left holding the
-// metadata's hash.
-func unchanged(f *os.File, prev *Tail, h hash.Hash, br *bufio.Reader) bool {
-	for _, s := range prev.meta {
-		// A short read hashes fewer bytes, so the sums differ.
-		br.Reset(io.NewSectionReader(f, s.start, s.end-s.start))
-		_, _ = br.WriteTo(h)
+// winHash hashes the oldest mark's header and the window's lines; it
+// returns the window's start too.
+func (t *Tail) winHash(f *os.File, buf []byte) (hash.Hash, int64) {
+	h := sha256.New()
+	if len(t.marks) > 0 {
+		hashSpan(f, h, t.marks[0].head, buf)
 	}
-	return bytes.Equal(h.Sum(nil), prev.metaSum) &&
-		bytes.Equal(sumOf(f, max(0, prev.size-tailCheck), prev.size, br), prev.tailSum) &&
-		bytes.Equal(sumOf(f, prev.windowStart(), prev.size, br), prev.winSum)
+	for _, s := range t.win {
+		hashSpan(f, h, s, buf)
+	}
+	return h, t.windowStart()
+}
+
+// hashSpan adds the bytes of s to h through buf; a short read adds fewer
+// bytes, so the sums differ.
+func hashSpan(f *os.File, h hash.Hash, s span, buf []byte) {
+	for off := s.start; off < s.end; {
+		n, _ := f.ReadAt(buf[:min(int64(len(buf)), s.end-off)], off)
+		if n == 0 {
+			return
+		}
+		_, _ = h.Write(buf[:n])
+		off += int64(n)
+	}
+}
+
+// unchanged says whether prev's metadata lines, its window, the bytes just
+// before its end and the blocks due for a check are still the same; h is
+// left holding the metadata's hash, and t the window's hash and the next
+// block to check.
+func (t *Tail) unchanged(f *os.File, prev *Tail, h hash.Hash, buf []byte) bool {
+	for _, s := range prev.meta {
+		hashSpan(f, h, s, buf)
+	}
+	if !bytes.Equal(h.Sum(nil), prev.metaSum) ||
+		!bytes.Equal(sumOf(f, max(0, prev.size-tailCheck), prev.size, buf), prev.tailSum) {
+		return false
+	}
+	w, ws := prev.winHash(f, buf)
+	if !bytes.Equal(w.Sum(nil), prev.winSum) {
+		return false
+	}
+	t.winH, t.winStart = w, ws
+	blocks := len(prev.sums) + 1
+	for k := range min(verifyChunks, blocks) {
+		i := (prev.next + k) % blocks
+		if i < len(prev.sums) {
+			if !bytes.Equal(sumOf(f, int64(i)*chunkSize, int64(i+1)*chunkSize, buf), prev.sums[i]) {
+				return false
+			}
+			continue
+		}
+		start := int64(len(prev.sums)) * chunkSize
+		if !bytes.Equal(sumOf(f, start, prev.size, buf), restore(prev.part).Sum(nil)) {
+			return false
+		}
+	}
+	t.next = (prev.next + verifyChunks) % blocks
+	return true
 }
 
 // sumOf is the hash of the bytes from start to end; a short read hashes
 // fewer bytes, so the sums differ.
-func sumOf(f *os.File, start, end int64, br *bufio.Reader) []byte {
+func sumOf(f *os.File, start, end int64, buf []byte) []byte {
 	h := sha256.New()
-	br.Reset(io.NewSectionReader(f, start, end-start))
-	_, _ = br.WriteTo(h)
+	hashSpan(f, h, span{start, end}, buf)
 	return h.Sum(nil)
 }
 
 // same says whether the open file is still this snapshot's: the same file,
-// size and time.
+// size, time and change time. Putting the time back after an edit changes
+// the change time, so such an edit is not the snapshot either.
 func (t *Tail) same(f *os.File) bool {
 	st, err := f.Stat()
-	return err == nil && os.SameFile(st, t.info) && st.Size() == t.info.Size() && st.ModTime().Equal(t.info.ModTime())
+	return err == nil && SameState(st, t.info)
+}
+
+// SameState says whether two reads of a file saw the same file, size,
+// modification time and change time.
+func SameState(a, b os.FileInfo) bool {
+	return os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime()) && changeTime(a).Equal(changeTime(b))
 }
 
 // beforeRead runs between a page's snapshot check and its reads; tests
@@ -201,8 +350,9 @@ func (t *Tail) From() int { return max(0, t.Total-Window) }
 // Page returns up to n run-state records ending before index before, no
 // older than From, read forward from this snapshot's window start (at most
 // Window+markEvery records and the sections between them, whatever the
-// history). The file must be the snapshot before and after the read
-// (file, size, time), and hold the records the snapshot counted; else
+// history; of a line it does not return it holds at most lineCap bytes).
+// The file must be the snapshot before and after the read (file, size,
+// time, change time), and hold the records the snapshot counted; else
 // ErrChanged.
 func (t *Tail) Page(before, n int) ([]LogLine, error) {
 	before = max(t.From(), min(before, t.Total))
@@ -221,23 +371,29 @@ func (t *Tail) Page(before, n int) ([]LogLine, error) {
 	}
 	beforeRead()
 	start := t.windowStart()
-	br := bufio.NewReaderSize(io.NewSectionReader(f, start, t.size-start), 64<<10)
-	// Lines are read in place (a line longer than the buffer is gathered in
-	// long); only the page's own records are copied.
+	br := bufio.NewReaderSize(io.NewSectionReader(f, start, t.size-start), lineCap)
+	// Lines are read in place. A line longer than the buffer is told apart
+	// by its first lineCap bytes: only a record the page returns is gathered
+	// whole; the rest of any other line is skipped.
 	var long []byte
 	inRun, i := true, t.marks[0].index
 	for i < before {
 		line, err := br.ReadSlice('\n')
 		if errors.Is(err, bufio.ErrBufferFull) {
-			long = append(long, line...)
-			continue
-		}
-		if err != nil {
+			keep := inRun && i >= from && runLine.Match(line)
+			long = append(long[:0], line...)
+			for errors.Is(err, bufio.ErrBufferFull) {
+				line, err = br.ReadSlice('\n')
+				if keep {
+					long = append(long, line...)
+				}
+			}
+			if err != nil {
+				return nil, ErrChanged
+			}
+			line = long
+		} else if err != nil {
 			return nil, ErrChanged // the file ends before the snapshot's records do
-		}
-		if len(long) > 0 {
-			long = append(long, line...)
-			line, long = long, long[:0]
 		}
 		line = bytes.TrimSuffix(bytes.TrimSuffix(line, []byte("\n")), []byte("\r"))
 		switch {

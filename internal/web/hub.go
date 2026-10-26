@@ -412,8 +412,8 @@ type cachedRoute struct {
 	tail *route.Tail
 }
 
-// loadRoute reads a route folder's file only when its size or time
-// changed since the last refresh, and then only what was appended when it
+// loadRoute reads a route folder's file only when its identity, size,
+// time or change time changed since the last refresh, and then only what was appended when it
 // grew (route.LoadBounded); the run state keeps the newest runStateKept.
 func (h *Hub) loadRoute(dir string) (*route.Tail, bool) {
 	st, err := os.Stat(filepath.Join(dir, route.RouteFile))
@@ -422,7 +422,7 @@ func (h *Hub) loadRoute(dir string) (*route.Tail, bool) {
 		return nil, false
 	}
 	c, ok := h.routes[dir]
-	if !ok || !os.SameFile(c.info, st) || c.info.Size() != st.Size() || !c.info.ModTime().Equal(st.ModTime()) {
+	if !ok || !route.SameState(c.info, st) {
 		tail, err := route.LoadBounded(dir, runStateKept, c.tail)
 		if err != nil {
 			delete(h.routes, dir)
