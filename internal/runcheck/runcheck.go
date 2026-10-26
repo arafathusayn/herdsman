@@ -193,13 +193,7 @@ func Publish(c Config, hours string, stderr io.Writer) int {
 		if r := c.probe(); r != "" {
 			// The script ignored a failed write or rename (A26): checks then
 			// ran on a stale or missing reading while it went on.
-			tmp := c.Reading + "." + strconv.Itoa(os.Getpid())
-			err := os.WriteFile(tmp, []byte(r+"\n"), 0o644)
-			if err == nil {
-				err = os.Rename(tmp, c.Reading)
-			}
-			if err != nil {
-				_ = os.Remove(tmp)
+			if err := publishReading(c.Reading, r+"\n"); err != nil {
 				fmt.Fprintf(stderr, "run-check: NOT PUBLISHED (cannot write the reading %s: %v)\n", c.Reading, err)
 				return ExitPublish
 			}
@@ -208,6 +202,33 @@ func Publish(c Config, hours string, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stderr, "run-check: publisher stopped at %s; sandboxed checks now run without a load gate\n", c.Now().Format("15:04"))
 	return 0
+}
+
+// publishReading replaces the reading at path with text. The script wrote
+// a predictable <reading>.<pid> leaf, following a link already there and
+// truncating its target (A26); here the temporary file is new and
+// exclusive (O_CREATE|O_EXCL under a random name), gets the reading's
+// 0644 mode, and is renamed over the reading.
+func publishReading(path, text string) error {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	_, err = f.WriteString(text)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, 0o644)
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+	}
+	return err
 }
 
 // Run runs args as one check. It returns the check's exit code, or one of

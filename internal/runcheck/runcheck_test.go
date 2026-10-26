@@ -627,3 +627,46 @@ func TestPublisherWriteFailures(t *testing.T) {
 		}
 	}
 }
+
+// Review head-2 P0 (A26): the script's <reading>.<pid> temporary leaf
+// followed a link already there and truncated its target. The publisher's
+// temporary file is new and exclusive: a link at the old name and its
+// target stay as they were, and the reading gets its 0644 mode.
+func TestPublisherTempLeafIsExclusive(t *testing.T) {
+	dir := t.TempDir()
+	sentinel := filepath.Join(dir, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("KEEP\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := Load(func(string) string { return "" })
+	c.Reading = filepath.Join(dir, "load")
+	leaf := c.Reading + "." + strconv.Itoa(os.Getpid())
+	if err := os.Symlink(sentinel, leaf); err != nil {
+		t.Fatal(err)
+	}
+	c.Probes, c.Probe = true, func() string { return "0.50 60" }
+	clock := time.Now()
+	c.Now = func() time.Time { return clock }
+	c.Sleep = func(d time.Duration) { clock = clock.Add(d) }
+	c.PublishFor, c.PublishEvery = time.Second, time.Second
+	var errb bytes.Buffer
+	if code := Publish(c, "1", &errb); code != 0 {
+		t.Fatalf("exit %d %q", code, errb.String())
+	}
+	if b, _ := os.ReadFile(sentinel); string(b) != "KEEP\n" {
+		t.Errorf("the link's target was written: %q", b)
+	}
+	if target, err := os.Readlink(leaf); err != nil || target != sentinel {
+		t.Errorf("the link at the old leaf changed: %q %v", target, err)
+	}
+	st, err := os.Lstat(c.Reading)
+	if err != nil || !st.Mode().IsRegular() || st.Mode().Perm() != 0o644 {
+		t.Fatalf("the reading is not a 0644 regular file: %v %v", st, err)
+	}
+	if b, _ := os.ReadFile(c.Reading); string(b) != "0.50 60\n" {
+		t.Errorf("reading %q", b)
+	}
+	if left, _ := filepath.Glob(c.Reading + ".*"); len(left) != 1 || left[0] != leaf {
+		t.Errorf("temporary files left: %v", left)
+	}
+}
