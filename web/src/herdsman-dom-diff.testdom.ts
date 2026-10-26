@@ -5,9 +5,26 @@
 // a CPU profile over it shows the library's own cost, not a browser's.
 
 /** Counts the DOM work done; tests assert on it. */
-export const ops = { inserts: 0, moves: 0, stateMoves: 0, removes: 0, clones: 0, classWrites: 0 };
+export const ops = {
+  inserts: 0,
+  moves: 0,
+  stateMoves: 0,
+  removes: 0,
+  clones: 0,
+  classWrites: 0,
+  attrWrites: 0,
+  textWrites: 0,
+};
 export function resetOps(): void {
-  ops.inserts = ops.moves = ops.stateMoves = ops.removes = ops.clones = ops.classWrites = 0;
+  ops.inserts =
+    ops.moves =
+    ops.stateMoves =
+    ops.removes =
+    ops.clones =
+    ops.classWrites =
+    ops.attrWrites =
+    ops.textWrites =
+      0;
 }
 
 export class FakeNode {
@@ -123,6 +140,7 @@ export class FakeText extends FakeNode {
     return this.data;
   }
   override set nodeValue(v: string | null) {
+    ops.textWrites++;
     this.data = v ?? "";
   }
   override get textContent(): string {
@@ -204,14 +222,20 @@ export class FakeElement extends FakeNode {
   }
   setAttribute(k: string, v: string): void {
     if (k === "class") this.className = v;
-    else (this.attrs ??= new Map()).set(k, v);
+    else {
+      ops.attrWrites++;
+      (this.attrs ??= new Map()).set(k, v);
+    }
   }
   getAttribute(k: string): string | null {
     return k === "class" ? this.className || null : (this.attrs?.get(k) ?? null);
   }
   removeAttribute(k: string): void {
     if (k === "class") this.className = "";
-    else this.attrs?.delete(k);
+    else {
+      ops.attrWrites++;
+      this.attrs?.delete(k);
+    }
   }
   override cloneNode(deep?: boolean): FakeElement {
     ops.clones++;
