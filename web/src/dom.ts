@@ -1,3 +1,4 @@
+import { child, html, type ListNode, render, type ViewNode } from "./herdsman-blocks-view.ts";
 // A small DOM builder. Strings always become text nodes, so nothing a pane
 // or a route file holds is ever parsed as HTML.
 import { KEY_ATTR, morph } from "./herdsman-blocks.ts";
@@ -14,8 +15,20 @@ export type Unkeyed = readonly Child[] & { readonly [UNKEYED]: true };
 
 // A list of children is a literal tuple (a fixed set), or a list made by each
 // or unkeyed. A plain array, such as a .map() result, does not type-check, so
-// every list says whether its items have identity.
-type Child = Node | string | number | false | null | undefined | Keyed | Unkeyed | readonly [Child, ...Child[]];
+// every list says whether its items have identity. A view description or a
+// view list is accepted through the temporary bridge (see below).
+type Child =
+  | Node
+  | string
+  | number
+  | false
+  | null
+  | undefined
+  | Keyed
+  | Unkeyed
+  | ViewNode
+  | ListNode
+  | readonly [Child, ...Child[]];
 
 // Development checks run only when the HERDSMAN_DEV global is true (tests set
 // it). A production build defines HERDSMAN_DEV as false, so the bundler
@@ -28,20 +41,27 @@ declare const HERDSMAN_DEV: boolean | undefined;
  * data instead of rebuilding or rewriting it. The key function sees only the
  * item, never its position: an index is not a key.
  */
-export function each<T>(items: readonly T[], key: (item: T) => string | number, render: (item: T) => Element): Keyed {
+export function each<T>(
+  items: readonly T[],
+  key: (item: T) => string | number,
+  render: (item: T) => Element | ViewNode,
+): Keyed {
   const out: Element[] = new Array(items.length);
+  const keys: string[] = new Array(items.length);
   for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
-    const el = render(item);
-    el.setAttribute(KEY_ATTR, String(key(item)));
-    out[i] = el;
+    const k = (keys[i] = String(key(item)));
+    const r = render(item);
+    if (r instanceof Node) {
+      r.setAttribute(KEY_ATTR, k);
+      out[i] = r;
+    } else out[i] = materializeView(r, k); // temporary bridge
   }
   // The constant must appear inline here, not behind a helper, so a production
   // build folds the whole block away.
   if (typeof HERDSMAN_DEV !== "undefined" && HERDSMAN_DEV) {
     const seen = new Set<string>();
-    for (const el of out) {
-      const k = el.getAttribute(KEY_ATTR)!;
+    for (const k of keys) {
       if (seen.has(k)) console.warn(`each(): duplicate key "${k}"; duplicates fall back to order and may rewrite rows`);
       seen.add(k);
     }
@@ -77,14 +97,17 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
-function append(el: Node, children: Child[]): void {
+function append(el: Node, children: readonly Child[]): void {
   for (const c of children) {
     if (c === null || c === undefined || c === false) continue;
-    if (Array.isArray(c)) append(el, c);
+    if (isList(c)) append(el, c);
     else if (c instanceof Node) el.appendChild(c);
-    else el.appendChild(document.createTextNode(String(c)));
+    else if (typeof c === "string" || typeof c === "number") el.appendChild(document.createTextNode(String(c)));
+    else for (const n of materialize(c)) el.appendChild(n); // temporary bridge
   }
 }
+
+const isList = (c: Child): c is Keyed | Unkeyed | readonly [Child, ...Child[]] => Array.isArray(c);
 
 /**
  * Mark a list as deliberately unkeyed: patch() matches its items by content
@@ -97,7 +120,7 @@ export function unkeyed(nodes: readonly Child[]): Unkeyed {
 }
 
 /** Replaces the children of el. */
-export function mount(el: Element, ...children: Child[]): void {
+export function mount(el: Element, ...children: readonly Child[]): void {
   el.replaceChildren();
   append(el, children);
 }
@@ -112,13 +135,57 @@ export function patch(el: Element, ...children: Child[]): void {
   morph(el, flatten(children, []), { onKeep: keepHandlers });
 }
 
-function flatten(children: Child[], out: Node[]): Node[] {
+function flatten(children: readonly Child[], out: Node[]): Node[] {
   for (const c of children) {
     if (c === null || c === undefined || c === false) continue;
-    if (Array.isArray(c)) flatten(c, out);
-    else out.push(c instanceof Node ? c : document.createTextNode(String(c)));
+    if (isList(c)) flatten(c, out);
+    else if (c instanceof Node) out.push(c);
+    else if (typeof c === "string" || typeof c === "number") out.push(document.createTextNode(String(c)));
+    else out.push(...materialize(c)); // temporary bridge
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// TEMPORARY BRIDGE: views inside h(), mount(), patch() and each(). Stage 3 of
+// plans/views-migration.md removes this section together with h().
+//
+// A view description (or a view list) given where h()-style children are
+// expected is rendered once into a scratch element and its element roots are
+// moved out: one-shot, which suits h() parents that rebuild anyway.
+//
+// Each moved-out root is stamped with a data-key no other render uses
+// ("view:<n>", or "<item key>|view:<n>" for an each() row), so patch()'s
+// morph never matches two materializations: an old one is replaced, never
+// morphed into the new one. A morph would keep the old element, and with it
+// the old render's event handlers.
+// ---------------------------------------------------------------------------
+
+const Scratch = html`<div>${child()}</div>`;
+let materialized = 0;
+
+const isElement = (n: Node): n is Element => n.nodeType === 1;
+
+function materialize(c: ViewNode | ListNode, key?: string): Element[] {
+  const box = document.createElement("div");
+  render(box, Scratch([c]));
+  const holder = box.firstChild;
+  const out: Element[] = [];
+  if (holder === null) return out;
+  // Element roots only: the slot's empty anchor text stays behind.
+  for (let n = holder.firstChild; n; n = n.nextSibling) if (isElement(n)) out.push(n);
+  for (const el of out) {
+    holder.removeChild(el);
+    const stamp = `view:${++materialized}`;
+    el.setAttribute(KEY_ATTR, key === undefined ? stamp : `${key}|${stamp}`);
+  }
+  return out;
+}
+
+function materializeView(v: ViewNode, key: string): Element {
+  const [el] = materialize(v, key);
+  if (el === undefined) throw new Error("dom.ts bridge: a view rendered no element");
+  return el;
 }
 
 // Handlers live in a map behind one listener per event type, so patch() can

@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { each, h, patch, unkeyed } from "./dom.ts";
-import { asDom, type FakeElement, installFakeDocument } from "./herdsman-blocks.testdom.ts";
+import { each, h, mount, patch, unkeyed } from "./dom.ts";
+import { cls, html, list, on, text } from "./herdsman-blocks-view.ts";
+import { asDom, type FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
+import { installDom } from "./testdom.ts";
+
+const fake = (n: unknown): FakeElement => n as FakeElement;
 
 beforeEach(installFakeDocument);
 
@@ -120,5 +124,107 @@ describe("each", () => {
       delete g.HERDSMAN_DEV;
       console.warn = warn;
     }
+  });
+});
+
+// The temporary bridge (stage 3 of plans/views-migration.md removes it, and these tests with it).
+describe("views through h(), mount(), patch() and each()", () => {
+  type Click = (this: HTMLElement, e: PointerEvent) => void;
+  const Button = html`<button class=${cls()} onclick=${on<"click">()}>${text()}</button>`;
+  const Item = html`<li>${text()}</li>`;
+  const kids = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
+  // Runs the element's click handler as the browser would (the view's
+  // trampoline lives in the onclick property).
+  const press = (el: FakeElement): void => {
+    const f = el["onclick"];
+    if (typeof f === "function") f.call(el, { type: "click" });
+  };
+  const button = (label: string, fn: Click) => Button(["btn", fn, label]);
+
+  test("a view child is rendered in place with its classes, text and handler", () => {
+    const calls: string[] = [];
+    const root = fake(
+      h(
+        "div",
+        null,
+        "a",
+        button("Go", () => calls.push("go")),
+        "b",
+      ),
+    );
+    expect(root.textContent).toBe("aGob");
+    const [b] = kids(root);
+    expect(b!.tagName).toBe("BUTTON");
+    expect(b!.className).toBe("btn");
+    expect(b!.getAttribute("data-key")).toMatch(/^view:\d+$/);
+    press(b!);
+    expect(calls).toEqual(["go"]);
+  });
+
+  test("patch() replaces a materialized view instead of morphing it, so the newest handler runs", () => {
+    const root = document.createElement("div");
+    const calls: string[] = [];
+    patch(
+      root,
+      h(
+        "p",
+        null,
+        button("Go", () => calls.push("first")),
+      ),
+    );
+    const p = fake(root).firstChild as FakeElement;
+    const first = kids(p)[0]!;
+    patch(
+      root,
+      h(
+        "p",
+        null,
+        button("Go", () => calls.push("second")),
+      ),
+    );
+    expect(fake(root).firstChild).toBe(p); // the h() parent is kept
+    const second = kids(p)[0]!;
+    expect(second).not.toBe(first);
+    expect(kids(p).length).toBe(1);
+    press(second);
+    expect(calls).toEqual(["second"]);
+  });
+
+  test("each() rows that are views fold the item key into a fresh stamp", () => {
+    const root = document.createElement("ul");
+    const calls: string[] = [];
+    const rows = (ids: number[], tag: string) =>
+      each(
+        ids,
+        (id) => id,
+        (id) => button(String(id), () => calls.push(`${tag}${id}`)),
+      );
+    patch(root, rows([1, 2], "old"));
+    const before = kids(fake(root));
+    expect(before.map((e) => e.getAttribute("data-key"))).toEqual([
+      expect.stringMatching(/^1\|view:\d+$/),
+      expect.stringMatching(/^2\|view:\d+$/),
+    ]);
+    patch(root, rows([2, 1, 3], "new"));
+    const after = kids(fake(root));
+    expect(after.map((e) => e.textContent)).toEqual(["2", "1", "3"]);
+    for (const e of after) expect(before.includes(e)).toBe(false);
+    press(after[0]!);
+    expect(calls).toEqual(["new2"]);
+  });
+
+  test("a view list child and mount() work too", () => {
+    installDom(); // the app test DOM has replaceChildren
+    const root = document.createElement("ul");
+    mount(
+      root,
+      list(
+        ["a", "b"],
+        (s) => s,
+        (s) => Item([s]),
+      ),
+    );
+    expect(kids(fake(root)).map((e) => e.textContent)).toEqual(["a", "b"]);
+    expect(fake(root).childNodes.length).toBe(2); // no slot anchor comes along
   });
 });

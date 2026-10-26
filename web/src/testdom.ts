@@ -1,50 +1,27 @@
-// A small DOM for tests: just what the app's h() builder and the New route
-// form use (elements, text, attributes, classes, events). Bun ships no DOM,
-// and the repository takes no npm packages, so tests install this instead.
+// A small DOM for app tests: herdsman-blocks' linked-list fake DOM (so views,
+// templates and morph run on it) plus what the app's forms use: form
+// properties, classList, readable dataset, bubbling events with extras.
+// Bun ships no DOM, and the repository takes no npm packages.
+import {
+  FakeElement as BaseElement,
+  type FakeNode,
+  FakeText,
+  installFakeDocument,
+  SVG_NS,
+} from "./herdsman-blocks.testdom.ts";
 
 type Listener = (e: FakeEvent) => void;
 
 export interface FakeEvent {
   type: string;
-  target: FakeNode | null;
+  target: FakeNode;
   submitter?: FakeElement | null;
   defaultPrevented: boolean;
   preventDefault(): void;
 }
 
-export class FakeNode {
-  parentNode: FakeElement | null = null;
-  childNodes: FakeNode[] = [];
-  get textContent(): string {
-    return this.childNodes.map((c) => c.textContent).join("");
-  }
-  set textContent(v: string) {
-    for (const c of this.childNodes) c.parentNode = null;
-    this.childNodes = v === "" ? [] : [new FakeText(v)];
-    for (const c of this.childNodes) c.parentNode = this as unknown as FakeElement;
-  }
-  remove(): void {
-    if (!this.parentNode) return;
-    const p = this.parentNode;
-    p.childNodes = p.childNodes.filter((c) => c !== this);
-    this.parentNode = null;
-  }
-}
-
-export class FakeText extends FakeNode {
-  constructor(private data: string) {
-    super();
-  }
-  override get textContent(): string {
-    return this.data;
-  }
-  override set textContent(v: string) {
-    this.data = v;
-  }
-}
-
 class ClassList {
-  constructor(private el: FakeElement) {}
+  constructor(private el: BaseElement) {}
   private get list(): string[] {
     return this.el.className.split(/\s+/).filter(Boolean);
   }
@@ -65,11 +42,9 @@ class ClassList {
   }
 }
 
-export class FakeElement extends FakeNode {
-  className = "";
-  dataset: Record<string, string> = {};
-  attributes: Record<string, string> = {};
-  readonly classList = new ClassList(this);
+const dataName = (k: string): string => "data-" + k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+
+export class FakeElement extends BaseElement {
   // Properties h() assigns directly ("k in el").
   value = "";
   checked = false;
@@ -80,33 +55,25 @@ export class FakeElement extends FakeNode {
   type = "";
   open = false;
   returnValue = "";
-  private listeners: Record<string, Listener[]> = {};
-  constructor(readonly tagName: string) {
-    super();
+  private handlers: Record<string, Listener[]> = {};
+  readonly classList: ClassList = new ClassList(this);
+
+  /** data-* attributes, readable and writable. */
+  override get dataset(): Record<string, string> {
+    return new Proxy({} as Record<string, string>, {
+      get: (_t, k) => this.getAttribute(dataName(String(k))) ?? undefined,
+      set: (_t, k, v) => {
+        this.setAttribute(dataName(String(k)), String(v));
+        return true;
+      },
+    });
   }
-  setAttribute(k: string, v: string): void {
-    this.attributes[k] = v;
+  override getAttribute(k: string): string | null {
+    if (k === "name") return this.name || super.getAttribute("name");
+    return super.getAttribute(k);
   }
-  getAttribute(k: string): string | null {
-    if (k === "name") return this.name || (this.attributes["name"] ?? null);
-    return this.attributes[k] ?? null;
-  }
-  appendChild(c: FakeNode): FakeNode {
-    c.remove();
-    c.parentNode = this;
-    this.childNodes.push(c);
-    return c;
-  }
-  append(...cs: (FakeNode | string)[]): void {
-    for (const c of cs) this.appendChild(typeof c === "string" ? new FakeText(c) : c);
-  }
-  replaceChildren(...cs: FakeNode[]): void {
-    for (const c of this.childNodes) c.parentNode = null;
-    this.childNodes = [];
-    this.append(...cs);
-  }
-  addEventListener(type: string, fn: Listener): void {
-    (this.listeners[type] ??= []).push(fn);
+  override addEventListener(type: string, fn: Listener): void {
+    (this.handlers[type] ??= []).push(fn);
   }
   dispatch(type: string, extra: Partial<FakeEvent> = {}): FakeEvent {
     const e: FakeEvent = {
@@ -118,41 +85,68 @@ export class FakeElement extends FakeNode {
       },
       ...extra,
     };
-    // Events bubble to the ancestors, as submit and input do.
-    for (let n: FakeElement | null = this; n; n = n.parentNode) for (const fn of n.listeners[type] ?? []) fn(e);
+    // Events bubble to the ancestors, as submit and input do; view handlers
+    // (on* properties) run as well as listeners.
+    for (let n: FakeNode | null = this; n; n = n.parentNode) {
+      if (n instanceof FakeElement) for (const fn of n.handlers[type] ?? []) fn(e);
+      const prop = (n as BaseElement)["on" + type];
+      if (typeof prop === "function") prop.call(n, e);
+    }
     return e;
+  }
+  append(...cs: (FakeNode | string)[]): void {
+    for (const c of cs) this.appendChild(typeof c === "string" ? new FakeText(c) : c);
+  }
+  replaceChildren(...cs: FakeNode[]): void {
+    this.textContent = "";
+    this.append(...cs);
+  }
+  remove(): void {
+    this.parentNode?.removeChild(this);
   }
   focus(): void {}
   close(): void {
     this.open = false;
   }
-  get children(): FakeElement[] {
-    return this.childNodes.filter((c): c is FakeElement => c instanceof FakeElement);
+  get children(): BaseElement[] {
+    return elementsOf(this);
   }
+}
+
+function elementsOf(n: FakeNode): BaseElement[] {
+  const out: BaseElement[] = [];
+  for (let c = n.firstChild; c; c = c.nextSibling) if (c instanceof BaseElement) out.push(c);
+  return out;
 }
 
 /** Installs the fake document and Node on globalThis. */
 export function installDom(): void {
+  installFakeDocument(); // Node
   const g = globalThis as unknown as Record<string, unknown>;
-  g["Node"] = FakeNode;
   g["document"] = {
     activeElement: null,
-    createElement: (tag: string) => new FakeElement(tag),
-    createElementNS: (_ns: string, tag: string) => new FakeElement(tag),
+    createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
+    createElementNS: (ns: string, tag: string) => new (ns === SVG_NS ? BaseElement : FakeElement)(tag, ns),
     createTextNode: (s: string) => new FakeText(s),
   };
 }
 
 /** Every element under root, depth first, root included. */
-export function all(root: FakeElement): FakeElement[] {
-  return [root, ...root.children.flatMap(all)];
+export function all(root: BaseElement): FakeElement[] {
+  const out: FakeElement[] = [];
+  const walk = (e: BaseElement): void => {
+    if (e instanceof FakeElement) out.push(e);
+    for (const c of elementsOf(e)) walk(c);
+  };
+  walk(root);
+  return out;
 }
 
-export function find(root: FakeElement, pred: (e: FakeElement) => boolean): FakeElement | undefined {
+export function find(root: BaseElement, pred: (e: FakeElement) => boolean): FakeElement | undefined {
   return all(root).find(pred);
 }
 
-export function byName(root: FakeElement, name: string): FakeElement {
+export function byName(root: BaseElement, name: string): FakeElement {
   const el = find(root, (e) => e.name === name);
   if (!el) throw new Error(`no element named ${name}`);
   return el;
