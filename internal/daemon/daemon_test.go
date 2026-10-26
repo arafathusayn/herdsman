@@ -371,7 +371,7 @@ func TestSetupWritesProofV2(t *testing.T) {
 	_, _, dir := h.route("r")
 	b, ok := inbox.ReadStrict(dir, filepath.Join(dir, "setup.json"))
 	var doc SetupV2
-	if !ok || json.Unmarshal(b, &doc) != nil || doc.Version != 2 || doc.Inbox != dir || len(doc.Rules) != 1 || doc.Binary.Path != h.cfg.Executable {
+	if !ok || json.Unmarshal(b, &doc) != nil || doc.Version != 2 || doc.Inbox != dir || len(doc.Rules) != 1 || doc.Binary.Path != canon(h.cfg.Executable) {
 		t.Fatalf("setup %s", b)
 	}
 	rb, _ := os.ReadFile(h.rules)

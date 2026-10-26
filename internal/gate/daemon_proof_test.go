@@ -45,6 +45,13 @@ func TestGateAcceptsDaemonProof(t *testing.T) {
 	r.c.WriteJSON(r.c.Proof, v2)
 	match(t, "the version 2 proof on a contract 2 inbox", `^CONSUME d1.*rc=0`, r.consume("d1"))
 
+	// The daemon's stale latch holds the proof stale although its files match.
+	latch := filepath.Join(r.c.Dir, "state", "proof-stale")
+	r.c.Write(latch, "a checksummed file changed\n")
+	r.gojson("d3", 600, nil)
+	match(t, "a latched version 2 proof", `proof stale.*rc=2`, r.consume("d3"))
+	_ = os.Remove(latch)
+
 	// A changed binary makes the version 2 proof stale.
 	r.c.Write(bin, "other\n")
 	r.gojson("d2", 600, nil)

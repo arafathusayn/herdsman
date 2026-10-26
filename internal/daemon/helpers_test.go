@@ -260,7 +260,7 @@ func seedInbox(t testing.TB) (string, Config) {
 	_ = os.WriteFile(rules, []byte("x"), 0o600)
 	_ = os.WriteFile(bin, []byte("y"), 0o700)
 	doc := SetupV2{Version: 2, Inbox: dir, PolicyVerified: true, Rules: []FileSum{{rules, sha256Hex([]byte("x"))}},
-		Binary: FileSum{bin, sha256Hex([]byte("y"))}, Boundary: json.RawMessage(`{"version":1}`), Probes: []Probe{}}
+		Binary: FileSum{canon(bin), sha256Hex([]byte("y"))}, Boundary: json.RawMessage(`{"version":1}`), Probes: []Probe{}}
 	_ = os.WriteFile(filepath.Join(dir, "setup.json"), prettyJSON(doc), 0o600)
 	cfg := Config{PrivateHome: base, Home: base, Version: testVersion, Executable: bin, Log: func(s string) { t.Log(s) },
 		Sleep: func(time.Duration) {}, LockWait: 1}
@@ -353,3 +353,12 @@ func (x *direct) count(op string) int {
 }
 
 func (x *direct) path(p ...string) string { return filepath.Join(append([]string{x.dir}, p...)...) }
+
+// canon is a path with its links resolved, as the daemon records the
+// installed binary.
+func canon(p string) string {
+	if c, err := filepath.EvalSymlinks(p); err == nil {
+		return c
+	}
+	return p
+}

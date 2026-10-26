@@ -124,7 +124,7 @@ type Route struct {
 	removed    bool
 	retained   []*inbox.Lock
 	creds      map[string]credential // party name to its credential record
-	proof      proofCache
+	hashes     hashCache
 	acks       ackCache
 	// replaying is set while open replays the journal.
 	replaying bool

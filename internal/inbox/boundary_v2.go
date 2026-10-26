@@ -84,6 +84,9 @@ func BoundaryV2(ctx context.Context, c *herdr.Client, dir string, boundary map[s
 // regular file whose SHA-256 matches. The script and CRC binary forms of
 // contract 1 are not version 2 and fail.
 func ProofV2Valid(dir string) bool {
+	if _, err := os.Lstat(filepath.Join(dir, "state", "proof-stale")); err == nil {
+		return false // the daemon saw this proof stale; only a new setup clears it
+	}
 	b, ok := ReadStrict(dir, filepath.Join(dir, "setup.json"))
 	if !ok {
 		return false

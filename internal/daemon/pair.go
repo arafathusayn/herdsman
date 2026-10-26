@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -536,107 +535,6 @@ func (r *Route) redoHold(rec *Record) error {
 	return writeIfDifferent(p, b)
 }
 
-// FileSum is one checksummed file of the version 2 setup proof.
-type FileSum struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-}
-
-// Probe is one negative probe result the human reports at setup.
-type Probe struct {
-	Identity            json.RawMessage `json:"identity"`
-	InboxWriteDenied    bool            `json:"inbox_write_denied"`
-	SocketConnectDenied bool            `json:"socket_connect_denied"`
-	RecordedBy          string          `json:"recorded_by"`
-}
-
-// SetupV2 is setup.json version 2 (4.6).
-type SetupV2 struct {
-	Version        int             `json:"version"`
-	Inbox          string          `json:"inbox"`
-	PolicyVerified bool            `json:"policy_verified"`
-	Rules          []FileSum       `json:"rules"`
-	Binary         FileSum         `json:"binary"`
-	Boundary       json.RawMessage `json:"boundary"`
-	WatchTargets   json.RawMessage `json:"watch_targets"`
-	ResumeTargets  json.RawMessage `json:"resume_targets"`
-	Probes         []Probe         `json:"probes"`
-}
-
-// SetupRequest is PUT /v1/routes/{route}/setup: the human's confirmed
-// fields. The daemon computes every checksum itself.
-type SetupRequest struct {
-	Rules          []string        `json:"rules"`
-	Binary         string          `json:"binary,omitempty"`
-	PolicyVerified bool            `json:"policy_verified"`
-	Boundary       json.RawMessage `json:"boundary"`
-	WatchTargets   json.RawMessage `json:"watch_targets,omitempty"`
-	ResumeTargets  json.RawMessage `json:"resume_targets,omitempty"`
-	Probes         []Probe         `json:"probes,omitempty"`
-}
-
-// SetupResult is the answer of a setup write.
-type SetupResult struct {
-	ProofSHA256 string `json:"proof_sha256"`
-}
-
-// setup writes setup.json version 2 (7.3); the caller holds the shared
-// input lock.
-func (r *Route) setup(q SetupRequest) (SetupResult, *APIError) {
-	if len(q.Rules) == 0 {
-		return SetupResult{}, Errf("bad_request", "name at least one sandbox policy file")
-	}
-	bin := q.Binary
-	if bin == "" {
-		bin = r.d.cfg.Executable
-	}
-	doc := SetupV2{Version: 2, Inbox: r.inbox, PolicyVerified: q.PolicyVerified, Boundary: q.Boundary,
-		WatchTargets: q.WatchTargets, ResumeTargets: q.ResumeTargets, Probes: q.Probes}
-	if doc.Probes == nil {
-		doc.Probes = []Probe{}
-	}
-	for i, p := range append(slices.Clone(q.Rules), bin) {
-		if !filepath.IsAbs(p) || strings.ContainsAny(p, "\t\r\n\\") {
-			return SetupResult{}, Errf("bad_request", "%q is not an absolute path", p)
-		}
-		b, err := os.ReadFile(p)
-		if err != nil || !regular(p) {
-			return SetupResult{}, Errf("bad_request", "%s is not a readable regular file", p)
-		}
-		fs := FileSum{Path: p, SHA256: sha256Hex(b)}
-		if i == len(q.Rules) {
-			doc.Binary = fs
-		} else {
-			doc.Rules = append(doc.Rules, fs)
-		}
-	}
-	if len(doc.Boundary) == 0 || !json.Valid(doc.Boundary) {
-		return SetupResult{}, Errf("bad_request", "the boundary object is required")
-	}
-	for _, raw := range []json.RawMessage{doc.WatchTargets, doc.ResumeTargets} {
-		if len(raw) > 0 && inbox.StrictJSON(raw) != nil {
-			return SetupResult{}, Errf("bad_request", "targets must be strict JSON")
-		}
-	}
-	data := prettyJSON(doc)
-	if len(data) > inbox.MaxSize {
-		return SetupResult{}, Errf("bad_request", "setup document too large")
-	}
-	if err := writeDurable(r.path("setup.json"), data, 0o600); err != nil {
-		return SetupResult{}, Errf("internal", "setup: %v", err)
-	}
-	for name, raw := range map[string]json.RawMessage{"watch-targets.json": doc.WatchTargets, "resume-targets.json": doc.ResumeTargets} {
-		if len(raw) > 0 {
-			if err := writeDurable(r.path(name), append(append([]byte{}, raw...), '\n'), 0o600); err != nil {
-				return SetupResult{}, Errf("internal", "%s: %v", name, err)
-			}
-		}
-	}
-	r.proof = proofCache{}
-	r.healthChanged()
-	return SetupResult{ProofSHA256: sha256Hex(data)}, nil
-}
-
 // inputLock takes the shared input lock herdr-mutation.lock (3.7):
 // exclusive across processes and across this daemon's own requests. A
 // lock folder that exists is never adopted, whoever holds it and however
@@ -682,70 +580,6 @@ func dropInputLock(dir, token string) {
 	_ = os.Remove(filepath.Join(dir, "pid"))
 	_ = os.Remove(dir)
 	_ = syncDir(filepath.Dir(dir))
-}
-
-// proofCache remembers the proof's verdict while none of its files changed
-// (stat-gated rehash, 7.3).
-type proofCache struct {
-	stamp string
-	valid bool
-}
-
-// proofStamp is the size, mtime and inode of setup.json and each file it
-// names.
-func (r *Route) proofStamp(doc *SetupV2) string {
-	var b strings.Builder
-	paths := []string{r.path("setup.json")}
-	if doc != nil {
-		for _, f := range doc.Rules {
-			paths = append(paths, f.Path)
-		}
-		paths = append(paths, doc.Binary.Path)
-	}
-	for _, p := range paths {
-		st, err := os.Stat(p)
-		if err != nil {
-			fmt.Fprintf(&b, "%s:missing;", p)
-			continue
-		}
-		fmt.Fprintf(&b, "%s:%d:%d:%d;", p, st.Size(), st.ModTime().UnixNano(), inode(st))
-	}
-	return b.String()
-}
-
-// readSetup reads setup.json version 2.
-func (r *Route) readSetup() (*SetupV2, bool) {
-	b, ok := inbox.ReadStrict(r.inbox, r.path("setup.json"))
-	if !ok {
-		return nil, false
-	}
-	var doc SetupV2
-	if json.Unmarshal(b, &doc) != nil || doc.Version != 2 {
-		return nil, false
-	}
-	return &doc, true
-}
-
-// proofValid checks the version 2 proof: it names this inbox with a
-// verified policy, and every rule file and the binary have their SHA-256.
-func (r *Route) proofValid() bool {
-	doc, ok := r.readSetup()
-	stamp := r.proofStamp(doc)
-	if r.proof.stamp == stamp && stamp != "" {
-		return r.proof.valid
-	}
-	valid := ok && doc.Inbox == r.inbox && doc.PolicyVerified && len(doc.Rules) > 0 && doc.Binary.Path != ""
-	if valid {
-		for _, f := range append(slices.Clone(doc.Rules), doc.Binary) {
-			b, err := os.ReadFile(f.Path)
-			if err != nil || !filepath.IsAbs(f.Path) || !regular(f.Path) || sha256Hex(b) != f.SHA256 {
-				valid = false
-				break
-			}
-		}
-	}
-	r.proof = proofCache{stamp: stamp, valid: valid}
-	return valid
 }
 
 // authority is RELAY under a current protected setup that matches the
