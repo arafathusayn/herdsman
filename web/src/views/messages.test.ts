@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { describeFlag, kindLabel, stateLabel, stateTip } from "../channel.ts";
-import { icon, icons } from "../dom.ts";
 import type { FakeElement, FakeNode } from "../herdsman-blocks.testdom.ts";
+import { icon, icons } from "../icons.ts";
 import { dispatch, FakeElement as FormElement, installDom } from "../testdom.ts";
 import { each, h, mount, unkeyed } from "../testref.ts";
 import type { Channel, ChannelMessage } from "../types.ts";

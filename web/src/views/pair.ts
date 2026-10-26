@@ -1,8 +1,8 @@
 // The pairing screen: the browser opened the URL, and now the person types
 // the code that `herdsman web` printed in their terminal.
 import { pair } from "../api.ts";
-import { icon, type IconNode, icons, logoMark, type LogoNode } from "../dom.ts";
 import { attr, child, cls, html, on, render, text, type ViewNodeOf } from "../herdsman-blocks-view.ts";
+import { icon, type IconNode, icons, logoMark, type LogoNode } from "../icons.ts";
 import { element } from "./element-view.ts";
 import { openHosts } from "./hosts.ts";
 

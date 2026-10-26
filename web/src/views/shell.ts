@@ -1,8 +1,8 @@
+import { attr, child, cls, html, list, type ListNode, on, text, type ViewNodeOf } from "../herdsman-blocks-view.ts";
 // The app's frame: the topbar, the sidebar with the routes and workspaces,
 // and what the main column shows before there is a route to show. main.ts
 // owns the state and places these; every function here is data to a view.
-import { icon, type IconNode, icons, logoMark, type LogoNode } from "../dom.ts";
-import { attr, child, cls, html, list, type ListNode, on, text, type ViewNodeOf } from "../herdsman-blocks-view.ts";
+import { icon, type IconNode, icons, logoMark, type LogoNode } from "../icons.ts";
 import { checklistCounts, routeFor, routeLabel, statusLabel, workspaceGroups } from "../model.ts";
 import { isMac, paletteKeys, sidebarKeys } from "../palette.ts";
 import type { App } from "../store.ts";

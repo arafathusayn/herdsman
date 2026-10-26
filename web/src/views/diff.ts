@@ -7,7 +7,6 @@
 import { AuthError, routeDiff } from "../api.ts";
 import { highlighting } from "../appearance.ts";
 import { type DiffLine, parseSection, sideBySide, splitPatch } from "../diff.ts";
-import { icon, type IconNode, icons } from "../dom.ts";
 import { fuzzy, highlight, type HighlightNode } from "../fuzzy.ts";
 import {
   attr,
@@ -24,6 +23,7 @@ import {
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
 import { languageOf, type Piece, type State, tokenizeLine } from "../highlight.ts";
+import { icon, type IconNode, icons } from "../icons.ts";
 import { store } from "../store.ts";
 import type { DiffFile, DiffSource } from "../types.ts";
 import { toast } from "../ui.ts";

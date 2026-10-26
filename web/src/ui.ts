@@ -1,6 +1,5 @@
 // Shared bits: status pills, toasts, the confirm and form dialogs and the theme.
 import { appThemes, installAppTheme } from "./appearance.ts";
-import { icon, type IconNode, icons } from "./dom.ts";
 import {
   attr,
   child,
@@ -14,6 +13,7 @@ import {
   text,
   type ViewNodeOf,
 } from "./herdsman-blocks-view.ts";
+import { icon, type IconNode, icons } from "./icons.ts";
 import { type Member, statusLabel } from "./model.ts";
 import { element } from "./views/element-view.ts";
 

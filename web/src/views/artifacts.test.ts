@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { icon, icons } from "../dom.ts";
 import { fuzzy, highlight } from "../fuzzy.ts";
 import type { Child } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
+import { icon, icons } from "../icons.ts";
 import { ago } from "../model.ts";
 import { dispatch } from "../testdom.ts";
 import { each, h } from "../testref.ts";

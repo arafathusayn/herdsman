@@ -1,7 +1,3 @@
-// Hosts: the dialog that lists the herdsman servers this app knows, adds one
-// from its pairing link or address, renames, forgets and switches; and the
-// connect screen shown when there is no host to talk to yet.
-import { icon, type IconNode, icons, logoMark, type LogoNode } from "../dom.ts";
 import {
   attr,
   child,
@@ -26,6 +22,10 @@ import {
   saveHosts,
   upsert,
 } from "../hosts.ts";
+// Hosts: the dialog that lists the herdsman servers this app knows, adds one
+// from its pairing link or address, renames, forgets and switches; and the
+// connect screen shown when there is no host to talk to yet.
+import { icon, type IconNode, icons, logoMark, type LogoNode } from "../icons.ts";
 import { dismissOnBackdrop, toast } from "../ui.ts";
 import { element } from "./element-view.ts";
 

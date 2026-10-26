@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { icon, icons } from "../dom.ts";
 import { render, type ViewNode } from "../herdsman-blocks-view.ts";
 import { FakeElement as BaseElement, type FakeNode } from "../herdsman-blocks.testdom.ts";
+import { icon, icons } from "../icons.ts";
 import { type Member, roleName } from "../model.ts";
 import { dispatch, FakeElement, FakeEvent, installDom } from "../testdom.ts";
 import { pill } from "../ui.ts";

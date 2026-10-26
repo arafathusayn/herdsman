@@ -1,8 +1,8 @@
+import { child, cls, html, on, render, text, type ViewNodeOf } from "./herdsman-blocks-view.ts";
 // The docs page at /docs/: the page itself is static HTML; this adds the
 // theme switch (shared with the app), copy buttons, the contents filter, the
 // current section in the contents, the install tabs and the narrow-screen menu.
-import { icon, type IconNode, icons } from "./dom.ts";
-import { child, cls, html, on, render, text, type ViewNodeOf } from "./herdsman-blocks-view.ts";
+import { icon, type IconNode, icons } from "./icons.ts";
 import { applyTheme, loadTheme, themeSwitch } from "./ui.ts";
 import { ElementView } from "./views/element-view.ts";
 

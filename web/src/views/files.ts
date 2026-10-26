@@ -4,7 +4,6 @@
 // updates live.
 import { routeFile } from "../api.ts";
 import { highlighting } from "../appearance.ts";
-import { icon, type IconNode, icons } from "../dom.ts";
 import { fuzzy, highlight, type HighlightNode } from "../fuzzy.ts";
 import {
   attr,
@@ -18,6 +17,7 @@ import {
   update,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
+import { icon, type IconNode, icons } from "../icons.ts";
 import { codeBlock, type CodeNode, type MarkdownNode, renderMarkdown } from "../markdown.ts";
 import { ago } from "../model.ts";
 import { store } from "../store.ts";

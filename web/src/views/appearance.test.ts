@@ -1,10 +1,10 @@
 import { beforeEach, expect, test } from "bun:test";
 
 import { appThemes, codeThemes, matchApp, noHighlight, termSchemes } from "../appearance.ts";
-import { icon, icons } from "../dom.ts";
 import { render } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { tokenizeLines } from "../highlight.ts";
+import { icon, icons } from "../icons.ts";
 import { dispatch, dump } from "../testdom.ts";
 import { h, unkeyed } from "../testref.ts";
 

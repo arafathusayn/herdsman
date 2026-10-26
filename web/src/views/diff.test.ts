@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { type DiffLine, parseSection, sideBySide, splitPatch } from "../diff.ts";
-import { icon, icons } from "../dom.ts";
 import { fuzzy, highlight } from "../fuzzy.ts";
 import type { Child } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { languageOf, type Piece, type State, tokenizeLine } from "../highlight.ts";
+import { icon, icons } from "../icons.ts";
 import { dispatch } from "../testdom.ts";
 import { h, unkeyed } from "../testref.ts";
 import type { DiffFile, DiffSource } from "../types.ts";

@@ -3,7 +3,6 @@
 // sandboxed frame. The list refreshes while the tab shows. A view belongs to
 // one route, so it never shows another route's list.
 import { listArtifacts, openArtifact } from "../api.ts";
-import { icon, type IconNode, icons } from "../dom.ts";
 import { fuzzy, highlight, type HighlightNode } from "../fuzzy.ts";
 import {
   attr,
@@ -17,6 +16,7 @@ import {
   update,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
+import { icon, type IconNode, icons } from "../icons.ts";
 import { ago } from "../model.ts";
 import { store } from "../store.ts";
 import type { Artifact } from "../types.ts";

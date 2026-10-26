@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { icon, icons } from "./dom.ts";
 import { highlight } from "./fuzzy.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
+import { icon, icons } from "./icons.ts";
 import { type Command, openPalette, paletteOpen } from "./palette.ts";
 import { dispatch, dump } from "./testdom.ts";
 import { h, unkeyed } from "./testref.ts";

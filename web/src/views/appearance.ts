@@ -14,7 +14,6 @@ import {
   termSchemes,
   termVars,
 } from "../appearance.ts";
-import { icon, type IconNode, icons } from "../dom.ts";
 import {
   attr,
   child,
@@ -30,6 +29,7 @@ import {
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
 import { tokenizeLines } from "../highlight.ts";
+import { icon, type IconNode, icons } from "../icons.ts";
 import { store } from "../store.ts";
 import { applyTheme, dismissOnBackdrop, themeSwitch, type ThemeSwitchNode } from "../ui.ts";
 import { element } from "./element-view.ts";

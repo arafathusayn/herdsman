@@ -1,9 +1,9 @@
+import { attr, child, cls, html, list, type ListNode, on, text, type ViewNodeOf } from "../herdsman-blocks-view.ts";
 // The main column: a route with its head, its tabs and the open tab's body,
 // the tab bodies main.ts does not keep as components (checklist, run state,
 // activity), and the session view of every agent. main.ts decides what shows
 // and owns the components; every function here is data to a view.
-import { icon, type IconNode, icons } from "../dom.ts";
-import { attr, child, cls, html, list, type ListNode, on, text, type ViewNodeOf } from "../herdsman-blocks-view.ts";
+import { icon, type IconNode, icons } from "../icons.ts";
 import { ago, checklistCounts, type Index, type Member } from "../model.ts";
 import type { App, RouteTab } from "../store.ts";
 import type { Route, Snapshot } from "../types.ts";

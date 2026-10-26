@@ -7,7 +7,6 @@ import { run } from "../actions.ts";
 import { arrowKeys, keySet, renamePane, sendOtherKeys, startAgent } from "../agent-actions.ts";
 import { readPalette, renderAnsi } from "../ansi.ts";
 import { act, AuthError, forgetPane, readPane } from "../api.ts";
-import { icon, type IconNode, icons } from "../dom.ts";
 import {
   attr,
   child,
@@ -20,6 +19,7 @@ import {
   update,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
+import { icon, type IconNode, icons } from "../icons.ts";
 import { afterSend, type Member, roleName } from "../model.ts";
 import { isMac } from "../palette.ts";
 import { panelResizer } from "../resize.ts";

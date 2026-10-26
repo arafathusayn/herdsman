@@ -1,8 +1,3 @@
-// The command palette (⌘K / Ctrl+K), in the pattern of VS Code: one box that
-// finds agents, routes and files and runs every action. A leading ">" shows
-// only commands, "@" only agents and "#" only files. A command that needs
-// text (a prompt) turns the box into an input for that text.
-import { icon, type IconNode, icons } from "./dom.ts";
 import { fuzzy, highlight, type HighlightNode } from "./fuzzy.ts";
 import {
   attr,
@@ -16,6 +11,11 @@ import {
   text,
   type ViewNodeOf,
 } from "./herdsman-blocks-view.ts";
+// The command palette (⌘K / Ctrl+K), in the pattern of VS Code: one box that
+// finds agents, routes and files and runs every action. A leading ">" shows
+// only commands, "@" only agents and "#" only files. A command that needs
+// text (a prompt) turns the box into an input for that text.
+import { icon, type IconNode, icons } from "./icons.ts";
 import { element, ElementView } from "./views/element-view.ts";
 
 export type CommandKind = "command" | "agent" | "route" | "file";

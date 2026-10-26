@@ -1,7 +1,3 @@
-// The New route form inside its dialog. Everything outside the DOM (the
-// server calls, the live state, navigation, toasts) comes in through Deps,
-// so the form can be driven in tests without a server or the app's store.
-import { icon, type IconNode, icons } from "../dom.ts";
 import {
   attr,
   child,
@@ -15,6 +11,10 @@ import {
   update as updateView,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
+// The New route form inside its dialog. Everything outside the DOM (the
+// server calls, the live state, navigation, toasts) comes in through Deps,
+// so the form can be driven in tests without a server or the app's store.
+import { icon, type IconNode, icons } from "../icons.ts";
 import {
   checklist,
   type ChecklistItem,

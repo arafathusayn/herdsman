@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { icon, icons, logoMark } from "./dom.ts";
 import { render, type ViewNode } from "./herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, SVG_NS } from "./herdsman-blocks.testdom.ts";
+import { icon, icons, logoMark } from "./icons.ts";
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
 

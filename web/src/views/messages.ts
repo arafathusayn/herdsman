@@ -4,7 +4,6 @@
 // only when its message is opened, and never for unverified entries.
 import { messageBody } from "../api.ts";
 import { describeFlag, kindLabel, stateLabel, stateTip } from "../channel.ts";
-import { icon, type IconNode, icons } from "../dom.ts";
 import {
   attr,
   child,
@@ -17,6 +16,7 @@ import {
   update,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
+import { icon, type IconNode, icons } from "../icons.ts";
 import { store } from "../store.ts";
 import type { Channel, ChannelMessage } from "../types.ts";
 import { element } from "./element-view.ts";

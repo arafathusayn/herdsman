@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { icon, icons } from "./dom.ts";
 import { render, type ViewNode } from "./herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
+import { icon, icons } from "./icons.ts";
 import { type Member, statusLabel } from "./model.ts";
 import { dispatch } from "./testdom.ts";
 import { h, unkeyed } from "./testref.ts";
