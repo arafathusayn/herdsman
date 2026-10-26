@@ -167,12 +167,19 @@ func GuardPath(root, p string) bool {
 	return true
 }
 
+// beforeRegularOpen runs in Regular between its Lstat and its open; tests
+// swap the leaf there.
+var beforeRegularOpen func(p string)
+
 // Regular is the scripts' regular: a readable regular file that is not a
 // link, whose folders under root are real (root "" skips that part).
 func Regular(root, p string) bool {
 	st, err := os.Lstat(p)
 	if err != nil || !st.Mode().IsRegular() {
 		return false
+	}
+	if beforeRegularOpen != nil {
+		beforeRegularOpen(p)
 	}
 	// The open is checked on its own descriptor: no link followed, no
 	// blocking on a fifo that replaced the file after the Lstat.

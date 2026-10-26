@@ -173,3 +173,51 @@ func TestReviewStrictFIFOReplacementDoesNotHang(t *testing.T) {
 		t.Errorf("ReadStrict blocked on a fifo after %d reads", prev)
 	}
 }
+
+// Review core-followups-1 P1: Regular's open must refuse the leaf it
+// actually opens. A leaf swapped after the Lstat for a link to a regular
+// file (refused by O_NOFOLLOW), a fifo or a folder (refused by the
+// descriptor's type) is not regular.
+func TestRegularChecksTheOpenedLeaf(t *testing.T) {
+	for _, kind := range []string{"link", "fifo", "folder"} {
+		t.Run(kind, func(t *testing.T) {
+			dir := t.TempDir()
+			p, target := filepath.Join(dir, "leaf"), filepath.Join(dir, "target")
+			for _, f := range []string{p, target} {
+				if err := os.WriteFile(f, []byte("{}"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			beforeRegularOpen = func(string) {
+				if err := os.Remove(p); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				switch kind {
+				case "link":
+					err = os.Symlink(target, p)
+				case "fifo":
+					err = syscall.Mkfifo(p, 0o600)
+				case "folder":
+					err = os.Mkdir(p, 0o700)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			defer func() { beforeRegularOpen = nil }()
+			if Regular(dir, p) {
+				t.Errorf("Regular accepted a %s swapped in after its Lstat", kind)
+			}
+		})
+	}
+	// Unswapped, the same regular leaf passes.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "leaf")
+	if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !Regular(dir, p) {
+		t.Error("Regular refused a regular leaf")
+	}
+}
