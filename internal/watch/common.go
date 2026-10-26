@@ -147,7 +147,8 @@ func hash(text string) string {
 // write (A26), so a watcher with no saved state reported the same events
 // again on each run and lost its stall and health counts. Here the first
 // failed write, touch or remove is kept (err), and the watcher stops with
-// a nonzero exit before it prints anything that rests on unsaved state.
+// exit 1 after the pass: its events are printed first (a saved marker
+// would hide them for good), and no TICK rests on unsaved state.
 type state struct {
 	dir string
 	err error

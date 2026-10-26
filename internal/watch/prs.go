@@ -104,13 +104,11 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 				failed := count(st, "fail-"+n, d.Stderr, "watch prs") + 1
 				st.write("fail-"+n, strconv.Itoa(failed)+"\n")
 				if failed >= 3 {
-					if stateFailed(st, d.Stderr, "watch prs") {
-						return 1
-					}
 					for _, e := range events {
 						fmt.Fprintln(d.Stdout, e)
 					}
 					fmt.Fprintf(d.Stdout, "PR-WATCH-ERROR PR %s could not be read\n", n)
+					stateFailed(st, d.Stderr, "watch prs")
 					return 1
 				}
 				continue
@@ -153,14 +151,18 @@ func PRs(ctx context.Context, env Env, d Deps) int {
 				events = append(events, fmt.Sprintf("PR %s NEW %s", n, l))
 			}
 		}
-		if stateFailed(st, d.Stderr, "watch prs") {
-			return 1
-		}
+		// The committed changes are printed even when another state write
+		// failed: their snapshot is saved, so they would never come again.
 		if len(events) > 0 {
 			for _, e := range events {
 				fmt.Fprintln(d.Stdout, e)
 			}
 			fmt.Fprintf(d.Stdout, "at %s\n", clock(d.Now()))
+		}
+		if stateFailed(st, d.Stderr, "watch prs") {
+			return 1
+		}
+		if len(events) > 0 {
 			return 0
 		}
 		if d.Now().Sub(start) >= deadline {
