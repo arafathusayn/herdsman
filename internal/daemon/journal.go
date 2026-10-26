@@ -63,6 +63,8 @@ type Record struct {
 	Credentials map[string]credential `json:"credentials,omitempty"`
 	// Generation names an approval's staged credential generation.
 	Generation string `json:"generation,omitempty"`
+	// Revoked are the parties an approval revoked.
+	Revoked []string `json:"revoked,omitempty"`
 	// Payload is the payload file of step 2, or null.
 	Payload *Payload `json:"payload"`
 	// Event is the event this record publishes (5.3), or null.

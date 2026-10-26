@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -264,6 +265,11 @@ func (r *Route) approve(q ApproveRequest) (ApproveResult, *APIError) {
 		}
 	}
 	sort.Strings(res.Revoked)
+	// An approval is consumed once: a retry of the approval that made the
+	// current registry returns its result and issues nothing (7.5).
+	if prior, done, e := r.priorApproval(q, pb, res); done {
+		return prior, e
+	}
 	// Step 2: the new generation's secrets, staged under names no client
 	// reads; the active secrets are untouched until the commit (7.5).
 	gen := randomHex(8)
@@ -276,7 +282,7 @@ func (r *Route) approve(q ApproveRequest) (ApproveResult, *APIError) {
 		r.dropStaged(gen, creds)
 		return ApproveResult{}, Errf("internal", "registry payload: %v", err)
 	}
-	rec := &Record{Op: "pair", State: "approved", Payload: pl, Interaction: q.Interaction, Credentials: creds, Generation: gen,
+	rec := &Record{Op: "pair", State: "approved", Payload: pl, Interaction: q.Interaction, Credentials: creds, Generation: gen, Revoked: res.Revoked,
 		Event: &Event{Type: "pair", State: "approved", Peers: peerInfos(pb)}}
 	if err := r.commit(rec); err != nil {
 		r.dropStaged(gen, creds)
@@ -288,6 +294,53 @@ func (r *Route) approve(q ApproveRequest) (ApproveResult, *APIError) {
 	r.publish(rec)
 	r.healthChanged()
 	return res, nil
+}
+
+// approvalRecord is state/approval.json: the approval that made the
+// approved registry, so a retry of it is answered without a new
+// credential generation.
+type approvalRecord struct {
+	SHA256      string               `json:"sha256"`
+	Interaction string               `json:"interaction"`
+	Credentials []ApprovedCredential `json:"credentials"`
+	Revoked     []string             `json:"revoked"`
+}
+
+// writeApproval records the approval of the registry with checksum sum.
+func (r *Route) writeApproval(sum string, rec *Record) error {
+	a := approvalRecord{SHA256: sum, Interaction: rec.Interaction, Credentials: []ApprovedCredential{}, Revoked: rec.Revoked}
+	for _, n := range slices.Sorted(maps.Keys(rec.Credentials)) {
+		a.Credentials = append(a.Credentials, ApprovedCredential{Name: n, Option: rec.Credentials[n].Option})
+	}
+	if a.Revoked == nil {
+		a.Revoked = []string{}
+	}
+	b, _ := encode(a)
+	return writeIfDifferent(r.path("state", "approval.json"), append(b, '\n'))
+}
+
+// priorApproval answers an approval of a registry that is already the
+// approved one by the approval that made it: the same interaction and
+// credential options get its recorded result (a retry), anything else is
+// refused; nothing new is issued either way. done is false when the
+// pending registry still waits for its approval.
+func (r *Route) priorApproval(q ApproveRequest, pb []byte, want ApproveResult) (ApproveResult, bool, *APIError) {
+	ab, ok := r.registryBytes("peers.approved")
+	if !ok || !bytes.Equal(ab, pb) {
+		return ApproveResult{}, false, nil
+	}
+	b, err := readSmall(r.path("state", "approval.json"), 64<<10)
+	var a approvalRecord
+	if err != nil || strictDecode(b, &a) != nil || a.SHA256 != sha256Hex(pb) {
+		return ApproveResult{}, false, nil // approved before this record existed: approve issues credentials
+	}
+	got := slices.Clone(want.Credentials)
+	slices.SortFunc(got, func(x, y ApprovedCredential) int { return strings.Compare(x.Name, y.Name) })
+	if a.Interaction != q.Interaction || !slices.Equal(got, a.Credentials) {
+		return ApproveResult{}, true, Errf("checksum_mismatch", "this registry is already approved; no pair change is pending")
+	}
+	res := ApproveResult{Approved: true, Credentials: a.Credentials, Revoked: a.Revoked}
+	return res, true, nil
 }
 
 // retire retires an approved name (7.7): it leaves the pending registry,
@@ -385,7 +438,10 @@ func (r *Route) redoPair(rec *Record) error {
 		if err := r.activate(rec.Generation, rec.Credentials); err != nil {
 			return err
 		}
-		return r.setCredentials(rec.Credentials)
+		if err := r.setCredentials(rec.Credentials); err != nil {
+			return err
+		}
+		return r.writeApproval(sha256Hex(pb), rec)
 	case "retired":
 		if err := mkdirs(r.inbox, "enrolled"); err != nil {
 			return err

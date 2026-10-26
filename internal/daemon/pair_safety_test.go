@@ -1,11 +1,13 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 	"github.com/arafathusayn/herdsman/internal/inbox"
@@ -68,6 +70,20 @@ func approvePair(t *testing.T, x *direct, adj, orch string) ApproveResult {
 	return res
 }
 
+// replacePair retires one orchestrator and enrolls a fresh one, so a new
+// pair waits for its approval.
+func replacePair(t *testing.T, x *direct, old, fresh string) {
+	t.Helper()
+	pb, _ := os.ReadFile(x.path("peers"))
+	if _, e := x.r.retire(old, sha256Hex(pb)); e != nil {
+		t.Fatalf("retire %s: %v", old, e)
+	}
+	id := inbox.Identity{Pane: "p-" + fresh, Session: inbox.Session{Agent: "claude", Kind: "id", Source: "hook", Value: "s-" + fresh}}
+	if _, e := x.r.enroll(fresh, "orchestrator", id); e != nil {
+		t.Fatalf("enroll %s: %v", fresh, e)
+	}
+}
+
 // secrets reads the active file secrets.
 func (x *direct) secrets() map[string]string {
 	out := map[string]string{}
@@ -103,6 +119,7 @@ func TestApproveFailureAtomic(t *testing.T) {
 			enrollPair(t, x, "a1", "o1")
 			// A first approval that fails leaves no secret.
 			restore := failWhere(where)
+			t.Cleanup(restore)
 			pb, _ := os.ReadFile(x.path("peers"))
 			if _, e := x.r.approve(ApproveRequest{SHA256: sha256Hex(pb)}); e == nil {
 				t.Fatal("approve succeeded with a failing step")
@@ -118,6 +135,7 @@ func TestApproveFailureAtomic(t *testing.T) {
 				return // committed; the barrier finishes it (the fault matrix covers it)
 			}
 			approvePair(t, x, "a1", "o1")
+			replacePair(t, x, "o1", "o2")
 			before, creds := x.secrets(), x.r.creds
 			credJSON, _ := os.ReadFile(x.path("state", "credentials.json"))
 			restore = failWhere(where)
@@ -128,7 +146,7 @@ func TestApproveFailureAtomic(t *testing.T) {
 			restore()
 			after := x.secrets()
 			now, _ := os.ReadFile(x.path("state", "credentials.json"))
-			if len(after) != 2 || after["a1"] != before["a1"] || after["o1"] != before["o1"] || string(now) != string(credJSON) {
+			if len(after) != len(before) || after["a1"] != before["a1"] || after["o1"] != before["o1"] || string(now) != string(credJSON) {
 				t.Fatalf("a refused approval changed the active secrets: %v -> %v", before, after)
 			}
 			for n, c := range creds {
@@ -178,8 +196,10 @@ func TestNewPairRestartKeepsCredentials(t *testing.T) {
 func TestApproveCrashActivates(t *testing.T) {
 	x := newPairRoute(t)
 	approvePair(t, x, "a1", "o1")
+	replacePair(t, x, "o1", "o2")
 	f := &faults{}
 	oldRename := rename
+	t.Cleanup(func() { rename = oldRename })
 	rename = func(a, b string) error {
 		if strings.Contains(a, "staged-") {
 			f.n++
@@ -244,4 +264,91 @@ func TestPendingExposureForcesHuman(t *testing.T) {
 	if ar.Authority != "HUMAN" || !exists(filepath.Join(dir2, "state", "boundary-tainted")) {
 		t.Fatalf("RELAY came back after the unknown agent left: %+v", ar)
 	}
+}
+
+// TestApprovalSingleRecord: an approval is consumed once. A retry of the
+// approval that made the approved registry returns its result, records
+// nothing, issues no secret and rotates nothing, also after a restart; the
+// same checksum with another interaction or other options is refused (7.5).
+func TestApprovalSingleRecord(t *testing.T) {
+	x := newPairRoute(t)
+	enrollPair(t, x, "a1", "o1")
+	pb, _ := os.ReadFile(x.path("peers"))
+	q := ApproveRequest{SHA256: sha256Hex(pb), Interaction: "ask-1"}
+	first, e := x.r.approve(q)
+	if e != nil {
+		t.Fatal(e)
+	}
+	secrets, records := x.secrets(), x.count("pair")
+	for i := 0; i < 3; i++ {
+		again, e := x.r.approve(q)
+		if e != nil || !again.Approved || len(again.Credentials) != len(first.Credentials) || again.Credentials[0] != first.Credentials[0] {
+			t.Fatalf("retry %d: %+v %v", i, again, e)
+		}
+	}
+	x.kill()
+	x.open()
+	if again, e := x.r.approve(q); e != nil || !again.Approved {
+		t.Fatalf("retry after a restart: %+v %v", again, e)
+	}
+	for _, other := range []ApproveRequest{
+		{SHA256: q.SHA256, Interaction: "ask-2"},
+		{SHA256: q.SHA256, Interaction: "ask-1", Credentials: map[string]string{"o1": "identity"}},
+	} {
+		if _, e := x.r.approve(other); e == nil || e.Code != "checksum_mismatch" {
+			t.Fatalf("a second approval of the same registry: %v", e)
+		}
+	}
+	if x.count("pair") != records {
+		t.Fatalf("a retry recorded another approval: %d -> %d", records, x.count("pair"))
+	}
+	if now := x.secrets(); len(now) != len(secrets) || now["a1"] != secrets["a1"] || now["o1"] != secrets["o1"] {
+		t.Fatalf("a retry rotated the secrets: %v -> %v", secrets, now)
+	}
+	// The next pending pair is approved normally.
+	replacePair(t, x, "o1", "o2")
+	pb, _ = os.ReadFile(x.path("peers"))
+	if _, e := x.r.approve(ApproveRequest{SHA256: sha256Hex(pb), Interaction: "ask-1"}); e != nil {
+		t.Fatalf("the next pair: %v", e)
+	}
+}
+
+// TestExpiredApproveLeavesNothing: a request whose deadline passes while
+// it waits on the actor is never started: no record, no secret.
+func TestExpiredApproveLeavesNothing(t *testing.T) {
+	x := newPairRoute(t)
+	enrollPair(t, x, "a1", "o1")
+	pb, _ := os.ReadFile(x.path("peers"))
+	records := x.count("pair")
+	x.r.start()
+	release := make(chan struct{})
+	started := make(chan struct{})
+	go func() {
+		_ = x.r.do(context.Background(), func() *APIError { close(started); <-release; return nil })
+	}()
+	<-started
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan *APIError, 1)
+	go func() {
+		done <- x.r.do(ctx, func() *APIError {
+			_, e := x.r.approve(ApproveRequest{SHA256: sha256Hex(pb)})
+			return e
+		})
+	}()
+	for len(x.r.ops) == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	if e := <-done; e == nil || e.Code != "busy" {
+		t.Fatalf("an expired request: %v", e)
+	}
+	close(release)
+	if e := x.r.do(context.Background(), func() *APIError { return nil }); e != nil {
+		t.Fatal(e)
+	}
+	if x.count("pair") != records || len(x.secrets()) != 0 || len(x.r.creds) != 0 {
+		t.Fatalf("the expired approval ran: %d -> %d records, secrets %v", records, x.count("pair"), x.secrets())
+	}
+	x.r.stop()
+	x.open()
 }

@@ -229,6 +229,11 @@ func (r *Route) do(ctx context.Context, fn func() *APIError) *APIError {
 				done <- Errf("internal", "the route's operation failed; see the daemon log")
 			}
 		}()
+		// Work whose request expired while it waited is never started.
+		if ctx.Err() != nil {
+			done <- Errf("busy", "request cancelled before it ran; retry")
+			return
+		}
 		done <- r.runOp(fn)
 	}
 	select {
