@@ -737,32 +737,50 @@ func (d *Daemon) send(w http.ResponseWriter, r *http.Request) *APIError {
 	if e != nil {
 		return e
 	}
-	if q.Kind == "side_agent_data" {
-		// The input lock from the boundary check through the enqueue
-		// (3.7); lock order: input lock, then the route actor.
-		unlock, e := rt.inputLock()
-		if e != nil {
-			return e
-		}
-		defer unlock()
-		var auth string
-		if e := rt.do(r.Context(), func() *APIError {
-			auth, _ = rt.authority(r.Context(), d.herdrFor(rt.name))
-			return nil
-		}); e != nil {
-			return e
-		}
-		if auth != "RELAY" {
-			return Errf("human_boundary", "HUMAN boundary; side-agent data not queued")
-		}
-	}
+	// A retry of a committed send is answered from its key before any
+	// admission check that applies only to a new send (5.4); send itself
+	// still binds the key to its sender and content.
 	var res SendResult
+	known := false
 	if e := rt.do(r.Context(), func() *APIError {
+		if _, known = rt.sendKeys[q.Key]; !known {
+			return nil
+		}
+		// Answered in the same actor turn as the lookup, so the key
+		// cannot leave the window between them.
 		var e *APIError
 		res, e = rt.send(me, q)
 		return e
 	}); e != nil {
 		return e
+	}
+	if !known {
+		if q.Kind == "side_agent_data" {
+			// The input lock from the boundary check through the enqueue
+			// (3.7); lock order: input lock, then the route actor.
+			unlock, e := rt.inputLock()
+			if e != nil {
+				return e
+			}
+			defer unlock()
+			var auth string
+			if e := rt.do(r.Context(), func() *APIError {
+				auth, _ = rt.authority(r.Context(), d.herdrFor(rt.name))
+				return nil
+			}); e != nil {
+				return e
+			}
+			if auth != "RELAY" {
+				return Errf("human_boundary", "HUMAN boundary; side-agent data not queued")
+			}
+		}
+		if e := rt.do(r.Context(), func() *APIError {
+			var e *APIError
+			res, e = rt.send(me, q)
+			return e
+		}); e != nil {
+			return e
+		}
 	}
 	status := 201
 	if res.Duplicate {

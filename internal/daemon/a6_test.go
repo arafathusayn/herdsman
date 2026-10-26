@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -329,5 +330,30 @@ func TestA6IntakeLinkGuards(t *testing.T) {
 				t.Fatalf("verified %s through symlink outside inbox", which)
 			}
 		})
+	}
+}
+
+// TestSideAgentRetryBeforeBoundary: a committed side_agent_data send
+// retried with its key answers the original id as a duplicate, even when
+// the boundary turned HUMAN after the commit (5.4); a new key is refused.
+func TestSideAgentRetryBeforeBoundary(t *testing.T) {
+	h := newHarness(t)
+	adj, orch, _ := h.route("r")
+	boundary := `{"version":1,"inventory_current":true,"private_home":true,"human_checked":true,"protected_domain":true,"launch_admission":true,"courier_panes":[],"lower_trust":[]}`
+	h.do("PUT", "/v1/routes/r/setup", SetupRequest{Rules: []string{h.rules}, PolicyVerified: true, Boundary: json.RawMessage(boundary)}, nil)
+	k := key()
+	q := SendRequest{To: orch.name, Kind: "side_agent_data", Body: `{"version":1,"text":"x","source":{"pane":"p9","session":"s9"}}`, Key: k}
+	var first SendResult
+	if _, err := adj.c.Do(context.Background(), "POST", "/v1/routes/r/messages", q, &first); err != nil {
+		t.Fatal(err)
+	}
+	h.fx.SetAgent("p9", herdrtest.Agent("p9", "stranger"))
+	var again SendResult
+	if _, err := adj.c.Do(context.Background(), "POST", "/v1/routes/r/messages", q, &again); err != nil || again.ID != first.ID || !again.Duplicate {
+		t.Fatalf("retry after the boundary changed: %+v %v", again, err)
+	}
+	q.Key = key()
+	if _, err := adj.c.Do(context.Background(), "POST", "/v1/routes/r/messages", q, nil); code(err) != "human_boundary" {
+		t.Fatalf("a new side_agent_data send under HUMAN: %v", err)
 	}
 }
