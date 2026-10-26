@@ -487,10 +487,22 @@ func TestAckCacheFollowsFiles(t *testing.T) {
 		t.Fatalf("a changed message must be checked again: %v", u)
 	}
 	_ = os.WriteFile(f, b, 0o600)
+	x.r.acks.m = map[string]ackEntry{}
 	for i := range ackCacheMax {
 		x.r.acks.m[fmt.Sprint(i)] = ackEntry{}
 	}
-	if u := x.r.unacked(box); len(u) != 0 || len(x.r.acks.m) != 1 {
+	if u := x.r.unacked(box); len(u) != 0 || len(x.r.acks.m) != ackCacheMax {
 		t.Fatalf("full cache: %v, %d entries", u, len(x.r.acks.m))
+	}
+	// A full cache evicts one entry for each new one, never all of them,
+	// so a history one past the bound is not checked again from scratch.
+	kept := 0
+	for i := range ackCacheMax {
+		if _, ok := x.r.acks.m[fmt.Sprint(i)]; ok {
+			kept++
+		}
+	}
+	if kept != ackCacheMax-1 {
+		t.Fatalf("a full cache kept %d of %d entries", kept, ackCacheMax)
 	}
 }

@@ -67,8 +67,17 @@ func (c *ackCache) valid(r *inbox.Root, box, id string) bool {
 	}
 	if ok {
 		c.mu.Lock()
-		if c.m == nil || len(c.m) >= ackCacheMax {
-			c.m = map[string]ackEntry{} // bounded: start over when full
+		if c.m == nil {
+			c.m = map[string]ackEntry{}
+		}
+		if _, known := c.m[key]; !known && len(c.m) >= ackCacheMax {
+			// Bounded: one entry goes for each new one. Go's map order
+			// makes it a random one, so a scan just past the bound
+			// still hits for almost every message.
+			for k := range c.m {
+				delete(c.m, k)
+				break
+			}
 		}
 		c.m[key] = e
 		c.mu.Unlock()
