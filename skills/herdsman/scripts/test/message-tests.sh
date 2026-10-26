@@ -1947,6 +1947,37 @@ printf 'reviewed text\n' > "$C/draft.txt"; APR="$C/inbox/approvals"; mkdir -p "$
 out=$(consume xb8)
 check "XB8c the gate refuses" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
 check "XB8d and consumes nothing" '^no$' "$(yn "$APR/consumed/xb8.json")"
+# XB9: when even the first twenty agents exceed the strict bound (long session values), the busy writer keeps the
+# minimal record, which still fails every check closed after those agents exit.
+new_case exposure-long
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+jq -n '[{pane:"task-pane",session:{source:"hook",agent:"claude",kind:"id",value:"task-session"}}]' > "$C/inbox/watch-targets.json"
+relay_boundary
+cp "$C/agents.json" "$C/agents.base"
+jq_edit '.["task-pane"] as $t | reduce range(0;21) as $i (.; .["long-\($i)"]=($t|.pane_id="long-\($i)"|.agent_session.value=("s\($i)-"+("x"*7000))))' "$C/agents.json"
+mkdir "$C/inbox/herdr-mutation.lock"; echo 99999 > "$C/inbox/herdr-mutation.lock/pid"
+ENVX="RUN_FOR=1 INTERVAL=1 LOCK_WAIT=1" msg courier-pane card-watch.sh >/dev/null
+check "XB9 the busy writer keeps the minimal pending record" '^[1-9][0-9]* true$' \
+  "$(nfiles "$C/inbox/state/exposure-pending" '*.json') $(cat "$C/inbox/state/exposure-pending/"*.json 2>/dev/null | jq -s -r 'length>0 and all(.[]; .truncated==true and .agents==[])' 2>&1)"
+cp "$C/agents.base" "$C/agents.json"
+rm "$C/inbox/herdr-mutation.lock/pid"; rmdir "$C/inbox/herdr-mutation.lock"
+check "XB9b after those agents exit the authority is HUMAN" '^HUMAN' "$(msg receiver-pane message-authority.sh)"
+printf 'reviewed text\n' > "$C/draft.txt"; APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"; gojson xb9 600
+out=$(consume xb9)
+check "XB9c the gate refuses" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "XB9d and consumes nothing" '^no$' "$(yn "$APR/consumed/xb9.json")"
+# XB10: pending entries with dot names are folded like any other: the gate publishes their agents and removes them.
+new_case exposure-dotnames
+relay_boundary
+P="$C/inbox/state/exposure-pending"; mkdir -p "$P"
+jq -nc '{agents:[{pane:"dot-pane"}],time:1}' > "$P/.record.json"
+jq -nc '{agents:[{pane:"dotdot-pane"}],time:1}' > "$P/..record.json"
+printf 'reviewed text\n' > "$C/draft.txt"; APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"; gojson xb10 600
+out=$(consume xb10)
+check "XB10 the gate refuses" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "XB10b the record names the agents of both dot-named entries" '^dot-pane dotdot-pane$' \
+  "$(jq -r '[.agents[].pane]|sort|join(" ")' "$C/inbox/state/boundary-tainted" 2>&1)"
+check "XB10c and both entries are removed" '^no no$' "$(yn "$P/.record.json") $(yn "$P/..record.json")"
 
 # AR1: after an archive moves the cur copy and its ack aside, a replay of the original bytes is held by the
 # terminal record alone.
