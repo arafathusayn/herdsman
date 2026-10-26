@@ -100,3 +100,37 @@ func TestR5AllocationRules(t *testing.T) {
 		})
 	}
 }
+
+// Review 5: a registry change awaiting approval makes the mailboxes
+// unclear, so a cut allocation stays; an ids/ that is a link keeps an aged
+// mark whose allocation it does not show.
+func TestR5UnclearChannelKeepsAllocation(t *testing.T) {
+	t.Run("registry", func(t *testing.T) {
+		c := newCase(t, true)
+		c.send()
+		os.Remove(c.ob("new", ID+".md"))
+		editAllocation(t, c, nil)
+		c.write(c.in("peers"), c.read(c.in("peers"))+" ")
+		retire(t, c)
+		if inbox.Exists(c.in("ids", ID, "terminal.json")) || !inbox.Exists(c.in("state", "allocations", ID)) {
+			t.Error("an allocation was retired while the registry awaits approval")
+		}
+	})
+	t.Run("linked-ids", func(t *testing.T) {
+		c := newCase(t, true)
+		retire(t, c) // seeded
+		c.write(c.in("state", "allocations", "m000000000042"), "")
+		past := c.now.Add(-2 * time.Hour)
+		os.Chtimes(c.in("state", "allocations", "m000000000042"), past, past)
+		if err := os.Rename(c.in("ids"), c.base("ids-real")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(c.base("ids-real"), c.in("ids")); err != nil {
+			t.Fatal(err)
+		}
+		retire(t, c)
+		if !inbox.Exists(c.in("state", "allocations", "m000000000042")) {
+			t.Error("a linked ids/ dropped an aged mark")
+		}
+	})
+}
