@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { h } from "../dom.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
 import { dispatch, dump } from "../testdom.ts";
+import { h } from "../testref.ts";
 
 // The store reads the URL and listens for history changes when it loads.
 const g = globalThis as unknown as Record<string, unknown>;

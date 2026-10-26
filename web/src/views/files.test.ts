@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { each, h, icon, icons } from "../dom.ts";
+import { icon, icons } from "../dom.ts";
 import { fuzzy, highlight } from "../fuzzy.ts";
 import type { Child } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { renderMarkdown } from "../markdown.ts";
 import { ago } from "../model.ts";
 import { dispatch } from "../testdom.ts";
+import { each, h } from "../testref.ts";
 import type { Route, RouteFile } from "../types.ts";
 
 // The store reads the URL and listens for history changes when it loads.
@@ -55,14 +56,13 @@ afterEach(async () => {
   globalThis.fetch = realFetch;
 });
 
-// Elements and text with attributes sorted and the bridge's data-key left
-// out; a slot's empty anchor text is not content.
+// Elements and text with attributes sorted; a slot's empty anchor text is
+// not content.
 const dump = (n: FakeNode): string => {
   if (n.nodeType === 3) return n.textContent;
   if (n.nodeType !== 1) return "";
   const e = fake(n);
   const attrs = e.attributes
-    .filter((a) => a.name !== "data-key")
     .map((a) => `${a.name}="${a.value}"`)
     .sort()
     .join(" ");

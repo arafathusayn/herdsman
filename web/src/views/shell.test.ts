@@ -1,12 +1,13 @@
 import { beforeEach, expect, test } from "bun:test";
 
-import { each, h, icon, icons, logoMark, unkeyed } from "../dom.ts";
+import { icon, icons, logoMark } from "../dom.ts";
 import { render, type ViewNode } from "../herdsman-blocks-view.ts";
 import { type FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { ago, checklistCounts, Index, type Member, routeLabel, statusLabel, workspaceGroups } from "../model.ts";
 import { isMac, paletteKeys, sidebarKeys } from "../palette.ts";
 import type { App } from "../store.ts";
 import { dispatch, dump } from "../testdom.ts";
+import { each, h, unkeyed } from "../testref.ts";
 import type { Agent, Entry, Pane, Route, State, Workspace } from "../types.ts";
 import { pill, themeSwitch } from "../ui.ts";
 

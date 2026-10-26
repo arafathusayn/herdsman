@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { h, type Unkeyed, unkeyed } from "./dom.ts";
 import { fuzzy, highlight, type HighlightNode } from "./fuzzy.ts";
 import { child, html, render } from "./herdsman-blocks-view.ts";
 import { type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import { dump } from "./testdom.ts";
+import { h, type Unkeyed, unkeyed } from "./testref.ts";
 test("fuzzy", () => {
   expect(fuzzy("split", "probes/rv-codex/cases-1792832794680869000/replaced-recipient/x.md")).toBeNull();
   expect(fuzzy("split", "Pane: Split im-adjutant right")).not.toBeNull();

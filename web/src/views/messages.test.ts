@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { describeFlag, kindLabel, stateLabel, stateTip } from "../channel.ts";
-import { each, h, icon, icons, mount, unkeyed } from "../dom.ts";
+import { icon, icons } from "../dom.ts";
 import type { FakeElement, FakeNode } from "../herdsman-blocks.testdom.ts";
 import { dispatch, FakeElement as FormElement, installDom } from "../testdom.ts";
+import { each, h, mount, unkeyed } from "../testref.ts";
 import type { Channel, ChannelMessage } from "../types.ts";
 
 // The store reads the URL and listens for history changes when it loads,
@@ -44,14 +45,12 @@ const reflected = (e: FakeElement): { name: string; value: string }[] => {
   return out;
 };
 
-// Elements and text with attributes sorted and each()'s data-key left out;
-// empty text (a slot's anchor) is not content, and adjacent text joins.
+// Elements and text with attributes sorted; empty text (a slot's anchor) is not content, and adjacent text joins.
 const dump = (n: FakeNode): string => {
   if (n.nodeType === 3) return n.textContent;
   if (n.nodeType !== 1) return "";
   const e = fake(n);
   const attrs = [...e.attributes, ...reflected(e)]
-    .filter((a) => a.name !== "data-key")
     .map((a) => `${a.name}="${a.value}"`)
     .sort()
     .join(" ");

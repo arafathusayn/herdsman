@@ -1,5 +1,5 @@
 // A small DOM for app tests: herdsman-blocks' linked-list fake DOM (so views,
-// templates and morph run on it) plus what the app's forms use: form
+// templates and lists run on it) plus what the app's forms use: form
 // properties, classList, readable dataset, bubbling events with extras.
 // Bun ships no DOM, and the repository takes no npm packages.
 import {
@@ -64,7 +64,7 @@ class ClassList {
 const dataName = (k: string): string => "data-" + k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
 
 export class FakeElement extends BaseElement {
-  // Properties h() assigns directly ("k in el").
+  // Form properties the app reads and writes.
   value = "";
   checked = false;
   disabled = false;
@@ -186,14 +186,14 @@ export function dispatch(target: BaseElement, type: string, extra: EventExtras =
 /**
  * A node as a string for comparing DOM built two ways: tags (with the
  * namespace for SVG), attributes sorted, text. Left out: empty text (a view
- * slot's anchor), the bridge's data-key stamps, and the order of attributes.
+ * slot's anchor) and the order of attributes.
  * Properties a view sets that the old code set as attributes (`checked`) are
  * read as attributes, as a browser serializes the state they show.
  */
 export function dump(n: FakeNode): string {
   if (n.nodeType === 3) return n.textContent;
   if (!(n instanceof BaseElement)) return "";
-  const attrs = n.attributes.filter((a) => a.name !== "data-key").map((a) => `${a.name}="${a.value}"`);
+  const attrs = n.attributes.map((a) => `${a.name}="${a.value}"`);
   if (n["checked"] === true && !n.hasAttribute("checked")) attrs.push(`checked=""`);
   const tag = n.namespaceURI === SVG_NS ? `svg:${n.tagName}` : n.tagName.toLowerCase();
   return `<${[tag, ...attrs.sort()].join(" ")}>${n.childNodes.map(dump).join("")}</${tag}>`;

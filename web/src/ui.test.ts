@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { h, icon, icons, unkeyed } from "./dom.ts";
+import { icon, icons } from "./dom.ts";
 import { render, type ViewNode } from "./herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import { type Member, statusLabel } from "./model.ts";
 import { dispatch } from "./testdom.ts";
+import { h, unkeyed } from "./testref.ts";
 import { confirmDialog, formDialog, pill, themeSwitch } from "./ui.ts";
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
@@ -32,14 +33,13 @@ afterEach(() => {
   delete proto["append"];
 });
 
-// Elements and text with attributes sorted and the bridge's data-key left
-// out; a slot's empty anchor text is not content.
+// Elements and text with attributes sorted; a slot's empty anchor text is
+// not content.
 const dump = (n: FakeNode): string => {
   if (n.nodeType === 3) return n.textContent;
   if (n.nodeType !== 1) return "";
   const e = fake(n);
   const attrs = e.attributes
-    .filter((a) => a.name !== "data-key")
     .map((a) => `${a.name}="${a.value}"`)
     .sort()
     .join(" ");

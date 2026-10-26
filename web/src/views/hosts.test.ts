@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { h, icon, icons } from "../dom.ts";
+import { icon, icons } from "../dom.ts";
 import { render } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { dispatch, dump } from "../testdom.ts";
+import { h } from "../testref.ts";
 import { hostsDialog, hostsState } from "./hosts.ts";
 
 const g = globalThis as unknown as Record<string, unknown>;

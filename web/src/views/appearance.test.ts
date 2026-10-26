@@ -1,11 +1,12 @@
 import { beforeEach, expect, test } from "bun:test";
 
 import { appThemes, codeThemes, matchApp, noHighlight, termSchemes } from "../appearance.ts";
-import { h, icon, icons, unkeyed } from "../dom.ts";
+import { icon, icons } from "../dom.ts";
 import { render } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { tokenizeLines } from "../highlight.ts";
 import { dispatch, dump } from "../testdom.ts";
+import { h, unkeyed } from "../testref.ts";
 
 // The store reads the URL and listens for history changes when it loads; the
 // themes write to <html> and to local storage.

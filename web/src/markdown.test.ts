@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { h, type Unkeyed, unkeyed } from "./dom.ts";
 import { child, html, render, type ViewNode } from "./herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import { languageOf, tokenizeLines } from "./highlight.ts";
 import { codeBlock, type CodeNode, renderMarkdown } from "./markdown.ts";
 import { dump } from "./testdom.ts";
+import { h, type Unkeyed, unkeyed } from "./testref.ts";
 
 // What the old builder needs beyond the fake DOM: append, and the page's
 // highlighting switch (documentElement's data-code).

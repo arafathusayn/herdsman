@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { h, icon, icons, logoMark } from "../dom.ts";
+import { icon, icons, logoMark } from "../dom.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
 import { dispatch, dump, FakeElement as FormElement } from "../testdom.ts";
+import { h } from "../testref.ts";
 import { showPairing } from "./pair.ts";
 
 const fake = (n: unknown): FakeElement => n as FakeElement;

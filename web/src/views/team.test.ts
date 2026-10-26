@@ -1,11 +1,11 @@
 import { beforeEach, expect, test } from "bun:test";
 
-import { each, h, unkeyed } from "../dom.ts";
 import { render, type ViewNode } from "../herdsman-blocks-view.ts";
 import { type FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
 import { type BoardBy, lanes, type Member, type Role, roleName } from "../model.ts";
 import type { App } from "../store.ts";
 import { dispatch } from "../testdom.ts";
+import { each, h, unkeyed } from "../testref.ts";
 import { pill } from "../ui.ts";
 
 // The store reads the URL and listens for history changes when it loads,
@@ -44,14 +44,13 @@ const lanesOf = (team: FakeElement): FakeElement[] => {
 // A lane holds its heading, then its cards.
 const cardsOf = (lane: FakeElement) => elements(lane).slice(1);
 
-// Elements and text with attributes sorted and each()'s data-key left out; a
-// slot's empty anchor text is not content.
+// Elements and text with attributes sorted; a slot's empty anchor text is
+// not content.
 const dump = (n: FakeNode): string => {
   if (n.nodeType === 3) return n.textContent;
   if (n.nodeType !== 1) return "";
   const e = fake(n);
   const attrs = e.attributes
-    .filter((a) => a.name !== "data-key")
     .map((a) => `${a.name}="${a.value}"`)
     .sort()
     .join(" ");
