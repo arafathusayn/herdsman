@@ -43,7 +43,7 @@ const DaemonHelp = `usage: herdsman daemon [--json] [--private-home <folder>] <c
   route adopt --inbox <path> --route <route> --confirm <peers.approved sha256>
   route remove <route> | route reset-events <route> | route list
   setup <route> --rule <policy file>... [--binary <path>] [--boundary <file>] [--watch-targets <file>] [--resume-targets <file>]
-  pair approve <route> <sha256> [--interaction <ask reference>] [--credential <name>=identity|file|keychain]...
+  pair approve <route> <sha256> [--interaction <ask reference> [--asked-by <adjutant>]] [--credential <name>=identity|file|keychain]...
   pair retire <route> <name> <sha256>
   credential revoke <route> <name>
 The private home is --private-home, else HERDSMAN_PRIVATE_HOME, else ~/.herdsman-private.
@@ -420,6 +420,7 @@ func (a *AdminEnv) pair(ctx context.Context, c *Client, args []string) int {
 		fs := flag.NewFlagSet("pair approve", flag.ContinueOnError)
 		fs.SetOutput(a.Stderr)
 		interaction := fs.String("interaction", "", "the ask-tool answer's reference")
+		askedBy := fs.String("asked-by", "", "the party that asked (the approved adjutant once there is one)")
 		var creds multiFlag
 		fs.Var(&creds, "credential", "<name>=identity|file|keychain (repeatable)")
 		if fs.Parse(args[3:]) != nil || fs.NArg() != 0 {
@@ -429,7 +430,7 @@ func (a *AdminEnv) pair(ctx context.Context, c *Client, args []string) int {
 			fmt.Fprintln(a.Stderr, "herdsman daemon pair approve: needs an attended terminal or --interaction <ask reference>")
 			return 2
 		}
-		q := ApproveRequest{SHA256: sum, Interaction: *interaction, Credentials: map[string]string{}}
+		q := ApproveRequest{SHA256: sum, Interaction: *interaction, AskedBy: *askedBy, Credentials: map[string]string{}}
 		for _, x := range creds {
 			n, o, ok := strings.Cut(x, "=")
 			if !ok {

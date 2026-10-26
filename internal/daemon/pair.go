@@ -177,9 +177,43 @@ func mustEncode(v any) []byte {
 
 // ApproveRequest is POST /v1/routes/{route}/pair/approve.
 type ApproveRequest struct {
-	SHA256      string            `json:"sha256"`
-	Interaction string            `json:"interaction,omitempty"`
+	SHA256      string `json:"sha256"`
+	Interaction string `json:"interaction,omitempty"`
+	// AskedBy names the party whose ask-tool question the interaction
+	// answers (PR 28).
+	AskedBy     string            `json:"asked_by,omitempty"`
 	Credentials map[string]string `json:"credentials,omitempty"`
+}
+
+// askedByAdjutant is the gate's asker rule for an approval that answers
+// an ask (PR 28): once the route has an approved adjutant, only that
+// adjutant's ask is a go, and the orchestrator's own ask is refused with
+// the gate's line. The human's own approval (an attended terminal with no
+// interaction, or a paired browser, "web:<device>") is not an ask, and
+// the first pairing of a route has no adjutant to ask through.
+func (r *Route) askedByAdjutant(q ApproveRequest) *APIError {
+	if q.Interaction == "" || strings.HasPrefix(q.Interaction, "web:") {
+		return nil
+	}
+	var peers []inbox.Peer
+	if b, ok := r.registryBytes("peers.approved"); ok {
+		peers, _ = inbox.ValidRegistry(b)
+	}
+	roles := map[string]string{}
+	adjutant := ""
+	for _, p := range peers {
+		roles[p.Name] = p.Role
+		if p.Role == "adjutant" {
+			adjutant = p.Name
+		}
+	}
+	switch {
+	case adjutant == "" || q.AskedBy == adjutant:
+		return nil
+	case roles[q.AskedBy] == "orchestrator":
+		return Errf("bad_request", "the orchestrator's own ask is no go in a route with an adjutant; ask again through the adjutant")
+	}
+	return Errf("bad_request", "trusted interaction was not asked by the approved adjutant")
 }
 
 // ApprovedCredential is one party's credential option in an approval's

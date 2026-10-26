@@ -608,20 +608,26 @@ func (d *Daemon) approve(w http.ResponseWriter, r *http.Request) *APIError {
 	}
 	var res ApproveResult
 	if e := rt.do(r.Context(), func() *APIError {
+		if e := rt.askedByAdjutant(q); e != nil {
+			return e
+		}
 		var e *APIError
 		res, e = rt.approve(q)
 		return e
 	}); e != nil {
 		return e
 	}
-	d.logf("route %s: pair approved (%s)", rt.name, approvedBy(q.Interaction))
+	d.logf("route %s: pair approved (%s)", rt.name, approvedBy(q.Interaction, q.AskedBy))
 	writeJSON(w, 200, res)
 	return nil
 }
 
-func approvedBy(interaction string) string {
+func approvedBy(interaction, askedBy string) string {
 	if interaction == "" {
 		return "terminal"
+	}
+	if askedBy != "" {
+		return "interaction " + interaction + " asked by " + askedBy
 	}
 	return "interaction " + interaction
 }

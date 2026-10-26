@@ -386,3 +386,54 @@ func TestCancelledRequestOutlivesItsEffect(t *testing.T) {
 		t.Fatalf("after the effect: %v %v", e, wrote)
 	}
 }
+
+// TestApproveAskedByAdjutant: PR 28. Once the route has an approved
+// adjutant, an approval that answers an ask is a go only when the
+// adjutant asked; the orchestrator's own ask is refused with the gate's
+// line. The first pairing, the attended terminal and a paired browser
+// are the human's own approval.
+func TestApproveAskedByAdjutant(t *testing.T) {
+	x := newPairRoute(t)
+	enrollPair(t, x, "a1", "o1")
+	pb, _ := os.ReadFile(x.path("peers"))
+	first := ApproveRequest{SHA256: sha256Hex(pb), Interaction: "ask-1", AskedBy: "o1"}
+	if e := x.r.askedByAdjutant(first); e != nil {
+		t.Fatalf("the first pairing has no adjutant to ask through: %v", e)
+	}
+	if _, e := x.r.approve(first); e != nil {
+		t.Fatal(e)
+	}
+	replacePair(t, x, "o1", "o2")
+	pb, _ = os.ReadFile(x.path("peers"))
+	sum := sha256Hex(pb)
+	orchLine := "the orchestrator's own ask is no go in a route with an adjutant; ask again through the adjutant"
+	for _, c := range []struct {
+		q    ApproveRequest
+		want string
+	}{
+		{ApproveRequest{SHA256: sum, Interaction: "ask-2", AskedBy: "o1"}, orchLine},
+		{ApproveRequest{SHA256: sum, Interaction: "ask-2"}, "trusted interaction was not asked by the approved adjutant"},
+		{ApproveRequest{SHA256: sum, Interaction: "ask-2", AskedBy: "someone"}, "trusted interaction was not asked by the approved adjutant"},
+		{ApproveRequest{SHA256: sum, Interaction: "ask-2", AskedBy: "a1"}, ""},
+		{ApproveRequest{SHA256: sum}, ""},
+		{ApproveRequest{SHA256: sum, Interaction: "web:laptop"}, ""},
+	} {
+		e := x.r.askedByAdjutant(c.q)
+		if (c.want == "") != (e == nil) || e != nil && (e.Code != "bad_request" || e.Message != c.want) {
+			t.Errorf("%+v: %v", c.q, e)
+		}
+	}
+}
+
+// TestApproveRefusesOrchestratorAskOverSocket: the socket's approve
+// applies the asker rule before anything is issued.
+func TestApproveRefusesOrchestratorAskOverSocket(t *testing.T) {
+	h := newHarness(t)
+	_, orch, dir := h.route("r")
+	pb, _ := os.ReadFile(filepath.Join(dir, "peers"))
+	_, err := h.client().Do(context.Background(), "POST", "/v1/routes/r/pair/approve",
+		ApproveRequest{SHA256: sha256Hex(pb), Interaction: "ask-9", AskedBy: orch.name}, nil)
+	if code(err) != "bad_request" || !strings.Contains(err.Error(), "the orchestrator's own ask is no go") {
+		t.Fatalf("an orchestrator's ask: %v", err)
+	}
+}
