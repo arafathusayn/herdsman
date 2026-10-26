@@ -456,7 +456,7 @@ describe("html templates", () => {
     const T = html`<button onclick=${0}>${1}</button>`;
     const fn = (): void => {};
     expect(fake(T.mountRoot([fn, "a"]))["onclick"]).toBe(fn);
-    expect(fake(T.mountRoot([null, "b"]))["onclick"]).toBeUndefined();
+    expect(fake(T.mountRoot([null, "b"]))["onclick"]).toBeNull();
   });
 
   test("clones are independent and the template compiles once per call site", () => {
@@ -505,7 +505,7 @@ describe("html templates", () => {
     const withHandler = T.mount([fn, "a"]);
     const without = T.mount([null, "b"]);
     expect(fake(withHandler.root)["onclick"]).toBe(fn);
-    expect(fake(without.root)["onclick"]).toBeUndefined();
+    expect(fake(without.root)["onclick"]).toBeNull();
   });
 
   test("ignores formatter indentation but keeps spaces inside lines and in <pre>", () => {

@@ -437,6 +437,24 @@ describe("events and form state", () => {
     expect(calls).toEqual(["two"]);
   });
 
+  test("events with no on* property (composition) are delegated, or listened for directly", () => {
+    const Ime = html`<input oncompositionstart=${on<"compositionstart">()} />`;
+    const seen: string[] = [];
+    const handler = (tag: string) =>
+      function (this: HTMLElement, e: CompositionEvent): void {
+        seen.push(tag, e.type);
+      };
+    const root = box();
+    render(asDom(root), Ime([handler("delegated")]));
+    fire(first(root), "compositionstart");
+    const scratch = box();
+    renderDirect(asDom(scratch), Ime([handler("direct")]));
+    renderDirect(asDom(scratch), Ime([handler("direct2")]));
+    expect("oncompositionstart" in first(scratch)).toBe(false);
+    fire(first(scratch), "compositionstart");
+    expect(seen).toEqual(["delegated", "compositionstart", "direct2", "compositionstart"]);
+  });
+
   test("renderDirect puts handlers on the elements, so moved nodes keep them, once", () => {
     const Item = html`<li onclick=${on<"click">()}>${child()}</li>`;
     const Tag = html`<b onclick=${on<"click">()}>${text()}</b>`;

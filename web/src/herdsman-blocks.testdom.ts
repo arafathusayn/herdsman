@@ -208,6 +208,26 @@ export class FakeEvent {
 }
 
 export class FakeElement extends FakeNode {
+  // Handler properties, like a browser element's (an event with none, such as
+  // compositionstart, has no property: "oncompositionstart" in el is false).
+  onclick: unknown = null;
+  ondblclick: unknown = null;
+  oninput: unknown = null;
+  onchange: unknown = null;
+  onsubmit: unknown = null;
+  onkeydown: unknown = null;
+  onkeyup: unknown = null;
+  onfocus: unknown = null;
+  onblur: unknown = null;
+  onfocusin: unknown = null;
+  onfocusout: unknown = null;
+  onmouseenter: unknown = null;
+  onmouseleave: unknown = null;
+  onpointerdown: unknown = null;
+  onpointerup: unknown = null;
+  onscroll: unknown = null;
+  onload: unknown = null;
+  onerror: unknown = null;
   private cls = "";
   get className(): string {
     return this.cls;

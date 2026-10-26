@@ -131,6 +131,11 @@ describe("typed holes", () => {
       // @ts-expect-error input has no "enterpictureinpicture" handler; video has
       on<"enterpictureinpicture", HTMLInputElement>();
       on<"enterpictureinpicture", HTMLVideoElement>();
+      // Events with no on* property come from the element's event map, typed from it.
+      const Ime = html`<input oncompositionstart=${on<"compositionstart", HTMLInputElement>()} />`;
+      Ime.mount([(ev) => void (ev satisfies CompositionEvent).data]);
+      // @ts-expect-error a compositionstart handler receives a CompositionEvent, not a KeyboardEvent
+      Ime.mount([(ev: KeyboardEvent) => void ev.key]);
       const NoEvent = html`<a onclick=${on()}>x</a>`;
       // @ts-expect-error an event marker without its event takes nothing
       NoEvent.mount([() => {}]);

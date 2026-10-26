@@ -250,6 +250,9 @@ const BUBBLING = new Set([
   "beforeinput",
   "change",
   "click",
+  "compositionend",
+  "compositionstart",
+  "compositionupdate",
   "contextmenu",
   "dblclick",
   "focusin",
@@ -341,6 +344,14 @@ class Shape {
     this.findWrite = write.length === n ? t.locate : t.locator(write);
     this.findDelegated = delegated.length === n ? t.locate : t.locator(delegated);
   }
+}
+
+// Set a direct trampoline: through the element's on* property when it has
+// one, otherwise (compositionstart, ...) as a listener. Either way it is set
+// once per element and never changes.
+function attach(node: Node, name: string, fn: (this: Holder, e: Event) => unknown): void {
+  if (name in node) (node as unknown as Record<string, unknown>)[name] = fn;
+  else node.addEventListener(name.slice(2), fn as EventListener);
 }
 
 // Calls the handler hole i of the instance the element belongs to, as the
@@ -500,7 +511,7 @@ function mount(d: Desc): Inst {
     const node = s[i] as Node,
       v = vals[i];
     if (f === HANDLER || f === DELEGATED) {
-      t.write(i, node, sh.fns[i]);
+      attach(node, t.names[i]!, sh.fns[i]!);
     } else if (f === PROPERTY) {
       if (v != null) t.write(i, node, v);
     } else {
