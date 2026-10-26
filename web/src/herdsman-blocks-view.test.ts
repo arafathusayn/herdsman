@@ -108,6 +108,19 @@ describe("child holes", () => {
     expect(root.childNodes.length).toBe(1);
   });
 
+  test("holes after a child hole's content are written to their own nodes", () => {
+    const Icon = html`<svg class="icon"></svg>`;
+    const A = html`<p>${child()}<span class="a">Details</span><span class="b">${text()}</span></p>`;
+    const root = box();
+    render(asDom(root), A([Icon([]), "v"]));
+    render(asDom(root), A([Icon([]), "w"]));
+    const spans = first(root).childNodes.filter((c) => c.nodeType === 1 && tag(c) === "span") as FakeElement[];
+    expect(spans.map((s) => [s.className, s.textContent])).toEqual([
+      ["a", "Details"],
+      ["b", "w"],
+    ]);
+  });
+
   test("unchanged values write nothing", () => {
     const Row = html`<p class=${cls()}>${text()}${child()}</p>`;
     const root = box();
