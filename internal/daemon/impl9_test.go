@@ -16,15 +16,16 @@ import (
 // is closed before any request is read (3.3).
 func TestPeerOtherUserRefused(t *testing.T) {
 	h := newHarness(t)
-	old := peerOf
-	peerOf = func(*net.UnixConn) (int, error) { return os.Getuid() + 1, nil }
-	t.Cleanup(func() { peerOf = old })
+	old := peerOf.Load()
+	other := func(*net.UnixConn) (int, error) { return os.Getuid() + 1, nil }
+	peerOf.Store(&other)
+	t.Cleanup(func() { peerOf.Store(old) })
 	c := NewClient(SocketPath(h.ph), testVersion)
 	defer c.Close()
 	if _, err := c.Hello(context.Background()); !IsDown(err) {
 		t.Fatalf("another user's connection was answered: %v", err)
 	}
-	peerOf = old
+	peerOf.Store(old)
 	if _, err := c.Hello(context.Background()); err != nil {
 		t.Fatalf("this user's connection: %v", err)
 	}
