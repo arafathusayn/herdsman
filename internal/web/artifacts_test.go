@@ -474,6 +474,47 @@ func TestArtifactGrantRefusesAReplacedPageFolder(t *testing.T) {
 	}
 }
 
+// A page directly in a listed root is opened only in the root folder the
+// walk listed: a new folder made at the root's path is refused, even though
+// the page's folder is the root itself.
+func TestArtifactGrantRefusesAReplacedRoot(t *testing.T) {
+	f := newFixture(t)
+	wt := filepath.Join(t.TempDir(), "wt")
+	writeFile(t, filepath.Join(wt, "page.html"), "ORIGINAL")
+	md := strings.Replace(routeMD, "| Task | Agent | Pane |\n| --- | --- | --- |\n| auth | im-auth | w1:p2 |",
+		"| Task | Agent | Pane | Worktree |\n| --- | --- | --- | --- |\n| auth | im-auth | w1:p2 | "+wt+" |", 1)
+	writeFile(t, filepath.Join(f.routeDir, route.RouteFile), md)
+	f.hub.refresh(context.Background())
+	id := f.hub.Current().Routes[0].ID
+	res := f.request(t, http.MethodGet, "/api/artifacts?route="+id, "", f.authed)
+	var list struct {
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(list.Artifacts, func(a Artifact) bool { return a.Root == wt && a.Path == "page.html" }) {
+		t.Fatalf("page.html under %s not listed: %+v", wt, list.Artifacts)
+	}
+	if err := os.Rename(wt, wt+"-old"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(wt, "page.html"), "REPLACED")
+	b, _ := json.Marshal(map[string]string{"route": id, "root": wt, "path": "page.html"})
+	res = f.request(t, http.MethodPost, "/api/artifacts/open", string(b), f.authed)
+	if res.StatusCode != http.StatusNotFound {
+		var o struct {
+			URL string `json:"url"`
+		}
+		_ = json.NewDecoder(res.Body).Decode(&o)
+		served := ""
+		if o.URL != "" {
+			served = readBody(t, f.request(t, http.MethodGet, o.URL, "", nil))
+		}
+		t.Fatalf("an open of a replaced root: %d, served %q", res.StatusCode, served)
+	}
+}
+
 // The listing records each root's folder: when an ancestor of a listed root
 // is swapped for a link to another workspace, an open of the cached listing
 // is refused, and a grant made before the swap keeps serving its own folder.

@@ -3,9 +3,12 @@
 package web
 
 import (
+	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -194,4 +197,76 @@ func TestArtifactOpenRefusesARootSwappedForAFIFO(t *testing.T) {
 // opened is refused at once instead of blocking the request.
 func TestArtifactOpenRefusesAPageFolderSwappedForAFIFO(t *testing.T) {
 	openRefuses(t, "pages")
+}
+
+// serveFIFO opens a page under a route's folder, makes its style.css a FIFO
+// (from the start, or swapped in by beforeOpen just after the serve checks
+// the path), and requests it. A served FIFO would block the request until a
+// writer came, so the request has a short timeout and a blocked open is
+// freed through the FIFO.
+func serveFIFO(t *testing.T, swap bool) {
+	t.Helper()
+	f := newFixture(t)
+	proj := filepath.Dir(filepath.Dir(f.routeDir))
+	reports := filepath.Join(proj, "reports")
+	writeFile(t, filepath.Join(reports, "page.html"), "<p>hi</p>")
+	css := filepath.Join(reports, "style.css")
+	mkfifo := func() {
+		if err := os.RemoveAll(css); err != nil {
+			t.Error(err)
+		}
+		if err := syscall.Mkfifo(css, 0o600); err != nil {
+			t.Error(err)
+		}
+	}
+	if swap {
+		writeFile(t, css, "p{}")
+		f.srv.artifacts.beforeOpen = func(_, dir string) {
+			if dir == "style.css" {
+				mkfifo()
+			}
+		}
+	} else {
+		mkfifo()
+	}
+	id := f.hub.Current().Routes[0].ID
+	res := f.request(t, http.MethodGet, "/api/artifacts?route="+id, "", f.authed)
+	var list struct {
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil || len(list.Artifacts) != 1 {
+		t.Fatalf("list: %+v %v", list, err)
+	}
+	b, _ := json.Marshal(map[string]string{"route": id, "root": list.Artifacts[0].Root, "path": "reports/page.html"})
+	res = f.request(t, http.MethodPost, "/api/artifacts/open", string(b), f.authed)
+	var o struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&o); err != nil || o.URL == "" {
+		t.Fatalf("open: %d %v", res.StatusCode, err)
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	got, err := client.Get(f.http.URL + strings.TrimSuffix(o.URL, "page.html") + "style.css")
+	if err != nil {
+		if fifo, err := os.OpenFile(css, os.O_RDWR, 0); err == nil {
+			_ = fifo.Close()
+		}
+		t.Fatalf("serving a FIFO in place of a page asset blocked: %v", err)
+	}
+	_ = got.Body.Close()
+	if got.StatusCode != http.StatusNotFound {
+		t.Fatalf("a FIFO page asset: status %d, want 404", got.StatusCode)
+	}
+}
+
+// A page asset that is a FIFO is refused at once, not opened to wait for a
+// writer.
+func TestArtifactServeRefusesAFIFOAsset(t *testing.T) {
+	serveFIFO(t, false)
+}
+
+// A page asset swapped for a FIFO after the serve checked its path is
+// refused at once too.
+func TestArtifactServeRefusesAnAssetSwappedForAFIFO(t *testing.T) {
+	serveFIFO(t, true)
 }
