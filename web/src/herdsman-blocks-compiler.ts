@@ -723,7 +723,7 @@ function rewrite(src: string, lx: Lexed, opt: TransformOptions): TransformResult
     const id = "$hbv" + views,
       dn = "$hbD" + views;
     views++;
-    header += `var ${id}=${generate(a)},${dn}=${id}.D;`;
+    header += `var ${id}=/*@__PURE__*/${generate(a)},${dn}=${id}.D;`;
     const spanA = lx.start[lit.tagTok]!,
       spanB = lx.end[last]!;
     edits.push({ a: spanA, b: spanB, text: id + ".i()" + newlines(src, spanA, spanB) });
@@ -1274,13 +1274,6 @@ function serialize(el: HNode): string {
 // Code generation
 // ---------------------------------------------------------------------------
 
-// How a view writes each hole.
-const G_WRITE = 0;
-const G_HANDLER = 1;
-const G_PROPERTY = 2;
-const G_CHILD = 3;
-const G_DELEGATED = 4;
-
 /** Events delegated to the render root (the same list as the view layer's). */
 export const BUBBLING: ReadonlySet<string> = new Set([
   "auxclick",
@@ -1313,165 +1306,137 @@ export const BUBBLING: ReadonlySet<string> = new Set([
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const member = (name: string): string => (IDENT_RE.test(name) ? "." + name : "[" + JSON.stringify(name) + "]");
 
-// A straight-line walk from r to the given holes, sharing path prefixes.
+// A straight-line walk from r to the given holes. Each step starts from the
+// nearest node already reached (an earlier sibling, else the parent); a node
+// more than one step starts from gets a variable, the rest are inlined.
 function walker(paths: readonly number[][], holes: readonly number[]): string {
-  let body = "";
-  const seen = new Map<string, string>();
-  let v = 0;
-  const ref = (p: readonly number[]): string => {
+  const nodes = new Map<string, { base: string; suf: string; uses: number }>();
+  const order: string[] = [];
+  const get = (p: readonly number[]): string => {
     if (p.length === 0) return "r";
     const key = p.join(",");
-    const hit = seen.get(key);
-    if (hit) return hit;
-    // From the nearest earlier sibling already reached, else from the parent's first child.
+    if (nodes.has(key)) return key;
     const k = p[p.length - 1]!,
       up = p.slice(0, -1);
     let j = k - 1;
-    while (j >= 0 && !seen.has(up.concat(j).join(","))) j--;
-    let expr = j >= 0 ? seen.get(up.concat(j).join(","))! : ref(up) + ".firstChild";
-    for (let m = j >= 0 ? j : 0; m < k; m++) expr += ".nextSibling";
-    const name = "a" + v++;
-    body += "var " + name + "=" + expr + ";";
-    seen.set(key, name);
-    return name;
+    while (j >= 0 && !nodes.has(up.concat(j).join(","))) j--;
+    let base: string, suf: string;
+    if (j >= 0) {
+      base = up.concat(j).join(",");
+      suf = ".nextSibling".repeat(k - j);
+    } else {
+      base = get(up);
+      suf = ".firstChild" + ".nextSibling".repeat(k);
+    }
+    if (base !== "r") nodes.get(base)!.uses++;
+    nodes.set(key, { base, suf, uses: 0 });
+    order.push(key);
+    return key;
   };
-  for (const i of holes) {
-    const r = ref(paths[i]!);
-    body += "s[" + i + "]=" + r + ";";
+  const keys = holes.map((i) => {
+    const key = get(paths[i]!);
+    if (key !== "r") nodes.get(key)!.uses++;
+    return key;
+  });
+  const names = new Map<string, string>();
+  const expr = (key: string): string => {
+    if (key === "r") return "r";
+    const hit = names.get(key);
+    if (hit) return hit;
+    const nd = nodes.get(key)!;
+    return expr(nd.base) + nd.suf;
+  };
+  let body = "";
+  for (const key of order) {
+    if (nodes.get(key)!.uses < 2) continue;
+    const name = "a" + names.size;
+    body += `var ${name}=${expr(key)};`;
+    names.set(key, name);
   }
+  holes.forEach((i, h) => (body += `s[${i}]=${expr(keys[h]!)};`));
   return "(r,s)=>{" + body + "}";
 }
 
-// A writer for value v into node expression x, by kind.
-function writer(kind: number, name: string | undefined, x: string): string {
+// A call writing value v into node expression x, by kind (the writers live in the runtime).
+function writer(kind: number, name: string | undefined, x: string, v: string): string {
   switch (kind) {
     case K_TEXT:
-      return `${x}.data=v==null?"":""+v`;
+      return `$hb.wt(${x},${v})`;
     case K_CLASS:
-      return `${x}.className=v==null?"":""+v`;
-    case K_ATTR: {
-      const nm = JSON.stringify(name);
-      return `{const x=${x};if(v==null||v===false)x.removeAttribute(${nm});else x.setAttribute(${nm},v===true?"":""+v)}`;
-    }
+      return `$hb.wc(${x},${v})`;
+    case K_ATTR:
+      return `$hb.wa(${x},${JSON.stringify(name)},${v})`;
     default:
-      return `${x}${member(name!)}=v`;
+      return `${x}${member(name!)}=${v}`;
   }
 }
 
+/**
+ * The view's code: a call of the runtime's V with the static markup, one
+ * letter per hole (t text, c class, a attribute, p property, d delegated
+ * handler, h direct handler, s slot), the delegated event types, and the
+ * generated parts: the description constructor, the walk to every hole,
+ * the bake of values into the prototype, what mounting does for eager
+ * holes, and the patch.
+ */
 function generate(a: Analysis): string {
   const n = a.n,
     kinds = a.kinds,
     names = a.names;
-  const flags: number[] = new Array(n);
+  let letters = "";
   const types: (string | undefined)[] = new Array(n);
-  const eager: number[] = [],
-    write: number[] = [],
-    delegated: number[] = [],
-    all: number[] = [];
-  let handlers = false,
-    hasChild = false;
+  let delegates = false;
   for (let i = 0; i < n; i++) {
-    all.push(i);
     const k = kinds[i]!,
       name = names[i];
-    if (k === K_SLOT) {
-      flags[i] = G_CHILD;
-      hasChild = true;
-    } else if (k === K_PROP && name!.startsWith("on")) {
-      handlers = true;
+    if (k === K_SLOT) letters += "s";
+    else if (k === K_PROP && name!.startsWith("on")) {
       const type = name!.slice(2);
       if (BUBBLING.has(type)) {
-        flags[i] = G_DELEGATED;
+        letters += "d";
         types[i] = type;
-        delegated.push(i);
-        continue;
-      }
-      flags[i] = G_HANDLER;
-    } else if (k === K_PROP) flags[i] = G_PROPERTY;
-    else {
-      flags[i] = G_WRITE;
-      write.push(i);
-      continue;
-    }
-    eager.push(i);
+        delegates = true;
+      } else letters += "h";
+    } else letters += k === K_PROP ? "p" : k === K_TEXT ? "t" : k === K_CLASS ? "c" : "a";
   }
-  const delegates = delegated.length > 0;
-  const tramps = all.filter((i) => flags[i] === G_HANDLER || flags[i] === G_DELEGATED);
-  const baked = all.filter((i) => flags[i] === G_WRITE);
-  const fields = all.map((i) => "$" + i);
-
-  let out = "/*@__PURE__*/(()=>{let T,t";
-  for (const i of baked) out += `,p${i}=${kinds[i] === K_ATTR ? "null" : '""'},n${i}`;
-  out += ";";
-  // Walkers.
-  out += `const wa=${walker(a.paths, all)}`;
-  const we = eager.length === 0 ? "" : hasChild || eager.length === n ? "wa" : "we";
-  if (we === "we") out += `,we=${walker(a.paths, eager)}`;
-  const ww = write.length === 0 ? "" : write.length === n ? "wa" : "ww";
-  if (ww === "ww" && !hasChild) out += `,ww=${walker(a.paths, write)}`;
-  const wd = !delegates ? "wa" : delegated.length === n ? "wa" : "wd";
-  if (wd === "wd") out += `,wd=${walker(a.paths, delegated)}`;
-  for (const i of tramps) out += `,F${i}=$hb.tramp(${i})`;
-  out += ";";
-  // The description class.
-  out += `function D(${fields.map((_, i) => "v" + i).join(",")}){${fields.map((f, i) => `this.${f}=v${i};`).join("")}}`;
-  out += `const P=D.prototype=Object.create($hb.Desc.prototype);`;
-  // Lazy write-hole lookup (views without child holes locate those on first update).
-  const lazy = write.length > 0 && !hasChild;
-  if (lazy) {
-    const w = write[0]!;
-    out += `const L=i=>{let s=i.s;if(s===null)${ww}(i.r,s=i.s=new Array(${n}));else if(s[${w}]===undefined)${ww}(i.r,s);return s};`;
-  }
-  // Mount.
-  out += "P.m=function(){let v;";
-  for (const i of baked) out += `v=this.$${i};if(p${i}!==v){p${i}=v;${writer(kinds[i]!, names[i], "n" + i)}}`;
-  out += "const r=T.cloneNode(true),x=$hb.dir;";
-  const keep = handlers ? "r[$hb.STATE]=i;" : "";
-  if (eager.length === 0 && !delegates) {
-    out += `const i=new $hb.Inst(t,r,this,null,x);${keep}return i};`;
-  } else {
-    if (eager.length === 0) out += `if(!x){const i=new $hb.Inst(t,r,this,null,false);${keep}return i}`;
-    out += `const s=new Array(${n});`;
-    if (we !== "") out += `${we}(r,s);`;
-    if (delegates && we !== "wa") out += eager.length === 0 ? `${wd}(r,s);` : `if(x)${wd}(r,s);`;
-    out += `const i=new $hb.Inst(t,r,this,s,x);${keep}`;
-    for (const i of all) {
-      const f = flags[i];
-      const nm = JSON.stringify(names[i]);
-      if (f === G_HANDLER) out += `$hb.attach(s[${i}],${nm},F${i});`;
-      else if (f === G_DELEGATED)
-        out += eager.length === 0 ? `$hb.attach(s[${i}],${nm},F${i});` : `if(x)$hb.attach(s[${i}],${nm},F${i});`;
-      else if (f === G_PROPERTY) out += `v=this.$${i};if(v!=null)s[${i}]${member(names[i]!)}=v;`;
-      else if (f === G_CHILD) out += `s[${i}]=$hb.slotOf(s[${i}],this.$${i});`;
-    }
-    out += "return i};";
-  }
-  // Patch.
-  out += "P.p=function(i){const o=i.d;if(o===this)return;i.d=this;let v";
-  if (lazy) out += ",s=null";
-  out += ";";
+  const all = Array.from({ length: n }, (_, i) => i);
+  const D = `function(${all.map((i) => "v" + i).join(",")}){${all.map((i) => `this.$${i}=v${i};`).join("")}}`;
+  let bake = "";
+  for (const i of all)
+    if ("tca".includes(letters[i]!))
+      bake += `if(p[${i}]!==(v=d.$${i}))${writer(kinds[i]!, names[i], `q[${i}]`, `p[${i}]=v`)};`;
+  let extras = "";
   for (const i of all) {
-    const f = flags[i];
-    if (f === G_HANDLER || f === G_DELEGATED) continue;
-    const cond = `if((v=this.$${i})!==o.$${i})`;
-    if (f === G_CHILD) out += `${cond}$hb.setChild(i.s[${i}],v);`;
-    else if (f === G_PROPERTY) out += `${cond}i.s[${i}]${member(names[i]!)}=v;`;
-    else out += cond + writer(kinds[i]!, names[i], lazy ? `(s||(s=L(i)))[${i}]` : `i.s[${i}]`) + ";";
+    const l = letters[i]!,
+      nm = JSON.stringify(names[i]);
+    if (l === "h") extras += `$hb.attach(s[${i}],${nm},F[${i}]);`;
+    else if (l === "d") extras += `if(x)$hb.attach(s[${i}],${nm},F[${i}]);`;
+    else if (l === "p") extras += `if((v=d.$${i})!=null)s[${i}]${member(names[i]!)}=v;`;
+    else if (l === "s") extras += `s[${i}]=$hb.slotOf(s[${i}],d.$${i});`;
   }
-  out += "};";
-  // The view, its initializer and its description class.
-  out += `const V=v=>new D(${fields.map((_, i) => `v[${i}]`).join(",")});`;
+  // Views with child, property or direct handler holes locate every hole at mount.
+  const located = /[sph]/.test(letters);
+  let patch = "";
+  for (const i of all) {
+    const l = letters[i]!;
+    if (l === "d" || l === "h") continue; // handlers read the description when they run
+    const cond = `if((v=d.$${i})!==o.$${i})`;
+    const node = located ? `s[${i}]` : `(s||(s=$hb.L(i)))[${i}]`;
+    patch += cond + (l === "s" ? `$hb.setChild(${node},v)` : writer(kinds[i]!, names[i], node, "v")) + ";";
+  }
   const ty = delegates
     ? "[" +
       types.map((x) => (x === undefined ? "" : JSON.stringify(x))).join(",") +
       (types[n - 1] === undefined ? ",]" : "]")
-    : "null";
-  out += `V.i=()=>{if(T===undefined){const r=$hb.proto(${JSON.stringify(a.markup)},${a.svg}),q=new Array(${n});wa(r,q);`;
-  for (let i = 0; i < n; i++) {
-    if (kinds[i] === K_TEXT) out += `n${i}=$hb.hole(q[${i}]);`;
-    else if (kinds[i] === K_SLOT) out += `$hb.hole(q[${i}]);`;
-    else if (flags[i] === G_WRITE) out += `n${i}=q[${i}];`;
-  }
-  out += `t=P.t=$hb.def(${n},${ty},${wd},${handlers});T=r}return V};V.D=D;return V})()`;
-  return out;
+    : "0";
+  return (
+    `$hb.V(${JSON.stringify(a.markup)},${a.svg ? 1 : 0},${JSON.stringify(letters)},${ty},${D},` +
+    `${walker(a.paths, all)},` +
+    (bake ? `(d,q,p)=>{let v;${bake}}` : "0") +
+    "," +
+    (extras ? `(s,d,x,F)=>{let v;${extras}}` : "0") +
+    "," +
+    (patch ? `(i,d,o)=>{let v,s=i.s;${patch}}` : "0") +
+    ")"
+  );
 }

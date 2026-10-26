@@ -229,25 +229,122 @@ export class Inst {
   }
 }
 
-/** For generated code: a view's Def; registers its delegated event types once. */
-export function def(n: number, ty: readonly (string | undefined)[] | null, fd: Locator, h: boolean): Def {
-  if (ty !== null) for (const type of ty) if (type !== undefined && !used.includes(type)) used.push(type);
-  return { n, ty, fd, h };
+/** A compiled description's constructor: values in, fields $0, $1, ... set. */
+type DescCtor = { prototype: Desc } & (new (...v: unknown[]) => Desc);
+/** Writes the description's text, class and attribute values into the prototype's hole nodes q, where they differ from the values p last written there. */
+type Bake = (d: Desc, q: Node[], p: unknown[]) => void;
+/** Mounting, for views with property, slot or handler holes: s holds every hole node; x is renderDirect; F the trampolines. */
+type Extras = (s: unknown[], d: Desc, x: boolean, F: readonly Fn[]) => void;
+/** Writes every non-handler hole whose value differs between d and o, the instance's last description. */
+type Patch = (i: Inst, d: Desc, o: Desc) => void;
+
+/** A compiled view: the view function, its initializer (called where the literal stood) and its description class. */
+export interface CompiledView {
+  (vals: Values): Desc;
+  i(): CompiledView;
+  readonly D: DescCtor;
 }
 
-/** For generated code: parse a view's static markup once; returns its root element. */
-export function proto(markup: string, isSvg: boolean): Element {
-  const tpl = document.createElement("template");
-  tpl.innerHTML = isSvg ? "<svg>" + markup + "</svg>" : markup;
-  const root = isSvg ? tpl.content.firstChild!.firstChild : tpl.content.firstChild;
-  return root as Element;
+/**
+ * For generated code: make a compiled view. `kinds` has one letter per hole:
+ * t text, c class, a attribute, p property, d delegated handler, h direct
+ * handler, s slot. `ty` lists the delegated event types by hole (0: none).
+ * The prototype is parsed when the literal is first evaluated (`i()`), as
+ * the run-time compiler parses it.
+ */
+export function V(
+  markup: string,
+  isSvg: number,
+  kinds: string,
+  ty: readonly (string | undefined)[] | 0,
+  D: DescCtor,
+  wa: Locator,
+  bake: Bake | 0,
+  extras: Extras | 0,
+  patch: Patch | 0,
+): CompiledView {
+  const n = kinds.length,
+    eager = /[sph]/.test(kinds),
+    handlers = /[dh]/.test(kinds),
+    delegates = ty !== 0;
+  const F: Fn[] = [];
+  for (let i = 0; i < n; i++) if (kinds[i] === "d" || kinds[i] === "h") F[i] = tramp(i);
+  const q: Node[] = new Array(n),
+    p: unknown[] = new Array(n);
+  let T: Element | null = null,
+    t: Def;
+  const P = (D.prototype = Object.create(Desc.prototype) as Desc & { t: Def });
+  P.m = function (this: Desc): Inst {
+    if (bake !== 0) bake(this, q, p);
+    const r = T!.cloneNode(true) as Element,
+      x = dir;
+    let inst: Inst;
+    if (!eager && !(x && delegates)) inst = new Inst(t, r, this, null, x);
+    else {
+      const s: unknown[] = new Array(n);
+      wa(r, s);
+      inst = new Inst(t, r, this, s, x);
+      if (handlers) (r as Holder)[STATE] = inst;
+      (extras as Extras)(s, this, x, F);
+      return inst;
+    }
+    if (handlers) (r as Holder)[STATE] = inst;
+    return inst;
+  };
+  P.p = function (this: Desc, i: Inst): void {
+    const o = i.d;
+    if (o === this) return;
+    i.d = this;
+    if (patch !== 0) patch(i, this, o);
+  };
+  const view = ((vals: Values) => new D(...vals)) as CompiledView & { i: () => CompiledView; D: DescCtor };
+  view.i = (): CompiledView => {
+    if (T === null) {
+      const tpl = document.createElement("template");
+      tpl.innerHTML = isSvg ? "<svg>" + markup + "</svg>" : markup;
+      const root = (isSvg ? tpl.content.firstChild!.firstChild : tpl.content.firstChild) as Element;
+      wa(root, q);
+      for (let i = 0; i < n; i++) {
+        const k = kinds[i];
+        if (k === "t" || k === "s") {
+          // The placeholder comment becomes the empty text node the run-time compiler makes.
+          const c = q[i]!,
+            e = document.createTextNode("");
+          c.parentNode!.replaceChild(e, c);
+          q[i] = e;
+        }
+        p[i] = k === "a" ? null : "";
+      }
+      if (ty !== 0) for (const type of ty) if (type !== undefined && !used.includes(type)) used.push(type);
+      t = P.t = { n, ty: ty === 0 ? null : ty, fd: wa, h: handlers };
+      T = root;
+    }
+    return view;
+  };
+  (view as { D: DescCtor }).D = D;
+  return view;
 }
 
-/** For generated code: put an empty text node in place of a hole's placeholder comment. */
-export function hole(c: Node): Text {
-  const t = document.createTextNode("");
-  c.parentNode!.replaceChild(t, c);
-  return t;
+/** For generated code: locate every hole of an instance on its first update. */
+export function L(i: Inst): unknown[] {
+  i.t.fd(i.r, (i.s = new Array(i.t.n)));
+  return i.s;
+}
+
+/** For generated code: write a text hole. */
+export function wt(node: Node, v: unknown): void {
+  (node as Text).data = v == null ? "" : "" + (v as string);
+}
+
+/** For generated code: write a class hole. */
+export function wc(node: Node, v: unknown): void {
+  (node as Element).className = v == null ? "" : "" + (v as string);
+}
+
+/** For generated code: write an attribute hole. */
+export function wa(node: Node, name: string, v: unknown): void {
+  if (v == null || v === false) (node as Element).removeAttribute(name);
+  else (node as Element).setAttribute(name, v === true ? "" : "" + (v as string));
 }
 
 /**
