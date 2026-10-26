@@ -159,9 +159,15 @@ const REGEX_AFTER = new Set([
   "await",
 ]);
 
-const isIdStart = (c: number): boolean =>
-  (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c === 36 || c === 95 || c === 92 || c > 127;
-const isIdPart = (c: number): boolean => isIdStart(c) || (c >= 48 && c <= 57);
+// Character classes of ASCII: 1 whitespace, 2 identifier start, 4 digit. Beyond ASCII: identifier.
+const CLASS = new Uint8Array(128);
+for (const c of [9, 10, 11, 12, 13, 32]) CLASS[c] = 1;
+for (let c = 0; c < 128; c++) {
+  if ((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c === 36 || c === 95 || c === 92) CLASS[c] = 2;
+  else if (c >= 48 && c <= 57) CLASS[c] = 4;
+}
+const isIdStart = (c: number): boolean => (c < 128 ? CLASS[c] === 2 : c === c); // c === c: not NaN
+const isIdPart = (c: number): boolean => (c < 128 ? (CLASS[c]! & 6) !== 0 : c === c);
 
 function lex(s: string): Lexed {
   const len = s.length;
@@ -231,7 +237,7 @@ function lex(s: string): Lexed {
   while (i < len) {
     const c = s.charCodeAt(i);
     // Whitespace and line terminators.
-    if (c === 32 || c === 10 || c === 9 || c === 13 || c === 11 || c === 12 || c === 0xa0 || c === 0xfeff) {
+    if (c < 128 ? CLASS[c] === 1 : c === 0xa0 || c === 0xfeff || c === 0x2028 || c === 0x2029) {
       i++;
       continue;
     }
@@ -415,7 +421,9 @@ function bindings(src: string, lx: Lexed): Bindings {
   const b: Bindings = { tags: new Map(), markers: new Map(), spaces: new Map(), viewSources: [] };
   for (let k = 0; k < lx.n; k++) {
     const t = lx.type[k];
-    if (t === IDENT && (isId(src, lx, k, "import") || isId(src, lx, k, "export"))) {
+    if (t !== IDENT) continue;
+    const c0 = src.charCodeAt(lx.start[k]!);
+    if ((c0 === 105 || c0 === 101) && (isId(src, lx, k, "import") || isId(src, lx, k, "export"))) {
       // Dynamic import("...view.ts"): redirect it too.
       if (isP(lx, k + 1, 40) && lx.type[k + 2] === STR) {
         const m = LIB.exec(strValue(src, lx, k + 2));
@@ -746,9 +754,21 @@ function rewrite(src: string, lx: Lexed, opt: TransformOptions): TransformResult
   // 2. Calls `Name([a, b, ...])` of views bound above, when Name is never shadowed or reassigned.
   if (bound.size > 0) {
     const safe = new Map<string, boolean>();
-    for (const name of bound.keys()) safe.set(name, !twice.has(name));
+    // Only identifiers whose first character and length match a bound name are looked at.
+    const firsts = new Uint8Array(128),
+      lens = new Uint8Array(256);
+    for (const name of bound.keys()) {
+      safe.set(name, !twice.has(name));
+      const c = name.charCodeAt(0);
+      firsts[c < 128 ? c : 0] = 1;
+      lens[Math.min(name.length, 255)] = 1;
+    }
+    const maybe = (k: number): boolean => {
+      const c = src.charCodeAt(lx.start[k]!);
+      return firsts[c < 128 ? c : 0] === 1 && lens[Math.min(lx.end[k]! - lx.start[k]!, 255)] === 1;
+    };
     for (let k = 0; k < lx.n; k++) {
-      if (lx.type[k] !== IDENT) continue;
+      if (lx.type[k] !== IDENT || !maybe(k)) continue;
       const name = tok(src, lx, k);
       if (!safe.get(name)) continue;
       if (k > 0 && isP(lx, k - 1, 46)) continue; // .Name: a property
@@ -758,7 +778,7 @@ function rewrite(src: string, lx: Lexed, opt: TransformOptions): TransformResult
       safe.set(name, false);
     }
     for (let k = 0; k + 1 < lx.n; k++) {
-      if (lx.type[k] !== IDENT || !isP(lx, k + 1, 40) || !isP(lx, k + 2, 91)) continue;
+      if (lx.type[k] !== IDENT || !isP(lx, k + 1, 40) || !isP(lx, k + 2, 91) || !maybe(k)) continue;
       if (k > 0 && isP(lx, k - 1, 46)) continue;
       const name = tok(src, lx, k);
       const v = bound.get(name);
