@@ -126,6 +126,10 @@ type Route struct {
 	creds      map[string]credential // party name to its credential record
 	proof      proofCache
 	acks       ackCache
+	// replaying is set while open replays the journal.
+	replaying bool
+	// keychainSeen are parties that had a keychain secret.
+	keychainSeen map[string]bool
 	// unfinished are committed records whose step 4 failed, in order.
 	unfinished []*Record
 	// cpLastID is the last checkpoint's last_message_id, as a number.
@@ -162,7 +166,7 @@ func (r *Route) path(names ...string) string {
 func newRoute(d *Daemon, name, dir string) *Route {
 	return &Route{d: d, name: name, inbox: dir, ops: make(chan func(), actorQueue), quit: make(chan struct{}),
 		sendKeys: map[string]*sendKey{}, readKeys: map[string]*claimKey{}, extendKeys: map[string]*claimKey{},
-		subs: map[*subscriber]struct{}{}, creds: map[string]credential{}}
+		subs: map[*subscriber]struct{}{}, creds: map[string]credential{}, keychainSeen: map[string]bool{}}
 }
 
 // start runs the actor goroutine.
@@ -336,9 +340,17 @@ func (r *Route) open() error {
 		return err
 	}
 	r.loadCredentials()
-	if err := r.replay(ld.pending); err != nil {
+	r.replaying = true
+	err = r.replay(ld.pending)
+	r.replaying = false
+	if err != nil {
 		r.closeFiles()
 		return err
+	}
+	// Secrets are pruned once, against the final records.
+	if err := r.pruneSecrets(); err != nil {
+		r.closeFiles()
+		return fmt.Errorf("route %s: credentials: %w", r.name, err)
 	}
 	r.recoverOrphans()
 	// Step 6: a checkpoint completes everything replayed.
@@ -616,6 +628,9 @@ func (r *Route) writePayload(rel string, data []byte) (*Payload, error) {
 // commit appends a record (step 3) with the next sequence number; the
 // caller then applies step 4 and calls publish.
 func (r *Route) commit(rec *Record) error {
+	if r.j == nil {
+		return errors.New("the route's journal is closed")
+	}
 	rec.Seq = r.seq + 1
 	rec.Epoch = r.epoch
 	rec.Time = r.now().Unix()

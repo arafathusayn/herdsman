@@ -35,6 +35,12 @@ const DaemonOwnedLine = "inbox owned by the herdsman daemon; use herdsman messag
 // FaultInventory, the unknown agents.
 func BoundaryV2(ctx context.Context, c *herdr.Client, dir string, boundary map[string]any) (bool, string, []Unknown) {
 	r := &Root{Dir: dir}
+	// A waiting exposure record (any pending state the classifier does
+	// not call empty) fails closed until an owner of the input lock folds
+	// it.
+	if (&Channel{Root: r}).ExposurePending() {
+		return false, FaultPending, nil
+	}
 	if _, ok := r.Registry(); !ok || Exists(r.Path("state", "boundary-tainted")) {
 		return false, FaultStatic, nil
 	}

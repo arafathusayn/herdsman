@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -231,7 +233,7 @@ func (r *Route) approve(q ApproveRequest) (ApproveResult, *APIError) {
 	}
 	for n := range q.Credentials {
 		if !names[n] {
-			return ApproveResult{}, Errf("bad_request", "credential option for %s, who is not in the pending pair", n)
+			return ApproveResult{}, Errf("bad_request", "credential option for %q, who is not in the pending pair", n)
 		}
 	}
 	creds := map[string]credential{}
@@ -263,27 +265,22 @@ func (r *Route) approve(q ApproveRequest) (ApproveResult, *APIError) {
 		}
 	}
 	sort.Strings(res.Revoked)
-	// Step 2: the secrets, not yet accepted by anyone.
-	for name, secret := range secrets {
-		var err error
-		if creds[name].Option == "file" {
-			if err = mkdirs(r.inbox, "state/credentials"); err == nil {
-				err = writeDurable(r.path("state", "credentials", name), []byte(secret+"\n"), 0o600)
-			}
-		} else {
-			err = r.d.keychain().Store("herdsman/"+r.name, name, secret)
-		}
-		if err != nil {
-			return ApproveResult{}, Errf("internal", "credential for %s: %v", name, err)
-		}
+	// Step 2: the new generation's secrets, staged under names no client
+	// reads; the active secrets are untouched until the commit (7.5).
+	gen := randomHex(8)
+	if err := r.stageSecrets(gen, creds, secrets); err != nil {
+		r.dropStaged(gen, creds)
+		return ApproveResult{}, Errf("internal", "credentials: %v", err)
 	}
 	pl, err := r.writePayload(filepath.Join("state", "registry", sha256Hex(pb)+".json"), pb)
 	if err != nil {
+		r.dropStaged(gen, creds)
 		return ApproveResult{}, Errf("internal", "registry payload: %v", err)
 	}
-	rec := &Record{Op: "pair", State: "approved", Payload: pl, Interaction: q.Interaction, Credentials: creds,
+	rec := &Record{Op: "pair", State: "approved", Payload: pl, Interaction: q.Interaction, Credentials: creds, Generation: gen,
 		Event: &Event{Type: "pair", State: "approved", Peers: peerInfos(pb)}}
 	if err := r.commit(rec); err != nil {
+		r.dropStaged(gen, creds)
 		return ApproveResult{}, Errf("internal", "journal: %v", err)
 	}
 	if err := r.redoPair(rec); err != nil {
@@ -386,6 +383,9 @@ func (r *Route) redoPair(rec *Record) error {
 		if err := writeIfDifferent(r.path("peers.approved"), pb); err != nil {
 			return err
 		}
+		if err := r.activate(rec.Generation, rec.Credentials); err != nil {
+			return err
+		}
 		return r.setCredentials(rec.Credentials)
 	case "retired":
 		if err := mkdirs(r.inbox, "enrolled"); err != nil {
@@ -418,35 +418,6 @@ func writeIfDifferent(p string, data []byte) error {
 		return nil
 	}
 	return writeDurable(p, data, 0o600)
-}
-
-// setCredentials replaces the route's credential records and removes the
-// secrets of parties no longer listed (revocation).
-func (r *Route) setCredentials(creds map[string]credential) error {
-	if creds == nil {
-		creds = map[string]credential{}
-	}
-	if err := mkdirs(r.inbox, "state/credentials"); err != nil {
-		return err
-	}
-	b, _ := encode(creds)
-	if err := writeDurable(r.path("state", "credentials.json"), append(b, '\n'), 0o600); err != nil {
-		return err
-	}
-	ents, _ := os.ReadDir(r.path("state", "credentials"))
-	for _, e := range ents {
-		if c, ok := creds[e.Name()]; !ok || c.Option != "file" {
-			_ = os.Remove(r.path("state", "credentials", e.Name()))
-		}
-	}
-	for n, c := range r.creds {
-		if c2, ok := creds[n]; (!ok || c2.Option != "keychain") && c.Option == "keychain" {
-			_ = r.d.keychain().Delete("herdsman/"+r.name, n)
-		}
-	}
-	r.creds = creds
-	r.d.indexCredentials(r.name, creds)
-	return nil
 }
 
 // loadCredentials reads state/credentials.json at start.
@@ -609,7 +580,8 @@ type SetupResult struct {
 	ProofSHA256 string `json:"proof_sha256"`
 }
 
-// setup writes setup.json version 2 (7.3) under the shared input lock.
+// setup writes setup.json version 2 (7.3); the caller holds the shared
+// input lock.
 func (r *Route) setup(q SetupRequest) (SetupResult, *APIError) {
 	if len(q.Rules) == 0 {
 		return SetupResult{}, Errf("bad_request", "name at least one sandbox policy file")
@@ -650,11 +622,6 @@ func (r *Route) setup(q SetupRequest) (SetupResult, *APIError) {
 	if len(data) > inbox.MaxSize {
 		return SetupResult{}, Errf("bad_request", "setup document too large")
 	}
-	unlock, e := r.inputLock()
-	if e != nil {
-		return SetupResult{}, e
-	}
-	defer unlock()
 	if err := writeDurable(r.path("setup.json"), data, 0o600); err != nil {
 		return SetupResult{}, Errf("internal", "setup: %v", err)
 	}
@@ -670,21 +637,51 @@ func (r *Route) setup(q SetupRequest) (SetupResult, *APIError) {
 	return SetupResult{ProofSHA256: sha256Hex(data)}, nil
 }
 
-// inputLock takes the shared input lock herdr-mutation.lock with the
-// daemon's owner record (3.7), LOCK_WAIT tries a second apart; busy after
-// that.
+// inputLock takes the shared input lock herdr-mutation.lock (3.7):
+// exclusive across processes and across this daemon's own requests. A
+// lock folder that exists is never adopted, whoever holds it and however
+// old it is: the caller waits up to LockWait seconds, then is busy, and a
+// stale lock is the human's to inspect (mutation-lock-stale). It runs
+// outside the route actor; the lock order is input lock, then actor.
 func (r *Route) inputLock() (func(), *APIError) {
 	dir := r.path(inbox.MutationLock)
+	token := randomHex(16)
 	for try := 0; ; try++ {
-		l, err := takeDaemonLock(dir, "")
+		err := mkdirDurable(dir)
 		if err == nil {
-			return func() { releaseLock(l) }, nil
+			b, _ := encode(lockOwner{Owner: "daemon", Epoch: token, PID: os.Getpid(), Start: r.now().Unix()})
+			werr := writeDurable(filepath.Join(dir, "pid"), []byte("daemon "+strconv.Itoa(os.Getpid())+"\n"), 0o600)
+			if werr == nil {
+				werr = writeDurable(filepath.Join(dir, "owner.json"), append(b, '\n'), 0o600)
+			}
+			if werr != nil {
+				dropInputLock(dir, token)
+				return nil, Errf("internal", "input lock: %v", werr)
+			}
+			return func() { dropInputLock(dir, token) }, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, Errf("internal", "input lock: %v", err)
 		}
 		if try+1 >= r.d.cfg.LockWait {
-			return nil, Errf("busy", "input lock busy; retry with backoff, never auto-remove")
+			return nil, Errf("busy", "input lock held (%s); retry with backoff, never auto-remove", lockHolder(dir))
 		}
 		r.d.sleep(time.Second)
 	}
+}
+
+// dropInputLock removes the input lock only while it is still this
+// request's (its owner record carries the request's token).
+func dropInputLock(dir, token string) {
+	if o, ok := daemonLockOwner(dir); !ok || o.Epoch != token {
+		if exists(filepath.Join(dir, "owner.json")) {
+			return
+		}
+	}
+	_ = os.Remove(filepath.Join(dir, "owner.json"))
+	_ = os.Remove(filepath.Join(dir, "pid"))
+	_ = os.Remove(dir)
+	_ = syncDir(filepath.Dir(dir))
 }
 
 // proofCache remembers the proof's verdict while none of its files changed
@@ -753,6 +750,11 @@ func (r *Route) proofValid() bool {
 
 // authority is RELAY under a current protected setup that matches the
 // live inventory, HUMAN otherwise (8), with the reasons.
+//
+// The caller holds the shared input lock: an unknown agent the check
+// observes is recorded (boundary-tainted) and a waiting exposure is folded
+// under it before the answer, so a later check cannot regain RELAY when
+// the agent leaves (8; the exposure rule of e93bcc1).
 func (r *Route) authority(ctx context.Context, c *herdr.Client) (string, []string) {
 	var reasons []string
 	if !r.proofValid() {
@@ -772,16 +774,32 @@ func (r *Route) authority(ctx context.Context, c *herdr.Client) (string, []strin
 			b["pair"], _ = inbox.Decode(pb)
 		}
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		ok, fault, _ := inbox.BoundaryV2(cctx, c, r.inbox, b)
+		ok, fault, unknown := inbox.BoundaryV2(cctx, c, r.inbox, b)
 		cancel()
 		if !ok {
 			reasons = append(reasons, "boundary-"+fault)
+			if fault == inbox.FaultInventory || fault == inbox.FaultPending {
+				if err := r.recordExposure(fault, unknown); err != nil {
+					r.d.logf("route %s: exposure record: %v", r.name, err)
+					reasons = append(reasons, "exposure-unrecorded")
+				}
+			}
 		}
 	}
 	if len(reasons) == 0 {
 		return "RELAY", []string{}
 	}
 	return "HUMAN", reasons
+}
+
+// recordExposure records an observed inventory exposure, or folds the
+// waiting ones, with the input lock held by the caller.
+func (r *Route) recordExposure(fault string, unknown []inbox.Unknown) error {
+	root, err := inbox.Open(inbox.Options{Dir: r.inbox, ReadOnly: true, Now: r.d.now})
+	if err != nil {
+		return err
+	}
+	return (&inbox.Channel{Root: root}).RecordExposure(fault, unknown, true)
 }
 
 // healthFlags are the route's health flags (5.3 names).

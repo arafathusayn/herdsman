@@ -528,6 +528,11 @@ func (d *Daemon) putSetup(w http.ResponseWriter, r *http.Request) *APIError {
 	if e := decode(r, &q); e != nil {
 		return e
 	}
+	unlock, e := rt.inputLock()
+	if e != nil {
+		return e
+	}
+	defer unlock()
 	var res SetupResult
 	if e := rt.do(r.Context(), func() *APIError {
 		var e *APIError
@@ -886,6 +891,12 @@ func (d *Daemon) authority(w http.ResponseWriter, r *http.Request) *APIError {
 			return e
 		}
 	}
+	// The check records what it observes under the input lock (8).
+	unlock, e := rt.inputLock()
+	if e != nil {
+		return e
+	}
+	defer unlock()
 	var res AuthorityResult
 	if e := rt.do(r.Context(), func() *APIError {
 		res.Authority, res.Reasons = rt.authority(r.Context(), d.herdrFor(rt.name))
