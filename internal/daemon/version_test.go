@@ -160,3 +160,23 @@ func FuzzVersionHeader(f *testing.F) {
 		}
 	})
 }
+
+// TestExactVersionSpellings: versions are compared as exact strings; a
+// spelling that is semantically equal ("01.2.0", "1.2.0+x") is still a
+// mismatch on both sides (5.6).
+func TestExactVersionSpellings(t *testing.T) {
+	for _, v := range []string{"01.2.0", "1.02.0", "1.2.00"} {
+		if _, err := ParseVersion(v); err != nil {
+			continue // refused as malformed: also not accepted
+		}
+		if e := CheckVersion(hdr(HeaderVersion, v, HeaderProtocol, "1"), "1.2.0", 1); e == nil || e.Code != "version_mismatch" {
+			t.Fatalf("daemon accepted %q for 1.2.0: %v", v, e)
+		}
+		if e := ClientCheck(v, 1, Hello{DaemonVersion: "1.2.0", Protocol: 1, MinProtocol: 1}); e == nil || e.Code != "version_mismatch" {
+			t.Fatalf("client accepted daemon 1.2.0 for %q: %v", v, e)
+		}
+	}
+	if _, err := ParseVersion("01.2.0"); err != nil {
+		t.Fatal("the case must reach the comparison")
+	}
+}
