@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/arafathusayn/herdsman/internal/daemon"
+	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/message"
 )
 
@@ -32,8 +33,12 @@ func executable() string {
 var fileOnly = map[string]bool{"register": true, "courier": true, "card-watch": true, "resume-goal": true, "leak-gate": true}
 
 // daemonPath picks the daemon path of a message command (design 12.1):
-// a route named by --route or HERDSMAN_ROUTE, and an action the daemon
-// serves. It returns the arguments without --route and --json.
+// the daemon serves the action and the route's inbox is owned by the
+// daemon (its state/owner.json says so). The inbox is the route's entry
+// in routes.json (the route from --route or HERDSMAN_ROUTE), else
+// HERDSMAN_INBOX, whose route is then found in routes.json. enroll always
+// takes the daemon path. It returns the arguments without --route and
+// --json.
 func daemonPath(args []string, getenv func(string) string) (route string, rest []string, json, ok bool) {
 	for i := 0; i < len(args); i++ {
 		switch {
@@ -49,13 +54,26 @@ func daemonPath(args []string, getenv func(string) string) (route string, rest [
 	if route == "" {
 		route = getenv("HERDSMAN_ROUTE")
 	}
-	if len(rest) > 0 && (rest[0] == "-h" || rest[0] == "--help" || rest[0] == "help") {
-		return route, rest, json, false
-	}
 	if len(rest) > 0 && rest[0] == "enroll" {
 		return route, rest, json, true
 	}
-	return route, rest, json, route != "" && (len(rest) == 0 || !fileOnly[rest[0]])
+	if len(rest) > 0 && fileOnly[rest[0]] {
+		return route, rest, json, false
+	}
+	var routes daemon.RoutesFile
+	if ph, err := daemon.PrivateHome("", getenv); err == nil {
+		routes, _ = daemon.ReadRoutes(ph)
+	}
+	dir := routes.Routes[route].Inbox
+	if dir == "" && route == "" {
+		dir = getenv("HERDSMAN_INBOX")
+		for name, e := range routes.Routes {
+			if dir != "" && e.Inbox == dir {
+				route = name
+			}
+		}
+	}
+	return route, rest, json, route != "" && dir != "" && inbox.DaemonOwned(dir)
 }
 
 func runMessage(args []string, _ io.Reader, stdout, stderr io.Writer) int {

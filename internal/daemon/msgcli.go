@@ -189,6 +189,10 @@ func RunMessage(e *MessageEnv, args []string) int {
 	if len(args) == 0 {
 		args = []string{"status"}
 	}
+	if args[0] == "help" || slices.ContainsFunc(args, func(a string) bool { return a == "-h" || a == "--help" }) {
+		fmt.Fprint(e.Stdout, MessageHelp)
+		return 0
+	}
 	action, rest := args[0], args[1:]
 	if !validName(route) {
 		return e.usage("HERDSMAN_ROUTE or --route must name the route")
