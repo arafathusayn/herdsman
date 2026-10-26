@@ -5,6 +5,9 @@ import (
 	"os"
 )
 
+// peerOf reads a connection's peer user (a test replaces it).
+var peerOf = peerUID
+
 // peerListener refuses every connection whose peer runs as another user
 // (3.3). It proves the same user only (8).
 type peerListener struct {
@@ -22,7 +25,7 @@ func (l *peerListener) Accept() (net.Conn, error) {
 			_ = c.Close()
 			continue
 		}
-		uid, err := peerUID(uc)
+		uid, err := peerOf(uc)
 		if err != nil || uid != os.Getuid() {
 			_ = c.Close()
 			continue
