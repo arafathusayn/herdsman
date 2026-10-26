@@ -3,6 +3,7 @@ package message
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -297,7 +298,7 @@ func (e *Env) healthSnapshot() []string {
 
 // health is health: courier and watcher outages alerted or resolved, and
 // every flag printed to stderr; false when any flag is up.
-func (e *Env) health() (bool, error) {
+func (e *Env) health() bool {
 	flags := e.healthSnapshot()
 	has := func(f string) bool {
 		for _, x := range flags {
@@ -315,16 +316,18 @@ func (e *Env) health() (bool, error) {
 			err = e.resolveAlert(role + "-down")
 		}
 		if err != nil {
-			if _, fatal := inbox.IsFatal(err); fatal {
-				return false, err
+			// notify and resolve_alert are subshells in the script: a die
+			// in one prints its line and ends only that alert.
+			if msg, fatal := inbox.IsFatal(err); fatal {
+				fmt.Fprintln(e.Stderr, msg)
 			}
 		}
 	}
 	if len(flags) > 0 {
 		e.Stderr.Write([]byte("HEALTH " + strings.Join(flags, "\n") + "\n"))
-		return false, nil
+		return false
 	}
-	return true, nil
+	return true
 }
 
 // foldQueued moves one queued incident into the incident's pending record

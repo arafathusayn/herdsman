@@ -2,6 +2,8 @@ package message
 
 import (
 	"fmt"
+
+	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
 // Usage is message.sh's grammar line.
@@ -23,12 +25,14 @@ const Help = `usage: herdsman message [--json] <action> [args]   (HERDSMAN_NAME:
   authority                      RELAY or HUMAN (--json: {"type":"authority","status":"relay|human","text"})
   leak-gate <file> [heading...]  LEAK_ALLOW_FILE LEAK_PATTERN
 settings: SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
-durations (seconds, or with an s, m, h or d suffix); LOCK_WAIT is a count. A bad value exits 2 first.
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. HERDSMAN_NAME and HERDSMAN_INBOX are
+required. A bad or missing value is one line naming it, exit 2, before anything runs.
 
 exit codes:
   0  done (wait: a message or TICK; resume-goal: NOOP or SENT; authority: RELAY; leak-gate: clean)
-  1  wait: HEALTH; leak-gate: a leak or a missing section; HERDSMAN_NAME or HERDSMAN_INBOX unset
-  2  usage, an invalid setting, or a refusal (the reason on stderr)
+  1  wait: HEALTH; leak-gate: a leak or a missing section
+  2  usage, an invalid or missing setting (HERDSMAN_NAME, HERDSMAN_INBOX), or a refusal (the reason on stderr)
   3  authority: HUMAN; resume-goal: HELD
 `
 
@@ -72,8 +76,8 @@ func (e *Env) Main(args []string) int {
 	}
 	me := e.env("HERDSMAN_NAME")
 	if me == "" {
-		fmt.Fprintln(e.Stderr, "HERDSMAN_NAME: set the enrolled name from session configuration")
-		return 1
+		fmt.Fprintf(e.Stderr, "herdsman message: %v\n", settings.Missing("HERDSMAN_NAME"))
+		return settings.ExitInvalid
 	}
 	action := "status"
 	if len(args) > 0 {

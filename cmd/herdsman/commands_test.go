@@ -303,7 +303,7 @@ func TestMessageCommand(t *testing.T) {
 	}
 	t.Setenv("HERDSMAN_NAME", "")
 	_, errOut, code := call(t, "message", "status")
-	if code != 1 || !strings.Contains(errOut, "HERDSMAN_NAME") {
+	if code != 2 || !strings.Contains(errOut, `herdsman message: HERDSMAN_NAME: required, not set (got "")`) {
 		t.Errorf("no name: %d %q", code, errOut)
 	}
 	t.Setenv("HERDSMAN_NAME", "route-orchestrator")

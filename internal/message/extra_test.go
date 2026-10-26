@@ -95,18 +95,18 @@ func TestJSONOutput(t *testing.T) {
 // anything runs; leading zeros read as decimal.
 func TestStrictSettings(t *testing.T) {
 	c := newCase(t, true)
-	for _, v := range []string{"abc", "-1", " 5", "1.5", "5x"} {
+	for _, v := range []string{"abc", "-1", "1.5", "5x", "+5"} {
 		out, code := c.courier("SWEEP=" + v)
-		check(t, "SWEEP="+v, `^2 herdsman message: SWEEP: invalid SWEEP, want a duration: digits with an optional s, m, h or d, clamped to 1s..3600s \(got "`, strconv.Itoa(code)+" "+out)
+		check(t, "SWEEP="+v, `^2 herdsman message: SWEEP: not a duration \(seconds, or a number with s, m, h or d\) \(got "`, strconv.Itoa(code)+" "+out)
 	}
 	check(t, "no lock taken", "^no$", yn(c.in("courier.lock")))
 	if _, code := c.courier("SWEEP=060"); code != 0 {
 		t.Error("a leading zero is decimal")
 	}
 	// Out-of-range durations are clamped, as the shared settings rule says.
-	for _, v := range []string{"0", "3601", "2h", "99999999d"} {
-		if n, ok := settingDuration(v, 1, 3600); !ok || n < 1 || n > 3600 {
-			t.Errorf("SWEEP=%s: %d %v", v, n, ok)
+	for _, v := range []string{"0", "3601", "2h", "99999999d", " 5"} {
+		if n, err := durSetting("SWEEP", v, 1, 3600); err != nil || n < 1 || n > 3600 {
+			t.Errorf("SWEEP=%s: %d %v", v, n, err)
 		}
 	}
 	for k, v := range map[string]string{"RECHECK": "x", "DEADLINE": "1.5"} {

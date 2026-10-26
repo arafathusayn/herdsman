@@ -400,13 +400,9 @@ func (c *courier) sweep() error {
 	if err := r.SafeTouch(e.path("state", "heartbeat")); err != nil {
 		return err
 	}
-	if err := c.pruneRings(); err != nil {
-		return err
-	}
-	if err := c.retireAbandoned(); err != nil {
-		return err
-	}
 	e.retryAlerts()
+	// Recheck the setup proof before each sweep's record changes: a stale
+	// proof pauses ring pruning and allocation recovery with delivery.
 	if !e.ch.ProofValid() {
 		r.ProofStale = true
 		return c.proofStaleAlert(e)
@@ -416,6 +412,12 @@ func (c *courier) sweep() error {
 		if err := e.resolveAlert("setup-proof-stale"); err != nil {
 			return err
 		}
+	}
+	if err := c.pruneRings(); err != nil {
+		return err
+	}
+	if err := c.retireAbandoned(); err != nil {
+		return err
 	}
 	if _, ok := r.Registry(); !ok {
 		baseline, key := "unavailable", "unavailable"
