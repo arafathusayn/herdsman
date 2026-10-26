@@ -1,12 +1,14 @@
 package message
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
@@ -59,27 +61,25 @@ func TestR9BusyWriterKeepsTruncatedRecord(t *testing.T) {
 
 // XB11 (PR 24, a38ff72): a pending folder that lists but cannot be written.
 // The watcher publishes the exposure, keeps the entry it could not remove,
-// logs it, and frees the input lock: another writer takes it afterwards.
+// logs it, and frees the input lock at once: while the watcher still runs
+// (its event wait), another writer takes the lock and completes.
 func TestR9ReadonlyPendingWatcher(t *testing.T) {
 	c := watchedCase(t)
 	p := c.in("state", "exposure-pending")
 	os.MkdirAll(p, 0o700)
 	c.write(filepath.Join(p, "1-1-1.json"), `{"agents":[{"pane":"rogue-pane","agent":"claude","session":null}],"time":1}`+"\n")
 	chmodT(t, p, 0o500)
-	held := false
-	base := c.fx.Handler("agent.list")
-	c.srv.Handle("agent.list", func(m map[string]any) (any, string) {
-		if inbox.Exists(c.in(inbox.MutationLock)) {
-			held = true
-		}
-		return base(m)
-	})
-	c.watch()
+	s := &whileRunning{c: c, t: t}
+	c.events = s
+	defer func() { c.events = nil }()
+	if out, code := c.run("courier-pane", map[string]string{"RUN_FOR": "60", "INTERVAL": "1"}, "card-watch"); code != 0 {
+		t.Fatalf("watcher: %d %q", code, out)
+	}
+	if !s.held {
+		t.Fatal("XB11b the other writer did not complete while the watcher ran")
+	}
 	if b, _ := os.ReadFile(c.in("state", "boundary-tainted")); !strings.Contains(string(b), "rogue-pane") {
 		t.Errorf("XB11 the watcher did not publish the exposure: %q", b)
-	}
-	if held || inbox.Exists(c.in(inbox.MutationLock)) {
-		t.Error("XB11b the input lock was kept after the fold")
 	}
 	os.Chmod(p, 0o700)
 	if b, _ := os.ReadFile(filepath.Join(p, "1-1-1.json")); !strings.Contains(string(b), "rogue-pane") {
@@ -94,9 +94,33 @@ func TestR9ReadonlyPendingWatcher(t *testing.T) {
 	if !found {
 		t.Error("the kept entry was not logged")
 	}
-	if out, code := c.run("receiver-pane", nil, "hold", O, "hold", A, "held for the test"); code != 0 {
-		t.Errorf("XB11b another writer could not take the input lock: %d %q", code, out)
+}
+
+// whileRunning is the watcher's event stream: at its first wait, while the
+// watcher holds its own lock, a hold writer must take the input lock.
+type whileRunning struct {
+	c    *tc
+	t    *testing.T
+	held bool
+	done bool
+}
+
+func (s *whileRunning) Open(context.Context, []map[string]any) (Stream, error) { return s, nil }
+func (s *whileRunning) Close()                                                 {}
+func (s *whileRunning) Next(d time.Duration) (string, error) {
+	if !s.done {
+		s.done = true
+		if !inbox.Exists(s.c.in("watch.lock")) {
+			s.t.Error("the watcher is not running")
+		}
+		out, code := s.c.run("receiver-pane", map[string]string{"LOCK_WAIT": "1"}, "hold", O, "hold", A, "held while the watcher runs")
+		if code != 0 {
+			s.t.Errorf("XB11b another writer could not take the input lock while the watcher ran: %d %q", code, out)
+		}
+		s.held = code == 0
 	}
+	s.c.now = s.c.now.Add(d)
+	return "", errTimeout
 }
 
 // A large inventory exposure recorded with the input lock free is

@@ -2,6 +2,7 @@ package gate
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -165,4 +166,83 @@ func logged(r *rig, s string) bool {
 		}
 	}
 	return false
+}
+
+// AG15 tostring (PR 28): the orchestrator lookup keys a non-string asker by
+// jq's tostring, so a missing, null, true or false asker meets an approved
+// orchestrator named null, true or false and gets the orchestrator line.
+func TestR9AskerKeyTostring(t *testing.T) {
+	for _, tc := range []struct {
+		name, orchestrator string
+		edit               func(m map[string]any)
+	}{
+		{"missing", "null", func(m map[string]any) { delete(m, "asked_by") }},
+		{"null", "null", func(m map[string]any) { m["asked_by"] = nil }},
+		{"true", "true", func(m map[string]any) { m["asked_by"] = true }},
+		{"false", "false", func(m map[string]any) { m["asked_by"] = false }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t)
+			r.c.Edit(filepath.Join(r.c.Dir, "peers.approved"), func(m map[string]any) {
+				m[tc.orchestrator] = m[inboxtest.Orchestrator]
+				delete(m, inboxtest.Orchestrator)
+			})
+			r.gojson("k1", 600, nil)
+			r.c.Edit(r.interaction("k1"), tc.edit)
+			match(t, tc.name, "^REFUSED "+orchestratorAskLine+" rc=1$", r.consume("k1"))
+			if exists(r.consumed("k1")) {
+				t.Error("and records nothing")
+			}
+		})
+	}
+}
+
+// XB8c/d, XB9c/d (PR 24): the executor gate on the real truncated (first
+// twenty) and minimal waiting records that a busy writer keeps: HUMAN,
+// exit 3, nothing consumed, and a retry stays held.
+func TestR9GateOnTruncatedPendingRecords(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		n, size int
+		agents  int
+	}{
+		{"XB8 first twenty", 700, 300, 20},
+		{"XB9 minimal", 21, 7000, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t)
+			ch, err := inbox.OpenChannel(r.c.Options(false), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var unknown []inbox.Unknown
+			for i := range tc.n {
+				s, _ := json.Marshal(map[string]string{"agent": "claude", "kind": "id", "source": "hook", "value": fmt.Sprintf("s%d-%s", i, strings.Repeat("x", tc.size))})
+				unknown = append(unknown, inbox.Unknown{Pane: fmt.Sprintf("rogue-%d", i), Agent: "claude", Session: s})
+			}
+			if err := ch.KeepPending(unknown); err != nil {
+				t.Fatal(err)
+			}
+			p := filepath.Join(r.c.Dir, "state", "exposure-pending")
+			ents, _ := os.ReadDir(p)
+			if len(ents) != 1 {
+				t.Fatalf("pending records %d", len(ents))
+			}
+			b, _ := os.ReadFile(filepath.Join(p, ents[0].Name()))
+			var rec struct {
+				Agents    []any `json:"agents"`
+				Truncated bool  `json:"truncated"`
+			}
+			if json.Unmarshal(b, &rec) != nil || !rec.Truncated || len(rec.Agents) != tc.agents {
+				t.Fatalf("not the %s record: %d agents, truncated %v", tc.name, len(rec.Agents), rec.Truncated)
+			}
+			r.gojson("xt", 600, nil)
+			for _, try := range []string{"first", "retry"} {
+				out, code := r.gate("consume", r.goFile("xt"), "post", "pr-comment", "head1", r.draft)
+				if code != 3 || !strings.Contains(out, "HUMAN") || exists(r.consumed("xt")) {
+					t.Errorf("%s go: exit %d %q", try, code, out)
+				}
+			}
+		})
+	}
 }
