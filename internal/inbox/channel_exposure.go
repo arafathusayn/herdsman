@@ -93,7 +93,7 @@ func (ch *Channel) FoldExposure() error {
 // folder that this process can read and search, or its listing fails.
 func inspectPending(d string) ([]os.DirEntry, bool) {
 	st, err := os.Lstat(d)
-	if err != nil || !st.IsDir() || st.Mode().Perm()&0o500 != 0o500 {
+	if err != nil || !st.IsDir() {
 		return nil, false
 	}
 	ents, err := os.ReadDir(d)
