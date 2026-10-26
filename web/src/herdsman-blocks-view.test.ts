@@ -1,6 +1,24 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { child, cls, html, list, on, prop, render, text, type ViewNode } from "./herdsman-blocks-view.ts";
+import {
+  attr,
+  type Child,
+  child,
+  cls,
+  html,
+  list,
+  type ListNode,
+  on,
+  prop,
+  render,
+  svg,
+  type SvgChild,
+  type SvgNode,
+  text,
+  type View,
+  type ViewNode,
+  type ViewNodeOf,
+} from "./herdsman-blocks-view.ts";
 import {
   asDom,
   type FakeElement,
@@ -8,8 +26,11 @@ import {
   installFakeDocument,
   ops,
   resetOps,
+  SVG_NS,
 } from "./herdsman-blocks.testdom.ts";
 
+// Templates below compile when their describe block runs, before any beforeEach.
+installFakeDocument();
 beforeEach(installFakeDocument);
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
@@ -277,6 +298,42 @@ describe("events and form state", () => {
   });
 });
 
+describe("svg views", () => {
+  const Chart = html`<figure><svg viewBox="0 0 10 10">${child<SvgChild>()}</svg></figure>`;
+  const Dot = svg`<circle cx=${attr<number>()} r="1" class=${attr()}></circle>`;
+  const Group = svg`<g>${child<SvgChild>()}</g>`;
+
+  test("svg views are in the SVG namespace and go into child holes inside SVG", () => {
+    const root = box();
+    const dots = (xs: number[]) =>
+      Group([
+        list(
+          xs,
+          (x) => x,
+          (x) => Dot([x, x % 2 ? "odd" : "even"]),
+        ),
+      ]);
+    render(asDom(root), Chart([dots([1, 2])]));
+    const g = first(root).firstChild!.childNodes.find((n) => n.nodeType === 1) as FakeElement;
+    expect([g.tagName, g.namespaceURI]).toEqual(["g", SVG_NS]);
+    const circles = g.childNodes.filter((n) => n.nodeType === 1) as FakeElement[];
+    expect(circles.map((c) => [c.namespaceURI, c.getAttribute("cx"), c.getAttribute("class")])).toEqual([
+      [SVG_NS, "1", "odd"],
+      [SVG_NS, "2", "even"],
+    ]);
+    render(asDom(root), Chart([dots([2, 1])]));
+    expect(g.childNodes.filter((n) => n.nodeType === 1)).toEqual([circles[1]!, circles[0]!]);
+  });
+
+  test("a class marker in an svg view throws once, when the template compiles", () => {
+    expect(() => svg`<path class=${cls()}></path>`).toThrow(/class on an SVG element is an attribute, use attr\(\)/);
+  });
+});
+
+// Compile-time equality check: resolves to true only when A and B are identical.
+type Equal<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false;
+const assertType = <T extends true>(): T => true as T;
+
 describe("types", () => {
   test("values are typed from the hole markers", () => {
     const neverRun = (): void => {
@@ -294,12 +351,121 @@ describe("types", () => {
       Row(["a", "1", null]);
       // @ts-expect-error true is not a child
       Row(["a", 1, true]);
+      // @ts-expect-error a plain number is an untyped hole, which views do not take
+      html`<p>${0}</p>`;
+      const Btn = html`<button onclick=${on<"click">()} .disabled=${prop<HTMLButtonElement, "disabled">()}>x</button>`;
+      Btn([
+        function (ev) {
+          void [this.dataset, ev.pointerId];
+        },
+        false,
+      ]);
+      Btn([null, true]);
+      // @ts-expect-error the handler's event is a PointerEvent
+      Btn([(ev: KeyboardEvent) => void ev, true]);
+      // @ts-expect-error the handler's this is an HTMLElement, not an input
+      Btn([function (this: HTMLInputElement) {}, true]);
+      // @ts-expect-error disabled is a boolean
+      Btn([null, "no"]);
+    };
+    expect(typeof neverRun).toBe("function");
+  });
+
+  test("descriptions carry their view's value tuple and namespace", () => {
+    const Row = html`<li>${text()}</li>`;
+    const Num = html`<li>${text<number>()}</li>`;
+    const Dot = svg`<circle r=${attr<number>()}></circle>`;
+    assertType<Equal<typeof Row, View<readonly [string], "html">>>();
+    assertType<Equal<ReturnType<typeof Dot>, ViewNodeOf<typeof Dot>>>();
+    assertType<Equal<ViewNodeOf<typeof Dot> extends SvgNode ? true : false, true>>();
+    assertType<Equal<ViewNodeOf<typeof Row> extends SvgNode ? true : false, false>>();
+    // Exact: a view of another value tuple is another type, in both directions.
+    assertType<Equal<ViewNodeOf<typeof Num> extends ViewNodeOf<typeof Row> ? true : false, false>>();
+    assertType<Equal<ViewNode<readonly ["a"]> extends ViewNode<readonly [string]> ? true : false, false>>();
+    assertType<Equal<ViewNode<readonly [string]> extends ViewNode<readonly ["a"]> ? true : false, false>>();
+    // Every description is a ViewNode and a Child.
+    assertType<Equal<ViewNodeOf<typeof Num> extends ViewNode ? true : false, true>>();
+    assertType<Equal<ViewNodeOf<typeof Dot> extends Child ? true : false, true>>();
+    const l = list(
+      [{ id: 1 }],
+      (r) => r.id,
+      (r) => Num([r.id]),
+    );
+    assertType<Equal<typeof l, ListNode<ViewNodeOf<typeof Num>, number>>>();
+    expect(Row(["x"])).toBeDefined();
+  });
+
+  test("child holes take only what their marker allows", () => {
+    const neverRun = (): void => {
+      const Row = html`<li>${text()}</li>`;
+      const Num = html`<li>${text<number>()}</li>`;
+      const Dot = svg`<circle r=${attr<number>()}></circle>`;
+      const OnlyRows = html`<ul>
+        ${child<ListNode<ViewNodeOf<typeof Row>>>()}
+      </ul>`;
+      const OnlyText = html`<p>${child<string>()}</p>`;
+      const OneRow = html`<div>${child<ViewNodeOf<typeof Row> | null>()}</div>`;
+      const Svg = html`<svg>${child<SvgChild>()}</svg>`;
+      const rows = list(
+        ["a"],
+        (s) => s,
+        (s) => Row([s]),
+      );
+      OnlyRows([rows]);
+      OnlyText(["t"]);
+      OneRow([Row(["a"])]);
+      OneRow([null]);
+      Svg([Dot([1])]);
+      // @ts-expect-error a list hole does not take text
+      OnlyRows(["t"]);
+      const nums = list([1], String, (n) => Num([n]));
+      // @ts-expect-error a list hole for Row views does not take a list of Num views
+      OnlyRows([nums]);
+      // @ts-expect-error a list hole does not take a single view
+      OnlyRows([Row(["a"])]);
+      // @ts-expect-error a text hole does not take a view
+      OnlyText([Row(["a"])]);
+      // @ts-expect-error a text hole does not take nothing unless it says so
+      OnlyText([null]);
+      // @ts-expect-error a Row hole does not take a Num view
+      OneRow([Num([1])]);
+      // @ts-expect-error a Row hole does not take a list
+      OneRow([rows]);
+      // @ts-expect-error an SVG hole does not take an HTML view
+      Svg([Row(["a"])]);
+      // @ts-expect-error child holes take Child types only
+      child<boolean>();
+      // @ts-expect-error a plain array is not a child: use list()
+      Row([["a", "b"]]);
+    };
+    expect(typeof neverRun).toBe("function");
+  });
+
+  test("list infers the item and key types and never keys by index", () => {
+    const neverRun = (): void => {
+      const Row = html`<tr class=${cls()}>
+        <td>${text<number>()}</td>
+        ${child()}
+      </tr>`;
+      const Keyed = html`<ul>
+        ${child<ListNode<ViewNodeOf<typeof Row>, string>>()}
+      </ul>`;
       const byIndex = (_n: number, i: number) => i;
       const view = (n: number) => Row(["a", n, null]);
       // @ts-expect-error a key from the index
       list([1], byIndex, view);
+      // @ts-expect-error a key from the index, inline
+      list([1], (_n, i: number) => i, view);
       // @ts-expect-error render must describe a view
       list([1], String, String);
+      // @ts-expect-error keys are strings or numbers
+      list([1], (n) => ({ n }), view);
+      const ofString = (s: string) => Row(["a", s.length, null]);
+      // @ts-expect-error the render function takes the items' type
+      list([1], String, ofString);
+      Keyed([list([1], String, view)]);
+      // @ts-expect-error the hole wants string keys; this list is keyed by number
+      Keyed([list([1], (n) => n, view)]);
     };
     expect(typeof neverRun).toBe("function");
   });
