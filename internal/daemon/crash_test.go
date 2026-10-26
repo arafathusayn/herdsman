@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -400,5 +401,96 @@ func TestSendKeyCapacityRetry(t *testing.T) {
 	}
 	if _, ok := x.r.sendKeys[first]; ok {
 		t.Fatal("the oldest key past the window was kept with no room")
+	}
+}
+
+// TestFullKeyCheckpoint: 512 canonical-maximum send keys and two claims
+// with 64 extend keys each encode under the checkpoint bound, at rotation
+// and at restart; a 65th extension inside the window is refused (4.2).
+// The active question index is Phase B; its 16 KiB share stays free.
+func TestFullKeyCheckpoint(t *testing.T) {
+	x := newDirect(t)
+	now := x.clock.Now().Unix()
+	name := strings.Repeat("n", 32)
+	hex := func(i, n int) string { return fmt.Sprintf("%0*x", n, i) }
+	for i := range keyWindowMax {
+		k := hex(i, 32)
+		x.r.sendKeys[k] = &sendKey{Key: k, ID: fmt.Sprintf("m%012d", 999999000000+i), From: name, To: name, Kind: "side_agent_data",
+			ReplyTo: "m999999999999", BodySHA256: hex(i, 64), Time: now, Seq: 9_000_000_000 + int64(i)}
+	}
+	// One read key and 64 extend keys for each of two open claims.
+	for _, box := range []string{"adj", "orch"} {
+		cl, e := x.r.claim(box, ClaimRequest{ReadKey: hex(len(box), 32)})
+		if e != nil {
+			t.Fatal(e)
+		}
+		for i := range extendKeyMax {
+			if _, e := x.r.claim(box, ClaimRequest{Token: cl.Claim, ExtendKey: hex(1000*len(box)+i, 32)}); e != nil {
+				t.Fatalf("extension %d: %v", i, e)
+			}
+		}
+		if _, e := x.r.claim(box, ClaimRequest{Token: cl.Claim, ExtendKey: hex(9999, 32)}); e == nil || e.Code != "key_window_full" {
+			t.Fatalf("65th extension: %v", e)
+		}
+	}
+	if err := x.r.writeCheckpoint(true); err != nil {
+		t.Fatal(err)
+	}
+	cps, _ := filepath.Glob(x.path("state", "checkpoints", "*.json"))
+	if len(cps) != 1 {
+		t.Fatalf("checkpoints %v", cps)
+	}
+	st, _ := os.Stat(cps[0])
+	// The send-key entries also carry from, kind, reply_to and seq (the
+	// whole content binding of 5.4), so they are larger than the design's
+	// 210 bytes; with the 16 KiB question index they stay under the bound.
+	if st.Size()+16<<10 > checkpointMax {
+		t.Fatalf("checkpoint of %d bytes leaves no room for the question index", st.Size())
+	}
+	t.Logf("full checkpoint: %d bytes", st.Size())
+	x.kill()
+	x.open()
+	if len(x.r.sendKeys) != keyWindowMax || len(x.r.extendKeys) != 2*extendKeyMax || len(x.r.readKeys) != 2 {
+		t.Fatalf("restored %d send, %d extend, %d read keys", len(x.r.sendKeys), len(x.r.extendKeys), len(x.r.readKeys))
+	}
+}
+
+// TestAckCacheFollowsFiles: an ack found valid is remembered while the
+// message, its ack and its claim record are unchanged; a changed message
+// is checked again and counts as unacknowledged; a full cache starts over.
+func TestAckCacheFollowsFiles(t *testing.T) {
+	x := newDirect(t)
+	a, _ := x.send("one", key())
+	cl, e := x.r.claim("orch", ClaimRequest{ReadKey: key()})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e := x.r.ack("orch", cl.Claim, AckRequest{ID: a.ID, Record: "n"}); e != nil {
+		t.Fatal(e)
+	}
+	box := x.path("orch")
+	if u := x.r.unacked(box); len(u) != 0 {
+		t.Fatalf("unacked %v", u)
+	}
+	if len(x.r.acks.m) != 1 {
+		t.Fatalf("cache %v", x.r.acks.m)
+	}
+	if u := x.r.unacked(box); len(u) != 0 {
+		t.Fatalf("cached: unacked %v", u)
+	}
+	f := x.path("orch", "cur", a.ID+".md")
+	b, _ := os.ReadFile(f)
+	if err := os.WriteFile(f, append(b, ' '), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if u := x.r.unacked(box); len(u) != 1 {
+		t.Fatalf("a changed message must be checked again: %v", u)
+	}
+	_ = os.WriteFile(f, b, 0o600)
+	for i := range ackCacheMax {
+		x.r.acks.m[fmt.Sprint(i)] = ackEntry{}
+	}
+	if u := x.r.unacked(box); len(u) != 0 || len(x.r.acks.m) != 1 {
+		t.Fatalf("full cache: %v, %d entries", u, len(x.r.acks.m))
 	}
 }

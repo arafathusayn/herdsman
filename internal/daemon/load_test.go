@@ -65,6 +65,22 @@ func TestSlowClientBounded(t *testing.T) {
 	}
 }
 
+// openRetry opens a stream, retrying while the daemon is busy: a stream
+// the client just closed frees its slot when the daemon sees the close.
+func openRetry(t *testing.T, c *Client, path string) *EventReader {
+	t.Helper()
+	for i := 0; ; i++ {
+		ev, err := c.Events(context.Background(), path, "")
+		if err == nil {
+			return ev
+		}
+		if code(err) != "busy" || i == 200 {
+			t.Fatal(err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // TestLoopsStayFlat runs the daemon's loops 1000 times (A24.3): actor
 // operations (send, read, ack, release), stream connects and the view
 // stream; the live heap grows by under 1 MiB and the goroutines return.
@@ -81,25 +97,13 @@ func TestLoopsStayFlat(t *testing.T) {
 	fsync = func(*os.File) error { return nil }
 	t.Cleanup(func() { fsync = oldSync })
 	g0 := runtime.NumGoroutine()
+	h.srv.ForgetRequests()
 	base := heapAfterGC()
-	t.Run("actor", func(t *testing.T) {
-		for range 1000 {
-			// Two seconds per send: at most 300 keys inside the window.
-			h.clock.Add(2 * time.Second)
-			m := adj.send(t, "r", orch.name, "x")
-			cl := orch.read(t, "r")
-			orch.ack(t, "r", cl.Claim, m.ID)
-			if _, err := orch.c.Do(context.Background(), "DELETE", "/v1/routes/r/claims/"+cl.Claim, nil, nil); err != nil {
-				t.Fatal(err)
-			}
-		}
-	})
+	// The streams run first: a snapshot reads every mailbox, so its cost
+	// grows with the acknowledged history the actor loop leaves.
 	t.Run("party stream", func(t *testing.T) {
 		for range 1000 {
-			ev, err := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
-			if err != nil {
-				t.Fatal(err)
-			}
+			ev := openRetry(t, orch.c, "/v1/routes/r/events")
 			waitFrame(t, ev, "snapshot")
 			ev.Close()
 		}
@@ -107,22 +111,50 @@ func TestLoopsStayFlat(t *testing.T) {
 	t.Run("view stream", func(t *testing.T) {
 		v := h.client()
 		for range 1000 {
-			ev, err := v.Events(context.Background(), "/v1/events", "")
-			if err != nil {
-				t.Fatal(err)
-			}
+			ev := openRetry(t, v, "/v1/events")
 			waitFrame(t, ev, "snapshot")
 			ev.Close()
 		}
 	})
+	h.srv.ForgetRequests()
+	if grown := int64(heapAfterGC()) - int64(base); grown > 1<<20 {
+		t.Errorf("stream loops: live heap grew %d bytes", grown)
+	}
+	cycle := func(t *testing.T) {
+		// Two seconds per send: at most 300 keys inside the window.
+		h.clock.Add(2 * time.Second)
+		m := adj.send(t, "r", orch.name, "x")
+		cl := orch.read(t, "r")
+		orch.ack(t, "r", cl.Claim, m.ID)
+		if _, err := orch.c.Do(context.Background(), "DELETE", "/v1/routes/r/claims/"+cl.Claim, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The actor's bounded memory fills first: 512 send keys (5.4), the
+	// read keys kept until the next checkpoint, the ack cache (at most
+	// 4096 entries). The loop then measures growth past that.
+	for range 600 {
+		cycle(t)
+	}
+	h.srv.ForgetRequests()
+	actorBase := heapAfterGC()
+	t.Run("actor", func(t *testing.T) {
+		for range 1000 {
+			cycle(t)
+		}
+	})
+	h.srv.ForgetRequests()
+	if grown := int64(heapAfterGC()) - int64(actorBase); grown > 1<<20 {
+		t.Errorf("actor loop: live heap grew %d bytes", grown)
+	}
 	adj.c.Close()
 	orch.c.Close()
 	if g := settle(g0 + 2); g > g0+2 {
 		t.Fatalf("goroutines %d, started with %d", g, g0)
 	}
-	if grown := int64(heapAfterGC()) - int64(base); grown > 1<<20 {
-		t.Fatalf("live heap grew %d bytes", grown)
-	}
+	// Over the whole test the heap also holds the bounded state the first
+	// 600 cycles filled; it is reported, the steady loops are asserted.
+	t.Logf("live heap over the whole test: %+d bytes", int64(heapAfterGC())-int64(base))
 }
 
 // TestLoadManyRoutes: 20 routes, 50 streams, messages sent, read and
@@ -143,6 +175,7 @@ func TestLoadManyRoutes(t *testing.T) {
 		a, o, _ := h.route(n)
 		routes = append(routes, rp{n, a, o})
 	}
+	h.srv.ForgetRequests()
 	base := heapAfterGC()
 	var streams []*EventReader
 	for i := range 50 {
@@ -177,6 +210,12 @@ func TestLoadManyRoutes(t *testing.T) {
 		}
 		ev.Close()
 	}
+	h.closeClients()
+	for _, r := range routes {
+		r.adj.c.Close()
+		r.orch.c.Close()
+	}
+	h.srv.ForgetRequests()
 	if grown := int64(heapAfterGC()) - int64(base); grown > 2<<20 {
 		t.Fatalf("heap grew %d bytes", grown)
 	}
@@ -205,5 +244,77 @@ func TestRequestSemaphore(t *testing.T) {
 	}
 	for _, ev := range evs {
 		ev.Close()
+	}
+}
+
+// settleAt waits for the goroutine count to equal n, returning the last
+// count seen.
+func settleAt(n int) int {
+	g := runtime.NumGoroutine()
+	for i := 0; i < 300 && g != n; i++ {
+		time.Sleep(10 * time.Millisecond)
+		g = runtime.NumGoroutine()
+	}
+	return g
+}
+
+// TestGoroutineAccounting asserts the goroutine formula of 9.1 for the
+// Phase A daemon: a base of 3 (Serve, the scheduler and the listener),
+// plus 1 per route (its actor), plus 1 per open connection and 1 more per
+// open stream; none per message. The card watcher, goal resume and alert
+// sender are Phase B.
+func TestGoroutineAccounting(t *testing.T) {
+	h := newHarness(t)
+	h.stop()
+	h.cfg.Log = func(string) {}
+	g0 := settle(0)
+	h.start()
+	if g := settleAt(g0 + 3); g != g0+3 {
+		t.Fatalf("base: %d goroutines over %d, want 3", g-g0, g0)
+	}
+	var parties []*party
+	for _, n := range []string{"a", "b", "c"} {
+		_, orch, _ := h.route(n)
+		parties = append(parties, orch)
+	}
+	// Admin requests leave idle keep-alive connections: close them so only
+	// routes count.
+	h.closeClients()
+	for _, p := range parties {
+		p.c.Close()
+	}
+	base := g0 + 3 + 3
+	if g := settleAt(base); g != base {
+		t.Fatalf("3 routes: %d goroutines over the base, want 3", g-(g0+3))
+	}
+	// Each open stream holds its connection's goroutine, its writer and
+	// the client side's reader and writer of the connection.
+	var evs []*EventReader
+	for i, p := range parties {
+		ev, err := p.c.Events(context.Background(), "/v1/routes/"+[]string{"a", "b", "c"}[i]+"/events", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitFrame(t, ev, "snapshot")
+		evs = append(evs, ev)
+	}
+	// Per stream: the server's connection goroutine (which writes the
+	// stream) and its background reader, and the client's reader and
+	// writer of the connection.
+	if g := settleAt(base + 4*len(evs)); g != base+4*len(evs) {
+		t.Fatalf("%d streams: %d goroutines over the routes, want %d", len(evs), g-base, 4*len(evs))
+	}
+	for _, ev := range evs {
+		ev.Close()
+	}
+	for _, p := range parties {
+		p.c.Close()
+	}
+	if g := settleAt(base); g != base {
+		t.Fatalf("after closing the streams: %d goroutines, want %d", g, base)
+	}
+	h.stop()
+	if g := settleAt(g0); g != g0 {
+		t.Fatalf("after stop: %d goroutines, want %d", g, g0)
 	}
 }

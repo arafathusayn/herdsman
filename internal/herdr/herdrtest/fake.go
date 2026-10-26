@@ -82,6 +82,14 @@ func (s *Server) Requests() []Request {
 	return append([]Request(nil), s.requests...)
 }
 
+// ForgetRequests drops the requests recorded so far (a long loop test
+// measures the heap without the fake's own log).
+func (s *Server) ForgetRequests() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requests = nil
+}
+
 // Methods returns the method of each request so far, skipping reads that
 // pollers repeat (snapshot, ping, subscribe, pane.read).
 func (s *Server) Methods() []string {

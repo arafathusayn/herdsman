@@ -52,18 +52,20 @@ func shortDir(t testing.TB) string {
 
 // harness is a running daemon on a socket with a fake Herdr server.
 type harness struct {
-	t      testing.TB
-	dir    string
-	ph     string
-	home   string
-	srv    *herdrtest.Server
-	fx     *herdrtest.Fixture
-	clock  *clock
-	d      *Daemon
-	cfg    Config
-	rules  string
-	cancel context.CancelFunc
-	served chan error
+	t     testing.TB
+	dir   string
+	ph    string
+	home  string
+	srv   *herdrtest.Server
+	fx    *herdrtest.Fixture
+	clock *clock
+	// clients made by client(), for closeClients.
+	clients []*Client
+	d       *Daemon
+	cfg     Config
+	rules   string
+	cancel  context.CancelFunc
+	served  chan error
 }
 
 func newHarness(t testing.TB) *harness {
@@ -78,7 +80,10 @@ func newHarness(t testing.TB) *harness {
 	bin := filepath.Join(dir, "herdsman-bin")
 	_ = os.WriteFile(bin, []byte("binary"), 0o700)
 	h.cfg = Config{PrivateHome: h.ph, Home: h.home, Version: testVersion, Executable: bin, HerdrSocket: h.srv.Socket,
-		Now: h.clock.Now, Sleep: func(time.Duration) {}, Log: func(s string) { t.Log(s) }, LockWait: 2, DrainWait: time.Millisecond}
+		Now: h.clock.Now, Sleep: func(time.Duration) {}, Log: func(s string) { t.Log(s) }, LockWait: 2, DrainWait: time.Millisecond,
+		// No file-mode processes unless a test names some: the machine's own
+		// would make adoption busy.
+		Procs: func() ([]Proc, error) { return nil, nil }}
 	h.start()
 	return h
 }
@@ -115,7 +120,15 @@ func (h *harness) restart() {
 func (h *harness) client() *Client {
 	c := NewClient(SocketPath(h.ph), testVersion)
 	h.t.Cleanup(c.Close)
+	h.clients = append(h.clients, c)
 	return c
+}
+
+// closeClients drops every harness client's idle connections.
+func (h *harness) closeClients() {
+	for _, c := range h.clients {
+		c.Close()
+	}
 }
 
 // do sends an admin request and fails the test on an error.
