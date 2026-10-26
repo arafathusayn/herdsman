@@ -31,14 +31,14 @@ export function card(m: Member, app: App, role = false): HTMLElement {
       dataset: { pane: m.pane_id },
       onclick: () => store.go({ pane: m.pane_id }),
     },
-    h("div", { class: "card-top" }, h("span", { class: "card-title" }, m.title), pill(m.status)),
+    h("div", { class: "card-top" }, h("span", { class: "card-title", title: m.title }, m.title), pill(m.status)),
     m.task?.task && m.task.task !== m.title ? h("div", { class: "card-task" }, m.task.task) : null,
-    sub ? h("div", { class: "card-sub" }, sub) : null,
+    sub ? h("div", { class: "card-sub", title: sub }, sub) : null,
     h(
       "div",
       { class: "card-foot" },
       h("code", null, m.pane_id),
-      m.tab ? h("span", { class: "muted" }, m.tab.label) : null,
+      m.tab ? h("span", { class: "card-tab muted clip", title: m.tab.label }, m.tab.label) : null,
       title ? h("span", { class: "muted clip", title }, title) : null,
     ),
   );

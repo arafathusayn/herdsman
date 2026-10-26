@@ -12,8 +12,8 @@ import (
 
 // Review head-2 P1 (A26): the scripts dropped every failed state write, so
 // a watcher with no saved state printed the same events on every run and
-// exited 0. Each watcher here stops with exit 1 and a "cannot save state"
-// line, and prints nothing that rests on the unsaved state.
+// exited 0. A failed state write now prints the pass's events, then the
+// "cannot save state" error, exits 1, and prints no TICK.
 func TestStateThatCannotBeSavedStopsTheWatchers(t *testing.T) {
 	h := newHarness(t)
 	h.file(filepath.Join(h.env["HERDSMAN_REPORTS"], "a.md"), "STATUS: complete\n")

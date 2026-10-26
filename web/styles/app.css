@@ -903,7 +903,7 @@ kbd {
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
   gap: 12px;
 }
 
@@ -933,6 +933,7 @@ kbd {
 
 .lane {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   align-content: start;
   min-width: 0;
@@ -991,8 +992,11 @@ kbd {
   color: var(--faint);
 }
 
+/* A card's rows never widen it: long names, branches and tab labels end
+   in an ellipsis, with the full text in a tooltip; the task wraps. */
 .card {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   text-align: left;
   padding: 14px 14px 12px;
@@ -1039,7 +1043,12 @@ kbd {
   min-width: 0;
 }
 
+.card-top .pill {
+  flex-shrink: 0;
+}
+
 .card-title {
+  min-width: 0;
   font-weight: 620;
   font-size: 14px;
   overflow: hidden;
@@ -1050,6 +1059,7 @@ kbd {
 .card-task {
   color: var(--text);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .card-sub {
@@ -1069,11 +1079,9 @@ kbd {
   min-width: 0;
 }
 
-.card-foot > span:not(.clip) {
-  white-space: nowrap;
-}
-
 .card-foot code {
+  flex-shrink: 0;
+  white-space: nowrap;
   color: var(--muted);
   background: var(--surface-2);
   padding: 1px 6px;
@@ -3164,7 +3172,7 @@ mark {
     font-size: 18px;
   }
 
-  .card-foot > span.muted:not(.clip) {
+  .card-foot > .card-tab {
     display: none;
   }
 

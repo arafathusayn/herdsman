@@ -4,7 +4,8 @@
 # The files it requires follow the route's own checklist: a kept line names the route shape (for example C2.5 keeps
 # the contracts of a route with implementers), so a review-only route is not asked for task contracts.
 # Usage: route-check.sh <route folder> [plan|launch|close]
-#   plan (default): the route file's sections and checklist lines, the git ignore, the files the kept lines require.
+#   plan (default): the route file's sections and checklist lines, the git ignore, the files the kept lines require,
+#   and, in a route with an adjutant, the record that every question goes through the adjutant.
 #   launch: plan, plus every task-table row names a pane (skipped when the route keeps the line "C3.2 nopane").
 #   close: launch, plus no open checklist line.
 # Prints "ok <check>", "MISSING <check>", "BAD <line>" and "OPEN <line>"; exits 1 on any MISSING or BAD (and on OPEN
@@ -100,6 +101,15 @@ for c in "$R"/1[0-9]-task-*.md; do
 done
 if has C2.8 || grep -l 'run-check\.sh' "$R"/[12][0-9]-*.md >/dev/null 2>&1; then
   if [ -f "$R/run-check.sh" ] && [ -x "$R/run-check.sh" ]; then ok "run-check.sh executable"; else missing "executable run-check.sh (C2.8 or a contract names it)"; fi
+fi
+
+# A route with an adjutant (an "Adjutant:" line whose value is not none) sends every question, gos included, through
+# the adjutant: the route file records that in a "Questions: through the adjutant" line, and the checklist keeps C2.13.
+if grep -iE '^[^[:alnum:]]*adjutant:[[:space:]]*[^[:space:]]' "$F" | grep -qviE 'adjutant:[[:space:]]*(none|no|-)([[:space:]]|$)'; then
+  if grep -qE '^[^[:alnum:]]*Questions: through the adjutant' "$F"; then ok "questions through the adjutant (C2.13)"
+  else missing "a \"Questions: through the adjutant\" line in 00-route.md of a route with an adjutant (C2.13)"; fi
+  if printf '%s\n' "$lines" | grep -q '^- \[[ x]\] C2.13 adj: '; then ok "adjutant question line kept (C2.13)"
+  else missing "the checklist line C2.13 adj, open or done, in a route with an adjutant"; fi
 fi
 
 # Only an open or done nopane line skips the pane check: a dropped one means the route went back to panes.
