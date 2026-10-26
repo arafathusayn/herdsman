@@ -232,8 +232,8 @@ func TestPRWatcherFailedReads(t *testing.T) {
 func TestPRWatcherSettings(t *testing.T) {
 	r := newPRRig(t)
 	var out bytes.Buffer
-	if code := PRs(context.Background(), func(string) (string, bool) { return "", false }, Deps{Stdout: &out, Stderr: &out}); code != 1 ||
-		!strings.Contains(out.String(), "HERDSMAN_PRS: set HERDSMAN_PRS") {
+	if code := PRs(context.Background(), func(string) (string, bool) { return "", false }, Deps{Stdout: &out, Stderr: &out}); code != 2 ||
+		!strings.Contains(out.String(), "herdsman watch prs: HERDSMAN_PRS: required, not set (got \"\")") {
 		t.Errorf("required settings: %d %q", code, out.String())
 	}
 	o, code := r.run("9", "acct", 0, "HERDSMAN_GH_ACCOUNT", "nobody")

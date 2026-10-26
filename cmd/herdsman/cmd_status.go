@@ -54,8 +54,8 @@ func runStatus(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	}
 	specs := os.Getenv("HERDSMAN_STATUS_SPECS")
 	if specs == "" {
-		fmt.Fprintln(stderr, "herdsman status: HERDSMAN_STATUS_SPECS: set HERDSMAN_STATUS_SPECS")
-		return 1
+		fmt.Fprintf(stderr, "herdsman status: %v\n", settings.Missing("HERDSMAN_STATUS_SPECS"))
+		return settings.ExitInvalid
 	}
 	if _, _, err := statusLimit(); err != nil {
 		fmt.Fprintf(stderr, "herdsman status: %v\n", err)

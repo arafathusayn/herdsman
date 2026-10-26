@@ -123,7 +123,7 @@ func TestRouteCheckThroughTheCommand(t *testing.T) {
 func TestStatusNeedsSpecs(t *testing.T) {
 	t.Setenv("HERDSMAN_STATUS_SPECS", "")
 	_, errOut, code := call(t, "status")
-	if code != 1 || errOut != "herdsman status: HERDSMAN_STATUS_SPECS: set HERDSMAN_STATUS_SPECS\n" {
+	if code != 2 || errOut != "herdsman status: HERDSMAN_STATUS_SPECS: required, not set (got \"\")\n" {
 		t.Errorf("%d %q", code, errOut)
 	}
 }
@@ -318,7 +318,7 @@ func TestStatusLimitIsStrict(t *testing.T) {
 func TestHelpListsExitCodes(t *testing.T) {
 	for name, codes := range map[string][]string{
 		"run-check": {"64", "69", "70", "75", "2"},
-		"status":    {"0", "1", "2"},
+		"status":    {"0", "2"}, // a missing HERDSMAN_STATUS_SPECS exits 2 (A25)
 		"route":     {"0", "1", "2"},
 		"wait":      {"0", "2"},
 		"watch":     {"0", "1", "2"},
@@ -359,5 +359,39 @@ func TestGateSettingsAreStrict(t *testing.T) {
 	t.Setenv("LOCK_WAIT", "6")
 	if _, errs, _ := call(t, "approval-gate", "complete", "r1", "done"); strings.Contains(errs, "HEALTH_AFTER") || strings.Contains(errs, "LOCK_WAIT") {
 		t.Errorf("valid values: %q", errs)
+	}
+}
+
+// Route ruling A25: a missing required setting is a settings error. Each
+// slice 1 command with a required setting prints the one-line settings
+// error and exits 2 before it runs anything. (wait, watch implementers and
+// reviewer, run-check and route have no required setting; transcript-audit
+// keeps main's GAP lines, which already exit 2.)
+func TestMissingRequiredSettingsExit2(t *testing.T) {
+	line := func(cmd, v string) string {
+		return "herdsman " + cmd + ": " + v + `: required, not set (got "")` + "\n"
+	}
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		args []string
+		want string
+	}{
+		{"status", map[string]string{"HERDSMAN_STATUS_SPECS": ""}, []string{"status"}, line("status", "HERDSMAN_STATUS_SPECS")},
+		{"watch prs PRS", map[string]string{"HERDSMAN_PRS": "", "HERDSMAN_REPO": "o/r", "HERDSMAN_PR_STATE": t.TempDir()}, []string{"watch", "prs"}, line("watch prs", "HERDSMAN_PRS")},
+		{"watch prs REPO", map[string]string{"HERDSMAN_PRS": "7", "HERDSMAN_REPO": "", "HERDSMAN_PR_STATE": t.TempDir()}, []string{"watch", "prs"}, line("watch prs", "HERDSMAN_REPO")},
+		{"watch prs STATE", map[string]string{"HERDSMAN_PRS": "7", "HERDSMAN_REPO": "o/r", "HERDSMAN_PR_STATE": ""}, []string{"watch", "prs"}, line("watch prs", "HERDSMAN_PR_STATE")},
+		{"approval-gate consume", map[string]string{"HERDSMAN_INBOX": ""}, []string{"approval-gate", "consume", "/x/go", "push", "t", "r", "-"}, line("approval-gate", "HERDSMAN_INBOX")},
+		{"approval-gate complete", map[string]string{"HERDSMAN_INBOX": ""}, []string{"approval-gate", "complete", "id", "done"}, line("approval-gate", "HERDSMAN_INBOX")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			out, errOut, code := call(t, tc.args...)
+			if code != 2 || errOut != tc.want || out != "" {
+				t.Errorf("%d %q %q, want 2 %q", code, out, errOut, tc.want)
+			}
+		})
 	}
 }

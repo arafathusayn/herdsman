@@ -26,6 +26,10 @@ type Error struct {
 	Got    string // the value as given
 }
 
+// Missing is a required setting that is not set: a settings error, so
+// the command prints it as one line and exits 2 (A25).
+func Missing(name string) *Error { return &Error{name, "required, not set", ""} }
+
 func (e *Error) Error() string { return fmt.Sprintf("%s: %s (got %q)", e.Var, e.Reason, e.Got) }
 
 // Int reads a whole number as the scripts' test builtin does: blanks
