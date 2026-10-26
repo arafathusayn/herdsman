@@ -258,6 +258,7 @@ func health(ctx context.Context, env Env, d Deps, st *state, specs string, every
 	// one that hung held the waiter past its deadline. The check gets
 	// limit, and one that does not finish in it is a failed check.
 	hctx, cancel := context.WithTimeout(ctx, limit)
+	var runErr error
 	defer cancel()
 	if scripted {
 		if syscall.Access(script, 1) != nil { // X_OK
@@ -268,15 +269,28 @@ func health(ctx context.Context, env Env, d Deps, st *state, specs string, every
 		cmd := exec.CommandContext(hctx, script)
 		cmd.Stdout = &out
 		cmd.WaitDelay = helperWaitDelay
-		_ = cmd.Run()
+		runErr = cmd.Run()
 	} else {
 		st.write("health-at", strconv.FormatInt(at, 10)+"\n")
 		if d.Status != nil {
 			d.Status(hctx, &out, specs)
 		}
 	}
-	if hctx.Err() != nil && ctx.Err() == nil {
-		fmt.Fprintf(d.Stderr, "herdsman wait: the status check did not finish in %v; no health check\n", limit)
+	// A check that was stopped (its limit, or the waiter's own end), a
+	// status program that failed, or one whose output pipe a child held
+	// past WaitDelay (exec.ErrWaitDelay) is a failed check: its output is
+	// not health, and the stored flags stay as they were. The line is
+	// printed only while the waiter itself is still running.
+	if hctx.Err() != nil {
+		if ctx.Err() == nil {
+			fmt.Fprintf(d.Stderr, "herdsman wait: the status check did not finish in %v; no health check\n", limit)
+		}
+		return nil
+	}
+	if runErr != nil {
+		if ctx.Err() == nil {
+			fmt.Fprintf(d.Stderr, "herdsman wait: the status program %s failed (%v); no health check\n", script, runErr)
+		}
 		return nil
 	}
 	flags := status.Flags(out.String())
