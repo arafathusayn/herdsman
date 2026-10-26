@@ -1,6 +1,7 @@
 // Draggable widths: the agent panel at its left edge and the sidebar at its
 // right edge, each kept for next time.
-import { h } from "./dom.ts";
+import { mountElement } from "./dom.ts";
+import { attr, cls, html, on } from "./herdsman-blocks-view.ts";
 
 /** One resizable column: where its width lives and how far it may go. */
 interface Edge {
@@ -82,20 +83,26 @@ export function navResizer(nav: HTMLElement): HTMLElement {
   return resizer(nav, navEdge);
 }
 
+// A handle is an element its column owns, made once with its handlers; a drag
+// adds and removes its move listeners as it goes.
+const Handle = html`<div
+  class=${cls()}
+  role="separator"
+  tabindex="0"
+  aria-orientation="vertical"
+  aria-label=${attr()}
+  title="Drag to resize · double-click for the default width"
+  onpointerdown=${on<"pointerdown">()}
+  onkeydown=${on<"keydown">()}
+  ondblclick=${on<"dblclick">()}
+></div>`;
+
 /**
  * A handle on a column's edge: drag it, or focus it and use the arrow keys;
  * a double click goes back to the default width.
  */
 function resizer(col: HTMLElement, e: Edge): HTMLElement {
-  const handle = h("div", {
-    class: `col-resize ${e.side}`,
-    role: "separator",
-    tabIndex: 0,
-    "aria-orientation": "vertical",
-    "aria-label": e.label,
-    title: "Drag to resize · double-click for the default width",
-  });
-  const apply = (w: number): number => {
+  const apply = (handle: HTMLElement, w: number): number => {
     const c = clampWidth(w, e.max(), e.min);
     setWidth(e, c);
     handle.setAttribute("aria-valuenow", String(Math.round(c)));
@@ -104,36 +111,40 @@ function resizer(col: HTMLElement, e: Edge): HTMLElement {
   // The arrow toward the column's free side widens it.
   const grow = e.side === "left" ? "ArrowLeft" : "ArrowRight";
   const shrink = e.side === "left" ? "ArrowRight" : "ArrowLeft";
-  handle.addEventListener("pointerdown", (ev) => {
-    if (ev.button !== 0) return;
-    ev.preventDefault();
-    handle.setPointerCapture(ev.pointerId);
-    const r = col.getBoundingClientRect();
-    let w = r.width;
-    document.body.classList.add("resizing");
-    const move = (m: PointerEvent): void => {
-      w = apply(e.side === "left" ? r.right - m.clientX : m.clientX - r.left);
-    };
-    const up = (): void => {
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", up);
-      handle.removeEventListener("pointercancel", up);
-      document.body.classList.remove("resizing");
-      saveWidth(e, w);
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", up);
-    handle.addEventListener("pointercancel", up);
-  });
-  handle.addEventListener("keydown", (k) => {
-    const d = k.key === grow ? step : k.key === shrink ? -step : 0;
-    if (!d) return;
-    k.preventDefault();
-    saveWidth(e, apply(col.getBoundingClientRect().width + d));
-  });
-  handle.addEventListener("dblclick", () => {
-    document.documentElement.style.removeProperty(e.prop);
-    saveWidth(e, null);
-  });
-  return handle;
+  return mountElement("div", Handle, [
+    `col-resize ${e.side}`,
+    e.label,
+    function (ev) {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      const handle = this;
+      handle.setPointerCapture(ev.pointerId);
+      const r = col.getBoundingClientRect();
+      let w = r.width;
+      document.body.classList.add("resizing");
+      const move = (m: PointerEvent): void => {
+        w = apply(handle, e.side === "left" ? r.right - m.clientX : m.clientX - r.left);
+      };
+      const up = (): void => {
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", up);
+        handle.removeEventListener("pointercancel", up);
+        document.body.classList.remove("resizing");
+        saveWidth(e, w);
+      };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", up);
+      handle.addEventListener("pointercancel", up);
+    },
+    function (k) {
+      const d = k.key === grow ? step : k.key === shrink ? -step : 0;
+      if (!d) return;
+      k.preventDefault();
+      saveWidth(e, apply(this, col.getBoundingClientRect().width + d));
+    },
+    () => {
+      document.documentElement.style.removeProperty(e.prop);
+      saveWidth(e, null);
+    },
+  ]);
 }
