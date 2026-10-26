@@ -40,7 +40,7 @@ export const FIRST_SUMMARY: [string, string][] = RECOMMENDED_SETUP.map(([k, v]) 
 export function newRouteFlow(
   body: HTMLElement,
   api: FlowApi,
-  open: (c: Catalog, previous: boolean, recommended: boolean) => Form,
+  open: (c: Catalog, previous: boolean, recommended: boolean, needLists?: () => void) => Form,
   failed: (e: unknown) => void,
 ): { stop(): void } {
   let form: Form | null = null;
@@ -57,13 +57,19 @@ export function newRouteFlow(
   const usePrevious = (): void => {
     api.catalog(false).then((c) => {
       if (stopped) return;
-      const f = open(c, true, recommended);
+      // The harness lists are read once, when a role needs a fresh choice:
+      // a role without a usable saved pick, or the user choosing again.
+      let asked = false;
+      const needLists = (): void => {
+        if (asked) return;
+        asked = true;
+        api.catalog(true).then((full) => {
+          if (!stopped && !f.sent()) f.setCatalog({ ...full, previous: c.previous ?? [] });
+        }, failed);
+      };
+      const f = open(c, true, recommended, needLists);
       form = f;
-      // Only a role without a usable saved pick needs the harness lists.
-      if (!Object.keys(missingPicks(f.form(), c)).length) return;
-      api.catalog(true).then((full) => {
-        if (!stopped && !f.sent()) f.setCatalog({ ...full, previous: c.previous ?? [] });
-      }, failed);
+      if (Object.keys(missingPicks(f.form(), c)).length) needLists();
     }, failed);
   };
   const askPrevious = (picks: ChoicePick[]): void => {

@@ -57,6 +57,7 @@ async function run(picks: ChoicePick[], role: "orchestrator" | "adjutant", check
   const probes: boolean[] = [];
   const opened: { previous: boolean; recommended: unknown }[] = [];
   const updated: Catalog[] = [];
+  const lists: (() => void)[] = [];
   const h = { kind: "claude", model: "fable", other: "", effort: "medium" };
   newRouteFlow(
     body as unknown as HTMLElement,
@@ -68,8 +69,9 @@ async function run(picks: ChoicePick[], role: "orchestrator" | "adjutant", check
         return Promise.resolve({ ...c, checkpointer_ok: checkpointerOk, previous: picks });
       },
     },
-    (_c, previous, recommended?: boolean) => {
+    (_c, previous, recommended?: boolean, needLists?: () => void) => {
       opened.push({ previous, recommended });
+      if (needLists) lists.push(needLists);
       return {
         stop: () => {},
         form: () => ({ role, main: h, orch: h }) as unknown as RouteForm,
@@ -80,7 +82,7 @@ async function run(picks: ChoicePick[], role: "orchestrator" | "adjutant", check
     () => {},
   );
   await flush();
-  return { body, probes, opened, updated };
+  return { body, probes, opened, updated, lists };
 }
 
 const names = (b: FakeElement) => all(b).map((e) => e.dataset?.["field"] ?? e.getAttribute?.("name"));
@@ -245,4 +247,21 @@ test("saved picks that cannot be read count as none", async () => {
   await flush();
   await flush();
   expect(opened).toEqual([false]);
+});
+
+// Every role saved: the form opens without the lists, and asks for them
+// once when the user wants to choose again.
+test("a form from saved picks can ask for the lists once", async () => {
+  const r = await run([pick("orchestrator")], "orchestrator");
+  byName(r.body, "use-recommended").dispatch("click");
+  await flush();
+  byName(r.body, "use-previous").dispatch("click");
+  await flush();
+  expect(r.probes).toEqual([false]);
+  expect(r.lists.length).toBe(1);
+  r.lists[0]!();
+  r.lists[0]!();
+  await flush();
+  expect(r.probes).toEqual([false, true]);
+  expect(r.updated.length).toBe(1);
 });

@@ -606,3 +606,40 @@ test("the orchestrator role is not offered the adjutant's saved model", async ()
   expect(values("main-model")).not.toContain("adj-only");
   expect(r.form().main.model).not.toBe("adj-only");
 });
+
+// A form opened from the saved picks alone can still change them: it
+// offers to read the harness lists, and asks for them itself when a role
+// without a saved pick is chosen.
+test("a form from saved picks alone asks for the lists when a fresh choice is needed", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const orch = {
+    role: "orchestrator",
+    runner: "herdr",
+    harness: "claude",
+    model: "fable",
+    effort: "medium",
+    route: "",
+    at: "",
+  };
+  const fromPicks: Catalog = {
+    ...catalog,
+    from_picks: true,
+    kinds: [{ ...catalog.kinds[0]!, saved: true, models: catalog.kinds[0]!.models.slice(0, 1) }],
+    previous: [orch],
+  };
+  let asked = 0;
+  const r = routeForm(body as unknown as HTMLElement, fromPicks, state, bareDeps, {
+    usePrevious: true,
+    recommended: false,
+    needLists: () => void asked++,
+  });
+  byName(body, "role-orchestrator").dispatch("click");
+  expect(asked).toBe(0);
+  byName(body, "choose-lists").dispatch("click");
+  expect(asked).toBe(1);
+  byName(body, "role-adjutant").dispatch("click");
+  expect(asked).toBe(2);
+  r.setCatalog({ ...catalog, previous: [orch] });
+  expect(all(body).some((e) => e.getAttribute?.("name") === "choose-lists")).toBe(false);
+});

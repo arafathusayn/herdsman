@@ -90,7 +90,7 @@ export function routeForm(
   initial: Catalog,
   st: State | null,
   deps: Deps,
-  opts: { usePrevious?: boolean; recommended?: boolean } = {},
+  opts: { usePrevious?: boolean; recommended?: boolean; needLists?: () => void } = {},
 ): { stop(): void; form(): RouteForm; sent(): boolean; setCatalog(next: Catalog): void } {
   let c = initial;
   let f: RouteForm = newForm(c, st);
@@ -491,10 +491,21 @@ export function routeForm(
   const previousRow = (): HTMLElement | null => {
     const picks = previousPicks(f, c);
     if (!picks.length) return null;
+    // A form from the saved picks alone offers only them until the lists
+    // are read: "Choose again" reads them, and the choices update in place.
+    const again =
+      c.from_picks && opts.needLists
+        ? h(
+            "button",
+            { type: "button", class: "chip-btn", name: "choose-lists", onclick: () => opts.needLists?.() },
+            "Choose again",
+          )
+        : null;
     return h(
       "div",
       { class: "nr-previous" },
       h("span", null, `Previous choice: ${picks.map(pickSummary).join("; ")}`),
+      again,
       h(
         "button",
         {
@@ -536,6 +547,8 @@ export function routeForm(
           class: f.role === r ? "active" : "",
           onclick: () => {
             f = setRole(f, r, c);
+            // A role without a saved pick needs the lists the form lacks.
+            if (c.from_picks && Object.keys(missingPicks(f, c)).length) opts.needLists?.();
             draw();
             readInbox();
           },
