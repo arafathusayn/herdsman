@@ -5,71 +5,157 @@
 // writes only the holes whose values changed (strict equality, as Block.set),
 // so a view function can rebuild its descriptions on every render:
 //
-//   const Card = html`<button class=${cls()} onclick=${prop<() => void>()}>${text()}${child()}</button>`;
+//   const Card = html`<button class=${cls()} onclick=${on<"click">()}>${text()}${child()}</button>`;
 //   const Task = html`<div class="task">${text()}</div>`;
 //   render(root, Card(["card", () => open(m.pane), m.title, m.task !== null ? Task([m.task]) : null]));
 //
 // A `child()` hole takes text, nothing, a DOM node, another view's
-// description, or a keyed `list(items, key, render)`. The same template
-// patches in place; a different template or kind replaces the content.
+// description, or a keyed `list(items, key, render)`; `child<C>()` narrows
+// that to C. The same template patches in place; a different template or kind
+// replaces the content. `svg` makes views of SVG content.
 //
-// Event handlers (`on*` property holes) are stored indirectly: each such
-// element gets one shared trampoline at mount that calls the handler the last
-// render passed. A new closure per render then costs no DOM write.
+// Event handlers (`on()` holes) are stored indirectly: each such element gets
+// one shared trampoline at mount that calls the handler the last render
+// passed. A new closure per render then costs no DOM write.
+//
+// Every type below is erased: markers are constants evaluated once per
+// template, and descriptions carry their value types only at compile time.
 
-import { type Hole, html as blocks, type Key, List, slot, type Template, type ValuesOf } from "./herdsman-blocks.ts";
+import {
+  type AnyHole,
+  type Hole,
+  html as blocks,
+  type Key,
+  List,
+  slot,
+  svg as svgBlocks,
+  type Template,
+  type ValuesOf,
+} from "./herdsman-blocks.ts";
 
-export { attr, cls, type Key, prop, text } from "./herdsman-blocks.ts";
+export {
+  attr,
+  cls,
+  type EventName,
+  type EventOf,
+  type Handler,
+  type Key,
+  on,
+  prop,
+  type PropName,
+  type PropValue,
+  text,
+} from "./herdsman-blocks.ts";
 
 declare const VIEW_NODE: unique symbol;
 declare const LIST_NODE: unique symbol;
+declare const ANY_VALUES: unique symbol;
 
-/** A view description: a template and its values. Make one by calling a view. */
-export interface ViewNode {
-  readonly [VIEW_NODE]: true;
+/** Stands for "any value tuple" in `ViewNode`; never a real value tuple. */
+export type AnyValues = typeof ANY_VALUES;
+
+/** The markup a view's elements belong to: HTML, or SVG (made by `svg`). */
+export type Namespace = "html" | "svg";
+
+/**
+ * A view description: a template's values. Make one by calling a view.
+ * `ViewNode<V>` is a description of a view whose value tuple is exactly V
+ * (invariant: a narrower or wider tuple is a different type); `ViewNode`
+ * alone is any description. NS says whether the view's elements are HTML or SVG.
+ */
+export type ViewNode<V extends readonly unknown[] | AnyValues = AnyValues, NS extends Namespace = Namespace> = [
+  V,
+] extends [AnyValues]
+  ? AnyViewNode<NS>
+  : ExactViewNode<Exclude<V, AnyValues>, NS>;
+
+/** Any description in namespace NS: what `ViewNode` without a value tuple means. */
+export interface AnyViewNode<NS extends Namespace = Namespace> {
+  readonly [VIEW_NODE]: readonly [unknown, NS];
 }
-/** A keyed list description, made by `list`. */
-export interface ListNode {
-  readonly [LIST_NODE]: true;
+
+/** A description of a view whose value tuple is exactly V (V appears in and out: invariant). */
+export interface ExactViewNode<V extends readonly unknown[], NS extends Namespace = Namespace> {
+  readonly [VIEW_NODE]: readonly [(v: V) => V, NS];
+}
+
+/** Any description of an SVG view. */
+export type SvgNode = ViewNode<AnyValues, "svg">;
+
+/** A keyed list description, made by `list`: its items render to N and are keyed by K. */
+export interface ListNode<N extends ViewNode = ViewNode, K extends Key = Key> {
+  readonly [LIST_NODE]: readonly [N, K];
 }
 
 /** What a child hole accepts. null, undefined and false render nothing; a Node is inserted as is. */
 export type Child = string | number | null | undefined | false | Node | ViewNode | ListNode;
 
+/** What a child hole inside SVG content should take: no HTML views. */
+export type SvgChild = string | number | null | undefined | false | SVGElement | SvgNode | ListNode<SvgNode>;
+
 /** A view: call it with its values tuple to describe one instance. */
-export interface View<V extends readonly unknown[]> {
-  (vals: V): ViewNode;
+export interface View<V extends readonly unknown[], NS extends Namespace = "html"> {
+  (vals: V): ExactViewNode<V, NS>;
   /** The compiled template behind the view. */
   readonly template: Template<V>;
 }
 
-/** A child hole: element content that takes any `Child`. */
-export function child(): Hole<Child, "slot"> {
-  return slot<Child>();
+/** The description type a view returns: `ViewNodeOf<typeof Row>`. */
+export type ViewNodeOf<T> = T extends View<infer V, infer NS> ? ExactViewNode<V, NS> : never;
+
+/**
+ * A child hole: element content that takes any `Child`, or only C:
+ * `child<string>()`, `child<ListNode<ViewNodeOf<typeof Row>>>()`,
+ * `child<ViewNodeOf<typeof Task> | null>()`.
+ */
+export function child<C extends Child = Child>(): Hole<C, "slot"> {
+  return slot<C>();
 }
 
 /**
  * Tagged template for a view; compiles once per call site, like herdsman-blocks'
- * `html`, and takes the same hole markers plus `child()`.
+ * `html`, and takes the same hole markers plus `child()`. Every hole needs a
+ * typed marker: a plain number is not accepted here.
  */
-export function html<const H extends readonly number[]>(strings: TemplateStringsArray, ...holes: H): View<ValuesOf<H>> {
+export function html<const H extends readonly AnyHole[]>(
+  strings: TemplateStringsArray,
+  ...holes: H
+): View<ValuesOf<H>, "html"> {
   let v = views.get(strings);
   if (v === undefined) views.set(strings, (v = makeView(blocks(strings, ...holes) as unknown as AnyTemplate)));
-  return v as unknown as View<ValuesOf<H>>;
+  return v as unknown as View<ValuesOf<H>, "html">;
+}
+
+/**
+ * Like `html`, for SVG content: the markup is parsed inside an `<svg>`, so a
+ * root `<g>`, `<path>` or `<circle>` gets the SVG namespace. Its descriptions
+ * go into child holes inside SVG content. `class` takes `attr()` here.
+ */
+export function svg<const H extends readonly AnyHole[]>(
+  strings: TemplateStringsArray,
+  ...holes: H
+): View<ValuesOf<H>, "svg"> {
+  let v = views.get(strings);
+  if (v === undefined) views.set(strings, (v = makeView(svgBlocks(strings, ...holes) as unknown as AnyTemplate)));
+  return v as unknown as View<ValuesOf<H>, "svg">;
 }
 
 /**
  * A keyed list for a child hole: `render(item)` describes each item. Keys come
  * from the item (never its index) and must be unique among siblings. Items are
  * reconciled with herdsman-blocks' List: kept items are patched, and moved
- * with the minimum number of DOM moves.
+ * with the minimum number of DOM moves. T comes from `items` only.
  */
-export function list<T>(items: readonly T[], key: (item: T) => Key, render: (item: T) => ViewNode): ListNode {
+export function list<T, K extends Key, N extends ViewNode>(
+  items: readonly T[],
+  key: (item: NoInfer<T>) => K,
+  render: (item: NoInfer<T>) => N,
+): ListNode<N, K> {
   return new ListOf(
     items as readonly unknown[],
     key as (item: unknown) => Key,
     render as (item: unknown) => ViewNode,
-  ) as unknown as ListNode;
+  ) as unknown as ListNode<N, K>;
 }
 
 /**
@@ -147,7 +233,10 @@ function trampoline(j: number): (this: Holder, e: Event) => unknown {
 
 function makeView(t: AnyTemplate): View<Values> {
   const shape = new Shape(t);
-  const v = ((vals: Values) => new Desc(shape, vals)) as unknown as { (vals: Values): ViewNode; template: AnyTemplate };
+  const v = ((vals: Values) => new Desc(shape, vals)) as unknown as {
+    (vals: Values): ExactViewNode<Values, "html">;
+    template: AnyTemplate;
+  };
   v.template = t;
   return v;
 }

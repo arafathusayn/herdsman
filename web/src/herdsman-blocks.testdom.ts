@@ -190,12 +190,18 @@ export class FakeComment extends FakeNode {
   }
 }
 
+export const HTML_NS = "http://www.w3.org/1999/xhtml";
+export const SVG_NS = "http://www.w3.org/2000/svg";
+
 export class FakeElement extends FakeNode {
   private cls = "";
   get className(): string {
     return this.cls;
   }
+  /** Like the browser's: read-only on an SVG element (strict-mode code throws). */
   set className(v: string) {
+    if (this.namespaceURI === SVG_NS)
+      throw new TypeError("Cannot set property className of SVGElement, which has only a getter");
     ops.classWrites++;
     this.cls = v;
   }
@@ -205,9 +211,12 @@ export class FakeElement extends FakeNode {
   private listeners: Map<string, ((e: { type: string; target: FakeNode }) => void)[]> | null = null;
 
   readonly tagName: string;
-  constructor(tagName: string) {
+  /** HTML, or SVG for an `svg` element and everything parsed inside one. */
+  readonly namespaceURI: string;
+  constructor(tagName: string, namespaceURI: string = HTML_NS) {
     super(1);
     this.tagName = tagName;
+    this.namespaceURI = namespaceURI;
   }
   override get nodeName(): string {
     return this.tagName;
@@ -237,8 +246,10 @@ export class FakeElement extends FakeNode {
     for (const fn of this.listeners?.get(type) ?? []) fn.call(this, { type, target: this });
   }
   setAttribute(k: string, v: string): void {
-    if (k === "class") this.className = v;
-    else {
+    if (k === "class") {
+      ops.classWrites++;
+      this.cls = v;
+    } else {
       ops.attrWrites++;
       (this.attrs ??= new Map()).set(k, v);
     }
@@ -247,15 +258,17 @@ export class FakeElement extends FakeNode {
     return k === "class" ? this.className || null : (this.attrs?.get(k) ?? null);
   }
   removeAttribute(k: string): void {
-    if (k === "class") this.className = "";
-    else {
+    if (k === "class") {
+      ops.classWrites++;
+      this.cls = "";
+    } else {
       ops.attrWrites++;
       this.attrs?.delete(k);
     }
   }
   override cloneNode(deep?: boolean): FakeElement {
     ops.clones++;
-    const e = new FakeElement(this.tagName);
+    const e = new FakeElement(this.tagName, this.namespaceURI);
     e.cls = this.cls;
     if (this.attrs) e.attrs = new Map(this.attrs);
     if (deep) for (let c = this.firstChild; c; c = c.nextSibling) e.appendRaw(c.cloneNode(true));
@@ -289,7 +302,9 @@ function parse(src: string, root: FakeElement): void {
     if (m[1] !== undefined) top.appendChild(new FakeComment(m[1]));
     else if (m[2]) stack.pop();
     else if (m[3]) {
-      const el = new FakeElement(m[3].toUpperCase());
+      // As the HTML parser does: an svg element and its content are SVG, with case-kept tag names.
+      const svg = top.namespaceURI === SVG_NS || m[3].toLowerCase() === "svg";
+      const el = svg ? new FakeElement(m[3], SVG_NS) : new FakeElement(m[3].toUpperCase());
       for (const a of (m[4] ?? "").matchAll(ATTR)) el.setAttribute(a[1]!, a[2] ?? a[3] ?? a[4] ?? "");
       top.appendChild(el);
       if (!m[5]) stack.push(el);

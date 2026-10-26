@@ -85,3 +85,13 @@ change the world and render a fresh snapshot: `poll` (no change), `status`
 (tab switches), `event` (one new event at the top, the oldest drops),
 `burst` (20 new events), `toggle` (checklist line 41 flips done),
 `logline` (one new log line at the top).
+
+## SVG and typed-hole check in Chrome
+
+`bun check-svg.ts` (or `bun run check-svg`) bundles `check-svg.page.ts` and
+runs it in headless Chrome: `svg` templates and views get the SVG namespace,
+SVG views render and reorder inside an HTML view's `<svg>`, `class` on an SVG
+element is an attribute (a class marker there fails when the template
+compiles), and typed `on()` and `prop()` holes work on real elements. The
+unit tests' fake DOM only imitates namespaces; this runs the browser's own
+parser. It exits non-zero when a check fails.

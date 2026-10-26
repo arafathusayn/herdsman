@@ -13,7 +13,7 @@
 // paths (mount, set, List.set) for the sake of types.
 
 /** Library version, bumped with every release of the zip package. */
-export const VERSION = "0.0.6";
+export const VERSION = "0.0.7";
 
 // ---------------------------------------------------------------------------
 // Hole markers: typed at compile time, small negative numbers at runtime
@@ -22,13 +22,19 @@ export const VERSION = "0.0.6";
 /** Where a hole sits in a template, which decides how its value is written. */
 export type HoleKind = "text" | "class" | "attr" | "prop" | "slot";
 
+/** What a marker declares: a hole kind, or "event" for a property hole whose name starts with `on`. */
+export type MarkerKind = HoleKind | "event";
+
 declare const HOLE: unique symbol;
 
 /**
  * A typed hole marker for `html`. At runtime it is a small number; its type
  * records the value type the hole accepts and the position it must sit in.
  */
-export type Hole<V, K extends HoleKind = HoleKind> = number & { readonly [HOLE]: readonly [V, K] };
+export type Hole<V, K extends MarkerKind = MarkerKind> = number & { readonly [HOLE]: readonly [V, K] };
+
+/** Any typed hole marker (a plain number is an untyped hole, not a marker). */
+export type AnyHole = Hole<unknown, MarkerKind>;
 
 /** Values a text hole accepts. null and undefined write empty text. */
 export type TextValue = string | number | bigint | boolean | null | undefined;
@@ -45,22 +51,91 @@ const ATTR = 3;
 const SLOT = 4;
 type KindCode = typeof TEXT | typeof CLASS | typeof PROP | typeof ATTR | typeof SLOT;
 const KIND_NAMES: readonly HoleKind[] = ["text", "class", "prop", "attr", "slot"];
+// Marker-only code: an event marker is a property hole at an `on*` name. Only
+// the once-per-template check reads it; holes never carry it at runtime.
+const EVENT = 5;
+const MARKER_NAMES: readonly MarkerKind[] = ["text", "class", "prop", "attr", "slot", "event"];
+const SVG_NS = "http://www.w3.org/2000/svg";
 
 /** A text hole: element content, between tags. */
 export function text<V extends TextValue = string>(): Hole<V, "text"> {
   return (-1 - TEXT) as Hole<V, "text">;
 }
-/** A class hole: the value of a `class` attribute. */
+/**
+ * A class hole: the value of a `class` attribute on an HTML element. An SVG
+ * element's className is read-only, so `class` there is an attribute hole
+ * (`attr()`); a class marker on one fails when the template compiles.
+ */
 export function cls<V extends ClassValue = string>(): Hole<V, "class"> {
   return (-1 - CLASS) as Hole<V, "class">;
 }
-/** An attribute hole: the value of any attribute other than `class`, `on*` or `.name`. */
+/**
+ * An attribute hole: the value of any attribute other than `class` (on HTML),
+ * `on*` or `.name`. Narrow the type for enumerated attributes: `attr<"true" | "false">()`.
+ */
 export function attr<V extends AttrValue = string>(): Hole<V, "attr"> {
   return (-1 - ATTR) as Hole<V, "attr">;
 }
-/** A property hole: the value of an `on*` attribute or a `.name` property. */
-export function prop<V = unknown>(): Hole<V, "prop"> {
-  return (-1 - PROP) as Hole<V, "prop">;
+
+// True only for a single type: not never, not a union. Markers whose type
+// argument was left out get the whole constraint (a union), which this rejects.
+type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never;
+type One<T> = [T] extends [never] ? false : IsUnion<T> extends false ? true : false;
+type IfEquals<X, Y, A, B> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B;
+
+/** The writable, non-function, non-handler property names of element type E. */
+export type PropName<E extends Element> = {
+  [P in keyof E]-?: P extends `on${string}`
+    ? never
+    : P extends string
+      ? E[P] extends (...args: never) => unknown
+        ? never
+        : IfEquals<Pick<E, P>, { -readonly [Q in P]: E[Q] }, P, never>
+      : never;
+}[keyof E];
+
+/** The value a property hole for property P of element type E takes; never unless both are single types. */
+export type PropValue<E extends Element, P extends PropName<E>> = One<P> extends true ? E[P] : never;
+
+/**
+ * A property hole: the value of a `.name` property, typed by element and
+ * property: `.value=${prop<HTMLInputElement, "value">()}` takes a string.
+ * Only writable, non-function, non-`on*` properties qualify; both type
+ * arguments are required (left out, the hole takes nothing). For a property
+ * the DOM types do not declare (a custom element's), describe the element:
+ * `prop<HTMLElement & { items: Item[] }, "items">()`. Handlers use `on`.
+ */
+export function prop<E extends Element, P extends PropName<E>>(): Hole<PropValue<E, P>, "prop"> {
+  return (-1 - PROP) as Hole<PropValue<E, P>, "prop">;
+}
+
+/** The event names element type E has an `on*` handler property for: "click", "input", ... */
+export type EventName<E extends Element> = {
+  [P in keyof E]-?: P extends `on${infer N}`
+    ? NonNullable<E[P]> extends (...args: never) => unknown
+      ? N
+      : never
+    : never;
+}[keyof E];
+
+/** The event type E's `on${K}` handler receives: MouseEvent for "click" on an HTMLElement, ... */
+export type EventOf<E extends Element, K extends EventName<E>> =
+  NonNullable<E[`on${K}` & keyof E]> extends (this: never, ev: infer V) => unknown ? V : never;
+
+/** The value of an event hole: a handler called with the element as `this`, or null for none. */
+export type Handler<E extends Element, K extends EventName<E>> =
+  One<K> extends true ? ((this: E, ev: EventOf<E, K>) => void) | null : never;
+
+/**
+ * An event hole: the value of an `on*` attribute (`onclick=${on<"click">()}`),
+ * the only marker an `on*` name accepts. Its value is a handler for event K
+ * of element type E (HTMLElement by default), called with the element as
+ * `this`, or null. K is required (left out, the hole takes nothing). The
+ * event name in the markup is not checked against K: TypeScript sees a
+ * template's markup only as plain strings.
+ */
+export function on<K extends EventName<E>, E extends Element = HTMLElement>(): Hole<Handler<E, K>, "event"> {
+  return (-1 - EVENT) as Hole<Handler<E, K>, "event">;
 }
 
 /**
@@ -75,7 +150,7 @@ export function slot<V = unknown>(): Hole<V, "slot"> {
 
 /** The value tuple of a template whose holes are `H`; an untyped hole (a plain number) accepts unknown. */
 export type ValuesOf<H extends readonly number[]> = {
-  readonly [I in keyof H]: H[I] extends Hole<infer V, HoleKind> ? V : unknown;
+  readonly [I in keyof H]: H[I] extends Hole<infer V, MarkerKind> ? V : unknown;
 };
 
 type NumericKey<S> = S extends `${infer N extends number}` ? N : never;
@@ -120,12 +195,14 @@ const FORMATTING = /^\s*\n\s*$/;
  *   const b = Row.mount(["danger", 7]);   // typed: readonly [string, number]
  *   b.set(1, 8);
  *
- * Holes are positional: the Nth `${}` is hole N. Use `text`, `cls`, `attr` and
- * `prop` markers to type each hole; a marker in the wrong position throws when
- * the template is first compiled. A plain number (`${0}`) is an untyped hole.
+ * Holes are positional: the Nth `${}` is hole N. Use `text`, `cls`, `attr`,
+ * `prop` and `on` markers to type each hole; a marker in the wrong position
+ * throws when the template is first compiled. A plain number (`${0}`) is an
+ * untyped hole.
  *
- * Attribute rules: `class` sets className, `on*` and `.name` set a property,
- * anything else uses setAttribute (null, undefined or false removes it).
+ * Attribute rules: `class` sets className (on an SVG element it is an
+ * attribute), `on*` and `.name` set a property, anything else uses
+ * setAttribute (null, undefined or false removes it).
  */
 export function html<const H extends readonly number[]>(
   strings: TemplateStringsArray,
@@ -133,6 +210,20 @@ export function html<const H extends readonly number[]>(
 ): Template<ValuesOf<H>> {
   let t = cache.get(strings);
   if (!t) cache.set(strings, (t = new Template(strings, holes)));
+  return t as Template<ValuesOf<H>>;
+}
+
+/**
+ * Like `html`, for SVG content: the markup is parsed inside an `<svg>`
+ * element, so a template whose root is `<g>`, `<path>` or `<circle>` gets the
+ * SVG namespace. `class` is an attribute hole here (`attr()`).
+ */
+export function svg<const H extends readonly number[]>(
+  strings: TemplateStringsArray,
+  ...holes: H
+): Template<ValuesOf<H>> {
+  let t = cache.get(strings);
+  if (!t) cache.set(strings, (t = new Template(strings, holes, true)));
   return t as Template<ValuesOf<H>>;
 }
 
@@ -150,7 +241,7 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
   // The prototype's own hole nodes and the values last written into them.
   private readonly proto: unknown[];
 
-  constructor(strings: readonly string[], holes: readonly number[] = []) {
+  constructor(strings: readonly string[], holes: readonly number[] = [], svg = false) {
     const n = strings.length - 1;
     const parts = strings.slice();
     let src = "";
@@ -176,8 +267,8 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
     }
 
     const tpl = document.createElement("template");
-    tpl.innerHTML = src.trim();
-    const root = tpl.content.firstChild;
+    tpl.innerHTML = svg ? "<svg>" + src.trim() + "</svg>" : src.trim();
+    const root = svg ? tpl.content.firstChild!.firstChild : tpl.content.firstChild;
     if (!root || root.nextSibling || root.nodeType !== 1) {
       throw new Error("herdsman-blocks: a template must have exactly one root element");
     }
@@ -191,11 +282,20 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
       if (!paths[i]) throw new Error(`herdsman-blocks: hole ${i} could not be located`);
       // A typed marker must sit where its kind says. Checked once per template.
       const h = holes[i];
-      if (h === -1 - SLOT && this.kinds[i] === TEXT) this.kinds[i] = SLOT;
-      else if (h !== undefined && h < 0 && -1 - h !== this.kinds[i]) {
-        const want = KIND_NAMES[-1 - h] ?? "unknown",
-          got = KIND_NAMES[this.kinds[i]!] ?? "unknown";
-        throw new Error(`herdsman-blocks: hole ${i} is typed ${want}, but its position makes it ${got}`);
+      if (h === undefined || h >= 0) continue;
+      const k = this.kinds[i]!,
+        at = k === PROP && names[i]!.startsWith("on") ? EVENT : k;
+      if (h === -1 - SLOT && at === TEXT) this.kinds[i] = SLOT;
+      else if (-1 - h !== at) {
+        const want = MARKER_NAMES[-1 - h] ?? "unknown",
+          got = MARKER_NAMES[at] ?? "unknown",
+          hint =
+            at === EVENT
+              ? ": an on* name takes on()"
+              : at === ATTR && names[i] === "class"
+                ? ": class on an SVG element is an attribute, use attr()"
+                : "";
+        throw new Error(`herdsman-blocks: hole ${i} is typed ${want}, but its position makes it ${got}${hint}`);
       }
     }
     this.names = names;
@@ -319,7 +419,8 @@ function walk(
     const name = decodeURIComponent(attrs[a]!.value);
     el.removeAttribute(nm);
     paths[i] = path;
-    if (name === "class") kinds[i] = CLASS;
+    // className is read-only on SVG elements: there `class` is an attribute.
+    if (name === "class" && el.namespaceURI !== SVG_NS) kinds[i] = CLASS;
     else if (name[0] === "." || name.startsWith("on")) {
       kinds[i] = PROP;
       names[i] = name[0] === "." ? name.slice(1) : name.toLowerCase();

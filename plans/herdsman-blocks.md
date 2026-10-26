@@ -3,7 +3,7 @@
 A living document. It explains why herdsman-blocks exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
 - Status: draft, on branch `herdsman-blocks`
-- Library version: 0.0.6 (the module exports this as `VERSION`)
+- Library version: 0.0.7 (the module exports this as `VERSION`)
 - Last updated: 2026-10-27
 - Modules: `web/src/herdsman-blocks.ts`, used by `web/src/dom.ts`; the view layer `web/src/herdsman-blocks-view.ts`
 
@@ -82,16 +82,22 @@ Assessment: in this replica herdsman-blocks ranks second of four by score, but t
 
 #### Compiling a template
 
-A template is written as a tagged template literal whose interpolations mark holes; the Nth interpolation is hole number N. An interpolation is either a typed hole marker (see Types below), whose runtime value is a small negative number naming the hole's kind, or a plain non-negative number, an untyped hole. Interpolated values never reach the DOM. Compilation happens once per call site, cached by the identity of the literal's string array.
+A template is written as a tagged template literal whose interpolations mark holes; the Nth interpolation is hole number N. An interpolation is either a typed hole marker (see Types below), whose runtime value is a small negative number naming the hole's kind, or a plain non-negative number, an untyped hole. Interpolated values never reach the DOM. Compilation happens once per call site, cached by the identity of the literal's string array. There are two tags: `html` for HTML content and `svg` for SVG content; they differ only in step 4.
 
 1. Walk the literal's string parts in order, tracking whether the scan is inside a tag (an unclosed `<`).
 2. For a placeholder inside a tag, the text before it must end with an attribute name, an equals sign and optionally an opening quote. Replace that ending with a marker attribute named `bk` plus the hole number, whose value is the original attribute name (percent-encoded). If a quote was opened, drop the matching closing quote from the next string part. A placeholder inside a tag that is not an attribute value is an error.
 3. For a placeholder outside a tag, emit a comment whose text is `bk` plus the hole number.
-4. Parse the result once into an inert template element. It must contain exactly one root element and nothing else, or compilation fails.
+4. Parse the result once into an inert template element. With the `svg` tag, wrap the markup in an `<svg>` element first and take the wrapper's content, so that a root such as `<g>`, `<path>` or `<circle>` is created in the SVG namespace (parsed bare, the HTML parser would make it an unknown HTML element). It must contain exactly one root element and nothing else, or compilation fails.
 5. Walk the parsed tree depth first, recording for each hole its path, the list of child indexes from the root. Before indexing an element's children, remove every text child that is only whitespace and contains a line break, unless the element is a `pre` or a `textarea`. Such text is indentation from a formatter (herdsman's `bun fmt` formats tagged `html` literals as HTML), not content; whitespace within a line, such as the spaces around a hole in "a, hole, b", is kept. Then:
-   - A marker attribute is removed. The hole's kind comes from the original name: `class` is a class hole; a name starting with `on` or with a dot is a property hole (the dot is stripped, an `on` name is lowercased); anything else is an attribute hole.
+   - A marker attribute is removed. The hole's kind comes from the original name: `class` is a class hole on an HTML element, but an attribute hole on an SVG element, whose class name property is read-only (assigning it throws in strict code); a name starting with `on` or with a dot is a property hole (the dot is stripped, an `on` name is lowercased); anything else is an attribute hole.
    - A marker comment is replaced by an empty text node at the same position, and the hole is a text hole pointing at that text node.
-6. Every hole must have been found, or compilation fails. For each hole whose marker names a kind, the kind found from the hole's position must be the same, or compilation fails with an error naming the hole, the declared kind and the kind its position implies. This check runs once per template, never per instance.
+6. Every hole must have been found, or compilation fails. For each hole with a typed marker, compare the marker's kind with the hole's position:
+   - The position's kind is the kind from step 5, except that a property hole whose name starts with `on` (with or without the dot) is an **event** position.
+   - A slot marker at a text position makes the hole a slot.
+   - Otherwise the marker's kind must equal the position's kind, or compilation fails with an error naming the hole, the declared kind and the kind its position implies. The error adds a hint for the two cases a type cannot catch: an event position takes only the event marker, and `class` on an SVG element is an attribute.
+   - Untyped holes (plain numbers) are not checked.
+
+   This check runs once per template, never per instance. The event kind exists only here: an event hole is a property hole at runtime, so mounting and updating never see it.
 7. Generate a locator: one straight-line function that walks from a root through `firstChild` and `nextSibling` steps to each hole's node, sharing common path prefixes so each node is reached once, and writes the nodes into the first half of a given array. If generating functions at runtime is not allowed (a strict content security policy), fall back to walking each path in a loop.
 8. Run the locator once on the parsed root itself, the **prototype**, and keep its hole nodes. Record what the prototype holds in each hole: the empty string for text and class holes, absent (null) for attribute holes.
 
@@ -252,8 +258,8 @@ Module: `web/src/herdsman-blocks-view.ts`. Views are a declarative layer over bl
 
 #### Views and descriptions
 
-1. A view is made with the view module's own tagged template tag. It compiles the literal into a block template exactly as Layer 1 does (once per call site, cached by the string array) and accepts the same hole markers plus the child marker.
-2. Once per template the view records, for each hole, how it is written: a **child** hole (a slot), a **handler** hole (a property hole whose name starts with `on`), a **property** hole (any other property hole), or a plain **write** hole (text, class, attribute). If any hole is a child, handler or property hole, mounting must locate the clone's holes (the view is **eager**); otherwise hole lookup stays lazy, as for blocks.
+1. A view is made with one of the view module's own tagged template tags, `html` or `svg`. Each compiles the literal into a block template exactly as Layer 1 does with the tag of the same name (once per call site, cached by the string array) and accepts the same hole markers plus the child marker. Every hole of a view must have a typed marker; untyped holes are a compile error in views.
+2. Once per template the view records, for each hole, how it is written: a **child** hole (a slot), a **handler** hole (a property hole whose name starts with `on`, which only the event marker may type), a **property** hole (any other property hole), or a plain **write** hole (text, class, attribute). If any hole is a child, handler or property hole, mounting must locate the clone's holes (the view is **eager**); otherwise hole lookup stays lazy, as for blocks.
 3. Calling a view with its value tuple returns a description: the view's recorded shape and the values. A description is inert; nothing is created until it is rendered. The view also exposes its compiled template.
 
 #### Slot holes (Layer 1 addition)
@@ -298,6 +304,13 @@ A child hole accepts text (a string or number), nothing (null, undefined or fals
 1. Creating the list in a slot: if the anchor has no siblings, the list **owns** the parent (Layer 2: clearing is one native text-content write, and the anchor is dropped while the list is shown); otherwise the list is anchored before the slot's anchor, so content around the hole is never touched.
 2. The Layer 2 list's create mounts `render(item)`, its update patches the entry's instance toward `render(item)`, and its key calls the key function. Entries are view instances. These callbacks read the slot's current key and render functions, which are replaced on every reconcile, so closures passed by the latest render are the ones used.
 3. Reconciling: store the description's key and render functions on the slot and set the list to the items (Layer 2). Kept items are patched; moved items are moved with the minimum number of DOM moves; an item whose render returns a different view is replaced where it stands.
+
+#### SVG views
+
+1. A view made with `svg` has its elements in the SVG namespace. Its descriptions go into child holes inside SVG content: an HTML view's `<svg>` element or another SVG view.
+2. Mounting, patching, child holes and keyed lists work the same as for HTML views; no step depends on the namespace.
+3. In SVG content `class` is an attribute hole, written with the attribute rules (null, undefined and false remove it).
+4. A headless Chrome check (`bench/herdsman-cases/check-svg.ts`) runs this against the browser's own parser: an `svg` root is an SVG element while the same markup through `html` is not, SVG list items render with a non-zero box and keep their nodes across a reorder, the latest handler runs with the SVG element as `this`, assigning a class name on an SVG element throws, a class marker on one fails at compile time, and typed property and event holes work on a real input.
 
 #### render(container, description)
 
@@ -356,15 +369,16 @@ The types are designed to make wrong uses fail to compile while erasing complete
 
 #### Hole markers
 
-There is one marker per hole kind: text, class, attribute and property, plus a slot marker for a child hole that blocks leave empty for the view layer. Each is a generic function that takes a value type and returns a branded number. At runtime the function returns the kind's small negative code and is called once per template call site, when the literal is evaluated. At compile time the brand records two things: the value type the hole accepts and the kind of position it must sit in. Value types are bounded by kind:
+There is one marker per hole kind: text, class, attribute, property and event, plus a slot marker for a child hole that blocks leave empty for the view layer. Each is a generic function of type arguments only that returns a branded number. At runtime the function returns a small negative code and is called once per template call site, when the literal is evaluated. At compile time the brand records two things: the value type the hole accepts and the kind of position it must sit in. Value types are bounded by kind:
 
 1. Text holes accept strings, numbers, bigints, booleans, null and undefined (null and undefined write empty text); string by default.
-2. Class holes accept strings, null and undefined; string by default.
-3. Attribute holes accept strings, numbers, bigints, booleans, null and undefined (null, undefined and false remove the attribute; true sets it empty); string by default.
-4. Property holes accept any type; unknown by default.
-5. Slot holes accept any type; unknown by default. The view layer's child marker is a slot hole that accepts text, nothing, a DOM node, a view description or a list description.
+2. Class holes accept strings, null and undefined; string by default. They belong on HTML elements only (see compiling, step 5).
+3. Attribute holes accept strings, numbers, bigints, booleans, null and undefined (null, undefined and false remove the attribute; true sets it empty); string by default. The type argument narrows them, for example to the two strings of an ARIA state.
+4. Property holes are typed by an element type E and a property name P. P must be a writable property of E that is not a function and does not start with `on`; read-only properties, methods and handler properties are rejected. The hole accepts exactly E's type for P, nothing wider (null only where the property itself takes null). Both type arguments are required; with P left out the marker does not compile, and with both left out the hole accepts nothing. A property the DOM types do not declare, such as a custom element's, is typed by describing the element as an intersection of an element type and an object type that has the property; there is no untyped escape in views.
+5. Event holes are typed by an event name K and an element type E (HTMLElement by default). K must be a name for which E has an `on` handler property. The hole accepts a function called with the element (of type E) as `this` and the event type that handler property receives (a pointer event for a click, an input event for input, a keyboard event for keydown), or null. K must be a single name: left out, or given as a union, the hole accepts nothing. The event marker is the only marker an `on` name accepts, and it is accepted nowhere else (compiling, step 6).
+6. Slot holes accept any type; unknown by default. The view layer's child marker is a slot hole (see View types).
 
-A plain number in a hole position is an untyped hole that accepts unknown, so untyped templates keep compiling.
+A plain number in a hole position is an untyped hole that accepts unknown, so untyped block templates keep compiling; view templates do not accept them.
 
 #### What is inferred
 
@@ -379,21 +393,42 @@ The tag function captures its interpolations as a constant tuple type and maps e
 
 #### What cannot be inferred, and how it is covered
 
-TypeScript sees a tagged template literal's text only as an untyped string array, so it cannot see where a hole sits. The position-to-kind rule is therefore checked when the template compiles (step 6 of compiling), once per template, which catches a class marker placed in text, a property marker placed on a plain attribute, and so on, the first time the code runs.
+1. TypeScript sees a tagged template literal's text only as an untyped string array, so it cannot see where a hole sits. The position-to-kind rule is therefore checked when the template compiles (step 6 of compiling), once per template, which catches a class marker placed in text, a property marker placed on a plain attribute or an `on` name, an event marker placed anywhere but an `on` name, and a class marker on an SVG element, the first time the code runs.
+2. The event name in the markup is not compared with the event marker's name: the marker is a number at runtime and its name exists only in its type, so an `oninput` attribute typed with a click marker compiles and runs the handler on input.
+3. Whether a property name in the markup matches the property marker's name is likewise unchecked.
+4. Two views whose value tuples are identical have the same description type: a type cannot tell the call sites of two tagged templates apart.
+5. Whether a child hole sits inside SVG content is not tracked: a plain child hole accepts HTML and SVG descriptions alike. A hole inside SVG content is typed with the SVG child type to reject HTML views.
 
 #### View types
 
-1. A view is typed by its value tuple, inferred from its markers as for blocks; calling it with a wrong tuple is a compile error. It returns an opaque, branded description type (`ViewNode`); a list description is a distinct branded type, so neither can be built by hand.
-2. `list` is generic in its item type: the key function returns a key, and the render function takes the item and must return a description.
-3. A handler hole is a property marker typed with the handler's function type.
+1. A view is typed by its value tuple and its namespace (HTML or SVG), inferred from its markers and its tag; calling it with a wrong tuple is a compile error.
+2. Calling a view returns a description typed by exactly that value tuple and namespace. Descriptions are invariant in the tuple: a description of a view with another tuple, narrower or wider, is another type. The description type with no type arguments is any description, of either namespace; one with only the SVG namespace is any SVG description. A helper type gives the description type of a view. The brand is a phantom: nothing at runtime carries it, and neither descriptions nor list descriptions can be built by hand.
+3. `list(items, key, render)` infers the item type from the items alone (the key and render functions cannot widen it), the key type from the key function's return, and the description type from the render function's return. The key function takes one parameter, so a function of the item and its index does not type-check: an index can never be a key. The list description carries the description type and the key type, covariantly.
+4. The child marker takes a type argument bounded by what a child hole accepts (text, nothing, a DOM node, any description, any list description) and defaulting to all of it. Narrowing it gives holes that accept, for example, only text, only a list of one view's descriptions keyed by strings, only one view's description or nothing, or only SVG content (text, nothing, SVG elements, SVG descriptions and lists of them). A plain array is never a child.
+5. A handler hole is an event marker; a property hole is a property marker typed by element and property, as above.
+
+#### Zero runtime cost
+
+The types erase completely, and the markers stay constant functions evaluated once per template literal:
+
+1. Nothing new runs per render: the event marker shares the property hole's runtime kind, so the view's per-template shape, mounting, patching, child holes and list reconciliation are unchanged. The only new runtime work is in compiling (once per template): choosing the SVG wrapper, the namespace test for `class`, and the event-position comparison.
+2. Proof, 2026-10-27: the declarative benchmark app (`bench/herdsman-cases/apps/herdsman-blocks-declarative`) and the lower-layer app were bundled before and after with syntax and whitespace minification but names kept, and split into statements. The only differing statements were the marker functions (the event marker replacing the property marker the apps had used for handlers, and the marker-name list for error messages), the template constructor's SVG parse and position check, the attribute walk's namespace test for `class`, and the call sites' marker names. Every statement of mounting, patching, child holes, the trampoline and list reconciliation was identical. The fully minified declarative bundle grew from 18,308 to 18,624 bytes (7,561 to 7,725 gzipped), all of it in those once-per-template parts.
+3. The benchmark runner's DOM gate passed for both apps after the change.
 
 #### Compiler settings
 
-The library compiles under herdsman's settings (strict, unchecked index access, exact optional property types, no implicit override, no unused locals or parameters, no switch fall-through, verbatim module syntax, isolated modules) plus a stricter set applied only to the library's files: isolated declarations (every export has an explicit type, so declarations follow from syntax alone), erasable syntax only (no enums, no namespaces with values, no constructor parameter properties, so the source runs under any type-stripping runtime), no property access from index signatures, no implicit returns, no unreachable code, no unused labels, unchecked side-effect imports reported, and strict built-in iterator returns. Kind codes are plain top-level constants rather than an enum, which also lets minifiers inline them.
+The library compiles under herdsman's settings (strict, unchecked index access, exact optional property types, no implicit override, no unused locals or parameters, no switch fall-through, verbatim module syntax, isolated modules) plus a stricter set applied only to the library's files: isolated declarations (every export has an explicit type, so declarations follow from syntax alone), erasable syntax only (no enums, no namespaces with values, no constructor parameter properties, so the source runs under any type-stripping runtime), no property access from index signatures, no implicit returns, no unreachable code, no unused labels, unchecked side-effect imports reported, strict built-in iterator returns, every file treated as a module, consistent file name casing, and no replacement of the standard library's types by installed packages. Kind codes are plain top-level constants rather than an enum, which also lets minifiers inline them.
 
 #### Type tests
 
-A type test file asserts exact inferred types with a compile-time equality check (the template type, the hole index union, the block type, the untyped value tuple) and lists mistakes that must not compile, each marked as an expected error: a wrong value type, an index past the last hole, a short or long value tuple, a non-function for a handler, a number for a class marker, an object for a text marker, and a key function returning the wrong key type. An expected-error line that starts compiling makes the type check fail. The test file also checks at runtime that a marker in the wrong position throws when its template compiles. Weakening the update method to accept any value made the type check fail on the expected-error line for a wrong value type; restoring it made it pass, so the type tests do catch loosened types.
+Two test files assert exact inferred types with a compile-time equality check and list mistakes that must not compile, each marked as an expected error. An expected-error line that starts compiling makes the type check fail.
+
+1. Blocks: the template type, the hole index union, the block type and the untyped value tuple are exact; the event marker's handler type (element as `this`, the handler property's event type) and the property marker's value type (a boolean, a number) are exact; read-only properties, methods and handler properties are not property names, and an SVG element's class name is not one.
+2. Blocks mistakes: a wrong value type, an index past the last hole, a short or long value tuple, a non-function for a handler, a number for a class marker, an object for a text or attribute marker, a value outside a narrowed attribute type, a handler for the wrong event type, a handler whose `this` is another element type, an unknown event name, an event the element has no handler for, an event marker without its event or with a union of events, a wrong value for a property, null for a property that does not take it, a read-only property, a method, a handler property, an unknown property, a property marker with one type argument or none, a wrong value for a described custom property, a key function returning the wrong key type, a list entry without a root, and reading values from a block made without one.
+3. Views: wrong arity, a wrong value type, `true` as a child, an untyped hole, a handler for the wrong event type or element type, a wrong property value; descriptions are exact in their tuple in both directions, carry their namespace, and are children; the list description type is inferred; child holes narrowed to a list of one view reject text, a list of another view and a single view; a text-only hole rejects a view and nothing; a hole for one view rejects another view and a list; an SVG hole rejects an HTML view; the child marker rejects non-child types; a plain array is not a child; a key from the index (named or inline), a render that does not describe a view, a key that is not a string or number, a render for another item type, and a list keyed by numbers for a hole that wants string keys do not compile.
+4. At runtime, the test files check that every marker in a wrong position throws when its template compiles, including a property, attribute or text marker at an `on` name and an event marker at an attribute, property or text position, that a class marker on an SVG element throws exactly once (at compile time) under both tags, and that `svg` templates and views create SVG elements (the fake DOM records namespaces and, like a browser, refuses a class name assignment on an SVG element).
+
+Weakening the update method to accept any value made the type check fail on the expected-error line for a wrong value type; restoring it made it pass, so the type tests do catch loosened types.
 
 ## Part 3: Verification
 
@@ -415,8 +450,9 @@ Tests run on a small linked-list fake DOM with counters for inserts, moves, remo
 12. A list whose entries are the nodes themselves reorders them and keeps their identity.
 13. An element made without a block gets one on demand, cached on the element; the first set of each hole writes, the second identical set does not; instances stay independent; property holes are set on the clone.
 14. Slot holes: a slot marker in content compiles to a slot, blocks never write it, and a slot marker in an attribute position is rejected.
-15. Views: every child kind renders in place and switching kinds replaces the content; the same view patches and another view replaces, at a child hole and at the root; unchanged values write nothing; a keyed list reorders with every node kept and the minimum number of moves, stays between its siblings, owns and clears its parent and gives the slot back; an item whose view changes is replaced where it stands; nested lists move cards between lanes; a new handler each render costs no DOM write and the latest one runs; a focused input keeps its node and typed value across renders.
-16. The benchmark runner's gate: the declarative benchmark app's DOM is identical to the reference app's after every step.
+15. SVG: `svg` templates and views are in the SVG namespace, SVG views render and reorder in child holes inside SVG content, and `class` there is an attribute; checked on the fake DOM and in headless Chrome.
+16. Views: every child kind renders in place and switching kinds replaces the content; the same view patches and another view replaces, at a child hole and at the root; unchanged values write nothing; a keyed list reorders with every node kept and the minimum number of moves, stays between its siblings, owns and clears its parent and gives the slot back; an item whose view changes is replaced where it stands; nested lists move cards between lanes; a new handler each render costs no DOM write and the latest one runs; a focused input keeps its node and typed value across renders.
+17. The benchmark runner's gate: the declarative benchmark app's DOM is identical to the reference app's after every step.
 
 The same behaviors were also checked in real Chrome 156 (not the fake DOM): a focused input kept its node, focus, typed value and caret position through a `patch()` that reordered siblings; the kept button ran the newest handler; keyed rows kept their nodes; an unfocused input re-synced from the store; an indented template inside a table compiled correctly; and a blank class hole produced no class attribute.
 
@@ -540,6 +576,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-27: Version 0.0.7. Strict view types at no runtime cost: an `on<event, element>()` marker is the only one an `on*` name takes (a property marker there now fails at compile time); `prop<element, property>()` takes exactly that property's type; `svg` templates and views parse inside an `<svg>`, and `class` on SVG elements is an attribute hole; descriptions carry their view's exact value tuple and namespace, list descriptions their description and key types; `child<C>()` narrows what a hole takes; views reject untyped holes. Three more strict compiler settings. Headless Chrome check for SVG and typed holes. Bundles before and after differ only in markers and once-per-template compiling.
 - 2026-10-27: Version 0.0.6. Layer 4, views (`herdsman-blocks-view.ts`): templates called with values return descriptions, `render` patches only changed holes, child holes take text, nothing, nodes, views or keyed `list()`s, and handlers go through per-template trampolines. Blocks gain the slot hole kind and, for layers above, `Template.clone`, `kind` and `write`. Declarative benchmark app added.
 - 2026-10-27: Phase 2 of the `each()` migration: plain arrays are a type error in `dom.ts` children. The 67 sites in herdsman web use `each` (keyed by the data's identity), `unkeyed`, or a literal tuple. No change to the library.
 - 2026-10-27: Renamed from herdsman-dom-diff to herdsman-blocks: the module, its tests, this spec and the release name. No behavior change; the version stays 0.0.5.
