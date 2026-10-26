@@ -79,7 +79,7 @@ func (r *rig) gojson(req string, expires int, edit func(map[string]any)) {
 		edit(g)
 	}
 	r.c.WriteJSON(r.goFile(req), g)
-	r.c.WriteJSON(r.interaction(req), map[string]any{"source": "ask-tool", "question_id": "choice", "request_id": req, "revision": "head1",
+	r.c.WriteJSON(r.interaction(req), map[string]any{"source": "ask-tool", "asked_by": inboxtest.Adjutant, "question_id": "choice", "request_id": req, "revision": "head1",
 		"approved": true, "action": "post", "target": "pr-comment", "draft_hash": r.digest(r.draft)})
 }
 
