@@ -9,6 +9,9 @@
 //      keeps a longest increasing subsequence in place and moves only the rest.
 //      That is the minimum number of DOM moves.
 
+/** Library version, bumped with every release of the zip package. */
+export const VERSION = "0.0.1";
+
 // ---------------------------------------------------------------------------
 // Blocks
 // ---------------------------------------------------------------------------

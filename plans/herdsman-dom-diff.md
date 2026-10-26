@@ -3,6 +3,7 @@
 A living document. It explains why herdsman-dom-diff exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
 - Status: draft, on branch `herdsman-dom-diff`
+- Library version: 0.0.1 (the module exports this as `VERSION`)
 - Last updated: 2026-10-26
 - Module: `web/src/herdsman-dom-diff.ts`, used by `web/src/dom.ts`
 
@@ -276,6 +277,20 @@ The runner can also report, per test, how the click-to-commit window splits into
 1. Replace 1,000 rows: with phases measured, herdsman-dom-diff took 73.9 ms against vanilla's 79.1 ms, with every phase equal or lower. The earlier 1.28 times gap was machine noise.
 2. Create rows: the remaining cost was JavaScript allocation per row. Before the changes, script was 10.6 ms against vanilla's 6.2 ms on 1,000 rows; on 10,000 rows garbage collection was 96 ms for us, 74 ms for vanilla and 44 ms for vanillajs-lite, which never touches a cloned row's inner nodes. After merging block state into one array, reusing the argument array, dropping a per-row expando, and baking values into the prototype with lazy hole lookup, create 1,000 rows scored 1.01 times the best of vanilla, vanillajs-lite and herdsman-dom-diff (vanillajs-lite 1.07), and create 10,000 rows 1.02 times. Garbage collection on 10,000 rows was still 88 ms, so per-row objects (the block and its state array) remain the next target.
 
+## Part 4: Versioning and packaging
+
+The version starts at 0.0.1 and lives in one place, the module's exported `VERSION` constant; the package's `VERSION` file and change log repeat it. Bump the patch number for fixes and speedups that keep behavior, the minor number for new behavior or options, and record each release in this document's change log and the package's.
+
+Each release is a zip named after the library and version, holding one folder of the same name with:
+
+1. The library source as a single TypeScript module, with no dependencies and no package.json.
+2. A minified ES module build of it for JavaScript consumers, with a TypeScript declaration file beside it.
+3. The library's tests and the fake DOM they run on, runnable with Bun alone.
+4. The benchmark tools: the js-framework-benchmark app built with the library, its page and entry, the site builder, the Chrome runner, the Bun profiling script, and the raw result files of the runs this document reports.
+5. This document as the package's spec, a README with usage and checks, a change log, the GPL-3.0 license of the herdsman repository it comes from, and a `VERSION` file.
+
+A release is ready when, from a fresh unzip, the type check passes, the tests pass, and the built module imports and reports the same version as the source.
+
 ## Open questions
 
 1. Can rows that are never updated avoid the per-row block object entirely (for example, created on first update), to bring garbage collection down to vanillajs-lite's level? The clear rows result (bimodal, 1.17 times the best) suggests this is now the main remaining cost.
@@ -285,6 +300,7 @@ The runner can also report, per test, how the click-to-commit window splits into
 
 ## Change log
 
+- 2026-10-26: Version 0.0.1 packaged as a zip. `VERSION` exported. The `patch()` tests moved to `dom.test.ts` so the library's own tests run without herdsman's `dom.ts`.
 - 2026-10-26: First version. Blocks, keyed lists with prefix and suffix trimming, the two-item swap path and the LIS general case; blank-write skipping on mount; `detach`; morph and `patch()` with handler transfer for herdsman web; test, profiling and benchmark method; first replica results.
 - 2026-10-26: Head-to-head replica run against `re`, `vanillajs` and `vanillajs-lite`: herdsman-dom-diff 1.052, second of four, ahead of `re`.
 - 2026-10-26: Templates ignore formatter indentation (herdsman's `bun fmt` reformats tagged templates). Morph call sites in herdsman web keyed by tab and view. Block state merged into one array; mount bakes values into the prototype and looks up holes lazily. Real-Chrome verification of `patch()`. Per-phase benchmark findings.
