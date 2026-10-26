@@ -321,14 +321,24 @@ func (c *Config) start(args []string, lock *os.File, stdin io.Reader, stdout, st
 	if lock != nil {
 		cmd.ExtraFiles = []*os.File{lock}
 	}
-	if nice {
-		// The child inherits this process's niceness: lower it by Nice
-		// first (the kernel caps it at its maximum), as `nice -n` does.
-		if cur, err := getNice(); err == nil {
-			_ = setNice(cur + c.Nice)
+	started := make(chan error, 1)
+	go func() {
+		// The child inherits the niceness of the thread that forks it:
+		// lower it by Nice first (the kernel caps it at its maximum), as
+		// `nice -n` does. Linux sets the priority of the calling thread
+		// only, so one locked thread lowers it and starts the child, and it
+		// is never unlocked: it ends with this goroutine instead of going
+		// back to the pool at the lower priority. Darwin lowers the whole
+		// process, as before.
+		runtime.LockOSThread()
+		if nice {
+			if cur, err := getNice(); err == nil {
+				_ = setNice(cur + c.Nice)
+			}
 		}
-	}
-	if err := cmd.Start(); err != nil {
+		started <- cmd.Start()
+	}()
+	if err := <-started; err != nil {
 		fmt.Fprintf(stderr, "run-check: %v\n", err)
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			return 127
