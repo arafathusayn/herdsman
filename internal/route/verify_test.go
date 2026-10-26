@@ -250,3 +250,90 @@ func TestOldEditIsFoundWithinACycle(t *testing.T) {
 			cycle, tail.Route.OrchestratorPane, tail.Total, full.Route.OrchestratorPane, full.Total)
 	}
 }
+
+// A file of more empty run-state sections than the window keeps ranges
+// for is checked as one range: an edit in it is still found.
+func TestManyEmptySectionsAreCheckedWhole(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, RouteFile)
+	var b strings.Builder
+	b.WriteString("# R\n## Run state\n- 10:00 first\n")
+	for range maxSpans + 10 {
+		b.WriteString("## Run state\n## Notes\nx\n")
+	}
+	body := b.String()
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tail, err := LoadBounded(dir, 100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tail.win) > maxSpans {
+		t.Fatalf("%d window ranges", len(tail.win))
+	}
+	appendTo(t, file, "## Run state\n- 10:01 second\n")
+	if tail, err = LoadBounded(dir, 100, tail); err != nil || tail.Total != 2 {
+		t.Fatalf("total %d, %v", tail.Total, err)
+	}
+	f, err := os.OpenFile(file, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteAt([]byte("FIRST"), int64(strings.Index(body, "first"))); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	appendTo(t, file, "- 10:02 third\n")
+	if tail, err = LoadBounded(dir, 100, tail); err != nil || tail.Route.RunState[0].Text != "FIRST" {
+		t.Fatalf("%v, %v", tail.Route.RunState, err)
+	}
+}
+
+// A file cut inside a long line while a page reads it is refused.
+func TestPageOfAFileCutInALongLine(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, RouteFile)
+	body := "# R\n## Run state\n- 10:00 a\n## Notes\n" + strings.Repeat("z", 200<<10) + "\n## Run state\n- 10:01 b\n"
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tail, err := LoadBounded(dir, 100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeRead = func() { _ = os.Truncate(file, int64(len(body)-(100<<10))) }
+	defer func() { beforeRead = func() {} }()
+	if _, err := tail.Page(2, 2); !errors.Is(err, ErrChanged) {
+		t.Errorf("got %v, want ErrChanged", err)
+	}
+}
+
+// Reads past the end and a saved state that is not one are safe: a range
+// past the end hashes what is there, and a bad state starts empty.
+func TestHashHelpersAtTheEdges(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, RouteFile)
+	if err := os.WriteFile(file, []byte("abc"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	buf := make([]byte, 16)
+	if got, want := sumOf(f, 0, 100, buf), sumOf(f, 0, 3, buf); !slices.Equal(got, want) {
+		t.Errorf("a range past the end: %x, want %x", got, want)
+	}
+	if got := restore([]byte("not a state")).Sum(nil); !slices.Equal(got, sumOf(f, 0, 0, buf)) {
+		t.Errorf("a bad state: %x", got)
+	}
+	if !changeTime(fakeInfo{}).IsZero() {
+		t.Error("a file without system data has a change time")
+	}
+}
+
+type fakeInfo struct{ os.FileInfo }
+
+func (fakeInfo) Sys() any { return nil }
