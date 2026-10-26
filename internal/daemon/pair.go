@@ -434,6 +434,15 @@ func (r *Route) revoke(name string) *APIError {
 
 // redoPair is a pair record's step 4, idempotent.
 func (r *Route) redoPair(rec *Record) error {
+	if err := r.redoPairFiles(rec); err != nil {
+		return err
+	}
+	// The proof's pair follows the approved registry in the same step.
+	return r.syncProofPair()
+}
+
+// redoPairFiles is a pair record's registry and credential files.
+func (r *Route) redoPairFiles(rec *Record) error {
 	var pb []byte
 	if rec.Payload != nil {
 		b, err := r.readPayload(rec.Payload, inbox.MaxSize)
@@ -733,11 +742,6 @@ func (r *Route) authority(ctx context.Context, c *herdr.Client) (string, []strin
 		var b map[string]any
 		v, _ := inbox.Decode(doc.Boundary)
 		b = inbox.Object(v)
-		if b != nil && b["pair"] == nil {
-			// The version 2 proof's pair is the approved registry (7.3).
-			pb, _ := os.ReadFile(r.path("peers.approved"))
-			b["pair"], _ = inbox.Decode(pb)
-		}
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		ok, fault, unknown := inbox.BoundaryV2(cctx, c, r.inbox, b)
 		cancel()

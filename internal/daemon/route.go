@@ -410,6 +410,10 @@ func (r *Route) open() error {
 			return fmt.Errorf("route %s: credentials: %w", r.name, err)
 		}
 	}
+	if err := r.syncProofPair(); err != nil {
+		r.closeFiles()
+		return fmt.Errorf("route %s: proof pair: %w", r.name, err)
+	}
 	if err := r.pruneSecrets(); err != nil {
 		r.closeFiles()
 		return fmt.Errorf("route %s: credentials: %w", r.name, err)

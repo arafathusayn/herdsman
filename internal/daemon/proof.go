@@ -230,7 +230,8 @@ func (r *Route) setup(q SetupRequest) (SetupResult, *APIError) {
 			return SetupResult{}, Errf("bad_request", "the binary must be the installed herdsman executable (%s)", exe)
 		}
 	}
-	doc := SetupV2{Version: 2, Inbox: r.inbox, PolicyVerified: q.PolicyVerified, Boundary: q.Boundary,
+	boundary, _ := r.withPair(q.Boundary)
+	doc := SetupV2{Version: 2, Inbox: r.inbox, PolicyVerified: q.PolicyVerified, Boundary: boundary,
 		WatchTargets: q.WatchTargets, ResumeTargets: q.ResumeTargets, Probes: q.Probes}
 	if doc.Probes == nil {
 		doc.Probes = []Probe{}
@@ -275,6 +276,43 @@ func (r *Route) setup(q SetupRequest) (SetupResult, *APIError) {
 	r.hashes.keep(append(slices.Clone(q.Rules), bin))
 	r.healthChanged()
 	return SetupResult{ProofSHA256: sha256Hex(data)}, nil
+}
+
+// withPair is a boundary object with "pair" set to the approved registry
+// (an empty object while nothing is approved).
+func (r *Route) withPair(boundary json.RawMessage) (json.RawMessage, bool) {
+	v, _ := inbox.Decode(boundary)
+	b := inbox.Object(v)
+	pb, ok := r.registryBytes("peers.approved")
+	if b == nil || !ok {
+		return boundary, false
+	}
+	pair, _ := inbox.Decode(pb)
+	if inbox.Equal(b["pair"], pair) {
+		return boundary, false
+	}
+	b["pair"] = pair
+	out, err := json.Marshal(b)
+	if err != nil {
+		return boundary, false
+	}
+	return out, true
+}
+
+// syncProofPair rewrites the proof's boundary pair to the approved
+// registry (7.3: the pair is filled at approval). It changes no checksum,
+// so the proof stays as current as it was.
+func (r *Route) syncProofPair() error {
+	doc, ok := r.readSetup()
+	if !ok {
+		return nil
+	}
+	nb, changed := r.withPair(doc.Boundary)
+	if !changed {
+		return nil
+	}
+	doc.Boundary = nb
+	return writeDurable(r.path("setup.json"), prettyJSON(doc), 0o600)
 }
 
 // readSetup reads setup.json version 2, strictly.

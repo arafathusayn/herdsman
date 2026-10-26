@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
 // proofRoute is a direct route with a fresh policy file and a setup
@@ -211,5 +213,81 @@ func TestSetupRejectsFIFO(t *testing.T) {
 	}
 	if !strings.HasPrefix(rule, "/") {
 		t.Fatal(rule)
+	}
+}
+
+// TestProofCarriesApprovedPair: the version 2 proof's boundary carries
+// the approved pair: setup fills it from peers.approved and each approval
+// rewrites it in the same transaction, so the retained gate reads the
+// same pair the daemon decides on. Authority never invents it: a proof
+// whose pair is not the approved one is HUMAN (7.3, 8).
+func TestProofCarriesApprovedPair(t *testing.T) {
+	x := newPairRoute(t)
+	approvePair(t, x, "a1", "o1")
+	rule := writeFile(t, t.TempDir(), "policy.sb", "(allow default)\n")
+	if _, e := x.r.setup(SetupRequest{Rules: []string{rule}, PolicyVerified: true, Boundary: json.RawMessage(`{"version":1}`)}); e != nil {
+		t.Fatal(e)
+	}
+	pairOf := func() any {
+		doc, ok := x.r.readSetup()
+		if !ok {
+			t.Fatal("setup.json unreadable")
+		}
+		v, _ := inbox.Decode(doc.Boundary)
+		return inbox.Object(v)["pair"]
+	}
+	approved := func() any {
+		b, _ := os.ReadFile(x.path("peers.approved"))
+		v, _ := inbox.Decode(b)
+		return v
+	}
+	if !inbox.Equal(pairOf(), approved()) {
+		t.Fatalf("setup did not record the approved pair: %v", pairOf())
+	}
+	replacePair(t, x, "o1", "o2")
+	pb, _ := os.ReadFile(x.path("peers"))
+	if _, e := x.r.approve(ApproveRequest{SHA256: sha256Hex(pb)}); e != nil {
+		t.Fatal(e)
+	}
+	if !inbox.Equal(pairOf(), approved()) {
+		t.Fatalf("an approval did not rewrite the proof's pair: %v", pairOf())
+	}
+	if !x.r.proofValid() {
+		t.Fatal("rewriting the pair made the proof stale")
+	}
+	// Open rewrites it too, even with the approval behind a checkpoint.
+	if err := x.r.writeCheckpoint(false); err != nil {
+		t.Fatal(err)
+	}
+	doc, _ := x.r.readSetup()
+	doc.Boundary = json.RawMessage(`{"version":1}`)
+	_ = os.WriteFile(x.path("setup.json"), prettyJSON(doc), 0o600)
+	x.kill()
+	x.open()
+	if !inbox.Equal(pairOf(), approved()) {
+		t.Fatalf("replay left the proof without its pair: %v", pairOf())
+	}
+}
+
+// TestAuthorityReadsProofPair: authority decides on the proof's own pair,
+// never one it fills in at read time.
+func TestAuthorityReadsProofPair(t *testing.T) {
+	h := newHarness(t)
+	_, _, dir := h.route("r")
+	boundary := `{"version":1,"inventory_current":true,"private_home":true,"human_checked":true,"protected_domain":true,"launch_admission":true,"courier_panes":[],"lower_trust":[]}`
+	h.do("PUT", "/v1/routes/r/setup", SetupRequest{Rules: []string{h.rules}, PolicyVerified: true, Boundary: json.RawMessage(boundary)}, nil)
+	var ar AuthorityResult
+	h.do("GET", "/v1/routes/r/authority", nil, &ar)
+	if ar.Authority != "RELAY" {
+		t.Fatalf("protected setup: %+v", ar)
+	}
+	var doc SetupV2
+	b, _ := os.ReadFile(filepath.Join(dir, "setup.json"))
+	_ = json.Unmarshal(b, &doc)
+	doc.Boundary = json.RawMessage(boundary) // the pair removed
+	_ = os.WriteFile(filepath.Join(dir, "setup.json"), prettyJSON(doc), 0o600)
+	h.do("GET", "/v1/routes/r/authority", nil, &ar)
+	if ar.Authority != "HUMAN" || ar.Reasons[0] != "boundary-static" {
+		t.Fatalf("a proof without the pair: %+v", ar)
 	}
 }
