@@ -876,7 +876,7 @@ func (r *Route) finishUnfinished() *APIError {
 		// A protected write is retried only as the input lock's owner,
 		// as its handler wrote it (3.7).
 		var unlock func()
-		if protectedRecord(rec) {
+		if protectedRecord(rec) && r.inputHeld.Load() == 0 {
 			u, e := r.tryInputLock()
 			if e != nil {
 				return Errf("busy", "route %s: committed record %d waits for the input lock (%s); retry", r.name, rec.Seq, e.Message)

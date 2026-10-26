@@ -143,6 +143,9 @@ type Route struct {
 	// intakeAt is the last attempt (12.2).
 	intakeDue bool
 	intakeAt  time.Time
+	// inputHeld counts this daemon's requests that hold the route's input
+	// lock; while one does, a protected retry runs under it (3.7).
+	inputHeld atomic.Int32
 }
 
 // routeStatus is the route's status in health.
@@ -290,7 +293,11 @@ func (r *Route) runOp(fn func() *APIError) *APIError {
 	// listens, and retried while one waits.
 	if r.intakeDue && r.now().Sub(r.intakeAt) >= intakeRetry {
 		r.intake()
-		// An intake whose files failed holds every later operation.
+		// An intake whose journal tail is unknown, or whose files failed,
+		// holds every later operation.
+		if r.degraded.Load() {
+			return Errf("busy", "route %s is degraded after repeated failures; run herdsman daemon restart", r.name)
+		}
 		if e := r.finishUnfinished(); e != nil {
 			return e
 		}
@@ -741,6 +748,11 @@ func (r *Route) commit(rec *Record) error {
 	if r.j == nil {
 		return errors.New("the route's journal is closed")
 	}
+	// Nothing is committed while a folder fsync is owed: the record
+	// could outlive the names it depends on.
+	if err := flushOwed(); err != nil {
+		return err
+	}
 	rec.Seq = r.seq + 1
 	rec.Epoch = r.epoch
 	rec.Time = r.now().Unix()
@@ -840,6 +852,9 @@ func (r *Route) publish(rec *Record) {
 func (r *Route) writeCheckpoint(rotate bool) error {
 	if len(r.unfinished) > 0 {
 		return fmt.Errorf("record %d is committed but unfinished; no checkpoint may pass it", r.unfinished[0].Seq)
+	}
+	if err := flushOwed(); err != nil {
+		return err
 	}
 	r.pruneKeys()
 	cp := checkpoint{LastMessageID: fmt.Sprintf("m%012d", r.lastID), SendKeys: []sendKey{}, ReadKeys: []claimKey{}, ExtendKeys: []claimKey{}, Questions: []any{}}

@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -197,7 +198,10 @@ func (r *Route) redoIntake(rec *Record) error {
 			return err
 		}
 	}
-	if inbox.IDOK(rec.ID) && regular(r.path("ids", rec.ID, "envelope")) && !exists(r.path("ids", rec.ID, "terminal.json")) {
+	// Every folder of the terminal and notice paths is a real folder of
+	// the inbox: a linked ids/ or allocation is never written through.
+	if inbox.IDOK(rec.ID) && inbox.Regular(r.inbox, r.path("ids", rec.ID, "envelope")) &&
+		inbox.GuardPath(r.inbox, r.path("ids", rec.ID, "terminal.json")) && !exists(r.path("ids", rec.ID, "terminal.json")) {
 		if err := writeDurable(r.path("ids", rec.ID, "terminal.json"), prettyJSON(obj("id", rec.ID, "state", "quarantined")), 0o600); err != nil {
 			return err
 		}
@@ -207,6 +211,9 @@ func (r *Route) redoIntake(rec *Record) error {
 			return err
 		}
 		p := filepath.Join(r.path(rec.From, "notices"), rec.ID+".md.json")
+		if !inbox.GuardPath(r.inbox, p) {
+			return fmt.Errorf("%w: notice folder of %s is not a real folder of the inbox", errHeld, rec.From)
+		}
 		if !exists(p) {
 			notice := prettyJSON(obj("id", rec.ID, "to", rec.To, "state", "quarantined", "authority", "notice-only"))
 			if err := writeDurable(p, notice, 0o600); err != nil {

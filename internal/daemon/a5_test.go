@@ -99,13 +99,14 @@ func TestUnfinishedHoldWaitsForInputLock(t *testing.T) {
 	if exists(x.path("state", "hold-orch")) {
 		t.Fatal("fault left a visible hold")
 	}
-	// The external executor/gate takes this exact lock while consuming
-	// approval. A status turn must not mutate the protected files under it.
-	external, e := x.r.inputLock()
-	if e != nil {
-		t.Fatal(e)
+	// The external executor/gate (another process) takes this exact lock
+	// while consuming approval. A status turn must not mutate the
+	// protected files under it.
+	ext := x.path(inbox.MutationLock)
+	if err := os.Mkdir(ext, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	defer external()
+	_ = os.WriteFile(filepath.Join(ext, "pid"), []byte("1\n"), 0o600)
 	e = x.op(func() *APIError { return nil })
 	if exists(x.path("state", "hold-orch")) {
 		t.Fatalf("unrelated actor turn wrote a hold while another input-lock owner held the boundary; answer=%v", e)

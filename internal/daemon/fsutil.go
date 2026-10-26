@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
@@ -57,8 +58,20 @@ func writeDurable(path string, data []byte, perm os.FileMode) error {
 // goroutine loop tests (A24.3), which measure neither, replace it.
 var fsync = (*os.File).Sync
 
-// syncDir fsyncs a folder, so a rename or a new entry in it is durable.
+// syncDir fsyncs a folder, so a rename or a new entry in it is durable. A
+// failed folder fsync stays owed: no later record or checkpoint is made
+// durable until it succeeds (flushOwed), whatever later call skips it.
 func syncDir(dir string) error {
+	err := syncOnce(dir)
+	if err != nil {
+		owed.Lock()
+		owed.dirs[dir] = true
+		owed.Unlock()
+	}
+	return err
+}
+
+func syncOnce(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return err
@@ -68,6 +81,30 @@ func syncDir(dir string) error {
 		err = cerr
 	}
 	return err
+}
+
+// owed are the folders whose fsync failed and is not yet done.
+var owed = struct {
+	sync.Mutex
+	dirs map[string]bool
+}{dirs: map[string]bool{}}
+
+// flushOwed retries every owed folder fsync; a folder that no longer
+// exists owes nothing. The first failure stays owed and is returned.
+func flushOwed() error {
+	owed.Lock()
+	defer owed.Unlock()
+	for dir := range owed.dirs {
+		err := syncOnce(dir)
+		if errors.Is(err, os.ErrNotExist) {
+			err = nil
+		}
+		if err != nil {
+			return fmt.Errorf("an earlier folder fsync of %s is still owed: %w", dir, err)
+		}
+		delete(owed.dirs, dir)
+	}
+	return nil
 }
 
 // mkdirs creates folders with mode 700, refusing a link on the way below

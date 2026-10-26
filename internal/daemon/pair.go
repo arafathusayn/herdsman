@@ -716,7 +716,8 @@ func (r *Route) takeInputLock(attempts int) (func(), *APIError) {
 				dropInputLock(dir, token)
 				return nil, Errf("internal", "input lock: %v", werr)
 			}
-			return func() { dropInputLock(dir, token) }, nil
+			r.inputHeld.Add(1)
+			return func() { r.inputHeld.Add(-1); dropInputLock(dir, token) }, nil
 		}
 		if !errors.Is(err, os.ErrExist) {
 			return nil, Errf("internal", "input lock: %v", err)
