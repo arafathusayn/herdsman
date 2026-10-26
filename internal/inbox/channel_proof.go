@@ -51,7 +51,7 @@ func OpenChannel(o Options, exe string) (*Channel, error) {
 	if r.TimingStale && !o.ReadOnly {
 		return nil, die("invalid or conflicting shared timing configuration")
 	}
-	if r.ProofStale && ch.BinaryProofValid() {
+	if r.ProofStale && !DaemonOwned(r.Dir) && ch.BinaryProofValid() {
 		r.ProofStale = false
 	}
 	if r.ProofStale && !o.ReadOnly {
@@ -67,8 +67,12 @@ func OpenChannel(o Options, exe string) (*Channel, error) {
 	return ch, nil
 }
 
-// ProofValid is preflight_valid for either proof form.
+// ProofValid is preflight_valid for either contract 1 proof form; a
+// daemon-owned (contract 2) inbox takes only the version 2 proof (4.6).
 func (ch *Channel) ProofValid() bool {
+	if DaemonOwned(ch.Dir) {
+		return ProofV2Valid(ch.Dir)
+	}
 	return ch.PreflightValid() || ch.BinaryProofValid()
 }
 
@@ -174,6 +178,9 @@ func DigestFileFast(p string) (string, error) {
 // Boundary is BoundaryOK with either proof form.
 func (ch *Channel) Boundary(ctx context.Context, c *herdr.Client) (bool, string, []Unknown) {
 	r := ch.Root
+	if DaemonOwned(r.Dir) {
+		return r.BoundaryOK(ctx, c) // the version 2 proof's boundary
+	}
 	if r.ProofStale || !ch.ProofValid() {
 		return false, FaultStatic, nil
 	}

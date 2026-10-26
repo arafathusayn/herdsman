@@ -2,6 +2,8 @@ package inbox_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -102,4 +104,54 @@ func TestBinaryProof(t *testing.T) {
 	if _, err := inbox.OpenChannel(inbox.Options{Dir: "relative"}, exe); err == nil {
 		t.Error("a relative inbox opened")
 	}
+}
+
+// TestChannelProofDispatch: on a daemon-owned (contract 2) inbox the
+// channel's proof check takes only the version 2 proof: the contract 1
+// binary form does not verify there, and the version 2 proof does (4.6).
+func TestChannelProofDispatch(t *testing.T) {
+	c := inboxtest.New(t)
+	exe := filepath.Join(c.Base, "herdsman")
+	c.Write(exe, "binary bytes\n")
+	o := c.Options(false)
+	o.Installed = ""
+	binaryProof(c, exe)
+	ch, err := inbox.OpenChannel(o, exe)
+	if err != nil || !ch.ProofValid() {
+		t.Fatalf("contract 1 binary proof: %v", err)
+	}
+	inboxtest.DaemonOwn(t, c.Dir, "e1", true)
+	if ch.ProofValid() {
+		t.Fatal("a contract 1 binary proof verified on a daemon-owned inbox")
+	}
+	ro := o
+	ro.ReadOnly = true
+	if ch2, err := inbox.OpenChannel(ro, exe); err != nil || !ch2.ProofStale {
+		t.Fatalf("a daemon-owned inbox opened with the contract 1 proof: %v", err)
+	}
+	if ok, fault, _ := ch.Boundary(t.Context(), nil); ok || fault != inbox.FaultStatic {
+		t.Fatalf("the boundary of a daemon-owned inbox without its proof: %v %s", ok, fault)
+	}
+	rule := filepath.Join(c.Base, "ignore-rule")
+	c.WriteJSON(c.Proof, map[string]any{"version": 2, "inbox": c.Dir, "policy_verified": true,
+		"rules":    []any{map[string]any{"path": rule, "sha256": sha(t, rule)}},
+		"binary":   map[string]any{"path": exe, "sha256": sha(t, exe)},
+		"boundary": map[string]any{"version": 1}, "probes": []any{}})
+	if !ch.ProofValid() {
+		t.Fatal("the version 2 proof did not verify on a daemon-owned inbox")
+	}
+	// The daemon's stale latch holds it stale until the next setup.
+	c.Write(filepath.Join(c.Dir, "state", "proof-stale"), "changed\n")
+	if ch.ProofValid() {
+		t.Fatal("a latched version 2 proof verified")
+	}
+}
+
+func sha(t *testing.T, p string) string {
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := sha256.Sum256(b)
+	return hex.EncodeToString(s[:])
 }
