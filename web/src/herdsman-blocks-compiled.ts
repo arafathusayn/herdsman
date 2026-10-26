@@ -1,0 +1,724 @@
+// herdsman-blocks-compiled: the runtime of views compiled at build time.
+//
+// The build plugin (herdsman-blocks-compiler.ts) turns each html`` / svg``
+// view literal into straight-line code: a prototype made once from static
+// markup, a firstChild/nextSibling walk to the hole nodes, one writer per
+// hole specialized by kind, and a description class whose fields are the
+// values (no values array). It also points every import of
+// herdsman-blocks-view.ts at this module, which offers the same API: render,
+// renderDirect, mount, update, list, runs and the markers behave exactly as
+// the view layer's. html and svg called at run time (a literal the plugin
+// left alone) compile through herdsman-blocks' Template and the same
+// protocol, so the two kinds of description mix freely.
+//
+// Contract: this module imports from herdsman-blocks.ts only its public
+// exports `List`, `html` (as the run-time template compiler), `svg`, `slot`,
+// `Template` and `Key` (types), and re-exports the markers `attr`, `cls`,
+// `on`, `prop`, `text`; from herdsman-blocks-view.ts it imports types only.
+// It never reads view-layer internals. Generated code calls only the
+// exports below marked "for generated code".
+
+import type { Child, ListNode, RunsNode, View, ViewNode } from "./herdsman-blocks-view.ts";
+import {
+  type AnyHole,
+  type Hole,
+  html as blocks,
+  type Key,
+  List,
+  slot,
+  svg as svgBlocks,
+  type Template,
+  type ValuesOf,
+} from "./herdsman-blocks.ts";
+
+export {
+  attr,
+  cls,
+  type EventName,
+  type EventOf,
+  type Handler,
+  type Key,
+  on,
+  prop,
+  type PropName,
+  type PropValue,
+  text,
+} from "./herdsman-blocks.ts";
+export type {
+  AnyValues,
+  AnyViewNode,
+  Child,
+  ExactViewNode,
+  ListNode,
+  Namespace,
+  RunsNode,
+  SvgChild,
+  SvgNode,
+  View,
+  ViewNode,
+  ViewNodeOf,
+} from "./herdsman-blocks-view.ts";
+
+type Values = readonly unknown[];
+type Locator = (root: Node, out: unknown[]) => void;
+type Fn = (this: Holder, e: Event) => unknown;
+
+// ---------------------------------------------------------------------------
+// Public API (the same as herdsman-blocks-view.ts)
+// ---------------------------------------------------------------------------
+
+/** A child hole: element content that takes any Child, or only C. */
+export function child<C extends Child = Child>(): Hole<C, "slot"> {
+  return slot<C>();
+}
+
+/** Tagged template for a view, compiled at run time (the plugin compiles literals at build time). */
+export function html<const H extends readonly AnyHole[]>(
+  strings: TemplateStringsArray,
+  ...holes: H
+): View<ValuesOf<H>, "html"> {
+  let v = views.get(strings);
+  if (v === undefined) views.set(strings, (v = runtimeView(blocks(strings, ...holes) as unknown as AnyTemplate)));
+  return v as unknown as View<ValuesOf<H>, "html">;
+}
+
+/** Like `html`, for SVG content. */
+export function svg<const H extends readonly AnyHole[]>(
+  strings: TemplateStringsArray,
+  ...holes: H
+): View<ValuesOf<H>, "svg"> {
+  let v = views.get(strings);
+  if (v === undefined) views.set(strings, (v = runtimeView(svgBlocks(strings, ...holes) as unknown as AnyTemplate)));
+  return v as unknown as View<ValuesOf<H>, "svg">;
+}
+
+/** A keyed list for a child hole: `render(item)` describes each item. */
+export function list<T, K extends Key, N extends ViewNode>(
+  items: readonly T[],
+  key: (item: NoInfer<T>) => K,
+  render: (item: NoInfer<T>) => N,
+): ListNode<N, K> {
+  return new ListOf(
+    items as readonly unknown[],
+    key as (item: unknown) => Key,
+    render as (item: unknown) => ViewNode,
+  ) as unknown as ListNode<N, K>;
+}
+
+/** Unkeyed inline content for a child hole: text runs and descriptions side by side. */
+export function runs<N extends ViewNode>(items: readonly (string | number | N)[]): RunsNode<N> {
+  return new RunsOf(items) as unknown as RunsNode<N>;
+}
+
+/** Render a description into `container`: mount the first time, patch afterwards. */
+export function render(container: Node, d: ViewNode): void {
+  const c = container as Container;
+  if (c[LISTENING] !== used.length) listen(c);
+  draw(c, d as unknown as Desc, false);
+}
+
+/** Like `render`, with every handler on its own element (no delegation). */
+export function renderDirect(container: Node, d: ViewNode): void {
+  draw(container as Container, d as unknown as Desc, true);
+}
+
+/** Create a view's root element, its own render root. Update it with `update`. */
+export function mount(d: ViewNode): Element {
+  const outer = dir;
+  dir = false;
+  try {
+    const inst = (d as unknown as Desc).m();
+    const root = inst.r as Element & Container;
+    root[SELF] = inst;
+    listen(root);
+    return root;
+  } finally {
+    dir = outer;
+  }
+}
+
+/** Patch a root made by `mount` toward a description of the same view. */
+export function update(root: Element, d: ViewNode): void {
+  const r = root as Element & Container,
+    inst = r[SELF],
+    desc = d as unknown as Desc;
+  if (inst === undefined) throw new Error("herdsman-blocks-view: update() takes a root made by mount()");
+  if (desc.t !== inst.t) throw new Error("herdsman-blocks-view: update() with a different view; mount() it instead");
+  if (r[LISTENING] !== used.length) listen(r);
+  const outer = dir;
+  dir = false;
+  try {
+    patch(inst, desc);
+  } finally {
+    dir = outer;
+  }
+}
+
+function draw(c: Container, d: Desc, direct: boolean): void {
+  const outer = dir;
+  dir = direct;
+  try {
+    const inst = c[ROOT];
+    if (inst !== undefined) return patch(inst, d);
+    const fresh = d.m();
+    c.textContent = "";
+    c.appendChild(fresh.r);
+    c[ROOT] = fresh;
+  } finally {
+    dir = outer;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The protocol between generated code and this module
+// ---------------------------------------------------------------------------
+
+/** For generated code: whether the render running now mounts handlers directly (renderDirect). */
+export let dir: boolean = false;
+
+/** For generated code: the key under which a view root with handlers holds its instance. */
+export const STATE: unique symbol = Symbol("herdsman-blocks-compiled.state");
+type Holder = Node & { [STATE]?: Inst };
+
+/** What every instance of one view shares. */
+export interface Def {
+  /** Hole count. */
+  readonly n: number;
+  /** Per hole, the delegated event type, or null when the view delegates none. */
+  readonly ty: readonly (string | undefined)[] | null;
+  /** Locates the delegated handler holes. */
+  readonly fd: Locator;
+  /** Whether any hole is a handler: the instance is then kept on its root. */
+  readonly h: boolean;
+}
+
+/**
+ * For generated code: the base of every description. A compiled view's
+ * subclass keeps its values in fields $0, $1, ...; `t` is its view's Def (on
+ * the prototype), `m` mounts it, `p` patches an instance of the same view
+ * toward it, and `g(i)` reads hole i's value.
+ */
+export abstract class Desc {
+  declare readonly t: Def;
+  abstract m(): Inst;
+  abstract p(inst: Inst): void;
+  g(i: number): unknown {
+    return (this as unknown as Record<string, unknown>)["$" + i];
+  }
+}
+
+/**
+ * For generated code: a mounted view. `d` is the description last rendered;
+ * `s` holds the hole nodes (a Slot for child holes), or null until a hole is
+ * first located. Every field changes when another view replaces this one in
+ * place, so lists and parents holding the instance need no update.
+ */
+export class Inst {
+  t: Def;
+  r: Element;
+  d: Desc;
+  s: unknown[] | null;
+  /** Mounted by renderDirect: its handlers are on its elements, never delegated. */
+  x: boolean;
+  constructor(t: Def, r: Element, d: Desc, s: unknown[] | null, x: boolean) {
+    this.t = t;
+    this.r = r;
+    this.d = d;
+    this.s = s;
+    this.x = x;
+  }
+}
+
+/** For generated code: a view's Def; registers its delegated event types once. */
+export function def(n: number, ty: readonly (string | undefined)[] | null, fd: Locator, h: boolean): Def {
+  if (ty !== null) for (const type of ty) if (type !== undefined && !used.includes(type)) used.push(type);
+  return { n, ty, fd, h };
+}
+
+/** For generated code: parse a view's static markup once; returns its root element. */
+export function proto(markup: string, isSvg: boolean): Element {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = isSvg ? "<svg>" + markup + "</svg>" : markup;
+  const root = isSvg ? tpl.content.firstChild!.firstChild : tpl.content.firstChild;
+  return root as Element;
+}
+
+/** For generated code: put an empty text node in place of a hole's placeholder comment. */
+export function hole(c: Node): Text {
+  const t = document.createTextNode("");
+  c.parentNode!.replaceChild(t, c);
+  return t;
+}
+
+/**
+ * For generated code: set a direct trampoline, through the element's on*
+ * property when it has one, otherwise as a listener; once per element.
+ */
+export function attach(node: Node, name: string, fn: Fn): void {
+  if (name in node) (node as unknown as Record<string, unknown>)[name] = fn;
+  else node.addEventListener(name.slice(2), fn as EventListener);
+}
+
+/** For generated code: the trampoline of handler hole i, shared by every instance of a view. */
+export function tramp(i: number): Fn {
+  return function (this: Holder, e: Event): unknown {
+    let h: Holder = this;
+    while (h[STATE] === undefined) h = h.parentNode!;
+    const f = h[STATE].d.g(i);
+    return typeof f === "function" ? (f as Fn).call(this, e) : undefined;
+  };
+}
+
+/** For generated code: wrap a child hole's anchor in a slot and set its first value. */
+export function slotOf(anchor: Node, v: unknown): Slot {
+  const sl = new Slot(anchor);
+  setChild(sl, v);
+  return sl;
+}
+
+/** Bring a mounted instance to `d`: patch it, or replace it with a fresh mount when `d` is another view. */
+function patch(inst: Inst, d: Desc): void {
+  const t = d.t;
+  if (t === inst.t) return d.p(inst);
+  const fresh = d.m();
+  inst.r.parentNode!.replaceChild(fresh.r, inst.r);
+  inst.t = t;
+  inst.r = fresh.r;
+  inst.d = d;
+  inst.s = fresh.s;
+  inst.x = fresh.x;
+  if (t.h) (fresh.r as Holder)[STATE] = inst;
+}
+
+// ---------------------------------------------------------------------------
+// Views compiled at run time (literals the plugin did not compile)
+// ---------------------------------------------------------------------------
+
+type AnyTemplate = Template<Values>;
+
+const views = new WeakMap<TemplateStringsArray, View<Values>>();
+
+// How each hole is written. WRITE holes go through Template.write, lazily.
+const WRITE = 0;
+const HANDLER = 1;
+const PROPERTY = 2;
+const CHILD = 3;
+const DELEGATED = 4;
+
+/** Events delegated to the render root; the plugin's list is the same. */
+export const BUBBLING: ReadonlySet<string> = new Set([
+  "auxclick",
+  "beforeinput",
+  "change",
+  "click",
+  "compositionend",
+  "compositionstart",
+  "compositionupdate",
+  "contextmenu",
+  "dblclick",
+  "focusin",
+  "focusout",
+  "input",
+  "keydown",
+  "keyup",
+  "mousedown",
+  "mousemove",
+  "mouseout",
+  "mouseover",
+  "mouseup",
+  "pointerdown",
+  "pointermove",
+  "pointerout",
+  "pointerover",
+  "pointerup",
+  "submit",
+]);
+// Every delegated event type any view uses; render roots listen for these.
+const used: string[] = [];
+
+/** A run-time view's Def: the template and what each hole needs. */
+class RDef implements Def {
+  readonly n: number;
+  readonly ty: (string | undefined)[] | null;
+  readonly fd: Locator;
+  readonly h: boolean;
+  readonly tpl: AnyTemplate;
+  readonly flags: Uint8Array;
+  readonly eager: boolean;
+  readonly fns: (Fn | undefined)[];
+  readonly delegates: boolean;
+  readonly findEager: Locator;
+  readonly findWrite: Locator;
+
+  constructor(t: AnyTemplate) {
+    const n = t.n;
+    this.tpl = t;
+    this.n = n;
+    this.flags = new Uint8Array(n);
+    this.fns = new Array(n);
+    const ty: (string | undefined)[] = new Array(n);
+    let handlers = false;
+    const eager: number[] = [],
+      write: number[] = [],
+      delegated: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const k = t.kind(i),
+        name = t.names[i];
+      if (k === "slot") this.flags[i] = CHILD;
+      else if (k === "prop" && name!.startsWith("on")) {
+        handlers = true;
+        const type = name!.slice(2);
+        this.fns[i] = tramp(i);
+        if (BUBBLING.has(type)) {
+          this.flags[i] = DELEGATED;
+          ty[i] = type;
+          if (!used.includes(type)) used.push(type);
+          delegated.push(i);
+          continue;
+        }
+        this.flags[i] = HANDLER;
+      } else if (k === "prop") this.flags[i] = PROPERTY;
+      else {
+        write.push(i);
+        continue;
+      }
+      eager.push(i);
+    }
+    this.h = handlers;
+    this.ty = delegated.length > 0 ? ty : null;
+    this.delegates = delegated.length > 0;
+    this.eager = eager.length > 0;
+    // Hole paths hold only in the pristine clone (see herdsman-blocks-view.ts).
+    this.findEager = eager.length === n || this.flags.includes(CHILD) ? t.locate : t.locator(eager);
+    this.findWrite = write.length === n ? t.locate : t.locator(write);
+    this.fd = delegated.length === n ? t.locate : t.locator(delegated);
+  }
+}
+
+function runtimeView(t: AnyTemplate): View<Values> {
+  const rd = new RDef(t);
+  const v = ((vals: Values) => new RDesc(rd, vals)) as unknown as { (vals: Values): unknown; template: AnyTemplate };
+  v.template = t;
+  return v as unknown as View<Values>;
+}
+
+class RDesc extends Desc {
+  declare readonly t: RDef;
+  readonly v: Values;
+  constructor(t: RDef, v: Values) {
+    super();
+    (this as { t: RDef }).t = t;
+    this.v = v;
+  }
+
+  override g(i: number): unknown {
+    return this.v[i];
+  }
+
+  m(): Inst {
+    const sh = this.t,
+      vals = this.v,
+      t = sh.tpl;
+    const root = t.clone(vals);
+    const direct = dir && sh.delegates;
+    if (!sh.eager && !direct) {
+      const inst = new Inst(sh, root, this, null, dir);
+      if (sh.h) (root as Holder)[STATE] = inst;
+      return inst;
+    }
+    const n = sh.n,
+      s: unknown[] = new Array(n);
+    if (sh.eager) sh.findEager(root, s);
+    if (direct) sh.fd(root, s);
+    const inst = new Inst(sh, root, this, s, dir);
+    if (sh.h) (root as Holder)[STATE] = inst;
+    const flags = sh.flags;
+    for (let i = 0; i < n; i++) {
+      const f = flags[i];
+      if (f === WRITE || (f === DELEGATED && !direct)) continue;
+      const node = s[i] as Node,
+        v = vals[i];
+      if (f === HANDLER || f === DELEGATED) attach(node, t.names[i]!, sh.fns[i]!);
+      else if (f === PROPERTY) {
+        if (v != null) t.write(i, node, v);
+      } else s[i] = slotOf(node, v);
+    }
+    return inst;
+  }
+
+  p(inst: Inst): void {
+    const sh = this.t,
+      vals = this.v;
+    const old = inst.d as RDesc;
+    if (old === this) return;
+    const ov = old.v;
+    inst.d = this;
+    if (ov === vals) return; // the same values again: nothing can have changed
+    const n = sh.n,
+      flags = sh.flags;
+    let s = inst.s;
+    for (let i = 0; i < n; i++) {
+      const v = vals[i];
+      if (ov[i] === v) continue;
+      const f = flags[i];
+      if (f === HANDLER || f === DELEGATED) continue;
+      if (f === CHILD) setChild(s![i] as Slot, v);
+      else {
+        if (s === null) sh.findWrite(inst.r, (s = inst.s = new Array(n)));
+        else if (s[i] === undefined) sh.findWrite(inst.r, s);
+        sh.tpl.write(i, s[i] as Node, v);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Render roots and delegated events
+// ---------------------------------------------------------------------------
+
+const ROOT: unique symbol = Symbol("herdsman-blocks-compiled.root");
+const LISTENING: unique symbol = Symbol("herdsman-blocks-compiled.listening");
+const SELF: unique symbol = Symbol("herdsman-blocks-compiled.self");
+type Container = Node & { [ROOT]?: Inst; [LISTENING]?: number; [SELF]?: Inst };
+
+function listen(c: Container): void {
+  for (let k = c[LISTENING] ?? 0; k < used.length; k++) c.addEventListener(used[k]!, delegate);
+  c[LISTENING] = used.length;
+}
+
+function delegate(this: Container, e: Event): void {
+  const type = e.type;
+  let els: Node[] | null = null,
+    insts: Inst[] | null = null,
+    holes: number[] | null = null,
+    pos: number[] | null = null;
+  const path: Node[] = [];
+  const self = this[SELF] !== undefined;
+  for (let node = e.target as Node | null; node !== null; node = node === this ? null : node.parentNode) {
+    if (node === this && !self) break;
+    path.push(node);
+    if (node !== this && (node as Container)[LISTENING] !== undefined) {
+      els = insts = holes = pos = null;
+      continue;
+    }
+    const inst = (node as Holder)[STATE];
+    if (inst === undefined || inst.x) continue;
+    const t = inst.t,
+      types = t.ty;
+    if (types === null) continue;
+    for (let i = 0; i < t.n; i++) {
+      if (types[i] !== type) continue;
+      let s = inst.s;
+      if (s === null) s = inst.s = new Array(t.n);
+      if (s[i] === undefined) t.fd(inst.r, s);
+      const at = path.lastIndexOf(s[i] as Node);
+      if (at < 0) continue;
+      ((els ??= []), (insts ??= []), (holes ??= []), (pos ??= []));
+      let j = pos.length;
+      while (j > 0 && pos[j - 1]! > at) j--;
+      els.splice(j, 0, s[i] as Node);
+      insts.splice(j, 0, inst);
+      holes.splice(j, 0, i);
+      pos.splice(j, 0, at);
+    }
+  }
+  if (els === null) return;
+  for (let k = 0; k < els.length; k++) {
+    if (k > 0 && els[k] !== els[k - 1] && e.cancelBubble) break;
+    const f = insts![k]!.d.g(holes![k]!);
+    if (typeof f !== "function") continue;
+    const el = els[k]!;
+    Object.defineProperty(e, "currentTarget", { configurable: true, get: () => el });
+    try {
+      (f as (this: Node, e: Event) => unknown).call(el, e);
+    } finally {
+      delete (e as { currentTarget?: unknown }).currentTarget;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Child holes
+// ---------------------------------------------------------------------------
+
+class RunsOf {
+  readonly items: readonly unknown[];
+  constructor(items: readonly unknown[]) {
+    this.items = items;
+  }
+}
+
+class ListOf {
+  readonly items: readonly unknown[];
+  readonly key: (item: unknown) => Key;
+  readonly render: (item: unknown) => ViewNode;
+  constructor(items: readonly unknown[], key: (item: unknown) => Key, render: (item: unknown) => ViewNode) {
+    this.items = items;
+    this.key = key;
+    this.render = render;
+  }
+}
+
+const EMPTY = 0;
+const TEXT = 1;
+const NODE = 2;
+const VIEW = 3;
+const LIST = 4;
+const RUNS = 5;
+
+const kindOf = (v: unknown): number =>
+  v == null || v === false
+    ? EMPTY
+    : typeof v !== "object"
+      ? TEXT
+      : v instanceof Desc
+        ? VIEW
+        : v instanceof ListOf
+          ? LIST
+          : v instanceof RunsOf
+            ? RUNS
+            : NODE;
+
+/** A child hole's state; its content sits just before `anchor`, which never moves. */
+export class Slot {
+  readonly anchor: Text;
+  readonly parent: Node;
+  kind: number = EMPTY;
+  node: Node | null = null;
+  inst: Inst | null = null;
+  list: List<unknown, Inst, Key> | null = null;
+  key: (item: unknown) => Key = noKey;
+  render: (item: unknown) => ViewNode = noRender;
+  runs: (Text | Inst)[] | null = null;
+  constructor(anchor: Node) {
+    this.anchor = anchor as Text;
+    this.parent = anchor.parentNode!;
+  }
+}
+
+const noKey = (): Key => 0;
+const noRender = (): ViewNode => {
+  throw new Error("herdsman-blocks-view: no list");
+};
+
+/** For generated code: set a child hole's content. */
+export function setChild(sl: Slot, v: unknown): void {
+  const k = kindOf(v);
+  if (k === sl.kind) {
+    switch (k) {
+      case TEXT:
+        sl.anchor.data = "" + (v as string | number);
+        return;
+      case NODE:
+        if (v === sl.node) return;
+        if (sl.node!.parentNode === sl.parent) sl.parent.replaceChild(v as Node, sl.node!);
+        else sl.parent.insertBefore(v as Node, sl.anchor);
+        sl.node = v as Node;
+        return;
+      case VIEW:
+        return patch(sl.inst!, v as Desc);
+      case LIST:
+        return setList(sl, v as ListOf);
+      case RUNS:
+        return setRuns(sl, (v as RunsOf).items);
+    }
+    return;
+  }
+  clearChild(sl);
+  sl.kind = k;
+  switch (k) {
+    case TEXT:
+      sl.anchor.data = "" + (v as string | number);
+      return;
+    case NODE:
+      sl.parent.insertBefore((sl.node = v as Node), sl.anchor);
+      return;
+    case VIEW:
+      sl.inst = (v as Desc).m();
+      sl.parent.insertBefore(sl.inst.r, sl.anchor);
+      return;
+    case LIST: {
+      const alone = sl.anchor.previousSibling === null && sl.anchor.nextSibling === null;
+      sl.list = new List<unknown, Inst, Key>(sl.parent, {
+        owns: alone,
+        anchor: alone ? null : sl.anchor,
+        key: (item) => sl.key(item),
+        root: instRoot,
+        create: (item) => (sl.render(item) as unknown as Desc).m(),
+        update: (inst, item) => patch(inst, sl.render(item) as unknown as Desc),
+      });
+      return setList(sl, v as ListOf);
+    }
+    case RUNS:
+      sl.runs = [];
+      return setRuns(sl, (v as RunsOf).items);
+  }
+}
+
+const instRoot = (i: Inst): Node => i.r;
+
+function setRuns(sl: Slot, items: readonly unknown[]): void {
+  const old = sl.runs!,
+    p = sl.parent,
+    n = items.length;
+  for (let i = 0; i < n; i++) {
+    const v = items[i],
+      cur = old[i];
+    if (v instanceof Desc) {
+      if (cur instanceof Inst) {
+        patch(cur, v);
+        continue;
+      }
+      const inst = v.m();
+      if (cur === undefined) p.insertBefore(inst.r, sl.anchor);
+      else p.replaceChild(inst.r, cur);
+      old[i] = inst;
+    } else {
+      const t = "" + (v as string | number);
+      if (cur instanceof Inst || cur === undefined) {
+        const node = document.createTextNode(t);
+        if (cur === undefined) p.insertBefore(node, sl.anchor);
+        else p.replaceChild(node, cur.r);
+        old[i] = node;
+      } else if (cur.data !== t) cur.data = t;
+    }
+  }
+  for (let i = n; i < old.length; i++) p.removeChild(runRoot(old[i]!));
+  old.length = n;
+}
+
+const runRoot = (r: Text | Inst): Node => (r instanceof Inst ? r.r : r);
+
+function setList(sl: Slot, l: ListOf): void {
+  sl.key = l.key;
+  sl.render = l.render;
+  sl.list!.set(l.items);
+}
+
+function clearChild(sl: Slot): void {
+  switch (sl.kind) {
+    case TEXT:
+      sl.anchor.data = "";
+      break;
+    case NODE:
+      if (sl.node!.parentNode === sl.parent) sl.parent.removeChild(sl.node!);
+      sl.node = null;
+      break;
+    case VIEW:
+      sl.parent.removeChild(sl.inst!.r);
+      sl.inst = null;
+      break;
+    case LIST:
+      sl.list!.clear();
+      sl.list = null;
+      sl.key = noKey;
+      sl.render = noRender;
+      if (sl.anchor.parentNode === null) sl.parent.appendChild(sl.anchor);
+      break;
+    case RUNS:
+      for (const r of sl.runs!) sl.parent.removeChild(runRoot(r));
+      sl.runs = null;
+      break;
+  }
+  sl.kind = EMPTY;
+}
