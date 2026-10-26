@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // Small units the command-level cases of inbox_test.go do not reach.
@@ -91,5 +93,83 @@ func TestBoundDuringReplacement(t *testing.T) {
 				t.Errorf("ReadBounded accepted %d bytes", len(b))
 			}
 		})
+	}
+}
+
+// Review port-core-11 P1: ReadStrict's path check (Regular) opened the
+// leaf with a blocking open after a separate Lstat, so a leaf replaced by
+// a fifo in between hung the reader. Leaves flip between a regular file
+// and a fifo while ReadStrict reads; the reader must keep going.
+func TestReviewStrictFIFOReplacementDoesNotHang(t *testing.T) {
+	dir := t.TempDir()
+	small, fifo, p := filepath.Join(dir, "small"), filepath.Join(dir, "fifo"), filepath.Join(dir, "current.json")
+	if err := os.WriteFile(small, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(small, p); err != nil {
+		t.Fatal(err)
+	}
+	stop, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			for _, src := range []string{fifo, small} {
+				_ = os.Link(src, p+".next")
+				_ = os.Rename(p+".next", p)
+			}
+		}
+	}()
+	var progress atomic.Int64
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 1; i <= 100000; i++ {
+			ReadStrict(dir, p)
+			progress.Store(int64(i))
+		}
+	}()
+	prev, same, blocked := int64(-1), 0, false
+	for i := 0; i < 100 && !blocked; i++ {
+		select {
+		case <-done:
+			i = 100
+			continue
+		case <-time.After(20 * time.Millisecond):
+		}
+		n := progress.Load()
+		if n == prev {
+			same++
+		} else {
+			same = 0
+		}
+		prev = n
+		blocked = same >= 10
+	}
+	close(stop)
+	<-stopped
+	_ = os.Remove(p)
+	_ = os.Link(small, p)
+	// Open a writer on the fifo to release a blocked open, then join the
+	// reader before cleaning up.
+	f, err := os.OpenFile(fifo, os.O_RDWR|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the reader did not stop after the fifo was released")
+	}
+	if blocked {
+		t.Errorf("ReadStrict blocked on a fifo after %d reads", prev)
 	}
 }

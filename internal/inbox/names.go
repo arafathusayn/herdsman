@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 var (
@@ -173,11 +174,17 @@ func Regular(root, p string) bool {
 	if err != nil || !st.Mode().IsRegular() {
 		return false
 	}
-	f, err := os.Open(p)
+	// The open is checked on its own descriptor: no link followed, no
+	// blocking on a fifo that replaced the file after the Lstat.
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return false
 	}
+	fst, err := f.Stat()
 	_ = f.Close()
+	if err != nil || !fst.Mode().IsRegular() {
+		return false
+	}
 	return GuardPath(root, p)
 }
 
