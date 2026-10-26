@@ -43,18 +43,18 @@ Our measurements come from a local replica of the official method in headless Ch
 
 **Latest run** (2026-10-26, after the allocation work in the change log), median of 12 iterations:
 
-| Test | re (official #1) | vanillajs-lite (official #3) | vanillajs | herdsman-dom-diff |
-|---|---:|---:|---:|---:|
-| create 1,000 rows | 74.3 ms | 68.2 ms | 87.1 ms | 74.2 ms |
-| replace 1,000 rows | 75.8 ms | 76.3 ms | 76.1 ms | 77.6 ms |
-| partial update | 61.3 ms | 53.7 ms | 54.1 ms | 55.2 ms |
-| select row | 11.1 ms | 11.2 ms | 12.3 ms | 11.8 ms |
-| swap rows | 66.6 ms | 62.5 ms | 69.1 ms | 57.9 ms |
-| remove row | 46.7 ms | 44.2 ms | 44.3 ms | 44.9 ms |
-| create 10,000 rows | 771.0 ms | 734.2 ms | 819.2 ms | 734.7 ms |
-| append 1,000 rows | 87.3 ms | 81.0 ms | 87.6 ms | 87.6 ms |
-| clear 1,000 rows | 30.2 ms | 29.3 ms | 29.7 ms | 34.2 ms |
-| **weighted score** | **1.065** | **1.004** | **1.080** | **1.052** |
+| Test               | re (official #1) | vanillajs-lite (official #3) | vanillajs | herdsman-dom-diff |
+| ------------------ | ---------------: | ---------------------------: | --------: | ----------------: |
+| create 1,000 rows  |          74.3 ms |                      68.2 ms |   87.1 ms |           74.2 ms |
+| replace 1,000 rows |          75.8 ms |                      76.3 ms |   76.1 ms |           77.6 ms |
+| partial update     |          61.3 ms |                      53.7 ms |   54.1 ms |           55.2 ms |
+| select row         |          11.1 ms |                      11.2 ms |   12.3 ms |           11.8 ms |
+| swap rows          |          66.6 ms |                      62.5 ms |   69.1 ms |           57.9 ms |
+| remove row         |          46.7 ms |                      44.2 ms |   44.3 ms |           44.9 ms |
+| create 10,000 rows |         771.0 ms |                     734.2 ms |  819.2 ms |          734.7 ms |
+| append 1,000 rows  |          87.3 ms |                      81.0 ms |   87.6 ms |           87.6 ms |
+| clear 1,000 rows   |          30.2 ms |                      29.3 ms |   29.7 ms |           34.2 ms |
+| **weighted score** |        **1.065** |                    **1.004** | **1.080** |         **1.052** |
 
 Assessment: in this replica herdsman-dom-diff ranks second of four, ahead of `re` (the official leader) and `vanillajs`, and about 4.8% behind `vanillajs-lite`. It is fastest on swap and ties the fastest on create 10,000 rows. Its one clear loss is clear rows (1.17 times the best): its samples split between about 30 ms and about 50 ms, which points to garbage collection of the per-row block objects landing inside the measured window. Whether these placements hold on the official table can only be settled by the official run.
 
