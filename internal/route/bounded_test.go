@@ -112,53 +112,42 @@ func TestLoadBoundedReparsesAReplacedFile(t *testing.T) {
 	}
 }
 
-// A24: older run-state lines are paged by reading backward from the end
-// in bounded chunks: a page costs the same at 100 and 10,000 lines.
-func TestPageRunStateReadsBackward(t *testing.T) {
-	cost := map[int]uint64{}
+// A24: older run-state lines are paged from the snapshot's remembered
+// offsets: a page, the oldest included, costs the same at 150 and 10,000
+// lines.
+func TestPageReadsFromTheSnapshot(t *testing.T) {
+	cost := map[int][2]uint64{}
 	for _, n := range []int{150, 10000} {
 		dir := t.TempDir()
 		writeLines(t, dir, n)
-		var lines []route.LogLine
-		var err error
-		cost[n] = allocs(func() { lines, err = route.PageRunState(dir, n-50, 50, n) })
+		tail, err := route.LoadBounded(dir, 50, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var lines, first []route.LogLine
+		cost[n] = [2]uint64{
+			allocs(func() { lines, err = tail.Page(n-50, 50) }),
+			allocs(func() { first, _ = tail.Page(3, 50) }),
+		}
 		if err != nil || len(lines) != 50 || !strings.HasPrefix(lines[0].Text, fmt.Sprintf("line %d ", n-100)) || !strings.HasPrefix(lines[49].Text, fmt.Sprintf("line %d ", n-51)) {
 			t.Fatalf("%d: %d lines %v", n, len(lines), err)
 		}
-		first, _ := route.PageRunState(dir, 3, 50, n)
 		if len(first) != 3 || !strings.HasPrefix(first[0].Text, "line 0 ") {
 			t.Fatalf("first page %+v", first)
 		}
 	}
-	if int64(cost[10000])-int64(cost[150]) > 64<<10 {
-		t.Fatalf("a page costs %d bytes at 150 lines and %d at 10,000", cost[150], cost[10000])
+	for i, what := range []string{"a page", "the oldest page"} {
+		if int64(cost[10000][i])-int64(cost[150][i]) > 64<<10 {
+			t.Errorf("%s costs %d bytes at 150 lines and %d at 10,000", what, cost[150][i], cost[10000][i])
+		}
 	}
 }
 
-func TestTailSectionAndFileList(t *testing.T) {
+func TestFileList(t *testing.T) {
 	dir := t.TempDir()
-	write := func(name, body string) {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("00-route.md", head+"- 10:00 one\n")
-	tail, err := route.LoadBounded(dir, 100, nil)
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("n\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !tail.RunStateLast() {
-		t.Fatal("the run state is the last section")
-	}
-	write("00-route.md", head+"- 10:00 one\n\n## Notes\n\nlater\n")
-	tail, err = route.LoadBounded(dir, 100, tail)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tail.RunStateLast() {
-		t.Fatal("a section after the run state")
-	}
-	write("notes.md", "n\n")
 	names := []string{}
 	for _, f := range route.ListFiles(dir) {
 		names = append(names, f.Path)

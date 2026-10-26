@@ -57,8 +57,8 @@ export function openNewRoute(): void {
   const flow = newRouteFlow(
     body,
     { savedChoices, catalog },
-    (c, previous) => {
-      const f = routeForm(body, c, store.app.server, formDeps(), { usePrevious: previous });
+    (c, previous, recommended) => {
+      const f = routeForm(body, c, store.app.server, formDeps(), { usePrevious: previous, recommended });
       body.querySelector<HTMLElement>(f.form().folder ? "textarea" : "input[name=folder]")?.focus();
       return f;
     },

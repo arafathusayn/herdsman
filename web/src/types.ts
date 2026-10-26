@@ -293,6 +293,8 @@ export interface CatalogKind {
   offline: boolean;
   /** The harness maker's page of its models. */
   docs_url?: string;
+  /** The harness's own command that describes its models, when it has no page. */
+  docs_command?: string;
   /** A kind from the saved picks alone (?probe=0): its picks start as saved. */
   saved?: boolean;
   /** Why the harness's list could not be read (A29); then it offers no models. */

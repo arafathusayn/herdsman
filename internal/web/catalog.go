@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -71,12 +70,6 @@ func (c *Catalog) kind(k string) *CatalogKind {
 
 // runner runs one catalog command and returns its standard output.
 type runner func(ctx context.Context, name string, args ...string) ([]byte, error)
-
-func execRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdin = nil
-	return cmd.Output()
-}
 
 // catalogSource builds the catalog once and keeps it.
 type catalogSource struct {
@@ -242,8 +235,8 @@ func pickKinds(picks []choices.Pick) []CatalogKind {
 	out := []CatalogKind{}
 	at := map[string]int{}
 	for _, p := range picks {
-		if p.Runner != "herdr" {
-			continue
+		if p.Runner != "herdr" || !usable(p) {
+			continue // an unusable pick is asked again
 		}
 		i, ok := at[p.Harness]
 		if !ok {
@@ -277,30 +270,41 @@ func pickKinds(picks []choices.Pick) []CatalogKind {
 	return out
 }
 
-// planCatalog is the catalog a new route is checked against: the saved
-// picks' catalog when every coordinator of the request is exactly a saved
-// pick (A30: the previous choice never waits for, or depends on, a probe),
-// else the probed one.
-func (s *Server) planCatalog(r *http.Request, req RouteRequest) Catalog {
-	{
-		picks := s.savedPicks()
-		is := func(role, kind, model, effort string) bool {
-			for _, p := range picks {
-				if p.Role == role && p.Runner == "herdr" && p.Harness == kind && p.Model == model && p.Effort == effort {
-					return true
-				}
+// roleCatalogs are the catalogs a new route's coordinators are checked
+// against: main for the request's own role, orch for the orchestrator of
+// an adjutant route (the same as main on an orchestrator route).
+type roleCatalogs struct{ main, orch Catalog }
+
+// planCatalogs gives each coordinator its own catalog (A30, per role): the
+// saved picks' catalog when that role is exactly its usable saved pick, so
+// the previous choice never waits for or depends on a probe; else the
+// probed one, built only when a role needs it.
+func (s *Server) planCatalogs(r *http.Request, req RouteRequest) roleCatalogs {
+	picks := s.savedPicks()
+	var probed *Catalog
+	of := func(role, kind, model, effort string) Catalog {
+		for _, p := range picks {
+			if p.Role == role && p.Runner == "herdr" && usable(p) && p.Harness == kind && p.Model == model && p.Effort == effort {
+				return Catalog{Kinds: pickKinds(picks), FromPicks: true}
 			}
-			return false
 		}
-		ok := is(req.Role, req.Kind, req.Model, req.Effort)
-		if req.Role == "adjutant" {
-			ok = ok && is("orchestrator", req.OrchKind, req.OrchModel, req.OrchEffort)
+		if probed == nil {
+			c := s.catalog.get(r.Context())
+			probed = &c
 		}
-		if ok {
-			return Catalog{Kinds: pickKinds(picks), FromPicks: true}
-		}
+		return *probed
 	}
-	return s.catalog.get(r.Context())
+	if req.Role == "adjutant" {
+		return roleCatalogs{main: of("adjutant", req.Kind, req.Model, req.Effort), orch: of("orchestrator", req.OrchKind, req.OrchModel, req.OrchEffort)}
+	}
+	c := of("orchestrator", req.Kind, req.Model, req.Effort)
+	return roleCatalogs{main: c, orch: c}
+}
+
+// usable says whether a saved pick can start without a probe: an effort of
+// a harness other than Claude and Codex needs the option that passes it.
+func usable(p choices.Pick) bool {
+	return p.Effort == "" || p.EffortFlag != "" || p.Harness == "claude" || p.Harness == "codex"
 }
 
 // savedPicks is each role's last pick (A30), read without asking any

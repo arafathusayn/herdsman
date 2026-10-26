@@ -540,3 +540,42 @@ test("setCatalog keeps the draft and asks again for a pick the lists dropped", a
   expect(r.form().folder).toBe("/r/kept");
   expect(box(body, "main")?.textContent).toContain("is no longer offered");
 });
+
+const bareDeps = {
+  createRoute: () => new Promise<RouteResult>(() => {}),
+  inboxState: () => new Promise<InboxState>(() => {}),
+  state: () => state,
+  copy: () => {},
+  openPane: () => {},
+  close: () => {},
+  failed: () => {},
+  every: () => () => {},
+  later: () => () => {},
+} as Deps;
+
+// A29 step 2: a harness listed through its own command shows that command
+// as its model docs when it has no web page.
+test("a kind listed through its own command shows that command as its model docs", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const muse = {
+    ...catalog.kinds[1]!,
+    kind: "muse",
+    label: "Muse",
+    docs_command: "muse model-profile show <model>",
+  };
+  routeForm(body as unknown as HTMLElement, { ...catalog, kinds: [muse] }, state, bareDeps);
+  const docs = all(body).find((e) => e.dataset["docs"] === "main");
+  expect(docs?.textContent).toContain("muse model-profile show <model>");
+});
+
+// A32: the answer to "Use the recommended setup?" carries into the form.
+test("a custom setup answer opens the form with the recommended setup off", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  routeForm(body as unknown as HTMLElement, catalog, state, bareDeps, { recommended: false });
+  expect(byName(body, "recommended").checked).toBe(false);
+  const again = document.createElement("form") as unknown as FakeElement;
+  routeForm(again as unknown as HTMLElement, catalog, state, bareDeps, { recommended: true });
+  expect(byName(again, "recommended").checked).toBe(true);
+});

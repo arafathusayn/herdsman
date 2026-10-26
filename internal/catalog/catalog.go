@@ -47,6 +47,9 @@ type Kind struct {
 	Offline bool `json:"offline"`
 	// DocsURL is the harness maker's page of its models, for the user to read.
 	DocsURL string `json:"docs_url,omitempty"`
+	// DocsCommand is the harness's own command that describes its models,
+	// for a harness with no model page (A29 step 2).
+	DocsCommand string `json:"docs_command,omitempty"`
 	// Version is the first line of the harness's --version, when asked.
 	Version string `json:"version,omitempty"`
 	// Unavailable says why the harness's list could not be read: then

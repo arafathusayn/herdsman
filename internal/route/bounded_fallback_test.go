@@ -1,6 +1,7 @@
 package route_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,37 +10,55 @@ import (
 	"github.com/arafathusayn/herdsman/internal/route"
 )
 
-// When the run state is not the file's last section, or has no header,
-// the page comes from a whole read; a missing file is an error.
-func TestPageRunStateFallsBack(t *testing.T) {
-	dir := t.TempDir()
-	body := head + "- 10:00 one\n- 10:01 two\n- 10:02 three\n\n## Notes\n\n- 10:03 not a run line\n"
+func writeRoute(t *testing.T, dir, body string) {
+	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, route.RouteFile), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	lines, err := route.PageRunState(dir, 3, 2, 3)
-	if err != nil || len(lines) != 2 || lines[0].Text != "two" || lines[1].Text != "three" {
+}
+
+func tailOf(t *testing.T, dir string) *route.Tail {
+	t.Helper()
+	tail, err := route.LoadBounded(dir, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tail
+}
+
+// A page is read the same whatever follows the run state, skips other
+// sections' lines and the partial last line, and is refused, not misread,
+// when the file no longer holds the snapshot's lines.
+func TestPageEveryLayout(t *testing.T) {
+	dir := t.TempDir()
+	writeRoute(t, dir, head+"- 10:00 one\n- 10:01 two\n\n## Notes\n\n- 10:03 not a run line\n\n## Run state\n\n- 10:04 three\n- 10:05 partial")
+	tail := tailOf(t, dir)
+	if tail.Total != 3 {
+		t.Fatalf("total %d", tail.Total)
+	}
+	lines, err := tail.Page(3, 5)
+	if err != nil || len(lines) != 3 || lines[1].Text != "two" || lines[2].Text != "three" {
 		t.Fatalf("%+v %v", lines, err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, route.RouteFile), []byte("- 10:00 one\n- 10:01 two\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if lines, err := route.PageRunState(dir, 2, 5, 2); err != nil || len(lines) != 0 {
-		t.Fatalf("no header: %+v %v", lines, err)
-	}
-	if lines, err := route.PageRunState(dir, 0, 5, 2); err != nil || len(lines) != 0 {
+	if lines, err := tail.Page(0, 5); err != nil || len(lines) != 0 {
 		t.Fatalf("before 0: %+v %v", lines, err)
 	}
-	if _, err := route.PageRunState(filepath.Join(dir, "none"), 1, 5, 1); err == nil {
-		t.Error("a missing file paged")
+	// Shrunk: the file ends before the snapshot's lines do.
+	writeRoute(t, dir, head+"- 10:00 one\n")
+	if _, err := tail.Page(3, 5); !errors.Is(err, route.ErrChanged) {
+		t.Fatalf("shrunk: %v", err)
 	}
-	// A file whose last line has no newline: that line is not counted.
-	body = head + "- 10:00 one\n- 10:01 two\n- 10:02 partial"
-	if err := os.WriteFile(filepath.Join(dir, route.RouteFile), []byte(body), 0o644); err != nil {
+	// Edited before the mark: the mark no longer starts a run-state line.
+	writeRoute(t, dir, strings.Replace(head, "# Route", "# A longer route title", 1)+"- 10:00 one\n- 10:01 two\n- 10:02 three\n")
+	if _, err := tail.Page(3, 5); !errors.Is(err, route.ErrChanged) {
+		t.Fatalf("edited: %v", err)
+	}
+	// Gone: an error, not a page.
+	if err := os.Remove(filepath.Join(dir, route.RouteFile)); err != nil {
 		t.Fatal(err)
 	}
-	if lines, _ := route.PageRunState(dir, 2, 1, 2); len(lines) != 1 || !strings.HasPrefix(lines[0].Text, "two") {
-		t.Fatalf("partial: %+v", lines)
+	if _, err := tail.Page(3, 5); err == nil || errors.Is(err, route.ErrChanged) {
+		t.Fatalf("gone: %v", err)
 	}
 }
 
@@ -54,8 +73,5 @@ func TestRouteFileThatIsAFolder(t *testing.T) {
 	}
 	if _, err := route.LoadBounded(dir, 10, nil); err == nil {
 		t.Error("LoadBounded read a folder")
-	}
-	if _, err := route.PageRunState(dir, 1, 1, 1); err == nil {
-		t.Error("PageRunState read a folder")
 	}
 }

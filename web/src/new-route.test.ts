@@ -577,3 +577,30 @@ test("previous choices compare exactly; efforts and unread lists follow the serv
   expect(v("kept", "", "")).toBeUndefined();
   expect(v("kept", "x", "")).toContain("could not be read");
 });
+
+// A saved pick of the harness's own default (no model, no effort) is reused
+// as saved, as the server starts it; it is not asked again.
+test("a saved default pick is reused, not asked again", () => {
+  const c = {
+    today: "2026-10-25",
+    home: "/h",
+    checkpointer_ok: true,
+    kinds: [
+      {
+        kind: "pi",
+        label: "pi",
+        models: [],
+        default_model: "",
+        other_model: false,
+        free_model: false,
+        checkpointer: false,
+        skill_prefix: "/",
+        skill_installed: true,
+        offline: false,
+        saved: true,
+      },
+    ],
+    previous: [{ role: "orchestrator", runner: "herdr", harness: "pi", model: "", effort: "", route: "", at: "" }],
+  };
+  expect(harnessFromPick(c, c.previous[0]!)).toEqual({ kind: "pi", model: "", other: "", effort: "" });
+});

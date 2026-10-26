@@ -87,10 +87,12 @@ export function routeForm(
   initial: Catalog,
   st: State | null,
   deps: Deps,
-  opts: { usePrevious?: boolean } = {},
+  opts: { usePrevious?: boolean; recommended?: boolean } = {},
 ): { stop(): void; form(): RouteForm; sent(): boolean; setCatalog(next: Catalog): void } {
   let c = initial;
   let f: RouteForm = newForm(c, st);
+  // The answer to "Use the recommended setup?" (A32), asked before the form.
+  if (opts.recommended === false) f = setRecommended(f, c, false);
   let errors: Record<string, string> = {};
   // "Yes" to the previous choice (A30): the saved picks fill the roles at
   // once; a role without a usable pick is asked again, by name.
@@ -367,7 +369,9 @@ export function routeForm(
                 { href: k.docs_url, target: "_blank", rel: "noopener", title: `${k.label}'s own page of its models` },
                 "Model docs",
               )
-            : null,
+            : k?.docs_command
+              ? h("small", { class: "muted", dataset: { docs: which } }, `Model details: ${k.docs_command}`)
+              : null,
         ),
         "The models this harness lists now, newest first; its docs say which suits coding and review.",
       ),

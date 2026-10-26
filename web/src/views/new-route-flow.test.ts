@@ -37,11 +37,23 @@ const quick: Catalog = {
   ],
 };
 
-async function run(picks: ChoicePick[], role: "orchestrator" | "adjutant") {
+const probed: Catalog = {
+  ...quick,
+  kinds: [
+    {
+      ...quick.kinds[0]!,
+      saved: false,
+      models: [{ id: "newer", label: "newer", efforts: ["low"], default_effort: "low" }],
+      default_model: "newer",
+    },
+  ],
+};
+
+async function run(picks: ChoicePick[], role: "orchestrator" | "adjutant", checkpointerOk = true) {
   const { newRouteFlow } = await import("./new-route-flow.ts");
   const body = document.createElement("form") as unknown as FakeElement;
   const probes: boolean[] = [];
-  const opened: boolean[] = [];
+  const opened: { previous: boolean; recommended: unknown }[] = [];
   const updated: Catalog[] = [];
   const h = { kind: "claude", model: "fable", other: "", effort: "medium" };
   newRouteFlow(
@@ -50,11 +62,12 @@ async function run(picks: ChoicePick[], role: "orchestrator" | "adjutant") {
       savedChoices: () => Promise.resolve(picks),
       catalog: (probe = true) => {
         probes.push(probe);
-        return Promise.resolve({ ...quick, previous: picks });
+        const c = probe ? probed : quick;
+        return Promise.resolve({ ...c, checkpointer_ok: checkpointerOk, previous: picks });
       },
     },
-    (_c, previous) => {
-      opened.push(previous);
+    (_c, previous, recommended?: boolean) => {
+      opened.push({ previous, recommended });
       return {
         stop: () => {},
         form: () => ({ role, main: h, orch: h }) as unknown as RouteForm,
@@ -68,38 +81,71 @@ async function run(picks: ChoicePick[], role: "orchestrator" | "adjutant") {
   return { body, probes, opened, updated };
 }
 
-// A32/A30: the recommended setup shows first, then the previous-choice
-// question; nothing is probed until the user leaves that path.
-test("the previous choice is asked after the recommended setup, without a probe", async () => {
+const names = (b: FakeElement) => all(b).map((e) => e.dataset?.["field"] ?? e.getAttribute?.("name"));
+
+// A32: the first question is "Use the recommended setup?"; A30's previous
+// choice follows it; nothing is probed until the user leaves that path.
+test("the recommended setup is asked first, then the previous choice, without a probe", async () => {
   const r = await run([pick("orchestrator")], "orchestrator");
-  const names = all(r.body).map((e) => e.dataset?.["field"] ?? e.getAttribute?.("name"));
-  expect(names.indexOf("recommended-summary")).toBeLessThan(names.indexOf("use-previous"));
+  expect(names(r.body)).toContain("use-recommended");
+  expect(names(r.body)).not.toContain("use-previous");
+  expect(r.probes).toEqual([]);
+  byName(r.body, "use-recommended").dispatch("click");
+  await flush();
+  expect(names(r.body)).toContain("use-previous");
   expect(r.probes).toEqual([]);
   byName(r.body, "use-previous").dispatch("click");
   await flush();
   // Yes: the saved picks open the form; every role has its pick, so no probe.
   expect(r.probes).toEqual([false]);
-  expect(r.opened).toEqual([true]);
+  expect(r.opened).toEqual([{ previous: true, recommended: true }]);
   expect(r.updated).toEqual([]);
 });
 
-test("a role without a saved pick probes the lists and updates the form in place", async () => {
+test("with no saved pick the recommended question still comes before any probe", async () => {
+  const r = await run([], "orchestrator");
+  expect(names(r.body)).toContain("use-recommended");
+  expect(r.probes).toEqual([]);
+  byName(r.body, "custom-setup").dispatch("click");
+  await flush();
+  expect(r.probes).toEqual([true]);
+  expect(r.opened).toEqual([{ previous: false, recommended: false }]);
+});
+
+// A30 per role: the probed lists come in for the role that needs them, and
+// the saved role keeps its exact saved model and effort.
+test("a role without a saved pick probes the lists; the saved role keeps its pick", async () => {
   const r = await run([pick("orchestrator")], "adjutant");
+  byName(r.body, "use-recommended").dispatch("click");
+  await flush();
   byName(r.body, "use-previous").dispatch("click");
   await flush();
   await flush();
   expect(r.probes).toEqual([false, true]);
-  expect(r.opened).toEqual([true]);
+  expect(r.opened).toEqual([{ previous: true, recommended: true }]);
   expect(r.updated.length).toBe(1);
+  const claude = r.updated[0]!.kinds.find((k) => k.kind === "claude")!;
+  expect(claude.models.map((m) => m.id).sort()).toEqual(["fable", "newer"]);
+  expect(claude.models.find((m) => m.id === "fable")!.efforts).toEqual(["medium"]);
 });
 
-test("no saved pick, or Choose again, probes and opens the form", async () => {
-  const none = await run([], "orchestrator");
-  expect(none.probes).toEqual([true]);
-  expect(none.opened).toEqual([false]);
+test("Choose again probes and opens the form", async () => {
   const again = await run([pick("orchestrator")], "orchestrator");
+  byName(again.body, "use-recommended").dispatch("click");
+  await flush();
   byName(again.body, "choose-again").dispatch("click");
   await flush();
   expect(again.probes).toEqual([true]);
-  expect(again.opened).toEqual([false]);
+  expect(again.opened).toEqual([{ previous: false, recommended: true }]);
+});
+
+// The summary before the form does not promise a checkpointer: it states
+// when one runs.
+test("the first summary states when the checkpointer runs", async () => {
+  const r = await run([], "orchestrator");
+  const dl = all(r.body).find((e) => e.dataset?.["field"] === "recommended-summary")!;
+  const text = dl.textContent ?? "";
+  expect(text).not.toContain("On: it keeps");
+  expect(text).toContain("Checkpointer");
+  expect(text).toContain("Claude Code or Codex");
 });

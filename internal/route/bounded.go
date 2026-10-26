@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,9 +13,13 @@ import (
 	"strings"
 )
 
-// sumWindow is how much of a parsed file, before where its parse ended,
-// must be unchanged for the file to count as only grown.
-const sumWindow = 4096
+// markEvery is how many run-state lines lie between two remembered
+// offsets: a page reads at most this many lines before its own.
+const markEvery = 64
+
+// ErrChanged says the route file no longer holds the lines of the snapshot
+// a page was asked from: the caller reloads.
+var ErrChanged = errors.New("the route file changed since it was read")
 
 // Tail is a route file parsed up to its last complete line, with the run
 // state bounded, so a file that only grew is read on from there (A24).
@@ -22,17 +27,22 @@ type Tail struct {
 	Route *Route
 	// Total counts every run-state line of the file; Route.RunState holds
 	// the newest of them.
-	Total  int
-	size   int64
-	sum    [32]byte
+	Total int
+	size  int64
+	// sum is the hash of the file's first size bytes: a file whose parsed
+	// part changed anywhere is parsed again.
+	sum    []byte
 	parser parser
+	// marks[j] is the offset of run-state line j*markEvery.
+	marks []int64
 }
 
 // LoadBounded reads a route folder keeping the newest keep run-state
-// lines. Given the previous Tail of the same file, it reads only what was
-// appended when the file grew and the bytes before the old end are
-// unchanged; a file that shrank or was replaced is read whole. prev is not
-// changed.
+// lines. Given the previous Tail of the same file, it parses only what was
+// appended when every byte of the old part is unchanged (checked through a
+// hash with one fixed buffer, so the check allocates the same at any
+// size); a file edited anywhere before the old end is parsed whole. prev
+// is not changed.
 func LoadBounded(dir string, keep int, prev *Tail) (*Tail, error) {
 	f, err := os.Open(filepath.Join(dir, RouteFile))
 	if err != nil {
@@ -43,20 +53,20 @@ func LoadBounded(dir string, keep int, prev *Tail) (*Tail, error) {
 	if err != nil {
 		return nil, err
 	}
+	br := bufio.NewReaderSize(nil, 64<<10)
 	t := &Tail{}
-	if prev != nil && prev.size > 0 && st.Size() >= prev.size && window(f, prev.size) == prev.sum {
+	h := sha256.New()
+	if prev != nil && prev.size > 0 && st.Size() >= prev.size && sameStart(f, prev, h, br) {
 		t.parser = prev.parser
 		r := *prev.parser.r
 		r.Tasks, r.Checklist, r.RunState = slices.Clone(r.Tasks), slices.Clone(r.Checklist), slices.Clone(r.RunState)
 		t.parser.r, t.parser.header = &r, slices.Clone(prev.parser.header)
-		t.size = prev.size
+		t.size, t.marks = prev.size, slices.Clone(prev.marks)
 	} else {
+		h.Reset()
 		t.parser = parser{r: &Route{Dir: dir, Name: filepath.Base(dir)}, keep: keep}
 	}
-	if _, err := f.Seek(t.size, io.SeekStart); err != nil {
-		return nil, err
-	}
-	br := bufio.NewReaderSize(f, 64<<10)
+	br.Reset(io.NewSectionReader(f, t.size, st.Size()-t.size))
 	for {
 		line, err := br.ReadString('\n')
 		if err != nil {
@@ -65,111 +75,72 @@ func LoadBounded(dir string, keep int, prev *Tail) (*Tail, error) {
 			}
 			return nil, err
 		}
-		t.size += int64(len(line))
+		_, _ = io.WriteString(h, line)
+		before := t.parser.total
 		t.parser.line(strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"))
+		if t.parser.total > before && before%markEvery == 0 {
+			t.marks = append(t.marks, t.size)
+		}
+		t.size += int64(len(line))
 	}
 	r := t.parser.r
 	if len(r.RunState) > keep {
 		r.RunState = slices.Clone(r.RunState[len(r.RunState)-keep:])
 	}
 	r.Modified, r.Files = st.ModTime(), listFiles(dir)
-	t.Route, t.Total, t.sum = r, t.parser.total, window(f, t.size)
+	t.Route, t.Total, t.sum = r, t.parser.total, h.Sum(nil)
 	return t, nil
 }
 
-// window is the hash of the bytes just before end.
-func window(f *os.File, end int64) [32]byte {
-	n := min(int64(sumWindow), end)
-	b := make([]byte, n)
-	if _, err := f.ReadAt(b, end-n); err != nil {
-		return [32]byte{}
-	}
-	return sha256.Sum256(b)
+// sameStart says whether the file's first prev.size bytes are the ones
+// prev parsed; h is left holding their hash.
+func sameStart(f *os.File, prev *Tail, h hash.Hash, br *bufio.Reader) bool {
+	br.Reset(io.NewSectionReader(f, 0, prev.size))
+	n, _ := br.WriteTo(h)
+	return n == prev.size && bytes.Equal(h.Sum(nil), prev.sum)
 }
 
-// RunStateLast says whether the run state is the file's last section: then
-// PageRunState can read it backward from the end.
-func (t *Tail) RunStateLast() bool { return t.parser.section == "run state" }
-
-// PageRunState returns up to n run-state lines ending before line index
-// before (of total), reading the file backward from its end in bounded
-// chunks; the caller knows the run state is the last section
-// (Tail.RunStateLast). A header other than the run state's, or the file's
-// start without one, falls back to reading the file whole.
-func PageRunState(dir string, before, n, total int) ([]LogLine, error) {
-	before = max(0, min(before, total))
-	want := min(n, before)
-	skip := total - before
-	f, err := os.Open(filepath.Join(dir, RouteFile))
+// Page returns up to n run-state lines ending before line index before,
+// as this snapshot counted them, reading from the remembered offset at or
+// before the page's first line: at most markEvery lines more than the page,
+// at any file size and whatever section follows the run state. A file that
+// no longer holds those lines gives ErrChanged.
+func (t *Tail) Page(before, n int) ([]LogLine, error) {
+	before = max(0, min(before, t.Total))
+	from := max(0, before-n)
+	out := make([]LogLine, 0, before-from)
+	if from == before {
+		return out, nil
+	}
+	f, err := os.Open(filepath.Join(t.Route.Dir, RouteFile))
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]LogLine, 0, want)
-	seen := 0
-	buf := make([]byte, 64<<10)
-	var carry []byte
-	pos := st.Size()
-	done, fallback, last, header := want == 0, false, true, false
-	visit := func(line []byte) {
-		line = bytes.TrimSuffix(line, []byte("\r"))
-		if bytes.HasPrefix(line, []byte("## ")) {
-			// The run state's own header ends it; any other header means the
-			// run state is not the last section, so the count was wrong.
-			fallback = strings.ToLower(strings.TrimSpace(string(line[3:]))) != "run state"
-			done, header = true, true
-			return
-		}
-		m := runLine.FindSubmatch(line)
-		if m == nil {
-			return
-		}
-		if seen >= skip && len(out) < want {
-			out = append(out, LogLine{Time: string(m[1]), Text: string(m[2])})
-		}
-		seen++
-		done = len(out) == want
-	}
-	for pos > 0 && !done {
-		k := min(int64(len(buf)), pos)
-		pos -= k
-		if _, err := f.ReadAt(buf[:k], pos); err != nil {
-			return nil, err
-		}
-		chunk := append(buf[:k:k], carry...)
-		for !done {
-			i := bytes.LastIndexByte(chunk, '\n')
-			if i < 0 {
-				break
-			}
-			// What follows the file's last newline is a partial line the
-			// parse does not count yet; skip it.
-			if !last {
-				visit(chunk[i+1:])
-			}
-			last = false
-			chunk = chunk[:i]
-		}
-		carry = append(carry[:0], chunk...)
-	}
-	if !done && !last {
-		visit(carry) // the file's first line
-	}
-	if !done || (pos == 0 && !header) {
-		fallback = true // the file's start came before a run state header
-	}
-	if fallback {
-		r, err := Load(dir)
+	j := from / markEvery
+	br := bufio.NewReaderSize(io.NewSectionReader(f, t.marks[j], t.size-t.marks[j]), 64<<10)
+	section, i := "run state", j*markEvery
+	for first := true; i < before; first = false {
+		line, err := br.ReadString('\n')
 		if err != nil {
-			return nil, err
+			return nil, ErrChanged // the file ends before the snapshot did
 		}
-		end := min(before, len(r.RunState))
-		return slices.Clone(r.RunState[max(0, end-n):end]), nil
+		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		if strings.HasPrefix(line, "## ") {
+			section = strings.ToLower(strings.TrimSpace(line[3:]))
+			continue
+		}
+		m := runLine.FindStringSubmatch(line)
+		if first && m == nil {
+			return nil, ErrChanged // the mark no longer starts a run-state line
+		}
+		if section != "run state" || m == nil {
+			continue
+		}
+		if i >= from {
+			out = append(out, LogLine{Time: m[1], Text: m[2]})
+		}
+		i++
 	}
-	slices.Reverse(out)
 	return out, nil
 }

@@ -55,9 +55,9 @@ type RouteView struct {
 	// OlderRunState counts the run-state lines before RunState, which keeps
 	// the newest runStateKept only; GET /api/route/runstate pages them (A24).
 	OlderRunState int `json:"older_run_state,omitempty"`
-	// runStateLast: the run state is the file's last section, so its older
-	// lines can be read backward from the end.
-	runStateLast bool
+	// tail is the parse this view was made from: older lines are paged from
+	// its place in the file, so a line appended since does not shift them.
+	tail *route.Tail
 }
 
 // runStateKept bounds the run-state lines the hub holds per route.
@@ -392,7 +392,7 @@ func (h *Hub) loadRoutes(snap herdr.Snapshot) []RouteView {
 		cp.Files = route.ListFiles(d)
 		r := &cp
 		out = append(out, RouteView{Route: r, ID: routeID(r.Dir, r.Name), Live: isLive(r, panes, agentAt, claimed),
-			OlderRunState: tail.Total - len(r.RunState), runStateLast: tail.RunStateLast()})
+			OlderRunState: tail.Total - len(r.RunState), tail: tail})
 	}
 	for d := range h.routes {
 		if !slices.Contains(dirs, d) {

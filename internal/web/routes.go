@@ -198,7 +198,7 @@ type routePlan struct {
 
 // planRoute checks a request against the snapshot and the catalog and
 // builds every value the herdr calls carry. It makes no herdr call.
-func planRoute(req RouteRequest, st State, cat Catalog, home, skillDir string) (*routePlan, error) {
+func planRoute(req RouteRequest, st State, cats roleCatalogs, home, skillDir string) (*routePlan, error) {
 	p := &routePlan{req: req}
 	if req.Role != "orchestrator" && req.Role != "adjutant" {
 		return nil, refuse("role", "role must be orchestrator or adjutant")
@@ -247,7 +247,7 @@ func planRoute(req RouteRequest, st State, cat Catalog, home, skillDir string) (
 		if err := checkName("name", req.Name); err != nil {
 			return nil, err
 		}
-		adjArgs, err := launchArgs(cat.kind(req.Kind), req.Model, req.Effort)
+		adjArgs, err := launchArgs(cats.main.kind(req.Kind), req.Model, req.Effort)
 		if err != nil {
 			return nil, refuse("model", "%s", err)
 		}
@@ -274,7 +274,7 @@ func planRoute(req RouteRequest, st State, cat Catalog, home, skillDir string) (
 	if err := checkName(nameField, coord.name); err != nil {
 		return nil, err
 	}
-	ck := cat.kind(coord.kind)
+	ck := cats.orch.kind(coord.kind)
 	args, err := launchArgs(ck, model, effort)
 	if err != nil {
 		f := "model"
@@ -289,7 +289,7 @@ func planRoute(req RouteRequest, st State, cat Catalog, home, skillDir string) (
 	prefix := ck.SkillPrefix + "herdsman"
 	if req.Role == "adjutant" {
 		p.prompt = prefix + " orchestrator --adjutant " + req.Name + " --name " + coord.name + " --inbox " + p.req.Inbox
-		p.attach = cat.kind(req.Kind).SkillPrefix + "herdsman adjutant --name " + req.Name + " --orchestrator <orchestrator pane> --inbox " + p.req.Inbox
+		p.attach = cats.main.kind(req.Kind).SkillPrefix + "herdsman adjutant --name " + req.Name + " --orchestrator <orchestrator pane> --inbox " + p.req.Inbox
 	} else {
 		p.prompt = prefix + " run"
 	}
@@ -476,8 +476,8 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	home, _ := os.UserHomeDir()
-	cat := s.planCatalog(r, req)
-	p, err := planRoute(req, s.hub.Current(), cat, home, s.cfg.SkillDir)
+	cats := s.planCatalogs(r, req)
+	p, err := planRoute(req, s.hub.Current(), cats, home, s.cfg.SkillDir)
 	if err != nil {
 		re, _ := errors.AsType[*routeError](err)
 		field := ""
@@ -507,7 +507,7 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.OK {
-		s.savePicks(req, cat)
+		s.savePicks(req, cats)
 	}
 	status := http.StatusOK
 	switch {
@@ -655,7 +655,7 @@ func (q *Queue) recheckNames(ctx context.Context, p *routePlan) error {
 // savePicks records the harness, model and effort a started route launched
 // each role with (A30); the web app starts every agent in a Herdr pane. A store that cannot be written loses the picks,
 // never the route.
-func (s *Server) savePicks(req RouteRequest, cat Catalog) {
+func (s *Server) savePicks(req RouteRequest, cats roleCatalogs) {
 	if s.cfg.Choices == nil {
 		return
 	}
@@ -667,6 +667,10 @@ func (s *Server) savePicks(req RouteRequest, cat Catalog) {
 	// The effort option of a harness other than Claude and Codex goes with
 	// its pick, so the pick can start again without a probe.
 	for i := range picks {
+		cat := cats.orch
+		if picks[i].Role == "adjutant" {
+			cat = cats.main
+		}
 		if k := cat.kind(picks[i].Harness); k != nil && picks[i].Effort != "" {
 			picks[i].EffortFlag = k.EffortFlag
 		}

@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -131,8 +132,10 @@ func probeKind(ctx context.Context, run Runner, kind string) (Kind, bool) {
 	switch {
 	case subcommand.Match(help):
 		sub = "models"
+		base.DocsCommand = program + " models"
 	case modelProfile.Match(help):
 		sub = "model-profile"
+		base.DocsCommand = program + " model-profile show <model>"
 	default:
 		return unavailable(base, program+" lists no models"), true
 	}
@@ -146,6 +149,20 @@ func probeKind(ctx context.Context, run Runner, kind string) (Kind, bool) {
 	}
 	base.Models, base.DefaultModel = ms, ms[0].ID
 	return base, true
+}
+
+// EffortFlagOf reads the option a harness other than Claude and Codex
+// takes its effort with, from its own --help; "" when it names none.
+func EffortFlagOf(ctx context.Context, run Runner, kind string) (string, error) {
+	program := kind
+	if p, ok := Others[kind]; ok {
+		program = p
+	}
+	help, err := ask(ctx, run, program, "--help")
+	if err != nil {
+		return "", fmt.Errorf("%s --help: %w", program, err)
+	}
+	return effortFlag(help), nil
 }
 
 // effortFlag is the option a harness's --help names for the effort, or "".

@@ -21,7 +21,7 @@ func init() {
 
 const modelsUsage = `usage: herdsman models [--harness <kind>] [--json]
        herdsman models last [--json]
-       herdsman models save --role <role> [--runner herdr|subagent] --harness <kind> --model <model> [--effort <effort>] [--route <name>] [--json]
+       herdsman models save --role <role> [--runner herdr|subagent] --harness <kind> --model <model> [--effort <effort> [--effort-flag <option>]] [--route <name>] [--json]
 
 Asks each agent kind herdr can start (herdr agent start --help; claude and
 codex alone when herdr cannot be asked) that is installed, or the one
@@ -43,7 +43,10 @@ object {"picks": [{"role","runner","harness","model","effort","route","at"}]}.
 save records one role's pick there (mode 600, written atomically; --json
 prints the saved pick as one object); its
 runner says whether the role's agents run in Herdr panes (the default) or
-as background subagents of the orchestrator's harness.
+as background subagents of the orchestrator's harness. An effort of a
+harness other than Claude and Codex is saved with the option that passes
+it: --effort-flag, else the one the harness's --help names; with neither,
+the pick is refused.
 
 Exit codes:
   0  at least one harness listed its models; last: a pick printed; save: saved
@@ -201,6 +204,7 @@ func modelsSave(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&p.Model, "model", "", "")
 	fs.StringVar(&p.Effort, "effort", "", "")
 	fs.StringVar(&p.Route, "route", "", "")
+	fs.StringVar(&p.EffortFlag, "effort-flag", "", "")
 	asJSON := fs.Bool("json", false, "")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 || p.Role == "" || p.Harness == "" || p.Model == "" {
 		if errors.Is(err, flag.ErrHelp) {
@@ -209,6 +213,17 @@ func modelsSave(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprint(stderr, modelsUsage)
 		return 2
+	}
+	if p.Effort != "" && p.EffortFlag == "" && p.Harness != "claude" && p.Harness != "codex" {
+		flagName, err := catalog.EffortFlagOf(context.Background(), modelsRunner, p.Harness)
+		if err == nil && flagName == "" {
+			err = fmt.Errorf("%s names no effort option: pass --effort-flag", p.Harness)
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "herdsman models save: %v\n", err)
+			return 1
+		}
+		p.EffortFlag = flagName
 	}
 	p.At = now().UTC().Truncate(time.Second)
 	st, err := choicesStore()

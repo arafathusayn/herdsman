@@ -208,6 +208,9 @@ export function harnessFromPick(c: Catalog, p: ChoicePick): Harness | null {
   const k = kindOf(c, p.harness);
   if (!k) return null;
   if (k.free_model) return { kind: k.kind, model: p.model, other: "", effort: "" };
+  // A saved pick of the harness's own default starts as saved (the server's
+  // launchArgs agrees).
+  if (k.saved && !p.model && !p.effort) return { kind: k.kind, model: "", other: "", effort: "" };
   let model = p.model;
   let other = "";
   if (!k.models.some((m) => m.id === p.model)) {

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/afk"
+	"github.com/arafathusayn/herdsman/internal/catalog"
 	"github.com/arafathusayn/herdsman/internal/choices"
 	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
@@ -100,7 +101,7 @@ func NewServer(c *herdr.Client, hub *Hub, q *Queue, cfg Config) *Server {
 	return &Server{
 		hub: hub, queue: q, client: c, cfg: cfg, devices: newDevices(cfg.Token), assets: sub,
 		diffSlots: make(chan struct{}, 2), artifacts: newArtifacts(),
-		catalog: newCatalogSource(execRunner), now: time.Now,
+		catalog: newCatalogSource(catalog.ExecRunner), now: time.Now,
 	}
 }
 
@@ -519,7 +520,8 @@ func (s *Server) recordActivity() {
 }
 
 // routeRunState pages a route's older run-state lines: up to runStateKept
-// lines ending before line index `before`, read backward from the file's end.
+// lines ending before line index `before`, as the shown snapshot counts
+// them, read from that snapshot's place in the file (A24).
 func (s *Server) routeRunState(w http.ResponseWriter, r *http.Request) {
 	rv := findRoute(s.hub.Current().Routes, r.URL.Query().Get("route"))
 	if rv == nil {
@@ -531,22 +533,13 @@ func (s *Server) routeRunState(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "before must be a whole number"})
 		return
 	}
-	// The hub's count of the file's run-state lines; the page is read
-	// backward from the file's end (A24).
-	total := rv.OlderRunState + len(rv.RunState)
-	before = min(before, total)
-	var lines []route.LogLine
-	if rv.runStateLast {
-		lines, err = route.PageRunState(rv.Dir, before, runStateKept, total)
-	} else {
-		// Another section follows the run state: read the file whole.
-		var rt *route.Route
-		if rt, err = route.Load(rv.Dir); err == nil {
-			end := min(before, len(rt.RunState))
-			lines = rt.RunState[max(0, end-runStateKept):end]
-		}
-	}
-	if err != nil {
+	before = min(before, rv.tail.Total)
+	lines, err := rv.tail.Page(before, runStateKept)
+	switch {
+	case errors.Is(err, route.ErrChanged):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "the route file changed: reload the route"})
+		return
+	case err != nil:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "the route file could not be read"})
 		return
 	}

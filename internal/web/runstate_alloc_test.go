@@ -84,7 +84,7 @@ func TestAppendedLineAndPageCostStayFlat(t *testing.T) {
 		}
 		runtime.GC()
 		runtime.ReadMemStats(&page)
-		lines, err := route.PageRunState(rv.Dir, rv.OlderRunState, runStateKept, rv.OlderRunState+len(rv.RunState))
+		lines, err := rv.tail.Page(rv.OlderRunState, runStateKept)
 		var pageAfter runtime.MemStats
 		runtime.ReadMemStats(&pageAfter)
 		if err != nil || len(lines) != min(runStateKept, rv.OlderRunState) {
