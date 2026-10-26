@@ -108,17 +108,6 @@ function colorLines(lines: DiffLine[], lang: string): (ColoredNode | null)[] {
   });
 }
 
-/**
- * A line's identity within its file's diff: its kind and line numbers, or a
- * hunk's header. A note ("\ No newline at end of file", or a binary file's)
- * has neither, so it is known by the line before it.
- */
-function lineKey(l: DiffLine, before: string): string {
-  if (l.kind === "hunk") return `@${l.text}`;
-  if (l.kind === "note") return `${before}!`;
-  return `${l.kind}:${l.old ?? ""}:${l.new ?? ""}`;
-}
-
 // Descriptions are inert, so the icons that never change are made once.
 const searchIcon = icon(icons.search);
 const copyIcon = icon(icons.copy);
@@ -237,7 +226,7 @@ type SplitRowNode = ViewNodeOf<typeof SplitRow>;
 
 const InlineTable = html`<table>
   <tbody>
-    ${child<ListNode<MarkRowNode | InlineRowNode, string>>()}
+    ${child<ListNode<MarkRowNode | InlineRowNode, number>>()}
   </tbody>
 </table>`;
 const SplitTable = html`<table>
@@ -248,7 +237,7 @@ const SplitTable = html`<table>
     <col />
   </colgroup>
   <tbody>
-    ${child<ListNode<MarkRowNode | SplitRowNode, string>>()}
+    ${child<ListNode<MarkRowNode | SplitRowNode, number>>()}
   </tbody>
 </table>`;
 const More = html`<button class="btn ghost diff-more" onclick=${on<"click">()}>${text()}</button>`;
@@ -668,13 +657,11 @@ function codeCell(className: string, l: DiffLine, colored: ColoredNode | null): 
 
 /** One column: old and new line numbers, then the code. */
 function inlineTable(lines: DiffLine[], code: Map<DiffLine, ColoredNode | null>): ViewNodeOf<typeof InlineTable> {
-  let before = "";
-  const rows = lines.map((l) => ({ l, key: (before = lineKey(l, before)) }));
   return InlineTable([
     list(
-      rows,
-      (r) => r.key,
-      ({ l }) =>
+      lines,
+      (l) => l.id,
+      (l) =>
         l.kind === "hunk" || l.kind === "note"
           ? MarkRow([`d-${l.kind}`, "3", l.text])
           : InlineRow([`d-${l.kind}`, l.old ?? null, l.new ?? null, codeCell("code", l, code.get(l) ?? null)]),
@@ -688,16 +675,6 @@ function inlineTable(lines: DiffLine[], code: Map<DiffLine, ColoredNode | null>)
  * sides, both from the same colored runs.
  */
 function splitTable(lines: DiffLine[], code: Map<DiffLine, ColoredNode | null>): ViewNodeOf<typeof SplitTable> {
-  let before = "";
-  const rows = sideBySide(lines).map((r) => ({
-    r,
-    key: (before =
-      "kind" in r
-        ? r.kind === "hunk"
-          ? `@${r.text}`
-          : `${before}!`
-        : `${r.left ? lineKey(r.left, "") : ""}/${r.right ? lineKey(r.right, "") : ""}`),
-  }));
   const side = (l: DiffLine | null, right: boolean): [string, number | null, Code] => {
     if (!l) return ["ln blank", null, CodeCell(["code blank", null])];
     const colored = code.get(l) ?? null;
@@ -705,9 +682,9 @@ function splitTable(lines: DiffLine[], code: Map<DiffLine, ColoredNode | null>):
   };
   return SplitTable([
     list(
-      rows,
-      (x) => x.key,
-      ({ r }) =>
+      sideBySide(lines),
+      (r) => r.id,
+      (r) =>
         "kind" in r
           ? MarkRow([`d-${r.kind}`, "4", r.text])
           : SplitRow([...side(r.left, false), ...side(r.right, true)]),

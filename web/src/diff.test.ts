@@ -82,41 +82,41 @@ test("splitPatch reads quoted paths", () => {
     "é\\x.txt",
   ]);
   expect(parseSection(sections.get('q"uote.txt') ?? []).filter((l) => l.kind === "add")).toEqual([
-    { kind: "add", new: 2, text: "b" },
+    { id: 2, kind: "add", new: 2, text: "b" },
   ]);
 });
 
 test("parseSection numbers old and new lines", () => {
   const lines = parseSection(splitPatch(patch).get("keep.txt") ?? []);
   expect(lines).toEqual([
-    { kind: "hunk", text: "@@ -1,3 +1,4 @@ func main() {" },
-    { kind: "ctx", old: 1, new: 1, text: "one" },
-    { kind: "del", old: 2, text: "two" },
-    { kind: "add", new: 2, text: "2" },
-    { kind: "ctx", old: 3, new: 3, text: "three" },
-    { kind: "add", new: 4, text: "four" },
-    { kind: "note", text: "No newline at end of file" },
+    { id: 0, kind: "hunk", text: "@@ -1,3 +1,4 @@ func main() {" },
+    { id: 1, kind: "ctx", old: 1, new: 1, text: "one" },
+    { id: 2, kind: "del", old: 2, text: "two" },
+    { id: 3, kind: "add", new: 2, text: "2" },
+    { id: 4, kind: "ctx", old: 3, new: 3, text: "three" },
+    { id: 5, kind: "add", new: 4, text: "four" },
+    { id: 6, kind: "note", text: "No newline at end of file" },
   ]);
 });
 
 test("parseSection notes binary files", () => {
   expect(parseSection(splitPatch(patch).get("img.bin") ?? [])).toEqual([
-    { kind: "note", text: "Binary file; no lines to show." },
+    { id: 0, kind: "note", text: "Binary file; no lines to show." },
   ]);
 });
 
 test("sideBySide pairs each removed run with the added run after it", () => {
   const lines: DiffLine[] = [
-    { kind: "hunk", text: "@@ -1,5 +1,5 @@" },
-    { kind: "ctx", old: 1, new: 1, text: "a" },
-    { kind: "del", old: 2, text: "b" },
-    { kind: "del", old: 3, text: "c" },
-    { kind: "add", new: 2, text: "B" },
-    { kind: "ctx", old: 4, new: 3, text: "d" },
-    { kind: "add", new: 4, text: "e" },
-    { kind: "add", new: 5, text: "f" },
-    { kind: "del", old: 5, text: "g" },
-    { kind: "note", text: "No newline at end of file" },
+    { id: 0, kind: "hunk", text: "@@ -1,5 +1,5 @@" },
+    { id: 1, kind: "ctx", old: 1, new: 1, text: "a" },
+    { id: 2, kind: "del", old: 2, text: "b" },
+    { id: 3, kind: "del", old: 3, text: "c" },
+    { id: 4, kind: "add", new: 2, text: "B" },
+    { id: 5, kind: "ctx", old: 4, new: 3, text: "d" },
+    { id: 6, kind: "add", new: 4, text: "e" },
+    { id: 7, kind: "add", new: 5, text: "f" },
+    { id: 8, kind: "del", old: 5, text: "g" },
+    { id: 9, kind: "note", text: "No newline at end of file" },
   ];
   const shape = sideBySide(lines).map((r) => ("kind" in r ? r.kind : `${r.left?.text ?? "_"}|${r.right?.text ?? "_"}`));
   expect(shape).toEqual(["hunk", "a|a", "b|B", "c|_", "d|d", "_|e", "_|f", "g|_", "note"]);
@@ -140,4 +140,23 @@ test("splitPatch drops the tab after a name with a space", () => {
     "",
   ].join("\n");
   expect([...splitPatch(spaced).keys()]).toEqual(["gone file.txt", "my file.txt"]);
+});
+
+test("every line and every side-by-side row has its own id, notes and repeated hunk headers included", () => {
+  const lines = parseSection([
+    "diff --git a/x b/x",
+    "@@ -1 +1 @@",
+    "-a",
+    "\\ No newline at end of file",
+    "+b",
+    "\\ No newline at end of file",
+    "@@ -1 +1 @@",
+    "-a",
+    "+b",
+  ]);
+  const ids = lines.map((l) => l.id);
+  expect(new Set(ids).size).toBe(lines.length);
+  expect(parseSection(["@@ -1 +1 @@", "-a", "+b"]).map((l) => l.id)).toEqual([0, 1, 2]); // the same each parse
+  const rows = sideBySide(lines);
+  expect(new Set(rows.map((r) => r.id)).size).toBe(rows.length);
 });
