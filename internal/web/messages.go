@@ -254,6 +254,10 @@ func readChannel(root string, now time.Time) Channel {
 		}
 	}
 	for _, l := range []struct{ dir, flag string }{{"herdr-mutation.lock", "mutation-lock-stale"}, {"channel.lock", "channel-lock-stale"}} {
+		// The daemon's retained queue lock is never stale (design 4.5).
+		if l.dir == "channel.lock" && inbox.DaemonRetainedLock(root, filepath.Join(root, l.dir)) {
+			continue
+		}
 		if staleDir(filepath.Join(root, l.dir), now, ch.HealthAfter) {
 			ch.Flags = append(ch.Flags, l.flag)
 		}
@@ -282,7 +286,16 @@ func readChannel(root string, now time.Time) Channel {
 			ch.Holds = append(ch.Holds, h)
 		}
 	}
+	if inbox.DaemonOwned(root) {
+		// A daemon-owned inbox: one liveness, the daemon's (design 4.5).
+		h := ChannelHealth{Name: "daemon", Age: inbox.DaemonHeartbeatAge(root, now)}
+		h.OK = h.Age >= 0 && h.Age <= ch.HealthAfter
+		ch.Health = append(ch.Health, h)
+	}
 	for _, s := range []struct{ name, file string }{{"courier", "heartbeat"}, {"watcher", "watch-heartbeat"}} {
+		if inbox.DaemonOwned(root) {
+			break
+		}
 		h := ChannelHealth{Name: s.name, Age: -1}
 		if st, err := os.Lstat(filepath.Join(root, "state", s.file)); err == nil && st.Mode().IsRegular() {
 			h.Age = int64(now.Sub(st.ModTime()) / time.Second)

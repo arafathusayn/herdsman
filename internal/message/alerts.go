@@ -242,7 +242,18 @@ func (e *Env) healthSnapshot() []string {
 	var flags []string
 	r := e.ch
 	now := e.unix()
+	// A daemon-owned inbox has no service heartbeats; its liveness is the
+	// daemon's (design 4.5).
+	daemonOwned := inbox.DaemonOwned(r.Dir)
+	if daemonOwned {
+		if age := inbox.DaemonHeartbeatAge(r.Dir, e.now()); age < 0 || age > int64(r.HealthAfter) {
+			flags = append(flags, "daemon-down")
+		}
+	}
 	for _, role := range []string{"courier", "watch"} {
+		if daemonOwned {
+			break
+		}
 		if role == "watch" && e.envDefault("WATCH_REQUIRED", "1") != "1" {
 			continue
 		}
@@ -262,6 +273,9 @@ func (e *Env) healthSnapshot() []string {
 	}
 	for _, role := range []string{"herdr-mutation", "channel"} {
 		p := r.Path(role + ".lock")
+		if role == "channel" && inbox.DaemonRetainedLock(r.Dir, p) {
+			continue
+		}
 		if st, err := os.Stat(p); err == nil && st.IsDir() {
 			if t, err := inbox.Mtime(p); err == nil && now-t > int64(r.HealthAfter) {
 				if role == "herdr-mutation" {
