@@ -2,8 +2,21 @@
 // finds agents, routes and files and runs every action. A leading ">" shows
 // only commands, "@" only agents and "#" only files. A command that needs
 // text (a prompt) turns the box into an input for that text.
-import { each, h, icon, icons, mount } from "./dom.ts";
-import { fuzzy, highlight } from "./fuzzy.ts";
+import { icon, type IconNode, icons, mountElement } from "./dom.ts";
+import { fuzzy, highlight, type HighlightNode } from "./fuzzy.ts";
+import {
+  attr,
+  child,
+  cls,
+  html,
+  list,
+  type ListNode,
+  on,
+  prop,
+  text,
+  type ViewNodeOf,
+} from "./herdsman-blocks-view.ts";
+import { ElementView } from "./views/element-view.ts";
 
 export type CommandKind = "command" | "agent" | "route" | "file";
 
@@ -37,62 +50,129 @@ export const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.user
 export const paletteKeys = isMac ? "⌘K" : "Ctrl+K";
 export const sidebarKeys = isMac ? "⌘B" : "Ctrl+B or Ctrl+Shift+B";
 
-let openDialog: HTMLDialogElement | null = null;
+// The search field is an element the palette owns: the palette reads its
+// value, clears it, changes its placeholder and focuses it.
+const SearchInput = html`<input
+  type="text"
+  .value=${prop<HTMLInputElement, "value">()}
+  placeholder=${attr()}
+  aria-label="Command palette"
+  autocomplete="off"
+  spellcheck="false"
+  role="combobox"
+  aria-expanded="true"
+  aria-controls="palette-list"
+  oninput=${on<"input", HTMLInputElement>()}
+  onkeydown=${on<"keydown", HTMLInputElement>()}
+/>`;
+
+const Detail = html`<span class="palette-detail">${text()}</span>`;
+const Keys = html`<kbd>${text()}</kbd>`;
+// prettier-ignore
+const Row = html`<div
+  id=${attr()}
+  class=${cls()}
+  role="option"
+  aria-selected=${attr<"true" | "false">()}
+  onmousemove=${on<"mousemove">()}
+  onmousedown=${on<"mousedown">()}
+  onclick=${on<"click">()}
+>
+  ${child<IconNode>()}<span class="palette-title">${child<HighlightNode>()}</span>${child<ViewNodeOf<typeof Detail> | null>()}${child<ViewNodeOf<typeof Keys> | null>()}
+</div>`;
+const Empty = html`<p class="palette-empty">${text()}</p>`;
+
+type ListContent = ListNode<ViewNodeOf<typeof Row>, string> | ViewNodeOf<typeof Empty>;
+
+// The list is an element of its own so the palette can scroll its active row
+// into view; it keeps its rows, hidden, while the box asks for text.
+const ListBox = html`<div id="palette-list" class="palette-list" role="listbox" hidden=${attr<boolean>()}>
+  ${child<ListContent>()}
+</div>`;
+
+const AskPrompt = html`<span>${text()}</span>`;
+const AskHint = html`<small>↵ send · esc back</small>`;
+
+// prettier-ignore
+const Palette = html`<dialog
+  class="palette"
+  aria-label="Command palette"
+  onclick=${on<"click", HTMLDialogElement>()}
+  oncancel=${on<"cancel", HTMLDialogElement>()}
+  onclose=${on<"close", HTMLDialogElement>()}
+>
+  <div class="palette-input">${child<IconNode>()}${child<HTMLInputElement>()}</div>
+  <div class=${cls()}>${child<IconNode | null>()}${child<ViewNodeOf<typeof AskPrompt> | null>()}${child<ViewNodeOf<typeof AskHint> | null>()}</div>
+  ${child<HTMLDivElement>()}
+  <div class="palette-foot">
+    <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
+    <span><kbd>↵</kbd> run</span>
+    <span><kbd>esc</kbd> close</span>
+    <span class="grow"></span>
+    <span><kbd>></kbd> commands</span>
+    <span><kbd>@</kbd> agents</span>
+    <span><kbd>#</kbd> files</span>
+  </div>
+</dialog>`;
+
+// The open palette's search field, or null when the palette is closed.
+let openInput: HTMLInputElement | null = null;
 
 export function paletteOpen(): boolean {
-  return openDialog !== null;
+  return openInput !== null;
 }
 
 export function openPalette(provider: () => Command[], initial = ""): void {
-  if (openDialog) {
-    openDialog.querySelector("input")?.focus();
+  if (openInput) {
+    openInput.focus();
     return;
   }
-  const returnFocus = document.activeElement as HTMLElement | null;
-  const input = h("input", {
-    type: "text",
-    value: initial,
-    placeholder: searchHint,
-    "aria-label": "Command palette",
-    autocomplete: "off",
-    spellcheck: false,
-    role: "combobox",
-    "aria-expanded": "true",
-    "aria-controls": "palette-list",
-  });
-  const list = h("div", {
-    id: "palette-list",
-    class: "palette-list",
-    role: "listbox",
-  });
-  const askLabel = h("div", { class: "palette-ask" });
-  const foot = h(
-    "div",
-    { class: "palette-foot" },
-    h("span", null, h("kbd", null, "↑"), h("kbd", null, "↓"), " move"),
-    h("span", null, h("kbd", null, "↵"), " run"),
-    h("span", null, h("kbd", null, "esc"), " close"),
-    h("span", { class: "grow" }),
-    h("span", null, h("kbd", null, ">"), " commands"),
-    h("span", null, h("kbd", null, "@"), " agents"),
-    h("span", null, h("kbd", null, "#"), " files"),
-  );
-  const dlg = h(
-    "dialog",
-    { class: "palette", "aria-label": "Command palette" },
-    h("div", { class: "palette-input" }, icon(icons.search), input),
-    askLabel,
-    list,
-    foot,
-  );
+  const returnFocus = document.activeElement;
 
   let all = provider();
   let shown: Command[] = [];
   let active = 0;
   let asking: Command | null = null;
+  let rows: ListContent = Empty(["Nothing here yet."]);
+
+  const input = mountElement("input", SearchInput, [
+    initial,
+    searchHint,
+    () => {
+      active = 0;
+      draw();
+    },
+    (e) => keydown(e),
+  ]);
+  const listbox = new ElementView("div", ListBox([false, rows]));
+  const frame = (): ViewNodeOf<typeof Palette> =>
+    Palette([
+      function (e) {
+        if (e.target === this) close(); // a click on the backdrop
+      },
+      // Esc: leave the text input first, then the palette.
+      (e) => {
+        e.preventDefault();
+        if (asking) back();
+        else close();
+      },
+      function () {
+        this.remove();
+        openInput = null;
+        if (returnFocus && "focus" in returnFocus && typeof returnFocus.focus === "function") returnFocus.focus();
+      },
+      icon(icons.search),
+      input,
+      asking ? "palette-ask on" : "palette-ask",
+      asking ? icon(icons.arrow) : null,
+      asking?.ask ? AskPrompt([asking.ask.prompt]) : null,
+      asking ? AskHint([]) : null,
+      listbox.el,
+    ]);
+  const dlg = new ElementView("dialog", frame());
 
   const close = (): void => {
-    dlg.close();
+    dlg.el.close();
   };
 
   const execute = async (c: Command): Promise<void> => {
@@ -100,25 +180,23 @@ export function openPalette(provider: () => Command[], initial = ""): void {
       asking = c;
       input.value = "";
       input.placeholder = c.ask.placeholder;
-      mount(askLabel, icon(icons.arrow), h("span", null, c.ask.prompt), h("small", null, "↵ send · esc back"));
-      askLabel.classList.add("on");
-      list.hidden = true;
+      draw();
       return;
     }
     close();
     await c.run?.();
   };
 
-  const render = (): void => {
-    if (asking) return;
+  // Finds the rows for the query; while the box asks for text, the rows stay
+  // as they were, hidden.
+  const query = (): void => {
     const raw = input.value;
     const kind = prefixes[raw.charAt(0)];
     const q = (kind ? raw.slice(1) : raw).trim();
     const pool = kind ? all.filter((c) => c.kind === kind) : all;
-    let rows: { c: Command; hits: number[] }[];
-    if (!q) rows = pool.map((c) => ({ c, hits: [] }));
+    let found: { c: Command; hits: number[] }[];
+    if (!q) found = pool.map((c) => ({ c, hits: [] }));
     else {
-      rows = [];
       const scored: { c: Command; hits: number[]; score: number }[] = [];
       for (const c of pool) {
         const m = fuzzy(q, c.title);
@@ -127,64 +205,56 @@ export function openPalette(provider: () => Command[], initial = ""): void {
         else if (d) scored.push({ c, hits: [], score: d.score - 2 });
       }
       scored.sort((a, b) => b.score - a.score);
-      rows = scored;
+      found = scored;
     }
-    rows = rows.slice(0, maxRows);
-    shown = rows.map((r) => r.c);
+    found = found.slice(0, maxRows);
+    shown = found.map((r) => r.c);
     active = Math.min(active, Math.max(0, shown.length - 1));
-    if (!rows.length) {
-      mount(list, h("p", { class: "palette-empty" }, q ? `Nothing matches “${q}”.` : "Nothing here yet."));
+    if (!found.length) {
+      rows = Empty([q ? `Nothing matches “${q}”.` : "Nothing here yet."]);
       input.removeAttribute("aria-activedescendant");
       return;
     }
-    mount(
-      list,
-      each(
-        rows.map((r, i) => ({ ...r, i })),
-        ({ c }) => c.id,
-        ({ c, hits, i }) =>
-          h(
-            "div",
-            {
-              id: `pal-${i}`,
-              class: i === active ? "palette-row active" : "palette-row",
-              role: "option",
-              "aria-selected": String(i === active),
-              onmousemove: () => {
-                if (active !== i) {
-                  active = i;
-                  render();
-                }
-              },
-              onmousedown: (e: Event) => e.preventDefault(),
-              onclick: () => void execute(c),
-            },
-            icon(c.icon ?? kindIcon[c.kind]),
-            h("span", { class: "palette-title" }, highlight(c.title, hits)),
-            c.detail ? h("span", { class: "palette-detail" }, c.detail) : null,
-            c.keys ? h("kbd", null, c.keys) : null,
-          ),
-      ),
+    rows = list(
+      found.map((r, i) => ({ ...r, i })),
+      ({ c }) => c.id,
+      ({ c, hits, i }) =>
+        Row([
+          `pal-${i}`,
+          i === active ? "palette-row active" : "palette-row",
+          i === active ? "true" : "false",
+          () => {
+            if (active !== i) {
+              active = i;
+              draw();
+            }
+          },
+          (e) => e.preventDefault(),
+          () => void execute(c),
+          icon(c.icon ?? kindIcon[c.kind]),
+          highlight(c.title, hits),
+          c.detail ? Detail([c.detail]) : null,
+          c.keys ? Keys([c.keys]) : null,
+        ]),
     );
     input.setAttribute("aria-activedescendant", `pal-${active}`);
-    list.querySelector(".palette-row.active")?.scrollIntoView({ block: "nearest" });
   };
 
-  input.addEventListener("input", () => {
-    active = 0;
-    render();
-  });
+  const draw = (): void => {
+    if (!asking) query();
+    listbox.update(ListBox([asking !== null, rows]));
+    dlg.update(frame());
+    if (!asking) listbox.el.querySelector(".palette-row.active")?.scrollIntoView({ block: "nearest" });
+  };
+
   const back = (): void => {
     asking = null;
-    askLabel.classList.remove("on");
-    askLabel.replaceChildren();
-    list.hidden = false;
     input.value = "";
     input.placeholder = searchHint;
-    render();
+    draw();
   };
 
-  input.addEventListener("keydown", (e) => {
+  const keydown = (e: KeyboardEvent): void => {
     if (asking) {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -202,7 +272,7 @@ export function openPalette(provider: () => Command[], initial = ""): void {
       e.preventDefault();
       const n = shown.length;
       if (n) active = (active + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
-      render();
+      draw();
     } else if (e.key === "Enter") {
       e.preventDefault();
       const c = shown[active];
@@ -211,27 +281,13 @@ export function openPalette(provider: () => Command[], initial = ""): void {
       e.preventDefault();
       close();
     }
-  });
-  dlg.addEventListener("click", (e) => {
-    if (e.target === dlg) close(); // a click on the backdrop
-  });
-  // Esc: leave the text input first, then the palette.
-  dlg.addEventListener("cancel", (e) => {
-    e.preventDefault();
-    if (asking) back();
-    else close();
-  });
-  dlg.addEventListener("close", () => {
-    dlg.remove();
-    openDialog = null;
-    returnFocus?.focus?.();
-  });
+  };
 
-  document.body.append(dlg);
-  openDialog = dlg;
-  dlg.showModal();
+  document.body.append(dlg.el);
+  openInput = input;
+  dlg.el.showModal();
   all = provider();
-  render();
+  draw();
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
 }

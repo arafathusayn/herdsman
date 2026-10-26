@@ -1,9 +1,10 @@
 // The docs page at /docs/: the page itself is static HTML; this adds the
 // theme switch (shared with the app), copy buttons, the contents filter, the
 // current section in the contents, the install tabs and the narrow-screen menu.
-import { icon, icons, mount } from "./dom.ts";
-import { render } from "./herdsman-blocks-view.ts";
+import { icon, type IconNode, icons } from "./dom.ts";
+import { child, cls, html, on, render, text, type ViewNodeOf } from "./herdsman-blocks-view.ts";
 import { applyTheme, loadTheme, themeSwitch } from "./ui.ts";
+import { ElementView } from "./views/element-view.ts";
 
 function setupTheme(): void {
   applyTheme(loadTheme());
@@ -40,20 +41,17 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+const CopyButton = html`<button type="button" class=${cls()} aria-label="Copy the commands" onclick=${on<"click">()}>
+  ${child<IconNode>()}<span>${text()}</span>
+</button>`;
+
 function setupCopy(): void {
   for (const pre of document.querySelectorAll<HTMLPreElement>(".content pre")) {
     if (pre.closest(".hero-demo")) continue;
     const code = pre.querySelector("code");
     if (!code) continue;
-    const label = document.createElement("span");
-    label.textContent = "Copy";
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "copy";
-    btn.setAttribute("aria-label", "Copy the commands");
-    mount(btn, icon(icons.copy), label);
     let timer = 0;
-    btn.addEventListener("click", async () => {
+    const copy = async (): Promise<void> => {
       // Comment lines are for reading; the copy holds only the commands.
       const text = (code.textContent ?? "")
         .split("\n")
@@ -62,16 +60,16 @@ function setupCopy(): void {
         .replace(/\n{3,}/g, "\n\n")
         .trim();
       const ok = await copyText(text);
-      label.textContent = ok ? "Copied" : "Press ⌘C";
-      btn.classList.toggle("done", ok);
+      btn.update(button(ok ? "Copied" : "Press ⌘C", ok));
       clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        label.textContent = "Copy";
-        btn.classList.remove("done");
-      }, 1600);
-    });
+      timer = window.setTimeout(() => btn.update(button("Copy", false)), 1600);
+    };
+    const button = (label: string, done: boolean): ViewNodeOf<typeof CopyButton> =>
+      CopyButton([done ? "copy done" : "copy", () => void copy(), icon(icons.copy), label]);
+    // The button sits after the <pre>'s code, so it is an element of its own.
+    const btn = new ElementView("button", button("Copy", false));
     pre.classList.add("has-copy");
-    pre.append(btn);
+    pre.append(btn.el);
   }
 }
 
