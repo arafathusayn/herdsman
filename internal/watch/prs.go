@@ -28,14 +28,15 @@ import (
 // checks. The first pass per pull request records a baseline (a merged one
 // is reported once). It returns 0 with "TICK ..." after HERDSMAN_PR_DEADLINE
 // seconds, and 1 with "PR-WATCH-ERROR ..." after three failed polls of a
-// pull request in a row or without a gh token. gh's JSON is read here, not
+// pull request in a row or without a gh token; a missing or invalid
+// setting exits 2 before any poll. gh's JSON is read here, not
 // with --jq.
 func PRs(ctx context.Context, env Env, d Deps) int {
 	d.defaults(ctx)
 	for _, k := range []string{"HERDSMAN_PRS", "HERDSMAN_REPO", "HERDSMAN_PR_STATE"} {
 		if env.get(k) == "" {
-			fmt.Fprintf(d.Stderr, "herdsman watch prs: %s: set %s\n", k, k)
-			return 1
+			fmt.Fprintf(d.Stderr, "herdsman watch prs: %v\n", settings.Missing(k))
+			return settings.ExitInvalid
 		}
 	}
 	prs := strings.Fields(env.get("HERDSMAN_PRS"))

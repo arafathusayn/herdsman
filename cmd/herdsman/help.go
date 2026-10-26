@@ -37,8 +37,8 @@ background job running that many minutes or more.
 
 exit codes:
   0  the snapshot was printed
-  1  HERDSMAN_STATUS_SPECS is not set
-  2  usage error, or an invalid LIMIT_MIN
+  2  usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid
+     LIMIT_MIN
 `
 
 const routeHelp = `usage: herdsman route check <route folder> [plan|launch|close]
@@ -75,9 +75,9 @@ TICK line, polling every HERDSMAN_PR_INTERVAL (120).
 
 exit codes:
   0  a change or a TICK was printed, or the watcher was stopped
-  1  a required setting is missing, no gh token, or a pull request could
-     not be read three polls in a row
-  2  usage error, or an invalid setting; nothing ran
+  1  no gh token, or a pull request could not be read three polls in a
+     row
+  2  usage error, or a missing or invalid setting; nothing ran
 `
 
 const gateHelp = `usage: herdsman approval-gate consume <go-file> <action> <target> <revision> <draft-file|->
@@ -91,7 +91,8 @@ HEALTH_AFTER (1 to 86400) and LOCK_WAIT (1 to 60) are strict settings.
 exit codes:
   0  consumed or completed; act once
   1  refused: the go does not bind this effect
-  2  usage error, an invalid setting, or the inbox cannot be used
+  2  usage error, HERDSMAN_INBOX is not set, an invalid setting, or the
+     inbox cannot be used
   3  a human must repeat the setup
   4  a duplicate: the request already has an outcome
   5  reconcile: consumed without an outcome; inspect external state first

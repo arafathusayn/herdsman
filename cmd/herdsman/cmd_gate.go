@@ -56,6 +56,10 @@ func runGate(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "herdsman approval-gate: %v\n", err)
 		return settings.ExitInvalid
 	}
+	if opts.Dir == "" {
+		fmt.Fprintf(stderr, "herdsman approval-gate: %v\n", settings.Missing("HERDSMAN_INBOX"))
+		return settings.ExitInvalid
+	}
 	g := &gate.Gate{Options: opts, Client: herdrClient(), Stdout: stdout, Stderr: stderr}
 	// As the script's traps: an interrupted gate frees its locks and exits
 	// 130, 143 or 129.
