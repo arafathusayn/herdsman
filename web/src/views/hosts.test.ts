@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { h, icon, icons } from "../dom.ts";
 import { render } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
-import { dispatch } from "../testdom.ts";
+import { dispatch, dump } from "../testdom.ts";
 import { hostsDialog, hostsState } from "./hosts.ts";
 
 const g = globalThis as unknown as Record<string, unknown>;
@@ -55,19 +55,6 @@ afterEach(() => {
   delete proto["select"];
 });
 
-// Elements and text with attributes sorted and the bridge's data-key left
-// out; a slot's empty anchor text is not content.
-const dump = (n: FakeNode): string => {
-  if (n.nodeType === 3) return n.textContent;
-  if (n.nodeType !== 1) return "";
-  const e = fake(n);
-  const attrs = e.attributes
-    .filter((a) => a.name !== "data-key")
-    .map((a) => `${a.name}="${a.value}"`)
-    .sort()
-    .join(" ");
-  return `<${e.tagName.toLowerCase()} ${attrs}>${e.childNodes.map(dump).join("")}</${e.tagName.toLowerCase()}>`;
-};
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 const all = (n: FakeElement): FakeElement[] => [n, ...elements(n).flatMap(all)];
 const byAttr = (n: FakeElement, k: string, v: string): FakeElement => {
@@ -175,8 +162,7 @@ test("rename swaps in a focused field; Enter saves, Escape does not", () => {
   expect(field["value"]).toBe("box");
   expect(byClass(row, "host-name").length).toBe(0);
   field["value"] = "renamed";
-  const enter = { key: "Enter", defaultPrevented: false };
-  dispatch(field, "keydown", enter);
+  dispatch(field, "keydown", { key: "Enter" });
   // The row is kept; the name is back with the new text, and the blur that follows does nothing.
   expect(byClass(dlg, "host")[1]).toBe(row);
   expect(byClass(row, "host-name")[0]!.textContent).toBe("renamed");
@@ -186,17 +172,10 @@ test("rename swaps in a focused field; Enter saves, Escape does not", () => {
   dispatch(byAttr(row, "data-tip", "Rename"), "click");
   const again = byClass(row, "host-rename")[0]!;
   again["value"] = "nope";
-  let stopped = false;
-  const escape = {
-    key: "Escape",
-    defaultPrevented: false,
-    stopPropagation() {
-      stopped = true;
-    },
-  };
-  dispatch(again, "keydown", escape);
+  const escape = dispatch(again, "keydown", { key: "Escape" });
   dispatch(again, "blur");
-  expect(stopped).toBe(true);
+  // Escape stays in the field: the dialog does not see it and close.
+  expect(escape.cancelBubble).toBe(true);
   expect(byClass(row, "host-name")[0]!.textContent).toBe("renamed");
   expect(JSON.parse(stored.get("herdsman.hosts")!).hosts[1].name).toBe("renamed");
 });

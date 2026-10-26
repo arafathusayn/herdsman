@@ -12,6 +12,7 @@ import {
   on,
   prop,
   render,
+  renderDirect,
   text,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
@@ -321,11 +322,13 @@ const isDialog = (n: Node | null): n is HTMLDialogElement => n !== null && n.nod
 /** Opens the Hosts dialog. */
 export function openHosts(): void {
   const s = hostsState();
-  // The dialog is the view's root (its children are the dialog's own), so it
-  // is rendered in a holder and moved to the page. Later renders of the same
-  // view patch it where it is; only a different view would use the holder.
+  // The dialog is the view's root (its children are the dialog's own: a view
+  // cannot fill a container with several roots), so it is rendered in a
+  // holder and moved to the page. renderDirect, not render: render's
+  // delegated handlers listen on the holder, which the dialog leaves. Later
+  // renders of the same view patch it where it is.
   const holder = document.createElement("div");
-  const redraw = (): void => render(holder, hostsDialog(s, redraw));
+  const redraw = (): void => renderDirect(holder, hostsDialog(s, redraw));
   redraw();
   const dlg = holder.firstChild;
   if (!isDialog(dlg)) throw new Error("hosts: the view's root is not a dialog");
