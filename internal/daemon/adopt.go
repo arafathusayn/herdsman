@@ -1,16 +1,13 @@
 package daemon
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -54,6 +51,9 @@ type pendingEntry struct {
 	Inbox   string `json:"inbox"`
 	Route   string `json:"route"`
 	Started int64  `json:"started"`
+	// Confirm is the pair the human confirmed, kept so a start that
+	// finds the entry before the marker exists can finish unattended.
+	Confirm string `json:"confirm,omitempty"`
 }
 
 // adoptLocks are the file-mode locks adoption takes, in the scripts'
@@ -128,7 +128,7 @@ func (d *Daemon) adoptRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	if served {
 		return Errf("route_exists", "route %s is already served", name)
 	}
-	res, e := d.adopt(r.Context(), name, q.Inbox, q.ConfirmPairSHA256)
+	res, e := d.adopt(r.Context(), name, q.Inbox, q.ConfirmPairSHA256, true)
 	if e != nil {
 		return e
 	}
@@ -137,8 +137,10 @@ func (d *Daemon) adoptRoute(w http.ResponseWriter, r *http.Request) *APIError {
 }
 
 // adopt is the resumable adoption transaction (12.2): every step is
-// idempotent, so a crash anywhere is finished by running it again.
-func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string) (AdoptResult, *APIError) {
+// idempotent, so a crash anywhere is finished by running it again. wait
+// lets the drain wait up to DrainWait; a resume at start or from the
+// scheduler checks once and leaves the rest to the next tick.
+func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool) (AdoptResult, *APIError) {
 	if e := d.checkAdoptInbox(dir); e != nil {
 		return AdoptResult{}, e
 	}
@@ -158,9 +160,15 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string) (AdoptRes
 		return AdoptResult{}, Errf("route_exists", "inbox already owned by the daemon (epoch %s)", o.Epoch)
 	}
 	// a. the four lock folders, each with the daemon's owner record.
+	// Once owner.json is published (a resume after the route's first
+	// open), the locks carry the route's epoch, as its open expects.
+	lockEpoch := m.Epoch
+	if o, ok := ReadOwner(dir); ok {
+		lockEpoch = o.Epoch
+	}
 	var taken []*inbox.Lock
 	for _, l := range adoptLocks {
-		lk, err := retakeDaemonLock(filepath.Join(dir, l), m.Epoch)
+		lk, err := retakeDaemonLock(filepath.Join(dir, l), lockEpoch)
 		if err != nil {
 			for _, t := range taken {
 				if !resuming {
@@ -170,6 +178,13 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string) (AdoptRes
 			return AdoptResult{}, Errf("adopt_locked", "%v", err)
 		}
 		taken = append(taken, lk)
+	}
+	// The input lock's record names the adoption, so a start that finds
+	// it after the commit (a crash before the release) knows it is
+	// leftover; the daemon's operations write random tokens instead.
+	b, _ := encode(lockOwner{Owner: "daemon", Epoch: adoptLockPrefix + m.Epoch, PID: os.Getpid(), Start: d.now().Unix()})
+	if err := writeDurable(filepath.Join(dir, inbox.MutationLock, "owner.json"), append(b, '\n'), 0o600); err != nil {
+		return AdoptResult{}, Errf("internal", "input lock: %v", err)
 	}
 	d.crash("adopt.locks")
 	if !resuming {
@@ -198,7 +213,7 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string) (AdoptRes
 		// Step 2.4: the pending list first, then the marker.
 		pl := d.readPending()
 		if !slices.ContainsFunc(pl.Inboxes, func(e pendingEntry) bool { return e.Inbox == dir }) {
-			pl.Inboxes = append(pl.Inboxes, pendingEntry{Inbox: dir, Route: name, Started: m.Started})
+			pl.Inboxes = append(pl.Inboxes, pendingEntry{Inbox: dir, Route: name, Started: m.Started, Confirm: confirm})
 			if err := d.writePending(pl); err != nil {
 				return AdoptResult{}, Errf("internal", "pending list: %v", err)
 			}
@@ -236,7 +251,7 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string) (AdoptRes
 	}
 	d.crash("adopt.invalidated")
 	// c. drain old file-mode processes of this inbox.
-	if busy := d.drain(ctx, dir); len(busy) > 0 {
+	if busy := d.drain(ctx, dir, wait); len(busy) > 0 {
 		return AdoptResult{}, Errf("adopt_busy", "file-mode processes still use this inbox: %s; end them, then run adopt again", strings.Join(busy, "; "))
 	}
 	m.Phase = "publish"
@@ -277,9 +292,11 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string) (AdoptRes
 		}
 	}()
 	// Credentials are issued at adoption, file by default (12.2 step 3).
+	// A failure keeps the adoption pending (marker and list entry stay),
+	// so the next run issues them before anything commits.
 	if pb, ok := rt.registryBytes("peers"); ok && len(rt.creds) == 0 {
 		if _, e := rt.approve(ApproveRequest{SHA256: sha256Hex(pb), Interaction: "adopt"}); e != nil {
-			d.logf("route %s: credentials at adoption: %s", name, e.Message)
+			return AdoptResult{}, Errf("internal", "credentials at adoption: %s; the adoption stays pending", e.Message)
 		}
 	}
 	// e. commit: the marker goes, then the pending entry, then the input
@@ -291,8 +308,13 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string) (AdoptRes
 	d.crash("adopt.committed")
 	pl := d.readPending()
 	pl.Inboxes = slices.DeleteFunc(pl.Inboxes, func(e pendingEntry) bool { return e.Inbox == dir })
-	_ = d.writePending(pl)
-	releaseLock(inbox.Adopt(filepath.Join(dir, inbox.MutationLock)))
+	if err := d.writePending(pl); err != nil {
+		d.logf("route %s: pending list: %v; the next start clears it", name, err)
+	}
+	d.crash("adopt.unlisted")
+	if err := releaseInputLock(dir); err != nil {
+		d.logf("route %s: %v; the next start releases it", name, err)
+	}
 	started = true
 	rt.start()
 	res := AdoptResult{Route: name, Epoch: rt.epoch, LastMessageID: fmt.Sprintf("m%012d", rt.lastID), LegacyProof: legacy}
@@ -333,16 +355,52 @@ func partialWrites(dir string) string {
 	return ""
 }
 
+// adoptLockPrefix marks the input lock's owner record while an adoption
+// holds it.
+const adoptLockPrefix = "adopt-"
+
+// releaseInputLock releases herdr-mutation.lock when an adoption holds
+// it (the daemon's operations hold it under a random token). The folder is first renamed away, so the lock is
+// free at once and a leftover (an interrupted write inside it) never
+// looks like another owner's lock; a lock with another owner is never
+// touched.
+func releaseInputLock(dir string) error {
+	lk := filepath.Join(dir, inbox.MutationLock)
+	if o, ok := daemonLockOwner(lk); !ok || !strings.HasPrefix(o.Epoch, adoptLockPrefix) {
+		return nil
+	}
+	gone := filepath.Join(dir, ".released."+inbox.MutationLock+"."+randomHex(8))
+	if err := os.Rename(lk, gone); err != nil {
+		return fmt.Errorf("releasing the input lock: %v", err)
+	}
+	if err := os.RemoveAll(gone); err != nil {
+		return fmt.Errorf("removing the released input lock %s: %v", gone, err)
+	}
+	return nil
+}
+
+// adoptionLockLeft reports an input lock left by a committed adoption (a
+// crash between the commit and the release).
+func adoptionLockLeft(dir string) bool {
+	_, owned := ReadOwner(dir)
+	l, locked := daemonLockOwner(filepath.Join(dir, inbox.MutationLock))
+	return owned && locked && strings.HasPrefix(l.Epoch, adoptLockPrefix)
+}
+
 // resumeAdoptions runs the transaction for every pending adoption (4.4
 // step 0): those on the daemon's pending list and every registered route
-// with a marker.
+// with a marker. It never waits on a drain: a route still busy stays held
+// adopting, and the scheduler tries again on its next tick, so one paused
+// writer delays neither the start nor the other routes.
 func (d *Daemon) resumeAdoptions() {
 	pl := d.readPending()
 	seen := map[string]bool{}
 	todo := append([]pendingEntry{}, pl.Inboxes...)
 	if rf, err := ReadRoutes(d.cfg.PrivateHome); err == nil {
 		for n, e := range rf.Routes {
-			if pendingAdoption(e.Inbox) {
+			// A marker, or an input lock an earlier daemon left after its
+			// adoption committed (a crash before the release).
+			if pendingAdoption(e.Inbox) || adoptionLockLeft(e.Inbox) {
 				todo = append(todo, pendingEntry{Inbox: e.Inbox, Route: n})
 			}
 		}
@@ -360,8 +418,8 @@ func (d *Daemon) resumeAdoptions() {
 			pl.Inboxes = slices.DeleteFunc(pl.Inboxes, func(x pendingEntry) bool { return x.Inbox == e.Inbox })
 			_ = d.writePending(pl)
 			d.regMu.Unlock()
-			if _, ok := daemonLockOwner(filepath.Join(e.Inbox, inbox.MutationLock)); ok {
-				releaseLock(inbox.Adopt(filepath.Join(e.Inbox, inbox.MutationLock)))
+			if err := releaseInputLock(e.Inbox); err != nil {
+				d.logf("route %s: %v", e.Route, err)
 			}
 			d.mu.Lock()
 			delete(d.held, e.Route)
@@ -376,7 +434,7 @@ func (d *Daemon) resumeAdoptions() {
 			continue
 		}
 		d.regMu.Lock()
-		_, err := d.adopt(context.Background(), e.Route, e.Inbox, "")
+		_, err := d.adopt(context.Background(), e.Route, e.Inbox, e.Confirm, false)
 		d.regMu.Unlock()
 		if err != nil {
 			d.logf("route %s: adoption still incomplete: %s", e.Route, err.Message)
@@ -386,11 +444,49 @@ func (d *Daemon) resumeAdoptions() {
 
 // Proc is one process of the user, for the adoption drain.
 type Proc struct {
-	PID     int
+	PID int
+	// Args is the argument vector; when nil, Command is the command line.
+	Args    []string
 	Command string
 	// Env is the environment, or nil when it cannot be read (then the
 	// process counts as matching: fail closed).
 	Env []string
+	// Unreadable: the process's arguments cannot be read, so whether it
+	// runs a channel command is unknown; it counts as busy (fail closed).
+	Unreadable bool
+}
+
+func (p Proc) commandLine() string {
+	if p.Args != nil {
+		return strings.Join(p.Args, " ")
+	}
+	return p.Command
+}
+
+// label names a busy process for adopt_busy and the log: its pid, the
+// executable's base name and the channel action, never the other
+// arguments (a claim token) or the environment.
+func (p Proc) label() string {
+	if p.Unreadable {
+		return fmt.Sprintf("pid %d (arguments unreadable)", p.PID)
+	}
+	f := p.Args
+	if f == nil {
+		f = strings.Fields(p.Command)
+	}
+	parts := []string{fmt.Sprintf("pid %d", p.PID)}
+	for i, a := range f {
+		base := filepath.Base(a)
+		switch {
+		case i == 0:
+			parts = append(parts, base)
+		case a == "message" && i+1 < len(f):
+			return strings.Join(append(parts, "message", clip(f[i+1], 32)), " ")
+		case strings.HasSuffix(base, ".sh"):
+			return strings.Join(append(parts, base), " ")
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // channelCommand reports whether a command line runs a file-mode channel
@@ -407,10 +503,14 @@ func channelCommand(cmd string) bool {
 	return false
 }
 
-// drain waits up to DrainWait while another process runs a file-mode
-// channel command on this inbox, and returns those that remain.
-func (d *Daemon) drain(ctx context.Context, dir string) []string {
-	tries := int(d.cfg.DrainWait/time.Second) + 1
+// drain returns the other processes that run a file-mode channel command
+// on this inbox; with wait it checks again each second up to DrainWait
+// while any remain.
+func (d *Daemon) drain(ctx context.Context, dir string, wait bool) []string {
+	tries := 1
+	if wait {
+		tries = int(d.cfg.DrainWait/time.Second) + 1
+	}
 	for try := 1; ; try++ {
 		var busy []string
 		procs, err := d.procs()
@@ -418,12 +518,11 @@ func (d *Daemon) drain(ctx context.Context, dir string) []string {
 			return []string{"the process list cannot be read: " + err.Error()}
 		}
 		for _, p := range procs {
-			if p.PID == os.Getpid() || !channelCommand(p.Command) {
+			if p.PID == os.Getpid() {
 				continue
 			}
-			match := p.Env == nil || slices.Contains(p.Env, "HERDSMAN_INBOX="+dir)
-			if match {
-				busy = append(busy, fmt.Sprintf("pid %d %s", p.PID, clip(p.Command, 120)))
+			if p.Unreadable || (channelCommand(p.commandLine()) && (p.Env == nil || slices.Contains(p.Env, "HERDSMAN_INBOX="+dir))) {
+				busy = append(busy, p.label())
 			}
 		}
 		if len(busy) == 0 || try >= tries || ctx.Err() != nil {
@@ -440,65 +539,14 @@ func (d *Daemon) procs() ([]Proc, error) {
 	return systemProcs()
 }
 
-// systemProcs lists the user's processes with their environments: /proc
-// on Linux, ps -E on macOS.
-func systemProcs() ([]Proc, error) {
-	if runtime.GOOS == "linux" {
-		return procfsProcs()
+// splitNUL splits a NUL-separated block (an argument vector or an
+// environment) into its strings.
+func splitNUL(b []byte) []string {
+	b = bytes.TrimRight(b, "\x00")
+	if len(b) == 0 {
+		return []string{}
 	}
-	out, err := exec.Command("ps", "-ww", "-E", "-U", strconv.Itoa(os.Getuid()), "-o", "pid=,command=").Output()
-	if err != nil {
-		return nil, err
-	}
-	var procs []Proc
-	sc := bufio.NewScanner(bytes.NewReader(out))
-	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) < 2 {
-			continue
-		}
-		pid, err := strconv.Atoi(f[0])
-		if err != nil {
-			continue
-		}
-		p := Proc{PID: pid, Command: strings.Join(f[1:], " ")}
-		for _, x := range f[1:] {
-			if strings.Contains(x, "=") {
-				p.Env = append(p.Env, x)
-			}
-		}
-		procs = append(procs, p)
-	}
-	return procs, nil
-}
-
-func procfsProcs() ([]Proc, error) {
-	ents, err := os.ReadDir("/proc")
-	if err != nil {
-		return nil, err
-	}
-	var procs []Proc
-	for _, e := range ents {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		st, err := os.Stat("/proc/" + e.Name())
-		if s, ok := st.Sys().(*syscall.Stat_t); err != nil || !ok || int(s.Uid) != os.Getuid() {
-			continue
-		}
-		cmd, err := os.ReadFile("/proc/" + e.Name() + "/cmdline")
-		if err != nil {
-			continue
-		}
-		p := Proc{PID: pid, Command: strings.TrimSpace(strings.ReplaceAll(string(cmd), "\x00", " "))}
-		if env, err := os.ReadFile("/proc/" + e.Name() + "/environ"); err == nil {
-			p.Env = strings.Split(strings.TrimRight(string(env), "\x00"), "\x00")
-		}
-		procs = append(procs, p)
-	}
-	return procs, nil
+	return strings.Split(string(b), "\x00")
 }
 
 // crash is the daemon-level crash hook (tests only).
