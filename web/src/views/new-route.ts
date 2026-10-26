@@ -72,8 +72,8 @@ export function openNewRoute(): void {
           return () => clearTimeout(t);
         },
       });
+      // The route form takes the body's place and focuses its first field.
       stop = form.stop;
-      body.querySelector<HTMLElement>(form.form().folder ? "textarea" : "input[name=folder]")?.focus();
     },
     (e: unknown) => {
       if (e instanceof AuthError) store.set({ fatal: e.message });
