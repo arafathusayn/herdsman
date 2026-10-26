@@ -151,6 +151,10 @@ func (e *Env) open(readOnly bool) error {
 	if e.env("HERDSMAN_INBOX") == "" {
 		return &exitErr{code: 1, msg: "HERDSMAN_INBOX: set HERDSMAN_INBOX"}
 	}
+	// A file-mode writer refuses an inbox the daemon owns (design 12.1).
+	if !readOnly && inbox.DaemonOwned(e.env("HERDSMAN_INBOX")) {
+		return die("%s", inbox.DaemonOwnedLine)
+	}
 	ch, err := inbox.OpenChannel(e.options(readOnly), e.Executable)
 	if err != nil {
 		return err
@@ -167,7 +171,10 @@ func (e *Env) pane() string { return e.env("HERDR_PANE_ID") }
 
 // lockChannel is lock: the queue lock or die.
 func (e *Env) lockChannel() (*inbox.Lock, error) {
-	l, _ := e.take(e.path(inbox.ChannelLock), e.ch.LockWait, false, nil)
+	l, err := e.take(e.path(inbox.ChannelLock), e.ch.LockWait, false, nil)
+	if err != nil {
+		return nil, err
+	}
 	if l == nil {
 		return nil, die("channel lock busy; retry with backoff, never auto-remove")
 	}

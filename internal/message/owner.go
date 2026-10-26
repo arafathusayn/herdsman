@@ -47,6 +47,14 @@ func (e *Env) take(dir string, tries int, mutation bool, fold func() error) (*in
 			return nil, nil
 		}
 		if l := inbox.TryOnce(dir); l != nil {
+			// Ownership-aware (design 12.2): after taking a lock, a
+			// file-mode writer re-reads owner.json and refuses an inbox the
+			// daemon adopted meanwhile.
+			if e.ch != nil && inbox.DaemonOwned(e.ch.Dir) {
+				_ = l.Release()
+				o.mu.Unlock()
+				return nil, die("%s", inbox.DaemonOwnedLine)
+			}
 			if fold != nil {
 				if err := fold(); err != nil {
 					_ = l.Release()
