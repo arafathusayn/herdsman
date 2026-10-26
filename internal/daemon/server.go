@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -110,6 +111,17 @@ func decode(r *http.Request, v any) *APIError {
 	}
 	if err := strictDecode(b, v); err != nil {
 		return Errf("bad_request", "strict JSON: %v", err)
+	}
+	// A member may be absent, never null: null would decode to an empty
+	// value and pass as one (5.1).
+	var top map[string]json.RawMessage
+	if json.Unmarshal(b, &top) != nil || top == nil {
+		return Errf("bad_request", "the request body must be a JSON object")
+	}
+	for k, raw := range top {
+		if string(bytes.TrimSpace(raw)) == "null" {
+			return Errf("bad_request", "%q must not be null", k)
+		}
 	}
 	return nil
 }

@@ -357,3 +357,21 @@ func TestSideAgentRetryBeforeBoundary(t *testing.T) {
 		t.Fatalf("a new side_agent_data send under HUMAN: %v", err)
 	}
 }
+
+// TestRequestNullRefused: a request body is one JSON object whose members
+// may be absent but never null; null never decodes to an empty value.
+func TestRequestNullRefused(t *testing.T) {
+	h := newHarness(t)
+	adj, orch, _ := h.route("r")
+	for _, body := range []string{
+		`{"to":"` + orch.name + `","kind":"brief","body":null,"key":"` + key() + `"}`,
+		`{"to":null,"kind":"brief","body":"x","key":"` + key() + `"}`,
+		`null`,
+		`[]`,
+	} {
+		var raw json.RawMessage = json.RawMessage(body)
+		if _, err := adj.c.Do(context.Background(), "POST", "/v1/routes/r/messages", raw, nil); code(err) != "bad_request" {
+			t.Errorf("%s: %v", body, err)
+		}
+	}
+}
