@@ -6,7 +6,13 @@ import type { LogLine, Route } from "../types.ts";
 beforeAll(installDom);
 
 const toasts: [string, string | undefined][] = [];
-void mock.module("../ui.ts", () => ({ toast: (m: string, kind?: string) => void toasts.push([m, kind]) }));
+// A module mock lasts for the whole run, so it keeps ui.ts's other exports
+// for the test files that load after this one.
+const realUi = { ...(await import("../ui.ts")) };
+void mock.module("../ui.ts", () => ({
+  ...realUi,
+  toast: (m: string, kind?: string) => void toasts.push([m, kind]),
+}));
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const text = (b: FakeElement) =>

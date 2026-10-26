@@ -45,8 +45,24 @@ void mock.module("../api.ts", () => ({
   inboxState: () => new Promise(() => {}),
   savedChoices: () => Promise.resolve(saved),
 }));
-void mock.module("../store.ts", () => ({ store: { app: { server: null }, set: () => {}, go: () => {} } }));
-void mock.module("../ui.ts", () => ({ dismissOnBackdrop: () => {}, toast: (m: string) => void toasts.push(m) }));
+// The real store, with set and go silenced; it reads the address and
+// listens for history moves when loaded.
+const g = globalThis as unknown as Record<string, unknown>;
+g["location"] ??= { search: "" };
+g["window"] ??= { addEventListener() {} };
+const realStore = { ...(await import("../store.ts")) };
+void mock.module("../store.ts", () => ({
+  ...realStore,
+  store: Object.assign(Object.create(realStore.store) as typeof realStore.store, { set: () => {}, go: () => {} }),
+}));
+// A module mock lasts for the whole run, so it keeps ui.ts's other exports
+// for the test files that load after this one.
+const realUi = { ...(await import("../ui.ts")) };
+void mock.module("../ui.ts", () => ({
+  ...realUi,
+  dismissOnBackdrop: () => {},
+  toast: (m: string) => void toasts.push(m),
+}));
 
 const dialog = (): FakeElement => {
   const body = (document as unknown as { body: FakeElement }).body;
