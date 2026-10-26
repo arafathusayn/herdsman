@@ -196,11 +196,8 @@ func (ch *Channel) Boundary(ctx context.Context, c *herdr.Client) (bool, string,
 		}
 		return false, FaultPending, nil
 	}
-	pair, _ := Decode(readState(r.Path("peers.approved")))
-	pb2 := readState(r.Preflight)
-	pv, _ := Decode(pb2)
-	b := Object(Object(pv)["boundary"])
-	if !boundaryFields(b, pair) {
+	b, pair, ok := r.boundaryState()
+	if !ok || !boundaryFields(b, pair) {
 		return false, FaultStatic, nil
 	}
 	agents, err := c.AgentList(ctx)

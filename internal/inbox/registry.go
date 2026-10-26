@@ -299,11 +299,8 @@ func (r *Root) BoundaryOK(ctx context.Context, c *herdr.Client) (bool, string, [
 	if Exists(r.Path("state", "boundary-tainted")) {
 		return false, FaultStatic, nil
 	}
-	pair, _ := Decode(readState(r.Path("peers.approved")))
-	pb2 := readState(r.Preflight)
-	pv, _ := Decode(pb2)
-	b := Object(Object(pv)["boundary"])
-	if !boundaryFields(b, pair) {
+	b, pair, ok := r.boundaryState()
+	if !ok || !boundaryFields(b, pair) {
 		return false, FaultStatic, nil
 	}
 	agents, err := c.AgentList(ctx)
@@ -334,6 +331,26 @@ func (r *Root) BoundaryOK(ctx context.Context, c *herdr.Client) (bool, string, [
 		return false, FaultInventory, unknown
 	}
 	return true, "", nil
+}
+
+// boundaryState rereads the approved registry and the proof's boundary
+// for the pair comparison. Either read refused, or the registry no longer
+// valid, is a failure, never an empty value that a null pair would match.
+func (r *Root) boundaryState() (map[string]any, any, bool) {
+	ab, _, ok := r.readRegistry("peers.approved")
+	if !ok {
+		return nil, nil, false
+	}
+	pair, err := Decode(ab)
+	if err != nil || pair == nil {
+		return nil, nil, false
+	}
+	pv, err := Decode(readState(r.Preflight))
+	if err != nil {
+		return nil, nil, false
+	}
+	b := Object(Object(pv)["boundary"])
+	return b, pair, b != nil
 }
 
 func boundaryFields(b map[string]any, pair any) bool {
