@@ -1,11 +1,16 @@
 package daemon
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
 // Review a-5 reproductions, kept as fail-first tests.
@@ -134,4 +139,147 @@ func TestLostEpochChangeResumes(t *testing.T) {
 	if e := r2.open(); e != nil {
 		t.Fatalf("recovery of lost-journal epoch transaction cannot reopen its own retained locks: %v", e)
 	}
+}
+
+func TestUncertainApprovalKeepsSecrets(t *testing.T) {
+	x := newPairRoute(t)
+	approvePair(t, x, "a1", "o1")
+	replacePair(t, x, "o1", "o2")
+	pb, _ := os.ReadFile(x.path("peers"))
+	restore := failWhere(journalCurrent)
+	_, e := x.r.approve(ApproveRequest{SHA256: sha256Hex(pb)})
+	restore()
+	if e == nil || !x.r.degraded.Load() {
+		t.Fatalf("expected unknown-tail refusal: %v", e)
+	}
+	staged, _ := filepath.Glob(x.path("state", "credentials", "staged-*"))
+	t.Logf("unknown-tail refusal: staged generations=%d", len(staged))
+	x.kill()
+	x.open()
+	for n, c := range x.r.creds {
+		if c.Option == "file" && !secretMatches(x.path("state", "credentials", n), c.SHA256) {
+			t.Errorf("restart accepted credential hash for %s but its committed secret was discarded", n)
+		}
+	}
+}
+
+func TestRetainedProofTargetDrift(t *testing.T) {
+	x, _, q := proofRoute(t)
+	id := `{"pane":"p1","session":{"agent":"claude","kind":"id","source":"hook","value":"s1"}}`
+	q.WatchTargets = json.RawMessage(`[` + id + `]`)
+	if _, e := x.r.setup(q); e != nil {
+		t.Fatal(e)
+	}
+	if !inbox.ProofV2Valid(x.dir) {
+		t.Fatal("fresh retained proof refused")
+	}
+	_ = os.WriteFile(x.path("watch-targets.json"), []byte("[]\n"), 0600)
+	// Check retained reader before daemon detection can create the latch.
+	if inbox.ProofV2Valid(x.dir) {
+		t.Error("retained approval proof accepts changed targets")
+	}
+	if x.r.proofValid() {
+		t.Error("daemon proof also accepts changed targets")
+	}
+}
+
+func TestHashCacheBound(t *testing.T) {
+	x, _, q := proofRoute(t)
+	base := t.TempDir()
+	for i := 0; i < 100; i++ {
+		p := filepath.Join(base, fmt.Sprintf("rule-%d", i))
+		_ = os.WriteFile(p, []byte("ok"), 0600)
+		q.Rules = []string{p}
+		if _, e := x.r.setup(q); e != nil {
+			t.Fatal(e)
+		}
+	}
+	t.Logf("one-rule proof after 1000 replacements retains %d file hashes", len(x.r.hashes.m))
+	if len(x.r.hashes.m) > 16 {
+		t.Fatal("hash cache grows with every obsolete setup policy")
+	}
+}
+
+func TestKeychainLoadFailureRefused(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("keychain option offered only on macOS")
+	}
+	x := newPairRoute(t)
+	enrollPair(t, x, "a1", "o1")
+	kc := &failingKeychain{m: map[string]string{}, failStagedLoad: true}
+	x.d.cfg.Keychain = kc
+	pb, _ := os.ReadFile(x.path("peers"))
+	_, e := x.r.approve(ApproveRequest{SHA256: sha256Hex(pb), Credentials: map[string]string{"a1": "keychain", "o1": "keychain"}})
+	if e != nil {
+		t.Logf("safely refused unavailable keychain: %v", e)
+		return
+	}
+	for n, c := range x.r.creds {
+		s, e := kc.Load("herdsman/r", n)
+		if e != nil || sha256Hex([]byte(s)) != c.SHA256 {
+			t.Errorf("approval succeeded without an active keychain secret for %s", n)
+		}
+	}
+}
+
+func TestKeychainReplayPreservesLatest(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("keychain option offered only on macOS")
+	}
+	x := newPairRoute(t)
+	kc := &failingKeychain{m: map[string]string{}, failStagedDeleteOnce: true}
+	x.d.cfg.Keychain = kc
+	enrollPair(t, x, "a1", "o1")
+	approve := func(orch string) {
+		pb, _ := os.ReadFile(x.path("peers"))
+		if _, e := x.r.approve(ApproveRequest{SHA256: sha256Hex(pb), Credentials: map[string]string{"a1": "keychain", orch: "keychain"}}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	approve("o1")
+	replacePair(t, x, "o1", "o2")
+	approve("o2")
+	for n, c := range x.r.creds {
+		s, e := kc.Load("herdsman/r", n)
+		if e != nil || sha256Hex([]byte(s)) != c.SHA256 {
+			t.Fatalf("invalid fixture before replay: %s", n)
+		}
+	}
+	x.kill()
+	x.open()
+	for n, c := range x.r.creds {
+		s, e := kc.Load("herdsman/r", n)
+		if e != nil || sha256Hex([]byte(s)) != c.SHA256 {
+			t.Errorf("replay replaced latest active keychain secret for %s with an old generation", n)
+		}
+	}
+}
+
+type failingKeychain struct {
+	m                    map[string]string
+	failStagedLoad       bool
+	failStagedDeleteOnce bool
+}
+
+func (k *failingKeychain) Store(service, account, secret string) error {
+	k.m[service+"/"+account] = secret
+	return nil
+}
+func (k *failingKeychain) Load(service, account string) (string, error) {
+	if k.failStagedLoad && strings.Contains(account, ".staged.") {
+		return "", errors.New("keychain access unavailable")
+	}
+	s, ok := k.m[service+"/"+account]
+	if !ok {
+		return "", os.ErrNotExist
+	}
+	return s, nil
+}
+func (k *failingKeychain) Delete(service, account string) error {
+	if k.failStagedDeleteOnce && strings.Contains(account, ".staged.") {
+		k.failStagedDeleteOnce = false
+		return errors.New("keychain delete unavailable")
+	}
+	delete(k.m, service+"/"+account)
+	return nil
 }

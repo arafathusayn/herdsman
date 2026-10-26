@@ -91,8 +91,16 @@ func (r *Route) activate(gen string, creds map[string]credential) error {
 		case "keychain":
 			kc := r.d.keychain()
 			s, err := kc.Load("herdsman/"+r.name, stagedAccount(name, gen))
+			if errors.Is(err, os.ErrNotExist) {
+				// Already moved: the active secret must be this record's.
+				a, aerr := kc.Load("herdsman/"+r.name, name)
+				if aerr != nil || sha256Hex([]byte(a)) != c.SHA256 {
+					return fmt.Errorf("%w: keychain credential for %q is neither staged nor active", errHeld, name)
+				}
+				continue
+			}
 			if err != nil {
-				continue // already active
+				return fmt.Errorf("keychain credential for %q: %w", name, err)
 			}
 			if sha256Hex([]byte(s)) != c.SHA256 {
 				return fmt.Errorf("%w: staged keychain credential for %q does not match its record", errHeld, name)

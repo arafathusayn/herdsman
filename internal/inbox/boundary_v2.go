@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -103,6 +104,8 @@ func ProofV2Valid(dir string) bool {
 			Path   string `json:"path"`
 			SHA256 string `json:"sha256"`
 		} `json:"binary"`
+		WatchTargets  json.RawMessage `json:"watch_targets"`
+		ResumeTargets json.RawMessage `json:"resume_targets"`
 	}
 	if json.Unmarshal(b, &doc) != nil || doc.Version != 2 || doc.Inbox != dir || !doc.PolicyVerified || len(doc.Rules) == 0 {
 		return false
@@ -121,6 +124,22 @@ func ProofV2Valid(dir string) bool {
 		}
 		sum := sha256.Sum256(data)
 		if hex.EncodeToString(sum[:]) != f.SHA256 {
+			return false
+		}
+	}
+	// The target files are part of the proof (7.3): each equals the
+	// proof's targets, or is absent when the proof has none.
+	for name, raw := range map[string]json.RawMessage{"watch-targets.json": doc.WatchTargets, "resume-targets.json": doc.ResumeTargets} {
+		p := filepath.Join(dir, name)
+		if len(raw) == 0 || string(raw) == "null" {
+			if _, err := os.Lstat(p); err == nil {
+				return false
+			}
+			continue
+		}
+		b, ok := ReadStrict(dir, p)
+		var x, y bytes.Buffer
+		if !ok || json.Compact(&x, b) != nil || json.Compact(&y, raw) != nil || !bytes.Equal(x.Bytes(), y.Bytes()) {
 			return false
 		}
 	}

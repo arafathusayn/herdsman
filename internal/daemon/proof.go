@@ -68,6 +68,18 @@ var targetFiles = []string{"watch-targets.json", "resume-targets.json"}
 // stays held until the human's next setup, even if the files return (7.3).
 const proofLatch = "proof-stale"
 
+// hashCacheMax bounds the hash cache; setup keeps only the proof's files.
+const hashCacheMax = 64
+
+// keep forgets every hash but those of paths.
+func (c *hashCache) keep(paths []string) {
+	for p := range c.m {
+		if !slices.Contains(paths, p) {
+			delete(c.m, p)
+		}
+	}
+}
+
 // maxHashed bounds a hashed file (a policy or the herdsman binary).
 const maxHashed = 1 << 30
 
@@ -118,7 +130,7 @@ func (c *hashCache) sum(p string) (string, error) {
 		return "", fmt.Errorf("%q is larger than %d bytes", p, maxHashed)
 	}
 	s := hex.EncodeToString(h.Sum(nil))
-	if c.m == nil {
+	if c.m == nil || len(c.m) >= hashCacheMax {
 		c.m = map[string]hashEntry{}
 	}
 	c.m[p] = hashEntry{stamp: st, sum: s}
@@ -260,6 +272,7 @@ func (r *Route) setup(q SetupRequest) (SetupResult, *APIError) {
 	if err := os.Remove(r.path("state", proofLatch)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return SetupResult{}, Errf("internal", "clearing the stale latch: %v", err)
 	}
+	r.hashes.keep(append(slices.Clone(q.Rules), bin))
 	r.healthChanged()
 	return SetupResult{ProofSHA256: sha256Hex(data)}, nil
 }

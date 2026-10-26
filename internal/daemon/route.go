@@ -131,6 +131,10 @@ type Route struct {
 	replaying bool
 	// keychainSeen are parties that had a keychain secret.
 	keychainSeen map[string]bool
+	// replayGen is the last approval replay met: only that generation
+	// is activated, once replay ends, so an older generation's leftover
+	// staged secret never replaces a later active one (4.4, 7.7).
+	replayGen *Record
 	// unfinished are committed records whose step 4 failed, in order.
 	unfinished []*Record
 	// cpLastID is the last checkpoint's last_message_id, as a number.
@@ -388,6 +392,20 @@ func (r *Route) open() error {
 		return err
 	}
 	// Secrets are pruned once, against the final records.
+	if g := r.replayGen; g != nil {
+		r.replayGen = nil
+		// Only the credentials still current (no later revoke) are hers.
+		live := map[string]credential{}
+		for n, c := range g.Credentials {
+			if r.creds[n] == c {
+				live[n] = c
+			}
+		}
+		if err := r.activate(g.Generation, live); err != nil {
+			r.closeFiles()
+			return fmt.Errorf("route %s: credentials: %w", r.name, err)
+		}
+	}
 	if err := r.pruneSecrets(); err != nil {
 		r.closeFiles()
 		return fmt.Errorf("route %s: credentials: %w", r.name, err)

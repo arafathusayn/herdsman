@@ -469,7 +469,9 @@ func (r *Route) redoPair(rec *Record) error {
 		if err := writeIfDifferent(r.path("peers.approved"), pb); err != nil {
 			return err
 		}
-		if err := r.activate(rec.Generation, rec.Credentials); err != nil {
+		if r.replaying {
+			r.replayGen = rec
+		} else if err := r.activate(rec.Generation, rec.Credentials); err != nil {
 			return err
 		}
 		if err := r.setCredentials(rec.Credentials); err != nil {

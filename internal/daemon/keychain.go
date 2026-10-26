@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -37,7 +39,11 @@ func (k securityKeychain) Store(service, account, secret string) error {
 }
 
 func (k securityKeychain) Load(service, account string) (string, error) {
-	return k.run("find-generic-password", "-s", service, "-a", account, "-w")
+	s, err := k.run("find-generic-password", "-s", service, "-a", account, "-w")
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok && ee.ExitCode() == 44 {
+		return "", os.ErrNotExist // errSecItemNotFound
+	}
+	return s, err
 }
 
 func (k securityKeychain) Delete(service, account string) error {
