@@ -98,3 +98,58 @@ func TestR11StaleProofPausesRecovery(t *testing.T) {
 		t.Error("a stale setup proof still retired an allocation")
 	}
 }
+
+// Round 11 (review 10, A25): the message commands read their numeric and
+// duration settings with the shared internal/settings parser, keeping
+// their own floors and caps, and a missing HERDSMAN_NAME or HERDSMAN_INBOX
+// is the shared required-setting line with exit 2.
+func TestR11SharedSettings(t *testing.T) {
+	for _, tc := range []struct{ k, v, cmd string }{
+		{"LOCK_WAIT", "+6", "status"},
+		{"LOCK_WAIT", " 06 ", "status"},
+		{"SWEEP", " 2m ", "courier"},
+		{"SWEEP", "999999999999999999999", "courier"},
+	} {
+		t.Run(tc.k+"="+tc.v, func(t *testing.T) {
+			c := newCase(t, true)
+			env := map[string]string{tc.k: tc.v}
+			args := []string{}
+			if tc.cmd == "status" {
+				args = []string{O}
+			} else {
+				env["RUN_FOR"] = "1"
+			}
+			if out, code := c.run("receiver-pane", env, tc.cmd, args...); code != 0 {
+				t.Errorf("%s=%q is a valid shared setting: exit %d %q", tc.k, tc.v, code, out)
+			}
+		})
+	}
+	for _, key := range []string{"HERDSMAN_NAME", "HERDSMAN_INBOX"} {
+		t.Run(key, func(t *testing.T) {
+			c := newCase(t, true)
+			out, code := c.run("receiver-pane", map[string]string{"HERDSMAN_NAME": O, key: ""}, "message", "status")
+			want := "herdsman message: " + key + `: required, not set (got "")`
+			if code != 2 || !strings.Contains(out, want) {
+				t.Errorf("missing %s: exit %d %q, want 2 and %q", key, code, out, want)
+			}
+		})
+	}
+}
+
+// Round 11 (review 10): the count stamp is a plain decimal integer
+// (shnum.Test): leading zeros stay decimal, a sign is allowed once, and an
+// empty or malformed stamp counts as 0.
+func TestR11CountStamp(t *testing.T) {
+	for _, tc := range []struct {
+		in, prev string
+		stamp    int64
+	}{
+		{"1 123\n", "1", 123}, {"2 0008\n", "2", 8}, {"2 +0010\n", "2", 10}, {"2 -0010\n", "2", -10},
+		{"2 1+2\n", "2", 0}, {"2 other\n", "2", 0}, {"2 0x10\n", "2", 0}, {"2 1 2\n", "2", 0},
+		{"2\n", "2", 0}, {"", "", 0}, {" 2 42 \n9 55", "2", 42},
+	} {
+		if p, n := readCount(tc.in); p != tc.prev || n != tc.stamp {
+			t.Errorf("readCount(%q) = %q, %d; want %q, %d", tc.in, p, n, tc.prev, tc.stamp)
+		}
+	}
+}
