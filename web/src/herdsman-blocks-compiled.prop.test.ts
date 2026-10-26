@@ -354,6 +354,7 @@ interface Kids {
   readonly Em: ViewFn;
   readonly Strong: ViewFn;
   readonly Li: ViewFn;
+  readonly Tag: ViewFn;
   readonly Lane: ViewFn;
   readonly Card: ViewFn;
   readonly Dot: ViewFn;
@@ -365,7 +366,8 @@ function kids(f: Family): Kids {
     k = {
       Em: f.view(["<em>", "</em>"], ["text"], false),
       Strong: f.view(["<strong class=", ">z</strong>"], ["cls"], false),
-      Li: f.view(["<li>", "</li>"], ["text"], false),
+      Tag: f.view(["<b onclick=", ">", "</b>"], ["on", "text"], false),
+      Li: f.view(["<li onclick=", ">", "</li>"], ["on", "text"], false),
       Lane: f.view(["<section>\n  <h2 onclick=", ">", "</h2>\n  ", "\n</section>"], ["on", "text", "child"], false),
       Card: f.view(["<button class=", ">", "</button>"], ["cls", "text"], false),
       Dot: f.view(["<circle cx=", ' r="1" class=', "></circle>"], ["attr", "attr"], true),
@@ -392,7 +394,11 @@ function realizeChild(f: Family, r: ChildRecipe, log: string[]): unknown {
       return q;
     }
     case "list":
-      return f.list(r.ids, ((id: number) => id) as never, ((id: number) => K.Li([`${id}${r.v}`])) as never);
+      return f.list(
+        r.ids,
+        ((id: number) => id) as never,
+        ((id: number) => K.Li([() => log.push(`li ${id}`), `${id}${r.v}`])) as never,
+      );
     case "lanes":
       return f.list(
         r.lanes,
@@ -411,7 +417,11 @@ function realizeChild(f: Family, r: ChildRecipe, log: string[]): unknown {
         ((id: number) => K.Dot([id, id % 2 ? "odd" : null])) as never,
       );
     case "runs":
-      return f.runs(r.runs.map((x) => (typeof x === "string" ? x : K.Em([x.em]))));
+      return f.runs(
+        r.runs.map((x) =>
+          typeof x === "string" ? x : x.em === "n" ? K.Tag([() => log.push(`run ${x.em}`), x.em]) : K.Em([x.em]),
+        ),
+      );
   }
 }
 
