@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { each, h, icon, icons } from "../dom.ts";
 import { fuzzy, highlight } from "../fuzzy.ts";
+import type { Child } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { ago } from "../model.ts";
 import { dispatch } from "../testdom.ts";
@@ -114,7 +115,7 @@ function oldGroup(root: string, items: Artifact[], current: string, open: boolea
     each(items, artifactPath, (a) => oldRow(a, current, [], false, false)),
   );
 }
-function oldShell(count: string, list: Node[], head: Node[], body: Node[]): HTMLElement {
+function oldShell(count: string, list: Child[], head: Child[], body: Child[]): HTMLElement {
   return h(
     "div",
     { class: "files artifacts" },
@@ -248,7 +249,7 @@ test("search marks hits with the workspace folder; Enter opens the cursor's page
   const rows = elements(child(v.el, 0, 1));
   expect(child(v.el, 0, 0, 2).textContent).toBe("1/3");
   expect(dump(rows[0]!)).toBe(dump(fake(oldRow(a2, artifactPath(a1), fuzzy("review", a2.path)!.hits, true, true))));
-  dispatch(search, "keydown", { defaultPrevented: false, ...{ key: "Enter" } });
+  dispatch(search, "keydown", { key: "Enter" });
   expect(went).toEqual([{ artifact: artifactPath(a2) }]);
   dispatch(rows[0]!, "click");
   expect(went.length).toBe(2);

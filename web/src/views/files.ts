@@ -4,8 +4,8 @@
 // updates live.
 import { routeFile } from "../api.ts";
 import { highlighting } from "../appearance.ts";
-import { h, icon, type IconNode, icons, mountElement } from "../dom.ts";
-import { fuzzy, highlight } from "../fuzzy.ts";
+import { icon, type IconNode, icons, mountElement } from "../dom.ts";
+import { fuzzy, highlight, type HighlightNode } from "../fuzzy.ts";
 import {
   attr,
   child,
@@ -14,11 +14,11 @@ import {
   list,
   type ListNode,
   on,
-  render,
+  renderDirect,
   text,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
-import { codeBlock, renderMarkdown } from "../markdown.ts";
+import { codeBlock, type CodeNode, type MarkdownNode, renderMarkdown } from "../markdown.ts";
 import { ago } from "../model.ts";
 import { store } from "../store.ts";
 import type { Route, RouteFile } from "../types.ts";
@@ -61,18 +61,10 @@ const SearchInput = html`<input
   onkeydown=${on<"keydown", HTMLInputElement>()}
 />`;
 
-const Name = html`<span class="name">${text()}</span>`;
-const Dir = html`<span class="dir">${text()}</span>`;
+// A row's name and folder, with the search's hits marked.
+const Name = html`<span class="name">${child<HighlightNode>()}</span>`;
+const Dir = html`<span class="dir">${child<HighlightNode>()}</span>`;
 type NameNode = ViewNodeOf<typeof Name>;
-
-/**
- * A name or folder span with the search's hits marked. Without hits it is a
- * view; with them it is the h() span fuzzy.ts builds the marks into.
- */
-function marked(view: typeof Name, className: "name" | "dir", s: string, hits: number[]): NameNode | HTMLSpanElement {
-  // runs(): migrate when inline runs land
-  return hits.length ? h("span", { class: className }, highlight(s, hits)) : view([s]);
-}
 
 const Row = html`<button
   class=${cls()}
@@ -81,8 +73,7 @@ const Row = html`<button
   title=${attr()}
   onclick=${on<"click">()}
 >
-  ${child<IconNode>()}<span class="file-name"
-    >${child<NameNode | HTMLSpanElement>()}${child<NameNode | HTMLSpanElement | null>()}</span
+  ${child<IconNode>()}<span class="file-name">${child<NameNode>()}${child<NameNode | null>()}</span
   ><small>${text()}</small>
 </button>`;
 type RowNode = ViewNodeOf<typeof Row>;
@@ -97,8 +88,9 @@ const Empty = html`<p class="file-empty">${text()}</p>`;
 type EmptyNode = ViewNodeOf<typeof Empty>;
 
 const Meta = html`<p>${text()}</p>`;
+const PathDir = html`<span class="dir">${text()}</span>`;
 const Title = html`<div class="viewer-title">
-  <h2 title=${attr()}>${child<NameNode | null>()}${text()}</h2>
+  <h2 title=${attr()}>${child<ViewNodeOf<typeof PathDir> | null>()}${text()}</h2>
   ${child<ViewNodeOf<typeof Meta> | null>()}
 </div>`;
 type TitleNode = ViewNodeOf<typeof Title>;
@@ -130,18 +122,13 @@ const Copy = html`<button
 type CopyNode = ViewNodeOf<typeof Copy>;
 
 const Muted = html`<p class="muted">${text()}</p>`;
-const Raw = html`<pre class="raw">${text()}</pre>`;
+const Raw = html`<pre class="raw">${child<CodeNode>()}</pre>`;
 const Failure = html`<p class="error">${text()}</p>`;
 const Retry = html`<button type="button" class="btn" onclick=${on<"click">()}>Try again</button>`;
 type RetryNode = ViewNodeOf<typeof Retry>;
 
-/** What the viewer body shows; the markdown, and highlighted raw text, are h() elements. */
-type Body =
-  | ViewNodeOf<typeof Muted>
-  | ViewNodeOf<typeof Raw>
-  | ViewNodeOf<typeof Failure>
-  | HTMLElement // runs(): migrate when inline runs land
-  | null;
+/** What the viewer body shows. */
+type Body = ViewNodeOf<typeof Muted> | ViewNodeOf<typeof Raw> | ViewNodeOf<typeof Failure> | MarkdownNode | null;
 
 type ListContent = ListNode<RowNode, string> | ListNode<GroupNode, string> | EmptyNode | null;
 
@@ -166,6 +153,8 @@ export class FilesView {
   private readonly search: HTMLInputElement;
   // The shell renders into this holder, which stays out of the document; its
   // root, the element main.ts places, is `el`. Later renders patch it there.
+  // The root moves out of the holder, so it renders with renderDirect:
+  // delegated handlers would listen on the holder, which no event reaches.
   private readonly holder = document.createElement("div");
   private route: Route | null = null;
   private selected = "";
@@ -239,7 +228,10 @@ export class FilesView {
 
   private draw(): void {
     const items = this.listContent(); // sets the count
-    render(this.holder, Shell([searchIcon, this.search, this.count, items, ...this.head(), this.body, this.retry]));
+    renderDirect(
+      this.holder,
+      Shell([searchIcon, this.search, this.count, items, ...this.head(), this.body, this.retry]),
+    );
   }
 
   private row(f: RouteFile, hits: number[], cursor: boolean, showFolder: boolean): RowNode {
@@ -255,8 +247,8 @@ export class FilesView {
       f.path,
       () => this.choose(f.path),
       fileIcon,
-      marked(Name, "name", name, nameHits),
-      showFolder && dir ? marked(Dir, "dir", dir, dirHits) : null,
+      Name([highlight(name, nameHits)]),
+      showFolder && dir ? Dir([highlight(dir, dirHits)]) : null,
       ago(f.modified),
     ]);
   }
@@ -329,7 +321,7 @@ export class FilesView {
     return [
       Title([
         this.selected,
-        slash >= 0 ? Dir([this.selected.slice(0, slash + 1)]) : null,
+        slash >= 0 ? PathDir([this.selected.slice(0, slash + 1)]) : null,
         this.selected.slice(slash + 1),
         f ? Meta([`${size(f.size)} · ${ago(f.modified)}`]) : null,
       ]),
@@ -368,10 +360,7 @@ export class FilesView {
 
   /** The text, as markdown or as raw source. */
   private shown(): Body {
-    if (!this.raw) return renderMarkdown(this.text); // runs(): migrate when inline runs land
-    const code = codeBlock(this.text.split("\n"), "md");
-    // runs(): migrate when inline runs land
-    return typeof code === "string" ? Raw([code]) : h("pre", { class: "raw" }, code);
+    return this.raw ? Raw([codeBlock(this.text.split("\n"), "md")]) : renderMarkdown(this.text);
   }
 
   /** Loads the open file into the body when it, its version or the way it shows changed. */

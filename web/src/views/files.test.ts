@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { each, h, icon, icons } from "../dom.ts";
 import { fuzzy, highlight } from "../fuzzy.ts";
+import type { Child } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { renderMarkdown } from "../markdown.ts";
 import { ago } from "../model.ts";
@@ -130,7 +131,7 @@ function oldGroup(d: string, items: RouteFile[], selected: string, open: boolean
     ),
   );
 }
-function oldShell(count: string, list: Node[], head: Node[], body: Node[]): HTMLElement {
+function oldShell(count: string, list: Child[], head: Child[], body: Child[]): HTMLElement {
   return h(
     "div",
     { class: "files" },
@@ -254,11 +255,11 @@ test("search: marked matches, a cursor, Enter opens the cursor's file and Escape
   expect(dump(rows[0]!)).toBe(dump(fake(oldRow(files[1]!, "doc/x.md", hits, true, true))));
   expect(dump(rows[1]!)).toBe(dump(fake(oldRow(files[2]!, "doc/x.md", hits, false, true))));
 
-  dispatch(search, "keydown", { defaultPrevented: false, ...{ key: "ArrowDown" } });
+  dispatch(search, "keydown", { key: "ArrowDown" });
   expect(elements(list)).toEqual(rows); // the cursor moved; the rows stayed
   expect(rows[1]!.className).toBe("file-row cursor");
   expect(rows[0]!.className).toBe("file-row");
-  dispatch(search, "keydown", { defaultPrevented: false, ...{ key: "Enter" } });
+  dispatch(search, "keydown", { key: "Enter" });
   expect(went).toEqual([{ file: "reports/a.md" }]);
 
   search["value"] = "zzz";
@@ -274,7 +275,7 @@ test("search: marked matches, a cursor, Enter opens the cursor's file and Escape
       ),
     ),
   );
-  dispatch(search, "keydown", { defaultPrevented: false, ...{ key: "Escape" } });
+  dispatch(search, "keydown", { key: "Escape" });
   expect(search["value"]).toBe("");
   expect(elements(child(v.el, 0, 1)).length).toBe(4); // the groups again
 });

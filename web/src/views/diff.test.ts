@@ -3,8 +3,9 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { type DiffLine, parseSection, sideBySide, splitPatch } from "../diff.ts";
 import { h, icon, icons, unkeyed } from "../dom.ts";
 import { fuzzy, highlight } from "../fuzzy.ts";
+import type { Child } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
-import { languageOf, renderPieces, type State, tokenizeLine } from "../highlight.ts";
+import { languageOf, type Piece, type State, tokenizeLine } from "../highlight.ts";
 import { dispatch } from "../testdom.ts";
 import type { DiffFile, DiffSource } from "../types.ts";
 
@@ -44,8 +45,6 @@ beforeEach(() => {
   const doc = g["document"] as Record<string, unknown>;
   doc["documentElement"] = { dataset };
   doc["visibilityState"] = "visible";
-  // renderPieces builds a fragment; the fake has none, so an element stands in.
-  doc["createDocumentFragment"] = () => new FakeElement("FRAGMENT");
   proto["append"] = function (this: FakeElement, ...ns: (FakeNode | string)[]) {
     for (const n of ns) this.appendChild(typeof n === "string" ? fake(document.createTextNode(n)) : n);
   };
@@ -176,7 +175,7 @@ function oldRow(f: DiffFile, hits: number[], active: boolean): HTMLElement {
   );
 }
 
-function oldShell(srcs: Node[], count: string, list: Node[], head: Node[], body: Node[]): HTMLElement {
+function oldShell(srcs: Child[], count: string, list: Child[], head: Child[], body: Child[]): HTMLElement {
   return h(
     "div",
     { class: "files diff" },
@@ -264,7 +263,10 @@ function oldHead(f: DiffFile, layout: "inline" | "split" | null): Node[] {
   ];
 }
 
-function oldColor(lines: DiffLine[], lang: string): (DocumentFragment | null)[] {
+// What renderPieces' fragment put in a cell: text, and a span per token.
+const paint = (pieces: Piece[]) => unkeyed(pieces.map(([k, t]) => (k ? h("span", { class: `hl-${k}` }, t) : t)));
+
+function oldColor(lines: DiffLine[], lang: string): (Piece[] | null)[] {
   if (!lang) return lines.map(() => null);
   let oldState: State | null = null;
   let newState: State | null = null;
@@ -280,7 +282,7 @@ function oldColor(lines: DiffLine[], lang: string): (DocumentFragment | null)[] 
       ({ state: newState, ...r } = tokenizeLine(lang, l.text, newState));
       if (l.kind === "ctx") oldState = tokenizeLine(lang, l.text, oldState).state;
     }
-    return r.pieces.length ? renderPieces(r.pieces) : null;
+    return r.pieces.length ? r.pieces : null;
   });
 }
 
@@ -289,10 +291,10 @@ function oldTable(lines: DiffLine[], path: string, layout: "inline" | "split", t
   let table: HTMLElement;
   if (layout === "split") {
     const map = new Map(lines.map((l, i) => [l, code[i] ?? null]));
-    const side = (l: DiffLine | null, num: number | undefined, right: boolean): [HTMLElement, HTMLElement] => {
+    const side = (l: DiffLine | null, num: number | undefined): [HTMLElement, HTMLElement] => {
       if (!l) return [h("td", { class: "ln blank" }), h("td", { class: "code blank" })];
       const colored = map.get(l);
-      const text = colored ? (!right && l.kind === "ctx" ? colored.cloneNode(true) : colored) : l.text || " ";
+      const text = colored ? paint(colored) : l.text || " ";
       return [
         h("td", { class: `ln ${l.kind}` }, num === undefined ? "" : String(num)),
         h("td", { class: `code ${l.kind}` }, text),
@@ -309,7 +311,7 @@ function oldTable(lines: DiffLine[], path: string, layout: "inline" | "split", t
           sideBySide(lines).map((r) =>
             "kind" in r
               ? h("tr", { class: `d-${r.kind}` }, h("td", { colspan: "4", class: "code" }, r.text))
-              : h("tr", null, side(r.left, r.left?.old, false), side(r.right, r.right?.new, true)),
+              : h("tr", null, side(r.left, r.left?.old), side(r.right, r.right?.new)),
           ),
         ),
       ),
@@ -330,7 +332,7 @@ function oldTable(lines: DiffLine[], path: string, layout: "inline" | "split", t
                   { class: `d-${l.kind}` },
                   h("td", { class: "ln" }, l.old === undefined ? "" : String(l.old)),
                   h("td", { class: "ln" }, l.new === undefined ? "" : String(l.new)),
-                  h("td", { class: "code" }, code[i] ?? (l.text || " ")),
+                  h("td", { class: "code" }, code[i] ? paint(code[i]) : l.text || " "),
                 ),
           ),
         ),
@@ -415,7 +417,7 @@ test("before the first poll, then sources, files, the head and an inline diff as
   expect(dump(fake(w.el))).toBe(dump(fake(want)));
 });
 
-test("side by side, with highlighting: the left context cell gets its own copy of the colored code", async () => {
+test("side by side, with highlighting: both cells of a context line show its colored code", async () => {
   dataset["code"] = "on";
   const v = await opened();
   dispatch(child(v.el, 1, 0, 1, 1), "click"); // Side by side
@@ -470,14 +472,14 @@ test("search, Enter, row and source clicks, and the untracked file's note", asyn
   dispatch(search, "input");
   expect(child(v.el, 0, 1, 2).textContent).toBe("1/3");
   expect(dump(child(v.el, 0, 2, 0))).toBe(dump(fake(oldRow(appFiles[0]!, fuzzy("app", "src/app.ts")!.hits, true))));
-  dispatch(search, "keydown", { defaultPrevented: false, ...{ key: "Enter" } });
+  dispatch(search, "keydown", { key: "Enter" });
   expect(went).toEqual([{ diffFile: "src/app.ts", source: "t1" }]);
   search["value"] = "zzz";
   dispatch(search, "input");
   expect(dump(child(v.el, 0, 2, 0))).toBe(
     dump(fake(h("p", { class: "file-empty" }, "No changed file matches “zzz”."))),
   );
-  dispatch(search, "keydown", { defaultPrevented: false, ...{ key: "Escape" } });
+  dispatch(search, "keydown", { key: "Escape" });
   expect(elements(child(v.el, 0, 2)).length).toBe(3);
 
   dispatch(child(v.el, 0, 2, 0), "click");

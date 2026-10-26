@@ -7,8 +7,8 @@
 import { AuthError, routeDiff } from "../api.ts";
 import { highlighting } from "../appearance.ts";
 import { type DiffLine, parseSection, sideBySide, splitPatch } from "../diff.ts";
-import { h, icon, type IconNode, icons, mountElement } from "../dom.ts";
-import { fuzzy, highlight } from "../fuzzy.ts";
+import { icon, type IconNode, icons, mountElement } from "../dom.ts";
+import { fuzzy, highlight, type HighlightNode } from "../fuzzy.ts";
 import {
   attr,
   child,
@@ -17,11 +17,13 @@ import {
   list,
   type ListNode,
   on,
-  render,
+  renderDirect,
+  runs,
+  type RunsNode,
   text,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
-import { languageOf, type Piece, renderPieces, type State, tokenizeLine } from "../highlight.ts";
+import { languageOf, type Piece, type State, tokenizeLine } from "../highlight.ts";
 import { store } from "../store.ts";
 import type { DiffFile, DiffSource } from "../types.ts";
 import { toast } from "../ui.ts";
@@ -75,12 +77,17 @@ function counts(add: number, del: number): CountsNode {
   return Counts([`+${add}`, `−${del}`]);
 }
 
+// A highlighted token, as highlight.ts's renderPieces makes it.
+const Token = html`<span class=${cls()}>${text()}</span>`;
+/** A line's code as runs of text and token spans. */
+type ColoredNode = RunsNode<ViewNodeOf<typeof Token>>;
+
 /**
  * Highlights the code of diff lines. The old and new sides each carry their
  * own state (a comment opened in a removed line does not color added ones),
  * and a hunk starts both afresh, since the lines between hunks are unknown.
  */
-function colorLines(lines: DiffLine[], lang: string): (DocumentFragment | null)[] {
+function colorLines(lines: DiffLine[], lang: string): (ColoredNode | null)[] {
   if (!lang) return lines.map(() => null);
   let oldState: State | null = null;
   let newState: State | null = null;
@@ -96,7 +103,7 @@ function colorLines(lines: DiffLine[], lang: string): (DocumentFragment | null)[
       ({ pieces, state: newState } = tokenizeLine(lang, l.text, newState));
       if (l.kind === "ctx") oldState = tokenizeLine(lang, l.text, oldState).state;
     }
-    return pieces.length ? renderPieces(pieces) : null;
+    return pieces.length ? runs(pieces.map(([k, t]) => (k ? Token([`hl-${k}`, t]) : t))) : null;
   });
 }
 
@@ -150,18 +157,11 @@ const Source = html`<button
 </button>`;
 type SourceNode = ViewNodeOf<typeof Source>;
 
-const Name = html`<span class="name">${text()}</span>`;
-const Dir = html`<span class="dir">${text()}</span>`;
+// A row's name and folder, with the search's hits marked.
+const Name = html`<span class="name">${child<HighlightNode>()}</span>`;
+const Dir = html`<span class="dir">${child<HighlightNode>()}</span>`;
 type NameNode = ViewNodeOf<typeof Name>;
-
-/**
- * A name or folder span with the search's hits marked. Without hits it is a
- * view; with them it is the h() span fuzzy.ts builds the marks into.
- */
-function marked(view: typeof Name, className: "name" | "dir", s: string, hits: number[]): NameNode | HTMLSpanElement {
-  // runs(): migrate when inline runs land
-  return hits.length ? h("span", { class: className }, highlight(s, hits)) : view([s]);
-}
+const PathDir = html`<span class="dir">${text()}</span>`;
 
 const Row = html`<button
   class=${cls()}
@@ -171,14 +171,13 @@ const Row = html`<button
   onclick=${on<"click">()}
 >
   <span class=${cls()} title=${attr()}>${text()}</span
-  ><span class="file-name">${child<NameNode | HTMLSpanElement>()}${child<NameNode | HTMLSpanElement | null>()}</span
-  >${child<CountsNode | null>()}
+  ><span class="file-name">${child<NameNode>()}${child<NameNode | null>()}</span>${child<CountsNode | null>()}
 </button>`;
 type RowNode = ViewNodeOf<typeof Row>;
 
 const PlainTitle = html`<div class="viewer-title"><h2 class="plain">${text()}</h2></div>`;
 const FileTitle = html`<div class="viewer-title">
-  <h2 title=${attr()}>${child<NameNode | null>()}${text()}</h2>
+  <h2 title=${attr()}>${child<ViewNodeOf<typeof PathDir> | null>()}${text()}</h2>
   <p>${text()}${text()}${text<" · " | "">()}${child<CountsNode | null>()}</p>
 </div>`;
 
@@ -219,9 +218,8 @@ const MarkRow = html`<tr class=${cls()}>
   <td colspan=${attr<"3" | "4">()} class="code">${text()}</td>
 </tr>`;
 type MarkRowNode = ViewNodeOf<typeof MarkRow>;
-const CodeCell = html`<td class=${cls()}>${text()}</td>`;
-/** A code cell; highlighted code is an h() cell around renderPieces' spans. */
-type Code = ViewNodeOf<typeof CodeCell> | HTMLTableCellElement;
+const CodeCell = html`<td class=${cls()}>${child<string | ColoredNode | null>()}</td>`;
+type Code = ViewNodeOf<typeof CodeCell>;
 const InlineRow = html`<tr class=${cls()}>
   <td class="ln">${text<number | null>()}</td>
   <td class="ln">${text<number | null>()}</td>
@@ -295,6 +293,8 @@ export class DiffView {
   private readonly search: HTMLInputElement;
   // The shell renders into this holder, which stays out of the document; its
   // root, the element main.ts places, is `el`. Later renders patch it there.
+  // The root moves out of the holder, so it renders with renderDirect:
+  // delegated handlers would listen on the holder, which no event reaches.
   private readonly holder = document.createElement("div");
   /** The viewer is too narrow for side by side. */
   private narrow = false;
@@ -431,7 +431,7 @@ export class DiffView {
   private draw(): void {
     const files = this.fileList(); // sets the count
     this.syncViewer();
-    render(
+    renderDirect(
       this.holder,
       Shell([this.sourceList(), searchIcon, this.search, this.count, files, ...this.head, ...this.body]),
     );
@@ -484,19 +484,19 @@ export class DiffView {
       `st st-${f.status === "?" ? "u" : f.status}`,
       statusName[f.status] ?? f.status,
       f.status,
-      marked(
-        Name,
-        "name",
-        name,
-        hits.filter((i) => i > slash).map((i) => i - slash - 1),
-      ),
+      Name([
+        highlight(
+          name,
+          hits.filter((i) => i > slash).map((i) => i - slash - 1),
+        ),
+      ]),
       dir
-        ? marked(
-            Dir,
-            "dir",
-            dir,
-            hits.filter((i) => i <= slash),
-          )
+        ? Dir([
+            highlight(
+              dir,
+              hits.filter((i) => i <= slash),
+            ),
+          ])
         : null,
       f.binary || f.status === "?" ? null : counts(f.add, f.del),
     ]);
@@ -566,7 +566,7 @@ export class DiffView {
     this.head = [
       FileTitle([
         f.path,
-        slash >= 0 ? Dir([f.path.slice(0, slash + 1)]) : null,
+        slash >= 0 ? PathDir([f.path.slice(0, slash + 1)]) : null,
         f.path.slice(slash + 1),
         statusName[f.status] ?? f.status,
         f.old_path ? ` from ${f.old_path}` : "",
@@ -662,14 +662,13 @@ export class DiffView {
   }
 }
 
-/** A code cell: the colored code in an h() cell, or the plain text in a view. */
-function codeCell(className: string, l: DiffLine, colored: Node | null): Code {
-  // runs(): migrate when inline runs land
-  return colored ? h("td", { class: className }, colored) : CodeCell([className, l.text || " "]);
+/** A code cell: the colored code, or the plain text (a space keeps an empty line's height). */
+function codeCell(className: string, l: DiffLine, colored: ColoredNode | null): Code {
+  return CodeCell([className, colored ?? (l.text || " ")]);
 }
 
 /** One column: old and new line numbers, then the code. */
-function inlineTable(lines: DiffLine[], code: Map<DiffLine, DocumentFragment | null>): ViewNodeOf<typeof InlineTable> {
+function inlineTable(lines: DiffLine[], code: Map<DiffLine, ColoredNode | null>): ViewNodeOf<typeof InlineTable> {
   let before = "";
   const rows = lines.map((l) => ({ l, key: (before = lineKey(l, before)) }));
   return InlineTable([
@@ -687,10 +686,9 @@ function inlineTable(lines: DiffLine[], code: Map<DiffLine, DocumentFragment | n
 /**
  * The side-by-side table: old lines on the left, new on the right. Long
  * lines wrap so both sides stay in view. A context line shows on both
- * sides; the left one, drawn first, gets a copy of its colored code, since
- * appending a fragment empties it.
+ * sides, both from the same colored runs.
  */
-function splitTable(lines: DiffLine[], code: Map<DiffLine, DocumentFragment | null>): ViewNodeOf<typeof SplitTable> {
+function splitTable(lines: DiffLine[], code: Map<DiffLine, ColoredNode | null>): ViewNodeOf<typeof SplitTable> {
   let before = "";
   const rows = sideBySide(lines).map((r) => ({
     r,
@@ -702,13 +700,9 @@ function splitTable(lines: DiffLine[], code: Map<DiffLine, DocumentFragment | nu
         : `${r.left ? lineKey(r.left, "") : ""}/${r.right ? lineKey(r.right, "") : ""}`),
   }));
   const side = (l: DiffLine | null, right: boolean): [string, number | null, Code] => {
-    if (!l) return ["ln blank", null, CodeCell(["code blank", ""])];
+    if (!l) return ["ln blank", null, CodeCell(["code blank", null])];
     const colored = code.get(l) ?? null;
-    return [
-      `ln ${l.kind}`,
-      (right ? l.new : l.old) ?? null,
-      codeCell(`code ${l.kind}`, l, colored && !right && l.kind === "ctx" ? colored.cloneNode(true) : colored),
-    ];
+    return [`ln ${l.kind}`, (right ? l.new : l.old) ?? null, codeCell(`code ${l.kind}`, l, colored)];
   };
   return SplitTable([
     list(

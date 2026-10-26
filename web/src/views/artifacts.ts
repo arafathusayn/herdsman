@@ -3,8 +3,8 @@
 // sandboxed frame. The list refreshes while the tab shows. A view belongs to
 // one route, so it never shows another route's list.
 import { listArtifacts, openArtifact } from "../api.ts";
-import { h, icon, type IconNode, icons, mountElement } from "../dom.ts";
-import { fuzzy, highlight } from "../fuzzy.ts";
+import { icon, type IconNode, icons, mountElement } from "../dom.ts";
+import { fuzzy, highlight, type HighlightNode } from "../fuzzy.ts";
 import {
   attr,
   child,
@@ -13,7 +13,7 @@ import {
   list,
   type ListNode,
   on,
-  render,
+  renderDirect,
   text,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
@@ -57,10 +57,10 @@ const SearchInput = html`<input
   onkeydown=${on<"keydown", HTMLInputElement>()}
 />`;
 
-const Name = html`<span class="name">${text()}</span>`;
+const Name = html`<span class="name">${child<HighlightNode>()}</span>`;
 type NameNode = ViewNodeOf<typeof Name>;
 // A row's folder: the workspace folder when the list shows it, then the page's own.
-const Dir = html`<span class="dir">${text()}${text()}</span>`;
+const Dir = html`<span class="dir">${text()}${child<HighlightNode>()}</span>`;
 type DirNode = ViewNodeOf<typeof Dir>;
 
 const Row = html`<button
@@ -70,8 +70,7 @@ const Row = html`<button
   title=${attr()}
   onclick=${on<"click">()}
 >
-  ${child<IconNode>()}<span class="file-name"
-    >${child<NameNode | HTMLSpanElement>()}${child<DirNode | HTMLSpanElement | null>()}</span
+  ${child<IconNode>()}<span class="file-name">${child<NameNode>()}${child<DirNode | null>()}</span
   ><small>${text()}</small>
 </button>`;
 type RowNode = ViewNodeOf<typeof Row>;
@@ -157,6 +156,8 @@ export class ArtifactsView {
   private readonly search: HTMLInputElement;
   // The shell renders into this holder, which stays out of the document; its
   // root, the element main.ts places, is `el`. Later renders patch it there.
+  // The root moves out of the holder, so it renders with renderDirect:
+  // delegated handlers would listen on the holder, which no event reaches.
   private readonly holder = document.createElement("div");
   private items: Artifact[] = [];
   private loaded = false;
@@ -267,7 +268,7 @@ export class ArtifactsView {
 
   private draw(): void {
     const items = this.listContent(); // sets the count
-    render(this.holder, Shell([searchIcon, this.search, this.count, items, ...this.head(), this.body]));
+    renderDirect(this.holder, Shell([searchIcon, this.search, this.count, items, ...this.head(), this.body]));
   }
 
   private row(a: Artifact, hits: number[], cursor: boolean, showRoot: boolean): RowNode {
@@ -278,20 +279,14 @@ export class ArtifactsView {
     const nameHits = hits.filter((i) => i > slash).map((i) => i - slash - 1);
     const dirHits = hits.filter((i) => i <= slash);
     const on = full === this.current();
-    const rootPart = showRoot ? `${rootLabel(a.root)}/` : "";
     return Row([
       ["file-row", on ? "active" : "", cursor ? "cursor" : ""].filter(Boolean).join(" "),
       on ? "true" : "false",
       full,
       () => store.go({ artifact: full }, false),
       artifactIcon,
-      // runs(): migrate when inline runs land
-      nameHits.length ? h("span", { class: "name" }, highlight(name, nameHits)) : Name([name]),
-      !dir && !showRoot
-        ? null
-        : dirHits.length
-          ? h("span", { class: "dir" }, rootPart, highlight(dir, dirHits)) // runs(): migrate when inline runs land
-          : Dir([rootPart, dir]),
+      Name([highlight(name, nameHits)]),
+      dir || showRoot ? Dir([showRoot ? `${rootLabel(a.root)}/` : "", highlight(dir, dirHits)]) : null,
       ago(a.modified),
     ]);
   }
