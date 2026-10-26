@@ -90,7 +90,7 @@ export function routeForm(
   initial: Catalog,
   st: State | null,
   deps: Deps,
-  opts: { usePrevious?: boolean; recommended?: boolean; needLists?: () => void } = {},
+  opts: { usePrevious?: boolean; recommended?: boolean; needLists?: (() => void) | undefined } = {},
 ): { stop(): void; form(): RouteForm; sent(): boolean; setCatalog(next: Catalog): void } {
   let c = initial;
   let f: RouteForm = newForm(c, st);
