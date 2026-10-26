@@ -328,7 +328,7 @@ class Shape {
   readonly eager: boolean;
   /** Per handler hole, the trampoline a directly mounted element gets. */
   readonly fns: (((this: Holder, e: Event) => unknown) | undefined)[];
-  /** Whether any hole is a handler: the instance is then kept on its root. */
+  /** Whether any hole is a direct handler: the instance is then kept on its root for the trampolines. */
   readonly handlers: boolean;
   /** Whether any hole is a delegated handler. */
   readonly delegates: boolean;
@@ -357,7 +357,6 @@ class Shape {
         name = t.names[i];
       if (k === "slot") this.flags[i] = CHILD;
       else if (k === "prop" && name!.startsWith("on")) {
-        handlers = true;
         const type = name!.slice(2);
         if (BUBBLING.has(type)) {
           this.flags[i] = DELEGATED;
@@ -369,6 +368,7 @@ class Shape {
         }
         this.flags[i] = HANDLER;
         this.fns[i] = trampoline(i);
+        handlers = true;
       } else if (k === "prop") this.flags[i] = PROPERTY;
       else {
         write.push(i);
@@ -420,49 +420,78 @@ function listen(c: Container): void {
 // innermost first. Dispatches can nest (a handler can dispatch an event), so
 // each takes its own arrays only when it finds something.
 function delegate(this: Container, e: Event): void {
+  const self = this[SELF],
+    content = this[ROOT];
+  if (self === undefined && content === undefined) return;
+  // The event's path from its target up to the render root (included when it
+  // is itself an instance root, made by mount()).
+  const path: Node[] = [];
+  for (let node = e.target as Node | null; node !== null && node !== this; node = node.parentNode) path.push(node);
+  if (self !== undefined) path.push(this);
+  // The render root's own instance, then what render() put inside it.
+  const chain: Inst[] = [],
+    tops: number[] = [];
+  let k = path.length - 1;
+  if (self !== undefined) {
+    chain.push(self);
+    tops.push(k--);
+  }
+  if (content !== undefined) {
+    if (k < 0 || path[k] !== content.root) return dispatch(e, path, chain, tops);
+    chain.push(content);
+    tops.push(k);
+  } else k++;
+  if (chain.length === 0) return;
+  // Descend along the path: a node that is the root of a child instance (a
+  // view, list entry or run in one of the current instance's child holes)
+  // enters it. Rows need no expando to be found.
+  let inst = chain[chain.length - 1]!;
+  while (--k >= 0) {
+    const sub = childAt(inst, path[k]!);
+    if (sub !== null) {
+      chain.push((inst = sub));
+      tops.push(k);
+    }
+  }
+  dispatch(e, path, chain, tops);
+}
+
+// Run the delegated handlers for `e` of the instances in `chain` (outermost
+// first; tops[c] is the path index of chain[c]'s root), innermost first.
+function dispatch(e: Event, path: readonly Node[], chain: readonly Inst[], tops: readonly number[]): void {
   const type = e.type;
   let els: Node[] | null = null,
     insts: Inst[] | null = null,
-    holes: number[] | null = null;
-  let pos: number[] | null = null;
-  const path: Node[] = [];
-  // A root made by mount() is its own render root: its handlers count too.
-  const self = this[SELF] !== undefined;
-  for (let node = e.target as Node | null; node !== null; node = node === this ? null : node.parentNode) {
-    if (node === this && !self) break;
-    path.push(node);
-    if (node !== this && (node as Container)[LISTENING] !== undefined) {
-      // Another render root below this one: its own listener handled what is inside it.
-      els = insts = holes = pos = null;
-      continue;
-    }
-    const inst = (node as Holder)[STATE];
-    if (inst === undefined || inst.d) continue; // a renderDirect instance runs its own trampolines
-    const sh = inst.shape,
+    holes: number[] | null = null,
+    pos: number[] | null = null;
+  for (let c = 0; c < chain.length; c++) {
+    const it = chain[c]!,
+      sh = it.shape,
       types = sh.types;
+    if (it.d) continue; // mounted by renderDirect: its own trampolines run
     for (let i = 0; i < sh.n; i++) {
       if (types[i] !== type) continue;
-      let s = inst.s;
-      if (s === null) s = inst.s = new Array(sh.n);
-      if (s[i] === undefined) sh.findDelegated(inst.root, s);
-      const at = path.lastIndexOf(s[i] as Node);
+      let s = it.s;
+      if (s === null) s = it.s = new Array(sh.n);
+      if (s[i] === undefined) sh.findDelegated(it.root, s);
+      const at = path.lastIndexOf(s[i] as Node, tops[c]);
       if (at < 0) continue; // the handler element is not on the event's path
       ((els ??= []), (insts ??= []), (holes ??= []), (pos ??= []));
       // Keep innermost first: insert by path position.
       let j = pos.length;
       while (j > 0 && pos[j - 1]! > at) j--;
       els.splice(j, 0, s[i] as Node);
-      insts.splice(j, 0, inst);
+      insts.splice(j, 0, it);
       holes.splice(j, 0, i);
       pos.splice(j, 0, at);
     }
   }
   if (els === null) return;
-  for (let k = 0; k < els.length; k++) {
-    if (k > 0 && els[k] !== els[k - 1] && e.cancelBubble) break; // stopPropagation: no outer handlers
-    const f = insts![k]!.v[holes![k]!];
+  for (let q = 0; q < els.length; q++) {
+    if (q > 0 && els[q] !== els[q - 1] && e.cancelBubble) break; // stopPropagation: no outer handlers
+    const f = insts![q]!.v[holes![q]!];
     if (typeof f !== "function") continue;
-    const el = els[k]!;
+    const el = els[q]!;
     Object.defineProperty(e, "currentTarget", { configurable: true, get: () => el });
     try {
       (f as (this: Node, e: Event) => unknown).call(el, e);
@@ -470,6 +499,34 @@ function delegate(this: Container, e: Event): void {
       delete (e as { currentTarget?: unknown }).currentTarget;
     }
   }
+}
+
+// The child instance of `inst` whose root is `node`, if any: a view, list
+// entry or run in one of its child holes whose parent is node's parent.
+function childAt(inst: Inst, node: Node): Inst | null {
+  const s = inst.s,
+    sh = inst.shape;
+  if (s === null) return null;
+  const parent = node.parentNode;
+  for (let i = 0; i < sh.n; i++) {
+    if (sh.flags[i] !== CHILD) continue;
+    const sl = s[i] as Slot;
+    if (sl.parent !== parent) continue;
+    switch (sl.kind) {
+      case VIEW:
+        if (sl.inst!.root === node) return sl.inst;
+        break;
+      case LIST: {
+        const es = sl.list!.entries;
+        for (let j = 0; j < es.length; j++) if (es[j]!.root === node) return es[j]!;
+        break;
+      }
+      case RUNS:
+        for (const r of sl.runs!) if (r instanceof Inst && r.root === node) return r;
+        break;
+    }
+  }
+  return null;
 }
 
 function makeView(t: AnyTemplate): View<Values> {
@@ -540,7 +597,7 @@ function make(d: Desc): Inst {
   const dir = direct && sh.delegates;
   if (!sh.eager && !dir) {
     const inst = new Inst(sh, root, vals, null, direct);
-    if (sh.handlers) (root as Holder)[STATE] = inst;
+    if (sh.handlers) (root as Holder)[STATE] = inst; // only direct handlers need it: delegation finds instances by descent
     return inst;
   }
   const n = sh.n,
@@ -548,7 +605,7 @@ function make(d: Desc): Inst {
   if (sh.eager) sh.findEager(root, s);
   if (dir) sh.findDelegated(root, s);
   const inst = new Inst(sh, root, vals, s, direct);
-  if (sh.handlers) (root as Holder)[STATE] = inst;
+  if (sh.handlers || dir) (root as Holder)[STATE] = inst;
   const flags = sh.flags;
   for (let i = 0; i < n; i++) {
     const f = flags[i];
@@ -581,7 +638,7 @@ function patch(inst: Inst, d: Desc): void {
     inst.v = vals;
     inst.s = fresh.s;
     inst.d = fresh.d;
-    if (sh.handlers) (fresh.root as Holder)[STATE] = inst;
+    if (sh.handlers || (fresh.d && sh.delegates)) (fresh.root as Holder)[STATE] = inst;
     return;
   }
   const old = inst.v;

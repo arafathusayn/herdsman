@@ -176,18 +176,19 @@ const caseGen: Gen<Case> = (c) => {
   return { shape, versions };
 };
 
-const Em = html`<em>${text()}</em>`;
+const Em = html`<dfn onclick=${on<"click">()}>${text()}</dfn>`;
 const Strong = html`<strong class=${cls()}>z</strong>`;
-const Li = html`<li>${text()}</li>`;
+const Li = html`<li onclick=${on<"click">()}>${text()}</li>`;
 
-function realizeChild(r: ChildRecipe): unknown {
+function realizeChild(r: ChildRecipe, log: string[]): unknown {
+  const h = (tag: string) => () => log.push(tag);
   switch (r.t) {
     case "none":
       return null;
     case "text":
       return r.v;
     case "em":
-      return Em([r.v]);
+      return Em([h(`em ${r.v}`), r.v]);
     case "strong":
       return Strong([r.v]);
     case "node": {
@@ -199,17 +200,17 @@ function realizeChild(r: ChildRecipe): unknown {
       return list(
         r.ids,
         (id) => id,
-        (id) => Li([`${id}${r.v}`]),
+        (id) => Li([h(`li ${id}${r.v}`), `${id}${r.v}`]),
       );
     case "runs":
-      return runs(r.runs.map((x) => (typeof x === "string" ? x : Em([x.em]))));
+      return runs(r.runs.map((x) => (typeof x === "string" ? x : Em([h(`run ${x.em}`), x.em]))));
   }
 }
 
 function realize(kinds: readonly HoleKind[], vals: readonly ValueRecipe[], log: string[]): unknown[] {
   return vals.map((v, i) => {
     const k = kinds[i]!;
-    if (k === "child") return realizeChild(v as ChildRecipe);
+    if (k === "child") return realizeChild(v as ChildRecipe, log);
     if (k === "on") {
       const h = (v as { handler: number }).handler;
       return h < 0 ? null : () => log.push(`hole ${i} v${h}`);
@@ -261,7 +262,12 @@ function clicks(root: FakeElement, log: string[]): string[] {
   for (const e of all) {
     log.length = 0;
     e.dispatchEvent(new FakeEvent("click"));
-    out.push(log.join(","));
+    const got = log.join(",");
+    // Every list item and nested view row has a handler: delegation must reach it.
+    const tagName = e.tagName.toLowerCase();
+    if (tagName === "li" && !got.startsWith("li ")) throw new Error(`li handler not reached: ${got}`);
+    if (tagName === "dfn" && !/^(em|run) /.test(got)) throw new Error(`dfn handler not reached: ${got}`);
+    out.push(got);
   }
   return out;
 }

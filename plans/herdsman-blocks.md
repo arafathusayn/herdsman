@@ -3,7 +3,7 @@
 A living document. It explains why herdsman-blocks exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
 - Status: draft, on branch `herdsman-blocks`
-- Library version: 0.0.8 (the module exports this as `VERSION`)
+- Library version: 0.0.9 (the module exports this as `VERSION`)
 - Last updated: 2026-10-27
 - Modules: `web/src/herdsman-blocks.ts` and the view layer `web/src/herdsman-blocks-view.ts`, which herdsman web renders with
 
@@ -270,7 +270,7 @@ A slot hole is typed with the slot marker and must sit where a text hole would (
 #### Mounting a description
 
 1. Bake the values into the prototype and deep-clone it (Layer 1, steps 1 and 2).
-2. The mounted **instance** is the shape, the root element, the description's values array (kept as the last values) and a node array, absent until some hole is located. If the view has any handler hole, store the instance on its root element under a private symbol.
+2. The mounted **instance** is the shape, the root element, the description's values array (kept as the last values) and a node array, absent until some hole is located. If the view has any direct handler hole (or it is mounted direct, see `renderDirect`), store the instance on its root element under a private symbol, for the trampolines. Views whose handlers are all delegated store nothing on their elements: a row with only text, class, attribute and delegated handler holes costs its clone and one instance object.
 3. If the view is eager, create the node array, locate the eager holes into it, then for each eager hole in order:
    - Direct handler: set the handler property to the hole's **trampoline** (below).
    - Property: if the value is not null or undefined, assign it.
@@ -285,11 +285,11 @@ A slot hole is typed with the slot marker and must sit where a text hole would (
 #### Delegated events
 
 1. Every `render` call first makes sure its container listens for every type in the used list: it adds one shared listener per type it does not yet listen for, and records how many it listens for, so the check is one comparison when no new type appeared.
-2. When the listener runs on a container for an event, walk from the event's target up to the container, excluding it, recording the path. At each node:
-   - A node that is itself a render container (it listens) is another render root below this one, whose own listener already ran for what lies inside it: forget every handler found so far and go on.
-   - A node holding an instance: for each delegated hole of its view whose event type is the event's, locate the view's delegated holes if they were never located, and if the hole's element is on the path walked so far, record the element, the instance and the hole, ordered by the element's position on the path (innermost first).
-3. Run the recorded handlers innermost first. Before moving on to a different element, stop if propagation was stopped. For each, read the hole's current value; if it is a function, make the event's `currentTarget` read as the element, call the function with the element as `this` and the event, then restore `currentTarget`.
-4. Visible differences from a direct handler: the element's `on*` property is never set; an element outside a render root (detached, or moved out of it) gets no delegated events; delegated handlers run when the event reaches the render root, after native listeners on nodes between the element and the root and before listeners above the root, so stopping propagation in a handler still keeps the event from document and window listeners.
+2. When the listener runs on a container for an event, walk from the event's target up to the container, excluding it, recording the path (and include the container when it is a root made by `mount`).
+3. Find the instances on the path by descent, not by marks on elements: start with the container's own instance (a `mount` root) and then the instance `render` put in it, whose root must be on the path; going down the path, a node that is the root of a child instance of the current instance (the view in one of its child holes whose parent is the node's parent, an entry of a keyed list there, or a view among its runs) becomes the current instance. Content that is not an instance (a DOM node in a child hole, such as another render root) ends the descent, so a render root inside another is left to its own listener and each handler runs once. A list entry is found by scanning that list's entries, once per event.
+4. For each instance found, for each delegated hole of its view whose event type is the event's, locate the view's delegated holes if they were never located, and if the hole's element is on the path between the target and the instance's root, record the element, the instance and the hole, ordered by the element's position on the path (innermost first). Instances mounted direct are skipped.
+5. Run the recorded handlers innermost first. Before moving on to a different element, stop if propagation was stopped. For each, read the hole's current value; if it is a function, make the event's `currentTarget` read as the element, call the function with the element as `this` and the event, then restore `currentTarget`.
+6. Visible differences from a direct handler: the element's `on*` property is never set; an element outside a render root (detached, or moved out of it) gets no delegated events; delegated handlers run when the event reaches the render root, after native listeners on nodes between the element and the root and before listeners above the root, so stopping propagation in a handler still keeps the event from document and window listeners.
 
 #### Patching an instance toward a description
 
@@ -346,7 +346,7 @@ A child hole accepts text (a string or number), nothing (null, undefined or fals
 For a component that places its root element itself (no container and no wrapper element), such as a panel whose root another view or library positions.
 
 1. `mount`: mount the description (any view, child holes included) with delegation, keep the instance on its root element under a private symbol, make the root listen for every used delegated event type (it is its own render root), and return the root.
-2. When the root's listener runs, the walk of Delegated events, step 2, includes the root itself (it is an instance root whose handlers count), and stops there.
+2. When the root's listener runs, the walk of Delegated events, step 2, includes the root itself (it is an instance root whose handlers count) and the descent starts from its instance.
 3. `update`: the root must carry an instance from `mount` (otherwise it throws), and the description must be of the same view (otherwise it throws: a different view needs a different root element, which the caller holds). Make the root listen for any newly used types, then patch the instance toward the description.
 4. A mounted root placed inside another render root is a render root below it, so its handlers run once, from its own listener.
 
@@ -459,7 +459,7 @@ Tests run on a small linked-list fake DOM with counters for inserts, moves, remo
 14. Slot holes: a slot marker in content compiles to a slot, blocks never write it, and a slot marker in an attribute position is rejected.
 15. SVG: `svg` templates and views are in the SVG namespace, SVG views render and reorder in child holes inside SVG content, and `class` there is an attribute; checked on the fake DOM and in headless Chrome.
 16. Views: every child kind renders in place and switching kinds replaces the content; the same view patches and another view replaces, at a child hole and at the root; unchanged values write nothing; a keyed list reorders with every node kept and the minimum number of moves, stays between its siblings, owns and clears its parent and gives the slot back; an item whose view changes is replaced where it stands; nested lists move cards between lanes; a new handler each render costs no DOM write and the latest one runs, with the element as `this` and `currentTarget`; delegated handlers run innermost first and `stopPropagation` stops outer ones; a stopped keydown never reaches a listener above the render root; a render root inside another dispatches its handlers once; a non-bubbling event gets a direct trampoline; `mount` makes a root that delegates its own and its descendants' handlers wherever it is placed, `update` patches it and rejects another view or a root not made by `mount`; `renderDirect` sets handlers on the elements, so nodes moved under a delegating root run each handler once; runs render in order without wrappers between siblings, keep text nodes and same views by position and replace the rest, and clear when the hole switches kind; a focused input keeps its node and typed value across renders; a text hole after a child hole's content is written to its own node.
-17. A property test renders random view templates that mix child holes (text, nothing, nodes, views, keyed lists, runs) before and after text, class, attribute and event holes, nested up to two levels, through two to four random value sets, and checks that the result equals a fresh render of the last values: the same DOM (tags, classes, attributes, merged text) and the same handlers reached by a click on every element. With deferred location in views that have child holes it finds the bug at once and shrinks it to a child hole followed by an attribute hole.
+17. A property test renders random view templates that mix child holes (text, nothing, nodes, views, keyed lists, runs) before and after text, class, attribute and event holes, nested up to two levels, through two to four random value sets, and checks that the result equals a fresh render of the last values: the same DOM (tags, classes, attributes, merged text) and the same handlers reached by a click on every element, every list item's and nested view's handler being reached (the views in child holes, lists and runs carry delegated handlers). With deferred location in views that have child holes it finds the bug at once and shrinks it to a child hole followed by an attribute hole.
 18. The benchmark runner's gate: the declarative benchmark app's DOM is identical to the reference app's after every step.
 
 The same behaviors were also checked in real Chrome 156 (not the fake DOM): a focused input kept its node, focus, typed value and caret position through a `patch()` that reordered siblings; the kept button ran the newest handler; keyed rows kept their nodes; an unfocused input re-synced from the store; an indented template inside a table compiled correctly; and a blank class hole produced no class attribute.
@@ -481,7 +481,7 @@ For each test and iteration, in a fresh browser context:
 3. Start a trace (timeline categories), force a garbage collection, perform the measured click, wait for it to finish, stop the trace.
 4. Duration runs from the start of the click's event dispatch to the end of the first compositor commit that follows the last script, timer, animation frame or layout event after the click, all on the click's process.
 
-Frameworks are interleaved within each iteration, rotating which goes first, so machine drift lands on all of them. Each test's median is divided by the best median for that test, and the score is the geometric mean of those factors weighted by the official per-test weights.
+Frameworks are interleaved within each iteration, rotating which goes first, so machine drift lands on all of them. Headless Chrome on the benchmark machine (Apple M5 Pro) is not software-rendered: with the harness's flags (`--headless=new`, `--disable-frame-rate-limit`), chrome://gpu reports hardware-accelerated rasterization and compositing, with Skia Graphite on the ANGLE Metal renderer. Each test's median is divided by the best median for that test, and the score is the geometric mean of those factors weighted by the official per-test weights.
 
 ---
 
@@ -584,6 +584,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-27: Version 0.0.9. Delegated events find instances by descent from the render root along the event's path (child holes, list entries, runs), so views whose handlers are all delegated put no mark on their elements. Official benchmark, Chrome script time, 3 interleaved rounds with an A/A pair (15 samples): create 10,000 rows 13.5 to 12.9 ms (95% CI of the ratio 0.92 to 0.97), clear 7.0 to 6.6; other tests unchanged.
 - 2026-10-27: "Integration with dom.ts" rewritten as "Integration with herdsman web": the app uses views only; morph and `renderDirect` have no app user and stay exported.
 - 2026-10-27: Event names ignore index signatures, so `on<"submit", HTMLFormElement>()` types `this` as the form and the event as a submit event. Types only. Part of 0.0.8.
 - 2026-10-27: The fake DOM decodes character references in template markup (numeric and common named ones), as browsers do. Test infrastructure only.
