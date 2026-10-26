@@ -98,7 +98,16 @@ type Tail struct {
 	part  []byte
 	chunk hash.Hash
 	next  int
+	// owed counts the blocks not yet checked since the file last changed
+	// without a full parse; while it is above zero the file is not proven
+	// and the caller loads it again, unchanged or not (Unverified).
+	owed int
 }
+
+// Unverified says whether some block of the file was not checked since the
+// file last changed: the caller loads the file again even when its size
+// and times are the same, and each load checks verifyChunks more blocks.
+func (t *Tail) Unverified() bool { return t.owed > 0 }
 
 // tracked are the sections whose lines the parse takes metadata from.
 var tracked = map[string]bool{"": true, "task table": true, "checklist": true}
@@ -127,6 +136,14 @@ func LoadBounded(dir string, keep int, prev *Tail) (*Tail, error) {
 	t := &Tail{info: st}
 	h := sha256.New()
 	if prev != nil && os.SameFile(prev.info, st) && st.Size() >= prev.size && t.unchanged(f, prev, h, buf) {
+		// A change starts a new cycle of block checks; a load of the same
+		// file goes on with the one owed.
+		checked := min(verifyChunks, len(prev.sums)+1)
+		if SameState(st, prev.info) {
+			t.owed = max(0, prev.owed-checked)
+		} else {
+			t.owed = len(prev.sums) + 1 - checked
+		}
 		t.parser = prev.parser
 		r := *prev.parser.r
 		r.Tasks, r.Checklist, r.RunState = slices.Clone(r.Tasks), slices.Clone(r.Checklist), slices.Clone(r.RunState)

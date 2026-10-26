@@ -337,3 +337,30 @@ func TestHashHelpersAtTheEdges(t *testing.T) {
 type fakeInfo struct{ os.FileInfo }
 
 func (fakeInfo) Sys() any { return nil }
+
+// After a change a parse owes a cycle of block checks; loads of the same
+// file pay it two blocks at a time; a full parse owes none.
+func TestBlockChecksOwedAfterAChange(t *testing.T) {
+	dir := t.TempDir()
+	file := notesRoute(t, dir, "nonfinal", 5<<10)
+	tail, err := LoadBounded(dir, 100, nil)
+	if err != nil || tail.Unverified() {
+		t.Fatalf("a full parse owes checks: %v", err)
+	}
+	appendTo(t, file, "note\n")
+	if tail, err = LoadBounded(dir, 100, tail); err != nil || !tail.Unverified() {
+		t.Fatalf("a change owes no checks: %v", err)
+	}
+	loads := 0
+	for tail.Unverified() {
+		if tail, err = LoadBounded(dir, 100, tail); err != nil {
+			t.Fatal(err)
+		}
+		if loads++; loads > 5 {
+			t.Fatalf("still owed after %d loads of a 5 MiB file", loads)
+		}
+	}
+	if loads != 2 {
+		t.Errorf("%d loads paid a 5 MiB file's cycle, want 2", loads)
+	}
+}
