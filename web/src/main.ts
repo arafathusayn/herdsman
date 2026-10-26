@@ -32,7 +32,7 @@ import { loadWidths, navResizer } from "./resize.ts";
 import { type App, type RouteTab, store } from "./store.ts";
 import { installTooltips } from "./tooltip.ts";
 import type { Route, Workspace } from "./types.ts";
-import { applyTheme, pill, themeSwitch, toast } from "./ui.ts";
+import { applyTheme, pill, type PillNode, themeSwitch, toast } from "./ui.ts";
 import { AgentPanel } from "./views/agent.ts";
 import { openAppearance } from "./views/appearance.ts";
 import { ArtifactsView } from "./views/artifacts.ts";
@@ -969,7 +969,7 @@ function activityView(app: App, members: Member[]): HTMLElement {
       (e) => `${e.at}|${e.kind}|${e.pane_id ?? ""}|${e.status ?? ""}|${e.text ?? ""}`,
       (e) => {
         const who = e.pane_id ? h("strong", null, byPane.get(e.pane_id)?.title ?? e.pane_id) : null;
-        const body: [Node | null, Node | null] =
+        const body: [Node | null, Node | PillNode | null] =
           e.source === "web"
             ? [h("span", { class: "chip accent" }, "web"), h("span", null, e.text ?? "")]
             : e.status

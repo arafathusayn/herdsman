@@ -6,6 +6,7 @@ import {
   type ListNode,
   render,
   svg,
+  type View,
   type ViewNode,
   type ViewNodeOf,
 } from "./herdsman-blocks-view.ts";
@@ -219,6 +220,32 @@ function keepHandlers(live: Element, fresh: Element): void {
   const have = handlers.get(live);
   if (have) for (const type in have) have[type] = want?.[type] ?? null;
   if (want) for (const type in want) if (!have || !(type in have)) on(live, type, want[type]!);
+}
+
+const HTML_NS = "http://www.w3.org/1999/xhtml";
+
+// A checked narrowing, not a cast: the element is HTML and has the tag.
+const isTag = <K extends keyof HTMLElementTagNameMap>(el: Element, tag: K): el is HTMLElementTagNameMap[K] =>
+  el.namespaceURI === HTML_NS && el.nodeName.toLowerCase() === tag;
+
+/**
+ * The root element of a view, made once, for an element a component owns and
+ * changes itself: a dialog, a toast, a resize handle. Its text, class,
+ * attribute, property and event holes are written at creation (handlers are
+ * set on the element directly, not through render()); a child hole would stay
+ * empty, so a view with one is refused. Render changing content into the
+ * element with render(el, view), or put it in a child hole as a Node.
+ */
+export function mountElement<K extends keyof HTMLElementTagNameMap, V extends readonly unknown[]>(
+  tag: K,
+  view: View<V>,
+  vals: V,
+): HTMLElementTagNameMap[K] {
+  const t = view.template;
+  for (let i = 0; i < t.n; i++) if (t.kind(i) === "slot") throw new Error("mountElement: the view has a child hole");
+  const root = t.mountRoot(vals);
+  if (!isTag(root, tag)) throw new Error(`mountElement: the view's root is not a <${tag}>`);
+  return root;
 }
 
 // An icon path, a view of its own so an icon's paths are a keyed list. svg``

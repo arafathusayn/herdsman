@@ -2,6 +2,7 @@
 // theme switch (shared with the app), copy buttons, the contents filter, the
 // current section in the contents, the install tabs and the narrow-screen menu.
 import { icon, icons, mount } from "./dom.ts";
+import { render } from "./herdsman-blocks-view.ts";
 import { applyTheme, loadTheme, themeSwitch } from "./ui.ts";
 
 function setupTheme(): void {
@@ -9,7 +10,7 @@ function setupTheme(): void {
   const slot = document.getElementById("theme");
   if (!slot) return;
   const draw = (): void => {
-    mount(
+    render(
       slot,
       themeSwitch(loadTheme(), (t) => {
         applyTheme(t);
