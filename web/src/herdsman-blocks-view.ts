@@ -166,13 +166,37 @@ export function list<T, K extends Key, N extends ViewNode>(
 export function render(container: Node, d: ViewNode): void {
   const c = container as Container;
   if (c[LISTENING] !== used.length) listen(c);
-  const inst = c[ROOT];
-  if (inst !== undefined) return patch(inst, d as unknown as Desc);
-  const fresh = mount(d as unknown as Desc);
-  container.textContent = "";
-  container.appendChild(fresh.root);
-  c[ROOT] = fresh;
+  draw(c, d as unknown as Desc, false);
 }
+
+/**
+ * Like `render`, but every handler gets a direct trampoline on its element
+ * and the container listens for nothing, so the rendered nodes keep their
+ * handlers wherever they are moved. For code that moves a view's nodes out
+ * of its container (a bridge into a tree another library manages); `render`
+ * is faster. Use one of the two per container.
+ */
+export function renderDirect(container: Node, d: ViewNode): void {
+  draw(container as Container, d as unknown as Desc, true);
+}
+
+function draw(c: Container, d: Desc, dir: boolean): void {
+  const outer = direct;
+  direct = dir;
+  try {
+    const inst = c[ROOT];
+    if (inst !== undefined) return patch(inst, d);
+    const fresh = mount(d);
+    c.textContent = "";
+    c.appendChild(fresh.root);
+    c[ROOT] = fresh;
+  } finally {
+    direct = outer;
+  }
+}
+
+// Whether the render running now mounts handlers directly (renderDirect).
+let direct = false;
 
 // ---------------------------------------------------------------------------
 // Internals
@@ -236,10 +260,12 @@ class Shape {
   readonly flags: Uint8Array;
   /** Whether mount must locate holes: any handler, property or child hole. */
   readonly eager: boolean;
-  /** Per handler hole, the trampoline every instance's element gets. */
+  /** Per handler hole, the trampoline a directly mounted element gets. */
   readonly fns: (((this: Holder, e: Event) => unknown) | undefined)[];
   /** Whether any hole is a handler: the instance is then kept on its root. */
   readonly handlers: boolean;
+  /** Whether any hole is a delegated handler. */
+  readonly delegates: boolean;
   /** Per delegated handler hole, its event type. */
   readonly types: (string | undefined)[];
   /** Finds the delegated handler hole nodes, on the first delegated event. */
@@ -271,6 +297,7 @@ class Shape {
           this.flags[i] = DELEGATED;
           this.types[i] = type;
           if (!used.includes(type)) used.push(type);
+          this.fns[i] = trampoline(i); // used when rendered with renderDirect
           delegated.push(i);
           continue;
         }
@@ -285,6 +312,7 @@ class Shape {
     }
     this.eager = eager.length > 0;
     this.handlers = handlers;
+    this.delegates = delegated.length > 0;
     this.findEager = eager.length === n ? t.locate : t.locator(eager);
     this.findWrite = write.length === n ? t.locate : t.locator(write);
     this.findDelegated = delegated.length === n ? t.locate : t.locator(delegated);
@@ -328,7 +356,7 @@ function delegate(this: Container, e: Event): void {
       continue;
     }
     const inst = (node as Holder)[STATE];
-    if (inst === undefined) continue;
+    if (inst === undefined || inst.d) continue; // a renderDirect instance runs its own trampolines
     const sh = inst.shape,
       types = sh.types;
     for (let i = 0; i < sh.n; i++) {
@@ -406,11 +434,14 @@ class Inst {
   root: Element;
   v: Values;
   s: unknown[] | null;
-  constructor(shape: Shape, root: Element, v: Values, s: unknown[] | null) {
+  /** Mounted by renderDirect: its handlers are on its elements, never delegated. */
+  d: boolean;
+  constructor(shape: Shape, root: Element, v: Values, s: unknown[] | null, d: boolean) {
     this.shape = shape;
     this.root = root;
     this.v = v;
     this.s = s;
+    this.d = d;
   }
 }
 
@@ -419,23 +450,25 @@ function mount(d: Desc): Inst {
     vals = d.v,
     t = sh.t;
   const root = t.clone(vals);
-  if (!sh.eager) {
-    const inst = new Inst(sh, root, vals, null);
+  const dir = direct && sh.delegates;
+  if (!sh.eager && !dir) {
+    const inst = new Inst(sh, root, vals, null, direct);
     if (sh.handlers) (root as Holder)[STATE] = inst;
     return inst;
   }
   const n = sh.n,
     s: unknown[] = new Array(n);
-  sh.findEager(root, s);
-  const inst = new Inst(sh, root, vals, s);
+  if (sh.eager) sh.findEager(root, s);
+  if (dir) sh.findDelegated(root, s);
+  const inst = new Inst(sh, root, vals, s, direct);
   if (sh.handlers) (root as Holder)[STATE] = inst;
   const flags = sh.flags;
   for (let i = 0; i < n; i++) {
     const f = flags[i];
-    if (f === WRITE || f === DELEGATED) continue;
+    if (f === WRITE || (f === DELEGATED && !dir)) continue;
     const node = s[i] as Node,
       v = vals[i];
-    if (f === HANDLER) {
+    if (f === HANDLER || f === DELEGATED) {
       t.write(i, node, sh.fns[i]);
     } else if (f === PROPERTY) {
       if (v != null) t.write(i, node, v);
@@ -460,6 +493,7 @@ function patch(inst: Inst, d: Desc): void {
     inst.root = fresh.root;
     inst.v = vals;
     inst.s = fresh.s;
+    inst.d = fresh.d;
     if (sh.handlers) (fresh.root as Holder)[STATE] = inst;
     return;
   }

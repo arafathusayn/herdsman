@@ -11,6 +11,7 @@ import {
   on,
   prop,
   render,
+  renderDirect,
   svg,
   type SvgChild,
   type SvgNode,
@@ -377,6 +378,33 @@ describe("events and form state", () => {
     const input = first(root);
     (input["onfocus"] as (this: FakeElement, e: unknown) => void).call(input, new FakeEvent("focus"));
     expect(calls).toEqual(["two"]);
+  });
+
+  test("renderDirect puts handlers on the elements, so moved nodes keep them, once", () => {
+    const Item = html`<li onclick=${on<"click">()}>${child()}</li>`;
+    const Tag = html`<b onclick=${on<"click">()}>${text()}</b>`;
+    const scratch = box();
+    const calls: unknown[] = [];
+    const draw = (n: number) =>
+      renderDirect(
+        asDom(scratch),
+        Item([
+          function () {
+            calls.push("li" + n, this);
+          },
+          Tag([() => calls.push("b" + n), "x"]),
+        ]),
+      );
+    draw(1);
+    draw(2);
+    const li = first(scratch);
+    const b = li.firstChild as FakeElement;
+    expect(typeof li["onclick"]).toBe("function");
+    // Moved into a tree that is a delegating render root: still exactly once each.
+    const host = box();
+    render(asDom(host), html`<div onclick=${on<"click">()}>${child()}</div>`([() => calls.push("host"), asDom(li)]));
+    fire(b, "click");
+    expect(calls).toEqual(["b2", "li2", li, "host"]);
   });
 
   test("a focused input keeps its node and its typed value across renders", () => {
