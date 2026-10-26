@@ -1,8 +1,50 @@
 // A small DOM builder. Strings always become text nodes, so nothing a pane
 // or a route file holds is ever parsed as HTML.
-import { morph } from "./herdsman-dom-diff.ts";
+import { KEY_ATTR, morph } from "./herdsman-dom-diff.ts";
 
-type Child = Node | string | number | false | null | undefined | Child[];
+declare const KEYED: unique symbol;
+
+declare const UNKEYED: unique symbol;
+
+/** A rendered list whose elements carry keys. Only `each` makes one. */
+export type Keyed = readonly Element[] & { readonly [KEYED]: true };
+
+/** A list of nodes the author chose to match by order and content, not by key. Only `unkeyed` makes one. */
+export type Unkeyed = readonly Child[] & { readonly [UNKEYED]: true };
+
+type Child = Node | string | number | false | null | undefined | Keyed | Unkeyed | Child[];
+
+// Development checks run only when the HERDSMAN_DEV global is true (tests set
+// it). A production build defines HERDSMAN_DEV as false, so the bundler
+// folds the condition and drops the checks entirely.
+declare const HERDSMAN_DEV: boolean | undefined;
+
+/**
+ * Render a list whose items keep their DOM across updates. Each rendered
+ * element gets the item's key (as data-key), so patch() moves it with its
+ * data instead of rebuilding or rewriting it. The key function sees only the
+ * item, never its position: an index is not a key.
+ */
+export function each<T>(items: readonly T[], key: (item: T) => string | number, render: (item: T) => Element): Keyed {
+  const out: Element[] = new Array(items.length);
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    const el = render(item);
+    el.setAttribute(KEY_ATTR, String(key(item)));
+    out[i] = el;
+  }
+  // The constant must appear inline here, not behind a helper, so a production
+  // build folds the whole block away.
+  if (typeof HERDSMAN_DEV !== "undefined" && HERDSMAN_DEV) {
+    const seen = new Set<string>();
+    for (const el of out) {
+      const k = el.getAttribute(KEY_ATTR)!;
+      if (seen.has(k)) console.warn(`each(): duplicate key "${k}"; duplicates fall back to order and may rewrite rows`);
+      seen.add(k);
+    }
+  }
+  return out as unknown as Keyed;
+}
 
 type Props = {
   class?: string | undefined;
@@ -39,6 +81,16 @@ function append(el: Node, children: Child[]): void {
     else if (c instanceof Node) el.appendChild(c);
     else el.appendChild(document.createTextNode(String(c)));
   }
+}
+
+/**
+ * Mark a list as deliberately unkeyed: patch() matches its items by content
+ * and order. Fine for content whose items have no identity (markdown blocks,
+ * the options of a fixed select); use `each` for anything that moves, is
+ * added or removed by data, or holds focus.
+ */
+export function unkeyed(nodes: readonly Child[]): Unkeyed {
+  return nodes as Unkeyed;
 }
 
 /** Replaces the children of el. */

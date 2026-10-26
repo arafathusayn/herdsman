@@ -1,6 +1,6 @@
 // The Team tab: the route's agents as a kanban board, in columns by role or
 // by status, and the agent card the session view shares.
-import { h } from "../dom.ts";
+import { each, h } from "../dom.ts";
 import { type BoardBy, lanes, type Member, roleName } from "../model.ts";
 import { type App, store } from "../store.ts";
 import { pill } from "../ui.ts";
@@ -28,7 +28,7 @@ export function card(m: Member, app: App, role = false): HTMLElement {
     {
       class: `card r-${m.role} s-${m.status}${app.view.pane === m.pane_id ? " selected" : ""}`,
       title: `Open ${m.title} (${m.pane_id}): its output, keys and actions`,
-      dataset: { pane: m.pane_id, key: m.pane_id },
+      dataset: { pane: m.pane_id },
       onclick: () => store.go({ pane: m.pane_id }),
     },
     h("div", { class: "card-top" }, h("span", { class: "card-title" }, m.title), pill(m.status)),
@@ -96,7 +96,11 @@ export function teamView(members: Member[], app: App): HTMLElement {
                 h("span", { class: "count" }, String(lane.members.length)),
               ),
               lane.members.length
-                ? lane.members.map((m) => card(m, app, boardBy === "status"))
+                ? each(
+                    lane.members,
+                    (m) => m.pane_id,
+                    (m) => card(m, app, boardBy === "status"),
+                  )
                 : h("p", { class: "lane-empty" }, "None"),
             ),
           ),

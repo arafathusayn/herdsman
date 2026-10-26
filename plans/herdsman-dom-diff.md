@@ -259,6 +259,19 @@ The result is that a kept button runs the closure the view just built, never a s
 
 Views opt in one call site at a time by replacing `mount(container, view)` with `patch(container, view)`, and by giving list items a `key` in their dataset when items can reorder, appear or disappear.
 
+#### Keyed lists in views: `each` and `unkeyed`
+
+`dom.ts` offers two ways to put a list of children into a view, each with a branded type that only it can produce:
+
+1. **`each(items, key, render)`** renders every item, sets the key attribute (`data-key`) on the element the render function returns, and returns a keyed list. The key function receives the item only, so a position cannot be used as a key; its type rejects a function of two parameters. Keys must be stable across renders and unique among siblings; when the data has no id, the fields that identify an item are joined.
+2. **`unkeyed(nodes)`** marks a list whose items have no identity (the blocks of rendered markdown, the options of a fixed select): morph matches them by content and order, as an explicit choice.
+
+Literal tuples of children remain plain children: a fixed set of children is not a list.
+
+**Development checks that cost nothing in production.** `each` reports duplicate keys (which morph tolerates by falling back to order) only when a `HERDSMAN_DEV` global is true; tests set it. The production build defines `HERDSMAN_DEV` as false, so the bundler folds the condition to false and removes the check: the shipped bundle contains none of it. The condition has to be written inline: behind a helper function the bundler cannot fold it, and the check stays in the bundle (measured: present, with the bundle only 80 bytes smaller instead of 431).
+
+**Enforcing keys with types (phase 2 of the migration).** Changing the children type of `h()` and `patch()` from "any array" to "a keyed list, an unkeyed list, or a literal tuple" makes every plain `.map()` result a compile error, while tuple literals still type-check. A trial on 2026-10-26 found 67 such sites in 14 files; `plans/each-migration.md` lists them and the migration steps.
+
 #### Rule: key a view root whenever its container also holds other elements
 
 Unkeyed children match by tag and order, so a container that sometimes holds a persistent component's element (one a class owns and updates itself) and sometimes a rebuilt view would have the component's element morphed into the view when both are the same tag. Giving the rebuilt view's root a key that the persistent element never carries makes them never match: switching between them is a replacement, never a morph.
@@ -267,9 +280,13 @@ Unkeyed children match by tag and order, so a container that sometimes holds a p
 
 1. The route tab body for Team, Checklist, Run state and Activity. Its root is keyed by tab ("tab-" plus the tab id), because the same container also holds the persistent Docs, Artifacts, Messages and Changes elements.
 2. The session view in the main area. Its root is keyed "session", because the same container also holds the persistent route shell.
-3. Team cards are keyed by pane id, so a card that changes lanes, or moves within one, keeps its node.
+3. Team cards, the session view's cards, checklist lines, run-state lines and activity events are rendered with `each`, keyed by pane id, line id (or text), time and text, and the event's fields respectively.
 
 Every other `mount()` call still rebuilds, unchanged.
+
+#### Compatibility check against the real app (2026-10-26)
+
+The `herdsman` binary was built with `make build` (the web app embedded as shipped) and `herdsman web` was run against a fake herdr socket server serving one workspace, one tab and three agents. Chrome 156 paired with the server, showed the three agent cards (rendered through `patch` and `each`, each carrying its pane id as key), and, when the server changed one agent from idle to working and emitted the status event, updated that card while keeping all three card elements as the same DOM nodes. Clicking the kept card opened that agent's panel, so the handler transferred by `patch` was the latest one. The page logged no errors.
 
 ---
 
@@ -453,6 +470,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-26: `each()` and `unkeyed()` in herdsman's `dom.ts`, with branded `Keyed` and `Unkeyed` types and a duplicate-key check removed from production builds by a build-time constant. Five patched lists migrated; migration guide in `plans/each-migration.md`. Compatibility verified against the real `herdsman web` with a fake herdr in Chrome 156.
 - 2026-10-26: Full run of every version (0.0.1 to 0.0.5) against `re`, `vanillajs` and `vanillajs-lite`, with 0.0.4 and 0.0.5 as an identical-code control.
 - 2026-10-26: Version 0.0.5. Morph trims deeply identical children at both ends (native compare, handlers and form state still carried over) and keys the differing window by content for unkeyed nodes, falling back to order among leftovers. Found by a PerfFuzz-style fuzzer (worst DOM work per unit of change: 61 before, 1 after); unchanged re-renders of 1,000 rows about 8 times faster in Chrome. Property-based tests with a choice-sequence shrinker.
 - 2026-10-26: Branchless and bitwise variants of the reconciler and the LIS measured in Bun and Chrome; not adopted (results in the spec).

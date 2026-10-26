@@ -14,7 +14,7 @@ BUN_GLOBAL  := $(or $(BUN_INSTALL),$(HOME)/.bun)/install/global/node_modules
 WEB_DIST    := internal/web/dist
 # Two pages: the app at / and the docs at /docs/. Names keep their folder, so
 # both pages can be index.html; the app's files keep the names they had.
-BUN_BUILD   := bun build ./index.html ./docs/index.html --outdir ../$(WEB_DIST) --minify \
+BUN_BUILD   := bun build ./index.html ./docs/index.html --outdir ../$(WEB_DIST) --minify --define HERDSMAN_DEV=false \
                --entry-naming '[dir]/[name].[ext]' --asset-naming '[name].[ext]' --chunk-naming '[dir]/[name].[ext]'
 
 .PHONY: all tools web pages web-check web-fmt build check test lint vuln release-check clean

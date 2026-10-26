@@ -2,7 +2,7 @@ import { AuthError, openStream, pairStatus, readChannel, startSession, useHost }
 import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "./appearance.ts";
 import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
-import { h, icon, icons, logoMark, mount, patch } from "./dom.ts";
+import { each, h, icon, icons, logoMark, mount, patch } from "./dom.ts";
 import {
   blockedReason,
   type Host,
@@ -807,7 +807,11 @@ function sessionView(app: App, idx: Index): HTMLElement {
           h(
             "div",
             { class: "cards" },
-            ms.map((m) => card(m, app)),
+            each(
+              ms,
+              (m) => m.pane_id,
+              (m) => card(m, app),
+            ),
           ),
         );
       }),
@@ -865,19 +869,23 @@ function checklistView(r: Route): HTMLElement {
   return h(
     "ul",
     { class: "checklist" },
-    items.map((i) => {
-      const state = i.done ? "Done" : i.skipped ? "Not applicable" : "Open";
-      return h(
-        "li",
-        {
-          class: i.done ? "done" : i.skipped ? "skipped" : "",
-          title: i.skipped ? "Stopped applying; the reason follows the line" : null,
-        },
-        h("span", { class: "box", "aria-label": state }, i.done ? icon(icons.check) : i.skipped ? "–" : null),
-        i.id ? h("code", null, i.id) : null,
-        h("span", null, i.text),
-      );
-    }),
+    each(
+      items,
+      (i) => i.id || `text:${i.text}`,
+      (i) => {
+        const state = i.done ? "Done" : i.skipped ? "Not applicable" : "Open";
+        return h(
+          "li",
+          {
+            class: i.done ? "done" : i.skipped ? "skipped" : "",
+            title: i.skipped ? "Stopped applying; the reason follows the line" : null,
+          },
+          h("span", { class: "box", "aria-label": state }, i.done ? icon(icons.check) : i.skipped ? "–" : null),
+          i.id ? h("code", null, i.id) : null,
+          h("span", null, i.text),
+        );
+      },
+    ),
   );
 }
 
@@ -887,8 +895,10 @@ function logView(r: Route): HTMLElement {
   return h(
     "ol",
     { class: "timeline" },
-    lines.map((l) =>
-      h("li", { class: l.text.startsWith("web:") ? "web" : "" }, h("time", null, l.time), h("p", null, l.text)),
+    each(
+      lines,
+      (l) => `${l.time}|${l.text}`,
+      (l) => h("li", { class: l.text.startsWith("web:") ? "web" : "" }, h("time", null, l.time), h("p", null, l.text)),
     ),
   );
 }
@@ -916,21 +926,25 @@ function activityView(app: App, members: Member[]): HTMLElement {
   return h(
     "ol",
     { class: "timeline activity" },
-    items.map((e) => {
-      const who = e.pane_id ? h("strong", null, byPane.get(e.pane_id)?.title ?? e.pane_id) : null;
-      const body =
-        e.source === "web"
-          ? [h("span", { class: "chip accent" }, "web"), h("span", null, e.text ?? "")]
-          : e.status
-            ? [who, pill(e.status)]
-            : [h("span", { class: "chip" }, eventName(e.kind)), who];
-      return h(
-        "li",
-        { class: e.source },
-        h("time", { datetime: e.at, title: new Date(e.at).toLocaleString() }, clock.format(new Date(e.at))),
-        h("p", { class: "event" }, body),
-      );
-    }),
+    each(
+      items,
+      (e) => `${e.at}|${e.kind}|${e.pane_id ?? ""}|${e.status ?? ""}|${e.text ?? ""}`,
+      (e) => {
+        const who = e.pane_id ? h("strong", null, byPane.get(e.pane_id)?.title ?? e.pane_id) : null;
+        const body =
+          e.source === "web"
+            ? [h("span", { class: "chip accent" }, "web"), h("span", null, e.text ?? "")]
+            : e.status
+              ? [who, pill(e.status)]
+              : [h("span", { class: "chip" }, eventName(e.kind)), who];
+        return h(
+          "li",
+          { class: e.source },
+          h("time", { datetime: e.at, title: new Date(e.at).toLocaleString() }, clock.format(new Date(e.at))),
+          h("p", { class: "event" }, body),
+        );
+      },
+    ),
   );
 }
 

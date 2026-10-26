@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { h, patch } from "./dom.ts";
+import { each, h, patch } from "./dom.ts";
 import { asDom, type FakeElement, installFakeDocument } from "./herdsman-dom-diff.testdom.ts";
 
 beforeEach(installFakeDocument);
@@ -46,5 +46,62 @@ describe("patch (dom.ts)", () => {
     patch(root, view(["3", "1", "2", "4"]));
     expect((root as unknown as FakeElement).childNodes.slice(0, 3)).toEqual([three!, one!, two!]);
     expect(root.textContent).toBe("3124");
+  });
+});
+
+describe("each", () => {
+  interface Row {
+    id: number;
+    label: string;
+  }
+  const view = (rows: Row[]) =>
+    each(
+      rows,
+      (r) => r.id,
+      (r) => h("li", null, r.label),
+    );
+
+  test("stamps keys and keeps each row's node through a reorder", () => {
+    const root = document.createElement("ul");
+    const rows = [1, 2, 3, 4].map((id) => ({ id, label: `row ${id}` }));
+    patch(root, view(rows));
+    const nodes = (root as unknown as FakeElement).childNodes;
+    expect(nodes.map((n) => (n as FakeElement).getAttribute("data-key"))).toEqual(["1", "2", "3", "4"]);
+    patch(root, view([rows[3]!, rows[0]!, rows[2]!, rows[1]!]));
+    expect((root as unknown as FakeElement).childNodes).toEqual([nodes[3]!, nodes[0]!, nodes[2]!, nodes[1]!]);
+    expect(root.textContent).toBe("row 4row 1row 3row 2");
+  });
+
+  test("an index cannot be a key", () => {
+    const neverRun = (): void => {
+      const indexKey = (_item: number, i: number): number => i;
+      // @ts-expect-error the key function gets only the item, never its position
+      each([1, 2], indexKey, () => h("li"));
+    };
+    void neverRun;
+  });
+
+  test("duplicate keys warn only in development", () => {
+    const g = globalThis as unknown as { HERDSMAN_DEV?: boolean };
+    const warn = console.warn;
+    const seen: string[] = [];
+    console.warn = (m: string) => void seen.push(m);
+    try {
+      view([
+        { id: 1, label: "a" },
+        { id: 1, label: "b" },
+      ]);
+      expect(seen).toEqual([]);
+      g.HERDSMAN_DEV = true;
+      view([
+        { id: 1, label: "a" },
+        { id: 1, label: "b" },
+      ]);
+      expect(seen.length).toBe(1);
+      expect(seen[0]).toContain('duplicate key "1"');
+    } finally {
+      delete g.HERDSMAN_DEV;
+      console.warn = warn;
+    }
   });
 });
