@@ -11,9 +11,14 @@ import {
   SVG_NS,
 } from "./herdsman-blocks.testdom.ts";
 
-/** A bubbling event with what form handlers read: the submitter and preventDefault. */
+/** A bubbling event with what form and key handlers read: the submitter, the key and its modifiers, and preventDefault. */
 export class FakeEvent extends BaseEvent {
   submitter: FakeElement | null = null;
+  key = "";
+  ctrlKey = false;
+  metaKey = false;
+  shiftKey = false;
+  altKey = false;
   defaultPrevented = false;
   preventDefault(): void {
     this.defaultPrevented = true;
@@ -135,6 +140,11 @@ export function byName(root: BaseElement, name: string): FakeElement {
 /** What a test can set on a dispatched event. */
 export interface EventExtras {
   submitter?: FakeElement | null;
+  key?: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+  altKey?: boolean;
 }
 
 /**
@@ -146,6 +156,11 @@ export interface EventExtras {
 export function dispatch(target: BaseElement, type: string, extra: EventExtras = {}): FakeEvent {
   const e = new FakeEvent(type);
   if (extra.submitter !== undefined) e.submitter = extra.submitter;
+  if (extra.key !== undefined) e.key = extra.key;
+  e.ctrlKey = extra.ctrlKey ?? false;
+  e.metaKey = extra.metaKey ?? false;
+  e.shiftKey = extra.shiftKey ?? false;
+  e.altKey = extra.altKey ?? false;
   target.dispatchEvent(e);
   return e;
 }
