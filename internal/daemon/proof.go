@@ -71,6 +71,10 @@ const proofLatch = "proof-stale"
 // hashCacheMax bounds the hash cache; setup keeps only the proof's files.
 const hashCacheMax = 64
 
+// maxSetupRules bounds a proof's policy files so that they and the binary
+// fit the hash cache together: checking a proof never evicts its own files.
+const maxSetupRules = hashCacheMax - 1
+
 // keep forgets every hash but those of paths.
 func (c *hashCache) keep(paths []string) {
 	for p := range c.m {
@@ -130,8 +134,15 @@ func (c *hashCache) sum(p string) (string, error) {
 		return "", fmt.Errorf("%q is larger than %d bytes", p, maxHashed)
 	}
 	s := hex.EncodeToString(h.Sum(nil))
-	if c.m == nil || len(c.m) >= hashCacheMax {
+	if c.m == nil {
 		c.m = map[string]hashEntry{}
+	}
+	if _, known := c.m[p]; !known && len(c.m) >= hashCacheMax {
+		// Bounded: one entry goes for each new one, as in the ack cache.
+		for k := range c.m {
+			delete(c.m, k)
+			break
+		}
 	}
 	c.m[p] = hashEntry{stamp: st, sum: s}
 	return s, nil
@@ -172,6 +183,9 @@ func validIdentity(v any) bool {
 func checkSetupRequest(q SetupRequest) *APIError {
 	if len(q.Rules) == 0 {
 		return Errf("bad_request", "name at least one sandbox policy file")
+	}
+	if len(q.Rules) > maxSetupRules {
+		return Errf("bad_request", "at most %d sandbox policy files", maxSetupRules)
 	}
 	if len(q.Boundary) == 0 || inbox.StrictJSON(q.Boundary) != nil {
 		return Errf("bad_request", "the boundary object is required (strict JSON)")
