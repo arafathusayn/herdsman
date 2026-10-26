@@ -13,7 +13,7 @@
 // paths (mount, set, List.set) for the sake of types.
 
 /** Library version, bumped with every release of the zip package. */
-export const VERSION = "0.0.3";
+export const VERSION = "0.0.4";
 
 // ---------------------------------------------------------------------------
 // Hole markers: typed at compile time, small negative numbers at runtime
@@ -596,6 +596,27 @@ export class List<T, E = Entry, K extends Key = Key> {
 
   // 4. General case on the middle window [s..oe] (old) vs [s..ne] (new).
   private general(items: readonly T[], newK: readonly K[], newE: E[], s: number, oe: number, ne: number): void {
+    const len = ne - s + 1;
+    // Scratch buffers for this nesting depth: callbacks below (update, create)
+    // may run a nested reconcile, which must not overwrite ours.
+    const sc = scratchAt(depth++, len);
+    try {
+      this.window(items, newK, newE, s, oe, ne, len, sc);
+    } finally {
+      depth--;
+    }
+  }
+
+  private window(
+    items: readonly T[],
+    newK: readonly K[],
+    newE: E[],
+    s: number,
+    oe: number,
+    ne: number,
+    len: number,
+    sc: Scratch,
+  ): void {
     const p = this.parent,
       a = this.anchor,
       upd = this.update,
@@ -605,27 +626,47 @@ export class List<T, E = Entry, K extends Key = Key> {
       oldE = this.entries;
     const n = newK.length,
       m = oldK.length;
-    const len = ne - s + 1;
-    const src = new Int32Array(len).fill(-1); // new position -> old index, -1 = new item
+    const src = sc.src; // new position -> old index, -1 = new item
+    src.fill(-1, 0, len);
     let moved = false,
       last = -1,
       kept = 0;
 
-    // Small windows: a linear scan beats building a Map.
-    let idx: Map<K, number> | null = null;
+    // Key -> new position. Small windows: a linear scan. Dense integer keys:
+    // a direct-address table (no hashing, no clearing). Anything else: a Map.
+    let mode = SCAN,
+      base = 0,
+      idx: Map<K, number> | null = null;
     if (len > 16) {
-      idx = new Map();
-      for (let i = s; i <= ne; i++) idx.set(newK[i]!, i);
+      base = intRange(newK, s, ne, len);
+      if (base >= 0) {
+        mode = TABLE;
+        const g = ++lutGen;
+        for (let i = s; i <= ne; i++) {
+          const o = (newK[i] as number) - base;
+          lutPos[o] = i;
+          lutStamp[o] = g;
+        }
+      } else {
+        mode = MAP;
+        idx = new Map();
+        for (let i = s; i <= ne; i++) idx.set(newK[i]!, i);
+      }
     }
+    const g = lutGen;
+    const find = (k: K): number => {
+      if (mode === TABLE) {
+        const o = (k as number) - base;
+        return typeof k === "number" && o >= 0 && o < lutPos.length && lutStamp[o] === g ? lutPos[o]! : -1;
+      }
+      if (mode === MAP) return idx!.get(k) ?? -1;
+      for (let j = s; j <= ne; j++) if (newK[j] === k) return j;
+      return -1;
+    };
 
     for (let i = s; i <= oe; i++) {
-      let j: number | undefined;
-      if (idx) j = idx.get(oldK[i]!);
-      else {
-        for (j = s; j <= ne && newK[j] !== oldK[i]; j++);
-        if (j > ne) j = undefined;
-      }
-      if (j === undefined) continue;
+      const j = find(oldK[i]!);
+      if (j < 0) continue;
       src[j - s] = i;
       newE[j] = oldE[i]!;
       if (j < last) moved = true;
@@ -642,16 +683,13 @@ export class List<T, E = Entry, K extends Key = Key> {
 
     // Remove old entries that did not survive.
     if (kept < oe - s + 1) {
-      for (let i = s; i <= oe; i++) {
-        const gone = idx ? !idx.has(oldK[i]!) : !includes(newK, oldK[i]!, s, ne);
-        if (gone) p.removeChild(r(oldE[i]!));
-      }
+      for (let i = s; i <= oe; i++) if (find(oldK[i]!) < 0) p.removeChild(r(oldE[i]!));
     }
     for (let j = 0; j < len; j++) if (src[j] !== -1) upd(newE[j + s]!, items[j + s]!);
 
     // Walk right to left. Survivors on the LIS stay put; everything else is
     // inserted before its right neighbour, which is already in final position.
-    const seq = moved ? lis(src) : null;
+    const seq = moved ? lisInto(src, len, sc) : null;
     let li = seq ? seq.length - 1 : -1;
     for (let j = len - 1; j >= 0; j--) {
       const pos = j + s;
@@ -691,9 +729,66 @@ function sameRange(x: readonly Key[], y: readonly Key[], from: number, to: numbe
   return true;
 }
 
-function includes(arr: readonly Key[], v: Key, from: number, to: number): boolean {
-  for (let i = from; i <= to; i++) if (arr[i] === v) return true;
-  return false;
+// Key lookup modes for the general case.
+const SCAN = 0;
+const TABLE = 1;
+const MAP = 2;
+
+// Direct-address table shared by every list: key - base -> new position, valid
+// only where its stamp equals the current generation, so it is never cleared.
+// Sized up to TABLE_MAX entries (two 4-byte arrays: 32 MB at the cap).
+const TABLE_MAX = 1 << 22;
+let lutPos = new Int32Array(0);
+let lutStamp = new Uint32Array(0);
+let lutGen = 0;
+
+// If keys[from..to] are all non-negative integers in a range no wider than
+// 8 times the window (and within TABLE_MAX), size the table and return the
+// smallest key; otherwise return -1.
+function intRange(keys: readonly Key[], from: number, to: number, len: number): number {
+  let lo = Infinity,
+    hi = -1;
+  for (let i = from; i <= to; i++) {
+    const k = keys[i];
+    if (typeof k !== "number" || k < 0 || (k | 0) !== k) return -1;
+    if (k < lo) lo = k;
+    if (k > hi) hi = k;
+  }
+  const span = hi - lo + 1;
+  if (span > 8 * len + 64 || span > TABLE_MAX) return -1;
+  if (lutPos.length < span) {
+    const size = Math.min(TABLE_MAX, Math.max(span, 2 * lutPos.length));
+    lutPos = new Int32Array(size);
+    lutStamp = new Uint32Array(size);
+    lutGen = 0;
+  }
+  if (lutGen === 0xffffffff) {
+    lutStamp.fill(0);
+    lutGen = 0;
+  }
+  return lo;
+}
+
+// Per-nesting-depth scratch: the source array and the LIS work arrays, grown
+// on demand and reused, so a reconcile allocates no typed arrays.
+interface Scratch {
+  src: Int32Array;
+  prev: Int32Array;
+  tails: Int32Array;
+}
+const scratch: Scratch[] = [];
+let depth = 0;
+
+function scratchAt(d: number, len: number): Scratch {
+  let sc = scratch[d];
+  if (sc === undefined) scratch[d] = sc = { src: new Int32Array(0), prev: new Int32Array(0), tails: new Int32Array(0) };
+  if (sc.src.length < len) {
+    const size = Math.max(len, 2 * sc.src.length, 64);
+    sc.src = new Int32Array(size);
+    sc.prev = new Int32Array(size);
+    sc.tails = new Int32Array(size);
+  }
+  return sc;
 }
 
 /**
@@ -702,8 +797,14 @@ function includes(arr: readonly Key[], v: Key, from: number, to: number): boolea
  */
 export function lis(a: ArrayLike<number>): number[] {
   const n = a.length;
-  const prev = new Int32Array(n);
-  const tails = new Int32Array(n); // tails[k] = position ending the best run of length k+1
+  return lisWith(a, n, new Int32Array(n), new Int32Array(n));
+}
+
+function lisInto(a: Int32Array, n: number, sc: Scratch): number[] {
+  return lisWith(a, n, sc.prev, sc.tails);
+}
+
+function lisWith(a: ArrayLike<number>, n: number, prev: Int32Array, tails: Int32Array): number[] {
   let len = 0;
   for (let i = 0; i < n; i++) {
     const v = a[i]!;

@@ -255,6 +255,80 @@ describe("List", () => {
   });
 });
 
+describe("key lookup modes", () => {
+  // Reorders a list with the given keys and checks order, reuse and minimal moves.
+  function check<K extends string | number>(keys: K[]): void {
+    const parent = document.createElement("ul") as unknown as FakeElement;
+    const list = new List<{ k: K }, FakeElement, K>(asDom(parent), {
+      key: (it) => it.k,
+      root: (el) => asDom(el),
+      create: (it) => {
+        const li = document.createElement("li") as unknown as FakeElement;
+        li["key"] = it.k;
+        return li;
+      },
+      update: () => {},
+    });
+    const before = keys.map((k) => ({ k }));
+    list.set(before);
+    const nodes = new Map(keys.map((k, i) => [k, parent.childNodes[i]]));
+    const after = shuffle(before.slice(1)).concat(before.slice(0, 1)); // shuffled, first item moved to the end
+    resetOps();
+    list.set(after);
+    expect(parent.childNodes.map((c) => (c as FakeElement)["key"])).toEqual(after.map((x) => x.k));
+    after.forEach((x, i) => expect(parent.childNodes[i]).toBe(nodes.get(x.k)!));
+    const oldIndex = new Map(keys.map((k, i) => [k, i]));
+    expect(ops.moves).toBe(after.length - lisLen(after.map((x) => oldIndex.get(x.k)!)));
+  }
+
+  test("dense integer keys use the direct-address table", () => check(Array.from({ length: 300 }, (_, i) => 1000 + i)));
+  test("sparse integer keys fall back to a Map", () => check(Array.from({ length: 300 }, (_, i) => i * 1_000_003)));
+  test("string keys use a Map", () => check(Array.from({ length: 300 }, (_, i) => `row-${i}`)));
+  test("negative and fractional keys use a Map", () => check(Array.from({ length: 300 }, (_, i) => -i - 0.5)));
+  test("small windows scan", () => check([5, 3, 9, 1, 7, 2]));
+
+  test("a reconcile nested inside update keeps the outer one correct", () => {
+    // Each outer row owns an inner list that is reordered from the outer update callback.
+    const outer = document.createElement("div") as unknown as FakeElement;
+    interface Row {
+      id: number;
+      kids: number[];
+    }
+    const inner = new Map<number, List<number, FakeElement, number>>();
+    const list = new List<Row, FakeElement, number>(asDom(outer), {
+      key: (r) => r.id,
+      root: (el) => asDom(el),
+      create: (r) => {
+        const el = document.createElement("section") as unknown as FakeElement;
+        el["key"] = r.id;
+        const l = new List<number, FakeElement, number>(asDom(el), {
+          key: (k) => k,
+          root: (x) => asDom(x),
+          create: (k) => {
+            const x = document.createElement("i") as unknown as FakeElement;
+            x["key"] = k;
+            return x;
+          },
+          update: () => {},
+        });
+        l.set(r.kids);
+        inner.set(r.id, l);
+        return el;
+      },
+      update: (_el, r) => inner.get(r.id)!.set(r.kids),
+    });
+    const ids = Array.from({ length: 64 }, (_, i) => i);
+    const kids = Array.from({ length: 64 }, (_, i) => 100 + i);
+    list.set(ids.map((id) => ({ id, kids })));
+    const reordered = shuffle(ids.slice()).map((id) => ({ id, kids: shuffle(kids.slice()) }));
+    list.set(reordered);
+    expect(outer.childNodes.map((c) => (c as FakeElement)["key"])).toEqual(reordered.map((r) => r.id));
+    reordered.forEach((r, i) =>
+      expect(outer.childNodes[i]!.childNodes.map((c) => (c as FakeElement)["key"])).toEqual(r.kids),
+    );
+  });
+});
+
 describe("state-preserving moves", () => {
   const ids = (n: number): Item[] => Array.from({ length: n }, (_, i) => ({ id: i }));
 

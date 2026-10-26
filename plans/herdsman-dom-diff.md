@@ -3,7 +3,7 @@
 A living document. It explains why herdsman-dom-diff exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
 - Status: draft, on branch `herdsman-dom-diff`
-- Library version: 0.0.3 (the module exports this as `VERSION`)
+- Library version: 0.0.4 (the module exports this as `VERSION`)
 - Last updated: 2026-10-26
 - Module: `web/src/herdsman-dom-diff.ts`, used by `web/src/dom.ts`
 
@@ -57,6 +57,8 @@ Our measurements come from a local replica of the official method in headless Ch
 | **weighted score** |        **1.065** |                    **1.004** | **1.080** |         **1.052** |
 
 Assessment: in this replica herdsman-dom-diff ranks second of four by score, but the noise control below shows that differences under about 4% are not meaningful on this machine, so it is effectively tied with `re` (the official leader) and `vanillajs`, and about 4.8% behind `vanillajs-lite`, a gap at the edge of the noise. It is fastest on swap and ties the fastest on create 10,000 rows. Its one clear loss is clear rows (1.17 times the best): its samples split between about 30 ms and about 50 ms, which points to garbage collection of the per-row block objects landing inside the measured window. Whether these placements hold on the official table can only be settled by the official run.
+
+**0.0.3 run** (2026-10-26, lazy rows and state-preserving moves), median of 12 interleaved iterations, weighted scores: herdsman-dom-diff 0.0.3 1.036, `vanillajs-lite` 1.045, herdsman-dom-diff 0.0.2 1.066, `re` 1.070. 0.0.3 ranked first, but its margins over `vanillajs-lite` (0.9%) and over 0.0.2 (3%) are under the 4.3% noise floor below, so this shows no regression and at most a small gain. Clear rows, which looked bound by garbage collection before, took 30.0 ms with one slow sample in twelve (0.0.2: four). A focused rerun of the tests where 0.0.3 had the slower median is under way.
 
 **Noise control** (2026-10-26): the same 0.0.1 build run against a byte-identical copy of itself, 10 interleaved iterations, scored 1.052 and 1.009, a 4.3% gap from noise alone; per-test factors between the identical builds reached 1.17. Any replica difference smaller than that is not evidence.
 
@@ -169,8 +171,11 @@ Let `m` be the old length and `n` the new length.
 
 #### The general case
 
-1. Build a source array with one slot per new window position, all set to "new item".
-2. Index the new window's keys: for a window of more than 16 keys, use a hash map from key to new position; for smaller windows, a linear scan is cheaper.
+1. Take this nesting depth's scratch buffers (see below) and set the first slots of its source array, one per new window position, to "new item".
+2. Index the new window's keys, choosing one of three lookups:
+   - **Scan** for a window of 16 keys or fewer: a linear search is cheaper than any index.
+   - **Direct-address table** when every key in the window is a non-negative integer and the keys' range is at most 8 times the window size plus 64 (and at most 4,194,304 wide): a shared integer array maps key minus the smallest key to the new position. A shared stamp array marks which slots the current reconcile wrote, using a generation counter that increases with every reconcile, so the table is never cleared. Both arrays grow on demand (doubling, up to 32 MB together at the cap) and are reused by every list. Row ids, which are usually dense integers, take this path.
+   - **Hash map** otherwise (strings, sparse or negative or fractional numbers).
 3. For each old window entry in order, look up its key among the new window. If found, store the old index in the source slot of its new position and adopt the old entry there. Track whether the found positions ever decrease (the "moved" flag), and count survivors.
 4. If nothing survived, the list owns its parent, and the window spans both whole lists: set the parent's text content to empty and fill. Stop.
 5. Remove the roots of old entries whose key is not in the new window.
@@ -186,6 +191,10 @@ Walking right to left guarantees the reference node is already in its final plac
 #### Moving and placing nodes
 
 Every move of a surviving entry (the swap path and the general case) uses the state-preserving move when the browser has it and the parent is in the document, and plain insertion otherwise. The state-preserving move (`moveBefore`, Chrome 133+) keeps focus, iframe, video and CSS animation state that insertion resets; it throws when the parent is not in the document, which is the case while `detach` fills it. Inserting a new entry's node uses the state-preserving move only when that node is already in the document elsewhere (a persistent element a view reuses), and plain insertion otherwise.
+
+#### Scratch buffers and nesting
+
+The general case needs a source array and two LIS work arrays. Allocating them on every reconcile was 14% of the reconciler's time in profiling, so each is a reused integer array, grown on demand and never shrunk. The reconciler calls user code while it still needs them (the update callback, and the create callback during the right-to-left walk), and that code can run a nested reconcile, as morph does for every kept element. So buffers are kept per nesting depth: a depth counter rises on entering the general case and falls on leaving it (also on an exception), and each depth has its own set. The direct-address table needs no such care: every lookup into it finishes before any user code runs, and a nested reconcile's new generation simply invalidates the outer one's entries after the outer reconcile is done with them.
 
 #### Longest increasing subsequence
 
@@ -345,6 +354,25 @@ The runner can also report, per test, how the click-to-commit window splits into
 1. Replace 1,000 rows: with phases measured, herdsman-dom-diff took 73.9 ms against vanilla's 79.1 ms, with every phase equal or lower. The earlier 1.28 times gap was machine noise.
 2. Create rows: the remaining cost was JavaScript allocation per row. Before the changes, script was 10.6 ms against vanilla's 6.2 ms on 1,000 rows; on 10,000 rows garbage collection was 96 ms for us, 74 ms for vanilla and 44 ms for vanillajs-lite, which never touches a cloned row's inner nodes. After merging block state into one array, reusing the argument array, dropping a per-row expando, and baking values into the prototype with lazy hole lookup, create 1,000 rows scored 1.01 times the best of vanilla, vanillajs-lite and herdsman-dom-diff (vanillajs-lite 1.07), and create 10,000 rows 1.02 times. Garbage collection on 10,000 rows was still 88 ms, so per-row objects (the block and its state array) remain the next target.
 
+### Profiling the reconciler alone (2026-10-26)
+
+With a null DOM whose inserts and removes do nothing, Bun's CPU profiler (sampling every 100 microseconds) attributed the reconciler's time, over edits of 1,000 to 100,000 keyed items, to: building the key-to-position hash map, 44%; allocating the new key and entry arrays, 27%; allocating the LIS work arrays, 14%; the LIS loop itself, about 1%. The arithmetic was never the cost; hashing and allocation were. That led to the direct-address table and the scratch buffers.
+
+Effect, measured as the median time per reconcile over many back-and-forth reconciles of the same edit (null DOM, integer keys unless stated):
+
+| Edit                                 | Chrome 156 before | Chrome 156 after | Bun before | Bun after |
+| ------------------------------------ | ----------------: | ---------------: | ---------: | --------: |
+| 1,000 items, reverse                 |           85.4 µs |          28.3 µs |    49.5 µs |   23.3 µs |
+| 1,000 items, shuffle                 |           92.6 µs |          38.5 µs |    87.0 µs |   42.8 µs |
+| 1,000 items, replace all             |           61.0 µs |          21.5 µs |    36.4 µs |   14.7 µs |
+| 10,000 items, reverse                |          842.5 µs |         373.8 µs |   918.8 µs |  921.8 µs |
+| 10,000 items, replace all            |          991.2 µs |         282.5 µs | 1,278.0 µs |  721.1 µs |
+| 100,000 items, reverse               |           10.2 ms |           3.1 ms |    14.5 ms |    3.9 ms |
+| 100,000 items, replace all           |           12.5 ms |           3.0 ms |    18.8 ms |    3.6 ms |
+| 1,000 string keys, shuffle (control) |          155.3 µs |         157.2 µs |   179.7 µs |  181.6 µs |
+
+In Chrome the reconciler became 2 to 4 times faster for integer keys at every size; string keys, which still use the hash map, were unchanged, as expected. JavaScriptCore gained at 1,000 and 100,000 items but not for shuffles and reverses of 10,000. In absolute terms the saving is about 50 microseconds per 1,000-row operation, small next to the browser's rendering work in the benchmark, and 0.5 to 10 milliseconds per update for lists of 10,000 to 100,000 items.
+
 ### Microbenchmarks in Chrome 156 (2026-10-26)
 
 1. **Batched cloning** (cloning a fragment of 10, 50 or 250 prefilled rows at once, as vanillajs-lite does) against one clone per row, timed to forced layout, medians of 41 runs for 1,000 rows and 15 runs for 10,000 rows: 1,000 rows took 34.6 ms singly and 36.1 to 39.6 ms batched; 10,000 rows took 409.6 ms singly and 407.6 to 422.3 ms batched. Batching brought no gain, so the library clones one row at a time.
@@ -389,6 +417,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-26: Version 0.0.4. Direct-address table for dense integer keys in the general case (hash map otherwise, scan for small windows); scratch buffers per nesting depth for the source and LIS arrays. The reconciler alone became 2 to 4 times faster in Chrome for integer keys. Tests for every lookup mode and for a reconcile nested inside update.
 - 2026-10-26: Version 0.0.3. Mounting without a block (`mountRoot`) with on-demand blocks (`block`) that cannot read values; list entries may be any value given a root function; morph keeps no wrapper per node; moves use `moveBefore` when the parent is in the document. Batched cloning measured and rejected. Research notes added.
 - 2026-10-26: Chrome A/B of 0.0.1 against 0.0.2 and an A/A noise control: no measurable runtime cost from the types. Corrected the head-to-head reading: within this machine's noise, herdsman-dom-diff is tied with `re`, not ahead.
 - 2026-10-26: Version 0.0.2. Strict types: typed hole markers for text, class, attribute and property holes; the value tuple, hole indexes and per-hole value types inferred from them; a once-per-template position check for markers; keyed lists generic in their key type; the library compiled under an extra strict settings file that herdsman's web check now runs; type tests with expected errors. Kind codes are plain constants and constructor parameter properties are gone (erasable syntax only). The package's declaration file re-exports the source's types instead of a `tsc` build. No runtime slowdown in profiling.
