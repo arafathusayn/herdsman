@@ -1038,8 +1038,17 @@ func (d *Daemon) viewEvents(w http.ResponseWriter, r *http.Request) *APIError {
 	defer func() {
 		d.mu.Lock()
 		delete(d.views, s)
+		attached := make([]*Route, 0, len(d.routes))
+		for _, rt := range d.routes {
+			attached = append(attached, rt)
+		}
 		d.mu.Unlock()
 		s.close()
+		// Every route the stream was attached to, at its start or later,
+		// forgets it.
+		for _, rt := range attached {
+			_ = rt.do(context.Background(), func() *APIError { rt.unsubscribe(s); return nil })
+		}
 	}()
 	reg := &Event{Type: "registry", Routes: []RouteRef{}}
 	for _, rt := range routes {
