@@ -39,6 +39,9 @@ Exit codes:
 // script's 30 s); tests shorten it.
 var checkpointerWorkingTimeout time.Duration
 
+// checkpointerPrompt replaces the prompt send in tests (nil: herdr's).
+var checkpointerPrompt func(ctx context.Context, target, text string) error
+
 func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	if len(args) > 0 && args[0] == "guard" {
@@ -76,15 +79,18 @@ func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "herdsman checkpointer:", err)
 		return settings.ExitInvalid
 	}
-	c := &checkpoint.Checkpointer{Config: cfg, Client: herdrClient(), Stdout: stdout, Stderr: stderr, WorkingTimeout: checkpointerWorkingTimeout}
+	c := &checkpoint.Checkpointer{Config: cfg, Client: herdrClient(), Stdout: stdout, Stderr: stderr, WorkingTimeout: checkpointerWorkingTimeout,
+		Prompt: checkpointerPrompt}
 	if jsonOut {
 		return c.ProbeJSON(ctx)
 	}
 	if mode == "--probe" {
 		return c.Probe(ctx)
 	}
-	// As the script's EXIT trap: a signal frees the input lock, ends the
-	// run (its waits and pause end with the context) and exits 128+n.
+	// A signal only ends the run (its waits, lock wait, send and pause end
+	// with the context) and exits 128+n. The input lock is freed by the
+	// input's deferred Release once the send has stopped, never while a
+	// prompt may still be on its way.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	sigs := make(chan os.Signal, 1)
@@ -94,7 +100,6 @@ func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	go func() {
 		select {
 		case s := <-sigs:
-			c.Release()
 			got <- 128 + int(s.(syscall.Signal))
 			cancel()
 		case <-ctx.Done():

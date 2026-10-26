@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
+	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/inbox/inboxtest"
 )
 
@@ -165,6 +167,30 @@ func TestCheckpointerCommands(t *testing.T) {
 		t.Errorf("once interrupted: %d %q", code, out)
 	}
 	fx.Edit("receiver-pane", "agent_status", "idle")
+
+	// A signal during the send in adjutant mode only cancels the run: the
+	// input lock stays held until the send has returned, then is freed.
+	t.Setenv("HERDSMAN_ORCHESTRATOR", inboxtest.Orchestrator)
+	lock := filepath.Join(os.Getenv("HERDSMAN_INBOX"), inbox.MutationLock)
+	freed, held := false, false
+	checkpointerPrompt = func(ctx context.Context, _, _ string) error {
+		_, err := os.Stat(lock)
+		held = err == nil
+		_ = syscall.Kill(os.Getpid(), syscall.SIGHUP)
+		for end := time.Now().Add(300 * time.Millisecond); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+			if _, err := os.Stat(lock); err != nil {
+				freed = true
+			}
+		}
+		return ctx.Err()
+	}
+	_, _, code = call(t, "checkpointer", "--once")
+	checkpointerPrompt = nil
+	if _, err := os.Stat(lock); code != 129 || !held || freed || err == nil {
+		t.Errorf("signal during send: code %d, held %v, freed during send %v, lock after %v", code, held, freed, err)
+	}
+	t.Setenv("HERDSMAN_ORCHESTRATOR", "")
+
 	t.Setenv("INTERVAL", "1")
 	sent := func() int {
 		n := 0

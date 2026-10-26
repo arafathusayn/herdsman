@@ -180,9 +180,33 @@ func TestInputLock(t *testing.T) {
 		cp := c.checkpointer(cfg)
 		n := 0
 		cp.Sleep = func(time.Duration) { n++ }
-		if cp.inputLock() || n != sleeps {
+		if cp.inputLock(context.Background()) || n != sleeps {
 			t.Errorf("LOCK_WAIT=%s: %d sleeps", lw, n)
 		}
+	}
+}
+
+// A run that ends while the input lock is busy stops retrying: the lock
+// wait follows the run's context, so SIGTERM does not wait out LOCK_WAIT,
+// sends nothing and leaves the other writer's lock in place.
+func TestInputLockCancel(t *testing.T) {
+	c := newCP(t)
+	lock := filepath.Join(c.box.Dir, inbox.MutationLock)
+	if err := os.Mkdir(lock, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := c.config(c.dir, map[string]string{"TARGET": "receiver-pane", "TRANSCRIPT": filepath.Join(c.dir, "transcript.jsonl"), "LIMIT": "1", "LOG": filepath.Join(c.dir, "ckpt.log"),
+		"HERDSMAN_ORCHESTRATOR": orch, "HERDSMAN_INBOX": c.box.Dir, "HERDSMAN_PREFLIGHT": c.box.Proof, "HERDSMAN_MESSAGES_DIR": c.box.Installed,
+		"LOCK_WAIT": "60"})
+	cp := c.checkpointer(cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	n := 0
+	cp.Sleep = func(time.Duration) { n++; cancel() }
+	c.mark = len(c.srv.Requests())
+	rc := cp.Once(ctx)
+	if rc == 0 || n != 1 || c.sent() != "" || yn(lock) != "yes" {
+		t.Errorf("cancelled lock wait: rc %d, %d sleeps, sent %q, lock %s, log %q", rc, n, c.sent(), yn(lock), c.log())
 	}
 }
 

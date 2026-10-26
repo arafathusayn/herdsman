@@ -100,6 +100,8 @@ type Checkpointer struct {
 	Now   func() time.Time
 	Sleep func(time.Duration)
 	Wait  func(ctx context.Context, target string, want []herdr.Status, timeout time.Duration) (herdr.Status, error)
+	// Prompt sends an input to the target; nil takes Client.AgentPrompt.
+	Prompt func(ctx context.Context, target, text string) error
 	// WorkingTimeout bounds the wait for the prompted turn (0: 30 s).
 	WorkingTimeout time.Duration
 
@@ -118,6 +120,13 @@ func (c *Checkpointer) now() time.Time {
 
 func (c *Checkpointer) sleep(d time.Duration) {
 	c.pause(context.Background(), d)
+}
+
+func (c *Checkpointer) prompt(ctx context.Context, text string) error {
+	if c.Prompt != nil {
+		return c.Prompt(ctx, c.Config.Target, text)
+	}
+	return c.Client.AgentPrompt(ctx, c.Config.Target, text)
 }
 
 // pause sleeps d, or until ctx ends.
@@ -256,11 +265,19 @@ func (c *Checkpointer) guard(ctx context.Context) bool {
 
 // inputLock takes the inbox's input lock in adjutant mode, with LOCK_WAIT
 // attempts a second apart. A busy lock sends nothing and is never removed.
-func (c *Checkpointer) inputLock() bool {
+// The wait follows ctx: when the run ends (a signal), it stops retrying.
+func (c *Checkpointer) inputLock(ctx context.Context) bool {
 	if c.Config.Orchestrator == "" {
 		return true
 	}
-	l := inbox.TryDir(filepath.Join(c.Config.Inbox.Dir, inbox.MutationLock), c.Config.LockWait, c.sleep)
+	dir := filepath.Join(c.Config.Inbox.Dir, inbox.MutationLock)
+	var l *inbox.Lock
+	for try := 1; ctx.Err() == nil; try++ {
+		if l = inbox.TryDir(dir, 1, nil); l != nil || try >= c.Config.LockWait {
+			break
+		}
+		c.pause(ctx, time.Second)
+	}
 	if l == nil {
 		c.log("input lock busy, no input sent")
 		return false
@@ -285,7 +302,7 @@ func (c *Checkpointer) Release() {
 // input takes the lock, checks the identity, logs what it sends and sends
 // it. It reports whether it sent the text.
 func (c *Checkpointer) input(ctx context.Context, what, text, failed string) bool {
-	if !c.inputLock() {
+	if !c.inputLock(ctx) {
 		return false
 	}
 	defer c.Release()
@@ -293,7 +310,7 @@ func (c *Checkpointer) input(ctx context.Context, what, text, failed string) boo
 		return false
 	}
 	c.log("sending " + what)
-	if err := c.Client.AgentPrompt(ctx, c.Config.Target, text); err != nil {
+	if err := c.prompt(ctx, text); err != nil {
 		c.log(failed)
 		return false
 	}
