@@ -116,14 +116,20 @@ export type EventMapOf<E extends Element> = E extends HTMLElement
     ? SVGElementEventMap
     : ElementEventMap;
 
-/** The event names element type E has an `on*` handler property for: "click", "input", ... */
+/**
+ * The event names element type E has an `on*` handler property for: "click",
+ * "input", ... Only declared keys count: an index signature (a form's
+ * `[name: string]: any`) would otherwise swallow them all.
+ */
 type OnName<E extends Element> = {
-  [P in keyof E]-?: P extends `on${infer N}`
+  [P in keyof E as string extends P ? never : number extends P ? never : P]-?: P extends `on${infer N}`
     ? NonNullable<E[P]> extends (...args: never) => unknown
       ? N
       : never
     : never;
-}[keyof E];
+} extends infer M
+  ? M[keyof M]
+  : never;
 
 /**
  * The event names an event hole on element type E takes: those with an `on*`

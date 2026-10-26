@@ -131,6 +131,18 @@ describe("typed holes", () => {
       // @ts-expect-error input has no "enterpictureinpicture" handler; video has
       on<"enterpictureinpicture", HTMLInputElement>();
       on<"enterpictureinpicture", HTMLVideoElement>();
+      // A form's index signature does not hide its handler names.
+      const Form = html`<form onsubmit=${on<"submit", HTMLFormElement>()}></form>`;
+      Form.mount([
+        function (ev) {
+          void (this satisfies HTMLFormElement).action;
+          void (ev satisfies SubmitEvent).submitter;
+        },
+      ]);
+      // @ts-expect-error a submit handler receives a SubmitEvent, not a KeyboardEvent
+      Form.mount([(ev: KeyboardEvent) => void ev.key]);
+      // @ts-expect-error a misspelled event on a form is still rejected
+      on<"sumbit", HTMLFormElement>();
       // Events with no on* property come from the element's event map, typed from it.
       const Ime = html`<input oncompositionstart=${on<"compositionstart", HTMLInputElement>()} />`;
       Ime.mount([(ev) => void (ev satisfies CompositionEvent).data]);
