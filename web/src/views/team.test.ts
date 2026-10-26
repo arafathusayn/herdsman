@@ -15,7 +15,7 @@ g["location"] ??= { search: "", pathname: "/" };
 g["window"] ??= { addEventListener: () => {} };
 g["history"] ??= { pushState: () => {}, replaceState: () => {} };
 g["requestAnimationFrame"] ??= () => 0;
-const { card, teamBoard, teamView } = await import("./team.ts");
+const { card, teamBoard } = await import("./team.ts");
 const { store } = await import("../store.ts");
 
 beforeEach(installFakeDocument);
@@ -228,11 +228,4 @@ test("lanes keep their nodes when a lane appears ahead of them and their cards c
   expect(lanes[2]).toBe(rev!);
   expect(cardsOf(lanes[1]!)[0]).toBe(cards[0]!);
   expect(cardsOf(lanes[1]!).map((c) => c.getAttribute("data-pane"))).toEqual(["p1", "p3"]);
-});
-
-test("teamView keeps one board element and patches it", () => {
-  const a = teamView([member("p1", "implementer")], app);
-  const b = teamView([member("p1", "implementer"), member("p2", "reviewer")], app);
-  expect(b).toBe(a);
-  expect(lanesOf(fake(b)).length).toBe(2);
 });

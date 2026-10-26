@@ -2,14 +2,14 @@
 // the tab bodies main.ts does not keep as components (checklist, run state,
 // activity), and the session view of every agent. main.ts decides what shows
 // and owns the components; every function here is data to a view.
-import { each, h, icon, type IconNode, icons } from "../dom.ts";
+import { icon, type IconNode, icons } from "../dom.ts";
 import { attr, child, cls, html, list, type ListNode, on, text, type ViewNodeOf } from "../herdsman-blocks-view.ts";
 import { ago, checklistCounts, type Index, type Member } from "../model.ts";
 import type { App, RouteTab } from "../store.ts";
 import type { Route, Snapshot } from "../types.ts";
 import { pill, type PillNode, toast } from "../ui.ts";
 import { workspaceName } from "./shell.ts";
-import { card, type teamView } from "./team.ts";
+import { card, type CardNode, type TeamNode } from "./team.ts";
 
 // ---------------------------------------------------------------------------
 // The route shell
@@ -86,7 +86,7 @@ export type RouteShellNode = ViewNodeOf<typeof RouteShell>;
  * The open tab's body: an element a component keeps (Docs, Changes,
  * Artifacts, Messages), the Team board, or one of the views below.
  */
-export type TabBody = Element | ReturnType<typeof teamView> | ChecklistNode | LogNode | ActivityNode | MutedNode;
+export type TabBody = Element | TeamNode | ChecklistNode | LogNode | ActivityNode | MutedNode;
 
 /**
  * A route: its title, state, folder, age and checklist progress, the tab row
@@ -300,27 +300,24 @@ export function activityView(app: App, members: Member[]): ActivityNode | MutedN
 // The session view: every agent, by herdr tab
 // ---------------------------------------------------------------------------
 
-// TEMPORARY, until team.ts's card() returns a view: a keyed list needs a view
-// per item, and card() still builds an element, so the cards of a tab are an
-// h() grid through the bridge (each() takes an element or a view). Then this
-// becomes `Cards([list(ms, (m) => m.pane_id, (m) => card(m, app))])` with
-// `const Cards = html\`<div class="cards">${child<ListNode<CardNode, string>>()}</div>\``.
-function cardGrid(ms: Member[], app: App): HTMLElement {
-  return h(
-    "div",
-    { class: "cards" },
-    each(
+// The cards of one herdr tab, keyed by pane, so a card keeps its node (and
+// focus) when its agent's status changes or the cards reorder.
+const Cards = html`<div class="cards">${child<ListNode<CardNode, string>>()}</div>`;
+
+function cardGrid(ms: Member[], app: App): ViewNodeOf<typeof Cards> {
+  return Cards([
+    list(
       ms,
       (m) => m.pane_id,
       (m) => card(m, app),
     ),
-  );
+  ]);
 }
 
 // prettier-ignore
 const Group = html`<section class="group">
   <h2>${text()}<span class="count">${text()}</span></h2>
-  ${child<HTMLElement>()}
+  ${child<ViewNodeOf<typeof Cards>>()}
 </section>`;
 const ShellRow = html`<button class="shell-row" title=${attr()} onclick=${on<"click">()}>
   <code>${text()}</code><span>${text()}</span><span class="muted clip">${text()}</span>

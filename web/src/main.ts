@@ -56,7 +56,7 @@ import {
   topbar,
   type TopbarNode,
 } from "./views/shell.ts";
-import { teamView } from "./views/team.ts";
+import { teamBoard } from "./views/team.ts";
 
 const appRoot = document.getElementById("app");
 if (!appRoot) throw new Error("index.html has no #app");
@@ -388,7 +388,7 @@ function renderMain(app: App, snap: Snapshot, idx: Index): void {
           ? logView(r)
           : tab === "activity"
             ? activityView(app, team(r, idx))
-            : teamView(team(r, idx), app);
+            : teamBoard(team(r, idx), app);
   render(main, routeShell(r, routeTabs.el, body));
   // On a phone the tab row scrolls; keep the open tab in view, Docs included.
   if (shownTab !== tab) {

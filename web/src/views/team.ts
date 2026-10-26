@@ -1,17 +1,6 @@
 // The Team tab: the route's agents as a kanban board, in columns by role or
 // by status, and the agent card the session view shares.
-import {
-  attr,
-  child,
-  cls,
-  html,
-  list,
-  type ListNode,
-  on,
-  renderDirect,
-  text,
-  type ViewNodeOf,
-} from "../herdsman-blocks-view.ts";
+import { attr, child, cls, html, list, type ListNode, on, text, type ViewNodeOf } from "../herdsman-blocks-view.ts";
 import { type BoardBy, type Lane, lanes, type Member, roleName } from "../model.ts";
 import { type App, store } from "../store.ts";
 import { pill, type PillNode } from "../ui.ts";
@@ -150,24 +139,4 @@ export function teamBoard(members: Member[], app: App): TeamNode {
         ])
       : NoPanes([]),
   ]);
-}
-
-// TEMPORARY, until main.ts places teamBoard() in a child hole: the board as
-// one element that this module keeps and patches, so main.ts can still key
-// it and patch() it into the route body like a persistent component.
-const teamBox = document.createElement("div");
-const isHTML = (n: Node | null): n is HTMLElement => n !== null && n.nodeType === 1;
-
-let teamRoot: HTMLElement | null = null;
-
-export function teamView(members: Member[], app: App): HTMLElement {
-  // The root lives in the route body, out of teamBox, so its handlers must be
-  // direct (renderDirect): teamBox would never see the events to delegate.
-  renderDirect(teamBox, teamBoard(members, app));
-  if (teamRoot === null) {
-    const root = teamBox.firstChild;
-    if (!isHTML(root)) throw new Error("teamView: the board rendered no element");
-    teamRoot = root;
-  }
-  return teamRoot;
 }
