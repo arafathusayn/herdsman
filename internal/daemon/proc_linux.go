@@ -1,11 +1,14 @@
 package daemon
 
 import (
+	"bytes"
 	"errors"
 	"io/fs"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
+	"time"
 )
 
 // systemProcs lists the user's processes with their argument vectors and
@@ -61,4 +64,47 @@ func readProc(dir string, pid int) (p Proc, gone bool) {
 		p.Env = splitNUL(env)
 	}
 	return p, false
+}
+
+// procIdentity is a process's argument vector and start time: field 22
+// of /proc/<pid>/stat (clock ticks after boot) plus the boot time.
+func procIdentity(pid int) ([]string, time.Time, error) {
+	dir := "/proc/" + strconv.Itoa(pid)
+	p, gone := readProc(dir, pid)
+	if gone {
+		return nil, time.Time{}, syscall.ESRCH
+	}
+	if p.Unreadable {
+		return nil, time.Time{}, errors.New("unreadable arguments")
+	}
+	stat, err := os.ReadFile(dir + "/stat")
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	// The command name in parentheses may hold spaces: fields start after
+	// the last ')'.
+	i := bytes.LastIndexByte(stat, ')')
+	f := strings.Fields(string(stat[i+1:]))
+	if i < 0 || len(f) < 20 {
+		return nil, time.Time{}, errors.New("unreadable stat")
+	}
+	ticks, err := strconv.ParseInt(f[19], 10, 64)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	b, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	var boot int64
+	for _, l := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(l, "btime "); ok {
+			boot, _ = strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		}
+	}
+	if boot == 0 {
+		return nil, time.Time{}, errors.New("no boot time")
+	}
+	const hz = 100 // USER_HZ on every Linux the release builds for
+	return p.Args, time.Unix(boot+ticks/hz, (ticks%hz)*int64(time.Second/hz)), nil
 }

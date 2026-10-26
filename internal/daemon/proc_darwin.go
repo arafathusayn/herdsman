@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -88,4 +89,25 @@ func parseProcArgs(b []byte) (Proc, bool) {
 		p.Env = append(p.Env, e)
 	}
 	return p, true
+}
+
+// procIdentity is a process's argument vector and start time.
+func procIdentity(pid int) ([]string, time.Time, error) {
+	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	if int(kp.Proc.P_pid) != pid {
+		return nil, time.Time{}, syscall.ESRCH
+	}
+	raw, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	p, ok := parseProcArgs(raw)
+	if !ok {
+		return nil, time.Time{}, errors.New("unreadable arguments")
+	}
+	st := kp.Proc.P_starttime
+	return p.Args, time.Unix(int64(st.Sec), int64(st.Usec)*1000), nil
 }
