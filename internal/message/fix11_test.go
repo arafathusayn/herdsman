@@ -119,6 +119,7 @@ func TestR5UnclearChannelKeepsAllocation(t *testing.T) {
 	t.Run("linked-ids", func(t *testing.T) {
 		c := newCase(t, true)
 		retire(t, c) // seeded
+		e := openEnv(t, c, nil) // opened before ids/ turns into a link
 		c.write(c.in("state", "allocations", "m000000000042"), "")
 		past := c.now.Add(-2 * time.Hour)
 		os.Chtimes(c.in("state", "allocations", "m000000000042"), past, past)
@@ -128,7 +129,9 @@ func TestR5UnclearChannelKeepsAllocation(t *testing.T) {
 		if err := os.Symlink(c.base("ids-real"), c.in("ids")); err != nil {
 			t.Fatal(err)
 		}
-		retire(t, c)
+		if err := (&courier{Env: e}).retireAbandoned(); err != nil {
+			t.Fatal(err)
+		}
 		if !inbox.Exists(c.in("state", "allocations", "m000000000042")) {
 			t.Error("a linked ids/ dropped an aged mark")
 		}
