@@ -1,13 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { highlight } from "./fuzzy.ts";
+import { render } from "./herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import { icon, icons } from "./icons.ts";
 import { type Command, openPalette, paletteOpen } from "./palette.ts";
-import { dispatch, dump } from "./testdom.ts";
-import { h, unkeyed } from "./testref.ts";
+import { dispatch, dump, markup } from "./testdom.ts";
 
-const fake = (n: unknown): FakeElement => n as FakeElement;
 const g = globalThis as unknown as { document: Record<string, unknown> };
 const proto = FakeElement.prototype as unknown as Record<string, unknown>;
 const stubs: Record<string, (this: FakeElement, ...a: never[]) => unknown> = {
@@ -42,79 +40,11 @@ afterEach(() => {
 });
 
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
-
-const kindIcon = { command: icons.command, agent: icons.users, route: icons.list, file: icons.file };
-
-// The old h() palette, with its properties written as the attributes the
-// browser reflects them to (type, placeholder, spellcheck, hidden).
-const oldPalette = (
-  rows: { c: Command; hits: number[] }[],
-  active: number,
-  opts: { ask?: string; placeholder?: string; empty?: string } = {},
-): HTMLElement =>
-  h(
-    "dialog",
-    { class: "palette", "aria-label": "Command palette" },
-    h(
-      "div",
-      { class: "palette-input" },
-      icon(icons.search),
-      h("input", {
-        type: "text",
-        placeholder: opts.placeholder ?? "Search agents, routes and files, or type > for commands",
-        "aria-label": "Command palette",
-        autocomplete: "off",
-        spellcheck: "false",
-        role: "combobox",
-        "aria-expanded": "true",
-        "aria-controls": "palette-list",
-        "aria-activedescendant": rows.length ? `pal-${active}` : null,
-      }),
-    ),
-    opts.ask
-      ? h(
-          "div",
-          { class: "palette-ask on" },
-          icon(icons.arrow),
-          h("span", null, opts.ask),
-          h("small", null, "↵ send · esc back"),
-        )
-      : h("div", { class: "palette-ask" }),
-    h(
-      "div",
-      { id: "palette-list", class: "palette-list", role: "listbox", hidden: !!opts.ask },
-      rows.length
-        ? unkeyed(
-            rows.map(({ c, hits }, i) =>
-              h(
-                "div",
-                {
-                  id: `pal-${i}`,
-                  class: i === active ? "palette-row active" : "palette-row",
-                  role: "option",
-                  "aria-selected": String(i === active),
-                },
-                icon(c.icon ?? kindIcon[c.kind]),
-                h("span", { class: "palette-title" }, highlight(c.title, hits)),
-                c.detail ? h("span", { class: "palette-detail" }, c.detail) : null,
-                c.keys ? h("kbd", null, c.keys) : null,
-              ),
-            ),
-          )
-        : h("p", { class: "palette-empty" }, opts.empty ?? "Nothing here yet."),
-    ),
-    h(
-      "div",
-      { class: "palette-foot" },
-      h("span", null, h("kbd", null, "↑"), h("kbd", null, "↓"), " move"),
-      h("span", null, h("kbd", null, "↵"), " run"),
-      h("span", null, h("kbd", null, "esc"), " close"),
-      h("span", { class: "grow" }),
-      h("span", null, h("kbd", null, ">"), " commands"),
-      h("span", null, h("kbd", null, "@"), " agents"),
-      h("span", null, h("kbd", null, "#"), " files"),
-    ),
-  );
+const iconMarkup = (paths: readonly string[], label?: string): string => {
+  const box = document.createElement("div");
+  render(box, icon(paths, label));
+  return dump(box.firstChild as unknown as FakeNode);
+};
 
 test("palette: markup of the h() version, filtering and moving keep row nodes, asking and back", () => {
   const sent: string[] = [];
@@ -132,27 +62,53 @@ test("palette: markup of the h() version, filtering and moving keep row nodes, a
   openPalette(() => cmds);
   expect(paletteOpen()).toBe(true);
   const dlg = elements(body)[0]!;
-  const all = cmds.map((c) => ({ c, hits: [] }));
-  expect(dump(dlg)).toBe(dump(fake(oldPalette(all, 0))));
+  // The palette around its list: the input, pointing at the cursor's row if
+  // there is one, the ask line, and the key hints.
+  const palette = (cursor: string | null, list: string): string => markup`
+    <dialog aria-label="Command palette" class="palette">
+      <div class="palette-input">
+        ${iconMarkup(icons.search)}
+        <input${cursor ? ` aria-activedescendant="${cursor}"` : ""} aria-controls="palette-list" aria-expanded="true" aria-label="Command palette" autocomplete="off" placeholder="Search agents, routes and files, or type > for commands" role="combobox" spellcheck="false" type="text"></input>
+      </div>
+      <div class="palette-ask"></div>
+      <div class="palette-list" id="palette-list" role="listbox">${list}</div>
+      <div class="palette-foot">
+        <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
+        <span><kbd>↵</kbd> run</span>
+        <span><kbd>esc</kbd> close</span>
+        <span class="grow"></span>
+        <span><kbd>></kbd> commands</span>
+        <span><kbd>@</kbd> agents</span>
+        <span><kbd>#</kbd> files</span>
+      </div>
+    </dialog>
+  `;
+  // A row: pal-<i>, with the cursor or not, and what it shows.
+  const row = (i: number, cursor: boolean, shows: string): string =>
+    `<div aria-selected="${cursor}" class="palette-row${cursor ? " active" : ""}" id="pal-${i}" role="option">${shows}</div>`;
+  const agentOrch = `${iconMarkup(icons.users)}<span class="palette-title">Agent: orch</span><span class="palette-detail">w1:p1</span>`;
+  const toggle = `${iconMarkup(icons.command)}<span class="palette-title">Toggle the sidebar</span><kbd>⌘B</kbd>`;
+  const promptOrch = `${iconMarkup(icons.command)}<span class="palette-title">Prompt orch</span>`;
+  expect(dump(dlg)).toBe(palette("pal-0", row(0, true, agentOrch) + row(1, false, toggle) + row(2, false, promptOrch)));
   const input = elements(elements(dlg)[0]!)[1]!;
   const listbox = elements(dlg)[2]!;
   const [rowA, rowB, rowC] = elements(listbox);
 
   // Moving the selection patches the rows in place.
   dispatch(input, "keydown", { key: "ArrowDown" });
-  expect(dump(dlg)).toBe(dump(fake(oldPalette(all, 1))));
+  expect(dump(dlg)).toBe(palette("pal-1", row(0, false, agentOrch) + row(1, true, toggle) + row(2, false, promptOrch)));
   expect(elements(listbox)).toEqual([rowA!, rowB!, rowC!]);
   dispatch(rowC!, "mousemove");
-  expect(dump(dlg)).toBe(dump(fake(oldPalette(all, 2))));
+  expect(dump(dlg)).toBe(palette("pal-2", row(0, false, agentOrch) + row(1, false, toggle) + row(2, true, promptOrch)));
 
   // Filtering keeps the rows that stay; marked titles come from highlight().
   input["value"] = ">";
   dispatch(input, "input");
-  expect(dump(dlg)).toBe(dump(fake(oldPalette([all[1]!, all[2]!], 0))));
+  expect(dump(dlg)).toBe(palette("pal-0", row(0, true, toggle) + row(1, false, promptOrch)));
   expect(elements(listbox)).toEqual([rowB!, rowC!]);
   input["value"] = "zzz";
   dispatch(input, "input");
-  expect(dump(dlg)).toBe(dump(fake(oldPalette([], 0, { empty: "Nothing matches “zzz”." }))));
+  expect(dump(dlg)).toBe(palette(null, '<p class="palette-empty">Nothing matches “zzz”.</p>'));
 
   // A command that asks turns the box into an input; Esc goes back.
   input["value"] = "prompt";
@@ -164,9 +120,7 @@ test("palette: markup of the h() version, filtering and moving keep row nodes, a
   expect(listbox.hasAttribute("hidden")).toBe(true);
   expect(elements(listbox)).toEqual(rows); // kept, hidden
   dispatch(input, "keydown", { key: "Escape" });
-  expect(dump(dlg)).toBe(
-    dump(fake(oldPalette(all, 0, { placeholder: "Search agents, routes and files, or type > for commands" }))),
-  );
+  expect(dump(dlg)).toBe(palette("pal-0", row(0, true, agentOrch) + row(1, false, toggle) + row(2, false, promptOrch)));
 
   // Asking again and sending closes the palette.
   input["value"] = "prompt";

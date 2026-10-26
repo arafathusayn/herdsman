@@ -2,31 +2,33 @@ import { beforeEach, expect, test } from "bun:test";
 
 import { render, type ViewNode } from "../herdsman-blocks-view.ts";
 import { type FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
-import { icon, icons, logoMark } from "../icons.ts";
-import { ago, checklistCounts, Index, type Member, routeLabel, statusLabel, workspaceGroups } from "../model.ts";
+import { icon, icons } from "../icons.ts";
+import { ago, Index, type Member } from "../model.ts";
 import { isMac, paletteKeys, sidebarKeys } from "../palette.ts";
 import type { App } from "../store.ts";
-import { dispatch, dump } from "../testdom.ts";
-import { each, h, unkeyed } from "../testref.ts";
+import { dispatch, dump, markup } from "../testdom.ts";
 import type { Agent, Entry, Pane, Route, State, Workspace } from "../types.ts";
-import { pill, themeSwitch } from "../ui.ts";
 
 // The store reads the URL and listens for history changes when it loads.
 const g = globalThis as unknown as Record<string, unknown>;
 g["location"] ??= { search: "", pathname: "/" };
 g["window"] ??= { addEventListener: () => {} };
 const { activityView, checklistView, logView, routeShell, sessionView, tabRow } = await import("./route.ts");
-const { connectingView, fatalView, notFoundView, progress, SESSION, sidebar, topbar } = await import("./shell.ts");
+const { connectingView, fatalView, notFoundView, SESSION, sidebar, topbar } = await import("./shell.ts");
 
 beforeEach(installFakeDocument);
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
+const iconMarkup = (paths: readonly string[], label?: string): string => {
+  const box = document.createElement("div");
+  render(box, icon(paths, label));
+  return dump(box.firstChild as unknown as FakeNode);
+};
 const rendered = (v: ViewNode, box = document.createElement("div")): FakeElement => {
   render(box, v);
   return fake(box.firstChild);
 };
-const noop = (): void => {};
 
 // ---------------------------------------------------------------------------
 // Fixtures: two workspaces, one with two agents and a live route, one idle.
@@ -144,191 +146,41 @@ const app = (view: Partial<App["view"]> = {}, extra: Partial<App> = {}): App => 
   ...extra,
 });
 
-// ---------------------------------------------------------------------------
-// The old h() builders (main.ts before the migration), with properties
-// written as the attributes the browser reflects them to (tabIndex, type).
-// ---------------------------------------------------------------------------
-
-function oldTopbar(a: App, host: { name: string; url: string } | null, shown: boolean): HTMLElement {
-  const s = a.server;
-  const r = (s?.routes ?? []).find((x) => x.id === a.view.route) ?? null;
-  return h(
-    "header",
-    { class: "topbar" },
-    h(
-      "button",
-      {
-        class: "icon-btn nav-toggle",
-        title: `Toggle the sidebar (${sidebarKeys})`,
-        "aria-label": "Toggle the sidebar",
-        "aria-keyshortcuts": isMac ? "Meta+B" : "Control+B Control+Shift+B",
-        "aria-expanded": String(shown),
-      },
-      icon(shown ? icons.sidebarOpen : icons.sidebar),
-    ),
-    h("a", { class: "brand", href: "/", title: "All routes" }, logoMark(), h("span", null, "herdsman")),
-    h("span", { class: "crumb" }, r ? routeLabel(r, s?.routes ?? []) : a.view.route === SESSION ? "All agents" : ""),
-    h("span", { class: "grow" }),
-    h(
-      "button",
-      { class: "palette-trigger", title: `Command palette (${paletteKeys})` },
-      icon(icons.search),
-      h("span", { class: "label" }, "Search or run a command"),
-      h("kbd", null, paletteKeys),
-    ),
-    host
-      ? h(
-          "button",
-          {
-            class: "host-switch",
-            type: "button",
-            "data-tip": `Host: ${host.url}. Switch or add hosts`,
-            "aria-label": `Host ${host.name}: switch or add hosts`,
-          },
-          icon(icons.server),
-          h("span", { class: "label" }, host.name),
-        )
-      : null,
-    s?.error ? h("span", { class: "conn", title: s.error }, "herdr unreachable") : null,
-    a.connected || !a.server
-      ? null
-      : h(
-          "span",
-          { class: "conn", title: "Reconnecting" },
-          h("span", { class: "dot", "aria-hidden": "true" }),
-          "Reconnecting…",
-        ),
-  );
-}
-
-function oldNavFoot(a: App): HTMLElement {
-  return h(
-    "div",
-    { class: "nav-foot" },
-    themeSwitch(a.theme, noop),
-    h(
-      "button",
-      { class: "icon-btn", title: "Appearance: terminal colors and code highlighting", "aria-label": "Appearance" },
-      icon(icons.swatch),
-    ),
-  );
-}
-
-function oldSidebar(a: App): HTMLElement {
-  if (!a.server || a.fatal)
-    return h("nav", { class: "sidebar", "aria-label": "Routes" }, h("div", { class: "nav-scroll" }), oldNavFoot(a));
-  const all = a.server.routes ?? [];
-  const rest = all.filter((r) => !r.live);
-  const { groups, unplaced } = workspaceGroups(a.server);
-  const item = (r: Route, nested = false) =>
-    h(
-      "a",
-      {
-        href: `?r=${encodeURIComponent(r.id)}`,
-        class: ["nav-item", nested ? "nested" : "", a.view.route === r.id ? "active" : ""].filter(Boolean).join(" "),
-        title: [
-          r.title || r.name,
-          r.live ? "running" : "not running",
-          progress(r) && `${progress(r)} checklist lines done`,
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        "aria-current": a.view.route === r.id ? "page" : undefined,
-      },
-      h("span", { class: r.live ? "live-dot on" : "live-dot", "aria-hidden": "true" }),
-      h("span", { class: "nav-text" }, routeLabel(r, all)),
-      h("span", { class: "nav-meta" }, progress(r)),
-    );
-  const onSession = a.view.route === SESSION;
-  return h(
-    "nav",
-    { class: "sidebar", "aria-label": "Routes" },
-    h(
-      "div",
-      { class: "nav-scroll" },
-      h(
-        "a",
-        {
-          href: `?r=${SESSION}`,
-          class: onSession && !a.view.ws ? "nav-item active" : "nav-item",
-          title: "Every agent and pane in this herdr session",
-        },
-        icon(icons.users),
-        h("span", { class: "nav-text" }, "All agents"),
-        h("span", { class: "nav-meta" }, String(a.server.snapshot.agents?.length ?? 0)),
-      ),
-      h(
-        "div",
-        { class: "nav-head nav-head-row" },
-        h("h3", null, "Workspaces"),
-        h(
-          "button",
-          { class: "nav-new", title: "New route: start an orchestrator or an adjutant in a new herdr tab" },
-          icon(icons.plus),
-          h("span", null, "New route"),
-        ),
-      ),
-      groups.length
-        ? each(
-            groups,
-            (gr) => gr.workspace.workspace_id,
-            ({ workspace: w, agents: n, routes: rs }) => {
-              const name = w.label || `Workspace ${w.number}`;
-              const active = onSession && a.view.ws === w.workspace_id;
-              return h(
-                "div",
-                { class: "nav-group" },
-                h(
-                  "a",
-                  {
-                    href: `?r=${SESSION}&ws=${encodeURIComponent(w.workspace_id)}`,
-                    class: active ? "nav-item active" : "nav-item",
-                    title: [
-                      `${name}: ${n} ${n === 1 ? "agent" : "agents"}`,
-                      rs.length ? `${rs.length} live ${rs.length === 1 ? "route" : "routes"}` : "",
-                      statusLabel[w.agent_status],
-                    ]
-                      .filter(Boolean)
-                      .join(" · "),
-                    "aria-current": active ? "page" : undefined,
-                  },
-                  h("span", { class: `ws-dot s-${w.agent_status}`, "aria-hidden": "true" }),
-                  h("span", { class: "nav-text" }, name),
-                  h("span", { class: "nav-meta" }, String(n)),
-                ),
-                each(
-                  rs,
-                  (r) => r.id,
-                  (r) => item(r, true),
-                ),
-              );
-            },
-          )
-        : h("p", { class: "nav-empty" }, "No workspace runs an agent."),
-      unplaced.length
-        ? [
-            h("h3", { class: "nav-head" }, "Other live routes"),
-            each(
-              unplaced,
-              (r) => r.id,
-              (r) => item(r),
-            ),
-          ]
-        : null,
-      rest.length
-        ? [
-            h("h3", { class: "nav-head" }, "Recent routes"),
-            each(
-              rest,
-              (r) => r.id,
-              (r) => item(r),
-            ),
-          ]
-        : null,
-    ),
-    oldNavFoot(a),
-  );
-}
+// The sidebar's shortcut as the topbar's toggle names it; the keys differ on a Mac.
+const toggleKeys = isMac ? "Meta+B" : "Control+B Control+Shift+B";
+// The brand's logo, and the sidebar's foot: the theme switch (system) and
+// the appearance button.
+const logo = markup`
+  <svg:svg aria-hidden="true" class="logo" viewBox="0 0 32 32">
+    <svg:rect fill="#1d4d38" height="32" rx="8" width="32"></svg:rect>
+    <svg:g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="#e9f6ef">
+      <svg:path d="M10 6.5V26"></svg:path>
+      <svg:path d="M10 17.5a5.5 5.5 0 0 1 11 0v5.5a3 3 0 0 0 3 3"></svg:path>
+    </svg:g>
+    <svg:circle cx="15.5" cy="24" fill="#5cc093" r="2"></svg:circle>
+  </svg:svg>
+`;
+const navFoot = (): string => markup`
+  <div class="nav-foot">
+    <div aria-label="Theme" class="theme-switch" role="radiogroup">
+      <button aria-checked="true" class="active" role="radio" title="System theme" type="button">
+        ${iconMarkup(icons.monitor)}
+        <span>System</span>
+      </button>
+      <button aria-checked="false" role="radio" title="Light theme" type="button">
+        ${iconMarkup(icons.sun)}
+        <span>Light</span>
+      </button>
+      <button aria-checked="false" role="radio" title="Dark theme" type="button">
+        ${iconMarkup(icons.moon)}
+        <span>Dark</span>
+      </button>
+    </div>
+    <button aria-label="Appearance" class="icon-btn" title="Appearance: terminal colors and code highlighting">
+      ${iconMarkup(icons.swatch)}
+    </button>
+  </div>
+`;
 
 // ---------------------------------------------------------------------------
 // Frame
@@ -346,16 +198,76 @@ test("topbar: the markup of the h() version in each state, patched in place, and
   const log: string[] = [];
   const box = document.createElement("div");
   const bar = rendered(topbar(app(), host, true, topActs(log)), box);
-  expect(dump(bar)).toBe(dump(fake(oldTopbar(app(), host, true))));
+  expect(dump(bar)).toBe(markup`
+    <header class="topbar">
+      <button aria-expanded="true" aria-keyshortcuts="${toggleKeys}" aria-label="Toggle the sidebar" class="icon-btn nav-toggle" title="Toggle the sidebar (${sidebarKeys})">
+        ${iconMarkup(icons.sidebarOpen)}
+      </button>
+      <a class="brand" href="/" title="All routes">
+        ${logo}
+        <span>herdsman</span>
+      </a>
+      <span class="crumb">auth</span>
+      <span class="grow"></span>
+      <button class="palette-trigger" title="Command palette (${paletteKeys})">
+        ${iconMarkup(icons.search)}
+        <span class="label">Search or run a command</span>
+        <kbd>${paletteKeys}</kbd>
+      </button>
+      <button aria-label="Host mac: switch or add hosts" class="host-switch" data-tip="Host: http://mac:8080. Switch or add hosts" type="button">
+        ${iconMarkup(icons.server)}
+        <span class="label">mac</span>
+      </button>
+    </header>
+  `);
   const [toggle, brand] = elements(bar);
 
   const down = app({ route: SESSION }, { connected: false, server: { ...state, error: "no herdr" } });
   rendered(topbar(down, null, false, topActs(log)), box);
-  expect(dump(bar)).toBe(dump(fake(oldTopbar(down, null, false))));
+  expect(dump(bar)).toBe(markup`
+    <header class="topbar">
+      <button aria-expanded="false" aria-keyshortcuts="${toggleKeys}" aria-label="Toggle the sidebar" class="icon-btn nav-toggle" title="Toggle the sidebar (${sidebarKeys})">
+        ${iconMarkup(icons.sidebar)}
+      </button>
+      <a class="brand" href="/" title="All routes">
+        ${logo}
+        <span>herdsman</span>
+      </a>
+      <span class="crumb">All agents</span>
+      <span class="grow"></span>
+      <button class="palette-trigger" title="Command palette (${paletteKeys})">
+        ${iconMarkup(icons.search)}
+        <span class="label">Search or run a command</span>
+        <kbd>${paletteKeys}</kbd>
+      </button>
+      <span class="conn" title="no herdr">herdr unreachable</span>
+      <span class="conn" title="Reconnecting">
+        <span aria-hidden="true" class="dot"></span>
+        Reconnecting…
+      </span>
+    </header>
+  `);
   expect(elements(bar)[0]).toBe(toggle!);
 
   rendered(topbar(app({}, { server: null }), null, false, topActs(log)), box);
-  expect(dump(bar)).toBe(dump(fake(oldTopbar(app({}, { server: null }), null, false))));
+  expect(dump(bar)).toBe(markup`
+    <header class="topbar">
+      <button aria-expanded="false" aria-keyshortcuts="${toggleKeys}" aria-label="Toggle the sidebar" class="icon-btn nav-toggle" title="Toggle the sidebar (${sidebarKeys})">
+        ${iconMarkup(icons.sidebar)}
+      </button>
+      <a class="brand" href="/" title="All routes">
+        ${logo}
+        <span>herdsman</span>
+      </a>
+      <span class="crumb"></span>
+      <span class="grow"></span>
+      <button class="palette-trigger" title="Command palette (${paletteKeys})">
+        ${iconMarkup(icons.search)}
+        <span class="label">Search or run a command</span>
+        <kbd>${paletteKeys}</kbd>
+      </button>
+    </header>
+  `);
 
   dispatch(toggle!, "click");
   const e = dispatch(brand!, "click");
@@ -374,15 +286,104 @@ test("sidebar: the markup of the h() version, links keep their nodes, and they c
   const log: string[] = [];
   const box = document.createElement("div");
   for (const a of [app({}, { server: null }), app({}, { fatal: "gone" })]) {
-    expect(dump(rendered(sidebar(a, navActs(log)), document.createElement("div")))).toBe(dump(fake(oldSidebar(a))));
+    expect(dump(rendered(sidebar(a, navActs(log)), document.createElement("div")))).toBe(markup`
+      <nav aria-label="Routes" class="sidebar">
+        <div class="nav-scroll"></div>
+        ${navFoot()}
+      </nav>
+    `);
   }
   const nav = rendered(sidebar(app(), navActs(log)), box);
-  expect(dump(nav)).toBe(dump(fake(oldSidebar(app()))));
+  expect(dump(nav)).toBe(markup`
+    <nav aria-label="Routes" class="sidebar">
+      <div class="nav-scroll">
+        <a class="nav-item" href="?r=*" title="Every agent and pane in this herdr session">
+          ${iconMarkup(icons.users)}
+          <span class="nav-text">All agents</span>
+          <span class="nav-meta">2</span>
+        </a>
+        <div class="nav-head nav-head-row">
+          <h3>Workspaces</h3>
+          <button class="nav-new" title="New route: start an orchestrator or an adjutant in a new herdr tab">
+            ${iconMarkup(icons.plus)}
+            <span>New route</span>
+          </button>
+        </div>
+        <div class="nav-group">
+          <a class="nav-item" href="?r=*&ws=w1" title="main: 2 agents · 1 live route · Working">
+            <span aria-hidden="true" class="ws-dot s-working"></span>
+            <span class="nav-text">main</span>
+            <span class="nav-meta">2</span>
+          </a>
+          <a aria-current="page" class="nav-item nested active" href="?r=auth" title="Auth work · running · 2/3 checklist lines done">
+            <span aria-hidden="true" class="live-dot on"></span>
+            <span class="nav-text">auth</span>
+            <span class="nav-meta">2/3</span>
+          </a>
+        </div>
+        <h3 class="nav-head">Other live routes</h3>
+        <a class="nav-item" href="?r=ghost" title="ghost · running">
+          <span aria-hidden="true" class="live-dot on"></span>
+          <span class="nav-text">ghost</span>
+          <span class="nav-meta"></span>
+        </a>
+        <h3 class="nav-head">Recent routes</h3>
+        <a class="nav-item" href="?r=old" title="old · not running">
+          <span aria-hidden="true" class="live-dot"></span>
+          <span class="nav-text">old</span>
+          <span class="nav-meta"></span>
+        </a>
+      </div>
+      ${navFoot()}
+    </nav>
+  `);
   const scroll = elements(nav)[0]!;
   const links = elements(scroll);
   const onSession = app({ route: SESSION, ws: "w1" });
   rendered(sidebar(onSession, navActs(log)), box);
-  expect(dump(nav)).toBe(dump(fake(oldSidebar(onSession))));
+  expect(dump(nav)).toBe(markup`
+    <nav aria-label="Routes" class="sidebar">
+      <div class="nav-scroll">
+        <a class="nav-item" href="?r=*" title="Every agent and pane in this herdr session">
+          ${iconMarkup(icons.users)}
+          <span class="nav-text">All agents</span>
+          <span class="nav-meta">2</span>
+        </a>
+        <div class="nav-head nav-head-row">
+          <h3>Workspaces</h3>
+          <button class="nav-new" title="New route: start an orchestrator or an adjutant in a new herdr tab">
+            ${iconMarkup(icons.plus)}
+            <span>New route</span>
+          </button>
+        </div>
+        <div class="nav-group">
+          <a aria-current="page" class="nav-item active" href="?r=*&ws=w1" title="main: 2 agents · 1 live route · Working">
+            <span aria-hidden="true" class="ws-dot s-working"></span>
+            <span class="nav-text">main</span>
+            <span class="nav-meta">2</span>
+          </a>
+          <a class="nav-item nested" href="?r=auth" title="Auth work · running · 2/3 checklist lines done">
+            <span aria-hidden="true" class="live-dot on"></span>
+            <span class="nav-text">auth</span>
+            <span class="nav-meta">2/3</span>
+          </a>
+        </div>
+        <h3 class="nav-head">Other live routes</h3>
+        <a class="nav-item" href="?r=ghost" title="ghost · running">
+          <span aria-hidden="true" class="live-dot on"></span>
+          <span class="nav-text">ghost</span>
+          <span class="nav-meta"></span>
+        </a>
+        <h3 class="nav-head">Recent routes</h3>
+        <a class="nav-item" href="?r=old" title="old · not running">
+          <span aria-hidden="true" class="live-dot"></span>
+          <span class="nav-text">old</span>
+          <span class="nav-meta"></span>
+        </a>
+      </div>
+      ${navFoot()}
+    </nav>
+  `);
   expect(elements(nav)[0]).toBe(scroll);
   expect(elements(scroll)).toEqual(links);
 
@@ -404,143 +405,27 @@ test("the main column's empty states are the h() versions", () => {
   const log: string[] = [];
   const fatal = rendered(fatalView("Session expired.", () => log.push("hosts")));
   expect(dump(fatal)).toBe(
-    dump(
-      fake(
-        h(
-          "div",
-          { class: "empty fatal" },
-          h("h2", null, "Not connected"),
-          h("p", null, "Session expired."),
-          h("button", { class: "btn", type: "button" }, icon(icons.server), "Hosts"),
-        ),
-      ),
-    ),
+    markup`
+      <div class="empty fatal">
+        <h2>Not connected</h2>
+        <p>Session expired.</p>
+        <button class="btn" type="button">${iconMarkup(icons.server)}Hosts</button>
+      </div>
+    `,
   );
   dispatch(elements(fatal)[2]!, "click");
   expect(log).toEqual(["hosts"]);
   expect(dump(rendered(connectingView("mac")))).toBe(
-    dump(
-      fake(
-        h(
-          "div",
-          { class: "empty" },
-          h("div", { class: "spinner", "aria-hidden": "true" }),
-          h("p", null, "Connecting to mac…"),
-        ),
-      ),
-    ),
+    '<div class="empty"><div aria-hidden="true" class="spinner"></div><p>Connecting to mac…</p></div>',
   );
   expect(dump(rendered(notFoundView("x")))).toBe(
-    dump(
-      fake(
-        h(
-          "div",
-          { class: "empty" },
-          h("h2", null, "Route not found"),
-          h("p", null, "No route named x under the panes' folders."),
-        ),
-      ),
-    ),
+    '<div class="empty"><h2>Route not found</h2><p>No route named x under the panes\' folders.</p></div>',
   );
 });
 
 // ---------------------------------------------------------------------------
 // Route
 // ---------------------------------------------------------------------------
-
-function oldHead(r: Route): HTMLElement[] {
-  const c = checklistCounts(r.checklist ?? []);
-  const done = c.done + c.skipped;
-  const parts = r.dir.split("/").filter(Boolean);
-  const at = parts.lastIndexOf(".herdsman");
-  const project = at > 0 ? parts[at - 1] : parts.at(-2);
-  return [
-    h(
-      "div",
-      null,
-      h("h1", null, r.title || r.name),
-      h(
-        "p",
-        { class: "sub" },
-        h("span", { class: r.live ? "badge live" : "badge" }, r.live ? "Live" : "Not running"),
-        h(
-          "span",
-          { class: "location", title: r.dir },
-          icon(icons.folder),
-          h("span", { class: "location-name" }, project ?? r.dir),
-          h("span", { class: "location-tail" }, at > 0 ? "/.herdsman" : ""),
-          h(
-            "button",
-            { class: "chip-btn", title: "Copy the route folder path", "aria-label": "Copy the route folder path" },
-            icon(icons.copy),
-          ),
-        ),
-        h(
-          "span",
-          { class: "meta-item", title: new Date(r.modified).toLocaleString() },
-          icon(icons.clock),
-          ago(r.modified),
-        ),
-      ),
-    ),
-    ...(c.total
-      ? [
-          h(
-            "div",
-            {
-              class: "progress",
-              title: [
-                `${c.done} of ${c.total} checklist lines done`,
-                c.skipped ? `${c.skipped} not applicable` : "",
-                c.open ? `${c.open} open` : "",
-              ]
-                .filter(Boolean)
-                .join(", "),
-            },
-            h("div", { class: "bar" }, h("span", { style: `width:${Math.round((done / c.total) * 100)}%` })),
-            h("small", null, `${done}/${c.total}`),
-          ),
-        ]
-      : []),
-  ];
-}
-
-const tabList: [string, string, string[], string][] = [
-  ["team", "Team", icons.users, "The agents of this route and what each is doing"],
-  ["checklist", "Checklist", icons.check, "The route's checklist lines"],
-  ["log", "Run state", icons.list, "The orchestrator's run log, newest first"],
-  ["docs", "Docs", icons.file, "Contracts, reports and notes in the route folder"],
-  ["changes", "Changes", icons.diff, "The code each task changed against its base branch"],
-  ["artifacts", "Artifacts", icons.artifact, "HTML pages in the route's workspace folders: reports, reviews, plans"],
-  ["messages", "Messages", icons.message, "Herdsman messages between the adjutant and the orchestrator"],
-  ["activity", "Activity", icons.activity, "Agent and web events since this page opened"],
-];
-
-function oldTabs(a: App, withMessages: boolean, pending: number): HTMLElement {
-  return h(
-    "div",
-    { class: "tabs", role: "tablist" },
-    each(
-      tabList.filter(([id]) => id !== "messages" || withMessages || a.view.tab === "messages"),
-      ([id]) => id,
-      ([id, label, glyph, tip]) =>
-        h(
-          "button",
-          {
-            role: "tab",
-            class: a.view.tab === id ? "tab active" : "tab",
-            title: tip,
-            "aria-selected": String(a.view.tab === id),
-          },
-          icon(glyph),
-          label,
-          id === "messages" && pending
-            ? h("span", { class: "tab-count", "aria-label": `${pending} unread` }, String(pending))
-            : null,
-        ),
-    ),
-  );
-}
 
 test("route shell: head, tabs and body as the h() version, and the body changes in place", () => {
   const r = routes[0]!;
@@ -550,81 +435,158 @@ test("route shell: head, tabs and body as the h() version, and the body changes 
     tabRow(r, app(), 0, (t) => picked.push(t)),
     tabsBox,
   );
-  expect(dump(tabs)).toBe(dump(fake(oldTabs(app(), false, 0))));
+  expect(dump(tabs)).toBe(markup`
+    <div class="tabs" role="tablist">
+      <button aria-selected="true" class="tab active" role="tab" title="The agents of this route and what each is doing">
+        ${iconMarkup(icons.users)}
+        Team
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="The route's checklist lines">
+        ${iconMarkup(icons.check)}
+        Checklist
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="The orchestrator's run log, newest first">
+        ${iconMarkup(icons.list)}
+        Run state
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="Contracts, reports and notes in the route folder">
+        ${iconMarkup(icons.file)}
+        Docs
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="The code each task changed against its base branch">
+        ${iconMarkup(icons.diff)}
+        Changes
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="HTML pages in the route's workspace folders: reports, reviews, plans">
+        ${iconMarkup(icons.artifact)}
+        Artifacts
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="Agent and web events since this page opened">
+        ${iconMarkup(icons.activity)}
+        Activity
+      </button>
+    </div>
+  `);
   const withMsgs = app({ tab: "messages" });
   rendered(
     tabRow(r, withMsgs, 3, (t) => picked.push(t)),
     tabsBox,
   );
-  expect(dump(tabs)).toBe(dump(fake(oldTabs(withMsgs, false, 3))));
+  // The tab row with Messages picked and 3 unread, in the shells below too.
+  const messagesTabs = markup`
+    <div class="tabs" role="tablist">
+      <button aria-selected="false" class="tab" role="tab" title="The agents of this route and what each is doing">
+        ${iconMarkup(icons.users)}
+        Team
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="The route's checklist lines">
+        ${iconMarkup(icons.check)}
+        Checklist
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="The orchestrator's run log, newest first">
+        ${iconMarkup(icons.list)}
+        Run state
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="Contracts, reports and notes in the route folder">
+        ${iconMarkup(icons.file)}
+        Docs
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="The code each task changed against its base branch">
+        ${iconMarkup(icons.diff)}
+        Changes
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="HTML pages in the route's workspace folders: reports, reviews, plans">
+        ${iconMarkup(icons.artifact)}
+        Artifacts
+      </button>
+      <button aria-selected="true" class="tab active" role="tab" title="Herdsman messages between the adjutant and the orchestrator">
+        ${iconMarkup(icons.message)}
+        Messages
+        <span aria-label="3 unread" class="tab-count">3</span>
+      </button>
+      <button aria-selected="false" class="tab" role="tab" title="Agent and web events since this page opened">
+        ${iconMarkup(icons.activity)}
+        Activity
+      </button>
+    </div>
+  `;
+  expect(dump(tabs)).toBe(messagesTabs);
   dispatch(elements(tabs)[1]!, "click");
   expect(picked).toEqual(["checklist"]);
 
   const tabsEl = tabs as unknown as HTMLDivElement;
   const box = document.createElement("div");
+  // The route's head: title, live badge, folder, age and checklist progress.
+  const routeHead = markup`
+    <div class="route-head">
+      <div>
+        <h1>Auth work</h1>
+        <p class="sub">
+          <span class="badge live">Live</span>
+          <span class="location" title="/code/proj/.herdsman/auth">
+            ${iconMarkup(icons.folder)}
+            <span class="location-name">proj</span>
+            <span class="location-tail">/.herdsman</span>
+            <button aria-label="Copy the route folder path" class="chip-btn" title="Copy the route folder path">
+              ${iconMarkup(icons.copy)}
+            </button>
+          </span>
+          <span class="meta-item" title="${new Date(r.modified).toLocaleString()}">
+            ${iconMarkup(icons.clock)}
+            ${ago(r.modified)}
+          </span>
+        </p>
+      </div>
+      <div class="progress" title="1 of 3 checklist lines done, 1 not applicable, 1 open">
+        <div class="bar"><span style="width:67%"></span></div>
+        <small>2/3</small>
+      </div>
+    </div>
+  `;
   const shell = rendered(routeShell(r, tabsEl, checklistView(r)), box);
-  const old = (body: HTMLElement): HTMLElement =>
-    h(
-      "div",
-      { class: "route-shell" },
-      h("div", { class: "route-head" }, ...oldHead(r)),
-      oldTabs(withMsgs, false, 3),
-      h("div", { class: "tab-body" }, body),
-    );
-  const oldChecklist = h(
-    "ul",
-    { class: "checklist" },
-    unkeyed([
-      h(
-        "li",
-        { class: "done" },
-        h("span", { class: "box", "aria-label": "Done" }, icon(icons.check)),
-        h("code", null, "A1"),
-        h("span", null, "login"),
-      ),
-      h(
-        "li",
-        { class: "skipped", title: "Stopped applying; the reason follows the line" },
-        h("span", { class: "box", "aria-label": "Not applicable" }, "–"),
-        h("span", null, "sso"),
-      ),
-      // An open line: the old h() wrote class="", which a class hole leaves out.
-      h(
-        "li",
-        null,
-        h("span", { class: "box", "aria-label": "Open" }),
-        h("code", null, "A3"),
-        h("span", null, "logout"),
-      ),
-    ]),
-  );
-  expect(dump(shell)).toBe(dump(fake(old(oldChecklist))));
+  expect(dump(shell)).toBe(markup`
+    <div class="route-shell">
+      ${routeHead}
+      ${messagesTabs}
+      <div class="tab-body">
+        <ul class="checklist">
+          <li class="done">
+            <span aria-label="Done" class="box">${iconMarkup(icons.check)}</span>
+            <code>A1</code>
+            <span>login</span>
+          </li>
+          <li class="skipped" title="Stopped applying; the reason follows the line">
+            <span aria-label="Not applicable" class="box">–</span>
+            <span>sso</span>
+          </li>
+          <li><span aria-label="Open" class="box"></span><code>A3</code><span>logout</span></li>
+        </ul>
+      </div>
+    </div>
+  `);
   const head = elements(shell)[0]!;
 
   rendered(routeShell(r, tabsEl, logView(r)), box);
   expect(elements(shell)[0]).toBe(head); // patched: the head and the tab row stay
   expect(elements(shell)[1]).toBe(fake(tabsEl));
   expect(dump(shell)).toBe(
-    dump(
-      fake(
-        old(
-          h(
-            "ol",
-            { class: "timeline" },
-            // A line not from the web: class="" before, no class now.
-            h("li", { class: "web" }, h("time", null, "10:05"), h("p", null, "web: prompted")),
-            h("li", null, h("time", null, "10:00"), h("p", null, "started")),
-          ),
-        ),
-      ),
-    ),
+    markup`
+      <div class="route-shell">
+        ${routeHead}
+        ${messagesTabs}
+        <div class="tab-body">
+          <ol class="timeline">
+            <li class="web"><time>10:05</time><p>web: prompted</p></li>
+            <li><time>10:00</time><p>started</p></li>
+          </ol>
+        </div>
+      </div>
+    `,
   );
 
   const empty = route("bare", false);
-  expect(dump(rendered(checklistView(empty)))).toBe(
-    dump(fake(h("p", { class: "muted pad" }, "This route has no checklist."))),
-  );
-  expect(dump(rendered(logView(empty)))).toBe(dump(fake(h("p", { class: "muted pad" }, "No run-state lines yet."))));
+  expect(dump(rendered(checklistView(empty)))).toBe('<p class="muted pad">This route has no checklist.</p>');
+  expect(dump(rendered(logView(empty)))).toBe('<p class="muted pad">No run-state lines yet.</p>');
 });
 
 test("activity: the h() version's events, newest first", () => {
@@ -642,33 +604,31 @@ test("activity: the h() version's events, newest first", () => {
     second: "2-digit",
     hourCycle: "h23",
   });
-  const time = (at: string) =>
-    h("time", { datetime: at, title: new Date(at).toLocaleString() }, clock.format(new Date(at)));
-  const old = h(
-    "ol",
-    { class: "timeline activity" },
-    h(
-      "li",
-      { class: "web" },
-      time(entries[2]!.at),
-      h("p", { class: "event" }, h("span", { class: "chip accent" }, "web"), h("span", null, "go")),
-    ),
-    h(
-      "li",
-      { class: "herdr" },
-      time(entries[1]!.at),
-      h("p", { class: "event" }, h("span", { class: "chip" }, "pane deleted"), h("strong", null, "orch")),
-    ),
-    h(
-      "li",
-      { class: "herdr" },
-      time(entries[0]!.at),
-      h("p", { class: "event" }, h("strong", null, "orch"), pill("idle")),
-    ),
-  );
-  expect(dump(rendered(activityView(app({}, { entries }), members)))).toBe(dump(fake(old)));
+  // An entry's time: the clock, and the date and time in its title, in the
+  // test's time zone.
+  const time = (at: string): string =>
+    `<time datetime="${at}" title="${new Date(at).toLocaleString()}">${clock.format(new Date(at))}</time>`;
+  expect(dump(rendered(activityView(app({}, { entries }), members)))).toBe(markup`
+    <ol class="timeline activity">
+      <li class="web">
+        ${time(entries[2]!.at)}
+        <p class="event"><span class="chip accent">web</span><span>go</span></p>
+      </li>
+      <li class="herdr">
+        ${time(entries[1]!.at)}
+        <p class="event"><span class="chip">pane deleted</span><strong>orch</strong></p>
+      </li>
+      <li class="herdr">
+        ${time(entries[0]!.at)}
+        <p class="event">
+          <strong>orch</strong>
+          <span class="pill s-idle"><span aria-hidden="true" class="dot"></span>Idle</span>
+        </p>
+      </li>
+    </ol>
+  `);
   expect(dump(rendered(activityView(app(), members)))).toBe(
-    dump(fake(h("p", { class: "muted pad" }, "Nothing has happened since this page opened."))),
+    '<p class="muted pad">Nothing has happened since this page opened.</p>',
   );
 });
 
@@ -683,53 +643,37 @@ test("session view: groups by tab, idle workspaces, rows open their pane", () =>
   );
   const [head, board] = elements(view);
   expect(dump(head!)).toBe(
-    dump(
-      fake(
-        h(
-          "div",
-          { class: "route-head" },
-          h("div", null, h("h1", null, "All agents"), h("p", { class: "sub" }, "2 agents in 2 tabs · herdr 0.9")),
-        ),
-      ),
-    ),
+    markup`
+      <div class="route-head">
+        <div><h1>All agents</h1><p class="sub">2 agents in 2 tabs · herdr 0.9</p></div>
+      </div>
+    `,
   );
   const [group, idle] = elements(board!);
   const [h2, cards] = elements(group!);
-  expect(dump(h2!)).toBe(dump(fake(h("h2", null, "main › work", h("span", { class: "count" }, "2")))));
+  expect(dump(h2!)).toBe('<h2>main › work<span class="count">2</span></h2>');
   expect(fake(cards).className).toBe("cards");
   expect(elements(cards!).map((c) => c.getAttribute("data-pane"))).toEqual(["p1", "p2"]);
   expect(dump(idle!)).toBe(
-    dump(
-      fake(
-        h(
-          "details",
-          { class: "group shells" },
-          h("summary", null, "Workspaces without an agent (1)"),
-          h(
-            "div",
-            { class: "shell-list" },
-            h(
-              "details",
-              { class: "workspace-row" },
-              h(
-                "summary",
-                { title: "w2: 1 tabs, 1 panes, no agent" },
-                h("code", null, "w2"),
-                h("span", null, ""),
-                h("span", { class: "muted" }, "1 tab · 1 pane"),
-              ),
-              h(
-                "button",
-                { class: "shell-row", title: "Open pane p3 in /tmp" },
-                h("code", null, "p3"),
-                h("span", null, "shell"),
-                h("span", { class: "muted clip" }, "/tmp"),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
+    markup`
+      <details class="group shells">
+        <summary>Workspaces without an agent (1)</summary>
+        <div class="shell-list">
+          <details class="workspace-row">
+            <summary title="w2: 1 tabs, 1 panes, no agent">
+              <code>w2</code>
+              <span></span>
+              <span class="muted">1 tab · 1 pane</span>
+            </summary>
+            <button class="shell-row" title="Open pane p3 in /tmp">
+              <code>p3</code>
+              <span>shell</span>
+              <span class="muted clip">/tmp</span>
+            </button>
+          </details>
+        </div>
+      </details>
+    `,
   );
   idle!.setAttribute("open", ""); // the person opened it
   rendered(

@@ -2,11 +2,9 @@ import { beforeEach, expect, test } from "bun:test";
 
 import { render, type ViewNode } from "../herdsman-blocks-view.ts";
 import { type FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
-import { type BoardBy, lanes, type Member, type Role, roleName } from "../model.ts";
+import type { BoardBy, Member, Role } from "../model.ts";
 import type { App } from "../store.ts";
-import { dispatch } from "../testdom.ts";
-import { each, h, unkeyed } from "../testref.ts";
-import { pill } from "../ui.ts";
+import { dispatch, markup } from "../testdom.ts";
 
 // The store reads the URL and listens for history changes when it loads,
 // writes the URL on go() and batches renders in animation frames.
@@ -57,92 +55,43 @@ const dump = (n: FakeNode): string => {
   return `<${e.tagName.toLowerCase()} ${attrs}>${e.childNodes.map(dump).join("")}</${e.tagName.toLowerCase()}>`;
 };
 
-// The h() versions the views replace, for the comparison.
-function oldCard(m: Member, app: App, role = false): HTMLElement {
-  const sub = [role ? roleName[m.role] : "", m.agent?.display_agent ?? m.agent?.agent, m.task?.branch]
-    .filter(Boolean)
-    .join(" · ");
-  const title = m.agent?.terminal_title_stripped ?? m.pane?.terminal_title_stripped ?? "";
-  return h(
-    "button",
-    {
-      class: `card r-${m.role} s-${m.status}${app.view.pane === m.pane_id ? " selected" : ""}`,
-      title: `Open ${m.title} (${m.pane_id}): its output, keys and actions`,
-      dataset: { pane: m.pane_id },
-    },
-    h("div", { class: "card-top" }, h("span", { class: "card-title", title: m.title }, m.title), pill(m.status)),
-    m.task?.task && m.task.task !== m.title ? h("div", { class: "card-task" }, m.task.task) : null,
-    sub ? h("div", { class: "card-sub", title: sub }, sub) : null,
-    h(
-      "div",
-      { class: "card-foot" },
-      h("code", null, m.pane_id),
-      m.tab ? h("span", { class: "card-tab muted clip", title: m.tab.label }, m.tab.label) : null,
-      title ? h("span", { class: "muted clip", title }, title) : null,
-    ),
-  );
-}
-
-function oldBoard(members: Member[], app: App, boardBy: BoardBy): HTMLElement {
-  const switcher = h(
-    "div",
-    { class: "view-switch board-switch", role: "group", "aria-label": "Columns" },
-    unkeyed(
-      (
-        [
-          ["role", "Role", "A column for each role in the route"],
-          ["status", "Status", "A column for each status; cards move as agents work"],
-        ] as const
-      ).map(([by, label, tip]) =>
-        // The browser keeps class="" for an inactive button; a class hole leaves none.
-        h(
-          "button",
-          {
-            type: "button",
-            class: by === boardBy ? "active" : undefined,
-            "aria-pressed": String(by === boardBy),
-            title: tip,
-          },
-          label,
-        ),
-      ),
-    ),
-  );
-  return h(
-    "div",
-    { class: "team" },
-    h("div", { class: "team-bar" }, switcher),
-    members.length
-      ? h(
-          "div",
-          { class: "kanban" },
-          each(
-            lanes(members, boardBy),
-            (lane) => lane.id,
-            (lane) =>
-              h(
-                "section",
-                { class: lane.status ? `lane s-${lane.status}` : "lane", "aria-label": lane.title },
-                h(
-                  "h2",
-                  null,
-                  lane.status ? h("span", { class: "lane-dot", "aria-hidden": "true" }) : null,
-                  lane.title,
-                  h("span", { class: "count" }, String(lane.members.length)),
-                ),
-                lane.members.length
-                  ? each(
-                      lane.members,
-                      (m) => m.pane_id,
-                      (m) => oldCard(m, app, boardBy === "status"),
-                    )
-                  : h("p", { class: "lane-empty" }, "None"),
-              ),
-          ),
-        )
-      : h("p", { class: "muted" }, "This route's task table names no panes."),
-  );
-}
+// A bare member's card: idle, its pane as its title, a sub line only when
+// the board is by status (the role).
+const bareCard = (pane: string, role: Role, sub = ""): string => markup`
+  <button class="card r-${role} s-idle" data-pane="${pane}" title="Open ${pane} (${pane}): its output, keys and actions">
+    <div class="card-top">
+      <span class="card-title" title="${pane}">${pane}</span>
+      <span class="pill s-idle"><span aria-hidden="true" class="dot"></span>Idle</span>
+    </div>
+    ${sub ? `<div class="card-sub" title="${sub}">${sub}</div>` : ""}
+    <div class="card-foot"><code >${pane}</code></div>
+  </button>
+`;
+// The full member's card, selected or not, with its sub line, and its task
+// line unless the task is the title.
+const fullCard = (cls: string, sub: string, task = true): string => markup`
+  <button class="card r-implementer s-working${cls}" data-pane="p7" title="Open Fix the parser (p7): its output, keys and actions">
+    <div class="card-top">
+      <span class="card-title" title="Fix the parser">Fix the parser</span>
+      <span class="pill s-working"><span aria-hidden="true" class="dot"></span>Working</span>
+    </div>
+    ${task ? `<div class="card-task">Parse <b> & quotes</div>` : ""}
+    <div class="card-sub" title="${sub}">${sub}</div>
+    <div class="card-foot">
+      <code >p7</code>
+      <span class="card-tab muted clip" title="impl">impl</span>
+      <span class="muted clip" title="editing parser.ts">editing parser.ts</span>
+    </div>
+  </button>
+`;
+const teamBar = (by: BoardBy): string => markup`
+  <div class="team-bar">
+    <div aria-label="Columns" class="view-switch board-switch" role="group">
+      <button aria-pressed="${String(by === "role")}"${by === "role" ? ' class="active"' : ""} title="A column for each role in the route" type="button">Role</button>
+      <button aria-pressed="${String(by === "status")}"${by === "status" ? ' class="active"' : ""} title="A column for each status; cards move as agents work" type="button">Status</button>
+    </div>
+  </div>
+`;
 
 const full: Member = {
   ...member("p7", "implementer"),
@@ -177,14 +126,19 @@ const full: Member = {
 
 test("cards render what the h() version did", () => {
   const selected = { view: { pane: "p7" } } as App;
-  for (const [m, a, role] of [
-    [member("p1", "reviewer"), app, false],
-    [full, app, false],
-    [full, selected, true],
-    [{ ...full, task: { ...full.task!, task: full.title } }, app, true],
+  for (const [m, a, role, want] of [
+    [member("p1", "reviewer"), app, false, bareCard("p1", "reviewer")],
+    [full, app, false, fullCard("", "Claude · fix-parser")],
+    [full, selected, true, fullCard(" selected", "Implementer · Claude · fix-parser")],
+    [
+      { ...full, task: { ...full.task!, task: full.title } },
+      app,
+      true,
+      fullCard("", "Implementer · Claude · fix-parser", false),
+    ],
   ] as const) {
     const box = fake(document.createElement("div"));
-    expect(dump(rendered(box, card(m, a, role)))).toBe(dump(fake(oldCard(m, a, role))));
+    expect(dump(rendered(box, card(m, a, role)))).toBe(want);
   }
 });
 
@@ -192,25 +146,72 @@ test("a card patched to another member keeps its node and opens the latest pane"
   const box = fake(document.createElement("div"));
   const el = rendered(box, card(member("p1", "reviewer"), app));
   expect(rendered(box, card(full, app))).toBe(el);
-  expect(dump(el)).toBe(dump(fake(oldCard(full, app))));
+  expect(dump(el)).toBe(fullCard("", "Claude · fix-parser"));
   dispatch(el, "click");
   expect(store.app.view.pane).toBe("p7");
 });
 
 test("the board renders what the h() version did, and its switch picks the columns", () => {
   const ms = [member("p0", "orchestrator"), full, member("p2", "reviewer")];
+  const byRole = markup`
+    <div class="team">
+      ${teamBar("role")}
+      <div class="kanban">
+        <section aria-label="Orchestrator" class="lane">
+          <h2 >Orchestrator<span class="count">1</span></h2>
+          ${bareCard("p0", "orchestrator")}
+        </section>
+        <section aria-label="Implementers" class="lane">
+          <h2 >Implementers<span class="count">1</span></h2>
+          ${fullCard("", "Claude · fix-parser")}
+        </section>
+        <section aria-label="Reviewers" class="lane">
+          <h2 >Reviewers<span class="count">1</span></h2>
+          ${bareCard("p2", "reviewer")}
+        </section>
+      </div>
+    </div>
+  `;
   const box = fake(document.createElement("div"));
   const team = rendered(box, teamBoard(ms, app));
   // The test's localStorage is empty or absent, so the board starts by role.
-  expect(dump(team)).toBe(dump(fake(oldBoard(ms, app, "role"))));
+  expect(dump(team)).toBe(byRole);
   const [, byStatus] = elements(elements(elements(team)[0]!)[0]!);
   dispatch(byStatus!, "click");
   expect(rendered(box, teamBoard(ms, app))).toBe(team);
-  expect(dump(team)).toBe(dump(fake(oldBoard(ms, app, "status"))));
+  expect(dump(team)).toBe(markup`
+    <div class="team">
+      ${teamBar("status")}
+      <div class="kanban">
+        <section aria-label="Working" class="lane s-working">
+          <h2 ><span aria-hidden="true" class="lane-dot"></span>Working<span class="count">1</span></h2>
+          ${fullCard("", "Implementer · Claude · fix-parser")}
+        </section>
+        <section aria-label="Needs input" class="lane s-blocked">
+          <h2 ><span aria-hidden="true" class="lane-dot"></span>Needs input<span class="count">0</span></h2>
+          <p class="lane-empty">None</p>
+        </section>
+        <section aria-label="Idle" class="lane s-idle">
+          <h2 ><span aria-hidden="true" class="lane-dot"></span>Idle<span class="count">2</span></h2>
+          ${bareCard("p0", "orchestrator", "Orchestrator")}
+          ${bareCard("p2", "reviewer", "Reviewer")}
+        </section>
+        <section aria-label="Done" class="lane s-done">
+          <h2 ><span aria-hidden="true" class="lane-dot"></span>Done<span class="count">0</span></h2>
+          <p class="lane-empty">None</p>
+        </section>
+      </div>
+    </div>
+  `);
   dispatch(elements(elements(elements(team)[0]!)[0]!)[0]!, "click");
   rendered(box, teamBoard(ms, app));
-  expect(dump(team)).toBe(dump(fake(oldBoard(ms, app, "role"))));
-  expect(dump(rendered(box, teamBoard([], app)))).toBe(dump(fake(oldBoard([], app, "role"))));
+  expect(dump(team)).toBe(byRole);
+  expect(dump(rendered(box, teamBoard([], app)))).toBe(markup`
+    <div class="team">
+      ${teamBar("role")}
+      <p class="muted">This route's task table names no panes.</p>
+    </div>
+  `);
 });
 
 test("lanes keep their nodes when a lane appears ahead of them and their cards change", () => {

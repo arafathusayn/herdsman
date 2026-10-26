@@ -204,3 +204,21 @@ export function dump(n: FakeNode): string {
   const tag = n.namespaceURI === SVG_NS ? `svg:${n.tagName}` : n.tagName.toLowerCase();
   return `<${[tag, ...attrs.sort()].join(" ")}>${n.childNodes.map(dump).join("")}</${tag}>`;
 }
+
+/**
+ * Expected markup to compare with a dump(), written across lines as it nests:
+ * a line break and the indentation after it are layout, not content, so break
+ * a line only where no space in the text touches the break. Escapes
+ * stand for what they do in a string (`\n` is a line break in text, `\ue0a0`
+ * a character that does not show), and a hole's string goes in as it is.
+ */
+export function markup(strings: TemplateStringsArray, ...holes: string[]): string {
+  const cook = (s: string): string =>
+    s.replace(/\n[ \t]*/g, "").replace(/\\(u\{[0-9a-f]+\}|u[0-9a-f]{4}|.)/gi, (_, c: string) => {
+      if (c.length > 1) return String.fromCodePoint(parseInt(c.replace(/[u{}]/g, ""), 16));
+      const out = ({ n: "\n", t: "\t", r: "\r", "\\": "\\", "`": "`", $: "$" } as Record<string, string>)[c];
+      if (out === undefined) throw new Error(`markup: unknown escape \\${c}`);
+      return out;
+    });
+  return strings.raw.reduce((out, s, i) => out + cook(s) + (holes[i] ?? ""), "");
+}

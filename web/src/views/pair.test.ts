@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
+import { render } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
-import { icon, icons, logoMark } from "../icons.ts";
-import { dispatch, dump, FakeElement as FormElement } from "../testdom.ts";
-import { h } from "../testref.ts";
+import { icon, icons } from "../icons.ts";
+import { dispatch, dump, FakeElement as FormElement, markup } from "../testdom.ts";
 import { showPairing } from "./pair.ts";
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
@@ -21,58 +21,43 @@ afterEach(() => {
 });
 
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
-
-// The old h() screen, with its properties written as the attributes the
-// browser reflects them to (inputMode, maxLength, spellcheck, disabled).
-const hostsLink = (): HTMLElement =>
-  h("button", { type: "button", class: "btn ghost pair-hosts" }, icon(icons.server), "Hosts");
-const oldScreen = (message: string, messageClass: string, disabled: boolean): HTMLElement =>
-  h(
-    "main",
-    { class: "pair" },
-    h(
-      "div",
-      { class: "pair-card" },
-      logoMark(),
-      h("h1", null, "Pair this browser"),
-      h("p", { class: "pair-host" }, icon(icons.server), "mac"),
-      h(
-        "p",
-        { class: "pair-lead" },
-        "Type the 6-digit code that ",
-        h("code", null, "herdsman web"),
-        " just printed in the host's terminal. It expires in 2 minutes.",
-      ),
-      h(
-        "form",
-        { class: "pair-form" },
-        h("input", {
-          class: "pair-code",
-          inputmode: "numeric",
-          autocomplete: "one-time-code",
-          maxlength: "7",
-          placeholder: "000 000",
-          "aria-label": "Pairing code",
-          spellcheck: "false",
-        }),
-        h("button", { class: "btn primary pair-submit", type: "submit", disabled: disabled }, "Pair this browser"),
-      ),
-      h("p", { class: messageClass, role: "status", "aria-live": "polite" }, message),
-      h(
-        "p",
-        { class: "pair-note" },
-        icon(icons.keyboard),
-        "Pairing proves you can see the terminal, so a shared or leaked link is not enough to control your agents.",
-      ),
-      hostsLink(),
-    ),
-  );
+const iconMarkup = (paths: readonly string[]): string => {
+  const box = document.createElement("div");
+  render(box, icon(paths));
+  return dump(fake(box).firstChild!);
+};
 
 test("pairing screen: the markup of the h() version, and typing formats the code in place", () => {
   const root = new FormElement("DIV");
   showPairing(root as unknown as HTMLElement, "mac", () => {});
   const page = elements(root)[0]!;
-  expect(dump(page)).toBe(dump(fake(oldScreen("", "pair-message", true))));
+  expect(dump(page)).toBe(markup`
+    <main class="pair">
+      <div class="pair-card">
+        <svg:svg aria-hidden="true" class="logo" viewBox="0 0 32 32">
+          <svg:rect fill="#1d4d38" height="32" rx="8" width="32"></svg:rect>
+          <svg:g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="#e9f6ef">
+            <svg:path d="M10 6.5V26"></svg:path>
+            <svg:path d="M10 17.5a5.5 5.5 0 0 1 11 0v5.5a3 3 0 0 0 3 3"></svg:path>
+          </svg:g>
+          <svg:circle cx="15.5" cy="24" fill="#5cc093" r="2"></svg:circle>
+        </svg:svg>
+        <h1>Pair this browser</h1>
+        <p class="pair-host">${iconMarkup(icons.server)}mac</p>
+        <p class="pair-lead">Type the 6-digit code that <code>herdsman web</code> just printed in the host's terminal. It expires in 2 minutes.</p>
+        <form class="pair-form">
+          <input aria-label="Pairing code" autocomplete="one-time-code" class="pair-code" inputmode="numeric" maxlength="7" placeholder="000 000" spellcheck="false"></input>
+          <button class="btn primary pair-submit" disabled="" type="submit">Pair this browser</button>
+        </form>
+        <p aria-live="polite" class="pair-message" role="status"></p>
+        <p class="pair-note">
+          ${iconMarkup(icons.keyboard)}
+          Pairing proves you can see the terminal, so a shared or leaked link is not enough to control your agents.
+        </p>
+        <button class="btn ghost pair-hosts" type="button">${iconMarkup(icons.server)}Hosts</button>
+      </div>
+    </main>
+  `);
   const card = elements(page)[0]!;
   const form = elements(card)[4]!;
   const [input, submit] = elements(form);
