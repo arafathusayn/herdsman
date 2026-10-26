@@ -188,13 +188,12 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 		if specs := env.get("HERDSMAN_STATUS_SPECS"); specs != "" {
 			events = append(events, health(ctx, env, d, st, specs, healthEvery, helperLimit(deadline-d.Now().Sub(start), poll), now)...)
 		}
-		if stateFailed(st, d.Stderr, "wait") {
+		// The pass's events are printed even when a state write failed: an
+		// event whose marker was saved would never be reported again.
+		if !printSaved(d, st, "wait", events) {
 			return 1
 		}
 		if len(events) > 0 {
-			for _, e := range events {
-				fmt.Fprintln(d.Stdout, e)
-			}
 			return 0
 		}
 		elapsed := d.Now().Sub(start)
@@ -205,13 +204,13 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 		ok, lines := d.sleepUntil(d.Now().Add(poll), func() []string {
 			return statusRecheck(ctx, d, st, targets, waitBlockRE, waitWorkRE, waitStalledRE)
 		})
-		if stateFailed(st, d.Stderr, "wait") {
+		for i, l := range lines {
+			lines[i] = l + " " + clock(d.Now())
+		}
+		if !printSaved(d, st, "wait", lines) {
 			return 1
 		}
 		if len(lines) > 0 {
-			for _, l := range lines {
-				fmt.Fprintln(d.Stdout, l+" "+clock(d.Now()))
-			}
 			return 0
 		}
 		if !ok {
