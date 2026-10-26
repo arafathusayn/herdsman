@@ -385,23 +385,37 @@ func (d *Daemon) removeRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	if err := d.writeRoutes(rf); err != nil {
 		return Errf("internal", "routes.json: %v", err)
 	}
+	// The route leaves the registry and the views that listed it are
+	// taken in one step: each of them gets route_removed below, whether
+	// or not it has attached to the route yet (5.4).
 	d.mu.Lock()
 	rt := d.routes[name]
 	delete(d.routes, name)
 	delete(d.held, name)
+	views := make([]*subscriber, 0, len(d.views))
+	for s := range d.views {
+		views = append(views, s)
+	}
 	d.mu.Unlock()
+	removed := func() *Event { return &Event{Type: "route_removed", Time: d.now().Unix(), Route: name} }
 	if rt != nil {
-		_ = rt.do(r.Context(), func() *APIError {
+		// After this turn the route sends nothing more and refuses every
+		// attachment; it runs even on a degraded route.
+		rt.always(func() {
 			for s := range rt.subs {
-				s.push(frame{ev: &Event{Type: "route_removed", Time: d.now().Unix(), Route: name}, last: s.party != ""})
 				if s.party != "" {
+					s.push(frame{ev: removed(), last: true})
 					s.close()
 				}
 			}
 			rt.subs = map[*subscriber]struct{}{}
 			rt.removed = true
-			return nil
 		})
+	}
+	for _, s := range views {
+		s.push(frame{ev: removed(), route: name})
+	}
+	if rt != nil {
 		rt.stop()
 		for _, l := range rt.retained {
 			releaseLock(l)
@@ -1056,7 +1070,7 @@ func (d *Daemon) partyEvents(w http.ResponseWriter, r *http.Request) *APIError {
 	}
 	defer func() {
 		s.close()
-		_ = rt.do(context.Background(), func() *APIError { rt.unsubscribe(s); return nil })
+		rt.detach(s)
 	}()
 	releaseSlot(r)
 	runStream(w, r, s, first, func(frame) string { return rt.name })
@@ -1093,6 +1107,7 @@ func (d *Daemon) viewEvents(w http.ResponseWriter, r *http.Request) *APIError {
 		routes = append(routes, rt)
 	}
 	d.mu.Unlock()
+	d.crash("view.listed")
 	sort.Slice(routes, func(i, j int) bool { return routes[i].name < routes[j].name })
 	defer func() {
 		d.mu.Lock()
@@ -1106,7 +1121,7 @@ func (d *Daemon) viewEvents(w http.ResponseWriter, r *http.Request) *APIError {
 		// Every route the stream was attached to, at its start or later,
 		// forgets it.
 		for _, rt := range attached {
-			_ = rt.do(context.Background(), func() *APIError { rt.unsubscribe(s); return nil })
+			rt.detach(s)
 		}
 	}()
 	reg := &Event{Type: "registry", Time: d.now().Unix(), Routes: []RouteRef{}}

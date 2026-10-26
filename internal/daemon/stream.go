@@ -172,6 +172,26 @@ func (r *Route) replayRange(seq int64) ([]*Record, error) {
 // unsubscribe detaches a stream.
 func (r *Route) unsubscribe(s *subscriber) { delete(r.subs, s) }
 
+// always runs fn on the actor outside the operation rules (a degraded or
+// removed route, a full queue) and waits for it; a stopped route runs
+// nothing, and its stop has already dropped every stream.
+func (r *Route) always(fn func()) {
+	done := make(chan struct{})
+	select {
+	case r.ops <- func() { fn(); close(done) }:
+	case <-r.quit:
+		return
+	}
+	select {
+	case <-done:
+	case <-r.quit:
+	}
+}
+
+// detach forgets a closed stream, whatever the route's state, so no
+// stream outlives its connection on any route (9.3).
+func (r *Route) detach(s *subscriber) { r.always(func() { r.unsubscribe(s) }) }
+
 func (r *Route) resetEvent(reason string) *Event {
 	last := r.visible
 	return &Event{Type: "reset", Time: r.now().Unix(), Route: r.name, Epoch: r.epoch, Seq: last, Reason: reason, LastSeq: &last}
