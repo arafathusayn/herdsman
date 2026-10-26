@@ -109,8 +109,9 @@ type artifacts struct {
 	sweepGen uint64
 	// afterFunc sets the sweep timer; tests replace it to fire it by hand.
 	afterFunc func(time.Duration, func()) *time.Timer
-	// beforeOpen, when set, runs before the walk opens each folder (dir is
-	// relative to root). Tests use it to change a folder at that moment.
+	// beforeOpen, when set, runs before the walk opens each root (dir "")
+	// and each folder (dir relative to root). Tests use it to change a
+	// folder at that moment.
 	beforeOpen func(root, dir string)
 }
 
@@ -301,15 +302,15 @@ func walkArtifacts(roots []string, beforeOpen func(root, dir string)) []Artifact
 // batches that stop at the entry budget, so a folder far wider than the
 // budget is never read or held whole, and os.Root keeps the walk inside root.
 func walkRoot(root string, byPath map[string]Artifact, beforeOpen func(root, dir string)) {
-	r, err := os.OpenRoot(root)
+	if beforeOpen != nil {
+		beforeOpen(root, "")
+	}
+	r, err := openDirRoot(root)
 	if err != nil {
 		return
 	}
 	defer r.Close()
-	id, err := r.Stat(".")
-	if err != nil {
-		return
-	}
+	var id os.FileInfo // the root folder, read from its first open below
 	budget := artifactMaxSeen
 	stack := []string{"."} // folders left to read, relative to root
 	for len(stack) > 0 && budget > 0 && len(byPath) < artifactMaxFiles {
@@ -326,6 +327,9 @@ func walkRoot(root string, byPath map[string]Artifact, beforeOpen func(root, dir
 		if err != nil {
 			_ = f.Close()
 			continue
+		}
+		if id == nil { // the first folder read is "."
+			id = dirID
 		}
 		for budget > 0 && len(byPath) < artifactMaxFiles {
 			entries, err := f.ReadDir(min(artifactBatch, budget))
@@ -348,6 +352,24 @@ func walkRoot(root string, byPath map[string]Artifact, beforeOpen func(root, dir
 		}
 		_ = f.Close()
 	}
+}
+
+// slashRoot is the file system root, opened once to open other roots from.
+var slashRoot = sync.OnceValues(func() (*os.Root, error) { return os.OpenRoot("/") })
+
+// openDirRoot opens the folder at p as an os.Root without ever blocking:
+// os.OpenRoot opens its path without O_DIRECTORY, so a FIFO put in a
+// folder's place would wait for a writer. Opened from "/" as "<p>/.", every
+// component, the folder itself included, is opened as a folder and anything
+// else fails at once. Links on p are resolved first, since os.Root refuses
+// absolute ones.
+func openDirRoot(p string) (*os.Root, error) {
+	real, err := filepath.EvalSymlinks(p)
+	top, err2 := slashRoot()
+	if err != nil || err2 != nil {
+		return nil, errors.Join(err, err2)
+	}
+	return top.OpenRoot(strings.TrimPrefix(real+"/.", "/"))
 }
 
 // openWalkDir opens the folder dir under r to read it. The open itself
@@ -393,7 +415,7 @@ func openPageDir(root string, id os.FileInfo, rel string, dirID os.FileInfo) (*o
 	if id == nil || dirID == nil {
 		return nil, errNotListed
 	}
-	r, err := os.OpenRoot(root)
+	r, err := openDirRoot(root)
 	if err != nil {
 		return nil, err
 	}
@@ -417,7 +439,7 @@ func openPageDir(root string, id os.FileInfo, rel string, dirID os.FileInfo) (*o
 			return nil, errNotListed
 		}
 	}
-	sub, err := r.OpenRoot(filepath.FromSlash(rel))
+	sub, err := r.OpenRoot(filepath.FromSlash(rel + "/.")) // a folder only, as in openDirRoot
 	_ = r.Close()
 	if err != nil {
 		return nil, err
