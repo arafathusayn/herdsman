@@ -2,7 +2,7 @@
 // keyed lists with each(), then patch() it into the live DOM. This app is also
 // the markup reference the other apps must match (see ../../README.md).
 
-import { each, h, patch } from "../../../../web/src/dom.ts";
+import { each, h, patch } from "./dom.ts";
 import { start } from "../../shared/driver.ts";
 import {
   type Check,
