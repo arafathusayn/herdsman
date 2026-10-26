@@ -4,7 +4,8 @@ import { appThemes, codeThemes, matchApp, noHighlight, termSchemes } from "../ap
 import { h, icon, icons, unkeyed } from "../dom.ts";
 import { render } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
-import { dispatch } from "../testdom.ts";
+import { tokenizeLines } from "../highlight.ts";
+import { dispatch, dump } from "../testdom.ts";
 
 // The store reads the URL and listens for history changes when it loads; the
 // themes write to <html> and to local storage.
@@ -29,23 +30,25 @@ beforeEach(() => {
   stored.clear();
 });
 
-// Elements and text with attributes sorted and the bridge's data-key left
-// out; a slot's empty anchor text is not content.
-const dump = (n: FakeNode): string => {
-  if (n.nodeType === 3) return n.textContent;
-  if (n.nodeType !== 1) return "";
-  const e = fake(n);
-  const attrs = e.attributes
-    .filter((a) => a.name !== "data-key")
-    .map((a) => `${a.name}="${a.value}"`)
-    .sort()
-    .join(" ");
-  return `<${e.tagName.toLowerCase()} ${attrs}>${e.childNodes.map(dump).join("")}</${e.tagName.toLowerCase()}>`;
-};
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 
-// A stand-in for the highlighted sample: the fake DOM has no fragments.
-const sample = (id: string): HTMLElement => h("code", null, `sample ${id}`);
+// The old sample <code>: renderPieces() made the same nodes in a fragment,
+// which the fake DOM does not have.
+const sampleLines = [
+  "// Load reads a route folder.",
+  "func Load(dir string) (*Route, error) {",
+  '\treturn parse(dir, "00-route.md", 200)',
+  "}",
+];
+const sample = (id: string): HTMLElement => {
+  if (id === noHighlight) return h("code", null, sampleLines.join("\n"));
+  const out: (string | HTMLElement)[] = [];
+  tokenizeLines("go", sampleLines).forEach((pieces, i) => {
+    if (i) out.push("\n");
+    for (const [k, t] of pieces) out.push(k ? h("span", { class: `hl-${k}` }, t) : t);
+  });
+  return h("code", null, unkeyed(out));
+};
 
 // The h() version this view replaced, with style.setProperty's result written
 // as the attribute the browser serializes (the fake DOM has no style object).
@@ -172,16 +175,9 @@ function oldForm(theme: string, term: string, code: string): FakeElement {
 
 const { termVars: termVarsOf, codeVars: codeVarsOf, appVars: appVarsOf } = await import("../appearance.ts");
 
-const samples = new Map<string, HTMLElement>();
-const code = (id: string): HTMLElement => {
-  let el = samples.get(id);
-  if (el === undefined) samples.set(id, (el = sample(id)));
-  return el;
-};
-
 const renderForm = (): FakeElement => {
   const box = document.createElement("div");
-  const redraw = (): void => render(box, appearanceForm(code, redraw));
+  const redraw = (): void => render(box, appearanceForm(redraw));
   redraw();
   return fake(fake(box).firstChild);
 };
@@ -194,13 +190,11 @@ const grids = (form: FakeElement): FakeElement[] => {
 };
 
 test("the form renders what the h() version did", () => {
-  samples.clear();
   store.set({ theme: "system" });
   expect(dump(renderForm())).toBe(dump(oldForm("system", matchApp, matchApp)));
   stored.set("herdsman.terminal-scheme", termSchemes[1]!.id);
   stored.set("herdsman.code-theme", noHighlight);
   store.set({ theme: appThemes[2]!.id });
-  samples.clear();
   const form = renderForm();
   const want = oldForm(appThemes[2]!.id, termSchemes[1]!.id, noHighlight);
   // The stored keys above must be the ones the app reads, or this compares defaults.
@@ -209,10 +203,9 @@ test("the form renders what the h() version did", () => {
 });
 
 test("a choice applies, re-renders in place and keeps every node", () => {
-  samples.clear();
   store.set({ theme: "system" });
   const box = document.createElement("div");
-  const redraw = (): void => render(box, appearanceForm(code, redraw));
+  const redraw = (): void => render(box, appearanceForm(redraw));
   redraw();
   const form = fake(fake(box).firstChild);
   const [, term, codeGrid] = grids(form);
@@ -241,16 +234,16 @@ test("a choice applies, re-renders in place and keeps every node", () => {
   expect(elements(term!)[0]!.className).toBe("choice");
   expect([...elements(term!), ...elements(codeGrid!)]).toEqual(before);
   for (const [i, el] of before.entries()) expect(el).toBe([...elements(term!), ...elements(codeGrid!)][i]!);
-  // The highlighted sample is the same node across renders.
+  // The highlighted sample keeps its nodes across renders.
   expect(pre.firstChild).toBe(sampleNode);
+  expect(elements(sampleNode as FakeNode).length).toBeGreaterThan(5);
   expect(fake(fake(box).firstChild)).toBe(form);
 });
 
 test("the theme switch and the color themes are one choice", () => {
-  samples.clear();
   store.set({ theme: "system" });
   const box = document.createElement("div");
-  const redraw = (): void => render(box, appearanceForm(code, redraw));
+  const redraw = (): void => render(box, appearanceForm(redraw));
   redraw();
   const form = fake(fake(box).firstChild);
   const [colors] = grids(form);

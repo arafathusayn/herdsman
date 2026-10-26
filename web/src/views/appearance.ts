@@ -24,10 +24,12 @@ import {
   type ListNode,
   on,
   render,
+  runs,
+  type RunsNode,
   text,
   type ViewNodeOf,
 } from "../herdsman-blocks-view.ts";
-import { renderPieces, tokenizeLines } from "../highlight.ts";
+import { tokenizeLines } from "../highlight.ts";
 import { store } from "../store.ts";
 import { applyTheme, dismissOnBackdrop, themeSwitch, type ThemeSwitchNode } from "../ui.ts";
 
@@ -68,28 +70,34 @@ function termPreview(id: string): TermPreviewNode {
   return TermPreview([previewClass("term-preview", id), styleOf(termVars(id)), branch]);
 }
 
-// Highlighted code is text and <span> runs, which a view cannot list yet
-// (plans/views-migration.md, "What views cannot express yet"): the <code> is
-// built once per theme and passed to the view as a node.
-const CodePreview = html`<pre class=${cls()} style=${attr<string | null>()}>${child<HTMLElement>()}</pre>`;
+// The sample, highlighted: text runs between token spans, as markdown's code
+// blocks are. It is the same for every theme; only the colors differ.
+const Token = html`<span class=${cls()}>${text()}</span>`;
+type SampleNode = string | RunsNode<ViewNodeOf<typeof Token>>;
+
+let highlighted: RunsNode<ViewNodeOf<typeof Token>> | null = null;
+
+function sampleCode(id: string): SampleNode {
+  if (id === noHighlight) return sample.join("\n");
+  if (highlighted === null) {
+    const out: (string | ViewNodeOf<typeof Token>)[] = [];
+    tokenizeLines("go", sample).forEach((pieces, i) => {
+      if (i) out.push("\n");
+      for (const [k, t] of pieces) out.push(k ? Token([`hl-${k}`, t]) : t);
+    });
+    highlighted = runs(out);
+  }
+  return highlighted;
+}
+
+const CodePreview = html`<pre class=${cls()} style=${attr<string | null>()}><code>${child<SampleNode>()}</code></pre>`;
 
 /** What `codePreview` returns. */
 export type CodePreviewNode = ViewNodeOf<typeof CodePreview>;
 
-function sampleCode(id: string): HTMLElement {
-  const code = document.createElement("code");
-  if (id === noHighlight) code.textContent = sample.join("\n");
-  else
-    tokenizeLines("go", sample).forEach((p, i) => {
-      if (i) code.append("\n");
-      code.append(renderPieces(p));
-    });
-  return code;
-}
-
-/** The sample code in a theme's colors; `code` is the sample's <code>, made once per theme by the caller. */
-function codePreview(id: string, code: HTMLElement): CodePreviewNode {
-  return CodePreview([previewClass("code-preview", id), styleOf(codeVars(id)), code]);
+/** The sample code in a theme's colors. */
+function codePreview(id: string): CodePreviewNode {
+  return CodePreview([previewClass("code-preview", id), styleOf(codeVars(id)), sampleCode(id)]);
 }
 
 /** A tiny app window in a theme's colors: sidebar, a card, text and the accent. */
@@ -174,11 +182,8 @@ export type AppearanceFormNode = ViewNodeOf<typeof AppearanceForm>;
 const termItems = [{ id: matchApp, label: "Match app" }, ...termSchemes];
 const codeItems = [{ id: matchApp, label: "Match app" }, ...codeThemes, { id: noHighlight, label: "No highlighting" }];
 
-/**
- * The dialog's form for the current choices. `code` gives each code theme's
- * sample <code>, the same node on every render; `redraw` renders it again.
- */
-export function appearanceForm(code: (id: string) => HTMLElement, redraw: () => void): AppearanceFormNode {
+/** The dialog's form for the current choices; `redraw` renders it again. */
+export function appearanceForm(redraw: () => void): AppearanceFormNode {
   const pick = (t: string): void => {
     applyTheme(t);
     store.set({ theme: t });
@@ -194,33 +199,21 @@ export function appearanceForm(code: (id: string) => HTMLElement, redraw: () => 
       applyTermScheme(id);
       redraw();
     }),
-    choices(
-      "Code highlighting",
-      codeItems,
-      loadCodeTheme(),
-      (id) => codePreview(id, code(id)),
-      (id) => {
-        applyCodeTheme(id);
-        store.emit(); // views drawn with or without highlighting redraw
-        redraw();
-      },
-    ),
+    choices("Code highlighting", codeItems, loadCodeTheme(), codePreview, (id) => {
+      applyCodeTheme(id);
+      store.emit(); // views drawn with or without highlighting redraw
+      redraw();
+    }),
   ]);
 }
 
 export function openAppearance(): void {
-  const samples = new Map<string, HTMLElement>();
-  const code = (id: string): HTMLElement => {
-    let el = samples.get(id);
-    if (el === undefined) samples.set(id, (el = sampleCode(id)));
-    return el;
-  };
   const dlg = mountElement("dialog", AppearanceDialog, [
     function () {
       this.remove();
     },
   ]);
-  const redraw = (): void => render(dlg, appearanceForm(code, redraw));
+  const redraw = (): void => render(dlg, appearanceForm(redraw));
   redraw();
   dismissOnBackdrop(dlg);
   document.body.append(dlg);
