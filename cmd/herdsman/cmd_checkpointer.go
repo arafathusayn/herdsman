@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/checkpoint"
+	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
 func init() {
@@ -44,7 +45,7 @@ func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		o, err := checkpoint.InboxSettings(os.Getenv)
 		if err != nil {
 			fmt.Fprintln(stderr, "herdsman checkpointer:", err)
-			return 2
+			return settings.ExitInvalid
 		}
 		out, errText, code := checkpoint.Guard(ctx, herdrClient(), o, args[1:])
 		fmt.Fprint(stdout, out)
@@ -68,7 +69,7 @@ func runCheckpointer(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	cfg, err := checkpoint.FromEnv(os.Getenv, pwd)
 	if err != nil {
 		fmt.Fprintln(stderr, "herdsman checkpointer:", err)
-		return 2
+		return settings.ExitInvalid
 	}
 	c := &checkpoint.Checkpointer{Config: cfg, Client: herdrClient(), Stdout: stdout, Stderr: stderr, WorkingTimeout: checkpointerWorkingTimeout}
 	if jsonOut {

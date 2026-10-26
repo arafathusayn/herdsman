@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
 // The token reading (A26): every valid record of the tail counts, a line
@@ -278,26 +280,23 @@ func TestChooseEdges(t *testing.T) {
 	}
 }
 
-// Strict settings (A25): one line naming the variable and the value.
+// Strict settings (A25), read with the shared parser: one line naming the
+// variable and the value; the checkpointer adds the one-second floor and
+// the one-day clamp.
 func TestSettings(t *testing.T) {
-	for in, want := range map[string]time.Duration{"900": 900 * time.Second, "0900": 900 * time.Second, "2m": 2 * time.Minute,
-		"1h": time.Hour, "1d": 24 * time.Hour, "3s": 3 * time.Second, "2d": 24 * time.Hour, "99999999999999999999": 24 * time.Hour} {
-		if d, err := Duration("INTERVAL", in); err != nil || d != want {
+	for in, want := range map[string]time.Duration{"": 900 * time.Second, "900": 900 * time.Second, "0900": 900 * time.Second, "2m": 2 * time.Minute,
+		"1h": time.Hour, "1d": 24 * time.Hour, "3s": 3 * time.Second, "2d": 24 * time.Hour, "99999999999999999999": 24 * time.Hour, " 5": 5 * time.Second} {
+		if d, err := interval(in); err != nil || d != want {
 			t.Errorf("%q: %v %v", in, d, err)
 		}
 	}
-	for _, in := range []string{"", "s", "0", "0s", "-1", "+0", "0e0", "0x0p0", "1e-3", "1.5", "abc", " 5"} {
-		_, err := Duration("INTERVAL", in)
-		if err == nil || err.Error() != `INTERVAL: a whole number of seconds, with an optional s, m, h or d suffix, at least 1s (got "`+in+`")` {
+	for in, reason := range map[string]string{"0": "must be at least 1s", "0s": "must be at least 1s", "00m": "must be at least 1s",
+		"s": "not a duration", "-1": "not a duration", "+0": "not a duration", "0e0": "not a duration", "0x0p0": "not a duration",
+		"1e-3": "not a duration", "1.5": "not a duration", "abc": "not a duration"} {
+		_, err := interval(in)
+		var se *settings.Error
+		if !errors.As(err, &se) || !strings.HasPrefix(err.Error(), "INTERVAL: "+reason) || !strings.HasSuffix(err.Error(), "(got "+strconv.Quote(in)+")") {
 			t.Errorf("%q: %v", in, err)
-		}
-	}
-	for _, tc := range []struct {
-		v  string
-		ok bool
-	}{{"6", true}, {"06", true}, {"60", true}, {"0", false}, {"61", false}, {"+5", false}, {"x", false}} {
-		if _, err := Integer("LOCK_WAIT", tc.v, 1, 60); (err == nil) != tc.ok {
-			t.Errorf("LOCK_WAIT %q: %v", tc.v, err)
 		}
 	}
 	o, err := InboxSettings(func(k string) string { return map[string]string{"LOCK_WAIT": "06", "HEALTH_AFTER": "0300"}[k] })
@@ -328,15 +327,17 @@ func TestSettings(t *testing.T) {
 		want string
 	}{
 		{map[string]string{"TARGET": ""}, `TARGET: required, the orchestrator pane id (got "")`},
-		{map[string]string{"INTERVAL": "0"}, `INTERVAL: a whole number`},
-		{map[string]string{"LIMIT": "lots"}, `LIMIT: a whole number from 0 to 9007199254740992 (got "lots")`},
-		{map[string]string{"LOCK_WAIT": "0"}, `LOCK_WAIT: a whole number from 1 to 60 (got "0")`},
-		{map[string]string{"HEALTH_AFTER": "x\ny"}, `HEALTH_AFTER: a whole number from 1 to 86400 (got "x\ny")`},
+		{map[string]string{"INTERVAL": "0"}, `INTERVAL: must be at least 1s (got "0")`},
+		{map[string]string{"LIMIT": "lots"}, `LIMIT: not a whole number (got "lots")`},
+		{map[string]string{"LIMIT": "9007199254740993"}, `LIMIT: must be from 0 to 9007199254740992 (got "9007199254740993")`},
+		{map[string]string{"LOCK_WAIT": "0"}, `LOCK_WAIT: must be from 1 to 60 (got "0")`},
+		{map[string]string{"HEALTH_AFTER": "x\ny"}, `HEALTH_AFTER: not a whole number (got "x\ny")`},
+		{map[string]string{"HEALTH_AFTER": "0"}, `HEALTH_AFTER: must be from 1 to 86400 (got "0")`},
 		{map[string]string{"HERDSMAN_ORCHESTRATOR": "o"}, `HERDSMAN_INBOX: required in adjutant mode (HERDSMAN_ORCHESTRATOR is set) (got "")`},
 	} {
 		_, err := get(tc.env)
-		var se *SettingError
-		if !errors.As(err, &se) || !strings.HasPrefix(err.Error(), tc.want) {
+		var se *settings.Error
+		if !errors.As(err, &se) || err.Error() != tc.want {
 			t.Errorf("%v: %v", tc.env, err)
 		}
 	}

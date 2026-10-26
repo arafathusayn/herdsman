@@ -127,7 +127,7 @@ func TestCheckpointerCommands(t *testing.T) {
 	t.Setenv("LOCK_WAIT", "")
 	t.Setenv("HEALTH_AFTER", "bad\nline")
 	for _, args := range [][]string{{"checkpointer", "--once"}, {"checkpointer", "guard", inboxtest.Orchestrator, "receiver-pane"}} {
-		if _, e, code := call(t, args...); code != 2 || e != "herdsman checkpointer: HEALTH_AFTER: a whole number from 1 to 86400 (got \"bad\\nline\")\n" {
+		if _, e, code := call(t, args...); code != 2 || e != "herdsman checkpointer: HEALTH_AFTER: not a whole number (got \"bad\\nline\")\n" {
 			t.Errorf("%v HEALTH_AFTER: %d %q", args, code, e)
 		}
 	}

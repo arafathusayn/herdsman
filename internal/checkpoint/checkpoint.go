@@ -21,6 +21,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
 // DefaultPrompt is the memory checkpoint prompt. A Codex target gets it
@@ -36,9 +37,7 @@ const WorkingTimeout = 30 * time.Second
 type Config struct {
 	Target       string        // TARGET
 	Interval     time.Duration // INTERVAL; also the limit of each wait for an idle orchestrator
-	IntervalText string        // INTERVAL as written, for the start line
 	Limit        int64         // LIMIT
-	LimitText    string        // LIMIT as written, for the start line
 	Log          string        // LOG
 	Compact      string        // COMPACT
 	Prompt       string        // PROMPT
@@ -51,7 +50,8 @@ type Config struct {
 
 // FromEnv reads the configuration from getenv with the script's defaults
 // (empty values count as unset, as ${VAR:-default}) and checks every
-// setting before anything runs: a bad one is a *SettingError.
+// setting before anything runs with the shared parser: a bad one is a
+// *settings.Error.
 func FromEnv(getenv func(string) string, pwd string) (Config, error) {
 	or := func(k, def string) string {
 		if v := getenv(k); v != "" {
@@ -61,8 +61,6 @@ func FromEnv(getenv func(string) string, pwd string) (Config, error) {
 	}
 	c := Config{
 		Target:       getenv("TARGET"),
-		IntervalText: or("INTERVAL", "900"),
-		LimitText:    or("LIMIT", "250000"),
 		Log:          or("LOG", or("TMPDIR", "/tmp")+"/checkpointer.log"),
 		Compact:      or("COMPACT", "/compact"),
 		Prompt:       or("PROMPT", DefaultPrompt),
@@ -71,13 +69,13 @@ func FromEnv(getenv func(string) string, pwd string) (Config, error) {
 		Env:          Env{Transcript: getenv("TRANSCRIPT"), Home: getenv("HOME"), CodexHome: getenv("CODEX_HOME"), PWD: pwd},
 	}
 	if c.Target == "" {
-		return c, &SettingError{"TARGET", "required, the orchestrator pane id", ""}
+		return c, required("TARGET", "required, the orchestrator pane id")
 	}
 	var err error
-	if c.Interval, err = Duration("INTERVAL", c.IntervalText); err != nil {
+	if c.Interval, err = interval(getenv("INTERVAL")); err != nil {
 		return c, err
 	}
-	if c.Limit, err = Integer("LIMIT", c.LimitText, 0, 1<<53); err != nil {
+	if c.Limit, err = settings.Int("LIMIT", getenv("LIMIT"), 250000, 0, 1<<53); err != nil {
 		return c, err
 	}
 	if c.Inbox, err = InboxSettings(getenv); err != nil {
@@ -85,7 +83,7 @@ func FromEnv(getenv func(string) string, pwd string) (Config, error) {
 	}
 	c.LockWait, _ = strconv.Atoi(c.Inbox.LockWait)
 	if c.Orchestrator != "" && c.Inbox.Dir == "" {
-		return c, &SettingError{"HERDSMAN_INBOX", "required in adjutant mode (HERDSMAN_ORCHESTRATOR is set)", ""}
+		return c, required("HERDSMAN_INBOX", "required in adjutant mode (HERDSMAN_ORCHESTRATOR is set)")
 	}
 	return c, nil
 }
