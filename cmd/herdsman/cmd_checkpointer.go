@@ -23,8 +23,7 @@ const checkpointerUsage = `usage: TARGET=<pane> herdsman checkpointer [--once|--
 Settings (environment): TARGET (required), INTERVAL=900 (seconds, or with
 an s, m, h or d suffix), LIMIT=250000, LOG=$TMPDIR/checkpointer.log,
 COMPACT=/compact, PROMPT, TRANSCRIPT, CODEX_HOME; adjutant mode:
-HERDSMAN_ORCHESTRATOR, HERDSMAN_INBOX, HERDSMAN_PREFLIGHT,
-HERDSMAN_MESSAGES_DIR, LOCK_WAIT=6.
+HERDSMAN_ORCHESTRATOR, HERDSMAN_INBOX, HERDSMAN_PREFLIGHT, LOCK_WAIT=6.
 
 With --json, --probe prints one object: {"why","hint","file","context"}
 (context: the tokens read, or null).

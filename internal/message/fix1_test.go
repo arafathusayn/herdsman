@@ -22,10 +22,10 @@ func (c *tc) toBinaryProof(exe string) {
 }
 
 // The command itself (message authority) prints the exact RELAY or HUMAN
-// line with exit 0 or 3, for the script proof and the binary proof, and
+// line with exit 0 or 3, for the proof of the running binary and of a named binary, and
 // --json gives the same status as one object.
 func TestAuthorityCommandExitCodes(t *testing.T) {
-	for _, form := range []string{"script", "binary"} {
+	for _, form := range []string{"running", "binary"} {
 		t.Run(form, func(t *testing.T) {
 			c := newCase(t, true)
 			c.relayBoundary()

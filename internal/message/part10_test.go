@@ -213,7 +213,7 @@ func TestPart10BoundaryRacesHolds(t *testing.T) {
 	rkey := inbox.Digest([]byte(sortedCompact(toAny(map[string]any{"pane": "task-pane", "session": map[string]any{"source": "hook", "agent": "codex", "kind": "id", "value": "task-session"}})) + "\n"))
 	var buf bytes.Buffer
 	e := &Env{Getenv: func(k string) string {
-		return map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed, "HERDR_PANE_ID": "sender-pane"}[k]
+		return map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDR_PANE_ID": "sender-pane"}[k]
 	}, Stdout: &buf, Stderr: &buf, Client: herdr.New(c.srv.Socket)}
 	err := e.resumeRun([]string{"im-task"}, func() { c.write(c.in("state", "resume-"+rkey+".sent"), "other helper intent\n") })
 	e.releaseAll()

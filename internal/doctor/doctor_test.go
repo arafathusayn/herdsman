@@ -13,6 +13,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
+	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/inbox/inboxtest"
 	"github.com/arafathusayn/herdsman/internal/machine"
 )
@@ -182,20 +183,38 @@ func TestBinary(t *testing.T) {
 	one(t, run(t, p), "binary", Fail, "no such file")
 }
 
+// inboxFakes are fakes whose binary is the running one, which the
+// inboxtest proof names.
+func inboxFakes(t *testing.T, env map[string]string) Probes {
+	p := fakes(t, env)
+	p.Executable = func() (string, error) { return inbox.RunningExecutable(), nil }
+	return p
+}
+
 func TestInbox(t *testing.T) {
 	c := inboxtest.New(t)
-	env := map[string]string{"HERDSMAN_INBOX": c.Dir, "HERDSMAN_PREFLIGHT": c.Proof, "HERDSMAN_MESSAGES_DIR": c.Installed}
-	one(t, run(t, fakes(t, env)), "inbox", OK, c.Dir)
+	env := map[string]string{"HERDSMAN_INBOX": c.Dir, "HERDSMAN_PREFLIGHT": c.Proof}
+	one(t, run(t, inboxFakes(t, env)), "inbox", OK, c.Dir)
 	// Read-only: the doctor creates nothing in the inbox.
 	if _, err := os.Stat(filepath.Join(c.Dir, "state")); err == nil {
 		t.Error("doctor created state/")
 	}
 
-	env["HERDSMAN_MESSAGES_DIR"] = t.TempDir()
+	// A proof of another binary (the fakes' own) is stale.
 	one(t, run(t, fakes(t, env)), "inbox", Fail, "proof stale")
 
+	// An old proof that lists the scripts is stale, with how to set up again.
+	c.Edit(c.Proof, func(m map[string]any) { m["scripts"] = []any{} })
+	one(t, run(t, inboxFakes(t, env)), "inbox", Fail, "replace .scripts[] with")
+	c.Prove()
+
+	// No executable: the inbox check fails.
+	p := inboxFakes(t, env)
+	p.Executable = func() (string, error) { return "", errors.New("no exe") }
+	one(t, run(t, p), "inbox", Fail, "no exe")
+
 	env["HERDSMAN_INBOX"] = "relative"
-	cs := run(t, fakes(t, env))
+	cs := run(t, inboxFakes(t, env))
 	one(t, cs, "inbox", Fail, "inbox must be absolute")
 	if !Failed(cs) {
 		t.Error("not failed")
@@ -353,8 +372,8 @@ func TestInboxTimingStale(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(c.Dir, "state", "timing.json"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"HERDSMAN_INBOX": c.Dir, "HERDSMAN_PREFLIGHT": c.Proof, "HERDSMAN_MESSAGES_DIR": c.Installed}
-	one(t, run(t, fakes(t, env)), "inbox", Fail, "invalid or conflicting shared timing configuration")
+	env := map[string]string{"HERDSMAN_INBOX": c.Dir, "HERDSMAN_PREFLIGHT": c.Proof}
+	one(t, run(t, inboxFakes(t, env)), "inbox", Fail, "invalid or conflicting shared timing configuration")
 }
 
 func TestGoCacheNoHome(t *testing.T) {

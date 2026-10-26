@@ -42,7 +42,7 @@ func (c *cpCase) ckpt(target string, env map[string]string) int {
 	c.t.Helper()
 	m := map[string]string{"TARGET": target, "TRANSCRIPT": filepath.Join(c.dir, "transcript.jsonl"), "LOG": filepath.Join(c.dir, "ckpt.log"),
 		"LIMIT": "1", "PROMPT": "/save-memory", "COMPACT": "/compact", "HOME": c.dir,
-		"HERDSMAN_INBOX": c.box.Dir, "HERDSMAN_PREFLIGHT": c.box.Proof, "HERDSMAN_MESSAGES_DIR": c.box.Installed}
+		"HERDSMAN_INBOX": c.box.Dir, "HERDSMAN_PREFLIGHT": c.box.Proof}
 	for k, v := range env {
 		m[k] = v
 	}
@@ -196,8 +196,7 @@ func TestInputLockCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := c.config(c.dir, map[string]string{"TARGET": "receiver-pane", "TRANSCRIPT": filepath.Join(c.dir, "transcript.jsonl"), "LIMIT": "1", "LOG": filepath.Join(c.dir, "ckpt.log"),
-		"HERDSMAN_ORCHESTRATOR": orch, "HERDSMAN_INBOX": c.box.Dir, "HERDSMAN_PREFLIGHT": c.box.Proof, "HERDSMAN_MESSAGES_DIR": c.box.Installed,
-		"LOCK_WAIT": "60"})
+		"HERDSMAN_ORCHESTRATOR": orch, "HERDSMAN_INBOX": c.box.Dir, "HERDSMAN_PREFLIGHT": c.box.Proof, "LOCK_WAIT": "60"})
 	cp := c.checkpointer(cfg)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

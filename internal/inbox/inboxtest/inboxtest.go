@@ -12,7 +12,6 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
 
-	"github.com/arafathusayn/herdsman/internal/shglob"
 )
 
 // The names of the enrolled pair, as in message-tests.sh.
@@ -30,8 +29,6 @@ type Case struct {
 	Dir string
 	// Proof is the setup proof, HERDSMAN_PREFLIGHT.
 	Proof string
-	// Installed is the installed channel script folder; its parent holds the adapters.
-	Installed string
 }
 
 // New builds an inbox with a valid setup proof and no registry.
@@ -41,21 +38,12 @@ func New(t *testing.T) *Case {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &Case{t: t, Base: base, Dir: filepath.Join(base, "inbox"), Installed: filepath.Join(base, "skill", "messages")}
+	c := &Case{t: t, Base: base, Dir: filepath.Join(base, "inbox")}
 	c.Proof = filepath.Join(c.Dir, "setup.json")
 	if err := os.Mkdir(c.Dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(c.Installed, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	c.Write(filepath.Join(base, "ignore-rule"), "sandbox policy\n")
-	for _, s := range []string{"message-lib.sh", "message.sh", "message-send.sh"} {
-		c.Write(filepath.Join(c.Installed, s), "#!/bin/bash\n# "+s+"\n")
-	}
-	for _, s := range []string{"approval-gate.sh", "transcript-audit.sh", "checkpointer-guard.sh", "checkpointer.sh"} {
-		c.Write(filepath.Join(base, "skill", s), "#!/bin/bash\n# "+s+"\n")
-	}
 	c.Prove()
 	return c
 }
@@ -112,18 +100,16 @@ func (c *Case) entry(p string) map[string]any {
 	return map[string]any{"path": p, "checksum": sum}
 }
 
-// Prove writes the setup proof for the current installed files, keeping a
-// boundary already recorded.
+// Prove writes the setup proof (binary form) for the running binary,
+// keeping a boundary already recorded.
 func (c *Case) Prove() {
 	c.t.Helper()
-	var scripts []any
-	files, _ := shglob.Glob(c.Installed, "*.sh")
-	adapters, _ := shglob.Glob(filepath.Dir(c.Installed), "*.sh")
-	for _, f := range append(files, adapters...) {
-		scripts = append(scripts, c.entry(f))
+	exe := inbox.RunningExecutable()
+	if exe == "" {
+		c.t.Fatal("no running executable")
 	}
 	proof := map[string]any{"inbox": c.Dir, "policy_verified": true,
-		"rules": []any{c.entry(filepath.Join(c.Base, "ignore-rule"))}, "scripts": scripts}
+		"rules": []any{c.entry(filepath.Join(c.Base, "ignore-rule"))}, "binary": c.entry(exe)}
 	if inbox.Exists(c.Proof) {
 		if b := c.ReadJSON(c.Proof)["boundary"]; b != nil {
 			proof["boundary"] = b
@@ -195,11 +181,11 @@ func roundTrip(t *testing.T, v any) any {
 
 // Options are the inbox options of this case.
 func (c *Case) Options(readOnly bool) inbox.Options {
-	return inbox.Options{Dir: c.Dir, Preflight: c.Proof, Installed: c.Installed, ReadOnly: readOnly}
+	return inbox.Options{Dir: c.Dir, Preflight: c.Proof, ReadOnly: readOnly}
 }
 
-// Env is the case's environment for a command: HERDSMAN_INBOX,
-// HERDSMAN_PREFLIGHT and HERDSMAN_MESSAGES_DIR.
+// Env is the case's environment for a command: HERDSMAN_INBOX and
+// HERDSMAN_PREFLIGHT.
 func (c *Case) Env() []string {
-	return []string{"HERDSMAN_INBOX=" + c.Dir, "HERDSMAN_PREFLIGHT=" + c.Proof, "HERDSMAN_MESSAGES_DIR=" + c.Installed}
+	return []string{"HERDSMAN_INBOX=" + c.Dir, "HERDSMAN_PREFLIGHT=" + c.Proof}
 }

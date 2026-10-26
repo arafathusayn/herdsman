@@ -433,10 +433,10 @@ func TestGateRefusesAProofOfAnUnrelatedCopy(t *testing.T) {
 	r := newRig(t)
 	r.gojson("u1", 600, nil)
 	match(t, "the positive control", `^CONSUME u1.*rc=0`, r.consume("u1"))
-	other := filepath.Join(r.c.Base, "other", "messages", "message-lib.sh")
-	r.c.Write(other, "#!/bin/bash\n# other\n")
+	other := filepath.Join(r.c.Base, "other", "herdsman")
+	r.c.Write(other, "another binary\n")
 	r.c.Edit(r.c.Proof, func(m map[string]any) {
-		m["scripts"] = []any{map[string]any{"path": other, "checksum": r.digest(other)}}
+		m["binary"] = map[string]any{"path": other, "checksum": r.digest(other)}
 	})
 	out, code := r.gate("complete", "u1", "posted")
 	if code != 2 || !strings.Contains(out, "proof stale") {

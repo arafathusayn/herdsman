@@ -1,6 +1,6 @@
 // Package message is the adjutant message channel's commands (`herdsman
-// message ...`), ported from the skill's scripts/messages: the public
-// grammar of message.sh (status, wait, read, release, ack, send, hold,
+// message ...`), ported from the skill's former message scripts: the public
+// grammar of the old message front (status, wait, read, release, ack, send, hold,
 // unhold) and the commands it does not front (register, courier,
 // card-watch, resume-goal, authority, leak-gate). Each keeps its script's
 // arguments, environment variables and defaults, output lines, exit codes
@@ -135,7 +135,7 @@ func (e *Env) finish(err error) int {
 // options are the inbox settings of the environment.
 func (e *Env) options(readOnly bool) inbox.Options {
 	return inbox.Options{
-		Dir: e.env("HERDSMAN_INBOX"), Preflight: e.env("HERDSMAN_PREFLIGHT"), Installed: e.env("HERDSMAN_MESSAGES_DIR"),
+		Dir: e.env("HERDSMAN_INBOX"), Preflight: e.env("HERDSMAN_PREFLIGHT"),
 		HealthAfter: e.healthAfter, LockWait: e.lockWait, ReadOnly: readOnly, Now: e.Now, Sleep: e.Sleep,
 	}
 }

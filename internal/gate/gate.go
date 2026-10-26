@@ -152,7 +152,7 @@ func (g *Gate) run(args []string) exit {
 		return g.die(msg)
 	}
 	if r.ProofStale {
-		return g.die("sandbox policy or protected installation proof stale; repeat human setup")
+		return g.die("sandbox policy or protected installation proof stale; repeat human setup" + r.OldProofHint())
 	}
 	g.root = r
 	g.ap = r.Path("approvals")

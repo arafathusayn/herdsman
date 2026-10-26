@@ -25,7 +25,7 @@ func TestReviewDeltaWaitOutputFailure(t *testing.T) {
 	c := newCase(t, true)
 	c.send()
 	c.courier()
-	env := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed, "HERDR_PANE_ID": "receiver-pane", "WATCH_REQUIRED": "0", "DEADLINE": "2", "RECHECK": "1"}
+	env := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDR_PANE_ID": "receiver-pane", "WATCH_REQUIRED": "0", "DEADLINE": "2", "RECHECK": "1"}
 	e := &Env{Getenv: func(k string) string { return env[k] }, Stdout: deltaFailedWriter{}, Stderr: io.Discard, Client: herdr.New(c.srv.Socket), Now: func() time.Time { return c.now }, Sleep: func(d time.Duration) { c.now = c.now.Add(d) }}
 	code := e.Wait([]string{O})
 	out, nextCode := c.wait("receiver-pane", O)
@@ -98,7 +98,7 @@ func TestReviewDeltaDroppedStreamBackoff(t *testing.T) {
 func TestReviewDeltaD13RetainsBusyIncident(t *testing.T) {
 	c := newCase(t, true)
 	e := &Env{Getenv: func(k string) string {
-		return map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed, "LOCK_WAIT": "1"}[k]
+		return map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "LOCK_WAIT": "1"}[k]
 	}, Stdout: io.Discard, Stderr: io.Discard}
 	if err := e.open(false); err != nil {
 		t.Fatal(err)

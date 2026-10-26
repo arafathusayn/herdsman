@@ -94,7 +94,7 @@ func TestPart06Faults(t *testing.T) {
 
 	c = newCase(t, true)
 	e := &Env{Getenv: func(k string) string {
-		return map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed}[k]
+		return map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof}[k]
 	}}
 	if err := e.open(false); err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestPart06Faults(t *testing.T) {
 		now := time.Unix(at, 0)
 		var out bytes.Buffer
 		e := &Env{Getenv: func(k string) string {
-			return map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed, "WATCH_REQUIRED": "0"}[k]
+			return map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "WATCH_REQUIRED": "0"}[k]
 		}, Stdout: &out, Stderr: &out, Client: herdr.New(c.srv.Socket), Now: func() time.Time { return now }, Sleep: func(time.Duration) {}}
 		if err := e.open(false); err != nil {
 			t.Fatal(err)

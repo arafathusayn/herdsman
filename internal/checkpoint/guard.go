@@ -33,7 +33,7 @@ func Guard(ctx context.Context, c *herdr.Client, o inbox.Options, args []string)
 		return fail(msg)
 	}
 	if r.ProofStale {
-		return fail("sandbox policy or protected installation proof stale; no input")
+		return fail("sandbox policy or protected installation proof stale; no input" + r.OldProofHint())
 	}
 	if _, ok := r.Registry(); !ok {
 		return fail("registry change awaiting human approval; no input")

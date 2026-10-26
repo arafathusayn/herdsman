@@ -324,7 +324,7 @@ func TestPreflight(t *testing.T) {
 		{"another inbox", func(m map[string]any) { m["inbox"] = "/x" }},
 		{"no verified policy", func(m map[string]any) { delete(m, "policy_verified") }},
 		{"no rules", func(m map[string]any) { m["rules"] = []any{} }},
-		{"scripts not a list", func(m map[string]any) { m["scripts"] = "x" }},
+		{"an old proof that lists scripts", func(m map[string]any) { m["scripts"] = []any{} }},
 		{"an extra key in an entry", func(m map[string]any) { m["rules"].([]any)[0].(map[string]any)["x"] = 1 }},
 		{"a relative path", func(m map[string]any) { m["rules"].([]any)[0].(map[string]any)["path"] = "rel" }},
 		{"a path with a tab", func(m map[string]any) { m["rules"].([]any)[0].(map[string]any)["path"] = "/a\tb" }},
@@ -333,34 +333,11 @@ func TestPreflight(t *testing.T) {
 		{"a listed file that is gone", func(m map[string]any) {
 			m["rules"].([]any)[0].(map[string]any)["path"] = filepath.Join(c.Base, "gone")
 		}},
-		{"a script listed twice", func(m map[string]any) { m["scripts"] = append(m["scripts"].([]any), m["scripts"].([]any)[0]) }},
-		{"Z1b a script of the folder missing from the proof", func(m map[string]any) {
-			var keep []any
-			for _, s := range m["scripts"].([]any) {
-				if !strings.HasSuffix(s.(map[string]any)["path"].(string), "/message.sh") {
-					keep = append(keep, s)
-				}
-			}
-			m["scripts"] = keep
-		}},
-		{"Z1c an adapter beside the folder missing from the proof", func(m map[string]any) {
-			var keep []any
-			for _, s := range m["scripts"].([]any) {
-				if !strings.HasSuffix(s.(map[string]any)["path"].(string), "/approval-gate.sh") {
-					keep = append(keep, s)
-				}
-			}
-			m["scripts"] = keep
-		}},
-		{"no message-lib.sh listed", func(m map[string]any) {
-			var keep []any
-			for _, s := range m["scripts"].([]any) {
-				if !strings.HasSuffix(s.(map[string]any)["path"].(string), "/message-lib.sh") {
-					keep = append(keep, s)
-				}
-			}
-			m["scripts"] = keep
-		}},
+		{"no binary entry", func(m map[string]any) { delete(m, "binary") }},
+		{"a binary of another path", func(m map[string]any) { m["binary"].(map[string]any)["path"] = "/x/herdsman" }},
+		{"a binary checksum that differs", func(m map[string]any) { m["binary"].(map[string]any)["checksum"] = "1-2" }},
+		{"an extra key in the binary entry", func(m map[string]any) { m["binary"].(map[string]any)["x"] = 1 }},
+		{"a binary entry that is not an object", func(m map[string]any) { m["binary"] = "x" }},
 	}
 	for _, tc := range cases {
 		c.Prove()
@@ -729,43 +706,47 @@ func TestAuthority(t *testing.T) {
 	}
 }
 
-// R2 finding 1: the installation the proof is checked against comes from
-// the caller (Options.Installed, HERDSMAN_MESSAGES_DIR), never from the
-// proof. A proof that lists only an unrelated copy of message-lib.sh is
-// stale, and so is any proof when no installed folder is configured.
-func TestPreflightTrustsOnlyTheConfiguredInstallation(t *testing.T) {
+// The binary the proof is checked against comes from the caller
+// (Options.Executable, "" for the running binary), never from the proof: a
+// proof of another binary is stale, and so is any proof for a relative or
+// missing binary. An old proof that lists scripts is stale, and the error
+// says how to set up again (scope 5 of the CLI port).
+func TestPreflightTrustsOnlyTheNamedBinary(t *testing.T) {
 	c := inboxtest.New(t)
-	openWith := func(installed string) bool {
+	openWith := func(exe string) bool {
 		o := c.Options(true)
-		o.Installed = installed
+		o.Executable = exe
 		r, err := inbox.Open(o)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return r.PreflightValid()
 	}
-	if !openWith(c.Installed) {
-		t.Fatal("the positive control: the proof of the configured installation is stale")
+	if !openWith("") || !openWith(inbox.RunningExecutable()) {
+		t.Fatal("the positive control: the proof of the running binary is stale")
 	}
+	other := filepath.Join(c.Base, "other", "herdsman")
+	c.Write(other, "another binary\n")
+	if openWith(other) {
+		t.Error("a proof of the running binary passed for another binary")
+	}
+	if openWith("rel/herdsman") {
+		t.Error("a relative binary: the proof passed")
+	}
+	if openWith(filepath.Join(c.Base, "gone")) {
+		t.Error("a binary that is gone: the proof passed")
+	}
+	c.Edit(c.Proof, func(m map[string]any) {
+		m["scripts"] = []any{map[string]any{"path": other, "checksum": "1-1"}}
+	})
 	if openWith("") {
-		t.Error("no configured installation: the proof passed")
+		t.Error("an old proof that lists scripts passed")
 	}
-	if openWith("rel/messages") {
-		t.Error("a relative installation: the proof passed")
-	}
-	if openWith(filepath.Join(c.Base, "none")) {
-		t.Error("an installation folder that is gone: the proof passed")
-	}
-	// The unrelated copy: the proof lists only it (and the rule).
-	other := filepath.Join(c.Base, "other", "messages", "message-lib.sh")
-	c.Write(other, "#!/bin/bash\n# other\n")
-	sum, _ := inbox.DigestFile(other)
-	c.Edit(c.Proof, func(m map[string]any) { m["scripts"] = []any{map[string]any{"path": other, "checksum": sum}} })
-	if openWith(c.Installed) {
-		t.Error("a proof of an unrelated copy passed for the configured installation")
-	}
-	if openWith("") {
-		t.Error("a proof of an unrelated copy passed with no configured installation")
+	_, err := inbox.Open(c.Options(false))
+	fatal(t, err, "repeat human setup (the proof lists .scripts[], the form from before the herdsman binary; the scripts are gone: replace .scripts[] with \"binary\"")
+	c.Prove()
+	if _, err := inbox.Open(c.Options(false)); err != nil {
+		t.Errorf("the binary proof after setup again: %v", err)
 	}
 }
 
@@ -852,47 +833,3 @@ func TestAuthorityBoundaryTriggers(t *testing.T) {
 	}
 }
 
-// R3 finding 1: an installation folder whose path holds [ is listed
-// literally; a proof that lists only an unrelated script stays stale, and
-// the proof of every installed script is the positive control.
-func TestPreflightInstallationWithBrackets(t *testing.T) {
-	for _, name := range []string{"skill[", "skill[x]"} {
-		c := inboxtest.New(t)
-		installed := filepath.Join(c.Base, name, "messages")
-		var scripts []any
-		for _, s := range []string{"message-lib.sh", "message-send.sh"} {
-			p := filepath.Join(installed, s)
-			c.Write(p, "#!/bin/bash\n# "+s+"\n")
-			sum, _ := inbox.DigestFile(p)
-			scripts = append(scripts, map[string]any{"path": p, "checksum": sum})
-		}
-		other := filepath.Join(c.Base, "other", "x.sh")
-		c.Write(other, "#!/bin/bash\n")
-		osum, _ := inbox.DigestFile(other)
-		valid := func() bool {
-			o := c.Options(true)
-			o.Installed = installed
-			r, err := inbox.Open(o)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return r.PreflightValid()
-		}
-		c.Edit(c.Proof, func(m map[string]any) { m["scripts"] = []any{map[string]any{"path": other, "checksum": osum}} })
-		if valid() {
-			t.Errorf("%s: a proof of an unrelated script passed", name)
-		}
-		c.Edit(c.Proof, func(m map[string]any) { m["scripts"] = scripts })
-		if !valid() {
-			t.Errorf("%s: the proof of every installed script is stale", name)
-		}
-		// A folder that cannot be listed (search but no read permission) fails closed.
-		if os.Geteuid() != 0 {
-			_ = os.Chmod(installed, 0o300)
-			if valid() {
-				t.Errorf("%s: an installation that cannot be listed passed", name)
-			}
-			_ = os.Chmod(installed, 0o755)
-		}
-	}
-}

@@ -13,22 +13,12 @@ import (
 )
 
 // Channel is an inbox opened by a herdsman message command: the inbox and
-// the herdsman executable the setup proof may name.
-//
-// The setup proof has two forms. The script form lists every installed
-// channel script and adapter under .scripts[] (PreflightValid). The binary
-// form, written by a setup after the port, names the herdsman executable
-// instead:
-//
-//	{"inbox":..., "policy_verified":true, "rules":[{"path":...,"checksum":...}],
-//	 "binary":{"path":"/abs/herdsman","checksum":"<crc>-<size>"}}
-//
-// A command accepts either form, so an inbox set up before the port keeps
-// working while the scripts exist.
+// the herdsman executable the setup proof names (binary form only; see
+// Root.PreflightValid).
 type Channel struct {
 	*Root
 	// Executable is the absolute path of the running herdsman binary, links
-	// resolved; "" accepts no binary proof.
+	// resolved; "" accepts no proof.
 	Executable string
 	// Owner, when set, answers whether this run owns the shared input lock
 	// (lockDir) and keeps that answer fixed while fn runs: a signal frees
@@ -37,25 +27,25 @@ type Channel struct {
 	Owner func(lockDir string, fn func(held bool) error) error
 }
 
-// OpenChannel opens an inbox as Open does, accepting a binary proof of exe
-// where the script proof does not verify.
+// OpenChannel opens an inbox as Open does, with exe (when set) as the
+// herdsman binary the setup proof must name.
 func OpenChannel(o Options, exe string) (*Channel, error) {
 	ro := o
 	ro.ReadOnly = true
+	if exe != "" {
+		ro.Executable = exe
+	}
 	r, err := Open(ro)
 	if err != nil {
 		return nil, err
 	}
 	r.ReadOnly = o.ReadOnly
-	ch := &Channel{Root: r, Executable: exe}
+	ch := &Channel{Root: r, Executable: r.Executable}
 	if r.TimingStale && !o.ReadOnly {
 		return nil, die("invalid or conflicting shared timing configuration")
 	}
-	if r.ProofStale && ch.BinaryProofValid() {
-		r.ProofStale = false
-	}
 	if r.ProofStale && !o.ReadOnly {
-		return nil, die("sandbox policy or protected installation proof stale; repeat human setup")
+		return nil, die("sandbox policy or protected installation proof stale; repeat human setup%s", r.OldProofHint())
 	}
 	if !o.ReadOnly {
 		for _, d := range []string{"state", "ids", "enrolled", "alerts"} {
@@ -67,56 +57,15 @@ func OpenChannel(o Options, exe string) (*Channel, error) {
 	return ch, nil
 }
 
-// ProofValid is preflight_valid for either proof form.
+// ProofValid is preflight_valid: the binary proof of ch.Executable.
 func (ch *Channel) ProofValid() bool {
-	return ch.PreflightValid() || ch.BinaryProofValid()
+	return ch.BinaryProofValid()
 }
 
-// BinaryProofValid checks the binary form of the setup proof: the proof
-// names this inbox with a verified policy, lists rules (each an absolute
-// path and a checksum, every one matching) and names the running herdsman
-// executable with its checksum.
+// BinaryProofValid checks the setup proof against the channel's
+// executable (Root.PreflightValid with ch.Executable).
 func (ch *Channel) BinaryProofValid() bool {
-	r := ch.Root
-	exe := ch.Executable
-	if exe == "" || !filepath.IsAbs(exe) || r.Preflight == "" || r.Preflight != r.Path("setup.json") {
-		return false
-	}
-	b, ok := ReadStrict(r.Dir, r.Preflight)
-	if !ok {
-		return false
-	}
-	v, _ := Decode(b)
-	proof := Object(v)
-	if proof == nil || proof["inbox"] != r.Dir || proof["policy_verified"] != true {
-		return false
-	}
-	rules, rok := proof["rules"].([]any)
-	if !rok || len(rules) == 0 {
-		return false
-	}
-	entries := append(append([]any{}, rules...), proof["binary"])
-	for i, e := range entries {
-		m := Object(e)
-		if len(m) != 2 {
-			return false
-		}
-		p, pok := String(m, "path")
-		c, cok := String(m, "checksum")
-		if !pok || !cok || !strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\t\r\n\\") || !checksumShape(c) {
-			return false
-		}
-		if i == len(entries)-1 && p != exe {
-			return false
-		}
-		if !Regular(r.Dir, p) {
-			return false
-		}
-		if sum, err := DigestFileCached(p); err != nil || sum != c {
-			return false
-		}
-	}
-	return true
+	return ch.binaryProofValid(ch.Executable)
 }
 
 // cksumTable is POSIX cksum's CRC table (polynomial 0x04C11DB7, MSB first).

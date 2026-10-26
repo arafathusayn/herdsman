@@ -412,8 +412,6 @@ func TestMissingRequiredSettingsExit2(t *testing.T) {
 		{"watch prs STATE", map[string]string{"HERDSMAN_PRS": "7", "HERDSMAN_REPO": "o/r", "HERDSMAN_PR_STATE": ""}, []string{"watch", "prs"}, line("watch prs", "HERDSMAN_PR_STATE")},
 		{"approval-gate consume", map[string]string{"HERDSMAN_INBOX": ""}, []string{"approval-gate", "consume", "/x/go", "push", "t", "r", "-"}, line("approval-gate", "HERDSMAN_INBOX")},
 		{"approval-gate complete", map[string]string{"HERDSMAN_INBOX": ""}, []string{"approval-gate", "complete", "id", "done"}, line("approval-gate", "HERDSMAN_INBOX")},
-		// Review head-2 P2: an unconfigured install is told apart from a changed proof.
-		{"approval-gate MESSAGES_DIR", map[string]string{"HERDSMAN_INBOX": t.TempDir(), "HERDSMAN_MESSAGES_DIR": ""}, []string{"approval-gate", "consume", "/x/go", "push", "t", "r", "-"}, line("approval-gate", "HERDSMAN_MESSAGES_DIR")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for k, v := range tc.env {
@@ -430,7 +428,7 @@ func TestMissingRequiredSettingsExit2(t *testing.T) {
 // Review head-2 P2: approval-gate --help names the settings it needs.
 func TestGateHelpNamesItsSettings(t *testing.T) {
 	out, _, code := call(t, "approval-gate", "--help")
-	for _, s := range []string{"HERDSMAN_INBOX", "HERDSMAN_MESSAGES_DIR", "HERDSMAN_PREFLIGHT", "HEALTH_AFTER", "LOCK_WAIT"} {
+	for _, s := range []string{"HERDSMAN_INBOX", "HERDSMAN_PREFLIGHT", "HEALTH_AFTER", "LOCK_WAIT"} {
 		if code != 0 || !strings.Contains(out, s) {
 			t.Errorf("approval-gate --help does not name %s: %d %q", s, code, out)
 		}

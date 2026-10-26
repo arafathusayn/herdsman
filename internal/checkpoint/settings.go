@@ -31,11 +31,11 @@ func interval(v string) (time.Duration, error) {
 
 // InboxSettings reads the inbox settings the checkpointer and its guard
 // pass to the inbox, checked at start and in canonical form (LOCK_WAIT=06
-// becomes 6): HERDSMAN_INBOX, HERDSMAN_PREFLIGHT, HERDSMAN_MESSAGES_DIR,
+// becomes 6): HERDSMAN_INBOX, HERDSMAN_PREFLIGHT,
 // HEALTH_AFTER (1 to 86400, unset keeps the stored value) and LOCK_WAIT (1
 // to 60, default 6).
 func InboxSettings(getenv func(string) string) (inbox.Options, error) {
-	o := inbox.Options{Dir: getenv("HERDSMAN_INBOX"), Preflight: getenv("HERDSMAN_PREFLIGHT"), Installed: getenv("HERDSMAN_MESSAGES_DIR")}
+	o := inbox.Options{Dir: getenv("HERDSMAN_INBOX"), Preflight: getenv("HERDSMAN_PREFLIGHT")}
 	if v := getenv("HEALTH_AFTER"); v != "" {
 		n, err := settings.Int("HEALTH_AFTER", v, 0, 1, 86400)
 		if err != nil {
