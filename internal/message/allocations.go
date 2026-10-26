@@ -95,7 +95,11 @@ func (c *courier) retireAbandoned() error {
 		if errors.Is(serr, fs.ErrNotExist) {
 			// Marked but never allocated (a cut before the mkdir or the
 			// copy): the mark goes once it is old. Only an explicit absence
-			// counts: a folder that cannot be searched keeps its mark.
+			// under real folders counts: a folder that cannot be searched, a
+			// link or a dangling parent keeps its mark (review 4, 5).
+			if !absentUnderRealFolders(e.path("ids"), d) {
+				continue
+			}
 			if mt, err := os.Lstat(mark); err == nil && e.unix()-mt.ModTime().Unix() >= abandonAfter {
 				_ = os.Remove(mark)
 			}
@@ -104,12 +108,13 @@ func (c *courier) retireAbandoned() error {
 		if serr != nil || !st.Mode().IsRegular() || e.unix()-st.ModTime().Unix() < abandonAfter {
 			continue // unclear, or young: a human may have moved the entry aside for a moment
 		}
-		// Only a valid envelope for this id, whose recipient has no entry in
-		// any of its queue folders, is abandoned; anything unclear stays
-		// for a human (a live queue entry is never retired).
+		// Only a valid envelope for this id is abandoned, and only while the
+		// id (unique across the channel) has no entry in any approved
+		// mailbox's queue folders nor its named recipient's; anything
+		// unclear stays for a human (a live queue entry is never retired).
 		m, ok := inbox.AllocationEnvelope(e.ch.Dir, env, id)
 		to, _ := m["to"].(string)
-		if !ok || !inbox.NameOK(to) || queuedAnywhere(e, to, id) {
+		if !ok || !inbox.NameOK(to) || queuedInChannel(e, to, id) {
 			continue
 		}
 		if err := e.ch.Atomic(filepath.Join(d, "terminal.json"), pretty(obj("id", id, "state", "abandoned"))); err != nil {
@@ -121,6 +126,36 @@ func (c *courier) retireAbandoned() error {
 		}
 	}
 	return nil
+}
+
+// absentUnderRealFolders reports whether the allocation folder d is
+// explicitly absent, or a real folder, directly under ids, itself a real
+// folder (no link, no dangling parent).
+func absentUnderRealFolders(ids, d string) bool {
+	if st, err := os.Lstat(ids); err != nil || !st.IsDir() {
+		return false
+	}
+	st, err := os.Lstat(d)
+	return errors.Is(err, fs.ErrNotExist) || (err == nil && st.IsDir())
+}
+
+// queuedInChannel reports whether id has an entry in the queue folders of
+// to or of any approved peer; a registry that cannot be read counts as
+// holding it.
+func queuedInChannel(e *Env, to, id string) bool {
+	peers, ok := e.ch.Registry()
+	if !ok {
+		return true
+	}
+	if queuedAnywhere(e, to, id) {
+		return true
+	}
+	for _, p := range peers {
+		if queuedAnywhere(e, p.Name, id) {
+			return true
+		}
+	}
+	return false
 }
 
 // queuedAnywhere reports whether id has an entry in one of to's queue
