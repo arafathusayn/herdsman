@@ -4364,3 +4364,44 @@ mark {
   padding: 0;
   border: 0;
 }
+
+/* The recommended setup's switch, its summary, and the previous choice. */
+.nr-recommended {
+  margin-bottom: 12px;
+}
+
+.nr-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 12px;
+}
+
+.nr-summary dt {
+  font-weight: 600;
+}
+
+.nr-summary dd {
+  margin: 0;
+  color: var(--faint);
+}
+
+@media (max-width: 560px) {
+  .nr-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nr-previous {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}

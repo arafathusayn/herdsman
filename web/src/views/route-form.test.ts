@@ -70,7 +70,7 @@ interface Harness {
   debounce: (() => void)[];
 }
 
-async function mountForm(answer?: Promise<RouteResult>): Promise<Harness> {
+async function mountForm(answer?: Promise<RouteResult>, keepRecommended = false): Promise<Harness> {
   const { routeForm } = await import("./route-form.ts");
   const body = document.createElement("form") as unknown as FakeElement;
   const h: Partial<Harness> = { sent: [], reads: [], debounce: [] };
@@ -98,6 +98,13 @@ async function mountForm(answer?: Promise<RouteResult>): Promise<Harness> {
     },
   };
   const r = routeForm(body as unknown as HTMLElement, catalog, state, deps);
+  // These tests drive every field, so they start with the recommended setup off.
+  if (!keepRecommended) {
+    const rec = byName(body, "recommended");
+    rec.checked = false;
+    rec.dispatch("change");
+    byName(body, "role-orchestrator").dispatch("click");
+  }
   return { ...(h as Harness), body, form: r.form };
 }
 
@@ -297,4 +304,342 @@ test("a free-text model the orchestrator inherits shows in its own input and is 
   type(byName(f.body, "orchName"), "orch-2");
   submit(f.body);
   expect([f.sent[0]?.model, f.sent[0]?.orch_model]).toEqual(["m-c", "own"]);
+});
+
+// A32: the recommended setup is on at first: its summary shows, the role and
+// the checkpointer are folded, and the route it sends is the orchestrator's
+// with the checkpointer on.
+test("the recommended setup folds its fields into one summary", async () => {
+  const f = await mountForm(undefined, true);
+  expect(box(f.body, "recommended-summary")).toBeDefined();
+  expect(find(f.body, (e) => e.getAttribute?.("name") === "role-adjutant")).toBeUndefined();
+  expect(box(f.body, "checkpointer")).toBeUndefined();
+  expect(f.form().recommended).toBe(true);
+  // The recommended setup has an adjutant beside the orchestrator, with the default names.
+  expect(f.form()).toMatchObject({ role: "adjutant", name: "adj-1", orchName: "orch-1" });
+  const rec = byName(f.body, "recommended");
+  rec.checked = false;
+  rec.dispatch("change");
+  expect(box(f.body, "recommended-summary")).toBeUndefined();
+  expect(byName(f.body, "role-adjutant")).toBeDefined();
+  expect(box(f.body, "checkpointer")).toBeDefined();
+});
+
+// A32: the probed GitHub account fills the confirmation; the user may pick
+// another account that can read the repository, and it goes with the request.
+test("the probed GitHub account is offered for confirmation", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const sent: RouteRequest[] = [];
+  const asked: string[] = [];
+  routeForm(body as unknown as HTMLElement, catalog, state, {
+    createRoute: (r) => {
+      sent.push(r);
+      return Promise.resolve({ ok: true, steps: [], tabs: [] } as RouteResult);
+    },
+    inboxState: () => new Promise(() => {}),
+    state: () => state,
+    copy: () => {},
+    openPane: () => {},
+    close: () => {},
+    failed: () => {},
+    every: () => () => {},
+    later: () => () => {},
+    github: (folder) => {
+      asked.push(folder);
+      return Promise.resolve({
+        repo: "o/r",
+        accounts: [
+          { name: "user-a", active: true, can_read: true },
+          { name: "user-b", active: false, can_read: true },
+        ],
+        suggested: "user-a",
+      });
+    },
+  });
+  // Start waits for the probe.
+  expect(byName(body, "start").disabled).toBe(true);
+  submit(body);
+  expect(sent.length).toBe(0);
+  await flush();
+  expect(asked.length).toBe(1);
+  const picked = () => byName(body, "ghAccount").children.find((o) => o.selected)?.value;
+  // The probed account is marked, not chosen for the user: Start waits for the pick.
+  expect(picked()).toBe("");
+  expect(byName(body, "start").disabled).toBe(true);
+  choose(byName(body, "ghAccount"), "user-b");
+  expect(picked()).toBe("user-b");
+  expect(byName(body, "start").disabled).toBe(false);
+  // A new folder clears the account; its own probe runs.
+  type(byName(body, "folder"), "/r/other");
+  expect(asked).toEqual(["/r/repo", "/r/other"]);
+  expect(byName(body, "start").disabled).toBe(true);
+  await flush();
+  expect(picked()).toBe("");
+});
+
+test("a repository no account can read says how to log in", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  routeForm(body as unknown as HTMLElement, catalog, state, {
+    createRoute: () => new Promise(() => {}),
+    inboxState: () => new Promise(() => {}),
+    state: () => state,
+    copy: () => {},
+    openPane: () => {},
+    close: () => {},
+    failed: () => {},
+    every: () => () => {},
+    later: () => () => {},
+    github: () => Promise.resolve({ repo: "o/r", accounts: [], suggested: "", error: "no origin remote" }),
+  });
+  await flush();
+  expect(box(body, "ghAccount")?.textContent).toContain("no origin remote");
+  // Nothing to confirm: Start is open.
+  expect(byName(body, "start").disabled).toBe(false);
+});
+
+// A32: the custom path asks every setup item; the answers go in the setup.
+test("the custom path asks each setup item and sends the answers", async () => {
+  const f = await mountForm();
+  const { SETUP_QUESTIONS } = await import("../new-route.ts");
+  for (const [item] of SETUP_QUESTIONS) expect(byName(f.body, `custom-${item}`)).toBeDefined();
+  type(byName(f.body, "custom-Integration"), "one combined branch");
+  submit(f.body);
+  const s = f.sent[0]?.setup;
+  expect(s?.recommended).toBe(false);
+  expect(s?.answers.find((a) => a.item === "Integration")?.answer).toBe("one combined branch");
+  expect(s?.answers.find((a) => a.item === "Merge")?.answer).toBe("");
+  expect(s?.roles[0]?.role).toBe("orchestrator");
+});
+
+// A30: "Yes" to the previous choice fills the roles from the saved picks at
+// once; a role with no saved pick, or one the lists no longer offer, is
+// asked again by name, never skipped in silence.
+test("use previous choice asks again for a role without a usable pick", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const pick = (role: string, harness: string, model: string, effort: string) => ({
+    role,
+    runner: "herdr",
+    harness,
+    model,
+    effort,
+    route: "",
+    at: "",
+  });
+  const deps = {
+    createRoute: () => new Promise<RouteResult>(() => {}),
+    inboxState: () => new Promise<InboxState>(() => {}),
+    state: () => state,
+    copy: () => {},
+    openPane: () => {},
+    close: () => {},
+    failed: () => {},
+    every: () => () => {},
+    later: () => () => {},
+  } as Deps;
+  // The recommended setup has an adjutant; only the orchestrator was saved.
+  let body = document.createElement("form") as unknown as FakeElement;
+  let r = routeForm(
+    body as unknown as HTMLElement,
+    { ...catalog, previous: [pick("orchestrator", "codex", "gpt-5.6-luna", "low")] },
+    state,
+    deps,
+    {
+      usePrevious: true,
+    },
+  );
+  expect(r.form().orch).toMatchObject({ kind: "codex", model: "gpt-5.6-luna", effort: "low" });
+  expect(box(body, "main")?.textContent).toContain("No saved choice for the adjutant");
+  // A saved model the lists no longer offer is asked again too.
+  body = document.createElement("form") as unknown as FakeElement;
+  r = routeForm(
+    body as unknown as HTMLElement,
+    {
+      ...catalog,
+      previous: [pick("adjutant", "claude", "fable", "high"), pick("orchestrator", "pi", "typed", "high")],
+    },
+    state,
+    deps,
+    { usePrevious: true },
+  );
+  expect(r.form().main).toMatchObject({ kind: "claude", model: "fable", effort: "high" });
+  expect(box(body, "orch")?.textContent).toContain("does not say how to pass its effort: pick again");
+  expect(box(body, "main")?.textContent ?? "").not.toContain("pick");
+});
+
+// P2: the recommended summary shows the effective checkpointer: Off when
+// the script is missing, as the request sends it.
+test("the recommended summary says the checkpointer is off when unavailable", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const sent: RouteRequest[] = [];
+  routeForm(
+    body as unknown as HTMLElement,
+    { ...catalog, checkpointer_ok: false, checkpointer_why: "no checkpointer.sh" },
+    state,
+    {
+      createRoute: (r) => {
+        sent.push(r);
+        return new Promise(() => {});
+      },
+      inboxState: () => new Promise(() => {}),
+      state: () => state,
+      copy: () => {},
+      openPane: () => {},
+      close: () => {},
+      failed: () => {},
+      every: () => () => {},
+      later: () => () => {},
+    },
+  );
+  const dd = find(body, (e) => e.dataset?.["item"] === "Checkpointer");
+  expect(dd?.textContent).toBe("Off: no checkpointer.sh");
+});
+
+// review-3: the probed lists update the form in place; the draft stays.
+test("setCatalog keeps the draft and each role's saved pick", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const pick = {
+    role: "orchestrator",
+    runner: "herdr",
+    harness: "claude",
+    model: "fable",
+    effort: "low",
+    route: "",
+    at: "",
+  };
+  const deps = {
+    createRoute: () => new Promise<RouteResult>(() => {}),
+    inboxState: () => new Promise<InboxState>(() => {}),
+    state: () => state,
+    copy: () => {},
+    openPane: () => {},
+    close: () => {},
+    failed: () => {},
+    every: () => () => {},
+    later: () => () => {},
+  } as Deps;
+  const r = routeForm(body as unknown as HTMLElement, { ...catalog, previous: [pick] }, state, deps);
+  const rec = byName(body, "recommended");
+  rec.checked = false;
+  rec.dispatch("change");
+  byName(body, "role-orchestrator").dispatch("click");
+  type(byName(body, "request"), "keep this task");
+  type(byName(body, "folder"), "/r/kept");
+  const claude = catalog.kinds[0]!;
+  r.setCatalog({
+    ...catalog,
+    kinds: [
+      { ...claude, models: claude.models.map((m) => ({ ...m, efforts: ["medium", "high"] })) },
+      ...catalog.kinds.slice(1),
+    ],
+  });
+  expect(r.form().request).toBe("keep this task");
+  expect(r.form().folder).toBe("/r/kept");
+  // Each role keeps its own saved pick exactly, whatever the new lists say.
+  expect(r.form().main).toMatchObject({ kind: "claude", model: "fable" });
+  expect(box(body, "main")?.textContent ?? "").not.toContain("pick again");
+});
+
+const bareDeps = {
+  createRoute: () => new Promise<RouteResult>(() => {}),
+  inboxState: () => new Promise<InboxState>(() => {}),
+  state: () => state,
+  copy: () => {},
+  openPane: () => {},
+  close: () => {},
+  failed: () => {},
+  every: () => () => {},
+  later: () => () => {},
+} as Deps;
+
+// A29 step 2: a harness listed through its own command shows that command
+// as its model docs when it has no web page.
+test("a kind listed through its own command shows that command as its model docs", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const muse = {
+    ...catalog.kinds[1]!,
+    kind: "muse",
+    label: "Muse",
+    docs_command: "muse model-profile show <model>",
+  };
+  routeForm(body as unknown as HTMLElement, { ...catalog, kinds: [muse] }, state, bareDeps);
+  const docs = all(body).find((e) => e.dataset["docs"] === "main");
+  expect(docs?.textContent).toContain("muse model-profile show <model>");
+});
+
+// A32: the answer to "Use the recommended setup?" carries into the form.
+test("a custom setup answer opens the form with the recommended setup off", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  routeForm(body as unknown as HTMLElement, catalog, state, bareDeps, { recommended: false });
+  expect(byName(body, "recommended").checked).toBe(false);
+  const again = document.createElement("form") as unknown as FakeElement;
+  routeForm(again as unknown as HTMLElement, catalog, state, bareDeps, { recommended: true });
+  expect(byName(again, "recommended").checked).toBe(true);
+});
+
+// The real form: after "Use previous choice" with only the adjutant saved,
+// choosing the orchestrator role does not offer the adjutant's model.
+test("the orchestrator role is not offered the adjutant's saved model", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const adjPick = {
+    role: "adjutant",
+    runner: "herdr",
+    harness: "claude",
+    model: "adj-only",
+    effort: "low",
+    route: "",
+    at: "",
+  };
+  const r = routeForm(body as unknown as HTMLElement, { ...catalog, previous: [adjPick] }, state, bareDeps, {
+    usePrevious: true,
+    recommended: false,
+  });
+  const values = (name: string) => byName(body, name).children.map((o) => o.value);
+  expect(values("main-model")).toContain("adj-only");
+  byName(body, "role-orchestrator").dispatch("click");
+  expect(values("main-model")).not.toContain("adj-only");
+  expect(r.form().main.model).not.toBe("adj-only");
+});
+
+// A form opened from the saved picks alone can still change them: it
+// offers to read the harness lists, and asks for them itself when a role
+// without a saved pick is chosen.
+test("a form from saved picks alone asks for the lists when a fresh choice is needed", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const orch = {
+    role: "orchestrator",
+    runner: "herdr",
+    harness: "claude",
+    model: "fable",
+    effort: "medium",
+    route: "",
+    at: "",
+  };
+  const fromPicks: Catalog = {
+    ...catalog,
+    from_picks: true,
+    kinds: [{ ...catalog.kinds[0]!, saved: true, models: catalog.kinds[0]!.models.slice(0, 1) }],
+    previous: [orch],
+  };
+  let asked = 0;
+  const r = routeForm(body as unknown as HTMLElement, fromPicks, state, bareDeps, {
+    usePrevious: true,
+    recommended: false,
+    needLists: () => void asked++,
+  });
+  byName(body, "role-orchestrator").dispatch("click");
+  expect(asked).toBe(0);
+  byName(body, "choose-lists").dispatch("click");
+  expect(asked).toBe(1);
+  byName(body, "role-adjutant").dispatch("click");
+  expect(asked).toBe(2);
+  r.setCatalog({ ...catalog, previous: [orch] });
+  expect(all(body).some((e) => e.getAttribute?.("name") === "choose-lists")).toBe(false);
 });

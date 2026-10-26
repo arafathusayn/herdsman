@@ -88,7 +88,7 @@ export async function startAgent(pane: string, kinds: string[]): Promise<void> {
       {
         name: "args",
         label: "Arguments",
-        placeholder: "--model … --effort high",
+        placeholder: "--model <model> --effort <effort>",
         hint: "Passed to the agent as written; quotes group words",
       },
     ],

@@ -1,30 +1,42 @@
 import { expect, test } from "bun:test";
 
 import {
+  accountOptions,
   checklist,
   checkpointerAvailable,
   checkpointerOn,
   defaultEffort,
+  effortOptions,
   effortsFor,
   formField,
+  harnessFromPick,
   inboxKey,
   initialForm,
   kindOf,
   knownFolders,
+  missingPicks,
+  newForm,
   OTHER,
   parseLimit,
   pickHarness,
+  pickSummary,
   preview,
+  previousPicks,
   projectLabel,
   quoteArg,
+  RECOMMENDED_SETUP,
   type RouteForm,
   setHarness,
+  setRecommended,
   setRole,
+  SETUP_QUESTIONS,
+  setupOf,
   skillWarnings,
   stepNote,
   tilde,
   toRequest,
   update,
+  usePrevious,
   validate,
 } from "./new-route.ts";
 import type { Catalog, State } from "./types.ts";
@@ -135,6 +147,20 @@ test("models and efforts come from the harness's own list", () => {
   expect(effortsFor(cx, OTHER)).toEqual([]);
   expect(effortsFor(kindOf(catalog, "pi"), "x")).toEqual([]);
   expect(defaultEffort(undefined, "x")).toBe("");
+  // The harness's default is marked; with none, a blank choice comes first.
+  expect(effortOptions(cx, "gpt-6.1-sol")).toEqual([
+    ["low", "low"],
+    ["high", "high (harness default)"],
+  ]);
+  expect(effortOptions(kindOf(catalog, "claude"), OTHER)[0]).toEqual(["", "Choose an effort…"]);
+  expect(effortOptions(undefined, "x")).toEqual([]);
+  // No default reported: none is picked, even when the list has a middle level.
+  const none = {
+    ...cx!,
+    models: [{ id: "model-a", label: "model-a", efforts: ["low", "medium"], default_effort: "" }],
+  };
+  expect(defaultEffort(none, "model-a")).toBe("");
+  expect(defaultEffort(kindOf(catalog, "claude"), OTHER)).toBe("");
   const h = pickHarness(catalog, fresh().main, { kind: "codex" });
   expect(h).toEqual({ kind: "codex", model: "gpt-6.1-sol", other: "", effort: "high" });
   expect(pickHarness(catalog, h, { model: "gpt-5.6-luna" }).effort).toBe("high");
@@ -276,6 +302,7 @@ test("the request body carries the form's values", () => {
     name: "orch-9",
     request: "",
     checkpointer: { on: true, minutes: 15, limit: 1000000 },
+    setup: setupOf(f, catalog),
   });
   const a = toRequest({ ...setRole(fresh(), "adjutant"), orchName: "o2" }, catalog);
   expect([a.orch_name, a.orch_kind, a.orch_model, a.orch_effort, a.route_name, a.inbox]).toEqual([
@@ -372,4 +399,278 @@ test("the checklist follows the form and counts only the current pair's approval
   );
   expect(inboxKey(f)).not.toBe(inboxKey({ ...f, orchName: "orch-2" }));
   expect(inboxKey(f)).not.toBe(inboxKey({ ...f, inbox: "~/other" }));
+});
+
+// A30: the previous choice fills each role's harness, model and effort.
+test("the previous choice fills the form's roles from the saved picks", () => {
+  const pick = (role: string, harness: string, model: string, effort: string, runner = "herdr") => ({
+    role,
+    runner,
+    harness,
+    model,
+    effort,
+    route: "",
+    at: "2026-10-25T13:00:00Z",
+  });
+  const c: Catalog = {
+    ...catalog,
+    previous: [
+      pick("adjutant", "codex", "gpt-5.6-luna", "low"),
+      pick("orchestrator", "claude", "custom-model-1", "max"),
+      pick("reviewer", "codex", "gpt-6.1-sol", "high", "subagent"),
+    ],
+  };
+  const orch = initialForm(c, null);
+  expect(previousPicks(orch, c).map((p) => p.role)).toEqual(["orchestrator"]);
+  // Each role takes its own saved pick exactly, whatever the lists say.
+  const filled = usePrevious(orch, c);
+  expect(filled.main).toEqual({ kind: "claude", model: "custom-model-1", other: "", effort: "max" });
+  expect(filled.saved.orchestrator?.model).toBe("custom-model-1");
+  const adj = setRole(orch, "adjutant");
+  expect(previousPicks(adj, c).map(pickSummary)).toEqual([
+    "adjutant (herdr): codex gpt-5.6-luna, effort low",
+    "orchestrator (herdr): claude custom-model-1, effort max",
+  ]);
+  const both = usePrevious(adj, c);
+  expect(both.main).toEqual({ kind: "codex", model: "gpt-5.6-luna", other: "", effort: "low" });
+  expect(both.orch.model).toBe("custom-model-1");
+  expect(both.orchEdited).toBe(true);
+  // A pick is taken as saved; only an effort without its option is not.
+  expect(harnessFromPick(pick("x", "codex", "model-gone", "effortz"))).toEqual({
+    kind: "codex",
+    model: "model-gone",
+    other: "",
+    effort: "effortz",
+  });
+  expect(harnessFromPick(pick("x", "pi", "typed", "high"))).toBeNull();
+  expect(pickSummary(pick("x", "pi", "", ""))).toBe("x (herdr): pi");
+  // No saved pick: nothing to offer, and the form stays as it is.
+  expect(previousPicks(orch, catalog)).toEqual([]);
+  expect(usePrevious(orch, catalog)).toBe(orch);
+  const unusable: Catalog = { ...catalog, previous: [pick("orchestrator", "pi", "m", "high")] };
+  expect(usePrevious(orch, unusable)).toBe(orch);
+});
+
+// A32: the recommended setup is on at first; it fills the role and the
+// checkpointer, and each item says in one sentence what it means.
+test("the recommended setup fills its fields and names no model, effort or runner", () => {
+  const f = newForm(catalog, null);
+  expect(f.recommended).toBe(true);
+  expect(f.role).toBe("adjutant");
+  expect(initialForm(catalog, null).recommended).toBe(false);
+  const off = setRecommended(
+    setRole(update(f, { checkpointer: false, minutes: "40" }), "orchestrator"),
+    catalog,
+    false,
+  );
+  expect(off.recommended).toBe(false);
+  expect(off.role).toBe("orchestrator");
+  expect(off.minutes).toBe("40");
+  const on = setRecommended(off, catalog, true);
+  expect(on).toMatchObject({
+    recommended: true,
+    role: "adjutant",
+    checkpointer: true,
+    minutes: "15",
+    limit: "250k",
+  });
+  expect(setRecommended(off, { ...catalog, checkpointer_ok: false }, true).checkpointer).toBe(false);
+  expect(RECOMMENDED_SETUP.length).toBe(12);
+  for (const [, help] of RECOMMENDED_SETUP) {
+    expect(help).toMatch(/^[A-Z].*[.)]$/);
+    expect(help).not.toMatch(/model|effort|runner/i);
+  }
+});
+
+// A32: the probed account is offered for confirmation, and the confirmed one
+// reaches the orchestrator as the request's last line.
+test("the confirmed GitHub account goes with the request", () => {
+  const g = {
+    repo: "o/r",
+    accounts: [
+      { name: "user-a", active: true, can_read: false },
+      { name: "user-b", active: false, can_read: true },
+      { name: "user-c", active: false, can_read: true },
+    ],
+    suggested: "user-b",
+  };
+  expect(accountOptions(g)).toEqual([
+    ["user-b", "user-b (probed)"],
+    ["user-c", "user-c"],
+  ]);
+  // The account rides in the setup, not in the request text.
+  const f = update(initialForm(catalog, null), { request: "x", ghAccount: "user-b" });
+  expect(toRequest(f, catalog).request).toBe("x");
+  expect(toRequest(f, catalog).setup?.github_account).toBe("user-b");
+});
+
+test("the setup carries the recommended items or the custom answers, with effective values", () => {
+  const rec = { ...setRecommended(initialForm(catalog, null), catalog, true) };
+  const s = setupOf(rec, catalog);
+  expect(s.recommended).toBe(true);
+  expect(s.checkpointer).toBe(true);
+  expect(s.roles.map((r) => `${r.role}/${r.runner}/${r.harness}`)).toEqual([
+    `adjutant/herdr/${rec.main.kind}`,
+    `orchestrator/herdr/${rec.orch.kind}`,
+  ]);
+  expect(s.answers).toEqual(SETUP_QUESTIONS.map(([item, answer]) => ({ item, answer })));
+  expect(s.answers.map((a) => a.item)).not.toContain("Adjutant");
+  // The checkpointer is off when the skill's script is missing.
+  expect(setupOf(rec, { ...catalog, checkpointer_ok: false }).checkpointer).toBe(false);
+  // Custom: the user's answers; an unanswered item is empty, so the route asks.
+  const custom = { ...initialForm(catalog, null), custom: { Integration: " one combined branch " } };
+  const c = setupOf(custom, catalog);
+  expect(c.recommended).toBe(false);
+  expect(c.answers[0]).toEqual({ item: "Integration", answer: "one combined branch" });
+  expect(c.answers.slice(1).every((a) => a.answer === "")).toBe(true);
+  expect(c.answers.length).toBe(SETUP_QUESTIONS.length);
+});
+
+test("a provider/model id is a valid typed model", () => {
+  const f = update(initialForm(catalog, null), { folder: "/r/repo", workspace: "w1" });
+  const typed = setHarness(f, catalog, "main", { kind: "pi" });
+  const ok = setHarness(typed, catalog, "main", { model: "provider/model-a" });
+  expect(validate(ok, catalog, null)["main"]).toBeUndefined();
+  const bad = setHarness(typed, catalog, "main", { model: "a/b/c" });
+  expect(validate(bad, catalog, null)["main"]).toBeDefined();
+});
+
+// review-3: a saved effort the lists no longer offer is asked again; a
+// model with no efforts takes none; a kind whose list was not read cannot
+// start unless it is a saved default pick.
+test("previous choices compare exactly; efforts and unread lists follow the server", () => {
+  const pick = (role: string, harness: string, model: string, effort: string) => ({
+    role,
+    runner: "herdr",
+    harness,
+    model,
+    effort,
+    route: "",
+    at: "",
+  });
+  // A saved pick is used exactly, even an effort the lists no longer
+  // offer: it is the role's own choice, as the server starts it.
+  const c = { ...catalog, previous: [pick("orchestrator", "codex", "gpt-6.1-sol", "max")] };
+  const kept = usePrevious(fresh(), c);
+  expect(missingPicks(kept, c)).toEqual({});
+  expect(kept.main.effort).toBe("max");
+  expect(validate(kept, c, null)["main"]).toBeUndefined();
+  const listed: Catalog = {
+    ...catalog,
+    kinds: [
+      ...catalog.kinds,
+      {
+        ...catalog.kinds[2]!,
+        kind: "oc",
+        label: "Oc",
+        free_model: false,
+        models: [{ id: "p/m", label: "p/m", efforts: [], default_effort: "" }],
+      },
+      { ...catalog.kinds[2]!, kind: "off", label: "Off", free_model: false, offline: true },
+      { ...catalog.kinds[2]!, kind: "kept", label: "Kept", free_model: false, saved: true },
+    ],
+  };
+  const v = (kind: string, model: string, effort: string) =>
+    validate({ ...fresh(), main: { kind, model, other: "", effort } }, listed, null)["main"];
+  expect(v("oc", "p/m", "")).toBeUndefined();
+  expect(v("oc", "p/m", "low")).toBe("Pick an effort from the list.");
+  expect(v("off", "", "")).toContain("could not be read");
+  // A kind marked saved gives a fresh role no way around the lists.
+  expect(v("kept", "", "")).toContain("could not be read");
+});
+
+// A saved pick of the harness's own default (no model, no effort) is reused
+// as saved, as the server starts it; it is not asked again.
+test("a saved default pick is reused, not asked again", () => {
+  const c = {
+    today: "2026-10-25",
+    home: "/h",
+    checkpointer_ok: true,
+    kinds: [
+      {
+        kind: "pi",
+        label: "pi",
+        models: [],
+        default_model: "",
+        other_model: false,
+        free_model: false,
+        checkpointer: false,
+        skill_prefix: "/",
+        skill_installed: true,
+        offline: false,
+        saved: true,
+      },
+    ],
+    previous: [{ role: "orchestrator", runner: "herdr", harness: "pi", model: "", effort: "", route: "", at: "" }],
+  };
+  expect(harnessFromPick(c.previous[0]!)).toEqual({ kind: "pi", model: "", other: "", effort: "" });
+});
+
+// Each role is its own unit (A30): its saved pick, launch metadata and
+// checks never read another role's pick.
+const oc = (role: string, model: string, effort: string, flag?: string) => ({
+  role,
+  runner: "herdr",
+  harness: "opencode",
+  model,
+  effort,
+  route: "",
+  at: "",
+  ...(flag ? { effort_flag: flag } : {}),
+});
+const fromPicks = (previous: ReturnType<typeof oc>[]): Catalog => ({
+  ...catalog,
+  from_picks: true,
+  // The saved-picks catalog the server gives (?probe=0): one kind per
+  // harness, its effort option from whichever pick named one.
+  kinds: [
+    {
+      ...catalog.kinds[2]!,
+      kind: "opencode",
+      label: "Opencode",
+      free_model: false,
+      saved: true,
+      effort_flag: "--variant",
+      models: [{ id: "p/m1", label: "p/m1", efforts: ["high"], default_effort: "high" }],
+      default_model: "p/m1",
+    },
+  ],
+  previous,
+});
+
+test("a role's saved effort without its option is asked again, whatever another role saved", () => {
+  const c = fromPicks([oc("adjutant", "p/m1", "high", "--variant"), oc("orchestrator", "p/m1", "high")]);
+  const f = usePrevious(setRole(fresh(), "adjutant"), c);
+  expect(missingPicks(f, c)["orch"]).toBeDefined();
+  expect(missingPicks(f, c)["main"]).toBeUndefined();
+});
+
+test("a role's saved default passes beside another role's saved model of the same harness", () => {
+  const c = fromPicks([oc("adjutant", "", ""), oc("orchestrator", "p/m1", "high", "--variant")]);
+  const f = usePrevious(setRole(fresh(), "adjutant"), c);
+  expect(missingPicks(f, c)).toEqual({});
+  const errs = validate(f, c, state);
+  expect(errs["main"]).toBeUndefined();
+  expect(errs["orch"]).toBeUndefined();
+});
+
+// The saved intent follows the role, not the field: changing the role
+// restores that role's own saved pick, or makes the choice fresh; the
+// adjutant's pick never becomes the orchestrator's.
+test("changing the role restores that role's own pick and never carries another's", () => {
+  const adjOnly = fromPicks([oc("adjutant", "p/adj", "", "")]);
+  const adj = usePrevious(setRole(fresh(), "adjutant"), adjOnly);
+  expect(adj.main.model).toBe("p/adj");
+  const orch = setRole(adj, "orchestrator", adjOnly);
+  expect(orch.main.model).not.toBe("p/adj");
+  expect(validate(orch, adjOnly, state)["main"]).toBeDefined();
+  // Back to the adjutant: its own pick again.
+  expect(setRole(orch, "adjutant", adjOnly).main.model).toBe("p/adj");
+  // With both saved, each role gets its own.
+  const both = fromPicks([oc("adjutant", "p/adj", "", ""), oc("orchestrator", "p/orch", "", "")]);
+  const two = usePrevious(setRole(fresh(), "adjutant"), both);
+  expect([two.main.model, two.orch.model]).toEqual(["p/adj", "p/orch"]);
+  const one = setRole(two, "orchestrator", both);
+  expect(one.main.model).toBe("p/orch");
+  expect(validate(one, both, state)["main"]).toBeUndefined();
 });
