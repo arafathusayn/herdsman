@@ -199,13 +199,55 @@ export function renderDirect(container: Node, d: ViewNode): void {
   draw(container as Container, d as unknown as Desc, true);
 }
 
+/**
+ * Create a view's root element, for a component that places its root itself
+ * (no container). The root is its own render root: it listens for delegated
+ * events, its own handlers included, wherever it is put. Update it with
+ * `update`. Any view works, child holes included.
+ */
+export function mount(d: ViewNode): Element {
+  const outer = direct;
+  direct = false;
+  try {
+    const inst = make(d as unknown as Desc);
+    const root = inst.root as Element & Container;
+    root[SELF] = inst;
+    listen(root);
+    return root;
+  } finally {
+    direct = outer;
+  }
+}
+
+/**
+ * Patch a root made by `mount` toward a description of the same view. A
+ * different view would need a different root element, which the caller
+ * holds, so it throws: mount the other view instead.
+ */
+export function update(root: Element, d: ViewNode): void {
+  const r = root as Element & Container,
+    inst = r[SELF],
+    desc = d as unknown as Desc;
+  if (inst === undefined) throw new Error("herdsman-blocks-view: update() takes a root made by mount()");
+  if (desc.s !== inst.shape)
+    throw new Error("herdsman-blocks-view: update() with a different view; mount() it instead");
+  if (r[LISTENING] !== used.length) listen(r);
+  const outer = direct;
+  direct = false;
+  try {
+    patch(inst, desc);
+  } finally {
+    direct = outer;
+  }
+}
+
 function draw(c: Container, d: Desc, dir: boolean): void {
   const outer = direct;
   direct = dir;
   try {
     const inst = c[ROOT];
     if (inst !== undefined) return patch(inst, d);
-    const fresh = mount(d);
+    const fresh = make(d);
     c.textContent = "";
     c.appendChild(fresh.root);
     c[ROOT] = fresh;
@@ -231,7 +273,9 @@ type Holder = Node & { [STATE]?: Inst };
 
 // A render root: its instance, and how many of `used` it listens for.
 const LISTENING: unique symbol = Symbol("herdsman-blocks-view.listening");
-type Container = Node & { [ROOT]?: Inst; [LISTENING]?: number };
+// A root made by mount() holds its own instance here.
+const SELF: unique symbol = Symbol("herdsman-blocks-view.self");
+type Container = Node & { [ROOT]?: Inst; [LISTENING]?: number; [SELF]?: Inst };
 
 const views = new WeakMap<TemplateStringsArray, View<Values>>();
 
@@ -250,6 +294,9 @@ const BUBBLING = new Set([
   "beforeinput",
   "change",
   "click",
+  "compositionend",
+  "compositionstart",
+  "compositionupdate",
   "contextmenu",
   "dblclick",
   "focusin",
@@ -343,6 +390,14 @@ class Shape {
   }
 }
 
+// Set a direct trampoline: through the element's on* property when it has
+// one, otherwise (compositionstart, ...) as a listener. Either way it is set
+// once per element and never changes.
+function attach(node: Node, name: string, fn: (this: Holder, e: Event) => unknown): void {
+  if (name in node) (node as unknown as Record<string, unknown>)[name] = fn;
+  else node.addEventListener(name.slice(2), fn as EventListener);
+}
+
 // Calls the handler hole i of the instance the element belongs to, as the
 // element. The instance is kept on its root only: the walk up from the
 // element passes only the template's own nodes before reaching it.
@@ -369,12 +424,14 @@ function delegate(this: Container, e: Event): void {
   let els: Node[] | null = null,
     insts: Inst[] | null = null,
     holes: number[] | null = null;
-  let depth = 0; // nodes walked so far; a handler element's position
   let pos: number[] | null = null;
   const path: Node[] = [];
-  for (let node = e.target as Node | null; node !== null && node !== this; node = node.parentNode) {
+  // A root made by mount() is its own render root: its handlers count too.
+  const self = this[SELF] !== undefined;
+  for (let node = e.target as Node | null; node !== null; node = node === this ? null : node.parentNode) {
+    if (node === this && !self) break;
     path.push(node);
-    if ((node as Container)[LISTENING] !== undefined) {
+    if (node !== this && (node as Container)[LISTENING] !== undefined) {
       // Another render root below this one: its own listener handled what is inside it.
       els = insts = holes = pos = null;
       continue;
@@ -399,7 +456,6 @@ function delegate(this: Container, e: Event): void {
       holes.splice(j, 0, i);
       pos.splice(j, 0, at);
     }
-    depth++;
   }
   if (els === null) return;
   for (let k = 0; k < els.length; k++) {
@@ -476,7 +532,7 @@ class Inst {
   }
 }
 
-function mount(d: Desc): Inst {
+function make(d: Desc): Inst {
   const sh = d.s,
     vals = d.v,
     t = sh.t;
@@ -500,7 +556,7 @@ function mount(d: Desc): Inst {
     const node = s[i] as Node,
       v = vals[i];
     if (f === HANDLER || f === DELEGATED) {
-      t.write(i, node, sh.fns[i]);
+      attach(node, t.names[i]!, sh.fns[i]!);
     } else if (f === PROPERTY) {
       if (v != null) t.write(i, node, v);
     } else {
@@ -518,7 +574,7 @@ function patch(inst: Inst, d: Desc): void {
   const sh = d.s,
     vals = d.v;
   if (sh !== inst.shape) {
-    const fresh = mount(d);
+    const fresh = make(d);
     inst.root.parentNode!.replaceChild(fresh.root, inst.root);
     inst.shape = sh;
     inst.root = fresh.root;
@@ -634,7 +690,7 @@ function setChild(sl: Slot, v: unknown): void {
       sl.parent.insertBefore((sl.node = v as Node), sl.anchor);
       return;
     case VIEW:
-      sl.inst = mount(v as Desc);
+      sl.inst = make(v as Desc);
       sl.parent.insertBefore(sl.inst.root, sl.anchor);
       return;
     case LIST: {
@@ -643,7 +699,7 @@ function setChild(sl: Slot, v: unknown): void {
         owns: alone,
         anchor: alone ? null : sl.anchor,
         key: (item) => sl.key(item),
-        create: (item) => mount(sl.render(item) as unknown as Desc),
+        create: (item) => make(sl.render(item) as unknown as Desc),
         update: (inst, item) => patch(inst, sl.render(item) as unknown as Desc),
       });
       return setList(sl, v as ListOf);
@@ -667,7 +723,7 @@ function setRuns(sl: Slot, items: readonly unknown[]): void {
         patch(cur, v);
         continue;
       }
-      const inst = mount(v);
+      const inst = make(v);
       if (cur === undefined) p.insertBefore(inst.root, sl.anchor);
       else p.replaceChild(inst.root, cur);
       old[i] = inst;

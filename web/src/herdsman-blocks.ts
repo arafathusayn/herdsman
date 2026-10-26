@@ -109,8 +109,15 @@ export function prop<E extends Element, P extends PropName<E>>(): Hole<PropValue
   return (-1 - PROP) as Hole<PropValue<E, P>, "prop">;
 }
 
+/** The event map of element type E: HTML, SVG, or plain element events. */
+export type EventMapOf<E extends Element> = E extends HTMLElement
+  ? HTMLElementEventMap
+  : E extends SVGElement
+    ? SVGElementEventMap
+    : ElementEventMap;
+
 /** The event names element type E has an `on*` handler property for: "click", "input", ... */
-export type EventName<E extends Element> = {
+type OnName<E extends Element> = {
   [P in keyof E]-?: P extends `on${infer N}`
     ? NonNullable<E[P]> extends (...args: never) => unknown
       ? N
@@ -118,9 +125,20 @@ export type EventName<E extends Element> = {
     : never;
 }[keyof E];
 
-/** The event type E's `on${K}` handler receives: MouseEvent for "click" on an HTMLElement, ... */
+/**
+ * The event names an event hole on element type E takes: those with an `on*`
+ * handler property ("click", "input", ...) and those in E's event map that
+ * have none ("compositionstart", ...).
+ */
+export type EventName<E extends Element> = OnName<E> | (keyof EventMapOf<E> & string);
+
+/** The event type a handler for K on E receives: MouseEvent for "click" on an HTMLElement, ... */
 export type EventOf<E extends Element, K extends EventName<E>> =
-  NonNullable<E[`on${K}` & keyof E]> extends (this: never, ev: infer V) => unknown ? V : never;
+  K extends OnName<E>
+    ? NonNullable<E[`on${K}` & keyof E]> extends (this: never, ev: infer V) => unknown
+      ? V
+      : never
+    : EventMapOf<E>[K & keyof EventMapOf<E>];
 
 /** The value of an event hole: a handler called with the element as `this`, or null for none. */
 export type Handler<E extends Element, K extends EventName<E>> =
