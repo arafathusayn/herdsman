@@ -118,7 +118,7 @@ func TestR5UnclearChannelKeepsAllocation(t *testing.T) {
 	})
 	t.Run("linked-ids", func(t *testing.T) {
 		c := newCase(t, true)
-		retire(t, c) // seeded
+		retire(t, c)            // seeded
 		e := openEnv(t, c, nil) // opened before ids/ turns into a link
 		c.write(c.in("state", "allocations", "m000000000042"), "")
 		past := c.now.Add(-2 * time.Hour)
