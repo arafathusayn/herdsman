@@ -78,3 +78,57 @@ test("the default failure report is an error toast", async () => {
   await flush();
   expect(toasts).toEqual([["Could not load earlier lines: gone", "error"]]);
 });
+
+// The app builds the view again on every update: the pages already loaded
+// stay, joined to the new newest lines, and paging goes on from them.
+test("loaded pages stay when a new line rebuilds the view", async () => {
+  const { logView } = await import("./log-view.ts");
+  const span = (a: number, b: number): LogLine[] =>
+    Array.from({ length: b - a }, (_, i) => ({ time: "09:00", text: `l${a + i}` }));
+  const page = (_id: string, before: number) =>
+    Promise.resolve({ lines: span(before - 100, before), older: before - 100 });
+  const items = (v: FakeElement) => all(v).filter((e) => e.tagName === "li").length;
+  const button = (v: FakeElement) => find(v, (e) => e.tagName === "button");
+  const first = logView({ id: "kept", run_state: span(300, 400), older_run_state: 300 } as unknown as Route, page);
+  button(first as unknown as FakeElement)!.dispatch("click");
+  await flush();
+  const next = logView({
+    id: "kept",
+    run_state: span(301, 401),
+    older_run_state: 301,
+  } as unknown as Route) as unknown as FakeElement;
+  expect(items(next)).toBe(201);
+  expect(text(next)).toContain("l200");
+  expect(button(next)?.textContent).toBe("Show 200 earlier lines");
+  // A file that was replaced (fewer records) starts over.
+  const reset = logView({
+    id: "kept",
+    run_state: span(0, 50),
+    older_run_state: 0,
+  } as unknown as Route) as unknown as FakeElement;
+  expect(items(reset)).toBe(50);
+  // Records that differ where they overlap, or a gap: the newest alone.
+  const load = async (id: string) => {
+    const v = logView({ id, run_state: span(300, 400), older_run_state: 300 } as unknown as Route, page);
+    button(v as unknown as FakeElement)!.dispatch("click");
+    await flush();
+  };
+  await load("edited");
+  const edited = span(301, 401);
+  edited[0] = { time: "09:00", text: "changed" };
+  expect(
+    items(
+      logView({ id: "edited", run_state: edited, older_run_state: 301 } as unknown as Route) as unknown as FakeElement,
+    ),
+  ).toBe(100);
+  await load("gap");
+  expect(
+    items(
+      logView({
+        id: "gap",
+        run_state: span(500, 600),
+        older_run_state: 500,
+      } as unknown as Route) as unknown as FakeElement,
+    ),
+  ).toBe(100);
+});
