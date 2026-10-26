@@ -9,7 +9,7 @@ import {
   ops,
   resetOps,
 } from "./herdsman-blocks.testdom.ts";
-import { type Entry, html, lis, List, morph } from "./herdsman-blocks.ts";
+import { type Entry, html, lis, List, morph, slot, text } from "./herdsman-blocks.ts";
 
 beforeEach(installFakeDocument);
 
@@ -531,6 +531,26 @@ describe("html templates", () => {
           <td></td>`,
     ).toThrow(/one root element/);
     expect(() => html`text ${0}`).toThrow(/one root element/);
+  });
+});
+
+describe("slot holes", () => {
+  test("a slot is an empty text node the template never writes", () => {
+    const T = html`<p>${text()}${slot<string>()}</p>`;
+    expect(T.kind(1)).toBe("slot");
+    const b = T.mount(["a", "never shown"]);
+    expect(fake(b.root).textContent).toBe("a");
+    b.set(1, "still not shown");
+    expect(b.get(1)).toBe("still not shown");
+    expect(fake(b.root).childNodes.map((c) => c.textContent)).toEqual(["a", ""]);
+    const nodes: unknown[] = [];
+    T.locate(b.root, nodes);
+    T.write(0, nodes[0] as Node, "b");
+    expect(fake(b.root).textContent).toBe("b");
+  });
+
+  test("a slot outside element content does not compile", () => {
+    expect(() => html`<p title=${slot()}></p>`).toThrow("typed slot");
   });
 });
 

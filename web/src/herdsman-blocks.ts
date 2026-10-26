@@ -13,14 +13,14 @@
 // paths (mount, set, List.set) for the sake of types.
 
 /** Library version, bumped with every release of the zip package. */
-export const VERSION = "0.0.5";
+export const VERSION = "0.0.6";
 
 // ---------------------------------------------------------------------------
 // Hole markers: typed at compile time, small negative numbers at runtime
 // ---------------------------------------------------------------------------
 
 /** Where a hole sits in a template, which decides how its value is written. */
-export type HoleKind = "text" | "class" | "attr" | "prop";
+export type HoleKind = "text" | "class" | "attr" | "prop" | "slot";
 
 declare const HOLE: unique symbol;
 
@@ -42,8 +42,9 @@ const TEXT = 0;
 const CLASS = 1;
 const PROP = 2;
 const ATTR = 3;
-type KindCode = typeof TEXT | typeof CLASS | typeof PROP | typeof ATTR;
-const KIND_NAMES: readonly HoleKind[] = ["text", "class", "prop", "attr"];
+const SLOT = 4;
+type KindCode = typeof TEXT | typeof CLASS | typeof PROP | typeof ATTR | typeof SLOT;
+const KIND_NAMES: readonly HoleKind[] = ["text", "class", "prop", "attr", "slot"];
 
 /** A text hole: element content, between tags. */
 export function text<V extends TextValue = string>(): Hole<V, "text"> {
@@ -60,6 +61,16 @@ export function attr<V extends AttrValue = string>(): Hole<V, "attr"> {
 /** A property hole: the value of an `on*` attribute or a `.name` property. */
 export function prop<V = unknown>(): Hole<V, "prop"> {
   return (-1 - PROP) as Hole<V, "prop">;
+}
+
+/**
+ * A slot hole: element content the template never writes. It sits where a
+ * text hole would and holds an empty text node, which a layer above (see
+ * herdsman-blocks-view.ts) uses as an anchor to place content before.
+ * Mounting leaves it empty; Block.set records its value and writes nothing.
+ */
+export function slot<V = unknown>(): Hole<V, "slot"> {
+  return (-1 - SLOT) as Hole<V, "slot">;
 }
 
 /** The value tuple of a template whose holes are `H`; an untyped hole (a plain number) accepts unknown. */
@@ -180,7 +191,8 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
       if (!paths[i]) throw new Error(`herdsman-blocks: hole ${i} could not be located`);
       // A typed marker must sit where its kind says. Checked once per template.
       const h = holes[i];
-      if (h !== undefined && h < 0 && -1 - h !== this.kinds[i]) {
+      if (h === -1 - SLOT && this.kinds[i] === TEXT) this.kinds[i] = SLOT;
+      else if (h !== undefined && h < 0 && -1 - h !== this.kinds[i]) {
         const want = KIND_NAMES[-1 - h] ?? "unknown",
           got = KIND_NAMES[this.kinds[i]!] ?? "unknown";
         throw new Error(`herdsman-blocks: hole ${i} is typed ${want}, but its position makes it ${got}`);
@@ -207,7 +219,7 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
    * survive cloning, so a non-null property hole is set on the clone directly.
    */
   mount(vals: V): Block<V> {
-    const root = this.cloneWith(vals);
+    const root = this.clone(vals);
     const s: unknown[] = new Array(2 * this.n);
     for (let i = 0; i < this.n; i++) s[this.n + i] = vals[i];
     if (this.props(vals)) this.setProps(root, s, vals);
@@ -221,7 +233,7 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
    * never change.
    */
   mountRoot(vals: V): Element {
-    const root = this.cloneWith(vals);
+    const root = this.clone(vals);
     if (this.props(vals)) this.setProps(root, new Array(2 * this.n), vals);
     return root;
   }
@@ -244,20 +256,35 @@ export class Template<V extends readonly unknown[] = readonly unknown[]> {
     return b;
   }
 
-  // Bake the non-property values into the prototype and deep-clone it.
-  private cloneWith(vals: V): Element {
+  /**
+   * Bake `vals` into the prototype and deep-clone it. The clone holds the
+   * text, class and attribute values; property and slot holes are left for
+   * the caller (`mount` sets properties). For layers that keep their own
+   * per-instance state; most code wants `mount` or `mountRoot`.
+   */
+  clone(vals: V): Element {
     const n = this.n,
       kinds = this.kinds,
       names = this.names,
       proto = this.proto;
     for (let i = 0; i < n; i++) {
       const v = vals[i];
-      if (kinds[i] !== PROP && proto[n + i] !== v) {
+      if (kinds[i] !== PROP && kinds[i] !== SLOT && proto[n + i] !== v) {
         proto[n + i] = v;
         apply(kinds[i] as KindCode, names[i], proto[i] as Node, v);
       }
     }
     return this.root.cloneNode(true) as Element;
+  }
+
+  /** The kind of hole i, from its position (and its marker, for a slot). */
+  kind(i: number): HoleKind {
+    return KIND_NAMES[this.kinds[i]!]!;
+  }
+
+  /** Write value `v` into `node`, hole i's node under a clone (see `locate`), by the hole's kind. */
+  write(i: number, node: Node, v: unknown): void {
+    apply(this.kinds[i] as KindCode, this.names[i], node, v);
   }
 
   // Whether any property hole has a value. Properties do not survive cloning.
@@ -381,6 +408,7 @@ function apply(kind: KindCode, name: string | undefined, node: Node, v: unknown)
       if (v == null || v === false) (node as Element).removeAttribute(name!);
       else (node as Element).setAttribute(name!, v === true ? "" : "" + (v as AttrValue));
       break;
+    // SLOT: never written.
   }
 }
 

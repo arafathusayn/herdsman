@@ -3,9 +3,9 @@
 A living document. It explains why herdsman-blocks exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
 - Status: draft, on branch `herdsman-blocks`
-- Library version: 0.0.5 (the module exports this as `VERSION`)
+- Library version: 0.0.6 (the module exports this as `VERSION`)
 - Last updated: 2026-10-27
-- Module: `web/src/herdsman-blocks.ts`, used by `web/src/dom.ts`
+- Modules: `web/src/herdsman-blocks.ts`, used by `web/src/dom.ts`; the view layer `web/src/herdsman-blocks-view.ts`
 
 ---
 
@@ -23,11 +23,12 @@ The herdsman web app renders in immediate mode. Every time the store emits, a vi
 
 Keep the immediate-mode style, because views stay plain functions of the store. Change only the last step: instead of replacing the container's children, compare the freshly built tree with the live one and patch the live one until it matches. Nodes that still correspond are kept; only real differences touch the DOM.
 
-The library has three layers, each usable alone:
+The library has three layers, each usable alone, and a declarative view layer on top of blocks and lists:
 
 1. **Morph** patches a live subtree to match a freshly built one. `dom.ts` exposes it as `patch()`, a drop-in for `mount()`.
 2. **Keyed lists** reconcile an old ordered list of keyed children with a new one in the minimum number of DOM moves. Morph uses this for every child list.
 3. **Blocks** are a faster path for hot, repeated markup: a template is parsed once, each instance is one deep clone, and updates write straight to the few nodes that can change. They suit large tables and logs where even building the fresh tree is too much work.
+4. **Views** keep the immediate-mode style on top of blocks: a view function returns light descriptions (a template and its values) on every render, and `render` writes only the holes whose values changed. Optional content and nested views go in child holes, keyed lists in `list()`, and event handlers through per-template trampolines so a fresh closure per render costs no DOM write.
 
 ### Why this algorithm
 
@@ -245,6 +246,64 @@ The node name is part of every key, so a key never matches a node of a different
 
 `data-morph-skip` is for elements whose children another component manages, such as a terminal.
 
+### Layer 4: Views
+
+Module: `web/src/herdsman-blocks-view.ts`. Views are a declarative layer over blocks and keyed lists: a view function rebuilds light descriptions of its whole screen on every render, and rendering writes only the holes whose values changed. No hand-written per-hole update code is needed.
+
+#### Views and descriptions
+
+1. A view is made with the view module's own tagged template tag. It compiles the literal into a block template exactly as Layer 1 does (once per call site, cached by the string array) and accepts the same hole markers plus the child marker.
+2. Once per template the view records, for each hole, how it is written: a **child** hole (a slot), a **handler** hole (a property hole whose name starts with `on`), a **property** hole (any other property hole), or a plain **write** hole (text, class, attribute). If any hole is a child, handler or property hole, mounting must locate the clone's holes (the view is **eager**); otherwise hole lookup stays lazy, as for blocks.
+3. Calling a view with its value tuple returns a description: the view's recorded shape and the values. A description is inert; nothing is created until it is rendered. The view also exposes its compiled template.
+
+#### Slot holes (Layer 1 addition)
+
+A slot hole is typed with the slot marker and must sit where a text hole would (element content); compilation then records it as a slot instead of a text hole. Its node is the empty text node the comment marker became. Blocks never write a slot: mounting leaves it empty, baking skips it, and setting it only records the value. The template exposes, for layers above, a bake-and-clone that leaves property and slot holes unwritten, the kind of each hole, and a write of one value into one located hole node by its kind.
+
+#### Mounting a description
+
+1. Bake the values into the prototype and deep-clone it (Layer 1, steps 1 and 2). Create a state array of twice the hole count and record the values in its second half.
+2. If the view is eager, locate the clone's holes, then for each hole in order:
+   - Handler: store the state array on the element under a private symbol and set the handler property to the hole's **trampoline** (below).
+   - Property: if the value is not null or undefined, assign it.
+   - Child: wrap the slot's text node in a **child slot** (below), keep that in the hole's node position, and set the child to the value.
+3. The mounted **instance** is the shape, the root element and the state array.
+
+#### Event handler trampolines
+
+1. Each handler hole of a view has one trampoline function, made once per template: when called as an event handler, it reads the hole's current value from the state array stored on its element and, if that value is a function, calls it with the element as `this` and the event; otherwise it does nothing.
+2. Every instance's element gets that same trampoline at mount and keeps it. Updating a handler hole only records the new value; it costs no DOM write. A view can therefore pass a new closure on every render.
+
+#### Patching an instance toward a description
+
+1. If the description is of a different view than the instance, mount it fresh, replace the instance's root with the new root in the instance's parent, and move the new shape, root and state into the same instance object, so lists and parents that hold the instance need no update. Stop.
+2. Otherwise, for each hole whose new value is not strictly equal to the recorded one, record it, then by kind: a handler does nothing more; a child sets the child slot to the value; any other hole locates the holes first if they were never located, then writes the value by Layer 1's update rules.
+
+#### Child holes
+
+A child hole accepts text (a string or number), nothing (null, undefined or false), a DOM node, a description, or a keyed list description. Its content always sits just before the slot's text node, the **anchor**, which never moves. Text is written into the anchor itself.
+
+1. Classify the new value: nothing, text, node, view description or list description.
+2. If the class is the same as the current content's:
+   - Text: set the anchor's data to the value as a string.
+   - Node: if it is the same node, do nothing. Otherwise replace the old node with the new one when the old one is still in the slot's parent, or insert the new one before the anchor when the old one was moved elsewhere.
+   - View: patch the held instance toward the description (which replaces it when the view differs).
+   - List: reconcile the list (below).
+3. Otherwise clear the current content (text: empty the anchor; node: remove it if still in the parent; view: remove the instance's root; list: clear the list, then put the anchor back at the end of the parent if an owning list removed it), then set the new content: write text into the anchor, insert the node before the anchor, mount the description and insert its root before the anchor, or create a list.
+
+#### Keyed list descriptions
+
+`list(items, key, render)` describes a keyed list: the items, a key function on the item (never its index; keys unique among siblings) and a render function from item to description.
+
+1. Creating the list in a slot: if the anchor has no siblings, the list **owns** the parent (Layer 2: clearing is one native text-content write, and the anchor is dropped while the list is shown); otherwise the list is anchored before the slot's anchor, so content around the hole is never touched.
+2. The Layer 2 list's create mounts `render(item)`, its update patches the entry's instance toward `render(item)`, and its key calls the key function. Entries are view instances. These callbacks read the slot's current key and render functions, which are replaced on every reconcile, so closures passed by the latest render are the ones used.
+3. Reconciling: store the description's key and render functions on the slot and set the list to the items (Layer 2). Kept items are patched; moved items are moved with the minimum number of DOM moves; an item whose render returns a different view is replaced where it stands.
+
+#### render(container, description)
+
+1. If the container already holds a rendered instance (kept on the container under a private symbol), patch it toward the description and stop.
+2. Otherwise mount the description, empty the container (one text-content write), append the instance's root, and keep the instance on the container.
+
 ### Integration with dom.ts
 
 `patch(el, children...)` takes the same arguments as `mount()`. It flattens them the same way (nested lists, strings and numbers to text nodes, null, undefined and false dropped) and morphs `el` toward the result. A nested list is a literal tuple, a keyed list from `each` or an unkeyed list from `unkeyed`; a plain array does not type-check (see below).
@@ -297,12 +356,13 @@ The types are designed to make wrong uses fail to compile while erasing complete
 
 #### Hole markers
 
-There is one marker per hole kind: text, class, attribute and property. Each is a generic function that takes a value type and returns a branded number. At runtime the function returns the kind's small negative code and is called once per template call site, when the literal is evaluated. At compile time the brand records two things: the value type the hole accepts and the kind of position it must sit in. Value types are bounded by kind:
+There is one marker per hole kind: text, class, attribute and property, plus a slot marker for a child hole that blocks leave empty for the view layer. Each is a generic function that takes a value type and returns a branded number. At runtime the function returns the kind's small negative code and is called once per template call site, when the literal is evaluated. At compile time the brand records two things: the value type the hole accepts and the kind of position it must sit in. Value types are bounded by kind:
 
 1. Text holes accept strings, numbers, bigints, booleans, null and undefined (null and undefined write empty text); string by default.
 2. Class holes accept strings, null and undefined; string by default.
 3. Attribute holes accept strings, numbers, bigints, booleans, null and undefined (null, undefined and false remove the attribute; true sets it empty); string by default.
 4. Property holes accept any type; unknown by default.
+5. Slot holes accept any type; unknown by default. The view layer's child marker is a slot hole that accepts text, nothing, a DOM node, a view description or a list description.
 
 A plain number in a hole position is an untyped hole that accepts unknown, so untyped templates keep compiling.
 
@@ -320,6 +380,12 @@ The tag function captures its interpolations as a constant tuple type and maps e
 #### What cannot be inferred, and how it is covered
 
 TypeScript sees a tagged template literal's text only as an untyped string array, so it cannot see where a hole sits. The position-to-kind rule is therefore checked when the template compiles (step 6 of compiling), once per template, which catches a class marker placed in text, a property marker placed on a plain attribute, and so on, the first time the code runs.
+
+#### View types
+
+1. A view is typed by its value tuple, inferred from its markers as for blocks; calling it with a wrong tuple is a compile error. It returns an opaque, branded description type (`ViewNode`); a list description is a distinct branded type, so neither can be built by hand.
+2. `list` is generic in its item type: the key function returns a key, and the render function takes the item and must return a description.
+3. A handler hole is a property marker typed with the handler's function type.
 
 #### Compiler settings
 
@@ -348,6 +414,9 @@ Tests run on a small linked-list fake DOM with counters for inserts, moves, remo
 11. Moves use the state-preserving move when the parent is in the document (every move of a reversed twenty-item list), and plain insertion when it is not; move counts stay minimal either way.
 12. A list whose entries are the nodes themselves reorders them and keeps their identity.
 13. An element made without a block gets one on demand, cached on the element; the first set of each hole writes, the second identical set does not; instances stay independent; property holes are set on the clone.
+14. Slot holes: a slot marker in content compiles to a slot, blocks never write it, and a slot marker in an attribute position is rejected.
+15. Views: every child kind renders in place and switching kinds replaces the content; the same view patches and another view replaces, at a child hole and at the root; unchanged values write nothing; a keyed list reorders with every node kept and the minimum number of moves, stays between its siblings, owns and clears its parent and gives the slot back; an item whose view changes is replaced where it stands; nested lists move cards between lanes; a new handler each render costs no DOM write and the latest one runs; a focused input keeps its node and typed value across renders.
+16. The benchmark runner's gate: the declarative benchmark app's DOM is identical to the reference app's after every step.
 
 The same behaviors were also checked in real Chrome 156 (not the fake DOM): a focused input kept its node, focus, typed value and caret position through a `patch()` that reordered siblings; the kept button ran the newest handler; keyed rows kept their nodes; an unfocused input re-synced from the store; an indented template inside a table compiled correctly; and a blank class hole produced no class attribute.
 
@@ -471,6 +540,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-27: Version 0.0.6. Layer 4, views (`herdsman-blocks-view.ts`): templates called with values return descriptions, `render` patches only changed holes, child holes take text, nothing, nodes, views or keyed `list()`s, and handlers go through per-template trampolines. Blocks gain the slot hole kind and, for layers above, `Template.clone`, `kind` and `write`. Declarative benchmark app added.
 - 2026-10-27: Phase 2 of the `each()` migration: plain arrays are a type error in `dom.ts` children. The 67 sites in herdsman web use `each` (keyed by the data's identity), `unkeyed`, or a literal tuple. No change to the library.
 - 2026-10-27: Renamed from herdsman-dom-diff to herdsman-blocks: the module, its tests, this spec and the release name. No behavior change; the version stays 0.0.5.
 - 2026-10-26: `each()` and `unkeyed()` in herdsman's `dom.ts`, with branded `Keyed` and `Unkeyed` types and a duplicate-key check removed from production builds by a build-time constant. Five patched lists migrated; migration guide in `plans/each-migration.md`. Compatibility verified against the real `herdsman web` with a fake herdr in Chrome 156.
