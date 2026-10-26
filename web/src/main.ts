@@ -174,18 +174,18 @@ async function boot(): Promise<void> {
   // The page's own server and the hosts already here are trusted; a link that
   // names any other host asks first, since any page can open such a link.
   const ownUrl = normalizeUrl(location.origin + location.pathname);
-  if (
-    link &&
-    link.url !== ownUrl &&
-    !hs.hosts.some((x) => x.url === link.url) &&
-    !(await confirmHost(root, link.url))
-  ) {
-    showConnect(
-      root,
-      "Host not added",
-      "The link's host was not added. Pick a host you know, or paste a link you trust.",
-    );
-    return;
+  if (link && link.url !== ownUrl && !hs.hosts.some((x) => x.url === link.url)) {
+    if (!(await confirmHost(root, link.url))) {
+      showConnect(
+        root,
+        "Host not added",
+        "The link's host was not added. Pick a host you know, or paste a link you trust.",
+      );
+      return;
+    }
+    // The question took the frame's place; a host that answers "paired"
+    // connects into the frame, so it comes back first.
+    root.replaceChildren(topbarView.el, frameBody.el);
   }
   if (link) {
     upsert(hs, link.url);

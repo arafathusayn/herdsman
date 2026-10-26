@@ -92,6 +92,8 @@ const catalog = {
 
 export interface Mock {
   base: string;
+  /** The same server under another origin (127.0.0.1), as a second host a pairing link can name. */
+  other: string;
   /** What GET /api/pair answers. */
   mode: "paired" | "pairing";
   /** Whether GET /api/catalog answers (else 404, and the New route dialog shows its failure). */
@@ -169,6 +171,7 @@ export function startMock(dist: string): Mock {
 
   const mock: Mock = {
     base: "",
+    other: "",
     mode: "paired",
     catalog: false,
     setStatus(p, status) {
@@ -186,47 +189,64 @@ export function startMock(dist: string): Mock {
     port: 0,
     idleTimeout: 0,
     async fetch(req) {
-      const url = new URL(req.url);
-      const p = url.pathname;
-      if (p === "/api/pair" && req.method === "POST")
-        return Response.json({ status: "pairing", error: "That code is wrong.", left: 2 });
-      if (p === "/api/pair") return Response.json({ status: mock.mode });
-      if (p === "/api/messages") return Response.json({ configured: false, messages: [] });
-      if (p === "/api/catalog") return mock.catalog ? Response.json(catalog) : new Response("{}", { status: 404 });
-      if (p === "/api/routes/inbox")
-        return Response.json({
-          path: url.searchParams.get("path") ?? "",
-          exists: false,
-          private: true,
-          setup: false,
-          proposed: [],
-          approved: [],
-          pair_proposed: false,
-          pair_approved: false,
-        });
-      if (p === "/api/stream") {
-        let self: ReadableStreamDefaultController<Uint8Array>;
-        const body = new ReadableStream<Uint8Array>({
-          start(c) {
-            self = c;
-            streams.add(c);
-            c.enqueue(
-              enc.encode(
-                `event: state\ndata: ${JSON.stringify(state())}\n\nevent: entries\ndata: ${JSON.stringify(entries)}\n\n`,
-              ),
-            );
-          },
-          cancel() {
-            streams.delete(self);
+      // The app on one origin talks to a host on another, as a hosted app does.
+      if (req.method === "OPTIONS")
+        return new Response(null, {
+          status: 204,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Methods": "*",
           },
         });
-        return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
-      }
-      if (p.startsWith("/api/")) return new Response("{}", { status: 404 });
-      const file = Bun.file(join(dist, p.endsWith("/") ? p + "index.html" : p));
-      return (await file.exists()) ? new Response(file) : new Response("no", { status: 404 });
+      const res = await answer(req);
+      res.headers.set("Access-Control-Allow-Origin", "*");
+      return res;
     },
   });
+  async function answer(req: Request): Promise<Response> {
+    const url = new URL(req.url);
+    const p = url.pathname;
+    if (p === "/api/pair" && req.method === "POST")
+      return Response.json({ status: "pairing", error: "That code is wrong.", left: 2 });
+    if (p === "/api/pair") return Response.json({ status: mock.mode });
+    if (p === "/api/session" && req.method === "POST") return Response.json({ status: "paired" });
+    if (p === "/api/messages") return Response.json({ configured: false, messages: [] });
+    if (p === "/api/catalog") return mock.catalog ? Response.json(catalog) : new Response("{}", { status: 404 });
+    if (p === "/api/routes/inbox")
+      return Response.json({
+        path: url.searchParams.get("path") ?? "",
+        exists: false,
+        private: true,
+        setup: false,
+        proposed: [],
+        approved: [],
+        pair_proposed: false,
+        pair_approved: false,
+      });
+    if (p === "/api/stream") {
+      let self: ReadableStreamDefaultController<Uint8Array>;
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          self = c;
+          streams.add(c);
+          c.enqueue(
+            enc.encode(
+              `event: state\ndata: ${JSON.stringify(state())}\n\nevent: entries\ndata: ${JSON.stringify(entries)}\n\n`,
+            ),
+          );
+        },
+        cancel() {
+          streams.delete(self);
+        },
+      });
+      return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+    }
+    if (p.startsWith("/api/")) return new Response("{}", { status: 404 });
+    const file = Bun.file(join(dist, p.endsWith("/") ? p + "index.html" : p));
+    return (await file.exists()) ? new Response(file) : new Response("no", { status: 404 });
+  }
   mock.base = `http://localhost:${server.port}`;
+  mock.other = `http://127.0.0.1:${server.port}`;
   return mock;
 }

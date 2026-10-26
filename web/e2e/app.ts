@@ -25,6 +25,7 @@ export async function appChecks(browser: Browser, mock: Mock, check: Check): Pro
     await keptAcrossRenders(browser, mock, check, errors);
     await dialogs(browser, mock, check, errors);
     await pairing(browser, mock, check, errors);
+    await linkToNewHost(browser, mock, check, errors);
     await docs(browser, mock, check, errors);
   } catch (e) {
     check("threw", false, e instanceof Error ? (e.stack ?? e.message) : String(e));
@@ -269,6 +270,33 @@ async function pairing(browser: Browser, mock: Mock, check: Check, errors: strin
   check("pair cleared", (await page.$eval(".pair-code", (e) => (e as HTMLInputElement).value)) === "");
   mock.mode = "paired";
   await page.close();
+}
+
+// A link that names a host this browser does not know asks first. Once
+// added, a host that already knows the browser answers "paired", and the
+// app shows its frame again in place of the question.
+async function linkToNewHost(browser: Browser, mock: Mock, check: Check, errors: string[]): Promise<void> {
+  const context = await browser.createBrowserContext(); // a fresh host list
+  const page = await context.newPage();
+  await page.setViewport({ width: 1300, height: 800 });
+  watch(page, errors);
+  const token = "0123456789abcdef0123456789abcdef";
+  await page.goto(`${mock.base}/#host=${encodeURIComponent(mock.other)}&t=${token}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await page.waitForSelector(".connect-card .host-url", { timeout: 5000 });
+  check(
+    "link asks before adding a host",
+    (await page.$eval(".host-url", (e) => e.textContent ?? "")).startsWith(mock.other),
+  );
+  await page.click(".connect-card .btn.primary");
+  const shown = await page
+    .waitForSelector(".route-shell", { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  const frame = await page.evaluate(() => [...document.getElementById("app")!.children].map((e) => e.className));
+  check("added host shows the frame", shown && JSON.stringify(frame) === '["topbar","body"]', JSON.stringify(frame));
+  await context.close();
 }
 
 async function docs(browser: Browser, mock: Mock, check: Check, errors: string[]): Promise<void> {
