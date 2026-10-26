@@ -12,16 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-)
 
-func TestCksumMatchesPOSIX(t *testing.T) {
-	// From `printf 'hello world\n' | cksum` and `printf '' | cksum`.
-	for in, want := range map[string]string{"hello world\n": "3733384285-12", "": "4294967295-0"} {
-		if got := cksum([]byte(in)); got != want {
-			t.Errorf("cksum(%q) = %s, want %s", in, got, want)
-		}
-	}
-}
+	"github.com/arafathusayn/herdsman/internal/inbox"
+)
 
 const identityJSON = `{"pane":"%s","session":{"agent":"claude","kind":"id","source":"herdr","value":"%s"}}`
 
@@ -52,7 +45,7 @@ func newInbox(t *testing.T) string {
 	writeFile(t, filepath.Join(root, "boss", "cur", "m000000000001.md"), brief)
 	writeFile(t, filepath.Join(root, "ids", "m000000000001", "claim"), "tok\n")
 	writeFile(t, filepath.Join(root, "boss", "ack", "m000000000001.md.json"),
-		`{"id":"m000000000001","claim":"tok","time":1,"processing_record":"route log","envelope_checksum":"`+cksum([]byte(brief))+`"}`)
+		`{"id":"m000000000001","claim":"tok","time":1,"processing_record":"route log","envelope_checksum":"`+inbox.Digest([]byte(brief))+`"}`)
 	writeFile(t, filepath.Join(root, "front", "ready", "m000000000002.md"), envelopeJSON("m000000000002", "boss", "front", "question", "m000000000001"))
 	writeFile(t, filepath.Join(root, "front", "quarantine", "m000000000003.md"), `{"id":"m000000000003","id":"dup"}`)
 	writeFile(t, filepath.Join(root, "alerts", "watch-down.pending"), `{"title":"Message watch unavailable","body":"Inspect heartbeat"}`)

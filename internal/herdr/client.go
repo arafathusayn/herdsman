@@ -136,16 +136,22 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 		return err
 	}
 	defer conn.Close()
-	if dl, ok := ctx.Deadline(); ok {
-		_ = conn.SetDeadline(dl)
-	} else {
+	// The context ends the request (its deadline or a cancellation) through
+	// AfterFunc, so a failed read after it always reports ctx.Err(); a
+	// context without a deadline gets 30 s.
+	if _, ok := ctx.Deadline(); !ok {
 		_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Unix(1, 0)) })
+	defer stop()
 	if _, err := c.send(conn, method, params); err != nil {
 		return err
 	}
 	line, err := readLine(bufio.NewReaderSize(conn, 1<<16))
 	if err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("%s: %w", method, ctx.Err())
+		}
 		return fmt.Errorf("%s: %w", method, err)
 	}
 	var resp response
@@ -188,6 +194,12 @@ type Event struct {
 // Subscribe starts an event subscription and calls fn for each event until
 // ctx ends or the connection drops. It returns the reason the stream ended.
 func (c *Client) Subscribe(ctx context.Context, subs []map[string]any, fn func(Event)) error {
+	return c.subscribe(ctx, subs, nil, fn)
+}
+
+// subscribe is Subscribe with a call once the server has acknowledged the
+// subscription, before the first event.
+func (c *Client) subscribe(ctx context.Context, subs []map[string]any, started func(), fn func(Event)) error {
 	conn, err := c.dial(ctx)
 	if err != nil {
 		return err
@@ -210,6 +222,9 @@ func (c *Client) Subscribe(ctx context.Context, subs []map[string]any, fn func(E
 	if ack.Error != nil {
 		return ack.Error
 	}
+	if started != nil {
+		started()
+	}
 	for {
 		line, err := readLine(r)
 		if err != nil {
@@ -223,4 +238,11 @@ func (c *Client) Subscribe(ctx context.Context, subs []map[string]any, fn func(E
 			fn(ev)
 		}
 	}
+}
+
+// SubscribeReady is Subscribe with ready called once the server has
+// acknowledged the subscription, before the first event, so a caller can
+// recheck the state it may have missed while registering.
+func (c *Client) SubscribeReady(ctx context.Context, subs []map[string]any, ready func(), fn func(Event)) error {
+	return c.subscribe(ctx, subs, ready, fn)
 }

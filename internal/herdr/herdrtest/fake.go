@@ -177,3 +177,21 @@ func (s *Server) conn(c net.Conn) {
 	}
 	_ = c.Close()
 }
+
+// ForgetRequests drops the request log, so a long loop test measures the
+// code under test, not the fake's own record.
+func (s *Server) ForgetRequests() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requests = nil
+}
+
+// Hangup closes every open subscription, as a restarting server would, so
+// tests can drive the client's reconnects.
+func (s *Server) Hangup() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.subs {
+		_ = c.Close()
+	}
+}
