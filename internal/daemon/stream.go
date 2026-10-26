@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"bufio"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -37,6 +39,9 @@ type subscriber struct {
 	q     chan frame
 	mu    sync.Mutex
 	shut  bool
+	// replay is the stored events between the stream's cursor and its
+	// subscription barrier, when the ring does not cover them.
+	replay *replay
 }
 
 func newSubscriber(route, party string) *subscriber {
@@ -127,46 +132,99 @@ func (r *Route) subscribe(s *subscriber, cursor string) ([]frame, *APIError) {
 			out = append(out, frame{ev: r.resetEvent(reason), route: r.name}, frame{ev: r.snapshot(s.party), route: r.name})
 			break
 		}
-		recs, err := r.replayRange(seq)
+		if seq >= r.visible {
+			break
+		}
+		if len(r.ring) > 0 && r.ring[0].Seq <= seq+1 {
+			for _, rec := range r.ring {
+				if rec.Seq > seq && rec.Seq <= r.visible && s.wants(rec) {
+					out = append(out, frame{rec: rec, route: r.name})
+				}
+			}
+			break
+		}
+		p, err := r.openReplay(seq)
 		if err != nil {
 			return nil, Errf("internal", "journal read: %v", err)
 		}
-		for _, rec := range recs {
-			if s.wants(rec) {
-				out = append(out, frame{rec: rec, route: r.name})
-			}
-		}
+		s.replay = p
 	}
 	r.subs[s] = struct{}{}
 	return out, nil
 }
 
-// replayRange is the stored event records after seq up to visible_seq,
-// from the ring when it covers the range, else from the journal files.
-func (r *Route) replayRange(seq int64) ([]*Record, error) {
-	if seq >= r.visible {
-		return nil, nil
+// replay reads a stream's stored events after its cursor up to its
+// subscription barrier from the journal files, one record at a time, so a
+// stream never holds more than its queue (9.3). The files are opened on
+// the actor at the barrier; an open file survives a rotation, so the range
+// stays whole while the route goes on.
+type replay struct {
+	files       []*os.File
+	sc          *bufio.Scanner
+	after, upto int64
+	epoch       string
+}
+
+// openReplay opens the journal files for the records after seq up to
+// visible_seq; it runs on the actor.
+func (r *Route) openReplay(seq int64) (*replay, error) {
+	if r.j == nil {
+		return nil, errors.New("no journal")
 	}
-	if len(r.ring) > 0 && r.ring[0].Seq <= seq+1 {
-		var out []*Record
-		for _, rec := range r.ring {
-			if rec.Seq > seq && rec.Seq <= r.visible {
-				out = append(out, rec)
+	p := &replay{after: seq, upto: r.visible, epoch: r.epoch}
+	for _, name := range []string{journalPrev, journalCurrent} {
+		f, err := os.Open(filepath.Join(r.j.dir, name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			p.close()
+			return nil, err
+		}
+		p.files = append(p.files, f)
+	}
+	return p, nil
+}
+
+// next is the next stored event record of the range, or nil at its end.
+func (p *replay) next() (*Record, error) {
+	for len(p.files) > 0 {
+		if p.sc == nil {
+			p.sc = bufio.NewScanner(p.files[0])
+			p.sc.Buffer(make([]byte, 0, 4096), maxRecord+1)
+		}
+		if !p.sc.Scan() {
+			if err := p.sc.Err(); err != nil {
+				return nil, err
 			}
+			_ = p.files[0].Close()
+			p.files, p.sc = p.files[1:], nil
+			continue
 		}
-		return out, nil
-	}
-	recs, err := r.j.eventRecords(seq, r.visible)
-	if err != nil {
-		return nil, err
-	}
-	var out []*Record
-	for _, rec := range recs {
-		if rec.Epoch == r.epoch {
-			out = append(out, rec)
+		var rec Record
+		if json.Unmarshal(p.sc.Bytes(), &rec) != nil {
+			continue
+		}
+		if rec.Seq > p.upto {
+			p.close()
+			break
+		}
+		if rec.Event != nil && rec.Seq > p.after && rec.Epoch == p.epoch {
+			return &rec, nil
 		}
 	}
-	return out, nil
+	return nil, nil
+}
+
+// close frees the files still open; a nil replay closes nothing.
+func (p *replay) close() {
+	if p == nil {
+		return
+	}
+	for _, f := range p.files {
+		_ = f.Close()
+	}
+	p.files, p.sc = nil, nil
 }
 
 // unsubscribe detaches a stream.

@@ -1018,6 +1018,18 @@ func runStream(w http.ResponseWriter, r *http.Request, s *subscriber, first []fr
 			return
 		}
 	}
+	for s.replay != nil {
+		rec, err := s.replay.next()
+		if err != nil {
+			return
+		}
+		if rec == nil {
+			break
+		}
+		if s.wants(rec) && !write(frame{rec: rec, route: s.route}) {
+			return
+		}
+	}
 	var ping <-chan time.Time
 	if s.party == "" {
 		t := time.NewTicker(30 * time.Second)
@@ -1071,6 +1083,7 @@ func (d *Daemon) partyEvents(w http.ResponseWriter, r *http.Request) *APIError {
 	defer func() {
 		s.close()
 		rt.detach(s)
+		s.replay.close()
 	}()
 	releaseSlot(r)
 	runStream(w, r, s, first, func(frame) string { return rt.name })

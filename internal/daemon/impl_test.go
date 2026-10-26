@@ -166,3 +166,57 @@ func TestViewCloseDetachesDegradedRoute(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// TestReplayReadsFilesInSteps: a cursor older than the ring replays from
+// the journal files one record at a time, not as one materialized range,
+// and two rotations during the replay lose nothing of the range.
+func TestReplayReadsFilesInSteps(t *testing.T) {
+	x := newDirect(t)
+	start := x.r.visible
+	for i := range 300 {
+		if _, e := x.send(fmt.Sprintf("m%d", i), key()); e != nil {
+			t.Fatal(e)
+		}
+	}
+	barrier := x.r.visible
+	s := newSubscriber("r", "orch")
+	first, e := x.r.subscribe(s, x.r.epoch+"-"+itoa(start))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(first) != 0 || s.replay == nil {
+		t.Fatalf("subscribe materialized %d frames (replay %v)", len(first), s.replay != nil)
+	}
+	defer s.replay.close()
+	var got []int64
+	for {
+		rec, err := s.replay.next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rec == nil {
+			break
+		}
+		if s.wants(rec) {
+			got = append(got, rec.Seq)
+		}
+		if len(got) == 10 {
+			for range 2 {
+				if err := x.r.writeCheckpoint(true); err != nil {
+					t.Fatal(err)
+				}
+				if _, e := x.send("after", key()); e != nil {
+					t.Fatal(e)
+				}
+			}
+		}
+	}
+	if len(got) != 300 {
+		t.Fatalf("replayed %d messages, want 300", len(got))
+	}
+	for i, seq := range got {
+		if seq <= start || seq > barrier || (i > 0 && seq <= got[i-1]) {
+			t.Fatalf("record %d has seq %d (range %d..%d)", i, seq, start, barrier)
+		}
+	}
+}
