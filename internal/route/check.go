@@ -148,8 +148,11 @@ func Check(dir, stage string, w io.Writer) int {
 			ok("checklist lines well formed")
 		}
 	}
+	// A requirement is an open or done line. The script counted a dropped
+	// [-] line too (A26), though the checklist says [-] stopped applying;
+	// a dropped line is still checked above for its reason.
 	has := func(pattern string) bool {
-		re := regexp.MustCompile(`^- \[.\] ` + pattern + ` `)
+		re := regexp.MustCompile(`^- \[[ x]\] ` + pattern + ` `)
 		return slices.ContainsFunc(lines, re.MatchString)
 	}
 	need := func(name string, paths ...string) {

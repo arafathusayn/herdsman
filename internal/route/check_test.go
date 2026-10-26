@@ -369,3 +369,32 @@ func TestCheckRouteFolderWithBrackets(t *testing.T) {
 	out, _ = check(t, kf, StagePlan)
 	want(t, "and with its Due line", `^ok Due line in 11-task-a.md$`, out)
 }
+
+// Review head-2 P1 (A26): a dropped [-] line stopped applying, so it asks
+// for no file; the script still demanded the dropped lines' files. Its
+// reason is still checked.
+func TestCheckDroppedRequirements(t *testing.T) {
+	repo := krepo(t)
+	k2 := filepath.Join(repo, ".herdsman", "r2")
+	const hd, row = "| Task | Agent | Pane |", "| review | rv-1 | w2:p1 |"
+	dropped := []string{
+		"- [-] C2.5 pr int gate2 ship: contracts -- review only",
+		"- [-] C2.6 int: the integrator -- review only",
+		"- [-] C2.7 pr gate: the reviewer contract -- review only",
+		"- [-] C2.8 all: run-check wrapper -- no heavy checks",
+		"- [x] C2.7 ro: the review brief -- 20-review-brief.md",
+	}
+	kroute(t, k2, hd, row, dropped...)
+	write(t, filepath.Join(k2, "20-review-brief.md"), "# Review brief")
+	out, rc := check(t, k2, StageClose)
+	wantRC(t, "a closed review-only route with dropped lines passes the close stage", rc, 0)
+	notWant(t, "no dropped requirement is MISSING", `^MISSING`, out)
+	want(t, "the open requirement is still checked", `^ok 20-review-brief.md \(C2.7\)$`, out)
+	kroute(t, k2, hd, row, append([]string{"- [-] C2.8 all: run-check wrapper"}, dropped[4])...)
+	out, rc = check(t, k2, StageClose)
+	want(t, "a dropped line without a reason is BAD", `^BAD - \[-\] C2.8 all: run-check wrapper `, out)
+	wantRC(t, "and fails", rc, 1)
+	kroute(t, k2, hd, row, "- [ ] C2.8 all: run-check wrapper", dropped[4])
+	out, _ = check(t, k2, StagePlan)
+	want(t, "an open line is a requirement", `^MISSING executable run-check.sh`, out)
+}
