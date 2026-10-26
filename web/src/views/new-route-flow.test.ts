@@ -226,3 +226,23 @@ test("a fresh role does not see another role's saved model", async () => {
   expect(options("orch-model")).not.toContain("fable-old");
   expect(options("orch-model")).toContain("newer");
 });
+
+test("saved picks that cannot be read count as none", async () => {
+  const { newRouteFlow } = await import("./new-route-flow.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const opened: boolean[] = [];
+  newRouteFlow(
+    body as unknown as HTMLElement,
+    { savedChoices: () => Promise.reject(new Error("unreadable")), catalog: () => Promise.resolve(quick) },
+    (_c, previous) => {
+      opened.push(previous);
+      return { stop: () => {}, form: () => ({}) as RouteForm, sent: () => false, setCatalog: () => {} };
+    },
+    () => {},
+  );
+  await flush();
+  byName(body, "use-recommended").dispatch("click");
+  await flush();
+  await flush();
+  expect(opened).toEqual([false]);
+});

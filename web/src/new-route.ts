@@ -60,11 +60,11 @@ export interface RouteForm {
   /** The custom path's answer to each setup item, by item name (A32). */
   custom: Record<string, string>;
   /**
-   * The saved pick a role keeps exactly (A30, per role): it is checked
-   * against that pick alone; a role without one is a fresh choice from the
-   * live lists. Editing the role's harness makes it fresh.
+   * Each role's own saved pick (A30, per role), by role. A field holds it
+   * while its harness is exactly that pick, and is then checked against
+   * that pick alone; any other choice is fresh, from the live lists.
    */
-  saved: { main?: ChoicePick; orch?: ChoicePick };
+  saved: Partial<Record<RouteRole, ChoicePick>>;
 }
 
 /**
@@ -107,7 +107,7 @@ export const RECOMMENDED_SETUP: [string, string][] = [
 export function setRecommended(f: RouteForm, c: Catalog, on: boolean): RouteForm {
   if (!on) return { ...f, recommended: false };
   return {
-    ...setRole(f, "adjutant"),
+    ...setRole(f, "adjutant", c),
     recommended: true,
     checkpointer: c.checkpointer_ok,
     minutes: "15",
@@ -237,9 +237,16 @@ export function liveCatalog(c: Catalog): Catalog {
   return c.from_picks ? { ...c, kinds: [] } : c;
 }
 
+/** The saved pick a field holds: its role's own, while the field is exactly that pick. */
+export function savedFor(f: RouteForm, which: "main" | "orch"): ChoicePick | undefined {
+  const p = f.saved[which === "main" ? f.role : "orchestrator"];
+  const h = f[which];
+  return p && h.kind === p.harness && h.model === p.model && h.effort === p.effort && !h.other ? p : undefined;
+}
+
 /** The catalog one role is checked against: its own saved pick, or the live lists. */
 export function roleCatalog(f: RouteForm, c: Catalog, which: "main" | "orch"): Catalog {
-  const p = f.saved[which];
+  const p = savedFor(f, which);
   return p ? { ...c, kinds: [savedKind(c, p)] } : liveCatalog(c);
 }
 
@@ -257,7 +264,7 @@ export function harnessFromPick(p: ChoicePick): Harness | null {
 export function freshFromLists(f: RouteForm, c: Catalog): RouteForm {
   const live = liveCatalog(c);
   const fix = (which: "main" | "orch", h: Harness): Harness => {
-    if (f.saved[which]) return h;
+    if (savedFor(f, which)) return h;
     const k = kindOf(live, h.kind);
     if (k && (k.free_model || k.models.some((m) => m.id === h.model) || h.model === OTHER)) return h;
     return harness(live, k ? k.kind : (live.kinds[0]?.kind ?? h.kind));
@@ -265,16 +272,21 @@ export function freshFromLists(f: RouteForm, c: Catalog): RouteForm {
   return { ...f, main: fix("main", f.main), orch: fix("orch", f.orch) };
 }
 
-/** Fills each role of the form from its own saved pick, which it then keeps exactly. */
+/**
+ * Keeps each coordinator role's usable saved pick and fills the form's
+ * fields from the picks of its roles, each role from its own pick.
+ */
 export function usePrevious(f: RouteForm, c: Catalog): RouteForm {
-  let out = f;
-  for (const p of previousPicks(f, c)) {
-    const h = harnessFromPick(p);
-    if (!h) continue;
-    if (p.role === "orchestrator" && f.role === "adjutant")
-      out = { ...out, orch: h, orchEdited: true, saved: { ...out.saved, orch: p } };
-    else out = { ...out, main: h, saved: { ...out.saved, main: p } };
-  }
+  const saved = { ...f.saved };
+  for (const p of c.previous ?? [])
+    if (p.runner === "herdr" && (p.role === "adjutant" || p.role === "orchestrator") && usablePick(p))
+      saved[p.role] ??= p;
+  const main = saved[f.role];
+  const orch = f.role === "adjutant" ? saved.orchestrator : undefined;
+  if (!main && !orch) return f;
+  let out: RouteForm = { ...f, saved };
+  if (main) out = { ...out, main: harnessFromPick(main)! };
+  if (orch) out = { ...out, orch: harnessFromPick(orch)!, orchEdited: true };
   return out;
 }
 
@@ -309,13 +321,10 @@ export type HarnessChange = Partial<Harness>;
  * orchestrator until the user edits the orchestrator's own choice.
  */
 export function setHarness(f0: RouteForm, c0: Catalog, which: "main" | "orch", change: HarnessChange): RouteForm {
-  // An edited role is a fresh choice from the live lists; so is the
-  // orchestrator that follows the adjutant.
+  // An edited role is a fresh choice from the live lists (savedFor then no
+  // longer matches); so is the orchestrator that follows the adjutant.
   const c = liveCatalog(c0);
-  const saved = { ...f0.saved };
-  delete saved[which];
-  if (which === "main" && !f0.orchEdited) delete saved.orch;
-  const f = { ...f0, saved };
+  const f = f0;
   const cur = f[which];
   let h: Harness;
   if (change.kind !== undefined && change.kind !== cur.kind) h = harness(c, change.kind);
@@ -370,12 +379,25 @@ export function newForm(c: Catalog, st: State | null): RouteForm {
 }
 
 /** Switches the role and keeps every field the user typed; untouched default names follow. */
-export function setRole(f: RouteForm, role: RouteRole): RouteForm {
+export function setRole(f: RouteForm, role: RouteRole, c?: Catalog): RouteForm {
   if (role === f.role) return f;
   let name = f.name;
   if (role === "adjutant" && name === "orch-1") name = "adj-1";
   if (role === "orchestrator" && name === "adj-1") name = "orch-1";
-  return { ...f, role, name, orch: f.orchEdited ? f.orch : { ...f.main } };
+  // Each role is its own unit: the coordinator field takes the new role's
+  // own saved pick, else a fresh choice when it held the old role's pick.
+  const live: Catalog = c ? liveCatalog(c) : { kinds: [], today: "", home: "", checkpointer_ok: false };
+  const fresh = (h: Harness): Harness => harness(live, kindOf(live, h.kind) ? h.kind : (live.kinds[0]?.kind ?? h.kind));
+  const own = f.saved[role] ? harnessFromPick(f.saved[role]) : null;
+  const main = own ?? (savedFor(f, "main") ? fresh(f.main) : f.main);
+  let orch = f.orchEdited ? f.orch : { ...main };
+  let orchEdited = f.orchEdited;
+  if (role === "adjutant") {
+    const o = f.saved.orchestrator ? harnessFromPick(f.saved.orchestrator) : null;
+    if (o) [orch, orchEdited] = [o, true];
+    else if (own) orch = fresh(main); // never the adjutant's pick
+  }
+  return { ...f, role, name, main, orch, orchEdited };
 }
 
 /** Applies a change and keeps the inbox following the folder and route name until edited. */
@@ -486,11 +508,11 @@ export function validate(f: RouteForm, c: Catalog, st: State | null): Record<str
     else if (live.has(n)) out[field] = `An agent named ${n} is already running.`;
   };
   name("name", f.name);
-  checkHarness(f.main, roleCatalog(f, c, "main"), "main", out, !!f.saved.main);
+  checkHarness(f.main, roleCatalog(f, c, "main"), "main", out, !!savedFor(f, "main"));
   if (f.role === "adjutant") {
     name("orchName", f.orchName);
     if (f.orchName === f.name) out["orchName"] = "The orchestrator needs a name of its own.";
-    checkHarness(f.orch, roleCatalog(f, c, "orch"), "orch", out, !!f.saved.orch);
+    checkHarness(f.orch, roleCatalog(f, c, "orch"), "orch", out, !!savedFor(f, "orch"));
     if (!routeNameRe.test(f.routeName)) out["routeName"] = "a-z, 0-9 and -, starting with a letter or digit.";
     if (
       !(f.inbox.startsWith("~/") || f.inbox.startsWith(`${c.home}/`)) ||

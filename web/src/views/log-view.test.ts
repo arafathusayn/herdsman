@@ -1,9 +1,12 @@
-import { beforeAll, expect, test } from "bun:test";
+import { beforeAll, expect, mock, test } from "bun:test";
 
 import { all, type FakeElement, find, installDom } from "../testdom.ts";
 import type { LogLine, Route } from "../types.ts";
 
 beforeAll(installDom);
+
+const toasts: [string, string | undefined][] = [];
+void mock.module("../ui.ts", () => ({ toast: (m: string, kind?: string) => void toasts.push([m, kind]) }));
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const text = (b: FakeElement) =>
@@ -64,4 +67,14 @@ test("a failed page keeps the button and reports the error", async () => {
   expect(find(own, (e) => e.tagName === "button")?.textContent).toBe("Show 5 earlier lines");
   const empty = logView({ id: "r2", run_state: [] } as unknown as Route) as unknown as FakeElement;
   expect(empty.textContent).toBe("No run-state lines yet.");
+});
+
+// The app's own failure report: a page that fails shows an error toast.
+test("the default failure report is an error toast", async () => {
+  const { logView } = await import("./log-view.ts");
+  const r = { id: "r1", run_state: [{ time: "10:00", text: "n" }], older_run_state: 5 } as unknown as Route;
+  const view = logView(r, () => Promise.reject(new Error("gone"))) as unknown as FakeElement;
+  find(view, (e) => e.tagName === "button")!.dispatch("click");
+  await flush();
+  expect(toasts).toEqual([["Could not load earlier lines: gone", "error"]]);
 });

@@ -535,7 +535,7 @@ export function routeForm(
           "aria-checked": String(f.role === r),
           class: f.role === r ? "active" : "",
           onclick: () => {
-            f = setRole(f, r);
+            f = setRole(f, r, c);
             draw();
             readInbox();
           },

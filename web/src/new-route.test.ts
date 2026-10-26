@@ -425,7 +425,7 @@ test("the previous choice fills the form's roles from the saved picks", () => {
   // Each role takes its own saved pick exactly, whatever the lists say.
   const filled = usePrevious(orch, c);
   expect(filled.main).toEqual({ kind: "claude", model: "custom-model-1", other: "", effort: "max" });
-  expect(filled.saved.main?.model).toBe("custom-model-1");
+  expect(filled.saved.orchestrator?.model).toBe("custom-model-1");
   const adj = setRole(orch, "adjutant");
   expect(previousPicks(adj, c).map(pickSummary)).toEqual([
     "adjutant (herdr): codex gpt-5.6-luna, effort low",
@@ -652,4 +652,25 @@ test("a role's saved default passes beside another role's saved model of the sam
   const errs = validate(f, c, state);
   expect(errs["main"]).toBeUndefined();
   expect(errs["orch"]).toBeUndefined();
+});
+
+// The saved intent follows the role, not the field: changing the role
+// restores that role's own saved pick, or makes the choice fresh; the
+// adjutant's pick never becomes the orchestrator's.
+test("changing the role restores that role's own pick and never carries another's", () => {
+  const adjOnly = fromPicks([oc("adjutant", "p/adj", "", "")]);
+  const adj = usePrevious(setRole(fresh(), "adjutant"), adjOnly);
+  expect(adj.main.model).toBe("p/adj");
+  const orch = setRole(adj, "orchestrator", adjOnly);
+  expect(orch.main.model).not.toBe("p/adj");
+  expect(validate(orch, adjOnly, state)["main"]).toBeDefined();
+  // Back to the adjutant: its own pick again.
+  expect(setRole(orch, "adjutant", adjOnly).main.model).toBe("p/adj");
+  // With both saved, each role gets its own.
+  const both = fromPicks([oc("adjutant", "p/adj", "", ""), oc("orchestrator", "p/orch", "", "")]);
+  const two = usePrevious(setRole(fresh(), "adjutant"), both);
+  expect([two.main.model, two.orch.model]).toEqual(["p/adj", "p/orch"]);
+  const one = setRole(two, "orchestrator", both);
+  expect(one.main.model).toBe("p/orch");
+  expect(validate(one, both, state)["main"]).toBeUndefined();
 });

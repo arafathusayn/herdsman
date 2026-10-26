@@ -581,3 +581,28 @@ test("a custom setup answer opens the form with the recommended setup off", asyn
   routeForm(again as unknown as HTMLElement, catalog, state, bareDeps, { recommended: true });
   expect(byName(again, "recommended").checked).toBe(true);
 });
+
+// The real form: after "Use previous choice" with only the adjutant saved,
+// choosing the orchestrator role does not offer the adjutant's model.
+test("the orchestrator role is not offered the adjutant's saved model", async () => {
+  const { routeForm } = await import("./route-form.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const adjPick = {
+    role: "adjutant",
+    runner: "herdr",
+    harness: "claude",
+    model: "adj-only",
+    effort: "low",
+    route: "",
+    at: "",
+  };
+  const r = routeForm(body as unknown as HTMLElement, { ...catalog, previous: [adjPick] }, state, bareDeps, {
+    usePrevious: true,
+    recommended: false,
+  });
+  const values = (name: string) => byName(body, name).children.map((o) => o.value);
+  expect(values("main-model")).toContain("adj-only");
+  byName(body, "role-orchestrator").dispatch("click");
+  expect(values("main-model")).not.toContain("adj-only");
+  expect(r.form().main.model).not.toBe("adj-only");
+});

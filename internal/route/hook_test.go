@@ -71,8 +71,8 @@ func TestPageOfAFileEditedInPlace(t *testing.T) {
 	}
 }
 
-// Repeated run-state sections: only the ranges that hold the newest
-// Window records are kept, and the oldest page reads from them.
+// Repeated run-state sections: only the marks the window needs are kept,
+// and the oldest page reads from them.
 func TestWindowKeepsOnlyTheNewestRanges(t *testing.T) {
 	dir := t.TempDir()
 	var b strings.Builder
@@ -87,11 +87,73 @@ func TestWindowKeepsOnlyTheNewestRanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tail.runs) != Window || tail.From() != 100 {
-		t.Fatalf("%d ranges, from %d", len(tail.runs), tail.From())
+	if len(tail.marks) > Window/markEvery+2 || tail.From() != 100 {
+		t.Fatalf("%d marks, from %d", len(tail.marks), tail.From())
 	}
 	lines, err := tail.Page(101, 5)
 	if err != nil || len(lines) != 1 || lines[0].Text != "r100" {
 		t.Fatalf("%+v %v", lines, err)
+	}
+}
+
+// A record longer than the read buffer is paged whole.
+func TestPageOfALongRecord(t *testing.T) {
+	dir := t.TempDir()
+	long := strings.Repeat("y", 70000)
+	body := "# R\n## Run state\n- 10:00 a\n- 10:01 " + long + "\n- 10:02 c\n"
+	if err := os.WriteFile(filepath.Join(dir, RouteFile), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tail, err := LoadBounded(dir, 10, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, err := tail.Page(3, 3)
+	if err != nil || len(lines) != 3 || lines[1].Text != long || lines[2].Text != "c" {
+		t.Fatalf("%d lines, %v", len(lines), err)
+	}
+}
+
+// A line appended while a page reads: the page has all its records, but
+// the file is no longer the snapshot, so it is refused.
+func TestPageRefusesAnAppendDuringTheRead(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, RouteFile)
+	if err := os.WriteFile(file, []byte("# R\n## Run state\n- 10:00 a\n- 10:01 b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tail, err := LoadBounded(dir, 10, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeRead = func() {
+		f, _ := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, 0)
+		_, _ = f.WriteString("- 10:02 c\n")
+		_ = f.Close()
+	}
+	defer func() { beforeRead = func() {} }()
+	if _, err := tail.Page(2, 2); !errors.Is(err, ErrChanged) {
+		t.Fatalf("%v", err)
+	}
+}
+
+// A route without run-state records: the window is empty and a grown
+// file is read on.
+func TestRouteWithoutRecords(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, RouteFile)
+	if err := os.WriteFile(file, []byte("# R\n\n## Checklist\n\n- [ ] C1.1 one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tail, err := LoadBounded(dir, 10, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, _ := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, 0)
+	_, _ = f.WriteString("- [x] C1.2 two\n")
+	_ = f.Close()
+	next, err := LoadBounded(dir, 10, tail)
+	if err != nil || next.Total != 0 || len(next.Route.Checklist) != 2 {
+		t.Fatalf("%+v %v", next, err)
 	}
 }
