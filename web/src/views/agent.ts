@@ -182,7 +182,7 @@ const Keys = html`<div class="keys" role="group" aria-label="Send a key">
   <button class="key" title="Send other key names, separated by spaces" onclick=${on<"click">()}>Other…</button>
 </div>`;
 
-const Composer = html`<form class="composer" onsubmit=${on<"submit">()}>
+const Composer = html`<form class="composer" onsubmit=${on<"submit", HTMLFormElement>()}>
   ${child<HTMLTextAreaElement>()}
   <div class="composer-bar">
     <label class="select">${child<HTMLSelectElement>()}${child<IconNode>()}</label>

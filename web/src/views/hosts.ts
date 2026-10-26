@@ -97,9 +97,7 @@ const HostsHelp = html`<p class="hosts-help">
 </p>`;
 
 /** The add-a-host form: a pairing link, or a bare address to pair later. */
-// on<"submit", HTMLFormElement>() does not type-check (the form's string
-// index signature hides its handler names), so the handler is typed for HTMLElement.
-const AddForm = html`<form class="hosts-add" onsubmit=${on<"submit">()}>
+const AddForm = html`<form class="hosts-add" onsubmit=${on<"submit", HTMLFormElement>()}>
   <label class="hosts-label">Add a host</label>
   <div class="hosts-row">
     <input

@@ -295,10 +295,8 @@ const ResultActions = html`<div class="dialog-actions nr-actions">
 </div>`;
 
 // The form element: the dialog's form, with the head, body and actions of
-// one screen. The submit handler is typed for HTMLElement: on<"submit",
-// HTMLFormElement>() does not type-check (the form's string index signature
-// hides its handler names).
-const Root = html`<form method="dialog" novalidate onsubmit=${on<"submit">()}>
+// one screen.
+const Root = html`<form method="dialog" novalidate onsubmit=${on<"submit", HTMLFormElement>()}>
   ${child<ViewNodeOf<typeof Head>>()}${child<ViewNodeOf<typeof FormBody> | ViewNodeOf<typeof ResultBody>>()}${child<
     ViewNodeOf<typeof FormActions> | ViewNodeOf<typeof ResultActions>
   >()}
@@ -757,7 +755,7 @@ export function routeForm(
     }
   };
 
-  function submit(this: HTMLElement, e: SubmitEvent): void {
+  function submit(this: HTMLFormElement, e: SubmitEvent): void {
     const v = e.submitter?.getAttribute("value");
     if (v === "cancel" || v === "ok") return;
     e.preventDefault();

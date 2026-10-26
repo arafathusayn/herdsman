@@ -41,7 +41,7 @@ const PairCard = html`<div class="pair-card">
   <h1>Pair this browser</h1>
   <p class="pair-host">${child<IconNode>()}${text()}</p>
   <p class="pair-lead">Type the 6-digit code that <code>herdsman web</code> just printed in the host's terminal. It expires in 2 minutes.</p>
-  <form class="pair-form" onsubmit=${on<"submit">()}>
+  <form class="pair-form" onsubmit=${on<"submit", HTMLFormElement>()}>
     ${child<HTMLInputElement>()}
     <button class="btn primary pair-submit" type="submit" disabled=${attr<boolean>()}>Pair this browser</button>
   </form>
