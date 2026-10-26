@@ -92,6 +92,7 @@ func TestAppendedLineAndPageCostStayFlat(t *testing.T) {
 		}
 		cost[n] = [2]uint64{after.TotalAlloc - refresh.TotalAlloc, pageAfter.TotalAlloc - page.TotalAlloc}
 	}
+	t.Logf("A24 refresh after an append: %d bytes at 150 lines, %d at 10,000; newest older page: %d and %d", cost[150][0], cost[10000][0], cost[150][1], cost[10000][1])
 	for i, what := range []string{"refresh after an append", "page"} {
 		if int64(cost[10000][i])-int64(cost[150][i]) > 128<<10 {
 			t.Errorf("%s costs %d bytes at 150 lines and %d at 10,000", what, cost[150][i], cost[10000][i])

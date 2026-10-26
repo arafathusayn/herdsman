@@ -67,6 +67,7 @@ func TestOldestPageCostIsFlat(t *testing.T) {
 			}
 			cost[n] = b.TotalAlloc - a.TotalAlloc
 		}
+		t.Logf("A24 oldest page, after %q: %d bytes at 100 lines, %d at 10,000", after, cost[100], cost[10000])
 		if int64(cost[10000])-int64(cost[100]) > 256<<10 {
 			t.Errorf("after %q: the oldest page costs %d bytes at 100 lines and %d at 10,000", after, cost[100], cost[10000])
 		}
