@@ -508,6 +508,13 @@ describe("html templates", () => {
     expect(fake(without.root)["onclick"]).toBeNull();
   });
 
+  test("character references in markup decode as in a browser", () => {
+    const T = html`<p title="a &amp; b &quot;q&quot;">&lt;x&gt; &#169; &#x2014; &copy;&nbsp;&unknown; ${0}</p>`;
+    const root = fake(T.mount(["&lt;"]).root);
+    expect(root.getAttribute("title")).toBe('a & b "q"');
+    expect(root.textContent).toBe("<x> © — © &unknown; &lt;"); // hole values are never parsed
+  });
+
   test("ignores formatter indentation but keeps spaces inside lines and in <pre>", () => {
     const T = html`<ul>
       <li>a ${0} b</li>

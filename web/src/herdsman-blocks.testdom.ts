@@ -346,6 +346,50 @@ const TOKEN =
   /<!--([\s\S]*?)-->|<\/([a-z0-9-]+)\s*>|<([a-z0-9-]+)((?:\s+[^\s=>/]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>|([^<]+)/gi;
 const ATTR = /([^\s=>/]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
 
+// Character references, as the HTML parser decodes them in text and
+// attribute values: numeric ones, and the common named ones. An unknown name
+// stays as written, as in a browser.
+const NAMED: Readonly<Record<string, string>> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: "\u00a0",
+  copy: "\u00a9",
+  reg: "\u00ae",
+  trade: "\u2122",
+  hellip: "\u2026",
+  mdash: "\u2014",
+  ndash: "\u2013",
+  lsquo: "\u2018",
+  rsquo: "\u2019",
+  ldquo: "\u201c",
+  rdquo: "\u201d",
+  laquo: "\u00ab",
+  raquo: "\u00bb",
+  middot: "\u00b7",
+  bull: "\u2022",
+  times: "\u00d7",
+  divide: "\u00f7",
+  larr: "\u2190",
+  uarr: "\u2191",
+  rarr: "\u2192",
+  darr: "\u2193",
+  check: "\u2713",
+};
+const REF = /&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([a-zA-Z][a-zA-Z0-9]*));/g;
+export const decode = (s: string): string =>
+  s.indexOf("&") < 0
+    ? s
+    : s.replace(REF, (all, dec?: string, hex?: string, name?: string) =>
+        dec !== undefined
+          ? String.fromCodePoint(+dec)
+          : hex !== undefined
+            ? String.fromCodePoint(parseInt(hex, 16))
+            : (NAMED[name!] ?? all),
+      );
+
 function parse(src: string, root: FakeElement): void {
   const stack: FakeElement[] = [root];
   for (const m of src.matchAll(TOKEN)) {
@@ -356,10 +400,10 @@ function parse(src: string, root: FakeElement): void {
       // As the HTML parser does: an svg element and its content are SVG, with case-kept tag names.
       const svg = top.namespaceURI === SVG_NS || m[3].toLowerCase() === "svg";
       const el = svg ? new FakeElement(m[3], SVG_NS) : new FakeElement(m[3].toUpperCase());
-      for (const a of (m[4] ?? "").matchAll(ATTR)) el.setAttribute(a[1]!, a[2] ?? a[3] ?? a[4] ?? "");
+      for (const a of (m[4] ?? "").matchAll(ATTR)) el.setAttribute(a[1]!, decode(a[2] ?? a[3] ?? a[4] ?? ""));
       top.appendChild(el);
       if (!m[5]) stack.push(el);
-    } else if (m[6]) top.appendChild(new FakeText(m[6]));
+    } else if (m[6]) top.appendChild(new FakeText(decode(m[6])));
   }
   resetOps();
 }

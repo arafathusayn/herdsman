@@ -475,7 +475,7 @@ Weakening the update method to accept any value made the type check fail on the 
 
 ### Correctness properties the tests check
 
-Tests run on a small linked-list fake DOM with counters for inserts, moves, removes, clones and class writes, so they can assert exact DOM work without a browser.
+Tests run on a small linked-list fake DOM with counters for inserts, moves, removes, clones and class writes, so they can assert exact DOM work without a browser. Its markup parser decodes character references in text and attribute values as a browser does (numeric ones and the common named ones; an unknown name stays as written), so templates with `&lt;` and the like behave the same in tests and in Chrome.
 
 1. The LIS routine returns a strictly increasing run whose length equals a brute-force reference, over 2,000 random arrays with "new item" slots mixed in.
 2. Over 3,000 random list updates (removals, shuffles, swaps, insertions, with and without `owns`): the final DOM order equals the new items; every surviving item keeps its original entry; only new keys are created; and the number of moves equals survivors minus their LIS length, the proven minimum.
@@ -618,6 +618,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-27: The fake DOM decodes character references in template markup (numeric and common named ones), as browsers do. Test infrastructure only.
 - 2026-10-27: `mount(view)` creates a view's root element as its own delegating render root, and `update(root, view)` patches it, for components that place their root themselves; any view works, child holes included. Part of 0.0.8.
 - 2026-10-27: Event holes take events with no `on` property on the element, typed from the element's event map (compositionstart, compositionupdate and compositionend, which are delegated); a direct trampoline for such an event is added as a listener. The fake DOM's elements carry the common `on` properties (null when unset), like a browser's. Part of 0.0.8.
 - 2026-10-27: Fix (0.0.8): a view with child holes deferred locating its text, class, attribute and delegated holes, but by the first update a child hole's content could stand before them, so the update wrote to the wrong node. Such views now locate every hole at mount. Unit test with the reported case and a property test over random templates with child holes, checked against a fresh render.
