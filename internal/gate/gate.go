@@ -221,6 +221,12 @@ func (g *Gate) consume(goFile, action, target, revision, draft string) exit {
 	if !same("action") || !same("target") || !same("draft_hash") {
 		return g.refuse("trusted interaction approves another action, target or draft")
 	}
+	// PR 28: in a route with an adjutant every question goes through it, so
+	// the go is the approved adjutant's ask-tool answer, and an answer to
+	// the orchestrator's own ask is no go.
+	if e := g.askedByAdjutant(im); e != nil {
+		return *e
+	}
 	if e := g.lockAction(); e != nil {
 		return *e
 	}
