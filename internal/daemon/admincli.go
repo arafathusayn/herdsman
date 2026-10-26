@@ -261,10 +261,17 @@ func RunDaemon(a *AdminEnv, args []string) int {
 func (a *AdminEnv) run(ph, home string) int {
 	lg := newBoundedLog(ph, a.Stderr)
 	defer lg.Close()
+	// Every diagnostic of the run, its startup failure too, goes through
+	// the bounded log (9.3): a KeepAlive restart loop cannot grow it.
+	a.Stderr = lg
 	logf := func(s string) { lg.Line(time.Now().Format(time.RFC3339) + " " + s) }
 	d := New(Config{PrivateHome: ph, Home: home, Version: a.Version, Executable: a.Executable, HerdrSocket: herdrDefaultSocket(), Log: logf})
 	if err := d.Start(); err != nil {
 		return a.fail(err)
+	}
+	// The identity stop checks before it signals a daemon started by hand.
+	if err := writeOwnIdentity(ph); err != nil {
+		logf("identity record: " + err.Error() + "; stop will refuse to signal this daemon")
 	}
 	logf("herdsman daemon " + a.Version + " on " + SocketPath(ph))
 	sigs := a.Signals
@@ -520,14 +527,24 @@ func (a *AdminEnv) pair(ctx context.Context, c *Client, args []string) int {
 	return a.usage("pair approve|retire ...")
 }
 
+// writeOwnIdentity records this process's native identity for stop.
+func writeOwnIdentity(ph string) error {
+	p, err := procIdentity(os.Getpid())
+	if err != nil {
+		return err
+	}
+	b, _ := encode(DaemonIdentity{PID: os.Getpid(), Executable: p.Executable, StartNS: p.Start.UnixNano()})
+	return writeDurable(identityPath(ph), append(b, '\n'), 0o600)
+}
+
 // logMax bounds daemon.log; one previous file is kept (9.3).
 const logMax = 1 << 20
 
 // boundedLog is the daemon's log, <private home>/daemon/daemon.log, at
 // most logMax bytes plus one previous file, daemon.log.1. When the
 // process's stderr is that file (the LaunchAgent's StandardErrorPath),
-// a rotation moves stderr to the new file too, so nothing else appends
-// to it unbounded; otherwise every line also goes to stderr.
+// a rotation moves that descriptor to the new file too, so nothing else
+// appends to it unbounded; otherwise every line also goes to stderr.
 type boundedLog struct {
 	path   string
 	max    int64
@@ -535,18 +552,30 @@ type boundedLog struct {
 	mu     sync.Mutex
 	f      *os.File
 	size   int64
-	// redirect: fd 2 is the log file and follows it on rotation.
+	// redirect: stderr is the log file; its descriptor (fd) follows the
+	// log on rotation.
 	redirect bool
+	fd       int
 }
 
 func newBoundedLog(ph string, stderr io.Writer) *boundedLog {
 	l := &boundedLog{path: filepath.Join(ph, "daemon", "daemon.log"), max: logMax, stderr: stderr}
-	if stderr == os.Stderr {
-		a, err1 := os.Stderr.Stat()
+	if f, ok := stderr.(*os.File); ok {
+		a, err1 := f.Stat()
 		b, err2 := os.Stat(l.path)
 		l.redirect = err1 == nil && err2 == nil && os.SameFile(a, b)
+		l.fd = int(f.Fd())
 	}
 	return l
+}
+
+// Write writes text through Line, one line at a time, so every write of
+// the daemon run (its startup failure included) is bounded.
+func (l *boundedLog) Write(b []byte) (int, error) {
+	for _, s := range strings.Split(strings.TrimSuffix(string(b), "\n"), "\n") {
+		l.Line(s)
+	}
+	return len(b), nil
 }
 
 // open opens the log for appending; the daemon folder is made only
@@ -566,7 +595,7 @@ func (l *boundedLog) open() error {
 	}
 	l.f, l.size = f, st.Size()
 	if l.redirect {
-		_ = unix.Dup2(int(f.Fd()), 2)
+		_ = unix.Dup2(int(f.Fd()), l.fd)
 	}
 	return nil
 }

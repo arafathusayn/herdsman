@@ -10,12 +10,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"text/template"
 	"time"
+
+	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
 // The supervisor units (3.1): a user LaunchAgent with KeepAlive on macOS,
@@ -90,9 +91,8 @@ type Supervisor struct {
 	Run func(name string, args ...string) error
 	// Query runs a supervisor program and returns its output (nil: exec).
 	Query func(name string, args ...string) (string, error)
-	// Identity reads a process's argument vector and start time (nil:
-	// the system's).
-	Identity func(pid int) ([]string, time.Time, error)
+	// Identity reads a process's native identity (nil: the system's).
+	Identity func(pid int) (ProcID, error)
 	// Signal signals a process (nil: kill(2)).
 	Signal func(pid int, sig syscall.Signal) error
 	Now    func() time.Time
@@ -201,17 +201,23 @@ func (s *Supervisor) Installed() bool { return exists(s.UnitPath()) }
 
 // managed is the service manager's own state of the unit: whether it is
 // loaded (launchd) or active (systemd), and the pid it runs (0: none).
-func (s *Supervisor) managed() (loaded bool, pid int) {
+// Only a verified answer counts as not loaded (launchd: no such service;
+// systemd: inactive or failed); any other failure of the query is
+// returned, so no lifecycle step treats a supervised daemon as manual.
+func (s *Supervisor) managed() (loaded bool, pid int, err error) {
 	if s.goos() == "darwin" {
 		out, err := s.query("launchctl", "print", s.service())
 		if err != nil {
-			return false, 0
+			if strings.Contains(out+err.Error(), "Could not find service") {
+				return false, 0, nil
+			}
+			return false, 0, fmt.Errorf("reading the LaunchAgent's state: %v", err)
 		}
-		return true, fieldInt(out, "pid = ")
+		return true, fieldInt(out, "pid = "), nil
 	}
 	out, err := s.query("systemctl", "--user", "show", "-p", "ActiveState", "-p", "MainPID", systemdUnit)
 	if err != nil {
-		return false, 0
+		return false, 0, fmt.Errorf("reading the systemd unit's state: %v", err)
 	}
 	state := ""
 	for _, l := range strings.Split(out, "\n") {
@@ -219,8 +225,13 @@ func (s *Supervisor) managed() (loaded bool, pid int) {
 			state = v
 		}
 	}
-	active := state == "active" || state == "activating" || state == "reloading"
-	return active, fieldInt(out, "MainPID=")
+	switch state {
+	case "inactive", "failed":
+		return false, 0, nil
+	case "active", "activating", "deactivating", "reloading", "refreshing":
+		return true, fieldInt(out, "MainPID="), nil
+	}
+	return false, 0, fmt.Errorf("reading the systemd unit's state: unknown ActiveState %q", state)
 }
 
 // fieldInt is the integer after the first line that starts with key.
@@ -284,7 +295,10 @@ func (s *Supervisor) Install() (string, error) {
 	if err := checkPrivateHome(s.PrivateHome); err != nil {
 		return "", err
 	}
-	loaded, pid := s.managed()
+	loaded, pid, err := s.managed()
+	if err != nil {
+		return "", err
+	}
 	if l, ok := s.manual(pid); ok {
 		return "", &ErrRunning{Holder: l}
 	}
@@ -335,7 +349,11 @@ func (s *Supervisor) start() error {
 		if err := s.run("launchctl", "enable", s.service()); err != nil {
 			return err
 		}
-		if loaded, _ := s.managed(); loaded {
+		loaded, _, err := s.managed()
+		if err != nil {
+			return err
+		}
+		if loaded {
 			return nil
 		}
 		return s.run("launchctl", "bootstrap", s.domain(), s.UnitPath())
@@ -357,7 +375,10 @@ func (s *Supervisor) Stop() error {
 }
 
 func (s *Supervisor) stop() error {
-	loaded, pid := s.managed()
+	loaded, pid, err := s.managed()
+	if err != nil {
+		return err
+	}
 	if loaded || s.Installed() {
 		if s.goos() == "darwin" {
 			if err := s.run("launchctl", "disable", s.service()); err != nil {
@@ -392,26 +413,92 @@ func (s *Supervisor) stop() error {
 	return s.waitFree()
 }
 
+// ProcID is a process's native identity: its executable as the kernel
+// reports it, its argument vector and its start time.
+type ProcID struct {
+	Executable string
+	Args       []string
+	Start      time.Time
+}
+
+// DaemonIdentity is <private home>/daemon/identity.json, written by
+// `daemon run` once it holds the account lock: its own native identity,
+// which stop compares before it signals (5.7).
+type DaemonIdentity struct {
+	PID        int    `json:"pid"`
+	Executable string `json:"executable"`
+	StartNS    int64  `json:"start_ns"`
+}
+
+func identityPath(ph string) string { return filepath.Join(ph, "daemon", "identity.json") }
+
+// readDaemonIdentity reads the identity record strictly.
+func readDaemonIdentity(ph string) (DaemonIdentity, bool) {
+	var r DaemonIdentity
+	b, err := readSmall(identityPath(ph), 4096)
+	if err != nil || inbox.StrictJSON(b) != nil || strictDecode(b, &r) != nil || r.PID <= 1 || r.Executable == "" || r.StartNS <= 0 {
+		return DaemonIdentity{}, false
+	}
+	return r, true
+}
+
+// daemonRunArgv reports whether an argument vector is the command
+// herdsman daemon run: daemon, then (after its global options) run.
+func daemonRunArgv(args []string) bool {
+	if len(args) < 3 || args[1] != "daemon" {
+		return false
+	}
+	for i := 2; i < len(args); i++ {
+		switch args[i] {
+		case "--json":
+		case "--private-home":
+			i++
+		default:
+			return args[i] == "run"
+		}
+	}
+	return false
+}
+
 // checkIdentity checks that the account lock's pid is the daemon that
-// took the lock: a herdsman daemon run process that started at most a
-// minute before the lock's start and not after it (5.7). Any mismatch
-// refuses, so a stale record never signals another process.
+// took the lock (5.7): the daemon's identity record names that pid, and
+// the live process runs herdsman daemon run from the recorded executable
+// with the recorded start time, at most a minute before the lock's start
+// and not after it. A missing record or any mismatch refuses, so a stale
+// or miswritten lock never signals another process.
 func (s *Supervisor) checkIdentity(l AccountLock) error {
 	if l.PID <= 1 {
 		return fmt.Errorf("the account lock is held but names no process; inspect %s", AccountLockPath(s.Home))
+	}
+	refuse := func(why string) error {
+		return fmt.Errorf("pid %d of the account lock %s; inspect %s, nothing was signalled", l.PID, why, AccountLockPath(s.Home))
+	}
+	rec, ok := readDaemonIdentity(s.PrivateHome)
+	if !ok {
+		return refuse("cannot be checked: no valid identity record " + identityPath(s.PrivateHome))
+	}
+	if rec.PID != l.PID {
+		return refuse(fmt.Sprintf("does not match the identity record (pid %d)", rec.PID))
 	}
 	id := s.Identity
 	if id == nil {
 		id = procIdentity
 	}
-	args, started, err := id(l.PID)
+	p, err := id(l.PID)
 	if err != nil {
-		return fmt.Errorf("pid %d of the account lock cannot be checked (%v); inspect %s, nothing was signalled", l.PID, err, AccountLockPath(s.Home))
+		return refuse(fmt.Sprintf("cannot be checked (%v)", err))
 	}
-	runs := slices.ContainsFunc(args[min(1, len(args)):], func(a string) bool { return a == "daemon" }) && slices.Contains(args, "run")
 	lock := time.Unix(l.Start, 0)
-	if !runs || started.After(lock.Add(time.Second)) || lock.Sub(started) > time.Minute {
-		return fmt.Errorf("pid %d does not match the account lock (not the daemon that took it at %s); inspect %s, nothing was signalled", l.PID, lock.Format(time.RFC3339), AccountLockPath(s.Home))
+	recStart := time.Unix(0, rec.StartNS)
+	switch {
+	case !daemonRunArgv(p.Args):
+		return refuse("does not match: not herdsman daemon run")
+	case p.Executable == "" || p.Executable != rec.Executable:
+		return refuse(fmt.Sprintf("does not match: executable %q, recorded %q", p.Executable, rec.Executable))
+	case p.Start.Sub(recStart).Abs() > time.Second:
+		return refuse("does not match: another process start time than the record's")
+	case p.Start.After(lock.Add(time.Second)) || lock.Sub(p.Start) > time.Minute:
+		return refuse("does not match: not the daemon that took it at " + lock.Format(time.RFC3339))
 	}
 	return nil
 }
@@ -437,7 +524,10 @@ func (s *Supervisor) Uninstall() error {
 // version equals this client's.
 func (s *Supervisor) Restart() (string, error) {
 	s.begin()
-	loaded, pid := s.managed()
+	loaded, pid, err := s.managed()
+	if err != nil {
+		return "", err
+	}
 	_, manual := s.manual(pid)
 	switch {
 	case !manual && loaded && s.goos() == "darwin":

@@ -43,12 +43,13 @@ func TestParseProcArgsEnvEnd(t *testing.T) {
 // start time in the past; a pid that no longer exists is an error; a
 // zombie is not listed.
 func TestProcIdentityDarwin(t *testing.T) {
-	args, start, err := procIdentity(os.Getpid())
+	p, err := procIdentity(os.Getpid())
 	if errors.Is(err, syscall.EPERM) {
 		t.Skip("sandbox: sysctl denied")
 	}
-	if err != nil || !slices.Equal(args, os.Args) || !start.Before(time.Now()) || time.Since(start) > time.Hour {
-		t.Fatalf("%q %v %v", args, start, err)
+	exe, _ := os.Executable()
+	if err != nil || !slices.Equal(p.Args, os.Args) || p.Executable != exe || !p.Start.Before(time.Now()) || time.Since(p.Start) > time.Hour {
+		t.Fatalf("%+v %v (executable %s)", p, err, exe)
 	}
 	cmd := exec.Command("/usr/bin/true")
 	if err := cmd.Start(); err != nil {
@@ -69,7 +70,7 @@ func TestProcIdentityDarwin(t *testing.T) {
 		t.Fatal("a zombie was listed")
 	}
 	_ = cmd.Wait()
-	if _, _, err := procIdentity(pid); err == nil {
+	if _, err := procIdentity(pid); err == nil {
 		t.Fatal("an ended process has an identity")
 	}
 }

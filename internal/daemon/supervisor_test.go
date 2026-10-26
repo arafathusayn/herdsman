@@ -92,8 +92,8 @@ func newSup(t *testing.T, goos string) (*harness, *fakeSupervisor, *Supervisor) 
 	_ = os.MkdirAll(home, 0o700)
 	s := &Supervisor{Home: h.home, PrivateHome: h.ph, Binary: "/usr/local/bin/herdsman", Version: testVersion, GOOS: goos,
 		Run: f.run, Query: f.query, Wait: 3 * time.Second,
-		Identity: func(int) ([]string, time.Time, error) {
-			return nil, time.Time{}, errors.New("no identity in this test")
+		Identity: func(int) (ProcID, error) {
+			return ProcID{}, errors.New("no identity in this test")
 		},
 		Signal: func(int, syscall.Signal) error {
 			t.Error("signalled without an identity check")
@@ -332,13 +332,36 @@ func TestStaleUnitFileIsNotSupervision(t *testing.T) {
 	}
 }
 
+// writeIdentity writes the daemon's identity record as daemon run does.
+func writeIdentity(t *testing.T, ph string, pid int, exe string, start time.Time) {
+	t.Helper()
+	b, _ := encode(DaemonIdentity{PID: pid, Executable: exe, StartNS: start.UnixNano()})
+	if err := os.WriteFile(identityPath(ph), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestManualStopChecksIdentity: a daemon started by hand is signalled
-// only when the lock's pid runs herdsman daemon run and started just
-// before the lock; any mismatch refuses and signals nothing.
+// only when the lock's pid runs herdsman daemon run as the command, from
+// the executable its identity record names, with the record's start time,
+// just before the lock; a missing record or any mismatch refuses and
+// signals nothing.
 func TestManualStopChecksIdentity(t *testing.T) {
 	h, f, s := newSup(t, "linux")
 	l, _ := ReadAccountLock(h.home)
 	lockAt := time.Unix(l.Start, 0)
+	started := lockAt.Add(-300 * time.Millisecond)
+	exe := "/x/herdsman"
+	good := ProcID{Executable: exe, Args: []string{"herdsman", "daemon", "run", "--private-home", h.ph}, Start: started}
+	s.Identity = func(int) (ProcID, error) { return good, nil }
+	if err := s.Stop(); err == nil || !strings.Contains(err.Error(), "no valid identity record") {
+		t.Fatalf("no record: %v", err)
+	}
+	writeIdentity(t, h.ph, l.PID+1, exe, started)
+	if err := s.Stop(); err == nil || !strings.Contains(err.Error(), "does not match the identity record") {
+		t.Fatalf("record of another pid: %v", err)
+	}
+	writeIdentity(t, h.ph, l.PID, exe, started)
 	signalled := 0
 	s.Signal = func(pid int, sig syscall.Signal) error {
 		signalled++
@@ -348,26 +371,33 @@ func TestManualStopChecksIdentity(t *testing.T) {
 		h.stop()
 		return nil
 	}
-	for _, c := range []struct {
-		args []string
-		at   time.Time
-	}{
-		{[]string{"/usr/bin/vim", "notes"}, lockAt},
-		{[]string{"/x/herdsman", "daemon", "run"}, lockAt.Add(5 * time.Second)},
-		{[]string{"/x/herdsman", "daemon", "run"}, lockAt.Add(-2 * time.Minute)},
-		{[]string{"/x/herdsman", "message", "run"}, lockAt},
+	for _, p := range []ProcID{
+		{Executable: exe, Args: []string{"/usr/bin/vim", "notes"}, Start: started},
+		{Executable: "/usr/bin/python3", Args: []string{"/usr/bin/python3", "worker.py", "daemon", "run"}, Start: started},
+		{Executable: "/usr/bin/python3", Args: []string{"herdsman", "daemon", "run"}, Start: started},
+		{Executable: "", Args: good.Args, Start: started},
+		{Executable: exe, Args: []string{"herdsman", "daemon", "status", "run"}, Start: started},
+		{Executable: exe, Args: good.Args, Start: started.Add(2 * time.Second)},
+		{Executable: exe, Args: []string{"herdsman", "message", "run"}, Start: started},
 	} {
-		s.Identity = func(int) ([]string, time.Time, error) { return c.args, c.at, nil }
+		s.Identity = func(int) (ProcID, error) { return p, nil }
 		if err := s.Stop(); err == nil || !strings.Contains(err.Error(), "does not match") {
-			t.Fatalf("%v at %v: %v", c.args, c.at, err)
+			t.Fatalf("%+v: %v", p, err)
 		}
 	}
+	// The record and the process agree, but not with the lock's time.
+	for _, at := range []time.Time{lockAt.Add(5 * time.Second), lockAt.Add(-2 * time.Minute)} {
+		writeIdentity(t, h.ph, l.PID, exe, at)
+		s.Identity = func(int) (ProcID, error) { return ProcID{Executable: exe, Args: good.Args, Start: at}, nil }
+		if err := s.Stop(); err == nil || !strings.Contains(err.Error(), "not the daemon that took it") {
+			t.Fatalf("at %v: %v", at, err)
+		}
+	}
+	writeIdentity(t, h.ph, l.PID, exe, started)
 	if signalled != 0 || len(f.calls) == 0 {
 		t.Fatalf("signalled %d", signalled)
 	}
-	s.Identity = func(int) ([]string, time.Time, error) {
-		return []string{"/x/herdsman", "daemon", "run", "--private-home", h.ph}, lockAt.Add(-300 * time.Millisecond), nil
-	}
+	s.Identity = func(int) (ProcID, error) { return good, nil }
 	if err := s.Stop(); err != nil || signalled != 1 || AccountLockHeld(h.home) {
 		t.Fatalf("matching daemon: %v, signalled %d", err, signalled)
 	}
@@ -500,13 +530,9 @@ func TestSupervisorErrorPaths(t *testing.T) {
 	})
 	t.Run("manager state unreadable", func(t *testing.T) {
 		_, _, s := newSup(t, "linux")
-		s.Query = func(string, ...string) (string, error) { return "", errors.New("no user manager") }
-		if loaded, pid := s.managed(); loaded || pid != 0 {
-			t.Fatalf("%v %d", loaded, pid)
-		}
 		s.Query = func(string, ...string) (string, error) { return "ActiveState=active\n", nil }
-		if loaded, pid := s.managed(); !loaded || pid != 0 {
-			t.Fatalf("no MainPID: %v %d", loaded, pid)
+		if loaded, pid, err := s.managed(); !loaded || pid != 0 || err != nil {
+			t.Fatalf("no MainPID: %v %d %v", loaded, pid, err)
 		}
 	})
 	t.Run("deadline without begin", func(t *testing.T) {
@@ -523,6 +549,8 @@ func TestSupervisorErrorPaths(t *testing.T) {
 func TestManualIdentityEdges(t *testing.T) {
 	h, _, s := newSup(t, "linux")
 	s.Identity = nil
+	l, _ := ReadAccountLock(h.home)
+	writeIdentity(t, h.ph, l.PID, "/x/herdsman", time.Unix(l.Start, 0))
 	if err := s.Stop(); err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("default identity: %v", err)
 	}
@@ -551,10 +579,52 @@ func TestLifecycleExecSuccess(t *testing.T) {
 	_, _, s := newSup(t, "darwin")
 	s.Run, s.Query = nil, nil
 	s.begin()
-	if loaded, pid := s.managed(); !loaded || pid != 4242 {
+	if loaded, pid, err := s.managed(); !loaded || pid != 4242 || err != nil {
 		t.Fatalf("%v %d", loaded, pid)
 	}
 	if err := s.run("launchctl", "enable", s.service()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestSupervisorQueryErrorsAreNotManualState: a manager query that fails
+// for any reason but a verified absent or inactive service fails every
+// lifecycle command before any change or signal.
+func TestSupervisorQueryErrorsAreNotManualState(t *testing.T) {
+	for _, goos := range []string{"darwin", "linux"} {
+		t.Run(goos, func(t *testing.T) {
+			h, f, s := newSup(t, goos)
+			s.Query = func(string, ...string) (string, error) { return "", errors.New("manager access denied") }
+			s.Identity = func(int) (ProcID, error) { return ProcID{}, errors.New("must not be asked") }
+			f.calls = nil
+			if err := s.Stop(); err == nil || !strings.Contains(err.Error(), "manager access denied") {
+				t.Fatalf("stop: %v", err)
+			}
+			if _, err := s.Install(); err == nil || !strings.Contains(err.Error(), "manager access denied") {
+				t.Fatalf("install: %v", err)
+			}
+			if _, err := s.Restart(); err == nil || !strings.Contains(err.Error(), "manager access denied") {
+				t.Fatalf("restart: %v", err)
+			}
+			if goos == "darwin" {
+				if err := s.Start(); err == nil || !strings.Contains(err.Error(), "manager access denied") {
+					t.Fatalf("start: %v", err)
+				}
+			}
+			for _, c := range f.calls {
+				if !strings.Contains(c, "enable") {
+					t.Fatalf("a change before the state was known: %v", f.calls)
+				}
+			}
+			if !AccountLockHeld(h.home) {
+				t.Fatal("the daemon was stopped")
+			}
+			if goos == "linux" {
+				s.Query = func(string, ...string) (string, error) { return "ActiveState=maintenance\n", nil }
+				if _, _, err := s.managed(); err == nil {
+					t.Fatal("an unknown state read as known")
+				}
+			}
+		})
 	}
 }

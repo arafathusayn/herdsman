@@ -67,13 +67,14 @@ func parseProcArgs(b []byte) (Proc, bool) {
 		}
 		return "", false
 	}
-	if _, ok := next(); !ok { // the executable path
+	exe, ok := next() // the executable path
+	if !ok {
 		return Proc{}, false
 	}
 	for len(b) > 0 && b[0] == 0 {
 		b = b[1:]
 	}
-	p := Proc{Args: make([]string, 0, argc), Env: []string{}}
+	p := Proc{Exe: exe, Args: make([]string, 0, argc), Env: []string{}}
 	for range argc {
 		a, ok := next()
 		if !ok {
@@ -91,23 +92,24 @@ func parseProcArgs(b []byte) (Proc, bool) {
 	return p, true
 }
 
-// procIdentity is a process's argument vector and start time.
-func procIdentity(pid int) ([]string, time.Time, error) {
+// procIdentity is a process's executable (the kernel's exec path),
+// argument vector and start time.
+func procIdentity(pid int) (ProcID, error) {
 	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
 	if err != nil {
-		return nil, time.Time{}, err
+		return ProcID{}, err
 	}
 	if int(kp.Proc.P_pid) != pid {
-		return nil, time.Time{}, syscall.ESRCH
+		return ProcID{}, syscall.ESRCH
 	}
 	raw, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil {
-		return nil, time.Time{}, err
+		return ProcID{}, err
 	}
 	p, ok := parseProcArgs(raw)
 	if !ok {
-		return nil, time.Time{}, errors.New("unreadable arguments")
+		return ProcID{}, errors.New("unreadable arguments")
 	}
 	st := kp.Proc.P_starttime
-	return p.Args, time.Unix(int64(st.Sec), int64(st.Usec)*1000), nil
+	return ProcID{Executable: p.Exe, Args: p.Args, Start: time.Unix(int64(st.Sec), int64(st.Usec)*1000)}, nil
 }

@@ -444,6 +444,8 @@ func (d *Daemon) resumeAdoptions() {
 // Proc is one process of the user, for the adoption drain.
 type Proc struct {
 	PID int
+	// Exe is the executable's path, when the system reports it.
+	Exe string
 	// Args is the argument vector; when nil, Command is the command line.
 	Args    []string
 	Command string

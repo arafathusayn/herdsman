@@ -90,7 +90,7 @@ func TestDaemonLogFollowsStderr(t *testing.T) {
 	for range 3 {
 		l.Line(strings.Repeat("a", 40))
 	}
-	_, _ = fmt.Fprintln(os.NewFile(2, "fd2"), "panic text")
+	_, _ = fmt.Fprintln(f, "panic text") // the descriptor launchd gave (fd 2 there)
 	l.Close()
 	b, _ := os.ReadFile(p)
 	if !strings.HasSuffix(string(b), "panic text\n") || len(b) > 64+11 {
@@ -137,5 +137,67 @@ func TestSetupLastQuestionUnanswered(t *testing.T) {
 	}
 	if out, errOut, code := adminRun(h, sup, strings.NewReader(strings.Repeat("y\n", 9)), nil, true, "setup", "r", "--rule", h.rules); code != 0 {
 		t.Fatalf("extra lines: %d %q %q", code, out, errOut)
+	}
+}
+
+// TestStartupFailuresKeepLaunchdLogBounded: a daemon run whose start
+// fails (a KeepAlive restart loop) writes its error through the bounded
+// log, and the stderr file it was given follows the rotation.
+func TestStartupFailuresKeepLaunchdLogBounded(t *testing.T) {
+	ph := t.TempDir()
+	if err := os.Mkdir(filepath.Join(ph, "daemon"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(ph, "daemon", "daemon.log")
+	if err := os.WriteFile(logPath, bytes.Repeat([]byte("x"), logMax), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	log, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	if err := os.Chmod(ph, 0o755); err != nil { // the start refuses this private home
+		t.Fatal(err)
+	}
+	a := &AdminEnv{Stdin: strings.NewReader(""), Stdout: io.Discard, Stderr: log, Version: testVersion}
+	for range 3 {
+		if code := a.run(ph, t.TempDir()); code == 0 {
+			t.Fatal("an invalid private home started")
+		}
+		a.Stderr = log
+	}
+	st, err := os.Stat(logPath)
+	if err != nil || st.Size() > logMax || st.Size() == 0 {
+		t.Fatalf("daemon.log: %v %v", st.Size(), err)
+	}
+	if old, err := os.Stat(logPath + ".1"); err != nil || old.Size() > logMax {
+		t.Fatalf("daemon.log.1: %v", err)
+	}
+	// The given descriptor now writes to the new file.
+	_, _ = log.WriteString("after\n")
+	if b, _ := os.ReadFile(logPath); !strings.HasSuffix(string(b), "after\n") || !strings.Contains(string(b), "herdsman daemon:") {
+		t.Fatalf("daemon.log: %q", b)
+	}
+}
+
+// TestOwnIdentityRecord: daemon run's identity record is this process's
+// native identity, read back strictly; a malformed record is no record.
+func TestOwnIdentityRecord(t *testing.T) {
+	ph := t.TempDir()
+	_ = os.Mkdir(filepath.Join(ph, "daemon"), 0o700)
+	if err := writeOwnIdentity(ph); err != nil {
+		t.Skipf("sandbox: %v", err)
+	}
+	rec, ok := readDaemonIdentity(ph)
+	self, _ := procIdentity(os.Getpid())
+	if !ok || rec.PID != os.Getpid() || rec.Executable != self.Executable || rec.StartNS != self.Start.UnixNano() {
+		t.Fatalf("%+v %v", rec, ok)
+	}
+	for _, body := range []string{`{"pid":2,"pid":3,"executable":"/x","start_ns":1}`, `{"pid":2,"executable":"","start_ns":1}`, `{"pid":2,"executable":"/x","start_ns":"1"}`} {
+		_ = os.WriteFile(identityPath(ph), []byte(body), 0o600)
+		if _, ok := readDaemonIdentity(ph); ok {
+			t.Fatalf("%s read as a record", body)
+		}
 	}
 }
