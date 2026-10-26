@@ -110,7 +110,8 @@ mutation_lock() {
     tries=$((tries+1)); [ "$tries" -lt "$LOCK_WAIT" ] || return 1; sleep 1
   done
   MUTATION_OWNED=1; printf '%s\n' "$$" > "$ROOT/herdr-mutation.lock/pid"
-  fold_exposure
+  # Never report failure while owning the lock: a caller that sees failure does not unlock.
+  fold_exposure || { mutation_unlock; return 1; }
 }
 mutation_unlock() { rm "$ROOT/herdr-mutation.lock/pid"; rmdir "$ROOT/herdr-mutation.lock"; MUTATION_OWNED=; }
 display_call() {
@@ -428,7 +429,7 @@ exposure_pending() { [ "$(pending_state)" != none ]; }
 # pending path that cannot be inspected is published without its agents and kept as it is for the human: nothing
 # that was not read is removed.
 fold_exposure() {
-  local f agents='[]' found=0 more state
+  local f agents='[]' found=0 more state kept
   local -a seen
   state=$(pending_state)
   [ "$state" != none ] || return 0
@@ -448,7 +449,11 @@ fold_exposure() {
   [ -e "$ROOT/state/boundary-tainted" ] || atomic "$ROOT/state/boundary-tainted" jq -n --argjson agents "$agents" \
     --argjson time "$(now)" '{reason:"live agent outside the protected setup",agents:$agents,time:$time}' ||
     die 'cannot publish the waiting exposure record'
-  for f in ${seen[@]+"${seen[@]}"}; do rm -f "$f"; done
+  # The record is published. An entry that cannot be removed stays for the human; it is not a failure of the fold.
+  kept=
+  for f in ${seen[@]+"${seen[@]}"}; do rm -f "$f" 2>/dev/null || kept=1; done
+  [ -z "$kept" ] || log_line 'EXPOSURE a pending entry could not be removed; kept for the human'
+  return 0
 }
 # The HUMAN decision line of message-authority.sh and the executor adapter.
 human_authority() {

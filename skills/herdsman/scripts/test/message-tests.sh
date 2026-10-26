@@ -1978,6 +1978,30 @@ check "XB10 the gate refuses" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
 check "XB10b the record names the agents of both dot-named entries" '^dot-pane dotdot-pane$' \
   "$(jq -r '[.agents[].pane]|sort|join(" ")' "$C/inbox/state/boundary-tainted" 2>&1)"
 check "XB10c and both entries are removed" '^no no$' "$(yn "$P/.record.json") $(yn "$P/..record.json")"
+# XB11: a pending folder that lists but cannot be written. The watcher publishes the exposure, keeps the entry for
+# the human and releases the input lock at once: another writer takes the lock while the watcher still runs.
+new_case exposure-readonly
+set_agents sender-pane sender-session receiver-pane receiver-session task-pane task-session
+jq -n '[{pane:"task-pane",session:{source:"hook",agent:"claude",kind:"id",value:"task-session"}}]' > "$C/inbox/watch-targets.json"
+relay_boundary
+P="$C/inbox/state/exposure-pending"; mkdir -p "$P"
+jq -nc '{agents:[{pane:"rogue-pane"}],time:1}' > "$P/1-1-1.json"; chmod 0500 "$P"
+ENVX="RUN_FOR=8 INTERVAL=1" msg courier-pane card-watch.sh >/dev/null & wpid=$!
+i=0; while [ ! -e "$C/inbox/state/boundary-tainted" ] && [ "$i" -lt 60 ]; do sleep 0.1; i=$((i+1)); done
+sleep 1
+out=$(ENVX="HERDSMAN_NAME=$O LOCK_WAIT=2" msg receiver-pane message.sh hold "$A" 'held for the test'); st=$?
+running=$(if kill -0 "$wpid" 2>/dev/null; then echo running; else echo exited; fi)
+wait "$wpid"
+check "XB11 the watcher publishes the exposure" 'rogue-pane' "$(cat "$C/inbox/state/boundary-tainted" 2>&1)"
+check "XB11b another writer takes the input lock while the watcher still runs" "^0 running HOLD $A" "$st $running $out"
+chmod 700 "$P"
+check "XB11c the entry it could not remove is kept for the human" 'rogue-pane' "$(cat "$P/1-1-1.json" 2>&1)"
+chmod 0500 "$P"
+printf 'reviewed text\n' > "$C/draft.txt"; APR="$C/inbox/approvals"; mkdir -p "$APR/interactions"; gojson xb11 600
+out=$(consume xb11)
+check "XB11d the gate refuses" 'rc=3' "$(printf '%s' "$out" | tr '\n' ' ')"
+check "XB11e and consumes nothing" '^no$' "$(yn "$APR/consumed/xb11.json")"
+chmod 700 "$P"
 
 # AR1: after an archive moves the cur copy and its ack aside, a replay of the original bytes is held by the
 # terminal record alone.
