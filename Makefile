@@ -21,7 +21,7 @@ WEB_DIST    := internal/web/dist
 WEB_COMPILE ?= 1
 BUN_BUILD   := bun build.ts --outdir ../$(WEB_DIST) $(if $(filter 0,$(WEB_COMPILE)),--no-compile,)
 
-.PHONY: all tools web pages web-check web-e2e web-fmt build check test lint vuln release-check clean
+.PHONY: all tools web pages web-check web-e2e web-compiled web-fmt build check test lint vuln release-check clean
 
 all: check build
 
@@ -52,6 +52,12 @@ web-e2e: web
 	cd web/e2e && bun install --frozen-lockfile
 	cd web && bun check --no-pretty -p e2e/tsconfig.json --typeRoots "$(BUN_GLOBAL)"
 	cd web/e2e && WEB_COMPILE=$(WEB_COMPILE) bun run e2e
+
+## web-compiled: compiled views equal the view layer: the property tests that
+## compare them, the compiler's tests, and every web test with views compiled
+web-compiled:
+	cd web && bun test src/herdsman-blocks-compiled src/herdsman-blocks-compiler
+	cd web && bun test --preload ./src/herdsman-blocks-plugin.preload.ts
 
 ## web-fmt: format the web app
 web-fmt:
