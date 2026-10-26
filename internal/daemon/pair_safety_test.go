@@ -430,6 +430,18 @@ func TestApproveAskedByAdjutant(t *testing.T) {
 func TestApproveRefusesOrchestratorAskOverSocket(t *testing.T) {
 	h := newHarness(t)
 	_, orch, dir := h.route("r")
+	// A new pending pair: the orchestrator is replaced.
+	rt, _ := h.d.route("r")
+	if e := rt.do(context.Background(), func() *APIError {
+		pb, _ := os.ReadFile(filepath.Join(dir, "peers"))
+		if _, e := rt.retire(orch.name, sha256Hex(pb)); e != nil {
+			return e
+		}
+		_, e := rt.enroll("orch-2", "orchestrator", inbox.Identity{Pane: "p-o2", Session: inbox.Session{Agent: "claude", Kind: "id", Source: "hook", Value: "s-o2"}})
+		return e
+	}); e != nil {
+		t.Fatal(e)
+	}
 	pb, _ := os.ReadFile(filepath.Join(dir, "peers"))
 	_, err := h.client().Do(context.Background(), "POST", "/v1/routes/r/pair/approve",
 		ApproveRequest{SHA256: sha256Hex(pb), Interaction: "ask-9", AskedBy: orch.name}, nil)

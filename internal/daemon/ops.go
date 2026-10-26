@@ -701,7 +701,28 @@ func dropClaimDir(p string) error {
 // replay redoes step 4 of every record after the last checkpoint (4.4
 // step 4), in order, idempotently.
 func (r *Route) replay(recs []*Record) error {
-	for _, rec := range recs {
+	for i, rec := range recs {
+		// A protected write is applied only as the input lock's owner;
+		// while another process holds it, this record and every later
+		// one stay unfinished, in order, for the first turn that can
+		// take the lock (3.7).
+		if protectedRecord(rec) {
+			unlock, e := r.tryInputLock()
+			if e != nil {
+				r.d.logf("route %s: %s %d waits for the input lock (%s)", r.name, rec.Op, rec.Seq, e.Message)
+				for _, later := range recs[i:] {
+					r.restoreKeys(later)
+				}
+				r.unfinished = append(r.unfinished, recs[i:]...)
+				return nil
+			}
+			err := r.redo(rec)
+			unlock()
+			if err != nil {
+				return fmt.Errorf("route %s: replay of %s %d: %w", r.name, rec.Op, rec.Seq, err)
+			}
+			continue
+		}
 		if err := r.redo(rec); err != nil {
 			return fmt.Errorf("route %s: replay of %s %d: %w", r.name, rec.Op, rec.Seq, err)
 		}
@@ -808,6 +829,19 @@ func (r *Route) redoFiles(rec *Record) error {
 		return r.redoIntake(rec)
 	}
 	return nil
+}
+
+// restoreKeys restores the key indexes a deferred record carries, so a
+// retry is answered and no orphan is abandoned before its files exist.
+func (r *Route) restoreKeys(rec *Record) {
+	switch rec.Op {
+	case "send":
+		r.rememberSend(rec)
+	case "claim":
+		r.readKeys[rec.ReadKey] = &claimKey{Key: rec.ReadKey, Token: rec.Token, Box: rec.Box, N: rec.N, Time: rec.Time}
+	case "claim_extend":
+		r.extendKeys[rec.ExtendKey] = &claimKey{Key: rec.ExtendKey, Token: rec.Token, Box: rec.Box, N: rec.N, Empty: rec.Empty, Time: rec.Time}
+	}
 }
 
 // dropClaimKeys forgets a released claim's read and extend keys, so the

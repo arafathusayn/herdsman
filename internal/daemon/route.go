@@ -420,7 +420,14 @@ func (r *Route) open() error {
 	}
 	r.recoverOrphans()
 	r.intakeDue = len(r.intakeEntries()) > 0
-	// Step 6: a checkpoint completes everything replayed.
+	// Step 6: a checkpoint completes everything replayed. Records left
+	// unfinished (a protected write waiting for the input lock) keep
+	// visibility below them and no checkpoint passes them.
+	if len(r.unfinished) > 0 {
+		r.visible = r.unfinished[0].Seq - 1
+		r.flags = r.healthFlags()
+		return nil
+	}
 	if err := r.writeCheckpoint(false); err != nil {
 		r.closeFiles()
 		return err

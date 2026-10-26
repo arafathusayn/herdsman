@@ -80,6 +80,11 @@ func (r *Route) activate(gen string, creds map[string]credential) error {
 		case "file":
 			staged := filepath.Join(r.stagedDir(gen), name)
 			if !exists(staged) {
+				// Never taken as active without proof: the active file
+				// must hold this record's secret.
+				if !secretMatches(r.path("state", "credentials", name), c.SHA256) {
+					return fmt.Errorf("%w: credential for %q is neither staged nor active", errHeld, name)
+				}
 				continue
 			}
 			if !secretMatches(staged, c.SHA256) {

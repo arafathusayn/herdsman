@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
@@ -195,10 +196,14 @@ func (r *Route) askedByAdjutant(q ApproveRequest) *APIError {
 	if q.Interaction == "" || strings.HasPrefix(q.Interaction, "web:") {
 		return nil
 	}
-	var peers []inbox.Peer
-	if b, ok := r.registryBytes("peers.approved"); ok {
-		peers, _ = inbox.ValidRegistry(b)
+	if len(q.AskedBy) > 200 || !utf8.ValidString(q.AskedBy) || strings.IndexFunc(q.AskedBy, unicode.IsControl) >= 0 {
+		return Errf("bad_request", "invalid asked_by")
 	}
+	b, ok := r.registryBytes("peers.approved")
+	if !ok {
+		return Errf("bad_request", "the approved registry is unreadable; no ask can be checked against it")
+	}
+	peers, _ := inbox.ValidRegistry(b)
 	roles := map[string]string{}
 	adjutant := ""
 	for _, p := range peers {
@@ -243,6 +248,12 @@ func credentialOptions() []string {
 // party by the chosen option (file by default). Old credentials are
 // revoked.
 func (r *Route) approve(q ApproveRequest) (ApproveResult, *APIError) {
+	return r.approveAsked(q, false)
+}
+
+// approveAsked is approve; with asker, the asker rule (PR 28) applies to
+// an approval that is not the retry of the committed one.
+func (r *Route) approveAsked(q ApproveRequest, asker bool) (ApproveResult, *APIError) {
 	pb, ok := r.registryBytes("peers")
 	if !ok {
 		return ApproveResult{}, Errf("internal", "invalid pending registry; inspect without committing it")
@@ -304,6 +315,11 @@ func (r *Route) approve(q ApproveRequest) (ApproveResult, *APIError) {
 	if prior, done, e := r.priorApproval(q, pb, res); done {
 		return prior, e
 	}
+	if asker {
+		if e := r.askedByAdjutant(q); e != nil {
+			return ApproveResult{}, e
+		}
+	}
 	// Step 2: the new generation's secrets, staged under names no client
 	// reads; the active secrets are untouched until the commit (7.5).
 	gen := randomHex(8)
@@ -319,7 +335,11 @@ func (r *Route) approve(q ApproveRequest) (ApproveResult, *APIError) {
 	rec := &Record{Op: "pair", State: "approved", Payload: pl, Interaction: q.Interaction, Credentials: creds, Generation: gen, Revoked: res.Revoked,
 		Event: &Event{Type: "pair", State: "approved", Peers: peerInfos(pb)}}
 	if err := r.commit(rec); err != nil {
-		r.dropStaged(gen, creds)
+		// A degraded route does not know whether the record is durable:
+		// a restart may find it, so its staged secrets must survive.
+		if !r.degraded.Load() {
+			r.dropStaged(gen, creds)
+		}
 		return ApproveResult{}, Errf("internal", "journal: %v", err)
 	}
 	if err := r.redoPair(rec); err != nil {

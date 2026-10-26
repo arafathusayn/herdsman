@@ -637,11 +637,8 @@ func (d *Daemon) approve(w http.ResponseWriter, r *http.Request) *APIError {
 	}
 	var res ApproveResult
 	if e := rt.do(r.Context(), func() *APIError {
-		if e := rt.askedByAdjutant(q); e != nil {
-			return e
-		}
 		var e *APIError
-		res, e = rt.approve(q)
+		res, e = rt.approveAsked(q, true)
 		return e
 	}); e != nil {
 		return e

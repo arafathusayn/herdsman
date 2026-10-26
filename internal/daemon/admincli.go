@@ -414,7 +414,7 @@ func (a *AdminEnv) pair(ctx context.Context, c *Client, args []string) int {
 	switch args[0] {
 	case "approve":
 		if len(args) < 3 {
-			return a.usage("pair approve <route> <sha256> [--interaction <ref>] [--credential <name>=<option>]...")
+			return a.usage("pair approve <route> <sha256> [--interaction <ref> [--asked-by <adjutant>]] [--credential <name>=<option>]...")
 		}
 		route, sum := args[1], args[2]
 		fs := flag.NewFlagSet("pair approve", flag.ContinueOnError)
@@ -424,7 +424,7 @@ func (a *AdminEnv) pair(ctx context.Context, c *Client, args []string) int {
 		var creds multiFlag
 		fs.Var(&creds, "credential", "<name>=identity|file|keychain (repeatable)")
 		if fs.Parse(args[3:]) != nil || fs.NArg() != 0 {
-			return a.usage("pair approve <route> <sha256> [--interaction <ref>] [--credential <name>=<option>]...")
+			return a.usage("pair approve <route> <sha256> [--interaction <ref> [--asked-by <adjutant>]] [--credential <name>=<option>]...")
 		}
 		if !a.Attended && *interaction == "" {
 			fmt.Fprintln(a.Stderr, "herdsman daemon pair approve: needs an attended terminal or --interaction <ask reference>")
