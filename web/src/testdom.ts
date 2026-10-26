@@ -4,20 +4,20 @@
 // Bun ships no DOM, and the repository takes no npm packages.
 import {
   FakeElement as BaseElement,
+  FakeEvent as BaseEvent,
   type FakeNode,
   FakeText,
   installFakeDocument,
   SVG_NS,
 } from "./herdsman-blocks.testdom.ts";
 
-type Listener = (e: FakeEvent) => void;
-
-export interface FakeEvent {
-  type: string;
-  target: FakeNode;
-  submitter?: FakeElement | null;
-  defaultPrevented: boolean;
-  preventDefault(): void;
+/** A bubbling event with what form handlers read: the submitter and preventDefault. */
+export class FakeEvent extends BaseEvent {
+  submitter: FakeElement | null = null;
+  defaultPrevented = false;
+  preventDefault(): void {
+    this.defaultPrevented = true;
+  }
 }
 
 class ClassList {
@@ -55,7 +55,6 @@ export class FakeElement extends BaseElement {
   type = "";
   open = false;
   returnValue = "";
-  private handlers: Record<string, Listener[]> = {};
   readonly classList: ClassList = new ClassList(this);
 
   /** data-* attributes, readable and writable. */
@@ -72,14 +71,7 @@ export class FakeElement extends BaseElement {
     if (k === "name") return this.name || super.getAttribute("name");
     return super.getAttribute(k);
   }
-  override addEventListener(type: string, fn: Listener): void {
-    (this.handlers[type] ??= []).push(fn);
-  }
-  /** The listeners `dispatch` calls, by event type. */
-  listenersOf(type: string): readonly Listener[] {
-    return this.handlers[type] ?? [];
-  }
-  dispatch(type: string, extra: Partial<FakeEvent> = {}): FakeEvent {
+  dispatch(type: string, extra: EventExtras = {}): FakeEvent {
     return dispatch(this, type, extra);
   }
   append(...cs: (FakeNode | string)[]): void {
@@ -140,28 +132,20 @@ export function byName(root: BaseElement, name: string): FakeElement {
   return el;
 }
 
+/** What a test can set on a dispatched event. */
+export interface EventExtras {
+  submitter?: FakeElement | null;
+}
+
 /**
- * Fires an event at any fake element, including one a view rendered: it
- * bubbles to the ancestors (as submit and input do) and runs, on each,
- * listeners and the on* handler a view or template set. This is the one place
- * to change if the view runtime starts delegating events.
+ * Fires a bubbling event at any fake element, including one a view rendered:
+ * on the way up, each element's listeners and on* handler run, so a view's
+ * delegated handlers (a listener on its render() container) see it as the
+ * browser's would. Tests fire events only through this.
  */
-export function dispatch(target: BaseElement, type: string, extra: Partial<FakeEvent> = {}): FakeEvent {
-  const e: FakeEvent = {
-    type,
-    target,
-    defaultPrevented: false,
-    preventDefault() {
-      this.defaultPrevented = true;
-    },
-    ...extra,
-  };
-  for (let n: FakeNode | null = target; n; n = n.parentNode) {
-    if (!(n instanceof BaseElement)) continue;
-    if (n instanceof FakeElement) for (const fn of n.listenersOf(type)) fn(e);
-    else n.fire(type);
-    const handler = n["on" + type];
-    if (typeof handler === "function") handler.call(n, e);
-  }
+export function dispatch(target: BaseElement, type: string, extra: EventExtras = {}): FakeEvent {
+  const e = new FakeEvent(type);
+  if (extra.submitter !== undefined) e.submitter = extra.submitter;
+  target.dispatchEvent(e);
   return e;
 }
