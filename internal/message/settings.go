@@ -35,6 +35,13 @@ func settingDuration(v string, lo, hi int) (int, bool) {
 	return min(max(n, lo), hi), true
 }
 
+// SettingDuration is the strict duration setting (A25) for the commands
+// outside this package: the parser above, clamped to lo..hi.
+func SettingDuration(v string, lo, hi time.Duration) (time.Duration, bool) {
+	n, ok := settingDuration(v, int(lo/time.Second), int(hi/time.Second))
+	return time.Duration(n) * time.Second, ok
+}
+
 // durEnv reads a duration setting ${K:-def} once, strictly (A25).
 func (e *Env) durEnv(k, def string, lo, hi int) (int, error) {
 	v := e.envDefault(k, def)

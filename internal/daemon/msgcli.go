@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/message"
 )
 
 // MessageEnv is one run of a `herdsman message` command on the daemon
@@ -32,6 +33,8 @@ type MessageEnv struct {
 	Sleep   func(time.Duration)
 	// Keychain reads keychain credentials (nil: the system's).
 	Keychain Keychain
+	// AttemptTimeout bounds one attempt of a keyed request (0: 10 s).
+	AttemptTimeout time.Duration
 }
 
 // MessageHelp is the daemon path's grammar and exit codes.
@@ -107,11 +110,34 @@ func (e *MessageEnv) fail(action string, err error) int {
 		return ExitCode(a.Code)
 	}
 	if IsDown(err) {
+		if other := e.otherHome(); other != "" {
+			fmt.Fprintf(e.Stderr, "herdsman message %s: %s\n", action, other)
+			return 75
+		}
 		fmt.Fprintf(e.Stderr, "herdsman message %s: %v\n", action, err)
 		return 75
 	}
 	fmt.Fprintf(e.Stderr, "herdsman message %s: %v\n", action, err)
 	return 2
+}
+
+// otherHome is the 3.6 diagnostic when this private home's daemon does
+// not answer but a live daemon of this account uses another private home
+// ("" otherwise): the account lock, not its content, decides it is live.
+func (e *MessageEnv) otherHome() string {
+	home := e.env("HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	ph, err := PrivateHome("", e.env)
+	if home == "" || err != nil || !AccountLockHeld(home) {
+		return ""
+	}
+	l, ok := ReadAccountLock(home)
+	if !ok || l.PrivateHome == "" || l.PrivateHome == ph {
+		return ""
+	}
+	return "the running daemon uses " + l.PrivateHome + "; set HERDSMAN_PRIVATE_HOME"
 }
 
 func (e *MessageEnv) usage(msg string) int {
@@ -204,7 +230,7 @@ func RunMessage(e *MessageEnv, args []string) int {
 			q = ClaimRequest{Token: rest[0], ExtendKey: randomHex(16)}
 		}
 		var res ClaimResult
-		if err := e.retry(ctx, func() error { _, err := c.Do(ctx, "POST", base+"/claims", q, &res); return err }); err != nil {
+		if err := e.retry(ctx, func(ctx context.Context) error { _, err := c.Do(ctx, "POST", base+"/claims", q, &res); return err }); err != nil {
 			return e.fail(action, err)
 		}
 		e.line(obj("type", "claim", "token", res.Claim))
@@ -236,7 +262,7 @@ func RunMessage(e *MessageEnv, args []string) int {
 		}
 		var res AckResult
 		q := AckRequest{ID: rest[1], Record: string(rec)}
-		if err := e.retry(ctx, func() error {
+		if err := e.retry(ctx, func(ctx context.Context) error {
 			_, err := c.Do(ctx, "POST", base+"/claims/"+rest[0]+"/acks", q, &res)
 			return err
 		}); err != nil {
@@ -265,7 +291,7 @@ func RunMessage(e *MessageEnv, args []string) int {
 		}
 		q.Body = string(body)
 		var res SendResult
-		if err := e.retry(ctx, func() error { _, err := c.Do(ctx, "POST", base+"/messages", q, &res); return err }); err != nil {
+		if err := e.retry(ctx, func(ctx context.Context) error { _, err := c.Do(ctx, "POST", base+"/messages", q, &res); return err }); err != nil {
 			return e.fail(action, err)
 		}
 		if e.JSON {
@@ -342,12 +368,23 @@ func (e *MessageEnv) line(v any) {
 }
 
 // retry repeats a keyed request after a lost connection or a retryable
-// refusal for at most 60 s, backing off 0.2 s doubling to 5 s (5.4).
-func (e *MessageEnv) retry(_ context.Context, fn func() error) error {
+// refusal for at most 60 s, backing off 0.2 s doubling to 5 s (5.4). Each
+// attempt has its own deadline, so one unanswered call cannot outlast the
+// window.
+func (e *MessageEnv) retry(ctx context.Context, fn func(context.Context) error) error {
 	start := e.now()
 	wait := 200 * time.Millisecond
+	per := e.AttemptTimeout
+	if per == 0 {
+		per = 10 * time.Second
+	}
 	for {
-		err := fn()
+		actx, cancel := context.WithTimeout(ctx, per)
+		err := fn(actx)
+		cancel()
+		if err != nil && errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			err = &DownError{Err: err}
+		}
 		if err == nil {
 			return nil
 		}
@@ -491,30 +528,15 @@ func tailSeq(p string) int64 {
 	return 0
 }
 
-// parseDuration is the strict duration setting (A25): plain seconds or
-// with an s, m, h or d suffix, clamped to lo..hi.
+// parseDuration is the strict duration setting (A25), the shared parser
+// of internal/message: plain seconds or with an s, m, h or d suffix,
+// clamped to lo..hi (whole seconds).
 func parseDuration(v string, lo, hi time.Duration) (time.Duration, error) {
-	if v == "" {
-		return 0, errors.New("empty")
-	}
-	unit := time.Second
-	num := v
-	switch v[len(v)-1] {
-	case 's':
-		num = v[:len(v)-1]
-	case 'm':
-		unit, num = time.Minute, v[:len(v)-1]
-	case 'h':
-		unit, num = time.Hour, v[:len(v)-1]
-	case 'd':
-		unit, num = 24*time.Hour, v[:len(v)-1]
-	}
-	if num == "" || len(num) > 9 || strings.TrimLeft(num, "0123456789") != "" {
+	d, ok := message.SettingDuration(v, lo, hi)
+	if !ok {
 		return 0, errors.New("not a duration (seconds, or with an s, m, h or d suffix)")
 	}
-	n, _ := strconv.ParseInt(num, 10, 64)
-	d := time.Duration(n) * unit
-	return min(max(d, lo), hi), nil
+	return d, nil
 }
 
 // DefaultWaitDeadline is wait's TICK deadline: 4 minutes 30 seconds, so
@@ -606,8 +628,18 @@ func (w *waiter) run(deadline time.Duration) int {
 		if !w.e.now().Before(end) || ctx.Err() != nil {
 			return w.tick()
 		}
-		ev, err := w.c.Events(ctx, w.path, w.cursor)
+		// HEALTH_GRACE bounds the opening (hello and the stream's answer);
+		// an open stream then stays idle as long as the deadline allows.
+		attempt := w.e.now()
+		actx, acancel := context.WithCancel(ctx)
+		timer := time.AfterFunc(w.grace, acancel)
+		ev, err := w.c.Events(actx, w.path, w.cursor)
+		if !timer.Stop() && err == nil {
+			ev.Close()
+			err = &DownError{Err: errors.New("no answer within HEALTH_GRACE")}
+		}
 		if err != nil {
+			acancel()
 			if ctx.Err() != nil {
 				return w.tick()
 			}
@@ -620,21 +652,32 @@ func (w *waiter) run(deadline time.Duration) int {
 				}
 			}
 			if downSince.IsZero() {
-				downSince = w.e.now()
+				downSince = attempt
 			}
 			if w.e.now().Sub(downSince) >= w.grace {
-				return w.health("HEALTH daemon-unreachable", obj("type", "health", "flags", []string{"daemon-unreachable"}, "reason", "the daemon did not answer"))
+				reason := "the daemon did not answer"
+				if other := w.e.otherHome(); other != "" {
+					reason = other
+				}
+				return w.health("HEALTH daemon-unreachable", obj("type", "health", "flags", []string{"daemon-unreachable"}, "reason", reason))
 			}
 			w.e.sleep(backoff)
 			backoff = min(backoff*2, 5*time.Second)
 			continue
 		}
-		downSince, backoff = time.Time{}, 200*time.Millisecond
-		code, done := w.read(ev)
+		code, done, frames := w.read(ev)
 		ev.Close()
+		acancel()
 		if done {
 			return code
 		}
+		// A stream that ended is reopened after the backoff too; only a
+		// stream that delivered frames counts as stable and resets it.
+		if frames > 0 {
+			downSince, backoff = time.Time{}, 200*time.Millisecond
+		}
+		w.e.sleep(backoff)
+		backoff = min(backoff*2, 5*time.Second)
 	}
 }
 
@@ -647,13 +690,20 @@ func (w *waiter) tick() int {
 	return 0
 }
 
-// read handles one connection's frames; done is false to reconnect.
-func (w *waiter) read(ev *EventReader) (int, bool) {
+// read handles one connection's frames; done is false to reconnect, and
+// n counts the frames the connection delivered.
+func (w *waiter) read(ev *EventReader) (code int, done bool, n int) {
+	code, done = w.frames(ev, &n)
+	return code, done, n
+}
+
+func (w *waiter) frames(ev *EventReader, n *int) (int, bool) {
 	for {
 		f, err := ev.Next()
 		if err != nil {
 			return 0, false
 		}
+		*n++
 		var data Event
 		if json.Unmarshal(f.Data, &data) != nil {
 			continue

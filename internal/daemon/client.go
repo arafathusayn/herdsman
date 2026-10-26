@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,7 +26,9 @@ type Client struct {
 	Name       string
 	Credential string
 
-	hc      *http.Client
+	hc *http.Client
+	// mu guards checked: concurrent first requests share one hello.
+	mu      sync.Mutex
 	checked bool
 }
 
@@ -101,6 +104,8 @@ func (c *Client) Hello(ctx context.Context) (Hello, error) {
 
 // Check is the client's version check before its first request (5.6).
 func (c *Client) Check(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.checked {
 		return nil
 	}
