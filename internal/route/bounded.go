@@ -244,6 +244,7 @@ func (t *Tail) Page(before, n int) ([]LogLine, error) {
 			return out, nil
 		}
 	}
-	slices.Reverse(out)
-	return out, nil
+	// The ranges hold fewer records than the snapshot counted: the bytes
+	// changed under the same size and time.
+	return nil, ErrChanged
 }
