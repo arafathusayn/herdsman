@@ -110,8 +110,9 @@ type artifacts struct {
 	// afterFunc sets the sweep timer; tests replace it to fire it by hand.
 	afterFunc func(time.Duration, func()) *time.Timer
 	// beforeOpen, when set, runs before the walk opens each root (dir "")
-	// and each folder (dir relative to root). Tests use it to change a
-	// folder at that moment.
+	// and each folder (dir relative to root), before a grant opens its root
+	// and page folder, and before a page asset is opened to be served (dir
+	// is the asset's path). Tests use it to change a file at that moment.
 	beforeOpen func(root, dir string)
 }
 
@@ -639,7 +640,12 @@ func (s *Server) serveArtifact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	f, err := root.Open(filepath.FromSlash(rel))
+	if h := s.artifacts.beforeOpen; h != nil {
+		h(root.Name(), rel)
+	}
+	// O_NONBLOCK: a FIFO in place of the asset opens at once instead of
+	// waiting for a writer, and the check below refuses it.
+	f, err := root.OpenFile(filepath.FromSlash(rel), os.O_RDONLY|openNonblockFlag, 0)
 	if err != nil {
 		http.NotFound(w, r)
 		return
