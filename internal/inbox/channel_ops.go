@@ -207,6 +207,15 @@ func Envelope(root, p string) (map[string]any, bool) {
 	if !ok {
 		return nil, false
 	}
+	return EnvelopeBytes(b, strings.TrimSuffix(filepath.Base(p), ".md"))
+}
+
+// EnvelopeBytes is Envelope's check of a queue file already read, for the
+// message id of its file name.
+func EnvelopeBytes(b []byte, fileID string) (map[string]any, bool) {
+	if StrictJSON(b) != nil {
+		return nil, false
+	}
 	v, _ := Decode(b)
 	m := Object(v)
 	if m == nil || len(m) != len(envelopeKeys) {
@@ -224,7 +233,7 @@ func Envelope(root, p string) (map[string]any, bool) {
 	reply, rok := String(m, "reply_to")
 	body, bok := String(m, "body")
 	t, tok := Int(m, "time")
-	if !Equal(m["version"], jsonOne) || id != strings.TrimSuffix(filepath.Base(p), ".md") || !IDOK(id) ||
+	if !Equal(m["version"], jsonOne) || id != fileID || !IDOK(id) ||
 		!NameShape(from) || !NameShape(to) || !slices.Contains(Kinds, kind) ||
 		!rok || (reply != "" && !IDOK(reply)) || !tok || t < 0 || !bok || utf8.RuneCountInString(body) > MaxBody {
 		return nil, false

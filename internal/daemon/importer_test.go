@@ -156,8 +156,8 @@ func TestImportCore(t *testing.T) {
 }
 
 // TestImportActiveClaim: an active reader claim is imported with its
-// token, and the unacked cur message it bound carries it; a file-mode
-// token the schema cannot hold refuses the adoption, never renamed.
+// token, and the unacked cur message it bound carries it (the file-mode
+// token form is in TestImportClaimSources).
 func TestImportActiveClaim(t *testing.T) {
 	x := newImportInbox(t)
 	x.write(t, "orch-1/claim/token", []byte(x.token+"\n"))
@@ -172,10 +172,6 @@ func TestImportActiveClaim(t *testing.T) {
 	}
 	if got := rowsOf(t, c, `SELECT coalesce(claim_token, '-') FROM messages WHERE id = 3`); got[0] != x.token {
 		t.Fatalf("m3 claim %v", got)
-	}
-	x.write(t, "orch-1/claim/token", []byte(".claim.987654\n"))
-	if _, e := x.run(t); e == nil || e.Code != "adopt_locked" || !strings.Contains(e.Message, "--release") {
-		t.Fatalf("a file-mode token: %v", e)
 	}
 }
 
@@ -196,14 +192,14 @@ func TestImportRefusals(t *testing.T) {
 		"envelope mismatch": {func(t *testing.T, x *importInbox) {
 			b, _ := os.ReadFile(filepath.Join(x.dir, "orch-1", "ready", "m000000000001.md"))
 			x.write(t, "orch-1/ready/m000000000007.md", b)
-		}, "internal", "does not match its file"},
+		}, "internal", "not a contract 1 envelope"},
 		"linked queue": {func(t *testing.T, x *importInbox) {
 			_ = os.RemoveAll(filepath.Join(x.dir, "adj-1", "ready"))
 			_ = os.Symlink(t.TempDir(), filepath.Join(x.dir, "adj-1", "ready"))
 		}, "internal", "is a link"},
 		"linked message": {func(t *testing.T, x *importInbox) {
 			_ = os.Symlink(filepath.Join(x.dir, "ids", "m000000000001", "envelope"), filepath.Join(x.dir, "orch-1", "ready", "m000000000005.md"))
-		}, "internal", "not a strict JSON file"},
+		}, "internal", "unsafe source"},
 		"bad name":     {func(t *testing.T, x *importInbox) { x.write(t, "orch-1/ready/notes.txt", []byte("x")) }, "internal", "not a message file"},
 		"bad sequence": {func(t *testing.T, x *importInbox) { x.write(t, "state/sequence", []byte("x\n")) }, "internal", "state/sequence"},
 		"bad terminal": {func(t *testing.T, x *importInbox) {

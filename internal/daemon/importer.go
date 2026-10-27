@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,11 +20,13 @@ import (
 // The importer of `route adopt` (sqlite-storage.md section 5, step 3):
 // it reads a file-mode inbox, which nothing writes while adoption holds
 // its locks, into a staging route database in the caller's transaction.
-// This file holds the core (S13): the approved parties, the messages of
+// This file holds the core (S13): the approved pair, the messages of
 // ready/, cur/ and quarantine/ with their terminals, the acks byte for
 // byte, an active reader claim, the id high-water mark and one import_log
-// row per source file read. Every read is strict and guarded as the
-// courier's: bounded regular files under the inbox, no link on the way.
+// row per source file read. Every file and folder is read through
+// inbox.ReadSource and inbox.SourceDir (this user's, not writable by
+// others, no link, no FIFO open, bounded). A missing optional file is
+// skipped; a present one that fails a check refuses the import.
 
 // importer is one import run.
 type importer struct {
@@ -31,11 +35,15 @@ type importer struct {
 	now    int64
 	lastID int64
 	seen   map[int64]string // message id to the file that brought it
+	logged map[string]bool  // import_log paths written
 }
 
 // importCore imports the core of the file-mode inbox dir into tx.
 func importCore(tx store.Conn, dir string, now int64) *APIError {
-	im := &importer{tx: tx, rt: &inbox.Root{Dir: dir}, now: now, seen: map[int64]string{}}
+	im := &importer{tx: tx, rt: &inbox.Root{Dir: dir}, now: now, seen: map[int64]string{}, logged: map[string]bool{}}
+	if err := inbox.SourceDir(dir, dir); err != nil {
+		return importErr("unsafe source: %v", err)
+	}
 	peers, e := im.parties()
 	if e != nil {
 		return e
@@ -74,8 +82,12 @@ func (im *importer) rel(p string) string {
 	return r
 }
 
-// log records one source file with its SHA-256 and disposition.
+// log records one source file with its SHA-256 and disposition, once.
 func (im *importer) log(p string, b []byte, disposition string) *APIError {
+	if im.logged[im.rel(p)] {
+		return nil
+	}
+	im.logged[im.rel(p)] = true
 	sum := sha256.Sum256(b)
 	if _, err := im.tx.Exec(`INSERT INTO import_log(path, sha256, disposition, time) VALUES (?, ?, ?, ?)`,
 		im.rel(p), hex.EncodeToString(sum[:]), disposition, im.now); err != nil {
@@ -84,11 +96,35 @@ func (im *importer) log(p string, b []byte, disposition string) *APIError {
 	return nil
 }
 
-// strict reads a bounded regular file under the inbox as strict JSON.
+// read reads an optional source file: (nil, false) when it is missing.
+func (im *importer) read(p string) ([]byte, bool, *APIError) {
+	b, err := inbox.ReadSource(im.rt.Dir, p, inbox.MaxSize)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, importErr("unsafe source: %v", err)
+	}
+	return b, true, nil
+}
+
+// raw reads a source file that must be present.
+func (im *importer) raw(p string) ([]byte, *APIError) {
+	b, ok, e := im.read(p)
+	if e == nil && !ok {
+		e = importErr("%s is missing", im.rel(p))
+	}
+	return b, e
+}
+
+// strict reads a source file that must be present as a strict JSON object.
 func (im *importer) strict(p string) ([]byte, map[string]any, *APIError) {
-	b, ok := inbox.ReadStrict(im.rt.Dir, p)
-	if !ok {
-		return nil, nil, importErr("%s is not a strict JSON file under the inbox (link, size or syntax)", im.rel(p))
+	b, e := im.raw(p)
+	if e != nil {
+		return nil, nil, e
+	}
+	if inbox.StrictJSON(b) != nil {
+		return nil, nil, importErr("%s is not strict JSON", im.rel(p))
 	}
 	v, _ := inbox.Decode(b)
 	o := inbox.Object(v)
@@ -98,16 +134,53 @@ func (im *importer) strict(p string) ([]byte, map[string]any, *APIError) {
 	return b, o, nil
 }
 
-// parties imports the approved pair: peers equal to peers.approved and
-// valid, else checksum_mismatch (no pending change is imported).
+// text reads an optional one-line source file, trimmed.
+func (im *importer) text(p string) (string, []byte, bool, *APIError) {
+	b, ok, e := im.read(p)
+	return strings.TrimSpace(string(b)), b, ok, e
+}
+
+// names lists a source folder, sorted; a missing folder is empty.
+func (im *importer) names(dir string) ([]string, *APIError) {
+	if err := inbox.SourceDir(im.rt.Dir, dir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, importErr("unsafe source: %v", err)
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, importErr("%s: %v", im.rel(dir), err)
+	}
+	out := make([]string, 0, len(ents))
+	for _, e := range ents {
+		out = append(out, e.Name())
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// parties imports the approved pair: one adjutant and one orchestrator,
+// peers equal to peers.approved, else checksum_mismatch.
 func (im *importer) parties() ([]inbox.Peer, *APIError) {
+	files := map[string][]byte{}
+	for _, f := range []string{"peers", "peers.approved"} {
+		b, e := im.raw(im.rt.Path(f))
+		if e != nil {
+			return nil, e
+		}
+		files[f] = b
+	}
 	peers, ok := im.rt.Registry()
-	if !ok || len(peers) == 0 {
-		return nil, Errf("checksum_mismatch", "import: the registry is not an approved pair with no pending change")
+	roles := map[string]int{}
+	for _, p := range peers {
+		roles[p.Role]++
+	}
+	if !ok || len(peers) != 2 || roles["adjutant"] != 1 || roles["orchestrator"] != 1 {
+		return nil, Errf("checksum_mismatch", "import: the registry is not an approved pair (one adjutant, one orchestrator) with no pending change")
 	}
 	for _, f := range []string{"peers", "peers.approved"} {
-		b, _ := inbox.ReadStrict(im.rt.Dir, im.rt.Path(f))
-		if e := im.log(im.rt.Path(f), b, "parties"); e != nil {
+		if e := im.log(im.rt.Path(f), files[f], "parties"); e != nil {
 			return nil, e
 		}
 	}
@@ -117,8 +190,12 @@ func (im *importer) parties() ([]inbox.Peer, *APIError) {
 			VALUES (?, ?, ?, ?, 1, 'approved', ?, ?)`, p.Name, p.Role, p.Identity.Pane, string(session), im.now, im.now); err != nil {
 			return nil, importErr("party %s: %v", p.Name, err)
 		}
-		if f := im.rt.Path("enrolled", p.Name); inbox.Regular(im.rt.Dir, f) {
-			b, _ := os.ReadFile(f)
+		f := im.rt.Path("enrolled", p.Name)
+		b, ok, e := im.read(f)
+		if e != nil {
+			return nil, e
+		}
+		if ok {
 			if e := im.log(f, b, "parties"); e != nil {
 				return nil, e
 			}
@@ -127,54 +204,58 @@ func (im *importer) parties() ([]inbox.Peer, *APIError) {
 	return peers, nil
 }
 
+// claimTokenOK accepts the two token forms of the route schema (D1): 32
+// lowercase hex characters (the daemon's), or the file client's
+// .claim.<digits> folder name, kept unchanged.
+func claimTokenOK(s string) bool {
+	if len(s) == 32 {
+		return strings.Trim(s, "0123456789abcdef") == ""
+	}
+	digits, ok := strings.CutPrefix(s, ".claim.")
+	return ok && len(s) <= 40 && digits != "" && strings.Trim(digits, "0123456789") == ""
+}
+
 // claim imports a mailbox's active reader claim; it returns the token
 // ("" for none).
 func (im *importer) claim(box string) (string, *APIError) {
 	dir := im.rt.Path(box, "claim")
-	if _, err := os.Lstat(dir); os.IsNotExist(err) {
+	if err := inbox.SourceDir(im.rt.Dir, dir); errors.Is(err, os.ErrNotExist) {
 		return "", nil
+	} else if err != nil {
+		return "", importErr("unsafe source: %v", err)
 	}
-	if !im.rt.ClaimValid(im.rt.Path(box)) {
-		return "", importErr("%s is not a valid reader claim (a link, or no token and owner)", im.rel(dir))
+	token, tb, tok, e := im.text(filepath.Join(dir, "token"))
+	if e != nil {
+		return "", e
 	}
-	token := inbox.CatText(filepath.Join(dir, "token"))
-	owner := inbox.CatText(filepath.Join(dir, "owner"))
-	if len(token) != 32 {
-		// The route schema keeps 32-character tokens; a file-mode token
-		// is a temporary folder name. Until the schema takes it (handoff),
-		// the claim is refused, never renamed: its holder still uses it.
-		return "", Errf("adopt_locked", "mailbox %s holds a file-mode reader claim (token %s); ack its messages and release it with herdsman message read %s %s --release, then adopt again", box, token, box, token)
+	owner, ob, ook, e := im.text(filepath.Join(dir, "owner"))
+	if e != nil {
+		return "", e
+	}
+	if !tok || !ook || owner == "" {
+		return "", importErr("%s is not a reader claim (a token and an owner)", im.rel(dir))
+	}
+	if !claimTokenOK(token) {
+		return "", importErr("%s: token %q is not a claim token (32 hex characters, or .claim.<digits>)", im.rel(dir), token)
 	}
 	if _, err := im.tx.Exec(`INSERT INTO claims(token, box, owner, read_key, state, created_at) VALUES (?, ?, ?, ?, 'active', ?)`,
 		token, box, owner, "import-"+token, im.now); err != nil {
 		return "", importErr("claim of %s: %v", box, err)
 	}
-	for _, f := range []string{"token", "owner"} {
-		b, _ := os.ReadFile(filepath.Join(dir, f))
-		if e := im.log(filepath.Join(dir, f), b, "claims"); e != nil {
-			return "", e
-		}
+	if e := im.log(filepath.Join(dir, "token"), tb, "claims"); e != nil {
+		return "", e
 	}
-	return token, nil
+	return token, im.log(filepath.Join(dir, "owner"), ob, "claims")
 }
 
 // box imports one mailbox's ready/, cur/ and quarantine/ messages.
 func (im *importer) box(name, token string) *APIError {
-	box := im.rt.Path(name)
 	for _, q := range []string{"ready", "cur", "quarantine"} {
-		dir := filepath.Join(box, q)
-		if !inbox.NoLinks(box, dir) {
-			return importErr("%s is a link", im.rel(dir))
+		dir := im.rt.Path(name, q)
+		names, e := im.names(dir)
+		if e != nil {
+			return e
 		}
-		ents, err := os.ReadDir(dir)
-		if err != nil && !os.IsNotExist(err) {
-			return importErr("%s: %v", im.rel(dir), err)
-		}
-		names := make([]string, 0, len(ents))
-		for _, e := range ents {
-			names = append(names, e.Name())
-		}
-		sort.Strings(names)
 		for _, n := range names {
 			if e := im.message(name, q, filepath.Join(dir, n), token); e != nil {
 				return e
@@ -194,6 +275,8 @@ func messageID(s string) (int64, bool) {
 }
 
 // message imports one queue file with its envelope, terminal and ack.
+// ready/ and cur/ entries must be contract 1 envelopes (inbox.Envelope's
+// rules); a quarantined entry that is none stays legacy evidence.
 func (im *importer) message(box, queue, p, token string) *APIError {
 	idText, ok := strings.CutSuffix(filepath.Base(p), ".md")
 	id, idOK := messageID(idText)
@@ -204,25 +287,37 @@ func (im *importer) message(box, queue, p, token string) *APIError {
 		return importErr("%s is in two queues: %s and %s; reconcile before adopting", idText, other, im.rel(p))
 	}
 	im.seen[id] = im.rel(p)
-	raw, env, e := im.strict(p)
+	raw, e := im.raw(p)
 	if e != nil {
 		return e
 	}
-	body, bodyOK := inbox.String(env, "body")
-	from, _ := inbox.String(env, "from")
-	to, _ := inbox.String(env, "to")
-	kind, _ := inbox.String(env, "kind")
-	t, timeOK := inbox.Int(env, "time")
-	if env["id"] != idText || to != box || !bodyOK || from == "" || kind == "" || !timeOK {
-		return importErr("%s: the envelope does not match its file (id, recipient, body, sender, kind, time)", im.rel(p))
+	alloc := im.rt.Path("ids", idText, "envelope")
+	ab, aok, e := im.read(alloc)
+	if e != nil {
+		return e
 	}
+	env, valid := inbox.EnvelopeBytes(raw, idText)
+	if valid && env["to"] != box {
+		valid = false
+	}
+	if !valid || (aok && !bytes.Equal(ab, raw)) {
+		if queue != "quarantine" {
+			if !valid {
+				return importErr("%s is not a contract 1 envelope for %s", im.rel(p), box)
+			}
+			return importErr("%s differs from its queue file %s", im.rel(alloc), im.rel(p))
+		}
+		if !valid {
+			return im.evidence(idText, "legacy evidence: quarantined, not an envelope", p, alloc, im.rt.Path("ids", idText, "terminal.json"))
+		}
+	}
+	body, _ := inbox.String(env, "body")
+	from, _ := inbox.String(env, "from")
+	kind, _ := inbox.String(env, "kind")
+	t, _ := inbox.Int(env, "time")
 	var reply any
 	if r, _ := inbox.String(env, "reply_to"); r != "" {
-		n, ok := messageID(r)
-		if !ok {
-			return importErr("%s: reply_to %q is not a message id", im.rel(p), r)
-		}
-		reply = n
+		reply, _ = messageID(r)
 	}
 	header := make(map[string]any, len(env))
 	for k, v := range env {
@@ -232,30 +327,54 @@ func (im *importer) message(box, queue, p, token string) *APIError {
 	}
 	hb, _ := json.Marshal(header)
 	sum := sha256.Sum256([]byte(body))
-	state, claimTok := map[string]string{"ready": "ready", "cur": "cur", "quarantine": "quarantined"}[queue], any(nil)
-	acked := queue == "cur" && im.rt.AckValid(im.rt.Path(box), idText)
+	state := map[string]string{"ready": "ready", "cur": "cur", "quarantine": "quarantined"}[queue]
+	ackPath := filepath.Join(im.rt.Path(box), "ack", idText+".md.json")
+	ack, acked, e := im.read(ackPath)
+	if e != nil {
+		return e
+	}
+	acked = acked && queue == "cur"
+	var claimTok any
+	claimRec := im.rt.Path("ids", idText, "claim")
+	held, cb, cok, e := im.text(claimRec)
+	if e != nil {
+		return e
+	}
 	switch {
 	case acked:
 		state = "handled"
-	case queue == "cur" && token != "" && inbox.CatText(im.rt.Path("ids", idText, "claim")) == token:
+		if e := im.checkAck(idText, ack, raw, held, cok); e != nil {
+			return e
+		}
+	case cok && queue == "cur" && token != "" && held == token:
 		claimTok = token
+		if e := im.log(claimRec, cb, "claims binding"); e != nil {
+			return e
+		}
+	case cok:
+		if e := im.log(claimRec, cb, "legacy evidence: the claim of an earlier reader"); e != nil {
+			return e
+		}
 	}
 	if _, err := im.tx.Exec(`INSERT INTO messages(id, sender, recipient, kind, reply_to, envelope, body, body_sha256, state, claim_token, created_seq, created_at, origin)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'imported')`,
-		id, from, to, kind, reply, string(hb), []byte(body), hex.EncodeToString(sum[:]), state, claimTok, t); err != nil {
+		id, from, box, kind, reply, string(hb), []byte(body), hex.EncodeToString(sum[:]), state, claimTok, t); err != nil {
 		return importErr("message %s: %v", idText, err)
 	}
 	if e := im.log(p, raw, "messages "+state); e != nil {
 		return e
 	}
-	if env := im.rt.Path("ids", idText, "envelope"); inbox.Regular(im.rt.Dir, env) {
-		b, _ := os.ReadFile(env)
-		if e := im.log(env, b, "messages "+state); e != nil {
+	if aok {
+		disposition := "messages " + state
+		if !bytes.Equal(ab, raw) {
+			disposition = "legacy evidence: allocation differs from the quarantined file"
+		}
+		if e := im.log(alloc, ab, disposition); e != nil {
 			return e
 		}
 	}
 	if acked {
-		return im.ack(box, idText, id)
+		return im.ack(idText, id, ackPath, ack, cb)
 	}
 	if queue == "quarantine" {
 		return im.terminal(idText, id)
@@ -263,14 +382,57 @@ func (im *importer) message(box, queue, p, token string) *APIError {
 	return nil
 }
 
-// ack imports ack/<id>.md.json byte for byte, with the handled terminal
-// and the claim record it names.
-func (im *importer) ack(box, idText string, id int64) *APIError {
-	p := filepath.Join(im.rt.Path(box), "ack", idText+".md.json")
-	b, a, e := im.strict(p)
-	if e != nil {
-		return e
+// evidence logs the files of a message that is not imported.
+func (im *importer) evidence(idText, disposition string, paths ...string) *APIError {
+	for _, p := range paths {
+		b, ok, e := im.read(p)
+		if e != nil {
+			return e
+		}
+		if ok {
+			if e := im.log(p, b, disposition); e != nil {
+				return e
+			}
+		}
 	}
+	return nil
+}
+
+// checkAck validates a present ack record as ack_valid does, with every
+// typed field checked: its id, a claim equal to ids/<id>/claim, an
+// integral time, a processing record and the checksum of the cur file.
+func (im *importer) checkAck(idText string, b, cur []byte, held string, heldOK bool) *APIError {
+	bad := func(why string) *APIError {
+		return importErr("the ack of %s is present but invalid (%s); remove or repair it before adopting", idText, why)
+	}
+	if inbox.StrictJSON(b) != nil {
+		return bad("not strict JSON")
+	}
+	v, _ := inbox.Decode(b)
+	a := inbox.Object(v)
+	claim, _ := inbox.String(a, "claim")
+	t, tok := inbox.Int(a, "time")
+	sum, _ := inbox.String(a, "envelope_checksum")
+	switch {
+	case a == nil || a["id"] != idText:
+		return bad("id")
+	case claim == "" || !heldOK || claim != held:
+		return bad("claim, against ids/" + idText + "/claim")
+	case !tok || t < 0:
+		return bad("time")
+	case !inbox.NonEmpty(a, "processing_record"):
+		return bad("processing record")
+	case sum != inbox.Digest(cur):
+		return bad("envelope checksum")
+	}
+	return nil
+}
+
+// ack imports a checked ack/<id>.md.json byte for byte, with the handled
+// terminal, ids/<id>/ack.json and the claim record it names.
+func (im *importer) ack(idText string, id int64, p string, b, claimRec []byte) *APIError {
+	v, _ := inbox.Decode(b)
+	a := inbox.Object(v)
 	claim, _ := inbox.String(a, "claim")
 	t, _ := inbox.Int(a, "time")
 	sum, _ := inbox.String(a, "envelope_checksum")
@@ -280,15 +442,25 @@ func (im *importer) ack(box, idText string, id int64) *APIError {
 	if e := im.log(p, b, "acks"); e != nil {
 		return e
 	}
-	for _, f := range []string{"terminal.json", "claim"} {
-		if q := im.rt.Path("ids", idText, f); inbox.Regular(im.rt.Dir, q) {
-			qb, _ := os.ReadFile(q)
-			if e := im.log(q, qb, "acks"); e != nil {
-				return e
-			}
+	if e := im.log(im.rt.Path("ids", idText, "claim"), claimRec, "acks"); e != nil {
+		return e
+	}
+	term := im.rt.Path("ids", idText, "terminal.json")
+	if tb, ok, e := im.read(term); e != nil {
+		return e
+	} else if ok {
+		if inbox.StrictJSON(tb) != nil {
+			return importErr("%s is not strict JSON", im.rel(term))
+		}
+		tv, _ := inbox.Decode(tb)
+		if o := inbox.Object(tv); o == nil || o["id"] != idText || o["state"] != "handled" {
+			return importErr("%s does not record %s as handled", im.rel(term), idText)
+		}
+		if e := im.log(term, tb, "acks"); e != nil {
+			return e
 		}
 	}
-	return nil
+	return im.evidence(idText, "acks", im.rt.Path("ids", idText, "ack.json"))
 }
 
 // terminal imports a quarantined message's terminal record.
@@ -316,9 +488,13 @@ func (im *importer) terminal(idText string, id int64) *APIError {
 // is allocated twice after the import (2ea167c's rule).
 func (im *importer) highWater() *APIError {
 	var n int64
-	if p := im.rt.Path("state", "sequence"); inbox.Regular(im.rt.Dir, p) {
-		b, _ := os.ReadFile(p)
-		v, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	p := im.rt.Path("state", "sequence")
+	text, b, ok, e := im.text(p)
+	if e != nil {
+		return e
+	}
+	if ok {
+		v, err := strconv.ParseInt(text, 10, 64)
 		if err != nil || v < 0 || v > 999999999999 {
 			return importErr("state/sequence is not a message number")
 		}
@@ -327,9 +503,12 @@ func (im *importer) highWater() *APIError {
 			return e
 		}
 	}
-	ents, _ := os.ReadDir(im.rt.Path("ids"))
-	for _, e := range ents {
-		if v, ok := messageID(e.Name()); ok && v > n {
+	ids, e := im.names(im.rt.Path("ids"))
+	if e != nil {
+		return e
+	}
+	for _, name := range ids {
+		if v, ok := messageID(name); ok && v > n {
 			n = v
 		}
 	}

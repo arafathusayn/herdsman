@@ -25,36 +25,6 @@ func (im *importer) state() *APIError {
 	return nil
 }
 
-// names lists a folder under the inbox, sorted; a link on the way is
-// refused, a missing folder is empty.
-func (im *importer) names(dir string) ([]string, *APIError) {
-	if !inbox.NoLinks(im.rt.Dir, dir) {
-		return nil, importErr("%s is a link", im.rel(dir))
-	}
-	ents, err := os.ReadDir(dir)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, importErr("%s: %v", im.rel(dir), err)
-	}
-	out := make([]string, 0, len(ents))
-	for _, e := range ents {
-		out = append(out, e.Name())
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
-// raw reads a bounded regular file under the inbox, never a link.
-func (im *importer) raw(p string) ([]byte, *APIError) {
-	if !inbox.Regular(im.rt.Dir, p) {
-		return nil, importErr("%s is not a regular file under the inbox", im.rel(p))
-	}
-	b, err := os.ReadFile(p)
-	if err != nil {
-		return nil, importErr("%s: %v", im.rel(p), err)
-	}
-	return b, nil
-}
-
 // mtime is a source file's modification time, the time of a record that
 // keeps none of its own.
 func mtime(p string) int64 {
@@ -269,11 +239,12 @@ func (im *importer) cards() *APIError {
 		}
 		sb, _ := json.Marshal(src)
 		var relayed any
-		if q := im.rt.Path("state", "card-"+episode+".queued"); inbox.Regular(im.rt.Dir, q) {
-			qb, e := im.raw(q)
-			if e != nil {
-				return e
-			}
+		q := im.rt.Path("state", "card-"+episode+".queued")
+		qb, qok, e := im.read(q)
+		if e != nil {
+			return e
+		}
+		if qok {
 			if f := strings.Fields(string(qb)); len(f) > 0 {
 				if id, ok := messageID(f[0]); ok {
 					relayed = id
@@ -300,12 +271,15 @@ func (im *importer) cards() *APIError {
 func (im *importer) targets() *APIError {
 	for _, kind := range []string{"watch", "resume"} {
 		p := im.rt.Path(kind + "-targets.json")
-		if _, err := os.Lstat(p); os.IsNotExist(err) {
+		b, ok, e := im.read(p)
+		if e != nil {
+			return e
+		}
+		if !ok {
 			continue
 		}
-		b, ok := inbox.ReadStrict(im.rt.Dir, p)
-		if !ok {
-			return importErr("%s is not a strict JSON file under the inbox", im.rel(p))
+		if inbox.StrictJSON(b) != nil {
+			return importErr("%s is not strict JSON", im.rel(p))
 		}
 		v, _ := inbox.Decode(b)
 		entries := map[string]any{}

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
@@ -36,6 +37,13 @@ func (im *importer) notices(box string) *APIError {
 		if o["id"] != idText || !sok {
 			return importErr("%s is not a notice of %s", im.rel(p), idText)
 		}
+		if _, seen := im.seen[id]; seen && !im.imported(id) {
+			// Its quarantined message stayed legacy evidence (no envelope).
+			if e := im.log(p, b, "legacy evidence: the notice of a message not imported"); e != nil {
+				return e
+			}
+			continue
+		}
 		if _, err := im.tx.Exec(`INSERT INTO notices(id, recipient, state, authority, time) VALUES (?, ?, ?, ?, ?)`,
 			id, box, state, authority, mtime(p)); err != nil {
 			return importErr("notice %s (its message must be imported): %v", idText, err)
@@ -43,10 +51,8 @@ func (im *importer) notices(box string) *APIError {
 		if e := im.log(p, b, "notices"); e != nil {
 			return e
 		}
-		if q := im.rt.Path("ids", idText, "notice-published"); inbox.Regular(im.rt.Dir, q) {
-			if e := im.log(q, nil, "notices"); e != nil {
-				return e
-			}
+		if e := im.evidence(idText, "notices", im.rt.Path("ids", idText, "notice-published")); e != nil {
+			return e
 		}
 	}
 	return nil
@@ -121,4 +127,11 @@ func (im *importer) resumeIntents() *APIError {
 		}
 	}
 	return nil
+}
+
+// imported reports whether message id has a row.
+func (im *importer) imported(id int64) bool {
+	n := int64(0)
+	_ = im.tx.Query(`SELECT count(*) FROM messages WHERE id = ?`, []any{id}, func(r store.Row) error { n = r.Int64(0); return nil })
+	return n == 1
 }
