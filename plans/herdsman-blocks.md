@@ -98,7 +98,11 @@ A template is written as a tagged template literal whose interpolations mark hol
    - Untyped holes (plain numbers) are not checked.
 
    This check runs once per template, never per instance. The event kind exists only here: an event hole is a property hole at runtime, so mounting and updating never see it.
-7. Generate a locator: one straight-line function that walks from a root through `firstChild` and `nextSibling` steps to each hole's node, sharing common path prefixes so each node is reached once, and writes the nodes into the first half of a given array. If generating functions at runtime is not allowed (a strict content security policy), fall back to walking each path in a loop.
+7. Build a locator, with no generated code (so it works under a content security policy without `unsafe-eval`):
+   1. Number the nodes on the holes' paths, sharing common path prefixes so each node gets one number; the root is node 0.
+   2. For each node in order, record one step: the number of an earlier node to start from, whether to take that node's `firstChild` first, and how many `nextSibling` hops follow. A node starts from its nearest earlier sibling on some path when there is one (hops from there), otherwise from its parent (its first child, then hops).
+   3. Record, for each hole, the number of its node.
+   4. Locating runs the steps in a loop over one shared scratch array of nodes (locators never nest), then copies each hole's node into the first half of the given array.
 8. Run the locator once on the parsed root itself, the **prototype**, and keep its hole nodes. Record what the prototype holds in each hole: the empty string for text and class holes, absent (null) for attribute holes.
 
 #### Block state
@@ -618,6 +622,8 @@ What published work and current browser engineering say about the costs this lib
 ## Change log
 
 Newest first.
+
+- 2026-10-27: Version 0.0.11. Locators generate no code: a template's hole paths compile to a short program of firstChild and nextSibling steps that one loop runs, so templates work under a content security policy without `unsafe-eval` (the js-framework-benchmark CSP check now passes for both the low-level and the declarative entry; before, both failed it). Chrome microbenchmark, 2,000 rows of a four-hole template: 82.4 ns per locate against 86.9 for the generated function. Unit test: compiling, mounting and updating never call `Function`.
 
 - 2026-10-27: Version 0.0.10. Opt-in skips for kept list items: Layer 2 lists take `pure` (an unchanged item object is not updated) and `same(last, next)` (items judged equal are not updated; implies pure), with `refresh(key)` to update one entry again and `invalidate()` to update all on the next set. Views' `list(items, key, render, options)` takes `pure`, `selected` (render gets whether the item is selected; a new selection renders only the two rows it moves between) and `same`. Official benchmark, view entry with a pure list and the selection against the plain one, 6 interleaved rounds, 60 samples per test, Chrome script time with two-sided 90% CIs of the ratio: select 1.3 to 0.9 ms (0.57 to 0.69), partial update 1.4 to 1.1 (0.71 to 0.89), swap 1.2 to 0.4 (0.08 to 0.45), remove 0.7 to 0.4 (0.57 to 0.71); score ratio 1.000 (0.988 to 1.021), inconclusive at this sample size. herdsman-cases with `same` on fresh snapshots: 0.995 (0.986 to 1.014), equivalent, so it does not change herdsman web's screens, which are bound by rendering. Profile (CDP, select at 4x CPU, 10 runs): view script per click 1.16 to 0.49 ms; top self time before: the list's update 0.37 ms and patch 0.22 (every row re-rendered, 117 kB allocated by the row function); after: delegated dispatch 0.27 and setList 0.08.
 

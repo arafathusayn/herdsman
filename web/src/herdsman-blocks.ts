@@ -13,7 +13,7 @@
 // paths (mount, set, List.set) for the sake of types.
 
 /** Library version, bumped with every release of the zip package. */
-export const VERSION = "0.0.10";
+export const VERSION = "0.0.11";
 
 // ---------------------------------------------------------------------------
 // Hole markers: typed at compile time, small negative numbers at runtime
@@ -491,47 +491,76 @@ function walk(
   }
 }
 
-// Turn hole paths into one straight-line function of firstChild/nextSibling
-// hops that shares common prefixes. Falls back to a loop where eval is blocked (CSP).
+// Turn hole paths into a locator: a short program of firstChild/nextSibling
+// hops that shares common prefixes, run by a loop. No code is generated, so
+// it works under a content security policy without 'unsafe-eval'.
 // It fills the first half of a block's single state array: hole nodes in
 // [0, n), with [n, 2n) left for the holes' last values.
 function compileLocator(paths: readonly (Path | undefined)[]): Locator {
-  try {
-    let body = "";
-    const seen = new Map<string, string>();
-    let v = 0;
-    const ref = (path: Path): string => {
-      if (path.length === 0) return "r";
-      const key = path.join(",");
-      const hit = seen.get(key);
-      if (hit) return hit;
-      let expr = ref(path.slice(0, -1)) + ".firstChild";
-      for (let j = 0; j < path[path.length - 1]!; j++) expr += ".nextSibling";
-      const name = "v" + v++;
-      body += "var " + name + "=" + expr + ";";
-      seen.set(key, name);
-      return name;
-    };
-    paths.forEach((p, i) => {
-      if (p === undefined) return;
-      const r = ref(p); // must run before reading `body`: ref() appends declarations
-      body += "n[" + i + "]=" + r + ";";
-    });
-    return new Function("r", "n", body) as Locator;
-  } catch {
-    return (r, out) => {
-      paths.forEach((p, i) => {
-        if (p === undefined) return;
-        let node = r;
-        for (const k of p) {
-          node = node.firstChild!;
-          for (let j = 0; j < k; j++) node = node.nextSibling!;
-        }
-        out[i] = node;
-      });
-    };
-  }
+  // A small program, run by a loop (no generated code, so it works under a
+  // strict content security policy): each step makes node v[x + 1] from node
+  // v[from], optionally its firstChild, then `steps` nextSibling hops. Common
+  // path prefixes are shared, and a node is reached from its nearest earlier
+  // sibling when one was already found, so every node is visited once.
+  const from: number[] = [],
+    first: number[] = [],
+    steps: number[] = [];
+  const seen = new Map<string, number>(); // path -> var index (0 = root)
+  const kids = new Map<number, number[]>(); // parent var -> child indexes found, ascending
+  const ref = (path: Path): number => {
+    if (path.length === 0) return 0;
+    const key = path.join(",");
+    const hit = seen.get(key);
+    if (hit !== undefined) return hit;
+    const parent = ref(path.slice(0, -1)),
+      k = path[path.length - 1]!;
+    const found = kids.get(parent) ?? [];
+    let near = -1;
+    for (const c of found) if (c < k) near = c;
+    if (near >= 0) {
+      from.push(seen.get(path.slice(0, -1).concat(near).join(","))!);
+      first.push(0);
+      steps.push(k - near);
+    } else {
+      from.push(parent);
+      first.push(1);
+      steps.push(k);
+    }
+    found.push(k);
+    found.sort((x, y) => x - y);
+    kids.set(parent, found);
+    const v = from.length;
+    seen.set(key, v);
+    return v;
+  };
+  const holes: number[] = [],
+    vars: number[] = [];
+  paths.forEach((p, i) => {
+    if (p === undefined) return;
+    holes.push(i);
+    vars.push(ref(p));
+  });
+  const F = Int32Array.from(from),
+    S = Int32Array.from(steps),
+    D = Uint8Array.from(first),
+    H = Int32Array.from(holes),
+    X = Int32Array.from(vars),
+    count = F.length;
+  return (r, out) => {
+    const v = scratchNodes;
+    v[0] = r;
+    for (let x = 0; x < count; x++) {
+      let node = v[F[x]!]!;
+      if (D[x] === 1) node = node.firstChild!;
+      for (let j = S[x]!; j > 0; j--) node = node.nextSibling!;
+      v[x + 1] = node;
+    }
+    for (let o = 0; o < H.length; o++) out[H[o]!] = v[X[o]!];
+  };
 }
+
+// Nodes of one locator run; locators never nest, so one array serves all.
+const scratchNodes: Node[] = [];
 
 function apply(kind: KindCode, name: string | undefined, node: Node, v: unknown): void {
   switch (kind) {

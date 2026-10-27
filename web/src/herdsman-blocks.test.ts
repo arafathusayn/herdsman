@@ -380,6 +380,34 @@ describe("lists of plain nodes", () => {
 });
 
 describe("html templates", () => {
+  test("compiling and locating generate no code, so a strict content security policy allows them", () => {
+    const real = globalThis.Function;
+    let tries = 0;
+    const blocked = new Proxy(real, {
+      construct() {
+        tries++;
+        throw new EvalError("blocked by CSP");
+      },
+      apply() {
+        tries++;
+        throw new EvalError("blocked by CSP");
+      },
+    });
+    globalThis.Function = blocked;
+    try {
+      const T = html`<p class=${0}><b>${1}</b><i title=${2}>${3}</i></p>`;
+      const b = T.mount(["c", "x", "t", "y"]);
+      b.set(1, "x2");
+      b.set(3, "y2");
+      const p = fake(b.root);
+      expect(p.textContent).toBe("x2y2");
+      expect((p.lastChild as FakeElement).getAttribute("title")).toBe("t");
+      expect(tries).toBe(0);
+    } finally {
+      globalThis.Function = real;
+    }
+  });
+
   test("mount fills text, class, attribute and property holes", () => {
     const T = html`<tr class="${0}">
       <td title=${1}>${2}</td>
