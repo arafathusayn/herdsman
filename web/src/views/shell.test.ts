@@ -601,6 +601,9 @@ test("repeated checklist and run-state lines move as rows of their own", () => {
     ["a", "x", "y", "x", "x", "b"],
     ["x", "a", "x", "b", "x"],
     ["b", "x", "x", "a"],
+    // A line whose own text looks like a repeat's key.
+    ["x", "x#2", "x", "a"],
+    ["x#2", "x", "a", "x"],
   ];
   for (const view of ["checklist", "log"] as const) {
     const box = document.createElement("div");
