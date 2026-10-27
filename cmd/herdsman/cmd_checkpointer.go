@@ -14,7 +14,8 @@ import (
 )
 
 func init() {
-	register(command{name: "checkpointer", summary: "Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.", run: runCheckpointer})
+	register(command{name: "checkpointer", summary: "Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.",
+		subHelp: map[string]string{"guard": guardHelp}, run: runCheckpointer})
 }
 
 const checkpointerUsage = `usage: TARGET=<pane> herdsman checkpointer [--once|--probe [--json]]
@@ -32,6 +33,18 @@ Exit codes:
   0  --probe printed; --once sent its checkpoint (and compact when due); guard OK
   1  --once: no transcript, an input not sent, or a wait that failed
   2  usage, a bad setting, or a guard refusal
+`
+
+const guardHelp = checkpoint.GuardUsage + `
+
+A read-only check, right before each input in adjutant mode: the approved
+registry names <pane> as <orchestrator-name>, and its live session still
+matches. Settings (environment): HERDSMAN_INBOX (required),
+HERDSMAN_PREFLIGHT.
+
+Exit codes:
+  0  OK <orchestrator-name> <pane>
+  2  usage, a bad setting, or a refusal (the reason on stderr)
 `
 
 // checkpointerWorkingTimeout bounds the wait for a prompted turn (0: the

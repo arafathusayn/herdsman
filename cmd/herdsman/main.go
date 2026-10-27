@@ -70,6 +70,9 @@ type command struct {
 	// help is `herdsman <name> --help`: the usage and one table of exit
 	// codes; "" prints the summary.
 	help string
+	// subHelp is `herdsman <name> <sub> --help` for each subcommand that
+	// has its own help.
+	subHelp map[string]string
 	// run returns the exit code; the command prints its own output.
 	run func(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 }
@@ -136,9 +139,17 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runWeb(args[1:], stdout, stderr)
 	}
 	if c, ok := commands[args[0]]; ok {
-		if c.help != "" && len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
-			fmt.Fprint(stdout, c.help)
-			return nil
+		if n := len(args); n == 2 || n == 3 {
+			if last := args[n-1]; last == "--help" || last == "-h" {
+				h := c.help
+				if n == 3 {
+					h = c.subHelp[args[1]]
+				}
+				if h != "" {
+					fmt.Fprint(stdout, h)
+					return nil
+				}
+			}
 		}
 		if code := c.run(args[1:], os.Stdin, stdout, stderr); code != 0 {
 			return &exitError{code: code}
@@ -172,7 +183,15 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	var routes, allow multi
 	fs.Var(&routes, "route", "route folder to show first (repeatable)")
 	fs.Var(&allow, "allow-host", "another host name to answer to, such as the domain of a proxy or tunnel in front of this server (repeatable)")
+	for _, a := range args {
+		if a == "-h" || a == "-help" || a == "--help" {
+			fs.SetOutput(stdout)
+		}
+	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if ip := net.ParseIP(*host); ip != nil && ip.IsUnspecified() {

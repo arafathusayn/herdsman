@@ -29,6 +29,61 @@ func call(t *testing.T, args ...string) (string, string, int) {
 	return out.String(), errOut.String(), code
 }
 
+// Every command the skill and the README show answers --help with its own
+// usage and exit 0 (A25); a message action prints only its own line.
+func TestEveryDocumentedCommandHelp(t *testing.T) {
+	cases := []struct{ args, want string }{
+		{"route", "usage: herdsman route check"},
+		{"route check", "usage: herdsman route check"},
+		{"route log", "herdsman route log"},
+		{"status", "usage: herdsman status"},
+		{"wait", "usage: herdsman wait"},
+		{"watch", "usage: herdsman watch"},
+		{"watch implementers", "usage: herdsman watch"},
+		{"watch reviewer", "usage: herdsman watch"},
+		{"watch prs", "usage: herdsman watch"},
+		{"run-check", "usage: herdsman run-check"},
+		{"checkpointer", "herdsman checkpointer [--once"},
+		{"checkpointer guard", "usage: herdsman checkpointer guard <orchestrator-name> <pane>"},
+		{"transcript-audit", "usage: herdsman transcript-audit"},
+		{"approval-gate", "usage: herdsman approval-gate"},
+		{"message", "usage: herdsman message"},
+		{"models", "usage: herdsman models"},
+		{"models last", "usage: herdsman models"},
+		{"models save", "usage: herdsman models"},
+		{"afk", "usage: herdsman afk"},
+		{"web", "-port"},
+		{"doctor", "usage: herdsman doctor"},
+		{"review start", "usage: herdsman review start"},
+	}
+	actions := []string{"status", "wait", "read", "release", "ack", "send", "hold", "unhold", "register", "courier", "card-watch", "resume-goal", "authority", "leak-gate"}
+	for _, a := range actions {
+		want := "usage: herdsman message [--json] " + a
+		if a == "unhold" {
+			want = "| unhold <name>" // one line with hold
+		}
+		cases = append(cases, struct{ args, want string }{"message " + a, want})
+	}
+	for _, c := range cases {
+		args := append(strings.Fields(c.args), "--help")
+		out, errOut, code := call(t, args...)
+		if code != 0 || !strings.Contains(out, c.want) {
+			t.Errorf("%s --help: exit %d, want %q in stdout %q (stderr %q)", c.args, code, c.want, out, errOut)
+		}
+	}
+	for _, a := range actions {
+		out, _, _ := call(t, "message", a, "--help")
+		if n := strings.Count(out, "usage: "); n != 1 || (a != "leak-gate" && strings.Contains(out, "leak-gate <file>")) {
+			t.Errorf("message %s --help prints more than its own action: %q", a, out)
+		}
+	}
+	// A trailing --help after an argument that is no subcommand goes to the
+	// command (run-check passes it on to the command it runs).
+	if out, _, code := call(t, "transcript-audit", "claude", "--help"); code != 2 || !strings.HasPrefix(out, "GAP usage") {
+		t.Errorf("transcript-audit claude --help: %d %q", code, out)
+	}
+}
+
 func TestHelpListsEveryCommand(t *testing.T) {
 	out, _, code := call(t, "help")
 	for _, name := range []string{"status", "route", "run-check", "wait", "watch", "approval-gate", "transcript-audit", "web"} {

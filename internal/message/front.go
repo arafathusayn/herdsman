@@ -2,6 +2,7 @@ package message
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/settings"
 )
@@ -35,6 +36,29 @@ exit codes:
   2  usage, an invalid or missing setting (HERDSMAN_NAME, HERDSMAN_INBOX), or a refusal (the reason on stderr)
   3  authority: HUMAN; resume-goal: HELD
 `
+
+// SubHelp is `herdsman message <action> --help`: the action's line of
+// Help, then its settings and exit codes; "" for an unknown action.
+func SubHelp(action string) string {
+	_, rest, _ := strings.Cut(Help, "\n")
+	actions, tail, _ := strings.Cut(rest, "settings:")
+	for _, line := range strings.Split(actions, "\n") {
+		line = strings.TrimSpace(line)
+		for _, part := range strings.Split(line, " | ") {
+			if w, _, _ := strings.Cut(part, " "); w != action {
+				continue
+			}
+			text := "usage: herdsman message [--json] "
+			if grammar, what, ok := strings.Cut(line, "  "); ok {
+				text += grammar + "\n  " + strings.TrimSpace(what) + "\n"
+			} else {
+				text += line + "\n"
+			}
+			return text + "\nsettings:" + tail
+		}
+	}
+	return ""
+}
 
 // Main is `herdsman message <action> ...`: the channel actions with
 // HERDSMAN_NAME as the caller's enrolled name, and the commands that need
