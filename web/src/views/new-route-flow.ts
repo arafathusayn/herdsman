@@ -57,15 +57,23 @@ export function newRouteFlow(
   const usePrevious = (): void => {
     api.catalog(false).then((c) => {
       if (stopped) return;
-      // The harness lists are read once, when a role needs a fresh choice:
-      // a role without a usable saved pick, or the user choosing again.
+      // The harness lists are read when a role needs a fresh choice: a
+      // role without a usable saved pick, or the user choosing again. One
+      // read at a time; once they are read, never again; a failed read can
+      // be tried again.
       let asked = false;
       const needLists = (): void => {
         if (asked) return;
         asked = true;
-        api.catalog(true).then((full) => {
-          if (!stopped && !f.sent()) f.setCatalog({ ...full, previous: c.previous ?? [] });
-        }, failed);
+        api.catalog(true).then(
+          (full) => {
+            if (!stopped && !f.sent()) f.setCatalog({ ...full, previous: c.previous ?? [] });
+          },
+          (e: unknown) => {
+            asked = false;
+            failed(e);
+          },
+        );
       };
       const f = open(c, true, recommended, needLists);
       form = f;

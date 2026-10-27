@@ -133,6 +133,8 @@ export interface Route {
   older_run_state?: number;
   /** The oldest record the view pages to (the newest 2,000 only); older ones are in 00-route.md. */
   run_state_from?: number;
+  /** Names the run state's history: an append keeps it, an edit changes it, and loaded older pages go with it. */
+  history?: string;
   files: RouteFile[] | null;
   modified: string;
   live: boolean;

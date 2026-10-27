@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/choices"
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 )
 
@@ -608,6 +609,8 @@ func (f *routeFixture) postCtx(ctx context.Context, req RouteRequest) *httptest.
 
 func TestRouteCancelledWhileRunningFinishesTheJob(t *testing.T) {
 	f := newRouteFixture(t)
+	store := &choices.Store{Path: filepath.Join(t.TempDir(), "herdsman", "choices.json")}
+	f.srv.cfg.Choices = store
 	started, release := make(chan struct{}), make(chan struct{})
 	f.herdr.Handle("agent.start", func(p map[string]any) (any, string) {
 		close(started)
@@ -616,7 +619,8 @@ func TestRouteCancelledWhileRunningFinishesTheJob(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan *httptest.ResponseRecorder)
-	go func() { done <- f.postCtx(ctx, f.orchestrator()) }()
+	req := f.orchestrator()
+	go func() { done <- f.postCtx(ctx, req) }()
 	<-started
 	cancel()
 	w := <-done // the handler returns while the job still runs
@@ -633,6 +637,11 @@ func TestRouteCancelledWhileRunningFinishesTheJob(t *testing.T) {
 	want := []string{"tab.create", "agent.start", "agent.prompt", "pane.split", "pane.rename", "pane.send_text", "pane.send_keys", "pane.send_keys"}
 	if !slices.Equal(methods, want) {
 		t.Fatalf("methods = %v", methods)
+	}
+	// The route started, so its picks are saved although nobody waited (A30).
+	got, err := store.Load()
+	if err != nil || len(got.Picks) != 1 || got.Picks[0].Role != "orchestrator" || got.Picks[0].Model != req.Model {
+		t.Fatalf("picks = %+v, err = %v", got.Picks, err)
 	}
 }
 

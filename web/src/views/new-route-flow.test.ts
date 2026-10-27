@@ -265,3 +265,52 @@ test("a form from saved picks can ask for the lists once", async () => {
   expect(r.probes).toEqual([false, true]);
   expect(r.updated.length).toBe(1);
 });
+
+// A failed read of the lists can be tried again; a second request while
+// one is on its way is not sent.
+test("Choose again retries after a failed read, never twice at once", async () => {
+  const { newRouteFlow } = await import("./new-route-flow.ts");
+  const body = document.createElement("form") as unknown as FakeElement;
+  const probes: boolean[] = [];
+  const errors: unknown[] = [];
+  const updated: Catalog[] = [];
+  let lists: (() => void) | undefined;
+  let fail = true;
+  const h = { kind: "claude", model: "fable", other: "", effort: "medium" };
+  newRouteFlow(
+    body as unknown as HTMLElement,
+    {
+      savedChoices: () => Promise.resolve([pick("orchestrator")]),
+      catalog: (probe = true) => {
+        probes.push(probe);
+        if (probe && fail) return Promise.reject(new Error("offline"));
+        return Promise.resolve({ ...(probe ? probed : quick), previous: [pick("orchestrator")] });
+      },
+    },
+    (_c, _previous, _recommended, needLists) => {
+      lists = needLists;
+      return {
+        stop: () => {},
+        form: () => ({ role: "orchestrator", main: h, orch: h }) as unknown as RouteForm,
+        sent: () => false,
+        setCatalog: (c: Catalog) => void updated.push(c),
+      };
+    },
+    (e) => void errors.push(e),
+  );
+  await flush();
+  byName(body, "use-recommended").dispatch("click");
+  await flush();
+  byName(body, "use-previous").dispatch("click");
+  await flush();
+  lists!();
+  lists!();
+  await flush();
+  expect(probes).toEqual([false, true]);
+  expect(errors.length).toBe(1);
+  fail = false;
+  lists!();
+  await flush();
+  expect(probes).toEqual([false, true, true]);
+  expect(updated.length).toBe(1);
+});

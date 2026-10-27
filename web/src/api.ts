@@ -253,14 +253,17 @@ export async function routeFile(route: string, path: string): Promise<string> {
 }
 
 /** Up to a page of run-state lines ending before line index `before`, and how many precede them. */
-export async function routeRunState(route: string, before: number): Promise<{ lines: LogLine[]; older: number }> {
+export async function routeRunState(
+  route: string,
+  before: number,
+): Promise<{ lines: LogLine[]; older: number; history: string | undefined }> {
   const res = await call(`/api/route/runstate?${new URLSearchParams({ route, before: String(before) })}`, {
     headers: headers(),
   });
   if (res.status === 401) throw new AuthError("Session expired.");
-  const body = (await res.json()) as { lines?: LogLine[]; older?: number; error?: string };
+  const body = (await res.json()) as { lines?: LogLine[]; older?: number; history?: string; error?: string };
   if (!res.ok || !body.lines) throw new Error(body.error ?? `run state failed (${res.status})`);
-  return { lines: body.lines, older: body.older ?? 0 };
+  return { lines: body.lines, older: body.older ?? 0, history: body.history };
 }
 
 const diffs = new Map<string, { etag: string; sources: DiffSource[] }>();

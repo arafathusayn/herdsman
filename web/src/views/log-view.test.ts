@@ -6,7 +6,13 @@ import type { LogLine, Route } from "../types.ts";
 beforeAll(installDom);
 
 const toasts: [string, string | undefined][] = [];
-void mock.module("../ui.ts", () => ({ toast: (m: string, kind?: string) => void toasts.push([m, kind]) }));
+// A module mock lasts for the whole run, so it keeps ui.ts's other exports
+// for the test files that load after this one.
+const realUi = { ...(await import("../ui.ts")) };
+void mock.module("../ui.ts", () => ({
+  ...realUi,
+  toast: (m: string, kind?: string) => void toasts.push([m, kind]),
+}));
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const text = (b: FakeElement) =>
@@ -131,4 +137,82 @@ test("loaded pages stay when a new line rebuilds the view", async () => {
       } as unknown as Route) as unknown as FakeElement,
     ),
   ).toBe(100);
+});
+
+// The loaded pages are kept for the few routes viewed last only: a route
+// not viewed since starts again from its newest lines.
+test("loaded pages are kept for the last few routes only", async () => {
+  const { logView, SEEN_ROUTES } = await import("./log-view.ts");
+  const span = (a: number, b: number): LogLine[] =>
+    Array.from({ length: b - a }, (_, i) => ({ time: "09:00", text: `l${a + i}` }));
+  const page = (_id: string, before: number) =>
+    Promise.resolve({ lines: span(before - 100, before), older: before - 100 });
+  const items = (v: FakeElement) => all(v).filter((e) => e.tagName === "li").length;
+  const visit = async (id: string) => {
+    const v = logView({ id, run_state: span(300, 400), older_run_state: 300 } as unknown as Route, page);
+    find(v as unknown as FakeElement, (e) => e.tagName === "button")!.dispatch("click");
+    await flush();
+  };
+  for (let i = 0; i <= SEEN_ROUTES; i++) await visit(`lru${i}`);
+  const again = (id: string) =>
+    items(
+      logView({ id, run_state: span(301, 401), older_run_state: 301 } as unknown as Route) as unknown as FakeElement,
+    );
+  expect(again(`lru${SEEN_ROUTES}`)).toBe(201);
+  expect(again("lru0")).toBe(100);
+});
+
+// An edit of a loaded older record gives the route a new history: the view
+// drops the pages it loaded, while an append under the same history keeps
+// them.
+test("a new history drops the loaded pages", async () => {
+  const { logView } = await import("./log-view.ts");
+  const span = (a: number, b: number): LogLine[] =>
+    Array.from({ length: b - a }, (_, i) => ({
+      time: "09:00",
+      text: `l${a + i}`,
+    }));
+  const page = (_id: string, before: number) =>
+    Promise.resolve({
+      lines: span(before - 100, before),
+      older: before - 100,
+      history: "g1",
+    });
+  const view = (r: object) => logView({ id: "hist", ...r } as unknown as Route, page) as unknown as FakeElement;
+  const first = view({
+    run_state: span(300, 400),
+    older_run_state: 300,
+    history: "g1",
+  });
+  find(first, (e) => e.tagName === "button")!.dispatch("click");
+  await flush();
+  expect(text(first)).toContain("l250");
+  expect(text(view({ run_state: span(301, 401), older_run_state: 301, history: "g1" }))).toContain("l250");
+  const edited = view({
+    run_state: span(301, 401),
+    older_run_state: 301,
+    history: "g2",
+  });
+  expect(text(edited)).not.toContain("l250");
+  expect(all(edited).filter((e) => e.tagName === "li").length).toBe(100);
+});
+
+// A page read from a newer history than the view's is not joined to it.
+test("a page from another history is refused", async () => {
+  const { logView } = await import("./log-view.ts");
+  const before = toasts.length;
+  const lines = [{ time: "09:00", text: "from g2" }];
+  const v = logView(
+    {
+      id: "hist2",
+      run_state: [{ time: "10:00", text: "newest" }],
+      older_run_state: 1,
+      history: "g1",
+    } as unknown as Route,
+    () => Promise.resolve({ lines, older: 0, history: "g2" }),
+  ) as unknown as FakeElement;
+  find(v, (e) => e.tagName === "button")!.dispatch("click");
+  await flush();
+  expect(text(v)).not.toContain("from g2");
+  expect(toasts.length).toBe(before + 1);
 });
