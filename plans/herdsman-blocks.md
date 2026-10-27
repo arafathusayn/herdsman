@@ -152,7 +152,7 @@ A list's entries are either objects exposing the item's root node, or anything e
 
 A list is bound to a parent node and, optionally, an anchor (a node before which the list lives; none means the end of the parent). It is configured with a key function, a create function (item to entry), an update function (entry and item), an `owns` flag (the list is the parent's only content), a `detach` flag, a `pure` flag and an optional `same` function. It remembers the keys, entries and items of the last render.
 
-`pure` says that update reads nothing but its item: a kept entry whose item is the same object as the item at its old position in the last render is not updated. `same(last, next)` extends that to items that are new objects each time (fresh snapshots): a kept entry is not updated when it returns true; giving `same` turns `pure` on. Both are opt-in, because a caller that mutates items in place relies on update running for every survivor. `shallowEqual` is a ready `same` for items with flat fields: the same set of enumerable fields, each strictly equal.
+`pure` says that update reads nothing but its item: a kept entry whose item is the same object as the item at its old position in the last render is not updated. `same(last, next)` extends that to items that are new objects each time (fresh snapshots): a kept entry is not updated when it returns true; giving `same` turns `pure` on. Both are opt-in, because a caller that mutates items in place relies on update running for every survivor. A caller writes its own `same`, such as a revision compare or a shallow compare of flat fields; the library exports none.
 
 Two calls serve a pure list whose update reads something besides the item:
 
