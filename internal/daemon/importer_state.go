@@ -19,7 +19,7 @@ import (
 
 // state imports the route state after the core.
 func (im *importer) state() *APIError {
-	for _, f := range []func() *APIError{im.holds, im.resumeIntents, im.alerts, im.cards, im.targets, im.contract2} {
+	for _, f := range []func() *APIError{im.deliveryHold, im.holds, im.resumeIntents, im.alerts, im.cards, im.targets, im.contract2} {
 		if e := f(); e != nil {
 			return e
 		}
@@ -376,4 +376,43 @@ func (im *importer) approval() *APIError {
 		return importErr("approval: %v", err)
 	}
 	return im.log(p, b, "approvals (evidence)")
+}
+
+// deliveryHold imports state/route-paused and state/route-frozen as
+// meta.delivery_hold, so the route comes out still paused or frozen
+// (N-P1-5). With both, frozen (the stronger hold) wins, and each file's
+// import_log row names both.
+func (im *importer) deliveryHold() *APIError {
+	files := map[string][]byte{}
+	for _, h := range []string{"paused", "frozen"} {
+		b, ok, e := im.read(im.rt.Path("state", "route-"+h))
+		if e != nil {
+			return e
+		}
+		if ok {
+			files[h] = b
+		}
+	}
+	hold := ""
+	switch {
+	case files["frozen"] != nil:
+		hold = "frozen"
+	case files["paused"] != nil:
+		hold = "paused"
+	default:
+		return nil
+	}
+	if _, err := im.tx.Exec(`INSERT INTO meta(k, v) VALUES ('delivery_hold', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`, hold); err != nil {
+		return importErr("meta delivery_hold: %v", err)
+	}
+	disposition := "meta delivery_hold " + hold
+	if len(files) == 2 {
+		disposition = "meta delivery_hold frozen (route-paused and route-frozen both present; frozen wins)"
+	}
+	for h, b := range files {
+		if e := im.log(im.rt.Path("state", "route-"+h), b, disposition); e != nil {
+			return e
+		}
+	}
+	return nil
 }
