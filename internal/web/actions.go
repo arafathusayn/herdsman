@@ -239,7 +239,7 @@ func (q *Queue) scroll(ctx context.Context, a Action) Result {
 		off := max(0, min(int64(p.Scroll.Offset)+int64(a.Lines), int64(p.Scroll.Max)))
 		err := q.client.Call(ctx, "pane.scroll", map[string]any{"pane_id": a.Pane, "offset_from_bottom": off}, nil)
 		if err == nil {
-			q.scrolled[a.Pane] = off > 0
+			markScrolled(q.scrolled, a.Pane, off > 0, q.hub.Current())
 		}
 		raw, _ := json.Marshal(herdr.Scroll{Offset: uint64(off), Max: p.Scroll.Max, Rows: p.Scroll.Rows})
 		return result(raw, "scrolled", err)
@@ -256,6 +256,29 @@ func (q *Queue) scroll(ctx context.Context, a Action) Result {
 		return result(nil, "sent the wheel", err)
 	}
 	return Result{OK: true, Summary: "nothing to scroll"}
+}
+
+// markScrolled records whether pane is scrolled back, keeping marks only
+// for scrolled-back panes the last snapshot still lists (A24: pane churn
+// never grows the map).
+func markScrolled(m map[string]bool, pane string, back bool, st State) {
+	if back {
+		m[pane] = true
+	} else {
+		delete(m, pane)
+	}
+	if len(st.Snapshot.Panes) == 0 {
+		return
+	}
+	alive := make(map[string]bool, len(st.Snapshot.Panes))
+	for _, p := range st.Snapshot.Panes {
+		alive[p.ID] = true
+	}
+	for id := range m {
+		if !alive[id] && id != pane {
+			delete(m, id)
+		}
+	}
 }
 
 // scrolledBack reports whether the last snapshot shows the pane scrolled

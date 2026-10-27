@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -100,6 +102,12 @@ func TestBoundDuringReplacement(t *testing.T) {
 // leaf with a blocking open after a separate Lstat, so a leaf replaced by
 // a fifo in between hung the reader. Leaves flip between a regular file
 // and a fifo while ReadStrict reads; the reader must keep going.
+//
+// A read blocked on the fifo stays blocked until a writer opens it, so the
+// test waits for the reads to end and never takes a still clock for a
+// hang: on a loaded macOS runner a reader that was only slow passed a
+// 200 ms check without progress and failed. The reader is held once
+// mid-run, for a count of swaps, so every run has a slow reader.
 func TestReviewStrictFIFOReplacementDoesNotHang(t *testing.T) {
 	dir := t.TempDir()
 	small, fifo, p := filepath.Join(dir, "small"), filepath.Join(dir, "fifo"), filepath.Join(dir, "current.json")
@@ -113,6 +121,7 @@ func TestReviewStrictFIFOReplacementDoesNotHang(t *testing.T) {
 		t.Fatal(err)
 	}
 	stop, stopped := make(chan struct{}), make(chan struct{})
+	var swaps atomic.Int64
 	go func() {
 		defer close(stopped)
 		for {
@@ -125,53 +134,55 @@ func TestReviewStrictFIFOReplacementDoesNotHang(t *testing.T) {
 				_ = os.Link(src, p+".next")
 				_ = os.Rename(p+".next", p)
 			}
+			swaps.Add(1)
 		}
 	}()
-	var progress atomic.Int64
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 1; i <= 100000; i++ {
+		for i := 1; i <= 1000; i++ {
+			if i == 100 {
+				for until := swaps.Load() + 1000; swaps.Load() < until; {
+					select {
+					case <-stopped:
+						until = 0
+					default:
+						runtime.Gosched()
+					}
+				}
+			}
 			ReadStrict(dir, p)
-			progress.Store(int64(i))
 		}
 	}()
-	prev, same, blocked := int64(-1), 0, false
-	for i := 0; i < 100 && !blocked; i++ {
-		select {
-		case <-done:
-			i = 100
-			continue
-		case <-time.After(20 * time.Millisecond):
-		}
-		n := progress.Load()
-		if n == prev {
-			same++
-		} else {
-			same = 0
-		}
-		prev = n
-		blocked = same >= 10
+	// Only a hang outlasts the test binary's deadline; the rest of it is
+	// left to release the reader and report.
+	var hang <-chan time.Time
+	if d, ok := t.Deadline(); ok {
+		hang = time.After(time.Until(d) * 9 / 10)
+	}
+	hung := false
+	select {
+	case <-done:
+	case <-hang:
+		hung = true
+		_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
 	}
 	close(stop)
 	<-stopped
+	if !hung {
+		return
+	}
 	_ = os.Remove(p)
 	_ = os.Link(small, p)
-	// Open a writer on the fifo to release a blocked open, then join the
+	// Open a writer on the fifo to release the blocked open, then join the
 	// reader before cleaning up.
 	f, err := os.OpenFile(fifo, os.O_RDWR|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the reader did not stop after the fifo was released")
-	}
-	if blocked {
-		t.Errorf("ReadStrict blocked on a fifo after %d reads", prev)
-	}
+	<-done
+	t.Error("ReadStrict blocked on a fifo")
 }
 
 // Review core-followups-1 P1: Regular's open must refuse the leaf it

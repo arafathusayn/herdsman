@@ -107,6 +107,31 @@ export class FakeElement extends BaseElement {
   focus(): void {}
   close(): void {
     this.open = false;
+    this.dispatch("close");
+  }
+  showModal(): void {
+    this.open = true;
+  }
+  /**
+   * The first descendant matching "tag", "tag[name=x]" or ".class" (all a
+   * test needs), a view's elements included: those are the base fake DOM's,
+   * so the name and class are read as attributes or the name property.
+   */
+  querySelector(sel: string): BaseElement | null {
+    const m = /^([a-z]*)(?:\[name=([^\]]+)\])?(?:\.([\w-]+))?$/.exec(sel);
+    const [, tag, name, cls] = m ?? [];
+    const hit = (e: BaseElement): boolean =>
+      (!tag || e.tagName.toLowerCase() === tag) &&
+      (!name || e.getAttribute("name") === name || e["name"] === name) &&
+      (!cls || e.className.split(/\s+/).includes(cls));
+    const walk = (e: BaseElement): BaseElement | null => {
+      for (const c of elementsOf(e)) {
+        const found = hit(c) ? c : walk(c);
+        if (found) return found;
+      }
+      return null;
+    };
+    return m ? walk(this) : null;
   }
   get children(): BaseElement[] {
     return elementsOf(this);
@@ -119,15 +144,30 @@ function elementsOf(n: FakeNode): BaseElement[] {
   return out;
 }
 
+/**
+ * The element methods the app calls on elements a view renders (a dialog
+ * made with element(), the form in it), given to the base fake DOM's
+ * elements too: views clone those, not this file's FakeElement.
+ */
+const shared = ["append", "replaceChildren", "remove", "focus", "close", "showModal", "querySelector", "dispatch"];
+function shareMethods(): void {
+  const base = BaseElement.prototype as unknown as Record<string, unknown>;
+  const own = FakeElement.prototype as unknown as Record<string, unknown>;
+  for (const name of shared)
+    if (!(name in base)) Object.defineProperty(base, name, { value: own[name], configurable: true, writable: true });
+}
+
 /** Installs the fake document and Node on globalThis. */
 export function installDom(): void {
   installFakeDocument(); // Node
+  shareMethods();
   const g = globalThis as unknown as Record<string, unknown>;
   g["document"] = {
     activeElement: null,
     createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
     createElementNS: (ns: string, tag: string) => new (ns === SVG_NS ? BaseElement : FakeElement)(tag, ns),
     createTextNode: (s: string) => new FakeText(s),
+    body: new FakeElement("body"),
   };
 }
 

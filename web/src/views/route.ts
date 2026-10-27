@@ -8,6 +8,7 @@ import { ago, checklistCounts, type Index, type Member } from "../model.ts";
 import type { App, RouteTab } from "../store.ts";
 import type { Route, Snapshot } from "../types.ts";
 import { pill, type PillNode, toast } from "../ui.ts";
+import type { LogNode } from "./log-view.ts";
 import { workspaceName } from "./shell.ts";
 import { card, type CardNode, type TeamNode } from "./team.ts";
 
@@ -200,7 +201,7 @@ type ChecklistNode = ViewNodeOf<typeof Checklist>;
  * spell another line's key. The server accepts repeated lines, and a keyed
  * list needs one key per row.
  */
-function keyedOnce<T>(items: readonly T[], parts: (item: T) => readonly string[]): [string, T][] {
+export function keyedOnce<T>(items: readonly T[], parts: (item: T) => readonly string[]): [string, T][] {
   const seen = new Map<string, number>();
   return items.map((item) => {
     const p = JSON.stringify(parts(item));
@@ -226,27 +227,6 @@ export function checklistView(r: Route): ChecklistNode | MutedNode {
           i.id ? CheckId([i.id]) : null,
           i.text,
         ]),
-    ),
-  ]);
-}
-
-const LogLine = html`<li class=${cls()}>
-  <time>${text()}</time>
-  <p>${text()}</p>
-</li>`;
-const Log = html`<ol class="timeline">
-  ${child<ListNode<ViewNodeOf<typeof LogLine>, string>>()}
-</ol>`;
-type LogNode = ViewNodeOf<typeof Log>;
-
-export function logView(r: Route): LogNode | MutedNode {
-  const lines = [...(r.run_state ?? [])].reverse();
-  if (!lines.length) return Muted(["No run-state lines yet."]);
-  return Log([
-    list(
-      keyedOnce(lines, (l) => [l.time, l.text]),
-      ([k]) => k,
-      ([, l]) => LogLine([l.text.startsWith("web:") ? "web" : "", l.time, l.text]),
     ),
   ]);
 }

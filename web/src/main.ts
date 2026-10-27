@@ -1,4 +1,5 @@
-import { AuthError, openStream, pairStatus, readChannel, startSession, useHost } from "./api.ts";
+import { activityPinger } from "./activity.ts";
+import { AuthError, openStream, pairStatus, readChannel, sendActivity, startSession, useHost } from "./api.ts";
 import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "./appearance.ts";
 import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
@@ -27,13 +28,13 @@ import { DiffView } from "./views/diff.ts";
 import { element, ElementView } from "./views/element-view.ts";
 import { FilesView } from "./views/files.ts";
 import { confirmHost, keepPendingLink, openHosts, showConnect, takePendingLink } from "./views/hosts.ts";
+import { logView } from "./views/log-view.ts";
 import { MessagesView } from "./views/messages.ts";
 import { openNewRoute } from "./views/new-route.ts";
 import { showPairing } from "./views/pair.ts";
 import {
   activityView,
   checklistView,
-  logView,
   routeShell,
   sessionView,
   type TabBody,
@@ -150,6 +151,11 @@ applyCodeTheme(loadCodeTheme(), false);
 loadWidths();
 installTooltips();
 store.on(renderApp);
+// The user's own clicks and keys (route tabs, Changes, a terminal) say the
+// user is here, at most every 10 s (A33); timers never do.
+const ping = activityPinger(sendActivity, 10_000);
+document.addEventListener("pointerdown", ping, { capture: true, passive: true });
+document.addEventListener("keydown", ping, { capture: true, passive: true });
 
 boot().catch((e: unknown) => store.set({ fatal: e instanceof Error ? e.message : String(e) }));
 
@@ -387,7 +393,7 @@ function renderMain(app: App, snap: Snapshot, idx: Index): void {
       tab === "checklist"
         ? checklistView(r)
         : tab === "log"
-          ? logView(r)
+          ? logView(r, () => store.emit())
           : tab === "activity"
             ? activityView(app, team(r, idx))
             : teamBoard(team(r, idx), app);

@@ -16,30 +16,42 @@ import {
 // so the form can be driven in tests without a server or the app's store.
 import { icon, type IconNode, icons } from "../icons.ts";
 import {
+  accountOptions,
   checklist,
   type ChecklistItem,
   checkpointerAvailable,
   checkpointerOn,
+  effortOptions,
   effortsFor,
   formField,
+  freshFromLists,
   type HarnessChange,
   inboxKey,
-  initialForm,
   kindOf,
   knownFolders,
+  liveCatalog,
+  missingPicks,
+  newForm,
   OTHER,
+  pickSummary,
   preview,
+  previousPicks,
   projectLabel,
+  RECOMMENDED_SETUP,
+  roleKind,
   type RouteForm,
   setHarness,
+  setRecommended,
   setRole,
+  SETUP_QUESTIONS,
   skillWarnings,
   stepNote,
   toRequest,
   update,
+  usePrevious,
   validate,
 } from "../new-route.ts";
-import type { Catalog, InboxState, RouteRequest, RouteResult, RouteStep, State } from "../types.ts";
+import type { Catalog, GitHubAccess, InboxState, RouteRequest, RouteResult, RouteStep, State } from "../types.ts";
 import { element } from "./element-view.ts";
 
 export interface Deps {
@@ -55,6 +67,8 @@ export interface Deps {
   every(ms: number, fn: () => void): () => void;
   /** Delays fn by ms; returns a cancel function. */
   later(ms: number, fn: () => void): () => void;
+  /** Probes the gh accounts that can read a folder's repository (A32); absent offers none. */
+  github?(folder: string): Promise<GitHubAccess>;
 }
 
 /** How often an open adjutant checklist rereads its inbox, so human steps show as they happen. */
@@ -104,6 +118,7 @@ const TextInput = html`<input
   placeholder=${attr<string | null>()}
   list=${attr<string | null>()}
   inputmode=${attr<"numeric" | null>()}
+  maxlength=${attr<string | null>()}
   autocomplete="off"
   .value=${prop<HTMLInputElement, "value">()}
   oninput=${on<"input", HTMLInputElement>()}
@@ -115,6 +130,7 @@ interface InputOpts {
   placeholder?: string;
   list?: string;
   inputmode?: "numeric";
+  maxlength?: number;
 }
 
 function textInput(
@@ -124,7 +140,17 @@ function textInput(
   oninput: (this: HTMLInputElement) => void,
   o: InputOpts = {},
 ): InputNode {
-  return TextInput([id, name, o.cls ?? "", o.placeholder ?? null, o.list ?? null, o.inputmode ?? null, value, oninput]);
+  return TextInput([
+    id,
+    name,
+    o.cls ?? "",
+    o.placeholder ?? null,
+    o.list ?? null,
+    o.inputmode ?? null,
+    o.maxlength === undefined ? null : String(o.maxlength),
+    value,
+    oninput,
+  ]);
 }
 
 const Request = html`<textarea
@@ -154,12 +180,16 @@ const CopyButton = html`<button
 </button>`;
 const Inbox = html`<span class="nr-inbox">${child<InputNode>()}${child<ViewNodeOf<typeof CopyButton>>()}</span>`;
 
-const Offline = html`<span class="nr-chip" title="The harness could not be asked; this is the last-known list."
-  >offline list</span
->`;
+const Offline = html`<span class="nr-chip" title=${attr()}>models unavailable</span>`;
+const DocsLink = html`<a href=${attr()} target="_blank" rel="noopener" title=${attr()}>Model docs</a>`;
+const DocsCommand = html`<small class="muted" data-docs=${attr()}>Model details: ${text()}</small>`;
 const ModelRow = html`<div class="nr-row">
-  ${child<SelectNode | InputNode>()}${child<ViewNodeOf<typeof Offline> | null>()}
+  ${child<SelectNode | InputNode>()}${child<ViewNodeOf<typeof Offline> | null>()}${child<
+    ViewNodeOf<typeof DocsLink> | ViewNodeOf<typeof DocsCommand> | null
+  >()}
 </div>`;
+// A field whose control is a line of text: the GitHub probe's state.
+const Said = html`<span>${text()}</span>`;
 
 type Control =
   | SelectNode
@@ -167,7 +197,8 @@ type Control =
   | ViewNodeOf<typeof Request>
   | ViewNodeOf<typeof Folder>
   | ViewNodeOf<typeof Inbox>
-  | ViewNodeOf<typeof ModelRow>;
+  | ViewNodeOf<typeof ModelRow>
+  | ViewNodeOf<typeof Said>;
 
 // ---------------------------------------------------------------------------
 // Fields
@@ -200,11 +231,25 @@ const CkBox = html`<div class=${cls()} data-field="checkpointer">
       disabled=${attr<boolean>()}
       .checked=${prop<HTMLInputElement, "checked">()}
       onchange=${on<"change", HTMLInputElement>()}
-    /><span>Checkpointer</span><small>${text()}</small></label
+    /><span>Checkpointer (Recommended)</span><small>${text()}</small></label
   >${child<ViewNodeOf<typeof CkRow> | null>()}${child<ListNode<ErrorNode, string>>()}
 </div>`;
 
-type GridNode = FieldNode | ViewNodeOf<typeof Sub> | ViewNodeOf<typeof CkBox>;
+// A30: the last picks of this route's roles, offered before the picking questions.
+const ChooseLists = html`<button type="button" class="chip-btn" name="choose-lists" onclick=${on<"click">()}>
+  Choose again
+</button>`;
+const Previous = html`<div class="nr-previous">
+  <span>${text()}</span>${child<ViewNodeOf<typeof ChooseLists> | null>()}<button
+    type="button"
+    class="chip-btn"
+    onclick=${on<"click">()}
+  >
+    Use previous choice
+  </button>
+</div>`;
+
+type GridNode = FieldNode | ViewNodeOf<typeof Sub> | ViewNodeOf<typeof CkBox> | ViewNodeOf<typeof Previous>;
 
 // ---------------------------------------------------------------------------
 // The channel checklist
@@ -254,11 +299,30 @@ const RoleButton = html`<button
   ${text()}
 </button>`;
 const Warning = html`<p class="nr-warn" role="note">${text()}</p>`;
+// A32: the recommended setup's switch, then its summary, or the role and
+// every setup item when it is off.
+const SummaryTerm = html`<dt>${text()}</dt>`;
+const SummaryItem = html`<dd data-item=${attr()}>${text()}</dd>`;
+const Summary = html`<dl class="nr-summary" data-field="recommended-summary">
+  ${child<ListNode<ViewNodeOf<typeof SummaryTerm> | ViewNodeOf<typeof SummaryItem>, string>>()}
+</dl>`;
+const Custom = html`<div>
+  <div class="nr-role" role="radiogroup" aria-label="Role">
+    ${child<ListNode<ViewNodeOf<typeof RoleButton>, RouteForm["role"]>>()}
+  </div>
+  <div class="nr-grid nr-custom" data-field="custom-setup">${child<ListNode<FieldNode, string>>()}</div>
+</div>`;
 const FormBody = html`<div class="nr-body">
   <fieldset class="nr-fields" disabled=${attr<boolean>()}>
-    <div class="nr-role" role="radiogroup" aria-label="Role">
-      ${child<ListNode<ViewNodeOf<typeof RoleButton>, RouteForm["role"]>>()}
-    </div>
+    <label class="nr-toggle nr-recommended"
+      ><input
+        type="checkbox"
+        name="recommended"
+        .checked=${prop<HTMLInputElement, "checked">()}
+        onchange=${on<"change", HTMLInputElement>()}
+      /><span>Recommended setup</span
+      ><small>Fills the usual choices below so only the tasks and each role's model are left to pick.</small></label
+    >${child<ViewNodeOf<typeof Summary> | ViewNodeOf<typeof Custom>>()}
     <div class="nr-grid">${child<ListNode<GridNode, string>>()}</div>
   </fieldset>
   ${child<ListNode<ViewNodeOf<typeof Warning>, string>>()}
@@ -270,7 +334,9 @@ const FormBody = html`<div class="nr-body">
 </div>`;
 const FormActions = html`<div class="dialog-actions nr-actions">
   <button value="cancel" class="btn ghost" formnovalidate>Cancel</button>
-  <button type="submit" class="btn primary" disabled=${attr<boolean>()} name="start">${text()}</button>
+  <button type="submit" class="btn primary" disabled=${attr<boolean>()} title=${attr<string | null>()} name="start">
+    ${text()}
+  </button>
 </div>`;
 
 const Step = html`<li class=${cls()}>
@@ -322,13 +388,27 @@ type TextKey = "folder" | "name" | "orchName" | "routeName" | "inbox" | "minutes
  */
 export function routeForm(
   body: HTMLElement,
-  c: Catalog,
+  initial: Catalog,
   st: State | null,
   deps: Deps,
-): { el: HTMLFormElement; stop(): void; form(): RouteForm } {
-  let f: RouteForm = initialForm(c, st);
+  opts: { usePrevious?: boolean; recommended?: boolean; needLists?: (() => void) | undefined } = {},
+): { el: HTMLFormElement; stop(): void; form(): RouteForm; sent(): boolean; setCatalog(next: Catalog): void } {
+  let c = initial;
+  let f: RouteForm = newForm(c, st);
+  // The answer to "Use the recommended setup?" (A32), asked before the form.
+  if (opts.recommended === false) f = setRecommended(f, c, false);
   let errors: Record<string, string> = {};
+  // "Yes" to the previous choice (A30): the saved picks fill the roles at
+  // once; a role without a usable pick is asked again, by name.
+  if (opts.usePrevious) {
+    f = usePrevious(f, c);
+    errors = missingPicks(f, c);
+  }
   let busy = false;
+  // A32: the GitHub probe's answer, the folder it was asked for, and whether it is on its way.
+  let gh: GitHubAccess | null = null;
+  let ghFolder = "";
+  let ghPending = false;
   // The form as it was sent: the result, checklist and inbox reads describe
   // this route, whatever the fields show later.
   let submitted: RouteForm | null = null;
@@ -341,6 +421,7 @@ export function routeForm(
   const id = `nr${++uid}`;
 
   const readInbox = (): void => {
+    probeGitHub();
     const r = active();
     if (r.role !== "adjutant") return;
     const key = inboxKey(r);
@@ -365,6 +446,7 @@ export function routeForm(
     const before = inboxKey(f);
     f = update(f, change);
     for (const k of Object.keys(change)) delete errors[k];
+    if (change.folder !== undefined) probeGitHub();
     draw();
     if (inboxKey(f) !== before) {
       cancelDebounce();
@@ -415,9 +497,9 @@ export function routeForm(
     name: string,
     label: string,
     control: Control,
-    hint: ViewNodeOf<typeof Hint> | ViewNodeOf<typeof TabsHint> | null = null,
+    hint: string | ViewNodeOf<typeof TabsHint> | null = null,
     wide = false,
-  ): { key: string; node: GridNode } => ({
+  ): { key: string; node: FieldNode } => ({
     key: name,
     node: Field([
       `field${wide ? " wide" : ""}${errors[name] ? " invalid" : ""}`,
@@ -425,7 +507,7 @@ export function routeForm(
       `${id}-${name}`,
       label,
       control,
-      hint,
+      typeof hint === "string" ? Hint([hint]) : hint,
       errorLine(name),
     ]),
   });
@@ -442,31 +524,51 @@ export function routeForm(
     who: string,
   ): { key: string; node: GridNode }[] => {
     const hn = f[which];
-    const k = kindOf(c, hn.kind);
+    // A role keeps its own saved pick (A30, per role); it is offered with
+    // the live lists, and choosing from them makes the role fresh.
+    const live = liveCatalog(c).kinds;
+    const k = roleKind(f, c, which);
+    const kinds: [string, string][] = live.map((x) => [x.kind, x.label]);
+    if (k && !live.some((x) => x.kind === k.kind)) kinds.unshift([k.kind, k.label]);
     let model: SelectNode | InputNode;
     if (!k || k.free_model) {
       model = textInput(`${id}-${which}-model`, `${which}-model`, hn.model, harnessTyped(which, "model"), {
         placeholder: "model id (optional)",
       });
     } else {
-      const opts: [string, string][] = k.models.map((m) => [m.id, m.label === m.id ? m.id : `${m.label} (${m.id})`]);
+      const listed = [...k.models, ...(k.saved ? (kindOf(liveCatalog(c), k.kind)?.models ?? []) : [])];
+      const opts: [string, string][] = listed
+        .filter((m, i) => listed.findIndex((x) => x.id === m.id) === i)
+        .map((m) => [m.id, m.label === m.id ? m.id : `${m.label} (${m.id})`]);
       if (k.other_model) opts.push([OTHER, "Other model id…"]);
       model = selectBox(`${which}-model`, `${id}-${which}-model`, hn.model, opts, harnessSelect(which, "model"));
     }
     const efforts = effortsFor(k, hn.model);
+    const offline = k?.offline
+      ? Offline([
+          `${k.unavailable ?? "The harness could not be asked"}: it offers no models and starts with its own default.`,
+        ])
+      : null;
+    // A docs page is a link only when it is a web address.
+    const docs =
+      k?.docs_url && /^https?:\/\//.test(k.docs_url)
+        ? DocsLink([k.docs_url, `${k.label}'s own page of its models`])
+        : k?.docs_command
+          ? DocsCommand([which, k.docs_command])
+          : null;
     const out = [
       field(
         which,
         `${who} harness`,
-        selectBox(
-          `${which}-kind`,
-          `${id}-${which}`,
-          hn.kind,
-          c.kinds.map((x) => [x.kind, x.label]),
-          harnessSelect(which, "kind"),
-        ),
+        selectBox(`${which}-kind`, `${id}-${which}`, hn.kind, kinds, harnessSelect(which, "kind")),
+        "The coding agent program this role runs in.",
       ),
-      field(`${which}-model`, "Model", ModelRow([model, k?.offline ? Offline([]) : null])),
+      field(
+        `${which}-model`,
+        "Model",
+        ModelRow([model, offline, docs]),
+        "The models this harness lists now, newest first; its docs say which suits coding and review.",
+      ),
     ];
     if (hn.model === OTHER)
       out.push(
@@ -474,7 +576,7 @@ export function routeForm(
           `${which}-other`,
           "Model id",
           textInput(`${id}-${which}-other`, `${which}-other`, hn.other, harnessTyped(which, "other"), {
-            placeholder: "claude-opus-4-1",
+            placeholder: "a model from the harness's list",
           }),
         ),
       );
@@ -487,14 +589,128 @@ export function routeForm(
             `${which}-effort`,
             `${id}-${which}-effort`,
             hn.effort,
-            efforts.map((e) => [e, e]),
+            effortOptions(k, hn.model),
             harnessSelect(which, "effort"),
           ),
+          "How long the model thinks before it answers: more is slower and costs more.",
         ),
       );
-    out.push(field(nameField, `${who} name`, input(nameField)));
+    out.push(
+      field(nameField, `${who} name`, input(nameField), "The agent's name in Herdr, used in its tab and its messages."),
+    );
     return out;
   };
+
+  // A32: the gh accounts that can read the folder's repository; the probed
+  // one fills the confirmation until the user picks another.
+  // The probe and the confirmed account belong to one folder: a new folder
+  // clears both, and Start waits until the new probe answers and, when it
+  // lists accounts, until the user picks one.
+  function probeGitHub(): void {
+    const folder = f.folder.trim();
+    if (!deps.github || folder === ghFolder) return;
+    ghFolder = folder;
+    gh = null;
+    f = { ...f, ghAccount: "" };
+    if (!folder.startsWith("/")) {
+      ghPending = false;
+      return;
+    }
+    ghPending = true;
+    deps.github(folder).then(
+      (g) => {
+        if (ghFolder !== folder) return;
+        gh = g;
+        ghPending = false;
+        draw();
+      },
+      () => {
+        if (ghFolder !== folder) return;
+        ghPending = false;
+        draw();
+      },
+    );
+  }
+  /** Why Start must wait for the GitHub account, or "". */
+  const ghBlocks = (): string => {
+    if (!deps.github) return "";
+    if (ghPending) return "Checking which GitHub account can read this repository…";
+    if (gh && accountOptions(gh).length && !f.ghAccount) return "Confirm the GitHub account.";
+    return "";
+  };
+  const githubField = (): { key: string; node: GridNode } | null => {
+    if (ghPending) return field("ghAccount", "GitHub account", Said(["Checking…"]), null, true);
+    if (!gh) return null;
+    const accounts = accountOptions(gh);
+    if (!accounts.length)
+      return field(
+        "ghAccount",
+        "GitHub account",
+        Said([gh.error ?? `No gh account can read ${gh.repo}.`]),
+        "Log in with gh auth login, then reopen this form.",
+        true,
+      );
+    return field(
+      "ghAccount",
+      "GitHub account",
+      selectBox("ghAccount", `${id}-ghAccount`, f.ghAccount, [["", "Confirm an account…"], ...accounts], function () {
+        if (busy) {
+          this.value = f.ghAccount;
+          return;
+        }
+        set({ ghAccount: this.value });
+      }),
+      `The account the route pushes and opens pull requests with; it can read ${gh.repo}.`,
+    );
+  };
+
+  // A30: the last picks of this route's roles, offered before the picking questions.
+  const previousRow = (): { key: string; node: GridNode } | null => {
+    const picks = previousPicks(f, c);
+    if (!picks.length) return null;
+    // A form from the saved picks alone offers only them until the lists
+    // are read: "Choose again" reads them, and the choices update in place.
+    const again = c.from_picks && opts.needLists ? ChooseLists([() => opts.needLists?.()]) : null;
+    return {
+      key: "previous",
+      node: Previous([
+        `Previous choice: ${picks.map(pickSummary).join("; ")}`,
+        again,
+        () => {
+          if (busy) return;
+          f = usePrevious(f, c);
+          delete errors["main"];
+          delete errors["orch"];
+          errors = { ...errors, ...missingPicks(f, c) };
+          draw();
+        },
+      ]),
+    };
+  };
+
+  // A32: the custom path asks every setup item; an empty answer lets the route ask.
+  const customFields = (): { key: string; node: FieldNode }[] =>
+    SETUP_QUESTIONS.map(([item, recommended]) =>
+      field(
+        `custom-${item}`,
+        item,
+        textInput(
+          `${id}-custom-${item}`,
+          `custom-${item}`,
+          f.custom[item] ?? "",
+          function () {
+            if (busy) {
+              this.value = f.custom[item] ?? "";
+              return;
+            }
+            set({ custom: { ...f.custom, [item]: this.value } });
+          },
+          { placeholder: recommended, maxlength: 400 },
+        ),
+        "Empty: the route asks you.",
+        true,
+      ),
+    );
 
   const checklistView = (): ChecklistNode => {
     const r = active();
@@ -561,8 +777,58 @@ export function routeForm(
 
   const roles = [
     { r: "orchestrator", label: "Orchestrator" },
-    { r: "adjutant", label: "Adjutant" },
+    { r: "adjutant", label: "Adjutant (Recommended)" },
   ] as const;
+
+  // The recommended setup's summary: the effective settings, so the
+  // checkpointer reads Off when the route will start none.
+  const summary = (): ViewNodeOf<typeof Summary> => {
+    const ckOn = checkpointerOn(f, c);
+    return Summary([
+      list(
+        RECOMMENDED_SETUP.flatMap(([k, v]) => [
+          { key: `dt|${k}`, k, v: null },
+          {
+            key: `dd|${k}`,
+            k,
+            v:
+              k === "Checkpointer" && !ckOn
+                ? `Off: ${c.checkpointer_why || "the checkpointer is not available here"}`
+                : v,
+          },
+        ]),
+        (x) => x.key,
+        (x) => (x.v === null ? SummaryTerm([x.k]) : SummaryItem([x.k, x.v])),
+      ),
+    ]);
+  };
+
+  const custom = (): ViewNodeOf<typeof Custom> =>
+    Custom([
+      list(
+        roles,
+        (x) => x.r,
+        (x) =>
+          RoleButton([
+            `role-${x.r}`,
+            f.role === x.r ? "true" : "false",
+            f.role === x.r ? "active" : "",
+            () => {
+              f = setRole(f, x.r, c);
+              // A role without a saved pick needs the lists the form lacks.
+              if (c.from_picks && Object.keys(missingPicks(f, c)).length) opts.needLists?.();
+              draw();
+              readInbox();
+            },
+            x.label,
+          ]),
+      ),
+      list(
+        customFields(),
+        (g) => g.key,
+        (g) => g.node,
+      ),
+    ]);
 
   const formScreen = (): RouteFormNode => {
     const ws = st?.snapshot.workspaces ?? [];
@@ -584,6 +850,7 @@ export function routeForm(
             set({ workspace: this.value });
           },
         ),
+        "The Herdr workspace the route's tabs open in.",
       ),
       field(
         "folder",
@@ -605,13 +872,17 @@ export function routeForm(
         true,
       ),
     ];
+    const account = githubField();
+    if (account) grid.push(account);
+    const previous = previousRow();
+    if (previous) grid.push(previous);
     if (f.role === "adjutant") {
       grid.push(
         { key: "sub-adjutant", node: Sub(["Adjutant"]) },
         ...harnessFields("main", "name", "Adjutant"),
         { key: "sub-orchestrator", node: Sub(["Orchestrator"]) },
         ...harnessFields("orch", "orchName", "Orchestrator"),
-        field("routeName", "Route name", input("routeName")),
+        field("routeName", "Route name", input("routeName"), "Names the route's folder and its inbox."),
         field(
           "inbox",
           "Private inbox",
@@ -624,7 +895,7 @@ export function routeForm(
               icon(icons.copy),
             ]),
           ]),
-          Hint(["One inbox per route. The app never creates or writes it."]),
+          "One inbox per route. The app never creates or writes it.",
           true,
         ),
       );
@@ -644,32 +915,28 @@ export function routeForm(
             set({ request: this.value });
           },
         ]),
-        null,
+        "The tasks, in your words; the orchestrator plans them and asks before it starts anything.",
         true,
       ),
-      ckBox(),
     );
+    if (!f.recommended) grid.push(ckBox());
+    const blocks = ghBlocks();
     return Root([
       submit,
       Head(["New route", true, icon(icons.close)]),
       FormBody([
         busy,
-        list(
-          roles,
-          (x) => x.r,
-          (x) =>
-            RoleButton([
-              `role-${x.r}`,
-              f.role === x.r ? "true" : "false",
-              f.role === x.r ? "active" : "",
-              () => {
-                f = setRole(f, x.r);
-                draw();
-                readInbox();
-              },
-              x.label,
-            ]),
-        ),
+        f.recommended,
+        function () {
+          if (busy) {
+            this.checked = f.recommended;
+            return;
+          }
+          f = setRecommended(f, c, this.checked);
+          draw();
+          readInbox();
+        },
+        f.recommended ? summary() : custom(),
         list(
           grid,
           (g) => g.key,
@@ -683,7 +950,7 @@ export function routeForm(
         preview(f, c).command,
         checklistView(),
       ]),
-      FormActions([busy, busy ? "Starting…" : "Start route"]),
+      FormActions([busy || blocks !== "", blocks || null, busy ? "Starting…" : "Start route"]),
     ]);
   };
 
@@ -755,6 +1022,7 @@ export function routeForm(
     if (v === "cancel" || v === "ok") return;
     e.preventDefault();
     if (busy) return;
+    if (ghBlocks()) return draw();
     errors = validate(f, c, deps.state());
     if (Object.keys(errors).length) {
       draw();
@@ -785,6 +1053,7 @@ export function routeForm(
     );
   }
 
+  probeGitHub();
   const el = element("form", formScreen());
   body.parentNode?.replaceChild(el, body);
   el.querySelector?.<HTMLElement>(f.folder ? "textarea" : "input[name=folder]")?.focus();
@@ -796,5 +1065,16 @@ export function routeForm(
       cancelDebounce();
     },
     form: () => f,
+    sent: () => busy || submitted !== null,
+    // The probed lists arrived: the choices and questions change in place;
+    // the draft (task, folder, names, account) stays.
+    setCatalog: (next: Catalog) => {
+      c = { ...next, previous: next.previous ?? c.previous ?? [] };
+      f = freshFromLists(f, c);
+      delete errors["main"];
+      delete errors["orch"];
+      errors = { ...errors, ...missingPicks(f, c) };
+      draw();
+    },
   };
 }

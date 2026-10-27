@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +18,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/arafathusayn/herdsman/internal/choices"
+	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
@@ -74,6 +77,9 @@ type RouteRequest struct {
 	OrchEffort string `json:"orch_effort,omitempty"`
 	RouteName  string `json:"route_name,omitempty"`
 	Inbox      string `json:"inbox,omitempty"`
+	// Setup is the chosen setup (A32), sent to the orchestrator after the
+	// request; nil from older clients.
+	Setup *RouteSetup `json:"setup,omitempty"`
 }
 
 // RouteStep is one herdr call of the job and how it went.
@@ -192,7 +198,7 @@ type routePlan struct {
 
 // planRoute checks a request against the snapshot and the catalog and
 // builds every value the herdr calls carry. It makes no herdr call.
-func planRoute(req RouteRequest, st State, cat Catalog, home, skillDir string) (*routePlan, error) {
+func planRoute(req RouteRequest, st State, cats roleCatalogs, home, skillDir string) (*routePlan, error) {
 	p := &routePlan{req: req}
 	if req.Role != "orchestrator" && req.Role != "adjutant" {
 		return nil, refuse("role", "role must be orchestrator or adjutant")
@@ -215,6 +221,11 @@ func planRoute(req RouteRequest, st State, cat Catalog, home, skillDir string) (
 	if err := checkRequestText(req.Request); err != nil {
 		return nil, err
 	}
+	if req.Setup != nil {
+		if err := req.Setup.check(); err != nil {
+			return nil, refuse("setup", "setup: %s", err)
+		}
+	}
 	live := map[string]bool{}
 	for _, a := range st.Snapshot.Agents {
 		if a.Name != nil {
@@ -236,7 +247,7 @@ func planRoute(req RouteRequest, st State, cat Catalog, home, skillDir string) (
 		if err := checkName("name", req.Name); err != nil {
 			return nil, err
 		}
-		adjArgs, err := launchArgs(cat.kind(req.Kind), req.Model, req.Effort)
+		adjArgs, err := launchArgs(cats.main.kind(req.Kind), req.Model, req.Effort)
 		if err != nil {
 			return nil, refuse("model", "%s", err)
 		}
@@ -263,7 +274,7 @@ func planRoute(req RouteRequest, st State, cat Catalog, home, skillDir string) (
 	if err := checkName(nameField, coord.name); err != nil {
 		return nil, err
 	}
-	ck := cat.kind(coord.kind)
+	ck := cats.orch.kind(coord.kind)
 	args, err := launchArgs(ck, model, effort)
 	if err != nil {
 		f := "model"
@@ -278,12 +289,19 @@ func planRoute(req RouteRequest, st State, cat Catalog, home, skillDir string) (
 	prefix := ck.SkillPrefix + "herdsman"
 	if req.Role == "adjutant" {
 		p.prompt = prefix + " orchestrator --adjutant " + req.Name + " --name " + coord.name + " --inbox " + p.req.Inbox
-		p.attach = cat.kind(req.Kind).SkillPrefix + "herdsman adjutant --name " + req.Name + " --orchestrator <orchestrator pane> --inbox " + p.req.Inbox
+		p.attach = cats.main.kind(req.Kind).SkillPrefix + "herdsman adjutant --name " + req.Name + " --orchestrator <orchestrator pane> --inbox " + p.req.Inbox
 	} else {
 		p.prompt = prefix + " run"
 	}
-	if req.Request != "" {
-		p.prompt += " " + quoteArg(req.Request)
+	text := req.Request
+	if req.Setup != nil {
+		if text != "" {
+			text += "\n\n"
+		}
+		text += req.Setup.text(req, req.Checkpointer.On)
+	}
+	if text != "" {
+		p.prompt += " " + quoteArg(text)
 	}
 
 	c := req.Checkpointer
@@ -458,7 +476,8 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	home, _ := os.UserHomeDir()
-	p, err := planRoute(req, s.hub.Current(), s.catalog.get(r.Context()), home, s.cfg.SkillDir)
+	cats := s.planCatalogs(r, req)
+	p, err := planRoute(req, s.hub.Current(), cats, home, s.cfg.SkillDir)
 	if err != nil {
 		re, _ := errors.AsType[*routeError](err)
 		field := ""
@@ -469,9 +488,14 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The result travels in the job's completion message: once the browser
-	// leaves, the handler never reads what the queue's worker writes.
+	// leaves, the handler never reads what the queue's worker writes. The job
+	// saves the picks of a started route itself, so they do not depend on the
+	// browser waiting.
 	done := s.queue.DoJob(r.Context(), func(ctx context.Context) Result {
 		res := s.queue.runRoute(ctx, p)
+		if res.OK {
+			s.savePicks(req, cats)
+		}
 		raw, err := json.Marshal(res)
 		if err != nil {
 			return Result{Code: "internal_error", Error: err.Error()}
@@ -628,4 +652,58 @@ func (q *Queue) recheckNames(ctx context.Context, p *routePlan) error {
 		}
 	}
 	return nil
+}
+
+// savePicks records the harness, model and effort a started route launched
+// each role with (A30); the web app starts every agent in a Herdr pane. A store that cannot be written loses the picks,
+// never the route.
+func (s *Server) savePicks(req RouteRequest, cats roleCatalogs) {
+	if s.cfg.Choices == nil {
+		return
+	}
+	at := s.now().UTC().Truncate(time.Second)
+	picks := []choices.Pick{{Role: req.Role, Runner: "herdr", Harness: req.Kind, Model: req.Model, Effort: req.Effort, Route: req.RouteName, At: at}}
+	if req.Role == "adjutant" {
+		picks = append(picks, choices.Pick{Role: "orchestrator", Runner: "herdr", Harness: req.OrchKind, Model: req.OrchModel, Effort: req.OrchEffort, Route: req.RouteName, At: at})
+	}
+	// The effort option of a harness other than Claude and Codex goes with
+	// its pick, so the pick can start again without a probe.
+	for i := range picks {
+		cat := cats.orch
+		if picks[i].Role == "adjutant" {
+			cat = cats.main
+		}
+		if k := cat.kind(picks[i].Harness); k != nil && picks[i].Effort != "" {
+			picks[i].EffortFlag = k.EffortFlag
+		}
+	}
+	if err := s.cfg.Choices.Save(picks...); err != nil {
+		log.Printf("herdsman web: the route's picks were not saved: %v", err)
+	}
+}
+
+// githubAccess serves GET /api/routes/github?folder=<absolute folder>: the
+// repository of the folder's origin remote and the gh accounts that can
+// read it, with the one to confirm (A32).
+func (s *Server) githubAccess(w http.ResponseWriter, r *http.Request) {
+	dir := r.URL.Query().Get("folder")
+	if s.cfg.GitHub == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no GitHub probe"})
+		return
+	}
+	if st, err := os.Stat(dir); !filepath.IsAbs(dir) || err != nil || !st.IsDir() {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "folder must be an absolute folder"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	g, err := s.cfg.GitHub(ctx, dir)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"repo": g.Repo, "accounts": []doctor.Account{}, "suggested": "", "error": err.Error()})
+		return
+	}
+	if g.Accounts == nil {
+		g.Accounts = []doctor.Account{}
+	}
+	writeJSON(w, http.StatusOK, g)
 }

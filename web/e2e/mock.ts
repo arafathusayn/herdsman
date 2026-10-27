@@ -98,6 +98,10 @@ export interface Mock {
   mode: "paired" | "pairing";
   /** Whether GET /api/catalog answers (else 404, and the New route dialog shows its failure). */
   catalog: boolean;
+  /** The saved picks GET /api/choices answers (A30), and the catalog carries as its previous choice. */
+  picks: { role: string; runner: string; harness: string; model: string; effort: string; route: string; at: string }[];
+  /** How many times the app said the user is here (POST /api/activity, A33). */
+  activity: number;
   /** Changes an agent's status and pushes the new state to every open stream. */
   setStatus(pane: string, status: Status): void;
   /** Pushes one activity event to every open stream. */
@@ -150,6 +154,8 @@ export function startMock(dist: string): Mock {
           { done: false, id: "A3", text: "logout" },
         ],
         run_state: [{ time: "10:00", text: "started" }],
+        // The route view holds the newest line; three older ones are paged (A24).
+        older_run_state: 3,
       }),
       route("old", false),
     ],
@@ -174,6 +180,8 @@ export function startMock(dist: string): Mock {
     other: "",
     mode: "paired",
     catalog: false,
+    picks: [],
+    activity: 0,
     setStatus(p, status) {
       statuses[p] = status;
       send("state", state());
@@ -212,7 +220,35 @@ export function startMock(dist: string): Mock {
     if (p === "/api/pair") return Response.json({ status: mock.mode });
     if (p === "/api/session" && req.method === "POST") return Response.json({ status: "paired" });
     if (p === "/api/messages") return Response.json({ configured: false, messages: [] });
-    if (p === "/api/catalog") return mock.catalog ? Response.json(catalog) : new Response("{}", { status: 404 });
+    if (p === "/api/catalog") {
+      if (!mock.catalog) return new Response("{}", { status: 404 });
+      // ?probe=0: the saved picks alone, no harness list read.
+      if (url.searchParams.get("probe") === "0")
+        return Response.json({ ...catalog, kinds: [], from_picks: true, previous: mock.picks });
+      return Response.json({ ...catalog, previous: mock.picks });
+    }
+    if (p === "/api/choices") return Response.json({ picks: mock.picks });
+    if (p === "/api/routes/github")
+      return Response.json({
+        repo: "o/r",
+        accounts: [
+          { name: "user-a", active: true, can_read: true },
+          { name: "user-b", active: false, can_read: true },
+        ],
+        suggested: "user-a",
+      });
+    if (p === "/api/activity" && req.method === "POST") {
+      mock.activity++;
+      return new Response(null, { status: 204 });
+    }
+    // The run-state lines before `before`: "older 0" to "older 2".
+    if (p === "/api/route/runstate") {
+      const before = Number(url.searchParams.get("before") ?? 0);
+      return Response.json({
+        lines: Array.from({ length: before }, (_, i) => ({ time: `09:0${i}`, text: `older ${i}` })),
+        older: 0,
+      });
+    }
     if (p === "/api/routes/inbox")
       return Response.json({
         path: url.searchParams.get("path") ?? "",

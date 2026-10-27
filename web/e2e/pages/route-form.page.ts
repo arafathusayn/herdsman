@@ -1,7 +1,7 @@
 // The New route form on its own: roles and harness choices change the
 // fields, refusals show by their fields, a sent form locks, the result
 // screen lists the steps, and typing keeps focus and caret.
-import type { RouteResult } from "../../src/types.ts";
+import type { Catalog, GitHubAccess, RouteResult } from "../../src/types.ts";
 import type { Deps } from "../../src/views/route-form.ts";
 import { routeForm } from "../../src/views/route-form.ts";
 import { check, equal, flush, pick, q, run, typeIn } from "./lib.ts";
@@ -73,7 +73,14 @@ interface Run {
 }
 
 /** A form in a fresh container, with answers the run controls. */
-function start(): Run {
+function start(
+  o: {
+    custom?: boolean;
+    c?: Catalog;
+    opts?: Parameters<typeof routeForm>[4];
+    github?: (folder: string) => Promise<GitHubAccess>;
+  } = {},
+): Run {
   for (const old of document.querySelectorAll(".form-box")) old.remove();
   localStorage.clear(); // the form remembers the last choices
   const box = document.createElement("div");
@@ -97,10 +104,19 @@ function start(): Run {
     failed: () => {},
     every: () => () => {},
     later: () => () => {},
+    ...(o.github ? { github: o.github } : {}),
   };
-  routeForm(body, catalog, state, deps);
+  routeForm(body, o.c ?? catalog, state, deps, o.opts);
+  const root = () => q<HTMLFormElement>(box, "form");
+  // Most checks drive every field: they start with the recommended setup
+  // off and the orchestrator role, as the custom path does.
+  if (o.custom ?? true) {
+    const rec = q<HTMLInputElement>(root(), "[name=recommended]");
+    if (rec.checked) rec.click();
+    q(root(), "[name=role-orchestrator]").click();
+  }
   return {
-    root: () => q<HTMLFormElement>(box, "form"),
+    root,
     reads,
     finish: (r) => finish(r),
     sent,
@@ -242,5 +258,120 @@ await run(async () => {
   check(
     "typing keeps focus and caret",
     document.activeElement === req && req.selectionStart === 2 && field(r, "request") === (req as unknown),
+  );
+
+  // A32: the recommended setup is on at first: one summary in place of the
+  // role and the checkpointer; turned off, the role and every setup item
+  // show.
+  r = start({ custom: false });
+  check("the recommended switch is on", field<HTMLInputElement>(r, "recommended").checked);
+  const summary = q(r.root(), '[data-field="recommended-summary"]');
+  check("its summary shows", summary.checkVisibility() && summary.querySelectorAll("dt").length > 0);
+  equal(
+    "the summary names the checkpointer as on",
+    (summary.querySelector('[data-item="Checkpointer"]')?.textContent ?? "").startsWith("Off"),
+    false,
+  );
+  check("no role or checkpointer while it is on", !has(r, "role-adjutant") && !has(r, "checkpointer"));
+  check("Start is open", !field<HTMLButtonElement>(r, "start").disabled);
+  field(r, "recommended").click();
+  check("off: the role and the checkpointer show", has(r, "role-adjutant") && has(r, "checkpointer"));
+  check("off: the summary is gone", r.root().querySelector('[data-field="recommended-summary"]') === null);
+  const integration = field<HTMLInputElement>(r, "custom-Integration");
+  check("off: each setup item is asked", integration.checkVisibility() && integration.maxLength === 400);
+  // Typing an answer keeps the field, its focus and its caret.
+  integration.focus();
+  integration.value = "one branch";
+  integration.setSelectionRange(3, 3);
+  integration.dispatchEvent(new Event("input", { bubbles: true }));
+  check(
+    "typing a setup answer keeps focus and caret",
+    document.activeElement === integration &&
+      integration.selectionStart === 3 &&
+      field(r, "custom-Integration") === integration,
+  );
+  typeIn(field(r, "folder"), "/r/repo");
+  submit(r);
+  const setup = (r.sent[0] as { setup?: { recommended: boolean; answers: { item: string; answer: string }[] } })?.setup;
+  equal("the answer is sent", setup?.answers.find((a) => a.item === "Integration")?.answer, "one branch");
+  equal("the setup is the custom one", setup?.recommended, false);
+
+  // A32: Start waits for the GitHub probe and for a confirmed account; a
+  // new folder starts over.
+  let answer: (g: GitHubAccess) => void = () => {};
+  const asked: string[] = [];
+  r = start({
+    custom: false,
+    github: (folder) => {
+      asked.push(folder);
+      return new Promise((res) => (answer = res));
+    },
+  });
+  equal("the folder is probed", asked, ["/r/repo"]);
+  check("Start waits for the probe", field<HTMLButtonElement>(r, "start").disabled);
+  equal(
+    "Start says why",
+    field<HTMLButtonElement>(r, "start").title,
+    "Checking which GitHub account can read this repository…",
+  );
+  answer({
+    repo: "o/r",
+    accounts: [
+      { name: "user-a", active: true, can_read: true },
+      { name: "user-b", active: false, can_read: true },
+    ],
+    suggested: "user-a",
+  });
+  await flush();
+  const account = field<HTMLSelectElement>(r, "ghAccount");
+  equal("the accounts", options(account), ["", "user-a", "user-b"]);
+  equal("none is chosen for the user", account.value, "");
+  check("Start waits for the pick", field<HTMLButtonElement>(r, "start").disabled);
+  pick(account, "user-b");
+  check("a picked account opens Start", !field<HTMLButtonElement>(r, "start").disabled);
+  equal("Start has no reason left", field<HTMLButtonElement>(r, "start").title, "");
+  typeIn(field(r, "folder"), "/r/two");
+  equal("a new folder is probed", asked, ["/r/repo", "/r/two"]);
+  check("a new folder waits again", field<HTMLButtonElement>(r, "start").disabled);
+
+  // A30: the previous choice fills the roles; a form from the saved picks
+  // alone offers to read the lists.
+  const orchPick = {
+    role: "orchestrator",
+    runner: "herdr",
+    harness: "codex",
+    model: "gpt-5.6-luna",
+    effort: "low",
+    route: "",
+    at: "",
+  };
+  let lists = 0;
+  r = start({
+    custom: false,
+    c: { ...catalog, from_picks: true, previous: [orchPick] } as unknown as Catalog,
+    opts: { needLists: () => void lists++ },
+  });
+  field(r, "recommended").click();
+  q(r.root(), "[name=role-orchestrator]").click();
+  const previous = q(r.root(), ".nr-previous");
+  check("the previous choice shows", (previous.textContent ?? "").includes("orchestrator (herdr): codex gpt-5.6-luna"));
+  q(r.root(), "[name=choose-lists]").click();
+  equal("Choose again asks for the lists", lists, 1);
+  [...previous.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Use previous choice")?.click();
+  equal("the previous choice fills the role", field<HTMLSelectElement>(r, "main-kind").value, "codex");
+  equal("with its effort", field<HTMLSelectElement>(r, "main-effort").value, "low");
+
+  // A29: a harness with a page of its models links to it.
+  r = start({
+    c: {
+      ...catalog,
+      kinds: [{ ...catalog.kinds[1]!, docs_url: "https://example.com/models" }],
+    } as unknown as Catalog,
+  });
+  const docs = q<HTMLAnchorElement>(r.root(), '[data-field="main-model"] a');
+  equal(
+    "the docs link",
+    [docs.href, docs.target, docs.rel, docs.textContent],
+    ["https://example.com/models", "_blank", "noopener", "Model docs"],
   );
 });

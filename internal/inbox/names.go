@@ -60,9 +60,9 @@ func Digest(b []byte) string {
 	return strconv.FormatUint(uint64(^crc), 10) + "-" + strconv.Itoa(len(b))
 }
 
-// DigestFile is Digest of a file's bytes.
+// DigestFile is Digest of a regular file's bytes, after links.
 func DigestFile(p string) (string, error) {
-	b, err := os.ReadFile(p)
+	b, err := ReadFile(p)
 	if err != nil {
 		return "", err
 	}

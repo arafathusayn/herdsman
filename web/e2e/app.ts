@@ -56,6 +56,7 @@ async function frameAndNavigation(browser: Browser, mock: Mock, check: Check, er
 
   // Tabs switch the body; the tab row stays the same element.
   const row = await page.$(".tabs");
+  const pings = mock.activity;
   await page.click('.tabs .tab[title="The route\'s checklist lines"]');
   await page.waitForSelector(".tab-body ul.checklist", { timeout: 2000 });
   check("checklist tab", (await page.$$eval(".checklist li", (es) => es.length)) === 3);
@@ -64,6 +65,43 @@ async function frameAndNavigation(browser: Browser, mock: Mock, check: Check, er
   await page.waitForSelector(".tab-body ol.timeline", { timeout: 2000 });
   check("run state tab", true);
   check("url follows tab", page.url().includes("tab=log"), page.url());
+  // A33: the user's own clicks say the user is here, at most once in 10 s.
+  await sleep(100);
+  check(
+    "two clicks tell the server once that the user is here",
+    mock.activity === pings + 1,
+    `${pings} -> ${mock.activity}`,
+  );
+
+  // A24: the log shows the newest line and pages older ones in place.
+  const lines = () => page.$$eval(".tab-body ol.timeline li p", (es) => es.map((e) => e.textContent));
+  check("log: the newest line", JSON.stringify(await lines()) === '["started"]', JSON.stringify(await lines()));
+  const more = await page.$(".tab-body button.btn.ghost");
+  check(
+    "log: a button for the earlier lines",
+    (await more?.evaluate((e) => e.textContent?.trim())) === "Show 3 earlier lines",
+  );
+  const list = await page.$(".tab-body ol.timeline");
+  await more?.click();
+  await page.waitForFunction(() => document.querySelectorAll(".tab-body ol.timeline li").length === 4, {
+    timeout: 2000,
+  });
+  check(
+    "log: the earlier lines follow, newest first",
+    JSON.stringify(await lines()) === '["started","older 2","older 1","older 0"]',
+    JSON.stringify(await lines()),
+  );
+  check("log: the button is gone at the start", (await page.$(".tab-body button.btn.ghost")) === null);
+  check(
+    "log: the list stays the same element",
+    await page.evaluate((l) => l === document.querySelector(".tab-body ol.timeline"), list),
+  );
+  // A state push describes the view again: the loaded lines stay.
+  mock.setStatus("p1", "idle");
+  await sleep(150);
+  check("log: loaded lines stay across an update", (await lines()).length === 4, JSON.stringify(await lines()));
+  mock.setStatus("p1", "working");
+  await sleep(100);
 
   // Sidebar toggle.
   await page.click(".nav-toggle");
@@ -200,9 +238,25 @@ async function dialogs(browser: Browser, mock: Mock, check: Check, errors: strin
   const page = await open(browser, mock, errors, "/?r=auth");
   await page.waitForSelector(".route-shell", { timeout: 5000 });
 
-  // New route: without a catalog the dialog says so and closes.
+  // New route: "Use the recommended setup?" comes first, with the setup
+  // in one summary (A32).
   mock.catalog = false;
   await page.click(".nav-new");
+  await page.waitForSelector("dialog.new-route[open] [name=use-recommended]", { timeout: 2000 });
+  const first = await page.$eval("dialog.new-route form", (f) => ({
+    question: f.querySelector("p.muted")?.textContent,
+    summary: f.querySelectorAll(".nr-summary dt").length,
+    answers: [...f.querySelectorAll(".dialog-actions button")].map((b) => b.getAttribute("name")),
+  }));
+  check(
+    "new route: the recommended setup is asked first",
+    first.question === "Use the recommended setup?" &&
+      first.summary > 0 &&
+      JSON.stringify(first.answers) === '["custom-setup","use-recommended"]',
+    JSON.stringify(first),
+  );
+  // Without a catalog the dialog says so and closes.
+  await page.click("dialog.new-route [name=use-recommended]");
   await page.waitForSelector("dialog.new-route[open] .error", { timeout: 2000 });
   check("new route failure", true);
   await page.click("dialog.new-route .btn.ghost");
@@ -212,6 +266,8 @@ async function dialogs(browser: Browser, mock: Mock, check: Check, errors: strin
   // With one, the form opens with focus on its first empty field.
   mock.catalog = true;
   await page.click(".nav-new");
+  await page.waitForSelector("dialog.new-route[open] [name=use-recommended]", { timeout: 2000 });
+  await page.click("dialog.new-route [name=use-recommended]");
   await page.waitForSelector("dialog.new-route[open] [name=start]", { timeout: 2000 });
   await sleep(50);
   const focus = await page.evaluate(() => {
@@ -228,9 +284,69 @@ async function dialogs(browser: Browser, mock: Mock, check: Check, errors: strin
     focus.inside && focus.first !== "" && focus.active === focus.first,
     JSON.stringify(focus),
   );
+  check(
+    "new route: the recommended summary shows in the form",
+    await page.$eval("dialog.new-route [data-field=recommended-summary]", (e) => e.checkVisibility()),
+  );
+  // A32: a folder is probed for the GitHub account, and Start waits for the pick.
+  await page.$eval("dialog.new-route [name=folder]", (e) => {
+    const input = e as HTMLInputElement;
+    input.value = "/r/repo";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForSelector("dialog.new-route select[name=ghAccount]", { timeout: 2000 });
+  const waiting = await page.$eval("dialog.new-route [name=start]", (b) => [
+    (b as HTMLButtonElement).disabled,
+    b.getAttribute("title"),
+  ]);
+  check(
+    "new route: Start waits for the GitHub account",
+    JSON.stringify(waiting) === '[true,"Confirm the GitHub account."]',
+    JSON.stringify(waiting),
+  );
+  await page.select("dialog.new-route select[name=ghAccount]", "user-b");
+  check(
+    "new route: a picked account opens Start",
+    await page.$eval("dialog.new-route [name=start]", (b) => !(b as HTMLButtonElement).disabled),
+  );
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => !document.querySelector("dialog.new-route"), { timeout: 2000 });
   check("new route: Escape closes the form", true);
+
+  // A30: with saved picks, "Use your previous choice?" follows, and Yes
+  // opens the form from them.
+  mock.picks = [
+    { role: "orchestrator", runner: "herdr", harness: "claude", model: "fable", effort: "high", route: "", at: "" },
+    { role: "adjutant", runner: "herdr", harness: "claude", model: "fable", effort: "low", route: "", at: "" },
+  ];
+  await page.click(".nav-new");
+  await page.waitForSelector("dialog.new-route[open] [name=use-recommended]", { timeout: 2000 });
+  await page.click("dialog.new-route [name=use-recommended]");
+  await page.waitForSelector("dialog.new-route[open] [name=use-previous]", { timeout: 2000 });
+  const picks = await page.$$eval("dialog.new-route .nr-previous-list li", (es) => es.map((e) => e.textContent));
+  check(
+    "new route: the previous choice is offered",
+    JSON.stringify(picks) ===
+      '["orchestrator (herdr): claude fable, effort high","adjutant (herdr): claude fable, effort low"]',
+    JSON.stringify(picks),
+  );
+  await page.click("dialog.new-route [name=use-previous]");
+  await page.waitForSelector("dialog.new-route[open] [name=start]", { timeout: 2000 });
+  const efforts = await page.$$eval("dialog.new-route select[name$=-effort]", (es) =>
+    es.map((e) => (e as HTMLSelectElement).value),
+  );
+  check(
+    "new route: the form has each role's pick",
+    JSON.stringify(efforts) === '["low","high"]',
+    JSON.stringify(efforts),
+  );
+  check(
+    "new route: the form offers the previous choice",
+    ((await page.$eval("dialog.new-route .nr-previous", (e) => e.textContent)) ?? "").includes("Previous choice"),
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.querySelector("dialog.new-route"), { timeout: 2000 });
+  mock.picks = [];
   mock.catalog = false;
 
   // Appearance: the theme switch inside the dialog picks a theme and leaves it open.

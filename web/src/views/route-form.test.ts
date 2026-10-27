@@ -1,7 +1,7 @@
 import { beforeAll, expect, test } from "bun:test";
 
 import { FakeElement } from "../herdsman-blocks.testdom.ts";
-import { all, byName, dispatch, find, installDom } from "../testdom.ts";
+import { all, byName, dispatch, dump, find, installDom, markup } from "../testdom.ts";
 import type { Catalog, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
 import type { Deps } from "./route-form.ts";
 
@@ -71,7 +71,7 @@ interface Harness {
   debounce: (() => void)[];
 }
 
-async function mountForm(answer?: Promise<RouteResult>): Promise<Harness> {
+async function mountForm(answer?: Promise<RouteResult>, keepRecommended = false): Promise<Harness> {
   const { routeForm } = await import("./route-form.ts");
   const placeholder = document.createElement("form");
   const h: Partial<Harness> = { sent: [], reads: [], debounce: [] };
@@ -99,7 +99,15 @@ async function mountForm(answer?: Promise<RouteResult>): Promise<Harness> {
     },
   };
   const r = routeForm(placeholder, catalog, state, deps);
-  return { ...(h as Harness), body: fake(r.el), form: r.form };
+  const body = fake(r.el);
+  // These tests drive every field, so they start with the recommended setup off.
+  if (!keepRecommended) {
+    const rec = byName(body, "recommended");
+    rec["checked"] = false;
+    dispatch(rec, "change");
+    dispatch(byName(body, "role-orchestrator"), "click");
+  }
+  return { ...(h as Harness), body, form: r.form };
 }
 
 // The form is rendered from views, so its elements are the fake DOM's own
@@ -314,10 +322,23 @@ test("a free-text model the orchestrator inherits shows in its own input and is 
 test("typing keeps every control's node, and the inbox follows the folder until edited", async () => {
   const f = await mountForm();
   dispatch(byName(f.body, "role-adjutant"), "click");
-  const names = ["folder", "name", "orchName", "routeName", "inbox", "request", "minutes", "limit", "main-kind"];
+  const names = [
+    "folder",
+    "name",
+    "orchName",
+    "routeName",
+    "inbox",
+    "request",
+    "minutes",
+    "limit",
+    "main-kind",
+    "recommended",
+    "custom-Integration",
+  ];
   const before = names.map((n) => byName(f.body, n));
   type(byName(f.body, "folder"), "/r/proj");
   type(byName(f.body, "request"), "do it");
+  type(byName(f.body, "custom-Integration"), "one branch");
   expect(names.map((n) => byName(f.body, n))).toEqual(before);
   for (const [i, n] of names.entries()) expect(byName(f.body, n)).toBe(before[i]!);
   expect(valueOf(byName(f.body, "folder"))).toBe("/r/proj");
@@ -343,4 +364,359 @@ test("an edit made while the route starts is undone in the control", async () =>
   type(byName(f.body, "request"), "late");
   expect(valueOf(byName(f.body, "request"))).toBe("");
   expect(f.form().request).toBe("");
+});
+
+// #31's tests, on the view form: routeForm puts its own form element in the
+// placeholder's place, so each test reads the returned element.
+const disabled = (e: FakeElement): boolean => e.hasAttribute("disabled");
+const options = (sel: FakeElement): FakeElement[] => all(sel).filter((e) => e.tagName.toLowerCase() === "option");
+/** A select's chosen option value, as the view marks it. */
+const picked = (sel: FakeElement): string | null | undefined =>
+  options(sel)
+    .find((o) => o["selected"] === true)
+    ?.getAttribute("value");
+const values = (sel: FakeElement): (string | null)[] => options(sel).map((o) => o.getAttribute("value"));
+const bareDeps = {
+  createRoute: () => new Promise<RouteResult>(() => {}),
+  inboxState: () => new Promise<InboxState>(() => {}),
+  state: () => state,
+  copy: () => {},
+  openPane: () => {},
+  close: () => {},
+  failed: () => {},
+  every: () => () => {},
+  later: () => () => {},
+} as Deps;
+// Loaded once the fake document is in place; formOf builds a form at once,
+// before any probe's answer.
+let routeForm: typeof import("./route-form.ts").routeForm;
+beforeAll(async () => {
+  ({ routeForm } = await import("./route-form.ts"));
+});
+function formOf(
+  c: Catalog,
+  deps: Deps,
+  opts?: Parameters<typeof routeForm>[4],
+): { body: FakeElement; r: ReturnType<typeof routeForm> } {
+  const r = routeForm(document.createElement("form"), c, state, deps, opts);
+  return { body: fake(r.el), r };
+}
+const recommendedOff = (body: FakeElement): void => {
+  const rec = byName(body, "recommended");
+  rec["checked"] = false;
+  dispatch(rec, "change");
+};
+
+// A32: the recommended setup is on at first: its summary shows, the role and
+// the checkpointer are folded, and the route it sends is the orchestrator's
+// with the checkpointer on.
+test("the recommended setup folds its fields into one summary", async () => {
+  const f = await mountForm(undefined, true);
+  expect(box(f.body, "recommended-summary")).toBeDefined();
+  expect(find(f.body, (e) => e.getAttribute?.("name") === "role-adjutant")).toBeUndefined();
+  expect(box(f.body, "checkpointer")).toBeUndefined();
+  expect(f.form().recommended).toBe(true);
+  // The recommended setup has an adjutant beside the orchestrator, with the default names.
+  expect(f.form()).toMatchObject({ role: "adjutant", name: "adj-1", orchName: "orch-1" });
+  recommendedOff(f.body);
+  expect(box(f.body, "recommended-summary")).toBeUndefined();
+  expect(byName(f.body, "role-adjutant")).toBeDefined();
+  expect(box(f.body, "checkpointer")).toBeDefined();
+});
+
+// A32: the probed GitHub account fills the confirmation; the user may pick
+// another account that can read the repository, and it goes with the request.
+test("the probed GitHub account is offered for confirmation", async () => {
+  const sent: RouteRequest[] = [];
+  const asked: string[] = [];
+  const { body } = formOf(catalog, {
+    ...bareDeps,
+    createRoute: (r) => {
+      sent.push(r);
+      return Promise.resolve({ ok: true, steps: [], tabs: [] } as RouteResult);
+    },
+    github: (folder) => {
+      asked.push(folder);
+      return Promise.resolve({
+        repo: "o/r",
+        accounts: [
+          { name: "user-a", active: true, can_read: true },
+          { name: "user-b", active: false, can_read: true },
+        ],
+        suggested: "user-a",
+      });
+    },
+  });
+  // Start waits for the probe.
+  expect(disabled(byName(body, "start"))).toBe(true);
+  expect(byName(body, "start").getAttribute("title")).toBe("Checking which GitHub account can read this repository…");
+  submit(body);
+  expect(sent.length).toBe(0);
+  await flush();
+  expect(asked.length).toBe(1);
+  // The probed account is marked, not chosen for the user: Start waits for the pick.
+  expect(picked(byName(body, "ghAccount"))).toBe("");
+  expect(disabled(byName(body, "start"))).toBe(true);
+  expect(byName(body, "start").getAttribute("title")).toBe("Confirm the GitHub account.");
+  choose(byName(body, "ghAccount"), "user-b");
+  expect(picked(byName(body, "ghAccount"))).toBe("user-b");
+  expect(disabled(byName(body, "start"))).toBe(false);
+  expect(byName(body, "start").hasAttribute("title")).toBe(false);
+  // A new folder clears the account; its own probe runs.
+  type(byName(body, "folder"), "/r/other");
+  expect(asked).toEqual(["/r/repo", "/r/other"]);
+  expect(disabled(byName(body, "start"))).toBe(true);
+  await flush();
+  expect(picked(byName(body, "ghAccount"))).toBe("");
+});
+
+test("a repository no account can read says how to log in", async () => {
+  const { body } = formOf(catalog, {
+    ...bareDeps,
+    github: () => Promise.resolve({ repo: "o/r", accounts: [], suggested: "", error: "no origin remote" }),
+  });
+  await flush();
+  expect(box(body, "ghAccount")?.textContent).toContain("no origin remote");
+  expect(box(body, "ghAccount")?.textContent).toContain("Log in with gh auth login, then reopen this form.");
+  // Nothing to confirm: Start is open.
+  expect(disabled(byName(body, "start"))).toBe(false);
+});
+
+// A32: the custom path asks every setup item; the answers go in the setup.
+test("the custom path asks each setup item and sends the answers", async () => {
+  const f = await mountForm();
+  const { SETUP_QUESTIONS } = await import("../new-route.ts");
+  for (const [item] of SETUP_QUESTIONS) expect(byName(f.body, `custom-${item}`)).toBeDefined();
+  type(byName(f.body, "custom-Integration"), "one combined branch");
+  submit(f.body);
+  const s = f.sent[0]?.setup;
+  expect(s?.recommended).toBe(false);
+  expect(s?.answers.find((a) => a.item === "Integration")?.answer).toBe("one combined branch");
+  expect(s?.answers.find((a) => a.item === "Merge")?.answer).toBe("");
+  expect(s?.roles[0]?.role).toBe("orchestrator");
+});
+
+// A30: "Yes" to the previous choice fills the roles from the saved picks at
+// once; a role with no saved pick, or one the lists no longer offer, is
+// asked again by name, never skipped in silence.
+test("use previous choice asks again for a role without a usable pick", async () => {
+  const pick = (role: string, harness: string, model: string, effort: string) => ({
+    role,
+    runner: "herdr",
+    harness,
+    model,
+    effort,
+    route: "",
+    at: "",
+  });
+  // The recommended setup has an adjutant; only the orchestrator was saved.
+  let { body, r } = formOf({ ...catalog, previous: [pick("orchestrator", "codex", "gpt-5.6-luna", "low")] }, bareDeps, {
+    usePrevious: true,
+  });
+  expect(r.form().orch).toMatchObject({ kind: "codex", model: "gpt-5.6-luna", effort: "low" });
+  expect(box(body, "main")?.textContent).toContain("No saved choice for the adjutant");
+  // A saved model the lists no longer offer is asked again too.
+  ({ body, r } = formOf(
+    {
+      ...catalog,
+      previous: [pick("adjutant", "claude", "fable", "high"), pick("orchestrator", "pi", "typed", "high")],
+    },
+    bareDeps,
+    { usePrevious: true },
+  ));
+  expect(r.form().main).toMatchObject({ kind: "claude", model: "fable", effort: "high" });
+  expect(box(body, "orch")?.textContent).toContain("does not say how to pass its effort: pick again");
+  expect(box(body, "main")?.textContent ?? "").not.toContain("pick");
+});
+
+// P2: the recommended summary shows the effective checkpointer: Off when
+// the script is missing, as the request sends it.
+test("the recommended summary says the checkpointer is off when unavailable", async () => {
+  const { body } = formOf({ ...catalog, checkpointer_ok: false, checkpointer_why: "no checkpointer.sh" }, bareDeps);
+  const dd = find(body, (e) => e.getAttribute("data-item") === "Checkpointer");
+  expect(dd?.textContent).toBe("Off: no checkpointer.sh");
+});
+
+// review-3: the probed lists update the form in place; the draft stays.
+test("setCatalog keeps the draft and each role's saved pick", async () => {
+  const pick = {
+    role: "orchestrator",
+    runner: "herdr",
+    harness: "claude",
+    model: "fable",
+    effort: "low",
+    route: "",
+    at: "",
+  };
+  const { body, r } = formOf({ ...catalog, previous: [pick] }, bareDeps);
+  recommendedOff(body);
+  dispatch(byName(body, "role-orchestrator"), "click");
+  type(byName(body, "request"), "keep this task");
+  type(byName(body, "folder"), "/r/kept");
+  const request = byName(body, "request");
+  const claude = catalog.kinds[0]!;
+  r.setCatalog({
+    ...catalog,
+    kinds: [
+      { ...claude, models: claude.models.map((m) => ({ ...m, efforts: ["medium", "high"] })) },
+      ...catalog.kinds.slice(1),
+    ],
+  });
+  expect(r.form().request).toBe("keep this task");
+  expect(r.form().folder).toBe("/r/kept");
+  // The new lists patch the form in place: the field being typed in stays.
+  expect(byName(body, "request")).toBe(request);
+  expect(valueOf(request)).toBe("keep this task");
+  // Each role keeps its own saved pick exactly, whatever the new lists say.
+  expect(r.form().main).toMatchObject({ kind: "claude", model: "fable" });
+  expect(box(body, "main")?.textContent ?? "").not.toContain("pick again");
+});
+
+// A29 step 2: a harness listed through its own command shows that command
+// as its model docs when it has no web page.
+test("a kind listed through its own command shows that command as its model docs", async () => {
+  const muse = {
+    ...catalog.kinds[1]!,
+    kind: "muse",
+    label: "Muse",
+    docs_command: "muse model-profile show <model>",
+  };
+  const { body } = formOf({ ...catalog, kinds: [muse] }, bareDeps);
+  const docs = all(body).find((e) => e.getAttribute("data-docs") === "main");
+  expect(docs?.textContent).toContain("muse model-profile show <model>");
+});
+
+// A harness with a web page of its models links to it; only a web address
+// becomes a link.
+test("a kind with a docs page links to it", async () => {
+  const withPage = { ...catalog.kinds[0]!, docs_url: "https://example.com/models" };
+  const { body } = formOf({ ...catalog, kinds: [withPage] }, bareDeps);
+  const row = find(box(body, "main-model")!, (e) => hasClass(e, "nr-row"))!;
+  expect(dump(find(row, (e) => e.tagName.toLowerCase() === "a")!)).toBe(
+    '<a href="https://example.com/models" rel="noopener" target="_blank" title="Claude\'s own page of its models">Model docs</a>',
+  );
+  const odd = { ...catalog.kinds[0]!, docs_url: "javascript:alert(1)" };
+  const other = formOf({ ...catalog, kinds: [odd] }, bareDeps);
+  expect(find(other.body, (e) => e.tagName.toLowerCase() === "a")).toBeUndefined();
+});
+
+// A harness that could not be asked offers no models: the chip says so.
+test("a harness whose models are unavailable says it starts with its own default", async () => {
+  const off = { ...catalog.kinds[0]!, offline: true, unavailable: "claude did not answer" };
+  const { body } = formOf({ ...catalog, kinds: [off] }, bareDeps);
+  const chip = find(body, (e) => hasClass(e, "nr-chip"))!;
+  expect(dump(chip)).toBe(
+    '<span class="nr-chip" title="claude did not answer: it offers no models and starts with its own default.">models unavailable</span>',
+  );
+});
+
+// A32: the answer to "Use the recommended setup?" carries into the form.
+test("a custom setup answer opens the form with the recommended setup off", async () => {
+  const off = formOf(catalog, bareDeps, { recommended: false });
+  expect(byName(off.body, "recommended")["checked"]).toBe(false);
+  const on = formOf(catalog, bareDeps, { recommended: true });
+  expect(byName(on.body, "recommended")["checked"]).toBe(true);
+});
+
+// The real form: after "Use previous choice" with only the adjutant saved,
+// choosing the orchestrator role does not offer the adjutant's model.
+test("the orchestrator role is not offered the adjutant's saved model", async () => {
+  const adjPick = {
+    role: "adjutant",
+    runner: "herdr",
+    harness: "claude",
+    model: "adj-only",
+    effort: "low",
+    route: "",
+    at: "",
+  };
+  const { body, r } = formOf({ ...catalog, previous: [adjPick] }, bareDeps, {
+    usePrevious: true,
+    recommended: false,
+  });
+  expect(values(byName(body, "main-model"))).toContain("adj-only");
+  dispatch(byName(body, "role-orchestrator"), "click");
+  expect(values(byName(body, "main-model"))).not.toContain("adj-only");
+  expect(r.form().main.model).not.toBe("adj-only");
+});
+
+// A form opened from the saved picks alone can still change them: it
+// offers to read the harness lists, and asks for them itself when a role
+// without a saved pick is chosen.
+test("a form from saved picks alone asks for the lists when a fresh choice is needed", async () => {
+  const orch = {
+    role: "orchestrator",
+    runner: "herdr",
+    harness: "claude",
+    model: "fable",
+    effort: "medium",
+    route: "",
+    at: "",
+  };
+  const fromPicks: Catalog = {
+    ...catalog,
+    from_picks: true,
+    kinds: [{ ...catalog.kinds[0]!, saved: true, models: catalog.kinds[0]!.models.slice(0, 1) }],
+    previous: [orch],
+  };
+  let asked = 0;
+  const { body, r } = formOf(fromPicks, bareDeps, {
+    usePrevious: true,
+    recommended: false,
+    needLists: () => void asked++,
+  });
+  dispatch(byName(body, "role-orchestrator"), "click");
+  expect(asked).toBe(0);
+  dispatch(byName(body, "choose-lists"), "click");
+  expect(asked).toBe(1);
+  dispatch(byName(body, "role-adjutant"), "click");
+  expect(asked).toBe(2);
+  r.setCatalog({ ...catalog, previous: [orch] });
+  expect(all(body).some((e) => e.getAttribute?.("name") === "choose-lists")).toBe(false);
+});
+
+// The form's new parts, as markup: the recommended switch and summary, and
+// the custom path's role and setup questions with their hints.
+test("the recommended switch, its summary and the custom questions", async () => {
+  const { RECOMMENDED_SETUP, SETUP_QUESTIONS } = await import("../new-route.ts");
+  const { body } = formOf(catalog, bareDeps);
+  const fields = find(body, (e) => e.tagName.toLowerCase() === "fieldset")!;
+  const [toggle, summary] = fields.childNodes.filter((n): n is FakeElement => n instanceof FakeElement);
+  expect(dump(toggle!)).toBe(
+    markup`
+      <label class="nr-toggle nr-recommended"><input checked="" name="recommended" type="checkbox"></input
+      ><span>Recommended setup</span
+      ><small>Fills the usual choices below so only the tasks and each role's model are left to pick.</small></label>
+    `,
+  );
+  // The summary lists the recommended setup as it is: data the test cannot fix.
+  expect(dump(summary!)).toBe(
+    `<dl class="nr-summary" data-field="recommended-summary">${RECOMMENDED_SETUP.map(
+      ([k, v]) => `<dt>${k}</dt><dd data-item="${k}">${v}</dd>`,
+    ).join("")}</dl>`,
+  );
+  recommendedOff(body);
+  const custom = fields.childNodes.filter((n): n is FakeElement => n instanceof FakeElement)[1]!;
+  const roles = find(custom, (e) => e.getAttribute("role") === "radiogroup")!;
+  expect(dump(roles)).toBe(
+    markup`
+      <div aria-label="Role" class="nr-role" role="radiogroup"
+      ><button aria-checked="false" name="role-orchestrator" role="radio" type="button">Orchestrator</button
+      ><button aria-checked="true" class="active" name="role-adjutant" role="radio" type="button"
+      >Adjutant (Recommended)</button></div>
+    `,
+  );
+  const [first] = SETUP_QUESTIONS[0]!;
+  const id = byName(body, `custom-${first}`).getAttribute("id");
+  expect(dump(box(custom, `custom-${first}`)!)).toBe(
+    markup`
+      <div class="field wide" data-field="custom-${first}"
+      ><label for="${id ?? ""}">${first}</label
+      ><input autocomplete="off" id="${id ?? ""}" maxlength="400" name="custom-${first}" placeholder="${SETUP_QUESTIONS[0]![1]}"></input
+      ><small>Empty: the route asks you.</small></div>
+    `,
+  );
+  expect(find(box(body, "checkpointer")!, (e) => e.tagName.toLowerCase() === "span")?.textContent).toBe(
+    "Checkpointer (Recommended)",
+  );
 });

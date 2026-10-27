@@ -13,7 +13,9 @@ import type { Agent, Entry, Pane, Route, State, Workspace } from "../types.ts";
 const g = globalThis as unknown as Record<string, unknown>;
 g["location"] ??= { search: "", pathname: "/" };
 g["window"] ??= { addEventListener: () => {} };
-const { activityView, checklistView, logView, routeShell, sessionView, tabRow } = await import("./route.ts");
+const { activityView, checklistView, routeShell, sessionView, tabRow } = await import("./route.ts");
+const { logView: routeLog } = await import("./log-view.ts");
+const logView = (r: Route) => routeLog(r, () => {});
 const { connectingView, fatalView, notFoundView, SESSION, sidebar, topbar } = await import("./shell.ts");
 
 beforeEach(installFakeDocument);

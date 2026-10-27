@@ -39,18 +39,11 @@ func ReadBounded(p string, max int64) ([]byte, error) {
 	if beforeOpen != nil {
 		beforeOpen(p)
 	}
-	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	f, err := openRegular(p, false)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !st.Mode().IsRegular() {
-		return nil, errNotBounded
-	}
 	b, err := io.ReadAll(io.LimitReader(f, max+1))
 	if err != nil {
 		return nil, err
@@ -62,6 +55,51 @@ func ReadBounded(p string, max int64) ([]byte, error) {
 }
 
 var errNotBounded = errors.New("not a bounded regular file")
+
+// openRegular opens p for reading without blocking on a fifo and refuses
+// what the opened descriptor shows is not a regular file, so a path
+// replaced after an earlier check is refused, never waited on. follow
+// lets a link through, as cat and cksum do; otherwise a link is refused.
+func openRegular(p string, follow bool) (*os.File, error) {
+	flags := os.O_RDONLY | syscall.O_NONBLOCK
+	if !follow {
+		flags |= syscall.O_NOFOLLOW
+	}
+	f, err := os.OpenFile(p, flags, 0)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stat()
+	if err == nil && !st.Mode().IsRegular() {
+		err = errNotBounded
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+// ReadFile is os.ReadFile of a regular file, after links: a fifo, a device
+// or a folder is refused, never waited on.
+func ReadFile(p string) ([]byte, error) {
+	f, err := openRegular(p, true)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(f)
+}
+
+// readState is a state file checked earlier, read again: bounded and
+// regular on the file read, nil when it is not.
+func readState(p string) []byte {
+	b, err := ReadBounded(p, MaxSize)
+	if err != nil {
+		return nil
+	}
+	return b
+}
 
 // StrictJSON fails on malformed JSON, trailing data, an empty input and
 // duplicate keys at any depth (escaped spellings of one key included), as

@@ -13,13 +13,19 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/afk"
+	"github.com/arafathusayn/herdsman/internal/catalog"
+	"github.com/arafathusayn/herdsman/internal/choices"
+	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
 )
@@ -40,6 +46,8 @@ type Server struct {
 	// catalog lists the harnesses a new route can start.
 	catalog *catalogSource
 	now     func() time.Time
+	// lastActivity is the unix time of the last recorded user action.
+	lastActivity atomic.Int64
 }
 
 // Config is what one run of the server is set up with.
@@ -61,6 +69,16 @@ type Config struct {
 	// OnRotate shows the person at the terminal the links for a new token,
 	// after too many wrong codes ended the old one.
 	OnRotate func(token string)
+	// Choices keeps the picks a started route launched with (A30); nil
+	// keeps none.
+	Choices *choices.Store
+	// GitHub probes the GitHub accounts that can read the repository of a
+	// folder (A32), for the form to confirm; nil offers none.
+	GitHub func(ctx context.Context, dir string) (doctor.GitHubAccess, error)
+	// ActivityFile is where a paired browser's last action (a request that
+	// changes something, not the app's own polling) is recorded for
+	// `herdsman afk` (A33); "" records nothing.
+	ActivityFile string
 }
 
 // NewToken returns a random token for one run of the server.
@@ -83,7 +101,7 @@ func NewServer(c *herdr.Client, hub *Hub, q *Queue, cfg Config) *Server {
 	return &Server{
 		hub: hub, queue: q, client: c, cfg: cfg, devices: newDevices(cfg.Token), assets: sub,
 		diffSlots: make(chan struct{}, 2), artifacts: newArtifacts(),
-		catalog: newCatalogSource(execRunner), now: time.Now,
+		catalog: newCatalogSource(catalog.ExecRunner), now: time.Now,
 	}
 }
 
@@ -109,13 +127,21 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/pane/{id}", s.auth(http.HandlerFunc(s.pane)))
 	mux.Handle("GET /api/route/file", s.auth(http.HandlerFunc(s.routeFile)))
 	mux.Handle("GET /api/route/diff", s.auth(http.HandlerFunc(s.routeDiff)))
+	mux.Handle("GET /api/route/runstate", s.auth(http.HandlerFunc(s.routeRunState)))
 	mux.Handle("POST /api/actions", s.auth(http.HandlerFunc(s.action)))
+	// The app's explicit "the user is here" (A33): sent, throttled, from the
+	// paired user's own clicks and keys, which may not make any request.
+	mux.Handle("POST /api/activity", s.auth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
 	mux.Handle("GET /api/artifacts", s.auth(http.HandlerFunc(s.listArtifacts)))
 	mux.Handle("POST /api/artifacts/open", s.auth(http.HandlerFunc(s.openArtifact)))
 	mux.HandleFunc("GET /artifact/{cap}/{path...}", s.serveArtifact)
 	mux.Handle("GET /api/catalog", s.auth(http.HandlerFunc(s.catalogJSON)))
+	mux.Handle("GET /api/choices", s.auth(http.HandlerFunc(s.choicesJSON)))
 	mux.Handle("POST /api/routes", s.auth(http.HandlerFunc(s.createRoute)))
 	mux.Handle("GET /api/routes/inbox", s.auth(http.HandlerFunc(s.inboxState)))
+	mux.Handle("GET /api/routes/github", s.auth(http.HandlerFunc(s.githubAccess)))
 	mux.Handle("GET /api/messages", s.auth(http.HandlerFunc(s.messages)))
 	mux.Handle("GET /api/messages/{box}/{id}", s.auth(http.HandlerFunc(s.messageBody)))
 	mux.HandleFunc("GET /", s.static)
@@ -171,6 +197,9 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		if !s.devices.isPaired(bearer(r)) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "this browser is not paired: open the URL that herdsman web printed"})
 			return
+		}
+		if userAction(r) {
+			s.recordActivity()
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -270,8 +299,7 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
-	fl, ok := w.(http.Flusher)
-	if !ok {
+	if _, ok := w.(http.Flusher); !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
@@ -281,17 +309,29 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	h.Set("Connection", "keep-alive")
 	ch, state, entries := s.hub.subscribe()
 	defer s.hub.unsubscribe(ch)
+	// Each write must reach the browser within streamWriteTimeout: one that
+	// stops reading ends its stream, and with it this handler and its
+	// buffers, instead of blocking here for good.
+	rc := http.NewResponseController(w)
+	send := func(f func()) bool {
+		_ = rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout))
+		f()
+		return rc.Flush() == nil
+	}
 	write := func(event string, data []byte) {
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 	}
-	if state != nil {
-		write("state", state)
+	if !send(func() {
+		if state != nil {
+			write("state", state)
+		}
+		if b, err := json.Marshal(entries); err == nil {
+			write("entries", b)
+		}
+	}) {
+		return
 	}
-	if b, err := json.Marshal(entries); err == nil {
-		write("entries", b)
-	}
-	fl.Flush()
-	ping := time.NewTicker(15 * time.Second)
+	ping := time.NewTicker(streamPing)
 	defer ping.Stop()
 	for {
 		select {
@@ -301,14 +341,23 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return // dropped as stalled; the browser reconnects to a fresh snapshot
 			}
-			write(m.event, m.data)
-			fl.Flush()
+			if !send(func() { write(m.event, m.data) }) {
+				return
+			}
 		case <-ping.C:
-			fmt.Fprint(w, ": ping\n\n")
-			fl.Flush()
+			if !send(func() { fmt.Fprint(w, ": ping\n\n") }) {
+				return
+			}
 		}
 	}
 }
+
+// streamWriteTimeout bounds one write of the live stream; tests shorten it.
+var streamWriteTimeout = 30 * time.Second
+
+// streamPing is how often an idle stream sends a comment, so proxies keep it
+// open; tests shorten it.
+var streamPing = 15 * time.Second
 
 func (s *Server) stateJSON(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.hub.Current())
@@ -430,4 +479,70 @@ func Listen(host string, port int) (net.Listener, int, error) {
 		return nil, 0, err
 	}
 	return ln, ln.Addr().(*net.TCPAddr).Port, nil
+}
+
+// polled are the GET endpoints the app reads on its own timers; a request to
+// any other paired endpoint is the user's action or navigation (A33).
+var polled = []string{"/api/stream", "/api/state", "/api/pane/", "/api/route/diff", "/api/routes/inbox", "/api/messages", "/api/artifacts"}
+
+// userAction says whether a paired request is the user's own: a change, or
+// a GET outside the polled endpoints (opening New route, a file, a message).
+func userAction(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return true
+	}
+	for _, p := range polled {
+		if r.URL.Path == p || (strings.HasSuffix(p, "/") && strings.HasPrefix(r.URL.Path, p)) {
+			return false
+		}
+	}
+	// A message body is opened by the user; the message list is polled.
+	return true
+}
+
+// activityEvery bounds how often the activity file is written.
+const activityEvery = 10 * time.Second
+
+// recordActivity writes the time of a user action for `herdsman afk`, at
+// most once per activityEvery.
+func (s *Server) recordActivity() {
+	if s.cfg.ActivityFile == "" {
+		return
+	}
+	now := s.now()
+	last := s.lastActivity.Load()
+	if now.Unix()-last < int64(activityEvery/time.Second) || !s.lastActivity.CompareAndSwap(last, now.Unix()) {
+		return
+	}
+	if err := afk.WriteWebFile(s.cfg.ActivityFile, now); err != nil {
+		log.Printf("herdsman web: cannot record activity: %v", err)
+	}
+}
+
+// routeRunState pages a route's older run-state lines: up to runStateKept
+// lines ending before line index `before`, within the newest route.Window
+// records, read backward from the hub's snapshot of the file; a file that
+// changed since gives 409 (A24).
+func (s *Server) routeRunState(w http.ResponseWriter, r *http.Request) {
+	rv := findRoute(s.hub.Current().Routes, r.URL.Query().Get("route"))
+	if rv == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown route"})
+		return
+	}
+	before, err := strconv.Atoi(r.URL.Query().Get("before"))
+	if err != nil || before < 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "before must be a whole number"})
+		return
+	}
+	before = max(rv.tail.From(), min(before, rv.tail.Total))
+	lines, err := rv.tail.Page(before, runStateKept)
+	switch {
+	case errors.Is(err, route.ErrChanged):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "the route file changed: reload the route"})
+		return
+	case err != nil:
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "the route file could not be read"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"lines": lines, "older": before - len(lines), "from": rv.tail.From(), "history": rv.tail.History()})
 }
