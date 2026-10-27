@@ -587,7 +587,7 @@ func (w *watcher) resumeNames() []string {
 			}
 		}
 	}
-	ab, _ := os.ReadFile(w.path("peers.approved"))
+	ab, _ := inbox.ReadFile(w.path("peers.approved"))
 	collect(ab, true)
 	collect(w.resumes, false)
 	return names

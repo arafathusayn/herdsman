@@ -81,7 +81,7 @@ func (e *Env) send(args []string) error {
 	if !inbox.Bounded("", bodyFile) {
 		return die("body must be a bounded readable regular file")
 	}
-	body, err := os.ReadFile(bodyFile)
+	body, err := inbox.ReadFile(bodyFile)
 	if err != nil || len(body) > inbox.MaxBody {
 		return die("body must be a bounded readable regular file")
 	}
