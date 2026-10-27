@@ -16,8 +16,8 @@ Ship one `herdsman` binary through GitHub releases. It carries every herdsman co
 | Frontend | TypeScript with no React, no npm and no `node_modules`. `bun build` compiles it to JS, `bun check` type-checks it and `bun fmt` formats it, on the latest Bun (1.4.4 or later). Bun is a build-time tool only |
 | Access | Binds to `127.0.0.1` only, with a random token per run |
 | Scripts | All bash scripts move into CLI subcommands in a stack of five pull requests; the last one deletes the scripts. Bash defects are fixed in Go, not ported |
-| PRs | 1) CLI skeleton, releases and `herdsman web`. 2) Landing page. 3) Port every script (a stack of five pull requests). Next: the `herdsman daemon` |
-| Release | `v0.1.0` and `v0.2.0` shipped PR 1. `v1.0.0` waits for the script port (PR 3), and then for a `herdsman daemon` that serves the message channel over SSE and replaces the script channel. The daemon is the next planned work after PR 3. `v1.0.0` then ships PR 1, the docs page at `/docs/` (in place of PR 2), the pairing hardening, PR 3 and the daemon |
+| PRs | 1) CLI skeleton, releases and `herdsman web`. 2) Landing page. 3) Port every script (a stack of five pull requests). Next: the `herdsman daemon` on SQLite storage |
+| Release | `v0.1.0` and `v0.2.0` shipped PR 1. PR 3, the script port, is done. `v1.0.0` waits for the `herdsman daemon`, which serves the message channel over SSE, keeps its state in SQLite with fixed versioned schemas, and replaces the file channel. `v1.0.0` then ships PR 1, the docs page at `/docs/` (in place of PR 2), the pairing hardening, PR 3 and the daemon |
 | Homebrew | goreleaser publishes the formula to `arafathusayn/tap` |
 | Agents | Agent-type agnostic: no harness-specific UI. Starting an agent takes any `kind` and command line. PR 1 operates existing routes and does not start new ones |
 | Machines | The local herdr session only |
@@ -70,7 +70,7 @@ The browser gets live state over one SSE stream and sends every action as a POST
   - It records the focused tab before a start, prompt, key or zoom, and restores it with `tab.focus` as the next mutation.
   - It refuses actions on the orchestrator's own pane, such as close or `esc`, unless the request says `force`.
   - It reads the pane after each prompt and reports whether the prompt landed, was queued or was dropped (`agent_prompted` or not).
-- **Route awareness.** The server finds `.herdsman/<route>/00-route.md` from `--route` or from the agents' folders, then parses the task table, which maps agent names to task, role, branch and contract. Every web action is appended to the run-state list as `- HH:MM web: <action>`, the same format as `route-log.sh`, so the orchestrator sees what the human did.
+- **Route awareness.** The server finds `.herdsman/<route>/00-route.md` from `--route` or from the agents' folders, then parses the task table, which maps agent names to task, role, branch and contract. Every web action is appended to the run-state list as `- HH:MM web: <action>`, the same format as `herdsman route log`, so the orchestrator sees what the human did.
 
 ### App (TypeScript, no framework)
 
