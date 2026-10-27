@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -534,14 +533,14 @@ func retakeDaemonLock(dir, epoch string) (*inbox.Lock, error) {
 	return takeDaemonLock(dir, epoch)
 }
 
-// daemonLockOwner reads a lock folder's daemon owner record.
+// daemonLockOwner reads a lock folder's daemon owner record (strict JSON).
 func daemonLockOwner(dir string) (lockOwner, bool) {
 	b, err := readSmall(filepath.Join(dir, "owner.json"), 4096)
 	if err != nil {
 		return lockOwner{}, false
 	}
 	var o lockOwner
-	if json.Unmarshal(b, &o) != nil || o.Owner != "daemon" {
+	if strictDecode(b, &o) != nil || o.Owner != "daemon" {
 		return lockOwner{}, false
 	}
 	return o, true

@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -130,14 +129,15 @@ func (e *ErrRunning) Error() string {
 		e.Holder.PID, e.Holder.Version, e.Holder.Socket)
 }
 
-// ReadAccountLock reads the account lock's content (informative only).
+// ReadAccountLock reads the account lock's content (informative only), as
+// strict JSON.
 func ReadAccountLock(home string) (AccountLock, bool) {
 	b, err := readSmall(AccountLockPath(home), 4096)
 	if err != nil {
 		return AccountLock{}, false
 	}
 	var l AccountLock
-	if json.Unmarshal(b, &l) != nil || l.PID <= 0 {
+	if strictDecode(b, &l) != nil || l.PID <= 0 {
 		return AccountLock{}, false
 	}
 	return l, true
