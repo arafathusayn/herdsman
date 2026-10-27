@@ -18,34 +18,43 @@ import (
 // writable by group or others, of at most max bytes. A missing file or
 // folder gives an error wrapping os.ErrNotExist.
 
-// SourceDir checks dir and every folder between root and dir; a missing
-// one wraps os.ErrNotExist only when every existing one passes.
+// SourceDir checks root and then each folder below it down to dir, in
+// that order, so a link or unsafe folder is refused before anything below
+// it is looked up. The first missing folder wraps os.ErrNotExist: every
+// folder above it has passed, and nothing below it exists.
 func SourceDir(root, dir string) error {
-	if dir != root && !strings.HasPrefix(dir, root+"/") {
+	rest, ok := strings.CutPrefix(dir, root)
+	if !ok || (rest != "" && rest[0] != '/') {
 		return fmt.Errorf("%s is not under %s", dir, root)
 	}
-	// Every existing folder up to root is checked before a missing one
-	// below it is reported as absent: an unsafe parent is never hidden
-	// behind a missing child.
-	var missing error
-	for p := dir; ; p = filepath.Dir(p) {
+	p := root
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if rest == "" {
+		parts = nil
+	}
+	for i := -1; i < len(parts); i++ {
+		if i >= 0 {
+			if parts[i] == "" || parts[i] == "." || parts[i] == ".." {
+				return fmt.Errorf("%s is not a clean path under %s", dir, root)
+			}
+			p = filepath.Join(p, parts[i])
+		}
 		st, err := os.Lstat(p)
 		switch {
 		case errors.Is(err, os.ErrNotExist):
-			missing = fmt.Errorf("%s: %w", p, os.ErrNotExist)
+			return fmt.Errorf("%s: %w", p, os.ErrNotExist)
 		case err != nil:
 			return err
+		case st.Mode()&os.ModeSymlink != 0:
+			return fmt.Errorf("%s is a link", p)
 		case !st.IsDir():
-			return fmt.Errorf("%s is a link or not a folder", p)
-		default:
-			if err := sourceOwner(st, p); err != nil {
-				return err
-			}
+			return fmt.Errorf("%s is not a folder", p)
 		}
-		if p == root {
-			return missing
+		if err := sourceOwner(st, p); err != nil {
+			return err
 		}
 	}
+	return nil
 }
 
 // ReadSource reads the file p under root as a source file.
