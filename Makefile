@@ -56,7 +56,8 @@ web-e2e: web
 react-compat:
 	cd bench/herdsman-cases && bun install --frozen-lockfile
 	cd bench/herdsman-cases/apps/react && bun install --frozen-lockfile
-	cd bench/herdsman-cases && bun react-compat.ts --runtimes blocks
+	cd bench/herdsman-cases/react-compat && bun install --frozen-lockfile
+	cd bench/herdsman-cases && bun react-compat.ts --runtimes blocks,blocks+classes
 
 ## web-fmt: format the web app
 web-fmt:

@@ -72,7 +72,7 @@ Assessment: in this replica herdsman-blocks ranks second of four by score, but t
 
 TanStack Redact (0.2.1, announced the same week) replaces React and React DOM in the browser with a smaller runtime that renders synchronously. Layer 5 takes the same approach, aiming for React's exact behavior and a smaller, faster runtime. It was measured against React 19 and Redact 0.2.1 on two points, each run in headless Chrome (Chromium 153, 4 cores):
 
-1. **Same behavior as React.** `bench/herdsman-cases/react-compat.ts` runs 25 scenarios, from host props to hydration of React's own server HTML (listed in the bench README), on React 19 and on each runtime, and compares every logged value and the HTML after every step. herdsman-blocks-react matches React in 25 of 25. Redact matches in 15. It differs in `<meta>` hoisting, `xlinkHref`, the order of parent and child effects, passive effects around a layout-effect update, `shouldComponentUpdate` calls, events bubbling through portals, enter and leave events, input attribute order, form action URLs and `Children.count`.
+1. **Same behavior as React.** `bench/herdsman-cases/react-compat.ts` runs 31 scenarios on React 19 and on each runtime, and compares every logged value and the HTML after every step. 25 exercise the API, from host props to hydration of React's own server HTML; 6 use the five React libraries npm downloads most each week (2026-10-27): @radix-ui/react-dialog (61.1 million), zustand (56.4 million), @tanstack/react-query (54.5 million), react-router (49.1 million, its data router and its declarative routes) and framer-motion (45.3 million). herdsman-blocks-react with class support matches React in 31 of 31. Without it (the default), it matches in the 26 that render no class component and stops with its no-classes error in the other 5, which include react-router's data router (its route error boundary is a class) and framer-motion's `AnimatePresence` and layout features. Redact matches in 20. It differs in `<meta>` hoisting, `xlinkHref`, the order of parent and child effects, passive effects around a layout-effect update, `shouldComponentUpdate` calls, events bubbling through portals, enter and leave events, input attribute order, form action URLs, `Children.count` and the Radix dialog.
 2. **Size and speed on herdsman's own screens.** The herdsman-cases apps `react`, `react-blocks` and `redact` bundle the same source, `apps/react/main.tsx`, compiled by the React Compiler, with only the runtime swapped. All three pass the correctness gate (the reference markup after every operation) and keep the same nodes. Median of 10 interleaved iterations, factor to the best median (Preact added as a non-React reference):
 
 | benchmark | React 19 | herdsman-blocks-react | Redact 0.2.1 | Preact |
@@ -90,9 +90,9 @@ TanStack Redact (0.2.1, announced the same week) replaces React and React DOM in
 | logline (4x) | 64.3 (1.09) | 59.1 (1.00) | 76.0 (1.29) | 62.8 (1.06) |
 | tab-team | 42.5 (1.73) | 25.3 (1.03) | 27.3 (1.11) | 24.5 (1.00) |
 | **geometric mean** | **1.477** | **1.051** | **1.380** | **1.060** |
-| app JavaScript, gzip | 69.7 KB | 16.0 KB | 30.2 KB | 7.5 KB |
+| app JavaScript, gzip | 69.7 KB | 15.3 KB | 30.2 KB | 7.5 KB |
 
-A one-component app (a counter in a root) is 65.8 KB gzipped with React, 26.4 KB with Redact (every feature on) and 12.3 KB with herdsman-blocks-react, which has no features to turn off. Reading: on this machine the noise floor is about 4% (see the noise control below), so herdsman-blocks-react is tied with Preact, about 24% ahead of Redact and 29% ahead of React by geometric mean, and it is the only React-API runtime that is never more than 1.22 times the best. Its losses are the unchanged re-render (poll) and the one-card status move, where React is fastest.
+The timings were taken with class support built in; the app has no class components, so it now builds without them (16.0 KB before). A one-component app (a counter in a root) is 65.8 KB gzipped with React, 26.4 KB with Redact (every feature on), 11.6 KB with herdsman-blocks-react and 12.8 KB with its class support. Reading: on this machine the noise floor is about 4% (see the noise control below), so herdsman-blocks-react is tied with Preact, about 24% ahead of Redact and 29% ahead of React by geometric mean, and it is the only React-API runtime that is never more than 1.22 times the best. Its losses are the unchanged re-render (poll) and the one-card status move, where React is fastest.
 
 ---
 
@@ -387,9 +387,16 @@ For code that moves a view's nodes out of its container, such as a bridge that r
 
 ### Layer 5: The React API
 
-`web/src/herdsman-blocks-react.ts` implements the client half of React 19: the exports of `react`, `react/jsx-runtime`, `react/jsx-dev-runtime`, `react/compiler-runtime`, `react-dom` and `react-dom/client`. One module answers all six specifiers, so an app switches by aliasing them at build time (a Bun plugin's `onResolve`, Vite's `resolve.alias`) and changes no code; libraries that import React get the same module. The app keeps `@types/react` for type checking. It reuses Layer 2's longest increasing subsequence and its rule for moves; it does not use templates, because React describes markup at run time.
+`web/src/herdsman-blocks-react.ts` implements the client half of React 19: every export of `react`, `react/jsx-runtime`, `react/jsx-dev-runtime`, `react/compiler-runtime`, `react-dom` and `react-dom/client`, except `react-dom`'s internals object for libraries (`__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE`), which is left out on purpose. One module answers all six specifiers, so an app switches by aliasing them at build time (a Bun plugin's `onResolve`, Vite's `resolve.alias`) and changes no code; libraries that import React get the same module. The app keeps `@types/react` for type checking. It reuses Layer 2's longest increasing subsequence and its rule for moves; it does not use templates, because React describes markup at run time.
 
 What it is for: React apps that want a smaller and faster client runtime, or a reorder that keeps focus and state. What it is not: a server renderer (use React's own on the server, and `hydrateRoot` on the client), development warnings, or concurrent rendering.
+
+#### Class components are a build option
+
+Class components are left out by default: rendering one throws an error that names the component and the option. `web/src/herdsman-blocks-react-classes.ts` is the build with them. It re-exports every export of the default module and, when it loads, installs the class runtime (lifecycles, `setState` and `forceUpdate`, error boundaries) through one hook the default module exports. To include classes, alias the six specifiers to that module instead; the bench's alias plugin takes this as its `classes` option. A build constant cannot do this: Bun keeps code that a constant disables, so the choice is which module the alias points to.
+
+1. `Component` and `PureComponent` are always exported, so a library that extends them still loads; only rendering a class needs the option.
+2. Apps that render no class component, and use no library that does, should leave it out: it adds 1.2 KB gzipped. React's error boundaries can only be written as classes, and some libraries render classes inside (react-router's data router, framer-motion's `AnimatePresence` and layout animations), so those apps need it.
 
 #### Elements
 
@@ -501,7 +508,8 @@ Transitions render synchronously. Each transition keeps a list of what to do whe
 2. No server rendering, no Server Components and no development checks or warnings. `act` flushes everything; `captureOwnerStack` returns null.
 3. `useId` values are unique and stable but do not follow React's tree-position scheme, so they match server-rendered ids only by chance.
 4. Hydration patches mismatches in place instead of re-rendering a Suspense boundary on the client, and does not replay events that arrive before it.
-5. ViewTransition, SuspenseList ordering and Profiler timings render their children only.
+5. ViewTransition, SuspenseList ordering and Profiler timings render their children only; `addTransitionType` does nothing.
+6. Class components need the class build (above).
 
 ### Integration with herdsman web
 
@@ -729,6 +737,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-27: Class components move to a build option (`herdsman-blocks-react-classes.ts`); the default module leaves them out (1.2 KB gzipped) and names the option when a class renders. `addTransitionType` exported (it has no effect, as no view transitions start). The React compatibility check adds scenarios with the five React libraries npm downloads most and runs both builds: 31 of 31 identical to React with classes, and without them every scenario that renders no class. Part of 0.1.0.
 - 2026-10-27: Version 0.1.0. Layer 5, the React API (`herdsman-blocks-react.ts`): React 19's client exports for `react`, `react-dom`, `react-dom/client` and the JSX and React Compiler runtimes, in one module apps alias those imports to. Placement reuses Layer 2's minimum-move algorithm and moves with `moveBefore`. Verified against React 19 by a differential check in headless Chrome (`bench/herdsman-cases/react-compat.ts`, 25 of 25 scenarios identical; `make react-compat`, also run in CI) and by unit tests on the fake DOM. Benchmarked on herdsman's screens against React 19 and TanStack Redact 0.2.1 (Part 1).
 
 - 2026-10-27: Version 0.0.9. Delegated events find instances by descent from the render root along the event's path (child holes, list entries, runs), so views whose handlers are all delegated put no mark on their elements. Official benchmark, Chrome script time, 3 interleaved rounds with an A/A pair (15 samples): create 10,000 rows 13.5 to 12.9 ms (95% CI of the ratio 0.92 to 0.97), clear 7.0 to 6.6; other tests unchanged.

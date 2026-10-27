@@ -9,6 +9,7 @@ const here = import.meta.dir;
 const reactDir = join(here, "apps/react");
 const redactDir = join(here, "apps/redact");
 const blocks = join(here, "../../web/src/herdsman-blocks-react.ts");
+const blocksClasses = join(here, "../../web/src/herdsman-blocks-react-classes.ts");
 
 // Redact's own alias map (@tanstack/redact/vite), for the client.
 const REDACT: Record<string, string> = {
@@ -22,13 +23,18 @@ const REDACT: Record<string, string> = {
 
 export type Runtime = "react" | "blocks" | "redact";
 
-export function reactAlias(runtime: Runtime): BunPlugin {
+export interface AliasOptions {
+  /** blocks only: include class components (herdsman-blocks-react-classes.ts). Off by default. */
+  readonly classes?: boolean;
+}
+
+export function reactAlias(runtime: Runtime, options: AliasOptions = {}): BunPlugin {
   return {
     name: "react-alias-" + runtime,
     setup(build) {
       build.onResolve({ filter: /^react(-dom)?(\/.*)?$/ }, (args) => {
         if (runtime === "react") return { path: Bun.resolveSync(args.path, reactDir) };
-        if (runtime === "blocks") return { path: blocks };
+                if (runtime === "blocks") return { path: options.classes ? blocksClasses : blocks };
         const to = REDACT[args.path];
         if (!to) throw new Error(`redact has no ${args.path}`);
         return { path: Bun.resolveSync(to, redactDir) };

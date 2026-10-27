@@ -95,22 +95,28 @@ behind the `react` and `react-dom` imports (`react-alias.ts`):
 | App | Runtime |
 | --- | --- |
 | `react` | React 19 and React DOM |
-| `react-blocks` | herdsman-blocks-react (`web/src/herdsman-blocks-react.ts`) |
+| `react-blocks` | herdsman-blocks-react (`web/src/herdsman-blocks-react.ts`), without class components |
 | `redact` | @tanstack/redact 0.2.1, every feature on (run `bun install` in `apps/redact`) |
 
 ## React compatibility check in Chrome
 
-`bun react-compat.ts [--runtimes blocks,redact] [--verbose]` builds
-`react-compat/page.tsx` once against React 19 and once against each runtime,
+`bun react-compat.ts [--runtimes blocks,blocks+classes,redact] [--verbose]`
+builds `react-compat/page.tsx` once against React 19 and once against each
+runtime (`blocks` is herdsman-blocks-react's default build, without class
+components; `blocks+classes` the build with them),
 runs each build in headless Chrome, and compares the transcripts: every value
 the scenarios in `react-compat/cases.tsx` log and the HTML after every step.
 The scenarios cover host props, SVG, keyed lists, fragments, batching,
 effect order, memo, context, class lifecycles, error boundaries, Suspense
 and lazy, portals, events, controlled fields, refs, external stores,
 transitions, actions and forms, Children, Activity, hydration of React's own
-server HTML (`react-compat/ssr.tsx`), roots and useId. It exits non-zero
-when a herdsman-blocks-react scenario differs from React; `make
-react-compat` runs it for that runtime alone.
+server HTML (`react-compat/ssr.tsx`), roots and useId; those in
+`react-compat/libraries.tsx` use the five React libraries npm downloads most
+(@radix-ui/react-dialog, zustand, @tanstack/react-query, react-router,
+framer-motion; run `bun install` in `react-compat`). A `blocks` scenario
+that stops on its no-classes error is listed as needing classes. It exits
+non-zero when any other herdsman-blocks-react scenario differs from React;
+`make react-compat` runs it for herdsman-blocks-react alone.
 
 ## SVG and typed-hole check in Chrome
 

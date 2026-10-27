@@ -3,13 +3,17 @@
 // for it, and compares every transcript (logged values and the HTML after
 // each step) with React's, line for line.
 //
-//   bun react-compat.ts [--runtimes blocks,redact] [--verbose]
+//   bun react-compat.ts [--runtimes blocks,blocks+classes,redact] [--verbose]
 //
-// Runtimes: `blocks` is web/src/herdsman-blocks-react.ts; `redact` is
-// @tanstack/redact from apps/redact (run `bun install` there first). React
-// comes from apps/react. The build aliases `react`, `react-dom` and their
-// subpaths to the runtime, as a bundler plugin for a real app would. Exits
-// non-zero when a `blocks` scenario differs from React.
+// Runtimes: `blocks` is web/src/herdsman-blocks-react.ts as apps get it by
+// default, without class components; `blocks+classes` is the build with them
+// (herdsman-blocks-react-classes.ts); `redact` is @tanstack/redact from
+// apps/redact (run `bun install` there first). React comes from apps/react,
+// the libraries from react-compat/package.json. The build aliases `react`,
+// `react-dom` and their subpaths to the runtime, as a bundler plugin for a
+// real app would. Exits non-zero when a `blocks+classes` scenario differs
+// from React, or a `blocks` scenario differs for any reason but rendering a
+// class (those are listed as needing classes).
 
 import { join } from "node:path";
 import puppeteer from "puppeteer-core";
@@ -19,12 +23,14 @@ import { reactAlias, type Runtime } from "./react-alias.ts";
 const here = import.meta.dir;
 const dir = join(here, "react-compat");
 
-async function bundle(entry: string, runtime: Runtime): Promise<string> {
+// "blocks+classes" is the blocks runtime with class support.
+async function bundle(entry: string, spec: string): Promise<string> {
+  const [runtime, extra] = spec.split("+") as [Runtime, string | undefined];
   const r = await Bun.build({
     entrypoints: [join(dir, entry)],
     format: "iife",
     minify: true,
-    plugins: [reactAlias(runtime)],
+        plugins: [reactAlias(runtime, { classes: extra === "classes" })],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
   });
   if (!r.success) throw new Error(r.logs.join("\n"));
@@ -36,7 +42,10 @@ const opt = (name: string): string | undefined => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
 };
-const runtimes = (opt("--runtimes") ?? "blocks,redact").split(",") as Runtime[];
+const runtimes = (opt("--runtimes") ?? "blocks,blocks+classes,redact").split(",");
+const ours = (rt: string) => rt.startsWith("blocks");
+// What the default build throws when a class component renders.
+const NO_CLASSES = "this build leaves class support out";
 const verbose = args.includes("--verbose");
 
 const browser = await puppeteer.launch({ executablePath: findChrome(), headless: true, args: ["--no-sandbox"] });
@@ -75,11 +84,12 @@ try {
       got = await run(await bundle("page.tsx", rt), ssr);
     } catch (e) {
       summary.push(`${rt}: did not run: ${e instanceof Error ? e.message.split("\n")[0] : e}`);
-      if (rt === "blocks") failed = true;
+            if (ours(rt)) failed = true;
       continue;
     }
     let pass = 0;
-    const bad: string[] = [];
+    const bad: string[] = [],
+      classes: string[] = [];
     for (const name of names) {
       const a = want[name]!,
         b = got[name] ?? ["(missing)"];
@@ -90,6 +100,10 @@ try {
         pass++;
         continue;
       }
+            if (rt === "blocks" && b.some((line) => line.includes(NO_CLASSES))) {
+        classes.push(name);
+        continue;
+      }
       bad.push(name);
       console.log(`\n${rt} ✗ ${name}\n  react: ${a[diff] ?? "(nothing)"}\n  ${rt.padStart(5)}: ${b[diff] ?? "(nothing)"}`);
       if (verbose) {
@@ -97,8 +111,12 @@ try {
         console.log(`  --- ${rt} ---\n  ` + b.join("\n  "));
       }
     }
-    summary.push(`${rt}: ${pass}/${names.length} scenarios match React` + (bad.length ? ` (differ: ${bad.join("; ")})` : ""));
-    if (rt === "blocks" && bad.length) failed = true;
+        summary.push(
+      `${rt}: ${pass}/${names.length} scenarios match React` +
+        (classes.length ? `; need classes: ${classes.join("; ")}` : "") +
+        (bad.length ? `; differ: ${bad.join("; ")}` : ""),
+    );
+    if (ours(rt) && bad.length) failed = true;
   }
   console.log("\n" + summary.join("\n"));
 } finally {

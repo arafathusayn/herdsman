@@ -88,6 +88,9 @@ export const SuspenseList: symbol = Symbol.for("react.suspense_list");
 export const Activity: symbol = Symbol.for("react.activity");
 /** Renders its children; view transitions are not started. */
 export const ViewTransition: symbol = Symbol.for("react.view_transition");
+
+/** Names the transition for view transition types; with no view transitions started, it has no effect. */
+export function addTransitionType(_type: string): void {}
 export {
   Activity as unstable_Activity,
   SuspenseList as unstable_SuspenseList,
@@ -365,7 +368,6 @@ const NO_CONTEXT = {};
 const FIBER = Symbol("fiber"); // element -> its host fiber
 const OWN = Symbol("own"); // node -> the host fiber that places it
 const LISTENS = Symbol("listens"); // element -> direct listener types
-const INSTANCE = Symbol("fiber"); // class instance -> its fiber
 const TRACKED = Symbol("checked"); // checkbox or radio -> checked state last seen
 
 type Key = string | number;
@@ -686,7 +688,8 @@ function run(f: Fiber, old: Props | null, mount: boolean): void {
     case FUNC:
       return runFunc(f);
     case CLASS:
-      return runClass(f, old, mount);
+      if (classes === null) throw noClasses(f.t);
+      return classes.run(f, old, mount);
     case FRAG:
       return reconcile(f, f.t === ARRAY ? f.p : f.p.children);
     case PROVIDER: {
@@ -1409,11 +1412,11 @@ export class Component<P = Props, S = Any> {
   componentDidCatch?(error: Any, info: { componentStack?: string }): void;
   /** Merge `partial` (or what it returns, given state and props) into state, then re-render. */
   setState(partial: Any, callback?: () => void): void {
-    enqueueClass(this, partial, callback, false);
+    if (classes !== null) classes.enqueue(this, partial, callback, false);
   }
   /** Re-render, skipping shouldComponentUpdate. */
   forceUpdate(callback?: () => void): void {
-    enqueueClass(this, null, callback, true);
+    if (classes !== null) classes.enqueue(this, null, callback, true);
   }
 }
 (Component.prototype as Any).isReactComponent = {};
@@ -1422,176 +1425,71 @@ export class Component<P = Props, S = Any> {
 export class PureComponent<P = Props, S = Any> extends Component<P, S> {}
 (PureComponent.prototype as Any).isPureReactComponent = true;
 
-function enqueueClass(inst: Any, partial: Any, cb: (() => void) | undefined, force: boolean): void {
-  const f: Fiber | undefined = inst[INSTANCE];
-  if (f === undefined || f.f & DEAD) return;
-  if (partial !== null) (f.q ??= []).push(partial);
-  if (force) f.f |= FORCE;
-  if (typeof cb === "function") (f.rx ??= []).push(cb);
-  if (f === cur) f.f |= RERENDER;
-  else schedule(f);
+// Class support is a separate module (herdsman-blocks-react-classes.ts), so
+// apps without class components do not ship it. Its entry installs it here.
+
+/** What class support uses of the runtime. Fibers are opaque to it. */
+export interface ClassCore {
+  readonly DIRTY: number;
+  readonly FORCE: number;
+  readonly RERENDER: number;
+  readonly DEAD: number;
+  readonly NO_CONTEXT: object;
+  reconcile(f: Any, children: Any): void;
+  removeAll(f: Any): void;
+  readContext(f: Any, ctx: Any): Any;
+  later(f: Any, fn: () => void): void;
+  attachRef(f: Any, ref: Any, v: Any): void;
+  detachRef(f: Any, ref: Any): void;
+  schedule(f: Any): void;
+  /** Run fn with f as the component rendering now. */
+  rendering<T>(f: Any, fn: () => T): T;
+  /** Whether f is the component rendering now. */
+  isRendering(f: Any): boolean;
 }
 
-function nextState(f: Fiber, inst: Any, state: Any, props: Props): Any {
-  const q: Any[] | null = f.q;
-  if (q === null) return state;
-  f.q = null;
-  for (const u of q) {
-    const part = typeof u === "function" ? u.call(inst, state, props) : u;
-    if (part != null) state = { ...state, ...part };
-  }
-  return state;
+/** What class support provides. */
+export interface ClassSupport {
+  run(f: Any, old: Props | null, mount: boolean): void;
+  enqueue(inst: Any, partial: Any, cb: (() => void) | undefined, force: boolean): void;
+  boundary(f: Any): boolean;
+  unmount(f: Any): void;
 }
 
-function classProps(p: Props): Props {
-  if (!("ref" in p)) return p;
-  const out = { ...p };
-  delete out["ref"];
-  return out;
-}
+let classes: ClassSupport | null = null;
 
-function isBoundary(f: Fiber): boolean {
-  return (
-    typeof f.t.getDerivedStateFromError === "function" || (f.s !== null && typeof f.s.componentDidCatch === "function")
-  );
-}
-
-function runClass(f: Fiber, old: Props | null, mount: boolean): void {
-  const C = f.t;
-  const props = classProps(f.p);
-  const ctxType = C.contextType;
-  const context = ctxType != null ? readContext(f, ctxType) : NO_CONTEXT;
-  let inst = f.s;
-  let thrown = f.x;
-  f.x = null;
-  if (thrown === null) {
-    let prevProps: Any = null,
-      prevState: Any = null,
-      snapshot: Any;
-    if (mount) {
-      const prevCur = cur;
+/** Installs class support; herdsman-blocks-react-classes.ts calls it when it loads. */
+export function __installClasses(make: (core: ClassCore) => ClassSupport): void {
+  classes ??= make({
+    DIRTY,
+    FORCE,
+    RERENDER,
+    DEAD,
+    NO_CONTEXT,
+    reconcile,
+    removeAll: (f) => removeAll(f),
+    readContext,
+    later,
+    attachRef,
+    detachRef,
+    schedule,
+    rendering(f, fn) {
+      const prev = cur;
       cur = f;
       try {
-        inst = f.s = new C(props, context);
+        return fn();
       } finally {
-        cur = prevCur;
+        cur = prev;
       }
-      inst.props = props;
-      inst.context = context;
-      if (inst.state === undefined) inst.state = null;
-      inst[INSTANCE] = f;
-      if (typeof C.getDerivedStateFromProps === "function") {
-        const d = C.getDerivedStateFromProps(props, inst.state);
-        if (d != null) inst.state = { ...inst.state, ...d };
-      } else if (typeof C.getSnapshotBeforeUpdate !== "function") {
-        const will = inst.UNSAFE_componentWillMount ?? inst.componentWillMount;
-        if (typeof will === "function") {
-          will.call(inst);
-          inst.state = nextState(f, inst, inst.state, props);
-        }
-      }
-    } else {
-      prevProps = inst.props;
-      prevState = inst.state;
-      const legacy =
-        typeof C.getDerivedStateFromProps !== "function" && typeof inst.getSnapshotBeforeUpdate !== "function";
-      if (legacy && old !== f.p) {
-        const wrp = inst.UNSAFE_componentWillReceiveProps ?? inst.componentWillReceiveProps;
-        if (typeof wrp === "function") wrp.call(inst, props, context);
-      }
-      let state = nextState(f, inst, prevState, props);
-      if (typeof C.getDerivedStateFromProps === "function") {
-        const d = C.getDerivedStateFromProps(props, state);
-        if (d != null) state = { ...state, ...d };
-      }
-      let go = (f.f & FORCE) !== 0 || inst.context !== context;
-      if (!go) {
-        if (typeof inst.shouldComponentUpdate === "function") go = !!inst.shouldComponentUpdate(props, state, context);
-        else if (C.prototype.isPureReactComponent)
-          go = !shallowEqual(prevProps, props) || !shallowEqual(prevState, state);
-        else go = true;
-      }
-      f.f &= ~FORCE;
-      if (!go) {
-        inst.props = props;
-        inst.state = state;
-        inst.context = context;
-        classCallbacks(f);
-        return;
-      }
-      if (legacy) {
-        const wu = inst.UNSAFE_componentWillUpdate ?? inst.componentWillUpdate;
-        if (typeof wu === "function") wu.call(inst, props, state, context);
-      }
-      inst.props = props;
-      inst.state = state;
-      inst.context = context;
-      if (typeof inst.getSnapshotBeforeUpdate === "function")
-        snapshot = inst.getSnapshotBeforeUpdate(prevProps, prevState);
-    }
-    try {
-      renderClass(f, inst);
-      if (mount) {
-        if (typeof inst.componentDidMount === "function") later(f, () => inst.componentDidMount());
-      } else if (typeof inst.componentDidUpdate === "function") {
-        later(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot));
-      }
-      classRef(f, old, inst);
-      classCallbacks(f);
-      return;
-    } catch (e) {
-      if (isThenable(e) || !isBoundary(f)) throw e;
-      thrown = e;
-    }
-  }
-  // Error boundary: drop the children, take the error's state, render again.
-  removeAll(f);
-  f.f &= ~DIRTY;
-  const gdsfe = C.getDerivedStateFromError;
-  if (typeof gdsfe === "function") {
-    const d = gdsfe(thrown);
-    if (d != null) inst.state = { ...inst.state, ...d };
-  }
-  const caught = thrown;
-  later(f, () => {
-    if (typeof inst.componentDidCatch === "function") inst.componentDidCatch(caught, { componentStack: "" });
-    const report = f.o.opts.onCaughtError;
-    if (report) report(caught, { componentStack: "" });
-    else console.error(caught);
+    },
+    isRendering: (f) => f === cur,
   });
-  if (typeof gdsfe === "function") renderClass(f, inst);
-  classRef(f, old, inst);
 }
 
-function renderClass(f: Fiber, inst: Any): void {
-  const prevCur = cur;
-  cur = f;
-  let out: Any;
-  try {
-    f.f &= ~RERENDER;
-    out = inst.render();
-  } catch (e) {
-    f.f |= DIRTY;
-    throw e;
-  } finally {
-    cur = prevCur;
-  }
-  reconcile(f, out);
-}
-
-function classRef(f: Fiber, old: Props | null, inst: Any): void {
-  const ref = f.p.ref,
-    oref = old === null ? undefined : old["ref"];
-  if (ref === oref) return;
-  if (oref != null) detachRef(f, oref);
-  if (ref != null) later(f, () => attachRef(f, ref, inst));
-}
-
-function classCallbacks(f: Fiber): void {
-  const cbs: (() => void)[] | null = f.rx;
-  if (cbs === null) return;
-  f.rx = null;
-  for (const cb of cbs) later(f, () => cb.call(f.s));
+function noClasses(type: Any): Error {
+  return new Error(
+    `${type.displayName ?? type.name ?? "A class component"} is a class component, and this build leaves class support out. Alias react to herdsman-blocks-react-classes.ts (reactAlias("blocks", { classes: true })) to include it.`,
+  );
 }
 
 // Refs
@@ -1777,13 +1675,9 @@ function unmount(f: Fiber, rm: boolean): void {
         }
       }
       break;
-    case CLASS: {
-      const inst = f.s;
-      if (inst !== null && typeof inst.componentWillUnmount === "function")
-        safely(f, () => inst.componentWillUnmount());
-      if (f.p.ref != null) safely(f, () => detachRef(f, f.p.ref));
+    case CLASS:
+      if (classes !== null) safely(f, () => classes!.unmount(f));
       break;
-    }
     case PORTAL:
       for (const c of f.c) unmount(c, true);
       return;
@@ -1904,7 +1798,7 @@ function throwTo(f: Fiber, e: Any): void {
   f.f |= DIRTY;
   let p = f.r;
   for (; p !== null; p = p.r) {
-    if (p.n === ROOT || (promise ? p.n === SUSPENSE : p.n === CLASS && isBoundary(p))) break;
+    if (p.n === ROOT || (promise ? p.n === SUSPENSE : p.n === CLASS && classes !== null && classes.boundary(p))) break;
     p.f |= DIRTY;
   }
   if (p === null) {
@@ -2949,6 +2843,7 @@ const React: Record<string, unknown> = {
   SuspenseList,
   Activity,
   ViewTransition,
+  addTransitionType,
   Children,
   Component,
   PureComponent,

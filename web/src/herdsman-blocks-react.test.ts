@@ -6,7 +6,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  Component,
   createContext,
   createElement as h,
   createRoot,
@@ -212,35 +211,5 @@ describe("events", () => {
     expect(log).toEqual(["button 0", "div 0"]);
     await Promise.resolve();
     expect(html()).toBe("<div><button>1</button></div>");
-  });
-});
-
-describe("error boundaries", () => {
-  test("a boundary replaces a throwing subtree with its fallback", () => {
-    const caught: string[] = [];
-    class Boundary extends Component<{ children?: unknown }, { error: string | null }> {
-      override state = { error: null as string | null };
-      static getDerivedStateFromError(e: Error) {
-        return { error: e.message };
-      }
-      override componentDidCatch(e: Error) {
-        caught.push(e.message);
-      }
-      override render() {
-        return this.state.error !== null ? h("p", null, "error: " + this.state.error) : (this.props.children as never);
-      }
-    }
-    function Bomb(): never {
-      throw new Error("boom");
-    }
-    const quiet = console.error;
-    console.error = () => {};
-    try {
-      render(h("div", null, h(Boundary, null, h("span", null, "ok"), h(Bomb))));
-    } finally {
-      console.error = quiet;
-    }
-    expect(html()).toBe("<div><p>error: boom</p></div>");
-    expect(caught).toEqual(["boom"]);
   });
 });
