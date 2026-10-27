@@ -49,6 +49,12 @@ func importCore(tx store.Conn, dir string, now int64) *APIError {
 			return e
 		}
 	}
+	// Notices name messages of any mailbox: after every message is in.
+	for _, p := range peers {
+		if e := im.notices(p.Name); e != nil {
+			return e
+		}
+	}
 	if e := im.highWater(); e != nil {
 		return e
 	}

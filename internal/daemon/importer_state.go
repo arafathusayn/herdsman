@@ -11,13 +11,13 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// The importer's route state (S14): holds, alerts, the card journal, the
+// The importer's route state (S14): holds, resume intents, alerts, the card journal, the
 // watch and resume targets, and the contract 2 files kept as evidence.
 // Each source file read gets its import_log row, as in the core.
 
 // state imports the route state after the core.
 func (im *importer) state() *APIError {
-	for _, f := range []func() *APIError{im.holds, im.alerts, im.cards, im.targets, im.contract2} {
+	for _, f := range []func() *APIError{im.holds, im.resumeIntents, im.alerts, im.cards, im.targets, im.contract2} {
 		if e := f(); e != nil {
 			return e
 		}
