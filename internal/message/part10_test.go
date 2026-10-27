@@ -58,6 +58,29 @@ func TestPart10BoundaryRacesHolds(t *testing.T) {
 	})
 	c.watchPasses(1)
 	nocheck(t, "Z2f one failed agent list does not alert the human", "notification show Automatic coordination held", c.calls())
+	// Z2f2: the pass after one failed list sees no automation-held. The run
+	// above may end after its failed list, before a good list resets the
+	// count, so start from none.
+	_ = os.Remove(c.in("state", "agent-list-failures"))
+	_ = os.Remove(c.in("state", "automation-held"))
+	var listMu sync.Mutex
+	listCalls, afterFirst := 0, "not reached"
+	c.srv.Handle("agent.list", func(p map[string]any) (any, string) {
+		listMu.Lock()
+		defer listMu.Unlock()
+		listCalls++
+		if listCalls == 2 {
+			afterFirst = yn(c.in("state", "automation-held"))
+		}
+		if listCalls == 1 {
+			return nil, "temporary_failure"
+		}
+		return map[string]any{"type": "agent_list", "agents": c.agentRecordsRaw()}, ""
+	})
+	c.watch("RUN_FOR=2")
+	listMu.Lock()
+	check(t, "Z2f2 after the first failed list no automation-held is written", "^no$", afterFirst)
+	listMu.Unlock()
 	check(t, "Z2g and records no exposure", "^no$", yn(c.in("state", "boundary-tainted")))
 	c.fx.Fail("agent.list", "temporary_failure")
 	c.srv.Handle("agent.list", func(map[string]any) (any, string) { return nil, "temporary_failure" })
@@ -294,6 +317,69 @@ func TestPart10BoundaryRacesHolds(t *testing.T) {
 	nocheck(t, "Z10 a user pause sends no resume-held alert", "notification show Goal resume held", c.calls())
 	out, _ = c.run("receiver-pane", nil, "status", O)
 	check(t, "Z10b the quiet hold is still visible in status", "hold-or-intent: resume-held-im-task", out)
+
+	// Only uncertain resume states alert: a blocked turn and a turn that
+	// changes before input are quiet holds that say why.
+	_ = os.Remove(c.in("state", "route-paused"))
+	_ = os.Remove(c.in("state", "resume-held-im-task"))
+	c.fx.SetScreen("task-pane", "Do you want to allow this command?\n")
+	c.watch()
+	c.watch()
+	nocheck(t, "Z10c a blocked turn sends no resume-held alert", "notification show Goal resume held", c.calls())
+	check(t, "Z10c2 and its quiet hold names the blocked turn", "turn is not idle or is blocked", c.read(c.in("state", "resume-held-im-task")))
+	_ = os.Remove(c.in("state", "resume-held-im-task"))
+	c.fx.SetScreen("task-pane", "Goal paused (/goal resume)\n")
+	readPane := c.fx.Handler("pane.read")
+	c.srv.Handle("pane.read", func(p map[string]any) (any, string) {
+		// Under the input lock the turn is working again: it changed
+		// between the first read and the input.
+		if inbox.Exists(c.in(inbox.MutationLock)) {
+			pane, _ := p["pane_id"].(string)
+			return map[string]any{"type": "pane_read", "read": map[string]any{"pane_id": pane, "text": "Working (3s)\n"}}, ""
+		}
+		return readPane(p)
+	})
+	c.watch()
+	c.watch()
+	nocheck(t, "Z10d a turn that changes before input sends no resume-held alert", "notification show Goal resume held", c.calls())
+	check(t, "Z10d2 and its quiet hold names the changed turn", "turn changed before input", c.read(c.in("state", "resume-held-im-task")))
+}
+
+// Z8d: the proof goes stale between sweeps and is repaired while the
+// message is held back; the same courier run delivers it.
+func TestCourierDeliversOnceTheProofIsRepaired(t *testing.T) {
+	c := newCase(t, true)
+	c.send()
+	staged := c.base("staged.md")
+	if err := os.Rename(c.ob("new", ID+".md"), staged); err != nil {
+		t.Fatal(err)
+	}
+	good := c.read(c.base("ignore-rule"))
+	c.events = &failingEvents{}
+	var mu sync.Mutex
+	sleeps := 0
+	c.onSleep = func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if sleeps++; sleeps == 1 {
+			c.write(c.base("ignore-rule"), good+"changed between sweeps\n")
+		}
+	}
+	notify := c.fx.Handler("notification.show")
+	c.srv.Handle("notification.show", func(p map[string]any) (any, string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if title, _ := p["title"].(string); title == "Message setup proof stale" && inbox.Exists(staged) {
+			c.write(c.base("ignore-rule"), good)
+			if err := os.Rename(staged, c.ob("new", ID+".md")); err != nil {
+				t.Error(err)
+			}
+		}
+		return notify(p)
+	})
+	c.courier("RUN_FOR=10", "SWEEP=1", "HEALTH_AFTER=20")
+	check(t, "Z8d0 the proof went stale between sweeps and was alerted", "notification show Message setup proof stale", c.calls())
+	check(t, "Z8d after the proof is repaired the same courier run delivers", "^no yes$", yn(c.ob("new", ID+".md"))+" "+yn(c.ob("ready", ID+".md")))
 }
 
 // watchPasses runs the watcher for one pass (RUN_FOR=1 with a long interval

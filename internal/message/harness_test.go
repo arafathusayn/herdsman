@@ -37,6 +37,9 @@ type tc struct {
 	// env is added to every command's environment.
 	env    map[string]string
 	events Events
+	// onSleep, when set, runs after each sleep of a command, so a case can
+	// act between a long-running command's passes.
+	onSleep func()
 }
 
 func newCase(t *testing.T, enroll bool) *tc {
@@ -163,7 +166,12 @@ func (c *tc) run(pane string, extra map[string]string, cmd string, args ...strin
 	}
 	var out bytes.Buffer
 	e := &Env{Getenv: func(k string) string { return env[k] }, Stdout: &out, Stderr: &out, Client: herdr.New(c.srv.Socket),
-		Now: func() time.Time { return c.now }, Sleep: func(d time.Duration) { c.now = c.now.Add(d) }, Events: c.events, Executable: env["@EXE"]}
+		Now: func() time.Time { return c.now }, Sleep: func(d time.Duration) {
+			c.now = c.now.Add(d)
+			if c.onSleep != nil {
+				c.onSleep()
+			}
+		}, Events: c.events, Executable: env["@EXE"]}
 	var code int
 	switch cmd {
 	case "message":
