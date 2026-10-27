@@ -10,9 +10,18 @@ package store
 // (O_NONBLOCK), never follows a link (O_NOFOLLOW), and refuses anything
 // but a regular file of mode 600 or a folder of mode 700 owned by this
 // user. The table is process-wide; the store is the only SQLite user.
+//
+// A refused descriptor is closed only when no other descriptor of the
+// process holds its inode: closing any descriptor of an inode drops every
+// POSIX lock the process holds on it, so a refused open of a file a
+// connection locks (the database, its -wal or -shm) would drop that
+// connection's locks (S27N1-1 F2). Such a descriptor is parked instead,
+// and closeParked closes it once nothing else holds its inode.
 
 /*
+#include <dirent.h>
 #include <errno.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
@@ -38,6 +47,91 @@ struct sqlite3_vfs {
 };
 extern sqlite3_vfs *sqlite3_vfs_find(const char *) __attribute__((weak));
 
+static pthread_mutex_t herdsman_park_mu = PTHREAD_MUTEX_INITIALIZER;
+static int *herdsman_parked;
+static int herdsman_nparked, herdsman_capparked;
+
+static int herdsman_is_parked(int fd) {
+	for (int i = 0; i < herdsman_nparked; i++) {
+		if (herdsman_parked[i] == fd) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+// herdsman_shared reports whether a descriptor of this process other than
+// fd and the parked ones holds fd's inode; 1 when it cannot tell. The
+// caller holds herdsman_park_mu.
+static int herdsman_shared(int fd) {
+	struct stat st;
+	if (fstat(fd, &st) != 0) {
+		return 1;
+	}
+#ifdef __linux__
+	DIR *d = opendir("/proc/self/fd");
+#else
+	DIR *d = opendir("/dev/fd");
+#endif
+	if (!d) {
+		return 1;
+	}
+	int own = dirfd(d), found = 0;
+	struct dirent *e;
+	while (!found && (e = readdir(d)) != NULL) {
+		char *end;
+		long n = strtol(e->d_name, &end, 10);
+		if (end == e->d_name || *end != 0 || n == fd || n == own || herdsman_is_parked((int)n)) {
+			continue;
+		}
+		struct stat other;
+		found = fstat((int)n, &other) == 0 && other.st_dev == st.st_dev && other.st_ino == st.st_ino;
+	}
+	closedir(d);
+	return found;
+}
+
+// herdsman_drop closes a refused descriptor, or parks it while another
+// descriptor of the process holds its inode.
+static void herdsman_drop(int fd) {
+	pthread_mutex_lock(&herdsman_park_mu);
+	if (herdsman_shared(fd)) {
+		if (herdsman_nparked == herdsman_capparked) {
+			int cap = herdsman_capparked ? 2 * herdsman_capparked : 8;
+			int *grown = realloc(herdsman_parked, cap * sizeof(int));
+			if (grown) {
+				herdsman_parked = grown;
+				herdsman_capparked = cap;
+			}
+		}
+		// Out of memory: the descriptor leaks rather than drop locks.
+		if (herdsman_nparked < herdsman_capparked) {
+			herdsman_parked[herdsman_nparked++] = fd;
+		}
+	} else {
+		close(fd);
+	}
+	pthread_mutex_unlock(&herdsman_park_mu);
+}
+
+// herdsman_close_parked closes the parked descriptors whose inode nothing
+// else holds any more; it returns how many stay parked.
+static int herdsman_close_parked(void) {
+	pthread_mutex_lock(&herdsman_park_mu);
+	int kept = 0;
+	for (int i = 0; i < herdsman_nparked; i++) {
+		int fd = herdsman_parked[i];
+		if (herdsman_shared(fd)) {
+			herdsman_parked[kept++] = fd;
+		} else {
+			close(fd);
+		}
+	}
+	herdsman_nparked = kept;
+	pthread_mutex_unlock(&herdsman_park_mu);
+	return kept;
+}
+
 static int herdsman_checked_open(const char *z, int flags, int mode) {
 	int fd = open(z, flags | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC, mode);
 	if (fd < 0) {
@@ -57,7 +151,7 @@ static int herdsman_checked_open(const char *z, int flags, int mode) {
 		ok = fl >= 0 && fcntl(fd, F_SETFL, fl & ~O_NONBLOCK) == 0;
 	}
 	if (!ok) {
-		close(fd);
+		herdsman_drop(fd);
 		errno = EACCES;
 		return -1;
 	}
@@ -108,6 +202,11 @@ func installCheckedOpen() error {
 	})
 	return vfsErr
 }
+
+// closeParked closes the refused descriptors parked by the checked open
+// whose inode no other descriptor of the process holds any more; it
+// reports how many stay parked.
+func closeParked() int { return int(C.herdsman_close_parked()) }
 
 // checkedOpenInstalled reports whether SQLite opens files through it.
 func checkedOpenInstalled() bool { return C.herdsman_installed() == 1 }

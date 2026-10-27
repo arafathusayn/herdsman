@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -159,7 +160,7 @@ func TestRestoreBackupNewEpochNoIdReuse(t *testing.T) {
 // TestRestoreSameGenCopyNoIdReuse: a copy taken while the route runs
 // carries the current store_gen, so its restore looks like a plain
 // reopen; the max rule still puts the next id and seq above everything
-// issued since the copy.
+// issued since the copy (its cursors: TestRestoreSameGenCopyLostCursor).
 func TestRestoreSameGenCopyNoIdReuse(t *testing.T) {
 	acct := accountWith(t, "g0")
 	p := filepath.Join(dir(t), "r.db")
@@ -236,5 +237,110 @@ func TestAdoptEarlierStagingCopyNoIdReuse(t *testing.T) {
 	}
 	if next := issue(t, acct, sc, 1)[0]; next <= 4242 {
 		t.Fatalf("id %d issued again after an earlier staging copy came back", next)
+	}
+}
+
+// sameGenRestore commits events 1-2, copies the route, commits 3-7 and
+// restores the copy, as in TestRestoreSameGenCopyNoIdReuse; it returns
+// the restored writer after its open and the last seq issued before.
+func sameGenRestore(t *testing.T) (acct, rc Conn, lost int64) {
+	t.Helper()
+	acct = accountWith(t, "g0")
+	p := filepath.Join(dir(t), "r.db")
+	rc = routeFile(t, p, "g0")
+	if _, err := OpenGeneration(acct, rc, "r", "g1", epochB); err != nil {
+		t.Fatal(err)
+	}
+	issue(t, acct, rc, 2)
+	snapshot(t, rc, p+".copy")
+	issue(t, acct, rc, 5)
+	lost, _ = VisibleSeq(rc)
+	rc = restore(t, rc, p, p+".copy")
+	if res, err := OpenGeneration(acct, rc, "r", "g2", epochB); err != nil || res.Restored || res.Epoch != epochA {
+		t.Fatalf("open of the same-generation copy %+v %v", res, err)
+	}
+	return acct, rc, lost
+}
+
+// TestRestoreSameGenCopyLostCursor (S27N1-1 F1, D6): after a
+// same-generation copy is restored, a cursor of the epoch above the
+// restored head (seq 7, which only the lost timeline issued) is refused
+// with ErrLostTimeline, also after new events, and the refusal starts a
+// new epoch durably, so the old epoch's cursors resync; a cursor at or
+// below the restored head replays without an error until then.
+func TestRestoreSameGenCopyLostCursor(t *testing.T) {
+	acct, rc, lost := sameGenRestore(t)
+	if lost != 7 {
+		t.Fatalf("last seq before the restore %d, want 7", lost)
+	}
+	if v, _ := VisibleSeq(rc); v != 2 {
+		t.Fatalf("visible seq after the restore %d, want the restored head 2", v)
+	}
+	if page, err := ReadEvents(rc, epochA, 2, 2, ReplayPage); err != nil || len(page) != 0 {
+		t.Fatalf("cursor at the restored head: %d %v", len(page), err)
+	}
+	if _, err := ReadEvents(rc, epochA, lost, 2, ReplayPage); !errors.Is(err, ErrLostTimeline) || !errors.Is(err, ErrEpochChanged) {
+		t.Fatalf("lost-timeline cursor %d: %v, want lost_timeline", lost, err)
+	}
+	epoch, _ := metaGet(rc, "epoch")
+	if epoch == epochA || len(epoch) != 32 {
+		t.Fatalf("epoch after the refusal %q, want a new one", epoch)
+	}
+	if _, err := ReadEvents(rc, epochA, 2, 2, ReplayPage); !errors.Is(err, ErrEpochChanged) {
+		t.Fatalf("old epoch after the refusal: %v", err)
+	}
+	if res, err := OpenGeneration(acct, rc, "r", "g3", epochB); err != nil || res.Epoch != epoch {
+		t.Fatalf("reopen after the refusal %+v %v, want epoch %s", res, err, epoch)
+	}
+}
+
+// TestRestoreSameGenCopyLostCursorAfterEvents: new events above the
+// skipped seqs do not make the lost cursor valid, not after a further
+// reopen either; the restored head's cursor gets the new events.
+func TestRestoreSameGenCopyLostCursorAfterEvents(t *testing.T) {
+	acct, rc, lost := sameGenRestore(t)
+	issue(t, acct, rc, 1)
+	if _, err := OpenGeneration(acct, rc, "r", "g3", epochB); err != nil {
+		t.Fatal(err)
+	}
+	barrier, _ := VisibleSeq(rc)
+	page, err := ReadEvents(rc, epochA, 2, barrier, ReplayPage)
+	if err != nil || len(page) != 1 || page[0].Seq != 1001 {
+		t.Fatalf("cursor at the restored head: %v %v, want seq 1001", page, err)
+	}
+	if _, err := ReadEvents(rc, epochA, lost, barrier, ReplayPage); !errors.Is(err, ErrLostTimeline) {
+		t.Fatalf("lost-timeline cursor %d below the new head %d: %v", lost, barrier, err)
+	}
+}
+
+// TestCrashReplayKeepsCursor: after a plain crash at seq 7 the cursor 7
+// replays nothing new, without an error and in the same epoch; the
+// visible seq stays 7 (not the lifted next_seq), and the next event,
+// above the reservation, reaches that cursor.
+func TestCrashReplayKeepsCursor(t *testing.T) {
+	acct := accountWith(t, "g0")
+	rc := routeFile(t, filepath.Join(dir(t), "r.db"), "g0")
+	if _, err := OpenGeneration(acct, rc, "r", "g1", epochB); err != nil {
+		t.Fatal(err)
+	}
+	issue(t, acct, rc, 7)
+	if res, err := OpenGeneration(acct, rc, "r", "g2", epochB); err != nil || res.Restored || res.Epoch != epochA {
+		t.Fatalf("reopen after the crash %+v %v", res, err)
+	}
+	barrier, _ := VisibleSeq(rc)
+	if barrier != 7 {
+		t.Fatalf("visible seq after the crash %d, want 7", barrier)
+	}
+	if page, err := ReadEvents(rc, epochA, 7, barrier, ReplayPage); err != nil || len(page) != 0 {
+		t.Fatalf("cursor 7 after a plain crash: %d %v", len(page), err)
+	}
+	if epoch, _ := metaGet(rc, "epoch"); epoch != epochA {
+		t.Fatalf("epoch after the replay %q", epoch)
+	}
+	issue(t, acct, rc, 1)
+	barrier, _ = VisibleSeq(rc)
+	page, err := ReadEvents(rc, epochA, 7, barrier, ReplayPage)
+	if err != nil || len(page) != 1 || page[0].Seq != 1001 {
+		t.Fatalf("cursor 7 after the next event: %v %v", page, err)
 	}
 }

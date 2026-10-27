@@ -89,8 +89,10 @@ type keptFiles struct {
 
 // keepOpen returns a checked descriptor of path and the release that
 // gives it back: a kept descriptor of the inode at path when there is one,
-// else a new one from openRegular, kept until its inode's last release.
-// The caller holds openMu.
+// else a new one, kept until its inode's last release. Either is checked
+// (checkRegular) through the descriptor, every time; a refused descriptor
+// of a kept inode stays kept, never closed, since a connection of this
+// process holds locks there (S27N1-1 F2). The caller holds openMu.
 func keepOpen(path string, create bool) (*os.File, func(), error) {
 	var f *os.File
 	if st, err := os.Lstat(path); err == nil {
@@ -105,7 +107,7 @@ func keepOpen(path string, create bool) (*os.File, func(), error) {
 	}
 	if f == nil {
 		var err error
-		if f, err = openRegular(path, create); err != nil {
+		if f, err = openFile(path, create); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -116,12 +118,21 @@ func keepOpen(path string, create bool) (*os.File, func(), error) {
 	}
 	key := inodeOf(st)
 	k := kept[key]
+	err = checkRegular(st, path)
 	if k == nil {
+		if err != nil {
+			// No connection of this process holds this inode.
+			_ = f.Close()
+			return nil, nil, err
+		}
 		k = &keptFiles{}
 		kept[key] = k
 	}
 	if !slices.Contains(k.files, f) {
 		k.files = append(k.files, f)
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 	k.conns++
 	var once sync.Once
@@ -135,6 +146,7 @@ func keepOpen(path string, create bool) (*os.File, func(), error) {
 				}
 				delete(kept, key)
 			}
+			closeParked()
 		})
 	}, nil
 }
