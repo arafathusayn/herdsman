@@ -34,3 +34,19 @@ jobs:
         run: make build && ./bin/herdsman version
       - name: Release config
         run: make release-check
+
+  web-e2e:
+    # The built web app and its forms in headless Chrome against a mock API.
+    # GitHub's Ubuntu image ships Google Chrome; the checks find it on PATH.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Bun types (global, outside the repo)
+        run: make tools
+      - name: Chrome
+        run: google-chrome --version
+      - name: Browser checks
+        run: make web-e2e

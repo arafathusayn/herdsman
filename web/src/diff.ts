@@ -2,6 +2,12 @@
 // with their old and new line numbers.
 
 export interface DiffLine {
+  /**
+   * The line's id within its file's diff, assigned in order as the section is
+   * parsed: unique among its lines (hunk headers and notes included, which
+   * have no line numbers), and the same each time the same section is parsed.
+   */
+  id: number;
   kind: "add" | "del" | "ctx" | "hunk" | "note";
   old?: number;
   new?: number;
@@ -100,28 +106,35 @@ export function parseSection(lines: string[]): DiffLine[] {
   let n = 0;
   let inHunk = false;
   for (const l of lines) {
+    const id = out.length;
     const m = hunkPattern.exec(l);
     if (m) {
       o = Number(m[1]);
       n = Number(m[2]);
       inHunk = true;
-      out.push({ kind: "hunk", text: l });
+      out.push({ id, kind: "hunk", text: l });
       continue;
     }
     if (!inHunk) {
-      if (l.startsWith("Binary files")) out.push({ kind: "note", text: "Binary file; no lines to show." });
+      if (l.startsWith("Binary files")) out.push({ id, kind: "note", text: "Binary file; no lines to show." });
       continue;
     }
-    if (l.startsWith("+")) out.push({ kind: "add", new: n++, text: l.slice(1) });
-    else if (l.startsWith("-")) out.push({ kind: "del", old: o++, text: l.slice(1) });
-    else if (l.startsWith(" ")) out.push({ kind: "ctx", old: o++, new: n++, text: l.slice(1) });
-    else if (l.startsWith("\\")) out.push({ kind: "note", text: l.slice(2) });
+    if (l.startsWith("+")) out.push({ id, kind: "add", new: n++, text: l.slice(1) });
+    else if (l.startsWith("-")) out.push({ id, kind: "del", old: o++, text: l.slice(1) });
+    else if (l.startsWith(" ")) out.push({ id, kind: "ctx", old: o++, new: n++, text: l.slice(1) });
+    else if (l.startsWith("\\")) out.push({ id, kind: "note", text: l.slice(2) });
   }
   return out;
 }
 
-/** One row of the side-by-side view: a hunk or note across both sides, or a line on either side. */
-export type SplitRow = { kind: "hunk" | "note"; text: string } | { left: DiffLine | null; right: DiffLine | null };
+/**
+ * One row of the side-by-side view: a hunk or note across both sides, or a
+ * line on either side. Its id is the id of its hunk or note line, or of its
+ * left line (its right line when the left is blank): each line is in one
+ * row, so ids are unique among the rows.
+ */
+export type SplitRow =
+  { id: number; kind: "hunk" | "note"; text: string } | { id: number; left: DiffLine | null; right: DiffLine | null };
 
 /**
  * Lays diff lines out side by side, as editors show a two-pane diff: a
@@ -134,8 +147,10 @@ export function sideBySide(lines: DiffLine[]): SplitRow[] {
   let dels: DiffLine[] = [];
   let adds: DiffLine[] = [];
   const flush = () => {
-    for (let i = 0; i < Math.max(dels.length, adds.length); i++)
-      out.push({ left: dels[i] ?? null, right: adds[i] ?? null });
+    for (let i = 0; i < Math.max(dels.length, adds.length); i++) {
+      const first = dels[i] ?? adds[i];
+      if (first) out.push({ id: first.id, left: dels[i] ?? null, right: adds[i] ?? null });
+    }
     dels = [];
     adds = [];
   };
@@ -147,8 +162,8 @@ export function sideBySide(lines: DiffLine[]): SplitRow[] {
     } else if (l.kind === "add") adds.push(l);
     else {
       flush();
-      if (l.kind === "ctx") out.push({ left: l, right: l });
-      else out.push({ kind: l.kind, text: l.text });
+      if (l.kind === "ctx") out.push({ id: l.id, left: l, right: l });
+      else out.push({ id: l.id, kind: l.kind, text: l.text });
     }
   }
   flush();

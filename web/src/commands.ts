@@ -11,8 +11,8 @@ import {
   noHighlight,
   termSchemes,
 } from "./appearance.ts";
-import { icons } from "./dom.ts";
 import { loadHosts } from "./hosts.ts";
+import { icons } from "./icons.ts";
 import { type Index, type Member, routeLabel, statusLabel, team } from "./model.ts";
 import { type Command, sidebarKeys } from "./palette.ts";
 import { type App, type RouteTab, store } from "./store.ts";

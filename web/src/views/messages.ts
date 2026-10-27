@@ -4,9 +4,22 @@
 // only when its message is opened, and never for unverified entries.
 import { messageBody } from "../api.ts";
 import { describeFlag, kindLabel, stateLabel, stateTip } from "../channel.ts";
-import { h, icon, icons, mount } from "../dom.ts";
+import {
+  attr,
+  child,
+  cls,
+  html,
+  list,
+  type ListNode,
+  on,
+  text,
+  update,
+  type ViewNodeOf,
+} from "../herdsman-blocks-view.ts";
+import { icon, type IconNode, icons } from "../icons.ts";
 import { store } from "../store.ts";
 import type { Channel, ChannelMessage } from "../types.ts";
+import { element } from "./element-view.ts";
 
 function when(t: number): string {
   const d = new Date(t * 1000);
@@ -23,249 +36,309 @@ function seconds(n: number): string {
   return `${Math.round(n / 3600)}h ago`;
 }
 
+const MsgText = html`<pre class="msg-text">${text()}</pre>`;
+// A field is a term and its value, siblings in the list: two items.
+const Term = html`<dt>${text()}</dt>`;
+const Value = html`<dd>${text()}</dd>`;
+type FieldPart = ViewNodeOf<typeof Term> | ViewNodeOf<typeof Value>;
+const Fields = html`<dl class="msg-fields">${child<ListNode<FieldPart, string>>()}</dl>`;
+const JsonBody = html`<div>
+  ${child<ViewNodeOf<typeof MsgText> | null>()}${child<ViewNodeOf<typeof Fields> | null>()}
+</div>`;
+
+type BodyNode = ViewNodeOf<typeof MsgText> | ViewNodeOf<typeof JsonBody>;
+
 /** A body as the parties write it: versioned JSON with a text field, or plain text. */
-function renderBody(body: string): HTMLElement {
+function renderBody(body: string): BodyNode {
   let v: unknown;
   try {
     v = JSON.parse(body);
   } catch {
-    return h("pre", { class: "msg-text" }, body);
+    return MsgText([body]);
   }
-  if (!v || typeof v !== "object" || Array.isArray(v)) return h("pre", { class: "msg-text" }, body);
-  const o = v as Record<string, unknown>;
-  const rest = Object.entries(o).filter(([k]) => k !== "text" && k !== "version");
-  return h(
-    "div",
-    null,
-    typeof o["text"] === "string" ? h("pre", { class: "msg-text" }, o["text"]) : null,
-    rest.length
-      ? h(
-          "dl",
-          { class: "msg-fields" },
-          rest.map(([k, val]) => [
-            h("dt", null, k),
-            h("dd", null, typeof val === "string" ? val : JSON.stringify(val)),
-          ]),
-        )
+  if (!v || typeof v !== "object" || Array.isArray(v)) return MsgText([body]);
+  const said: unknown = "text" in v ? v.text : undefined;
+  // A JSON object's keys are unique, so each keys its term and its value.
+  const parts = Object.entries(v)
+    .filter(([k]) => k !== "text" && k !== "version")
+    .flatMap(([k, val]: [string, unknown]) => [
+      { key: `${k}|dt`, text: k, term: true },
+      { key: `${k}|dd`, text: typeof val === "string" ? val : JSON.stringify(val), term: false },
+    ]);
+  return JsonBody([
+    typeof said === "string" ? MsgText([said]) : null,
+    parts.length
+      ? Fields([
+          list(
+            parts,
+            (p) => p.key,
+            (p): FieldPart => (p.term ? Term([p.text]) : Value([p.text])),
+          ),
+        ])
       : null,
-  );
+  ]);
 }
 
+const Loading = html`<p class="muted">Reading the message channel…</p>`;
+const NoChannel = html`<div class="empty">
+  ${child<IconNode>()}
+  <h2>No message channel</h2>
+  <p>${text()}<code>${text()}</code>${text()}<code>HERDSMAN_INBOX</code>${text()}</p>
+</div>`;
+const ChannelError = html`<div class="empty">
+  <h2>Cannot read the message channel</h2>
+  <p>${text()}</p>
+</div>`;
+
+const Peer = html`<button
+  type="button"
+  class=${cls()}
+  disabled=${attr<boolean>()}
+  title=${attr()}
+  onclick=${on<"click">()}
+>
+  <span class="msg-role">${text()}</span><span class="msg-name">${text()}</span>
+</button>`;
+const Chip = html`<span class=${cls()} data-tip=${attr<string | null>()}>${text()}</span>`;
+type ChipList = ListNode<ViewNodeOf<typeof Chip>, string>;
+const Head = html`<div class="msg-head">
+  <div class="msg-pair">${child<ViewNodeOf<typeof Peer>>()}${child<IconNode>()}${child<ViewNodeOf<typeof Peer>>()}</div>
+  <div class="msg-chips">
+    ${child<ViewNodeOf<typeof Chip>>()}${child<ChipList>()}${child<ChipList>()}${child<ChipList>()}${child<ChipList>()}
+  </div>
+</div>`;
+
+const Alert = html`<div class="msg-alert"><strong>${text()}</strong><span>${text()}</span></div>`;
+const Alerts = html`<div class="msg-alerts" role="alert">${child<ListNode<ViewNodeOf<typeof Alert>, string>>()}</div>`;
+
+const Reply = html`<a class="msg-reply" href=${attr()} onclick=${on<"click">()}>${text()}</a>`;
+const Toggle = html`<button
+  type="button"
+  class="btn ghost msg-toggle"
+  aria-expanded=${attr<"true" | "false">()}
+  onclick=${on<"click">()}
+>
+  ${child<IconNode>()}${text()}
+</button>`;
+const Note = html`<p class="msg-note">${text()}</p>`;
+const BodyError = html`<p class="error">${text()}</p>`;
+const BodyLoading = html`<p class="muted">Loading…</p>`;
+const Body = html`<div class="msg-body">
+  ${child<BodyNode | ViewNodeOf<typeof BodyError> | ViewNodeOf<typeof BodyLoading>>()}
+</div>`;
+const Message = html`<li class=${cls()} id=${attr()}>
+  <div class="msg-meta">
+    <span class=${cls()}>${text()}</span><span class="msg-route">${text()}</span
+    ><span class=${cls()} data-tip=${attr<string | null>()}>${text()}</span><time title=${attr()}>${text()}</time>
+  </div>
+  <div class="msg-sub"><code>${text()}</code>${child<ViewNodeOf<typeof Reply> | null>()}</div>
+  ${child<ViewNodeOf<typeof Toggle> | ViewNodeOf<typeof Note>>()}${child<ViewNodeOf<typeof Body> | null>()}
+</li>`;
+const Thread = html`<ol class="msg-thread">
+  ${child<ListNode<ViewNodeOf<typeof Message>, string>>()}
+</ol>`;
+const NoMessages = html`<p class="muted msg-none">No messages yet. The pair's first message is the handshake.</p>`;
+
+const Messages = html`<div class="messages">
+  ${child<
+    | ViewNodeOf<typeof Loading>
+    | ViewNodeOf<typeof NoChannel>
+    | ViewNodeOf<typeof ChannelError>
+    | ViewNodeOf<typeof Head>
+    | null
+  >()}${child<ViewNodeOf<typeof Alerts> | null>()}${child<
+    ViewNodeOf<typeof Thread> | ViewNodeOf<typeof NoMessages> | null
+  >()}
+</div>`;
+
+type Peers = { adjutant: string; orchestrator: string };
+type Loaded = { text?: string; error?: string };
+
 export class MessagesView {
-  readonly el = h("div", { class: "messages" });
-  private readonly bodies = new Map<string, { text?: string; error?: string }>();
+  /** The view's root, made once; render() patches what is in it. */
+  readonly el: HTMLElement;
+  private readonly bodies = new Map<string, Loaded>();
   private readonly expanded = new Set<string>();
   private lastKey = "";
 
-  render(ch: Channel | null, panes: { adjutant: string; orchestrator: string }): void {
+  constructor() {
+    this.el = element("div", Messages([null, null, null]));
+  }
+
+  render(ch: Channel | null, panes: Peers): void {
     const key = JSON.stringify([ch, panes, [...this.expanded], [...this.bodies.keys()]]);
     if (key === this.lastKey) return;
     this.lastKey = key;
-    if (!ch) {
-      mount(this.el, h("p", { class: "muted" }, "Reading the message channel…"));
-      return;
-    }
-    if (!ch.configured) {
-      mount(
-        this.el,
-        h(
-          "div",
-          { class: "empty" },
-          icon(icons.message),
-          h("h2", null, "No message channel"),
-          h(
-            "p",
-            null,
-            "With an adjutant, the user talks to it and it relays to the orchestrator through herdsman messages. Start ",
-            h("code", null, "herdsman web --inbox <private inbox folder>"),
-            " (or set ",
-            h("code", null, "HERDSMAN_INBOX"),
-            ") to show them here.",
-          ),
-        ),
-      );
-      return;
-    }
-    if (ch.error) {
-      mount(
-        this.el,
-        h("div", { class: "empty" }, h("h2", null, "Cannot read the message channel"), h("p", null, ch.error)),
-      );
-      return;
-    }
-    mount(this.el, this.header(ch, panes), this.alerts(ch), this.thread(ch));
+    update(
+      this.el,
+      !ch
+        ? Messages([Loading([]), null, null])
+        : !ch.configured
+          ? Messages([
+              NoChannel([
+                icon(icons.message),
+                "With an adjutant, the user talks to it and it relays to the orchestrator through herdsman messages. Start ",
+                "herdsman web --inbox <private inbox folder>",
+                " (or set ",
+                ") to show them here.",
+              ]),
+              null,
+              null,
+            ])
+          : ch.error
+            ? Messages([ChannelError([ch.error]), null, null])
+            : Messages([this.header(ch, panes), this.alerts(ch), this.thread(ch)]),
+    );
   }
 
-  private header(ch: Channel, panes: { adjutant: string; orchestrator: string }): HTMLElement {
+  private header(ch: Channel, panes: Peers): ViewNodeOf<typeof Head> {
     const peer = (role: "adjutant" | "orchestrator") => {
       const p = ch.peers.find((x) => x.role === role);
       const pane = p?.pane || panes[role];
-      return h(
-        "button",
-        {
-          type: "button",
-          class: `msg-peer ${role}`,
-          disabled: !pane,
-          title: pane ? `Open ${role} pane ${pane}` : `No ${role} enrolled`,
-          onclick: () => pane && store.go({ pane }),
-        },
-        h("span", { class: "msg-role" }, role === "adjutant" ? "Adjutant" : "Orchestrator"),
-        h("span", { class: "msg-name" }, p?.name ?? "—"),
-      );
+      return Peer([
+        `msg-peer ${role}`,
+        !pane,
+        pane ? `Open ${role} pane ${pane}` : `No ${role} enrolled`,
+        () => pane && store.go({ pane }),
+        role === "adjutant" ? "Adjutant" : "Orchestrator",
+        p?.name ?? "—",
+      ]);
     };
     const boxes = ch.boxes.filter((b) => b.unacked || b.claim !== "none" || b.counts["quarantine"] || b.orphan);
-    return h(
-      "div",
-      { class: "msg-head" },
-      h("div", { class: "msg-pair" }, peer("adjutant"), icon(icons.arrow), peer("orchestrator")),
-      h(
-        "div",
-        { class: "msg-chips" },
-        h(
-          "span",
-          {
-            class: ch.approved ? "chip ok" : "chip warn",
-            "data-tip": ch.approved
-              ? "The human approved this pair; delivery runs"
-              : "A registry change waits for the human's approval; delivery is held",
-          },
-          ch.approved ? "Pair approved" : "Approval pending",
-        ),
-        ch.health.map((s) =>
-          h(
-            "span",
-            {
-              class: s.ok ? "chip ok" : "chip bad",
-              "data-tip": `Heartbeat ${seconds(s.age)}; down after ${ch.health_after}s`,
-            },
+    return Head([
+      peer("adjutant"),
+      icon(icons.arrow),
+      peer("orchestrator"),
+      Chip([
+        ch.approved ? "chip ok" : "chip warn",
+        ch.approved
+          ? "The human approved this pair; delivery runs"
+          : "A registry change waits for the human's approval; delivery is held",
+        ch.approved ? "Pair approved" : "Approval pending",
+      ]),
+      list(
+        ch.health,
+        (s) => s.name,
+        (s) =>
+          Chip([
+            s.ok ? "chip ok" : "chip bad",
+            `Heartbeat ${seconds(s.age)}; down after ${ch.health_after}s`,
             `${s.name === "courier" ? "Courier" : "Watcher"} ${s.ok ? "up" : "down"}`,
-          ),
-        ),
-        (ch.flags ?? []).map((f) => {
-          const [text, tip] = describeFlag(f);
-          return h("span", { class: "chip bad", "data-tip": tip }, text);
-        }),
-        (ch.holds ?? []).map((x) =>
-          h(
-            "span",
-            {
-              class: "chip warn",
-              "data-tip": x.owners?.length
-                ? `Held by ${x.owners.map((o) => (o.reason ? `${o.by}: ${o.reason}` : o.by)).join("; ")}`
-                : "A hold or resume intent in the channel's state folder",
-            },
-            x.name,
-          ),
-        ),
-        boxes.map((b) =>
-          h(
-            "span",
-            { class: b.counts["quarantine"] || b.orphan ? "chip warn" : "chip" },
-            `${b.name}: ${b.unacked} unread`,
-            b.claim !== "none" ? ` · claim ${b.claim}` : "",
-            b.counts["quarantine"] ? ` · ${b.counts["quarantine"]} quarantined` : "",
-            b.orphan ? " · not enrolled" : "",
-          ),
-        ),
+          ]),
       ),
-    );
+      list(
+        [...new Set(ch.flags ?? [])], // a flag is keyed by its name, so repeats go
+        (f) => f,
+        (f) => {
+          const [label, tip] = describeFlag(f);
+          return Chip(["chip bad", tip, label]);
+        },
+      ),
+      list(
+        ch.holds ?? [],
+        (x) => x.name,
+        (x) =>
+          Chip([
+            "chip warn",
+            x.owners?.length
+              ? `Held by ${x.owners.map((o) => (o.reason ? `${o.by}: ${o.reason}` : o.by)).join("; ")}`
+              : "A hold or resume intent in the channel's state folder",
+            x.name,
+          ]),
+      ),
+      list(
+        boxes,
+        (b) => b.name,
+        (b) =>
+          Chip([
+            b.counts["quarantine"] || b.orphan ? "chip warn" : "chip",
+            null,
+            `${b.name}: ${b.unacked} unread` +
+              (b.claim !== "none" ? ` · claim ${b.claim}` : "") +
+              (b.counts["quarantine"] ? ` · ${b.counts["quarantine"]} quarantined` : "") +
+              (b.orphan ? " · not enrolled" : ""),
+          ]),
+      ),
+    ]);
   }
 
-  private alerts(ch: Channel): HTMLElement | null {
+  private alerts(ch: Channel): ViewNodeOf<typeof Alerts> | null {
     if (!ch.alerts.length) return null;
-    return h(
-      "div",
-      { class: "msg-alerts", role: "alert" },
-      ch.alerts.map((a) => h("div", { class: "msg-alert" }, h("strong", null, a.title), h("span", null, a.body))),
-    );
+    // An alert is keyed by its title and body, so an exact repeat shows once.
+    const byKey = new Map(ch.alerts.map((a) => [`${a.title}|${a.body}`, a]));
+    return Alerts([
+      list(
+        [...byKey],
+        ([k]) => k,
+        ([, a]) => Alert([a.title, a.body]),
+      ),
+    ]);
   }
 
-  private thread(ch: Channel): HTMLElement {
-    if (!ch.messages.length)
-      return h("p", { class: "muted msg-none" }, "No messages yet. The pair's first message is the handshake.");
+  private thread(ch: Channel): ViewNodeOf<typeof Thread> | ViewNodeOf<typeof NoMessages> {
+    if (!ch.messages.length) return NoMessages([]);
     const roles = new Map(ch.peers.map((p) => [p.name, p.role]));
     const ids = new Set(ch.messages.map((m) => m.id));
-    return h(
-      "ol",
-      { class: "msg-thread" },
-      [...ch.messages].reverse().map((m) => {
-        const side = roles.get(m.from) === "orchestrator" ? "right" : "left";
-        const label = stateLabel(m);
-        const open = this.expanded.has(m.id);
-        const body = this.bodies.get(m.id);
-        const readable = m.state === "ready" || m.state === "cur";
-        return h(
-          "li",
-          { class: `msg ${side} k-${m.kind}${m.state === "quarantine" ? " quarantined" : ""}`, id: `msg-${m.id}` },
-          h(
-            "div",
-            { class: "msg-meta" },
-            h("span", { class: `msg-kind k-${m.kind}` }, kindLabel[m.kind] ?? m.kind),
-            h("span", { class: "msg-route" }, `${m.from} → ${m.to}`),
-            h(
-              "span",
-              { class: `msg-state s-${label.replace(" ", "-").toLowerCase()}`, "data-tip": stateTip[label] },
-              label,
-            ),
-            h("time", { title: new Date(m.time * 1000).toLocaleString() }, when(m.time)),
-          ),
-          h(
-            "div",
-            { class: "msg-sub" },
-            h("code", null, m.id),
+    return Thread([
+      list(
+        [...ch.messages].reverse(),
+        (m) => m.id,
+        (m) => {
+          const side = roles.get(m.from) === "orchestrator" ? "right" : "left";
+          const label = stateLabel(m);
+          const open = this.expanded.has(m.id);
+          const readable = m.state === "ready" || m.state === "cur";
+          return Message([
+            `msg ${side} k-${m.kind}${m.state === "quarantine" ? " quarantined" : ""}`,
+            `msg-${m.id}`,
+            `msg-kind k-${m.kind}`,
+            kindLabel[m.kind] ?? m.kind,
+            `${m.from} → ${m.to}`,
+            `msg-state s-${label.replace(" ", "-").toLowerCase()}`,
+            stateTip[label] ?? null,
+            label,
+            new Date(m.time * 1000).toLocaleString(),
+            when(m.time),
+            m.id,
             m.reply_to
-              ? h(
-                  "a",
-                  {
-                    class: "msg-reply",
-                    href: `#msg-${m.reply_to}`,
-                    onclick: (e: Event) => {
-                      e.preventDefault();
-                      if (ids.has(m.reply_to))
-                        document
-                          .getElementById(`msg-${m.reply_to}`)
-                          ?.scrollIntoView({ block: "center", behavior: "smooth" });
-                    },
+              ? Reply([
+                  `#msg-${m.reply_to}`,
+                  (e) => {
+                    e.preventDefault();
+                    if (ids.has(m.reply_to))
+                      document
+                        .getElementById(`msg-${m.reply_to}`)
+                        ?.scrollIntoView({ block: "center", behavior: "smooth" });
                   },
                   `↩ ${m.reply_to}`,
-                )
+                ])
               : null,
-          ),
-          readable
-            ? h(
-                "button",
-                {
-                  type: "button",
-                  class: "btn ghost msg-toggle",
-                  "aria-expanded": String(open),
-                  onclick: () => this.toggle(m),
-                },
-                icon(icons.chevronDown),
-                open ? "Hide" : "Show message",
-              )
-            : h(
-                "p",
-                { class: "msg-note" },
-                m.state === "quarantine"
-                  ? "Failed the courier's checks. The body is not shown; the sender must send a fresh message."
-                  : "Waiting for the courier to verify it.",
-              ),
-          open && readable
-            ? h(
-                "div",
-                { class: "msg-body" },
-                body?.text !== undefined
-                  ? renderBody(body.text)
-                  : body?.error
-                    ? h("p", { class: "error" }, body.error)
-                    : h("p", { class: "muted" }, "Loading…"),
-              )
-            : null,
-        );
-      }),
-    );
+            readable
+              ? Toggle([
+                  open ? "true" : "false",
+                  () => this.toggle(m),
+                  icon(icons.chevronDown),
+                  open ? "Hide" : "Show message",
+                ])
+              : Note([
+                  m.state === "quarantine"
+                    ? "Failed the courier's checks. The body is not shown; the sender must send a fresh message."
+                    : "Waiting for the courier to verify it.",
+                ]),
+            open && readable ? Body([this.body(m.id)]) : null,
+          ]);
+        },
+      ),
+    ]);
   }
 
+  private body(id: string): BodyNode | ViewNodeOf<typeof BodyError> | ViewNodeOf<typeof BodyLoading> {
+    const b = this.bodies.get(id);
+    if (b?.text !== undefined) {
+      return renderBody(b.text);
+    }
+    return b?.error ? BodyError([b.error]) : BodyLoading([]);
+  }
   private toggle(m: ChannelMessage): void {
     if (this.expanded.has(m.id)) this.expanded.delete(m.id);
     else {
