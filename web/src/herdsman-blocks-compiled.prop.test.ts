@@ -45,6 +45,7 @@ interface Family {
     items: readonly unknown[],
     key: (i: never) => string | number,
     render: (i: never) => never,
+    options?: { readonly pure?: boolean },
   ) => unknown;
   readonly runs: (items: readonly unknown[]) => unknown;
 }
@@ -60,7 +61,9 @@ const markerOf: Record<HoleKind, () => number> = {
 };
 
 const strings = (parts: readonly string[]): TemplateStringsArray =>
-  Object.assign(parts.slice(), { raw: parts.slice() }) as unknown as TemplateStringsArray;
+  Object.assign(parts.slice(), {
+    raw: parts.slice(),
+  }) as unknown as TemplateStringsArray;
 
 type Tag = (s: TemplateStringsArray, ...h: number[]) => ViewFn;
 
@@ -249,7 +252,11 @@ function shapeGen(c: Choices): Shape {
     sh.parts[sh.parts.length - 1] += "</g>";
     return sh;
   }
-  const sh: Shape = { parts: [c.bool() ? "<section>" : '<div class="root">\n'], kinds: [], svg: false };
+  const sh: Shape = {
+    parts: [c.bool() ? "<section>" : '<div class="root">\n'],
+    kinds: [],
+    svg: false,
+  };
   htmlItems(c, sh, 0);
   sh.parts[sh.parts.length - 1] += sh.parts[0]!.startsWith("<section") ? "</section>" : "</div>";
   return sh;
@@ -266,9 +273,25 @@ type ChildRecipe =
   | { readonly t: "strong"; readonly v: string }
   | { readonly t: "node"; readonly v: string }
   | { readonly t: "list"; readonly ids: readonly number[]; readonly v: string }
-  | { readonly t: "lanes"; readonly lanes: readonly { readonly id: string; readonly ids: readonly number[] }[] }
+  | {
+      readonly t: "lanes";
+      readonly lanes: readonly {
+        readonly id: string;
+        readonly ids: readonly number[];
+      }[];
+    }
   | { readonly t: "dots"; readonly ids: readonly number[] }
-  | { readonly t: "runs"; readonly runs: readonly (string | { readonly em: string })[] };
+  // Items kept per run and relabeled in place (same objects), by one stable render function.
+  | {
+      readonly t: "objs";
+      readonly ids: readonly number[];
+      readonly label: string;
+      readonly pure: boolean;
+    }
+  | {
+      readonly t: "runs";
+      readonly runs: readonly (string | { readonly em: string })[];
+    };
 
 type ValueRecipe = string | number | boolean | null | ChildRecipe | { readonly handler: number };
 
@@ -300,7 +323,14 @@ const childGen = (c: Choices): ChildRecipe => {
       return { t: "lanes", lanes };
     }
     case 7:
-      return { t: "dots", ids: ids(c) };
+      return c.bool()
+        ? { t: "dots", ids: ids(c) }
+        : {
+            t: "objs",
+            ids: ids(c),
+            label: c.pick(["k", "l"]),
+            pure: PURE_LISTS && c.bool(),
+          };
     default: {
       const n = c.int(4);
       const rs: (string | { em: string })[] = [];
@@ -328,7 +358,8 @@ const valueGen = (c: Choices, kind: HoleKind, version: number): ValueRecipe => {
   }
 };
 
-type Mode = "render" | "direct" | "mount";
+// inmount: render() into a root made by mount() (a container that is also a view's root, like a dialog).
+type Mode = "render" | "direct" | "mount" | "inmount";
 
 interface Case {
   readonly shape: Shape;
@@ -338,7 +369,7 @@ interface Case {
 
 const caseGen: Gen<Case> = (c) => {
   const shape = shapeGen(c);
-  const mode = c.pick(["render", "render", "direct", "mount"] as const);
+  const mode = c.pick(["render", "render", "direct", "mount", "inmount"] as const);
   const n = 2 + c.int(4);
   const versions: ValueRecipe[][] = [];
   for (let v = 0; v < n; v++) {
@@ -376,6 +407,18 @@ function kids(f: Family): Kids {
   }
   return k;
 }
+
+// Whether the view layer takes list(..., { pure }) yet; until then only impure lists are compared.
+const PURE_LISTS = false;
+
+// Per run (its log): the items of "objs" lists by id, and their one render function.
+const stores = new WeakMap<
+  string[],
+  {
+    items: Map<number, { id: number; label: string }>;
+    render: (o: never) => never;
+  }
+>();
 
 function realizeChild(f: Family, r: ChildRecipe, log: string[]): unknown {
   const K = kids(f);
@@ -416,6 +459,22 @@ function realizeChild(f: Family, r: ChildRecipe, log: string[]): unknown {
         ((id: number) => id) as never,
         ((id: number) => K.Dot([id, id % 2 ? "odd" : null])) as never,
       );
+    case "objs": {
+      let st = stores.get(log);
+      if (st === undefined) {
+        const render = ((o: { id: number; label: string }) => K.Card([`c${o.id % 2}`, o.label])) as never;
+        stores.set(log, (st = { items: new Map(), render }));
+      }
+      const items = r.ids.map((id) => {
+        let o = st.items.get(id);
+        if (o === undefined) st.items.set(id, (o = { id, label: "" }));
+        o.label = `${r.label}${id}`; // in place: the same object, a new label
+        return o;
+      });
+      return f.list(items, ((o: { id: number }) => o.id) as never, st.render, {
+        pure: r.pure,
+      });
+    }
     case "runs":
       return f.runs(
         r.runs.map((x) =>
@@ -520,8 +579,15 @@ function step(f: Family, run: Run, shape: Shape, mode: Mode, vals: readonly Valu
   const values = realize(f, shape.kinds, vals, run.log);
   const d = V(values) as never;
   const host = shape.svg ? (run.page.firstChild as FakeElement) : run.page;
+  if (mode === "inmount" && run.root === null) {
+    // Made before the step's DOM work is counted: only the render into it counts.
+    const Host = f.view(['<div class="host" onclick=', "></div>"], ["on"], false);
+    run.root = f.mount(Host([() => run.log.push("host")]) as never);
+    host.appendChild(run.root as unknown as FakeNode);
+  }
   const before = opsNow();
-  if (mode === "mount") {
+  if (mode === "inmount") f.render(run.root!, d);
+  else if (mode === "mount") {
     if (run.root === null) {
       run.root = f.mount(d);
       host.appendChild(run.root as unknown as FakeNode);
@@ -551,7 +617,12 @@ describe("compiled views equal the view layer", () => {
         for (let s = 0; s < versions.length; s++) {
           const results = runs.map(({ f, run }) => {
             const work = step(f, run, shape, mode, versions[s]!);
-            return { dom: canon(run.page), nodes: structure(run.page), work, events: fire(run.page, run.log) };
+            return {
+              dom: canon(run.page),
+              nodes: structure(run.page),
+              work,
+              events: fire(run.page, run.log),
+            };
           });
           for (let k = 1; k < results.length; k++) {
             const name = `${runs[k]!.f.name} vs ${runs[0]!.f.name}, step ${s}, ${mode}`;
@@ -561,5 +632,38 @@ describe("compiled views equal the view layer", () => {
       },
       2500,
     );
+  });
+});
+
+describe("pure lists", () => {
+  test("a pure list skips rows whose item and render function are unchanged; an impure one updates every survivor", () => {
+    for (const f of FAMILIES.slice(1)) {
+      const Row = f.view(["<li>", "</li>"], ["text"], false);
+      const Box = f.view(["<ul>", "</ul>"], ["child"], false);
+      for (const pure of [true, false]) {
+        const page = document.createElement("main") as unknown as FakeElement;
+        const items = [
+          { id: 1, label: "a" },
+          { id: 2, label: "b" },
+        ];
+        const render = ((o: { label: string }) => Row([o.label])) as never;
+        const show = (xs: readonly { id: number; label: string }[], r: never = render): void =>
+          f.render(asDom(page), Box([f.list(xs, ((o: { id: number }) => o.id) as never, r, { pure })]) as never);
+        show(items);
+        items[0]!.label = "A"; // in place
+        show(items.slice());
+        expect({ f: f.name, pure, dom: canon(page) }).toEqual({
+          f: f.name,
+          pure,
+          dom: `<ul><li>"${pure ? "a" : "A"}"</><li>"b"</></>`,
+        });
+        // A new object, or a new render function, renders again.
+        show([{ id: 1, label: "A" }, items[1]!]);
+        expect(canon(page)).toBe(`<ul><li>"A"</><li>"b"</></>`);
+        items[1]!.label = "B";
+        show([{ id: 1, label: "A" }, items[1]!], ((o: { label: string }) => Row([o.label])) as never);
+        expect(canon(page)).toBe(`<ul><li>"A"</><li>"B"</></>`);
+      }
+    }
   });
 });

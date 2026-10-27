@@ -92,16 +92,29 @@ export function svg<const H extends readonly AnyHole[]>(
   return v as unknown as View<ValuesOf<H>, "svg">;
 }
 
+/** Options of list(). */
+export interface ListOptions {
+  /**
+   * Rows are pure functions of their items: a row whose item is the same
+   * object as last time (===), rendered by the same function, is not
+   * rendered again. Without it every surviving row is updated, so items
+   * mutated in place still show their new state.
+   */
+  readonly pure?: boolean;
+}
+
 /** A keyed list for a child hole: `render(item)` describes each item. */
 export function list<T, K extends Key, N extends ViewNode>(
   items: readonly T[],
   key: (item: NoInfer<T>) => K,
   render: (item: NoInfer<T>) => N,
+  options?: ListOptions,
 ): ListNode<N, K> {
   return new ListOf(
     items as readonly unknown[],
     key as (item: unknown) => Key,
     render as (item: unknown) => ViewNode,
+    options?.pure === true,
   ) as unknown as ListNode<N, K>;
 }
 
@@ -220,6 +233,8 @@ export class Inst {
   s: unknown[] | null;
   /** Mounted by renderDirect: its handlers are on its elements, never delegated. */
   x: boolean;
+  /** As a list row: the item it was last rendered from (for pure lists). */
+  it: unknown = undefined;
   constructor(t: Def, r: Element, d: Desc, s: unknown[] | null, x: boolean) {
     this.t = t;
     this.r = r;
@@ -266,6 +281,7 @@ export function V(
   const n = kinds.length,
     eager = /[sph]/.test(kinds),
     handlers = /[dh]/.test(kinds),
+    directs = kinds.includes("h"),
     delegates = ty !== 0;
   const F: Fn[] = [];
   for (let i = 0; i < n; i++) if (kinds[i] === "d" || kinds[i] === "h") F[i] = tramp(i);
@@ -284,11 +300,10 @@ export function V(
       const s: unknown[] = new Array(n);
       wa(r, s);
       inst = new Inst(t, r, this, s, x);
-      if (handlers) (r as Holder)[STATE] = inst;
+      // Only trampolines look an instance up from its root; delegation finds it from the render root.
+      if (directs || (x && delegates)) (r as Holder)[STATE] = inst;
       (extras as Extras)(s, this, x, F);
-      return inst;
     }
-    if (handlers) (r as Holder)[STATE] = inst;
     return inst;
   };
   P.p = function (this: Desc, i: Inst): void {
@@ -297,7 +312,10 @@ export function V(
     i.d = this;
     if (patch !== 0) patch(i, this, o);
   };
-  const view = ((vals: Values) => new D(...vals)) as CompiledView & { i: () => CompiledView; D: DescCtor };
+  const view = ((vals: Values) => new D(...vals)) as CompiledView & {
+    i: () => CompiledView;
+    D: DescCtor;
+  };
   view.i = (): CompiledView => {
     if (T === null) {
       const tpl = document.createElement("template");
@@ -384,7 +402,7 @@ function patch(inst: Inst, d: Desc): void {
   inst.d = d;
   inst.s = fresh.s;
   inst.x = fresh.x;
-  if (t.h) (fresh.r as Holder)[STATE] = inst;
+  if ((fresh.r as Holder)[STATE] !== undefined) (fresh.r as Holder)[STATE] = inst;
 }
 
 // ---------------------------------------------------------------------------
@@ -494,7 +512,10 @@ class RDef implements Def {
 
 function runtimeView(t: AnyTemplate): View<Values> {
   const rd = new RDef(t);
-  const v = ((vals: Values) => new RDesc(rd, vals)) as unknown as { (vals: Values): unknown; template: AnyTemplate };
+  const v = ((vals: Values) => new RDesc(rd, vals)) as unknown as {
+    (vals: Values): unknown;
+    template: AnyTemplate;
+  };
   v.template = t;
   return v as unknown as View<Values>;
 }
@@ -519,16 +540,14 @@ class RDesc extends Desc {
     const root = t.clone(vals);
     const direct = dir && sh.delegates;
     if (!sh.eager && !direct) {
-      const inst = new Inst(sh, root, this, null, dir);
-      if (sh.h) (root as Holder)[STATE] = inst;
-      return inst;
+      return new Inst(sh, root, this, null, dir);
     }
     const n = sh.n,
       s: unknown[] = new Array(n);
     if (sh.eager) sh.findEager(root, s);
     if (direct) sh.fd(root, s);
     const inst = new Inst(sh, root, this, s, dir);
-    if (sh.h) (root as Holder)[STATE] = inst;
+    if (direct || sh.flags.includes(HANDLER)) (root as Holder)[STATE] = inst;
     const flags = sh.flags;
     for (let i = 0; i < n; i++) {
       const f = flags[i];
@@ -585,47 +604,71 @@ function listen(c: Container): void {
 
 function delegate(this: Container, e: Event): void {
   const type = e.type;
-  let els: Node[] | null = null,
-    insts: Inst[] | null = null,
-    holes: number[] | null = null,
-    pos: number[] | null = null;
+  // The path from the target up to the render root (the root itself only when
+  // it is a mount() root, whose own handlers count).
   const path: Node[] = [];
-  const self = this[SELF] !== undefined;
-  for (let node = e.target as Node | null; node !== null; node = node === this ? null : node.parentNode) {
-    if (node === this && !self) break;
-    path.push(node);
-    if (node !== this && (node as Container)[LISTENING] !== undefined) {
-      els = insts = holes = pos = null;
-      continue;
-    }
-    const inst = (node as Holder)[STATE];
-    if (inst === undefined || inst.x) continue;
+  const self = this[SELF];
+  for (let node = e.target as Node | null; node !== null && node !== this; node = node.parentNode) path.push(node);
+  if (self !== undefined) path.push(this);
+  // A mount() root can also be a render() container: both instances count.
+  const content = this[ROOT];
+  if (self === undefined && content === undefined) return;
+  // The instances on the path, found from the root's instance down through its
+  // child holes (a view, a list entry or a run whose root is on the path), so
+  // no instance needs a reference on its root element. Content that is not an
+  // instance (a node, another render root) is not entered: its own listener
+  // handles what is inside it.
+  const found: {
+    at: number;
+    depth: number;
+    i: number;
+    inst: Inst;
+    el: Node;
+  }[] = [];
+  const visit = (inst: Inst, depth: number): void => {
     const t = inst.t,
       types = t.ty;
-    if (types === null) continue;
-    for (let i = 0; i < t.n; i++) {
-      if (types[i] !== type) continue;
-      let s = inst.s;
-      if (s === null) s = inst.s = new Array(t.n);
-      if (s[i] === undefined) t.fd(inst.r, s);
-      const at = path.lastIndexOf(s[i] as Node);
-      if (at < 0) continue;
-      ((els ??= []), (insts ??= []), (holes ??= []), (pos ??= []));
-      let j = pos.length;
-      while (j > 0 && pos[j - 1]! > at) j--;
-      els.splice(j, 0, s[i] as Node);
-      insts.splice(j, 0, inst);
-      holes.splice(j, 0, i);
-      pos.splice(j, 0, at);
+    if (types !== null && !inst.x) {
+      for (let i = 0; i < t.n; i++) {
+        if (types[i] !== type) continue;
+        let s = inst.s;
+        if (s === null) s = inst.s = new Array(t.n);
+        if (s[i] === undefined) t.fd(inst.r, s);
+        const at = path.lastIndexOf(s[i] as Node);
+        if (at >= 0) found.push({ at, depth, i, inst, el: s[i] as Node });
+      }
     }
-  }
-  if (els === null) return;
+    const s = inst.s;
+    if (s === null) return;
+    for (const sl of s) {
+      if (!(sl instanceof Slot)) continue;
+      const at = path.indexOf(sl.parent);
+      if (at <= 0) continue;
+      const c = path[at - 1]!;
+      let next: Inst | undefined;
+      if (sl.kind === VIEW) next = sl.inst!.r === c ? sl.inst! : undefined;
+      else if (sl.kind === LIST) next = sl.list!.entries.find((x) => x.r === c);
+      else if (sl.kind === RUNS) next = sl.runs!.find((x): x is Inst => x instanceof Inst && x.r === c);
+      if (next !== undefined) visit(next, depth + 1);
+    }
+  };
+  if (self !== undefined) visit(self, 0);
+  if (content !== undefined && path.includes(content.r)) visit(content, 1);
+  if (found.length === 0) return;
+  // Innermost element first; on one element, the inner instance first, then hole order.
+  found.sort((a, b) => a.at - b.at || b.depth - a.depth || a.i - b.i);
+  const els = found.map((f) => f.el),
+    insts = found.map((f) => f.inst),
+    holes = found.map((f) => f.i);
   for (let k = 0; k < els.length; k++) {
     if (k > 0 && els[k] !== els[k - 1] && e.cancelBubble) break;
-    const f = insts![k]!.d.g(holes![k]!);
+    const f = insts[k]!.d.g(holes[k]!);
     if (typeof f !== "function") continue;
     const el = els[k]!;
-    Object.defineProperty(e, "currentTarget", { configurable: true, get: () => el });
+    Object.defineProperty(e, "currentTarget", {
+      configurable: true,
+      get: () => el,
+    });
     try {
       (f as (this: Node, e: Event) => unknown).call(el, e);
     } finally {
@@ -649,10 +692,17 @@ class ListOf {
   readonly items: readonly unknown[];
   readonly key: (item: unknown) => Key;
   readonly render: (item: unknown) => ViewNode;
-  constructor(items: readonly unknown[], key: (item: unknown) => Key, render: (item: unknown) => ViewNode) {
+  readonly pure: boolean;
+  constructor(
+    items: readonly unknown[],
+    key: (item: unknown) => Key,
+    render: (item: unknown) => ViewNode,
+    pure: boolean,
+  ) {
     this.items = items;
     this.key = key;
     this.render = render;
+    this.pure = pure;
   }
 }
 
@@ -686,6 +736,8 @@ export class Slot {
   list: List<unknown, Inst, Key> | null = null;
   key: (item: unknown) => Key = noKey;
   render: (item: unknown) => ViewNode = noRender;
+  /** This pass may skip rows whose item is unchanged: the list is pure and its render function the same as last time. */
+  skip = false;
   runs: (Text | Inst)[] | null = null;
   constructor(anchor: Node) {
     this.anchor = anchor as Text;
@@ -741,8 +793,16 @@ export function setChild(sl: Slot, v: unknown): void {
         anchor: alone ? null : sl.anchor,
         key: (item) => sl.key(item),
         root: instRoot,
-        create: (item) => (sl.render(item) as unknown as Desc).m(),
-        update: (inst, item) => patch(inst, sl.render(item) as unknown as Desc),
+        create: (item) => {
+          const inst = (sl.render(item) as unknown as Desc).m();
+          inst.it = item;
+          return inst;
+        },
+        update: (inst, item) => {
+          if (sl.skip && inst.it === item) return;
+          inst.it = item;
+          patch(inst, sl.render(item) as unknown as Desc);
+        },
       });
       return setList(sl, v as ListOf);
     }
@@ -788,6 +848,7 @@ const runRoot = (r: Text | Inst): Node => (r instanceof Inst ? r.r : r);
 
 function setList(sl: Slot, l: ListOf): void {
   sl.key = l.key;
+  sl.skip = l.pure && sl.render === l.render;
   sl.render = l.render;
   sl.list!.set(l.items);
 }
@@ -810,6 +871,7 @@ function clearChild(sl: Slot): void {
       sl.list = null;
       sl.key = noKey;
       sl.render = noRender;
+      sl.skip = false;
       if (sl.anchor.parentNode === null) sl.parent.appendChild(sl.anchor);
       break;
     case RUNS:
