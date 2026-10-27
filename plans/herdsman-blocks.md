@@ -545,6 +545,23 @@ Why branches mostly won here: in the prefix and suffix loops, the hole-kind swit
 1. **Batched cloning** (cloning a fragment of 10, 50 or 250 prefilled rows at once, as vanillajs-lite does) against one clone per row, timed to forced layout, medians of 41 runs for 1,000 rows and 15 runs for 10,000 rows: 1,000 rows took 34.6 ms singly and 36.1 to 39.6 ms batched; 10,000 rows took 409.6 ms singly and 407.6 to 422.3 ms batched. Batching brought no gain, so the library clones one row at a time.
 2. **State-preserving move against insertion**, 1,000 rows, medians of 31 runs: swapping two rows took 2.6 ms with `moveBefore` and 2.3 ms with `insertBefore`; reversing 999 rows took 29.2 ms and 31.6 ms. Same speed within noise. A focused input inside a moved row kept focus with `moveBefore` and lost it with `insertBefore`; `moveBefore` on a parent outside the document threw a hierarchy request error.
 
+### First fill: whitespace and detach (2026-10-27)
+
+One interleaved experiment on the low-level entry, both factors changing only a list's first fill: removing the owned parent's leftover whitespace text (the page's indentation inside `<tbody>`) before filling, and `detach` (take the parent out of the document while filling). 6 rounds, rotated and reversed, 60 samples per test, with an A/A pair and vanillajs-lite; two-sided 90% bootstrap CIs.
+
+| variant | score | ratio to base, 90% CI | notes |
+| --- | ---: | ---: | --- |
+| base | 1.018 | | |
+| base, second copy (A/A) | 1.031 | 1.012 (1.002 to 1.069) | the CI width comes from partial update's total, 15 to 24 ms between rounds |
+| whitespace removed | 1.086 | 1.067 (1.059 to 1.075) | slower: partial update total 15.1 to 24.3 ms |
+| detach | 1.015 | 0.996 (0.987 to 1.060) | create 10,000 rows script 12.0 to 11.6 ms (0.96 to 0.97), total 204 to 196; clear script 6.6 to 6.4 |
+| both | 1.010 | 0.992 (0.986 to 1.057) | as detach |
+| vanillajs-lite | 1.049 | base / vanillajs-lite 0.970 (0.946 to 1.010): non-inferior | |
+
+Without partial update the scores are base 1.021, A/A 1.025, detach 1.013, both 1.010, vanillajs-lite 1.007.
+
+Whitespace removal is rejected: it makes partial update's rendering slower, not faster. Detach is kept as an option and turned on in the low-level benchmark app; the update and swap regressions an earlier, smaller run showed were noise. The view layer does not detach: its lists live in containers an app may scroll or focus.
+
 ## Part 4: Versioning and packaging
 
 The version starts at 0.0.1 and lives in one place, the module's exported `VERSION` constant; the package's `VERSION` file and change log repeat it. Bump the patch number for fixes and speedups that keep behavior, the minor number for new behavior or options, and record each release in this document's change log and the package's.
@@ -583,6 +600,8 @@ What published work and current browser engineering say about the costs this lib
 ## Change log
 
 Newest first.
+
+- 2026-10-27: First-fill experiment on the low-level entry (60 samples per test, A/A pair): removing an owned parent's leftover whitespace before the first fill is rejected (partial update total 15.1 to 24.3 ms); `detach` is turned on in the low-level benchmark app (create 10,000 rows script 12.0 to 11.6 ms, 90% CI of the ratio 0.96 to 0.97); the earlier rejection of detach was noise. Low-level entry against vanillajs-lite: 0.970 (90% CI 0.946 to 1.010), non-inferior. No library change.
 
 - 2026-10-27: Version 0.0.9. Delegated events find instances by descent from the render root along the event's path (child holes, list entries, runs), so views whose handlers are all delegated put no mark on their elements. Official benchmark, Chrome script time, 3 interleaved rounds with an A/A pair (15 samples): create 10,000 rows 13.5 to 12.9 ms (95% CI of the ratio 0.92 to 0.97), clear 7.0 to 6.6; other tests unchanged.
 - 2026-10-27: "Integration with dom.ts" rewritten as "Integration with herdsman web": the app uses views only; morph and `renderDirect` have no app user and stay exported.
