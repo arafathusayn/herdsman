@@ -41,9 +41,6 @@ type importer struct {
 // importCore imports the core of the file-mode inbox dir into tx.
 func importCore(tx store.Conn, dir string, now int64) *APIError {
 	im := &importer{tx: tx, rt: &inbox.Root{Dir: dir}, now: now, seen: map[int64]string{}, logged: map[string]bool{}}
-	if err := inbox.SourceDir(dir, dir); err != nil {
-		return importErr("unsafe source: %v", err)
-	}
 	peers, e := im.parties()
 	if e != nil {
 		return e

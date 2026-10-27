@@ -107,6 +107,7 @@ func TestImportSourceBoundary(t *testing.T) {
 		"writable message":   chmod("orch-1/ready/m000000000001.md", 0o666),
 		"writable queue":     chmod("orch-1/ready", 0o777),
 		"writable ids":       chmod("ids", 0o777),
+		"writable mailbox":   chmod("orch-1", 0o777),
 		"writable inbox":     chmod(".", 0o777),
 		"linked sequence":    func(t *testing.T, x *importInbox) { x.link(t, "state/sequence") },
 		"linked enrolled":    func(t *testing.T, x *importInbox) { x.link(t, "enrolled/adj-1") },
