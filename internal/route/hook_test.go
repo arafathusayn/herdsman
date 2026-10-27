@@ -3,6 +3,7 @@ package route
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,5 +156,53 @@ func TestRouteWithoutRecords(t *testing.T) {
 	next, err := LoadBounded(dir, 10, tail)
 	if err != nil || next.Total != 0 || len(next.Route.Checklist) != 2 {
 		t.Fatalf("%+v %v", next, err)
+	}
+}
+
+// countingReader counts the bytes read through it.
+type countingReader struct {
+	r io.Reader
+	n *int64
+}
+
+func (c countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	*c.n += int64(n)
+	return n, err
+}
+
+// A page reads the window's run-state lines and the headers around them,
+// never a Notes section between two run-state sections.
+func TestPageSkipsNotesBetweenRunStateSections(t *testing.T) {
+	dir := t.TempDir()
+	var b strings.Builder
+	b.WriteString("# R\n## Run state\n")
+	for i := range 150 {
+		fmt.Fprintf(&b, "- 10:00 a%03d\n", i)
+	}
+	b.WriteString("## Notes\n")
+	for range 4 << 10 {
+		b.WriteString(strings.Repeat("n", 255) + "\n")
+	}
+	b.WriteString("## Run state\n")
+	for i := range 150 {
+		fmt.Fprintf(&b, "- 10:01 b%03d\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, RouteFile), []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tail, err := LoadBounded(dir, 100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var read int64
+	pageSource = func(r io.Reader) io.Reader { return countingReader{r, &read} }
+	defer func() { pageSource = func(r io.Reader) io.Reader { return r } }()
+	page, err := tail.Page(200, 100)
+	if err != nil || len(page) != 100 || page[0].Text != "a100" || page[99].Text != "b049" {
+		t.Fatalf("page of %d lines, %v", len(page), err)
+	}
+	if read >= 1<<20 {
+		t.Errorf("a page read %d bytes across a 1 MB Notes section", read)
 	}
 }

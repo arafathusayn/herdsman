@@ -380,13 +380,17 @@ func SameState(a, b os.FileInfo) bool {
 // change the file there.
 var beforeRead = func() {}
 
+// pageSource wraps what a page reads; tests count its bytes.
+var pageSource = func(r io.Reader) io.Reader { return r }
+
 // From is the index of the oldest run-state record the view pages to.
 func (t *Tail) From() int { return max(0, t.Total-Window) }
 
 // Page returns up to n run-state records ending before index before, no
-// older than From, read forward from this snapshot's window start (at most
-// Window+markEvery records and the sections between them, whatever the
-// history; of a line it does not return it holds at most lineCap bytes).
+// older than From, read forward from this snapshot's window start through
+// the window's kept ranges (at most Window+markEvery records and the
+// headers around them, whatever the history and the other sections; of a
+// line it does not return it holds at most lineCap bytes).
 // The file must be the snapshot before and after the read (file, size,
 // time, change time), and hold the records the snapshot counted; else
 // ErrChanged.
@@ -406,8 +410,14 @@ func (t *Tail) Page(before, n int) ([]LogLine, error) {
 		return nil, ErrChanged
 	}
 	beforeRead()
-	start := t.windowStart()
-	br := bufio.NewReaderSize(io.NewSectionReader(f, start, t.size-start), lineCap)
+	// Only the window's ranges are read: its run-state lines and the headers
+	// that open or end its sections, so a Notes section between two
+	// run-state sections is skipped.
+	parts := make([]io.Reader, len(t.win))
+	for k, s := range t.win {
+		parts[k] = io.NewSectionReader(f, s.start, s.end-s.start)
+	}
+	br := bufio.NewReaderSize(pageSource(io.MultiReader(parts...)), lineCap)
 	// Lines are read in place. A line longer than the buffer is told apart
 	// by its first lineCap bytes: only a record the page returns is gathered
 	// whole; the rest of any other line is skipped.
