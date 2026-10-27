@@ -1,0 +1,698 @@
+import { beforeEach, describe, expect, test } from "bun:test";
+
+import {
+  asDom,
+  type FakeElement,
+  type FakeNode,
+  type FakeText,
+  installFakeDocument,
+  ops,
+  resetOps,
+} from "./herdsman-blocks.testdom.ts";
+import { type Entry, html, lis, List, morph, slot, text } from "./herdsman-blocks.ts";
+
+beforeEach(installFakeDocument);
+
+interface Item {
+  id: number;
+}
+interface Row extends Entry {
+  item: Item;
+}
+
+const fake = (n: Node): FakeElement => n as unknown as FakeElement;
+const keysOf = (parent: FakeNode): number[] => parent.childNodes.map((c) => (c as FakeElement)["key"] as number);
+
+function makeList(parent: FakeElement, owns: boolean) {
+  let creates = 0;
+  const list = new List<Item, Row>(asDom(parent), {
+    owns,
+    key: (it) => it.id,
+    create: (it) => {
+      creates++;
+      const el = document.createElement("li") as unknown as FakeElement;
+      el["key"] = it.id;
+      return { root: asDom(el), item: it };
+    },
+    update: (row, it) => {
+      row.item = it;
+    },
+  });
+  return { list, creates: () => creates };
+}
+
+// Reference LIS length, O(n^2), ignoring -1.
+function lisLen(a: readonly number[]): number {
+  const d = a.map(() => 1);
+  let best = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === -1) {
+      d[i] = 0;
+      continue;
+    }
+    for (let j = 0; j < i; j++) if (a[j] !== -1 && a[j]! < a[i]!) d[i] = Math.max(d[i]!, d[j]! + 1);
+    best = Math.max(best, d[i]!);
+  }
+  return best;
+}
+
+let seed = 42;
+const rnd = (): number => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+function shuffle<T>(a: T[]): T[] {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = (rnd() * (i + 1)) | 0;
+    [a[i], a[j]] = [a[j]!, a[i]!];
+  }
+  return a;
+}
+
+describe("lis", () => {
+  test("returns a valid longest increasing subsequence", () => {
+    for (let t = 0; t < 2000; t++) {
+      const a = Array.from({ length: (rnd() * 40) | 0 }, () => (rnd() < 0.2 ? -1 : (rnd() * 30) | 0));
+      const seq = lis(Int32Array.from(a));
+      expect(seq.length).toBe(lisLen(a));
+      for (let k = 1; k < seq.length; k++) {
+        expect(seq[k]!).toBeGreaterThan(seq[k - 1]!);
+        expect(a[seq[k]!]!).toBeGreaterThan(a[seq[k - 1]!]!);
+      }
+      for (const i of seq) expect(a[i]).not.toBe(-1);
+    }
+  });
+});
+
+describe("List", () => {
+  test("random updates: correct order, node reuse, minimal moves", () => {
+    let nextId = 0;
+    for (let t = 0; t < 3000; t++) {
+      const parent = document.createElement("ul") as unknown as FakeElement;
+      const { list, creates } = makeList(parent, rnd() < 0.5);
+      const oldItems = Array.from({ length: (rnd() * 60) | 0 }, () => ({ id: nextId++ }));
+      list.set(oldItems);
+      const before = new Map(list.entries.map((e) => [e.item.id, e]));
+
+      let newItems = oldItems.filter(() => rnd() > 0.2);
+      const mode = rnd();
+      if (mode < 0.33) shuffle(newItems);
+      else if (mode < 0.66 && newItems.length > 2) {
+        const i = (rnd() * newItems.length) | 0;
+        const j = (rnd() * newItems.length) | 0;
+        [newItems[i], newItems[j]] = [newItems[j]!, newItems[i]!];
+      }
+      const adds = (rnd() * 10) | 0;
+      for (let k = 0; k < adds; k++) newItems.splice((rnd() * (newItems.length + 1)) | 0, 0, { id: nextId++ });
+
+      const createdBefore = creates();
+      resetOps();
+      list.set(newItems);
+
+      expect(keysOf(parent)).toEqual(newItems.map((x) => x.id));
+      const survivors = newItems.filter((x) => before.has(x.id));
+      newItems.forEach((x, i) => {
+        if (before.has(x.id)) expect(list.entries[i]!).toBe(before.get(x.id)!);
+      });
+      expect(creates() - createdBefore).toBe(newItems.length - survivors.length);
+      if (survivors.length > 0) {
+        const oldIndex = new Map(oldItems.map((x, i) => [x.id, i]));
+        const order = survivors.map((x) => oldIndex.get(x.id)!);
+        expect(ops.moves).toBe(survivors.length - lisLen(order));
+      }
+    }
+  });
+
+  test("every pairwise swap uses the minimum moves", () => {
+    const parent = document.createElement("ul") as unknown as FakeElement;
+    const { list } = makeList(parent, true);
+    const base = Array.from({ length: 12 }, (_, i) => ({ id: i }));
+    for (let i = 0; i < base.length; i++) {
+      for (let j = i + 1; j < base.length; j++) {
+        list.set(base);
+        const next = base.slice();
+        [next[i], next[j]] = [next[j]!, next[i]!];
+        resetOps();
+        list.set(next);
+        expect(keysOf(parent)).toEqual(next.map((x) => x.id));
+        expect(ops.moves).toBe(j - i === 1 ? 1 : 2);
+      }
+    }
+  });
+
+  test("edge cases: empty, reverse, swap, append, prepend, remove, clear", () => {
+    const ids = (n: number, o = 0): Item[] => Array.from({ length: n }, (_, i) => ({ id: i + o }));
+    const parent = document.createElement("ul") as unknown as FakeElement;
+    const { list, creates } = makeList(parent, true);
+    const check = (items: Item[]): void => expect(keysOf(parent)).toEqual(items.map((x) => x.id));
+
+    list.set([]);
+    check([]);
+    const a = ids(1000);
+    list.set(a);
+    check(a);
+
+    resetOps();
+    const b = a.slice().reverse();
+    list.set(b);
+    check(b);
+    expect(ops.moves).toBe(999);
+
+    resetOps();
+    const c = b.slice();
+    [c[1], c[998]] = [c[998]!, c[1]!];
+    let made = creates();
+    list.set(c);
+    check(c);
+    expect(ops.moves).toBe(2);
+    expect(creates()).toBe(made);
+
+    resetOps();
+    const adjacent = c.slice();
+    [adjacent[10], adjacent[11]] = [adjacent[11]!, adjacent[10]!];
+    list.set(adjacent);
+    check(adjacent);
+    expect(ops.moves).toBe(1);
+
+    resetOps();
+    made = creates();
+    const d = adjacent.concat(ids(1000, 5000));
+    list.set(d);
+    check(d);
+    expect(ops.moves).toBe(0);
+    expect(creates() - made).toBe(1000);
+
+    resetOps();
+    const e = ids(3, 9000).concat(d);
+    list.set(e);
+    check(e);
+    expect(ops.moves).toBe(0);
+
+    resetOps();
+    const f = e.filter((_, i) => i !== 500);
+    list.set(f);
+    check(f);
+    expect(ops.removes).toBe(1);
+    expect(ops.moves).toBe(0);
+
+    list.set([]);
+    check([]);
+  });
+
+  test("detach builds off-document and puts the parent back in place", () => {
+    const host = document.createElement("table") as unknown as FakeElement;
+    const before = document.createElement("thead") as unknown as FakeElement;
+    const parent = document.createElement("tbody") as unknown as FakeElement;
+    const after = document.createElement("tfoot") as unknown as FakeElement;
+    host.appendChild(before);
+    host.appendChild(parent);
+    host.appendChild(after);
+    let attachedDuringCreate = 0;
+    const list = new List<Item, Row>(asDom(parent), {
+      owns: true,
+      detach: true,
+      key: (it) => it.id,
+      create: (it) => {
+        if (parent.parentNode) attachedDuringCreate++;
+        const el = document.createElement("tr") as unknown as FakeElement;
+        el["key"] = it.id;
+        return { root: asDom(el), item: it };
+      },
+      update: () => {},
+    });
+    const ids = (n: number, o: number): Item[] => Array.from({ length: n }, (_, i) => ({ id: i + o }));
+    list.set(ids(50, 0)); // first render
+    list.set(ids(50, 100)); // full replacement
+    expect(attachedDuringCreate).toBe(0);
+    expect(host.childNodes).toEqual([before, parent, after]);
+    expect(keysOf(parent)).toEqual(ids(50, 100).map((x) => x.id));
+    list.set(ids(51, 100)); // append to a live list: no detach
+    expect(attachedDuringCreate).toBe(1);
+  });
+
+  test("respects an anchor and leaves other children alone", () => {
+    const parent = document.createElement("div") as unknown as FakeElement;
+    const head = document.createElement("h1") as unknown as FakeElement;
+    const foot = document.createElement("footer") as unknown as FakeElement;
+    head["key"] = -1;
+    foot["key"] = -2;
+    parent.appendChild(head);
+    parent.appendChild(foot);
+    const list = new List<Item, Row>(asDom(parent), {
+      anchor: asDom(foot),
+      owns: true, // ignored because an anchor is set
+      key: (it) => it.id,
+      create: (it) => {
+        const el = document.createElement("p") as unknown as FakeElement;
+        el["key"] = it.id;
+        return { root: asDom(el), item: it };
+      },
+      update: () => {},
+    });
+    list.set([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    expect(keysOf(parent)).toEqual([-1, 1, 2, 3, -2]);
+    list.set([{ id: 3 }, { id: 1 }]);
+    expect(keysOf(parent)).toEqual([-1, 3, 1, -2]);
+    list.set([]);
+    expect(keysOf(parent)).toEqual([-1, -2]);
+  });
+});
+
+describe("key lookup modes", () => {
+  // Reorders a list with the given keys and checks order, reuse and minimal moves.
+  function check<K extends string | number>(keys: K[]): void {
+    const parent = document.createElement("ul") as unknown as FakeElement;
+    const list = new List<{ k: K }, FakeElement, K>(asDom(parent), {
+      key: (it) => it.k,
+      root: (el) => asDom(el),
+      create: (it) => {
+        const li = document.createElement("li") as unknown as FakeElement;
+        li["key"] = it.k;
+        return li;
+      },
+      update: () => {},
+    });
+    const before = keys.map((k) => ({ k }));
+    list.set(before);
+    const nodes = new Map(keys.map((k, i) => [k, parent.childNodes[i]]));
+    const after = shuffle(before.slice(1)).concat(before.slice(0, 1)); // shuffled, first item moved to the end
+    resetOps();
+    list.set(after);
+    expect(parent.childNodes.map((c) => (c as FakeElement)["key"])).toEqual(after.map((x) => x.k));
+    after.forEach((x, i) => expect(parent.childNodes[i]).toBe(nodes.get(x.k)!));
+    const oldIndex = new Map(keys.map((k, i) => [k, i]));
+    expect(ops.moves).toBe(after.length - lisLen(after.map((x) => oldIndex.get(x.k)!)));
+  }
+
+  test("dense integer keys use the direct-address table", () => check(Array.from({ length: 300 }, (_, i) => 1000 + i)));
+  test("sparse integer keys fall back to a Map", () => check(Array.from({ length: 300 }, (_, i) => i * 1_000_003)));
+  test("string keys use a Map", () => check(Array.from({ length: 300 }, (_, i) => `row-${i}`)));
+  test("negative and fractional keys use a Map", () => check(Array.from({ length: 300 }, (_, i) => -i - 0.5)));
+  test("small windows scan", () => check([5, 3, 9, 1, 7, 2]));
+
+  test("a reconcile nested inside update keeps the outer one correct", () => {
+    // Each outer row owns an inner list that is reordered from the outer update callback.
+    const outer = document.createElement("div") as unknown as FakeElement;
+    interface Row {
+      id: number;
+      kids: number[];
+    }
+    const inner = new Map<number, List<number, FakeElement, number>>();
+    const list = new List<Row, FakeElement, number>(asDom(outer), {
+      key: (r) => r.id,
+      root: (el) => asDom(el),
+      create: (r) => {
+        const el = document.createElement("section") as unknown as FakeElement;
+        el["key"] = r.id;
+        const l = new List<number, FakeElement, number>(asDom(el), {
+          key: (k) => k,
+          root: (x) => asDom(x),
+          create: (k) => {
+            const x = document.createElement("i") as unknown as FakeElement;
+            x["key"] = k;
+            return x;
+          },
+          update: () => {},
+        });
+        l.set(r.kids);
+        inner.set(r.id, l);
+        return el;
+      },
+      update: (_el, r) => inner.get(r.id)!.set(r.kids),
+    });
+    const ids = Array.from({ length: 64 }, (_, i) => i);
+    const kids = Array.from({ length: 64 }, (_, i) => 100 + i);
+    list.set(ids.map((id) => ({ id, kids })));
+    const reordered = shuffle(ids.slice()).map((id) => ({ id, kids: shuffle(kids.slice()) }));
+    list.set(reordered);
+    expect(outer.childNodes.map((c) => (c as FakeElement)["key"])).toEqual(reordered.map((r) => r.id));
+    reordered.forEach((r, i) =>
+      expect(outer.childNodes[i]!.childNodes.map((c) => (c as FakeElement)["key"])).toEqual(r.kids),
+    );
+  });
+});
+
+describe("state-preserving moves", () => {
+  const ids = (n: number): Item[] => Array.from({ length: n }, (_, i) => ({ id: i }));
+
+  test("moves use moveBefore when the parent is in the document", () => {
+    const doc = document.createElement("html") as unknown as FakeElement;
+    doc.isDocument = true;
+    const parent = document.createElement("ul") as unknown as FakeElement;
+    doc.appendChild(parent);
+    const { list } = makeList(parent, true);
+    list.set(ids(20));
+    resetOps();
+    const reversed = ids(20).reverse();
+    list.set(reversed);
+    expect(keysOf(parent)).toEqual(reversed.map((x) => x.id));
+    expect(ops.moves).toBe(19);
+    expect(ops.stateMoves).toBe(19); // every move kept state
+  });
+
+  test("a detached parent falls back to insertBefore", () => {
+    const parent = document.createElement("ul") as unknown as FakeElement;
+    const { list } = makeList(parent, true);
+    list.set(ids(20));
+    resetOps();
+    list.set(ids(20).reverse());
+    expect(ops.moves).toBe(19);
+    expect(ops.stateMoves).toBe(0);
+  });
+});
+
+describe("lists of plain nodes", () => {
+  test("entries can be the nodes themselves, given a root function", () => {
+    const parent = document.createElement("ul") as unknown as FakeElement;
+    const list = new List<Item, FakeElement, number>(asDom(parent), {
+      key: (it) => it.id,
+      root: (el) => asDom(el),
+      create: (it) => {
+        const li = document.createElement("li") as unknown as FakeElement;
+        li["key"] = it.id;
+        return li;
+      },
+      update: () => {},
+    });
+    list.set([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    const [a, b, c] = parent.childNodes;
+    list.set([{ id: 3 }, { id: 1 }, { id: 2 }]);
+    expect(parent.childNodes).toEqual([c!, a!, b!]);
+    expect(list.entries[0]).toBe(c as FakeElement);
+  });
+});
+
+describe("html templates", () => {
+  test("mount fills text, class, attribute and property holes", () => {
+    const T = html`<tr class="${0}">
+      <td title=${1}>${2}</td>
+      <td><a .href=${3} onclick=${4}>x ${5} y</a></td>
+    </tr>`;
+    const handler = (): void => {};
+    const b = T.mount(["danger", "tip", 42, "/go", handler, "mid"]);
+    const tr = fake(b.root);
+    expect(tr.tagName).toBe("TR");
+    expect(tr.className).toBe("danger");
+    const td1 = tr.firstChild as FakeElement;
+    expect(td1.getAttribute("title")).toBe("tip");
+    expect((td1.firstChild as FakeText).data).toBe("42");
+    const a = td1.nextSibling!.firstChild as FakeElement;
+    expect(a["href"]).toBe("/go");
+    expect(a["onclick"]).toBe(handler);
+    expect(a.textContent).toBe("x mid y");
+    expect(tr.attributes.some((x) => x.name.startsWith("bk"))).toBe(false);
+  });
+
+  test("set writes only on change and handles null, false and true", () => {
+    const T = html`<input class=${0} disabled=${1} placeholder=${2} />`;
+    const b = T.mount(["a", true, null]);
+    const el = fake(b.root);
+    expect(el.getAttribute("disabled")).toBe("");
+    expect(el.getAttribute("placeholder")).toBeNull();
+    b.set(1, false);
+    expect(el.getAttribute("disabled")).toBeNull();
+    el.className = "changed-outside";
+    b.set(0, "a"); // same value as last set: no write
+    expect(el.className).toBe("changed-outside");
+    b.patch(["b", false, "hi"]);
+    expect(el.className).toBe("b");
+    expect(el.getAttribute("placeholder")).toBe("hi");
+  });
+
+  test("mount skips writes that match the clone's initial state", () => {
+    const T = html`<tr class=${0} data-x=${1}>
+      <td>${2}</td>
+    </tr>`;
+    resetOps();
+    const b = T.mount(["", false, ""]);
+    expect(ops.classWrites).toBe(0);
+    expect(fake(b.root).getAttribute("data-x")).toBeNull();
+    b.set(0, "danger");
+    expect(ops.classWrites).toBe(1);
+    b.set(0, "");
+    expect(fake(b.root).className).toBe("");
+    const withEmptyAttr = T.mount(["", "", ""]);
+    expect(fake(withEmptyAttr.root).getAttribute("data-x")).toBe(""); // "" on an attribute still means present
+  });
+
+  test("mountRoot makes an element with no block; block() attaches one on demand", () => {
+    const T = html`<tr class=${0}>
+      <td>${1}</td>
+    </tr>`;
+    const tr = fake(T.mountRoot(["", "first"]));
+    expect(tr.textContent).toBe("first");
+    const b = T.block(asDom(tr));
+    expect(T.block(asDom(tr))).toBe(b); // cached on the element
+    resetOps();
+    b.set(0, ""); // value unknown to a lazy block: the first set always writes
+    expect(ops.classWrites).toBe(1);
+    b.set(0, ""); // now known: no write
+    expect(ops.classWrites).toBe(1);
+    b.set(1, "second");
+    expect(tr.textContent).toBe("second");
+    const other = fake(T.mountRoot(["x", "other"]));
+    expect([tr.className, tr.textContent]).toEqual(["", "second"]);
+    expect([other.className, other.textContent]).toEqual(["x", "other"]);
+  });
+
+  test("mountRoot sets property holes on the clone", () => {
+    const T = html`<button onclick=${0}>${1}</button>`;
+    const fn = (): void => {};
+    expect(fake(T.mountRoot([fn, "a"]))["onclick"]).toBe(fn);
+    expect(fake(T.mountRoot([null, "b"]))["onclick"]).toBeNull();
+  });
+
+  test("clones are independent and the template compiles once per call site", () => {
+    const make = (label: string) => html`<li>${0}</li>`.mount([label]);
+    const one = make("one");
+    const two = make("two");
+    expect(one.t).toBe(two.t);
+    one.set(0, "uno");
+    expect(fake(one.root).textContent).toBe("uno");
+    expect(fake(two.root).textContent).toBe("two");
+  });
+
+  test("holes are never parsed as HTML", () => {
+    const b = html`<p>${0}</p>`.mount(["<b>bold</b>"]);
+    const p = fake(b.root);
+    expect(p.childNodes.length).toBe(1);
+    expect(p.firstChild!.nodeType).toBe(3);
+    expect(p.textContent).toBe("<b>bold</b>");
+  });
+
+  test("mount bakes values into the prototype without leaking between instances", () => {
+    const T = html`<p class=${0} data-n=${1}>${2}</p>`;
+    const a = T.mount(["x", "1", "first"]);
+    const b = T.mount(["", null, "second"]);
+    const c = T.mount(["x", "1", "first"]);
+    expect([fake(a.root).className, fake(a.root).getAttribute("data-n"), fake(a.root).textContent]).toEqual([
+      "x",
+      "1",
+      "first",
+    ]);
+    expect([fake(b.root).className, fake(b.root).getAttribute("data-n"), fake(b.root).textContent]).toEqual([
+      "",
+      null,
+      "second",
+    ]);
+    expect(fake(c.root).textContent).toBe("first");
+    b.set(2, "changed"); // first update locates b's own holes
+    expect(fake(b.root).textContent).toBe("changed");
+    expect(fake(a.root).textContent).toBe("first");
+    expect(b.get(2)).toBe("changed");
+  });
+
+  test("property holes go on the clone, never the shared prototype", () => {
+    const T = html`<button onclick=${0}>${1}</button>`;
+    const fn = (): void => {};
+    const withHandler = T.mount([fn, "a"]);
+    const without = T.mount([null, "b"]);
+    expect(fake(withHandler.root)["onclick"]).toBe(fn);
+    expect(fake(without.root)["onclick"]).toBeNull();
+  });
+
+  test("character references in markup decode as in a browser", () => {
+    const T = html`<p title="a &amp; b &quot;q&quot;">&lt;x&gt; &#169; &#x2014; &copy;&nbsp;&unknown; ${0}</p>`;
+    const root = fake(T.mount(["&lt;"]).root);
+    expect(root.getAttribute("title")).toBe('a & b "q"');
+    expect(root.textContent).toBe("<x> © — © &unknown; &lt;"); // hole values are never parsed
+  });
+
+  test("ignores formatter indentation but keeps spaces inside lines and in <pre>", () => {
+    const T = html`<ul>
+      <li>a ${0} b</li>
+      <li>
+        <pre>
+  keep
+</pre>
+      </li>
+    </ul>`;
+    const b = T.mount(["mid"]);
+    const ul = fake(b.root);
+    expect(ul.childNodes.map((c) => c.nodeName)).toEqual(["LI", "LI"]);
+    expect(ul.childNodes[0]!.textContent).toBe("a mid b");
+    expect(ul.childNodes[1]!.firstChild!.textContent).toBe("\n  keep\n");
+  });
+
+  test("rejects templates without exactly one root element", () => {
+    expect(
+      () =>
+        html`<td>${0}</td>
+          <td></td>`,
+    ).toThrow(/one root element/);
+    expect(() => html`text ${0}`).toThrow(/one root element/);
+  });
+});
+
+describe("slot holes", () => {
+  test("a slot is an empty text node the template never writes", () => {
+    const T = html`<p>${text()}${slot<string>()}</p>`;
+    expect(T.kind(1)).toBe("slot");
+    const b = T.mount(["a", "never shown"]);
+    expect(fake(b.root).textContent).toBe("a");
+    b.set(1, "still not shown");
+    expect(b.get(1)).toBe("still not shown");
+    expect(fake(b.root).childNodes.map((c) => c.textContent)).toEqual(["a", ""]);
+    const nodes: unknown[] = [];
+    T.locate(b.root, nodes);
+    T.write(0, nodes[0] as Node, "b");
+    expect(fake(b.root).textContent).toBe("b");
+  });
+
+  test("a slot outside element content does not compile", () => {
+    expect(() => html`<p title=${slot()}></p>`).toThrow("typed slot");
+  });
+});
+
+describe("morph", () => {
+  const el = (tag: string): FakeElement => document.createElement(tag) as unknown as FakeElement;
+  const text = (t: string): FakeText => document.createTextNode(t) as unknown as FakeText;
+  const kids = (...n: FakeNode[]): Node[] => n.map((x) => asDom(x));
+  const item = (key: string, label: string): FakeElement => {
+    const li = el("li");
+    li.setAttribute("data-key", key);
+    li.appendChild(text(label));
+    return li;
+  };
+
+  test("keeps matching nodes and patches text and attributes in place", () => {
+    const root = el("div");
+    const p = el("p");
+    p.setAttribute("title", "old");
+    p.setAttribute("data-gone", "x");
+    p.appendChild(text("hello"));
+    root.appendChild(p);
+    const liveText = p.firstChild;
+
+    const freshP = el("p");
+    freshP.setAttribute("title", "new");
+    freshP.className = "on";
+    freshP.appendChild(text("world"));
+    morph(asDom(root), kids(freshP));
+
+    expect(root.firstChild).toBe(p);
+    expect(p.firstChild).toBe(liveText);
+    expect(p.textContent).toBe("world");
+    expect(p.getAttribute("title")).toBe("new");
+    expect(p.className).toBe("on");
+    expect(p.hasAttribute("data-gone")).toBe(false);
+  });
+
+  test("moves keyed children with the fewest moves and keeps their nodes", () => {
+    const root = el("ul");
+    const live = ["a", "b", "c", "d", "e"].map((k) => item(k, k));
+    for (const li of live) root.appendChild(li);
+    resetOps();
+    morph(asDom(root), kids(item("e", "E"), item("b", "b"), item("c", "c"), item("x", "x"), item("a", "a")));
+    expect(root.childNodes.map((c) => (c as FakeElement).getAttribute("data-key"))).toEqual(["e", "b", "c", "x", "a"]);
+    expect(root.childNodes[0]).toBe(live[4]!);
+    expect(root.childNodes[1]).toBe(live[1]!);
+    expect(root.childNodes[4]).toBe(live[0]!);
+    expect(root.textContent).toBe("Ebcxa");
+    expect(ops.moves).toBe(2); // b, c stay; e and a move; x is new; d is removed
+    expect(ops.removes).toBe(1);
+  });
+
+  test("unkeyed children match by tag and order; a changed tag is replaced", () => {
+    const root = el("div");
+    const h2 = el("h2");
+    const span = el("span");
+    root.appendChild(h2);
+    root.appendChild(span);
+    const freshH2 = el("h2");
+    const freshEm = el("em");
+    morph(asDom(root), kids(freshH2, freshEm));
+    expect(root.childNodes[0]).toBe(h2);
+    expect(root.childNodes[1]).toBe(freshEm);
+  });
+
+  test("a persistent node reused by the view is left alone", () => {
+    const root = el("main");
+    const shell = el("section");
+    shell.appendChild(text("owned elsewhere"));
+    root.appendChild(shell);
+    morph(asDom(root), kids(shell, el("footer")));
+    expect(root.childNodes[0]).toBe(shell);
+    expect(shell.textContent).toBe("owned elsewhere");
+    expect(root.childNodes.length).toBe(2);
+  });
+
+  test("data-morph-skip patches attributes but keeps children", () => {
+    const root = el("div");
+    const term = el("div");
+    term.setAttribute("data-morph-skip", "");
+    term.appendChild(el("canvas"));
+    root.appendChild(term);
+    const fresh = el("div");
+    fresh.setAttribute("data-morph-skip", "");
+    fresh.setAttribute("aria-label", "terminal");
+    morph(asDom(root), kids(fresh));
+    expect(root.firstChild).toBe(term);
+    expect(term.getAttribute("aria-label")).toBe("terminal");
+    expect(term.childNodes.length).toBe(1);
+  });
+
+  test("identical children at the ends are kept; an unkeyed prepend is one insert", () => {
+    const row = (t: string): FakeElement => {
+      const li = el("li");
+      li.appendChild(text(t));
+      return li;
+    };
+    const root = el("ul");
+    const live = Array.from({ length: 50 }, (_, i) => row(`item ${i}`));
+    for (const li of live) root.appendChild(li);
+    const fresh = kids(row("new"), ...Array.from({ length: 50 }, (_, i) => row(`item ${i}`)));
+    resetOps(); // count only morph's work, not building the fresh rows
+    morph(asDom(root), fresh);
+    expect(root.textContent).toBe("new" + live.map((_, i) => `item ${i}`).join(""));
+    live.forEach((li, i) => expect(root.childNodes[i + 1]).toBe(li));
+    expect([ops.inserts, ops.moves, ops.removes, ops.textWrites]).toEqual([1, 0, 0, 0]);
+  });
+
+  test("an identical field still takes the store's value when it lacks focus", () => {
+    const root = el("form");
+    const input = el("input");
+    input["value"] = "old";
+    root.appendChild(input);
+    const fresh = el("input");
+    fresh["value"] = "new"; // a property: invisible to a structural compare
+    morph(asDom(root), kids(fresh));
+    expect(root.firstChild).toBe(input);
+    expect(input["value"]).toBe("new");
+  });
+
+  test("form values sync unless the field has focus", () => {
+    const root = el("form");
+    const input = el("input");
+    input["value"] = "typed by user";
+    root.appendChild(input);
+    const fresh = el("input");
+    fresh["value"] = "from store";
+    Object.defineProperty(input, "ownerDocument", { value: { activeElement: input } });
+    morph(asDom(root), kids(fresh));
+    expect(input["value"]).toBe("typed by user");
+
+    Object.defineProperty(input, "ownerDocument", { value: { activeElement: null } });
+    const again = el("input");
+    again["value"] = "from store";
+    morph(asDom(root), kids(again));
+    expect(input["value"]).toBe("from store");
+  });
+});

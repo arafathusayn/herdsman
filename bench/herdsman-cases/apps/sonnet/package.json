@@ -1,0 +1,7 @@
+{
+  "name": "herdsman-cases-sonnet",
+  "private": true,
+  "dependencies": {
+    "@sonnetjs/core": "0.0.33"
+  }
+}

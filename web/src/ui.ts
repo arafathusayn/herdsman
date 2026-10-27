@@ -1,29 +1,43 @@
-// Shared bits: status pills, toasts, the confirm dialog and the theme.
+// Shared bits: status pills, toasts, the confirm and form dialogs and the theme.
 import { appThemes, installAppTheme } from "./appearance.ts";
-import { h, icon, icons } from "./dom.ts";
+import {
+  attr,
+  child,
+  cls,
+  html,
+  list,
+  type ListNode,
+  on,
+  prop,
+  render,
+  text,
+  type ViewNodeOf,
+} from "./herdsman-blocks-view.ts";
+import { icon, type IconNode, icons } from "./icons.ts";
 import { type Member, statusLabel } from "./model.ts";
+import { element } from "./views/element-view.ts";
 
-export function pill(status: Member["status"]): HTMLElement {
-  return h(
-    "span",
-    { class: `pill s-${status}` },
-    h("span", { class: "dot", "aria-hidden": "true" }),
-    statusLabel[status],
-  );
+const Pill = html`<span class=${cls()}><span class="dot" aria-hidden="true"></span>${text()}</span>`;
+
+/** What `pill` returns. */
+export type PillNode = ViewNodeOf<typeof Pill>;
+
+export function pill(status: Member["status"]): PillNode {
+  return Pill([`pill s-${status}`, statusLabel[status]]);
 }
 
-let toastHost: HTMLElement | null = null;
+// Toasts come and go on timers, so each is an element the toast host owns.
+const ToastHost = html`<div class="toasts" role="status" aria-live="polite"></div>`;
+const Toast = html`<div class=${cls()}>${text()}</div>`;
 
-export function toast(text: string, kind: "ok" | "error" = "ok"): void {
+let toastHost: HTMLDivElement | null = null;
+
+export function toast(message: string, kind: "ok" | "error" = "ok"): void {
   if (!toastHost) {
-    toastHost = h("div", {
-      class: "toasts",
-      role: "status",
-      "aria-live": "polite",
-    });
+    toastHost = element("div", ToastHost([]));
     document.body.append(toastHost);
   }
-  const t = h("div", { class: `toast ${kind}` }, text);
+  const t = element("div", Toast([`toast ${kind}`, message]));
   toastHost.append(t);
   setTimeout(() => t.classList.add("leave"), kind === "error" ? 6000 : 3000);
   setTimeout(() => t.remove(), kind === "error" ? 6400 : 3400);
@@ -49,37 +63,31 @@ export function dismissOnBackdrop(dlg: HTMLDialogElement): void {
   });
 }
 
+// A modal dialog is an element its opener owns; its form is rendered into it.
+type OnClose = (this: HTMLDialogElement, e: Event) => void;
+const Dialog = html`<dialog class="dialog" onclose=${on<"close", HTMLDialogElement>()}></dialog>`;
+
+function openDialog(onClose: OnClose): HTMLDialogElement {
+  return element("dialog", Dialog([onClose]));
+}
+
+const ConfirmForm = html`<form method="dialog">
+  <h2>${text()}</h2>
+  <p>${text()}</p>
+  <div class="dialog-actions">
+    <button value="cancel" class="btn ghost">Cancel</button>
+    <button value="ok" class=${cls()} autofocus>${text()}</button>
+  </div>
+</form>`;
+
 /** A modal confirm that names the action; resolves false on cancel. */
 export function confirmDialog(title: string, body: string, confirmLabel: string, danger = false): Promise<boolean> {
   return new Promise((resolve) => {
-    const dlg = h(
-      "dialog",
-      { class: "dialog" },
-      h(
-        "form",
-        { method: "dialog" },
-        h("h2", null, title),
-        h("p", null, body),
-        h(
-          "div",
-          { class: "dialog-actions" },
-          h("button", { value: "cancel", class: "btn ghost" }, "Cancel"),
-          h(
-            "button",
-            {
-              value: "ok",
-              class: danger ? "btn danger" : "btn primary",
-              autofocus: true,
-            },
-            confirmLabel,
-          ),
-        ),
-      ),
-    );
-    dlg.addEventListener("close", () => {
-      resolve(dlg.returnValue === "ok");
-      dlg.remove();
+    const dlg = openDialog(function () {
+      resolve(this.returnValue === "ok");
+      this.remove();
     });
+    render(dlg, ConfirmForm([title, body, danger ? "btn danger" : "btn primary", confirmLabel]));
     dismissOnBackdrop(dlg);
     document.body.append(dlg);
     dlg.showModal();
@@ -97,6 +105,60 @@ export interface Field {
   pattern?: string;
 }
 
+const Suggestion = html`<option value=${attr()}></option>`;
+const Suggestions = html`<datalist id=${attr()}>${child<ListNode<ViewNodeOf<typeof Suggestion>, string>>()}</datalist>`;
+const Hint = html`<small>${text()}</small>`;
+const FieldRow = html`<label class="field" for=${attr()}>
+  <span>${text()}</span>
+  <input
+    id=${attr()}
+    name=${attr()}
+    .value=${prop<HTMLInputElement, "value">()}
+    placeholder=${attr<string | null>()}
+    required=${attr<boolean>()}
+    pattern=${attr<string | null>()}
+    autocomplete="off"
+    spellcheck="false"
+    list=${attr<string | null>()}
+  />
+  ${child<ViewNodeOf<typeof Suggestions> | null>()}${child<ViewNodeOf<typeof Hint> | null>()}
+</label>`;
+const FieldForm = html`<form method="dialog">
+  <h2>${text()}</h2>
+  ${child<ListNode<ViewNodeOf<typeof FieldRow>, string>>()}
+  <div class="dialog-actions">
+    <button value="cancel" class="btn ghost" formnovalidate>Cancel</button>
+    <button value="ok" class="btn primary">${text()}</button>
+  </div>
+</form>`;
+
+function fieldRow(f: Field): ViewNodeOf<typeof FieldRow> {
+  const id = `f-${f.name}-${Math.random().toString(36).slice(2, 8)}`;
+  const listId = f.list?.length ? `${id}-list` : null;
+  return FieldRow([
+    id,
+    f.label,
+    id,
+    f.name,
+    f.value ?? "",
+    f.placeholder ?? null,
+    f.required ?? false,
+    f.pattern ?? null,
+    listId,
+    listId === null
+      ? null
+      : Suggestions([
+          listId,
+          list(
+            [...new Set(f.list)], // an option is keyed by its value, so repeats go
+            (v) => v,
+            (v) => Suggestion([v]),
+          ),
+        ]),
+    f.hint ? Hint([f.hint]) : null,
+  ]);
+}
+
 /** A small modal form; resolves the values, or null on cancel. */
 export function formDialog(
   title: string,
@@ -104,53 +166,14 @@ export function formDialog(
   submitLabel: string,
 ): Promise<Record<string, string> | null> {
   return new Promise((resolve) => {
-    const inputs = fields.map((f) => {
-      const id = `f-${f.name}-${Math.random().toString(36).slice(2, 8)}`;
-      const listId = f.list?.length ? `${id}-list` : undefined;
-      const input = h("input", {
-        id,
-        name: f.name,
-        value: f.value ?? "",
-        placeholder: f.placeholder,
-        required: f.required,
-        pattern: f.pattern,
-        autocomplete: "off",
-        spellcheck: false,
-      });
-      if (listId) input.setAttribute("list", listId);
-      return h(
-        "label",
-        { class: "field", for: id },
-        h("span", null, f.label),
-        input,
-        listId
-          ? h(
-              "datalist",
-              { id: listId },
-              (f.list ?? []).map((v) => h("option", { value: v })),
-            )
-          : null,
-        f.hint ? h("small", null, f.hint) : null,
-      );
-    });
-    const form = h(
-      "form",
-      { method: "dialog" },
-      h("h2", null, title),
-      inputs,
-      h(
-        "div",
-        { class: "dialog-actions" },
-        h("button", { value: "cancel", class: "btn ghost", formnovalidate: true }, "Cancel"),
-        h("button", { value: "ok", class: "btn primary" }, submitLabel),
-      ),
-    );
-    const dlg = h("dialog", { class: "dialog" }, form);
-    dlg.addEventListener("close", () => {
-      if (dlg.returnValue !== "ok") resolve(null);
+    const dlg = openDialog(function () {
+      const form = this.querySelector("form");
+      if (this.returnValue !== "ok" || !form) resolve(null);
       else resolve(Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, String(v)])));
-      dlg.remove();
+      this.remove();
     });
+    // Field names are unique in a form (they are its values' keys).
+    render(dlg, FieldForm([title, list(fields, (f) => f.name, fieldRow), submitLabel]));
     document.body.append(dlg);
     dlg.showModal();
   });
@@ -183,30 +206,44 @@ export function applyTheme(t: Theme): void {
   }
 }
 
-const themes: { id: Theme; label: string; glyph: string[] }[] = [
+const themes: readonly { id: Theme; label: string; glyph: readonly string[] }[] = [
   { id: "system", label: "System", glyph: icons.monitor },
   { id: "light", label: "Light", glyph: icons.sun },
   { id: "dark", label: "Dark", glyph: icons.moon },
 ];
 
+const ThemeOption = html`<button
+  type="button"
+  role="radio"
+  aria-checked=${attr<"true" | "false">()}
+  class=${cls()}
+  title=${attr()}
+  onclick=${on<"click">()}
+>
+  ${child<IconNode>()}<span>${text()}</span>
+</button>`;
+const ThemeSwitch = html`<div class="theme-switch" role="radiogroup" aria-label="Theme">
+  ${child<ListNode<ViewNodeOf<typeof ThemeOption>, Theme>>()}
+</div>`;
+
+/** What `themeSwitch` returns. */
+export type ThemeSwitchNode = ViewNodeOf<typeof ThemeSwitch>;
+
 /** A three-way System / Light / Dark switch. */
-export function themeSwitch(current: Theme, onChange: (t: Theme) => void): HTMLElement {
-  return h(
-    "div",
-    { class: "theme-switch", role: "radiogroup", "aria-label": "Theme" },
-    themes.map((t) =>
-      h(
-        "button",
-        {
-          role: "radio",
-          "aria-checked": String(t.id === current),
-          class: t.id === current ? "active" : "",
-          title: `${t.label} theme`,
-          onclick: () => onChange(t.id),
-        },
-        icon(t.glyph),
-        h("span", null, t.label),
-      ),
+export function themeSwitch(current: Theme, onChange: (t: Theme) => void): ThemeSwitchNode {
+  return ThemeSwitch([
+    list(
+      themes,
+      (t) => t.id,
+      (t) =>
+        ThemeOption([
+          t.id === current ? "true" : "false",
+          t.id === current ? "active" : "",
+          `${t.label} theme`,
+          () => onChange(t.id),
+          icon(t.glyph),
+          t.label,
+        ]),
     ),
-  );
+  ]);
 }

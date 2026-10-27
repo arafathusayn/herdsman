@@ -1,16 +1,33 @@
 // The Changes tab: what each task's worktree or branch changed against its
 // base branch, any other worktree an agent works in, and the project
 // checkout's own changes. Built once per route; it polls while shown, and a
-// poll that finds nothing new costs a 304.
+// poll that finds nothing new costs a 304. A changed diff patches the drawn
+// lines by their identity, so rows that stay keep their nodes and the
+// scroll position holds.
 import { AuthError, routeDiff } from "../api.ts";
 import { highlighting } from "../appearance.ts";
 import { type DiffLine, parseSection, sideBySide, splitPatch } from "../diff.ts";
-import { h, icon, icons, mount } from "../dom.ts";
-import { fuzzy, highlight } from "../fuzzy.ts";
-import { languageOf, type Piece, renderPieces, type State, tokenizeLine } from "../highlight.ts";
+import { fuzzy, highlight, type HighlightNode } from "../fuzzy.ts";
+import {
+  attr,
+  child,
+  cls,
+  html,
+  list,
+  type ListNode,
+  on,
+  runs,
+  type RunsNode,
+  text,
+  update,
+  type ViewNodeOf,
+} from "../herdsman-blocks-view.ts";
+import { languageOf, type Piece, type State, tokenizeLine } from "../highlight.ts";
+import { icon, type IconNode, icons } from "../icons.ts";
 import { store } from "../store.ts";
 import type { DiffFile, DiffSource } from "../types.ts";
 import { toast } from "../ui.ts";
+import { element } from "./element-view.ts";
 
 const pollMs = 5000;
 /** Rows drawn before "Show all"; a generated file can have tens of thousands. */
@@ -52,21 +69,26 @@ function totals(files: DiffFile[]): { add: number; del: number } {
   return { add, del };
 }
 
-function counts(add: number, del: number): HTMLElement {
-  return h(
-    "span",
-    { class: "counts" },
-    h("span", { class: "plus" }, `+${add}`),
-    h("span", { class: "minus" }, `−${del}`),
-  );
+const Counts = html`<span class="counts"
+  ><span class="plus">${text()}</span><span class="minus">${text()}</span></span
+>`;
+type CountsNode = ViewNodeOf<typeof Counts>;
+
+function counts(add: number, del: number): CountsNode {
+  return Counts([`+${add}`, `−${del}`]);
 }
+
+// A highlighted token, as highlight.ts's renderPieces makes it.
+const Token = html`<span class=${cls()}>${text()}</span>`;
+/** A line's code as runs of text and token spans. */
+type ColoredNode = RunsNode<ViewNodeOf<typeof Token>>;
 
 /**
  * Highlights the code of diff lines. The old and new sides each carry their
  * own state (a comment opened in a removed line does not color added ones),
  * and a hunk starts both afresh, since the lines between hunks are unknown.
  */
-function colorLines(lines: DiffLine[], lang: string): (DocumentFragment | null)[] {
+function colorLines(lines: DiffLine[], lang: string): (ColoredNode | null)[] {
   if (!lang) return lines.map(() => null);
   let oldState: State | null = null;
   let newState: State | null = null;
@@ -82,65 +104,185 @@ function colorLines(lines: DiffLine[], lang: string): (DocumentFragment | null)[
       ({ pieces, state: newState } = tokenizeLine(lang, l.text, newState));
       if (l.kind === "ctx") oldState = tokenizeLine(lang, l.text, oldState).state;
     }
-    return pieces.length ? renderPieces(pieces) : null;
+    return pieces.length ? runs(pieces.map(([k, t]) => (k ? Token([`hl-${k}`, t]) : t))) : null;
   });
 }
 
-/**
- * The side-by-side table: old lines on the left, new on the right. Long
- * lines wrap so both sides stay in view. A context line shows on both
- * sides; the left one, drawn first, gets a copy of its colored code, since
- * appending a fragment empties it.
- */
-function splitTable(lines: DiffLine[], code: Map<DiffLine, DocumentFragment | null>): HTMLElement {
-  const side = (l: DiffLine | null, num: number | undefined, right: boolean): HTMLElement[] => {
-    if (!l) return [h("td", { class: "ln blank" }), h("td", { class: "code blank" })];
-    const colored = code.get(l);
-    const text = colored ? (!right && l.kind === "ctx" ? colored.cloneNode(true) : colored) : l.text || " ";
-    return [
-      h("td", { class: `ln ${l.kind}` }, num === undefined ? "" : String(num)),
-      h("td", { class: `code ${l.kind}` }, text),
-    ];
-  };
-  return h(
-    "table",
-    null,
-    h("colgroup", null, h("col", { class: "ln-col" }), h("col"), h("col", { class: "ln-col" }), h("col")),
-    h(
-      "tbody",
-      null,
-      sideBySide(lines).map((r) =>
-        "kind" in r
-          ? h("tr", { class: `d-${r.kind}` }, h("td", { colspan: "4", class: "code" }, r.text))
-          : h("tr", null, side(r.left, r.left?.old, false), side(r.right, r.right?.new, true)),
-      ),
-    ),
-  );
-}
+// Descriptions are inert, so the icons that never change are made once.
+const searchIcon = icon(icons.search);
+const copyIcon = icon(icons.copy);
+const folderIcon = icon(icons.folder);
+const branchIcon = icon(icons.branch);
+
+const SearchInput = html`<input
+  type="search"
+  placeholder="Search changed files…"
+  aria-label="Search changed files"
+  autocomplete="off"
+  spellcheck="false"
+  oninput=${on<"input", HTMLInputElement>()}
+  onkeydown=${on<"keydown", HTMLInputElement>()}
+/>`;
+
+const Empty = html`<p class="file-empty">${text()}</p>`;
+type EmptyNode = ViewNodeOf<typeof Empty>;
+
+const Unavailable = html`<span class="chip warn">unavailable</span>`;
+const Who = html`<span class="who">${text()}</span>`;
+const Agents = html`<span class="diff-source-agents" title="Agents working in this folder"
+  >${child<ListNode<ViewNodeOf<typeof Who>, string>>()}</span
+>`;
+const FileCount = html`<span class="n">${text()}</span>`;
+const Source = html`<button
+  class=${cls()}
+  role="option"
+  aria-selected=${attr<"true" | "false">()}
+  title=${attr()}
+  onclick=${on<"click">()}
+>
+  <span class="diff-source-top"><strong>${text()}</strong>${child<ViewNodeOf<typeof Unavailable> | CountsNode>()}</span
+  >${child<ViewNodeOf<typeof Agents> | null>()}<span class="diff-source-sub"
+    >${child<IconNode>()}${text()}${child<ViewNodeOf<typeof FileCount> | null>()}</span
+  >
+</button>`;
+type SourceNode = ViewNodeOf<typeof Source>;
+
+// A row's name and folder, with the search's hits marked.
+const Name = html`<span class="name">${child<HighlightNode>()}</span>`;
+const Dir = html`<span class="dir">${child<HighlightNode>()}</span>`;
+type NameNode = ViewNodeOf<typeof Name>;
+const PathDir = html`<span class="dir">${text()}</span>`;
+
+const Row = html`<button
+  class=${cls()}
+  role="option"
+  aria-selected=${attr<"true" | "false">()}
+  title=${attr()}
+  onclick=${on<"click">()}
+>
+  <span class=${cls()} title=${attr()}>${text()}</span
+  ><span class="file-name">${child<NameNode>()}${child<NameNode | null>()}</span>${child<CountsNode | null>()}
+</button>`;
+type RowNode = ViewNodeOf<typeof Row>;
+
+const PlainTitle = html`<div class="viewer-title"><h2 class="plain">${text()}</h2></div>`;
+const FileTitle = html`<div class="viewer-title">
+  <h2 title=${attr()}>${child<ViewNodeOf<typeof PathDir> | null>()}${text()}</h2>
+  <p>${text()}${text()}${text<" · " | "">()}${child<CountsNode | null>()}</p>
+</div>`;
+
+const layouts: readonly { id: Layout; label: string; tip: string }[] = [
+  { id: "inline", label: "Inline", tip: "Removed and added lines in one column" },
+  { id: "split", label: "Side by side", tip: "The old file on the left, the new one on the right" },
+];
+const LayoutButton = html`<button
+  type="button"
+  class=${cls()}
+  aria-pressed=${attr<"true" | "false">()}
+  title=${attr()}
+  onclick=${on<"click">()}
+>
+  ${text()}
+</button>`;
+const LayoutSwitch = html`<div class="view-switch diff-layout" role="group" aria-label="Diff layout">
+  ${child<ListNode<ViewNodeOf<typeof LayoutButton>, Layout>>()}
+</div>`;
+
+const Copy = html`<button
+  class="icon-btn"
+  title="Copy the file path"
+  aria-label="Copy the file path"
+  onclick=${on<"click">()}
+>
+  ${child<IconNode>()}
+</button>`;
+
+type Head = [
+  ViewNodeOf<typeof PlainTitle> | ViewNodeOf<typeof FileTitle> | null,
+  ViewNodeOf<typeof LayoutSwitch> | null,
+  ViewNodeOf<typeof Copy> | null,
+];
+
+// A hunk header or a note across the row: three columns inline, four side by side.
+const MarkRow = html`<tr class=${cls()}>
+  <td colspan=${attr<"3" | "4">()} class="code">${text()}</td>
+</tr>`;
+type MarkRowNode = ViewNodeOf<typeof MarkRow>;
+const CodeCell = html`<td class=${cls()}>${child<string | ColoredNode | null>()}</td>`;
+type Code = ViewNodeOf<typeof CodeCell>;
+const InlineRow = html`<tr class=${cls()}>
+  <td class="ln">${text<number | null>()}</td>
+  <td class="ln">${text<number | null>()}</td>
+  ${child<Code>()}
+</tr>`;
+type InlineRowNode = ViewNodeOf<typeof InlineRow>;
+const SplitRow = html`<tr>
+  <td class=${cls()}>${text<number | null>()}</td>
+  ${child<Code>()}
+  <td class=${cls()}>${text<number | null>()}</td>
+  ${child<Code>()}
+</tr>`;
+type SplitRowNode = ViewNodeOf<typeof SplitRow>;
+
+const InlineTable = html`<table>
+  <tbody>
+    ${child<ListNode<MarkRowNode | InlineRowNode, number>>()}
+  </tbody>
+</table>`;
+const SplitTable = html`<table>
+  <colgroup>
+    <col class="ln-col" />
+    <col />
+    <col class="ln-col" />
+    <col />
+  </colgroup>
+  <tbody>
+    ${child<ListNode<MarkRowNode | SplitRowNode, number>>()}
+  </tbody>
+</table>`;
+const More = html`<button class="btn ghost diff-more" onclick=${on<"click">()}>${text()}</button>`;
+const Table = html`<div>
+  <div class=${cls()}>${child<ViewNodeOf<typeof InlineTable> | ViewNodeOf<typeof SplitTable>>()}</div>
+  ${child<ViewNodeOf<typeof More> | null>()}
+</div>`;
+
+const Muted = html`<p class="muted">${text()}</p>`;
+const Failure = html`<p class="error">${text()}</p>`;
+const Cut = html`<p class="diff-cut" role="note">${text()}</p>`;
+const cutNote =
+  "The diff reached its size cut in this file, so lines past this point are not shown. Open the file in the worktree to see all of it.";
+type Body = [
+  ViewNodeOf<typeof Muted> | ViewNodeOf<typeof Failure> | ViewNodeOf<typeof Cut> | null,
+  ViewNodeOf<typeof Muted> | ViewNodeOf<typeof Table> | null,
+];
+
+const Shell = html`<div class="files diff">
+  <div class="file-pane">
+    <div class="diff-sources" role="listbox" aria-label="Changes">
+      ${child<ListNode<SourceNode, string> | EmptyNode>()}
+    </div>
+    <label class="file-search"
+      >${child<IconNode>()}${child<HTMLInputElement>()}<span class="files-count">${text()}</span></label
+    >
+    <div class="file-groups" role="listbox" aria-label="Changed files">
+      ${child<ListNode<RowNode, string> | EmptyNode | null>()}
+    </div>
+  </div>
+  <section class="viewer" aria-live="polite">
+    <div class="viewer-head">${child<Head[0]>()}${child<Head[1]>()}${child<Head[2]>()}</div>
+    <div class="viewer-body diff-body">${child<Body[0]>()}${child<Body[1]>()}</div>
+  </section>
+</div>`;
+
+// A checked narrowing, not a cast: the shell's last child is the viewer <section>.
+const isElement = (n: Node | null): n is Element => n !== null && n.nodeType === 1;
 
 export class DiffView {
   readonly el: HTMLElement;
-  private readonly sourceList = h("div", {
-    class: "diff-sources",
-    role: "listbox",
-    "aria-label": "Changes",
-  });
-  private readonly search = h("input", {
-    type: "search",
-    placeholder: "Search changed files…",
-    "aria-label": "Search changed files",
-    autocomplete: "off",
-    spellcheck: false,
-  });
-  private readonly count = h("span", { class: "files-count" });
-  private readonly list = h("div", {
-    class: "file-groups",
-    role: "listbox",
-    "aria-label": "Changed files",
-  });
-  private readonly viewerHead = h("div", { class: "viewer-head" });
-  private readonly viewerBody = h("div", { class: "viewer-body diff-body" });
-  private readonly viewer = h("section", { class: "viewer", "aria-live": "polite" }, this.viewerHead, this.viewerBody);
+  private readonly search: HTMLInputElement;
+  // The shell's root, the element main.ts places (`el`): mounted on the
+  // first draw, patched where it stands after.
+  private root: HTMLDivElement | null = null;
   /** The viewer is too narrow for side by side. */
   private narrow = false;
   private sources: DiffSource[] | null = null;
@@ -151,83 +293,51 @@ export class DiffView {
   private sectionsOf: DiffSource | null = null;
   private sorted: DiffFile[] = [];
   private sortedOf: DiffSource | null = null;
+  /** The files the list shows, in order; Enter opens the first. */
+  private listed: DiffFile[] = [];
+  private count = "";
   private drawnKey = "";
   private drawnSource: DiffSource | null = null;
+  private head: Head = [null, null, null];
+  private body: Body = [null, null];
   private showAll = false;
   private timer = 0;
   private loading = false;
 
   constructor(readonly routeId: string) {
-    this.search.addEventListener("input", () => this.renderList());
-    this.search.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
-        if (this.search.value) {
-          e.preventDefault();
-          this.search.value = "";
-          this.renderList();
-        } else this.search.blur();
-      } else if (e.key === "Enter") {
-        const first = this.list.querySelector<HTMLButtonElement>(".file-row");
-        first?.click();
-      }
-    });
-    this.el = h(
-      "div",
-      { class: "files diff" },
-      h(
-        "div",
-        { class: "file-pane" },
-        this.sourceList,
-        h("label", { class: "file-search" }, icon(icons.search), this.search, this.count),
-        this.list,
-      ),
-      this.viewer,
+    this.search = element(
+      "input",
+      SearchInput([
+        () => this.draw(),
+        (e) => {
+          if (e.key === "Escape") {
+            if (this.search.value) {
+              e.preventDefault();
+              this.search.value = "";
+              this.draw();
+            } else this.search.blur();
+          } else if (e.key === "Enter") {
+            const first = this.listed[0];
+            if (first) this.choose(first);
+          }
+        },
+      ]),
     );
+    const root = this.draw();
+    this.el = root;
+    const viewer = root.lastChild;
+    if (!isElement(viewer)) throw new Error("DiffView: the shell has no viewer");
     new ResizeObserver(([e]) => {
       const narrow = (e?.contentRect.width ?? 0) < splitMin;
       if (narrow === this.narrow) return;
       this.narrow = narrow;
-      this.renderViewer();
-    }).observe(this.viewer);
-    this.render();
+      this.draw();
+    }).observe(viewer);
   }
 
   /** The layout drawn: the user's choice, or inline in a narrow viewer. */
   private layout(): Layout {
     return this.narrow ? "inline" : layout;
-  }
-
-  private layoutSwitch(): HTMLElement {
-    return h(
-      "div",
-      { class: "view-switch diff-layout", role: "group", "aria-label": "Diff layout" },
-      (
-        [
-          ["inline", "Inline", "Removed and added lines in one column"],
-          ["split", "Side by side", "The old file on the left, the new one on the right"],
-        ] as const
-      ).map(([v, label, tip]) =>
-        h(
-          "button",
-          {
-            type: "button",
-            class: v === layout ? "active" : "",
-            "aria-pressed": String(v === layout),
-            title: tip,
-            onclick: () => {
-              layout = v;
-              try {
-                localStorage.setItem(layoutKey, v);
-              } catch {
-                // The choice lasts for this page only.
-              }
-              this.renderViewer();
-            },
-          },
-          label,
-        ),
-      ),
-    );
   }
 
   /** Starts polling; the tab calls it each time it shows this view. */
@@ -250,16 +360,14 @@ export class DiffView {
   }
 
   update(source: string, file: string): void {
-    if (source === this.sourceId && file === this.file) {
-      // A store update can also be the highlighting setting; the viewer's key
-      // holds it, so this redraws only when something it shows changed.
-      this.renderViewer();
-      return;
+    if (source !== this.sourceId || file !== this.file) {
+      this.sourceId = source;
+      this.file = file;
+      this.showAll = false;
     }
-    this.sourceId = source;
-    this.file = file;
-    this.showAll = false;
-    this.render();
+    // A store update can also be the highlighting setting; the viewer's key
+    // holds it, so the viewer redraws only when something it shows changed.
+    this.draw();
   }
 
   private async load(): Promise<void> {
@@ -270,12 +378,12 @@ export class DiffView {
       if (next !== this.sources || this.error) {
         this.sources = next;
         this.error = "";
-        this.render();
+        this.draw();
       }
     } catch (e) {
       if (e instanceof AuthError) location.reload();
       this.error = e instanceof Error ? e.message : String(e);
-      this.render();
+      this.draw();
     } finally {
       this.loading = false;
     }
@@ -304,141 +412,120 @@ export class DiffView {
     return files.find((f) => f.path === this.file) ?? files[0] ?? null;
   }
 
-  private render(): void {
-    this.renderSources();
-    this.renderList();
-    this.renderViewer();
+  private choose(f: DiffFile): void {
+    store.go({ diffFile: f.path, source: this.source()?.id ?? "" }, false);
   }
 
-  private renderSources(): void {
+  private draw(): HTMLDivElement {
+    const files = this.fileList(); // sets the count
+    this.syncViewer();
+    const d = Shell([this.sourceList(), searchIcon, this.search, this.count, files, ...this.head, ...this.body]);
+    if (this.root === null) this.root = element("div", d);
+    else update(this.root, d);
+    return this.root;
+  }
+
+  private sourceList(): ListNode<SourceNode, string> | EmptyNode {
     const all = this.sources;
-    if (!all) {
-      mount(this.sourceList, h("p", { class: "file-empty" }, this.error || "Reading the changes…"));
-      return;
-    }
+    if (!all) return Empty([this.error || "Reading the changes…"]);
     const cur = this.source();
-    mount(
-      this.sourceList,
-      all.map((s) => {
+    return list(
+      all,
+      (s) => s.id,
+      (s) => {
         const files = s.diff?.files ?? [];
         const t = totals(files);
         const active = s.id === cur?.id;
-        return h(
-          "button",
-          {
-            class: active ? "diff-source active" : "diff-source",
-            role: "option",
-            "aria-selected": String(active),
-            title: s.dir ?? s.label,
-            onclick: () => store.go({ source: s.id, diffFile: "" }, false),
-          },
-          h(
-            "span",
-            { class: "diff-source-top" },
-            h("strong", null, s.label),
-            s.error ? h("span", { class: "chip warn" }, "unavailable") : counts(t.add, t.del),
-          ),
+        return Source([
+          active ? "diff-source active" : "diff-source",
+          active ? "true" : "false",
+          s.dir ?? s.label,
+          () => store.go({ source: s.id, diffFile: "" }, false),
+          s.label,
+          s.error ? Unavailable([]) : counts(t.add, t.del),
           s.agents?.length
-            ? h(
-                "span",
-                {
-                  class: "diff-source-agents",
-                  title: "Agents working in this folder",
-                },
-                s.agents.map((a) => h("span", { class: "who" }, a)),
-              )
+            ? Agents([
+                list(
+                  [...new Set(s.agents)], // the server lists each once; keys must be unique
+                  (a) => a,
+                  (a) => Who([a]),
+                ),
+              ])
             : null,
-          h(
-            "span",
-            { class: "diff-source-sub" },
-            icon(s.kind === "checkout" ? icons.folder : icons.branch),
-            s.diff ? `${s.diff.head} ← ${s.diff.base}` : (s.branch ?? s.dir ?? ""),
-            s.diff ? h("span", { class: "n" }, `${files.length} ${files.length === 1 ? "file" : "files"}`) : null,
-          ),
-        );
-      }),
+          s.kind === "checkout" ? folderIcon : branchIcon,
+          s.diff ? `${s.diff.head} ← ${s.diff.base}` : (s.branch ?? s.dir ?? ""),
+          s.diff ? FileCount([`${files.length} ${files.length === 1 ? "file" : "files"}`]) : null,
+        ]);
+      },
     );
   }
 
-  private row(f: DiffFile, hits: number[], showDir: boolean): HTMLElement {
+  private row(f: DiffFile, hits: number[], active: boolean): RowNode {
     const slash = f.path.lastIndexOf("/");
     const name = f.path.slice(slash + 1);
     const dir = slash < 0 ? "" : f.path.slice(0, slash + 1);
-    const active = f.path === this.selected()?.path;
-    return h(
-      "button",
-      {
-        class: active ? "file-row active" : "file-row",
-        role: "option",
-        "aria-selected": String(active),
-        title: f.old_path ? `${f.old_path} → ${f.path}` : f.path,
-        onclick: () => store.go({ diffFile: f.path, source: this.source()?.id ?? "" }, false),
-      },
-      h(
-        "span",
-        {
-          class: `st st-${f.status === "?" ? "u" : f.status}`,
-          title: statusName[f.status] ?? f.status,
-        },
-        f.status,
-      ),
-      h(
-        "span",
-        { class: "file-name" },
-        h(
-          "span",
-          { class: "name" },
-          highlight(
-            name,
-            hits.filter((i) => i > slash).map((i) => i - slash - 1),
-          ),
+    return Row([
+      active ? "file-row active" : "file-row",
+      active ? "true" : "false",
+      f.old_path ? `${f.old_path} → ${f.path}` : f.path,
+      () => this.choose(f),
+      `st st-${f.status === "?" ? "u" : f.status}`,
+      statusName[f.status] ?? f.status,
+      f.status,
+      Name([
+        highlight(
+          name,
+          hits.filter((i) => i > slash).map((i) => i - slash - 1),
         ),
-        showDir && dir
-          ? h(
-              "span",
-              { class: "dir" },
-              highlight(
-                dir,
-                hits.filter((i) => i <= slash),
-              ),
-            )
-          : null,
-      ),
+      ]),
+      dir
+        ? Dir([
+            highlight(
+              dir,
+              hits.filter((i) => i <= slash),
+            ),
+          ])
+        : null,
       f.binary || f.status === "?" ? null : counts(f.add, f.del),
-    );
+    ]);
   }
 
-  private renderList(): void {
+  private fileList(): ListNode<RowNode, string> | EmptyNode | null {
     const src = this.source();
     const files = this.files();
     if (!src || src.error || !files.length) {
-      this.count.textContent = "";
-      mount(this.list, src && !src.error ? h("p", { class: "file-empty" }, "No changed files.") : null);
-      return;
+      this.count = "";
+      this.listed = [];
+      return src && !src.error ? Empty(["No changed files."]) : null;
     }
+    const open = this.selected()?.path;
     const q = this.search.value.trim();
     if (!q) {
-      this.count.textContent = String(files.length);
-      mount(
-        this.list,
-        files.map((f) => this.row(f, [], true)),
+      this.count = String(files.length);
+      this.listed = files;
+      return list(
+        files,
+        (f) => f.path,
+        (f) => this.row(f, [], f.path === open),
       );
-      return;
     }
     const matches = files
       .map((f) => ({ f, m: fuzzy(q, f.path) }))
       .filter((x) => x.m)
       .sort((a, b) => (b.m?.score ?? 0) - (a.m?.score ?? 0));
-    this.count.textContent = `${matches.length}/${files.length}`;
-    mount(
-      this.list,
-      matches.length
-        ? matches.map((x) => this.row(x.f, x.m?.hits ?? [], true))
-        : h("p", { class: "file-empty" }, `No changed file matches “${q}”.`),
-    );
+    this.count = `${matches.length}/${files.length}`;
+    this.listed = matches.map((x) => x.f);
+    return matches.length
+      ? list(
+          matches,
+          (x) => x.f.path,
+          (x) => this.row(x.f, x.m?.hits ?? [], x.f.path === open),
+        )
+      : Empty([`No changed file matches “${q}”.`]);
   }
 
-  private renderViewer(): void {
+  /** Rebuilds the viewer's head and body when what they show changed. */
+  private syncViewer(): void {
     const src = this.source();
     const f = this.selected();
     // A new diff is a new source object (an unchanged one comes back from the
@@ -448,79 +535,58 @@ export class DiffView {
     this.drawnKey = key;
     this.drawnSource = src;
     if (!src) {
-      mount(this.viewerHead);
-      mount(this.viewerBody, h("p", { class: "muted" }, this.error || "Reading the changes…"));
+      this.head = [null, null, null];
+      this.body = [Muted([this.error || "Reading the changes…"]), null];
       return;
     }
     if (src.error || !src.diff) {
-      mount(this.viewerHead, h("div", { class: "viewer-title" }, h("h2", { class: "plain" }, src.label)));
-      mount(
-        this.viewerBody,
-        h("p", { class: "error" }, src.error ?? "No diff."),
-        src.dir ? h("p", { class: "muted" }, `Folder: ${src.dir}`) : null,
-      );
+      this.head = [PlainTitle([src.label]), null, null];
+      this.body = [Failure([src.error ?? "No diff."]), src.dir ? Muted([`Folder: ${src.dir}`]) : null];
       return;
     }
     if (!f) {
-      mount(this.viewerHead, h("div", { class: "viewer-title" }, h("h2", { class: "plain" }, src.label)));
-      mount(this.viewerBody, h("p", { class: "muted" }, `No changes against ${src.diff.base}.`));
+      this.head = [PlainTitle([src.label]), null, null];
+      this.body = [Muted([`No changes against ${src.diff.base}.`]), null];
       return;
     }
     const slash = f.path.lastIndexOf("/");
-    mount(
-      this.viewerHead,
-      h(
-        "div",
-        { class: "viewer-title" },
-        h(
-          "h2",
-          { title: f.path },
-          slash >= 0 ? h("span", { class: "dir" }, f.path.slice(0, slash + 1)) : null,
-          f.path.slice(slash + 1),
-        ),
-        h(
-          "p",
-          null,
-          statusName[f.status] ?? f.status,
-          f.old_path ? ` from ${f.old_path}` : "",
-          f.binary || f.status === "?" ? null : [" · ", counts(f.add, f.del)],
-        ),
-      ),
-      f.binary || f.status === "?" || this.narrow ? null : this.layoutSwitch(),
-      h(
-        "button",
-        {
-          class: "icon-btn",
-          title: "Copy the file path",
-          "aria-label": "Copy the file path",
-          onclick: async () => {
-            try {
-              await navigator.clipboard.writeText(src.dir ? `${src.dir}/${f.path}` : f.path);
-              toast("Copied the file path.");
-            } catch {
-              toast("The browser blocked the clipboard.", "error");
-            }
-          },
+    const noLines = f.binary || f.status === "?";
+    this.head = [
+      FileTitle([
+        f.path,
+        slash >= 0 ? PathDir([f.path.slice(0, slash + 1)]) : null,
+        f.path.slice(slash + 1),
+        statusName[f.status] ?? f.status,
+        f.old_path ? ` from ${f.old_path}` : "",
+        noLines ? "" : " · ",
+        noLines ? null : counts(f.add, f.del),
+      ]),
+      noLines || this.narrow ? null : this.layoutSwitch(),
+      Copy([
+        async () => {
+          try {
+            await navigator.clipboard.writeText(src.dir ? `${src.dir}/${f.path}` : f.path);
+            toast("Copied the file path.");
+          } catch {
+            toast("The browser blocked the clipboard.", "error");
+          }
         },
-        icon(icons.copy),
-      ),
-    );
+        copyIcon,
+      ]),
+    ];
     if (this.sectionsOf !== src) {
       this.sections = splitPatch(src.diff.patch);
       this.sectionsOf = src;
     }
     if (f.status === "?") {
-      mount(this.viewerBody, h("p", { class: "muted" }, "Untracked file: git has no diff for it until it is added."));
+      this.body = [Muted(["Untracked file: git has no diff for it until it is added."]), null];
       return;
     }
     const section = this.sections.get(f.path);
     const lines = section ? parseSection(section) : [];
     if (!lines.length) {
-      mount(
-        this.viewerBody,
-        h(
-          "p",
-          { class: "muted" },
+      this.body = [
+        Muted([
           !section && src.diff.truncated
             ? "This file is past the size cut of the diff; open it in the worktree to see its lines."
             : f.binary
@@ -528,67 +594,100 @@ export class DiffView {
               : f.old_path
                 ? `Moved from ${f.old_path} with no line changes.`
                 : "No line changes; only the file mode changed.",
-        ),
-      );
+        ]),
+        null,
+      ];
       return;
     }
     // The size cut stops the patch inside its last section, so that file may show only part of its lines.
     const cut = src.diff.truncated && section === [...this.sections.values()].at(-1);
-    mount(
-      this.viewerBody,
-      cut
-        ? h(
-            "p",
-            { class: "diff-cut", role: "note" },
-            "The diff reached its size cut in this file, so lines past this point are not shown. Open the file in the worktree to see all of it.",
-          )
-        : null,
-      this.table(lines, f.path),
-    );
+    this.body = [cut ? Cut([cutNote]) : null, this.table(lines, f.path)];
   }
 
-  private table(lines: DiffLine[], path: string): HTMLElement {
+  private layoutSwitch(): ViewNodeOf<typeof LayoutSwitch> {
+    return LayoutSwitch([
+      list(
+        layouts,
+        (o) => o.id,
+        (o) =>
+          LayoutButton([
+            o.id === layout ? "active" : "",
+            o.id === layout ? "true" : "false",
+            o.tip,
+            () => {
+              layout = o.id;
+              try {
+                localStorage.setItem(layoutKey, o.id);
+              } catch {
+                // The choice lasts for this page only.
+              }
+              this.draw();
+            },
+            o.label,
+          ]),
+      ),
+    ]);
+  }
+
+  private table(lines: DiffLine[], path: string): ViewNodeOf<typeof Table> {
     const shown = this.showAll ? lines : lines.slice(0, rowCap);
-    const code = colorLines(shown, highlighting() ? languageOf(path) : "");
-    const table =
-      this.layout() === "split"
-        ? splitTable(shown, new Map(shown.map((l, i) => [l, code[i] ?? null])))
-        : h(
-            "table",
-            null,
-            h(
-              "tbody",
-              null,
-              shown.map((l, i) =>
-                l.kind === "hunk" || l.kind === "note"
-                  ? h("tr", { class: `d-${l.kind}` }, h("td", { colspan: "3", class: "code" }, l.text))
-                  : h(
-                      "tr",
-                      { class: `d-${l.kind}` },
-                      h("td", { class: "ln" }, l.old === undefined ? "" : String(l.old)),
-                      h("td", { class: "ln" }, l.new === undefined ? "" : String(l.new)),
-                      h("td", { class: "code" }, code[i] ?? (l.text || " ")),
-                    ),
-              ),
-            ),
-          );
-    return h(
-      "div",
-      null,
-      h("div", { class: `diff-code ${this.layout()}` }, table),
+    const colored = colorLines(shown, highlighting() ? languageOf(path) : "");
+    const code = new Map(shown.map((l, i) => [l, colored[i] ?? null]));
+    const lay = this.layout();
+    return Table([
+      `diff-code ${lay}`,
+      lay === "split" ? splitTable(shown, code) : inlineTable(shown, code),
       shown.length < lines.length
-        ? h(
-            "button",
-            {
-              class: "btn ghost diff-more",
-              onclick: () => {
-                this.showAll = true;
-                this.renderViewer();
-              },
+        ? More([
+            () => {
+              this.showAll = true;
+              this.draw();
             },
             `Show all ${lines.length} lines`,
-          )
+          ])
         : null,
-    );
+    ]);
   }
+}
+
+/** A code cell: the colored code, or the plain text (a space keeps an empty line's height). */
+function codeCell(className: string, l: DiffLine, colored: ColoredNode | null): Code {
+  return CodeCell([className, colored ?? (l.text || " ")]);
+}
+
+/** One column: old and new line numbers, then the code. */
+function inlineTable(lines: DiffLine[], code: Map<DiffLine, ColoredNode | null>): ViewNodeOf<typeof InlineTable> {
+  return InlineTable([
+    list(
+      lines,
+      (l) => l.id,
+      (l) =>
+        l.kind === "hunk" || l.kind === "note"
+          ? MarkRow([`d-${l.kind}`, "3", l.text])
+          : InlineRow([`d-${l.kind}`, l.old ?? null, l.new ?? null, codeCell("code", l, code.get(l) ?? null)]),
+    ),
+  ]);
+}
+
+/**
+ * The side-by-side table: old lines on the left, new on the right. Long
+ * lines wrap so both sides stay in view. A context line shows on both
+ * sides, both from the same colored runs.
+ */
+function splitTable(lines: DiffLine[], code: Map<DiffLine, ColoredNode | null>): ViewNodeOf<typeof SplitTable> {
+  const side = (l: DiffLine | null, right: boolean): [string, number | null, Code] => {
+    if (!l) return ["ln blank", null, CodeCell(["code blank", null])];
+    const colored = code.get(l) ?? null;
+    return [`ln ${l.kind}`, (right ? l.new : l.old) ?? null, codeCell(`code ${l.kind}`, l, colored)];
+  };
+  return SplitTable([
+    list(
+      sideBySide(lines),
+      (r) => r.id,
+      (r) =>
+        "kind" in r
+          ? MarkRow([`d-${r.kind}`, "4", r.text])
+          : SplitRow([...side(r.left, false), ...side(r.right, true)]),
+    ),
+  ]);
 }

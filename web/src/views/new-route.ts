@@ -5,9 +5,10 @@
 // human's: the app never approves a pair, writes the inbox or types into
 // the adjutant's pane.
 import { AuthError, catalog, createRoute, githubAccess, inboxState, savedChoices } from "../api.ts";
-import { h, mount } from "../dom.ts";
+import { html, on, text } from "../herdsman-blocks-view.ts";
 import { store } from "../store.ts";
 import { dismissOnBackdrop, toast } from "../ui.ts";
+import { element } from "./element-view.ts";
 import { newRouteFlow } from "./new-route-flow.ts";
 import { type Deps, routeForm } from "./route-form.ts";
 
@@ -20,13 +21,12 @@ async function copy(text: string, what: string): Promise<void> {
   }
 }
 
-/** Opens the New route dialog. */
 function failed(err: unknown): void {
   if (err instanceof AuthError) store.set({ fatal: err.message });
   toast(err instanceof Error ? err.message : String(err), "error");
 }
 
-function formDeps(): Deps {
+function formDeps(dlg: HTMLDialogElement): Deps {
   return {
     createRoute,
     inboxState,
@@ -34,7 +34,7 @@ function formDeps(): Deps {
     state: () => store.app.server,
     copy: (text, what) => void copy(text, what),
     openPane: (pane) => store.go({ pane }),
-    close: () => document.querySelector<HTMLDialogElement>("dialog.new-route")?.close(),
+    close: () => dlg.close(),
     failed,
     every: (ms, fn) => {
       const t = setInterval(fn, ms);
@@ -47,9 +47,32 @@ function formDeps(): Deps {
   };
 }
 
+// The dialog and its form are elements the dialog owns: the flow's
+// questions and then the route form render into the form, and a failure
+// while the lists load replaces the loading parts, each made once.
+const Dialog = html`<dialog
+  class="dialog new-route"
+  aria-label="New route"
+  onclose=${on<"close", HTMLDialogElement>()}
+></dialog>`;
+const Body = html`<form method="dialog" novalidate></form>`;
+const Heading = html`<h2>New route</h2>`;
+const Failure = html`<p class="error">${text()}</p>`;
+const CloseAction = html`<div class="dialog-actions"><button value="cancel" class="btn ghost">Close</button></div>`;
+
+/** Opens the New route dialog. */
 export function openNewRoute(): void {
-  const dlg = h("dialog", { class: "dialog new-route", "aria-label": "New route" });
-  const body = h("form", { method: "dialog", novalidate: true });
+  let stop = (): void => {};
+  const dlg = element(
+    "dialog",
+    Dialog([
+      function () {
+        stop();
+        this.remove();
+      },
+    ]),
+  );
+  const body = element("form", Body([]));
   dlg.append(body);
   dismissOnBackdrop(dlg);
   document.body.append(dlg);
@@ -57,24 +80,20 @@ export function openNewRoute(): void {
   const flow = newRouteFlow(
     body,
     { savedChoices, catalog },
-    (c, previous, recommended, needLists) => {
-      const f = routeForm(body, c, store.app.server, formDeps(), { usePrevious: previous, recommended, needLists });
-      body.querySelector<HTMLElement>(f.form().folder ? "textarea" : "input[name=folder]")?.focus();
-      return f;
-    },
+    // The route form takes the body's place and focuses its first field.
+    (c, previous, recommended, needLists) =>
+      routeForm(body, c, store.app.server, formDeps(dlg), { usePrevious: previous, recommended, needLists }),
     (e) => {
       failed(e);
-      if (body.querySelector(".nr-loading"))
-        mount(
-          body,
-          h("h2", null, "New route"),
-          h("p", { class: "error" }, e instanceof Error ? e.message : String(e)),
-          h("div", { class: "dialog-actions" }, h("button", { value: "cancel", class: "btn ghost" }, "Close")),
+      // A failure while the lists load takes the loading line's place; once
+      // the route form has taken the body's place, the toast says it.
+      if (body.parentNode && body.querySelector(".nr-loading"))
+        body.replaceChildren(
+          element("h2", Heading([])),
+          element("p", Failure([e instanceof Error ? e.message : String(e)])),
+          element("div", CloseAction([])),
         );
     },
   );
-  dlg.addEventListener("close", () => {
-    flow.stop();
-    dlg.remove();
-  });
+  stop = flow.stop;
 }

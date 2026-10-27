@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>herdsman-cases: sonnet</title>
+    <link rel="stylesheet" href="../../../../web/styles/app.css" />
+  </head>
+  <body>
+    <div id="toolbar"></div>
+    <div class="route-body" id="main"></div>
+    <!-- Row templates, cloned and filled as the official sonnet entry does with its t1000 template; {field} marks a slot. -->
+    <template id="lane"><section class="{cls}" aria-label="{title}"><h2><span class="lane-dot" aria-hidden="true"></span>{title}<span class="count">{count}</span></h2></section></template>
+    <template id="lane-empty"><p class="lane-empty">None</p></template>
+    <template id="card-task"><button class="{cls}" title="{hover}" data-pane="{pane}"><div class="card-top"><span class="card-title">{title}</span><span class="{pillCls}"><span class="dot" aria-hidden="true"></span>{statusLabel}</span></div><div class="card-task">{task}</div><div class="card-sub">{sub}</div><div class="card-foot"><code>{pane}</code><span class="muted">{tab}</span><span class="muted clip" title="{term}">{term}</span></div></button></template>
+    <template id="card"><button class="{cls}" title="{hover}" data-pane="{pane}"><div class="card-top"><span class="card-title">{title}</span><span class="{pillCls}"><span class="dot" aria-hidden="true"></span>{statusLabel}</span></div><div class="card-sub">{sub}</div><div class="card-foot"><code>{pane}</code><span class="muted">{tab}</span><span class="muted clip" title="{term}">{term}</span></div></button></template>
+    <template id="ev-web"><li class="{source}"><time datetime="{at}">{clock}</time><p class="event"><span class="chip accent">web</span><span>{text}</span></p></li></template>
+    <template id="ev-status"><li class="{source}"><time datetime="{at}">{clock}</time><p class="event"><strong>{who}</strong><span class="{pillCls}"><span class="dot" aria-hidden="true"></span>{statusLabel}</span></p></li></template>
+    <template id="ev-status-anon"><li class="{source}"><time datetime="{at}">{clock}</time><p class="event"><span class="{pillCls}"><span class="dot" aria-hidden="true"></span>{statusLabel}</span></p></li></template>
+    <template id="ev-label"><li class="{source}"><time datetime="{at}">{clock}</time><p class="event"><span class="chip">{label}</span><strong>{who}</strong></p></li></template>
+    <template id="ev-label-anon"><li class="{source}"><time datetime="{at}">{clock}</time><p class="event"><span class="chip">{label}</span></p></li></template>
+    <template id="check"><li class="{cls}"><span class="box" aria-label="{state}">{mark}</span><code>{id}</code><span>{text}</span></li></template>
+    <template id="check-noid"><li class="{cls}"><span class="box" aria-label="{state}">{mark}</span><span>{text}</span></li></template>
+    <template id="line"><li class="{cls}"><time>{time}</time><p>{text}</p></li></template>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

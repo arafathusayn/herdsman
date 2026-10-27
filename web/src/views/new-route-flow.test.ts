@@ -1,14 +1,20 @@
 import { beforeAll, expect, test } from "bun:test";
 
+import type { FakeElement } from "../herdsman-blocks.testdom.ts";
 import type { RouteForm } from "../new-route.ts";
-import { all, byName, type FakeElement, installDom } from "../testdom.ts";
+import { all, byName, dispatch, dump, installDom, markup } from "../testdom.ts";
 import type { Catalog, ChoicePick } from "../types.ts";
 
 beforeAll(installDom);
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
-/** A select's chosen value: the selected option's, as the fake DOM keeps it. */
-const chosen = (sel: FakeElement): string => sel.children.find((o) => o.selected)?.value ?? sel.value;
+const options = (sel: FakeElement): FakeElement[] => all(sel).filter((e) => e.tagName.toLowerCase() === "option");
+/** A select's chosen value: the option the view marks selected. */
+const chosen = (sel: FakeElement): string | null | undefined =>
+  options(sel)
+    .find((o) => o["selected"] === true)
+    ?.getAttribute("value");
+const click = (b: FakeElement, name: string): void => void dispatch(byName(b, name), "click");
 const pick = (role: string): ChoicePick => ({
   role,
   runner: "herdr",
@@ -85,7 +91,7 @@ async function run(picks: ChoicePick[], role: "orchestrator" | "adjutant", check
   return { body, probes, opened, updated, lists };
 }
 
-const names = (b: FakeElement) => all(b).map((e) => e.dataset?.["field"] ?? e.getAttribute?.("name"));
+const names = (b: FakeElement) => all(b).map((e) => e.getAttribute("data-field") ?? e.getAttribute("name"));
 
 // A32: the first question is "Use the recommended setup?"; A30's previous
 // choice follows it; nothing is probed until the user leaves that path.
@@ -94,11 +100,11 @@ test("the recommended setup is asked first, then the previous choice, without a 
   expect(names(r.body)).toContain("use-recommended");
   expect(names(r.body)).not.toContain("use-previous");
   expect(r.probes).toEqual([]);
-  byName(r.body, "use-recommended").dispatch("click");
+  click(r.body, "use-recommended");
   await flush();
   expect(names(r.body)).toContain("use-previous");
   expect(r.probes).toEqual([]);
-  byName(r.body, "use-previous").dispatch("click");
+  click(r.body, "use-previous");
   await flush();
   // Yes: the saved picks open the form; every role has its pick, so no probe.
   expect(r.probes).toEqual([false]);
@@ -110,7 +116,7 @@ test("with no saved pick the recommended question still comes before any probe",
   const r = await run([], "orchestrator");
   expect(names(r.body)).toContain("use-recommended");
   expect(r.probes).toEqual([]);
-  byName(r.body, "custom-setup").dispatch("click");
+  click(r.body, "custom-setup");
   await flush();
   expect(r.probes).toEqual([true]);
   expect(r.opened).toEqual([{ previous: false, recommended: false }]);
@@ -120,9 +126,9 @@ test("with no saved pick the recommended question still comes before any probe",
 // the saved role keeps its exact saved model and effort.
 test("a role without a saved pick probes the lists; the saved role keeps its pick", async () => {
   const r = await run([pick("orchestrator")], "adjutant");
-  byName(r.body, "use-recommended").dispatch("click");
+  click(r.body, "use-recommended");
   await flush();
-  byName(r.body, "use-previous").dispatch("click");
+  click(r.body, "use-previous");
   await flush();
   await flush();
   expect(r.probes).toEqual([false, true]);
@@ -136,9 +142,9 @@ test("a role without a saved pick probes the lists; the saved role keeps its pic
 
 test("Choose again probes and opens the form", async () => {
   const again = await run([pick("orchestrator")], "orchestrator");
-  byName(again.body, "use-recommended").dispatch("click");
+  click(again.body, "use-recommended");
   await flush();
-  byName(again.body, "choose-again").dispatch("click");
+  click(again.body, "choose-again");
   await flush();
   expect(again.probes).toEqual([true]);
   expect(again.opened).toEqual([{ previous: false, recommended: true }]);
@@ -148,7 +154,7 @@ test("Choose again probes and opens the form", async () => {
 // when one runs.
 test("the first summary states when the checkpointer runs", async () => {
   const r = await run([], "orchestrator");
-  const dl = all(r.body).find((e) => e.dataset?.["field"] === "recommended-summary")!;
+  const dl = all(r.body).find((e) => e.getAttribute("data-field") === "recommended-summary")!;
   const text = dl.textContent ?? "";
   expect(text).not.toContain("On: it keeps");
   expect(text).toContain("Checkpointer");
@@ -160,7 +166,11 @@ test("the first summary states when the checkpointer runs", async () => {
 test("a fresh role does not see another role's saved model", async () => {
   const { newRouteFlow } = await import("./new-route-flow.ts");
   const { routeForm } = await import("./route-form.ts");
+  // The route form takes the flow's form's place in the dialog: the test
+  // reads the dialog.
+  const dialog = document.createElement("dialog") as unknown as FakeElement;
   const body = document.createElement("form") as unknown as FakeElement;
+  dialog.appendChild(body);
   const saved: ChoicePick = {
     role: "adjutant",
     runner: "herdr",
@@ -214,19 +224,19 @@ test("a fresh role does not see another role's saved model", async () => {
     () => {},
   );
   await flush();
-  byName(body, "use-recommended").dispatch("click");
+  click(body, "use-recommended");
   await flush();
-  byName(body, "use-previous").dispatch("click");
+  click(body, "use-previous");
   await flush();
   await flush();
   await flush();
-  const options = (name: string) =>
-    byName(body, name)
-      .children.map((o) => o.getAttribute?.("value") ?? (o as unknown as { value: string }).value)
+  const offered = (name: string) =>
+    options(byName(dialog, name))
+      .map((o) => o.getAttribute("value"))
       .filter(Boolean);
-  expect(chosen(byName(body, "main-model"))).toBe("fable-old");
-  expect(options("orch-model")).not.toContain("fable-old");
-  expect(options("orch-model")).toContain("newer");
+  expect(chosen(byName(dialog, "main-model"))).toBe("fable-old");
+  expect(offered("orch-model")).not.toContain("fable-old");
+  expect(offered("orch-model")).toContain("newer");
 });
 
 test("saved picks that cannot be read count as none", async () => {
@@ -243,7 +253,7 @@ test("saved picks that cannot be read count as none", async () => {
     () => {},
   );
   await flush();
-  byName(body, "use-recommended").dispatch("click");
+  click(body, "use-recommended");
   await flush();
   await flush();
   expect(opened).toEqual([false]);
@@ -253,9 +263,9 @@ test("saved picks that cannot be read count as none", async () => {
 // once when the user wants to choose again.
 test("a form from saved picks can ask for the lists once", async () => {
   const r = await run([pick("orchestrator")], "orchestrator");
-  byName(r.body, "use-recommended").dispatch("click");
+  click(r.body, "use-recommended");
   await flush();
-  byName(r.body, "use-previous").dispatch("click");
+  click(r.body, "use-previous");
   await flush();
   expect(r.probes).toEqual([false]);
   expect(r.lists.length).toBe(1);
@@ -299,9 +309,9 @@ test("Choose again retries after a failed read, never twice at once", async () =
     (e) => void errors.push(e),
   );
   await flush();
-  byName(body, "use-recommended").dispatch("click");
+  click(body, "use-recommended");
   await flush();
-  byName(body, "use-previous").dispatch("click");
+  click(body, "use-previous");
   await flush();
   lists!();
   lists!();
@@ -313,4 +323,41 @@ test("Choose again retries after a failed read, never twice at once", async () =
   await flush();
   expect(probes).toEqual([false, true, true]);
   expect(updated.length).toBe(1);
+});
+
+// The questions' markup, as the h() version drew them into the form.
+test("the questions before the form, as markup", async () => {
+  const { FIRST_SUMMARY } = await import("./new-route-flow.ts");
+  const r = await run([pick("orchestrator"), { ...pick("adjutant"), runner: "tmux" }], "orchestrator");
+  // The summary lists the recommended setup: data the test cannot fix.
+  const summary = FIRST_SUMMARY.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+  expect(dump(r.body)).toBe(
+    markup`
+      <form>
+        <h2>New route</h2>
+        <p class="muted">Use the recommended setup?</p>
+        <dl class="nr-summary" data-field="recommended-summary">${summary}</dl>
+        <div class="dialog-actions"
+        ><button class="btn ghost" name="custom-setup" type="button">Custom setup</button
+        ><button class="btn primary" name="use-recommended" type="button">Use the recommended setup</button></div>
+      </form>
+    `,
+  );
+  click(r.body, "use-recommended");
+  await flush();
+  // Only the picks of routes run in Herdr are offered.
+  expect(dump(r.body)).toBe(
+    markup`
+      <form>
+        <h2>New route</h2>
+        <p class="muted">Use your previous choice?</p>
+        <ul class="nr-previous-list"><li>orchestrator (herdr): claude fable, effort medium</li></ul>
+        <div class="dialog-actions"
+        ><button class="btn ghost" name="choose-again" type="button">Choose again</button
+        ><button class="btn primary" name="use-previous" type="button">Use previous choice</button></div>
+      </form>
+    `,
+  );
+  click(r.body, "choose-again");
+  expect(dump(r.body)).toBe('<form><h2>New route</h2><p class="nr-loading">Reading the harness lists…</p></form>');
 });

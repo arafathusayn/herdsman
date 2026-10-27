@@ -1,0 +1,23 @@
+{
+  // The strictest settings, for herdsman-blocks only, on top of tsconfig.json.
+  // tsconfig.json already sets strict, noUncheckedIndexedAccess,
+  // exactOptionalPropertyTypes, noImplicitOverride, noUnusedLocals,
+  // noUnusedParameters, noFallthroughCasesInSwitch, verbatimModuleSyntax and
+  // isolatedModules.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "isolatedDeclarations": true,
+    "declaration": true,
+    "erasableSyntaxOnly": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "noUncheckedSideEffectImports": true,
+    "strictBuiltinIteratorReturn": true,
+    "moduleDetection": "force",
+    "forceConsistentCasingInFileNames": true,
+    "libReplacement": false
+  },
+  "include": ["src/herdsman-blocks*.ts"]
+}

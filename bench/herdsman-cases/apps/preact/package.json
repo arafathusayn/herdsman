@@ -1,0 +1,8 @@
+{
+  "name": "herdsman-cases-preact",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "preact": "11.0.2"
+  }
+}

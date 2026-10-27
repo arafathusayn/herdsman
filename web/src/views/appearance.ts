@@ -14,10 +14,25 @@ import {
   termSchemes,
   termVars,
 } from "../appearance.ts";
-import { h, icon, icons, mount } from "../dom.ts";
-import { renderPieces, tokenizeLines } from "../highlight.ts";
+import {
+  attr,
+  child,
+  cls,
+  html,
+  list,
+  type ListNode,
+  on,
+  render,
+  runs,
+  type RunsNode,
+  text,
+  type ViewNodeOf,
+} from "../herdsman-blocks-view.ts";
+import { tokenizeLines } from "../highlight.ts";
+import { icon, type IconNode, icons } from "../icons.ts";
 import { store } from "../store.ts";
-import { applyTheme, dismissOnBackdrop, themeSwitch } from "../ui.ts";
+import { applyTheme, dismissOnBackdrop, themeSwitch, type ThemeSwitchNode } from "../ui.ts";
+import { element } from "./element-view.ts";
 
 const sample = [
   "// Load reads a route folder.",
@@ -26,146 +41,181 @@ const sample = [
   "}",
 ];
 
-function withVars(el: HTMLElement, vars: Record<string, string>): HTMLElement {
-  for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
-  return el;
+/** CSS variables as a style attribute, as style.setProperty writes them; null when there are none. */
+function styleOf(vars: Record<string, string>): string | null {
+  const decls = Object.entries(vars).map(([k, v]) => `${k}: ${v};`);
+  return decls.length ? decls.join(" ") : null;
 }
+
+const previewClass = (base: string, id: string): string => `${base}${id === matchApp ? " match-app" : ""}`;
+
+// The prompt's branch: a private-use character (a Powerline branch glyph) and the name.
+const branch = " main";
 
 /** A tiny terminal: a prompt line, then the eight base colors. */
-function termPreview(id: string): HTMLElement {
-  const dots = h(
-    "span",
-    { class: "swatches" },
-    [1, 2, 3, 4, 5, 6].map((i) => h("span", { class: "dot", style: `background: var(--t${i})` })),
-  );
-  const el = h(
-    "span",
-    { class: `term-preview${id === matchApp ? " match-app" : ""}` },
-    h(
-      "span",
-      { class: "line" },
-      h("span", { style: "color: var(--t2)" }, "herdsman"),
-      " on ",
-      h("span", { style: "color: var(--t5)" }, " main"),
-      h("span", { style: "color: var(--t1)" }, " [$]"),
-    ),
-    dots,
-  );
-  return withVars(el, termVars(id));
+const TermPreview = html`<span class=${cls()} style=${attr<string | null>()}
+  ><span class="line"
+    ><span style="color: var(--t2)">herdsman</span> on <span style="color: var(--t5)">${text()}</span
+    ><span style="color: var(--t1)"> [$]</span></span
+  ><span class="swatches"
+    ><span class="dot" style="background: var(--t1)"></span><span class="dot" style="background: var(--t2)"></span
+    ><span class="dot" style="background: var(--t3)"></span><span class="dot" style="background: var(--t4)"></span
+    ><span class="dot" style="background: var(--t5)"></span
+    ><span class="dot" style="background: var(--t6)"></span></span
+></span>`;
+
+/** What `termPreview` returns. */
+export type TermPreviewNode = ViewNodeOf<typeof TermPreview>;
+
+function termPreview(id: string): TermPreviewNode {
+  return TermPreview([previewClass("term-preview", id), styleOf(termVars(id)), branch]);
 }
 
-function codePreview(id: string): HTMLElement {
-  const code = h("code", null);
-  if (id === noHighlight) code.textContent = sample.join("\n");
-  else
-    tokenizeLines("go", sample).forEach((p, i) => {
-      if (i) code.append("\n");
-      code.append(renderPieces(p));
+// The sample, highlighted: text runs between token spans, as markdown's code
+// blocks are. It is the same for every theme; only the colors differ.
+const Token = html`<span class=${cls()}>${text()}</span>`;
+type SampleNode = string | RunsNode<ViewNodeOf<typeof Token>>;
+
+let highlighted: RunsNode<ViewNodeOf<typeof Token>> | null = null;
+
+function sampleCode(id: string): SampleNode {
+  if (id === noHighlight) return sample.join("\n");
+  if (highlighted === null) {
+    const out: (string | ViewNodeOf<typeof Token>)[] = [];
+    tokenizeLines("go", sample).forEach((pieces, i) => {
+      if (i) out.push("\n");
+      for (const [k, t] of pieces) out.push(k ? Token([`hl-${k}`, t]) : t);
     });
-  return withVars(h("pre", { class: `code-preview${id === matchApp ? " match-app" : ""}` }, code), codeVars(id));
+    highlighted = runs(out);
+  }
+  return highlighted;
 }
 
-function choices(
-  label: string,
-  items: { id: string; label: string }[],
-  current: () => string,
-  preview: (id: string) => HTMLElement,
-  choose: (id: string) => void,
-): HTMLElement {
-  const grid = h("div", {
-    class: "choice-grid",
-    role: "radiogroup",
-    "aria-label": label,
-  });
-  const draw = () =>
-    mount(
-      grid,
-      items.map((it) => {
-        const on = it.id === current();
-        return h(
-          "button",
-          {
-            type: "button",
-            role: "radio",
-            "aria-checked": String(on),
-            class: on ? "choice active" : "choice",
-            onclick: () => {
-              choose(it.id);
-              draw();
-            },
-          },
-          preview(it.id),
-          h("span", { class: "choice-label" }, it.label, on ? icon(icons.check) : null),
-        );
-      }),
-    );
-  draw();
-  return h("section", { class: "appearance-section" }, h("h3", null, label), grid);
+const CodePreview = html`<pre class=${cls()} style=${attr<string | null>()}><code>${child<SampleNode>()}</code></pre>`;
+
+/** What `codePreview` returns. */
+export type CodePreviewNode = ViewNodeOf<typeof CodePreview>;
+
+/** The sample code in a theme's colors. */
+function codePreview(id: string): CodePreviewNode {
+  return CodePreview([previewClass("code-preview", id), styleOf(codeVars(id)), sampleCode(id)]);
 }
 
 /** A tiny app window in a theme's colors: sidebar, a card, text and the accent. */
-function appPreview(id: string): HTMLElement {
-  return withVars(
-    h(
-      "span",
-      { class: "app-preview", "aria-hidden": "true" },
-      h("span", { class: "ap-side" }, h("span", { class: "ap-line" }), h("span", { class: "ap-line short" })),
-      h(
-        "span",
-        { class: "ap-main" },
-        h("span", { class: "ap-line" }),
-        h("span", { class: "ap-line short" }),
-        h("span", { class: "ap-pills" }, h("span", { class: "ap-pill" }), h("span", { class: "ap-pill working" })),
-      ),
-    ),
-    appVars(id) ?? {},
-  );
+const AppPreview = html`<span class="app-preview" aria-hidden="true" style=${attr<string | null>()}
+  ><span class="ap-side"><span class="ap-line"></span><span class="ap-line short"></span></span
+  ><span class="ap-main"
+    ><span class="ap-line"></span><span class="ap-line short"></span
+    ><span class="ap-pills"><span class="ap-pill"></span><span class="ap-pill working"></span></span></span
+></span>`;
+
+/** What `appPreview` returns. */
+export type AppPreviewNode = ViewNodeOf<typeof AppPreview>;
+
+function appPreview(id: string): AppPreviewNode {
+  return AppPreview([styleOf(appVars(id) ?? {})]);
 }
 
-export function openAppearance(): void {
-  const theme = h("div", { class: "appearance-theme" });
+type PreviewNode = TermPreviewNode | CodePreviewNode | AppPreviewNode;
+
+const Choice = html`<button
+  type="button"
+  role="radio"
+  aria-checked=${attr<"true" | "false">()}
+  class=${cls()}
+  onclick=${on<"click">()}
+>
+  ${child<PreviewNode>()}<span class="choice-label">${text()}${child<IconNode | null>()}</span>
+</button>`;
+const Choices = html`<section class="appearance-section">
+  <h3>${text()}</h3>
+  <div class="choice-grid" role="radiogroup" aria-label=${attr()}>
+    ${child<ListNode<ViewNodeOf<typeof Choice>, string>>()}
+  </div>
+</section>`;
+
+/** What `choices` returns. */
+export type ChoicesNode = ViewNodeOf<typeof Choices>;
+
+/** A radio group of themes, each shown by its preview; ids are unique within a group. */
+function choices(
+  label: string,
+  items: readonly { id: string; label: string }[],
+  current: string,
+  preview: (id: string) => PreviewNode,
+  choose: (id: string) => void,
+): ChoicesNode {
+  return Choices([
+    label,
+    label,
+    list(
+      items,
+      (it) => it.id,
+      (it) => {
+        const on = it.id === current;
+        return Choice([
+          on ? "true" : "false",
+          on ? "choice active" : "choice",
+          () => choose(it.id),
+          preview(it.id),
+          it.label,
+          on ? icon(icons.check) : null,
+        ]);
+      },
+    ),
+  ]);
+}
+
+const AppearanceDialog = html`<dialog class="dialog appearance" onclose=${on<"close", HTMLDialogElement>()}></dialog>`;
+const AppearanceForm = html`<form method="dialog">
+  <h2>Appearance</h2>
+  <section class="appearance-section">
+    <h3>Theme</h3>
+    <div class="appearance-theme">${child<ThemeSwitchNode>()}${child<ChoicesNode>()}</div>
+  </section>
+  ${child<ChoicesNode>()}${child<ChoicesNode>()}
+  <div class="dialog-actions"><button value="ok" class="btn primary">Done</button></div>
+</form>`;
+
+/** What `appearanceForm` returns. */
+export type AppearanceFormNode = ViewNodeOf<typeof AppearanceForm>;
+
+const termItems = [{ id: matchApp, label: "Match app" }, ...termSchemes];
+const codeItems = [{ id: matchApp, label: "Match app" }, ...codeThemes, { id: noHighlight, label: "No highlighting" }];
+
+/** The dialog's form for the current choices; `redraw` renders it again. */
+export function appearanceForm(redraw: () => void): AppearanceFormNode {
   const pick = (t: string): void => {
     applyTheme(t);
     store.set({ theme: t });
-    drawTheme();
+    redraw();
   };
-  // The switch and the color themes are one choice, so both redraw together.
-  const drawTheme = (): void =>
-    mount(
-      theme,
-      themeSwitch(store.app.theme, pick),
-      choices("Color themes", appThemes, () => store.app.theme, appPreview, pick),
-    );
-  drawTheme();
-  const dlg = h(
+  return AppearanceForm([
+    themeSwitch(store.app.theme, pick),
+    choices("Color themes", appThemes, store.app.theme, appPreview, pick),
+    choices("Terminal colors", termItems, loadTermScheme(), termPreview, (id) => {
+      applyTermScheme(id);
+      redraw();
+    }),
+    choices("Code highlighting", codeItems, loadCodeTheme(), codePreview, (id) => {
+      applyCodeTheme(id);
+      store.emit(); // views drawn with or without highlighting redraw
+      redraw();
+    }),
+  ]);
+}
+
+export function openAppearance(): void {
+  const dlg = element(
     "dialog",
-    { class: "dialog appearance" },
-    h(
-      "form",
-      { method: "dialog" },
-      h("h2", null, "Appearance"),
-      h("section", { class: "appearance-section" }, h("h3", null, "Theme"), theme),
-      choices(
-        "Terminal colors",
-        [{ id: matchApp, label: "Match app" }, ...termSchemes],
-        loadTermScheme,
-        termPreview,
-        (id) => applyTermScheme(id),
-      ),
-      choices(
-        "Code highlighting",
-        [{ id: matchApp, label: "Match app" }, ...codeThemes, { id: noHighlight, label: "No highlighting" }],
-        loadCodeTheme,
-        codePreview,
-        (id) => {
-          applyCodeTheme(id);
-          store.emit(); // views drawn with or without highlighting redraw
-        },
-      ),
-      h("div", { class: "dialog-actions" }, h("button", { value: "ok", class: "btn primary" }, "Done")),
-    ),
+    AppearanceDialog([
+      function () {
+        this.remove();
+      },
+    ]),
   );
-  dlg.addEventListener("close", () => dlg.remove());
+  const redraw = (): void => render(dlg, appearanceForm(redraw));
+  redraw();
   dismissOnBackdrop(dlg);
   document.body.append(dlg);
   dlg.showModal();
