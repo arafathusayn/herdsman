@@ -351,7 +351,7 @@ func TestManualStopChecksIdentity(t *testing.T) {
 	l, _ := ReadAccountLock(h.home)
 	lockAt := time.Unix(l.Start, 0)
 	started := lockAt.Add(-300 * time.Millisecond)
-	exe := "/x/herdsman"
+	exe := s.Binary
 	good := ProcID{Executable: exe, Args: []string{"herdsman", "daemon", "run", "--private-home", h.ph}, Start: started}
 	s.Identity = func(int) (ProcID, error) { return good, nil }
 	if err := s.Stop(); err == nil || !strings.Contains(err.Error(), "no valid identity record") {
@@ -381,7 +381,7 @@ func TestManualStopChecksIdentity(t *testing.T) {
 		{Executable: exe, Args: []string{"herdsman", "message", "run"}, Start: started},
 	} {
 		s.Identity = func(int) (ProcID, error) { return p, nil }
-		if err := s.Stop(); err == nil || !strings.Contains(err.Error(), "does not match") {
+		if err := s.Stop(); err == nil || !(strings.Contains(err.Error(), "does not match") || strings.Contains(err.Error(), "not this herdsman")) {
 			t.Fatalf("%+v: %v", p, err)
 		}
 	}
@@ -611,10 +611,8 @@ func TestSupervisorQueryErrorsAreNotManualState(t *testing.T) {
 					t.Fatalf("start: %v", err)
 				}
 			}
-			for _, c := range f.calls {
-				if !strings.Contains(c, "enable") {
-					t.Fatalf("a change before the state was known: %v", f.calls)
-				}
+			if len(f.calls) != 0 {
+				t.Fatalf("a change before the state was known: %v", f.calls)
 			}
 			if !AccountLockHeld(h.home) {
 				t.Fatal("the daemon was stopped")

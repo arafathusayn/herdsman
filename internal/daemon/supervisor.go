@@ -346,11 +346,12 @@ func (s *Supervisor) Start() error {
 
 func (s *Supervisor) start() error {
 	if s.goos() == "darwin" {
-		if err := s.run("launchctl", "enable", s.service()); err != nil {
-			return err
-		}
+		// The state first: a failed query changes nothing.
 		loaded, _, err := s.managed()
 		if err != nil {
+			return err
+		}
+		if err := s.run("launchctl", "enable", s.service()); err != nil {
 			return err
 		}
 		if loaded {
@@ -460,12 +461,30 @@ func daemonRunArgv(args []string) bool {
 	return false
 }
 
+// sameExecutable reports whether a process's executable is this herdsman:
+// the same path, or the same file once links are resolved (a daemon
+// started through a stable link, such as a Homebrew bin link, still
+// matches after an upgrade moves the link).
+func sameExecutable(exe, binary string) bool {
+	if exe == "" || binary == "" {
+		return false
+	}
+	if exe == binary {
+		return true
+	}
+	a, err1 := filepath.EvalSymlinks(exe)
+	b, err2 := filepath.EvalSymlinks(binary)
+	return err1 == nil && err2 == nil && a == b
+}
+
 // checkIdentity checks that the account lock's pid is the daemon that
 // took the lock (5.7): the daemon's identity record names that pid, and
-// the live process runs herdsman daemon run from the recorded executable
-// with the recorded start time, at most a minute before the lock's start
-// and not after it. A missing record or any mismatch refuses, so a stale
-// or miswritten lock never signals another process.
+// the live process runs herdsman daemon run as its command, from this
+// herdsman's executable (the trusted reference; the record alone is not
+// trusted) and the recorded one, with exactly the recorded native start
+// time, at most a minute before the lock's start and not after it. A
+// missing record or any mismatch refuses, so a stale or miswritten lock
+// never signals another process.
 func (s *Supervisor) checkIdentity(l AccountLock) error {
 	if l.PID <= 1 {
 		return fmt.Errorf("the account lock is held but names no process; inspect %s", AccountLockPath(s.Home))
@@ -493,10 +512,12 @@ func (s *Supervisor) checkIdentity(l AccountLock) error {
 	switch {
 	case !daemonRunArgv(p.Args):
 		return refuse("does not match: not herdsman daemon run")
-	case p.Executable == "" || p.Executable != rec.Executable:
+	case !sameExecutable(p.Executable, s.Binary):
+		return refuse(fmt.Sprintf("runs %q, not this herdsman (%s); after an upgrade, stop the old daemon through its supervisor (herdsman daemon stop with the unit installed) or end that pid yourself once you have checked it", p.Executable, s.Binary))
+	case p.Executable != rec.Executable:
 		return refuse(fmt.Sprintf("does not match: executable %q, recorded %q", p.Executable, rec.Executable))
-	case p.Start.Sub(recStart).Abs() > time.Second:
-		return refuse("does not match: another process start time than the record's")
+	case !p.Start.Equal(recStart):
+		return refuse("does not match: its native start time is not the record's (another process with a reused pid)")
 	case p.Start.After(lock.Add(time.Second)) || lock.Sub(p.Start) > time.Minute:
 		return refuse("does not match: not the daemon that took it at " + lock.Format(time.RFC3339))
 	}

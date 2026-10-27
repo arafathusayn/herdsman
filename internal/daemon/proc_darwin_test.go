@@ -44,7 +44,7 @@ func TestParseProcArgsEnvEnd(t *testing.T) {
 // zombie is not listed.
 func TestProcIdentityDarwin(t *testing.T) {
 	p, err := procIdentity(os.Getpid())
-	if errors.Is(err, syscall.EPERM) {
+	if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
 		t.Skip("sandbox: sysctl denied")
 	}
 	exe, _ := os.Executable()
@@ -63,6 +63,10 @@ func TestProcIdentityDarwin(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	procs, err := systemProcs()
+	if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
+		_ = cmd.Wait()
+		t.Skip("sandbox: the process list was denied")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
