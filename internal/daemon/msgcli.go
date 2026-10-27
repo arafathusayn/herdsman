@@ -18,6 +18,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/message"
+	"github.com/arafathusayn/herdsman/internal/routedb"
 )
 
 // MessageEnv is one run of a `herdsman message` command on the daemon
@@ -429,7 +430,11 @@ func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir str
 			}
 		}
 		ph, _ := PrivateHome("", e.env)
-		out = RouteStatus{Daemon: DaemonState{State: "down", HeartbeatAge: heartbeatAge(ph, e.now())}, StatusReport: FileStatus(route, dir)}
+		rep, store, serr := offlineStatus(route, dir, ph)
+		if serr != nil {
+			fmt.Fprintf(e.Stderr, "herdsman message status: %v\n", serr)
+		}
+		out = RouteStatus{Daemon: DaemonState{State: "down", HeartbeatAge: heartbeatAge(ph, e.now())}, StatusReport: rep}
 		if b, err := readSmall(filepath.Join(ph, "daemon", "daemon.json"), 4096); err == nil {
 			var info DaemonInfo
 			if json.Unmarshal(b, &info) == nil {
@@ -442,7 +447,7 @@ func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir str
 			boxes = append(boxes, b.Name)
 		}
 		out.Messages, out.Alerts = []MessageHeader{}, []json.RawMessage{}
-		if dir != "" {
+		if dir != "" && !store {
 			out.Messages, out.Alerts = statusDetail(rt, boxes, rt.AckValid)
 		}
 		code = 1
@@ -474,6 +479,53 @@ func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir str
 		fmt.Fprintf(e.Stdout, "hold %s by %s\n", h.Target, strings.Join(h.Owners, " "))
 	}
 	return code
+}
+
+// offlineStatus is the status while the daemon does not answer (S16): a
+// contract 3 inbox's route database through the store's reader (store is
+// true; it creates nothing and a missing database is reported), any other
+// inbox's files. The message list and alerts of a contract 3 inbox are
+// not read here.
+func offlineStatus(route, dir, privateHome string) (st StatusReport, store bool, err error) {
+	p, ok := routedb.StorePath(dir)
+	if !ok {
+		return FileStatus(route, dir), false, nil
+	}
+	st = StatusReport{Route: route, Inbox: dir, Status: "daemon-down", Flags: []string{"daemon-down"}, Peers: []PeerInfo{}, Boxes: []BoxCount{}, Holds: []HoldInfo{}}
+	fail := func(status string, e error) (StatusReport, bool, error) {
+		st.Status, st.Flags = status, append(st.Flags, status)
+		return st, true, e
+	}
+	if want := routedb.Path(privateHome, route); p != want {
+		return fail("store-unreadable", fmt.Errorf("the inbox names route database %s, not %s", p, want))
+	}
+	s, err := routedb.Read(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return fail("store-missing", fmt.Errorf("route database %s is missing; nothing was created (start the daemon)", p))
+	}
+	if err != nil {
+		return fail("store-unreadable", fmt.Errorf("route database %s: %v", p, err))
+	}
+	st.Epoch, st.LastSeq = s.Epoch, s.LastSeq
+	st.Registry = RegistryState{State: "pending", PendingSHA256: s.PendingSHA256}
+	if s.Approved {
+		st.Registry.State = "approved"
+	}
+	for _, x := range s.Peers {
+		st.Peers = append(st.Peers, PeerInfo{Name: x.Name, Role: x.Role, Pane: x.Pane, Session: x.Session})
+	}
+	for _, b := range s.Boxes {
+		st.Boxes = append(st.Boxes, BoxCount{Name: b.Name, New: b.New, Ready: b.Ready, Cur: b.Cur, Unacked: b.Unacked,
+			Quarantine: b.Quarantine, Claim: b.Claim, Orphan: b.Orphan})
+	}
+	for _, h := range s.Holds {
+		if n := len(st.Holds); n > 0 && st.Holds[n-1].Target == h.Target {
+			st.Holds[n-1].Owners = append(st.Holds[n-1].Owners, h.Owner)
+			continue
+		}
+		st.Holds = append(st.Holds, HoldInfo{Target: h.Target, Owners: []string{h.Owner}})
+	}
+	return st, true, nil
 }
 
 // FileStatus reads a daemon-owned inbox's status from its files alone:

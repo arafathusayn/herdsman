@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/routedb"
 )
 
 // The message channel: the private inbox where the adjutant and the
@@ -303,6 +304,11 @@ func readChannel(root string, now time.Time) Channel {
 		}
 		ch.Health = append(ch.Health, h)
 	}
+	if p, ok := routedb.StorePath(root); ok {
+		// A contract 3 inbox: its registry, mailboxes and holds are in the
+		// route database (S16); the message list and bodies are not read here.
+		return dbChannel(ch, p)
+	}
 	peers, perr := inbox.ReadBounded(filepath.Join(root, "peers"), envelopeMax)
 	approved, aerr := inbox.ReadBounded(filepath.Join(root, "peers.approved"), envelopeMax)
 	names := map[string]bool{}
@@ -376,6 +382,39 @@ func readChannel(root string, now time.Time) Channel {
 		if json.Unmarshal(b, &a) == nil && a.Title != "" {
 			ch.Alerts = append(ch.Alerts, a)
 		}
+	}
+	return ch
+}
+
+// dbChannel fills ch's registry, mailboxes and holds from the route
+// database at path, through the store's read-only reader, which creates
+// nothing. The hold files of state/ give way to the database's holds.
+func dbChannel(ch Channel, path string) Channel {
+	st, err := routedb.Read(path)
+	if err != nil {
+		ch.Error = "route database: " + err.Error()
+		return ch
+	}
+	for _, p := range st.Peers {
+		ch.Peers = append(ch.Peers, ChannelPeer{Name: p.Name, Role: p.Role, Pane: p.Pane})
+	}
+	ch.Approved, ch.Pending = st.Approved, !st.Approved
+	for _, b := range st.Boxes {
+		claim := "none"
+		if b.Claim {
+			claim = "held"
+		}
+		ch.Boxes = append(ch.Boxes, ChannelBox{Name: b.Name, Orphan: b.Orphan, Unacked: b.Ready + b.Cur, Claim: claim,
+			Counts: map[string]int{"new": b.New, "ready": b.Ready, "cur": b.Cur, "quarantine": b.Quarantine}})
+	}
+	ch.Holds = slices.DeleteFunc(ch.Holds, func(h ChannelHold) bool { return strings.HasPrefix(h.Name, "hold-") })
+	for _, h := range st.Holds {
+		name := "hold-" + h.Target
+		if n := len(ch.Holds); n > 0 && ch.Holds[n-1].Name == name {
+			ch.Holds[n-1].Owners = append(ch.Holds[n-1].Owners, ChannelHolding{By: h.Owner, Reason: h.Reason})
+			continue
+		}
+		ch.Holds = append(ch.Holds, ChannelHold{Name: name, Owners: []ChannelHolding{{By: h.Owner, Reason: h.Reason}}})
 	}
 	return ch
 }
