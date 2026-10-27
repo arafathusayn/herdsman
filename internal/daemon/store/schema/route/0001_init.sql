@@ -27,7 +27,7 @@ CREATE TABLE approvals (          -- one row per approval; replaces state/approv
   registry_sha256 TEXT NOT NULL CHECK (length(registry_sha256) = 64),
   request_sha256 TEXT NOT NULL UNIQUE,   -- the exact request; a retry returns the result (F5)
   interaction TEXT, asked_by TEXT CHECK (asked_by IS NULL OR length(asked_by) <= 200),
-  approved_by TEXT NOT NULL CHECK (approved_by IN ('terminal','web','adjutant-ask','adjutant-launch','web-launch','first-pairing')),
+  approved_by TEXT NOT NULL CHECK (approved_by IN ('terminal','web','adjutant-ask','adjutant-launch','web-launch','first-pairing','import')),  -- 'import': D1 (orchestrator ruling)
   result TEXT NOT NULL,           -- the 200 answer, strict JSON
   time INTEGER NOT NULL
 ) STRICT;
@@ -89,7 +89,9 @@ CREATE TABLE send_keys (          -- 5.4 idempotency; the 512-in-window bound is
 CREATE INDEX send_keys_time ON send_keys(committed_at);
 
 CREATE TABLE claims (
-  token TEXT PRIMARY KEY CHECK (length(token) = 32),
+  token TEXT PRIMARY KEY CHECK ((length(token) = 32 AND token NOT GLOB '*[^0-9a-f]*') OR
+    (token GLOB '.claim.[0-9]*' AND length(token) BETWEEN 8 AND 40 AND substr(token, 8) NOT GLOB '*[^0-9]*')),
+    -- D1 (orchestrator ruling): 32 hex for daemon claims; '.claim.<digits>' only from the importer
   box TEXT NOT NULL, owner TEXT NOT NULL,
   read_key TEXT NOT NULL UNIQUE,
   state TEXT NOT NULL CHECK (state IN ('active','released')),

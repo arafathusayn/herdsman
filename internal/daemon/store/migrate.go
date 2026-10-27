@@ -90,7 +90,7 @@ func readSchema(c Conn, kind Kind) (version int, writtenBy string, err error) {
 		if err := c.Query("PRAGMA user_version", nil, func(r Row) error { version = int(r.Int64(0)); return nil }); err != nil {
 			return err
 		}
-		if version == 0 {
+		if version <= 0 {
 			return nil
 		}
 		got := map[string]string{}
@@ -123,6 +123,8 @@ func checkSchema(c Conn, m Mode, kind Kind, newest int) (int, error) {
 	switch {
 	case err != nil:
 		return v, err
+	case v < 0:
+		return v, fmt.Errorf("store: %w: user_version %d", ErrSchemaCorrupt, v)
 	case v > newest:
 		return v, fmt.Errorf("store: %w: schema %d is newer than this herdsman (%d); install herdsman %s or newer", ErrSchemaNewer, v, newest, by)
 	case v < newest && m == Reader:
@@ -145,7 +147,7 @@ func migrate(c Conn, dbPath string, kind Kind, fsys fs.FS) error {
 		return err
 	}
 	if v > 0 {
-		if err := backup(c, backupPath(dbPath, v)); err != nil {
+		if err := backup(c, backupPath(dbPath, v), v); err != nil {
 			return err
 		}
 	}
@@ -176,26 +178,62 @@ func backupPath(dbPath string, v int) string {
 	return dbPath + ".v" + strconv.Itoa(v) + ".bak"
 }
 
-// backup copies the database with VACUUM INTO into a new mode 600 file and
-// syncs it and its folder (F_FULLFSYNC on darwin through Go's Sync). An
-// existing backup of the same version is kept: it is the older copy.
-func backup(c Conn, to string) error {
-	f, err := os.OpenFile(to, os.O_RDWR|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return nil
-	}
-	if err != nil {
+// backup copies the database from version v with VACUUM INTO into a
+// private temporary file (mode 600), syncs it, renames it to its final
+// name and syncs the folder (F_FULLFSYNC on darwin through Go's Sync), so
+// the final name only ever holds a complete copy. An existing backup is
+// kept only when it is a safe, complete copy of version v (the older
+// copy); anything else there is refused for the human. A temporary file
+// left by an interrupted backup is rebuilt.
+func backup(c Conn, to string, v int) error {
+	if st, err := os.Lstat(to); err == nil {
+		return checkBackup(to, st, v)
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("store: backup %s: %w", to, err)
+	}
+	tmp := to + ".tmp"
+	if st, err := os.Lstat(tmp); err == nil {
+		if err := checkRegular(st, tmp); err != nil {
+			return err
+		}
+		if err := os.Remove(tmp); err != nil {
+			return fmt.Errorf("store: backup %s: %w", tmp, err)
+		}
+	}
+	f, err := os.OpenFile(tmp, os.O_RDWR|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return fmt.Errorf("store: backup %s: %w", tmp, err)
 	}
 	defer f.Close()
-	if _, err := c.Exec("VACUUM INTO ?", to); err != nil {
-		_ = os.Remove(to)
-		return fmt.Errorf("store: backup %s: %w", to, err)
+	if _, err := c.Exec("VACUUM INTO ?", tmp); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("store: backup %s: %w", tmp, err)
 	}
 	if err := f.Sync(); err != nil {
+		return fmt.Errorf("store: backup %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, to); err != nil {
 		return fmt.Errorf("store: backup %s: %w", to, err)
 	}
 	return syncDir(filepath.Dir(to))
+}
+
+// checkBackup accepts an existing backup only as a regular mode 600 file
+// of this user holding a SQLite database of version v.
+func checkBackup(p string, st os.FileInfo, v int) error {
+	if err := checkRegular(st, p); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return fmt.Errorf("store: backup %s: %w", p, err)
+	}
+	defer f.Close()
+	h, err := readHeader(f, p)
+	if err != nil || h.empty || int(h.userVersion) != v {
+		return fmt.Errorf("store: %w: backup %s is not a complete copy of version %d; move it away to migrate", ErrMigration, p, v)
+	}
+	return nil
 }
 
 // execScript runs a file of several statements through the adapter.

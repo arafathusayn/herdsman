@@ -60,44 +60,56 @@ const (
 // pragma is one setting and the value PRAGMA <name> reads back.
 type pragma struct{ name, set, want string }
 
-// pragmas are the settings of design section 2, per mode, in order.
+// pragmas are the settings of design section 2, per mode, in order: the
+// ones every connection gets, then the writer's or the reader's own.
 func pragmas(m Mode) []pragma {
-	if m == Reader {
-		return []pragma{
-			{"busy_timeout", "5000", "5000"},
-			{"foreign_keys", "ON", "1"},
-			{"trusted_schema", "OFF", "0"},
-			{"cache_size", "-512", "-512"},
-			{"mmap_size", "0", "0"},
-			{"temp_store", "MEMORY", "2"},
-			{"query_only", "ON", "1"},
-		}
+	var p []pragma
+	if m == Writer {
+		p = append(p, pragma{"journal_mode", "WAL", "wal"}, pragma{"synchronous", "FULL", "2"},
+			pragma{"busy_timeout", "0", "0"}, pragma{"wal_autocheckpoint", "1000", "1000"})
+	} else {
+		p = append(p, pragma{"busy_timeout", "5000", "5000"})
 	}
-	p := []pragma{
-		{"journal_mode", "WAL", "wal"},
-		{"synchronous", "FULL", "2"},
-		{"foreign_keys", "ON", "1"},
-		{"busy_timeout", "0", "0"},
-		{"trusted_schema", "OFF", "0"},
-		{"cell_size_check", "ON", "1"},
-		{"cache_size", "-512", "-512"},
-		{"mmap_size", "0", "0"},
-		{"temp_store", "MEMORY", "2"},
-		{"wal_autocheckpoint", "1000", "1000"},
-	}
+	p = append(p,
+		pragma{"foreign_keys", "ON", "1"},
+		pragma{"trusted_schema", "OFF", "0"},
+		pragma{"cell_size_check", "ON", "1"},
+		pragma{"cache_size", "-512", "-512"},
+		pragma{"mmap_size", "0", "0"},
+		pragma{"temp_store", "MEMORY", "2"},
+	)
 	if runtime.GOOS == "darwin" {
 		// Plain fsync on darwin reaches only the drive cache.
 		p = append(p, pragma{"fullfsync", "ON", "1"}, pragma{"checkpoint_fullfsync", "ON", "1"})
 	}
+	if m == Reader {
+		// Last: the settings above are applied before writes are refused.
+		p = append(p, pragma{"query_only", "ON", "1"})
+	}
 	return p
+}
+
+// checkPragmas reads back every setting of mode m on c.
+func checkPragmas(c Conn, m Mode) error {
+	for _, p := range pragmas(m) {
+		got := ""
+		if err := c.Query("PRAGMA "+p.name, nil, func(r Row) error { got = r.Text(0); return nil }); err != nil || got != p.want {
+			return fmt.Errorf("store: pragma %s reads %q, want %q (%v)", p.name, got, p.want, err)
+		}
+	}
+	return nil
 }
 
 // Open opens path as the writer or a reader of a database of kind. The
 // folder must be mode 700 and the file (and its -wal and -shm, when
-// present) a regular file of mode 600, owned by this user, never a link;
-// a writer creates a missing file with mode 600, a reader of a missing
-// file gets an error wrapping os.ErrNotExist. Every pragma is read back,
-// then the writer migrates the schema and a reader checks it (section 1).
+// present) a regular file of mode 600, owned by this user, never a link,
+// and the files SQLite opens must be those (openConn); a writer creates a
+// missing file with mode 600, a reader of a missing file gets an error
+// wrapping os.ErrNotExist. A reader never creates or writes a file: a WAL
+// database whose -wal or -shm is missing is refused. The writer first
+// checks an existing file's schema through such a reader, so a file it
+// will not use is never changed; then every pragma is set and read back
+// and the writer migrates the schema, a reader checks it (section 1).
 func Open(path string, m Mode, kind Kind) (Conn, error) {
 	if kind != KindAccount && kind != KindRoute {
 		return nil, fmt.Errorf("store: unknown kind %q", kind)
@@ -118,40 +130,61 @@ func Open(path string, m Mode, kind Kind) (Conn, error) {
 			return nil, err
 		}
 	}
-	c, err := openDriver(path, m)
+	h, err := readHeader(f, path)
 	if err != nil {
-		return nil, fmt.Errorf("store: open %s: %w", path, err)
-	}
-	// The file SQLite opened is the one checked: same inode at the path.
-	if err := sameFile(f, path); err != nil {
-		_ = c.Close()
 		return nil, err
 	}
-	for _, p := range pragmas(m) {
-		if _, err := c.Exec("PRAGMA " + p.name + " = " + p.set); err != nil {
-			_ = c.Close()
-			return nil, fmt.Errorf("store: pragma %s: %w", p.name, err)
+	newest := Newest(kind)
+	readable := !h.empty && (!h.wal || sidesPresent(path))
+	if m == Reader {
+		if h.empty {
+			return nil, fmt.Errorf("store: %w: schema 0 is older than this herdsman (%d); start the daemon to migrate it", ErrSchemaOlder, newest)
+		}
+		if !readable {
+			return nil, fmt.Errorf("store: %s is missing; a reader never creates it (start the daemon)", missingSide(path))
 		}
 	}
-	for _, p := range pragmas(m) {
-		got := ""
-		if err := c.Query("PRAGMA "+p.name, nil, func(r Row) error { got = r.Text(0); return nil }); err != nil || got != p.want {
-			_ = c.Close()
-			return nil, fmt.Errorf("store: pragma %s reads %q, want %q (%v)", p.name, got, p.want, err)
+	if m == Writer && !h.empty {
+		if !readable {
+			// No side files to read through: the header decides alone.
+			if h.userVersion < 0 {
+				return nil, fmt.Errorf("store: %w: user_version %d", ErrSchemaCorrupt, h.userVersion)
+			}
+			if int(h.userVersion) > newest {
+				return nil, fmt.Errorf("store: %w: schema %d is newer than this herdsman (%d); install a newer herdsman", ErrSchemaNewer, h.userVersion, newest)
+			}
+		} else if err := precheck(path, f, kind, newest); err != nil {
+			return nil, err
 		}
+	}
+	c, err := openConn(path, m, f)
+	if err != nil {
+		return nil, err
 	}
 	// The schema is checked before any other statement: the writer
 	// migrates to this binary's version, a reader refuses any other.
 	if m == Writer {
 		err = migrate(c, path, kind, schemaFS)
 	} else {
-		_, err = checkSchema(c, Reader, kind, Newest(kind))
+		_, err = checkSchema(c, Reader, kind, newest)
 	}
 	if err != nil {
 		_ = c.Close()
 		return nil, err
 	}
 	return c, nil
+}
+
+// precheck reads an existing file's schema through a reader before the
+// writer's settings touch it: a newer or foreign file stays unchanged.
+func precheck(path string, f *os.File, kind Kind, newest int) error {
+	r, err := openConn(path, Reader, f)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	_, err = checkSchema(r, Writer, kind, newest)
+	return err
 }
 
 // checkFolder requires a real folder of mode 700 owned by this user.
