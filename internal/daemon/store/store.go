@@ -60,36 +60,44 @@ const (
 // pragma is one setting and the value PRAGMA <name> reads back.
 type pragma struct{ name, set, want string }
 
-// pragmas are the settings of design section 2, per mode, in order.
+// pragmas are the settings of design section 2, per mode, in order: the
+// ones every connection gets, then the writer's or the reader's own.
 func pragmas(m Mode) []pragma {
-	if m == Reader {
-		return []pragma{
-			{"busy_timeout", "5000", "5000"},
-			{"foreign_keys", "ON", "1"},
-			{"trusted_schema", "OFF", "0"},
-			{"cache_size", "-512", "-512"},
-			{"mmap_size", "0", "0"},
-			{"temp_store", "MEMORY", "2"},
-			{"query_only", "ON", "1"},
-		}
+	var p []pragma
+	if m == Writer {
+		p = append(p, pragma{"journal_mode", "WAL", "wal"}, pragma{"synchronous", "FULL", "2"},
+			pragma{"busy_timeout", "0", "0"}, pragma{"wal_autocheckpoint", "1000", "1000"})
+	} else {
+		p = append(p, pragma{"busy_timeout", "5000", "5000"})
 	}
-	p := []pragma{
-		{"journal_mode", "WAL", "wal"},
-		{"synchronous", "FULL", "2"},
-		{"foreign_keys", "ON", "1"},
-		{"busy_timeout", "0", "0"},
-		{"trusted_schema", "OFF", "0"},
-		{"cell_size_check", "ON", "1"},
-		{"cache_size", "-512", "-512"},
-		{"mmap_size", "0", "0"},
-		{"temp_store", "MEMORY", "2"},
-		{"wal_autocheckpoint", "1000", "1000"},
-	}
+	p = append(p,
+		pragma{"foreign_keys", "ON", "1"},
+		pragma{"trusted_schema", "OFF", "0"},
+		pragma{"cell_size_check", "ON", "1"},
+		pragma{"cache_size", "-512", "-512"},
+		pragma{"mmap_size", "0", "0"},
+		pragma{"temp_store", "MEMORY", "2"},
+	)
 	if runtime.GOOS == "darwin" {
 		// Plain fsync on darwin reaches only the drive cache.
 		p = append(p, pragma{"fullfsync", "ON", "1"}, pragma{"checkpoint_fullfsync", "ON", "1"})
 	}
+	if m == Reader {
+		// Last: the settings above are applied before writes are refused.
+		p = append(p, pragma{"query_only", "ON", "1"})
+	}
 	return p
+}
+
+// checkPragmas reads back every setting of mode m on c.
+func checkPragmas(c Conn, m Mode) error {
+	for _, p := range pragmas(m) {
+		got := ""
+		if err := c.Query("PRAGMA "+p.name, nil, func(r Row) error { got = r.Text(0); return nil }); err != nil || got != p.want {
+			return fmt.Errorf("store: pragma %s reads %q, want %q (%v)", p.name, got, p.want, err)
+		}
+	}
+	return nil
 }
 
 // Open opens path as the writer or a reader of a database of kind. The
@@ -133,12 +141,9 @@ func Open(path string, m Mode, kind Kind) (Conn, error) {
 			return nil, fmt.Errorf("store: pragma %s: %w", p.name, err)
 		}
 	}
-	for _, p := range pragmas(m) {
-		got := ""
-		if err := c.Query("PRAGMA "+p.name, nil, func(r Row) error { got = r.Text(0); return nil }); err != nil || got != p.want {
-			_ = c.Close()
-			return nil, fmt.Errorf("store: pragma %s reads %q, want %q (%v)", p.name, got, p.want, err)
-		}
+	if err := checkPragmas(c, m); err != nil {
+		_ = c.Close()
+		return nil, err
 	}
 	// The schema is checked before any other statement: the writer
 	// migrates to this binary's version, a reader refuses any other.

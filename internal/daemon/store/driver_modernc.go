@@ -10,17 +10,19 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
 
 // sqlConn is a Conn on one database/sql connection.
 type sqlConn struct {
-	db    *sql.DB
-	c     *sql.Conn
-	mode  Mode
-	stmts map[string]*sql.Stmt
-	inTx  bool
+	db     *sql.DB
+	c      *sql.Conn
+	mode   Mode
+	stmts  map[string]*sql.Stmt
+	inTx   bool
+	broken error // set when the connection was retired; every call returns it
 }
 
 func openDriver(path string, m Mode) (Conn, error) {
@@ -43,6 +45,9 @@ func openDriver(path string, m Mode) (Conn, error) {
 }
 
 func (s *sqlConn) stmt(q string) (*sql.Stmt, error) {
+	if s.broken != nil {
+		return nil, s.broken
+	}
 	if st, ok := s.stmts[q]; ok {
 		return st, nil
 	}
@@ -100,11 +105,17 @@ func (s *sqlConn) Query(q string, args []any, fn func(Row) error) error {
 // script runs several statements outside the statement cache (migration
 // files only).
 func (s *sqlConn) script(q string) error {
+	if s.broken != nil {
+		return s.broken
+	}
 	_, err := s.c.ExecContext(context.Background(), q)
 	return err
 }
 
 func (s *sqlConn) Tx(fn func(Conn) error) error {
+	if s.broken != nil {
+		return s.broken
+	}
 	if s.inTx {
 		return errors.New("store: transactions do not nest")
 	}
@@ -124,11 +135,22 @@ func (s *sqlConn) Tx(fn func(Conn) error) error {
 		}
 		return err
 	}
-	_, err = s.c.ExecContext(context.Background(), "COMMIT")
+	if _, err = s.c.ExecContext(context.Background(), "COMMIT"); err != nil {
+		// A refused COMMIT (a deferred constraint, a busy or I/O error) can
+		// leave the transaction open: roll it back, or retire the
+		// connection when even that fails.
+		if _, rerr := s.c.ExecContext(context.Background(), "ROLLBACK"); rerr != nil && !strings.Contains(rerr.Error(), "no transaction is active") {
+			s.broken = fmt.Errorf("store: connection retired after a failed commit: %v (rollback: %v)", err, rerr)
+			_ = s.Close()
+		}
+	}
 	return err
 }
 
 func (s *sqlConn) Close() error {
+	if s.stmts == nil {
+		return nil
+	}
 	for _, st := range s.stmts {
 		_ = st.Close()
 	}

@@ -67,11 +67,13 @@ func TestPragmaListIsTheDesign(t *testing.T) {
 		Writer: {"journal_mode": "WAL", "synchronous": "FULL", "foreign_keys": "ON", "busy_timeout": "0",
 			"trusted_schema": "OFF", "cell_size_check": "ON", "cache_size": "-512", "mmap_size": "0",
 			"temp_store": "MEMORY", "wal_autocheckpoint": "1000"},
-		Reader: {"busy_timeout": "5000", "foreign_keys": "ON", "trusted_schema": "OFF", "cache_size": "-512",
-			"mmap_size": "0", "temp_store": "MEMORY", "query_only": "ON"},
+		Reader: {"busy_timeout": "5000", "foreign_keys": "ON", "trusted_schema": "OFF", "cell_size_check": "ON",
+			"cache_size": "-512", "mmap_size": "0", "temp_store": "MEMORY", "query_only": "ON"},
 	}
 	if runtime.GOOS == "darwin" {
-		want[Writer]["fullfsync"], want[Writer]["checkpoint_fullfsync"] = "ON", "ON"
+		for _, m := range []Mode{Writer, Reader} {
+			want[m]["fullfsync"], want[m]["checkpoint_fullfsync"] = "ON", "ON"
+		}
 	}
 	for m, w := range want {
 		got := map[string]string{}
@@ -104,7 +106,12 @@ func TestReaderReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := open(t, p, Reader)
-	for k, v := range map[string]string{"query_only": "1", "busy_timeout": "5000", "foreign_keys": "1", "trusted_schema": "0"} {
+	want := map[string]string{"query_only": "1", "busy_timeout": "5000", "foreign_keys": "1", "trusted_schema": "0",
+		"cell_size_check": "1", "cache_size": "-512", "mmap_size": "0", "temp_store": "2"}
+	if runtime.GOOS == "darwin" {
+		want["fullfsync"], want["checkpoint_fullfsync"] = "1", "1"
+	}
+	for k, v := range want {
 		if got := readPragma(t, r, k); got != v {
 			t.Errorf("reader %s = %s, want %s", k, got, v)
 		}
@@ -158,6 +165,86 @@ func TestTx(t *testing.T) {
 	_ = c.Query("SELECT k FROM t ORDER BY k", nil, func(r Row) error { keys = append(keys, r.Int64(0)); return nil })
 	if len(keys) != 1 || keys[0] != 2 {
 		t.Fatalf("rows after rollback and commit: %v", keys)
+	}
+}
+
+// TestFailedCommitLeavesNoTransaction (S1-1 F3): a COMMIT refused by a
+// deferred foreign key leaves no open transaction and no row behind; the
+// next transaction runs normally.
+func TestFailedCommitLeavesNoTransaction(t *testing.T) {
+	c := open(t, filepath.Join(dir(t), "r.db"), Writer)
+	if _, err := c.Exec("CREATE TABLE p (k INTEGER PRIMARY KEY) STRICT"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Exec("CREATE TABLE ch (k INTEGER REFERENCES p(k) DEFERRABLE INITIALLY DEFERRED) STRICT"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Tx(func(tx Conn) error {
+		_, err := tx.Exec("INSERT INTO ch VALUES (9)")
+		return err
+	}); err == nil {
+		t.Fatal("a commit with a dangling deferred key succeeded")
+	}
+	n := int64(-1)
+	if err := c.Query("SELECT count(*) FROM ch", nil, func(r Row) error { n = r.Int64(0); return nil }); err != nil || n != 0 {
+		t.Fatalf("rows after the failed commit: %d (%v)", n, err)
+	}
+	if err := c.Tx(func(tx Conn) error {
+		_, err := tx.Exec("INSERT INTO p VALUES (1)")
+		return err
+	}); err != nil {
+		t.Fatalf("next transaction: %v", err)
+	}
+}
+
+// TestPragmaReadBackRefusesMismatch (S1-1 F5): the read-back refuses a
+// connection on which any one setting of its mode differs.
+func TestPragmaReadBackRefusesMismatch(t *testing.T) {
+	other := map[string]string{"journal_mode": "DELETE", "synchronous": "NORMAL", "foreign_keys": "OFF",
+		"busy_timeout": "7", "trusted_schema": "ON", "cell_size_check": "OFF", "cache_size": "-100",
+		"mmap_size": "65536", "temp_store": "FILE", "wal_autocheckpoint": "50", "query_only": "OFF",
+		"fullfsync": "OFF", "checkpoint_fullfsync": "OFF"}
+	for _, m := range []Mode{Writer, Reader} {
+		p := filepath.Join(dir(t), "r.db")
+		if c, err := Open(p, Writer, KindRoute); err != nil {
+			t.Fatal(err)
+		} else {
+			_ = c.Close()
+		}
+		for _, pr := range pragmas(m) {
+			t.Run(m.String()+"/"+pr.name, func(t *testing.T) {
+				c := open(t, p, m)
+				if err := checkPragmas(c, m); err != nil {
+					t.Fatalf("fresh connection: %v", err)
+				}
+				if _, err := c.Exec("PRAGMA " + pr.name + " = " + other[pr.name]); err != nil {
+					t.Fatal(err)
+				}
+				if readPragma(t, c, pr.name) == pr.want {
+					t.Fatalf("%s did not change", pr.name)
+				}
+				if err := checkPragmas(c, m); err == nil || !strings.Contains(err.Error(), "pragma "+pr.name+" ") {
+					t.Fatalf("mismatched %s accepted: %v", pr.name, err)
+				}
+			})
+		}
+	}
+}
+
+// TestReaderURIReadOnly (S1-1 F5): a reader cannot write even with
+// query_only turned off: the URI's mode=ro refuses on its own.
+func TestReaderURIReadOnly(t *testing.T) {
+	p := filepath.Join(dir(t), "r.db")
+	w := open(t, p, Writer)
+	if _, err := w.Exec("CREATE TABLE t (k INTEGER) STRICT"); err != nil {
+		t.Fatal(err)
+	}
+	r := open(t, p, Reader)
+	if _, err := r.Exec("PRAGMA query_only = OFF"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Exec("INSERT INTO t VALUES (1)"); err == nil || !strings.Contains(strings.ToLower(err.Error()), "readonly") {
+		t.Fatalf("reader insert with query_only off: %v", err)
 	}
 }
 
