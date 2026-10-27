@@ -1,0 +1,76 @@
+name: release-build
+
+# The release build without a release: goreleaser builds the four cgo
+# binaries as release.yml would, with the cgoprobe tag, which links the
+# SQLite driver (cmd/herdsman/cgoprobe.go). Each artifact must be the right
+# OS and architecture, linux ones statically linked, and the probe must open
+# a database in the darwin/arm64 binary here and the linux/amd64 one on
+# Linux.
+
+on:
+  pull_request:
+    paths:
+      - .goreleaser.yaml
+      - .github/workflows/release.yml
+      - .github/workflows/release-build.yml
+      - cmd/herdsman/cgoprobe.go
+      - go.mod
+      - go.sum
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Bun types (global, outside the repo)
+        run: make tools
+      - uses: mlugg/setup-zig@v2.2.1
+        with:
+          version: 0.17.0
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: v2.19.0
+          args: build --snapshot --clean
+        env:
+          HERDSMAN_BUILD_TAGS: cgoprobe
+      - name: Each binary is its target
+        run: |
+          set -eu
+          file dist/herdsman_*/herdsman
+          file dist/herdsman_darwin_arm64*/herdsman | grep -q 'Mach-O 64-bit.*arm64'
+          file dist/herdsman_darwin_amd64*/herdsman | grep -q 'Mach-O 64-bit.*x86_64'
+          file dist/herdsman_linux_amd64*/herdsman | grep -q 'ELF 64-bit.*x86-64.*statically linked'
+          file dist/herdsman_linux_arm64*/herdsman | grep -q 'ELF 64-bit.*aarch64.*statically linked'
+      - name: Probe on macOS
+        run: |
+          dist/herdsman_darwin_arm64*/herdsman --cgo-probe | grep '^cgo probe: sqlite '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: herdsman-linux-amd64
+          path: dist/herdsman_linux_amd64_v1/herdsman
+          retention-days: 1
+
+  probe-linux:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: herdsman-linux-amd64
+      - name: Probe on Linux
+        run: |
+          chmod +x herdsman
+          ./herdsman --cgo-probe | grep '^cgo probe: sqlite '
+          ./herdsman version
