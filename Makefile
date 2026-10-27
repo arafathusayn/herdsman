@@ -18,7 +18,7 @@ WEB_DIST    := internal/web/dist
 BUN_BUILD   := bun build ./index.html ./docs/index.html --outdir ../$(WEB_DIST) --minify \
                --entry-naming '[dir]/[name].[ext]' --asset-naming '[name].[ext]' --chunk-naming '[dir]/[name].[ext]'
 
-.PHONY: all tools web pages web-check web-e2e web-fmt build check test lint vuln release-check clean
+.PHONY: all tools web pages web-check web-e2e react-compat web-fmt build check test lint vuln release-check clean
 
 all: check build
 
@@ -49,6 +49,14 @@ web-e2e: web
 	cd web/e2e && bun install --frozen-lockfile
 	cd web && bun check --no-pretty -p e2e/tsconfig.json --typeRoots "$(BUN_GLOBAL)"
 	cd web/e2e && bun run e2e
+
+## react-compat: herdsman-blocks-react against React 19 in headless Chrome:
+## the same scenarios on both, every render and log compared (CHROME=path
+## picks the browser)
+react-compat:
+	cd bench/herdsman-cases && bun install --frozen-lockfile
+	cd bench/herdsman-cases/apps/react && bun install --frozen-lockfile
+	cd bench/herdsman-cases && bun react-compat.ts --runtimes blocks
 
 ## web-fmt: format the web app
 web-fmt:

@@ -86,6 +86,32 @@ change the world and render a fresh snapshot: `poll` (no change), `status`
 `burst` (20 new events), `toggle` (checklist line 41 flips done),
 `logline` (one new log line at the top).
 
+## React runtimes
+
+Three apps run the same React source, `apps/react/main.tsx`, compiled by the
+React Compiler (`apps/react/compile.ts`) and bundled with a different runtime
+behind the `react` and `react-dom` imports (`react-alias.ts`):
+
+| App | Runtime |
+| --- | --- |
+| `react` | React 19 and React DOM |
+| `react-blocks` | herdsman-blocks-react (`web/src/herdsman-blocks-react.ts`) |
+| `redact` | @tanstack/redact 0.2.1, every feature on (run `bun install` in `apps/redact`) |
+
+## React compatibility check in Chrome
+
+`bun react-compat.ts [--runtimes blocks,redact] [--verbose]` builds
+`react-compat/page.tsx` once against React 19 and once against each runtime,
+runs each build in headless Chrome, and compares the transcripts: every value
+the scenarios in `react-compat/cases.tsx` log and the HTML after every step.
+The scenarios cover host props, SVG, keyed lists, fragments, batching,
+effect order, memo, context, class lifecycles, error boundaries, Suspense
+and lazy, portals, events, controlled fields, refs, external stores,
+transitions, actions and forms, Children, Activity, hydration of React's own
+server HTML (`react-compat/ssr.tsx`), roots and useId. It exits non-zero
+when a herdsman-blocks-react scenario differs from React; `make
+react-compat` runs it for that runtime alone.
+
 ## SVG and typed-hole check in Chrome
 
 `bun check-svg.ts` (or `bun run check-svg`) bundles `check-svg.page.ts` and
@@ -96,6 +122,6 @@ compiles), and typed `on()` and `prop()` holes work on real elements. The
 unit tests' fake DOM only imitates namespaces; this runs the browser's own
 parser. It exits non-zero when a check fails.
 
-Both `run.ts` and `check-svg.ts` launch the Chrome named by `CHROME`, else
+`run.ts`, `check-svg.ts` and `react-compat.ts` launch the Chrome named by `CHROME`, else
 the first one found in the usual macOS and Linux install places or on
 `PATH` (`chrome.ts`).

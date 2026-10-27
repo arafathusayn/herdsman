@@ -3,9 +3,9 @@
 A living document. It explains why herdsman-blocks exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
 - Status: draft, on branch `herdsman-blocks`
-- Library version: 0.0.9 (the module exports this as `VERSION`)
+- Library version: 0.1.0 (the module exports this as `VERSION`)
 - Last updated: 2026-10-27
-- Modules: `web/src/herdsman-blocks.ts` and the view layer `web/src/herdsman-blocks-view.ts`, which herdsman web renders with
+- Modules: `web/src/herdsman-blocks.ts`, the view layer `web/src/herdsman-blocks-view.ts`, which herdsman web renders with, and the React API `web/src/herdsman-blocks-react.ts`, a drop-in client runtime for React apps
 
 ---
 
@@ -23,12 +23,13 @@ The herdsman web app renders in immediate mode. Every time the store emits, a vi
 
 Keep the immediate-mode style, because views stay plain functions of the store. Change only the last step: instead of replacing the container's children, compare the freshly built tree with the live one and patch the live one until it matches. Nodes that still correspond are kept; only real differences touch the DOM.
 
-The library has three layers, each usable alone, and a declarative view layer on top of blocks and lists:
+The library has three layers, each usable alone, a declarative view layer on top of blocks and lists, and a React-compatible runtime:
 
 1. **Morph** patches a live subtree to match a freshly built one. herdsman web used it through a `patch()` drop-in for `mount()` until the views migration; it has no app user now.
 2. **Keyed lists** reconcile an old ordered list of keyed children with a new one in the minimum number of DOM moves. Morph uses this for every child list.
 3. **Blocks** are a faster path for hot, repeated markup: a template is parsed once, each instance is one deep clone, and updates write straight to the few nodes that can change. They suit large tables and logs where even building the fresh tree is too much work.
 4. **Views** keep the immediate-mode style on top of blocks: a view function returns light descriptions (a template and its values) on every render, and `render` writes only the holes whose values changed. Optional content and nested views go in child holes, keyed lists in `list()`, and event handlers through per-template trampolines so a fresh closure per render costs no DOM write.
+5. **The React API** runs unchanged React apps: the client half of React 19 (`react`, `react-dom`, `react-dom/client`, the JSX and React Compiler runtimes) in one module that an app aliases those imports to. Its placement step reuses the keyed lists' minimum-move algorithm, so a reorder moves the fewest nodes and keeps their focus and state.
 
 ### Why this algorithm
 
@@ -66,6 +67,32 @@ Assessment: in this replica herdsman-blocks ranks second of four by score, but t
 **Noise control** (2026-10-26): the same 0.0.1 build run against a byte-identical copy of itself, 10 interleaved iterations, scored 1.052 and 1.009, a 4.3% gap from noise alone; per-test factors between the identical builds reached 1.17. Any replica difference smaller than that is not evidence.
 
 **Earlier run** (same day, before the allocation work), median of 15 iterations, three frameworks: vanillajs 1.029, herdsman-blocks 1.076, `re` 1.086.
+
+### React apps on herdsman-blocks (2026-10-27)
+
+TanStack Redact (0.2.1, announced the same week) replaces React and React DOM in the browser with a smaller runtime that renders synchronously. Layer 5 takes the same approach, aiming for React's exact behavior and a smaller, faster runtime. It was measured against React 19 and Redact 0.2.1 on two points, each run in headless Chrome (Chromium 153, 4 cores):
+
+1. **Same behavior as React.** `bench/herdsman-cases/react-compat.ts` runs 25 scenarios, from host props to hydration of React's own server HTML (listed in the bench README), on React 19 and on each runtime, and compares every logged value and the HTML after every step. herdsman-blocks-react matches React in 25 of 25. Redact matches in 15. It differs in `<meta>` hoisting, `xlinkHref`, the order of parent and child effects, passive effects around a layout-effect update, `shouldComponentUpdate` calls, events bubbling through portals, enter and leave events, input attribute order, form action URLs and `Children.count`.
+2. **Size and speed on herdsman's own screens.** The herdsman-cases apps `react`, `react-blocks` and `redact` bundle the same source, `apps/react/main.tsx`, compiled by the React Compiler, with only the runtime swapped. All three pass the correctness gate (the reference markup after every operation) and keep the same nodes. Median of 10 interleaved iterations, factor to the best median (Preact added as a non-React reference):
+
+| benchmark | React 19 | herdsman-blocks-react | Redact 0.2.1 | Preact |
+| --- | ---: | ---: | ---: | ---: |
+| create | 102.2 ms (1.98) | 52.0 ms (1.01) | 64.4 ms (1.25) | 51.7 ms (1.00) |
+| poll (4x) | 15.9 (1.00) | 19.4 (1.22) | 25.4 (1.60) | 19.6 (1.23) |
+| status (4x) | 41.1 (1.00) | 46.1 (1.12) | 54.7 (1.33) | 42.9 (1.05) |
+| select (4x) | 168.8 (6.39) | 26.4 (1.00) | 41.7 (1.58) | 29.1 (1.10) |
+| tab-activity | 85.4 (1.68) | 50.7 (1.00) | 71.0 (1.40) | 55.0 (1.08) |
+| event (4x) | 105.4 (1.32) | 84.1 (1.05) | 132.2 (1.66) | 79.8 (1.00) |
+| burst (4x) | 135.6 (1.26) | 107.6 (1.00) | 134.0 (1.25) | 118.7 (1.10) |
+| tab-checklist | 26.5 (1.16) | 27.0 (1.18) | 29.4 (1.28) | 22.9 (1.00) |
+| toggle (4x) | 37.5 (1.40) | 26.8 (1.00) | 41.6 (1.55) | 27.4 (1.02) |
+| tab-log | 46.0 (1.00) | 47.5 (1.03) | 63.2 (1.38) | 50.3 (1.09) |
+| logline (4x) | 64.3 (1.09) | 59.1 (1.00) | 76.0 (1.29) | 62.8 (1.06) |
+| tab-team | 42.5 (1.73) | 25.3 (1.03) | 27.3 (1.11) | 24.5 (1.00) |
+| **geometric mean** | **1.477** | **1.051** | **1.380** | **1.060** |
+| app JavaScript, gzip | 69.7 KB | 16.0 KB | 30.2 KB | 7.5 KB |
+
+A one-component app (a counter in a root) is 65.8 KB gzipped with React, 26.4 KB with Redact (every feature on) and 12.3 KB with herdsman-blocks-react, which has no features to turn off. Reading: on this machine the noise floor is about 4% (see the noise control below), so herdsman-blocks-react is tied with Preact, about 24% ahead of Redact and 29% ahead of React by geometric mean, and it is the only React-API runtime that is never more than 1.22 times the best. Its losses are the unchanged re-render (poll) and the one-card status move, where React is fastest.
 
 ---
 
@@ -358,6 +385,124 @@ For code that moves a view's nodes out of its container, such as a bridge that r
 2. The delegated listener of any render root skips direct instances, so a direct instance moved under a render root runs each handler once, from its own element.
 3. A container is used with one of the two functions.
 
+### Layer 5: The React API
+
+`web/src/herdsman-blocks-react.ts` implements the client half of React 19: the exports of `react`, `react/jsx-runtime`, `react/jsx-dev-runtime`, `react/compiler-runtime`, `react-dom` and `react-dom/client`. One module answers all six specifiers, so an app switches by aliasing them at build time (a Bun plugin's `onResolve`, Vite's `resolve.alias`) and changes no code; libraries that import React get the same module. The app keeps `@types/react` for type checking. It reuses Layer 2's longest increasing subsequence and its rule for moves; it does not use templates, because React describes markup at run time.
+
+What it is for: React apps that want a smaller and faster client runtime, or a reorder that keeps focus and state. What it is not: a server renderer (use React's own on the server, and `hydrateRoot` on the client), development warnings, or concurrent rendering.
+
+#### Elements
+
+1. `jsx(type, config, key)` makes an element from the automatic runtime's arguments. When `config` has no `key` property, `config` itself becomes the props object (no copy). Otherwise the props are a copy without `key`, and `key` comes from `config`. The key is a string or null.
+2. `createElement(type, config, ...children)` copies `config` into new props, minus `key`, `__self` and `__source`. One child becomes `props.children` as is, more than one an array.
+3. A class with `defaultProps` gets them for every prop that is undefined, at element creation.
+4. An element is `{ $$typeof, type, key, ref, props }` with React 19's `Symbol.for("react.transitional.element")`; `ref` mirrors `props.ref` (React 19 passes `ref` as a prop). Fragment, StrictMode, Profiler, Suspense, SuspenseList, Activity, ViewTransition, context, consumer, memo, forwardRef, lazy and portal objects carry React's own `Symbol.for` tags, so code that checks `$$typeof` (react-is, libraries) recognizes them.
+5. `Children.map`, `forEach`, `count`, `toArray` and `only` follow React's traversal: empty nodes count and are passed to the callback, nested arrays and iterables are flattened, and mapped elements get React's keys (`.0`, `.$key`, `.0:1`, a mapped key prefixed with `key/`).
+
+#### Fibers
+
+A fiber is kept per rendered child: an element, a text, an array, or a portal. It records its kind (host, text, function, class, fragment, provider, consumer, portal, suspense, activity, lazy, memo wrapper, root), its type, its key, its props, the element it last rendered, its parent, its children in order, its depth, its root, its DOM node (or container), its hooks, and flags. Its kind comes from its type once, when it is created:
+
+1. A string is a host element; a function with `prototype.isReactComponent` is a class; another function is a function component.
+2. A memo of a plain function or of a forwardRef is a function fiber that also holds the memo's compare (shallow equality by default); a memo of anything else is a wrapper with one child.
+3. A forwardRef is a function fiber whose render function takes `(props without ref, ref)`.
+
+#### Reconciling a child list
+
+1. Turn the children into items: an array as is, another iterable through `Array.from`, anything else as a list of one. null, undefined and booleans are holes: they produce no fiber but keep their position. A promise is read with `use` (it suspends until settled).
+2. Each item's key is its element key (a string) when it has one, otherwise its position (a number). The two kinds never collide, and no key string is built per render.
+3. Walk old fibers and items together while keys and types match, updating in place. This covers re-renders that change no structure, with no map.
+4. If anything is left, map the remaining old fibers by key. For each remaining item, reuse the old fiber with its key and the same type, or create a fiber. A reused fiber whose old index is below the highest old index reused so far has moved.
+5. Unmount every old fiber left in the map. When every old child goes and nothing new comes, and the children were all of a host's content, empty the host with one `textContent` write instead of one removal per node.
+6. If anything was created or moved, flag the nearest host (element, root or portal) as needing placement.
+7. If a child throws (an error or a thenable), the parent keeps every live fiber, the new ones made so far and the old ones not yet reached, marks itself dirty and rethrows. The boundary that catches can then retry or unmount the whole subtree. A fiber that throws while mounting is unmounted first: nothing of a failed mount is committed.
+
+An element update is skipped when the element is the same object as last time and the fiber has no pending update; this skips the whole subtree. Hoisted JSX, `children` passed through, and the React Compiler's memo cache all produce such elements. A memo fiber is also skipped when its compare says the props are equal and the ref is the same.
+
+#### Placing DOM nodes
+
+Only hosts place nodes. A component or fragment adds no DOM node of its own, so a host's DOM children are the top-level nodes of its child fibers, in order, skipping portals (they place their own) and hoisted metadata. After a host renders, and after a component re-renders from the update queue, a host flagged for placement brings its live children to that list:
+
+1. Collect the wanted list. Skip live nodes that this host did not place (a portal's, another root's, a library's); each placed node records its host.
+2. Keep the common prefix and suffix of the live and wanted lists. The rest of the live list is the old window.
+3. If the old window is empty, insert the wanted window before the first node of the suffix, or append when there is no suffix.
+4. Otherwise number the old window's nodes. For each wanted node, record its old number, or -1 for a new node. Remove old nodes that are not wanted.
+5. Keep the longest increasing subsequence of those numbers in place. Walking right to left, insert each new node and move each other node before its right neighbour, which is already final. That is the minimum number of moves.
+6. A move uses `moveBefore` when the parent is in the document, so the moved node keeps focus, selection, a playing video and running animations. React moves with `insertBefore`, which resets them.
+
+#### Host elements
+
+1. A new element is created in the namespace of its host: SVG under `<svg>` (HTML again under `<foreignObject>`), MathML under `<math>`. A `<select multiple>` is made multiple at creation, as React does.
+2. `<title>`, `<meta>` and `<link>` (a stylesheet link only with `precedence`; none with `itemProp`, `onLoad` or `onError`) go into `document.head`, React 19's document metadata.
+3. Props are diffed against the last props. Removed props are cleared first, then changed props are set, in props order. `className` is `class`, `htmlFor` is `for`, `httpEquiv` is `http-equiv` and `acceptCharset` is `accept-charset`. Every other HTML prop is set as an attribute by its own name, which HTML lowercases.
+4. On SVG elements, camelCase props become kebab-case except the attributes SVG spells in camelCase (`viewBox`, `preserveAspectRatio`, `gradientUnits` and the rest of React's list). `xlink*` and `xml*` props get their namespaces.
+5. null, undefined, functions and symbols remove an attribute. Booleans: React's boolean attributes are present (empty) or absent; `data-*`, `aria-*` and the "booleanish" attributes (`draggable`, `spellCheck`, `contentEditable`, `value`) are written as "true" or "false"; any other attribute is removed.
+6. `style` objects are diffed by property. Numbers get `px` except unitless properties and custom properties (`--x`); a custom property is set with `setProperty`.
+7. `dangerouslySetInnerHTML` writes `innerHTML` when its `__html` changes. A single string or number child is the element's text, updated in place, with no text fiber.
+8. Inputs set every other prop first, then `type`, `value` (also as the `value` attribute, as React syncs it), `checked` and `name`, in React's order. Textareas take `value` or `defaultValue` as their text. Selects take `value` or `defaultValue` after their options exist.
+9. A function `action` on a form or `formAction` on a button stores React's placeholder `javascript:` URL in the attribute and listens for submit.
+10. `autoFocus` focuses the element with the layout effects of its mount. A host's `ref` is detached when it changes and attached with layout effects. A callback ref may return a cleanup, which runs instead of calling it with null.
+
+#### Components
+
+1. A function component runs with the fiber as the current one and the hook index at zero. A state update during its own render reruns it at once (up to 25 times), which is React's "derive state while rendering" pattern.
+2. Its effects whose deps changed are collected during the render and committed only after its children rendered without throwing. Insertion effects run then; layout and passive effects are queued, children before parents.
+3. A class component follows React's lifecycle order: constructor, `getDerivedStateFromProps` (or the legacy will-mount and will-receive hooks when neither it nor `getSnapshotBeforeUpdate` exists), `shouldComponentUpdate` (or the pure shallow compare; a forced update or a changed context skips it), the will-update hook, `getSnapshotBeforeUpdate`, render, then `componentDidMount` or `componentDidUpdate` and the `setState` callbacks with layout effects. Class props exclude `ref`; the ref gets the instance.
+4. A class with `getDerivedStateFromError` or `componentDidCatch` is an error boundary. When its subtree throws a non-thenable, it unmounts its children, merges the derived state, queues `componentDidCatch` (and the root's `onCaughtError`, default `console.error`), and renders again. An error with no boundary unmounts the root's content and goes to the root's `onUncaughtError` (default `reportError`).
+
+#### Context
+
+1. A context is its own provider (`<Ctx value>`); `Ctx.Provider` is the same object, and `Ctx.Consumer` takes a render function.
+2. Reading a context walks up the fiber parents to the nearest provider of it and subscribes the reader there; with no provider the reader gets the default value.
+3. When a provider renders with a value that is not `Object.is` the last one, it schedules every live subscriber. Readers behind a memo or an unchanged element therefore update without their ancestors rendering.
+
+#### Hooks
+
+`useState` and `useReducer` apply an update to the hook's value when it is dispatched and schedule the fiber, or skip it when the value is `Object.is` the old one. `useEffect`, `useLayoutEffect` and `useInsertionEffect` compare deps with `Object.is`. `useMemo`, `useCallback`, `useRef`, `useImperativeHandle` (a layout effect), `useId` (a per-root counter, `_r_<n>_` with the root's `identifierPrefix`), `useDebugValue` (nothing), `useSyncExternalStore` (and the selector version libraries import), `useEffectEvent`, `use` (a context, or a thenable tracked through its `status`, `value` and `reason` fields as React 19 does), `useTransition`, `useDeferredValue`, `useOptimistic`, `useActionState` and the React Compiler's `c(size)` cache (filled with React's memo sentinel) are all there, and `react-dom`'s `useFormStatus`.
+
+Transitions render synchronously. Each transition keeps a list of what to do when it finishes; an async transition finishes when its promise, and every action queued inside it, settles. That is when `useTransition`'s pending flag clears, optimistic values added inside it are dropped, and a form whose action ran in it is reset.
+
+#### Updates and effects
+
+1. An update marks its fiber dirty and queues it once. Outside an event, the queue renders in a microtask. Inside an event handler it is batched until the handler returns, then rendered in a microtask that also runs the passive effects (React's sync lane). If the event's target is a controlled field, the queue renders at once and the field is shown its props again (a rejected keystroke disappears).
+2. `flushSync(fn)` runs `fn` and renders the queue, layout and passive effects before returning.
+3. Rendering takes queued fibers in depth order. A fiber is rendered in place (with the namespace and placement host of its position) unless an ancestor already rendered it in the same pass.
+4. Before rendering queued work, the passive effects of the last commit run. After the queue empties, layout effects run (all cleanups first, then all creates). Updates they make render before the browser paints.
+5. Passive effects run after paint, posted through a `MessageChannel`, unless a render needs them first.
+6. Unmounting runs layout and insertion cleanups and `componentWillUnmount` at once, parents first, detaches refs, and queues passive cleanups ahead of the next passive effects. Dead fibers' queued effects never run.
+
+#### Suspense and Activity
+
+1. A Suspense boundary renders its children inside one fragment fiber. When they throw a thenable, the boundary shows `fallback` in a second fiber after them.
+2. If the children had never been shown, they are unmounted, as React discards a suspended mount. If they had, their top-level elements get `display: none !important` and their texts are emptied: the old content stays mounted, with its state, its DOM and its effects. The fibers on the path to the thrower stay dirty.
+3. When the thenable settles, the boundary renders again. The dirty path re-renders even where elements did not change. Once the children render, they are shown again (with their own `display` restored) and the fallback is unmounted. React 19 waits up to 300 ms before revealing content after a fallback; this layer reveals it at once.
+4. `lazy` suspends until its loader settles, then renders the module's default export. `use(promise)` and promises rendered as children suspend in the same way.
+5. `<Activity mode="hidden">` hides its content like a suspended boundary and runs its effects' cleanups. Becoming visible again shows the content and queues its layout and passive effects again.
+
+#### Events
+
+1. A prop `onX` (or `onXCapture`) makes every root and portal container listen for the native event type, once per type, added when a prop first uses it. `onDoubleClick` is `dblclick`, `onFocus` and `onBlur` are `focusin` and `focusout`.
+2. A dispatch walks up the DOM from the target to the first element this root rendered, then up the fiber parents, so events bubble through portals as in React. Capture handlers run outermost first, bubble handlers innermost first, and `stopPropagation` stops after the current element. An event seen by one root's listener is not dispatched by the same root again.
+3. Handlers get a synthetic event: the native event's fields, with its methods bound to it, plus `nativeEvent`, `currentTarget`, `isDefaultPrevented`, `isPropagationStopped` and `persist`.
+4. `onChange` follows `input` events on text fields and textareas, `change` on selects and file inputs, and `click` on checkboxes and radios when their checked state changed since last seen.
+5. `onMouseEnter`, `onMouseLeave`, `onPointerEnter` and `onPointerLeave` are derived from over and out events, as React does: leave fires on each element left, innermost first, and enter on each element entered, outermost first.
+6. Events that do not bubble (scroll, load, error, toggle, invalid, media events, dialog close and cancel) get one listener on the element.
+7. A submit whose form (or submitter) has a function action prevents the default, sets the form's status for `useFormStatus` to pending, and runs the action with the form's `FormData` in a transition. When the transition finishes, the status returns to idle and the form resets.
+
+#### Roots and hydration
+
+1. `createRoot(container)` empties the container on its first render. `render` queues it; `unmount` removes everything at once and stops listening.
+2. `hydrateRoot(container, element)` renders at once and claims the server's nodes instead of creating them. A host keeps a cursor over its server children, skipping comments and doctypes. A new element claims the next node when its tag matches, and creates a node otherwise. Text claims the next text node, splitting it when the server merged adjacent texts, or patches its data. Attributes and text that differ are patched in place. Server nodes nobody claimed are removed (comments, such as React's `<!-- -->` separators, stay).
+3. `createPortal(children, container)` renders into `container`, appending its nodes and listening there.
+
+#### What is left out or differs
+
+1. Rendering is synchronous: no time slicing, priorities or interruptible renders. A transition renders at once, and its pending state is visible only while an async action runs. A suspended update shows the fallback, keeping the old content hidden rather than keeping it on screen.
+2. No server rendering, no Server Components and no development checks or warnings. `act` flushes everything; `captureOwnerStack` returns null.
+3. `useId` values are unique and stable but do not follow React's tree-position scheme, so they match server-rendered ids only by chance.
+4. Hydration patches mismatches in place instead of re-rendering a Suspense boundary on the client, and does not replay events that arrive before it.
+5. ViewTransition, SuspenseList ordering and Profiler timings render their children only.
+
 ### Integration with herdsman web
 
 Since the views migration (2026-10-27) herdsman web renders with the view layer only: 24 modules use `html` views, `render` for containers it owns, `mount` and `update` for persistent components that place their own root (panels, the messages and changes views, the team board), `list` for every keyed list and `runs` for inline content of data-driven length (search highlights, inline markdown, highlighted code). `dom.ts` became `icons.ts`, which only builds icon views; it no longer has `h()`, `patch()` or `each()`.
@@ -583,6 +728,8 @@ What published work and current browser engineering say about the costs this lib
 ## Change log
 
 Newest first.
+
+- 2026-10-27: Version 0.1.0. Layer 5, the React API (`herdsman-blocks-react.ts`): React 19's client exports for `react`, `react-dom`, `react-dom/client` and the JSX and React Compiler runtimes, in one module apps alias those imports to. Placement reuses Layer 2's minimum-move algorithm and moves with `moveBefore`. Verified against React 19 by a differential check in headless Chrome (`bench/herdsman-cases/react-compat.ts`, 25 of 25 scenarios identical; `make react-compat`, also run in CI) and by unit tests on the fake DOM. Benchmarked on herdsman's screens against React 19 and TanStack Redact 0.2.1 (Part 1).
 
 - 2026-10-27: Version 0.0.9. Delegated events find instances by descent from the render root along the event's path (child holes, list entries, runs), so views whose handlers are all delegated put no mark on their elements. Official benchmark, Chrome script time, 3 interleaved rounds with an A/A pair (15 samples): create 10,000 rows 13.5 to 12.9 ms (95% CI of the ratio 0.92 to 0.97), clear 7.0 to 6.6; other tests unchanged.
 - 2026-10-27: "Integration with dom.ts" rewritten as "Integration with herdsman web": the app uses views only; morph and `renderDirect` have no app user and stay exported.

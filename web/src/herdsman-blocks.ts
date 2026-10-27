@@ -13,7 +13,7 @@
 // paths (mount, set, List.set) for the sake of types.
 
 /** Library version, bumped with every release of the zip package. */
-export const VERSION = "0.0.9";
+export const VERSION = "0.1.0";
 
 // ---------------------------------------------------------------------------
 // Hole markers: typed at compile time, small negative numbers at runtime

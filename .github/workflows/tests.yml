@@ -50,3 +50,5 @@ jobs:
         run: google-chrome --version
       - name: Browser checks
         run: make web-e2e
+      - name: React compatibility
+        run: make react-compat

@@ -1,0 +1,8 @@
+{
+  "name": "herdsman-cases-redact",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tanstack/redact": "0.2.1"
+  }
+}
