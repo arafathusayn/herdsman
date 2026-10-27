@@ -322,8 +322,8 @@ func isDir(p string) bool {
 }
 
 func sameBytes(a, b string) bool {
-	x, err1 := os.ReadFile(a)
-	y, err2 := os.ReadFile(b)
+	x, err1 := inbox.ReadFile(a)
+	y, err2 := inbox.ReadFile(b)
 	return err1 == nil && err2 == nil && bytes.Equal(x, y)
 }
 
@@ -400,13 +400,9 @@ func (c *courier) sweep() error {
 	if err := r.SafeTouch(e.path("state", "heartbeat")); err != nil {
 		return err
 	}
-	if err := c.pruneRings(); err != nil {
-		return err
-	}
-	if err := c.retireAbandoned(); err != nil {
-		return err
-	}
 	e.retryAlerts()
+	// Recheck the setup proof before each sweep's record changes: a stale
+	// proof pauses ring pruning and allocation recovery with delivery.
 	if !e.ch.ProofValid() {
 		r.ProofStale = true
 		return c.proofStaleAlert(e)
@@ -416,6 +412,12 @@ func (c *courier) sweep() error {
 		if err := e.resolveAlert("setup-proof-stale"); err != nil {
 			return err
 		}
+	}
+	if err := c.pruneRings(); err != nil {
+		return err
+	}
+	if err := c.retireAbandoned(); err != nil {
+		return err
 	}
 	if _, ok := r.Registry(); !ok {
 		baseline, key := "unavailable", "unavailable"
@@ -606,7 +608,7 @@ func readCount(s string) (string, int64) {
 func registrySummary(paths ...string) string {
 	var out []byte
 	for _, p := range paths {
-		b, err := os.ReadFile(p)
+		b, err := inbox.ReadFile(p)
 		if err != nil {
 			return "unavailable"
 		}

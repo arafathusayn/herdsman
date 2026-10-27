@@ -81,7 +81,7 @@ func (e *Env) send(args []string) error {
 	if !inbox.Bounded("", bodyFile) {
 		return die("body must be a bounded readable regular file")
 	}
-	body, err := os.ReadFile(bodyFile)
+	body, err := inbox.ReadFile(bodyFile)
 	if err != nil || len(body) > inbox.MaxBody {
 		return die("body must be a bounded readable regular file")
 	}
@@ -240,9 +240,9 @@ func (e *Env) send(args []string) error {
 		}
 		fmt.Fprintf(e.Stderr, "WARNING ring failed; %s is queued, not delivered\n", id)
 	}
-	if _, err := e.health(); err != nil {
-		return err
-	}
+	// The envelope is queued: health only warns (`health || :`), so the
+	// caller always gets the receipt and never queues it again.
+	e.health()
 	fmt.Fprintf(e.Stdout, "%s queued; delivery requires receipt or status confirmation\n", id)
 	return nil
 }

@@ -3,44 +3,38 @@ package message
 import (
 	"strconv"
 	"time"
+
+	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
-// settingDuration parses a strict duration setting (A25): decimal digits
-// (leading zeros read as decimal) with an optional s, m, h or d suffix,
-// in seconds, within lo..hi.
-func settingDuration(v string, lo, hi int) (int, bool) {
-	mult := 1
-	if n := len(v); n > 0 {
-		switch v[n-1] {
-		case 's':
-			v = v[:n-1]
-		case 'm':
-			v, mult = v[:n-1], 60
-		case 'h':
-			v, mult = v[:n-1], 3600
-		case 'd':
-			v, mult = v[:n-1], 86400
-		}
+// durSetting reads a duration setting with the shared parser (A25):
+// seconds, or a number with an s, m, h or d suffix, blanks around it
+// allowed; a value over hi is clamped to hi, one under lo raised to lo
+// (the command's own floor). In whole seconds.
+func durSetting(k, v string, lo, hi int) (int, error) {
+	d, err := settings.Duration(k, v, 0, time.Duration(hi)*time.Second)
+	if err != nil {
+		return 0, err
 	}
-	n, ok := settingInt(v, 0, 1<<62)
-	if !ok || v == "" {
-		return 0, false
-	}
-	// Clamped to the command's range, as the shared settings rule says (A25):
-	// a well-formed duration is never refused for its size.
-	if n > hi/mult+1 {
-		n = hi/mult + 1 // no overflow before the clamp
-	}
-	n *= mult
-	return min(max(n, lo), hi), true
+	return max(int(d/time.Second), lo), nil
 }
 
-// durEnv reads a duration setting ${K:-def} once, strictly (A25).
+// intSetting reads a count setting with the shared parser (A25): a whole
+// number as the scripts' test reads it, within lo..hi.
+func intSetting(k, v string, lo, hi int) (int, error) {
+	n, err := settings.Int(k, v, int64(lo), int64(lo), int64(hi))
+	return int(n), err
+}
+
+// settingError is a rejected setting as every command prints it: one line
+// "herdsman message: <VAR>: <reason> (got "<value>")", exit 2.
+func settingError(err error) error { return die("herdsman message: %v", err) }
+
+// durEnv reads a duration setting ${K:-def} once (A25).
 func (e *Env) durEnv(k, def string, lo, hi int) (int, error) {
-	v := e.envDefault(k, def)
-	n, ok := settingDuration(v, lo, hi)
-	if !ok {
-		return 0, die("herdsman message: %s: invalid %s, want a duration: digits with an optional s, m, h or d, clamped to %ds..%ds (got %q)", k, k, lo, hi, v)
+	n, err := durSetting(k, e.envDefault(k, def), lo, hi)
+	if err != nil {
+		return 0, settingError(err)
 	}
 	return n, nil
 }

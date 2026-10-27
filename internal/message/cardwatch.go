@@ -189,9 +189,7 @@ func (w *watcher) pass() error {
 		return err
 	}
 	e.retryAlerts()
-	if _, err := e.health(); err != nil {
-		return err
-	}
+	e.health() // `health || :`
 	coverage := w.coverage()
 	// The hold reason is chosen once per pass and written once (D20).
 	reason, notice := "", ""
@@ -589,7 +587,7 @@ func (w *watcher) resumeNames() []string {
 			}
 		}
 	}
-	ab, _ := os.ReadFile(w.path("peers.approved"))
+	ab, _ := inbox.ReadFile(w.path("peers.approved"))
 	collect(ab, true)
 	collect(w.resumes, false)
 	return names

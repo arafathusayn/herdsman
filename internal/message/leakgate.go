@@ -2,11 +2,13 @@ package message
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/web"
@@ -47,11 +49,7 @@ func LeakGate(args []string, getenv func(string) string, stdout, stderr io.Write
 		return 2
 	}
 	input := args[0]
-	if st, err := os.Lstat(input); err != nil || !st.Mode().IsRegular() {
-		fmt.Fprintln(stderr, "cannot read regular input")
-		return 2
-	}
-	b, err := os.ReadFile(input)
+	b, err := readRegular(input)
 	if err != nil {
 		fmt.Fprintln(stderr, "cannot read regular input")
 		return 2
@@ -72,9 +70,8 @@ func LeakGate(args []string, getenv func(string) string, stdout, stderr io.Write
 				continue
 			}
 			if allow := getenv("LEAK_ALLOW_FILE"); allow != "" {
-				st, err := os.Lstat(allow)
-				ab, rerr := os.ReadFile(allow)
-				if err != nil || !st.Mode().IsRegular() || rerr != nil {
+				ab, err := readRegular(allow)
+				if err != nil {
 					fmt.Fprintln(stderr, "invalid exact-line allow list")
 					return 2
 				}
@@ -176,4 +173,26 @@ func structureOK(lines []string, wanted string) bool {
 		}
 	}
 	return !(opened || bad || (wanted != "" && !(seen && body)))
+}
+
+// errNotRegular is a leak-gate file that is not a regular file.
+var errNotRegular = errors.New("not a regular file")
+
+// readRegular reads p only when it is a regular file that is not a link:
+// checked by Lstat, then opened without blocking (a FIFO without a writer
+// opens at once) and checked again on the open descriptor, so a file
+// swapped in between is refused too.
+func readRegular(p string) ([]byte, error) {
+	if st, err := os.Lstat(p); err != nil || !st.Mode().IsRegular() {
+		return nil, errNotRegular
+	}
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return nil, errNotRegular
+	}
+	return io.ReadAll(f)
 }

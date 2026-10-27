@@ -24,6 +24,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
 // Env is one command run: its environment, output and herdr.
@@ -140,8 +141,8 @@ func (e *Env) options(readOnly bool) inbox.Options {
 	}
 }
 
-// open is root_init. An unset HERDSMAN_INBOX ends the run with exit 1, as
-// the scripts' ${HERDSMAN_INBOX:?} does under set -e.
+// open is root_init. An unset or empty HERDSMAN_INBOX is a missing
+// required setting: the shared line, exit 2 (A25).
 func (e *Env) open(readOnly bool) error {
 	if !e.settingsDone {
 		if err := e.commonSettings(); err != nil {
@@ -149,7 +150,7 @@ func (e *Env) open(readOnly bool) error {
 		}
 	}
 	if e.env("HERDSMAN_INBOX") == "" {
-		return &exitErr{code: 1, msg: "HERDSMAN_INBOX: set HERDSMAN_INBOX"}
+		return settingError(settings.Missing("HERDSMAN_INBOX"))
 	}
 	ch, err := inbox.OpenChannel(e.options(readOnly), e.Executable)
 	if err != nil {
@@ -324,7 +325,7 @@ func sortedCompact(v any) string {
 
 // decodeFile reads and decodes a JSON file (no checks; callers check).
 func decodeFile(p string) (any, error) {
-	b, err := os.ReadFile(p)
+	b, err := inbox.ReadFile(p)
 	if err != nil {
 		return nil, err
 	}

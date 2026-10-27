@@ -18,32 +18,15 @@ import (
 // DEADLINE. Change fingerprints persist across runs in state/wait-<me>.
 func (e *Env) Wait(args []string) int { return e.finish(e.wait(args)) }
 
-// uintEnv reads an integer setting ${K:-def} once, strictly (A25): decimal
-// digits, leading zeros read as decimal, within lo..hi. Anything else is
-// one stderr line naming the variable and exit 2 before anything runs.
-// (Unexported until slice 1's internal/settings lands.)
+// uintEnv reads a count setting ${K:-def} once with the shared parser
+// (A25); a bad value is one stderr line naming the variable and exit 2
+// before anything runs.
 func (e *Env) uintEnv(k, def string, lo, hi int) (int, error) {
-	v := e.envDefault(k, def)
-	n, ok := settingInt(v, lo, hi)
-	if !ok {
-		return 0, die("herdsman message: %s: invalid %s, want an integer from %d to %d (got %q)", k, k, lo, hi, v)
+	n, err := intSetting(k, e.envDefault(k, def), lo, hi)
+	if err != nil {
+		return 0, settingError(err)
 	}
 	return n, nil
-}
-
-// settingInt parses a strict decimal setting within lo..hi.
-func settingInt(v string, lo, hi int) (int, bool) {
-	if v == "" || len(v) > 18 {
-		return 0, false
-	}
-	n := 0
-	for _, c := range v {
-		if c < '0' || c > '9' {
-			return 0, false
-		}
-		n = n*10 + int(c-'0')
-	}
-	return n, n >= lo && n <= hi
 }
 
 // timingSweep reads .sweep of state/timing.json as `jq -er .sweep` feeds
