@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,8 +26,12 @@ type Client struct {
 	Name       string
 	Credential string
 
-	hc      *http.Client
-	checked bool
+	hc *http.Client
+	// mu guards checked and inflight: concurrent first requests share one
+	// hello, and none holds mu across the network.
+	mu       sync.Mutex
+	checked  bool
+	inflight chan struct{}
 }
 
 // DownError is a daemon that does not answer on its socket.
@@ -100,10 +105,38 @@ func (c *Client) Hello(ctx context.Context) (Hello, error) {
 }
 
 // Check is the client's version check before its first request (5.6).
+// One caller asks; the others wait for its answer or their own context,
+// and ask themselves when it failed.
 func (c *Client) Check(ctx context.Context) error {
-	if c.checked {
-		return nil
+	for {
+		c.mu.Lock()
+		if c.checked {
+			c.mu.Unlock()
+			return nil
+		}
+		if ch := c.inflight; ch != nil {
+			c.mu.Unlock()
+			select {
+			case <-ch:
+				continue
+			case <-ctx.Done():
+				return &DownError{Err: ctx.Err()}
+			}
+		}
+		ch := make(chan struct{})
+		c.inflight = ch
+		c.mu.Unlock()
+		err := c.hello(ctx)
+		c.mu.Lock()
+		c.inflight, c.checked = nil, err == nil
+		c.mu.Unlock()
+		close(ch)
+		return err
 	}
+}
+
+// hello asks the daemon's version and checks it against this client's.
+func (c *Client) hello(ctx context.Context) error {
 	h, err := c.Hello(ctx)
 	if err != nil {
 		return err
@@ -111,7 +144,6 @@ func (c *Client) Check(ctx context.Context) error {
 	if e := ClientCheck(c.Version, Protocol, h); e != nil {
 		return e
 	}
-	c.checked = true
 	return nil
 }
 

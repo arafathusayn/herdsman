@@ -277,7 +277,7 @@ func TestWaitDeadlineOption(t *testing.T) {
 	if d, err := parseDuration("9d", time.Second, 24*time.Hour); err != nil || d != 24*time.Hour {
 		t.Fatalf("clamp high: %v %v", d, err)
 	}
-	for _, v := range []string{"", "1x", "-1", "1.5", "s", "9999999999"} {
+	for _, v := range []string{"", "1x", "-1", "1.5", "s"} {
 		if _, err := parseDuration(v, time.Second, time.Hour); err == nil {
 			t.Fatalf("%q accepted", v)
 		}

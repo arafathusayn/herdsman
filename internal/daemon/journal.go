@@ -395,35 +395,6 @@ func (j *journal) close() {
 	}
 }
 
-// eventRecords reads the stored event records with after < seq <= upto
-// from the journal files, in order, for a cursor older than the ring.
-func (j *journal) eventRecords(after, upto int64) ([]*Record, error) {
-	var out []*Record
-	for _, name := range []string{journalPrev, journalCurrent} {
-		f, err := os.Open(filepath.Join(j.dir, name))
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		sc := bufio.NewScanner(f)
-		sc.Buffer(make([]byte, 0, 4096), maxRecord+1)
-		for sc.Scan() {
-			var r Record
-			if json.Unmarshal(sc.Bytes(), &r) != nil {
-				continue
-			}
-			if r.Event != nil && r.Seq > after && r.Seq <= upto {
-				rec := r
-				out = append(out, &rec)
-			}
-		}
-		_ = f.Close()
-	}
-	return out, nil
-}
-
 // oldestSeq is the first record's seq in the kept files (0 when empty).
 func (j *journal) oldestSeq() int64 {
 	for _, name := range []string{journalPrev, journalCurrent} {

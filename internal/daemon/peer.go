@@ -3,7 +3,17 @@ package daemon
 import (
 	"net"
 	"os"
+	"sync/atomic"
 )
+
+// peerOf reads a connection's peer user; a test replaces it while the
+// listener runs, so it is read atomically.
+var peerOf atomic.Pointer[func(*net.UnixConn) (int, error)]
+
+func init() {
+	f := peerUID
+	peerOf.Store(&f)
+}
 
 // peerListener refuses every connection whose peer runs as another user
 // (3.3). It proves the same user only (8).
@@ -22,7 +32,7 @@ func (l *peerListener) Accept() (net.Conn, error) {
 			_ = c.Close()
 			continue
 		}
-		uid, err := peerUID(uc)
+		uid, err := (*peerOf.Load())(uc)
 		if err != nil || uid != os.Getuid() {
 			_ = c.Close()
 			continue
