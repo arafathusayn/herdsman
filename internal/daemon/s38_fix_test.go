@@ -88,3 +88,50 @@ func TestOtherHomeRefusedRecordFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+// S38 F1, round 2: a lock file that cannot be checked is not "not held",
+// and a held record without a private home is not the selected home.
+func TestOtherHomeIndeterminateFailsClosed(t *testing.T) {
+	home, selected := t.TempDir(), t.TempDir()
+	env := map[string]string{"HOME": home, "HERDSMAN_PRIVATE_HOME": selected}
+	getenv := func(k string) string { return env[k] }
+	want := "inspect " + AccountLockPath(home)
+	if got := OtherHome(getenv); got != "" {
+		t.Fatalf("no lock file: OtherHome = %q, want \"\"", got)
+	}
+	f, err := os.OpenFile(AccountLockPath(home), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	for name, body := range map[string]string{
+		"no private_home":    `{"pid":42}`,
+		"empty private_home": `{"pid":42,"private_home":""}`,
+		"null private_home":  `{"pid":42,"private_home":null}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(AccountLockPath(home), []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got := OtherHome(getenv); !strings.Contains(got, want) {
+				t.Fatalf("OtherHome = %q, want %q", got, want)
+			}
+		})
+	}
+	t.Run("unreadable lock file", func(t *testing.T) {
+		if err := os.Chmod(AccountLockPath(home), 0); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chmod(AccountLockPath(home), 0o600)
+		if _, err := os.Open(AccountLockPath(home)); err == nil {
+			t.Skip("mode 0000 does not stop this user from opening the file")
+		}
+		if got := OtherHome(getenv); !strings.Contains(got, want) {
+			t.Fatalf("OtherHome = %q, want %q", got, want)
+		}
+	})
+}
