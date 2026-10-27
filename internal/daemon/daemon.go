@@ -132,15 +132,26 @@ func (e *ErrRunning) Error() string {
 // ReadAccountLock reads the account lock's content (informative only), as
 // strict JSON.
 func ReadAccountLock(home string) (AccountLock, bool) {
+	l, err := readAccountLock(home)
+	return l, err == nil
+}
+
+// readAccountLock is ReadAccountLock with the reason: a missing or
+// unreadable file, or a record that is refused (not strict JSON of the
+// record, or no pid).
+func readAccountLock(home string) (AccountLock, error) {
 	b, err := readSmall(AccountLockPath(home), 4096)
 	if err != nil {
-		return AccountLock{}, false
+		return AccountLock{}, err
 	}
 	var l AccountLock
-	if strictDecode(b, &l) != nil || l.PID <= 0 {
-		return AccountLock{}, false
+	if err := strictDecode(b, &l); err != nil {
+		return AccountLock{}, err
 	}
-	return l, true
+	if l.PID <= 0 {
+		return AccountLock{}, fmt.Errorf("pid %d", l.PID)
+	}
+	return l, nil
 }
 
 // AccountLockHeld reports whether some process holds the account lock.

@@ -128,7 +128,9 @@ func (e *MessageEnv) otherHome() string { return OtherHome(e.env) }
 
 // OtherHome names the private home of a live daemon of this account when
 // it is not the selected one ("" otherwise): the account lock, not its
-// content, decides it is live.
+// content, decides it is live. A held lock whose record is refused is no
+// answer of "none": it names the file to inspect, so the caller fails
+// closed.
 func OtherHome(getenv func(string) string) string {
 	home := getenv("HOME")
 	if home == "" {
@@ -138,8 +140,11 @@ func OtherHome(getenv func(string) string) string {
 	if home == "" || err != nil || !AccountLockHeld(home) {
 		return ""
 	}
-	l, ok := ReadAccountLock(home)
-	if !ok || l.PrivateHome == "" || l.PrivateHome == ph {
+	l, err := readAccountLock(home)
+	if err != nil {
+		return fmt.Sprintf("the account lock is held but its record is refused (%v); inspect %s", err, AccountLockPath(home))
+	}
+	if l.PrivateHome == "" || l.PrivateHome == ph {
 		return ""
 	}
 	return "the running daemon uses " + l.PrivateHome + "; set HERDSMAN_PRIVATE_HOME"
