@@ -832,4 +832,3 @@ func TestAuthorityBoundaryTriggers(t *testing.T) {
 		t.Errorf("P3f a recorded unsandboxed exposure forces HUMAN until human setup: %q", line)
 	}
 }
-

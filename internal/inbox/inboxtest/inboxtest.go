@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
-
 )
 
 // The names of the enrolled pair, as in message-tests.sh.
