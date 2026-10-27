@@ -142,7 +142,7 @@ func OtherHome(getenv func(string) string) string {
 	}
 	held, err := accountLockState(home)
 	if err != nil {
-		return fmt.Sprintf("the account lock cannot be checked (%v); inspect %s", err, AccountLockPath(home))
+		return err.Error()
 	}
 	if !held {
 		return ""

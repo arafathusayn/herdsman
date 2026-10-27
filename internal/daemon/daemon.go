@@ -155,30 +155,18 @@ func readAccountLock(home string) (AccountLock, error) {
 	return l, nil
 }
 
-// AccountLockHeld reports whether some process holds the account lock.
-func AccountLockHeld(home string) bool {
-	f, err := os.OpenFile(AccountLockPath(home), os.O_RDONLY, 0)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
-		return true
-	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	return false
-}
-
 // accountLockState probes the account lock: held, not held (only when the
-// file does not exist or a shared lock is granted), or an error when the
-// probe cannot tell.
+// file does not exist or a shared lock is granted), or an error naming the
+// file to inspect when the probe cannot tell. Every caller fails closed on
+// the error: it is never "not held".
 func accountLockState(home string) (bool, error) {
-	f, err := os.OpenFile(AccountLockPath(home), os.O_RDONLY, 0)
+	p := AccountLockPath(home)
+	f, err := os.OpenFile(p, os.O_RDONLY, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("the account lock cannot be checked (%v); inspect %s", err, p)
 	}
 	defer f.Close()
 	switch err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); {
@@ -188,7 +176,7 @@ func accountLockState(home string) (bool, error) {
 	case errors.Is(err, syscall.EWOULDBLOCK):
 		return true, nil
 	default:
-		return false, err
+		return false, fmt.Errorf("the account lock cannot be checked (%v); inspect %s", err, p)
 	}
 }
 

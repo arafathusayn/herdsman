@@ -992,7 +992,7 @@ func TestSingletonPerUser(t *testing.T) {
 	}
 	// After the first stops (the kernel frees the lock), a start succeeds.
 	h.stop()
-	if !AccountLockHeld(h.home) {
+	if !lockHeld(h.home) {
 		h.start()
 	} else {
 		t.Fatal("the account lock outlived its daemon")

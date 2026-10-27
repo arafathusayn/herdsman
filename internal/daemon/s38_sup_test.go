@@ -14,6 +14,12 @@ import (
 // lock take the three-outcome probe: a held lock that cannot be checked
 // stops nothing, installs nothing and is never reported free.
 
+// lockHeld is the test's view of the account lock: held, or not known.
+func lockHeld(home string) bool {
+	held, err := accountLockState(home)
+	return held || err != nil
+}
+
 // unreadableHeldLock holds the account lock under home on an open
 // descriptor, then makes its file unreadable (mode 0000).
 func unreadableHeldLock(t *testing.T, home string) {

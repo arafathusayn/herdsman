@@ -161,16 +161,20 @@ func (s *Supervisor) waitHello() (string, error) {
 	}
 }
 
-// waitFree waits until the account lock is free.
+// waitFree waits until the account lock is free; a lock that cannot be
+// checked is never free.
 func (s *Supervisor) waitFree() error {
 	end := s.now().Add(s.wait())
-	for AccountLockHeld(s.Home) {
+	for {
+		held, err := accountLockState(s.Home)
+		if err != nil || !held {
+			return err
+		}
 		if !s.now().Before(end) {
 			return fmt.Errorf("the daemon still holds the account lock after %s", s.wait())
 		}
 		s.sleep(200 * time.Millisecond)
 	}
-	return nil
 }
 
 // Install writes the unit with the binary's absolute path and starts it;
@@ -182,7 +186,11 @@ func (s *Supervisor) Install() (string, error) {
 	if err := checkPrivateHome(s.PrivateHome); err != nil {
 		return "", err
 	}
-	if AccountLockHeld(s.Home) && !s.Installed() {
+	held, err := accountLockState(s.Home)
+	if err != nil {
+		return "", err
+	}
+	if held && !s.Installed() {
 		l, _ := ReadAccountLock(s.Home)
 		return "", &ErrRunning{Holder: l}
 	}
@@ -218,6 +226,11 @@ func (s *Supervisor) Start() error {
 // restart is disabled first; a daemon started by hand gets SIGTERM after
 // its lock and process are checked. It waits until the lock is free.
 func (s *Supervisor) Stop() error {
+	// An account lock that cannot be checked stops nothing (S38 F3).
+	held, err := accountLockState(s.Home)
+	if err != nil {
+		return err
+	}
 	if s.Installed() {
 		if s.goos() == "darwin" {
 			_ = s.run("launchctl", "disable", s.domain()+"/"+launchdLabel)
@@ -226,7 +239,7 @@ func (s *Supervisor) Stop() error {
 			_ = s.run("systemctl", "--user", "disable", systemdUnit)
 			_ = s.run("systemctl", "--user", "stop", systemdUnit)
 		}
-	} else if AccountLockHeld(s.Home) {
+	} else if held {
 		l, ok := ReadAccountLock(s.Home)
 		if !ok || l.PID <= 1 {
 			return fmt.Errorf("the account lock is held but names no process; inspect %s", AccountLockPath(s.Home))
