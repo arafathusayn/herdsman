@@ -52,7 +52,7 @@ func importCore(tx store.Conn, dir string, now int64) *APIError {
 	if e := im.highWater(); e != nil {
 		return e
 	}
-	return nil
+	return im.state()
 }
 
 func importErr(format string, a ...any) *APIError {
