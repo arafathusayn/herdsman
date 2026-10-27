@@ -145,6 +145,11 @@ type keptConn struct {
 	release func()
 }
 
+func (c *keptConn) inTransaction() bool {
+	t, ok := c.Conn.(interface{ inTransaction() bool })
+	return ok && t.inTransaction()
+}
+
 func (c *keptConn) Close() error {
 	err := c.Conn.Close()
 	c.release()

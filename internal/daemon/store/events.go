@@ -69,8 +69,12 @@ func InitEvents(c Conn, epoch string) error {
 }
 
 // AppendEvent inserts e at meta.next_seq in the current epoch and raises
-// next_seq; it runs inside the operation's transaction.
+// next_seq; it runs inside the operation's transaction, and refuses to
+// run outside one (its two statements must commit together).
 func AppendEvent(tx Conn, e Event) (Event, error) {
+	if t, ok := tx.(interface{ inTransaction() bool }); !ok || !t.inTransaction() {
+		return e, errors.New("store: AppendEvent runs only inside the operation's transaction")
+	}
 	seq, err := metaInt(tx, "next_seq")
 	if err != nil {
 		return e, err

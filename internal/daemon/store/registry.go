@@ -119,6 +119,11 @@ func Enroll(c Conn, p Party, now int64) error {
 			p.Name, p.Role, p.Pane, p.Session, now); err != nil {
 			return err
 		}
+		// Every enroll voids the open launches; until the launch match
+		// (S32) no web group is exempt (section 3 enroll row).
+		if err := voidOpenLaunches(tx, "registry changed"); err != nil {
+			return err
+		}
 		if err := bumpRegistry(tx); err != nil {
 			return err
 		}
@@ -134,10 +139,59 @@ func bumpRegistry(tx Conn) error {
 	return metaSet(tx, "registry_rev", strconv.FormatInt(rev+1, 10))
 }
 
+// PeerInfo is one party of a pair event (5.3): name, role, pane and the
+// first 8 characters of its session id.
+type PeerInfo struct {
+	Name    string `json:"name"`
+	Role    string `json:"role"`
+	Pane    string `json:"pane"`
+	Session string `json:"session"`
+}
+
+// pairData is a pair event's 5.3 type fields.
+type pairData struct {
+	State           string     `json:"state"`
+	PendingChecksum string     `json:"pending_checksum,omitempty"`
+	Peers           []PeerInfo `json:"peers"`
+}
+
+// pairEvent appends the pair event of a registry change: every party not
+// retired (after an approval, the approved pair) and, for an enroll or a
+// retire, the new pending checksum.
 func pairEvent(tx Conn, now int64, state string) error {
-	b, _ := json.Marshal(map[string]string{"state": state})
-	_, err := AppendEvent(tx, Event{Time: now, Type: "pair", Data: string(b)})
+	d := pairData{State: state, Peers: []PeerInfo{}}
+	if state != "approved" {
+		sum, err := PendingSHA256(tx)
+		if err != nil {
+			return err
+		}
+		d.PendingChecksum = sum
+	}
+	ps, err := parties(tx, "state <> 'retired'")
+	if err != nil {
+		return err
+	}
+	for _, p := range ps {
+		var s struct {
+			Value string `json:"value"`
+		}
+		_ = json.Unmarshal([]byte(p.Session), &s)
+		d.Peers = append(d.Peers, PeerInfo{Name: p.Name, Role: p.Role, Pane: p.Pane, Session: clip(s.Value, 8)})
+	}
+	b, err := json.Marshal(d)
+	if err != nil {
+		return err
+	}
+	_, err = AppendEvent(tx, Event{Time: now, Type: "pair", Data: string(b)})
 	return err
+}
+
+// clip is s cut to at most n runes.
+func clip(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }
 
 // Credential is a party's new credential: its option, the secret's
@@ -183,6 +237,9 @@ func Approve(c Conn, q ApproveRequest, now int64) (ApproveResult, error) {
 	var res ApproveResult
 	if len(q.Interaction) > 200 || !utf8.ValidString(q.Interaction) || strings.ContainsAny(q.Interaction, "\n\r") {
 		return res, opErr("bad_request", "invalid interaction reference")
+	}
+	if q.ApprovedBy == "import" {
+		return res, opErr("bad_request", "approved_by import is the importer's alone (D1)")
 	}
 	err := c.Tx(func(tx Conn) error {
 		stored := ""

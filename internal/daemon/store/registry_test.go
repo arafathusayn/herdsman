@@ -185,14 +185,16 @@ func TestApproveRefusals(t *testing.T) {
 func TestAskerRuleAndSupersede(t *testing.T) {
 	c := registryRoute(t)
 	pairUp(t, c, "a1", "o1", "req1")
-	if _, err := c.Exec("INSERT INTO launches(id, via, launcher_name, launcher_generation, name, role, pane, session, registry_rev, created_at, expires_at) " +
-		"VALUES (1, 'adjutant', 'a1', 1, 'o1', 'orchestrator', 'p', '{}', 3, 1, 1000)"); err != nil {
-		t.Fatal(err)
-	}
 	for _, p := range []Party{party("a2", "adjutant", "p-a2"), party("o2", "orchestrator", "p-o2")} {
 		if err := Enroll(c, p, 3); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// A launch by the old adjutant after the enrolls (an enroll voids
+	// every open launch): the approval supersedes it.
+	if _, err := c.Exec("INSERT INTO launches(id, via, launcher_name, launcher_generation, name, role, pane, session, registry_rev, created_at, expires_at) " +
+		"VALUES (1, 'adjutant', 'a1', 1, 'o1', 'orchestrator', 'p', '{}', 5, 1, 1000)"); err != nil {
+		t.Fatal(err)
 	}
 	sum, _ := PendingSHA256(c)
 	creds := map[string]Credential{"a2": {Option: "identity"}, "o2": {Option: "identity"}}

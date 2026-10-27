@@ -152,6 +152,9 @@ func (s *sqlConn) script(q string) error {
 	return err
 }
 
+// inTransaction reports a Tx in progress on this connection.
+func (s *sqlConn) inTransaction() bool { return s.inTx }
+
 func (s *sqlConn) Tx(fn func(Conn) error) error {
 	if s.broken != nil {
 		return s.broken

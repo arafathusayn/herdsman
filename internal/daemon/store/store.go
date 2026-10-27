@@ -22,6 +22,8 @@ type Conn interface {
 	Query(query string, args []any, fn func(Row) error) error
 	// Tx runs fn in BEGIN IMMEDIATE … COMMIT (writer) or BEGIN … COMMIT
 	// (reader); an error from fn rolls back. Transactions do not nest.
+	// A Conn is used by one goroutine at a time and has no lock: the
+	// route's writer belongs to its actor alone (design section 2).
 	Tx(fn func(Conn) error) error
 	Close() error
 }
