@@ -46,6 +46,11 @@ func importCore(tx store.Conn, dir string, now int64) *APIError {
 		return e
 	}
 	for _, p := range peers {
+		// The mailbox itself must be there and safe before any of its
+		// folders may be absent.
+		if err := inbox.SourceDir(dir, im.rt.Path(p.Name)); err != nil {
+			return importErr("unsafe source: mailbox %s: %v", p.Name, err)
+		}
 		token, e := im.claim(p.Name)
 		if e != nil {
 			return e
@@ -205,8 +210,8 @@ func (im *importer) parties() ([]inbox.Peer, *APIError) {
 // lowercase hex characters (the daemon's), or the file client's
 // .claim.<digits> folder name, kept unchanged.
 func claimTokenOK(s string) bool {
-	if len(s) == 32 {
-		return strings.Trim(s, "0123456789abcdef") == ""
+	if len(s) == 32 && strings.Trim(s, "0123456789abcdef") == "" {
+		return true
 	}
 	digits, ok := strings.CutPrefix(s, ".claim.")
 	return ok && len(s) <= 40 && digits != "" && strings.Trim(digits, "0123456789") == ""
@@ -330,7 +335,11 @@ func (im *importer) message(box, queue, p, token string) *APIError {
 	if e != nil {
 		return e
 	}
-	acked = acked && queue == "cur"
+	if acked && queue != "cur" {
+		// File mode acks only a claimed cur entry: an ack beside a ready
+		// or quarantined one is inconsistent, never dropped.
+		return importErr("%s is an ack of a message in %s/, not cur/; reconcile before adopting", im.rel(ackPath), queue)
+	}
 	var claimTok any
 	claimRec := im.rt.Path("ids", idText, "claim")
 	held, cb, cok, e := im.text(claimRec)

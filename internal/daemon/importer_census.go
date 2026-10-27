@@ -44,7 +44,9 @@ var censusRules = []censusRule{
 	{stateFile("route.lock"), "stays in place: the route ownership lock"},
 	{stateFile("boundary-tainted", "exposure-pending"), "stays in place: the boundary files (section 6)"},
 	{under("state/legacy/"), "legacy evidence: the contract 2 legacy folder"},
-	{func(rel string) bool { return rel == "setup" || rel == "setup.json" || strings.HasPrefix(rel, "setup/") }, "legacy evidence: the setup proof; HUMAN until setup writes version 3"},
+	{func(rel string) bool {
+		return rel == "setup" || rel == "setup.json" || strings.HasPrefix(rel, "setup/")
+	}, "legacy evidence: the setup proof; HUMAN until setup writes version 3"},
 	{stateFile("ring-*"), "not imported: courier ring marker, file channel service state"},
 	{stateFile("automation-held", "card-visible-*"), "not imported: card watcher service state; the daemon's watcher decides afresh"},
 	{stateFile("heartbeat", "watch-heartbeat", "diagnostic-*", "agent-list-failures", "allocations", "allocations-seeded",

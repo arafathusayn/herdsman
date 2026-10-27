@@ -108,11 +108,26 @@ func TestImportSourceBoundary(t *testing.T) {
 		"writable queue":     chmod("orch-1/ready", 0o777),
 		"writable ids":       chmod("ids", 0o777),
 		"writable mailbox":   chmod("orch-1", 0o777),
-		"writable inbox":     chmod(".", 0o777),
-		"linked sequence":    func(t *testing.T, x *importInbox) { x.link(t, "state/sequence") },
-		"linked enrolled":    func(t *testing.T, x *importInbox) { x.link(t, "enrolled/adj-1") },
-		"linked ack":         func(t *testing.T, x *importInbox) { x.link(t, "orch-1/ack/m000000000002.md.json") },
-		"linked ack claim":   func(t *testing.T, x *importInbox) { x.link(t, "ids/m000000000002/claim") },
+		// An unsafe mailbox with every child absent is refused, never empty.
+		"linked empty mailbox": func(t *testing.T, x *importInbox) {
+			_ = os.RemoveAll(filepath.Join(x.dir, "orch-1"))
+			if err := os.Symlink(t.TempDir(), filepath.Join(x.dir, "orch-1")); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"writable empty mailbox": func(t *testing.T, x *importInbox) {
+			_ = os.RemoveAll(filepath.Join(x.dir, "orch-1"))
+			if err := os.Mkdir(filepath.Join(x.dir, "orch-1"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			chmod("orch-1", 0o777)(t, x)
+		},
+		"missing mailbox":  func(t *testing.T, x *importInbox) { _ = os.RemoveAll(filepath.Join(x.dir, "orch-1")) },
+		"writable inbox":   chmod(".", 0o777),
+		"linked sequence":  func(t *testing.T, x *importInbox) { x.link(t, "state/sequence") },
+		"linked enrolled":  func(t *testing.T, x *importInbox) { x.link(t, "enrolled/adj-1") },
+		"linked ack":       func(t *testing.T, x *importInbox) { x.link(t, "orch-1/ack/m000000000002.md.json") },
+		"linked ack claim": func(t *testing.T, x *importInbox) { x.link(t, "ids/m000000000002/claim") },
 		"non-JSON allocation": func(t *testing.T, x *importInbox) {
 			x.write(t, "ids/m000000000001/envelope", []byte("not JSON\n"))
 		},
@@ -194,6 +209,20 @@ func TestImportInvalidAck(t *testing.T) {
 		"other claim":      set("claim", ".claim.999"),
 		"other id":         set("id", "m000000000003"),
 		"empty processing": set("processing_record", ""),
+		// An ack beside a message that is not in cur is inconsistent.
+		"ack beside ready": func(t *testing.T, x *importInbox) {
+			x.write(t, "orch-1/ack/m000000000001.md.json", []byte("not JSON\n"))
+		},
+		// Well formed, so only the queue rule refuses it.
+		"valid ack beside ready": func(t *testing.T, x *importInbox) {
+			sum, _ := inbox.DigestFile(filepath.Join(x.dir, "orch-1", "ready", "m000000000001.md"))
+			x.write(t, "ids/m000000000001/claim", []byte(".claim.123\n"))
+			x.write(t, "orch-1/ack/m000000000001.md.json", prettyJSON(obj("id", "m000000000001", "claim", ".claim.123", "time", 1700000100, "processing_record", "done", "envelope_checksum", sum)))
+		},
+		"ack beside quarantined": func(t *testing.T, x *importInbox) {
+			b, _ := os.ReadFile(filepath.Join(x.dir, rel))
+			x.write(t, "adj-1/ack/m000000000004.md.json", b)
+		},
 		"no claim record": func(t *testing.T, x *importInbox) {
 			_ = os.Remove(filepath.Join(x.dir, "ids", "m000000000002", "claim"))
 		},
@@ -228,7 +257,7 @@ func TestImportNeedsPair(t *testing.T) {
 // message is in import_log; a file-mode token (.claim.<digits>) is
 // imported unchanged with its binding; a token of neither form refuses.
 func TestImportClaimSources(t *testing.T) {
-	for _, token := range []string{strings.Repeat("c", 32), ".claim.987654"} {
+	for _, token := range []string{strings.Repeat("c", 32), ".claim.987654", ".claim." + strings.Repeat("1", 25)} {
 		x := newImportInbox(t)
 		x.write(t, "orch-1/claim/token", []byte(token+"\n"))
 		x.write(t, "orch-1/claim/owner", []byte("p2:4242\n"))
