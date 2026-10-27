@@ -5,7 +5,7 @@ A living document. It explains why herdsman-blocks exists and specifies its beha
 - Status: draft, on branch `herdsman-blocks`
 - Library version: 0.0.9 (the module exports this as `VERSION`)
 - Last updated: 2026-10-27
-- Modules: `web/src/herdsman-blocks.ts` and the view layer `web/src/herdsman-blocks-view.ts`, which herdsman web renders with
+- Modules: `web/src/herdsman-blocks.ts` and the view layer `web/src/herdsman-blocks-view.ts`, which herdsman web renders with; the build-time compiler `web/src/herdsman-blocks-compiler.ts`, its Bun plugin `web/src/herdsman-blocks-plugin.ts` and its runtime `web/src/herdsman-blocks-compiled.ts` (Part 6)
 
 ---
 
@@ -571,6 +571,100 @@ What published work and current browser engineering say about the costs this lib
 6. **Benchmark rules.** The official benchmark notes, but does not reject, explicit event delegation in client code (note 801), manual DOM manipulation (note 772) and per-row selection flags (note 800); frameworks themselves may delegate events, and the HTML must match the vanillajs reference ([README](https://github.com/krausest/js-framework-benchmark)). The current leader's entry carries notes 772, 801 and 1261. Built-in event delegation in the library would let an entry avoid note 801.
 7. **Rendering work outside any diff.** In our traces, script was about 11 to 12% of the measured window for creating rows; style, layout and paint were the rest. CSS containment and `content-visibility: auto` let the browser skip layout and paint for offscreen content ([web.dev](https://web.dev/articles/content-visibility)); that is where herdsman's long views can gain more than from any diff algorithm.
 
+## Part 6: Compiler
+
+Modules: `web/src/herdsman-blocks-compiler.ts` (the transform), `web/src/herdsman-blocks-plugin.ts` (the Bun plugin around it), `web/src/herdsman-blocks-compiled.ts` (the runtime the generated code calls, which also offers the whole view API). The compiler moves Layer 1's once-per-template compile and Layer 4's per-template shape to build time and turns each view into code specialized for its template, the shape the fastest entries of the official table ship (re ships compiler output; Solid and Vue Vapor compile likewise). It is a build step only: the source API and the types are unchanged, and without the plugin every view compiles at run time as before.
+
+### The runtime contract
+
+Generated code and the compiled runtime depend only on this, and the speed work on the view layer is held to it:
+
+1. From `herdsman-blocks.ts`, only public exports: `List` (keyed reconciliation), `html` and `svg` (the run-time template compiler, for literals the plugin leaves alone), `slot`, the markers `attr`, `cls`, `on`, `prop`, `text` (re-exported), and the types `AnyHole`, `Hole`, `Key`, `Template`, `ValuesOf`.
+2. From `herdsman-blocks-view.ts`, types only (re-exported, so imports keep compiling): `AnyValues`, `AnyViewNode`, `Child`, `ExactViewNode`, `ListNode`, `Namespace`, `RunsNode`, `SvgChild`, `SvgNode`, `View`, `ViewNode`, `ViewNodeOf`. No view-layer internals: no instance or slot fields, expandos or private symbols.
+3. What generated code calls, all in `herdsman-blocks-compiled.ts`: `V` (makes a view), `Desc` (the description base), `dir` (whether renderDirect is running), `L` (locate an instance's holes on first update), the writers `wt`, `wc`, `wa`, `attach`, `slotOf` and `setChild`. Nothing else.
+
+4. The low-level API (`Template`, `Block`, `List`, `mountRoot`, `lis`, `morph` and the rest of `herdsman-blocks.ts`) is public and first class beside the views. The compiler never replaces or hides it: a module that uses it passes through the plugin byte for byte (its `html` and `svg` templates are checked, as under Build errors, and never rewritten).
+5. Type checking runs on the source (`bun check` over `web/src`, as before), never on compiled output; the plugin only runs inside `Bun.build` and the test preload.
+
+Compiled and run-time views never meet in one runtime: a build with the plugin points every import of the view module at the compiled runtime, whose own `html` and `svg` compile any literal the plugin left alone into the same protocol.
+
+### What the scanner recognizes
+
+1. Skip the module unless its text contains `herdsman-blocks` (one substring search; most modules stop here).
+2. Read the module once into a flat list of tokens, with the language's rules for strings, template literals (including substitutions that contain braces and other template literals), comments, numbers, private names and regular expressions (a slash starts one at the start, after any punctuator except a closing bracket or an increment, after a closing parenthesis only when it closes the head of `if`, `while`, `for` or `with`, and after keywords such as `return` or `typeof`). Unterminated input leaves the module unchanged, with a warning. Bun's own tooling does not suffice here: `Bun.Transpiler` reports imports but not template positions, and its transform rewrites the whole module, so the edits would not stay byte-stable; the hand-written scanner is fuzzed against Bun's parser instead (Verification).
+3. From the import declarations whose source ends in `herdsman-blocks` or `herdsman-blocks-view` (with or without `.ts`), record the local names of `html` and `svg`, of the markers, and of namespace imports. Type-only imports bind nothing.
+4. A view literal is a template literal immediately preceded by a local `html` or `svg` of the view module, or by `ns.html` / `ns.svg` of a namespace import of it; a property access such as `obj.html` is not one. The same tags of `herdsman-blocks` itself mark Layer 1 templates, which are checked but stay as they are.
+5. JSX and TSX modules are never rewritten; one that imports the view module gets a warning that its views run on the run-time path.
+6. Each substitution must be exactly a marker call (`text()`, `on<"click">()`, `ns.prop<E, P>()`, type arguments allowed) or a non-negative number literal (an untyped hole). Anything else leaves the literal to run time, with a warning. String parts are cooked as the language cooks them; an invalid escape leaves the literal alone.
+
+### Analysis
+
+1. Run Layer 1's compiling steps 1 to 3 on the cooked parts exactly (the same tag tracking, attribute-hole pattern and marker attributes and comments).
+2. Parse the result with a conservative model of the HTML parser for template content: tokenization as the specification gives it, void elements, raw text and escapable raw text elements, the line feed dropped after `pre`, `listing` and `textarea`, SVG content (self-closing tags, integration points `foreignObject`, `desc` and `title`) and the SVG wrapper of `svg` views. Whenever the browser might build another tree, give up and leave the literal to run time, with a warning: an implied end tag (a block element inside `p`, nested `li`, `a`, `button`, `form`, `option` and the like), a misnested end tag, table parts outside their parents or text foster-parented out of a table, other elements inside `select`, an HTML element breaking out of SVG content, `template`, `noscript`, `math`, ruby, duplicate attributes, unusual comments or tags, or text made only of whitespace and character references (whose formatting status depends on decoding).
+3. Run Layer 1's steps 5 and 6 on that tree: remove formatting whitespace, find the marker attributes and comments, record each hole's path, kind and name, and compare each typed marker with its position.
+
+### Build errors
+
+These would throw when the template first compiles at run time; the plugin reports them at build time instead, as `file:line:column: message` with the run-time message, at the hole's `${` (or the literal's start), and fails the build. They apply to Layer 1 templates too.
+
+1. A marker whose kind does not match its position (with the hints for `on*` names and SVG `class`).
+2. A hole inside a tag that is not an attribute value.
+3. A template without exactly one root element.
+4. A hole that cannot be located (one inside a `textarea` or another raw text element).
+
+The plugin's "runtime" mode instead leaves such literals to run time, where they throw as before; the tests use it to keep checking the run-time errors.
+
+### What it emits per view
+
+The literal is replaced by a reference to a definition placed at the start of line 1 (the module's own lines keep their numbers; the replacement keeps the literal's line breaks, because Bun's plugin interface takes no source maps), and evaluating the reference makes the prototype, as evaluating the literal did. The definition is one call of the runtime's `V` with:
+
+1. The static markup: the parsed tree serialized with the hole attributes removed, each text or child hole as an empty comment, formatting whitespace removed, void and self-closing elements written ` />`.
+2. One letter per hole: text, class, attribute, property, delegated handler, direct handler, child (slot). Delegated event types by hole.
+3. A description constructor whose fields `$0`, `$1`, ... are the values: no values array.
+4. One straight-line walk from the root to every hole node: each step starts from the nearest node already reached (an earlier sibling, else the parent) and follows `firstChild` and `nextSibling`; a node more than one step starts from gets a variable.
+5. The bake: for each text, class and attribute hole, if the description's value differs from the value last written into the prototype, write it there with the writer for its kind.
+6. For views with child, property or handler holes, what mounting does after the walk, hole by hole: a direct handler gets its trampoline, a delegated one too under renderDirect, a property is set when not null, a child hole becomes a child slot holding its value.
+7. The patch: for each hole that is not a handler, if the new description's field is not strictly equal to the old one's, write it with its kind's writer (a child hole goes through the child slot rules of Layer 4). Views without child, property or handler holes locate their holes on the first update that writes, as Layer 4 does.
+
+The runtime's `V` supplies the rest, once per view: parsing the markup on first evaluation (the empty comments become the empty text nodes Layer 1 makes), the trampolines, registering the delegated types, and the shared mount and patch steps of Layer 4 (instance, root holder, the same description again does nothing, another view replaces in place). Mounting, patching, child holes, keyed lists through the core `List`, runs, delegated events, `render`, `renderDirect`, `mount` and `update` behave exactly as in Layer 4. Like the view layer, only an instance with a direct handler hole (or one mounted by `renderDirect` with delegated holes) is stored on its root element, for the trampolines; delegation finds every other instance by descent from the render root.
+
+### Calls
+
+A call `Name([a, b, ...])` of a view bound in the same module by `const Name = html\`...\`` becomes `new D(a, b, ...)`, the view's description constructor, when the array literal has exactly the view's hole count of elements, no spread and no hole, and the name is bound once and only ever called, read with `typeof`, or used after a dot. Any other call goes through the view function, which spreads its array into the constructor.
+
+### Lists
+
+Lists keep the view layer's rules: `list(items, key, render, { pure: true })` is the opt-in under which a surviving row whose item is the same object as last time (`===`) and whose render function is the same is not rendered again. Without it every surviving row is rendered and patched, so items mutated in place show their new state. Each row instance keeps the item it was last rendered from.
+
+### The fallback
+
+Without the plugin nothing changes: the view module compiles every literal at run time. With it, a literal the compiler leaves alone compiles at run time inside the compiled runtime, through Layer 1's `Template`, with the same behavior.
+
+### Builds
+
+1. `make web` runs `web/build.ts`: `Bun.build` with the same entry points, naming and minification as the `bun build` command it replaces (whose CLI takes no plugins), plus the plugin. `WEB_COMPILE=0` builds without it; that build is byte for byte the old command's. The e2e page bundles follow `WEB_COMPILE`.
+2. The benchmark app `bench/herdsman-cases/apps/herdsman-blocks-compiled` is the declarative app's source built with the plugin; `bench/herdsman-cases/jfb-entry.ts` makes a js-framework-benchmark entry from this repository's sources, built like `herdsman-blocks-declarative` (esbuild, minified), with or without the compiler.
+
+### Verification
+
+1. A property test renders random templates (text, class, attribute, property, delegated and direct handler and child holes; child values of every kind, keyed lists nested two deep, runs, SVG views and lists of them; `render`, `renderDirect` and `mount`/`update`) through two to five random value sets, some repeated exactly, with three implementations side by side: the view layer, the compiler's output, and the compiled runtime's own run-time compile. After every step the DOM (tags, namespaces, attributes, input values, merged text), the exact node structure, the DOM work counted by the fake DOM, and the handlers reached by a click and a focus on every element must be equal. 2,500 cases per run; breaking a writer, a bake or the delegation path each makes it fail.
+2. Golden snapshots of the generated code; scanner tests (strings, comments, regular expressions, nested templates, other tags, aliases, namespaces, shadowed and reassigned names); build-error tests with exact positions, through the plugin too; every module of `web/src` transforms to code that parses with the same line count; low-level modules (the hand-written benchmark app, the patch app's DOM module and the core's own tests) come out of the plugin byte for byte; JSX and TSX are left alone.
+3. A fuzzer (`herdsman-blocks-compiler.fuzz.test.ts`, seed from `FUZZ_SEED`) checks that the transform never throws, keeps the line count, and changes nothing but its own edits: the transform reports each edit, the output must equal the source with exactly those edits applied, the edits must not overlap, and each must be a view literal (tag, whitespace or comments, template), a call's `Name([` or `])`, or a view-module specifier. Inputs: random token soups (quotes, template parts, braces, slashes after every kind of token, comments, tags); random modules made of statements that parse (regular expressions after statement heads, `else`, `do`, `return` and `typeof`, divisions after `)`, `]` and `++`, templates nested in substitutions, look-alikes in strings and comments, private names, generics); and every `web/src` module with random spans deleted, duplicated, swapped or inserted. Bun's parser is the oracle: when the input parses, the output must parse, and an unbalanced parenthesis put in place of each compiled literal must break the module, which shows the literal was code and not a string, comment or template text. It found three scanner bugs, all fixed: a regular expression after `if (...)`, two calls sharing one closing `])` in broken code, and one import specifier rewritten twice.
+4. The property test includes keyed lists of items kept between steps and relabeled in place, so an impure list must update every survivor; a unit test checks that a pure list skips an unchanged item and renders a new item or a new render function. Breaking the pure rule (skipping without the opt-in) makes the property test fail.
+5. The whole `web` test suite passes with views compiled (`bun test --preload ./src/herdsman-blocks-plugin.preload.ts`) and without. `make web-e2e` passes on a build made with the plugin. The app built with and without the plugin gives identical DOM in headless Chrome after each of nine steps (route, tabs, sessions, palette). The benchmark app passes the herdsman-cases DOM gate and node identity checks.
+
+Rerun the equivalence checks after merging changes to the view layer: `cd web && bun test src/herdsman-blocks-compiled src/herdsman-blocks-compiler && bun test --preload ./src/herdsman-blocks-plugin.preload.ts`.
+
+### Measured results (2026-10-27)
+
+Interim, pending the runtime's List fast paths, selector and lazy per-hole locate; final tuning and claims come after they merge.
+
+- Plugin throughput on `web/src` (0.91 MB, 86 modules): 133 to 137 MB/s overall, 114 to 125 MB/s for the modules that import views; the substring skip runs at about 16 GB/s; a synthetic module of 10,000 templates at 23 to 26 MB/s (about 7 µs per template). Inside the app build, with Bun's plugin overhead, 30 to 34 MB/s.
+- Coverage: all 290 view literals in `web/src` compile with no warnings.
+- Sizes (minified): the herdsman web bundle grows from 182,900 bytes (63,368 gzipped) to 271,443 (74,318); the js-framework-benchmark entry shrinks from 16,214 bytes (declarative) to 11,418 bytes compiled, against 10,372 for the low-level entry.
+- CSP: the compiled entry passes the harness's CSP check and contains no `new Function`; the declarative and low-level entries fail it (the run-time template compiler builds its locators with `new Function`).
+- Official harness, Apple M5 Pro, headless Chrome 156 with the harness flags, which uses the GPU (hardware rasterization and compositing, Skia Graphite, ANGLE Metal). Interleaved rounds with rotated order and a byte-identical A/A copy, median total per test, official weights, two-sided 90% bootstrap CI of the score ratio. Six rounds of three samples (n = 18 per test) over compiled, its A/A copy, declarative, low-level, re, thane and vanillajs-lite: weighted scores 1.016 (vanillajs-lite), 1.023 (A/A copy), 1.030 (re), 1.034 (thane), 1.037 (declarative), 1.037 (low-level), 1.040 (compiled). Compiled / A/A copy is 1.016 (0.9999 to 1.035), so the A/A gap alone is about ±2 to 3% and none of these runs can show equivalence or non-inferiority within 2%; compiled / declarative 1.003 (0.986 to 1.023), compiled / low-level 1.002 (0.975 to 1.028), compiled / re 1.010 (0.967 to 1.034), thane 1.006 (0.950 to 1.031), vanillajs-lite 1.024 (0.955 to 1.041). Median script time per test, compiled against declarative and low-level: partial update 1.1 / 1.6 / 0.7 ms, select 1.0 / 1.4 / 0.1, swap 0.7 / 1.2 / 0.2, create 10,000 rows 12.8 / 13.8 / 12.1, create 1,000 rows 1.4 / 1.4 / 1.4, clear 7.1 / 7.2 / 6.8. Compiling removes part of the view layer's script cost; what remains is the whole-list re-render (one description and closure per row, every row compared), which the runtime's pure lists, selector and row templates address and the compiler will lower onto once they merge.
+
 ## Open questions
 
 1. Mounting without a block (0.0.3) removes the per-row block object; its effect on garbage collection and on the clear rows test is being measured.
@@ -584,6 +678,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-27: The compiler (Part 6): a Bun plugin compiles views at build time; `make web` uses it (`WEB_COMPILE=0` builds without). Its scanner is fuzzed against Bun's parser; low-level code passes through byte for byte; compiled lists honor `{ pure: true }` as the view layer does. Unreleased: the release after 0.0.9.
 - 2026-10-27: Version 0.0.9. Delegated events find instances by descent from the render root along the event's path (child holes, list entries, runs), so views whose handlers are all delegated put no mark on their elements. Official benchmark, Chrome script time, 3 interleaved rounds with an A/A pair (15 samples): create 10,000 rows 13.5 to 12.9 ms (95% CI of the ratio 0.92 to 0.97), clear 7.0 to 6.6; other tests unchanged.
 - 2026-10-27: "Integration with dom.ts" rewritten as "Integration with herdsman web": the app uses views only; morph and `renderDirect` have no app user and stay exported.
 - 2026-10-27: Event names ignore index signatures, so `on<"submit", HTMLFormElement>()` types `this` as the form and the event as a submit event. Types only. Part of 0.0.8.
