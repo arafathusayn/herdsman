@@ -105,7 +105,7 @@ func TestStopStaysStopped(t *testing.T) {
 			if disable < 0 || stop < 0 || disable > stop {
 				t.Fatalf("automatic restart not disabled before the stop: %v", f.calls)
 			}
-			if AccountLockHeld(h.home) {
+			if lockHeld(h.home) {
 				t.Fatal("the lock is still held")
 			}
 		})
@@ -121,7 +121,7 @@ func TestUninstallRemovesUnit(t *testing.T) {
 	if err := s.Uninstall(); err != nil {
 		t.Fatal(err)
 	}
-	if exists(s.UnitPath()) || AccountLockHeld(h.home) {
+	if exists(s.UnitPath()) || lockHeld(h.home) {
 		t.Fatal("unit or daemon left")
 	}
 	if f.calls[len(f.calls)-1] != "systemctl --user daemon-reload" {

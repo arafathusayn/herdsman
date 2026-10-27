@@ -2,9 +2,9 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -130,31 +130,54 @@ func (e *ErrRunning) Error() string {
 		e.Holder.PID, e.Holder.Version, e.Holder.Socket)
 }
 
-// ReadAccountLock reads the account lock's content (informative only).
+// ReadAccountLock reads the account lock's content (informative only), as
+// strict JSON.
 func ReadAccountLock(home string) (AccountLock, bool) {
-	b, err := readSmall(AccountLockPath(home), 4096)
-	if err != nil {
-		return AccountLock{}, false
-	}
-	var l AccountLock
-	if json.Unmarshal(b, &l) != nil || l.PID <= 0 {
-		return AccountLock{}, false
-	}
-	return l, true
+	l, err := readAccountLock(home)
+	return l, err == nil
 }
 
-// AccountLockHeld reports whether some process holds the account lock.
-func AccountLockHeld(home string) bool {
-	f, err := os.OpenFile(AccountLockPath(home), os.O_RDONLY, 0)
+// readAccountLock is ReadAccountLock with the reason: a missing or
+// unreadable file, or a record that is refused (not strict JSON of the
+// record, or no pid).
+func readAccountLock(home string) (AccountLock, error) {
+	b, err := readSmall(AccountLockPath(home), 4096)
 	if err != nil {
-		return false
+		return AccountLock{}, err
+	}
+	var l AccountLock
+	if err := strictDecode(b, &l); err != nil {
+		return AccountLock{}, err
+	}
+	if l.PID <= 0 {
+		return AccountLock{}, fmt.Errorf("pid %d", l.PID)
+	}
+	return l, nil
+}
+
+// accountLockState probes the account lock: held, not held (only when the
+// file does not exist or a shared lock is granted), or an error naming the
+// file to inspect when the probe cannot tell. Every caller fails closed on
+// the error: it is never "not held".
+func accountLockState(home string) (bool, error) {
+	p := AccountLockPath(home)
+	f, err := os.OpenFile(p, os.O_RDONLY, 0)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("the account lock cannot be checked (%v); inspect %s", err, p)
 	}
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
-		return true
+	switch err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); {
+	case err == nil:
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		return false, nil
+	case errors.Is(err, syscall.EWOULDBLOCK):
+		return true, nil
+	default:
+		return false, fmt.Errorf("the account lock cannot be checked (%v); inspect %s", err, p)
 	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	return false
 }
 
 // takeAccountLock takes the per-account singleton (3.6).

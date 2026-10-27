@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"syscall"
@@ -264,14 +265,109 @@ func (o ordered) MarshalJSON() ([]byte, error) {
 }
 
 // strictDecode decodes strict JSON (duplicate keys and trailing data
-// refused, as inbox.StrictJSON) into v, refusing unknown fields.
+// refused, as inbox.StrictJSON) into v, refusing unknown fields and any
+// key that names a field only in another case.
 func strictDecode(b []byte, v any) error {
 	if err := inbox.StrictJSON(b); err != nil {
+		return err
+	}
+	tree, err := inbox.Decode(b)
+	if err != nil {
+		return err
+	}
+	if err := exactKeys(tree, reflect.TypeOf(v)); err != nil {
 		return err
 	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
+}
+
+var unmarshalerType = reflect.TypeFor[json.Unmarshaler]()
+
+// exactKeys checks that every object key of the decoded value v that
+// falls on a struct of type t is that struct's JSON field name exactly:
+// encoding/json matches names without case, so {"pid":0,"PID":42} would
+// read as pid 42. Maps, slices and pointers are followed; interface and
+// custom-decoded types are left to the decoder.
+func exactKeys(v any, t reflect.Type) error {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Implements(unmarshalerType) || reflect.PointerTo(t).Implements(unmarshalerType) {
+		return nil
+	}
+	switch x := v.(type) {
+	case map[string]any:
+		switch t.Kind() {
+		case reflect.Struct:
+			fields := jsonFields(t)
+			for k, e := range x {
+				ft, ok := fields[k]
+				if !ok {
+					return fmt.Errorf("json: unknown field %q", k)
+				}
+				if err := exactKeys(e, ft); err != nil {
+					return err
+				}
+			}
+		case reflect.Map:
+			for _, e := range x {
+				if err := exactKeys(e, t.Elem()); err != nil {
+					return err
+				}
+			}
+		}
+	case []any:
+		if t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
+			for _, e := range x {
+				if err := exactKeys(e, t.Elem()); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// jsonFields maps a struct's JSON field names, as encoding/json spells
+// them, to their types; embedded structs without a name add their fields.
+func jsonFields(t reflect.Type) map[string]reflect.Type {
+	m := map[string]reflect.Type{}
+	var embedded []reflect.Type
+	for i := range t.NumField() {
+		f := t.Field(i)
+		tag := f.Tag.Get("json")
+		if tag == "-" {
+			continue
+		}
+		name, _, _ := strings.Cut(tag, ",")
+		if f.Anonymous && name == "" {
+			et := f.Type
+			if et.Kind() == reflect.Pointer {
+				et = et.Elem()
+			}
+			if et.Kind() == reflect.Struct {
+				embedded = append(embedded, et)
+				continue
+			}
+		}
+		if !f.IsExported() {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		m[name] = f.Type
+	}
+	for _, et := range embedded {
+		for k, ft := range jsonFields(et) {
+			if _, ok := m[k]; !ok {
+				m[k] = ft
+			}
+		}
+	}
+	return m
 }
 
 // inode is a file's inode number (0 when the system gives none).
