@@ -24,10 +24,11 @@ import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import type { Size } from "./build.ts";
+import { findChrome } from "./chrome.ts";
 import { distDir, serve } from "./serve.ts";
 import { computeDuration, type Duration, NotOneClick } from "./trace.ts";
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME = findChrome();
 const REFERENCE = "herdsman-patch";
 const CONTROL = "herdsman-patch-control";
 const resultsDir = join(import.meta.dir, "results");

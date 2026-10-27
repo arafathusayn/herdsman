@@ -95,3 +95,7 @@ element is an attribute (a class marker there fails when the template
 compiles), and typed `on()` and `prop()` holes work on real elements. The
 unit tests' fake DOM only imitates namespaces; this runs the browser's own
 parser. It exits non-zero when a check fails.
+
+Both `run.ts` and `check-svg.ts` launch the Chrome named by `CHROME`, else
+the first one found in the usual macOS and Linux install places or on
+`PATH` (`chrome.ts`).

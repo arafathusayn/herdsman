@@ -7,9 +7,9 @@
 import { join } from "node:path";
 import puppeteer from "puppeteer-core";
 
-const CHROME =
-  process.env["CHROME"] ??
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+import { findChrome } from "./chrome.ts";
+
+const CHROME = findChrome();
 
 const built = await Bun.build({
   entrypoints: [join(import.meta.dir, "check-svg.page.ts")],
