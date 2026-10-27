@@ -97,6 +97,7 @@
             <p class="nav-head">Use</p>
             <a href="#commands">Skill commands</a>
             <a href="#checkpointer">Checkpointer</a>
+            <a href="#cli">CLI commands</a>
             <a href="#web-app">Web app</a>
             <a href="#hosts">Phones and other hosts</a>
             <a href="#options">Web app options</a>
@@ -192,8 +193,9 @@
         <section id="quick-start">
           <h2>Quick start</h2>
           <p>
-            Two parts work together. The skill runs the team. The <code>herdsman</code> command serves a browser app
-            that shows the team and lets you steer it. You can use the skill alone.
+            Two parts work together. The skill runs the team. The
+            <code>herdsman</code> command serves a browser app that shows the team and lets you steer it. You can use
+            the skill alone.
           </p>
 
           <div class="split">
@@ -202,13 +204,16 @@
               <ol class="steps">
                 <li>
                   <p>
-                    Install <a href="https://github.com/herdrdev/herdr" rel="noopener">herdr</a> and the coding-agent
-                    harnesses you want for each role.
+                    Install
+                    <a href="https://github.com/herdrdev/herdr" rel="noopener">herdr</a>
+                    and the coding-agent harnesses you want for each role.
                   </p>
                 </li>
                 <li>
-                  <p>Install the skill for the orchestrator's harness.</p>
-                  <pre><code>gh skill install arafathusayn/herdsman herdsman --agent &lt;agent&gt; --scope user</code></pre>
+                  <p>Install the skill for the orchestrator's harness. Claude Code:</p>
+                  <pre><code>gh skill install arafathusayn/herdsman herdsman --agent claude-code --scope user</code></pre>
+                  <p>Codex:</p>
+                  <pre><code>gh skill install arafathusayn/herdsman herdsman --agent codex --scope user</code></pre>
                 </li>
                 <li>
                   <p>Start the orchestrator in a herdr pane and give it the route.</p>
@@ -243,19 +248,38 @@ brew install --cask arafathusayn/tap/herdsman</code></pre>
 
           <h3 id="install-skill">The skill</h3>
           <p>
-            Install it with the <a href="https://cli.github.com/manual/gh_skill_install" rel="noopener">GitHub CLI</a>.
-            <code>&lt;agent&gt;</code> is the orchestrator's harness, as <code>gh skill install --help</code> names it.
+            Install it with the
+            <a href="https://cli.github.com/manual/gh_skill_install" rel="noopener">GitHub CLI</a>
+            for the harness that runs the orchestrator.
           </p>
+          <div class="split stack">
+            <div class="card" id="install-claude-code">
+              <p class="card-kicker">Claude Code</p>
+              <pre><code>gh skill install arafathusayn/herdsman herdsman --agent claude-code --scope user</code></pre>
+              <p>Then run it as <code>/herdsman</code>.</p>
+            </div>
+            <div class="card" id="install-codex">
+              <p class="card-kicker">Codex</p>
+              <pre><code>gh skill install arafathusayn/herdsman herdsman --agent codex --scope user</code></pre>
+              <p>Then run it as <code>$herdsman</code>.</p>
+            </div>
+          </div>
+          <p>For another harness:</p>
           <pre><code>gh skill install arafathusayn/herdsman herdsman --agent &lt;agent&gt; --scope user</code></pre>
           <p>
-            Add <code>--pin &lt;tag or commit&gt;</code> to pin a version. Run <code>gh skill update</code> to update
-            later.
+            <code>&lt;agent&gt;</code> is the harness's name as <code>gh skill install --help</code> lists it. Add
+            <code>--pin &lt;tag or commit&gt;</code> to pin a version. Run <code>gh skill update</code> to update later.
           </p>
 
           <details class="fold">
             <summary>Edit the skill while you use it: link a clone</summary>
             <pre><code>git clone https://github.com/arafathusayn/herdsman.git
 ln -s "$PWD/herdsman/skills/herdsman" &lt;harness skills folder&gt;/herdsman</code></pre>
+            <p>
+              A skill from <code>main</code> needs a <code>herdsman</code> built from the same clone (<code
+                >make build</code
+              >) until the next release.
+            </p>
           </details>
 
           <p class="note">
@@ -319,14 +343,22 @@ brew install --cask arafathusayn/tap/herdsman</code></pre>
             </div>
             <div class="tab-panel" role="tabpanel" id="ins-source" aria-labelledby="ins-source-tab">
               <p class="tab-title">From source</p>
-              <p>Build from a clone with Go and Bun. This writes <code>bin/herdsman</code>.</p>
+              <p>
+                Build from a clone with Go and Bun. This writes
+                <code>bin/herdsman</code>.
+              </p>
               <pre><code>git clone https://github.com/arafathusayn/herdsman.git
 cd herdsman
 make build</code></pre>
             </div>
           </div>
-          <p>Check it:</p>
-          <pre><code>herdsman version</code></pre>
+          <p>Check it, then check that this machine can run a route:</p>
+          <pre><code>herdsman version
+herdsman doctor</code></pre>
+          <p class="muted">
+            <code>herdsman doctor</code> is on <code>main</code> and comes with the next release; build from source to
+            use it now.
+          </p>
         </section>
 
         <!-- Team -->
@@ -344,8 +376,8 @@ make build</code></pre>
                 <span class="tag">optional</span>
               </header>
               <p>
-                You talk to it instead of the orchestrator. It asks you the route's questions and relays briefs and
-                answers through a private message channel.
+                You talk to it instead of the orchestrator. It asks you every question of the route, gos included, and
+                relays briefs and answers through a private message channel. Your answer there is your go.
               </p>
               <p class="never">Never writes code, runs tests, commits or pushes.</p>
             </article>
@@ -563,9 +595,9 @@ make build</code></pre>
                 <tr>
                   <td><code>message</code></td>
                   <td>
-                    Messages between the adjutant and the orchestrator: <code>status</code> (default),
-                    <code>wait</code>, <code>read</code>, <code>release</code>, <code>ack</code>, <code>send</code>,
-                    <code>hold</code>, <code>unhold</code>.
+                    Messages between the adjutant and the orchestrator:
+                    <code>status</code> (default), <code>wait</code>, <code>read</code>, <code>release</code>,
+                    <code>ack</code>, <code>send</code>, <code>hold</code>, <code>unhold</code>.
                   </td>
                 </tr>
                 <tr>
@@ -648,6 +680,105 @@ make build</code></pre>
           </div>
         </section>
 
+        <!-- CLI -->
+        <section id="cli">
+          <h2>CLI commands</h2>
+          <p>
+            Besides <code>web</code>, the <code>herdsman</code> command holds the tools the skill runs. Each one reads
+            strict settings, stops with exit code 2 and the setting's name when one is wrong, and prints its usage and
+            its exit codes with <code>--help</code>. Most print JSON with <code>--json</code>.
+          </p>
+          <pre><code>herdsman help
+herdsman &lt;command&gt; --help</code></pre>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Command</th>
+                  <th>What it does</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>wait</code></td>
+                  <td>
+                    Waits for the next event of the loop: a report, a review, a blocked or stalled agent, a health flag.
+                    Prints
+                    <code>TICK</code> when none comes before the deadline.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>watch</code></td>
+                  <td>
+                    Watches the implementers, the reviewer or pull requests:
+                    <code>implementers|reviewer|prs</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>status</code></td>
+                  <td>A health snapshot of every agent and of the machine.</td>
+                </tr>
+                <tr>
+                  <td><code>route</code></td>
+                  <td>
+                    <code>route check</code> lists what a route folder is missing at a stage; <code>route log</code>
+                    appends a run-state line.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>checkpointer</code></td>
+                  <td>The checkpointer loop, one checkpoint (<code>--once</code>) or a probe of the context size.</td>
+                </tr>
+                <tr>
+                  <td><code>message</code></td>
+                  <td>The adjutant message channel and its services: the courier, the card watch, the leak gate.</td>
+                </tr>
+                <tr>
+                  <td><code>approval-gate</code></td>
+                  <td>Binds a relayed go to one effect before it runs, and records its outcome.</td>
+                </tr>
+                <tr>
+                  <td><code>transcript-audit</code></td>
+                  <td>Audits a Claude or Codex transcript for writes.</td>
+                </tr>
+                <tr>
+                  <td><code>run-check</code></td>
+                  <td>Runs one heavy check at a time on this machine, behind a load gate, at a lower priority.</td>
+                </tr>
+                <tr>
+                  <td><code>doctor</code><br /><span class="muted">next release</span></td>
+                  <td>
+                    Checks that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>models</code><br /><span class="muted">next release</span></td>
+                  <td>
+                    Probes each installed harness for its version, models and efforts. <code>models last</code> and
+                    <code>models save</code> keep your last pick for each role.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>afk</code><br /><span class="muted">next release</span></td>
+                  <td>
+                    How long you have been away: the machine's idle time or your newest message, whichever is newer.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>review</code><br /><span class="muted">next release</span></td>
+                  <td>
+                    <code>review start --worktree &lt;path&gt; --head &lt;commit&gt;</code>
+                    prepares a clean, detached worktree for a reviewer, with its own build caches.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="muted">
+            The commands marked <i>next release</i> are on <code>main</code>; build from source to use them now.
+          </p>
+        </section>
+
         <!-- Web app -->
         <section id="web-app">
           <h2>Web app</h2>
@@ -677,8 +808,9 @@ make build</code></pre>
               >
             </div>
             <div class="view">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg><b>Checklist</b
-              ><span>The route's checklist lines.</span>
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12l5 5 9-10" /></svg
+              ><b>Checklist</b><span>The route's checklist lines.</span>
             </div>
             <div class="view">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -688,7 +820,7 @@ make build</code></pre>
                 <path d="M4 6h.01" />
                 <path d="M4 12h.01" />
                 <path d="M4 18h.01" /></svg
-              ><b>Run state</b><span>The orchestrator's run log, newest first.</span>
+              ><b>Run state</b><span>The orchestrator's run log, newest first. Older lines load a page at a time.</span>
             </div>
             <div class="view">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -733,14 +865,22 @@ make build</code></pre>
           <h3 id="new-route">Create a route</h3>
           <p>
             <b>New route</b> beside the Workspaces heading in the sidebar, or <code>Route: New route…</code> in the
-            palette, opens a form. Pick a folder, type the request and press <b>Start route</b>. The app opens a herdr
-            tab named <code>&lt;project&gt;-orchestrator</code>, starts the harness, model and effort you chose through
-            herdr, sends <code>/herdsman run "&lt;request&gt;"</code> (<code>$herdsman</code> for Codex), and splits a
-            <code>checkpointer</code> pane beside it. Models and efforts come from each harness's own list, newest
-            first. The <b>Adjutant</b> role starts an adjutant and its orchestrator in two tabs with one private inbox
-            per route, and shows the channel setup as a checklist: creating the inbox, the setup proof, attaching the
-            adjutant and approving the pair stay your steps. If a step fails, the form shows which steps ran; nothing is
-            closed.
+            palette, opens a form. It first offers the recommended setup, or a custom one. Each role then offers your
+            previous choice of harness, model and effort; <b>Choose again</b> reads the harness lists afresh. Pick a
+            folder, type the request, confirm the GitHub account that can read the repository, and press
+            <b>Start route</b>. The app opens a herdr tab named <code>&lt;project&gt;-orchestrator</code>, starts the
+            harness, model and effort you chose through herdr, sends <code>/herdsman run "&lt;request&gt;"</code> (<code
+              >$herdsman</code
+            >
+            for Codex), and splits a <code>checkpointer</code> pane beside it.
+          </p>
+          <p>
+            Models and efforts come from each installed harness, as it reports them, newest first; the same probe runs
+            as
+            <code>herdsman models</code>. The picks are saved when the route starts. The <b>Adjutant</b> role starts an
+            adjutant and its orchestrator in two tabs with one private inbox per route, and shows the channel setup as a
+            checklist: creating the inbox, the setup proof, attaching the adjutant and approving the pair stay your
+            steps. If a step fails, the form shows which steps ran; nothing is closed.
           </p>
 
           <h3 id="hosted">The hosted app</h3>
@@ -811,7 +951,9 @@ make build</code></pre>
                 </tr>
                 <tr>
                   <td><b>Anywhere, behind your proxy</b></td>
-                  <td><code>herdsman web --allow-host box.example.com</code></td>
+                  <td>
+                    <code>herdsman web --allow-host box.example.com</code>
+                  </td>
                   <td><code>https://box.example.com</code>, or add it as a host in the hosted app</td>
                 </tr>
               </tbody>
@@ -864,7 +1006,10 @@ make build</code></pre>
                 </tr>
                 <tr>
                   <td><code>--client &lt;url&gt;</code></td>
-                  <td><code>HERDSMAN_CLIENT</code>, else <code>https://herdsman.arafat.ai</code></td>
+                  <td>
+                    <code>HERDSMAN_CLIENT</code>, else
+                    <code>https://herdsman.arafat.ai</code>
+                  </td>
                   <td>A hosted copy of the app; <code>none</code> turns the hosted link off</td>
                 </tr>
                 <tr>
@@ -961,14 +1106,17 @@ make build</code></pre>
               </thead>
               <tbody>
                 <tr>
-                  <td><a href="https://github.com/herdrdev/herdr" rel="noopener">herdr</a></td>
+                  <td>
+                    <a href="https://github.com/herdrdev/herdr" rel="noopener">herdr</a>
+                  </td>
                   <td>Runs every agent in its own pane.</td>
                 </tr>
                 <tr>
                   <td>The <code>herdsman</code> binary</td>
                   <td>
-                    On <code>PATH</code> (the Homebrew cask or a release archive). The skill runs every command through
-                    it; no bash, <code>jq</code> or <code>nc</code> needed.
+                    On <code>PATH</code>, for macOS or Linux (the Homebrew cask or a release archive). The skill runs
+                    every command through it; no bash, <code>jq</code> or <code>nc</code> needed. A browser for the web
+                    app.
                   </td>
                 </tr>
                 <tr>
@@ -978,13 +1126,22 @@ make build</code></pre>
                     pull requests.
                   </td>
                 </tr>
-                <tr>
-                  <td>macOS or Linux</td>
-                  <td>For the <code>herdsman</code> command. A browser for the web app; nothing else.</td>
-                </tr>
               </tbody>
             </table>
           </div>
+          <p class="note">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z" />
+              <path d="M12 8h.01" />
+              <path d="M11 12h1v5h1" />
+            </svg>
+            <span
+              ><code>gh skill install</code> takes the skill from the latest release. Until the next release, that skill
+              (v0.5.0) still runs shell scripts and also needs <code>/bin/bash</code> 3.2+, <code>jq</code>, and
+              <code>nc</code> with Unix sockets when the route has an adjutant. A skill linked from a clone of
+              <code>main</code> needs a <code>herdsman</code> built from <code>main</code>.</span
+            >
+          </p>
         </section>
 
         <footer class="foot">
