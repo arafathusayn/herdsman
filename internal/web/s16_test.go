@@ -4,37 +4,58 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 )
 
-// S16: the web reader shows a contract 3 inbox's registry, mailboxes and
-// holds from its route database, read-only, and creates nothing.
-func TestReadChannelReadsTheRouteDB(t *testing.T) {
-	const epoch = "0123456789abcdef0123456789abcdef"
+const s16Epoch = "0123456789abcdef0123456789abcdef"
+
+// s16Owner is the contract 3 owner record with these fields in place of
+// the valid ones (raw JSON values); an empty value drops the field.
+func s16Owner(path string, fields map[string]string) string {
+	f := map[string]string{"owner": `"daemon"`, "epoch": `"` + s16Epoch + `"`, "contract": "3", "protocol": "1",
+		"adopted_from": "null", "store": `"` + path + `"`}
+	for k, v := range fields {
+		f[k] = v
+	}
+	parts := []string{}
+	for _, k := range []string{"owner", "epoch", "contract", "protocol", "adopted_from", "store"} {
+		if f[k] != "" {
+			parts = append(parts, `"`+k+`":`+f[k])
+		}
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+// s16Route makes a private home (HERDSMAN_PRIVATE_HOME for the test) with
+// route r's database (an approved pair, one ready message for orch, a
+// hold) and its inbox of contract 3.
+func s16Route(t *testing.T) (base, dir, path string) {
+	t.Helper()
 	base, err := os.MkdirTemp("", "s16w")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(base) })
 	base, _ = filepath.EvalSymlinks(base)
-	dir, path := filepath.Join(base, "inbox"), filepath.Join(base, "ph", "daemon", "routes", "r.db")
+	t.Setenv("HERDSMAN_PRIVATE_HOME", filepath.Join(base, "ph"))
+	dir, path = filepath.Join(base, "inbox"), filepath.Join(base, "ph", "daemon", "routes", "r.db")
 	for _, d := range []string{filepath.Dir(path), filepath.Join(dir, "state")} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	owner := `{"owner":"daemon","epoch":"` + epoch + `","contract":3,"protocol":1,"adopted_from":null,"store":"` + path + `"}`
-	if err := os.WriteFile(filepath.Join(dir, "state", "owner.json"), []byte(owner), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "state", "owner.json"), []byte(s16Owner(path, nil)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	c, err := store.Open(path, store.Writer, store.KindRoute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.InitRoute(c, epoch); err != nil {
+	if err := store.InitRoute(c, s16Epoch); err != nil {
 		t.Fatal(err)
 	}
 	for _, q := range []string{
@@ -48,6 +69,13 @@ func TestReadChannelReadsTheRouteDB(t *testing.T) {
 		}
 	}
 	_ = c.Close()
+	return base, dir, path
+}
+
+// S16: the web reader shows a contract 3 inbox's registry, mailboxes and
+// holds from its route database, read-only, and creates nothing.
+func TestReadChannelReadsTheRouteDB(t *testing.T) {
+	base, dir, _ := s16Route(t)
 	list := func() []string {
 		var out []string
 		_ = filepath.Walk(base, func(p string, _ os.FileInfo, err error) error {
@@ -81,5 +109,70 @@ func TestReadChannelReadsTheRouteDB(t *testing.T) {
 	}
 	if after := list(); !slices.Equal(before, after) {
 		t.Fatalf("the reader created files: %v -> %v", before, after)
+	}
+}
+
+// S16 fix 1: a refused owner record that names the route database is an
+// error with nothing read, never the file reader. The store path must be
+// <private home>/daemon/routes/<route>.db, as `message status` requires.
+func TestReadChannelRefusedOwnerRecord(t *testing.T) {
+	cases := map[string]func(t *testing.T, base, owner, path string){}
+	write := func(s string) func(*testing.T, string, string, string) {
+		return func(t *testing.T, _, owner, _ string) {
+			if err := os.WriteFile(owner, []byte(s), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	fields := map[string]map[string]string{
+		"relative store":  {"store": `"daemon/routes/r.db"`},
+		"no store":        {"store": ""},
+		"string contract": {"contract": `"3"`},
+		"contract 4":      {"contract": "4"},
+	}
+	for name, f := range fields {
+		cases[name] = func(t *testing.T, base, owner, path string) { write(s16Owner(path, f))(t, base, owner, path) }
+	}
+	cases["unclean store"] = func(t *testing.T, base, owner, path string) {
+		write(s16Owner(path, map[string]string{"store": `"` + filepath.Dir(path) + `/./r.db"`}))(t, base, owner, path)
+	}
+	cases["not a .db"] = func(t *testing.T, base, owner, path string) {
+		write(s16Owner(path, map[string]string{"store": `"` + filepath.Join(filepath.Dir(path), "r.sqlite") + `"`}))(t, base, owner, path)
+	}
+	cases["another home"] = func(t *testing.T, base, owner, path string) {
+		write(s16Owner(path, map[string]string{"store": `"` + filepath.Join(base, "other", "daemon", "routes", "r.db") + `"`}))(t, base, owner, path)
+	}
+	cases["duplicate key"] = func(t *testing.T, base, owner, path string) {
+		write(strings.Replace(s16Owner(path, nil), `"contract":3`, `"contract":3,"contract":3`, 1))(t, base, owner, path)
+	}
+	cases["not json"] = write(`{"owner":"daemon",`)
+	cases["mode 644"] = func(t *testing.T, _, owner, _ string) {
+		if err := os.Chmod(owner, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases["symlink"] = func(t *testing.T, base, owner, path string) {
+		real := filepath.Join(base, "owner-real.json")
+		if err := os.WriteFile(real, []byte(s16Owner(path, nil)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_ = os.Remove(owner)
+		if err := os.Symlink(real, owner); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			base, dir, path := s16Route(t)
+			setup(t, base, filepath.Join(dir, "state", "owner.json"), path)
+			// A legacy mailbox the file reader would show.
+			if err := os.MkdirAll(filepath.Join(dir, "orch", "new"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			ch := readChannel(dir, time.Now())
+			if !strings.HasPrefix(ch.Error, "owner record: ") || len(ch.Peers) != 0 || len(ch.Boxes) != 0 || ch.Approved {
+				t.Fatalf("error %q peers %+v boxes %+v approved %v", ch.Error, ch.Peers, ch.Boxes, ch.Approved)
+			}
+		})
 	}
 }
