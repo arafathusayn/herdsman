@@ -1,20 +1,14 @@
-// herdsman-blocks-react with class components: the same exports as
-// herdsman-blocks-react.ts, plus the class component runtime (lifecycles,
+// herdsman-react with class components: the same exports as
+// herdsman-react.ts, plus the class component runtime (lifecycles,
 // setState, error boundaries). Alias `react` and `react-dom` to this module
-// instead of herdsman-blocks-react.ts when the app or a library it uses
+// instead of herdsman-react.ts when the app or a library it uses
 // renders class components; the default module leaves them out and throws a
 // clear error when one renders.
 
-import {
-  __installClasses,
-  type ClassCore,
-  type ClassSupport,
-  type Props,
-  shallowEqual,
-} from "./herdsman-blocks-react.ts";
+import { __installClasses, type ClassCore, type ClassSupport, type Props, shallowEqual } from "./herdsman-react.ts";
 
-export * from "./herdsman-blocks-react.ts";
-export { default } from "./herdsman-blocks-react.ts";
+export * from "./herdsman-react.ts";
+export { default } from "./herdsman-react.ts";
 
 // biome-ignore lint: fibers and instances are opaque here.
 type Any = any;

@@ -1,10 +1,11 @@
-// Unit tests for herdsman-blocks-react on the fake DOM. Behavior against
+// Unit tests for herdsman-react on the fake DOM. Behavior against
 // React itself is checked in headless Chrome by
 // bench/herdsman-cases/react-compat.ts, which runs the same scenarios on
 // React 19 and on this module and compares what they render and log.
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { FakeElement, FakeEvent, installFakeDocument, ops, resetOps } from "./herdsman-blocks.testdom.ts";
 import {
   createContext,
   createElement as h,
@@ -16,8 +17,7 @@ import {
   useEffect,
   useLayoutEffect,
   useState,
-} from "./herdsman-blocks-react.ts";
-import { FakeElement, FakeEvent, installFakeDocument, ops, resetOps } from "./herdsman-blocks.testdom.ts";
+} from "./herdsman-react.ts";
 
 let container: FakeElement;
 let root: Root;

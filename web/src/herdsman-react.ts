@@ -1,4 +1,4 @@
-// herdsman-blocks-react: the React 19 client API on herdsman-blocks.
+// herdsman-react: the React 19 client API on herdsman-blocks.
 //
 // One module stands in for `react`, `react/jsx-runtime`,
 // `react/jsx-dev-runtime`, `react/compiler-runtime`, `react-dom` and
@@ -1425,7 +1425,7 @@ export class Component<P = Props, S = Any> {
 export class PureComponent<P = Props, S = Any> extends Component<P, S> {}
 (PureComponent.prototype as Any).isPureReactComponent = true;
 
-// Class support is a separate module (herdsman-blocks-react-classes.ts), so
+// Class support is a separate module (herdsman-react-classes.ts), so
 // apps without class components do not ship it. Its entry installs it here.
 
 /** What class support uses of the runtime. Fibers are opaque to it. */
@@ -1458,7 +1458,7 @@ export interface ClassSupport {
 
 let classes: ClassSupport | null = null;
 
-/** Installs class support; herdsman-blocks-react-classes.ts calls it when it loads. */
+/** Installs class support; herdsman-react-classes.ts calls it when it loads. */
 export function __installClasses(make: (core: ClassCore) => ClassSupport): void {
   classes ??= make({
     DIRTY,
@@ -1488,7 +1488,7 @@ export function __installClasses(make: (core: ClassCore) => ClassSupport): void 
 
 function noClasses(type: Any): Error {
   return new Error(
-    `${type.displayName ?? type.name ?? "A class component"} is a class component, and this build leaves class support out. Alias react to herdsman-blocks-react-classes.ts (reactAlias("blocks", { classes: true })) to include it.`,
+    `${type.displayName ?? type.name ?? "A class component"} is a class component, and this build leaves class support out. Alias react to herdsman-react-classes.ts (reactAlias("herdsman-react", { classes: true })) to include it.`,
   );
 }
 

@@ -1,11 +1,11 @@
-// Class components, which the class build (herdsman-blocks-react-classes.ts)
-// adds to herdsman-blocks-react. Importing it installs class support for
+// Class components, which the class build (herdsman-react-classes.ts)
+// adds to herdsman-react. Importing it installs class support for
 // every test in the process, so class tests live here.
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { Component, createElement as h, createRoot, flushSync, type Root } from "./herdsman-blocks-react-classes.ts";
 import { FakeElement, installFakeDocument } from "./herdsman-blocks.testdom.ts";
+import { Component, createElement as h, createRoot, flushSync, type Root } from "./herdsman-react-classes.ts";
 
 let container: FakeElement;
 let root: Root;

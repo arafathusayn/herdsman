@@ -1,7 +1,7 @@
 // Scenarios for the React compatibility check (../react-compat.ts). Each one
 // renders with the React API, acts on the page like a user, and records what
 // it sees: `t.log` lines and, at every `t.step`, the container's HTML. The
-// same file is built against React 19 and against herdsman-blocks-react, and
+// same file is built against React 19 and against herdsman-react, and
 // the two transcripts must match line for line.
 
 import {

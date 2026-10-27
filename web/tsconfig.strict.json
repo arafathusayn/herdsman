@@ -1,5 +1,5 @@
 {
-  // The strictest settings, for herdsman-blocks only, on top of tsconfig.json.
+  // The strictest settings, for herdsman-blocks and herdsman-react, on top of tsconfig.json.
   // tsconfig.json already sets strict, noUncheckedIndexedAccess,
   // exactOptionalPropertyTypes, noImplicitOverride, noUnusedLocals,
   // noUnusedParameters, noFallthroughCasesInSwitch, verbatimModuleSyntax and
@@ -19,5 +19,5 @@
     "forceConsistentCasingInFileNames": true,
     "libReplacement": false
   },
-  "include": ["src/herdsman-blocks*.ts"]
+  "include": ["src/herdsman-blocks*.ts", "src/herdsman-react*.ts"]
 }

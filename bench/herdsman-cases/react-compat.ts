@@ -3,16 +3,16 @@
 // for it, and compares every transcript (logged values and the HTML after
 // each step) with React's, line for line.
 //
-//   bun react-compat.ts [--runtimes blocks,blocks+classes,redact] [--verbose]
+//   bun react-compat.ts [--runtimes herdsman-react,herdsman-react+classes,redact] [--verbose]
 //
-// Runtimes: `blocks` is web/src/herdsman-blocks-react.ts as apps get it by
-// default, without class components; `blocks+classes` is the build with them
-// (herdsman-blocks-react-classes.ts); `redact` is @tanstack/redact from
+// Runtimes: `herdsman-react` is web/src/herdsman-react.ts as apps get it by
+// default, without class components; `herdsman-react+classes` is the build with them
+// (herdsman-react-classes.ts); `redact` is @tanstack/redact from
 // apps/redact (run `bun install` there first). React comes from apps/react,
 // the libraries from react-compat/package.json. The build aliases `react`,
 // `react-dom` and their subpaths to the runtime, as a bundler plugin for a
-// real app would. Exits non-zero when a `blocks+classes` scenario differs
-// from React, or a `blocks` scenario differs for any reason but rendering a
+// real app would. Exits non-zero when a `herdsman-react+classes` scenario differs
+// from React, or a `herdsman-react` scenario differs for any reason but rendering a
 // class (those are listed as needing classes).
 
 import { join } from "node:path";
@@ -23,7 +23,7 @@ import { reactAlias, type Runtime } from "./react-alias.ts";
 const here = import.meta.dir;
 const dir = join(here, "react-compat");
 
-// "blocks+classes" is the blocks runtime with class support.
+// "herdsman-react+classes" is the herdsman-react runtime with class support.
 async function bundle(entry: string, spec: string): Promise<string> {
   const [runtime, extra] = spec.split("+") as [Runtime, string | undefined];
   const r = await Bun.build({
@@ -42,8 +42,8 @@ const opt = (name: string): string | undefined => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
 };
-const runtimes = (opt("--runtimes") ?? "blocks,blocks+classes,redact").split(",");
-const ours = (rt: string) => rt.startsWith("blocks");
+const runtimes = (opt("--runtimes") ?? "herdsman-react,herdsman-react+classes,redact").split(",");
+const ours = (rt: string) => rt.startsWith("herdsman-react");
 // What the default build throws when a class component renders.
 const NO_CLASSES = "this build leaves class support out";
 const verbose = args.includes("--verbose");
@@ -100,7 +100,7 @@ try {
         pass++;
         continue;
       }
-            if (rt === "blocks" && b.some((line) => line.includes(NO_CLASSES))) {
+            if (rt === "herdsman-react" && b.some((line) => line.includes(NO_CLASSES))) {
         classes.push(name);
         continue;
       }

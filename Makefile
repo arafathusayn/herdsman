@@ -50,14 +50,14 @@ web-e2e: web
 	cd web && bun check --no-pretty -p e2e/tsconfig.json --typeRoots "$(BUN_GLOBAL)"
 	cd web/e2e && bun run e2e
 
-## react-compat: herdsman-blocks-react against React 19 in headless Chrome:
+## react-compat: herdsman-react against React 19 in headless Chrome:
 ## the same scenarios on both, every render and log compared (CHROME=path
 ## picks the browser)
 react-compat:
 	cd bench/herdsman-cases && bun install --frozen-lockfile
 	cd bench/herdsman-cases/apps/react && bun install --frozen-lockfile
 	cd bench/herdsman-cases/react-compat && bun install --frozen-lockfile
-	cd bench/herdsman-cases && bun react-compat.ts --runtimes blocks,blocks+classes
+	cd bench/herdsman-cases && bun react-compat.ts --runtimes herdsman-react,herdsman-react+classes
 
 ## web-fmt: format the web app
 web-fmt:
