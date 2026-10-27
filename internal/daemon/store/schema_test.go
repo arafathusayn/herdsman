@@ -267,3 +267,46 @@ func TestNoDDLInGo(t *testing.T) {
 		}
 	}
 }
+
+// TestBackupInterruptedNotAccepted (S2S3-1): an empty or foreign file at
+// the backup name (an interrupted backup) stops the migration, and the
+// database stays at its version; a temporary file left by an interrupted
+// backup is rebuilt into a complete, published copy.
+func TestBackupInterruptedNotAccepted(t *testing.T) {
+	two := schemaOf(map[string]*fstest.MapFile{"0001_init.sql": v1, "0002_b.sql": v2})
+	one := schemaOf(map[string]*fstest.MapFile{"0001_init.sql": v1})
+	p := filepath.Join(dir(t), "r.db")
+	c := writerAt(t, p)
+	if err := migrate(c, p, KindRoute, one); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p+".v1.bak", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrate(c, p, KindRoute, two); !errors.Is(err, ErrMigration) {
+		t.Fatalf("migration over an empty backup: %v", err)
+	}
+	if userVersion(t, c) != 1 {
+		t.Fatalf("user_version %d", userVersion(t, c))
+	}
+	if err := os.Remove(p + ".v1.bak"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p+".v1.bak.tmp", []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrate(c, p, KindRoute, two); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(p + ".v1.bak.tmp"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("temporary file left: %v", err)
+	}
+	f, err := os.Open(p + ".v1.bak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if h, err := readHeader(f, p+".v1.bak"); err != nil || h.userVersion != 1 {
+		t.Fatalf("published backup: %+v %v", h, err)
+	}
+}
