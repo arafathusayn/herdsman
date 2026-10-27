@@ -96,7 +96,8 @@ func pragmas(m Mode) []pragma {
 // folder must be mode 700 and the file (and its -wal and -shm, when
 // present) a regular file of mode 600, owned by this user, never a link;
 // a writer creates a missing file with mode 600, a reader of a missing
-// file gets an error wrapping os.ErrNotExist. Every pragma is read back.
+// file gets an error wrapping os.ErrNotExist. Every pragma is read back,
+// then the writer migrates the schema and a reader checks it (section 1).
 func Open(path string, m Mode, kind Kind) (Conn, error) {
 	if kind != KindAccount && kind != KindRoute {
 		return nil, fmt.Errorf("store: unknown kind %q", kind)
@@ -138,6 +139,17 @@ func Open(path string, m Mode, kind Kind) (Conn, error) {
 			_ = c.Close()
 			return nil, fmt.Errorf("store: pragma %s reads %q, want %q (%v)", p.name, got, p.want, err)
 		}
+	}
+	// The schema is checked before any other statement: the writer
+	// migrates to this binary's version, a reader refuses any other.
+	if m == Writer {
+		err = migrate(c, path, kind, schemaFS)
+	} else {
+		_, err = checkSchema(c, Reader, kind, Newest(kind))
+	}
+	if err != nil {
+		_ = c.Close()
+		return nil, err
 	}
 	return c, nil
 }

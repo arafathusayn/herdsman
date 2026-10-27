@@ -97,6 +97,13 @@ func (s *sqlConn) Query(q string, args []any, fn func(Row) error) error {
 	return rows.Err()
 }
 
+// script runs several statements outside the statement cache (migration
+// files only).
+func (s *sqlConn) script(q string) error {
+	_, err := s.c.ExecContext(context.Background(), q)
+	return err
+}
+
 func (s *sqlConn) Tx(fn func(Conn) error) error {
 	if s.inTx {
 		return errors.New("store: transactions do not nest")
