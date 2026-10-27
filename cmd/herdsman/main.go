@@ -36,6 +36,10 @@ var (
 	commit  = "none"
 )
 
+// cgoProbe runs for the hidden --cgo-probe argument; only a build with the
+// cgoprobe tag sets it (cgoprobe.go).
+var cgoProbe func(stdout io.Writer) error
+
 const usage = `herdsman: run a team of coding agents inside herdr.
 
 Usage:
@@ -133,6 +137,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return nil
 	case "web":
 		return runWeb(args[1:], stdout, stderr)
+	case "--cgo-probe":
+		if cgoProbe != nil {
+			return cgoProbe(stdout)
+		}
 	}
 	if c, ok := commands[args[0]]; ok {
 		if c.help != "" && len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
