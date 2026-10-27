@@ -1,6 +1,8 @@
-// Scenarios with the five React libraries npm downloads most (weekly
-// downloads, 2026-10-27): @radix-ui/react-dialog, zustand,
-// @tanstack/react-query, react-router and framer-motion. They run like the
+// Scenarios with the ten React libraries npm downloads most (weekly
+// downloads, 2026-10-27, one package per project, libraries an app imports
+// itself): lucide-react, @radix-ui/react-dialog, zustand,
+// @tanstack/react-query, react-router, framer-motion, recharts,
+// react-hook-form, sonner and react-transition-group. They run like the
 // scenarios in ./cases.tsx: the same code on React 19 and on each runtime,
 // with every log and step compared. The libraries come from ./package.json
 // and import `react` like any app code, so they get the runtime under test.
@@ -8,7 +10,8 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { Suspense, useState } from "react";
+import { Camera, Check, Trash2 } from "lucide-react";
+import { Suspense, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
@@ -23,6 +26,10 @@ import {
   useNavigate,
   useParams,
 } from "react-router";
+import { useForm } from "react-hook-form";
+import { CSSTransition, TransitionGroup } from "react-transition-group";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { Toaster, toast } from "sonner";
 import { create } from "zustand";
 import type { T } from "./cases.tsx";
 
@@ -324,5 +331,186 @@ export const libraryCases: Record<string, (t: T) => Promise<void>> = {
     t.$("#drop").click();
     await wait(200);
     await t.step("dropped");
+  },
+
+  async "lucide-react: icons, props, refs"(t) {
+    function App() {
+      const [big, setBig] = useState(false);
+      const ref = useRef<SVGSVGElement>(null);
+      return (
+        <p>
+          <Camera size={big ? 48 : 24} color={big ? "red" : "currentColor"} />
+          <Check strokeWidth={big ? 3 : 2} className="ok" ref={ref} aria-label="done" />
+          <Trash2 absoluteStrokeWidth size={32} />
+          <button id="grow" onClick={() => (setBig(!big), t.log("ref", ref.current?.nodeName, ref.current?.namespaceURI))}>
+            grow
+          </button>
+        </p>
+      );
+    }
+    mount(t, <App />);
+    await t.step("small");
+    t.$("#grow").click();
+    await t.step("big");
+  },
+
+  async "recharts: line and bar charts, data updates"(t) {
+    function App() {
+      const [data, setData] = useState([
+        { name: "a", uv: 4, pv: 2 },
+        { name: "b", uv: 3, pv: 5 },
+        { name: "c", uv: 6, pv: 1 },
+      ]);
+      return (
+        <div>
+          <LineChart width={300} height={200} data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="name" />
+            <YAxis />
+            <Line dataKey="uv" stroke="#8884d8" isAnimationActive={false} />
+          </LineChart>
+          <BarChart width={300} height={200} data={data}>
+            <XAxis dataKey="name" />
+            <Bar dataKey="pv" fill="#82ca9d" isAnimationActive={false} />
+          </BarChart>
+          <button id="more" onClick={() => setData([...data, { name: "d", uv: 8, pv: 7 }])}>
+            more
+          </button>
+        </div>
+      );
+    }
+    mount(t, <App />);
+    await wait(100);
+    await t.step("drawn");
+    t.$("#more").click();
+    await wait(100);
+    await t.step("more data");
+  },
+
+  async "react-hook-form: register, validate, watch, reset"(t) {
+    function App() {
+      const {
+        register,
+        handleSubmit,
+        watch,
+        reset,
+        formState: { errors, isSubmitSuccessful },
+      } = useForm<{ name: string; age: string }>({ defaultValues: { name: "", age: "1" } });
+      const name = watch("name");
+      return (
+        <form onSubmit={handleSubmit((v) => t.log("submitted", v))}>
+          <input id="name" {...register("name", { required: "name is required", minLength: { value: 3, message: "too short" } })} />
+          <input id="age" {...register("age", { pattern: { value: /^\d+$/, message: "digits only" } })} />
+          <p>
+            watch: {name} | {errors.name?.message ?? "-"} | {errors.age?.message ?? "-"} | {String(isSubmitSuccessful)}
+          </p>
+          <button id="submit">go</button>
+          <button id="clear" type="button" onClick={() => reset()}>
+            reset
+          </button>
+        </form>
+      );
+    }
+    mount(t, <App />);
+    await t.step("empty");
+    t.$("#submit").click();
+    await wait(20);
+    await t.step("required");
+    for (const [id, v] of [["#name", "al"], ["#age", "x"]] as const) {
+      const el = t.$(id) as HTMLInputElement;
+      el.value = v;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    t.$("#submit").click();
+    await wait(20);
+    await t.step("invalid");
+        // Typed for real: the native setter, as a keystroke leaves the field
+    // (the plain assignments above go through React's value tracker and
+    // cause no onChange).
+    for (const [id, v] of [["#name", "alice"], ["#age", "42"]] as const) {
+      const el = t.$(id) as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(el, v);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    t.$("#submit").click();
+    await wait(20);
+    await t.step("valid");
+    t.$("#clear").click();
+    await wait(20);
+    await t.step("reset");
+    t.log("fields", (t.$("#name") as HTMLInputElement).value, (t.$("#age") as HTMLInputElement).value);
+  },
+
+  async "sonner: toasts, promise toasts, dismiss"(t) {
+    mount(
+      t,
+      <div>
+        <Toaster duration={Number.POSITIVE_INFINITY} />
+      </div>,
+    );
+    await wait(20);
+    await t.step("empty");
+    const id = toast("Saved", { description: "all good" });
+    toast.success("Done");
+    await wait(100);
+    t.log("toasts", t.root.querySelectorAll("[data-sonner-toast]").length);
+    t.log("titles", [...t.root.querySelectorAll("[data-title]")].map((e) => e.textContent).join(","));
+    let resolve!: (v: string) => void;
+    toast.promise(new Promise<string>((r) => (resolve = r)), { loading: "Loading", success: (v) => "Got " + v, error: "Failed" });
+    await wait(50);
+    t.log("titles", [...t.root.querySelectorAll("[data-title]")].map((e) => e.textContent).join(","));
+    resolve("it");
+    await wait(50);
+    t.log("titles", [...t.root.querySelectorAll("[data-title]")].map((e) => e.textContent).join(","));
+    toast.dismiss(id);
+    await wait(600);
+    t.log("after dismiss", [...t.root.querySelectorAll("[data-title]")].map((e) => e.textContent).join(","));
+  },
+
+  async "react-transition-group: CSSTransition and TransitionGroup"(t) {
+    function Item({ text, ...props }: { text: string; [k: string]: unknown }) {
+      const ref = useRef<HTMLLIElement>(null);
+      return (
+        <CSSTransition {...props} nodeRef={ref} timeout={30} classNames="fade" onExited={() => t.log("exited", text)}>
+          <li ref={ref}>{text}</li>
+        </CSSTransition>
+      );
+    }
+    function App() {
+      const [items, setItems] = useState(["a", "b"]);
+      const [show, setShow] = useState(false);
+      const box = useRef<HTMLDivElement>(null);
+      return (
+        <div>
+          <CSSTransition in={show} nodeRef={box} timeout={30} classNames="box" unmountOnExit onEntered={() => t.log("entered")}>
+            <div ref={box}>box</div>
+          </CSSTransition>
+          <TransitionGroup component="ul">
+            {items.map((i) => (
+              <Item key={i} text={i} />
+            ))}
+          </TransitionGroup>
+          <button id="show" onClick={() => setShow(!show)}>
+            show
+          </button>
+          <button id="swap" onClick={() => setItems(["b", "c"])}>
+            swap
+          </button>
+        </div>
+      );
+    }
+    mount(t, <App />);
+    await t.step("mounted");
+    t.$("#show").click();
+    await t.step("entering");
+    await wait(80);
+    await t.step("entered");
+    t.$("#swap").click();
+    await t.step("swapping");
+    await wait(80);
+    await t.step("swapped");
+    t.$("#show").click();
+    await wait(80);
+    await t.step("hidden");
   },
 };

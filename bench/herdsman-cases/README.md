@@ -111,9 +111,10 @@ effect order, memo, context, class lifecycles, error boundaries, Suspense
 and lazy, portals, events, controlled fields, refs, external stores,
 transitions, actions and forms, Children, Activity, hydration of React's own
 server HTML (`react-compat/ssr.tsx`), roots and useId; those in
-`react-compat/libraries.tsx` use the five React libraries npm downloads most
-(@radix-ui/react-dialog, zustand, @tanstack/react-query, react-router,
-framer-motion; run `bun install` in `react-compat`). A `herdsman-react` scenario
+`react-compat/libraries.tsx` use the ten React libraries npm downloads most
+(lucide-react, @radix-ui/react-dialog, zustand, @tanstack/react-query,
+react-router, framer-motion, recharts, react-hook-form, sonner,
+react-transition-group; run `bun install` in `react-compat`). A `herdsman-react` scenario
 that stops on its no-classes error is listed as needing classes. It exits
 non-zero when any other herdsman-react scenario differs from React;
 `make react-compat` runs it for herdsman-react alone.

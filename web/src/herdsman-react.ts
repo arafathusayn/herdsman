@@ -368,7 +368,7 @@ const NO_CONTEXT = {};
 const FIBER = Symbol("fiber"); // element -> its host fiber
 const OWN = Symbol("own"); // node -> the host fiber that places it
 const LISTENS = Symbol("listens"); // element -> direct listener types
-const TRACKED = Symbol("checked"); // checkbox or radio -> checked state last seen
+const TRACKED = Symbol("tracked"); // input or textarea -> the value (or checked state) last set or seen
 
 type Key = string | number;
 
@@ -932,18 +932,6 @@ function hostChildren(f: Fiber, dom: Any, p: Any, old: Props | null): void {
   reconcile(f, ch);
 }
 
-const CAMEL_SVG = new Set(
-  (
-    "allowReorder attributeName attributeType autoReverse baseFrequency baseProfile calcMode clipPathUnits " +
-    "contentScriptType contentStyleType diffuseConstant edgeMode externalResourcesRequired filterRes filterUnits " +
-    "glyphRef gradientTransform gradientUnits kernelMatrix kernelUnitLength keyPoints keySplines keyTimes " +
-    "lengthAdjust limitingConeAngle markerHeight markerUnits markerWidth maskContentUnits maskUnits numOctaves " +
-    "pathLength patternContentUnits patternTransform patternUnits pointsAtX pointsAtY pointsAtZ preserveAlpha " +
-    "preserveAspectRatio primitiveUnits refX refY repeatCount repeatDur requiredExtensions requiredFeatures " +
-    "specularConstant specularExponent spreadMethod startOffset stdDeviation stitchTiles surfaceScale " +
-    "systemLanguage tableValues targetX targetY textLength viewBox viewTarget xChannelSelector yChannelSelector zoomAndPan"
-  ).split(" "),
-);
 const BOOL_ATTRS = new Set(
   (
     "allowfullscreen async autofocus autoplay controls default defer disabled disablepictureinpicture " +
@@ -961,12 +949,32 @@ const BOOLEANISH = new Set([
   "focusable",
   "preserveAlpha",
 ]);
+// Props whose attribute has another name, in every namespace (React's table):
+// the HTML ones below, and the presentation attributes SVG spells in
+// kebab-case. Every other prop is set under its own name, so camelCase SVG
+// attributes (viewBox, gradientUnits, ...) keep their case.
 const ALIASES: Record<string, string> = {
   className: "class",
   htmlFor: "for",
   httpEquiv: "http-equiv",
   acceptCharset: "accept-charset",
+  tabIndex: "tabindex",
+  crossOrigin: "crossorigin",
+  xmlnsXlink: "xmlns:xlink",
 };
+for (const name of (
+  "accentHeight alignmentBaseline arabicForm baselineShift capHeight clipPath clipRule colorInterpolation " +
+  "colorInterpolationFilters colorProfile colorRendering dominantBaseline enableBackground fillOpacity fillRule " +
+  "floodColor floodOpacity fontFamily fontSize fontSizeAdjust fontStretch fontStyle fontVariant fontWeight glyphName " +
+  "glyphOrientationHorizontal glyphOrientationVertical horizAdvX horizOriginX imageRendering letterSpacing " +
+  "lightingColor markerEnd markerMid markerStart maskType overlinePosition overlineThickness paintOrder " +
+  "pointerEvents renderingIntent shapeRendering stopColor stopOpacity strikethroughPosition strikethroughThickness " +
+  "strokeDasharray strokeDashoffset strokeLinecap strokeLinejoin strokeMiterlimit strokeOpacity strokeWidth " +
+  "textAnchor textDecoration textRendering transformOrigin underlinePosition underlineThickness unicodeBidi " +
+  "unicodeRange unitsPerEm vAlphabetic vHanging vIdeographic vMathematical vectorEffect vertAdvY vertOriginX " +
+  "vertOriginY wordSpacing writingMode xHeight"
+).split(" "))
+  ALIASES[name] = name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
 const RESERVED = new Set([
   "children",
   "key",
@@ -1000,7 +1008,8 @@ function setProps(f: Fiber, dom: Any, o: Props, p: Any, mount: boolean): void {
     setAttr(f, dom, k, v, o[k]);
   }
   if (tag === "input") setInput(dom, p, o, mount);
-  else if (tag === "textarea") {
+  if (mount && (tag === "input" || tag === "textarea")) track(dom);
+  if (tag === "textarea") {
     const v = p.value;
     if (v != null) {
       const s = toStr(v);
@@ -1036,7 +1045,7 @@ function setInput(dom: Any, p: Any, o: Props, mount: boolean): void {
       dom.defaultValue = s;
     }
     const c = p.checked ?? p.defaultChecked;
-    dom.checked = dom.defaultChecked = dom[TRACKED] = !!c && typeof c !== "function" && typeof c !== "symbol";
+    dom.checked = dom.defaultChecked = !!c && typeof c !== "function" && typeof c !== "symbol";
     if (plain(p.name)) dom.name = p.name;
     return;
   }
@@ -1056,8 +1065,7 @@ function setInput(dom: Any, p: Any, o: Props, mount: boolean): void {
     } else if (o["defaultValue"] != null) dom.removeAttribute("value");
   }
   if (p.checked == null && p.defaultChecked != null) dom.defaultChecked = !!p.defaultChecked;
-  if (p.checked != null)
-    dom.checked = dom[TRACKED] = !!p.checked && typeof p.checked !== "function" && typeof p.checked !== "symbol";
+  if (p.checked != null) dom.checked = !!p.checked && typeof p.checked !== "function" && typeof p.checked !== "symbol";
   if (p.name !== o["name"]) {
     if (plain(p.name)) dom.name = "" + p.name;
     else dom.removeAttribute("name");
@@ -1111,11 +1119,8 @@ function setAttr(f: Fiber, dom: Any, name: string, v: Any, old: Any): void {
   let ns: string | null = null;
   if (f.ns === SVG_NS) {
     if (name.startsWith("xlink") && name.length > 5) ((ns = XLINK), (attr = "xlink:" + name.slice(5).toLowerCase()));
-    else if (name === "xmlnsXlink") attr = "xmlns:xlink";
-    else if (name.startsWith("xml") && name.length > 3 && name.charCodeAt(3) < 91)
+    else if (name.startsWith("xml") && name.length > 3 && name.charCodeAt(3) < 91 && name !== "xmlnsXlink")
       ((ns = XML), (attr = "xml:" + name.slice(3).toLowerCase()));
-    else if (attr === name && !CAMEL_SVG.has(name) && /[A-Z]/.test(name))
-      attr = name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
   }
   if (v == null || typeof v === "function" || typeof v === "symbol") return removeAttr(dom, ns, attr);
   if (typeof v === "boolean") {
@@ -1393,16 +1398,16 @@ function runFunc(f: Fiber): void {
 
 // Class components
 
-/** Base class for class components. */
-export class Component<P = Props, S = Any> {
+/** A class component instance. */
+export interface Component<P = Props, S = Any> {
   props: P;
   context: Any;
-  state: S = null as S;
-  refs: Record<string, Any> = {};
-  constructor(props: P, context?: Any) {
-    this.props = props;
-    this.context = context;
-  }
+  state: S;
+  refs: Record<string, Any>;
+  /** Merge `partial` (or what it returns, given state and props) into state, then re-render. */
+  setState(partial: Any, callback?: () => void): void;
+  /** Re-render, skipping shouldComponentUpdate. */
+  forceUpdate(callback?: () => void): void;
   render?(): Any;
   componentDidMount?(): void;
   shouldComponentUpdate?(nextProps: P, nextState: S, nextContext: Any): boolean;
@@ -1410,20 +1415,40 @@ export class Component<P = Props, S = Any> {
   componentDidUpdate?(prevProps: P, prevState: S, snapshot?: Any): void;
   componentWillUnmount?(): void;
   componentDidCatch?(error: Any, info: { componentStack?: string }): void;
-  /** Merge `partial` (or what it returns, given state and props) into state, then re-render. */
-  setState(partial: Any, callback?: () => void): void {
-    if (classes !== null) classes.enqueue(this, partial, callback, false);
-  }
-  /** Re-render, skipping shouldComponentUpdate. */
-  forceUpdate(callback?: () => void): void {
-    if (classes !== null) classes.enqueue(this, null, callback, true);
-  }
 }
-(Component.prototype as Any).isReactComponent = {};
 
+/** The type of Component and PureComponent: classes extend them. */
+export interface ComponentClass {
+  new <P = Props, S = Any>(props: P, context?: Any): Component<P, S>;
+  readonly prototype: Component;
+}
+
+// Constructor functions, as React's are: libraries compiled to ES5 subclass
+// them with `Component.call(this, props, context)`, which an ES class forbids.
+function ComponentFn(this: Any, props: Any, context?: Any): void {
+  this.props = props;
+  this.context = context;
+  this.refs = {};
+}
+ComponentFn.prototype.isReactComponent = {};
+ComponentFn.prototype.setState = function (this: Any, partial: Any, callback?: () => void): void {
+  if (classes !== null) classes.enqueue(this, partial, callback, false);
+};
+ComponentFn.prototype.forceUpdate = function (this: Any, callback?: () => void): void {
+  if (classes !== null) classes.enqueue(this, null, callback, true);
+};
+
+function PureComponentFn(this: Any, props: Any, context?: Any): void {
+  ComponentFn.call(this, props, context);
+}
+PureComponentFn.prototype = Object.create(ComponentFn.prototype);
+PureComponentFn.prototype.constructor = PureComponentFn;
+PureComponentFn.prototype.isPureReactComponent = true;
+
+/** Base class for class components. */
+export const Component: ComponentClass = ComponentFn as Any;
 /** A class component that re-renders only when its props or state change (shallowly). */
-export class PureComponent<P = Props, S = Any> extends Component<P, S> {}
-(PureComponent.prototype as Any).isPureReactComponent = true;
+export const PureComponent: ComponentClass = PureComponentFn as Any;
 
 // Class support is a separate module (herdsman-react-classes.ts), so
 // apps without class components do not ship it. Its entry installs it here.
@@ -2548,6 +2573,40 @@ function textLike(el: Any): boolean {
   return t !== "checkbox" && t !== "radio" && t !== "file";
 }
 
+// React's value tracker: an input or textarea records the value last set
+// through its own `value` property (`checked` for checkboxes and radios), by
+// code or by render. onChange fires only when the field's value differs from
+// it, so a script that sets `el.value` and dispatches an input event causes
+// no onChange, as in React.
+function track(dom: Any): void {
+  const key = checkable(dom) ? "checked" : "value";
+  const proto = Object.getPrototypeOf(dom);
+  const desc = Object.getOwnPropertyDescriptor(proto, key);
+  if (desc === undefined || desc.set === undefined || Object.hasOwn(dom, key)) return;
+  dom[TRACKED] = "" + dom[key];
+  Object.defineProperty(dom, key, {
+    configurable: true,
+    enumerable: desc.enumerable ?? false,
+    get(this: Any): Any {
+      return desc.get!.call(this);
+    },
+    set(this: Any, v: Any): void {
+      this[TRACKED] = "" + v;
+      desc.set!.call(this, v);
+    },
+  });
+}
+
+// Whether the field's value moved since the tracker last saw it; records it
+// unless `peek` (the capture phase looks without taking the change).
+function changed(el: Any, peek: boolean): boolean {
+  if (el[TRACKED] === undefined) return true;
+  const v = checkable(el) ? (el.checked ? "true" : "false") : "" + el.value;
+  if (v === el[TRACKED]) return false;
+  if (!peek) el[TRACKED] = v;
+  return true;
+}
+
 function checkable(el: Any): boolean {
   return el.nodeName === "INPUT" && (el.type === "checkbox" || el.type === "radio");
 }
@@ -2557,11 +2616,10 @@ const ON_INPUT = ["onInput"],
   ON_CHANGE = ["onChange"];
 
 function propsFor(type: string, target: Any, capture: boolean): string[] | null {
-  if (type === "input") return textLike(target) ? ON_INPUT_CHANGE : ON_INPUT;
+  if (type === "input") return textLike(target) && changed(target, capture) ? ON_INPUT_CHANGE : ON_INPUT;
   if (type === "change") return textLike(target) || checkable(target) ? null : ON_CHANGE;
   const name = PROP_OF.get(type);
-  if (type === "click" && checkable(target) && target.checked !== target[TRACKED]) {
-    if (!capture) target[TRACKED] = target.checked;
+  if (type === "click" && checkable(target) && changed(target, capture)) {
     return name === undefined ? ON_CHANGE : [name, "onChange"];
   }
   return name === undefined ? null : [name];
@@ -2744,14 +2802,14 @@ function restoreControlled(f: Fiber): void {
   if (t === "select") return setSelect(dom, p, false);
   if (p.value != null && dom.value !== toStr(p.value)) dom.value = toStr(p.value);
   if (p.checked != null) {
-    dom.checked = dom[TRACKED] = !!p.checked;
+    dom.checked = !!p.checked;
     if (dom.type === "radio" && dom.name) {
       const group = (dom.form ?? dom.ownerDocument).querySelectorAll(
         `input[type=radio][name="${CSS.escape(dom.name)}"]`,
       );
       for (const r of group) {
         const rf: Fiber | undefined = r[FIBER];
-        if (rf !== undefined && rf !== f && rf.p.checked != null) r.checked = r[TRACKED] = !!rf.p.checked;
+        if (rf !== undefined && rf !== f && rf.p.checked != null) r.checked = !!rf.p.checked;
       }
     }
   }
