@@ -61,7 +61,8 @@ jobs:
             # minos of the LC_BUILD_VERSION load command; a binary without one fails.
             m=$(otool -l "$f" | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { b = 1; next } b && $1 == "minos" { print $2; exit }')
             echo "$f: minos ${m:-none}"
-            echo "${m:-none}" | awk -F. '$1 !~ /^[0-9]+$/ || $1 + 0 > 13 || ($1 + 0 == 13 && $2 + 0 > 0) { exit 1 }'
+            # The whole version against 13.0.0, a missing part read as 0: 13.0.1 fails.
+            echo "${m:-none}" | awk -F. '$0 !~ /^[0-9]+(\.[0-9]+)*$/ { exit 1 } $1 + 0 > 13 { exit 1 } $1 + 0 == 13 { for (i = 2; i <= NF; i++) if ($i + 0 > 0) exit 1 }'
           done
       - name: Probe on macOS
         run: |
