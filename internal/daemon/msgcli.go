@@ -483,12 +483,13 @@ func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir str
 
 // offlineStatus is the status while the daemon does not answer (S16): a
 // contract 3 inbox's route database through the store's reader (store is
-// true; it creates nothing and a missing database is reported), any other
-// inbox's files. The message list and alerts of a contract 3 inbox are
-// not read here.
+// true; it creates nothing and a missing database is reported), an inbox
+// with no owner record or one of contract 2 or lower from its files. Any
+// other owner record is refused and nothing is read (store is true). The
+// message list and alerts of a contract 3 inbox are not read here.
 func offlineStatus(route, dir, privateHome string) (st StatusReport, store bool, err error) {
-	p, ok := routedb.StorePath(dir)
-	if !ok {
+	mode, p, cerr := routedb.Classify(dir, privateHome, route)
+	if mode == routedb.Files {
 		return FileStatus(route, dir), false, nil
 	}
 	st = StatusReport{Route: route, Inbox: dir, Status: "daemon-down", Flags: []string{"daemon-down"}, Peers: []PeerInfo{}, Boxes: []BoxCount{}, Holds: []HoldInfo{}}
@@ -496,8 +497,8 @@ func offlineStatus(route, dir, privateHome string) (st StatusReport, store bool,
 		st.Status, st.Flags = status, append(st.Flags, status)
 		return st, true, e
 	}
-	if want := routedb.Path(privateHome, route); p != want {
-		return fail("store-unreadable", fmt.Errorf("the inbox names route database %s, not %s", p, want))
+	if mode == routedb.Refused {
+		return fail("owner-refused", fmt.Errorf("owner record refused, nothing was read: %v", cerr))
 	}
 	s, err := routedb.Read(p)
 	if errors.Is(err, os.ErrNotExist) {

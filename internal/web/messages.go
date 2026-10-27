@@ -304,10 +304,18 @@ func readChannel(root string, now time.Time) Channel {
 		}
 		ch.Health = append(ch.Health, h)
 	}
-	if p, ok := routedb.StorePath(root); ok {
+	// With no private home the store path matches nothing: refused.
+	ph, _ := routedb.PrivateHome()
+	switch mode, p, err := routedb.Classify(root, ph, ""); mode {
+	case routedb.Store:
 		// A contract 3 inbox: its registry, mailboxes and holds are in the
 		// route database (S16); the message list and bodies are not read here.
 		return dbChannel(ch, p)
+	case routedb.Refused:
+		// An owner record that is not a valid contract 3 or older daemon
+		// record: no data is shown, not even the hold files it may have left.
+		ch.Error, ch.Holds = "owner record: "+err.Error(), []ChannelHold{}
+		return ch
 	}
 	peers, perr := inbox.ReadBounded(filepath.Join(root, "peers"), envelopeMax)
 	approved, aerr := inbox.ReadBounded(filepath.Join(root, "peers.approved"), envelopeMax)

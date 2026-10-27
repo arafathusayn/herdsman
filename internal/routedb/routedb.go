@@ -7,9 +7,13 @@ package routedb
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/inbox"
@@ -24,27 +28,81 @@ func Path(privateHome, route string) string {
 	return filepath.Join(privateHome, "daemon", "routes", route+".db")
 }
 
-// StorePath is the route database named by a daemon-owned inbox of
-// contract 3: state/owner.json's "store", an absolute
-// <private home>/daemon/routes/<route>.db. ok is false for any other
-// inbox; a contract 2 inbox keeps its files.
-func StorePath(dir string) (string, bool) {
-	b, ok := inbox.ReadStrict(dir, filepath.Join(dir, "state", "owner.json"))
+// Mode is how an inbox's offline readers read it.
+type Mode int
+
+const (
+	// Files: no owner record, or a daemon record of contract 2 or lower.
+	Files Mode = iota
+	// Store: a valid contract 3 record; the data is in its route database.
+	Store
+	// Refused: any other record. Nothing is read; the reason is reported.
+	Refused
+)
+
+// Classify reads dir's state/owner.json (design section 2). A contract 3
+// record is this user's, of mode 600, and names its store as
+// <privateHome>/daemon/routes/<route>.db; route "" takes any route name.
+// For Store it returns the database path, for Refused the reason.
+func Classify(dir, privateHome, route string) (Mode, string, error) {
+	p := filepath.Join(dir, "state", "owner.json")
+	if _, err := os.Lstat(p); errors.Is(err, os.ErrNotExist) {
+		return Files, "", nil
+	}
+	refuse := func(format string, a ...any) (Mode, string, error) {
+		return Refused, "", fmt.Errorf("%s "+format, append([]any{p}, a...)...)
+	}
+	b, ok := inbox.ReadStrict(dir, p)
 	if !ok {
-		return "", false
+		return refuse("is not a regular, bounded file of strict JSON")
 	}
 	v, _ := inbox.Decode(b)
 	o := inbox.Object(v)
-	n, _ := o["contract"].(json.Number)
-	p, _ := inbox.String(o, "store")
-	if o["owner"] != "daemon" || n.String() != "3" || !filepath.IsAbs(p) || filepath.Clean(p) != p {
-		return "", false
+	n, isNum := o["contract"].(json.Number)
+	c, err := n.Int64()
+	if o["owner"] != "daemon" || !isNum || err != nil {
+		return refuse("is not a daemon owner record with a number contract")
 	}
-	name, ok := strings.CutSuffix(filepath.Base(p), ".db")
-	if !ok || !inbox.NameOK(name) || filepath.Base(filepath.Dir(p)) != "routes" || filepath.Base(filepath.Dir(filepath.Dir(p))) != "daemon" {
-		return "", false
+	switch {
+	case c < Contract:
+		return Files, "", nil
+	case c > Contract:
+		return refuse("has contract %d; this herdsman reads contract %d or lower", c, Contract)
 	}
-	return p, true
+	st, err := os.Lstat(p)
+	if err != nil {
+		return refuse("cannot be checked: %v", err)
+	}
+	if sys, ok := st.Sys().(*syscall.Stat_t); !ok || int(sys.Uid) != os.Getuid() {
+		return refuse("does not belong to this user")
+	}
+	if st.Mode().Perm() != 0o600 {
+		return refuse("has mode %o, want 600", st.Mode().Perm())
+	}
+	s, _ := inbox.String(o, "store")
+	name, isDB := strings.CutSuffix(filepath.Base(s), ".db")
+	if !filepath.IsAbs(s) || filepath.Clean(s) != s || !isDB || !inbox.NameOK(name) || (route != "" && name != route) ||
+		filepath.Dir(s) != filepath.Join(privateHome, "daemon", "routes") {
+		want := Path(privateHome, route)
+		if route == "" {
+			want = Path(privateHome, "<route>")
+		}
+		return refuse("names store %q, not %s", s, want)
+	}
+	return Store, s, nil
+}
+
+// PrivateHome is the private home of a reader with no option:
+// HERDSMAN_PRIVATE_HOME, then ~/.herdsman-private (3.6 discovery).
+func PrivateHome() (string, error) {
+	if v := os.Getenv("HERDSMAN_PRIVATE_HOME"); v != "" {
+		return v, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".herdsman-private"), nil
 }
 
 // Status is what the readers show of a route: its epoch and last
