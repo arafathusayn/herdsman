@@ -35,7 +35,7 @@ func (x *importInbox) withState(t *testing.T) {
 	x.write(t, "resume-targets.json", prettyJSON(obj("task-1", obj("role", "task-agent", "pane", "p8"))))
 	x.write(t, "state/owner.json", []byte(`{"contract":2}`))
 	x.write(t, "state/events/current.ndjson", []byte("{}\n"))
-	x.write(t, "state/approval.json", []byte(`{"sha256":"x"}`))
+	x.write(t, "state/approval.json", prettyJSON(obj("sha256", strings.Repeat("b", 64), "interaction", "i", "credentials", []any{}, "revoked", []any{})))
 	x.write(t, "state/credentials.json", []byte(`{}`))
 	x.write(t, "state/credentials/adj-1", []byte("secret"))
 	x.write(t, "state/proof-stale", []byte("stale\n"))
@@ -83,7 +83,7 @@ func TestImportState(t *testing.T) {
 		"resume-targets.json":         "targets",
 		"state/owner.json":            "not imported: owner.json is written again at publish",
 		"state/events/current.ndjson": "not imported: a new epoch starts",
-		"state/approval.json":         "legacy evidence: the contract 2 approval",
+		"state/approval.json":         "approvals (evidence)",
 		"state/credentials/adj-1":     "not imported: secrets are reissued at the next approval",
 		"state/proof-stale":           "legacy evidence: the route is HUMAN until setup writes version 3",
 	} {
@@ -119,6 +119,12 @@ func TestImportStateRefusals(t *testing.T) {
 			if err := os.Symlink(filepath.Join(x.dir, "elsewhere"), filepath.Join(x.dir, "alerts")); err != nil {
 				t.Fatal(err)
 			}
+		},
+		"approval extra key": func(t *testing.T, x *importInbox) {
+			x.write(t, "state/approval.json", prettyJSON(obj("sha256", strings.Repeat("b", 64), "interaction", "i", "credentials", []any{}, "revoked", []any{}, "x", 1)))
+		},
+		"approval checksum": func(t *testing.T, x *importInbox) {
+			x.write(t, "state/approval.json", prettyJSON(obj("sha256", "x", "interaction", "i", "credentials", []any{}, "revoked", []any{})))
 		},
 		"card id": func(t *testing.T, x *importInbox) {
 			x.write(t, "card-events/ck.1.json", prettyJSON(obj("version", 1, "type", "side_agent_data", "id", "ck.2", "source", obj(), "text", "t")))

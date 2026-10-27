@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -323,11 +325,13 @@ func (im *importer) targets() *APIError {
 // next approval, and the stale latch has no version 3 proof to mark (the
 // route is HUMAN until setup writes one).
 func (im *importer) contract2() *APIError {
+	if e := im.approval(); e != nil {
+		return e
+	}
 	for _, f := range []struct{ name, disposition string }{
 		{"owner.json", "not imported: owner.json is written again at publish"},
 		{"events", "not imported: a new epoch starts"},
 		{"checkpoints", "not imported: a new epoch starts"},
-		{"approval.json", "legacy evidence: the contract 2 approval"},
 		{"credentials.json", "legacy evidence: the credential hashes; secrets are reissued at the next approval"},
 		{"credentials", "not imported: secrets are reissued at the next approval"},
 		{"proof-stale", "legacy evidence: the route is HUMAN until setup writes version 3"},
@@ -341,4 +345,35 @@ func (im *importer) contract2() *APIError {
 		}
 	}
 	return nil
+}
+
+// approval imports a contract 2 state/approval.json as an approvals
+// evidence row (approved_by 'import', D1): the registry checksum, the
+// interaction and the answer it gave. Its credentials are not imported;
+// an imported route gets them at its first pair approval (D1).
+func (im *importer) approval() *APIError {
+	p := im.rt.Path("state", "approval.json")
+	b, ok, e := im.read(p)
+	if e != nil || !ok {
+		return e
+	}
+	if inbox.StrictJSON(b) != nil {
+		return importErr("%s is not strict JSON", im.rel(p))
+	}
+	v, _ := inbox.Decode(b)
+	a := inbox.Object(v)
+	sum, _ := inbox.String(a, "sha256")
+	interaction, iok := inbox.String(a, "interaction")
+	creds, cok := a["credentials"].([]any)
+	revoked, rok := a["revoked"].([]any)
+	if len(a) != 4 || len(sum) != 64 || strings.Trim(sum, "0123456789abcdef") != "" || !iok || !cok || !rok {
+		return importErr("%s is not an approval record (sha256, interaction, credentials, revoked)", im.rel(p))
+	}
+	result, _ := json.Marshal(map[string]any{"approved": true, "credentials": creds, "revoked": revoked})
+	request := sha256.Sum256(b)
+	if _, err := im.tx.Exec(`INSERT INTO approvals(seq, registry_sha256, request_sha256, interaction, approved_by, result, time)
+		VALUES (0, ?, ?, ?, 'import', ?, ?)`, sum, "import-"+hex.EncodeToString(request[:]), interaction, string(result), mtime(p)); err != nil {
+		return importErr("approval: %v", err)
+	}
+	return im.log(p, b, "approvals (evidence)")
 }

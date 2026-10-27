@@ -41,7 +41,7 @@ func stateFile(names ...string) func(string) bool {
 var censusRules = []censusRule{
 	{under("herdr-mutation.lock/"), "stays in place: the input lock"},
 	{under("approvals/"), "stays in place: the gate's files"},
-	{stateFile("route.lock"), "stays in place: the route ownership lock"},
+	{func(rel string) bool { return rel == "state/route.lock" || strings.HasPrefix(rel, "state/route.lock/") }, "stays in place: the route ownership lock"},
 	{stateFile("boundary-tainted", "exposure-pending"), "stays in place: the boundary files (section 6)"},
 	{under("state/legacy/"), "legacy evidence: the contract 2 legacy folder"},
 	{func(rel string) bool {
@@ -108,6 +108,9 @@ func (im *importer) classify(rel string) string {
 	}
 	parts := strings.Split(rel, "/")
 	if parts[0] == "ids" && len(parts) == 3 {
+		if id, ok := messageID(parts[1]); ok && im.imported(id) {
+			return "" // every file of an imported message has its target
+		}
 		return "legacy evidence: an allocation record of a message not imported"
 	}
 	if len(parts) == 3 && im.isBox(parts[0]) {

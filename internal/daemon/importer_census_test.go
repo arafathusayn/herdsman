@@ -49,7 +49,6 @@ func (x *importInbox) withEveryKind(t *testing.T) {
 // a contract 2 approval is an approvals evidence row, and a file with no
 // target and no listed reason refuses the import.
 func TestImportEveryKind(t *testing.T) {
-	t.Skip("S14b work in progress: the census is not wired into importCore yet")
 	x := newImportInbox(t)
 	x.withEveryKind(t)
 	c, e := x.run(t)
