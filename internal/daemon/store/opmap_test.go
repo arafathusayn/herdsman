@@ -117,6 +117,9 @@ func TestOpMapOnFreshV1(t *testing.T) {
 		{"card journal", "INSERT INTO cards(episode, source, headline, relayed_id, time) VALUES ('ep', '{}', 'h', 3, 1);" + evt("card")},
 		{"health", "UPDATE meta SET v = '[\"route-paused\"]' WHERE k = 'health_flags';" + evt("health")},
 		{"import log", "INSERT INTO import_log(path, sha256, disposition, time) VALUES ('ack/m1.md.json', '" + sha + "', 'acks', 1);"},
+		{"import: legacy claim and approval (D1)", "INSERT INTO claims(token, box, owner, read_key, state, created_at) VALUES ('.claim.4242', 'legacy', 'legacy', 'import-read', 'active', 1);" +
+			msg(6, "task") + "UPDATE messages SET state = 'cur', claim_token = '.claim.4242', recipient = 'legacy' WHERE id = 6;" + approval(9, "import") +
+			"INSERT INTO import_log(path, sha256, disposition, time) VALUES ('peers.approved', '" + sha + "', 'approvals', 1);"},
 		{"retention", "DELETE FROM events WHERE seq IN (SELECT seq FROM events WHERE seq < 5 ORDER BY seq LIMIT 1000); UPDATE meta SET v = '5' WHERE k = 'oldest_seq'; " +
 			"DELETE FROM send_keys WHERE key IN (SELECT key FROM send_keys WHERE committed_at < 1000 ORDER BY committed_at LIMIT 1000); " +
 			"DELETE FROM claim_keys WHERE token IN (SELECT token FROM claims WHERE state = 'released' AND released_at < 1000); " +
