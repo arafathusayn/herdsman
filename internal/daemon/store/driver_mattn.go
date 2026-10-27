@@ -12,6 +12,10 @@ import (
 	"net/url"
 	"strings"
 
+	// The checked open (vfs_unix.go) replaces open in SQLite's unix VFS
+	// for the whole process, and Open's kept descriptors assume no other
+	// SQLite connection: the store must stay the only SQLite user in the
+	// binary.
 	sqlite3 "github.com/mattn/go-sqlite3"
 )
 

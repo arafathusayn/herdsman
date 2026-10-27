@@ -120,11 +120,36 @@ func Open(path string, m Mode, kind Kind) (Conn, error) {
 	if err := checkFolder(filepath.Dir(path)); err != nil {
 		return nil, err
 	}
-	f, err := openRegular(path, m == Writer)
+	openMu.Lock()
+	f, release, err := keepOpen(path, m == Writer)
 	if err != nil {
+		openMu.Unlock()
 		return nil, err
 	}
-	defer f.Close()
+	c, err := openChecked(path, m, kind, f)
+	openMu.Unlock()
+	if err != nil {
+		release()
+		return nil, err
+	}
+	// The schema is checked before any other statement: the writer
+	// migrates to this binary's version, a reader refuses any other.
+	if m == Writer {
+		err = migrate(c, path, kind, schemaFS)
+	} else {
+		_, err = checkSchema(c, Reader, kind, Newest(kind))
+	}
+	if err != nil {
+		_ = c.Close()
+		release()
+		return nil, err
+	}
+	return &keptConn{Conn: c, release: release}, nil
+}
+
+// openChecked runs Open's checks on the checked descriptor f and opens
+// the connection. The caller holds openMu.
+func openChecked(path string, m Mode, kind Kind, f *os.File) (Conn, error) {
 	for _, side := range []string{"-wal", "-shm"} {
 		if err := checkSide(path + side); err != nil {
 			return nil, err
@@ -157,22 +182,7 @@ func Open(path string, m Mode, kind Kind) (Conn, error) {
 			return nil, err
 		}
 	}
-	c, err := openConn(path, m, f)
-	if err != nil {
-		return nil, err
-	}
-	// The schema is checked before any other statement: the writer
-	// migrates to this binary's version, a reader refuses any other.
-	if m == Writer {
-		err = migrate(c, path, kind, schemaFS)
-	} else {
-		_, err = checkSchema(c, Reader, kind, newest)
-	}
-	if err != nil {
-		_ = c.Close()
-		return nil, err
-	}
-	return c, nil
+	return openConn(path, m, f)
 }
 
 // precheck reads an existing file's schema through a reader before the
