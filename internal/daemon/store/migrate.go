@@ -90,7 +90,7 @@ func readSchema(c Conn, kind Kind) (version int, writtenBy string, err error) {
 		if err := c.Query("PRAGMA user_version", nil, func(r Row) error { version = int(r.Int64(0)); return nil }); err != nil {
 			return err
 		}
-		if version == 0 {
+		if version <= 0 {
 			return nil
 		}
 		got := map[string]string{}
@@ -123,6 +123,8 @@ func checkSchema(c Conn, m Mode, kind Kind, newest int) (int, error) {
 	switch {
 	case err != nil:
 		return v, err
+	case v < 0:
+		return v, fmt.Errorf("store: %w: user_version %d", ErrSchemaCorrupt, v)
 	case v > newest:
 		return v, fmt.Errorf("store: %w: schema %d is newer than this herdsman (%d); install herdsman %s or newer", ErrSchemaNewer, v, newest, by)
 	case v < newest && m == Reader:

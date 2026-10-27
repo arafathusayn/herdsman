@@ -102,10 +102,14 @@ func checkPragmas(c Conn, m Mode) error {
 
 // Open opens path as the writer or a reader of a database of kind. The
 // folder must be mode 700 and the file (and its -wal and -shm, when
-// present) a regular file of mode 600, owned by this user, never a link;
-// a writer creates a missing file with mode 600, a reader of a missing
-// file gets an error wrapping os.ErrNotExist. Every pragma is read back,
-// then the writer migrates the schema and a reader checks it (section 1).
+// present) a regular file of mode 600, owned by this user, never a link,
+// and the files SQLite opens must be those (openConn); a writer creates a
+// missing file with mode 600, a reader of a missing file gets an error
+// wrapping os.ErrNotExist. A reader never creates or writes a file: a WAL
+// database whose -wal or -shm is missing is refused. The writer first
+// checks an existing file's schema through such a reader, so a file it
+// will not use is never changed; then every pragma is set and read back
+// and the writer migrates the schema, a reader checks it (section 1).
 func Open(path string, m Mode, kind Kind) (Conn, error) {
 	if kind != KindAccount && kind != KindRoute {
 		return nil, fmt.Errorf("store: unknown kind %q", kind)
@@ -126,23 +130,35 @@ func Open(path string, m Mode, kind Kind) (Conn, error) {
 			return nil, err
 		}
 	}
-	c, err := openDriver(path, m)
+	h, err := readHeader(f, path)
 	if err != nil {
-		return nil, fmt.Errorf("store: open %s: %w", path, err)
-	}
-	// The file SQLite opened is the one checked: same inode at the path.
-	if err := sameFile(f, path); err != nil {
-		_ = c.Close()
 		return nil, err
 	}
-	for _, p := range pragmas(m) {
-		if _, err := c.Exec("PRAGMA " + p.name + " = " + p.set); err != nil {
-			_ = c.Close()
-			return nil, fmt.Errorf("store: pragma %s: %w", p.name, err)
+	newest := Newest(kind)
+	readable := !h.empty && (!h.wal || sidesPresent(path))
+	if m == Reader {
+		if h.empty {
+			return nil, fmt.Errorf("store: %w: schema 0 is older than this herdsman (%d); start the daemon to migrate it", ErrSchemaOlder, newest)
+		}
+		if !readable {
+			return nil, fmt.Errorf("store: %s is missing; a reader never creates it (start the daemon)", missingSide(path))
 		}
 	}
-	if err := checkPragmas(c, m); err != nil {
-		_ = c.Close()
+	if m == Writer && !h.empty {
+		if !readable {
+			// No side files to read through: the header decides alone.
+			if h.userVersion < 0 {
+				return nil, fmt.Errorf("store: %w: user_version %d", ErrSchemaCorrupt, h.userVersion)
+			}
+			if int(h.userVersion) > newest {
+				return nil, fmt.Errorf("store: %w: schema %d is newer than this herdsman (%d); install a newer herdsman", ErrSchemaNewer, h.userVersion, newest)
+			}
+		} else if err := precheck(path, f, kind, newest); err != nil {
+			return nil, err
+		}
+	}
+	c, err := openConn(path, m, f)
+	if err != nil {
 		return nil, err
 	}
 	// The schema is checked before any other statement: the writer
@@ -150,13 +166,25 @@ func Open(path string, m Mode, kind Kind) (Conn, error) {
 	if m == Writer {
 		err = migrate(c, path, kind, schemaFS)
 	} else {
-		_, err = checkSchema(c, Reader, kind, Newest(kind))
+		_, err = checkSchema(c, Reader, kind, newest)
 	}
 	if err != nil {
 		_ = c.Close()
 		return nil, err
 	}
 	return c, nil
+}
+
+// precheck reads an existing file's schema through a reader before the
+// writer's settings touch it: a newer or foreign file stays unchanged.
+func precheck(path string, f *os.File, kind Kind, newest int) error {
+	r, err := openConn(path, Reader, f)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	_, err = checkSchema(r, Writer, kind, newest)
+	return err
 }
 
 // checkFolder requires a real folder of mode 700 owned by this user.

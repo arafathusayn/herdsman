@@ -248,6 +248,80 @@ func TestReaderURIReadOnly(t *testing.T) {
 	}
 }
 
+// listing names the folder's files with their sizes.
+func listing(t *testing.T, d string) map[string]int64 {
+	t.Helper()
+	ents, err := os.ReadDir(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]int64{}
+	for _, e := range ents {
+		info, err := e.Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[e.Name()] = info.Size()
+	}
+	return out
+}
+
+// TestReaderCreatesNothing (S1-1 F4): a reader never creates a file. The
+// writer keeps its -wal and -shm after a clean close, so a reader of a
+// closed database finds them; a database whose side files are missing is
+// refused, and the refusal creates nothing either.
+func TestReaderCreatesNothing(t *testing.T) {
+	d := dir(t)
+	p := filepath.Join(d, "r.db")
+	w, err := Open(p, Writer, KindRoute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Exec("CREATE TABLE t (k INTEGER) STRICT"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Exec("INSERT INTO t VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+	before := listing(t, d)
+	for _, side := range []string{"-wal", "-shm"} {
+		if _, ok := before["r.db"+side]; !ok {
+			t.Fatalf("the writer's close removed r.db%s: %v", side, before)
+		}
+	}
+	r, err := Open(p, Reader, KindRoute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := int64(0)
+	if err := r.Query("SELECT count(*) FROM t", nil, func(row Row) error { n = row.Int64(0); return nil }); err != nil || n != 1 {
+		t.Fatalf("reader rows %d: %v", n, err)
+	}
+	_ = r.Close()
+	if after := listing(t, d); len(after) != len(before) {
+		t.Fatalf("reader created files: before %v, after %v", before, after)
+	}
+	for _, side := range []string{"-wal", "-shm"} {
+		if err := os.Remove(p + side); err != nil {
+			t.Fatal(err)
+		}
+		before := listing(t, d)
+		if _, err := Open(p, Reader, KindRoute); err == nil || !strings.Contains(err.Error(), "r.db"+side+" is missing") {
+			t.Fatalf("reader without %s: %v", side, err)
+		}
+		if after := listing(t, d); len(after) != len(before) {
+			t.Fatalf("refused reader created files: before %v, after %v", before, after)
+		}
+		// The writer recreates the side file for the next case.
+		w, err := Open(p, Writer, KindRoute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = w.Close()
+	}
+}
+
 // TestOpenRefusesUnsafeFiles: a folder or file of the wrong mode, a link,
 // a FIFO (refused without blocking) and a linked WAL file are refused.
 func TestOpenRefusesUnsafeFiles(t *testing.T) {
@@ -298,16 +372,19 @@ func TestOpenRefusesUnsafeFiles(t *testing.T) {
 		},
 		"wal mode": func(d string) (string, string) {
 			p := made(d)
+			_ = os.Remove(p + "-wal")
 			_ = os.WriteFile(p+"-wal", nil, 0o644)
 			return p, p + "-wal has mode 644"
 		},
 		"shm link": func(d string) (string, string) {
 			p := made(d)
+			_ = os.Remove(p + "-shm")
 			_ = os.Symlink(filepath.Join(d, "elsewhere"), p+"-shm")
 			return p, p + "-shm is not a regular file"
 		},
 		"shm mode": func(d string) (string, string) {
 			p := made(d)
+			_ = os.Remove(p + "-shm")
 			_ = os.WriteFile(p+"-shm", nil, 0o644)
 			return p, p + "-shm has mode 644"
 		},

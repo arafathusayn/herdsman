@@ -1,8 +1,8 @@
 package store
 
-// The provisional driver adapter: modernc.org/sqlite (pure Go, no cgo)
-// until the sqlite-bench result picks the driver (design section 9, BENCH
-// SLOT). Swapping the driver replaces this file only.
+// The driver adapter: github.com/mattn/go-sqlite3 (cgo), the driver the
+// sqlite-bench result picked (design section 9). Swapping the driver
+// replaces this file and vfs_unix.go only.
 
 import (
 	"context"
@@ -12,8 +12,11 @@ import (
 	"net/url"
 	"strings"
 
-	_ "modernc.org/sqlite"
+	sqlite3 "github.com/mattn/go-sqlite3"
 )
+
+// fcntlPersistWAL is SQLITE_FCNTL_PERSIST_WAL.
+const fcntlPersistWAL = 10
 
 // sqlConn is a Conn on one database/sql connection.
 type sqlConn struct {
@@ -26,12 +29,15 @@ type sqlConn struct {
 }
 
 func openDriver(path string, m Mode) (Conn, error) {
+	if err := installCheckedOpen(); err != nil {
+		return nil, err
+	}
 	q := url.Values{"mode": {"rw"}}
 	if m == Reader {
 		q.Set("mode", "ro")
 	}
 	u := url.URL{Scheme: "file", Path: path, RawQuery: q.Encode()}
-	db, err := sql.Open("sqlite", u.String())
+	db, err := sql.Open("sqlite3", u.String())
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +46,22 @@ func openDriver(path string, m Mode) (Conn, error) {
 	if err != nil {
 		_ = db.Close()
 		return nil, err
+	}
+	if m == Writer {
+		// The writer keeps its -wal and -shm after a clean close, so a
+		// reader of a closed database never has to create them (S1-1 F4).
+		err = c.Raw(func(dc any) error {
+			sc, ok := dc.(*sqlite3.SQLiteConn)
+			if !ok {
+				return errors.New("not a go-sqlite3 connection")
+			}
+			return sc.SetFileControlInt("main", fcntlPersistWAL, 1)
+		})
+		if err != nil {
+			_ = c.Close()
+			_ = db.Close()
+			return nil, fmt.Errorf("persist WAL: %w", err)
+		}
 	}
 	return &sqlConn{db: db, c: c, mode: m, stmts: map[string]*sql.Stmt{}}, nil
 }
@@ -60,13 +82,27 @@ func (s *sqlConn) stmt(q string) (*sql.Stmt, error) {
 }
 
 func (s *sqlConn) Exec(q string, args ...any) (int64, error) {
-	st, err := s.stmt(q)
-	if err != nil {
-		return 0, err
-	}
-	res, err := st.Exec(args...)
-	if err != nil {
-		return 0, err
+	var res sql.Result
+	if len(q) >= 6 && strings.EqualFold(q[:6], "PRAGMA") {
+		// A PRAGMA that answers a row would leave a cached statement
+		// active (go-sqlite3 resets it only at its next use), which makes
+		// the next COMMIT fail: run it uncached, finalized at once.
+		if s.broken != nil {
+			return 0, s.broken
+		}
+		r, err := s.c.ExecContext(context.Background(), q, args...)
+		if err != nil {
+			return 0, err
+		}
+		res = r
+	} else {
+		st, err := s.stmt(q)
+		if err != nil {
+			return 0, err
+		}
+		if res, err = st.Exec(args...); err != nil {
+			return 0, err
+		}
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
