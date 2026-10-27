@@ -97,3 +97,15 @@ func TestQueryErrorBeforeStartMutation(t *testing.T) {
 		t.Fatalf("a change before the state was known: %v", f.calls)
 	}
 }
+
+// TestRecordExecutableMustMatch: this herdsman running as the lock's pid
+// is still refused when the record names another executable (the record
+// belongs to another daemon).
+func TestRecordExecutableMustMatch(t *testing.T) {
+	at := time.Now().Truncate(time.Second)
+	exe := "/opt/herdsman"
+	s, l := identityCase(t, exe, ProcID{Executable: "/other/herdsman", Start: at}, ProcID{Executable: exe, Args: []string{exe, "daemon", "run"}, Start: at})
+	if err := s.checkIdentity(l); err == nil || !strings.Contains(err.Error(), "recorded") {
+		t.Fatalf("got %v", err)
+	}
+}
