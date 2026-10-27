@@ -12,7 +12,9 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    # macOS: the darwin binaries link with its clang (cgo), and zig cc
+    # cross-compiles the linux ones (.goreleaser.yaml).
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
         with:
@@ -27,6 +29,9 @@ jobs:
         run: make tools
       - name: Check
         run: make check
+      - uses: mlugg/setup-zig@v2.2.1
+        with:
+          version: 0.17.0
       - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
