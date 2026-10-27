@@ -716,3 +716,63 @@ describe("types", () => {
     expect(typeof neverRun).toBe("function");
   });
 });
+
+describe("event types first seen while drawing", () => {
+  // A template compiles when its html`` first runs. These two first run
+  // inside a list callback, during render() or update(), so their delegated
+  // event types are new to the root after the root's listeners were checked.
+  // No other template in the repository uses these two event types.
+  const item = () => html`<li onauxclick=${on<"auxclick">()}>${text()}</li>`;
+  const late = () => html`<b oncontextmenu=${on<"contextmenu">()}>${text()}</b>`;
+  const Items = html`<ul>
+    ${child<ListNode<ViewNodeOf<ReturnType<typeof item>>, string>>()}
+  </ul>`;
+  const Box = html`<div>${child<ListNode<ViewNodeOf<ReturnType<typeof late>>, string> | null>()}</div>`;
+
+  // Fires a bubbling event at the first element with this tag under root.
+  const fireAt = (root: FakeNode, tag: string, type: string): void => {
+    const find = (n: FakeNode): FakeElement | null => {
+      if (n.nodeType === 1 && (n as FakeElement).tagName.toLowerCase() === tag) return n as FakeElement;
+      for (let c = n.firstChild; c; c = c.nextSibling) {
+        const hit = find(c);
+        if (hit) return hit;
+      }
+      return null;
+    };
+    find(root)!.dispatchEvent(new FakeEvent(type));
+  };
+
+  test("render() listens for a row template's events from its first draw", () => {
+    const seen: string[] = [];
+    const box = document.createElement("div") as unknown as FakeElement;
+    render(
+      asDom(box),
+      Items([
+        list(
+          ["a"],
+          (s) => s,
+          (s) => item()([() => seen.push(s), s]),
+        ),
+      ]),
+    );
+    fireAt(box, "li", "auxclick");
+    expect(seen).toEqual(["a"]);
+  });
+
+  test("update() listens for a row template's events from the patch that adds it", () => {
+    const seen: string[] = [];
+    const root = mount(Box([null]));
+    update(
+      root,
+      Box([
+        list(
+          ["b"],
+          (s) => s,
+          (s) => late()([() => seen.push(s), s]),
+        ),
+      ]),
+    );
+    fireAt(root as unknown as FakeElement, "b", "contextmenu");
+    expect(seen).toEqual(["b"]);
+  });
+});
