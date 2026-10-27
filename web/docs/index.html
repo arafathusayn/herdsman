@@ -1108,8 +1108,15 @@ herdsman &lt;command&gt; --help</code></pre>
                   <td>The <code>herdsman</code> binary</td>
                   <td>
                     On <code>PATH</code>, for macOS or Linux (the Homebrew cask or a release archive). The skill runs
-                    every command through it; no bash, <code>jq</code> or <code>nc</code> needed. A browser for the web
-                    app.
+                    every command through it; no <code>jq</code> or <code>nc</code> needed. A browser for the web app.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>/bin/bash</code> 3.2+</td>
+                  <td>
+                    Runs the route folder's one-line <code>run-check.sh</code> wrapper (<code
+                      >exec herdsman run-check "$@"</code
+                    >), which every check goes through. The macOS default shell works.
                   </td>
                 </tr>
                 <tr>

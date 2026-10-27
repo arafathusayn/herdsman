@@ -264,7 +264,8 @@ herdsman web --public-url https://<machine>.<tailnet>.ts.net
 
 | Tool | Why |
 | --- | --- |
-| The `herdsman` binary | On `PATH` (the Homebrew cask or a release archive, see Install). The skill runs every command through it (`herdsman route check`, `herdsman wait`, `herdsman run-check`, `herdsman checkpointer`, `herdsman message` and the rest); no bash, `jq` or `nc` needed. |
+| The `herdsman` binary | On `PATH` (the Homebrew cask or a release archive, see Install). The skill runs every command through it (`herdsman route check`, `herdsman wait`, `herdsman run-check`, `herdsman checkpointer`, `herdsman message` and the rest); no `jq` or `nc` needed. |
+| `/bin/bash` 3.2+ | Runs the route folder's one-line `run-check.sh` wrapper (`exec herdsman run-check "$@"`), which every check goes through. The macOS default shell works. |
 | GitHub CLI (`gh`) | A version with `gh skill` (tested with 2.101.0) to install the skill; any recent version when the route opens pull requests. |
 | Memory checkpoint command | Needed in the orchestrator's harness. The checkpointer's default prompt is built into `herdsman checkpointer` (`PROMPT` overrides it). |
 
