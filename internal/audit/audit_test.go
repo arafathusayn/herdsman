@@ -13,7 +13,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// The TA and Y6 cases of the skill's message-tests.sh.
+// The TA and Y6 cases of the old shell message suite.
 
 type rig struct {
 	t  *testing.T
@@ -51,13 +51,8 @@ func (r *rig) file(name string, lines ...string) string {
 	return p
 }
 
-// aud runs the audit as message-tests.sh's aud does: AUDIT_CHANNEL_DIR=/skill/scripts.
+// aud runs the audit and appends its exit code.
 func (r *rig) aud(o Options) string {
-	if o.ChannelDir == "-" {
-		o.ChannelDir = ""
-	} else if o.ChannelDir == "" {
-		o.ChannelDir = "/skill/scripts"
-	}
 	var b bytes.Buffer
 	code := Run(o, &b)
 	return b.String() + fmt.Sprintf("rc=%d", code)
@@ -84,7 +79,7 @@ func (r *rig) clean() []string {
 		jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "please run git push and npm test"}}),
 		jsonl(map[string]any{"type": "assistant", "sessionId": "coord-session", "message": map[string]any{"content": []any{map[string]any{"type": "text", "text": "I will not run git push or gh pr create."}}}}),
 		tu("ok1", "Read", map[string]any{"file_path": "/any/file"}),
-		sh("ok2", "/bin/bash /skill/scripts/message.sh status"),
+		sh("ok2", "herdsman message status"),
 		sh("ok3", "git log --oneline -3"),
 		tu("ok4", "Write", map[string]any{"file_path": filepath.Join(r.tc, "memory", "note.md"), "content": "x"}),
 		sh("ok5", "gh pr view 9 --json state"),
@@ -107,7 +102,7 @@ func TestClaudeTranscripts(t *testing.T) {
 		sh("b4", "gh api -X POST repos/o/r/issues/1/comments -f body=SECRETVALUE"),
 		sh("b5", "curl -X POST https://example.invalid/hook"),
 		sh("b6", "npm test"),
-		sh("b7", "/bin/bash scripts/test/run-tests.sh"),
+		sh("b7", "/bin/bash tools/unit-tests.sh"),
 		sh("b8", "docker compose up -d"),
 		tu("m1", "mcp__chat__send_message", map[string]any{"text": "hello"}),
 	)...)
@@ -155,7 +150,6 @@ func TestSettingsGaps(t *testing.T) {
 	match(t, "an invalid session id", `^GAP invalid session id`, r.aud(Options{Harness: "claude", Transcript: clean, Session: "a/b"}))
 	match(t, "a relative root", `^GAP allowed write root must be absolute and end in /: rel/`, r.aud(Options{Harness: "claude", Transcript: clean, Session: "coord-session", Roots: []string{"rel/"}}))
 	match(t, "a root without the slash", `^GAP allowed write root must be absolute and end in /: /x`, r.aud(Options{Harness: "claude", Transcript: clean, Session: "coord-session", Roots: []string{"/x"}}))
-	match(t, "a relative channel folder", `^GAP AUDIT_CHANNEL_DIR must be absolute`, r.aud(Options{Harness: "claude", Transcript: clean, Session: "coord-session", ChannelDir: "rel"}))
 	match(t, "a missing grant file", `^GAP grant file unavailable`, r.aud(Options{Harness: "claude", Transcript: clean, Session: "coord-session", GrantFile: filepath.Join(r.tc, "none")}))
 	if os.Geteuid() != 0 {
 		_ = os.Chmod(clean, 0)
@@ -180,7 +174,7 @@ func TestCodexTranscripts(t *testing.T) {
 	}
 	meta := jsonl(map[string]any{"type": "session_meta", "payload": map[string]any{"id": "codex-session"}})
 	codex := r.file("codex.jsonl", meta,
-		fc("exec_command", "c1", map[string]any{"cmd": "/bin/bash /skill/scripts/message.sh read"}),
+		fc("exec_command", "c1", map[string]any{"cmd": "herdsman message read"}),
 		fc("shell", "c2", map[string]any{"command": []any{"bash", "-lc", "git push origin HEAD"}}),
 		patch("c3", "*** Begin Patch\n*** Update File: "+r.tc+"/project/app.ts\n@@\n-a\n+b\n*** End Patch"),
 		patch("c4", "*** Begin Patch\n*** Add File: "+r.tc+"/memory/note.md\n+x\n*** End Patch"),
@@ -230,27 +224,25 @@ func TestScriptRuns(t *testing.T) {
 		sh("s1", "bash /tmp/do-push.sh"),
 		sh("s2", "./deploy.sh --now"),
 		sh("s3", `python3 -c "import os"`),
-		sh("s4", "/bin/bash /skill/scripts/../tmp/message.sh status"),
-		sh("s5", "/bin/bash /other/scripts/message.sh status"),
+		sh("s4", "/bin/bash /opt/kit/../tmp/notify.sh status"),
+		sh("s5", "/bin/bash /opt/kit/notify.sh status"),
 		sh("s6", "source ./env.sh"),
 		sh("s7", "sh -c true"),
-		sh("s8", "ls /tmp && /bin/bash /skill/scripts/message.sh status && perl x.pl"),
-		sh("s9", "env X=1 /skill/scripts/hidden.sh"),
-		sh("s10", "/bin/bash -c /skill/scripts/message.sh"),
+		sh("s8", "ls /tmp && herdsman message status && perl x.pl"),
+		sh("s9", "env X=1 /opt/kit/hidden.sh"),
+		sh("s10", "/bin/bash -c /opt/kit/notify.sh"),
 		sh("k1", "ls -la /tmp"),
-		sh("k2", "cd /x && /bin/bash /skill/scripts/message.sh read | jq -c ."),
-		sh("k3", "HERDSMAN_NAME=route-adjutant /bin/bash '/skill/scripts/message.sh' status"),
+		sh("k2", "cd /x && herdsman message read | jq -c ."),
+		sh("k3", "HERDSMAN_NAME=route-adjutant '/usr/local/bin/herdsman' message status"),
 		sh("k4", "cat /x/notes.md"),
-		sh("k5", "/skill/scripts/message.sh status"),
+		sh("k5", "herdsman message wait"),
 	)
 	out := r.aud(Options{Harness: "claude", Transcript: scripts, Session: "coord-session"})
 	for i := 1; i <= 10; i++ {
 		match(t, fmt.Sprintf("TA8 a script or interpreter run is flagged: s%d", i), fmt.Sprintf("call=s%d class=script-run", i), out)
 	}
-	noMatch(t, "TA8b exact channel scripts and plain reads stay clean", `call=k[0-9]`, out)
+	noMatch(t, "TA8b channel commands and plain reads stay clean", `call=k[0-9]`, out)
 	match(t, "TA8c ten flags of fourteen calls", `AUDIT flagged=10 calls=15.*rc=1`, flat(out))
-	out = r.aud(Options{Harness: "claude", Transcript: scripts, Session: "coord-session", ChannelDir: "-"})
-	match(t, "TA8d without the channel folder even a channel script run is flagged", `call=k2 class=script-run`, out)
 
 	// The herdsman binary: its channel commands stay clean, any other run is a script run.
 	bin := r.file("bin.jsonl",
@@ -319,7 +311,7 @@ func TestDirectWrites(t *testing.T) {
 		sh("m5", "nice -n 5 ./x.sh"),
 		sh("m6", "xargs rm"),
 		sh("m7", "kubectl get pods"),
-		sh("m8", "./run-tests.sh"),
+		sh("m8", "./unit-tests.sh"),
 		tu("", "", map[string]any{}),
 		tu("n1", "Read", "not an object"),
 		jsonl(map[string]any{"type": "assistant", "sessionId": "coord-session", "message": "x"}),
@@ -389,7 +381,7 @@ func TestAuditMainFlagsStandTable(t *testing.T) {
 		`printf '%s\n' 'a; b' | grep -c 'x|y'`,
 		`jq -r '.a | .b' /x/f.json`,
 		`echo a\; b`,
-		"/bin/bash /skill/scripts/message.sh status",
+		"herdsman message status",
 		"/usr/bin/curl -s https://example.invalid/status",
 	}
 	r := newRig(t)
@@ -412,7 +404,7 @@ func TestAuditMainFlagsStandTable(t *testing.T) {
 
 // The user's ruling (round 9): the B3-002 command forms are deferred to a
 // follow-up, and the Go audit gives main 87c5670's result. This pins main's
-// result, checked against main's transcript-audit.sh on these exact calls
+// result, checked against main's herdsman transcript-audit on these exact calls
 // (4 flags of 36): the forms B3-002 would add stay clean, and main's
 // printed-text false positives (review-port-core-8 P1) stay flagged, so
 // the follow-up sees each change.
@@ -425,7 +417,7 @@ func TestAuditDeferredFormsMatchMain(t *testing.T) {
 		{"echo changed >&/project/app.ts", ""},
 		{"/usr/bin/curl --data payload https://example.invalid/hook", ""},
 		{`/usr/bin/awk 'BEGIN { system("git push") }'`, ""},
-		{"/bin/bash /skill/scripts/message.sh status && /usr/bin/touch /project/new", ""},
+		{"herdsman message status && /usr/bin/touch /project/new", ""},
 		{"/opt/tools/runner --go", ""},
 		{"/usr/bin/git push", ""},
 		{"curl -sS https://example.invalid/status", ""},

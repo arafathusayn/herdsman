@@ -80,7 +80,7 @@ func TestUsageErrors(t *testing.T) {
 	}
 }
 
-// run-tests.sh L1, L1b, L2, L2b and Z2 (the text kept as given).
+// The old shell suite's L1, L1b, L2, L2b and Z2 (the text kept as given).
 func TestRouteLog(t *testing.T) {
 	now = func() time.Time { return time.Date(2026, 10, 25, 7, 5, 0, 0, time.Local) }
 	t.Cleanup(func() { now = time.Now })
@@ -170,10 +170,17 @@ func TestTranscriptAuditThroughTheCommand(t *testing.T) {
 	}
 	p := filepath.Join(t.TempDir(), "t.jsonl")
 	_ = os.WriteFile(p, []byte(`{"type":"assistant","sessionId":"s1","message":{"content":[{"type":"tool_use","id":"b1","name":"Bash","input":{"command":"git push"}}]}}`+"\n"), 0o644)
-	t.Setenv("AUDIT_CHANNEL_DIR", "/skill/scripts")
 	out, _, code = call(t, "transcript-audit", "claude", p, "s1")
 	if code != 1 || !strings.HasPrefix(out, "FLAG tool=Bash call=b1 class=git-write") {
 		t.Errorf("flag: %d %q", code, out)
+	}
+	// The channel scripts are gone: a run of one by its old path is a script
+	// run like any other, and AUDIT_CHANNEL_DIR no longer exempts it.
+	_ = os.WriteFile(p, []byte(`{"type":"assistant","sessionId":"s1","message":{"content":[{"type":"tool_use","id":"s1","name":"Bash","input":{"command":"/bin/bash /skill/scripts/message.sh status"}}]}}`+"\n"), 0o644)
+	t.Setenv("AUDIT_CHANNEL_DIR", "/skill/scripts")
+	out, _, code = call(t, "transcript-audit", "claude", p, "s1")
+	if code != 1 || !strings.HasPrefix(out, "FLAG tool=Bash call=s1 class=script-run target=bash") {
+		t.Errorf("old channel script: %d %q", code, out)
 	}
 }
 

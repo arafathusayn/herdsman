@@ -106,8 +106,8 @@ exit codes:
 const auditHelp = `usage: herdsman transcript-audit claude|codex <transcript> <session-id> [allowed-write-root/ ...]
 
 Audits a transcript for writes: GAP, FLAG and AUDIT lines. --json prints
-each line as an Event object. AUDIT_GRANT_FILE and AUDIT_CHANNEL_DIR as in
-the skill.
+each line as an Event object. AUDIT_GRANT_FILE names the exact command
+lines an administrative grant permits.
 
 exit codes:
   0  clean

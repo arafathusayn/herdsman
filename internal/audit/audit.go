@@ -1,16 +1,15 @@
 // Package audit is the read-only audit of a coordinator session
-// (`herdsman transcript-audit`, from the skill's transcript-audit.sh): it
+// (`herdsman transcript-audit`): it
 // reads the tool-call records of a Claude Code or Codex transcript, never
 // prose, and changes nothing. Exit 0: clean; 1: flagged calls; 2: an audit
 // gap (a missing, unsupported, malformed or wrong-session transcript),
 // which is never a clean audit.
 //
 // AUDIT_GRANT_FILE names exact full command lines that an administrative
-// grant permits; no other line is exempt. AUDIT_CHANNEL_DIR is the
-// installed script folder: only its channel scripts, by exact path, may run
-// as scripts. The herdsman binary counts as a script run too, except for
-// its channel commands: herdsman message <channel action>, herdsman
-// approval-gate and herdsman checkpointer guard.
+// grant permits; no other line is exempt. Every script or interpreter run
+// is flagged, the herdsman binary too, except for its channel commands:
+// herdsman message <channel action>, herdsman approval-gate and herdsman
+// checkpointer guard.
 package audit
 
 import (
@@ -40,7 +39,6 @@ type Options struct {
 	Session    string   // the current session id
 	Roots      []string // allowed write roots, each absolute and ending in "/"
 	GrantFile  string   // AUDIT_GRANT_FILE
-	ChannelDir string   // AUDIT_CHANNEL_DIR
 }
 
 // Usage is the usage line, printed as a gap.
@@ -88,9 +86,6 @@ func run(o Options, w io.Writer) (int, int, error) {
 			return 0, 0, gap("allowed write root must be absolute and end in /: %s", r)
 		}
 	}
-	if o.ChannelDir != "" && !strings.HasPrefix(o.ChannelDir, "/") {
-		return 0, 0, gap("AUDIT_CHANNEL_DIR must be absolute")
-	}
 	var grants []string
 	if o.GrantFile != "" {
 		if !readableRegular(o.GrantFile) {
@@ -112,7 +107,7 @@ func run(o Options, w io.Writer) (int, int, error) {
 	} else {
 		rows = codexRows(records)
 	}
-	a := auditor{roots: o.Roots, channelDir: o.ChannelDir}
+	a := auditor{roots: o.Roots}
 	calls, flagged := 0, 0
 	for _, r := range rows {
 		if r.tool == "" {
@@ -398,8 +393,7 @@ var (
 )
 
 type auditor struct {
-	roots      []string
-	channelDir string
+	roots []string
 }
 
 // program is the program word of a match: the first word after the
@@ -485,26 +479,8 @@ func (a auditor) inRoot(p string) bool {
 	return false
 }
 
-// channelScripts are the channel scripts that may run by their exact path
-// under the installed folder.
-var channelScripts = []string{"message.sh", "message-register.sh", "message-send.sh", "message-read.sh", "message-ack.sh",
-	"message-status.sh", "message-wait.sh", "message-authority.sh", "publish-leak-gate.sh"}
-
-func (a auditor) channelScript(p string) bool {
-	if a.channelDir == "" {
-		return false
-	}
-	for _, s := range channelScripts {
-		if p == strings.TrimSuffix(a.channelDir, "/")+"/"+s {
-			return true
-		}
-	}
-	return false
-}
-
 // channelActions are the herdsman message actions the skill text names:
-// the channel scripts' actions and the loops (courier, card-watch,
-// resume-goal) that replace the channel's watcher scripts.
+// the channel actions and its loops (courier, card-watch, resume-goal).
 var channelActions = []string{"status", "wait", "read", "release", "ack", "send", "hold", "unhold", "register", "authority", "leak-gate", "courier", "card-watch", "resume-goal"}
 
 // channelCommand reports whether words (from the herdsman program on) run
@@ -531,8 +507,7 @@ var interpreters = regexp.MustCompile(`^(bash|sh|zsh|dash|ksh|fish|python|python
 // scriptRun returns "script-run <program>" for the first script or
 // interpreter run that is not allowed, or "". Command text cannot show what
 // a script does, so every script or interpreter run is not clean unless it
-// starts a channel script by its exact path (or is a channel command of the
-// herdsman binary).
+// is a channel command of the herdsman binary.
 func (a auditor) scriptRun(cmd string) string {
 	for _, seg := range strings.Split(segSplit.ReplaceAllString(cmd, "\n"), "\n") {
 		words := strings.Fields(stripQuotes(seg))
@@ -564,17 +539,7 @@ func (a auditor) scriptRun(cmd string) string {
 		joined := " " + strings.Join(words, " ") + " "
 		switch {
 		case interpreters.MatchString(name):
-			script := ""
-			for _, x := range words[i+1:] {
-				if !strings.HasPrefix(x, "-") {
-					script = x
-					break
-				}
-			}
 			if (name == "awk" || name == "gawk" || name == "mawk") && !strings.Contains(joined, " -f ") {
-				continue
-			}
-			if script != "" && a.channelScript(script) && !strings.Contains(joined, " -c ") {
 				continue
 			}
 			return "script-run " + name
@@ -582,9 +547,6 @@ func (a auditor) scriptRun(cmd string) string {
 			return "script-run " + first
 		case strings.HasSuffix(name, ".sh") || strings.HasSuffix(name, ".py") || strings.HasSuffix(name, ".pl") ||
 			strings.HasSuffix(name, ".rb") || strings.HasSuffix(name, ".js"):
-			if a.channelScript(first) {
-				continue
-			}
 			return "script-run " + name
 		case name == "herdsman":
 			if channelCommand(words[i:]) {
