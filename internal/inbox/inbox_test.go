@@ -304,7 +304,7 @@ func TestOpenTimingAndProof(t *testing.T) {
 	fatal(t, err, "symlink or invalid administrative state")
 }
 
-// The setup proof (preflight_valid): message-tests.sh V3c and Z1.
+// The setup proof (preflight_valid): the V3c and Z1 cases.
 func TestPreflight(t *testing.T) {
 	c := inboxtest.New(t)
 	open := func() *inbox.Root {
@@ -347,35 +347,25 @@ func TestPreflight(t *testing.T) {
 		}
 	}
 	c.Prove()
-	c.Write(filepath.Join(c.Base, "skill", "approval-gate.sh"), "#!/bin/bash\n# changed\n")
+	c.Write(filepath.Join(c.Base, "ignore-rule"), "sandbox policy\nchanged\n")
 	if open().PreflightValid() {
-		t.Error("Z1d a changed executor adapter makes the proof stale")
+		t.Error("Z1d a changed rule file makes the proof stale")
 	}
 	c.Prove()
 	if !open().PreflightValid() {
 		t.Error("Z1g the proof of the changed bytes is the positive control")
 	}
-	c.Write(filepath.Join(c.Base, "skill", "transcript-audit.sh"), "#!/bin/bash\n# changed\n")
-	if open().PreflightValid() {
-		t.Error("Z1h a changed transcript audit makes the proof stale")
-	}
-	c.Prove()
-	c.Write(filepath.Join(c.Installed, "existing-route-check.sh"), "#!/bin/bash\nexit 0\n")
-	c.Prove()
-	if !open().PreflightValid() {
-		t.Error("Z1 an installed folder with one more reviewed script still verifies")
-	}
 	// V3c: an escaped duplicate key in the proof is no strict JSON.
 	b, _ := os.ReadFile(c.Proof)
-	if !strings.HasPrefix(string(b), `{"inbox":`) {
+	if !strings.HasPrefix(string(b), `{"`) {
 		t.Fatalf("the proof starts %.20q", b)
 	}
 	// The shell's spelling: policy_\u0076erified is policy_verified.
-	c.Write(c.Proof, strings.Replace(string(b), `{"inbox":`, `{"policy_\u0076erified":true,"inbox":`, 1))
+	c.Write(c.Proof, strings.Replace(string(b), `{"`, `{"policy_\u0076erified":true,"`, 1))
 	if open().PreflightValid() {
 		t.Error("V3c an escaped duplicate key in the setup proof is refused")
 	}
-	c.Write(c.Proof, strings.Replace(string(b), `{"inbox":`, `{"policy_verified":true,"inbox":`, 1))
+	c.Write(c.Proof, strings.Replace(string(b), `{"`, `{"policy_verified":true,"`, 1))
 	if open().PreflightValid() {
 		t.Error("(Go) an ordinary duplicate key in the setup proof is refused")
 	}
@@ -388,13 +378,6 @@ func TestPreflight(t *testing.T) {
 	r.Preflight = filepath.Join(c.Base, "setup.json")
 	if r.PreflightValid() {
 		t.Error("a proof outside the inbox")
-	}
-	r.Preflight = c.Proof
-	r.Installed = filepath.Join(c.Base, "other")
-	_ = os.Mkdir(r.Installed, 0o700)
-	c.Write(filepath.Join(r.Installed, "message-lib.sh"), "x")
-	if r.PreflightValid() {
-		t.Error("an installed folder named by the caller must be listed")
 	}
 	c.Write(c.Proof, "[]")
 	if open().PreflightValid() {
@@ -533,7 +516,7 @@ func TestLiveIdentity(t *testing.T) {
 	if _, code, _ := inbox.LiveIdentity(ctx, c, "gone"); code != inbox.LiveGone {
 		t.Errorf("a pane that is gone: %d", code)
 	}
-	// A15 (02a122d), message-tests.sh V6, V6b (the rule; enrollment is slice 3):
+	// A15 (02a122d), the old message suite V6, V6b (the rule; enrollment is slice 3):
 	// herdr 0.9.4 sends no launch_pending; a missing or null
 	// field counts as not pending, as (.launch_pending // false)==false does.
 	for _, v := range []any{nil, "missing"} {
@@ -579,7 +562,7 @@ func TestLiveIdentity(t *testing.T) {
 	}
 }
 
-// Authority (message-authority.sh): message-tests.sh Z2, Z2c, Z2e, Z3, Z3b,
+// Authority (herdsman message authority): the old message suite Z2, Z2c, Z2e, Z3, Z3b,
 // and the gate's AG12 boundary.
 func TestAuthority(t *testing.T) {
 	srv := herdrtest.Start(t)
@@ -750,8 +733,8 @@ func TestPreflightTrustsOnlyTheNamedBinary(t *testing.T) {
 	}
 }
 
-// R2 finding 4, message-tests.sh P2 to P3f: the boundary decision of
-// message-authority.sh. Each P3c trigger alone forces HUMAN; the restored
+// R2 finding 4, the old message suite P2 to P3f: the boundary decision of
+// herdsman message authority. Each P3c trigger alone forces HUMAN; the restored
 // boundary is the positive control after each one.
 func TestAuthorityBoundaryTriggers(t *testing.T) {
 	srv := herdrtest.Start(t)

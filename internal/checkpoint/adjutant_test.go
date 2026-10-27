@@ -15,7 +15,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox/inboxtest"
 )
 
-// cpCase is message-tests.sh's cpcase: an inbox with the approved pair
+// cpCase is the old message suite's cpcase: an inbox with the approved pair
 // (the adjutant in sender-pane, the orchestrator in receiver-pane), the
 // fake herdr serving both agents and accepting prompts, and a transcript
 // of 10 tokens.
@@ -79,7 +79,7 @@ func check(t *testing.T, name, re, got string) {
 
 const orch = inboxtest.Orchestrator
 
-// The CP cases of message-tests.sh: in adjutant mode the checkpointer checks
+// The CP cases of the old message suite: in adjutant mode the checkpointer checks
 // the approved orchestrator identity right before each input.
 func TestAdjutantCases(t *testing.T) {
 	var all []*cpCase
@@ -154,7 +154,7 @@ func TestAdjutantCases(t *testing.T) {
 	}
 }
 
-// Y3 of message-tests.sh: in adjutant mode the checkpointer sends input only
+// Y3 of the old message suite: in adjutant mode the checkpointer sends input only
 // while it holds the shared input lock.
 func TestInputLock(t *testing.T) {
 	c := newCP(t)
@@ -209,7 +209,7 @@ func TestInputLockCancel(t *testing.T) {
 	}
 }
 
-// The guard on its own: checkpointer-guard.sh's lines and exit codes, and
+// The guard on its own: herdsman checkpointer guard's lines and exit codes, and
 // Z1f: a changed adapter beside the installed folder makes the proof stale.
 func TestGuard(t *testing.T) {
 	c := newCP(t)
@@ -242,7 +242,7 @@ func TestGuard(t *testing.T) {
 		t.Errorf("no inbox: %q %d", e, code)
 	}
 	o = c.box.Options(false)
-	c.box.Write(filepath.Join(filepath.Dir(c.box.Installed), "checkpointer.sh"), "#!/bin/bash\n# changed\n")
+	c.box.Write(filepath.Join(c.box.Base, "ignore-rule"), "sandbox policy\nchanged\n")
 	_, e, _ = run(orch, "receiver-pane")
 	check(t, "Z1f and the checkpointer guard refuses input", `proof stale`, e)
 }

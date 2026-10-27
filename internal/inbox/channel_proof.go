@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 )
@@ -178,7 +176,7 @@ func (ch *Channel) Boundary(ctx context.Context, c *herdr.Client) (bool, string,
 	return true, "", nil
 }
 
-// Authority is message-authority.sh with either proof form.
+// Authority is herdsman message authority with either proof form.
 func (ch *Channel) Authority(ctx context.Context, c *herdr.Client) (string, int) {
 	if ok, _, _ := ch.Boundary(ctx, c); ok {
 		return RelayLine, 0

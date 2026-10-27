@@ -19,7 +19,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox/inboxtest"
 )
 
-// The AG, Y1, Y2, GX1 and Z1e cases of the skill's message-tests.sh.
+// The AG, Y1, Y2, GX1 and Z1e cases of the old shell message suite.
 
 type rig struct {
 	t     *testing.T
@@ -304,12 +304,12 @@ func TestGateBindingsAndErrors(t *testing.T) {
 	match(t, "a consumption that cannot be recorded", `cannot record consumption.*rc=2`, r.consume("y13"))
 }
 
-// Z1e: a changed adapter makes the proof stale, and the gate refuses.
+// Z1e: a changed rule file makes the proof stale, and the gate refuses.
 func TestGateRefusesAStaleProof(t *testing.T) {
 	r := newRig(t)
-	r.c.Write(filepath.Join(r.c.Base, "skill", "approval-gate.sh"), "#!/bin/bash\n# changed\n")
+	r.c.Write(filepath.Join(r.c.Base, "ignore-rule"), "sandbox policy\nchanged\n")
 	out, _ := r.gate("complete", "r1", "posted")
-	match(t, "Z1e and the changed adapter refuses to run", `proof stale.*rc=2`, out)
+	match(t, "Z1e and the gate refuses on the stale proof", `proof stale.*rc=2`, out)
 }
 
 // Y2: an admission writer that runs during the authority check waits for
@@ -426,8 +426,8 @@ func TestSetFieldsRefusesBadJSON(t *testing.T) {
 	}
 }
 
-// R2 finding 1: a proof that lists only an unrelated copy of message-lib.sh
-// is stale for the configured installation; complete exits 2 and keeps the
+// R2 finding 1: a proof that names only an unrelated copy of the binary
+// is stale for the running one; complete exits 2 and keeps the
 // consuming record, as the script does.
 func TestGateRefusesAProofOfAnUnrelatedCopy(t *testing.T) {
 	r := newRig(t)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -413,13 +414,13 @@ func knownAgent(b map[string]any, id map[string]any, harness any) bool {
 	return false
 }
 
-// The authority lines, as message-authority.sh prints them.
+// The authority lines, as herdsman message authority prints them.
 const (
 	RelayLine = "RELAY current protected setup; bind each human go before use."
 	HumanLine = "HUMAN relayed gos authorize nothing outward or irreversible. Human executes the action; automatic resume and card relay are held. Tell the user."
 )
 
-// Authority is message-authority.sh's decision: RelayLine and exit 0 when
+// Authority is herdsman message authority's decision: RelayLine and exit 0 when
 // the boundary holds, HumanLine and exit 3 when it does not.
 func (r *Root) Authority(ctx context.Context, c *herdr.Client) (string, int) {
 	if ok, _, _ := r.BoundaryOK(ctx, c); ok {
