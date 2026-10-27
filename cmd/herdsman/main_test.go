@@ -22,6 +22,8 @@ func TestRun(t *testing.T) {
 		{args: []string{"help"}, want: "herdsman web"},
 		{args: []string{"version"}, want: "herdsman dev"},
 		{args: []string{"fly"}, wantErr: `unknown command "fly"`},
+		// Only a build with the cgoprobe tag knows the probe.
+		{args: []string{"--cgo-probe"}, wantErr: `unknown command "--cgo-probe"`},
 		{args: []string{"web", "--nope"}, wantErr: "flag provided but not defined"},
 	}
 	for _, tc := range cases {

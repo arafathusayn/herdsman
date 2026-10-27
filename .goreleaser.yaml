@@ -1,4 +1,4 @@
-# One static binary per OS and architecture, with the web app embedded.
+# One binary per OS and architecture, with the web app embedded (static on linux).
 # A pushed v* tag runs .github/workflows/release.yml, which publishes the
 # GitHub release and the Homebrew cask in arafathusayn/homebrew-tap.
 version: 2
@@ -11,17 +11,54 @@ before:
     - make web
 
 builds:
+  # cgo for the SQLite driver. release.yml runs on a macOS runner: darwin
+  # builds with its clang, linux with zig cc against musl, linked
+  # statically. (zig ships no macOS frameworks, and the darwin link needs
+  # Security and CoreFoundation for crypto/x509.) The darwin binaries run
+  # on macOS 13 and later, as the pure-Go build did: without
+  # MACOSX_DEPLOYMENT_TARGET the link takes the build host's macOS version
+  # as the minimum. HERDSMAN_BUILD_TAGS is
+  # empty for a release; release-build.yml sets it to cgoprobe.
   - id: herdsman
     main: ./cmd/herdsman
     binary: herdsman
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     flags:
       - -trimpath
+    tags:
+      - '{{ envOrDefault "HERDSMAN_BUILD_TAGS" "" }}'
     ldflags:
       - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }}
     goos: [darwin, linux]
     goarch: [amd64, arm64]
+    overrides:
+      - goos: darwin
+        goarch: amd64
+        env:
+          - CC=clang -arch x86_64
+          - CXX=clang++ -arch x86_64
+          - MACOSX_DEPLOYMENT_TARGET=13.0
+      - goos: darwin
+        goarch: arm64
+        env:
+          - CC=clang -arch arm64
+          - CXX=clang++ -arch arm64
+          - MACOSX_DEPLOYMENT_TARGET=13.0
+      - goos: linux
+        goarch: amd64
+        env:
+          - CC=zig cc -target x86_64-linux-musl
+          - CXX=zig c++ -target x86_64-linux-musl
+        ldflags:
+          - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }} -linkmode external -extldflags -static
+      - goos: linux
+        goarch: arm64
+        env:
+          - CC=zig cc -target aarch64-linux-musl
+          - CXX=zig c++ -target aarch64-linux-musl
+        ldflags:
+          - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }} -linkmode external -extldflags -static
 
 archives:
   - id: herdsman
