@@ -626,3 +626,38 @@ func TestSupervisorQueryErrorsAreNotManualState(t *testing.T) {
 		})
 	}
 }
+
+// TestInstallRefusesLogPathFile: a file where the daemon's log folder
+// belongs is refused before the unit is written or loaded.
+func TestInstallRefusesLogPathFile(t *testing.T) {
+	h, f, s := newSup(t, "darwin")
+	h.stop()
+	_ = os.RemoveAll(filepath.Join(h.ph, "daemon"))
+	_ = os.WriteFile(filepath.Join(h.ph, "daemon"), nil, 0o600)
+	f.calls = nil
+	if _, err := s.Install(); err == nil || !strings.Contains(err.Error(), "not a folder") {
+		t.Fatalf("got %v", err)
+	}
+	if f.index("bootstrap") >= 0 || s.Installed() {
+		t.Fatalf("installed anyway: %v", f.calls)
+	}
+}
+
+// TestManagerDeadlineIncludesInheritedPipes: a manager call whose child
+// keeps the output pipe open past the deadline still ends at the deadline.
+func TestManagerDeadlineIncludesInheritedPipes(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "manager")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n/bin/sleep 0.6 &\nwait\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &Supervisor{Wait: 30 * time.Millisecond}
+	s.begin()
+	start := time.Now()
+	_, err := s.exec(script)
+	if err == nil {
+		t.Fatal("the fake manager did not time out")
+	}
+	if d := time.Since(start); d > 250*time.Millisecond {
+		t.Fatalf("a 30 ms deadline waited %v for a child's pipe", d)
+	}
+}

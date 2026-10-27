@@ -109,3 +109,35 @@ func TestRecordExecutableMustMatch(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// TestDaemonRunArgv: the command is herdsman daemon run, its global
+// options allowed before run; anything else is not.
+func TestDaemonRunArgv(t *testing.T) {
+	for args, want := range map[string]bool{
+		"herdsman daemon run":                          true,
+		"herdsman daemon --json run":                   true,
+		"herdsman daemon --private-home /p run":        true,
+		"herdsman daemon --private-home run":           false, // run is the option's value
+		"herdsman daemon --json":                       false,
+		"herdsman daemon status run":                   false,
+		"herdsman message daemon run":                  false,
+		"herdsman daemon":                              false,
+		"/usr/bin/python3 worker.py daemon run":        false,
+		"herdsman daemon --json --private-home /p run": true,
+	} {
+		if got := daemonRunArgv(strings.Fields(args)); got != want {
+			t.Errorf("%q: %v", args, got)
+		}
+	}
+}
+
+// TestIdentityReadFailureRefused: a process whose identity cannot be
+// read (it ended, or the system refused) is never signalled.
+func TestIdentityReadFailureRefused(t *testing.T) {
+	at := time.Now().Truncate(time.Second)
+	s, l := identityCase(t, "/opt/herdsman", ProcID{Executable: "/opt/herdsman", Start: at}, ProcID{})
+	s.Identity = func(int) (ProcID, error) { return ProcID{}, errors.New("no such process") }
+	if err := s.checkIdentity(l); err == nil || !strings.Contains(err.Error(), "cannot be checked (no such process)") {
+		t.Fatalf("got %v", err)
+	}
+}

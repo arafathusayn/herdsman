@@ -201,3 +201,33 @@ func TestOwnIdentityRecord(t *testing.T) {
 		}
 	}
 }
+
+// TestDaemonRunServesUntilSignal: daemon run starts, records its own
+// identity for stop, serves, and ends with exit 0 at a signal.
+func TestDaemonRunServesUntilSignal(t *testing.T) {
+	dir := shortDir(t)
+	ph, home := filepath.Join(dir, "p"), filepath.Join(dir, "h")
+	_ = os.Mkdir(ph, 0o700)
+	_ = os.Mkdir(home, 0o700)
+	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(dir, "no-herdr.sock"))
+	sig := make(chan os.Signal, 1)
+	a := &AdminEnv{Stdout: io.Discard, Stderr: io.Discard, Version: testVersion, Signals: sig}
+	done := make(chan int, 1)
+	go func() { done <- a.run(ph, home) }()
+	var rec DaemonIdentity
+	ok := false
+	for i := 0; i < 500 && !(ok && exists(SocketPath(ph))); i++ {
+		time.Sleep(10 * time.Millisecond)
+		rec, ok = readDaemonIdentity(ph)
+	}
+	if !exists(SocketPath(ph)) {
+		t.Fatal("the daemon did not listen")
+	}
+	sig <- os.Interrupt
+	if code := <-done; code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if !ok || rec.PID != os.Getpid() || rec.Executable == "" {
+		t.Fatalf("identity record %+v %v", rec, ok)
+	}
+}

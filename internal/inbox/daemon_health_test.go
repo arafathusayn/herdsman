@@ -141,3 +141,17 @@ func TestDaemonLivenessNoHeartbeat(t *testing.T) {
 		t.Fatalf("pid %s age %d", pid, age)
 	}
 }
+
+// TestDaemonLivenessFutureHeartbeat: a heartbeat dated more than a second
+// after the reader's clock is invalid.
+func TestDaemonLivenessFutureHeartbeat(t *testing.T) {
+	ph := t.TempDir()
+	dir := filepath.Join(ph, "r")
+	inboxtest.DaemonOwn(t, dir, "e1", true)
+	now := time.Now()
+	future := now.Add(2 * time.Second)
+	_ = os.Chtimes(filepath.Join(ph, "daemon", "heartbeat"), future, future)
+	if pid, age := inbox.DaemonLiveness(dir, now); pid != "1" || age != -1 {
+		t.Fatalf("pid %s age %d", pid, age)
+	}
+}

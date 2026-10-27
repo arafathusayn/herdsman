@@ -124,7 +124,11 @@ func (s *Supervisor) remaining() time.Duration {
 func (s *Supervisor) exec(name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.remaining())
 	defer cancel()
-	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, name, args...)
+	// A manager child that keeps the output pipe open cannot hold the
+	// call past the deadline.
+	cmd.WaitDelay = 50 * time.Millisecond
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("%s %s: %v: %s", name, strings.Join(args, " "), err, bytes.TrimSpace(out))
 	}
@@ -310,6 +314,9 @@ func (s *Supervisor) Install() (string, error) {
 	// must exist, private, first.
 	if err := os.Mkdir(filepath.Dir(s.logPath()), 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return "", err
+	}
+	if st, err := os.Lstat(filepath.Dir(s.logPath())); err != nil || !st.IsDir() {
+		return "", fmt.Errorf("%s is not a folder; launchd could not open the daemon log there", filepath.Dir(s.logPath()))
 	}
 	if err := os.MkdirAll(filepath.Dir(s.UnitPath()), 0o755); err != nil {
 		return "", err
