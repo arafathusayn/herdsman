@@ -13,7 +13,7 @@
 // paths (mount, set, List.set) for the sake of types.
 
 /** Library version, bumped with every release of the zip package. */
-export const VERSION = "0.0.9";
+export const VERSION = "0.0.10";
 
 // ---------------------------------------------------------------------------
 // Hole markers: typed at compile time, small negative numbers at runtime
@@ -630,6 +630,19 @@ export interface ListBase<T, E, K extends Key = Key> {
    * inside it, so leave this off for scrolling containers.
    */
   readonly detach?: boolean;
+  /**
+   * `update` reads nothing but its item: a kept entry whose item is the same
+   * object (===) as in the last `set` is not updated again. When something
+   * else `update` reads changes, call `refresh` for the entries it affects,
+   * or `invalidate` before the next `set`.
+   */
+  readonly pure?: boolean;
+  /**
+   * Like `pure`, for items that are new objects each time (fresh snapshots):
+   * a kept entry is not updated when `same(last, next)` says its item did not
+   * change, such as `(a, b) => a.rev === b.rev`. Implies `pure`.
+   */
+  readonly same?: (last: T, next: T) => boolean;
 }
 
 /** A keyed list of items rendered into a parent node. Call `set` with each new array. */
@@ -643,6 +656,12 @@ export class List<T, E = Entry, K extends Key = Key> {
   private readonly anchor: Node | null;
   private readonly owns: boolean;
   private readonly detach: boolean;
+  private readonly pure: boolean;
+  private readonly same: ((last: T, next: T) => boolean) | null;
+  // The items of the last render, in order (with pure: what skips compare against).
+  private items: readonly T[] = [];
+  // With pure, set() after invalidate() updates every kept entry once.
+  private stale = false;
   private readonly key: (item: T) => K;
   private readonly create: (item: T) => E;
   private readonly update: (entry: E, item: T) => void;
@@ -653,6 +672,8 @@ export class List<T, E = Entry, K extends Key = Key> {
     this.anchor = o.anchor ?? null;
     this.owns = o.owns === true && this.anchor === null;
     this.detach = this.owns && o.detach === true;
+    this.same = o.same ?? null;
+    this.pure = o.pure === true || this.same !== null;
     this.key = o.key;
     this.create = o.create;
     this.update = o.update;
@@ -668,6 +689,27 @@ export class List<T, E = Entry, K extends Key = Key> {
     else for (let i = 0; i < e.length; i++) p.removeChild(r(e[i]!));
     this.keys = [];
     this.entries = [];
+    this.items = [];
+    this.stale = false;
+  }
+
+  /**
+   * Run `update` again for the entry with key `k`, with its item from the
+   * last `set` (so do not mutate that array). Use it when something `update`
+   * reads besides the item changed for a few entries, such as the selected
+   * row: two `refresh` calls instead of a `set` over every item. Returns
+   * whether the key was found.
+   */
+  refresh(k: K): boolean {
+    const i = this.keys.indexOf(k);
+    if (i < 0) return false;
+    this.update(this.entries[i]!, this.items[i]!);
+    return true;
+  }
+
+  /** With `pure`: the next `set` updates every kept entry, as if each item were new. */
+  invalidate(): void {
+    this.stale = true;
   }
 
   /** Render `items`, reusing the entries of items whose keys were already there. */
@@ -679,7 +721,9 @@ export class List<T, E = Entry, K extends Key = Key> {
       mk = this.create,
       r = this.r;
     const oldK = this.keys,
-      oldE = this.entries;
+      oldE = this.entries,
+      // With pure, an unchanged item (same object, same old position) skips its update.
+      oldI = this.pure && !this.stale ? this.items : null;
     const n = items.length,
       m = oldK.length;
 
@@ -696,6 +740,8 @@ export class List<T, E = Entry, K extends Key = Key> {
       this.fill(items, newE);
       this.keys = newK;
       this.entries = newE;
+      this.items = items;
+      this.stale = false;
       return;
     }
 
@@ -704,11 +750,13 @@ export class List<T, E = Entry, K extends Key = Key> {
       oe = m - 1,
       ne = n - 1;
     while (s <= oe && s <= ne && oldK[s] === newK[s]) {
-      upd((newE[s] = oldE[s]!), items[s]!);
+      newE[s] = oldE[s]!;
+      if (changed(oldI, s, items[s]!, this.same)) upd(newE[s]!, items[s]!);
       s++;
     }
     while (oe >= s && ne >= s && oldK[oe] === newK[ne]) {
-      upd((newE[ne] = oldE[oe]!), items[ne]!);
+      newE[ne] = oldE[oe]!;
+      if (changed(oldI, oe, items[ne]!, this.same)) upd(newE[ne]!, items[ne]!);
       oe--;
       ne--;
     }
@@ -736,16 +784,21 @@ export class List<T, E = Entry, K extends Key = Key> {
       move(p, lastRoot, firstRoot);
       if (oe - s > 1) move(p, firstRoot, ref); // adjacent: one move is enough
       newE[s] = last;
-      upd(last, items[s]!);
+      if (changed(oldI, oe, items[s]!, this.same)) upd(last, items[s]!);
       newE[ne] = first;
-      upd(first, items[ne]!);
-      for (let i = s + 1; i < oe; i++) upd((newE[i] = oldE[i]!), items[i]!);
+      if (changed(oldI, s, items[ne]!, this.same)) upd(first, items[ne]!);
+      for (let i = s + 1; i < oe; i++) {
+        newE[i] = oldE[i]!;
+        if (changed(oldI, i, items[i]!, this.same)) upd(newE[i]!, items[i]!);
+      }
     } else {
       this.general(items, newK, newE, s, oe, ne);
     }
 
     this.keys = newK;
     this.entries = newE;
+    this.items = items;
+    this.stale = false;
   }
 
   // Build every entry into a parent that holds none of them yet.
@@ -853,7 +906,11 @@ export class List<T, E = Entry, K extends Key = Key> {
     if (kept < oe - s + 1) {
       for (let i = s; i <= oe; i++) if (find(oldK[i]!) < 0) p.removeChild(r(oldE[i]!));
     }
-    for (let j = 0; j < len; j++) if (src[j] !== -1) upd(newE[j + s]!, items[j + s]!);
+    const oldI = this.pure && !this.stale ? this.items : null; // still the last render's: set() replaces it after
+    for (let j = 0; j < len; j++) {
+      const o = src[j]!;
+      if (o !== -1 && changed(oldI, o, items[j + s]!, this.same)) upd(newE[j + s]!, items[j + s]!);
+    }
 
     // Walk right to left. Survivors on the LIS stay put; everything else is
     // inserted before its right neighbour, which is already in final position.
@@ -890,6 +947,19 @@ function move(p: Node, node: Node, ref: Node | null): void {
 function place(p: Node, node: Node, ref: Node | null): void {
   if (node.parentNode !== null && node.isConnected) move(p, node, ref);
   else p.insertBefore(node, ref);
+}
+
+// Whether a kept entry needs its update: always without pure (oldI null),
+// else when its item is another object that `same` does not call equal.
+function changed<T>(
+  oldI: readonly T[] | null,
+  o: number,
+  it: T,
+  same: ((last: T, next: T) => boolean) | null,
+): boolean {
+  if (oldI === null) return true;
+  const was = oldI[o]!;
+  return was !== it && (same === null || !same(was, it));
 }
 
 function sameRange(x: readonly Key[], y: readonly Key[], from: number, to: number): boolean {

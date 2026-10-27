@@ -146,13 +146,20 @@ Values are never parsed as HTML. A string with angle brackets becomes literal te
 
 A list's entries are either objects exposing the item's root node, or anything else together with a function that returns an entry's root node (for example the root element itself, so the list keeps no object per item). The type requires that function exactly when entries have no root property.
 
-A list is bound to a parent node and, optionally, an anchor (a node before which the list lives; none means the end of the parent). It is configured with a key function, a create function (item to entry), an update function (entry and item), an `owns` flag (the list is the parent's only content) and a `detach` flag. It remembers the keys and entries of the last render.
+A list is bound to a parent node and, optionally, an anchor (a node before which the list lives; none means the end of the parent). It is configured with a key function, a create function (item to entry), an update function (entry and item), an `owns` flag (the list is the parent's only content), a `detach` flag, a `pure` flag and an optional `same` function. It remembers the keys, entries and items of the last render.
+
+`pure` says that update reads nothing but its item: a kept entry whose item is the same object as the item at its old position in the last render is not updated. `same(last, next)` extends that to items that are new objects each time (fresh snapshots): a kept entry is not updated when it returns true; giving `same` turns `pure` on. Both are opt-in, because a caller that mutates items in place relies on update running for every survivor. `shallowEqual` is a ready `same` for items with flat fields: the same set of enumerable fields, each strictly equal.
+
+Two calls serve a pure list whose update reads something besides the item:
+
+1. `refresh(key)`: find the key among the last render's keys and run update for that entry with its item from the last render. A selection changing from one key to another is two refreshes instead of a reconcile over every item. It returns whether the key was found.
+2. `invalidate()`: the next reconcile updates every kept entry, as if each item were new.
 
 `owns` only applies without an anchor. `detach` only applies with `owns`.
 
 #### Clearing
 
-If the list owns its parent, set the parent's text content to empty (one native operation). Otherwise remove each entry's root. Forget all keys and entries.
+If the list owns its parent, set the parent's text content to empty (one native operation). Otherwise remove each entry's root. Forget all keys, entries and items.
 
 #### Filling (building into a parent that holds none of the list's entries)
 
@@ -176,7 +183,9 @@ Let `m` be the old length and `n` the new length.
    - **Only removals** (the new window is empty): remove the roots of the old window.
    - **Swap of the two ends** (both windows have the same length of at least two, the old first key is the new last key, the old last key is the new first key, and every key in between is unchanged): move the old last root before the old first root. If the two were not adjacent, also move the old first root to where the old last root used to be, which is before the old last root's original next sibling. Update all window entries with their new items. This costs one move for adjacent items and two otherwise, which is minimal, and it needs no map and no LIS.
    - **General case**: described next.
-7. Remember the new keys and entries.
+7. Remember the new keys, entries and items, and clear the invalidated mark.
+
+Wherever a step above or below updates a kept entry, a pure list first compares the entry's item from the last render (at the entry's old index) with the new item, unless the list was invalidated: if they are the same object, or `same` says they are equal, the update is skipped.
 
 #### The general case
 
@@ -305,6 +314,8 @@ A child hole accepts text (a string or number), nothing (null, undefined or fals
 2. If the class is the same as the current content's:
    - Text: set the anchor's data to the value as a string.
    - Node: if it is the same node, do nothing. Otherwise replace the old node with the new one when the old one is still in the slot's parent, or insert the new one before the anchor when the old one was moved elsewhere.
+
+     So a component can host low-level code inside a view: it creates an element once, passes the same element to a child hole on every render, and updates the element's content itself (a Layer 2 list, blocks). The view never looks inside it.
    - View: patch the held instance toward the description (which replaces it when the view differs).
    - List: reconcile the list (below).
    - Runs: reconcile the runs (below).
@@ -312,11 +323,18 @@ A child hole accepts text (a string or number), nothing (null, undefined or fals
 
 #### Keyed list descriptions
 
-`list(items, key, render)` describes a keyed list: the items, a key function on the item (never its index; keys unique among siblings) and a render function from item to description.
+`list(items, key, render, options)` describes a keyed list: the items, a key function on the item (never its index; keys unique among siblings), a render function from an item and whether it is selected to a description, and options:
+
+- `pure`: render reads nothing but its arguments (and what it closed over when it was made).
+- `selected`: the key of the selected item, if any; render gets true for it and false for the rest.
+- `same`: as Layer 2's, for fresh snapshots; it implies `pure`.
 
 1. Creating the list in a slot: if the anchor has no siblings, the list **owns** the parent (Layer 2: clearing is one native text-content write, and the anchor is dropped while the list is shown); otherwise the list is anchored before the slot's anchor, so content around the hole is never touched.
-2. The Layer 2 list's create mounts `render(item)`, its update patches the entry's instance toward `render(item)`, and its key calls the key function. Entries are view instances. These callbacks read the slot's current key and render functions, which are replaced on every reconcile, so closures passed by the latest render are the ones used.
-3. Reconciling: store the description's key and render functions on the slot and set the list to the items (Layer 2). Kept items are patched; moved items are moved with the minimum number of DOM moves; an item whose render returns a different view is replaced where it stands.
+2. The Layer 2 list is always created pure, with a `same` that calls the slot's current `same` option when there is one. Its create mounts `render(item, selected)`, its update patches the entry's instance toward `render(item, selected)`, where selected is whether the item's key is the slot's selected key, and its key calls the key function. Entries are view instances. These callbacks read the slot's current key, render, selection and `same`, which are replaced on every reconcile, so closures passed by the latest render are the ones used.
+3. Reconciling:
+   1. The skips may apply only when the description is pure and its render function is the one the slot used last time. Otherwise invalidate the Layer 2 list, so every kept item is patched.
+   2. Store the description's key and render functions, selection and `same` on the slot, and set the list to the items (Layer 2). Kept items are patched (or skipped, as above); moved items are moved with the minimum number of DOM moves; an item whose render returns a different view is replaced where it stands.
+   3. If the skips applied and the selected key changed, refresh the old selected key and the new one (Layer 2), so the item that lost the selection and the item that gained it are rendered again. A key not in the list is skipped. A selected item that is new, moved, removed or replaced needs nothing more: new and changed items are rendered with the current selection.
 
 #### Runs descriptions
 
@@ -515,7 +533,7 @@ In Chrome the reconciler became 2 to 4 times faster for integer keys at every si
 
 The library ships a small property testing engine for its own tests, with no dependencies: properties are executable statements checked on generated inputs (after QuickCheck, Claessen and Hughes, ICFP 2000), and every random decision a generator makes is recorded, so a failure is reduced by shrinking that sequence of choices and re-running the generator (internal test-case reduction, as in Hypothesis: MacIver and Donaldson, ECOOP 2020). Reduced cases are therefore always valid inputs (a key list never gains duplicates). Shrinking deletes chunks of choices, largest first, then lowers single choices, keeping any change that still fails, within 4,000 attempts and 5 seconds.
 
-Properties checked, each over 1,500 to 3,000 generated cases per run: keyed reconcile output, entry reuse and exactly minimal moves across every lookup mode, with and without `owns`, anchors and an attached parent (where every move must be state-preserving); setting the same items twice does no DOM work; the LIS matches an O(n²) reference; eager and lazy blocks end in the same DOM as a fresh mount of their final values; morph turns any live tree into any fresh tree (random tags, keys, attributes and text, up to three levels), and morphing again does no DOM work. A planted bug (two moves for an adjacent swap) shrinks to the two-item list zero, one becoming one, zero within a second.
+Properties checked, each over 1,500 to 3,000 generated cases per run: keyed reconcile output, entry reuse and exactly minimal moves across every lookup mode, with and without `owns`, anchors and an attached parent (where every move must be state-preserving); setting the same items twice does no DOM work; the LIS matches an O(n²) reference; eager and lazy blocks end in the same DOM as a fresh mount of their final values; a pure list, and one with `same`, ends like a plain list when update reads its item, a marked key it refreshes and a suffix it invalidates for; a pure view list, and one with `same`, with a selection, renders like a plain list; view re-renders and a low-level list inside a node held by a child hole never undo each other; morph turns any live tree into any fresh tree (random tags, keys, attributes and text, up to three levels), and morphing again does no DOM work. A planted bug (two moves for an adjacent swap) shrinks to the two-item list zero, one becoming one, zero within a second.
 
 Two lessons recorded: a property's measurement must not include building its own input (twice a test counted fresh-tree construction as the library's work), and a shrinker must be bounded by attempts, not by successful reductions, or a failing slow property hangs.
 
@@ -600,6 +618,8 @@ What published work and current browser engineering say about the costs this lib
 ## Change log
 
 Newest first.
+
+- 2026-10-27: Version 0.0.10. Opt-in skips for kept list items: Layer 2 lists take `pure` (an unchanged item object is not updated) and `same(last, next)` (items judged equal are not updated; implies pure), with `refresh(key)` to update one entry again and `invalidate()` to update all on the next set. Views' `list(items, key, render, options)` takes `pure`, `selected` (render gets whether the item is selected; a new selection renders only the two rows it moves between) and `same`. Official benchmark, view entry with a pure list and the selection against the plain one, 6 interleaved rounds, 60 samples per test, Chrome script time with two-sided 90% CIs of the ratio: select 1.3 to 0.9 ms (0.57 to 0.69), partial update 1.4 to 1.1 (0.71 to 0.89), swap 1.2 to 0.4 (0.08 to 0.45), remove 0.7 to 0.4 (0.57 to 0.71); score ratio 1.000 (0.988 to 1.021), inconclusive at this sample size. herdsman-cases with `same` on fresh snapshots: 0.995 (0.986 to 1.014), equivalent, so it does not change herdsman web's screens, which are bound by rendering. Profile (CDP, select at 4x CPU, 10 runs): view script per click 1.16 to 0.49 ms; top self time before: the list's update 0.37 ms and patch 0.22 (every row re-rendered, 117 kB allocated by the row function); after: delegated dispatch 0.27 and setList 0.08.
 
 - 2026-10-27: First-fill experiment on the low-level entry (60 samples per test, A/A pair): removing an owned parent's leftover whitespace before the first fill is rejected (partial update total 15.1 to 24.3 ms); `detach` is turned on in the low-level benchmark app (create 10,000 rows script 12.0 to 11.6 ms, 90% CI of the ratio 0.96 to 0.97); the earlier rejection of detach was noise. Low-level entry against vanillajs-lite: 0.970 (90% CI 0.946 to 1.010), non-inferior. No library change.
 
