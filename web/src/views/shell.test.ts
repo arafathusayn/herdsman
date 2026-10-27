@@ -589,6 +589,34 @@ test("route shell: head, tabs and body as the h() version, and the body changes 
   expect(dump(rendered(logView(empty)))).toBe('<p class="muted pad">No run-state lines yet.</p>');
 });
 
+test("repeated checklist and run-state lines move as rows of their own", () => {
+  // The server accepts repeats: unnamed checklist lines with the same text,
+  // and log lines with the same minute and text. Each repeat is its own row,
+  // so reordering a section with repeats leaves no stale or missing rows.
+  const line = (text: string) => ({ id: "", text, done: false });
+  const log = (text: string) => ({ time: "10:00", text });
+  const orders = [
+    ["a", "x", "x", "y", "b"],
+    ["a", "y", "x", "x", "b"],
+    ["a", "x", "y", "x", "x", "b"],
+    ["x", "a", "x", "b", "x"],
+    ["b", "x", "x", "a"],
+  ];
+  for (const view of ["checklist", "log"] as const) {
+    const box = document.createElement("div");
+    for (const texts of orders) {
+      const r =
+        view === "checklist"
+          ? route("rep", true, { checklist: texts.map(line) })
+          : route("rep", true, { run_state: texts.map(log).reverse() });
+      const v = view === "checklist" ? checklistView(r) : logView(r);
+      render(box, v);
+      const fresh = view === "checklist" ? checklistView(r) : logView(r);
+      expect(dump(fake(box))).toBe(dump(fake(rendered(fresh).parentNode)));
+    }
+  }
+});
+
 test("activity: the h() version's events, newest first", () => {
   const idx = new Index(state.snapshot);
   const members: Member[] = [idx.member("p1", "orchestrator", null)];

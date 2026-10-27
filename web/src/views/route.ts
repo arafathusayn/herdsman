@@ -194,14 +194,29 @@ const Checklist = html`<ul class="checklist">
 </ul>`;
 type ChecklistNode = ViewNodeOf<typeof Checklist>;
 
+/**
+ * Pairs each item with a key that is unique in the list: the item's own key,
+ * and for a repeat of it, "#2", "#3"… after it. The server accepts repeated
+ * lines, and a keyed list needs one key per row.
+ */
+function keyedOnce<T>(items: readonly T[], key: (item: T) => string): [string, T][] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const k = key(item);
+    const n = (seen.get(k) ?? 0) + 1;
+    seen.set(k, n);
+    return [n === 1 ? k : `${k}#${n}`, item];
+  });
+}
+
 export function checklistView(r: Route): ChecklistNode | MutedNode {
   const items = r.checklist ?? [];
   if (!items.length) return Muted(["This route has no checklist."]);
   return Checklist([
     list(
-      items,
-      (i) => i.id || `text:${i.text}`,
-      (i) =>
+      keyedOnce(items, (i) => i.id || `text:${i.text}`),
+      ([k]) => k,
+      ([, i]) =>
         CheckLine([
           i.done ? "done" : i.skipped ? "skipped" : "",
           i.skipped ? "Stopped applying; the reason follows the line" : null,
@@ -228,9 +243,9 @@ export function logView(r: Route): LogNode | MutedNode {
   if (!lines.length) return Muted(["No run-state lines yet."]);
   return Log([
     list(
-      lines,
-      (l) => `${l.time}|${l.text}`,
-      (l) => LogLine([l.text.startsWith("web:") ? "web" : "", l.time, l.text]),
+      keyedOnce(lines, (l) => `${l.time}|${l.text}`),
+      ([k]) => k,
+      ([, l]) => LogLine([l.text.startsWith("web:") ? "web" : "", l.time, l.text]),
     ),
   ]);
 }
