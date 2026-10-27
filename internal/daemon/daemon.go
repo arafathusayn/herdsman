@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -166,6 +167,29 @@ func AccountLockHeld(home string) bool {
 	}
 	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	return false
+}
+
+// accountLockState probes the account lock: held, not held (only when the
+// file does not exist or a shared lock is granted), or an error when the
+// probe cannot tell.
+func accountLockState(home string) (bool, error) {
+	f, err := os.OpenFile(AccountLockPath(home), os.O_RDONLY, 0)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	switch err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); {
+	case err == nil:
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		return false, nil
+	case errors.Is(err, syscall.EWOULDBLOCK):
+		return true, nil
+	default:
+		return false, err
+	}
 }
 
 // takeAccountLock takes the per-account singleton (3.6).
