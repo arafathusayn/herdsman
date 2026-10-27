@@ -77,6 +77,31 @@ func TestEveryDocumentedCommandHelp(t *testing.T) {
 			t.Errorf("message %s --help prints more than its own action: %q", a, out)
 		}
 	}
+	// Each action's help names only the settings and exit codes it has.
+	for _, c := range []struct {
+		action        string
+		want, notWant []string
+	}{
+		{"leak-gate", []string{"LEAK_ALLOW_FILE", "1  a leak or a missing section"}, []string{"HERDSMAN_NAME", "HERDSMAN_INBOX", "HUMAN", "1  HEALTH"}},
+		{"register", []string{"HERDSMAN_INBOX is required"}, []string{"HERDSMAN_NAME", "HUMAN", "leak"}},
+		{"courier", []string{"HERDSMAN_INBOX is required"}, []string{"HERDSMAN_NAME", "HUMAN", "leak"}},
+		{"authority", []string{"HERDSMAN_INBOX is required", "3  HUMAN"}, []string{"HERDSMAN_NAME", "leak", "HELD"}},
+		{"resume-goal", []string{"HERDSMAN_INBOX is required", "3  HELD"}, []string{"HERDSMAN_NAME", "leak", "HUMAN"}},
+		{"send", []string{"HERDSMAN_NAME and HERDSMAN_INBOX are required"}, []string{"leak", "HUMAN", "1  HEALTH"}},
+		{"wait", []string{"HERDSMAN_NAME and HERDSMAN_INBOX are required", "1  HEALTH"}, []string{"leak", "HUMAN"}},
+	} {
+		out, _, _ := call(t, "message", c.action, "--help")
+		for _, w := range c.want {
+			if !strings.Contains(out, w) {
+				t.Errorf("message %s --help: want %q in %q", c.action, w, out)
+			}
+		}
+		for _, w := range c.notWant {
+			if strings.Contains(out, w) {
+				t.Errorf("message %s --help: %q is not this action's: %q", c.action, w, out)
+			}
+		}
+	}
 	// A trailing --help after an argument that is no subcommand goes to the
 	// command (run-check passes it on to the command it runs).
 	if out, _, code := call(t, "transcript-audit", "claude", "--help"); code != 2 || !strings.HasPrefix(out, "GAP usage") {

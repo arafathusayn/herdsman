@@ -256,15 +256,23 @@ func TestScriptRuns(t *testing.T) {
 		sh("h7", "herdsman message card-watch route-adjutant"),
 		sh("h8", "herdsman message resume-goal im-a"),
 		sh("h9", "herdsman message register --name route-adjutant"),
+		sh("a1", "herdsman afk --last-message 1761540000"),
+		sh("a2", "herdsman afk --last-message 1761540000 --last-message=1761540100 --json"),
+		sh("a3", "herdsman afk"),
 		sh("f1", "herdsman message folder"),
 		sh("f2", "herdsman checkpointer --once"),
 		sh("f3", "herdsman route log /x/00-route.md done"),
 		sh("f4", "herdsman"),
 		sh("f5", "herdsman message"),
+		sh("f6", "herdsman afk --last-message"),
+		sh("f7", "herdsman afk --last-message 1761540000 --help"),
+		sh("f8", "herdsman afk extra"),
+		sh("f9", "herdsman afk --last-message 1 status"),
 	)
 	out = r.aud(Options{Harness: "claude", Transcript: bin, Session: "coord-session"})
 	noMatch(t, "TA9 (Go) the binary's channel commands stay clean", `call=h[0-9]`, out)
-	for i := 1; i <= 5; i++ {
+	noMatch(t, "TA9c (Go) the read-only afk check stays clean", `call=a[0-9]`, out)
+	for i := 1; i <= 9; i++ {
 		match(t, fmt.Sprintf("TA9b (Go) another run of the binary is a script run: f%d", i), fmt.Sprintf("call=f%d class=script-run target=herdsman", i), out)
 	}
 }

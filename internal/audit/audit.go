@@ -7,9 +7,10 @@
 //
 // AUDIT_GRANT_FILE names exact full command lines that an administrative
 // grant permits; no other line is exempt. Every script or interpreter run
-// is flagged, the herdsman binary too, except for its channel commands:
-// herdsman message <channel action>, herdsman approval-gate and herdsman
-// checkpointer guard.
+// is flagged, the herdsman binary too, except for its channel commands
+// (herdsman message <channel action>, herdsman approval-gate and herdsman
+// checkpointer guard) and the read-only activity check herdsman afk with
+// only --last-message <unix time> and --json.
 package audit
 
 import (
@@ -496,8 +497,39 @@ func channelCommand(words []string) bool {
 		return len(words) > 2 && words[2] == "guard"
 	case "message":
 		return len(words) > 2 && slices.Contains(channelActions, words[2])
+	case "afk":
+		return afkCheck(words[2:])
 	}
 	return false
+}
+
+// afkCheck reports whether args are the read-only activity check the
+// adjutant's question rule runs: only --last-message <unix time> (or
+// --last-message=<unix time>), repeatable, and --json.
+func afkCheck(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--json":
+		case a == "--last-message" && i+1 < len(args) && digits(args[i+1]):
+			i++
+		case strings.HasPrefix(a, "--last-message=") && digits(strings.TrimPrefix(a, "--last-message=")):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func digits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 var wrappers = []string{"env", "exec", "nohup", "time", "command", "builtin", "sudo", "nice", "timeout", "doas", "stdbuf", "ionice", "chroot", "setsid"}
