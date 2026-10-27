@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	register(command{name: "message", summary: "The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.", run: runMessage})
+	register(command{name: "message", summary: "The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.", subHelp: messageSubHelp(), run: runMessage})
 }
 
 // executable is the running binary, links resolved, for the binary setup proof.
@@ -24,6 +24,15 @@ func executable() string {
 		return r
 	}
 	return p
+}
+
+// messageSubHelp is each action's `herdsman message <action> --help`.
+func messageSubHelp() map[string]string {
+	h := map[string]string{}
+	for _, a := range []string{"status", "wait", "read", "release", "ack", "send", "hold", "unhold", "register", "courier", "card-watch", "resume-goal", "authority", "leak-gate"} {
+		h[a] = message.SubHelp(a)
+	}
+	return h
 }
 
 func runMessage(args []string, _ io.Reader, stdout, stderr io.Writer) int {

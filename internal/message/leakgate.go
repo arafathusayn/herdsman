@@ -39,7 +39,7 @@ func modelPattern(ids []string) string {
 	return strings.Join(alts, "|")
 }
 
-// LeakGate is publish-leak-gate.sh <file> [exact-required-heading ...]: exit
+// LeakGate is `herdsman message leak-gate <file> [exact-required-heading ...]`: exit
 // 0 when no line matches the pattern (LEAK_PATTERN adds one; an exact line
 // of LEAK_ALLOW_FILE is allowed) and the fences and required sections are
 // complete; 1 on a leak or a structure fault; 2 on an input error.

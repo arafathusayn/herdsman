@@ -6,13 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
-
-	"github.com/arafathusayn/herdsman/internal/shglob"
 )
 
 // Peer is one entry of the registry: a name, its role and its pane.
@@ -171,13 +170,24 @@ func LiveIdentity(ctx context.Context, c *herdr.Client, pane string) (Identity, 
 	return Identity{Pane: pid, Session: Session{Agent: sess["agent"].(string), Kind: "id", Source: sess["source"].(string), Value: value}}, LiveOK, ""
 }
 
-// PreflightValid is the scripts' preflight_valid, the setup proof: the
-// proof file is <inbox>/setup.json, strict JSON, names this inbox with a
-// verified policy, and lists rules and scripts, each an absolute path and
-// a checksum; every listed file has its checksum, and every script of the
-// installed folder (and the adapters beside it) is listed.
+// PreflightValid is the setup proof check (the scripts' preflight_valid,
+// binary form only): the proof file is <inbox>/setup.json, strict JSON,
+// names this inbox with a verified policy, lists rules (each an absolute
+// path and a checksum, every one matching) and names the herdsman binary
+// this root trusts (Root.Executable) with its checksum:
+//
+//	{"inbox":..., "policy_verified":true, "rules":[{"path":...,"checksum":...}],
+//	 "binary":{"path":"/abs/herdsman","checksum":"<crc>-<size>"}}
+//
+// The proof of the scripts (.scripts[]) is no longer accepted: the scripts
+// are gone, and a proof that still lists them is stale (OldProofHint).
 func (r *Root) PreflightValid() bool {
-	if r.Preflight == "" || r.Preflight != r.Path("setup.json") {
+	return r.binaryProofValid(r.Executable)
+}
+
+// binaryProofValid checks the binary proof against exe.
+func (r *Root) binaryProofValid(exe string) bool {
+	if exe == "" || !filepath.IsAbs(exe) || r.Preflight == "" || r.Preflight != r.Path("setup.json") {
 		return false
 	}
 	b, ok := ReadStrict(r.Dir, r.Preflight)
@@ -189,14 +199,15 @@ func (r *Root) PreflightValid() bool {
 	if err != nil || proof == nil || proof["inbox"] != r.Dir || proof["policy_verified"] != true {
 		return false
 	}
-	rules, rok := proof["rules"].([]any)
-	scripts, sok := proof["scripts"].([]any)
-	if !rok || !sok || len(rules) == 0 || len(scripts) == 0 {
+	if _, old := proof["scripts"]; old {
 		return false
 	}
-	type entry struct{ path, sum string }
-	var all, listed []entry
-	for i, e := range append(append([]any{}, rules...), scripts...) {
+	rules, rok := proof["rules"].([]any)
+	if !rok || len(rules) == 0 {
+		return false
+	}
+	entries := append(append([]any{}, rules...), proof["binary"])
+	for i, e := range entries {
 		m := Object(e)
 		if len(m) != 2 {
 			return false
@@ -206,51 +217,45 @@ func (r *Root) PreflightValid() bool {
 		if !pok || !cok || !strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\t\r\n\\") || !checksumShape(c) {
 			return false
 		}
-		all = append(all, entry{p, c})
-		if i >= len(rules) {
-			listed = append(listed, entry{p, c})
-		}
-	}
-	paths := map[string]bool{}
-	for _, e := range listed {
-		if paths[e.path] {
+		if i == len(entries)-1 && p != exe {
 			return false
 		}
-		paths[e.path] = true
-	}
-	// The installation checked is the one the caller trusts (Options.Installed,
-	// HERDSMAN_MESSAGES_DIR), as the script checks the folder it runs from;
-	// never a path read from the proof. With none, or one that holds no
-	// message-lib.sh, the proof is stale.
-	installed := r.Installed
-	if !filepath.IsAbs(installed) || !RegularFile(filepath.Join(installed, "message-lib.sh")) {
-		return false
-	}
-	// The folder is listed literally (a [ in its path is no pattern), and a
-	// folder that cannot be listed makes the proof stale.
-	files, err := shglob.Glob(installed, "*.sh")
-	if err != nil {
-		return false
-	}
-	for _, a := range []string{"approval-gate", "transcript-audit", "checkpointer-guard", "checkpointer"} {
-		if p := filepath.Join(filepath.Dir(installed), a+".sh"); Exists(p) {
-			files = append(files, p)
-		}
-	}
-	for _, f := range files {
-		if !paths[f] {
+		if !Regular(r.Dir, p) {
 			return false
 		}
-	}
-	for _, e := range all {
-		if !Regular(r.Dir, e.path) {
-			return false
-		}
-		if sum, err := DigestFile(e.path); err != nil || sum != e.sum {
+		if sum, err := DigestFileCached(p); err != nil || sum != c {
 			return false
 		}
 	}
 	return true
+}
+
+// OldProofHint is the advice added to a stale-proof message when the setup
+// proof is the old script form (it has .scripts[]): how to set up again.
+// Otherwise it is "".
+func (r *Root) OldProofHint() string {
+	b, ok := ReadStrict(r.Dir, r.Preflight)
+	if !ok {
+		return ""
+	}
+	v, _ := Decode(b)
+	if _, old := Object(v)["scripts"]; !old {
+		return ""
+	}
+	return " (the proof lists .scripts[], the form from before the herdsman binary; the scripts are gone: replace .scripts[] with \"binary\":{\"path\":<absolute path of herdsman>,\"checksum\":<its cksum as crc-size>} and repeat human setup)"
+}
+
+// RunningExecutable is the absolute path of the running binary, links
+// resolved, or "" when it cannot be found.
+func RunningExecutable() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		return real
+	}
+	return exe
 }
 
 func checksumShape(c string) bool {
@@ -409,13 +414,13 @@ func knownAgent(b map[string]any, id map[string]any, harness any) bool {
 	return false
 }
 
-// The authority lines, as message-authority.sh prints them.
+// The authority lines, as herdsman message authority prints them.
 const (
 	RelayLine = "RELAY current protected setup; bind each human go before use."
 	HumanLine = "HUMAN relayed gos authorize nothing outward or irreversible. Human executes the action; automatic resume and card relay are held. Tell the user."
 )
 
-// Authority is message-authority.sh's decision: RelayLine and exit 0 when
+// Authority is herdsman message authority's decision: RelayLine and exit 0 when
 // the boundary holds, HumanLine and exit 3 when it does not.
 func (r *Root) Authority(ctx context.Context, c *herdr.Client) (string, int) {
 	if ok, _, _ := r.BoundaryOK(ctx, c); ok {

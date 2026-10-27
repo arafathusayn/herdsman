@@ -41,7 +41,6 @@ func TestBinaryProof(t *testing.T) {
 	exe := filepath.Join(c.Base, "herdsman")
 	c.Write(exe, strings.Repeat("binary bytes\n", 1000))
 	o := c.Options(false)
-	o.Installed = ""
 	binaryProof(c, exe)
 	ch, err := inbox.OpenChannel(o, exe)
 	if err != nil || ch.ProofStale || !ch.ProofValid() {
@@ -86,17 +85,18 @@ func TestBinaryProof(t *testing.T) {
 	if _, err := inbox.OpenChannel(o, ""); err == nil {
 		t.Error("no executable accepts no binary proof")
 	}
-	// The script form still verifies while the scripts exist.
-	c.Write(exe, strings.Repeat("binary bytes\n", 1000))
+	// The proof of the running binary, with no executable named.
 	c.Write(filepath.Join(c.Base, "ignore-rule"), "sandbox policy\n")
 	c.Prove()
-	if _, err := inbox.OpenChannel(c.Options(false), exe); err != nil {
-		t.Errorf("the script form: %v", err)
+	if _, err := inbox.OpenChannel(c.Options(false), ""); err != nil {
+		t.Errorf("the running binary's proof: %v", err)
 	}
 	// A conflicting timing file is fatal for a writer.
 	c.Write(filepath.Join(c.Dir, "state", "timing.json"), `{"health":"x"}`)
-	if _, err := inbox.OpenChannel(c.Options(false), exe); err == nil {
+	if _, err := inbox.OpenChannel(c.Options(false), ""); err == nil {
 		t.Error("invalid timing opened")
+	} else if msg, _ := inbox.IsFatal(err); !strings.Contains(msg, "timing") {
+		t.Errorf("invalid timing: %v", err)
 	}
 	os.Remove(filepath.Join(c.Dir, "state", "timing.json"))
 	if _, err := inbox.OpenChannel(inbox.Options{Dir: "relative"}, exe); err == nil {

@@ -9,30 +9,10 @@ permissions:
   contents: read
 
 jobs:
-  scripts:
-    strategy:
-      fail-fast: false
-      matrix:
-        # macOS: /bin/bash 3.2 with BSD tools, zsh as the login shell. Linux: GNU tools.
-        os: [macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install zsh
-        if: runner.os == 'Linux'
-        run: sudo apt-get update -q && sudo apt-get install -y -q zsh
-      - name: Shells
-        run: |
-          /bin/bash --version | head -1
-          zsh --version
-      - name: Watcher, waiter, status, gate and route-log tests, started from zsh
-        run: zsh skills/herdsman/scripts/test/run-tests.sh
-      - name: Checkpointer tests, started from zsh
-        run: zsh skills/herdsman/scripts/test/checkpointer-tests.sh
-
   cli:
-    # The Go CLI and the web app inside it: format, types, tests, lint,
-    # known vulnerabilities, then a build with the app embedded.
+    # The Go CLI and the web app inside it: format, types, tests (which
+    # cover every command the skill runs), lint, known vulnerabilities,
+    # then a build with the app embedded.
     strategy:
       fail-fast: false
       matrix:

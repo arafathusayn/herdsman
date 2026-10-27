@@ -276,17 +276,26 @@ func fileSHA256(p string) (string, error) {
 }
 
 // checkInbox opens the inbox read-only, so the doctor creates nothing in
-// it, and fails on a stale setup proof as a writer would.
+// it, and fails on a stale setup proof as a writer would. The proof must
+// name this binary (Probes.Executable, links resolved).
 func checkInbox(p Probes, dir string, add adder) {
+	exe, err := p.Executable()
+	if err == nil {
+		exe, err = filepath.EvalSymlinks(exe)
+	}
+	if err != nil {
+		add(Fail, "inbox", err.Error())
+		return
+	}
 	r, err := inbox.Open(inbox.Options{
-		Dir: dir, Preflight: p.Getenv("HERDSMAN_PREFLIGHT"), Installed: p.Getenv("HERDSMAN_MESSAGES_DIR"),
+		Dir: dir, Preflight: p.Getenv("HERDSMAN_PREFLIGHT"), Executable: exe,
 		HealthAfter: p.Getenv("HEALTH_AFTER"), LockWait: p.Getenv("LOCK_WAIT"), ReadOnly: true,
 	})
 	switch {
 	case err != nil:
 		add(Fail, "inbox", err.Error())
 	case r.ProofStale:
-		add(Fail, "inbox", "sandbox policy or protected installation proof stale; repeat human setup")
+		add(Fail, "inbox", "sandbox policy or protected installation proof stale; repeat human setup"+r.OldProofHint())
 	case r.TimingStale:
 		add(Fail, "inbox", "invalid or conflicting shared timing configuration")
 	default:

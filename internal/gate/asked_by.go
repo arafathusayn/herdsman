@@ -6,7 +6,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// askedByAdjutant is approval-gate.sh's asker check (PR 28): the approved
+// askedByAdjutant is herdsman approval-gate's asker check (PR 28): the approved
 // pair must be valid and name an adjutant, and the trusted interaction's
 // asked_by must be that adjutant. An asker that the pair names as the
 // orchestrator gets its own line; any other asker, or none, is refused.

@@ -62,7 +62,7 @@ func TestCheckpointerCommandLine(t *testing.T) {
 }
 
 // The guard and the checkpointer through the binary, on a fake herdr; the
-// zsh pane-run form of checkpointer-tests.sh: a prompt with a space
+// zsh pane-run form of the old checkpointer suite: a prompt with a space
 // reaches the target whole.
 func TestCheckpointerCommands(t *testing.T) {
 	srv := herdrtest.Start(t)

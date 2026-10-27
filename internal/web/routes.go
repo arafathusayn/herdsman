@@ -198,7 +198,7 @@ type routePlan struct {
 
 // planRoute checks a request against the snapshot and the catalog and
 // builds every value the herdr calls carry. It makes no herdr call.
-func planRoute(req RouteRequest, st State, cats roleCatalogs, home, skillDir string) (*routePlan, error) {
+func planRoute(req RouteRequest, st State, cats roleCatalogs, home, exe string) (*routePlan, error) {
 	p := &routePlan{req: req}
 	if req.Role != "orchestrator" && req.Role != "adjutant" {
 		return nil, refuse("role", "role must be orchestrator or adjutant")
@@ -315,12 +315,12 @@ func planRoute(req RouteRequest, st State, cats roleCatalogs, home, skillDir str
 		if c.Limit < CheckpointMinTokens || c.Limit > CheckpointMaxTokens {
 			return nil, refuse("limit", "the limit must be %d to %d tokens", CheckpointMinTokens, CheckpointMaxTokens)
 		}
-		script, why := checkpointerScript(home, skillDir)
-		if script == "" {
+		cmd, why := checkpointerCommand(exe)
+		if cmd == "" {
 			return nil, refuse("checkpointer", "%s", why)
 		}
 		// TARGET is filled in once the orchestrator's pane exists.
-		line := "INTERVAL=" + strconv.Itoa(c.Minutes*60) + " LIMIT=" + strconv.Itoa(c.Limit) + " /bin/bash '" + script + "'"
+		line := "INTERVAL=" + strconv.Itoa(c.Minutes*60) + " LIMIT=" + strconv.Itoa(c.Limit) + " '" + cmd + "' checkpointer"
 		if req.Role == "adjutant" {
 			line = "HERDSMAN_ORCHESTRATOR=" + coord.name + " HERDSMAN_INBOX=" + p.req.Inbox + " HERDSMAN_PREFLIGHT=" + p.req.Inbox + "/setup.json " + line
 		}
@@ -477,7 +477,7 @@ func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	home, _ := os.UserHomeDir()
 	cats := s.planCatalogs(r, req)
-	p, err := planRoute(req, s.hub.Current(), cats, home, s.cfg.SkillDir)
+	p, err := planRoute(req, s.hub.Current(), cats, home, s.cfg.Executable)
 	if err != nil {
 		re, _ := errors.AsType[*routeError](err)
 		field := ""

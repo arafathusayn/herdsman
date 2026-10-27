@@ -241,43 +241,18 @@ func TestSkillInstalled(t *testing.T) {
 	}
 }
 
-func TestCheckpointerScript(t *testing.T) {
-	home := t.TempDir()
-	if p, _ := checkpointerScript(home, ""); p != "" {
-		t.Fatalf("found %q in an empty home", p)
+func TestCheckpointerCommand(t *testing.T) {
+	if p, why := checkpointerCommand(""); p != "" || !strings.Contains(why, "not found") {
+		t.Fatalf("no binary: %q %q", p, why)
 	}
-	skill := filepath.Join(t.TempDir(), "herdsman")
-	if err := os.MkdirAll(filepath.Join(skill, "scripts"), 0o755); err != nil {
-		t.Fatal(err)
+	exe := filepath.Join(t.TempDir(), "herdsman")
+	if p, why := checkpointerCommand(exe); p != exe || why != "" {
+		t.Fatalf("the binary: %q %q", p, why)
 	}
-	if err := os.WriteFile(filepath.Join(skill, "scripts", "checkpointer.sh"), []byte("#!/bin/bash\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if p, _ := checkpointerScript(home, skill); p != realPath(filepath.Join(skill, "scripts", "checkpointer.sh")) {
-		t.Fatalf("--skill-dir: %q", p)
-	}
-	if p, why := checkpointerScript(home, filepath.Join(home, "missing")); p != "" || !strings.Contains(why, "--skill-dir") {
-		t.Fatalf("missing --skill-dir: %q %q", p, why)
-	}
-	// The installed skill is a link, as the setup makes it.
-	if err := os.MkdirAll(filepath.Join(home, ".claude", "skills"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(skill, filepath.Join(home, ".claude", "skills", "herdsman")); err != nil {
-		t.Fatal(err)
-	}
-	if p, _ := checkpointerScript(home, ""); p != realPath(filepath.Join(skill, "scripts", "checkpointer.sh")) {
-		t.Fatalf("linked skill: %q", p)
-	}
-	quoted := filepath.Join(t.TempDir(), "it's")
-	if err := os.MkdirAll(filepath.Join(quoted, "scripts"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(quoted, "scripts", "checkpointer.sh"), nil, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if p, _ := checkpointerScript(home, quoted); p != "" {
-		t.Fatalf("a path with a quote was accepted: %q", p)
+	for _, bad := range []string{"/x/it's/herdsman", "/x/a\nb/herdsman"} {
+		if p, why := checkpointerCommand(bad); p != "" || !strings.Contains(why, "quote or a control character") {
+			t.Fatalf("%q was accepted: %q %q", bad, p, why)
+		}
 	}
 }
 

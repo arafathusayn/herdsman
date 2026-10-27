@@ -11,7 +11,7 @@ import (
 // GuardUsage is the guard's usage line.
 const GuardUsage = "usage: herdsman checkpointer guard <orchestrator-name> <pane>"
 
-// Guard is checkpointer-guard.sh: a read-only check, right before each
+// Guard is herdsman checkpointer guard: a read-only check, right before each
 // input in adjutant mode, that the approved registry names pane as the
 // orchestrator name and that its live session still matches. It returns
 // the stdout line ("OK name pane") and 0, or the stderr text and 2.
@@ -33,7 +33,7 @@ func Guard(ctx context.Context, c *herdr.Client, o inbox.Options, args []string)
 		return fail(msg)
 	}
 	if r.ProofStale {
-		return fail("sandbox policy or protected installation proof stale; no input")
+		return fail("sandbox policy or protected installation proof stale; no input" + r.OldProofHint())
 	}
 	if _, ok := r.Registry(); !ok {
 		return fail("registry change awaiting human approval; no input")

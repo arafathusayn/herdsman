@@ -15,7 +15,8 @@ import (
 
 func init() {
 	register(command{name: "wait", summary: "Wait for the next event of the loop (a report, a review, a blocked or stalled agent, a health flag), or TICK.", help: waitHelp, run: runWait})
-	register(command{name: "watch", summary: "Watch implementers, the reviewer or pull requests: herdsman watch implementers|reviewer|prs.", help: watchHelp, run: runWatch})
+	register(command{name: "watch", summary: "Watch implementers, the reviewer or pull requests: herdsman watch implementers|reviewer|prs.", help: watchHelp,
+		subHelp: map[string]string{"implementers": watchHelp, "reviewer": watchHelp, "prs": watchHelp}, run: runWatch})
 }
 
 func watchDeps(stdout, stderr io.Writer) watch.Deps {

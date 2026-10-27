@@ -2,11 +2,12 @@ package message
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
-// Usage is message.sh's grammar line.
+// Usage is the grammar line of herdsman message.
 const Usage = "message: status|wait|read [claim]|release <claim>|ack <claim> <id> <record>|send <to> <file> <kind> [reply]|hold <name> <reason>|unhold <name>"
 
 // Help is `herdsman message --help`: the grammar and each command's exit codes.
@@ -36,10 +37,91 @@ exit codes:
   3  authority: HUMAN; resume-goal: HELD
 `
 
-// Main is `herdsman message <action> ...`: message.sh's grammar with
-// HERDSMAN_NAME as the caller's enrolled name, and the commands message.sh
-// does not front (register, courier, card-watch, resume-goal, authority,
-// leak-gate), which take their scripts' arguments.
+// The settings lines of an action's help: what every channel action
+// needs, what an inbox command needs, and the shared value rules.
+const (
+	needBoth  = "HERDSMAN_NAME and HERDSMAN_INBOX are required."
+	needInbox = "HERDSMAN_INBOX is required."
+	values    = `SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.`
+)
+
+// actionHelp is each action's settings and its exit codes after 0.
+var actionHelp = map[string]struct{ settings, codes string }{
+	"status":      {needBoth, ""},
+	"wait":        {needBoth, "  1  HEALTH\n"},
+	"read":        {needBoth, ""},
+	"release":     {needBoth, ""},
+	"ack":         {needBoth, ""},
+	"send":        {needBoth, ""},
+	"hold":        {needBoth, ""},
+	"unhold":      {needBoth, ""},
+	"register":    {needInbox, ""},
+	"courier":     {needInbox, ""},
+	"card-watch":  {needInbox, ""},
+	"resume-goal": {needInbox, ""},
+	"authority":   {needInbox, ""},
+	"leak-gate": {"LEAK_PATTERN (an added pattern) and LEAK_ALLOW_FILE (exact lines allowed) are optional; no inbox is needed.",
+		"  1  a leak or a missing section\n"},
+}
+
+// actionHeld is the exit 3 line of the two actions that have one.
+var actionHeld = map[string]string{
+	"resume-goal": "  3  HELD\n",
+	"authority":   "  3  HUMAN\n",
+}
+
+// actionDone is the meaning of exit 0 where it is more than "done".
+var actionDone = map[string]string{
+	"wait":        "a message or TICK",
+	"resume-goal": "NOOP or SENT",
+	"authority":   "RELAY",
+	"leak-gate":   "clean",
+}
+
+// SubHelp is `herdsman message <action> --help`: the action's line of
+// Help, then its own settings and exit codes; "" for an unknown action.
+func SubHelp(action string) string {
+	_, rest, _ := strings.Cut(Help, "\n")
+	actions, _, _ := strings.Cut(rest, "settings:")
+	spec, ok := actionHelp[action]
+	if !ok {
+		return ""
+	}
+	tail := "settings: " + spec.settings + "\n"
+	if action != "leak-gate" {
+		tail += values + "\n"
+	}
+	done := "done"
+	if d, ok := actionDone[action]; ok {
+		done += " (" + d + ")"
+	}
+	tail += "\nexit codes:\n  0  " + done + "\n" + spec.codes +
+		"  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n" + actionHeld[action]
+	for _, line := range strings.Split(actions, "\n") {
+		line = strings.TrimSpace(line)
+		for _, part := range strings.Split(line, " | ") {
+			if w, _, _ := strings.Cut(part, " "); w != action {
+				continue
+			}
+			text := "usage: herdsman message [--json] "
+			if grammar, what, ok := strings.Cut(line, "  "); ok {
+				text += grammar + "\n  " + strings.TrimSpace(what) + "\n"
+			} else {
+				text += line + "\n"
+			}
+			return text + "\n" + tail
+		}
+	}
+	return ""
+}
+
+// Main is `herdsman message <action> ...`: the channel actions with
+// HERDSMAN_NAME as the caller's enrolled name, and the commands that need
+// no name (register, courier, card-watch, resume-goal, authority,
+// leak-gate), which take their own arguments.
 func (e *Env) Main(args []string) int {
 	var rest []string
 	for _, a := range args {
@@ -133,7 +215,7 @@ func (e *Env) Main(args []string) int {
 	return usage()
 }
 
-// Authority is message-authority.sh: RELAY and exit 0 under the protected
+// Authority is herdsman message authority: RELAY and exit 0 under the protected
 // setup, HUMAN and exit 3 otherwise.
 func (e *Env) Authority(args []string) int {
 	if len(args) != 0 {

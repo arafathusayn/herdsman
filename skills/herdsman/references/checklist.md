@@ -4,9 +4,9 @@ The steps of [`SKILL.md`](../SKILL.md) as lines to tick, each linked to the rule
 
 ## How to use it
 
-- At step 2, copy the section "Lines" below into `00-route.md` under the heading `## Checklist`, with every link target made absolute: `](harness-guards.md)` becomes `](<skill>/references/harness-guards.md)` and `](../SKILL.md)` becomes `](<skill>/SKILL.md)`, with the skill's folder in place of `<skill>`. Reason: the links here are relative to this file's folder, and they would point into the route folder after the copy. Keep the lines whose tag fits the route and delete the others: `all`; `pr` (one pull request per task); `int` (integration route); `gate2` (two-gate route); `ship` (shipping without pull requests); `ro` (review-only route on someone else's pull request); `db` (a test database); `sbx` (a sandboxed harness runs checks); `nocommit` (a route that may not commit); `adj` (a route with an adjutant; `route-check.sh` requires its line when `00-route.md` records an `Adjutant:` line); `nopane` (the user picked [Without agent panes](optional-techniques.md), so the lines about Herdr panes become `[-]` with that reason). Copy the block "Per review unit" once for each task branch, pull request or combined head, with its id in place of `<u>`.
+- At step 2, copy the section "Lines" below into `00-route.md` under the heading `## Checklist`, with every link target made absolute: `](harness-guards.md)` becomes `](<skill>/references/harness-guards.md)` and `](../SKILL.md)` becomes `](<skill>/SKILL.md)`, with the skill's folder in place of `<skill>`. Reason: the links here are relative to this file's folder, and they would point into the route folder after the copy. Keep the lines whose tag fits the route and delete the others: `all`; `pr` (one pull request per task); `int` (integration route); `gate2` (two-gate route); `ship` (shipping without pull requests); `ro` (review-only route on someone else's pull request); `db` (a test database); `sbx` (a sandboxed harness runs checks); `nocommit` (a route that may not commit); `adj` (a route with an adjutant; `herdsman route check` requires its line when `00-route.md` records an `Adjutant:` line); `nopane` (the user picked [Without agent panes](optional-techniques.md), so the lines about Herdr panes become `[-]` with that reason). Copy the block "Per review unit" once for each task branch, pull request or combined head, with its id in place of `<u>`.
 - Tick a line with the Edit tool when it is done: `- [x]` and ` -- <evidence>` at the end of the line (a path, a commit, a pane id, the user's answer). A line that stops applying mid-route becomes `- [-]` and ` -- <reason>`. Never tick a line from memory of what was done: check the evidence first.
-- Read the open lines on every wake and after every compaction, before the next action. [`scripts/route-check.sh`](../scripts/route-check.sh) prints them, reports a ticked line without its evidence or reason as BAD, and checks the files that the kept lines require. Its close stage is no line here: it passes only once every line is closed, so it runs after the last tick ([`SKILL.md`](../SKILL.md), step 6).
+- Read the open lines on every wake and after every compaction, before the next action. `herdsman route check` prints them, reports a ticked line without its evidence or reason as BAD, and checks the files that the kept lines require. Its close stage is no line here: it passes only once every line is closed, so it runs after the last tick ([`SKILL.md`](../SKILL.md), step 6).
 - The checklist does not replace a step's text. Each step starts with a "Read first" line: read those files before the step's first action, and tick the line.
 
 ## Lines
@@ -14,7 +14,7 @@ The steps of [`SKILL.md`](../SKILL.md) as lines to tick, each linked to the rule
 ### Step 0: preconditions
 
 - [ ] C0.1 all: Read first: [`harness-guards.md`](harness-guards.md), before the first shell command, and [`herdr.md`](herdr.md).
-- [ ] C0.2 all: `HERDR_ENV=1`; `herdr agent start --help`; `<harness> --version` for every harness; `gh auth status`; the target repository's remote ([`SKILL.md`](../SKILL.md), step 0).
+- [ ] C0.2 all: `HERDR_ENV=1`, or outside Herdr the runner question of step 1; `herdr agent start --help`; `<harness> --version` for every harness; `gh auth status`; the target repository's remote ([`SKILL.md`](../SKILL.md), step 0).
 - [ ] C0.3 all: Read the skill checkout's git status before any change to this skill ([`SKILL.md`](../SKILL.md), step 6).
 
 ### Step 1: interview and dispatch plan
@@ -23,7 +23,7 @@ The steps of [`SKILL.md`](../SKILL.md) as lines to tick, each linked to the rule
 - [ ] C1.2 all: One question round, through the ask tool when the harness has one (with an enrolled adjutant, through the adjutant), that covers every interview item the request leaves open, including product defaults that change what users see and the optional techniques, the skill navigator always ([`SKILL.md`](../SKILL.md), step 1; [`harness-guards.md`](harness-guards.md), Orchestrator posture).
 - [ ] C1.3 db: Read the test database's database count and its container's shared-memory use before the first gate; a high count puts the recreate question in the interview ([`shared-environment.md`](shared-environment.md), Share the load).
 - [ ] C1.4 all: Count the reviews the route needs against each harness's usage pool ([`flow-and-time.md`](flow-and-time.md), Quota is capacity).
-- [ ] C1.5 all: Dispatch plan in the reply, with the folder-trust answer of each new folder; the go asked, through the ask tool when the harness has one (with an enrolled adjutant, through the adjutant); nothing launched before the go except the skill navigator that the interview picked ([`SKILL.md`](../SKILL.md), step 1).
+- [ ] C1.5 all: Dispatch plan in the reply, with the folder-trust answer of each new folder; the go asked, through the ask tool when the harness has one (with an enrolled adjutant, through the adjutant), with the question timeout; nothing launched before the go, or before its timeout for the plan's listed local and reversible steps (recorded in `00-route.md`), except the skill navigator that the interview picked; outward or irreversible steps and unlisted launches wait for the user's answer ([`SKILL.md`](../SKILL.md), step 1).
 - [ ] C1.6 all: Each chosen option's full text copied into `00-route.md` ([`SKILL.md`](../SKILL.md), step 1).
 
 ### Step 2: route folder and contracts
@@ -48,12 +48,12 @@ The steps of [`SKILL.md`](../SKILL.md) as lines to tick, each linked to the rule
 - [ ] C3.1 all: Read first: [`herdr.md`](herdr.md) and the notes of each harness in the route.
 - [ ] C3.2 pr int gate2 ship: Tabs and panes created one mutation per call, each labelled; pane ids in the task table ([`SKILL.md`](../SKILL.md), step 3; [`herdr.md`](herdr.md), Etiquette).
 - [ ] C3.2 ro: The reviewer panes the route reuses named in the task table, each cleared first ([`review-discipline.md`](review-discipline.md), Review-only routes).
-- [ ] C3.2 nopane: Each agent type runs as a Workflow stage or subagent with its contract in its prompt; the task table's Pane column says `none`, and `route-check.sh` skips its pane check ([`optional-techniques.md`](optional-techniques.md), Without agent panes).
+- [ ] C3.2 nopane: Kept whenever any role runs as a Workflow stage or subagent (all roles, or a mixed route): each such role gets its contract in its prompt, its task-table rows say `none` in the Pane column and are checked by agent or task id, and `herdsman route check` skips the pane check; the Herdr roles' rows keep their pane ids, pane verification and pane operations ([`optional-techniques.md`](optional-techniques.md), Without agent panes).
 - [ ] C3.3 pr int gate2 ship: Each agent started one per call, as step 3 items 4 and 5 say; each folder-trust dialog answered as the plan says; each harness's usage line read ([`SKILL.md`](../SKILL.md), step 3; [`flow-and-time.md`](flow-and-time.md), Quota is capacity).
 - [ ] C3.4 all: Each prompt is a full brief with a due time from `date`, logged in `00-route.md`, and passed to the waiter ([`SKILL.md`](../SKILL.md), step 3 items 6 and 9).
 - [ ] C3.5 all: Each pane read after its prompt as step 3 item 8 says: the prompt echoed and the working marker shown ([`SKILL.md`](../SKILL.md), step 3).
 - [ ] C3.6 all: Checkpointer probed, then started in its own pane, unless the user declined it ([`SKILL.md`](../SKILL.md), step 3 item 10).
-- [ ] C3.7 all: `route-check.sh <route folder>` without a MISSING or BAD line before the first agent of the route starts or gets a prompt, and with `launch` once the task table names every pane, or at once in a `nopane` route ([`SKILL.md`](../SKILL.md), step 3).
+- [ ] C3.7 all: `herdsman route check <route folder>` without a MISSING or BAD line before the first agent of the route starts or gets a prompt, and with `launch` once the task table names every pane, or at once in a `nopane` route ([`SKILL.md`](../SKILL.md), step 3).
 - [ ] C3.8 pr int gate2 ship: The reviewer's first job, the base gates, prompted with the implementers' first prompts ([`SKILL.md`](../SKILL.md), step 3 item 6).
 - [ ] C3.9 int: The integrator started and prompted as step 3 item 7 says, each phase written into its contract first ([`SKILL.md`](../SKILL.md), step 3 item 7).
 
@@ -65,10 +65,10 @@ The steps of [`SKILL.md`](../SKILL.md) as lines to tick, each linked to the rule
 ### Every wake (re-read on each wake; never ticked)
 
 - Handle each event as step 4 of [`SKILL.md`](../SKILL.md) says, then re-arm the waiter through its wrapper, or write "idle, waiter not armed" in `00-route.md` when nothing is in flight.
-- Run `agent-status.sh`; read each agent's pane after each prompt and after each re-arm ([`SKILL.md`](../SKILL.md), step 4).
+- Run `herdsman status`; read each agent's pane after each prompt and after each re-arm ([`SKILL.md`](../SKILL.md), step 4).
 - Compact or clear every agent that finished ([`context-hygiene.md`](context-hygiene.md)).
-- Log each state change with `route-log.sh` ([`SKILL.md`](../SKILL.md), step 6).
-- Read the open lines of this checklist (`route-check.sh <route folder> launch`).
+- Log each state change with `herdsman route log` ([`SKILL.md`](../SKILL.md), step 6).
+- Read the open lines of this checklist (`herdsman route check <route folder> launch`).
 
 ### Per review unit `<u>` (copy once per task branch, pull request or combined head)
 

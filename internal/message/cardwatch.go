@@ -15,7 +15,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// CardWatch is card-watch.sh: the supervised card and blocked-prompt
+// CardWatch is herdsman message card-watch: the supervised card and blocked-prompt
 // monitor. Side-agent cards on the watched panes are journaled and relayed
 // to the adjutant as side_agent_data from the orchestrator's transport;
 // blocked prompts alert; approved Codex goals resume; nothing else is

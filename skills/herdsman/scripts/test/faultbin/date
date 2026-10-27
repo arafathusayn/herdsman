@@ -1,6 +1,0 @@
-#!/bin/bash
-# Fixed clock for the message tests: with $FIXTURE/fixed-now, `date +%s` prints that file's value.
-here=$(cd "$(dirname "$0")" && pwd)
-real() { local d IFS=:; for d in $PATH; do [ "$d" = "$here" ] && continue; [ -x "$d/$1" ] && { printf '%s\n' "$d/$1"; return 0; }; done; return 127; }
-if [ "$*" = +%s ] && [ -f "$FIXTURE/fixed-now" ]; then exec "$(real cat)" "$FIXTURE/fixed-now"; fi
-exec "$(real date)" "$@"

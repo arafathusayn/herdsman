@@ -29,7 +29,7 @@ var (
 	openLine     = regexp.MustCompile(`^- \[ \] `)
 	closedLine   = regexp.MustCompile(`^- \[[x-]\] `)
 	nopaneLine   = regexp.MustCompile(`^- \[[ x]\] C3\.2 nopane: `)
-	// The adjutant rule's patterns, as route-check.sh greps them.
+	// The adjutant rule's patterns, as herdsman route check greps them.
 	adjutantLine  = regexp.MustCompile(`(?i)^[^[:alnum:]]*adjutant:[[:space:]]*[^[:space:]]`)
 	noAdjutant    = regexp.MustCompile(`(?i)adjutant:[[:space:]]*(none|no|-)([[:space:]]|$)`)
 	questionsLine = regexp.MustCompile(`^[^[:alnum:]]*Questions: through the adjutant`)
@@ -89,7 +89,7 @@ func columns(header string, want ...string) []int {
 }
 
 // Check checks what a route folder shows on disk, the way the skill's
-// route-check.sh does, and prints its lines to w: "ok <check>", "MISSING
+// herdsman route check does, and prints its lines to w: "ok <check>", "MISSING
 // <check>", "BAD <line> (...)" and "OPEN <text>". It is strict where Load
 // is lenient: a checklist line in any form but "- [ ] ", "- [x] ... --
 // <evidence>" or "- [-] ... -- <reason>" is BAD. It returns 1 on any
@@ -361,7 +361,7 @@ func gitIgnores(dir, file string) bool {
 }
 
 // AppendLogLine appends "- HH:MM <text>" to the route file at path, as
-// the skill's route-log.sh does: the text as given, the time from the
+// the old route log script did: the text as given, the time from the
 // clock. The file must exist.
 func AppendLogLine(path, text string, now time.Time) error {
 	if st, err := os.Stat(path); err != nil || !st.Mode().IsRegular() {

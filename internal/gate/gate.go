@@ -1,5 +1,5 @@
 // Package gate is the executor adapter for relayed gos (`herdsman
-// approval-gate`, from the skill's approval-gate.sh). It performs no effect
+// approval-gate`). It performs no effect
 // itself: the owning executor acts only after CONSUME.
 //
 //	consume <go-file> <action> <target> <revision> <draft-file|->   check every binding, then record consumption
@@ -152,7 +152,7 @@ func (g *Gate) run(args []string) exit {
 		return g.die(msg)
 	}
 	if r.ProofStale {
-		return g.die("sandbox policy or protected installation proof stale; repeat human setup")
+		return g.die("sandbox policy or protected installation proof stale; repeat human setup" + r.OldProofHint())
 	}
 	g.root = r
 	g.ap = r.Path("approvals")

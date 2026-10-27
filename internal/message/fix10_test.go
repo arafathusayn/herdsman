@@ -43,7 +43,7 @@ func TestR4FoldRefusalStopsEveryCaller(t *testing.T) {
 		c.relayBoundary()
 		var buf bytes.Buffer
 		e := &Env{Getenv: func(k string) string {
-			return map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed, "HERDR_PANE_ID": "sender-pane"}[k]
+			return map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDR_PANE_ID": "sender-pane"}[k]
 		}, Stdout: &buf, Stderr: &buf, Client: herdr.New(c.srv.Socket)}
 		err := e.resumeRun([]string{"im-task"}, func() { publishFault(t, c) })
 		e.releaseAll()
@@ -121,7 +121,7 @@ func TestR4WaitHealthOutputFailure(t *testing.T) {
 				c.ic.WriteJSON(c.in(A, "notices", ID+".md.json"), map[string]any{"id": ID, "to": O, "state": "quarantined", "authority": "notice-only"})
 				want = "HEALTH sender notice"
 			}
-			env := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed, "HERDR_PANE_ID": pane, "WATCH_REQUIRED": "0", "DEADLINE": "2", "RECHECK": "1"}
+			env := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDR_PANE_ID": pane, "WATCH_REQUIRED": "0", "DEADLINE": "2", "RECHECK": "1"}
 			e := &Env{Getenv: func(k string) string { return env[k] }, Stdout: deltaFailedWriter{}, Stderr: io.Discard, Client: herdr.New(c.srv.Socket), Now: func() time.Time { return c.now }, Sleep: func(d time.Duration) { c.now = c.now.Add(d) }}
 			code := e.Wait([]string{me})
 			var next bytes.Buffer

@@ -100,7 +100,7 @@ Purple is planning with you, blue is agents at work, grey is the orchestrator as
 - **An optional adjutant.** You talk to an adjutant while the orchestrator works. Messages go through a private file channel: an approved pair, a courier that checks every message, a watcher, and alerts when either stops ([`references/messages.md`](skills/herdsman/references/messages.md)).
 - **Event-driven waits.** The orchestrator wakes on a new report, a new review, a blocked agent or a stalled one, and sleeps otherwise.
 - **Health checks.** Each wake shows every agent's state, model, background jobs and their ages, recent file writes, and the machine's load and free memory. Long-running jobs, idle trees and a loaded machine are flagged. Between wakes the waiter checks every ten minutes and wakes the orchestrator only for a new flag.
-- **One heavy check at a time.** Type checks, lint, tests and builds go through [`run-check.sh`](skills/herdsman/scripts/run-check.sh): a machine-wide lock with a load gate, at lower CPU priority, so checks queue instead of piling up.
+- **One heavy check at a time.** Type checks, lint, tests and builds go through `herdsman run-check`: a machine-wide lock with a load gate, at lower CPU priority, so checks queue instead of piling up.
 
 **Manage context**
 
@@ -129,7 +129,7 @@ ln -s "$PWD/herdsman/skills/herdsman" <harness skills folder>/herdsman
 
 </details>
 
-**3. Start the orchestrator** inside a herdr pane. The skill stops when `HERDR_ENV` is not `1`.
+**3. Start the orchestrator** inside a herdr pane. Outside herdr (`HERDR_ENV` is not `1`), the skill asks whether each role's agents run in herdr panes or as background subagents of the orchestrator's harness.
 
 ## Usage
 
@@ -223,22 +223,19 @@ herdsman web --public-url https://<machine>.<tailnet>.ts.net
 
 | Tool | Why |
 | --- | --- |
-| `/bin/bash` 3.2+ | Runs the scripts. They avoid associative arrays, so the macOS default shell works, with either BSD or GNU tools, started from bash or zsh. |
-| `jq` | Used by [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh). The message scripts need a `jq` with streaming and `IN` support. |
-| `nc` with Unix sockets | Only with an adjutant: the message courier and waiter read Herdr events through it. |
+| The `herdsman` binary | On `PATH` (the Homebrew cask or a release archive, see Install). The skill runs every command through it (`herdsman route check`, `herdsman wait`, `herdsman run-check`, `herdsman checkpointer`, `herdsman message` and the rest); no bash, `jq` or `nc` needed. |
 | GitHub CLI (`gh`) | A version with `gh skill` (tested with 2.101.0) to install the skill; any recent version when the route opens pull requests. |
-| Memory checkpoint command | Needed in the orchestrator's harness. The checkpointer's prompt is set at the top of [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh). |
+| Memory checkpoint command | Needed in the orchestrator's harness. The checkpointer's default prompt is built into `herdsman checkpointer` (`PROMPT` overrides it). |
 
 ## Develop
 
-Run the tests after each change to the scripts, from zsh or bash:
+Run the checks after each change, from a clone with Go and Bun:
 
 ```sh
-zsh <skill folder>/scripts/test/run-tests.sh
-zsh <skill folder>/scripts/test/checkpointer-tests.sh
+make check
 ```
 
-`run-tests.sh` also runs `message-tests.sh` (the message channel) and adds its result. Started from zsh or sh, each test script re-runs itself under `/bin/bash`. CI runs both on macOS (bash 3.2, BSD tools) and Linux (GNU tools).
+The Go tests cover every `herdsman` command the skill runs (the waiter, the watchers, status, route check and log, run-check, the checkpointer and the message channel), with a fake Herdr socket server and a fake `gh`. CI runs them on macOS and Linux.
 
 <details>
 <summary>Try the checkpointer against a live orchestrator pane</summary>
@@ -246,7 +243,7 @@ zsh <skill folder>/scripts/test/checkpointer-tests.sh
 The probe sends nothing:
 
 ```sh
-TARGET=<orchestrator pane id> /bin/bash <skill folder>/scripts/checkpointer.sh --probe
+TARGET=<orchestrator pane id> herdsman checkpointer --probe
 ```
 
 To run it in its own pane, to the right of the orchestrator:
@@ -254,10 +251,10 @@ To run it in its own pane, to the right of the orchestrator:
 ```sh
 herdr pane split <orchestrator pane id> --direction right --ratio 0.7 --no-focus
 herdr pane rename <new pane id> checkpointer
-herdr pane run <new pane id> "TARGET=<orchestrator pane id> /bin/bash <skill folder>/scripts/checkpointer.sh"
+herdr pane run <new pane id> "TARGET=<orchestrator pane id> herdsman checkpointer"
 ```
 
-The script reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 250000), `PROMPT` and `COMPACT` from the environment. `--once` runs one checkpoint now and exits.
+The command reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 250000), `PROMPT` and `COMPACT` from the environment. `--once` runs one checkpoint now and exits.
 
 </details>
 
@@ -268,7 +265,7 @@ The script reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 250
 - **A lock, not a rule.** A sentence in each contract does not stop agents from starting heavy checks at the same moment. A lock shared by every agent on the machine does, and the kernel frees it when its holder exits.
 - **One herdr change per call.** Two changes in one shell call have failed without output.
 - **Deadlines belong to the orchestrator.** Agents ignored stop times written in their own briefs, and a queued instruction runs only when the agent's turn ends. So the orchestrator interrupts when a deadline passes.
-- **Context size from the transcript.** The checkpointer reads the input and cache token counts of the orchestrator's last turn from its session transcript. The included reader expects JSONL transcripts with a usage block per turn; for another format, replace `transcript()` and `context_tokens()` in [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh).
+- **Context size from the transcript.** The checkpointer reads the input and cache token counts of the orchestrator's last turn from its session transcript. The included reader expects JSONL transcripts with a usage block per turn; another format needs a change to that reader in `herdsman checkpointer`.
 
 ## License
 

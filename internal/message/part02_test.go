@@ -9,7 +9,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 )
 
-// message-tests.sh part 02: M4-M6, W, P1, P4, V3a/V3b, L1-L3.
+// Part 02: M4-M6, W, P1, P4, V3a/V3b, L1-L3.
 func TestPart02HoldsAlertsGrammarProofLeak(t *testing.T) {
 	c := newCase(t, true)
 	c.send()
@@ -75,18 +75,19 @@ func TestPart02HoldsAlertsGrammarProofLeak(t *testing.T) {
 	check(t, "P4c a changed sandbox policy file after the setup is refused", "proof stale; repeat human setup", out)
 	check(t, "P4d before any state is created", "^no$", yn(c.in("state")))
 	c.write(c.base("ignore-rule"), "sandbox policy\n")
-	c.editJSON(c.ic.Proof, func(m map[string]any) { m["scripts"].([]any)[0].(map[string]any)["checksum"] = "1-1" })
+	c.editJSON(c.ic.Proof, func(m map[string]any) { m["binary"].(map[string]any)["checksum"] = "1-1" })
 	out, _ = c.run("sender-pane", nil, "register", "propose", A, "adjutant")
-	check(t, "P4e a changed protected script checksum is refused", "proof stale; repeat human setup", out)
+	check(t, "P4e a changed protected binary checksum is refused", "proof stale; repeat human setup", out)
 	c.ic.Prove()
 	for _, reserved := range []string{"setup", "peers", "state", "ids", "alerts"} {
 		out, _ = c.run("sender-pane", nil, "register", "propose", reserved, "adjutant")
 		check(t, "V3a the reserved name "+reserved+" cannot enroll", "propose <name> adjutant|orchestrator", out)
 	}
 	check(t, "V3b and no mailbox or state was created", "^no no$", yn(c.in("state"))+" "+yn(c.in("setup", "new")))
-	c.editJSON(c.ic.Proof, func(m map[string]any) { m["scripts"] = m["scripts"].([]any)[1:] })
+	c.editJSON(c.ic.Proof, func(m map[string]any) { m["scripts"] = []any{} })
 	out, _ = c.run("sender-pane", nil, "register", "propose", A, "adjutant")
-	check(t, "P4f a manifest that leaves out an installed script is refused", "proof stale; repeat human setup", out)
+	check(t, "P4f an old proof that lists scripts is refused, with how to set up again", `proof stale; repeat human setup \(the proof lists \.scripts\[\].*replace \.scripts\[\] with "binary"`, out)
+	c.ic.Prove()
 	check(t, "P4g and no state exists", "^no$", yn(c.in("state")))
 
 	leak := func(env map[string]string, args ...string) (string, int) {

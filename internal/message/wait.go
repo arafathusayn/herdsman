@@ -13,7 +13,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// Wait is message-wait.sh <me>: one wake per change of the unread state,
+// Wait is `herdsman message wait` (args: <me>): one wake per change of the unread state,
 // the sender notices, the overdue deliveries and the health flags; TICK at
 // DEADLINE. Change fingerprints persist across runs in state/wait-<me>.
 func (e *Env) Wait(args []string) int { return e.finish(e.wait(args)) }

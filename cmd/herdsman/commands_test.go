@@ -29,6 +29,86 @@ func call(t *testing.T, args ...string) (string, string, int) {
 	return out.String(), errOut.String(), code
 }
 
+// Every command the skill and the README show answers --help with its own
+// usage and exit 0 (A25); a message action prints only its own line.
+func TestEveryDocumentedCommandHelp(t *testing.T) {
+	cases := []struct{ args, want string }{
+		{"route", "usage: herdsman route check"},
+		{"route check", "usage: herdsman route check"},
+		{"route log", "herdsman route log"},
+		{"status", "usage: herdsman status"},
+		{"wait", "usage: herdsman wait"},
+		{"watch", "usage: herdsman watch"},
+		{"watch implementers", "usage: herdsman watch"},
+		{"watch reviewer", "usage: herdsman watch"},
+		{"watch prs", "usage: herdsman watch"},
+		{"run-check", "usage: herdsman run-check"},
+		{"checkpointer", "herdsman checkpointer [--once"},
+		{"checkpointer guard", "usage: herdsman checkpointer guard <orchestrator-name> <pane>"},
+		{"transcript-audit", "usage: herdsman transcript-audit"},
+		{"approval-gate", "usage: herdsman approval-gate"},
+		{"message", "usage: herdsman message"},
+		{"models", "usage: herdsman models"},
+		{"models last", "usage: herdsman models"},
+		{"models save", "usage: herdsman models"},
+		{"afk", "usage: herdsman afk"},
+		{"web", "-port"},
+		{"doctor", "usage: herdsman doctor"},
+		{"review start", "usage: herdsman review start"},
+	}
+	actions := []string{"status", "wait", "read", "release", "ack", "send", "hold", "unhold", "register", "courier", "card-watch", "resume-goal", "authority", "leak-gate"}
+	for _, a := range actions {
+		want := "usage: herdsman message [--json] " + a
+		if a == "unhold" {
+			want = "| unhold <name>" // one line with hold
+		}
+		cases = append(cases, struct{ args, want string }{"message " + a, want})
+	}
+	for _, c := range cases {
+		args := append(strings.Fields(c.args), "--help")
+		out, errOut, code := call(t, args...)
+		if code != 0 || !strings.Contains(out, c.want) {
+			t.Errorf("%s --help: exit %d, want %q in stdout %q (stderr %q)", c.args, code, c.want, out, errOut)
+		}
+	}
+	for _, a := range actions {
+		out, _, _ := call(t, "message", a, "--help")
+		if n := strings.Count(out, "usage: "); n != 1 || (a != "leak-gate" && strings.Contains(out, "leak-gate <file>")) {
+			t.Errorf("message %s --help prints more than its own action: %q", a, out)
+		}
+	}
+	// Each action's help names only the settings and exit codes it has.
+	for _, c := range []struct {
+		action        string
+		want, notWant []string
+	}{
+		{"leak-gate", []string{"LEAK_ALLOW_FILE", "1  a leak or a missing section"}, []string{"HERDSMAN_NAME", "HERDSMAN_INBOX", "HUMAN", "1  HEALTH"}},
+		{"register", []string{"HERDSMAN_INBOX is required"}, []string{"HERDSMAN_NAME", "HUMAN", "leak"}},
+		{"courier", []string{"HERDSMAN_INBOX is required"}, []string{"HERDSMAN_NAME", "HUMAN", "leak"}},
+		{"authority", []string{"HERDSMAN_INBOX is required", "3  HUMAN"}, []string{"HERDSMAN_NAME", "leak", "HELD"}},
+		{"resume-goal", []string{"HERDSMAN_INBOX is required", "3  HELD"}, []string{"HERDSMAN_NAME", "leak", "HUMAN"}},
+		{"send", []string{"HERDSMAN_NAME and HERDSMAN_INBOX are required"}, []string{"leak", "HUMAN", "1  HEALTH"}},
+		{"wait", []string{"HERDSMAN_NAME and HERDSMAN_INBOX are required", "1  HEALTH"}, []string{"leak", "HUMAN"}},
+	} {
+		out, _, _ := call(t, "message", c.action, "--help")
+		for _, w := range c.want {
+			if !strings.Contains(out, w) {
+				t.Errorf("message %s --help: want %q in %q", c.action, w, out)
+			}
+		}
+		for _, w := range c.notWant {
+			if strings.Contains(out, w) {
+				t.Errorf("message %s --help: %q is not this action's: %q", c.action, w, out)
+			}
+		}
+	}
+	// A trailing --help after an argument that is no subcommand goes to the
+	// command (run-check passes it on to the command it runs).
+	if out, _, code := call(t, "transcript-audit", "claude", "--help"); code != 2 || !strings.HasPrefix(out, "GAP usage") {
+		t.Errorf("transcript-audit claude --help: %d %q", code, out)
+	}
+}
+
 func TestHelpListsEveryCommand(t *testing.T) {
 	out, _, code := call(t, "help")
 	for _, name := range []string{"status", "route", "run-check", "wait", "watch", "approval-gate", "transcript-audit", "web"} {
@@ -80,7 +160,7 @@ func TestUsageErrors(t *testing.T) {
 	}
 }
 
-// run-tests.sh L1, L1b, L2, L2b and Z2 (the text kept as given).
+// The old shell suite's L1, L1b, L2, L2b and Z2 (the text kept as given).
 func TestRouteLog(t *testing.T) {
 	now = func() time.Time { return time.Date(2026, 10, 25, 7, 5, 0, 0, time.Local) }
 	t.Cleanup(func() { now = time.Now })
@@ -170,10 +250,17 @@ func TestTranscriptAuditThroughTheCommand(t *testing.T) {
 	}
 	p := filepath.Join(t.TempDir(), "t.jsonl")
 	_ = os.WriteFile(p, []byte(`{"type":"assistant","sessionId":"s1","message":{"content":[{"type":"tool_use","id":"b1","name":"Bash","input":{"command":"git push"}}]}}`+"\n"), 0o644)
-	t.Setenv("AUDIT_CHANNEL_DIR", "/skill/scripts")
 	out, _, code = call(t, "transcript-audit", "claude", p, "s1")
 	if code != 1 || !strings.HasPrefix(out, "FLAG tool=Bash call=b1 class=git-write") {
 		t.Errorf("flag: %d %q", code, out)
+	}
+	// The channel scripts are gone: a run of one by its old path is a script
+	// run like any other, and AUDIT_CHANNEL_DIR no longer exempts it.
+	_ = os.WriteFile(p, []byte(`{"type":"assistant","sessionId":"s1","message":{"content":[{"type":"tool_use","id":"s1","name":"Bash","input":{"command":"/bin/bash /skill/scripts/message.sh status"}}]}}`+"\n"), 0o644)
+	t.Setenv("AUDIT_CHANNEL_DIR", "/skill/scripts")
+	out, _, code = call(t, "transcript-audit", "claude", p, "s1")
+	if code != 1 || !strings.HasPrefix(out, "FLAG tool=Bash call=s1 class=script-run target=bash") {
+		t.Errorf("old channel script: %d %q", code, out)
 	}
 }
 
@@ -412,8 +499,6 @@ func TestMissingRequiredSettingsExit2(t *testing.T) {
 		{"watch prs STATE", map[string]string{"HERDSMAN_PRS": "7", "HERDSMAN_REPO": "o/r", "HERDSMAN_PR_STATE": ""}, []string{"watch", "prs"}, line("watch prs", "HERDSMAN_PR_STATE")},
 		{"approval-gate consume", map[string]string{"HERDSMAN_INBOX": ""}, []string{"approval-gate", "consume", "/x/go", "push", "t", "r", "-"}, line("approval-gate", "HERDSMAN_INBOX")},
 		{"approval-gate complete", map[string]string{"HERDSMAN_INBOX": ""}, []string{"approval-gate", "complete", "id", "done"}, line("approval-gate", "HERDSMAN_INBOX")},
-		// Review head-2 P2: an unconfigured install is told apart from a changed proof.
-		{"approval-gate MESSAGES_DIR", map[string]string{"HERDSMAN_INBOX": t.TempDir(), "HERDSMAN_MESSAGES_DIR": ""}, []string{"approval-gate", "consume", "/x/go", "push", "t", "r", "-"}, line("approval-gate", "HERDSMAN_MESSAGES_DIR")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for k, v := range tc.env {
@@ -430,7 +515,7 @@ func TestMissingRequiredSettingsExit2(t *testing.T) {
 // Review head-2 P2: approval-gate --help names the settings it needs.
 func TestGateHelpNamesItsSettings(t *testing.T) {
 	out, _, code := call(t, "approval-gate", "--help")
-	for _, s := range []string{"HERDSMAN_INBOX", "HERDSMAN_MESSAGES_DIR", "HERDSMAN_PREFLIGHT", "HEALTH_AFTER", "LOCK_WAIT"} {
+	for _, s := range []string{"HERDSMAN_INBOX", "HERDSMAN_PREFLIGHT", "HEALTH_AFTER", "LOCK_WAIT"} {
 		if code != 0 || !strings.Contains(out, s) {
 			t.Errorf("approval-gate --help does not name %s: %d %q", s, code, out)
 		}

@@ -1,6 +1,6 @@
 // Package watch holds the waiter and the watchers of the herdsman loop, as
-// the skill's wait-event.sh, watch-implementers.sh, watch-reviewer.sh and
-// watch-prs.sh run them: the same environment, state files, event lines
+// herdsman wait, herdsman watch implementers, herdsman watch reviewer and
+// herdsman watch prs run them: the same environment, state files, event lines
 // and poll intervals. Pane text comes through the herdr socket.
 package watch
 

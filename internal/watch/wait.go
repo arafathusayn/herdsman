@@ -28,7 +28,7 @@ var (
 	waitStalledRE = posix(`Goal stalled|Apply for Daybreak`)
 )
 
-// Wait is the one-shot waiter (`herdsman wait`, from wait-event.sh): it
+// Wait is the one-shot waiter (`herdsman wait`): it
 // polls every POLL seconds and returns after the first pass with an event,
 // printing every event of that pass, or after DEADLINE seconds with a TICK
 // line. Events: REPORT, REPORT-UPDATED, REVIEW, BLOCKED, GOAL-DONE-NO-REPORT,

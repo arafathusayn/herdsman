@@ -14,7 +14,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/shnum"
 )
 
-// Courier is message-courier.sh: it moves each verified message from new
+// Courier is herdsman message courier: it moves each verified message from new
 // to ready and each failed one to quarantine (with a permanent disposition
 // and a sender notice), reports the recipients' counts, alerts on
 // incidents, keeps the heartbeat, and sweeps on event hints with SWEEP

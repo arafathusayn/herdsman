@@ -63,7 +63,8 @@ func rawObject(b []byte) (kv, bool) {
 
 var seqRe = regexp.MustCompile(`^(0|[1-9][0-9]{0,11})$`)
 
-// Send is message-send.sh <from> <to> <body-file> <kind> [reply-to-id].
+// Send is `herdsman message send` (args: <from> <to> <body-file> <kind>
+// [reply-to-id]).
 func (e *Env) Send(args []string) int { return e.finish(e.send(args)) }
 
 func (e *Env) send(args []string) error {

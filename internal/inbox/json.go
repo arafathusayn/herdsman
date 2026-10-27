@@ -4,7 +4,7 @@
 // POSIX cksum digest, the name and id rules, the path and symlink guards,
 // the mkdir+pid locks, the registry, the live identity check, the setup
 // proof and the authority decision. It keeps the rules, paths and formats
-// of the skill's messages/message-lib.sh, so the scripts and the herdsman
+// of the old channel library, so the old scripts and the herdsman
 // binary can share one inbox.
 //
 // The read side is safe for any reader (the web app uses it). The write

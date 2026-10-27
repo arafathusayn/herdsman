@@ -20,11 +20,10 @@ type Options struct {
 	// ReadOnly opens the inbox as a reader: a stale proof or timing file is
 	// recorded, not fatal, and no state folder is created.
 	ReadOnly bool
-	// Installed is the folder of the installed channel scripts whose files
-	// the setup proof must list (see PreflightValid): the skill's installed
-	// scripts/messages folder, absolute, from HERDSMAN_MESSAGES_DIR in the
-	// commands. "" (or a folder without message-lib.sh) makes every proof stale.
-	Installed string
+	// Executable is the absolute path of the herdsman binary that the setup
+	// proof must name (see PreflightValid). "" takes the running binary,
+	// links resolved.
+	Executable string
 
 	Now   func() time.Time    // nil: time.Now
 	Sleep func(time.Duration) // nil: time.Sleep
@@ -34,7 +33,7 @@ type Options struct {
 type Root struct {
 	Dir         string
 	Preflight   string
-	Installed   string
+	Executable  string
 	HealthAfter int
 	LockWait    int
 	ReadOnly    bool
@@ -74,7 +73,10 @@ var adminDirs = []string{"state", "alerts", "ids", "enrolled", "card-events", "c
 // program: the scripts' check for herdr, jq and nc has no counterpart.
 // Every error is a *Fatal with the scripts' message.
 func Open(o Options) (*Root, error) {
-	r := &Root{Dir: o.Dir, Preflight: o.Preflight, Installed: o.Installed, ReadOnly: o.ReadOnly, now: o.Now, sleep: o.Sleep}
+	r := &Root{Dir: o.Dir, Preflight: o.Preflight, Executable: o.Executable, ReadOnly: o.ReadOnly, now: o.Now, sleep: o.Sleep}
+	if r.Executable == "" {
+		r.Executable = RunningExecutable()
+	}
 	if r.now == nil {
 		r.now = time.Now
 	}
@@ -142,7 +144,7 @@ func Open(o Options) (*Root, error) {
 	if !r.PreflightValid() {
 		r.ProofStale = true
 		if !r.ReadOnly {
-			return nil, die("sandbox policy or protected installation proof stale; repeat human setup")
+			return nil, die("sandbox policy or protected installation proof stale; repeat human setup%s", r.OldProofHint())
 		}
 	}
 	// A linked or non-folder entry of these was refused with adminDirs above.

@@ -25,7 +25,7 @@ const (
 	ID = "m000000000001"
 )
 
-// tc is one case of message-tests.sh's new_case: a private inbox with a
+// tc is one case of the old message suite's new_case: a private inbox with a
 // setup proof, a fake herdr with two agents, and on request an enrolled
 // and approved pair. The clock is fake: a sleep advances it.
 type tc struct {
@@ -37,6 +37,9 @@ type tc struct {
 	// env is added to every command's environment.
 	env    map[string]string
 	events Events
+	// onSleep, when set, runs after each sleep of a command, so a case can
+	// act between a long-running command's passes.
+	onSleep func()
 }
 
 func newCase(t *testing.T, enroll bool) *tc {
@@ -154,8 +157,7 @@ func nfiles(dir, pattern string) int {
 // (2>&1) and its exit code.
 func (c *tc) run(pane string, extra map[string]string, cmd string, args ...string) (string, int) {
 	c.t.Helper()
-	env := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed,
-		"HERDR_PANE_ID": pane, "WATCH_REQUIRED": "0"}
+	env := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDR_PANE_ID": pane, "WATCH_REQUIRED": "0"}
 	for k, v := range c.env {
 		env[k] = v
 	}
@@ -164,7 +166,12 @@ func (c *tc) run(pane string, extra map[string]string, cmd string, args ...strin
 	}
 	var out bytes.Buffer
 	e := &Env{Getenv: func(k string) string { return env[k] }, Stdout: &out, Stderr: &out, Client: herdr.New(c.srv.Socket),
-		Now: func() time.Time { return c.now }, Sleep: func(d time.Duration) { c.now = c.now.Add(d) }, Events: c.events, Executable: env["@EXE"]}
+		Now: func() time.Time { return c.now }, Sleep: func(d time.Duration) {
+			c.now = c.now.Add(d)
+			if c.onSleep != nil {
+				c.onSleep()
+			}
+		}, Events: c.events, Executable: env["@EXE"]}
 	var code int
 	switch cmd {
 	case "message":
@@ -200,8 +207,7 @@ func (c *tc) run(pane string, extra map[string]string, cmd string, args ...strin
 // runConcurrent runs a command on the real clock, for cases that race two
 // processes.
 func (c *tc) runConcurrent(pane, cmd string, args ...string) string {
-	env := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed,
-		"HERDR_PANE_ID": pane, "WATCH_REQUIRED": "0"}
+	env := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDR_PANE_ID": pane, "WATCH_REQUIRED": "0"}
 	var out bytes.Buffer
 	e := &Env{Getenv: func(k string) string { return env[k] }, Stdout: &out, Stderr: &out, Client: herdr.New(c.srv.Socket)}
 	switch cmd {

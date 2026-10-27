@@ -22,7 +22,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/status"
 )
 
-// The W, R, E and Z1 cases of the skill's run-tests.sh. Each run is one
+// The W, R, E and Z1 cases of the old shell suite. Each run is one
 // pass: the sleep stub ends the loop, as the shell suite's `sleep` stub did.
 
 type harness struct {

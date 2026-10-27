@@ -11,7 +11,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// message-tests.sh parts 15-18: the V3R regressions.
+// Parts 15-18: the V3R regressions.
 func TestPart15Regressions(t *testing.T) {
 	c := newCase(t, true)
 	c.send()
