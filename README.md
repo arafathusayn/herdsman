@@ -142,7 +142,7 @@ git clone https://github.com/arafathusayn/herdsman.git
 ln -s "$PWD/herdsman/skills/herdsman" <harness skills folder>/herdsman
 ```
 
-A skill from `main` needs a `herdsman` built from the same clone (`make build`) until the next release.
+A skill from `main` needs a `herdsman` built from the same clone (`make build`), because `main` can be ahead of the latest release.
 
 </details>
 
@@ -207,12 +207,10 @@ Besides `web`, the `herdsman` command holds the tools the skill runs, in one Go 
 | `approval-gate consume\|complete` | Binds a relayed go to one effect before it runs, and records its outcome. |
 | `transcript-audit claude\|codex` | Audits a Claude or Codex transcript for writes. |
 | `run-check` | Runs one heavy check at a time on this machine, behind a load gate, at a lower priority. |
-| `doctor` *(next release)* | Checks that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load. |
-| `models [last\|save]` *(next release)* | Probes each installed harness for its version, models and efforts; `last` and `save` keep your last pick for each role. |
-| `afk` *(next release)* | How long you have been away: the machine's idle time or your newest message, whichever is newer. |
-| `review start` *(next release)* | Prepares a clean, detached worktree at a commit for a reviewer, with its own build caches. |
-
-Commands marked *next release* are on `main`; build from source to use them now.
+| `doctor` | Checks that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load. |
+| `models [last\|save]` | Probes each installed harness for its version, models and efforts; `last` and `save` keep your last pick for each role. |
+| `afk` | How long you have been away: the machine's idle time or your newest message, whichever is newer. |
+| `review start` | Prepares a clean, detached worktree at a commit for a reviewer, with its own build caches. |
 
 ## Web app
 
@@ -270,7 +268,7 @@ herdsman web --public-url https://<machine>.<tailnet>.ts.net
 | GitHub CLI (`gh`) | A version with `gh skill` (tested with 2.101.0) to install the skill; any recent version when the route opens pull requests. |
 | Memory checkpoint command | Needed in the orchestrator's harness. The checkpointer's default prompt is built into `herdsman checkpointer` (`PROMPT` overrides it). |
 
-`gh skill install` takes the skill from the latest release. Until the next release, that skill (v0.5.0) still runs shell scripts and also needs `/bin/bash` 3.2+, `jq`, and `nc` with Unix sockets when the route has an adjutant.
+`gh skill install` takes the skill from the latest release. Keep the skill and the `herdsman` binary on the same release: `gh skill update` for the skill, `brew upgrade --cask herdsman` for the binary.
 
 ## Develop
 

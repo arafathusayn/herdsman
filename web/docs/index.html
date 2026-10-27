@@ -278,7 +278,7 @@ ln -s "$PWD/herdsman/skills/herdsman" &lt;harness skills folder&gt;/herdsman</co
             <p>
               A skill from <code>main</code> needs a <code>herdsman</code> built from the same clone (<code
                 >make build</code
-              >) until the next release.
+              >), because <code>main</code> can be ahead of the latest release.
             </p>
           </details>
 
@@ -355,10 +355,6 @@ make build</code></pre>
           <p>Check it, then check that this machine can run a route:</p>
           <pre><code>herdsman version
 herdsman doctor</code></pre>
-          <p class="muted">
-            <code>herdsman doctor</code> is on <code>main</code> and comes with the next release; build from source to
-            use it now.
-          </p>
         </section>
 
         <!-- Team -->
@@ -746,26 +742,26 @@ herdsman &lt;command&gt; --help</code></pre>
                   <td>Runs one heavy check at a time on this machine, behind a load gate, at a lower priority.</td>
                 </tr>
                 <tr>
-                  <td><code>doctor</code><br /><span class="muted">next release</span></td>
+                  <td><code>doctor</code></td>
                   <td>
                     Checks that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.
                   </td>
                 </tr>
                 <tr>
-                  <td><code>models</code><br /><span class="muted">next release</span></td>
+                  <td><code>models</code></td>
                   <td>
                     Probes each installed harness for its version, models and efforts. <code>models last</code> and
                     <code>models save</code> keep your last pick for each role.
                   </td>
                 </tr>
                 <tr>
-                  <td><code>afk</code><br /><span class="muted">next release</span></td>
+                  <td><code>afk</code></td>
                   <td>
                     How long you have been away: the machine's idle time or your newest message, whichever is newer.
                   </td>
                 </tr>
                 <tr>
-                  <td><code>review</code><br /><span class="muted">next release</span></td>
+                  <td><code>review</code></td>
                   <td>
                     <code>review start --worktree &lt;path&gt; --head &lt;commit&gt;</code>
                     prepares a clean, detached worktree for a reviewer, with its own build caches.
@@ -774,9 +770,6 @@ herdsman &lt;command&gt; --help</code></pre>
               </tbody>
             </table>
           </div>
-          <p class="muted">
-            The commands marked <i>next release</i> are on <code>main</code>; build from source to use them now.
-          </p>
         </section>
 
         <!-- Web app -->
@@ -1136,9 +1129,9 @@ herdsman &lt;command&gt; --help</code></pre>
               <path d="M11 12h1v5h1" />
             </svg>
             <span
-              ><code>gh skill install</code> takes the skill from the latest release. Until the next release, that skill
-              (v0.5.0) still runs shell scripts and also needs <code>/bin/bash</code> 3.2+, <code>jq</code>, and
-              <code>nc</code> with Unix sockets when the route has an adjutant. A skill linked from a clone of
+              ><code>gh skill install</code> takes the skill from the latest release. Keep the skill and the
+              <code>herdsman</code> binary on the same release: <code>gh skill update</code> for the skill,
+              <code>brew upgrade --cask herdsman</code> for the binary. A skill linked from a clone of
               <code>main</code> needs a <code>herdsman</code> built from <code>main</code>.</span
             >
           </p>
