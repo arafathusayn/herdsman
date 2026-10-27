@@ -11,7 +11,7 @@ import (
 // GuardUsage is the guard's usage line.
 const GuardUsage = "usage: herdsman checkpointer guard <orchestrator-name> <pane>"
 
-// Guard is checkpointer-guard.sh: a read-only check, right before each
+// Guard is herdsman checkpointer guard: a read-only check, right before each
 // input in adjutant mode, that the approved registry names pane as the
 // orchestrator name and that its live session still matches. It returns
 // the stdout line ("OK name pane") and 0, or the stderr text and 2.

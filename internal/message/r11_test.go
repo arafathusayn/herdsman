@@ -12,7 +12,7 @@ import (
 )
 
 // Round 11 (PR #32 bot, item 1): once the envelope is queued, a health
-// failure is a warning, as `health || :` in message-send.sh: the courier
+// failure is a warning, as the old send script's `health || :`: the courier
 // is down (no heartbeat) and its alert's pending record is a link, so the
 // alert cannot be written; send still prints the queued receipt, exit 0.
 func TestR11SendQueuedDespiteHealthFault(t *testing.T) {

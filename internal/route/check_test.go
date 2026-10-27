@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// The K cases of the skill's run-tests.sh: route-check.sh on a route folder.
+// The K cases of the old shell suite: herdsman route check on a route folder.
 
 func krepo(t *testing.T) string {
 	t.Helper()
@@ -209,7 +209,7 @@ func TestCheckContracts(t *testing.T) {
 	k2 := filepath.Join(repo, ".herdsman", "r2")
 	head := []string{"# Route r2", "## Decisions", "- x", "## Must prove", "- y", "## Task table", "| Task | Agent | Pane | Contract |", "| --- | --- | --- | --- |"}
 	rows := []string{"| a | im-a | w1:p2 | 11-task-a.md |", "| b | rt-b | w1:p3 | 12-task-b.md |", "| i | im-a | w1:p2 | 15-task-i.md |",
-		"| review | rv-1 | w2:p1 | - |", "| checkpointer | checkpointer.sh | w1:p5 | - |"}
+		"| review | rv-1 | w2:p1 | - |", "| checkpointer | herdsman checkpointer | w1:p5 | - |"}
 	tail := []string{"## Checklist", "- [x] C2.5 pr int gate2 ship: contracts -- 10-shared-rules.md", "## Run state"}
 	route := func(rows ...string) {
 		write(t, filepath.Join(k2, "00-route.md"), append(append(append([]string{}, head...), rows...), tail...)...)
@@ -399,7 +399,7 @@ func TestCheckDroppedRequirements(t *testing.T) {
 	want(t, "an open line is a requirement", `^MISSING executable run-check.sh`, out)
 }
 
-// The K23 cases of PR 28's run-tests.sh (feat/adjutant-owns-questions): a
+// The K23 cases of PR 28's shell suite (feat/adjutant-owns-questions): a
 // route with an adjutant records that every question, gos included, goes
 // through the adjutant, and keeps C2.13 open or done.
 func TestCheckAdjutantOwnsQuestions(t *testing.T) {

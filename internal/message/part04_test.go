@@ -28,7 +28,7 @@ func snapshot(t *testing.T, root string) string {
 	return strings.Join(b, "\n")
 }
 
-// message-tests.sh part 04: H1-H8.
+// Part 04: H1-H8.
 func TestPart04AlertsSingletonsStatus(t *testing.T) {
 	c := newCase(t, true)
 	c.fx.Shown(false)

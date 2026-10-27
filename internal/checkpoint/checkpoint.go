@@ -1,5 +1,5 @@
-// Package checkpoint is the checkpointer of the orchestrator pane, the port
-// of checkpointer.sh and checkpointer-guard.sh: every interval, when the
+// Package checkpoint is the checkpointer of the orchestrator pane, `herdsman
+// checkpointer` and `herdsman checkpointer guard`: every interval, when the
 // orchestrator did work since the last checkpoint, it waits until the
 // orchestrator is idle, sends a memory checkpoint prompt, waits for that
 // turn, then sends the compact command when the context is at or over the

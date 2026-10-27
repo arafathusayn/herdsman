@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 )
 
-// The write side of the channel, as message-lib.sh: atomic state files,
+// The write side of the channel, as the old channel library: atomic state files,
 // unique moves, mailboxes, the diagnostic log, the envelope and ack
 // checks and the queue counts. Every function keeps the script's paths and
 // formats, so the scripts and the binary can share one inbox.

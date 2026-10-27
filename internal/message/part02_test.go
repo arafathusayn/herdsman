@@ -9,7 +9,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 )
 
-// message-tests.sh part 02: M4-M6, W, P1, P4, V3a/V3b, L1-L3.
+// Part 02: M4-M6, W, P1, P4, V3a/V3b, L1-L3.
 func TestPart02HoldsAlertsGrammarProofLeak(t *testing.T) {
 	c := newCase(t, true)
 	c.send()

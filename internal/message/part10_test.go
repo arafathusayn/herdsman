@@ -26,7 +26,7 @@ func rogue() map[string]any {
 	return a
 }
 
-// message-tests.sh Z2-Z10 (parts 09 and 10) and Y4, Y5.
+// Z2-Z10 (parts 09 and 10) and Y4, Y5.
 func TestPart10BoundaryRacesHolds(t *testing.T) {
 	c := newCase(t, true)
 	c.watchTask("taint finding")

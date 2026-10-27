@@ -39,7 +39,7 @@ func newRig(t *testing.T) *rig {
 	return &rig{t: t, srv: srv, fx: herdrtest.Serve(srv), dir: dir}
 }
 
-// agent sets the fake `agent get` of w9:p9 as checkpointer-tests.sh's fake:
+// agent sets the fake `agent get` of w9:p9 as the old checkpointer suite's fake:
 // FAKE_AGENT, FAKE_KIND, FAKE_SID.
 func (r *rig) agent(pane, agent, kind, sid string) {
 	r.fx.SetAgent(pane, map[string]any{"pane_id": pane, "agent": agent, "agent_status": "idle",
@@ -144,7 +144,7 @@ func want(t *testing.T, name, got, w string) {
 	}
 }
 
-// The cases of checkpointer-tests.sh, in its order.
+// The cases of the old checkpointer suite, in its order.
 func TestCheckpointerSuite(t *testing.T) {
 	r := newRig(t)
 	r.agent("w9:p9", "claude", "id", "fake")
@@ -239,7 +239,7 @@ func TestCheckpointerSuite(t *testing.T) {
 	want(t, "TRANSCRIPT names a Codex rollout: its context is read", strings.TrimSpace(out[strings.LastIndex(out, "context=")+8:]), "300100")
 }
 
-// The P cases of run-tests.sh: --probe names the transcript and why. The
+// The P cases of the old shell suite: --probe names the transcript and why. The
 // fake reports only a session id (no harness), as the suite's fake herdr.
 func TestProbeCases(t *testing.T) {
 	r := newRig(t)

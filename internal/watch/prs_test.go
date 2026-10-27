@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-// The G and W10-W16 cases of run-tests.sh. A fake gh serves JSON fixtures
+// The G and W10-W16 cases of the old shell suite. A fake gh serves JSON fixtures
 // from a folder: <n>-view.json (gh pr view --json ...), <n>-comments.json,
 // <n>-inline.json and <n>-reviews.json (gh api ... --paginate); <n>-fail
 // makes every call for <n> fail, as a refused read does.

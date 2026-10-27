@@ -10,7 +10,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// Resume is resume-goal-when-idle.sh <name>: one approved Codex recovery
+// Resume is `herdsman message resume-goal <name>`: one approved Codex recovery
 // episode. NOOP or SENT exit 0; HELD exit 3; an error exit 2.
 func (e *Env) Resume(args []string) int { return e.finish(e.resume(args)) }
 

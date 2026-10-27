@@ -6,7 +6,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
-// Usage is message.sh's grammar line.
+// Usage is the grammar line of herdsman message.
 const Usage = "message: status|wait|read [claim]|release <claim>|ack <claim> <id> <record>|send <to> <file> <kind> [reply]|hold <name> <reason>|unhold <name>"
 
 // Help is `herdsman message --help`: the grammar and each command's exit codes.
@@ -36,10 +36,10 @@ exit codes:
   3  authority: HUMAN; resume-goal: HELD
 `
 
-// Main is `herdsman message <action> ...`: message.sh's grammar with
-// HERDSMAN_NAME as the caller's enrolled name, and the commands message.sh
-// does not front (register, courier, card-watch, resume-goal, authority,
-// leak-gate), which take their scripts' arguments.
+// Main is `herdsman message <action> ...`: the channel actions with
+// HERDSMAN_NAME as the caller's enrolled name, and the commands that need
+// no name (register, courier, card-watch, resume-goal, authority,
+// leak-gate), which take their own arguments.
 func (e *Env) Main(args []string) int {
 	var rest []string
 	for _, a := range args {
@@ -133,7 +133,7 @@ func (e *Env) Main(args []string) int {
 	return usage()
 }
 
-// Authority is message-authority.sh: RELAY and exit 0 under the protected
+// Authority is herdsman message authority: RELAY and exit 0 under the protected
 // setup, HUMAN and exit 3 otherwise.
 func (e *Env) Authority(args []string) int {
 	if len(args) != 0 {

@@ -25,7 +25,7 @@ const (
 	ID = "m000000000001"
 )
 
-// tc is one case of message-tests.sh's new_case: a private inbox with a
+// tc is one case of the old message suite's new_case: a private inbox with a
 // setup proof, a fake herdr with two agents, and on request an enrolled
 // and approved pair. The clock is fake: a sleep advances it.
 type tc struct {

@@ -36,7 +36,7 @@ func glob(dir, pattern string) ([]string, error) {
 	return ms, nil
 }
 
-// Status is message-status.sh [me]: the channel's metadata, read-only (no
+// Status is `herdsman message status` (args: [me]): the channel's metadata, read-only (no
 // lock, no herdr call, no bodies, no claim tokens).
 func (e *Env) Status(args []string) int { return e.finish(e.status(args)) }
 

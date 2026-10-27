@@ -23,7 +23,7 @@ const (
 )
 
 // Implementers is the implementer and integrator watcher (`herdsman watch
-// implementers`, from watch-implementers.sh). It never ends on its own:
+// implementers`). It never ends on its own:
 // REPORT, REPORT-UPDATED, BLOCKED (once per screen change), STALL and IDLE
 // lines, every ImplementersPoll. A pass whose state cannot be saved
 // prints its lines, then stops with exit 1.
@@ -96,8 +96,7 @@ func Implementers(ctx context.Context, env Env, d Deps) int {
 	}
 }
 
-// Reviewer is the reviewer watcher (`herdsman watch reviewer`, from
-// watch-reviewer.sh). It never ends on its own: REVIEW, BLOCKED and IDLE
+// Reviewer is the reviewer watcher (`herdsman watch reviewer`). It never ends on its own: REVIEW, BLOCKED and IDLE
 // lines, every ReviewerPoll. State it cannot save stops it with exit 1.
 func Reviewer(ctx context.Context, env Env, d Deps) int {
 	d.defaults(ctx)

@@ -10,7 +10,7 @@ import (
 )
 
 // Events opens event subscriptions: the hint transport that replaces
-// herdr-events.sh (mkfifo plus nc -U). Queue scans, never events, decide
+// the old event script (mkfifo plus nc -U). Queue scans, never events, decide
 // correctness; an event only wakes a scan early.
 type Events interface {
 	Open(ctx context.Context, subs []map[string]any) (Stream, error)

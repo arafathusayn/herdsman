@@ -1,5 +1,5 @@
 // Package inboxtest builds message-channel inboxes for tests, as the skill's
-// message-tests.sh new_case does: a private inbox (canonical, mode 700) with
+// the old message suite's new_case does: a private inbox (canonical, mode 700) with
 // a setup proof over an installed script folder, and on request an enrolled
 // and approved pair and the protected boundary.
 package inboxtest
@@ -13,7 +13,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// The names of the enrolled pair, as in message-tests.sh.
+// The names of the enrolled pair, as in the old message suite.
 const (
 	Adjutant     = "route-adjutant"
 	Orchestrator = "route-orchestrator"
@@ -138,7 +138,7 @@ func (c *Case) Enroll(adjPane, adjSession, orchPane, orchSession string) {
 
 // RelayBoundary records the protected human setup for the agents (herdr
 // agent records): the approved pair pinned and every other agent a
-// sandboxed lower-trust launch, as message-tests.sh relay_boundary does.
+// sandboxed lower-trust launch, as the old message suite's relay_boundary did.
 func (c *Case) RelayBoundary(agents ...map[string]any) {
 	c.t.Helper()
 	pair := c.ReadJSON(filepath.Join(c.Dir, "peers.approved"))

@@ -13,8 +13,8 @@ import (
 
 const holdUsage = "hold: <me> hold <name> <reason> | <me> unhold <name>"
 
-// Hold is message-hold.sh <me> hold <name> <reason> | <me> unhold <name>:
-// a named hold, one entry per owner, under the shared input lock.
+// Hold is `herdsman message hold` and `unhold` (args: <me> hold <name>
+// <reason> | <me> unhold <name>): a named hold, one entry per owner, under the shared input lock.
 func (e *Env) Hold(args []string) int { return e.finish(e.holdCmd(args)) }
 
 func (e *Env) holdCmd(args []string) error {

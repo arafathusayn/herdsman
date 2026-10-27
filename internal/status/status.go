@@ -1,5 +1,5 @@
 // Package status is the one-shot health snapshot of every agent, as the
-// skill's agent-status.sh prints it: the machine's load and memory, then
+// old status script printed it: the machine's load and memory, then
 // per agent its state, model, background jobs with their ages, the
 // foreground spinner, and the recent file writes in the tree it writes to.
 // A flag is a line suffix "  <-- <FLAG>", which the waiter reads.

@@ -18,7 +18,7 @@ func token(out string) string {
 	return ""
 }
 
-// message-tests.sh part 01: R, D, K, M1-M3, Q.
+// Part 01: R, D, K, M1-M3, Q.
 func TestPart01RegisterDeliverReadAck(t *testing.T) {
 	c := newCase(t, true)
 	reg := c.ic.ReadJSON(c.in("peers.approved"))

@@ -18,7 +18,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/machine"
 )
 
-// The C cases of the skill's run-tests.sh. The cases that need two
+// The C cases of the old shell suite. The cases that need two
 // processes run this test binary as the run-check command (helperMode).
 
 func TestMain(m *testing.M) {
@@ -402,47 +402,6 @@ func TestMarkersAndLockErrors(t *testing.T) {
 	if _, _, code := runIn(c); code != ExitUsage {
 		t.Errorf("a gated run without a command: %d", code)
 	}
-}
-
-// The script and the binary take the same lock: either one holding it makes
-// the other wait.
-func TestScriptAndBinaryExcludeEachOther(t *testing.T) {
-	script, _ := filepath.Abs("../../skills/herdsman/scripts/run-check.sh")
-	if _, err := os.Stat(script); err != nil {
-		t.Skip("no run-check.sh")
-	}
-	_, lockf := exec.LookPath("lockf")
-	_, flock := exec.LookPath("flock")
-	if lockf != nil && flock != nil {
-		t.Skip("neither lockf nor flock")
-	}
-	f := newFixture(t)
-	f.setReading(t, "0.5 50")
-	// The script holds it.
-	holder := exec.Command("/bin/bash", script, "sleep", "3")
-	holder.Env = append(withoutCheck(os.Environ()), f.env...)
-	if err := holder.Start(); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(700 * time.Millisecond)
-	out, err := helper(t, append(f.env, "HERDSMAN_LOCK_WAIT=1"), "echo", "ran").CombinedOutput()
-	_ = holder.Wait()
-	match(t, "X1 the binary waits for a lock the script holds", `NOT RUN \(no lock within 1s\)`, string(out))
-	if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != ExitTempFail {
-		t.Errorf("X1b exit 75: %v", err)
-	}
-	// The binary holds it.
-	bin := helper(t, f.env, "sleep", "3")
-	if err := bin.Start(); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(700 * time.Millisecond)
-	cmd := exec.Command("/bin/bash", script, "echo", "ran")
-	cmd.Env = append(withoutCheck(os.Environ()), append(f.env, "HERDSMAN_LOCK_WAIT=1")...)
-	out, _ = cmd.CombinedOutput()
-	_ = bin.Wait()
-	match(t, "X2 the script waits for a lock the binary holds", `NOT RUN \(no lock within 1s\)`, string(out))
-	noMatch(t, "X2b and does not run", `^ran$`, string(out))
 }
 
 func TestFromEnvDefaults(t *testing.T) {

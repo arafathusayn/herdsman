@@ -10,7 +10,8 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// Read is message-read.sh <me> [claim-token] [--release]: claim the ready
+// Read is `herdsman message read` and `release` (args: <me> [claim-token]
+// [--release]): claim the ready
 // messages and print manifests, never bodies; or release a fully
 // acknowledged claim.
 func (e *Env) Read(args []string) int { return e.finish(e.read(args)) }
@@ -157,7 +158,8 @@ func identityObjMap(id inbox.Identity) map[string]any {
 		"source": id.Session.Source, "value": id.Session.Value}}
 }
 
-// Ack is message-ack.sh <me> <claim-token> <id> <processing-record-file>.
+// Ack is `herdsman message ack` (args: <me> <claim-token> <id>
+// <processing-record-file>).
 func (e *Env) Ack(args []string) int { return e.finish(e.ack(args)) }
 
 func (e *Env) ack(args []string) error {

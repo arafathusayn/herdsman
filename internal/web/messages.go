@@ -110,7 +110,7 @@ type ChannelAlert struct {
 	Body  string `json:"body"`
 }
 
-// ChannelHold is one hold or resume intent. A hold written by `message.sh
+// ChannelHold is one hold or resume intent. A hold written by `herdsman message
 // hold` keeps one entry per owner, `{"holds":{"<owner>":{"reason","time"}}}`;
 // the target stays held while any entry stays. Other files carry no record.
 type ChannelHold struct {

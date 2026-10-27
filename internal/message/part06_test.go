@@ -31,7 +31,7 @@ func fault(t *testing.T, mode string, parts ...string) {
 	t.Cleanup(restore)
 }
 
-// message-tests.sh part 06: F, injected faults through the inbox's file calls.
+// Part 06: F, injected faults through the inbox's file calls.
 func TestPart06Faults(t *testing.T) {
 	c := newCase(t, true)
 	c.send()

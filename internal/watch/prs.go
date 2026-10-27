@@ -19,8 +19,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
-// PRs is the pull request watcher (`herdsman watch prs`, from
-// watch-prs.sh). It polls every HERDSMAN_PR_INTERVAL seconds (default 120)
+// PRs is the pull request watcher (`herdsman watch prs`). It polls every HERDSMAN_PR_INTERVAL seconds (default 120)
 // and returns on the first change on any watched pull request: a new
 // comment, inline comment or review (by id), a new head, a state change, or
 // a check whose newest run's result changes. Only failures, and the checks

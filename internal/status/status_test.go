@@ -37,7 +37,7 @@ func noMatch(t *testing.T, name, re, s string) {
 	}
 }
 
-// A1 and A2 of run-tests.sh: the machine line and the tree checks.
+// A1 and A2 of the old shell suite: the machine line and the tree checks.
 func TestMachineLineAndTrees(t *testing.T) {
 	quiet := filepath.Join(t.TempDir(), "quiet-tree")
 	if err := os.Mkdir(quiet, 0o755); err != nil {
