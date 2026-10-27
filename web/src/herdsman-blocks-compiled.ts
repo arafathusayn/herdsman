@@ -126,8 +126,10 @@ export function runs<N extends ViewNode>(items: readonly (string | number | N)[]
 /** Render a description into `container`: mount the first time, patch afterwards. */
 export function render(container: Node, d: ViewNode): void {
   const c = container as Container;
-  if (c[LISTENING] !== used.length) listen(c);
   draw(c, d as unknown as Desc, false);
+  // After drawing: a view first evaluated while drawing (inside a list
+  // callback, say) may have brought a new event type.
+  if (c[LISTENING] !== used.length) listen(c);
 }
 
 /** Like `render`, with every handler on its own element (no delegation). */
@@ -157,7 +159,6 @@ export function update(root: Element, d: ViewNode): void {
     desc = d as unknown as Desc;
   if (inst === undefined) throw new Error("herdsman-blocks-view: update() takes a root made by mount()");
   if (desc.t !== inst.t) throw new Error("herdsman-blocks-view: update() with a different view; mount() it instead");
-  if (r[LISTENING] !== used.length) listen(r);
   const outer = dir;
   dir = false;
   try {
@@ -165,6 +166,8 @@ export function update(root: Element, d: ViewNode): void {
   } finally {
     dir = outer;
   }
+  // After patching, as in render(): the patch may have brought a new event type.
+  if (r[LISTENING] !== used.length) listen(r);
 }
 
 function draw(c: Container, d: Desc, direct: boolean): void {
