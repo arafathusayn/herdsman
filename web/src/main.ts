@@ -1,4 +1,5 @@
-import { AuthError, openStream, pairStatus, readChannel, startSession, useHost } from "./api.ts";
+import { activityPinger } from "./activity.ts";
+import { AuthError, openStream, pairStatus, readChannel, sendActivity, startSession, useHost } from "./api.ts";
 import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "./appearance.ts";
 import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
@@ -39,6 +40,7 @@ import { ArtifactsView } from "./views/artifacts.ts";
 import { DiffView } from "./views/diff.ts";
 import { FilesView } from "./views/files.ts";
 import { confirmHost, keepPendingLink, openHosts, showConnect, takePendingLink } from "./views/hosts.ts";
+import { logView } from "./views/log-view.ts";
 import { MessagesView } from "./views/messages.ts";
 import { openNewRoute } from "./views/new-route.ts";
 import { showPairing } from "./views/pair.ts";
@@ -110,6 +112,11 @@ applyCodeTheme(loadCodeTheme(), false);
 loadWidths();
 installTooltips();
 store.on(render);
+// The user's own clicks and keys (route tabs, Changes, a terminal) say the
+// user is here, at most every 10 s (A33); timers never do.
+const ping = activityPinger(sendActivity, 10_000);
+document.addEventListener("pointerdown", ping, { capture: true, passive: true });
+document.addEventListener("keydown", ping, { capture: true, passive: true });
 
 boot().catch((e: unknown) => store.set({ fatal: e instanceof Error ? e.message : String(e) }));
 
@@ -874,18 +881,6 @@ function checklistView(r: Route): HTMLElement {
         h("span", null, i.text),
       );
     }),
-  );
-}
-
-function logView(r: Route): HTMLElement {
-  const lines = [...(r.run_state ?? [])].reverse();
-  if (!lines.length) return h("p", { class: "muted pad" }, "No run-state lines yet.");
-  return h(
-    "ol",
-    { class: "timeline" },
-    lines.map((l) =>
-      h("li", { class: l.text.startsWith("web:") ? "web" : "" }, h("time", null, l.time), h("p", null, l.text)),
-    ),
   );
 }
 

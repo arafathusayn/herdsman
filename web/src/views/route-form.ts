@@ -3,29 +3,41 @@
 // so the form can be driven in tests without a server or the app's store.
 import { h, icon, icons, mount } from "../dom.ts";
 import {
+  accountOptions,
   checklist,
   checkpointerAvailable,
   checkpointerOn,
+  effortOptions,
   effortsFor,
   formField,
+  freshFromLists,
   type HarnessChange,
   inboxKey,
-  initialForm,
   kindOf,
   knownFolders,
+  liveCatalog,
+  missingPicks,
+  newForm,
   OTHER,
+  pickSummary,
   preview,
+  previousPicks,
   projectLabel,
+  RECOMMENDED_SETUP,
+  roleKind,
   type RouteForm,
   setHarness,
+  setRecommended,
   setRole,
+  SETUP_QUESTIONS,
   skillWarnings,
   stepNote,
   toRequest,
   update,
+  usePrevious,
   validate,
 } from "../new-route.ts";
-import type { Catalog, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
+import type { Catalog, GitHubAccess, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
 
 export interface Deps {
   createRoute(r: RouteRequest): Promise<RouteResult>;
@@ -40,6 +52,8 @@ export interface Deps {
   every(ms: number, fn: () => void): () => void;
   /** Delays fn by ms; returns a cancel function. */
   later(ms: number, fn: () => void): () => void;
+  /** Probes the gh accounts that can read a folder's repository (A32); absent offers none. */
+  github?(folder: string): Promise<GitHubAccess>;
 }
 
 /** How often an open adjutant checklist rereads its inbox, so human steps show as they happen. */
@@ -73,12 +87,22 @@ const checkpointerFields = ["checkpointer", "minutes", "limit"];
  */
 export function routeForm(
   body: HTMLElement,
-  c: Catalog,
+  initial: Catalog,
   st: State | null,
   deps: Deps,
-): { stop(): void; form(): RouteForm } {
-  let f: RouteForm = initialForm(c, st);
+  opts: { usePrevious?: boolean; recommended?: boolean; needLists?: (() => void) | undefined } = {},
+): { stop(): void; form(): RouteForm; sent(): boolean; setCatalog(next: Catalog): void } {
+  let c = initial;
+  let f: RouteForm = newForm(c, st);
+  // The answer to "Use the recommended setup?" (A32), asked before the form.
+  if (opts.recommended === false) f = setRecommended(f, c, false);
   let errors: Record<string, string> = {};
+  // "Yes" to the previous choice (A30): the saved picks fill the roles at
+  // once; a role without a usable pick is asked again, by name.
+  if (opts.usePrevious) {
+    f = usePrevious(f, c);
+    errors = missingPicks(f, c);
+  }
   let busy = false;
   // The form as it was sent: the result, checklist and inbox reads describe
   // this route, whatever the fields show later.
@@ -103,6 +127,7 @@ export function routeForm(
   let inputs = new Map<string, HTMLInputElement>();
 
   const readInbox = (): void => {
+    probeGitHub();
     const r = active();
     if (r.role !== "adjutant") return;
     const key = inboxKey(r);
@@ -129,6 +154,7 @@ export function routeForm(
     const before = inboxKey(f);
     f = update(f, change);
     for (const k of Object.keys(change)) delete errors[k];
+    if (change.folder !== undefined) probeGitHub();
     if (redraw) draw();
     else refresh();
     if (inboxKey(f) !== before) {
@@ -198,8 +224,14 @@ export function routeForm(
     );
   };
 
+  let startButton: HTMLButtonElement | null = null;
   // Updates what follows typing without redrawing the inputs under the caret.
   const refresh = (): void => {
+    // Typing a new folder starts its GitHub probe: Start waits for it.
+    if (startButton) {
+      startButton.disabled = busy || ghBlocks() !== "";
+      startButton.title = ghBlocks();
+    }
     live.preview.textContent = preview(f, c).command;
     const project = projectLabel(f.folder) || "<project>";
     live.label.textContent =
@@ -281,8 +313,12 @@ export function routeForm(
 
   const harnessFields = (which: "main" | "orch", nameField: "name" | "orchName", who: string): HTMLElement[] => {
     const hn = f[which];
-    const k = kindOf(c, hn.kind);
-    const kinds: [string, string][] = c.kinds.map((x) => [x.kind, x.label]);
+    // A role keeps its own saved pick (A30, per role); it is offered with
+    // the live lists, and choosing from them makes the role fresh.
+    const live = liveCatalog(c).kinds;
+    const k = roleKind(f, c, which);
+    const kinds: [string, string][] = live.map((x) => [x.kind, x.label]);
+    if (k && !live.some((x) => x.kind === k.kind)) kinds.unshift([k.kind, k.label]);
     let model: Node;
     if (!k || k.free_model) {
       model = track(
@@ -298,7 +334,10 @@ export function routeForm(
         }),
       );
     } else {
-      const opts: [string, string][] = k.models.map((m) => [m.id, m.label === m.id ? m.id : `${m.label} (${m.id})`]);
+      const listed = [...k.models, ...(k.saved ? (kindOf(liveCatalog(c), k.kind)?.models ?? []) : [])];
+      const opts: [string, string][] = listed
+        .filter((m, i) => listed.findIndex((x) => x.id === m.id) === i)
+        .map((m) => [m.id, m.label === m.id ? m.id : `${m.label} (${m.id})`]);
       if (k.other_model) opts.push([OTHER, "Other model id…"]);
       model = selectBox(
         `${which}-model`,
@@ -312,8 +351,11 @@ export function routeForm(
     const offline = k?.offline
       ? h(
           "span",
-          { class: "nr-chip", title: "The harness could not be asked; this is the last-known list." },
-          "offline list",
+          {
+            class: "nr-chip",
+            title: `${k?.unavailable ?? "The harness could not be asked"}: it offers no models and starts with its own default.`,
+          },
+          "models unavailable",
         )
       : null;
     return [
@@ -321,8 +363,28 @@ export function routeForm(
         which,
         `${who} harness`,
         selectBox(`${which}-kind`, hn.kind, kinds, (v) => harnessChange(which, { kind: v }, true), `${id}-${which}`),
+        "The coding agent program this role runs in.",
       ),
-      field(`${which}-model`, "Model", h("div", { class: "nr-row" }, model, offline)),
+      field(
+        `${which}-model`,
+        "Model",
+        h(
+          "div",
+          { class: "nr-row" },
+          model,
+          offline,
+          k?.docs_url
+            ? h(
+                "a",
+                { href: k.docs_url, target: "_blank", rel: "noopener", title: `${k.label}'s own page of its models` },
+                "Model docs",
+              )
+            : k?.docs_command
+              ? h("small", { class: "muted", dataset: { docs: which } }, `Model details: ${k.docs_command}`)
+              : null,
+        ),
+        "The models this harness lists now, newest first; its docs say which suits coding and review.",
+      ),
       hn.model === OTHER
         ? field(
             `${which}-other`,
@@ -333,7 +395,7 @@ export function routeForm(
                 id: `${id}-${which}-other`,
                 name: `${which}-other`,
                 value: hn.other,
-                placeholder: "claude-opus-4-1",
+                placeholder: "a model from the harness's list",
                 autocomplete: "off",
                 spellcheck: false,
                 oninput: (e: Event) => harnessChange(which, { other: (e.target as HTMLInputElement).value }, false),
@@ -348,14 +410,119 @@ export function routeForm(
             selectBox(
               `${which}-effort`,
               hn.effort,
-              efforts.map((e) => [e, e]),
+              effortOptions(k, hn.model),
               (v) => harnessChange(which, { effort: v }, which === "main" && f.role === "adjutant"),
               `${id}-${which}-effort`,
             ),
+            "How long the model thinks before it answers: more is slower and costs more.",
           )
         : null,
-      field(nameField, `${who} name`, text(nameField)),
+      field(nameField, `${who} name`, text(nameField), "The agent's name in Herdr, used in its tab and its messages."),
     ].filter((x): x is HTMLElement => !!x);
+  };
+
+  // A32: the gh accounts that can read the folder's repository; the probed
+  // one fills the confirmation until the user picks another.
+  // The probe and the confirmed account belong to one folder: a new folder
+  // clears both, and Start waits until the new probe answers and, when it
+  // lists accounts, until the user picks one.
+  let gh: GitHubAccess | null = null;
+  let ghFolder = "";
+  let ghPending = false;
+  const probeGitHub = (): void => {
+    const folder = f.folder.trim();
+    if (!deps.github || folder === ghFolder) return;
+    ghFolder = folder;
+    gh = null;
+    f = { ...f, ghAccount: "" };
+    if (!folder.startsWith("/")) {
+      ghPending = false;
+      return;
+    }
+    ghPending = true;
+    deps.github(folder).then(
+      (g) => {
+        if (ghFolder !== folder) return;
+        gh = g;
+        ghPending = false;
+        draw();
+      },
+      () => {
+        if (ghFolder !== folder) return;
+        ghPending = false;
+        draw();
+      },
+    );
+  };
+  /** Why Start must wait for the GitHub account, or "". */
+  const ghBlocks = (): string => {
+    if (!deps.github) return "";
+    if (ghPending) return "Checking which GitHub account can read this repository…";
+    if (gh && accountOptions(gh).length && !f.ghAccount) return "Confirm the GitHub account.";
+    return "";
+  };
+  const githubField = (): HTMLElement | null => {
+    if (ghPending) return field("ghAccount", "GitHub account", h("span", null, "Checking…"), null, true);
+    if (!gh) return null;
+    const opts = accountOptions(gh);
+    if (!opts.length)
+      return field(
+        "ghAccount",
+        "GitHub account",
+        h("span", null, gh.error ?? `No gh account can read ${gh.repo}.`),
+        "Log in with gh auth login, then reopen this form.",
+        true,
+      );
+    return field(
+      "ghAccount",
+      "GitHub account",
+      selectBox(
+        "ghAccount",
+        f.ghAccount,
+        [["", "Confirm an account…"], ...opts],
+        (v) => set({ ghAccount: v }, true),
+        `${id}-ghAccount`,
+      ),
+      `The account the route pushes and opens pull requests with; it can read ${gh.repo}.`,
+    );
+  };
+
+  // A30: the last picks of this route's roles, offered before the picking questions.
+  const previousRow = (): HTMLElement | null => {
+    const picks = previousPicks(f, c);
+    if (!picks.length) return null;
+    // A form from the saved picks alone offers only them until the lists
+    // are read: "Choose again" reads them, and the choices update in place.
+    const again =
+      c.from_picks && opts.needLists
+        ? h(
+            "button",
+            { type: "button", class: "chip-btn", name: "choose-lists", onclick: () => opts.needLists?.() },
+            "Choose again",
+          )
+        : null;
+    return h(
+      "div",
+      { class: "nr-previous" },
+      h("span", null, `Previous choice: ${picks.map(pickSummary).join("; ")}`),
+      again,
+      h(
+        "button",
+        {
+          type: "button",
+          class: "chip-btn",
+          onclick: () => {
+            if (busy) return draw();
+            f = usePrevious(f, c);
+            delete errors["main"];
+            delete errors["orch"];
+            errors = { ...errors, ...missingPicks(f, c) };
+            draw();
+          },
+        },
+        "Use previous choice",
+      ),
+    );
   };
 
   const draw = (): void => {
@@ -379,7 +546,9 @@ export function routeForm(
           "aria-checked": String(f.role === r),
           class: f.role === r ? "active" : "",
           onclick: () => {
-            f = setRole(f, r);
+            f = setRole(f, r, c);
+            // A role without a saved pick needs the lists the form lacks.
+            if (c.from_picks && Object.keys(missingPicks(f, c)).length) opts.needLists?.();
             draw();
             readInbox();
           },
@@ -399,7 +568,7 @@ export function routeForm(
           disabled: !ck.ok,
           onchange: (e: Event) => set({ checkpointer: (e.target as HTMLInputElement).checked }, true),
         }),
-        h("span", null, "Checkpointer"),
+        h("span", null, "Checkpointer (Recommended)"),
         h("small", null, ck.ok ? "keeps the orchestrator's memory and compacts its context" : ck.why),
       ),
       ckOn
@@ -432,11 +601,72 @@ export function routeForm(
           "fieldset",
           { class: "nr-fields", disabled: busy },
           h(
-            "div",
-            { class: "nr-role", role: "radiogroup", "aria-label": "Role" },
-            role("orchestrator", "Orchestrator"),
-            role("adjutant", "Adjutant"),
+            "label",
+            { class: "nr-toggle nr-recommended" },
+            h("input", {
+              type: "checkbox",
+              name: "recommended",
+              checked: f.recommended,
+              onchange: (e: Event) => {
+                if (busy) return draw();
+                f = setRecommended(f, c, (e.target as HTMLInputElement).checked);
+                draw();
+                readInbox();
+              },
+            }),
+            h("span", null, "Recommended setup"),
+            h("small", null, "Fills the usual choices below so only the tasks and each role's model are left to pick."),
           ),
+          f.recommended
+            ? h(
+                "dl",
+                { class: "nr-summary", dataset: { field: "recommended-summary" } },
+                // The effective settings: the checkpointer reads Off when the
+                // route will start none.
+                RECOMMENDED_SETUP.flatMap(([k, v]) => [
+                  h("dt", null, k),
+                  h(
+                    "dd",
+                    { dataset: { item: k } },
+                    k === "Checkpointer" && !ckOn
+                      ? `Off: ${c.checkpointer_why || "the checkpointer is not available here"}`
+                      : v,
+                  ),
+                ]),
+              )
+            : h(
+                "div",
+                null,
+                h(
+                  "div",
+                  { class: "nr-role", role: "radiogroup", "aria-label": "Role" },
+                  role("orchestrator", "Orchestrator"),
+                  role("adjutant", "Adjutant (Recommended)"),
+                ),
+                // The custom path asks every setup item; an empty answer lets the route ask.
+                h(
+                  "div",
+                  { class: "nr-grid nr-custom", dataset: { field: "custom-setup" } },
+                  SETUP_QUESTIONS.map(([item, recommended]) =>
+                    field(
+                      `custom-${item}`,
+                      item,
+                      h("input", {
+                        id: `${id}-custom-${item}`,
+                        name: `custom-${item}`,
+                        value: f.custom[item] ?? "",
+                        maxlength: 400,
+                        autocomplete: "off",
+                        placeholder: recommended,
+                        oninput: (e: Event) =>
+                          set({ custom: { ...f.custom, [item]: (e.target as HTMLInputElement).value } }, false),
+                      }),
+                      "Empty: the route asks you.",
+                      true,
+                    ),
+                  ),
+                ),
+              ),
           h(
             "div",
             { class: "nr-grid" },
@@ -453,6 +683,7 @@ export function routeForm(
                 (v) => set({ workspace: v }, true),
                 `${id}-workspace`,
               ),
+              "The Herdr workspace the route's tabs open in.",
             ),
             field(
               "folder",
@@ -470,13 +701,15 @@ export function routeForm(
               live.label,
               true,
             ),
+            githubField(),
+            previousRow(),
             f.role === "adjutant"
               ? [
                   h("h3", { class: "nr-sub" }, "Adjutant"),
                   ...harnessFields("main", "name", "Adjutant"),
                   h("h3", { class: "nr-sub" }, "Orchestrator"),
                   ...harnessFields("orch", "orchName", "Orchestrator"),
-                  field("routeName", "Route name", text("routeName")),
+                  field("routeName", "Route name", text("routeName"), "Names the route's folder and its inbox."),
                   field(
                     "inbox",
                     "Private inbox",
@@ -512,10 +745,10 @@ export function routeForm(
                 value: f.request,
                 oninput: (e: Event) => set({ request: (e.target as HTMLTextAreaElement).value }, false),
               }),
-              null,
+              "The tasks, in your words; the orchestrator plans them and asks before it starts anything.",
               true,
             ),
-            ckBox,
+            f.recommended ? null : ckBox,
           ),
         ),
         skillWarnings(f, c).map((w) => h("p", { class: "nr-warn", role: "note" }, w)),
@@ -526,11 +759,17 @@ export function routeForm(
         "div",
         { class: "dialog-actions nr-actions" },
         h("button", { value: "cancel", class: "btn ghost", formnovalidate: true }, "Cancel"),
-        h(
+        (startButton = h(
           "button",
-          { type: "submit", class: "btn primary", disabled: busy, name: "start" },
+          {
+            type: "submit",
+            class: "btn primary",
+            disabled: busy || ghBlocks() !== "",
+            title: ghBlocks(),
+            name: "start",
+          },
           busy ? "Starting…" : "Start route",
-        ),
+        ) as HTMLButtonElement),
       ),
     );
     refresh();
@@ -624,6 +863,7 @@ export function routeForm(
     if (submitter?.value === "cancel" || submitter?.value === "ok") return;
     e.preventDefault();
     if (busy) return;
+    if (ghBlocks()) return draw();
     errors = validate(f, c, deps.state());
     if (Object.keys(errors).length) {
       draw();
@@ -652,6 +892,7 @@ export function routeForm(
     );
   });
 
+  probeGitHub();
   draw();
   readInbox();
   return {
@@ -660,5 +901,16 @@ export function routeForm(
       cancelDebounce();
     },
     form: () => f,
+    sent: () => busy || submitted !== null,
+    // The probed lists arrived: the choices and questions change in place;
+    // the draft (task, folder, names, account) stays.
+    setCatalog: (next: Catalog) => {
+      c = { ...next, previous: next.previous ?? c.previous ?? [] };
+      f = freshFromLists(f, c);
+      delete errors["main"];
+      delete errors["orch"];
+      errors = { ...errors, ...missingPicks(f, c) };
+      draw();
+    },
   };
 }

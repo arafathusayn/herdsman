@@ -1,0 +1,128 @@
+package catalog
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// The fixtures are the real harness output that internal/web embeds.
+func fixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "web", "catalogdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestParsers(t *testing.T) {
+	cx, err := ParseCodexModels(fixture(t, "codex-debug-models.json"))
+	if err != nil || len(cx.Models) == 0 || cx.DefaultModel != cx.Models[0].ID || cx.DocsURL == "" {
+		t.Fatalf("codex: %+v %v", cx, err)
+	}
+	// Codex reports a default for each model; it is kept as reported.
+	if m := cx.Models[0]; m.DefaultEffort == "" || !slices.Contains(m.Efforts, m.DefaultEffort) {
+		t.Errorf("codex default %+v", m)
+	}
+	cl, err := ParseClaudeHelp(fixture(t, "claude-help.txt"))
+	if err != nil || len(cl.Models) == 0 || cl.DocsURL == "" {
+		t.Fatalf("claude: %+v %v", cl, err)
+	}
+	// Claude's help reports no default effort: there is none.
+	for _, m := range cl.Models {
+		if m.DefaultEffort != "" {
+			t.Errorf("claude default %+v", m)
+		}
+	}
+	kinds, err := ParseKinds(fixture(t, "herdr-agent-start-help.txt"))
+	if err != nil || !slices.Contains(kinds, "claude") {
+		t.Errorf("kinds %v %v", kinds, err)
+	}
+	for _, in := range []string{"", "not json", `{"models":[]}`, `{"models":[{"slug":"x","visibility":"hide"}]}`,
+		`{"models":[{"slug":"bad slug","visibility":"list"}]}`, `{"models":[{"slug":"m","visibility":"list","supported_reasoning_levels":[{"effort":"BAD"}]}]}`,
+		`{"models":[{"slug":"m","visibility":"list"}]}`} {
+		if _, err := ParseCodexModels([]byte(in)); err == nil {
+			t.Errorf("codex %q: no error", in)
+		}
+	}
+	if _, err := ParseClaudeHelp([]byte("--model <m>")); err == nil {
+		t.Error("claude: no error")
+	}
+	if _, err := ParseKinds([]byte("none")); err == nil {
+		t.Error("kinds: no error")
+	}
+	if k, err := ParseCodexModels([]byte(`{"models":[{"slug":"model-a","visibility":"list","default_reasoning_level":"effortx","supported_reasoning_levels":[{"effort":"effortx"}]}]}`)); err != nil || k.Models[0].Label != "model-a" || k.Models[0].DefaultEffort != "effortx" {
+		t.Errorf("%+v %v", k, err)
+	}
+}
+
+func TestDefaultEffort(t *testing.T) {
+	list := []string{"effort-a", "medium", "effort-b"}
+	for def, want := range map[string]string{"effort-b": "effort-b", "": "", "effort-z": ""} {
+		if got := DefaultEffort(list, def); got != want {
+			t.Errorf("%q: %q", def, got)
+		}
+	}
+}
+
+func TestExecRunner(t *testing.T) {
+	if _, err := ExecRunner(context.Background(), filepath.Join(t.TempDir(), "none")); err == nil {
+		t.Error("no error for a missing program")
+	}
+	out, err := ExecRunner(context.Background(), "/bin/echo", "hi")
+	if err != nil || string(out) != "hi\n" {
+		t.Errorf("%q %v", out, err)
+	}
+}
+
+// The other kinds' real --help output, recorded under catalogdata/.
+func helpFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("catalogdata", name+"-help.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestParseHelp(t *testing.T) {
+	for _, tc := range []struct {
+		kind, program string
+		flag          bool
+		efforts       string
+		def, note     string
+	}{
+		{"muse", "muse", true, "none,minimal,low,medium,high,xhigh,max,ultra", "high", "models: from the harness's own list"},
+		{"agy", "agy", true, "low,medium,high,xhigh,max", "", "models: from the harness's own list (agy models)"},
+		{"gemini", "gemini", true, "", "", "models: from the harness's own list"},
+		{"opencode", "opencode", true, "", "", "models: from the harness's own list (opencode models)"},
+		{"cursor", "cursor-agent", true, "", "", "models: from the harness's own list"},
+	} {
+		h := ParseHelp(tc.kind, tc.program, helpFixture(t, tc.program))
+		if h.ModelFlag != tc.flag || strings.Join(h.Efforts, ",") != tc.efforts || h.DefaultEffort != tc.def || h.Note != tc.note || h.Models != nil {
+			t.Errorf("%s: %+v", tc.kind, h)
+		}
+	}
+	if h := ParseHelp("x", "x", []byte("usage: x\n  --verbose  talk\n")); h.ModelFlag || h.Efforts != nil {
+		t.Errorf("%+v", h)
+	}
+}
+
+// A provider/model id (OpenCode's form) is one model id; more slashes, a
+// leading or trailing slash, or blanks are not.
+func TestModelIDTakesProviderForm(t *testing.T) {
+	for _, ok := range []string{"model-a", "provider/model-a", "p.x/m:1[2]"} {
+		if !ModelID.MatchString(ok) {
+			t.Errorf("%q refused", ok)
+		}
+	}
+	for _, bad := range []string{"/m", "p/", "a/b/c", "a b", ""} {
+		if ModelID.MatchString(bad) {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

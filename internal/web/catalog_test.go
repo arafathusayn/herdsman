@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"os"
 	"path/filepath"
@@ -16,6 +17,11 @@ import (
 // `codex debug models` cut down to the fields the parser reads (the real
 // output is about 559 KB, almost all of it each model's base_instructions;
 // the models, their order and their efforts are unchanged).
+
+// catalogFiles are the captured outputs; only tests read them (A28/A29).
+//
+//go:embed catalogdata
+var catalogFiles embed.FS
 
 func catalogFixture(t *testing.T, name string) []byte {
 	t.Helper()
@@ -93,7 +99,8 @@ func TestClaudeHelpParse(t *testing.T) {
 		t.Fatalf("kind = %+v", k)
 	}
 	for _, m := range k.Models {
-		if !slices.Equal(m.Efforts, []string{"low", "medium", "high", "xhigh", "max"}) || m.DefaultEffort != "medium" {
+		// Claude's help names no default effort, so there is none (A28).
+		if !slices.Equal(m.Efforts, []string{"low", "medium", "high", "xhigh", "max"}) || m.DefaultEffort != "" {
 			t.Fatalf("model = %+v", m)
 		}
 	}
@@ -128,7 +135,8 @@ func TestCatalogFromCommands(t *testing.T) {
 		t.Fatalf("kinds = %+v", c.Kinds[:2])
 	}
 	pi := c.kind("pi")
-	if pi == nil || len(pi.Models) != 0 || !pi.FreeModel || pi.Checkpointer || pi.SkillPrefix != "/" {
+	// A29: a kind whose --help names no models subcommand offers none, with the reason.
+	if pi == nil || len(pi.Models) != 0 || pi.FreeModel || !pi.Offline || pi.Unavailable != "pi lists no models" || pi.Checkpointer || pi.SkillPrefix != "/" {
 		t.Fatalf("pi = %+v", pi)
 	}
 	if c.kind("claude") == nil || c.kind("nope") != nil {
@@ -137,7 +145,7 @@ func TestCatalogFromCommands(t *testing.T) {
 	// Cached for the server's life: a second read runs nothing.
 	n := calls.Load()
 	src.get(context.Background())
-	if calls.Load() != n || n != 3 {
+	if calls.Load() != n || n == 0 {
 		t.Fatalf("calls = %d then %d", n, calls.Load())
 	}
 }
@@ -154,38 +162,28 @@ func TestCatalogOfflineOnBadOutput(t *testing.T) {
 	checkOffline(t, c)
 }
 
+// A harness that could not be asked offers no models: no captured list
+// stands in (A28/A29), and nothing it might name is accepted.
 func checkOffline(t *testing.T, c Catalog) {
 	t.Helper()
 	cl, cx := c.kind("claude"), c.kind("codex")
-	if cl == nil || cx == nil || !cl.Offline || !cx.Offline {
+	if cl == nil || cx == nil || !cl.Offline || !cx.Offline || len(cl.Models) != 0 || len(cx.Models) != 0 || cl.FreeModel || cx.FreeModel {
 		t.Fatalf("claude=%+v codex=%+v", cl, cx)
 	}
-	if ids(cx.Models)[0] != "gpt-6.1-sol" || len(cx.Models) != 7 || cx.OtherModel {
-		t.Fatalf("codex offline = %v", ids(cx.Models))
+	if cx.SkillPrefix != "$" || cl.SkillPrefix != "/" {
+		t.Fatalf("prefixes %q %q", cl.SkillPrefix, cx.SkillPrefix)
 	}
-	if !slices.Equal(ids(cl.Models), []string{"fable", "opus", "sonnet"}) || !cl.OtherModel {
-		t.Fatalf("claude offline = %v", ids(cl.Models))
-	}
-	if c.kind("gemini") == nil {
-		t.Fatal("the offline kind list is missing")
+	if c.kind("gemini") != nil {
+		t.Fatal("a kind list without herdr's answer")
 	}
 }
 
-func TestOfflineListIsWhatValidationAccepts(t *testing.T) {
+func TestOfflineHarnessLaunchesNothing(t *testing.T) {
 	c := newCatalogSource(fakeRunner(nil, map[string]error{"codex debug models": errors.New("x"), "claude --help": errors.New("x"), "herdr agent start --help": errors.New("x")}, nil)).get(context.Background())
-	cx := c.kind("codex")
-	for _, m := range cx.Models {
-		for _, e := range m.Efforts {
-			if _, err := launchArgs(cx, m.ID, e); err != nil {
-				t.Fatalf("%s %s: %v", m.ID, e, err)
-			}
+	for _, m := range [][2]string{{"model-a", "low"}, {"gpt-6.1-sol", "low"}, {"", ""}, {"", "low"}} {
+		if _, err := launchArgs(c.kind("codex"), m[0], m[1]); err == nil {
+			t.Fatalf("%q %q launched from an offline harness", m[0], m[1])
 		}
-	}
-	if _, err := launchArgs(cx, "gpt-4o", "low"); err == nil {
-		t.Fatal("a codex model outside the list was accepted")
-	}
-	if _, err := launchArgs(cx, "gpt-6.1-sol", "tiny"); err == nil {
-		t.Fatal("an effort outside the list was accepted")
 	}
 }
 
@@ -204,10 +202,10 @@ func TestLaunchArgs(t *testing.T) {
 		{"codex", "gpt-5.6-luna", "low", []string{"--model", "gpt-5.6-luna", "-c", "model_reasoning_effort=low"}, false},
 		{"codex", "gpt-5.6-luna", "ultra", nil, true},
 		{"codex", "gpt-reserve", "low", nil, true},
-		{"pi", "some-model", "", []string{"--model", "some-model"}, false},
-		{"pi", "", "", []string{}, false},
+		{"pi", "some-model", "", nil, true}, // no list was read: nothing to pick
+		{"pi", "", "", nil, true},           // A29: no list read, no launch
 		{"pi", "x;rm", "", nil, true},
-		{"pi", "m", "high", nil, true},
+		{"pi", "", "high", nil, true},
 	}
 	for _, tc := range cases {
 		got, err := launchArgs(c.kind(tc.kind), tc.model, tc.effort)
@@ -280,5 +278,58 @@ func TestCheckpointerScript(t *testing.T) {
 	}
 	if p, _ := checkpointerScript(home, quoted); p != "" {
 		t.Fatalf("a path with a quote was accepted: %q", p)
+	}
+}
+
+// A28: the default effort is the harness's own reported default, never a
+// level preferred by name, and none when the harness reports none.
+func TestDefaultEffortIsTheHarnessDefault(t *testing.T) {
+	list := []string{"effort-a", "medium", "effort-b"}
+	for _, tc := range []struct{ def, want string }{
+		{"effort-b", "effort-b"},
+		{"", ""},
+		{"effort-z", ""},
+	} {
+		if got := defaultEffort(list, tc.def); got != tc.want {
+			t.Errorf("defaultEffort(%q) = %q, want %q", tc.def, got, tc.want)
+		}
+	}
+}
+
+// A provider/model id reaches the agent as one argv element.
+func TestLaunchArgsProviderModel(t *testing.T) {
+	k := &CatalogKind{Kind: "opencode", Label: "OpenCode", FreeModel: true, Models: []CatalogModel{}}
+	args, err := launchArgs(k, "provider/model-a", "")
+	if err != nil || len(args) != 2 || args[1] != "provider/model-a" {
+		t.Fatalf("%v %v", args, err)
+	}
+}
+
+// A29: a kind whose own `models` listing was read launches a listed model,
+// with the effort through the option its --help names.
+func TestLaunchArgsListedOtherKind(t *testing.T) {
+	k := &CatalogKind{Kind: "opencode", Label: "Opencode", EffortFlag: "--variant", Models: []CatalogModel{
+		{ID: "prov/a", Label: "prov/a", Efforts: []string{"low", "high"}},
+		{ID: "prov/b", Label: "prov/b"},
+	}}
+	cases := []struct {
+		model, effort string
+		want          []string
+	}{
+		{"prov/a", "high", []string{"--model", "prov/a", "--variant", "high"}},
+		{"prov/b", "", []string{"--model", "prov/b"}},
+		{"prov/a", "max", nil},
+		{"prov/b", "low", nil},
+		{"prov/c", "", nil},
+	}
+	for _, c := range cases {
+		got, err := launchArgs(k, c.model, c.effort)
+		if (c.want == nil) != (err != nil) || !slices.Equal(got, c.want) {
+			t.Errorf("%s %s: %v %v", c.model, c.effort, got, err)
+		}
+	}
+	k.EffortFlag = ""
+	if _, err := launchArgs(k, "prov/a", "high"); err == nil {
+		t.Error("an effort without an effort option")
 	}
 }
