@@ -584,24 +584,35 @@ function patchAligned(items: Any[], old: Fiber[], n: number): number {
       if (o.k !== (it.key != null ? it.key : i)) break;
     } else if (o.k !== keyOf(it, i) || !sameType(o, it)) break;
     oi++;
-    if (!memoHit(o, it)) patch(o, it);
+    patchRow(o, it);
   }
   alignedOld = oi;
   return i;
 }
 
-// React's bailout for a memoized function component given the element it
-// rendered or one with shallowly equal props, without patch()'s calls: a
-// list re-render does this for each row. False when it must render.
-function memoHit(o: Fiber, it: Any): boolean {
-  if (o.e === it) return !(o.f & DIRTY);
-  if (o.q !== shallowEqual || o.n !== FUNC || o.f & DIRTY || o.e === null) return false;
-  const n = sameProps(o.p, it.props, o.pk);
-  if (n < 0) return false;
-  // React keeps the old props object on a bailout: its key count stays known.
-  o.pk = n;
-  o.e = it;
-  return true;
+// Patch a list row: React's bailout for a memoized function component given
+// the element it rendered or one with shallowly equal props, else its render,
+// with one props compare and none of patch()'s calls in between. A list
+// re-render does this for each row; anything else goes to patch().
+function patchRow(o: Fiber, it: Any): void {
+  if (o.e === it && !(o.f & DIRTY)) return;
+  if (o.q === shallowEqual && o.n === FUNC && !(o.f & DIRTY) && o.e !== null) {
+    const n = sameProps(o.p, it.props, o.pk);
+    if (n >= 0) {
+      // React keeps the old props object on a bailout: its key count stays known.
+      o.pk = n;
+      o.e = it;
+      return;
+    }
+    // The props differ: render, without update() comparing them again.
+    const old = o.p;
+    o.e = it;
+    o.p = it.props;
+    o.pk = -1;
+    run(o, old, false);
+    return;
+  }
+  patch(o, it);
 }
 
 // shallowEqual(a, b) for a memoized row, walking only b when a's key count
@@ -748,7 +759,7 @@ function matchSuffix(items: Any[], old: Fiber[], i: number, oi: number, n: numbe
 function take(o: Fiber, it: Any, nc: Fiber[]): void {
   o.i = nc.length;
   nc.push(o);
-  if (!memoHit(o, it)) patch(o, it);
+  patchRow(o, it);
 }
 
 // Update old[ofrom...] with items[from..to] in order (holes skipped).
