@@ -164,7 +164,7 @@ What the blocks entry needed, each measured:
 - **No expando on the row element.** With one (a `WeakMap` first, then a property), clearing 1,000 rows measured 5 to 27% slower natively than vanillajs's rows; without, the same (32.3 against 31.7 ms at 4x). A clicked row is found by scanning the list's entries, which also gives its index in the rows: remove's script 1.2 to 0.9 ms.
 - **A long insertion into a live list is one fragment** (append: 179 to 128 ms in the next run).
 
-Standings: five interleaved runs pooled (`--batch 3`, shifts 0 to 5; 75 samples per test and entry): thane 1.011, herdsman-blocks 1.022, doohtml-dp 1.028, re 1.031, vanillajs 1.040, vanillajs-lite 1.041. herdsman-blocks places first in two of the five runs and second in two.
+Standings: five interleaved runs pooled (`--batch 3`, shifts 0 to 5; 75 samples per test and entry): thane 1.011, herdsman-blocks 1.022, doohtml-dp 1.028, re 1.031, vanillajs 1.040, vanillajs-lite 1.041. herdsman-blocks placed first in two of the five runs, second, third and fourth in one each.
 
 ---
 
