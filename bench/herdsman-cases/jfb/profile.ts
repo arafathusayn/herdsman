@@ -138,7 +138,8 @@ if (values.cold) {
 await browser.close();
 server.stop();
 
-const tree = callTree(profiles);
+// The page's own code: its bundle (and herdsman-react's, unminified, in it).
+const tree = callTree(profiles, (url) => url.includes("/frameworks/keyed/"));
 const fns = byFunction(tree);
 const ms = (v: number) => (v / repeat).toFixed(2).padStart(8);
 console.log(`${entry} ${op}${values.cold ? " cold" : ""} (${throttle}x), ${repeat} clicks: ${(tree.total / repeat).toFixed(2)} ms busy per click`);

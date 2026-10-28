@@ -17,8 +17,14 @@ export type Frame = { name: string; native: boolean; self: number; total: number
 
 const frame = (name: string, native: boolean): Frame => ({ name, native, self: 0, total: 0, kids: new Map() });
 
-export function callTree(profiles: CpuProfile[]): Frame {
-  const root = frame("(all)", true);
+/**
+ * The merged call tree. With `own`, a sample counts only when some frame of
+ * its stack is the page's code (own(url)), or it is GC or (program): the
+ * rest is the harness (puppeteer's clicks and DOM polling), totaled in
+ * the root's `harness`.
+ */
+export function callTree(profiles: CpuProfile[], own?: (url: string) => boolean): Frame & { harness: number } {
+  const root = Object.assign(frame("(all)", true), { harness: 0 });
   for (const p of profiles) {
     const byId = new Map(p.nodes.map((n) => [n.id, n]));
     const parent = new Map<number, number>();
@@ -29,6 +35,13 @@ export function callTree(profiles: CpuProfile[]): Frame {
       for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) stack.push(at);
       stack.pop(); // (root)
       if (stack.length === 1 && byId.get(stack[0]!)!.callFrame.functionName === "(idle)") return;
+      if (own !== undefined) {
+        const leaf = byId.get(stack[0]!)!.callFrame.functionName;
+        if (leaf !== "(garbage collector)" && leaf !== "(program)" && !stack.some((n) => own(byId.get(n)!.callFrame.url))) {
+          root.harness += ms;
+          return;
+        }
+      }
       let f = root;
       f.total += ms;
       for (let s = stack.length - 1; s >= 0; s--) {
@@ -75,7 +88,7 @@ function color(f: Frame): string {
 }
 
 /** A top-down flame graph (root on top, as in DevTools), children by total time. */
-export function flameSvg(full: Frame, title: string, width = 1400): string {
+export function flameSvg(full: Frame & { harness?: number }, title: string, width = 1400): string {
   // (program) is the browser's own work (style, layout, paint): it would
   // squeeze the JavaScript into slivers, so the graph leaves it out.
   const program = full.kids.get("(program):-1")?.total ?? 0;
@@ -105,7 +118,7 @@ export function flameSvg(full: Frame, title: string, width = 1400): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="ui-monospace,monospace" font-size="11">` +
     `<rect width="100%" height="100%" fill="#fff"/><text x="10" y="22" font-size="14" font-weight="bold">${esc(title)}</text>` +
-    `<text x="10" y="${height - 8}" fill="#666">${root.total.toFixed(1)} ms of JS, DOM calls and GC shown (${program.toFixed(1)} ms of (program) left out) · orange: JS · blue: native and DOM calls · gray: GC · hover for times</text>` +
+    `<text x="10" y="${height - 8}" fill="#666">${root.total.toFixed(1)} ms of JS, DOM calls and GC shown (${program.toFixed(1)} ms of (program)${full.harness ? `, ${full.harness.toFixed(1)} ms of harness` : ""} left out) · orange: JS · blue: native and DOM calls · gray: GC · hover for times</text>` +
     rects.join("") +
     `</svg>`
   );
