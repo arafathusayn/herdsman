@@ -28,7 +28,7 @@ Per run, it placed 3rd, 2nd (tied), 1st and 2nd.
 - **The other layout.** A second view of the same field interleaves the entries in fresh-browser batches (below). Over five such runs, herdsman-blocks is **2nd** (1.022), behind thane (1.011) and ahead of doohtml-dp (1.028), re (1.031), vanillajs (1.040) and vanillajs-lite (1.041). It placed 1st in two of those five runs.
 - **The noise.** On this VM one click's time swings by up to 2×. Places that differ by less than about 0.01 in a pool are within noise. herdsman-blocks' lead in the official-layout pool is 0.016.
 
-**Which entry.** herdsman-blocks is the app on herdsman-blocks, the declarative template and keyed-list layer, with no React API. The React-compatible entry (herdsman-react, now also shipped as `reactre-compat`) did not reach the top 3; see [the React-compatible entry](#the-react-compatible-entry).
+**Which entry.** herdsman-blocks is the app on herdsman-blocks, the declarative template and keyed-list layer, with no React API. The React-compatible entry (herdsman-react) did not reach the top 3; see [the React-compatible entry](#the-react-compatible-entry).
 
 ## Where we started
 
@@ -93,7 +93,7 @@ Most of the session's effort went into measurement, because this VM's noise is l
 - **Interleaved batches (`--batch`).** One click swings from about 95 to 175 ms in spells, and an entry's 15 back-to-back samples catch whatever spell it ran in. With `--batch 3`, the entries take turns, three samples each in a fresh browser, so slow spells land on all of them.
 - **A/B proof (`jfb/ab.ts`).** A change to the runtime is kept only if an A/B shows it proven faster on some test and slower on none. The A/B builds the app from a base revision and from the working tree and alternates fresh-browser batches, 80 to 96 samples per side. The verdict is a 95% bootstrap interval of the difference of medians, for the whole window and for script time, which is far less noisy.
 - **Profiles of the measured click** (`jfb/profile.ts --cold`). These are CPU profiles of exactly the click the benchmark measures, after its warmups, throttling and forced GC, with flame graphs and line-level hot spots. `jfb/window.ts` splits the official window by kind (script, style, layout, paint) and compares entries.
-- **Discipline.** Measurements were kept apart from other heavy work. Where they were not, the run was dropped or restarted: one full run with tests and type checks running during it was left out of every pool, and one head-to-head was restarted. The first reactre run had a two-minute compatibility check during it, and is read with that in mind.
+- **Discipline.** Measurements were kept apart from other heavy work. Where they were not, the run was dropped or restarted: one full run with tests and type checks running during it was left out of every pool, and one head-to-head was restarted.
 
 ### Measured and rejected
 
@@ -113,16 +113,12 @@ Not every row with no proven difference was dropped: herdsman-react's list repor
 
 ## The React-compatible entry
 
-herdsman-react, now also shipped as **`reactre-compat`**, React's API for reactre apps, still passes **36 of 36** React compatibility scenarios against React 19 with classes (29 of 36 without, by design). It gained from this work:
+herdsman-react still passes **36 of 36** React compatibility scenarios against React 19 with classes (29 of 36 without, by design). It gained from this work:
 
 - the compiler's list loop now reports which rows changed, so a swap visits two rows instead of a thousand (swap's script 4.5 → 3.3 ms, proven three times);
 - a long append goes in as one fragment.
 
 It remains about 2% behind third place for the reasons above.
-
-## What is still running
-
-Two interleaved runs of **reactre** against the top 5 are in progress. reactre is the declarative TSX layer (signals, a keyed selector, `<For>`) that compiles to the same herdsman-blocks templates and list. Its script times already match or beat the hand-written blocks app on create, append, swap and create-many, and trail on update (5.3 against 4.3 ms). A field with all seven entries (top 5, reactre and reactre-compat) comes next. This report will be updated with those standings.
 
 ## Reproducing it independently
 
@@ -159,7 +155,7 @@ This does three things:
 
 - makes a sparse clone of krausest/js-framework-benchmark at commit `ca8715d9ae84916fd24de3a79457d8c328f9b766` into `jfb/.cache` (not committed);
 - builds the five entries as their own `build-prod` scripts do;
-- builds our entries: `herdsman-blocks`, `reactre`, `reactre-compat`, `herdsman-react`, and the React apps.
+- builds our entries, among them `herdsman-blocks` and `herdsman-react`, and the React apps.
 
 It prints `ready: ...` with every entry it built. After changing our code, `bun jfb/prepare.ts --app-only` rebuilds only ours.
 
@@ -167,7 +163,7 @@ It prints `ready: ...` with every entry it built. After changing our code, `bun 
 
 ```sh
 (cd ../../web && bun test)            # 326 tests, 0 failures, at the time of writing
-bun react-compat.ts --runtimes reactre-compat+classes,reactre-compat+classes+compiler,reactre-compat
+bun react-compat.ts --runtimes herdsman-react+classes,herdsman-react+classes+compiler,herdsman-react
 ```
 
 The second command should print 36/36 for both class builds, and 29/36 for the build without classes, listing the seven class scenarios.
@@ -218,7 +214,5 @@ A reproduction that puts herdsman-blocks anywhere in the top two or three, with 
 
 - `jfb/app/blocks.ts`: the first-place app.
 - `web/src/herdsman-blocks.ts`: `List.set`, `skipUnchanged`, the `remove` hook, fragment insertion.
-- `web/src/reactre.ts`, `web/src/reactre-compiler.ts`: reactre.
-- `web/src/reactre-compat.ts`: the React addon.
 - `plans/herdsman-blocks.md`: the rounds in detail ("Second round" to "Fourth round").
 - `bench/herdsman-cases/README.md`: how to run `prepare`, `run` (`--shift`, `--batch`), `pool`, `ab`, `profile` and `window`.
