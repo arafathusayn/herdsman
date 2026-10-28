@@ -191,4 +191,63 @@ describe("herdsman-react-compiler", () => {
       expect(out.match(/__hrTemplate\(\["li"/g)?.length).toBe(1);
     }
   });
+
+  test("a list of component rows reuses last render's element for an unchanged row", () => {
+    const src = `export const make = (rows, sel, T) => <ul>{rows.map((r) => <T key={r.id} row={r} on={sel === r.id} />)}</ul>;`;
+    const out = compileSource(src, "jsx");
+    expect(out).toMatch(/let __hrC0 = \[\], __hrK0 = \[\];/);
+    const body = out
+      .replace(/^import \{([^}]*)\} from "([^"]*)";$/gm, (_, names: string) =>
+        names
+          .split(",")
+          .map((n) => {
+            const [a, b] = n.trim().split(" as ");
+            return `const ${b ?? a} = scope.${a};`;
+          })
+          .join("\n"),
+      )
+      .replace(/^export /gm, "");
+    const make = new Function("scope", `${body}\nreturn make;`)({
+      jsx,
+      jsxs,
+      Fragment,
+      __defaults,
+      __key,
+      __block,
+      __template,
+    }) as (
+      rows: unknown[],
+      sel: unknown,
+      T: unknown,
+    ) => { props: { children: { key: string; type: unknown; props: Record<string, unknown> }[] } };
+    const Row = () => null,
+      Other = () => null;
+    const rows = [{ id: 1 }, { id: 2 }, { id: 3 }];
+    const a = make(rows, 2, Row).props.children;
+    const b = make(rows, 2, Row).props.children;
+    expect(b[0]).toBe(a[0]!);
+    expect(b[1]).toBe(a[1]!);
+    expect(b).not.toBe(a);
+    // A changed prop: only that row's element is new.
+    const c = make(rows, 3, Row).props.children;
+    expect(c[0]).toBe(a[0]!);
+    expect(c[1]).not.toBe(a[1]!);
+    expect(c[1]!.props).toEqual({ row: rows[1], on: false });
+    expect(c[2]!.props).toEqual({ row: rows[2], on: true });
+    // A row removed before the others: they are found one place over.
+    const d = make([rows[1], rows[2]], 3, Row).props.children;
+    expect(d[0]).toBe(c[1]!);
+    expect(d[1]).toBe(c[2]!);
+    // Another component type gets new elements.
+    const one = [{ id: 7 }];
+    const e = make(one, 0, Row).props.children;
+    expect(make(one, 0, Row).props.children[0]).toBe(e[0]!);
+    const f = make(one, 0, Other).props.children;
+    expect(f[0]).not.toBe(e[0]!);
+    expect(f[0]!.type).toBe(Other);
+    // The same elements jsx() makes.
+    expect(c.map((x) => [x.key, x.props])).toEqual(
+      rows.map((r) => [String(r.id), jsx(Row, { row: r, on: r.id === 3 }).props]),
+    );
+  });
 });

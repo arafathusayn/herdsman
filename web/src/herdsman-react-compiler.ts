@@ -440,6 +440,14 @@ class Compiler {
       (p1 !== undefined ? `const ${p1} = __hrI; ` : "") +
       (p2 !== undefined ? `const ${p2} = __hrXs; ` : "");
     const id = `__hrL${this.loops.length}`;
+    const memo = this.rowMemo(body, params, id);
+    if (memo !== null) {
+      const margs = memo.args;
+      return (
+        `(Array.isArray(__hrM = ${this.rewrite(recv)}) ? ${id}(__hrM${margs.map((x) => ", " + x).join("")}) : ` +
+        `__hrM.map((${params.join(", ")}) => ${b}))`
+      );
+    }
     this.loops.push(
       `function ${id}(__hrXs${args.map((x) => ", " + x).join("")}) { ` +
         `const __hrN = __hrXs.length, __hrOut = new Array(__hrN); ` +
@@ -451,6 +459,67 @@ class Compiler {
       `(Array.isArray(__hrM = ${this.rewrite(recv)}) ? ${id}(__hrM${args.map((x) => ", " + x).join("")}) : ` +
       `__hrM.map((${params.join(", ")}) => ${b}))`
     );
+  }
+
+  // A loop whose body is one component element (a list's rows), with the
+  // elements memoized by position (or one over): a row whose key, type and
+  // props are the same as last time (by Object.is) gets last time's element, which the
+  // runtime then bails out on by identity, as React Compiler's memoized JSX
+  // does. Pushes the loop and returns its arguments, or null.
+  rowMemo(body: string, params: string[], id: string): { args: string[] } | null {
+    let src = body.trim();
+    while (src.startsWith("(") && until(src, 1, "") === src.length - 1) src = src.slice(1, -1).trim();
+    const c = this.parseCall(src);
+    if (c === null) return null;
+    const [type, props, key, ...rest] = c.args;
+    if (
+      type === undefined ||
+      props === undefined ||
+      rest.length ||
+      !PATH.test(type) ||
+      type === "undefined" ||
+      type === "null"
+    )
+      return null;
+    const entries = this.object(props);
+    if (entries === null || entries.length === 0) return null;
+    if (entries.some(([k]) => k === "key" || k === "ref" || k === "__self" || k === "__source")) return null;
+    const values = entries.map(([, v]) => this.rewrite(v));
+    const k = key === undefined || key === "undefined" ? "undefined" : this.rewrite(key);
+    const free = freeNames([type, k, ...values].join(", "));
+    if (free === null) return null;
+    const args = [...free].filter((x) => !params.includes(x));
+    const [p0, p1, p2] = params;
+    const decl =
+      (p0 !== undefined ? `const ${p0} = __hrV; ` : "") +
+      (p1 !== undefined ? `const ${p1} = __hrI; ` : "") +
+      (p2 !== undefined ? `const ${p2} = __hrXs; ` : "");
+    const prop = (name: string) => (/^[A-Za-z_$][\w$]*$/.test(name) ? `.${name}` : `[${JSON.stringify(name)}]`);
+    const lit = (name: string) => (/^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name));
+    const vals = values.map((v, i) => `__hra${i} = ${v}`).join(", ");
+    const same = entries.map(([name], i) => ` && Object.is(__hrc.props${prop(name)}, __hra${i})`).join("");
+    const fresh =
+      `(__hrP = { ${entries.map(([name], i) => `${lit(name)}: __hra${i}`).join(", ")} }, ` +
+      `{ $$typeof: __hrE, type: ${type}, key: __hrk === undefined ? null : "" + __hrk, ref: null, ` +
+      `props: ${type}?.defaultProps == null ? __hrP : __hrDefaults(${type}, __hrP) })`;
+    const cache = id.replace("__hrL", "__hrC"),
+      keys = id.replace("__hrL", "__hrK");
+    this.inlined++;
+    this.loops.push(
+      `let ${cache} = [], ${keys} = [];\n` +
+        `function ${id}(__hrXs${args.map((x) => ", " + x).join("")}) { ` +
+        `const __hrN = __hrXs.length, __hrOut = new Array(__hrN), __hrKs = new Array(__hrN), __hrPv = ${cache}, __hrPk = ${keys}; ` +
+        `for (let __hrI = 0; __hrI < __hrN; __hrI++) { const __hrV = __hrXs[__hrI]; ` +
+        `if (__hrV === undefined && !(__hrI in __hrXs)) continue; ${decl}` +
+        `const ${vals}; const __hrk = ${k}; __hrKs[__hrI] = __hrk; ` +
+        // Last time's element at this position, or one place over (a row
+        // removed or added before it), by key.
+        `const __hrc = __hrPk[__hrI] === __hrk ? __hrPv[__hrI] : __hrPk[__hrI + 1] === __hrk ? __hrPv[__hrI + 1] : ` +
+        `__hrI > 0 && __hrPk[__hrI - 1] === __hrk ? __hrPv[__hrI - 1] : undefined; ` +
+        `__hrOut[__hrI] = __hrc !== undefined && __hrc.type === ${type}${same} ? __hrc : ${fresh}; } ` +
+        `${cache} = __hrOut; ${keys} = __hrKs; return __hrOut; }`,
+    );
+    return { args };
   }
 
   undo(values: string[], mark: number): null {
