@@ -75,7 +75,11 @@ function color(f: Frame): string {
 }
 
 /** A top-down flame graph (root on top, as in DevTools), children by total time. */
-export function flameSvg(root: Frame, title: string, width = 1400): string {
+export function flameSvg(full: Frame, title: string, width = 1400): string {
+  // (program) is the browser's own work (style, layout, paint): it would
+  // squeeze the JavaScript into slivers, so the graph leaves it out.
+  const program = full.kids.get("(program):-1")?.total ?? 0;
+  const root: Frame = { ...full, total: full.total - program, kids: new Map([...full.kids].filter(([k]) => k !== "(program):-1")) };
   const row = 17;
   const rects: string[] = [];
   let depth = 0;
@@ -101,7 +105,7 @@ export function flameSvg(root: Frame, title: string, width = 1400): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="ui-monospace,monospace" font-size="11">` +
     `<rect width="100%" height="100%" fill="#fff"/><text x="10" y="22" font-size="14" font-weight="bold">${esc(title)}</text>` +
-    `<text x="10" y="${height - 8}" fill="#666">${root.total.toFixed(1)} ms busy · orange: JS · blue: native and DOM calls · gray: (program) and GC · hover for times</text>` +
+    `<text x="10" y="${height - 8}" fill="#666">${root.total.toFixed(1)} ms of JS, DOM calls and GC shown (${program.toFixed(1)} ms of (program) left out) · orange: JS · blue: native and DOM calls · gray: GC · hover for times</text>` +
     rects.join("") +
     `</svg>`
   );
