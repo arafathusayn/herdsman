@@ -124,6 +124,96 @@ It remains about 2% behind third place for the reasons above.
 
 Two interleaved runs of **reactre** against the top 5 are in progress. reactre is the declarative TSX layer (signals, a keyed selector, `<For>`) that compiles to the same herdsman-blocks templates and list. Its script times already match or beat the hand-written blocks app on create, append, swap and create-many, and trail on update (5.3 against 4.3 ms). A field with all seven entries (top 5, reactre and reactre-compat) comes next. This report will be updated with those standings.
 
+## Reproducing it independently
+
+Everything above can be rerun from this repository; nothing depends on this session's machine. Expect your absolute times to differ, and on a quieter machine your spread to be smaller. What should hold is the order of the scores, within the noise described below.
+
+### 1. What you need
+
+- **Bun 1.4.4** (the version used here; `bun --version`).
+- **Chrome or Chromium.** Set `CHROME` to its executable, or it is looked for in the usual macOS and Linux places (`chrome.ts`). The runs here used Chrome for Testing 153.0.8010.12. The official results the top 5 come from were run on Chrome 156; a different version can shift every entry, and sometimes their order.
+- **Network access once**, to clone js-framework-benchmark and install the top-5 entries' packages.
+- **Several hours of an otherwise idle machine.** One full run of six entries took about 1¾ hours here; the official-layout pool is four of them and the interleaved pool five. Anything else running on the machine during a run (builds, tests, a browser) shows up in its numbers.
+
+### 2. Get the code and install
+
+```sh
+git clone https://github.com/arafathusayn/herdsman.git
+cd herdsman
+git checkout ccr-ca4b6b2d-jtluel
+cd bench/herdsman-cases
+bun install --ignore-scripts                          # puppeteer-core
+(cd apps/react && bun install --ignore-scripts)       # React 19: only for the react and react-fast entries
+(cd react-compat && bun install --ignore-scripts)     # only for the React compatibility check
+```
+
+No package install script is run anywhere (`--ignore-scripts`), here or in `prepare.ts`.
+
+### 3. Build the entries
+
+```sh
+bun jfb/prepare.ts
+```
+
+This does three things:
+
+- makes a sparse clone of krausest/js-framework-benchmark at commit `ca8715d9ae84916fd24de3a79457d8c328f9b766` into `jfb/.cache` (not committed);
+- builds the five entries as their own `build-prod` scripts do;
+- builds our entries: `herdsman-blocks`, `reactre`, `reactre-compat`, `herdsman-react`, and the React apps.
+
+It prints `ready: ...` with every entry it built. After changing our code, `bun jfb/prepare.ts --app-only` rebuilds only ours.
+
+### 4. Check that the code under test is the code described
+
+```sh
+(cd ../../web && bun test)            # 326 tests, 0 failures, at the time of writing
+bun react-compat.ts --runtimes reactre-compat+classes,reactre-compat+classes+compiler,reactre-compat
+```
+
+The second command should print 36/36 for both class builds, and 29/36 for the build without classes, listing the seven class scenarios.
+
+### 5. The official-layout pool (the 1st place)
+
+Four runs with different order shifts, each saved to its own log, then pooled:
+
+```sh
+E=re,thane,vanillajs-lite,vanillajs,doohtml-dp,herdsman-blocks
+for s in 0 3 1 4; do bun jfb/run.ts --entries $E --shift $s > off-$s.log 2>&1; done
+bun jfb/pool.ts off-0.log,off-3.log,off-1.log,off-4.log
+```
+
+`pool.ts` prints each entry's pooled weighted score with its factor per test, best first. The result to compare against is in [Result](#result). Single runs swing by about 0.05 here, so judge by the pool, not one run.
+
+### 6. The interleaved pool
+
+The same field, with the entries taking turns in batches of three samples, each in a fresh browser:
+
+```sh
+for s in 2 3 4 5 0; do bun jfb/run.ts --entries $E --batch 3 --shift $s > int-$s.log 2>&1; done
+bun jfb/pool.ts int-2.log,int-3.log,int-4.log,int-5.log,int-0.log
+```
+
+This should come out with thane first and herdsman-blocks second (1.011 and 1.022 here), the other four within about 0.02 of them.
+
+### 7. Single findings
+
+| Finding | Command |
+|---|---|
+| The native-clear table ([The expando finding](#the-expando-finding)) | `bun jfb/native-clear.ts vanillajs,herdsman-blocks 40`. To see an expando's cost, give each row element a property in `jfb/app/blocks.ts`'s `create`, run `prepare.ts --app-only`, and run it again. |
+| A change's effect, as an A/B (runtime and compiler changes under `web/src`) | `bun jfb/ab.ts --base <git ref> --benchmarks 05_swap1k,03_update10th1k_x16 --rounds 12 --batch 8 [--phases]`. It builds the herdsman-react app from `<ref>` and from the working tree. Example: `--base 762c194` against `00e81f6` shows swap's script proven faster by the list reports. |
+| Script time by test, entry against entry | `bun jfb/window.ts herdsman-blocks,vanillajs-lite 01_run1k 12 --kinds` |
+| Where a click spends its time | `bun jfb/profile.ts select 30 --cold --entry herdsman-react`. This writes a `.cpuprofile` for the DevTools Performance panel and a flame graph to `jfb/.cache/profiles`. |
+| V8 tiering in the measured click | `JFB_JS_FLAGS=--invocation-count-for-feedback-allocation=4 bun jfb/window.ts herdsman-react 04_select1k 25 --kinds`. Compare it with the same command without the variable. |
+
+### 8. What to expect from the noise
+
+- **One click.** On this VM the same click varies up to 2× between samples, in spells that last minutes.
+- **One run.** A run's weighted score moves by about 0.05.
+- **A pool.** Pools of four or five runs moved entries by about 0.01 to 0.02 between pools.
+- **Herdsman-blocks' lead.** It leads the official-layout pool by 0.016. In single runs it placed between 1st and 4th.
+
+A reproduction that puts herdsman-blocks anywhere in the top two or three, with the scores this close, is consistent with this report. A reproduction that puts it last by a wide margin is not, and would point at a difference in machine or browser worth reporting.
+
 ## Where to look
 
 - `jfb/app/blocks.ts`: the first-place app.
