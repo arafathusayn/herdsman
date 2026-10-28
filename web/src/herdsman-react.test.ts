@@ -372,6 +372,21 @@ describe("components that render one block", () => {
     expect(log).toEqual(["cleanup"]);
   });
 
+  test("a component that renders nothing first hosts its block once it renders one", () => {
+    let show: (v: boolean) => void = () => {};
+    function Later() {
+      const [on, setOn] = useState(false);
+      show = setOn;
+      return on ? __block(OTHER, null, ["late"]) : null;
+    }
+    render(h("div", null, h("i", null, "<"), h(Later), h("i", null, ">")));
+    expect(html()).toBe("<div><i><</i><i>></i></div>");
+    flushSync(() => show(true));
+    expect(html()).toBe("<div><i><</i><p>late</p><i>></i></div>");
+    flushSync(() => show(false));
+    expect(html()).toBe("<div><i><</i><i>></i></div>");
+  });
+
   test("a hosted block's list hole reconciles its own children", () => {
     function Table({ rows }: { rows: [string, string][] }) {
       return __block(LIST, null, [

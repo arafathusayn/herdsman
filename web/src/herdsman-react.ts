@@ -1030,7 +1030,7 @@ function run(f: Fiber, old: Props | null, mount: boolean): void {
     case HOST:
       return runHost(f, old, mount);
     case FUNC:
-      return runFunc(f);
+      return runFunc(f, mount);
     case CLASS:
       if (classes === null) throw noClasses(f.t);
       return classes.run(f, old, mount);
@@ -2099,7 +2099,7 @@ function runPortal(f: Fiber, mount: boolean): void {
 // Components
 // ---------------------------------------------------------------------------
 
-function runFunc(f: Fiber): void {
+function runFunc(f: Fiber, mount = false): void {
   const fn = f.s,
     props = f.p,
     prevCur = cur,
@@ -2148,7 +2148,9 @@ function runFunc(f: Fiber): void {
     f.f |= BOX;
     f.b = out;
     runBlock(f, out[VALS], null, true);
-    curHost.f |= STRUCT;
+    // A mount is placed by whoever created it; a component that fuses later
+    // (after rendering nothing) has its host place the new node.
+    if (!mount) curHost.f |= STRUCT;
   } else reconcile(f, out);
   if (f.x !== null) commitEffects(f);
 }
