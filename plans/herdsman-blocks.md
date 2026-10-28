@@ -165,6 +165,7 @@ What the blocks entry needed, each measured:
 - **A long insertion into a live list is one fragment** (append: 179 to 128 ms in the next run).
 
 Standings: five interleaved runs pooled (`--batch 3`, shifts 0 to 5; 75 samples per test and entry): thane 1.011, herdsman-blocks 1.022, doohtml-dp 1.028, re 1.031, vanillajs 1.040, vanillajs-lite 1.041. herdsman-blocks placed first in two of the five runs, second, third and fourth in one each.
+Two runs in the official layout (each entry's samples back to back, shifts 0 and 3; 30 samples per test and entry) pooled: doohtml-dp 1.055, re 1.077, herdsman-blocks 1.078, thane 1.080, vanillajs 1.086, vanillajs-lite 1.101; herdsman-blocks third in the first run and second (tied) in the second. Places two to four are within 0.003 there, inside one run's swing, so in that layout the claim is "in the top three, tied", not a settled second place.
 
 ---
 
