@@ -637,6 +637,8 @@ export interface ListBase<T, E, K extends Key = Key> {
    * for each render), and `update` must depend on nothing but the item.
    */
   readonly skipUnchanged?: boolean;
+  /** Called for each entry as it leaves the list (its node already removed or about to be). */
+  readonly remove?: (entry: E) => void;
 }
 
 /** A keyed list of items rendered into a parent node. Call `set` with each new array. */
@@ -655,6 +657,7 @@ export class List<T, E = Entry, K extends Key = Key> {
   private readonly update: (entry: E, item: T) => void;
   private readonly r: (entry: E) => Node;
   private readonly skip: boolean;
+  private readonly rm: ((entry: E) => void) | undefined;
   private items: readonly T[] = NO_ITEMS;
 
   constructor(parent: Node, o: ListOptions<T, E, K>) {
@@ -667,6 +670,7 @@ export class List<T, E = Entry, K extends Key = Key> {
     this.update = o.update;
     this.r = (o as { readonly root?: (entry: E) => Node }).root ?? (entryRoot as (entry: E) => Node);
     this.skip = o.skipUnchanged === true;
+    this.rm = o.remove;
   }
 
   /** Remove every entry. */
@@ -676,6 +680,8 @@ export class List<T, E = Entry, K extends Key = Key> {
       r = this.r;
     if (this.owns) p.textContent = "";
     else for (let i = 0; i < e.length; i++) p.removeChild(r(e[i]!));
+    const rm = this.rm;
+    if (rm !== undefined) for (let i = 0; i < e.length; i++) rm(e[i]!);
     this.keys = [];
     this.entries = [];
     this.items = NO_ITEMS;
@@ -733,7 +739,11 @@ export class List<T, E = Entry, K extends Key = Key> {
     if (s > ne) {
       // 2a. Only removals left (or nothing): drop them in place; the arrays
       // of keys and entries are kept, not copied.
-      for (let i = s; i <= oe; i++) p.removeChild(r(oldE[i]!));
+      const rm = this.rm;
+      for (let i = s; i <= oe; i++) {
+        p.removeChild(r(oldE[i]!));
+        if (rm !== undefined) rm(oldE[i]!);
+      }
       if (s <= oe) {
         oldK.splice(s, oe - s + 1);
         oldE.splice(s, oe - s + 1);
@@ -891,13 +901,20 @@ export class List<T, E = Entry, K extends Key = Key> {
     if (kept === 0 && this.owns && s === 0 && oe === m - 1 && ne === n - 1) {
       // Full replacement: one native clear beats N removeChild calls.
       p.textContent = "";
+      const rm = this.rm;
+      if (rm !== undefined) for (let i = 0; i < m; i++) rm(oldE[i]!);
       this.fill(items, newE);
       return;
     }
 
     // Remove old entries that did not survive.
     if (kept < oe - s + 1) {
-      for (let i = s; i <= oe; i++) if (find(oldK[i]!) < 0) p.removeChild(r(oldE[i]!));
+      const rm = this.rm;
+      for (let i = s; i <= oe; i++) {
+        if (find(oldK[i]!) >= 0) continue;
+        p.removeChild(r(oldE[i]!));
+        if (rm !== undefined) rm(oldE[i]!);
+      }
     }
     for (let j = 0; j < len; j++) if (src[j] !== -1) upd(newE[j + s]!, items[j + s]!);
 

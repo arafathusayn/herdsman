@@ -105,10 +105,10 @@ const REGEX_WORDS = new Set([
   "yield",
   "await",
 ]);
-const isIdent = (c: string | undefined): boolean => c !== undefined && /[\w$]/.test(c);
+export const isIdent = (c: string | undefined): boolean => c !== undefined && /[\w$]/.test(c);
 
 // The index just past the literal, comment or template that starts at i, or i itself.
-function skipToken(src: string, i: number, prev: string, word: string): number {
+export function skipToken(src: string, i: number, prev: string, word: string): number {
   const c = src[i];
   if (c === '"' || c === "'") {
     for (let j = i + 1; j < src.length; j++) {
@@ -154,7 +154,7 @@ function skipToken(src: string, i: number, prev: string, word: string): number {
 
 // Walks src from i at bracket depth 0 and returns the index of the first of
 // `stops` found there (or of the bracket that closes the enclosing one).
-function until(src: string, i: number, stops: string): number {
+export function until(src: string, i: number, stops: string): number {
   let depth = 0,
     prev = "",
     word = "";
@@ -191,7 +191,7 @@ function until(src: string, i: number, stops: string): number {
 }
 
 // The top-level comma-separated parts of src[start, end).
-function split(src: string, start: number, end: number): string[] {
+export function split(src: string, start: number, end: number): string[] {
   const out: string[] = [];
   let i = start;
   while (i < end) {
@@ -641,12 +641,12 @@ function freeNames(src: string): Set<string> | null {
   return out;
 }
 
-const NOT_LITERAL = Symbol("not a literal");
+export const NOT_LITERAL: unique symbol = Symbol("not a literal");
 // A name or a dotted path of names (no calls, no computed members).
 const PATH = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/;
 
 // The value of a string, number, boolean, null or undefined literal.
-function literal(src: string): unknown {
+export function literal(src: string): unknown {
   if (src === "true") return true;
   if (src === "false") return false;
   if (src === "null") return null;

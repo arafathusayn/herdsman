@@ -59,6 +59,7 @@ function build(s: Setup) {
   }
   let creates = 0,
     updates = 0;
+  const removed = new Set<FakeElement>();
   const style: KeyStyle = s.c.style;
   const list = new List<number, FakeElement, string | number>(asDom(parent), {
     key: (id) => keyOf(style, id),
@@ -75,8 +76,12 @@ function build(s: Setup) {
     update: () => {
       updates++;
     },
+    remove: (x) => {
+      expect(removed.has(x)).toBe(false);
+      removed.add(x);
+    },
   });
-  return { parent, head, foot, list, creates: () => creates, updates: () => updates };
+  return { parent, head, foot, list, creates: () => creates, updates: () => updates, removed };
 }
 
 describe("keyed list properties", () => {
@@ -85,7 +90,7 @@ describe("keyed list properties", () => {
       "reconcile",
       setupGen,
       (s) => {
-        const { parent, head, foot, list, creates, updates } = build(s);
+        const { parent, head, foot, list, creates, updates, removed } = build(s);
         list.set(s.c.before);
         const nodeOf = new Map(s.c.before.map((id, i) => [id, parent.childNodes[i + (s.anchored ? 1 : 0)]]));
         const made = creates(),
@@ -103,6 +108,10 @@ describe("keyed list properties", () => {
         const survivors = s.c.after.filter((id) => nodeOf.has(id));
         for (const id of survivors) expect(list.entries[s.c.after.indexOf(id)]).toBe(nodeOf.get(id) as FakeElement);
         expect(creates() - made).toBe(s.c.after.length - survivors.length);
+        // Every entry that left was reported once, and no other.
+        const gone = s.c.before.filter((id) => !s.c.after.includes(id));
+        expect(new Set([...removed].map((x) => x["key"]))).toEqual(new Set(gone));
+        expect(removed.size).toBe(gone.length);
         // Every survivor is updated once; with skipUnchanged, at most once.
         if (s.skip) expect(updates() - updated).toBeLessThanOrEqual(survivors.length);
         else expect(updates() - updated).toBe(survivors.length);

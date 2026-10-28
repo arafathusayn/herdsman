@@ -20,6 +20,7 @@
 import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { herdsmanReactCompiler } from "../../../web/src/herdsman-react-compiler.ts";
+import { reactreCompiler } from "../../../web/src/reactre-compiler.ts";
 import { reactAlias, type Runtime } from "../react-alias.ts";
 
 export const JFB_COMMIT = "ca8715d9ae84916fd24de3a79457d8c328f9b766";
@@ -32,14 +33,24 @@ export const TOP5 = ["re", "thane", "vanillajs-lite", "vanillajs", "doohtml-dp"]
  * Our apps, built for each runtime: React 19, and herdsman-react with its
  * compiler. app/main.jsx is the idiomatic app; app/main-fast.jsx the same
  * app written for speed (a row store each row subscribes to by id).
- * app/blocks.ts is the app on herdsman-blocks, no React at all (runtime null).
+ * app/blocks.ts is the app on herdsman-blocks, no React at all (runtime null);
+ * app/reactre.tsx the app in reactre, compiled by reactre-compiler.
  */
-export const OURS: Record<string, { runtime: Runtime | null; compiler: boolean; app?: string }> = {
+export const OURS: Record<string, { runtime: Runtime | null; compiler: boolean | "reactre"; app?: string }> = {
   react: { runtime: "react", compiler: false },
   "herdsman-react": { runtime: "herdsman-react", compiler: true },
   "react-fast": { runtime: "react", compiler: false, app: "main-fast.jsx" },
   "herdsman-react-fast": { runtime: "herdsman-react", compiler: true, app: "main-fast.jsx" },
   "herdsman-blocks": { runtime: null, compiler: false, app: "blocks.ts" },
+  reactre: { runtime: null, compiler: "reactre", app: "reactre.tsx" },
+};
+
+// `reactre` imports resolve to web/src/reactre.ts, as a package would.
+const reactreAlias: import("bun").BunPlugin = {
+  name: "reactre-alias",
+  setup(build) {
+    build.onResolve({ filter: /^reactre$/ }, () => ({ path: join(import.meta.dir, "../../../web/src/reactre.ts") }));
+  },
 };
 
 function sh(cmd: string[], cwd: string): void {
@@ -85,7 +96,10 @@ export async function buildOurs(): Promise<void> {
       entrypoints: [join(import.meta.dir, "app", app ?? "main.jsx")],
       format: "iife",
       minify: true,
-      plugins: [...(compiler ? [herdsmanReactCompiler()] : []), ...(runtime !== null ? [reactAlias(runtime)] : [])],
+      plugins:
+        compiler === "reactre"
+          ? [reactreCompiler(), reactreAlias]
+          : [...(compiler ? [herdsmanReactCompiler()] : []), ...(runtime !== null ? [reactAlias(runtime)] : [])],
       define: { "process.env.NODE_ENV": JSON.stringify("production") },
     });
     if (!r.success) throw new Error(r.logs.join("\n"));
