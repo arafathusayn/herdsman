@@ -3,7 +3,7 @@
 // entries prepare.ts builds: the official keyed top 5 and our React app on
 // React 19 and on herdsman-react.
 //
-//   bun jfb/run.ts [--iterations 15] [--entries a,b] [--benchmarks 01_run1k,...]
+//   bun jfb/run.ts [--iterations 15] [--entries a,b] [--benchmarks 01_run1k,...] [--shift n]
 //
 // As the official runner does (benchmarkRunner.ts, forkedBenchmarkRunner-
 // Puppeteer.ts): per test and entry, a fresh browser that runs all of that
@@ -294,13 +294,18 @@ async function main(): Promise<void> {
   const entries = value("--entries")?.split(",") ?? [...TOP5, ...Object.keys(OURS)];
   const ids = value("--benchmarks")?.split(",");
   const iterations = Number(value("--iterations") ?? 15);
+  // Each test rotates the entries' order by its index; --shift rotates it
+  // further, so runs with different shifts put each entry in different
+  // places in each test's order, and a pool of them evens out drift that
+  // favors a place.
+  const shift = Number(value("--shift") ?? 0);
   const tests = ids ? benches.filter((b) => ids.includes(b.id)) : benches;
   const server = serveRoot();
   const base = `http://127.0.0.1:${server.port}`;
   const times = new Map<string, number[]>();
   try {
     for (const [bi, b] of tests.entries()) {
-      const order = entries.map((_, i) => entries[(i + bi) % entries.length]!);
+      const order = entries.map((_, i) => entries[(i + bi + shift) % entries.length]!);
       for (const e of order) {
         const browser = await startBrowser();
         const ts: number[] = [];
