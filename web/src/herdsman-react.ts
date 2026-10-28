@@ -1234,8 +1234,10 @@ function nsOfContainer(d: Any): number {
       : HTML_NS;
 }
 
+// Roots, portals and slots keep their container's namespace (worked out
+// when they first run): a re-render reads nothing from the DOM for it.
 function hostNs(h: Fiber): number {
-  return h.n === HOST ? (h.t === "foreignObject" ? HTML_NS : h.ns) : nsOfContainer(h.d);
+  return h.n === HOST ? (h.t === "foreignObject" ? HTML_NS : h.ns) : h.ns;
 }
 
 function runHost(f: Fiber, old: Props | null, mount: boolean): void {
@@ -1884,6 +1886,7 @@ function setChild(f: Fiber, i: number, x: Any, old: Any): void {
   if (sf === undefined) {
     sf = new Fiber(SLOT, null, i, f, f.o);
     sf.d = anchor.parentNode;
+    sf.ns = nsOfContainer(sf.d);
     sf.s = anchor;
     s[at] = sf;
     f.c = f.c === NO_FIBERS ? [sf] : f.c.concat(sf);
@@ -1895,7 +1898,7 @@ function setChild(f: Fiber, i: number, x: Any, old: Any): void {
   const ph = curHost,
     pn = curNs;
   curHost = sf;
-  curNs = nsOfContainer(sf.d);
+  curNs = sf.ns;
   try {
     reconcile(sf, x);
   } catch (e) {
@@ -2063,7 +2066,7 @@ function runRoot(f: Fiber): void {
     pn = curNs,
     ph2 = hydrating;
   curHost = f;
-  curNs = nsOfContainer(f.d);
+  curNs = f.ns = nsOfContainer(f.d);
   let thrown = f.x;
   f.x = null;
   if (!r.mounted) {
@@ -2107,7 +2110,7 @@ function runPortal(f: Fiber, mount: boolean): void {
   const ph = curHost,
     pn = curNs;
   curHost = f;
-  curNs = nsOfContainer(f.d);
+  curNs = f.ns = nsOfContainer(f.d);
   try {
     reconcile(f, f.p.children);
   } finally {
