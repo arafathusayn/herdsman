@@ -3,7 +3,7 @@
 // entries prepare.ts builds: the official keyed top 5 and our React app on
 // React 19 and on herdsman-react.
 //
-//   bun jfb/run.ts [--iterations 15] [--entries a,b] [--benchmarks 01_run1k,...] [--shift n]
+//   bun jfb/run.ts [--iterations 15] [--entries a,b] [--benchmarks 01_run1k,...] [--shift n] [--batch b]
 //
 // As the official runner does (benchmarkRunner.ts, forkedBenchmarkRunner-
 // Puppeteer.ts): per test and entry, a fresh browser that runs all of that
@@ -299,6 +299,7 @@ async function main(): Promise<void> {
   // places in each test's order, and a pool of them evens out drift that
   // favors a place.
   const shift = Number(value("--shift") ?? 0);
+  const batch = Number(value("--batch") ?? 0);
   const tests = ids ? benches.filter((b) => ids.includes(b.id)) : benches;
   const server = serveRoot();
   const base = `http://127.0.0.1:${server.port}`;
@@ -306,15 +307,27 @@ async function main(): Promise<void> {
   try {
     for (const [bi, b] of tests.entries()) {
       const order = entries.map((_, i) => entries[(i + bi + shift) % entries.length]!);
-      for (const e of order) {
-        const browser = await startBrowser();
-        const ts: number[] = [];
-        try {
-          for (let it = 0; it < iterations + (b.extra ?? 0); it++) ts.push(await sample(browser, base, e, b));
-        } finally {
-          await browser.close();
+      const total = iterations + (b.extra ?? 0);
+      // Without --batch, as the official runner: each entry's samples in one
+      // browser, one entry after another. With it, the entries take turns,
+      // `batch` samples each in a fresh browser, the order rotating each
+      // round, so the machine's slow spells land on all of them alike.
+      const per = batch > 0 ? batch : total;
+      for (const e of order) times.set(e + "|" + b.id, []);
+      for (let r = 0; r * per < total; r++) {
+        for (let j = 0; j < order.length; j++) {
+          const e = order[(j + r) % order.length]!;
+          const ts = times.get(e + "|" + b.id)!;
+          const browser = await startBrowser();
+          try {
+            for (let it = 0; it < per && ts.length < total; it++) ts.push(await sample(browser, base, e, b));
+          } finally {
+            await browser.close();
+          }
         }
-        times.set(e + "|" + b.id, ts);
+      }
+      for (const e of order) {
+        const ts = times.get(e + "|" + b.id)!;
         console.log(`${b.id.padEnd(22)} ${e.padEnd(16)} median ${median(ts).toFixed(1).padStart(7)}  ${ts.map((t) => t.toFixed(1)).join(" ")}`);
       }
     }
