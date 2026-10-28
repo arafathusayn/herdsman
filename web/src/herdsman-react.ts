@@ -564,38 +564,27 @@ let alignedOld = 0;
 function patchAligned(items: Any[], old: Fiber[], n: number): number {
   let i = 0,
     oi = 0;
-  // The driver only steps; each row's work is alignOne, called per row: a
-  // function called a thousand times per render is optimized by the engine
-  // within a few renders (and keeps that code across collections), where a
-  // loop body in a function called once per render stays baseline code.
   for (; i < n; i++) {
-    const r = alignOne(items, i, old[oi]);
-    if (r === ALIGNED) oi++;
-    else if (r === STOP) break;
+    let it = items[i];
+    const o = old[oi];
+    // The element the row already has (a memoized list's unchanged rows):
+    // nothing to check or render, unless the row has an update of its own.
+    if (o !== undefined && o.e === it && !(o.f & DIRTY)) {
+      oi++;
+      continue;
+    }
+    if (it == null || typeof it === "boolean") continue;
+    if (typeof it === "object" && it.$$typeof !== ELEMENT && isThenable(it)) it = items[i] = unwrap(it);
+    if (o === undefined) break;
+    // An element of the fiber's own type (a list's rows): checked inline.
+    if (typeof it === "object" && it.$$typeof === ELEMENT && o.t === it.type) {
+      if (o.k !== (it.key != null ? it.key : i)) break;
+    } else if (o.k !== keyOf(it, i) || !sameType(o, it)) break;
+    oi++;
+    patchRow(o, it);
   }
   alignedOld = oi;
   return i;
-}
-
-const STOP = 0,
-  ALIGNED = 1,
-  HOLE = 2;
-// One row of patchAligned: whether items[i] lines up with old fiber o (then
-// patched), is a hole, or ends the aligned run.
-function alignOne(items: Any[], i: number, o: Fiber | undefined): number {
-  let it = items[i];
-  // The element the row already has (a memoized list's unchanged rows):
-  // nothing to check or render, unless the row has an update of its own.
-  if (o !== undefined && o.e === it && !(o.f & DIRTY)) return ALIGNED;
-  if (it == null || typeof it === "boolean") return HOLE;
-  if (typeof it === "object" && it.$$typeof !== ELEMENT && isThenable(it)) it = items[i] = unwrap(it);
-  if (o === undefined) return STOP;
-  // An element of the fiber's own type (a list's rows): checked inline.
-  if (typeof it === "object" && it.$$typeof === ELEMENT && o.t === it.type) {
-    if (o.k !== (it.key != null ? it.key : i)) return STOP;
-  } else if (o.k !== keyOf(it, i) || !sameType(o, it)) return STOP;
-  patchRow(o, it);
-  return ALIGNED;
 }
 
 // Patch a list row: React's bailout for a memoized function component given
@@ -764,23 +753,19 @@ function matchSuffix(items: Any[], old: Fiber[], i: number, oi: number, n: numbe
   let ne = n - 1,
     oe = m - 1;
   while (ne >= i && oe >= oi) {
-    const r = suffixOne(items, ne, old[oe]!);
-    if (r === STOP) break;
+    let it = items[ne];
+    if (it == null || typeof it === "boolean") {
+      ne--;
+      continue;
+    }
+    if (typeof it === "object" && it.$$typeof !== ELEMENT && isThenable(it)) it = items[ne] = unwrap(it);
+    const o = old[oe]!;
+    if (o.k !== keyOf(it, ne) || !sameType(o, it)) break;
     ne--;
-    if (r === ALIGNED) oe--;
+    oe--;
   }
   suffixOld = oe;
   return ne;
-}
-
-// One row of matchSuffix (called per row, as alignOne): whether items[ne]
-// matches old fiber o by key and type, or is a hole.
-function suffixOne(items: Any[], ne: number, o: Fiber): number {
-  let it = items[ne];
-  if (o.e === it) return ALIGNED;
-  if (it == null || typeof it === "boolean") return HOLE;
-  if (typeof it === "object" && it.$$typeof !== ELEMENT && isThenable(it)) it = items[ne] = unwrap(it);
-  return o.k === keyOf(it, ne) && sameType(o, it) ? ALIGNED : STOP;
 }
 
 function take(o: Fiber, it: Any, nc: Fiber[]): void {
