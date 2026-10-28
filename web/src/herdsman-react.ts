@@ -405,8 +405,6 @@ class Fiber {
   /** DOM node, or container for roots and portals. */
   d: Any = null;
   f = 0;
-  /** Depth: parents render before children in the update queue. */
-  z: number;
   o: RootImpl;
   h: Hook[] | null = null;
   /** Class instance; function component's render function; provider subscribers; form status; suspense primary. */
@@ -434,7 +432,6 @@ class Fiber {
     this.t = t;
     this.k = k;
     this.r = r;
-    this.z = r === null ? 0 : r.z + 1;
     this.o = o;
   }
 }
@@ -2579,7 +2576,14 @@ function reportUncaught(e: Any): void {
     }, 0);
 }
 
-const byDepth = (a: Fiber, b: Fiber): number => a.z - b.z;
+// Parents render before children: queued fibers sort by depth, counted when
+// more than one is queued (rare) instead of stored in every fiber.
+function depth(f: Fiber): number {
+  let d = 0;
+  for (let p = f.r; p !== null; p = p.r) d++;
+  return d;
+}
+const byDepth = (a: Fiber, b: Fiber): number => depth(a) - depth(b);
 
 function flushWork(sync: boolean): void {
   if (flushing) return;
