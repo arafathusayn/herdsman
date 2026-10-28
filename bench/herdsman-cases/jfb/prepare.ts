@@ -28,10 +28,16 @@ export const root = join(cache, "js-framework-benchmark");
 export const keyed = join(root, "frameworks/keyed");
 /** The official keyed top 5 of the Chrome 156 run, best first. */
 export const TOP5 = ["re", "thane", "vanillajs-lite", "vanillajs", "doohtml-dp"];
-/** Our app, built for each runtime: React 19, and herdsman-react with its compiler. */
-export const OURS: Record<string, { runtime: Runtime; compiler: boolean }> = {
+/**
+ * Our apps, built for each runtime: React 19, and herdsman-react with its
+ * compiler. app/main.jsx is the idiomatic app; app/main-fast.jsx the same
+ * app written for speed (a row store each row subscribes to by id).
+ */
+export const OURS: Record<string, { runtime: Runtime; compiler: boolean; app?: string }> = {
   react: { runtime: "react", compiler: false },
   "herdsman-react": { runtime: "herdsman-react", compiler: true },
+  "react-fast": { runtime: "react", compiler: false, app: "main-fast.jsx" },
+  "herdsman-react-fast": { runtime: "herdsman-react", compiler: true, app: "main-fast.jsx" },
 };
 
 function sh(cmd: string[], cwd: string): void {
@@ -69,12 +75,12 @@ function buildTop5(): void {
 
 export async function buildOurs(): Promise<void> {
   const html = await Bun.file(join(import.meta.dir, "app/index.html")).text();
-    for (const [name, { runtime, compiler }] of Object.entries(OURS)) {
+    for (const [name, { runtime, compiler, app }] of Object.entries(OURS)) {
     const dir = join(keyed, name);
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(join(dir, "dist"), { recursive: true });
     const r = await Bun.build({
-      entrypoints: [join(import.meta.dir, "app/main.jsx")],
+      entrypoints: [join(import.meta.dir, "app", app ?? "main.jsx")],
       format: "iife",
       minify: true,
             plugins: [...(compiler ? [herdsmanReactCompiler()] : []), reactAlias(runtime)],
