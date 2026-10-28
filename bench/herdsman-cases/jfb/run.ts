@@ -3,13 +3,18 @@
 // entries prepare.ts builds: the official keyed top 5 and our React app on
 // React 19 and on herdsman-react.
 //
-//   bun jfb/run.ts [--iterations 10] [--entries a,b] [--benchmarks 01_run1k,...]
+//   bun jfb/run.ts [--iterations 15] [--entries a,b] [--benchmarks 01_run1k,...]
 //
-// Per sample, as the official runner does: a fresh page, the benchmark's
-// setup clicks and warmups (each waited for by its DOM check), CPU throttling
-// where the benchmark sets it, a trace around a forced GC and the measured
-// click, and the duration from the trace (../trace.ts, a port of the official
-// computation). Entries are interleaved within each iteration. Each test's
+// As the official runner does (benchmarkRunner.ts, forkedBenchmarkRunner-
+// Puppeteer.ts): per test and entry, a fresh browser that runs all of that
+// entry's samples in a row (15, and 10 more for select row, as configured
+// there), then closes; entries never share a browser, so one entry's pages
+// and forced GCs do not age another's compiled code. Per sample: a fresh
+// page, the test's setup clicks and warmups (each waited for by its DOM
+// check), CPU throttling where the test sets it, a trace around a forced GC
+// and the measured click, and the duration from the trace (../trace.ts, a
+// port of the official computation). The entry order rotates from test to
+// test, so drift in the machine's speed favors no one. Each test's
 // median is divided by the best median of that test in this run, and an
 // entry's score is the geometric mean of those factors with the official
 // weights, as the results table computes it (1.000 = best on every test).
@@ -24,6 +29,8 @@ interface Bench {
   id: string;
   label: string;
   throttle?: number;
+  /** Samples beyond --iterations (the official additionalNumberOfRuns). */
+  extra?: number;
   weight: number;
   init(p: Page): Promise<void>;
   run(p: Page): Promise<void>;
@@ -102,6 +109,7 @@ export const benches: Bench[] = [
     id: "04_select1k",
     label: "select row",
     throttle: 4,
+    extra: 10,
     weight: 0.1925635870170522,
     init: async (p) => {
       await click(p, "#run");
@@ -277,28 +285,27 @@ async function main(): Promise<void> {
   const value = (k: string) => (argv.includes(k) ? argv[argv.indexOf(k) + 1] : undefined);
   const entries = value("--entries")?.split(",") ?? [...TOP5, ...Object.keys(OURS)];
   const ids = value("--benchmarks")?.split(",");
-  const iterations = Number(value("--iterations") ?? 10);
+  const iterations = Number(value("--iterations") ?? 15);
   const tests = ids ? benches.filter((b) => ids.includes(b.id)) : benches;
   const server = serveRoot();
   const base = `http://127.0.0.1:${server.port}`;
-  const browser = await startBrowser();
   const times = new Map<string, number[]>();
   try {
-    for (let it = 0; it < iterations; it++) {
-      for (const b of tests) {
-        const order = entries.map((_, i) => entries[(i + it) % entries.length]!);
-        const line: string[] = [];
-        for (const e of order) {
-          const t = await sample(browser, base, e, b);
-          const k = e + "|" + b.id;
-          (times.get(k) ?? times.set(k, []).get(k)!).push(t);
-          line.push(`${e} ${t.toFixed(1)}`);
+    for (const [bi, b] of tests.entries()) {
+      const order = entries.map((_, i) => entries[(i + bi) % entries.length]!);
+      for (const e of order) {
+        const browser = await startBrowser();
+        const ts: number[] = [];
+        try {
+          for (let it = 0; it < iterations + (b.extra ?? 0); it++) ts.push(await sample(browser, base, e, b));
+        } finally {
+          await browser.close();
         }
-        console.log(`[${it + 1}/${iterations}] ${b.id.padEnd(22)} ${line.join(", ")}`);
+        times.set(e + "|" + b.id, ts);
+        console.log(`${b.id.padEnd(22)} ${e.padEnd(16)} median ${median(ts).toFixed(1).padStart(7)}  ${ts.map((t) => t.toFixed(1)).join(" ")}`);
       }
     }
   } finally {
-    await browser.close();
     server.stop();
   }
   // Report: medians, factors to the best median, weighted geometric mean.
