@@ -1914,8 +1914,18 @@ function setChild(f: Fiber, i: number, x: Any, old: Any): void {
     pn = curNs;
   curHost = sf;
   curNs = sf.ns;
+  // A slot's e is the list it last rendered, while its rows match that list
+  // one to one; a retry's mark (DIRTY) or a throw clears the match.
+  const last = sf.e;
+  sf.e = null;
   try {
-    reconcile(sf, x);
+    if (x === deltaOut && last === deltaPrev && last !== null && !(sf.f & DIRTY) && !hydrating && patchDelta(sf, x)) {
+      sf.e = x;
+    } else {
+      reconcile(sf, x);
+      sf.f &= ~DIRTY;
+      sf.e = Array.isArray(x) && sf.c.length === x.length ? x : null;
+    }
   } catch (e) {
     f.f |= DIRTY;
     throw e;
@@ -1924,6 +1934,72 @@ function setChild(f: Fiber, i: number, x: Any, old: Any): void {
     curNs = pn;
   }
   if (sf.f & STRUCT) place(sf);
+}
+
+// A compiled list loop's report (herdsman-react-compiler): its new list is
+// the list it made last time except at the indexes in deltaIdx.
+let deltaOut: Any[] | null = null,
+  deltaPrev: Any[] | null = null,
+  deltaIdx: number[] = [];
+
+/** Internal: list `out` equals `prev` but at `idx` (herdsman-react-compiler). */
+export function __delta(out: Any[], prev: Any[], idx: number[]): void {
+  deltaOut = out;
+  deltaPrev = prev;
+  deltaIdx = idx;
+}
+
+// Update slot p's rows from the list loop's report, visiting only the rows
+// whose elements changed: each patched where it is, or two that traded
+// places (a swap) moved. False, having changed nothing out of order, when
+// the report does not fit; reconcile then does the whole list.
+function patchDelta(p: Fiber, items: Any[]): boolean {
+  const old = p.c,
+    idx = deltaIdx;
+  deltaOut = deltaPrev = null;
+  if (old.length !== items.length) return false;
+  if (idx.length === 2) {
+    const a = idx[0]!,
+      b = idx[1]!,
+      x = old[a]!,
+      y = old[b]!,
+      ia = items[a],
+      ib = items[b];
+    if (
+      ia != null &&
+      ib != null &&
+      typeof ia === "object" &&
+      typeof ib === "object" &&
+      x.k === keyOf(ib, b) &&
+      y.k === keyOf(ia, a) &&
+      sameType(x, ib) &&
+      sameType(y, ia)
+    ) {
+      const nx = single(x),
+        ny = single(y);
+      if (nx === null || ny === null) return false;
+      const parent = p.d as Node,
+        after = ny.nextSibling;
+      move(parent, ny, nx);
+      if (b - a > 1) move(parent, nx, after);
+      old[a] = y;
+      old[b] = x;
+      y.i = a;
+      x.i = b;
+      patchRow(y, ia);
+      patchRow(x, ib);
+      return true;
+    }
+  }
+  for (let ix = 0; ix < idx.length; ix++) {
+    const j = idx[ix]!,
+      o = old[j]!,
+      it = items[j];
+    if (it == null || typeof it !== "object" || it.$$typeof !== ELEMENT || o.t !== it.type) return false;
+    if (o.k !== (it.key != null ? it.key : j)) return false;
+    patchRow(o, it);
+  }
+  return true;
 }
 
 // Delegated handlers of block f's elements for `prop`, innermost first, on

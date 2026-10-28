@@ -509,14 +509,19 @@ class Compiler {
       `let ${cache} = [], ${keys} = [];\n` +
         `function ${id}(__hrXs${args.map((x) => ", " + x).join("")}) { ` +
         `const __hrN = __hrXs.length, __hrOut = new Array(__hrN), __hrKs = new Array(__hrN), __hrPv = ${cache}, __hrPk = ${keys}; ` +
+        // The indexes whose element is not last time's at the same place,
+        // while they are few and the list keeps its length and has no holes.
+        `let __hrD = __hrN === __hrPv.length ? [] : null; ` +
         `for (let __hrI = 0; __hrI < __hrN; __hrI++) { const __hrV = __hrXs[__hrI]; ` +
-        `if (__hrV === undefined && !(__hrI in __hrXs)) continue; ${decl}` +
+        `if (__hrV === undefined && !(__hrI in __hrXs)) { __hrD = null; continue; } ${decl}` +
         `const ${vals}; const __hrk = ${k}; __hrKs[__hrI] = __hrk; ` +
         // Last time's element at this position, or one place over (a row
         // removed or added before it), by key.
         `const __hrc = __hrPk[__hrI] === __hrk ? __hrPv[__hrI] : __hrPk[__hrI + 1] === __hrk ? __hrPv[__hrI + 1] : ` +
         `__hrI > 0 && __hrPk[__hrI - 1] === __hrk ? __hrPv[__hrI - 1] : undefined; ` +
-        `__hrOut[__hrI] = __hrc !== undefined && __hrc.type === ${type}${same} ? __hrc : ${fresh}; } ` +
+        `const __hre = __hrOut[__hrI] = __hrc !== undefined && __hrc.type === ${type}${same} ? __hrc : ${fresh}; ` +
+        `if (__hrD !== null && __hre !== __hrPv[__hrI] && __hrD.push(__hrI) > __hrN >> 1) __hrD = null; } ` +
+        `if (__hrD !== null) __hrDelta(__hrOut, __hrPv, __hrD); ` +
         `${cache} = __hrOut; ${keys} = __hrKs; return __hrOut; }`,
     );
     return { args };
@@ -676,6 +681,7 @@ export function compileJs(js: string, options: CompilerOptions = {}): string {
   const names = [
     ...(c.templates.length ? ["__template as __hrTemplate", "__block as __hrBlock"] : []),
     ...(c.inlined ? ["__defaults as __hrDefaults", "__key as __hrKey"] : []),
+    ...(c.loops.some((l) => l.includes("__hrDelta(")) ? ["__delta as __hrDelta"] : []),
   ];
   const inline =
     (c.inlined ? `let __hrP;\nconst __hrE = Symbol.for("react.transitional.element");\n` : "") +

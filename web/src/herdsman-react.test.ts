@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { FakeElement, FakeEvent, installFakeDocument, ops, resetOps } from "./herdsman-blocks.testdom.ts";
 import {
   __block,
+  __delta,
   __template,
   createContext,
   createElement as h,
@@ -407,6 +408,138 @@ describe("components that render one block", () => {
     );
     render(h(Table, { rows: [] }));
     expect(html()).toBe("<table><tbody></tbody></table>");
+  });
+});
+
+// A compiled list loop reports which positions got a new element (__delta);
+// the rows between are left alone. These make the reports by hand, as the
+// loop would, and check the result is what a full reconcile gives.
+describe("list updates from a loop's report", () => {
+  const ROW = __template(["tr", { className: { h: 0 } }, ["td", 0, 1], ["td", 0, 2]]);
+  const LIST = __template(["table", 0, ["tbody", 0, 0]]);
+  type Item = { id: string; label: string };
+  let prev: unknown[] = [];
+  const Row = memo(function Row({ row, sel }: { row: Item; sel: boolean }) {
+    return __block(ROW, null, [sel ? "danger" : "", row.id, row.label]);
+  });
+  // Last list's element where its row and selection are the same, as the loop does.
+  const list = (rows: Item[], sel: string, report = true) => {
+    const out: unknown[] = [],
+      idx: number[] = [];
+    rows.forEach((row, i) => {
+      const old = prev[i] as { props: { row: Item; sel: boolean } } | undefined;
+      const el =
+        old !== undefined && old.props.row === row && old.props.sel === (sel === row.id)
+          ? old
+          : h(Row, { key: row.id, row, sel: sel === row.id });
+      out.push(el);
+      if (el !== prev[i]) idx.push(i);
+    });
+    if (report && out.length === prev.length) __delta(out, prev, idx);
+    prev = out;
+    return __block(LIST, null, [out]);
+  };
+  const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ id: "" + (i + 1), label: "r" + (i + 1) }));
+  const tbody = () => container.firstChild!.firstChild as FakeElement;
+  const text = () => [...tbody().childNodes].map((tr) => (tr as FakeElement).textContent).join(",");
+  beforeEach(() => {
+    prev = [];
+  });
+
+  test("a changed row is patched in place and the others keep their nodes", () => {
+    const rs = rows(5);
+    render(list(rs, ""));
+    const before = [...tbody().childNodes];
+    render(list(rs, "3"));
+    expect((tbody().childNodes[2] as FakeElement).className).toBe("danger");
+    render(list(rs, "4"));
+    expect([...tbody().childNodes].map((tr) => (tr as FakeElement).className)).toEqual(["", "", "", "danger", ""]);
+    expect([...tbody().childNodes]).toEqual(before);
+    const next = rs.slice();
+    next[1] = { id: "2", label: "changed" };
+    render(list(next, "4"));
+    expect(text()).toBe("1r1,2changed,3r3,4r4,5r5");
+  });
+
+  test("two rows that traded places move, near or far, and keep their nodes", () => {
+    const rs = rows(6);
+    render(list(rs, ""));
+    const nodes = [...tbody().childNodes];
+    // Each row's node by its original position.
+    const order = () => [...tbody().childNodes].map((n) => nodes.indexOf(n));
+    const far = rs.slice();
+    [far[1], far[4]] = [far[4]!, far[1]!];
+    render(list(far, ""));
+    expect(text()).toBe("1r1,5r5,3r3,4r4,2r2,6r6");
+    expect(order()).toEqual([0, 4, 2, 3, 1, 5]);
+    const near = far.slice();
+    [near[2], near[3]] = [near[3]!, near[2]!];
+    render(list(near, "4"));
+    expect(text()).toBe("1r1,5r5,4r4,3r3,2r2,6r6");
+    expect(order()).toEqual([0, 4, 3, 2, 1, 5]);
+    expect((nodes[3] as FakeElement).className).toBe("danger");
+    // And back, with a full reconcile: the rows are where the report left them.
+    render(list(rows(6), "", false));
+    expect(text()).toBe("1r1,2r2,3r3,4r4,5r5,6r6");
+  });
+
+  test("a report that does not fit (a row replaced by another key) falls back to the whole list", () => {
+    const rs = rows(4);
+    render(list(rs, ""));
+    const next = rs.slice();
+    next[2] = { id: "9", label: "new" };
+    render(list(next, ""));
+    expect(text()).toBe("1r1,2r2,9new,4r4");
+    // Three swapped around: three changed positions, not a two-row swap.
+    const rot = [next[0]!, next[2]!, next[3]!, next[1]!];
+    render(list(rot, "2"));
+    expect(text()).toBe("1r1,9new,4r4,2r2");
+    expect((tbody().childNodes[3] as FakeElement).className).toBe("danger");
+  });
+
+  test("a stale report, or one for another list, is ignored", () => {
+    const rs = rows(3);
+    render(list(rs, ""));
+    // A report for arrays this slot never rendered.
+    __delta([], [], []);
+    render(list(rs, "2", false));
+    expect((tbody().childNodes[1] as FakeElement).className).toBe("danger");
+    const other = rows(3).map((r) => ({ ...r, label: r.label + "!" }));
+    const out = other.map((row) => h(Row, { key: row.id, row, sel: false }));
+    // Against a list this slot did not render (another instance of the loop's call site).
+    __delta(out, out.slice(), []);
+    prev = out;
+    render(__block(LIST, null, [out]));
+    expect(text()).toBe("1r1!,2r2!,3r3!");
+  });
+
+  test("a row's own update and a context change under an unchanged row still render", () => {
+    const Ctx = createContext("a");
+    let bump: () => void = () => {};
+    const Cell = () => h("i", null, useContext(Ctx));
+    const Counted = memo(function Counted({ row }: { row: Item }) {
+      const [n, set] = useState(0);
+      if (row.id === "2") bump = () => set((x) => x + 1);
+      return h("tr", null, row.id + ":" + n, h(Cell, null));
+    });
+    const rs = rows(3);
+    let last: unknown[] = [];
+    const table = (v: string, sel: number) => {
+      const out = rs.map((row, i) => (last[i] !== undefined && i !== sel ? last[i] : h(Counted, { key: row.id, row })));
+      const idx = out.flatMap((el, i) => (el !== last[i] ? [i] : []));
+      if (last.length) __delta(out, last, idx);
+      last = out;
+      return h(Ctx.Provider, { value: v }, __block(LIST, null, [out]));
+    };
+    render(table("a", -1));
+    expect(text()).toBe("1:0a,2:0a,3:0a");
+    flushSync(() => {
+      bump();
+      root.render(table("a", 0));
+    });
+    expect(text()).toBe("1:0a,2:1a,3:0a");
+    render(table("b", 2));
+    expect(text()).toBe("1:0b,2:1b,3:0b");
   });
 });
 

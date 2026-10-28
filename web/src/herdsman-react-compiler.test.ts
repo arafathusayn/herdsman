@@ -207,6 +207,7 @@ describe("herdsman-react-compiler", () => {
           .join("\n"),
       )
       .replace(/^export /gm, "");
+    const reports: number[][] = [];
     const make = new Function("scope", `${body}\nreturn make;`)({
       jsx,
       jsxs,
@@ -215,6 +216,7 @@ describe("herdsman-react-compiler", () => {
       __key,
       __block,
       __template,
+      __delta: (_out: unknown, _prev: unknown, idx: number[]) => reports.push(idx),
     }) as (
       rows: unknown[],
       sel: unknown,
@@ -225,17 +227,25 @@ describe("herdsman-react-compiler", () => {
     const rows = [{ id: 1 }, { id: 2 }, { id: 3 }];
     const a = make(rows, 2, Row).props.children;
     const b = make(rows, 2, Row).props.children;
+    // The loop reports the positions whose element is new: none here.
+    expect(reports).toEqual([[]]);
     expect(b[0]).toBe(a[0]!);
     expect(b[1]).toBe(a[1]!);
     expect(b).not.toBe(a);
     // A changed prop: only that row's element is new.
     const c = make(rows, 3, Row).props.children;
+    // Two of three new: more than half, so no report (the whole list is reconciled).
+    expect(reports).toHaveLength(1);
     expect(c[0]).toBe(a[0]!);
     expect(c[1]).not.toBe(a[1]!);
     expect(c[1]!.props).toEqual({ row: rows[1], on: false });
     expect(c[2]!.props).toEqual({ row: rows[2], on: true });
     // A row removed before the others: they are found one place over.
+    expect(make(rows, 3, Row).props.children[1]).toBe(c[1]!);
+    expect(reports.at(-1)).toEqual([]);
+    // A list of another length: no report.
     const d = make([rows[1], rows[2]], 3, Row).props.children;
+    expect(reports).toHaveLength(2);
     expect(d[0]).toBe(c[1]!);
     expect(d[1]).toBe(c[2]!);
     // Another component type gets new elements.
