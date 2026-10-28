@@ -135,11 +135,14 @@ vanillajs-lite, vanillajs and doohtml-dp.
   builds `jfb/app/main.jsx`, one React app, as two entries: `react` (React
   19) and `herdsman-react` (herdsman-react and its compiler).
   `--app-only` rebuilds just those two.
-- `bun jfb/run.ts [--iterations 15] [--entries a,b] [--benchmarks 01_run1k,...]`
+- `bun jfb/run.ts [--iterations 15] [--entries a,b] [--benchmarks 01_run1k,...] [--shift n] [--batch b]`
   runs the tests as the official runner does (per test and entry, a fresh
   browser running all of that entry's samples; 25 for select row), and prints
   medians, factors to the best median and each entry's weighted score as the
-  official table computes it.
+  official table computes it. `--shift n` rotates each test's entry order by
+  n more places (pool runs with different shifts); `--batch b` makes the
+  entries take turns instead, b samples each in a fresh browser, so the
+  machine's slow spells land on all of them.
 - `bun jfb/pool.ts <logs> [<logs for herdsman-react>]` pools the samples of
   several saved run.ts outputs into one table: on a noisy machine one run
   swings the score by several hundredths.

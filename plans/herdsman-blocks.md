@@ -138,6 +138,16 @@ What the profiles showed, and what changed:
 
 Measured and not adopted: batching clones (cost is per node, not per call); a structure-of-arrays fiber store in one typed array (the per-row saving, about 0.04 ms per 1,000 rows, is below the noise, and references must stay JavaScript values anyway); `insertBefore` instead of `moveBefore` for moves (proven slower on swap); per-row helper functions for the aligned-rows loops (no effect).
 
+#### Third round: what is left in the measured click (2026-10-28)
+
+- **A compiled list loop reports which rows changed.** The loop already knows the positions whose element is not last render's at the same place; when they are at most half the list, the length is unchanged and there are no holes, it passes them to the runtime (`__delta`). A slot whose rows match the list it rendered last time, one to one (kept in the slot's otherwise unused `e`, cleared by a throw or a retry's `DIRTY` mark), patches only those rows, or moves the two rows that traded places, instead of walking the list three times. Swap's script fell 4.5 to 3.3 ms (proven three times); select and update did not move measurably.
+- **Most of select's remaining script is tiering, not work.** The measured click is about the eighth call of the functions that run once per click (`Main`, `rerender`, `schedule`, the hooks), which is where V8 allocates their feedback and compiles them with Sparkplug (`--invocation-count-for-feedback-allocation=8`): with the flag at 4 select's script falls from 3.9 to 2.5 ms, and with `--no-sparkplug` to 2.9. The initial render already goes through the same update path, as React's does, so there is no earlier call to move that cost into.
+- **The order of runs is part of the noise.** On this VM one click's time swings between about 95 and 175 ms, in spells, and the official layout runs an entry's samples back to back, so a median catches the spell its entry ran in. `run.ts --shift` rotates each test's order and `run.ts --batch b` interleaves the entries in fresh-browser batches, as `ab.ts` does for two builds. In 40-sample head-to-heads, clear (1.06, second of four) and create (fastest by script) are not where single runs put them.
+
+Measured and not adopted: skipping the per-event seen mark when one root listens (no proven change, select leaning slower); building component elements with `jsx()` instead of inline literals (update's script 2.0 ms slower, proven); the inert template document off (create-many's script 10.8 ms slower, proven; no effect on clear); `insertBefore` for moves again, with phases (script slower, proven; style, layout and paint unchanged).
+
+Standings after this round, pooling five official-layout runs (75 samples per test and entry): re 1.040, vanillajs 1.057, doohtml-dp 1.059, vanillajs-lite 1.062, thane 1.068, herdsman-react 1.089. One interleaved run: doohtml-dp 1.053, vanillajs-lite 1.063, re 1.112, vanillajs 1.115, thane 1.131, herdsman-react 1.131. Places two to six sit within 0.04 of each other, which is about one run's swing here.
+
 ---
 
 ## Part 2: Design spec
