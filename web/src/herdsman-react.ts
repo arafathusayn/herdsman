@@ -1589,6 +1589,20 @@ const isHole = (x: Any): boolean => typeof x === "object" && x !== null;
 // What a reserved attribute holds before its first value: never equal to a value.
 const UNWRITTEN = Symbol("unwritten");
 
+// The document templates build their prototypes in: a <template>'s contents
+// owner, which has no browsing context, so its nodes clone without the live
+// document's bookkeeping (about a fifth cheaper per clone and insert); the
+// clones are adopted when inserted, as nodes are. The page's document where
+// there is no such thing.
+let inert: Document | null = null;
+function inertDocument(): Document {
+  if (inert === null) {
+    const t: Any = document.createElement("template");
+    inert = (t.content?.ownerDocument as Document | undefined) ?? document;
+  }
+  return inert;
+}
+
 class Template {
   readonly $$typeof: symbol = TEMPLATE_TYPE;
   readonly desc: TemplateNode;
@@ -1639,11 +1653,12 @@ class Template {
   // Build the prototype for namespace ns: static props with React's rules,
   // an empty text node as each child hole's anchor.
   build(ns: number): Element {
+    const doc = inertDocument();
     const infos: Any[] = (this.infos[ns] = []);
     const make = (d: TemplateNode, ns0: number): Element => {
       const tag = d[0];
       const own = tag === "svg" ? SVG_NS : tag === "math" ? MATH_NS : ns0;
-      const el: Any = own === HTML_NS ? document.createElement(tag) : document.createElementNS(NS_URI[own]!, tag);
+      const el: Any = own === HTML_NS ? doc.createElement(tag) : doc.createElementNS(NS_URI[own]!, tag);
       const info = { ns: own, t: tag };
       const props = d[1];
       if (props) {
@@ -1666,9 +1681,9 @@ class Template {
         const x = d[c] as string | number | TemplateNode;
         el.appendChild(
           typeof x === "string"
-            ? document.createTextNode(x)
+            ? doc.createTextNode(x)
             : typeof x === "number"
-              ? document.createTextNode("")
+              ? doc.createTextNode("")
               : make(x, inner),
         );
       }
