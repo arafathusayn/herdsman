@@ -3530,16 +3530,12 @@ function propsFor(type: string, target: Any, capture: boolean, f: Fiber): string
 }
 
 function dispatch(e: Any, root: RootImpl, capture: boolean): void {
-  // Nested roots can see one event more than once; with one listener on the
-  // page it arrives once per phase, and the native event gets no mark.
-  if (listeners.size > 1) {
-    const mark = capture ? SEEN_C : SEEN_B;
-    const seen: RootImpl[] | undefined = e[mark];
-    if (seen !== undefined) {
-      if (seen.includes(root)) return;
-      seen.push(root);
-    } else e[mark] = [root];
-  }
+  const mark = capture ? SEEN_C : SEEN_B;
+  const seen: RootImpl[] | undefined = e[mark];
+  if (seen !== undefined) {
+    if (seen.includes(root)) return;
+    seen.push(root);
+  } else e[mark] = [root];
   let node = e.target;
   while (node != null && !(node[FIBER] !== undefined && node[FIBER].o === root)) node = node.parentNode;
   if (node == null) return;
