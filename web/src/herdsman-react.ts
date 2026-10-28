@@ -914,29 +914,21 @@ function removeAll(p: Fiber, old: Fiber[] = p.c): void {
   p.c = NO_FIBERS;
   if (p === curHost) {
     // A slot's nodes share their parent with its anchor, which goes back.
-    // One pass, so a long list's clear runs one short loop (two made the
-    // engine compile the clear with Maglev in the middle of it): count the
-    // nodes, mark the rows with nothing to clean up (a component hosting its
-    // block, no hooks, no slots) as dead, and keep the others for unmount.
-    // If the count shows the parent holds more than the list, every fiber is
-    // unmounted below anyway (unmount marks it dead too).
-    let count = 0,
-      rest: Fiber[] | null = null;
+    let count = 0;
     for (let ix = 0, xs = old; ix < xs.length; ix++) {
-      const o = xs[ix]!,
-        fl = o.f;
-      if (fl & BOX) {
-        count += fl & HOIST ? 0 : 1;
-        if (o.n === FUNC && o.h === null && o.c === NO_FIBERS) {
-          o.f = fl | DEAD;
-          continue;
-        }
-      } else count += tally(o);
-      (rest ??= []).push(o);
+      const o = xs[ix]!;
+      // A node of its own (a row) counts inline; anything else is walked.
+      count += o.f & BOX ? (o.f & HOIST ? 0 : 1) : tally(o);
     }
     const anchored = p.n === SLOT && p.s.parentNode !== null;
     if (count + (anchored ? 1 : 0) === p.d.childNodes.length) {
-      if (rest !== null) for (let ix = 0; ix < rest.length; ix++) unmount(rest[ix]!, false);
+      for (let ix = 0, xs = old; ix < xs.length; ix++) {
+        const o = xs[ix]!;
+        // A row with nothing to clean up (a component hosting its block, no
+        // hooks, no slots) is only marked: no call per row.
+        if (o.n === FUNC && o.h === null && o.c === NO_FIBERS && o.f & BOX) o.f |= DEAD;
+        else unmount(o, false);
+      }
       p.d.textContent = "";
       if (anchored) p.d.appendChild(p.s);
       return;
