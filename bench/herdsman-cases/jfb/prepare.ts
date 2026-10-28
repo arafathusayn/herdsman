@@ -32,12 +32,14 @@ export const TOP5 = ["re", "thane", "vanillajs-lite", "vanillajs", "doohtml-dp"]
  * Our apps, built for each runtime: React 19, and herdsman-react with its
  * compiler. app/main.jsx is the idiomatic app; app/main-fast.jsx the same
  * app written for speed (a row store each row subscribes to by id).
+ * app/blocks.ts is the app on herdsman-blocks, no React at all (runtime null).
  */
-export const OURS: Record<string, { runtime: Runtime; compiler: boolean; app?: string }> = {
+export const OURS: Record<string, { runtime: Runtime | null; compiler: boolean; app?: string }> = {
   react: { runtime: "react", compiler: false },
   "herdsman-react": { runtime: "herdsman-react", compiler: true },
   "react-fast": { runtime: "react", compiler: false, app: "main-fast.jsx" },
   "herdsman-react-fast": { runtime: "herdsman-react", compiler: true, app: "main-fast.jsx" },
+  "herdsman-blocks": { runtime: null, compiler: false, app: "blocks.ts" },
 };
 
 function sh(cmd: string[], cwd: string): void {
@@ -83,7 +85,7 @@ export async function buildOurs(): Promise<void> {
       entrypoints: [join(import.meta.dir, "app", app ?? "main.jsx")],
       format: "iife",
       minify: true,
-            plugins: [...(compiler ? [herdsmanReactCompiler()] : []), reactAlias(runtime)],
+      plugins: [...(compiler ? [herdsmanReactCompiler()] : []), ...(runtime !== null ? [reactAlias(runtime)] : [])],
       define: { "process.env.NODE_ENV": JSON.stringify("production") },
     });
     if (!r.success) throw new Error(r.logs.join("\n"));
