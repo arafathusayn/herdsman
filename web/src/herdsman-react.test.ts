@@ -415,3 +415,35 @@ describe("memo bailouts in lists", () => {
     expect(renders).toEqual(["3"]);
   });
 });
+
+describe("a memoized list's swap", () => {
+  test("two rows trade places; rows between them are not rendered again", () => {
+    let renders = 0;
+    const Item = memo(function Item({ id }: { id: string }) {
+      renders++;
+      return h("li", null, id);
+    });
+    const els = ["a", "b", "c", "d", "e"].map((id) => h(Item, { key: id, id }));
+    render(h("ul", null, els));
+    const lis = [...(container.firstChild as FakeElement).childNodes];
+    renders = 0;
+    const swapped = [els[0], els[3], els[2], els[1], els[4]];
+    render(h("ul", null, swapped));
+    expect(html()).toBe("<ul><li>a</li><li>d</li><li>c</li><li>b</li><li>e</li></ul>");
+    expect(renders).toBe(0);
+    expect([...(container.firstChild as FakeElement).childNodes]).toEqual([
+      lis[0]!,
+      lis[3]!,
+      lis[2]!,
+      lis[1]!,
+      lis[4]!,
+    ]);
+    // And back, then a change after the swap renders that row only.
+    render(h("ul", null, els));
+    expect(html()).toBe("<ul><li>a</li><li>b</li><li>c</li><li>d</li><li>e</li></ul>");
+    const changed = [els[0], els[3], els[2], els[1], h(Item, { key: "e", id: "E" })];
+    render(h("ul", null, changed));
+    expect(html()).toBe("<ul><li>a</li><li>d</li><li>c</li><li>b</li><li>E</li></ul>");
+    expect(renders).toBe(1);
+  });
+});

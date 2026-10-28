@@ -698,6 +698,21 @@ function reconcile(p: Fiber, children: Any): void {
       oe = suffixOld;
     const tail = oe + 1;
     if (ne > i && ne - i === oe - oi && p === curHost && swapped(items, old, i, ne, oi, oe)) {
+      if (swapSame && n === m && i === oi) {
+        // Only the two ends changed (a memoized list's swap): the children
+        // array is kept and its two entries trade places; nothing between
+        // them is visited again.
+        const x = old[oi]!,
+          y = old[oe]!;
+        old[oi] = y;
+        old[oe] = x;
+        y.i = oi;
+        x.i = oe;
+        patchRow(y, items[i]);
+        patchRow(x, items[ne]);
+        for (let j = ne + 1, o = tail; j < n; j++, o++) patchRow(old[o]!, items[j]);
+        return;
+      }
       // The middle's two ends traded places and the rest stayed: two moves,
       // made here, with no map and no placement pass.
       take(old[oe]!, items[i], nc);
@@ -833,7 +848,9 @@ function append(p: Fiber, kids: Fiber[], from: number): void {
 }
 
 // Whether items[i..ne] are old[oi..oe] with the two ends swapped, each end a
-// single node; if so, swap the nodes.
+// single node; if so, swap the nodes. swapSame: every row between them was
+// given its own element again.
+let swapSame = false;
 function swapped(items: Any[], old: Fiber[], i: number, ne: number, oi: number, oe: number): boolean {
   const a = items[i],
     b = items[ne];
@@ -841,10 +858,16 @@ function swapped(items: Any[], old: Fiber[], i: number, ne: number, oi: number, 
   const x = old[oi]!,
     y = old[oe]!;
   if (x.k !== keyOf(b, ne) || y.k !== keyOf(a, i) || !sameType(x, b) || !sameType(y, a)) return false;
+  let same = true;
   for (let j = 1; j < ne - i; j++) {
-    const it = items[i + j];
-    if (it == null || typeof it === "boolean" || old[oi + j]!.k !== keyOf(it, i + j)) return false;
+    const it = items[i + j],
+      o = old[oi + j]!;
+    // Its own element again (a memoized row): the same key, nothing to render.
+    if (o.e === it && !(o.f & DIRTY)) continue;
+    same = false;
+    if (it == null || typeof it === "boolean" || o.k !== keyOf(it, i + j)) return false;
   }
+  swapSame = same;
   const nx = single(x),
     ny = single(y);
   if (nx === null || ny === null) return false;
