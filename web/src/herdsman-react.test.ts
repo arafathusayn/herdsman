@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { FakeElement, FakeEvent, installFakeDocument, ops, resetOps } from "./herdsman-blocks.testdom.ts";
 import {
+  __block,
+  __template,
   createContext,
   createElement as h,
   createRoot,
@@ -211,5 +213,184 @@ describe("events", () => {
     expect(log).toEqual(["button 0", "div 0"]);
     await Promise.resolve();
     expect(html()).toBe("<div><button>1</button></div>");
+  });
+});
+
+// A component whose render is one compiled block hosts it in its own fiber
+// (runFunc): these cover that fusion, and unfusing when the render changes.
+describe("components that render one block", () => {
+  const ROW = __template(["tr", { className: { h: 0 } }, ["td", 0, 1], ["td", 0, ["a", { onClick: { h: 2 } }, 3]]]);
+  const OTHER = __template(["p", 0, 0]);
+  const LIST = __template(["table", 0, ["tbody", 0, 0]]);
+  const row = (id: string, label: string, sel: boolean, pick: () => void) =>
+    __block(ROW, null, [sel ? "danger" : "", id, pick, label]);
+  const Row = memo(function Row({
+    id,
+    label,
+    sel,
+    pick,
+  }: {
+    id: string;
+    label: string;
+    sel: boolean;
+    pick: (id: string) => void;
+  }) {
+    return row(id, label, sel, () => pick(id));
+  });
+  const list = (rows: [string, string][], sel: string, pick: (id: string) => void = () => {}) =>
+    __block(LIST, null, [rows.map(([id, label]) => h(Row, { key: id, id, label, sel: sel === id, pick }))]);
+  const trs = () => [...(container.firstChild!.firstChild as FakeElement).childNodes] as FakeElement[];
+
+  test("rows mount, update in place and keep their nodes", () => {
+    render(
+      list(
+        [
+          ["1", "a"],
+          ["2", "b"],
+        ],
+        "",
+      ),
+    );
+    expect(html()).toBe(
+      "<table><tbody><tr><td>1</td><td><a>a</a></td></tr><tr><td>2</td><td><a>b</a></td></tr></tbody></table>",
+    );
+    const [r1, r2] = trs();
+    render(
+      list(
+        [
+          ["1", "a"],
+          ["2", "B"],
+        ],
+        "2",
+      ),
+    );
+    expect(html()).toBe(
+      "<table><tbody><tr><td>1</td><td><a>a</a></td></tr><tr><td>2</td><td><a>B</a></td></tr></tbody></table>",
+    );
+    expect(trs()).toEqual([r1!, r2!]);
+    expect(r2!.getAttribute("class")).toBe("danger");
+    expect(r1!.getAttribute("class")).toBe(null);
+  });
+
+  test("keyed moves and removals move the rows' own nodes", () => {
+    render(
+      list(
+        [
+          ["1", "a"],
+          ["2", "b"],
+          ["3", "c"],
+        ],
+        "",
+      ),
+    );
+    const [r1, r2, r3] = trs();
+    render(
+      list(
+        [
+          ["3", "c"],
+          ["1", "a"],
+        ],
+        "",
+      ),
+    );
+    expect(trs()).toEqual([r3!, r1!]);
+    render(
+      list(
+        [
+          ["1", "a"],
+          ["4", "d"],
+          ["3", "c"],
+        ],
+        "",
+      ),
+    );
+    expect(html()).toBe(
+      "<table><tbody><tr><td>1</td><td><a>a</a></td></tr><tr><td>4</td><td><a>d</a></td></tr><tr><td>3</td><td><a>c</a></td></tr></tbody></table>",
+    );
+    expect(trs()[0]).toBe(r1!);
+    expect(trs()[2]).toBe(r3!);
+    expect(trs()).not.toContain(r2!);
+  });
+
+  test("a click reaches the hole's handler, and the row's state renders in place", async () => {
+    const picked: string[] = [];
+    render(
+      list(
+        [
+          ["1", "a"],
+          ["2", "b"],
+        ],
+        "",
+        (id) => picked.push(id),
+      ),
+    );
+    const a = trs()[1]!.lastChild!.firstChild as FakeElement;
+    a.dispatchEvent(new FakeEvent("click"));
+    expect(picked).toEqual(["2"]);
+
+    let bump = () => {};
+    function Counter() {
+      const [n, setN] = useState(0);
+      bump = () => setN((x) => x + 1);
+      return row("c", "n" + n, n > 0, () => {});
+    }
+    render(__block(LIST, null, [[h(Counter, { key: "c" })]]));
+    const tr = trs()[0]!;
+    flushSync(() => bump());
+    expect(html()).toBe("<table><tbody><tr><td>c</td><td><a>n1</a></td></tr></tbody></table>");
+    expect(trs()[0]).toBe(tr);
+    expect(tr.getAttribute("class")).toBe("danger");
+  });
+
+  test("a component that stops rendering its block unfuses, and its effects clean up", () => {
+    const log: string[] = [];
+    let set: (v: number) => void = () => {};
+    function Shape() {
+      const [v, setV] = useState(0);
+      set = setV;
+      useEffect(() => () => void log.push("cleanup"), []);
+      if (v === 0) return __block(OTHER, null, ["first"]);
+      if (v === 1) return __block(OTHER, "k2", ["keyed"]);
+      if (v === 2) return "text";
+      if (v === 3) return h("b", null, "host");
+      return __block(ROW, null, ["", "x", () => {}, "row"]);
+    }
+    render(h("div", null, h("i", null, "<"), h(Shape), h("i", null, ">")));
+    expect(html()).toBe("<div><i><</i><p>first</p><i>></i></div>");
+    const p0 = (container.firstChild as FakeElement).childNodes[1];
+    flushSync(() => set(1));
+    expect(html()).toBe("<div><i><</i><p>keyed</p><i>></i></div>");
+    expect((container.firstChild as FakeElement).childNodes[1]).not.toBe(p0);
+    flushSync(() => set(2));
+    expect(html()).toBe("<div><i><</i>text<i>></i></div>");
+    flushSync(() => set(3));
+    expect(html()).toBe("<div><i><</i><b>host</b><i>></i></div>");
+    flushSync(() => set(4));
+    expect(html()).toBe("<div><i><</i><tr><td>x</td><td><a>row</a></td></tr><i>></i></div>");
+    render(h("div", null));
+    expect(html()).toBe("<div></div>");
+    expect(log).toEqual(["cleanup"]);
+  });
+
+  test("a hosted block's list hole reconciles its own children", () => {
+    function Table({ rows }: { rows: [string, string][] }) {
+      return __block(LIST, null, [
+        rows.map(([id, label]) => h(Row, { key: id, id, label, sel: false, pick: () => {} })),
+      ]);
+    }
+    render(h(Table, { rows: [["1", "a"]] }));
+    render(
+      h(Table, {
+        rows: [
+          ["2", "b"],
+          ["1", "a"],
+        ],
+      }),
+    );
+    expect(html()).toBe(
+      "<table><tbody><tr><td>2</td><td><a>b</a></td></tr><tr><td>1</td><td><a>a</a></td></tr></tbody></table>",
+    );
+    render(h(Table, { rows: [] }));
+    expect(html()).toBe("<table><tbody></tbody></table>");
   });
 });

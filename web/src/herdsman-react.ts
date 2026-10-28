@@ -367,6 +367,9 @@ const SHOWN = 128; // suspense: its primary content has been shown
 const HIDDEN = 256; // suspense, activity: content hidden
 const CLAIMED = 512; // host: claimed from server HTML while hydrating
 const HOIST = 1024; // host: <title>, <meta> or <link> placed in document.head
+// Places one DOM node of its own, f.d: host, text and block fibers, and a
+// function component that hosts the block it renders (see runFunc).
+const BOX = 2048;
 
 // Namespaces.
 const HTML_NS = 0;
@@ -419,8 +422,13 @@ class Fiber {
   /** Host: its namespace; hydration cursor holder. */
   ns = HTML_NS;
   hc: Any = null;
+  /** Block, or a function component hosting one: the block element last rendered. */
+  b: BlockElement | null = null;
+  /** Its hole nodes once looked up (by index), then its slot fibers (at holes + index). */
+  bs: Any[] | null = null;
   constructor(n: number, t: Any, k: Key, r: Fiber | null, o: RootImpl) {
     this.n = n;
+    if (n === HOST || n === TEXT || n === BLOCK) this.f = BOX;
     this.t = t;
     this.k = k;
     this.r = r;
@@ -794,7 +802,7 @@ function swapped(items: Any[], old: Fiber[], i: number, ne: number, oi: number, 
 // The one DOM node a fiber places, or null when it places none or several.
 function single(f: Fiber): Node | null {
   for (;;) {
-    if (f.n === HOST || f.n === TEXT || f.n === BLOCK) return f.f & (HOIST | HIDDEN) ? null : f.d;
+    if (f.f & BOX) return f.f & (HOIST | HIDDEN) ? null : f.d;
     if (f.n === PORTAL || f.c.length !== 1) return null;
     f = f.c[0]!;
   }
@@ -902,7 +910,10 @@ function update(f: Fiber, el: ReactElement, mount: boolean): void {
     }
   }
   f.e = el;
-  f.p = f.n === BLOCK ? (el as Any)[VALS] : el.props;
+  if (f.n === BLOCK) {
+    f.b = el as Any;
+    f.p = (el as Any)[VALS];
+  } else f.p = el.props;
   run(f, old, mount);
 }
 
@@ -947,7 +958,7 @@ function run(f: Fiber, old: Props | null, mount: boolean): void {
     case ROOT:
       return runRoot(f);
     case BLOCK:
-      return runBlock(f, old, mount);
+      return runBlock(f, f.p, old as Any, mount);
   }
 }
 
@@ -957,14 +968,14 @@ function run(f: Fiber, old: Props | null, mount: boolean): void {
 
 // The top-level DOM nodes of f's children, in order (portals place their own).
 function collect(f: Fiber, out: Node[]): void {
-  if (f.n === HOST || f.n === TEXT || f.n === BLOCK) {
+  if (f.f & BOX) {
     if (!(f.f & HOIST)) out.push(f.d);
   } else if (f.n !== PORTAL) for (const c of f.c) collect(c, out);
 }
 
 // How many nodes collect() would list for f, without the list.
 function tally(f: Fiber): number {
-  if (f.n === HOST || f.n === TEXT || f.n === BLOCK) return f.f & HOIST ? 0 : 1;
+  if (f.f & BOX) return f.f & HOIST ? 0 : 1;
   if (f.n === PORTAL) return 0;
   let n = 0;
   for (const c of f.c) n += tally(c);
@@ -973,7 +984,7 @@ function tally(f: Fiber): number {
 
 // The host-level fibers (elements and text) at the top of f's subtree.
 function tops(f: Fiber, out: Fiber[]): void {
-  if (f.n === HOST || f.n === TEXT || f.n === BLOCK) {
+  if (f.f & BOX) {
     if (!(f.f & HOIST)) out.push(f);
   } else if (f.n !== PORTAL) for (const c of f.c) tops(c, out);
 }
@@ -1625,9 +1636,10 @@ export function __block(template: object, key: Any, values: Any[]): ReactElement
 const textOf = (v: Any): string => (v == null || typeof v === "boolean" ? "" : "" + v);
 const isNodes = (v: Any): boolean => typeof v === "object" && v !== null;
 
-function runBlock(f: Fiber, old: Props | null, mount: boolean): void {
-  const t: Template = f.t,
-    v: Any[] = f.p as Any,
+// Render block f (a block fiber, or a component hosting its block) with
+// values v, after values o; its template is f.b's.
+function runBlock(f: Fiber, v: Any[], o: Any[] | null, mount: boolean): void {
+  const t: Template = f.b![TPL],
     n = t.n,
     kinds = t.kinds;
   if (mount) {
@@ -1668,23 +1680,22 @@ function runBlock(f: Fiber, old: Props | null, mount: boolean): void {
     dom[OWN] = curHost;
     if (nodes) {
       // Element children change the clone's structure: look up every hole first.
-      f.s = t.locate(dom);
+      f.bs = t.locate(dom);
       for (let i = 0; i < n; i++) if (kinds[i] === H_CHILD && isNodes(v[i])) setChild(f, i, v[i]);
     }
     return;
   }
-  const o: Any[] = old as Any,
-    again = o === v; // rendered again with the same values: a retry of its children
-  let s: Any[] | null = f.s;
+  const again = o === v; // rendered again with the same values: a retry of its children
+  let s: Any[] | null = f.bs;
   const infos = t.infos[f.ns]!;
   for (let i = 0; i < n; i++) {
     const k = kinds[i],
       x = v[i];
-    if (o[i] === x && !(again && k === H_CHILD && f.q !== null && f.q[i] !== undefined)) continue;
+    if (o![i] === x && !(again && k === H_CHILD && s !== null && s[n + i] !== undefined)) continue;
     if (k === H_EVENT) continue; // read when the event fires
-    if (s === null) s = f.s = t.locate(f.d);
-    if (k === H_ATTR) setAttr(infos[i], s[i], t.names[i]!, x, o[i]);
-    else if (k === H_STYLE) setStyle(s[i], x, o[i]);
+    if (s === null) s = f.bs = t.locate(f.d);
+    if (k === H_ATTR) setAttr(infos[i], s[i], t.names[i]!, x, o![i]);
+    else if (k === H_STYLE) setStyle(s[i], x, o![i]);
     else setChild(f, i, x);
   }
 }
@@ -1692,8 +1703,10 @@ function runBlock(f: Fiber, old: Props | null, mount: boolean): void {
 // A child hole: text goes into its anchor; anything else is reconciled in a
 // slot fiber that places its nodes before the anchor.
 function setChild(f: Fiber, i: number, x: Any): void {
-  let sf: Fiber | undefined = f.q === null ? undefined : f.q[i];
-  const anchor = f.s![i];
+  const s = f.bs!,
+    at = f.b![TPL].n + i;
+  let sf: Fiber | undefined = s[at];
+  const anchor = s[i];
   if (!isNodes(x)) {
     if (sf !== undefined) {
       const ph = curHost;
@@ -1705,7 +1718,7 @@ function setChild(f: Fiber, i: number, x: Any): void {
       }
       if (anchor.parentNode === null) sf.d.appendChild(anchor);
       sf.f |= DEAD;
-      f.q[i] = undefined;
+      s[at] = undefined;
       f.c = f.c.filter((c) => c !== sf);
     }
     const t = textOf(x);
@@ -1717,7 +1730,7 @@ function setChild(f: Fiber, i: number, x: Any): void {
     sf = new Fiber(SLOT, null, i, f, f.o);
     sf.d = anchor.parentNode;
     sf.s = anchor;
-    (f.q ??= [])[i] = sf;
+    s[at] = sf;
     f.c = f.c === NO_FIBERS ? [sf] : f.c.concat(sf);
     // The parent's only content (a list in its <tbody>): its nodes are all
     // the parent holds, so the anchor leaves while they are there. Clearing
@@ -1743,13 +1756,14 @@ function setChild(f: Fiber, i: number, x: Any): void {
 // Delegated handlers of block f's elements for `prop`, innermost first, on
 // the DOM path from `from` up to the block's root.
 function blockHandlers(f: Fiber, prop: string, from: Any, out: Any[]): void {
-  const t: Template = f.t;
+  const t: Template = f.b![TPL];
   if (t.events.length === 0) return;
-  const s = f.s ?? (f.s = t.locate(f.d));
+  const s = f.bs ?? (f.bs = t.locate(f.d));
+  const v = f.b![VALS];
   for (let node = from; node != null; node = node.parentNode) {
     for (const i of t.events) {
       if (s[i] === node && t.names[i] === prop) {
-        const h = (f.p as Any)[i];
+        const h = v[i];
         if (typeof h === "function") out.push(node, h);
       }
     }
@@ -1984,8 +1998,37 @@ function runFunc(f: Fiber): void {
     cur = prevCur;
     hi = prevHi;
   }
-  reconcile(f, out);
+  // A component whose render is one compiled block (a list's row) hosts the
+  // block itself: no child fiber, one fiber per row. It stays so while it
+  // renders that template with that key, and unfuses for good otherwise.
+  if (f.f & BOX) {
+    const prev = f.b!;
+    if (out !== null && typeof out === "object" && out[TPL] === prev[TPL] && out.key === prev.key) {
+      f.b = out;
+      runBlock(f, out[VALS], prev[VALS], false);
+    } else {
+      unfuse(f);
+      reconcile(f, out);
+    }
+  } else if (f.c === NO_FIBERS && out !== null && typeof out === "object" && out[TPL] !== undefined && !hydrating) {
+    f.f |= BOX;
+    f.b = out;
+    runBlock(f, out[VALS], null, true);
+    curHost.f |= STRUCT;
+  } else reconcile(f, out);
   if (f.x !== null) commitEffects(f);
+}
+
+// A component that hosted its block renders something else: the block goes,
+// and the component's children are reconciled as anyone's.
+function unfuse(f: Fiber): void {
+  for (const c of f.c) unmount(c, false);
+  f.c = NO_FIBERS;
+  if (f.d.parentNode !== null) f.d.parentNode.removeChild(f.d);
+  f.f &= ~BOX;
+  f.d = null;
+  f.b = null;
+  f.bs = null;
 }
 
 // Class components
@@ -2153,7 +2196,7 @@ function setHidden(f: Fiber, hide: boolean): void {
     else if (hide) h.d.style.setProperty("display", "none", "important");
     else {
       h.d.style.removeProperty("display");
-      const d = h.p.style != null && typeof h.p.style === "object" ? h.p.style.display : undefined;
+      const d = h.n === HOST && h.p.style != null && typeof h.p.style === "object" ? h.p.style.display : undefined;
       if (d != null && d !== "") h.d.style.display = d;
     }
   }
@@ -2294,6 +2337,12 @@ function unmount(f: Fiber, rm: boolean): void {
           else if (h.k === PASSIVE) passiveUnmountQ.push(h.x);
           h.x = undefined;
         }
+      }
+      if (f.f & BOX) {
+        // Its block: one node, its slots' nodes inside it.
+        if (rm && f.d.parentNode !== null) f.d.parentNode.removeChild(f.d);
+        for (const c of f.c) unmount(c, false);
+        return;
       }
       break;
     case CLASS:
@@ -3253,7 +3302,7 @@ function dispatch(e: Any, root: RootImpl, capture: boolean): void {
           if (f.f & DEAD) continue;
           if (f.n === HOST) {
             if (typeof f.p[prop] === "function") path.push(f.d, f.p[prop]);
-          } else if (f.n === BLOCK) blockHandlers(f, prop, from, path);
+          } else if (f.b !== null) blockHandlers(f, prop, from, path);
           else if (f.n === SLOT) from = f.d;
         }
         if (path.length === 0) continue;
@@ -3313,7 +3362,7 @@ function enterLeave(e: Any, root: RootImpl, type: string, target: Fiber): void {
   const entered = b.filter((f) => !shared.has(f)).reverse();
   // An end's element: a fiber's node, or inside a block the element itself.
   const node = (f: Fiber | null, native: Any): Any =>
-    f === null ? null : f.n === BLOCK ? (native.nodeType === 1 ? native : native.parentNode) : f.d;
+    f === null ? null : f.b !== null ? (native.nodeType === 1 ? native : native.parentNode) : f.d;
   const fromNode = node(from, from === target ? e.target : related),
     toNode = node(to, to === target ? e.target : related);
   const fire = (list: Fiber[], name: string, tgt: Any, rel: Any): void => {
