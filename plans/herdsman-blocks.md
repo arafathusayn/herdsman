@@ -151,6 +151,21 @@ Measured and not adopted: skipping the per-event seen mark when one root listens
 
 Standings at the end of this round. Five official-layout runs pooled (75 samples per test and entry): re 1.040, vanillajs 1.057, doohtml-dp 1.059, vanillajs-lite 1.062, thane 1.068, herdsman-react 1.089. Three interleaved runs pooled (`--batch 3`, shifts 0, 2 and 4; 45 samples per test and entry): doohtml-dp 1.029, thane 1.041, re 1.055, vanillajs-lite 1.059, vanillajs 1.061, herdsman-react 1.072. herdsman-react's factors there: select 1.24, clear 1.13, replace 1.12, remove 1.11, swap 1.09, create 1.08, update 1.02, append and create-many 1.00 to 1.01. The top three are not reached: what separates herdsman-react from the hand-written entries is the work React's semantics ask for in each click (re-rendering the list's parent and comparing every memoized row, synthetic events, the update queue) and V8 tiering that code up during the measured click, about 2 to 4 ms of script in select, swap, remove and clear at 4x. Closing it would take shortcuts React does not take; the runtime keeps React's behavior instead (36 of 36 compatibility scenarios with classes).
 
+#### Fourth round: a second entry, on herdsman-blocks (2026-10-28)
+
+herdsman-react stays the React-compatible entry. The second entry, `herdsman-blocks` (`jfb/app/blocks.ts`), is the same app on herdsman-blocks, the lower-level declarative layer with no React: a row template with typed holes, and a keyed `List` that renders the rows array (reusing, moving and removing rows by key). The state is the rows array and the selected id; each action makes a new rows array and renders the list, and a new selection sets two class holes. Row clicks are delegated to the table body. No test is special-cased: every action goes through the same list render.
+
+A first try in React (`jfb/app/main-fast.jsx`: the selection in a store that each row reads with `useSyncExternalStore`) made select cheaper but create and replace dearer (a hook, a subscription and an effect per row; replace 152 against 125 ms) and was dropped as an entry; it stays as `react-fast` and `herdsman-react-fast`.
+
+What the blocks entry needed, each measured:
+
+- **`List.set` diffs before it allocates.** It computed every key and built new key and entry arrays before looking at what changed. It now walks the common prefix and suffix first, computing keys only where an item differs from last render's at that place; removals are spliced out of the kept arrays, and a render that changes no keys allocates nothing. The new `skipUnchanged` option skips `update` for an entry given the same item object again (the property test runs both ways). Update's script 6.0 to 5.2 ms, remove's 2.3 to 1.9.
+- **Rows are baked clones, nothing more.** `Template.clone` from one reused values array, an entry of three fields, and the label's text node looked up only when the label first changes: create's script 9.1 to 6.6 ms (vanillajs-lite 7.1).
+- **No expando on the row element.** With one (a `WeakMap` first, then a property), clearing 1,000 rows measured 5 to 27% slower natively than vanillajs's rows; without, the same (32.3 against 31.7 ms at 4x). A clicked row is found by scanning the list's entries, which also gives its index in the rows: remove's script 1.2 to 0.9 ms.
+- **A long insertion into a live list is one fragment** (append: 179 to 128 ms in the next run).
+
+Standings: five interleaved runs pooled (`--batch 3`, shifts 0 to 5; 75 samples per test and entry): thane 1.011, herdsman-blocks 1.022, doohtml-dp 1.028, re 1.031, vanillajs 1.040, vanillajs-lite 1.041. herdsman-blocks places first in two of the five runs and second in two.
+
 ---
 
 ## Part 2: Design spec

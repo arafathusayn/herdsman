@@ -132,9 +132,12 @@ vanillajs-lite, vanillajs and doohtml-dp.
   their own `build-prod` scripts do, without running any install script: re
   bundled by Bun from its local source, doohtml-dp's prebuilt module copied,
   thane by its own compiler, the vanillajs entries as they are. It also
-  builds `jfb/app/main.jsx`, one React app, as two entries: `react` (React
-  19) and `herdsman-react` (herdsman-react and its compiler).
-  `--app-only` rebuilds just those two.
+  builds our apps: `jfb/app/main.jsx`, the idiomatic React app, as `react`
+  (React 19) and `herdsman-react` (herdsman-react and its compiler);
+  `jfb/app/main-fast.jsx`, the React app with the selection in a store each
+  row subscribes to, as `react-fast` and `herdsman-react-fast`; and
+  `jfb/app/blocks.ts`, the app on herdsman-blocks (templates and a keyed
+  list, no React), as `herdsman-blocks`. `--app-only` rebuilds just ours.
 - `bun jfb/run.ts [--iterations 15] [--entries a,b] [--benchmarks 01_run1k,...] [--shift n] [--batch b]`
   runs the tests as the official runner does (per test and entry, a fresh
   browser running all of that entry's samples; 25 for select row), and prints
