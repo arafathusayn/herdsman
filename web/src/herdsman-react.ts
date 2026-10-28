@@ -854,6 +854,14 @@ function append(p: Fiber, kids: Fiber[], from: number): void {
   const parent = p.d as Node,
     end = p.n === SLOT && p.s.parentNode !== null ? p.s : null;
   const out = from === 0 && nodes.length >= DETACH_MIN ? detach(p) : null;
+  if (out === null && nodes.length >= DETACH_MIN && parent.isConnected) {
+    // Many nodes into a live parent (an append to a long list): gathered in
+    // a fragment first, the document takes them in one insertion.
+    const frag = parent.ownerDocument!.createDocumentFragment();
+    for (let ix = 0; ix < nodes.length; ix++) frag.appendChild(nodes[ix]!);
+    parent.insertBefore(frag, end);
+    return;
+  }
   for (let ix = 0, xs = nodes; ix < xs.length; ix++) {
     const x = xs[ix]!;
     parent.insertBefore(x, end);
