@@ -10,6 +10,8 @@ const reactDir = join(here, "apps/react");
 const redactDir = join(here, "apps/redact");
 const herdsmanReact = join(here, "../../web/src/herdsman-react.ts");
 const herdsmanReactClasses = join(here, "../../web/src/herdsman-react-classes.ts");
+const reactreCompat = join(here, "../../web/src/reactre-compat.ts");
+const reactreCompatClasses = join(here, "../../web/src/reactre-compat-classes.ts");
 
 // Redact's own alias map (@tanstack/redact/vite), for the client.
 const REDACT: Record<string, string> = {
@@ -21,7 +23,7 @@ const REDACT: Record<string, string> = {
   "react-dom/client": "@tanstack/redact/dom-client",
 };
 
-export type Runtime = "react" | "herdsman-react" | "redact";
+export type Runtime = "react" | "herdsman-react" | "reactre-compat" | "redact";
 
 export interface AliasOptions {
   /** herdsman-react only: include class components (herdsman-react-classes.ts). Off by default. */
@@ -36,6 +38,7 @@ export function reactAlias(runtime: Runtime, options: AliasOptions = {}): BunPlu
     setup(build) {
       build.onResolve({ filter: /^react(-dom)?(\/.*)?$/ }, (args) => {
         if (runtime === "react") return { path: Bun.resolveSync(args.path, reactDir) };
+        if (runtime === "reactre-compat") return { path: options.classes ? reactreCompatClasses : reactreCompat };
         if (runtime === "herdsman-react") {
           if (options.src !== undefined)
             return { path: join(options.src, options.classes ? "herdsman-react-classes.ts" : "herdsman-react.ts") };

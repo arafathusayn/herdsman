@@ -43,6 +43,8 @@ export const OURS: Record<string, { runtime: Runtime | null; compiler: boolean |
   "herdsman-react-fast": { runtime: "herdsman-react", compiler: true, app: "main-fast.jsx" },
   "herdsman-blocks": { runtime: null, compiler: false, app: "blocks.ts" },
   reactre: { runtime: null, compiler: "reactre", app: "reactre.tsx" },
+  // The idiomatic React app on reactre's React addon, its JSX compiled to templates.
+  "reactre-compat": { runtime: "reactre-compat", compiler: true },
 };
 
 // `reactre` imports resolve to web/src/reactre.ts, as a package would.

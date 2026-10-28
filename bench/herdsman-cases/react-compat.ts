@@ -49,7 +49,7 @@ const opt = (name: string): string | undefined => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 const runtimes = (opt("--runtimes") ?? "herdsman-react,herdsman-react+classes,redact").split(",");
-const ours = (rt: string) => rt.startsWith("herdsman-react");
+const ours = (rt: string) => rt.startsWith("herdsman-react") || rt.startsWith("reactre-compat");
 // What the default build throws when a class component renders.
 const NO_CLASSES = "this build leaves class support out";
 const verbose = args.includes("--verbose");
