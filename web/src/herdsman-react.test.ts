@@ -495,3 +495,16 @@ describe("a memoized list's removal", () => {
     expect(html()).toBe("<ul><li>f</li><li>a</li><li>c</li></ul>");
   });
 });
+
+describe("holes next to text", () => {
+  test("a hole where a text child was removes the text", () => {
+    render(h("p", null, ["a", "b", "c"]));
+    expect(html()).toBe("<p>abc</p>");
+    render(h("p", null, [null, "b", "c"]));
+    expect(html()).toBe("<p>bc</p>");
+    render(h("p", null, ["a", null, null]));
+    expect(html()).toBe("<p>a</p>");
+    render(h("p", null, [null, null, "c"]));
+    expect(html()).toBe("<p>c</p>");
+  });
+});

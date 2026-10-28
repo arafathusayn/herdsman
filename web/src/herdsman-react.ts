@@ -569,7 +569,8 @@ function patchAligned(items: Any[], old: Fiber[], n: number): number {
     const o = old[oi];
     // The element the row already has (a memoized list's unchanged rows):
     // nothing to check or render, unless the row has an update of its own.
-    if (o !== undefined && o.e === it && !(o.f & DIRTY)) {
+    // (Not a hole: a text fiber's element is null too.)
+    if (it != null && o !== undefined && o.e === it && !(o.f & DIRTY)) {
       oi++;
       continue;
     }
@@ -764,6 +765,12 @@ function matchSuffix(items: Any[], old: Fiber[], i: number, oi: number, n: numbe
     oe = m - 1;
   while (ne >= i && oe >= oi) {
     let it = items[ne];
+    // Its own element again (a memoized row): the same key and type.
+    if (it != null && old[oe]!.e === it) {
+      ne--;
+      oe--;
+      continue;
+    }
     if (it == null || typeof it === "boolean") {
       ne--;
       continue;
@@ -870,7 +877,7 @@ function swapped(items: Any[], old: Fiber[], i: number, ne: number, oi: number, 
     const it = items[i + j],
       o = old[oi + j]!;
     // Its own element again (a memoized row): the same key, nothing to render.
-    if (o.e === it && !(o.f & DIRTY)) continue;
+    if (it != null && o.e === it && !(o.f & DIRTY)) continue;
     same = false;
     if (it == null || typeof it === "boolean" || o.k !== keyOf(it, i + j)) return false;
   }
