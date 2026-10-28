@@ -69,7 +69,7 @@ for (const e of entries) {
     const compile = ev
       .filter((x) => x.ph === "X" && /Compile|Parse/i.test(x.name) && x.ts >= d.tsStart && x.ts <= d.tsEnd)
       .reduce((a, x) => a + (x.dur ?? 0) / 1000, 0);
-    rows.push(`${d.duration.toFixed(1)} ms (gc ${gc.toFixed(1)}, compile ${compile.toFixed(1)})`);
+    rows.push(`${d.duration.toFixed(1)} ms (gc ${gc.toFixed(1)}, compile ${compile.toFixed(1)}, ${d.numberCommits} commits, gap ${d.maxDeltaBetweenCommits.toFixed(0)}, ${d.layouts} layouts)`);
     if (process.argv.includes("--events")) {
       // Every complete event inside the window, summed by name (nested ones too).
       const by = new Map<string, number>();
