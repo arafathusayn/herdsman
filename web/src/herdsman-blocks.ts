@@ -630,6 +630,13 @@ export interface ListBase<T, E, K extends Key = Key> {
    * inside it, so leave this off for scrolling containers.
    */
   readonly detach?: boolean;
+  /**
+   * Skip `update` for an entry whose item is the same object (===) as the
+   * one it was last given, at the same place in the last array. Then the
+   * arrays passed to `set` must not be changed afterwards (pass a new array
+   * for each render), and `update` must depend on nothing but the item.
+   */
+  readonly skipUnchanged?: boolean;
 }
 
 /** A keyed list of items rendered into a parent node. Call `set` with each new array. */
@@ -647,6 +654,8 @@ export class List<T, E = Entry, K extends Key = Key> {
   private readonly create: (item: T) => E;
   private readonly update: (entry: E, item: T) => void;
   private readonly r: (entry: E) => Node;
+  private readonly skip: boolean;
+  private items: readonly T[] = NO_ITEMS;
 
   constructor(parent: Node, o: ListOptions<T, E, K>) {
     this.parent = parent;
@@ -657,6 +666,7 @@ export class List<T, E = Entry, K extends Key = Key> {
     this.create = o.create;
     this.update = o.update;
     this.r = (o as { readonly root?: (entry: E) => Node }).root ?? (entryRoot as (entry: E) => Node);
+    this.skip = o.skipUnchanged === true;
   }
 
   /** Remove every entry. */
@@ -668,6 +678,7 @@ export class List<T, E = Entry, K extends Key = Key> {
     else for (let i = 0; i < e.length; i++) p.removeChild(r(e[i]!));
     this.keys = [];
     this.entries = [];
+    this.items = NO_ITEMS;
   }
 
   /** Render `items`, reusing the entries of items whose keys were already there. */
@@ -679,47 +690,73 @@ export class List<T, E = Entry, K extends Key = Key> {
       mk = this.create,
       r = this.r;
     const oldK = this.keys,
-      oldE = this.entries;
+      oldE = this.entries,
+      // With skipUnchanged, last render's items: an entry given the same item again is left alone.
+      oldI = this.skip ? this.items : NO_ITEMS;
     const n = items.length,
       m = oldK.length;
+    this.items = this.skip ? items : NO_ITEMS;
 
     if (n === 0) {
       if (m) this.clear();
       return;
     }
 
-    const newK: K[] = new Array(n),
-      newE: E[] = new Array(n);
-    for (let i = 0; i < n; i++) newK[i] = key(items[i]!);
-
     if (m === 0) {
+      const newK: K[] = new Array(n),
+        newE: E[] = new Array(n);
+      for (let i = 0; i < n; i++) newK[i] = key(items[i]!);
       this.fill(items, newE);
       this.keys = newK;
       this.entries = newE;
       return;
     }
 
-    // 1. Common prefix and suffix: patch in place, never move.
+    // 1. Common prefix and suffix: patch in place, never move. Keys are
+    // computed only where an item is not last render's at that place.
     let s = 0,
       oe = m - 1,
       ne = n - 1;
-    while (s <= oe && s <= ne && oldK[s] === newK[s]) {
-      upd((newE[s] = oldE[s]!), items[s]!);
-      s++;
+    for (const lim = n < m ? n : m; s < lim; s++) {
+      const it = items[s]!;
+      if (it === oldI[s]) continue;
+      if (key(it) !== oldK[s]) break;
+      upd(oldE[s]!, it);
     }
-    while (oe >= s && ne >= s && oldK[oe] === newK[ne]) {
-      upd((newE[ne] = oldE[oe]!), items[ne]!);
-      oe--;
-      ne--;
+    for (; oe >= s && ne >= s; oe--, ne--) {
+      const it = items[ne]!;
+      if (it === oldI[oe]) continue;
+      if (key(it) !== oldK[oe]) break;
+      upd(oldE[oe]!, it);
     }
 
+    if (s > ne) {
+      // 2a. Only removals left (or nothing): drop them in place; the arrays
+      // of keys and entries are kept, not copied.
+      for (let i = s; i <= oe; i++) p.removeChild(r(oldE[i]!));
+      if (s <= oe) {
+        oldK.splice(s, oe - s + 1);
+        oldE.splice(s, oe - s + 1);
+      }
+      return;
+    }
+
+    const newK: K[] = new Array(n),
+      newE: E[] = new Array(n);
+    for (let i = 0; i < s; i++) {
+      newK[i] = oldK[i]!;
+      newE[i] = oldE[i]!;
+    }
+    for (let i = ne + 1, j = oe + 1; i < n; i++, j++) {
+      newK[i] = oldK[j]!;
+      newE[i] = oldE[j]!;
+    }
+    for (let i = s; i <= ne; i++) newK[i] = key(items[i]!);
+
     if (s > oe) {
-      // 2a. Only insertions left.
+      // 2b. Only insertions left.
       const ref = ne + 1 < n ? r(newE[ne + 1]!) : a;
       for (let i = s; i <= ne; i++) place(p, r((newE[i] = mk(items[i]!))), ref);
-    } else if (s > ne) {
-      // 2b. Only removals left.
-      for (let i = s; i <= oe; i++) p.removeChild(r(oldE[i]!));
     } else if (
       oe === ne &&
       oe > s &&
@@ -739,7 +776,10 @@ export class List<T, E = Entry, K extends Key = Key> {
       upd(last, items[s]!);
       newE[ne] = first;
       upd(first, items[ne]!);
-      for (let i = s + 1; i < oe; i++) upd((newE[i] = oldE[i]!), items[i]!);
+      for (let i = s + 1; i < oe; i++) {
+        newE[i] = oldE[i]!;
+        if (items[i] !== oldI[i]) upd(oldE[i]!, items[i]!);
+      }
     } else {
       this.general(items, newK, newE, s, oe, ne);
     }
@@ -873,6 +913,7 @@ export class List<T, E = Entry, K extends Key = Key> {
 }
 
 const entryRoot = (e: Entry): Node => e.root;
+const NO_ITEMS: readonly never[] = [];
 
 type Movable = Node & { moveBefore?: (node: Node, child: Node | null) => void };
 

@@ -36,13 +36,14 @@ interface Setup {
   readonly connected: boolean;
   readonly owns: boolean;
   readonly anchored: boolean;
+  readonly skip: boolean;
 }
 type ListCase2 = ReturnType<ReturnType<typeof listCase>>;
 
 const setupGen: Gen<Setup> = (c: Choices) => {
   const lc = listCase(40)(c);
   const anchored = c.int(4) === 0;
-  return { c: lc, connected: c.bool(), owns: !anchored && c.bool(), anchored };
+  return { c: lc, connected: c.bool(), owns: !anchored && c.bool(), anchored, skip: c.bool() };
 };
 
 function build(s: Setup) {
@@ -56,12 +57,14 @@ function build(s: Setup) {
     parent.appendChild(head);
     parent.appendChild(foot);
   }
-  let creates = 0;
+  let creates = 0,
+    updates = 0;
   const style: KeyStyle = s.c.style;
   const list = new List<number, FakeElement, string | number>(asDom(parent), {
     key: (id) => keyOf(style, id),
     root: (x) => asDom(x),
     owns: s.owns,
+    skipUnchanged: s.skip,
     anchor: s.anchored ? asDom(foot) : null,
     create: (id) => {
       creates++;
@@ -69,9 +72,11 @@ function build(s: Setup) {
       li["key"] = id;
       return li;
     },
-    update: () => {},
+    update: () => {
+      updates++;
+    },
   });
-  return { parent, head, foot, list, creates: () => creates };
+  return { parent, head, foot, list, creates: () => creates, updates: () => updates };
 }
 
 describe("keyed list properties", () => {
@@ -80,10 +85,11 @@ describe("keyed list properties", () => {
       "reconcile",
       setupGen,
       (s) => {
-        const { parent, head, foot, list, creates } = build(s);
+        const { parent, head, foot, list, creates, updates } = build(s);
         list.set(s.c.before);
         const nodeOf = new Map(s.c.before.map((id, i) => [id, parent.childNodes[i + (s.anchored ? 1 : 0)]]));
-        const made = creates();
+        const made = creates(),
+          updated = updates();
         resetOps();
         list.set(s.c.after);
 
@@ -97,6 +103,9 @@ describe("keyed list properties", () => {
         const survivors = s.c.after.filter((id) => nodeOf.has(id));
         for (const id of survivors) expect(list.entries[s.c.after.indexOf(id)]).toBe(nodeOf.get(id) as FakeElement);
         expect(creates() - made).toBe(s.c.after.length - survivors.length);
+        // Every survivor is updated once; with skipUnchanged, at most once.
+        if (s.skip) expect(updates() - updated).toBeLessThanOrEqual(survivors.length);
+        else expect(updates() - updated).toBe(survivors.length);
         const oldIndex = new Map(s.c.before.map((id, i) => [id, i]));
         const fullClear = survivors.length === 0 && s.owns;
         if (!fullClear) {
