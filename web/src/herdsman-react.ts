@@ -694,6 +694,16 @@ function reconcile(p: Fiber, children: Any): void {
     const ne = matchSuffix(items, old, i, oi, n, m),
       oe = suffixOld;
     const tail = oe + 1;
+    if (i > ne && oi <= oe && p === curHost && n - i === m - tail) {
+      // Only removals (a row deleted): their nodes go, the children array
+      // drops them in place, and the rows after them are patched where they
+      // now sit; nothing else is visited or copied. Indexes after the cut
+      // stay increasing, which is all reordering asks of them.
+      for (let j = oi; j <= oe; j++) unmount(old[j]!, true);
+      old.splice(oi, tail - oi);
+      for (let j = i, o = oi; j < n; j++, o++) patchRow(old[o]!, items[j]);
+      return;
+    }
     if (ne > i && ne - i === oe - oi && p === curHost && swapped(items, old, i, ne, oi, oe)) {
       if (swapSame && n === m && i === oi) {
         // Only the two ends changed (a memoized list's swap): the children

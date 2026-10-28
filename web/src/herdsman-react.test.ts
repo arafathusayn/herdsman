@@ -462,3 +462,36 @@ describe("a memoized list's swap", () => {
     expect(renders).toBe(1);
   });
 });
+
+describe("a memoized list's removal", () => {
+  test("rows deleted from the middle go; the rest keep their nodes and are not rendered again", () => {
+    let renders = 0;
+    const Item = memo(function Item({ id }: { id: string }) {
+      renders++;
+      return h("li", null, id);
+    });
+    const els = ["a", "b", "c", "d", "e", "f"].map((id) => h(Item, { key: id, id }));
+    render(h("ul", null, els));
+    const lis = [...(container.firstChild as FakeElement).childNodes];
+    renders = 0;
+    render(h("ul", null, [els[0], els[1], els[3], els[4], els[5]]));
+    expect(html()).toBe("<ul><li>a</li><li>b</li><li>d</li><li>e</li><li>f</li></ul>");
+    expect([...(container.firstChild as FakeElement).childNodes]).toEqual([
+      lis[0]!,
+      lis[1]!,
+      lis[3]!,
+      lis[4]!,
+      lis[5]!,
+    ]);
+    render(h("ul", null, [els[0], els[5]]));
+    expect(html()).toBe("<ul><li>a</li><li>f</li></ul>");
+    // A hole in the rest: the general path, same result.
+    render(h("ul", null, [els[0], null, els[5]]));
+    render(h("ul", null, [null, els[5]]));
+    expect(html()).toBe("<ul><li>f</li></ul>");
+    expect(renders).toBe(0);
+    // Rows after a removal still reorder correctly.
+    render(h("ul", null, [els[5], els[0], els[2]]));
+    expect(html()).toBe("<ul><li>f</li><li>a</li><li>c</li></ul>");
+  });
+});
