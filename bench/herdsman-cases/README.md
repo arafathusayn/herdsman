@@ -135,12 +135,27 @@ vanillajs-lite, vanillajs and doohtml-dp.
   builds `jfb/app/main.jsx`, one React app, as two entries: `react` (React
   19) and `herdsman-react` (herdsman-react and its compiler).
   `--app-only` rebuilds just those two.
-- `bun jfb/run.ts [--iterations 10] [--entries a,b] [--benchmarks 01_run1k,...]`
-  runs the tests, interleaving entries within each iteration, and prints
+- `bun jfb/run.ts [--iterations 15] [--entries a,b] [--benchmarks 01_run1k,...]`
+  runs the tests as the official runner does (per test and entry, a fresh
+  browser running all of that entry's samples; 25 for select row), and prints
   medians, factors to the best median and each entry's weighted score as the
   official table computes it.
-- `bun jfb/profile.ts [op] [repeat]` profiles one operation on an unminified
-  herdsman-react build and prints self time by function.
+- `bun jfb/pool.ts <logs> [<logs for herdsman-react>]` pools the samples of
+  several saved run.ts outputs into one table: on a noisy machine one run
+  swings the score by several hundredths.
+- `bun jfb/ab.ts --base <git ref> [--benchmarks ...] [--rounds 10] [--batch 8]`
+  proves a change: the app built on the base revision and on the working
+  tree, measured in alternating fresh-browser batches, with the difference
+  of medians and its 95% bootstrap interval for the window and its script
+  time.
+- `bun jfb/profile.ts [op] [repeat] [--cold] [--entry name] [--lines f,g]`
+  records Chrome CPU profiles of one operation (with `--cold`, the click the
+  benchmark measures, after its warmups, throttling and forced GC): self and
+  total time by function, hot lines, a `.cpuprofile` for DevTools and a flame
+  graph.
+- `bun jfb/window.ts [entries] [test] [samples] [--kinds] [--events] [--save] [--flame]`
+  breaks the official click window down (by kind or event name), saves its
+  traces for the Performance panel and draws the window's JS as a flame graph.
 
 ## SVG and typed-hole check in Chrome
 

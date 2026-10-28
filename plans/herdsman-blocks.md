@@ -119,6 +119,25 @@ Reading: the same React source scores 1.504 on React 19 and 1.210 on herdsman-re
 
 Fixed along the way (found by profiling the replica): synthetic events copied every native field, and reading layout-dependent ones (offsetX, layerX) forced a layout on every click, 15 ms per click; memo compares allocated two key arrays per row; reconcile built a key map for a swap, a full replacement and an empty list, and removed replaced rows one by one.
 
+#### Second round: profiling the measured click (2026-10-28)
+
+Method changes first, because two of them moved the numbers more than any optimization:
+
+1. **The replica now runs entries as the official runner does.** `webdriver-ts` forks one browser per test and framework and runs all of that framework's samples in it (15, and 25 for select row). The replica had interleaved every entry's samples in one browser; all entries are served from one origin, so they shared a renderer and V8 heap, and each entry's forced garbage collections aged the others' compiled code. A larger runtime paid for that in the measured click: replace measured 141 ms interleaved and 117 ms alone.
+2. **Changes are proven, not eyeballed.** `jfb/ab.ts` builds the app from a base git revision and from the working tree and measures both as run.ts does, in alternating fresh-browser batches (80 samples per side), reporting the difference of medians with a 95% bootstrap interval, for the whole window and for its script time (the runtime's share, far less noisy). This VM's noise is large: identical clicks vary by 2 to 3 times, and a whole run can shift every entry by 10%. Single runs swing the score by 0.05, so standings are also computed by pooling every run's samples.
+3. **Profiles of the measured click.** `jfb/profile.ts --cold` samples Chrome's CPU profiler (50 µs) around exactly the click the benchmark measures, after its warmups, throttling and forced GC, writing a .cpuprofile, flame graphs and line-level hot spots; `jfb/window.ts` saves the official window's trace for the Performance panel and splits it by kind and function.
+
+What the profiles showed, and what changed:
+
+- **The forced GC before each click makes the click cold.** It halves the speed of allocation-heavy code right after it, and the optimized code of closures made per render (a list's `map` callback) and of loops optimized only on the stack is dropped. Code in module-level functions keeps its tier. The compiler now turns `items.map(row => <Row ... />)` in a JSX child into a loop in a module-level function that takes the names its body reads, leaving bodies that could notice the move (functions, `this`, assignments) as maps.
+- **A memoized list re-renders without re-creating its rows.** The hoisted loop keeps last render's elements and raw keys by position (or one place over, after a removal before it) and returns last render's element for a row whose key, type and props are the same by `Object.is`, as React Compiler's memoized JSX does; the runtime then skips such a row on identity before any key, type or memo check. Select's script fell from 8.3 to 3.1 ms at 4x.
+- **One fiber per row.** A function component whose render is one compiled block hosts the block itself (its node, hole nodes and slots), with no block fiber under it; it unfuses for good if it ever renders something else.
+- **The event path allocates nothing per update**: the render microtask is one module function queued through a resolved promise (same queue and order as `queueMicrotask`, without the call into the browser), the update queue is two arrays swapped, handler-name lists are made once, and a click reads no DOM to rule out checkboxes.
+- **Smaller per-row work**: block text holes write without reading the DOM first; a changed memoized row is compared once and rendered; a swap where every row between the ends was given its own element again trades the two entries in place; mounting rows no longer asks for a placement pass after the append; a component type's kind and setup are worked out once per run of rows.
+- **Templates are built in a `<template>`'s inert document**, whose nodes clone without the live document's bookkeeping: about a fifth cheaper per clone and insert (create's script 11.1 to 8.5 ms, proven; replace's 18.0 to 15.7).
+
+Measured and not adopted: batching clones (cost is per node, not per call); a structure-of-arrays fiber store in one typed array (the per-row saving, about 0.04 ms per 1,000 rows, is below the noise, and references must stay JavaScript values anyway); `insertBefore` instead of `moveBefore` for moves (proven slower on swap); per-row helper functions for the aligned-rows loops (no effect).
+
 ---
 
 ## Part 2: Design spec
