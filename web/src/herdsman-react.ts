@@ -805,10 +805,10 @@ function removeAll(p: Fiber, old: Fiber[] = p.c): void {
   p.c = NO_FIBERS;
   if (p === curHost) {
     // A slot's nodes share their parent with its anchor, which goes back.
-    const nodes: Node[] = [];
-    for (const o of old) collect(o, nodes);
+    let count = 0;
+    for (const o of old) count += tally(o);
     const anchored = p.n === SLOT && p.s.parentNode !== null;
-    if (nodes.length + (anchored ? 1 : 0) === p.d.childNodes.length) {
+    if (count + (anchored ? 1 : 0) === p.d.childNodes.length) {
       for (const o of old) unmount(o, false);
       p.d.textContent = "";
       if (anchored) p.d.appendChild(p.s);
@@ -960,6 +960,15 @@ function collect(f: Fiber, out: Node[]): void {
   if (f.n === HOST || f.n === TEXT || f.n === BLOCK) {
     if (!(f.f & HOIST)) out.push(f.d);
   } else if (f.n !== PORTAL) for (const c of f.c) collect(c, out);
+}
+
+// How many nodes collect() would list for f, without the list.
+function tally(f: Fiber): number {
+  if (f.n === HOST || f.n === TEXT || f.n === BLOCK) return f.f & HOIST ? 0 : 1;
+  if (f.n === PORTAL) return 0;
+  let n = 0;
+  for (const c of f.c) n += tally(c);
+  return n;
 }
 
 // The host-level fibers (elements and text) at the top of f's subtree.
