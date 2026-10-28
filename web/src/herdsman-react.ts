@@ -481,18 +481,29 @@ function kindOf(type: Any): number {
   );
 }
 
-// A function fiber's render function, forwardRef flag and memo compare.
-function setupFunc(f: Fiber, type: Any): void {
+// The type create() last saw, and what it is: its fiber kind and, for a
+// function, its memo compare, forwardRef flag and render function.
+let lastType: Any = undefined,
+  lastKind = 0,
+  lastQ: Any = null,
+  lastForward = false,
+  lastRender: Any = null;
+
+// For create()'s cache: a function type's memo compare, forwardRef flag and
+// render function.
+function setupFunc(type: Any): void {
   let t = type;
+  lastQ = null;
+  lastForward = false;
   if (t.$$typeof === MEMO_TYPE) {
-    f.q = t.compare ?? shallowEqual;
+    lastQ = t.compare ?? shallowEqual;
     t = t.type;
   }
   if (t.$$typeof === FORWARD_TYPE) {
-    f.f |= FORWARD;
+    lastForward = true;
     t = t.render;
   }
-  f.s = t;
+  lastRender = t;
 }
 
 /** Shallow equality of two objects by own keys and Object.is, as React compares props. */
@@ -907,8 +918,20 @@ function create(it: Any, p: Fiber, key: Key): Fiber {
     const tpl = it[TPL];
     if (tpl !== undefined && !hydrating) f = new Fiber(BLOCK, tpl, key, p, p.o);
     else {
-      f = new Fiber(kindOf(it.type), it.type, key, p, p.o);
-      if (f.n === FUNC) setupFunc(f, it.type);
+      // A list's rows share a type: what it is to render is worked out once.
+      const type = it.type;
+      if (type !== lastType) {
+        const k = kindOf(type);
+        lastType = type;
+        lastKind = k;
+        if (k === FUNC) setupFunc(type);
+      }
+      f = new Fiber(lastKind, type, key, p, p.o);
+      if (lastKind === FUNC) {
+        f.q = lastQ;
+        f.s = lastRender;
+        if (lastForward) f.f |= FORWARD;
+      }
     }
   } else if (Array.isArray(it) || isIterable(it)) {
     f = new Fiber(FRAG, ARRAY, key, p, p.o);
