@@ -2517,14 +2517,29 @@ function flushSoon(sync: boolean): void {
   if (sync) microSync = true;
   if (micro) return;
   micro = true;
-  queueMicrotask(runMicro);
+  void RESOLVED.then(runMicro);
 }
 // One function for every flush: no closure made per update.
 function runMicro(): void {
   micro = false;
   const s = microSync;
   microSync = false;
-  flushWork(s);
+  try {
+    flushWork(s);
+  } catch (e) {
+    // As an error thrown in a queueMicrotask callback is: reported, not a rejection.
+    reportUncaught(e);
+  }
+}
+// A resolved promise's then queues a microtask in the same queue, in the same
+// order, as queueMicrotask, without leaving the engine for the browser's API.
+const RESOLVED = Promise.resolve();
+function reportUncaught(e: Any): void {
+  if (typeof reportError === "function") reportError(e);
+  else
+    setTimeout(() => {
+      throw e;
+    }, 0);
 }
 
 const byDepth = (a: Fiber, b: Fiber): number => a.z - b.z;
@@ -3414,11 +3429,13 @@ const ON_INPUT = ["onInput"],
   ON_INPUT_CHANGE = ["onInput", "onChange"],
   ON_CHANGE = ["onChange"];
 
-function propsFor(type: string, target: Any, capture: boolean): string[] | null {
+// `f` is the target's fiber: only a host <input> can be a checkbox (blocks
+// never hold inputs), so a click elsewhere reads nothing from the DOM.
+function propsFor(type: string, target: Any, capture: boolean, f: Fiber): string[] | null {
   if (type === "input") return textLike(target) && changed(target, capture) ? ON_INPUT_CHANGE : ON_INPUT;
   if (type === "change") return textLike(target) || checkable(target) ? null : ON_CHANGE;
   const name = PROP_OF.get(type);
-  if (type === "click" && checkable(target) && changed(target, capture)) {
+  if (type === "click" && f.n === HOST && f.t === "input" && checkable(target) && changed(target, capture)) {
     return name === undefined ? ON_CHANGE : [name, "onChange"];
   }
   if (name === undefined) return null;
@@ -3440,7 +3457,7 @@ function dispatch(e: Any, root: RootImpl, capture: boolean): void {
   if (node == null) return;
   const target: Fiber = node[FIBER];
   const type: string = e.type;
-  const names = propsFor(type, node, capture);
+  const names = propsFor(type, node, capture, target);
   const over = !capture && OVER_OUT.has(type);
   if (names === null && !over && type !== "submit") return;
   // Controlled fields are restored once, after the bubble phase.
