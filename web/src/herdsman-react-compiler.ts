@@ -28,6 +28,12 @@
 // not a polymorphic call (as Babel's inline-elements transform once did for
 // React).
 //
+// A list in a child hole, `items.map((item, i) => <Row ... />)`, becomes an
+// indexed loop in place, with map's results (holes skipped, non-arrays left
+// to their own map): the loop runs in the render function, which the engine
+// optimizes as the loop runs, where a callback stays unoptimized until it
+// has been called thousands of times.
+//
 // A host element is left to the plain runtime when its behavior depends on more
 // than its attributes: spread props, refs, form fields and forms, document
 // metadata, custom elements, dangerouslySetInnerHTML, autoFocus, and events
@@ -251,6 +257,8 @@ class Compiler {
   readonly src: string;
   readonly helpers: Map<string, boolean>; // local name -> is jsxs
   readonly templates: string[] = [];
+  /** Hoisted list loops. */
+  readonly loops: string[] = [];
   inlined = 0;
   readonly inlineElements: boolean;
   constructor(src: string, helpers: Map<string, boolean>, inlineElements: boolean) {
@@ -368,7 +376,7 @@ class Compiler {
         values.length = m;
       }
       desc.push(values.length);
-      values.push(this.rewrite(item));
+      values.push(this.loop(item) ?? this.rewrite(item));
     }
     return desc;
   }
@@ -397,6 +405,52 @@ class Compiler {
     }
     this.inlined++;
     return `(__hrP = ${this.rewrite(props)}, { $$typeof: __hrE, type: ${type}, key: ${k}, ref: null, props: ${type}?.defaultProps == null ? __hrP : __hrDefaults(${type}, __hrP) })`;
+  }
+
+  // `xs.map(arrow)` with an expression-bodied arrow of plain parameters as a
+  // call of a loop hoisted to module scope, or null. The loop takes the
+  // body's free names as arguments: a module function keeps its optimized
+  // code across garbage collections, where a closure made per render loses
+  // it at each one. Bodies that could notice the move are left alone:
+  // functions, this, arguments, await, yield, assignments.
+  loop(src: string): string | null {
+    const m = /\.map\(/g;
+    let at = -1;
+    for (let x; (x = m.exec(src)) !== null;) {
+      const close = until(src, x.index + 5, "");
+      if (close === src.length - 1 && until(src.slice(0, x.index), 0, ",;") === x.index) at = x.index;
+    }
+    if (at <= 0) return null;
+    const recv = src.slice(0, at).trim();
+    const arrow = src.slice(at + 5, -1).trim();
+    const am = /^(?:\(([^()]*)\)|([A-Za-z_$][\w$]*))\s*=>\s*/.exec(arrow);
+    if (am === null) return null;
+    const body = arrow.slice(am[0].length).trim();
+    if (body.startsWith("{") || until(arrow, am[0].length, ",") !== arrow.length) return null;
+    const params = am[1] !== undefined ? split(am[1], 0, am[1].length) : [am[2]!];
+    if (params.length > 3 || params.some((q) => !/^[A-Za-z_$][\w$]*$/.test(q))) return null;
+    const b = this.rewrite(body);
+    const free = freeNames(b);
+    // Compiled once: left as a map, with the body already compiled.
+    if (free === null) return `${this.rewrite(recv)}.map(${arrow.slice(0, am[0].length)}${b})`;
+    const args = [...free].filter((x) => !params.includes(x));
+    const [p0, p1, p2] = params;
+    const decl =
+      (p0 !== undefined ? `const ${p0} = __hrV; ` : "") +
+      (p1 !== undefined ? `const ${p1} = __hrI; ` : "") +
+      (p2 !== undefined ? `const ${p2} = __hrXs; ` : "");
+    const id = `__hrL${this.loops.length}`;
+    this.loops.push(
+      `function ${id}(__hrXs${args.map((x) => ", " + x).join("")}) { ` +
+        `const __hrN = __hrXs.length, __hrOut = new Array(__hrN); ` +
+        `for (let __hrI = 0; __hrI < __hrN; __hrI++) { const __hrV = __hrXs[__hrI]; ` +
+        `if (__hrV === undefined && !(__hrI in __hrXs)) continue; ${decl}__hrOut[__hrI] = ${b}; } ` +
+        `return __hrOut; }`,
+    );
+    return (
+      `(Array.isArray(__hrM = ${this.rewrite(recv)}) ? ${id}(__hrM${args.map((x) => ", " + x).join("")}) : ` +
+      `__hrM.map((${params.join(", ")}) => ${b}))`
+    );
   }
 
   undo(values: string[], mark: number): null {
@@ -435,6 +489,84 @@ class Compiler {
   }
 }
 
+// Words that are not names of variables.
+const NOT_NAMES = new Set(
+  (
+    "true false null undefined typeof void new delete in instanceof of if else return " +
+    "NaN Infinity Symbol Object Array String Number Boolean Math JSON Date"
+  ).split(" "),
+);
+const BAIL_WORDS = new Set([
+  "this",
+  "arguments",
+  "await",
+  "yield",
+  "function",
+  "class",
+  "super",
+  "import",
+  "var",
+  "let",
+  "const",
+]);
+
+// The free variable names an expression reads, in first-use order, or null
+// when moving it out of its function could change what it does: it defines
+// functions, assigns, or uses this, arguments, await or yield. Names the
+// compiler made (__hr...) are module-level and left out.
+function freeNames(src: string): Set<string> | null {
+  if (src.includes("=>")) return null;
+  const out = new Set<string>();
+  const stack: string[] = [];
+  let prev = "",
+    word = "";
+  for (let i = 0; i < src.length;) {
+    const c = src[i]!;
+    const j = skipToken(src, i, prev, word);
+    if (j !== i) {
+      prev = "a";
+      word = "";
+      i = j;
+      continue;
+    }
+    if (isIdent(c) && !/[0-9]/.test(c)) {
+      let e = i;
+      while (isIdent(src[e])) e++;
+      const name = src.slice(i, e);
+      if (BAIL_WORDS.has(name)) return null;
+      let k = e;
+      while (/\s/.test(src[k] ?? "")) k++;
+      const member = prev === ".";
+      // An object literal's key: after { or , inside braces, before a colon.
+      const key = src[k] === ":" && (prev === "{" || prev === ",") && stack.at(-1) === "{";
+      if (!member && !key && !NOT_NAMES.has(name) && !name.startsWith("__hr")) out.add(name);
+      prev = "a";
+      word = name;
+      i = e;
+      continue;
+    }
+    if (isIdent(c)) {
+      // A number.
+      while (isIdent(src[i]) || src[i] === ".") i++;
+      prev = "a";
+      continue;
+    }
+    if (c === "=" && src[i + 1] !== "=" && prev !== "=" && prev !== "!" && prev !== "<" && prev !== ">") {
+      // An assignment, unless the compiler's own temporary takes it.
+      if (!/__hr[A-Za-z]\s*$/.test(src.slice(0, i))) return null;
+    }
+    if ((c === "+" || c === "-") && src[i + 1] === c) return null;
+    if (OPEN.includes(c)) stack.push(c);
+    else if (CLOSE.includes(c)) stack.pop();
+    if (!/\s/.test(c)) {
+      prev = c;
+      word = "";
+    }
+    i++;
+  }
+  return out;
+}
+
 const NOT_LITERAL = Symbol("not a literal");
 // A name or a dotted path of names (no calls, no computed members).
 const PATH = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/;
@@ -471,11 +603,14 @@ export function compileJs(js: string, options: CompilerOptions = {}): string {
   const c = new Compiler(js, helpers, options.inlineElements ?? true);
   const body = c.rewrite(js);
   const runtime = `import { ${[...imports].map(([local, name]) => `${name} as ${local}`).join(", ")} } from "react/jsx-runtime";\n`;
-  if (c.templates.length === 0 && c.inlined === 0) return runtime + body;
+  if (c.templates.length === 0 && c.inlined === 0 && c.loops.length === 0) return runtime + body;
   const names = [
     ...(c.templates.length ? ["__template as __hrTemplate", "__block as __hrBlock"] : []),
     ...(c.inlined ? ["__defaults as __hrDefaults", "__key as __hrKey"] : []),
   ];
-  const inline = c.inlined ? `let __hrP;\nconst __hrE = Symbol.for("react.transitional.element");\n` : "";
-  return `${runtime}import { ${names.join(", ")} } from "react";\n${inline}${c.templates.join("\n")}${c.templates.length ? "\n" : ""}${body}`;
+  const inline =
+    (c.inlined ? `let __hrP;\nconst __hrE = Symbol.for("react.transitional.element");\n` : "") +
+    (c.loops.length ? `let __hrM;\n${c.loops.join("\n")}\n` : "");
+  const fromReact = names.length ? `import { ${names.join(", ")} } from "react";\n` : "";
+  return `${runtime}${fromReact}${inline}${c.templates.join("\n")}${c.templates.length ? "\n" : ""}${body}`;
 }

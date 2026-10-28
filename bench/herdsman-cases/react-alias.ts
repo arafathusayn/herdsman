@@ -26,6 +26,8 @@ export type Runtime = "react" | "herdsman-react" | "redact";
 export interface AliasOptions {
   /** herdsman-react only: include class components (herdsman-react-classes.ts). Off by default. */
   readonly classes?: boolean;
+  /** herdsman-react only: the directory of its sources (default web/src; jfb/ab.ts builds a git revision's). */
+  readonly src?: string;
 }
 
 export function reactAlias(runtime: Runtime, options: AliasOptions = {}): BunPlugin {
@@ -34,7 +36,11 @@ export function reactAlias(runtime: Runtime, options: AliasOptions = {}): BunPlu
     setup(build) {
       build.onResolve({ filter: /^react(-dom)?(\/.*)?$/ }, (args) => {
         if (runtime === "react") return { path: Bun.resolveSync(args.path, reactDir) };
-                if (runtime === "herdsman-react") return { path: options.classes ? herdsmanReactClasses : herdsmanReact };
+        if (runtime === "herdsman-react") {
+          if (options.src !== undefined)
+            return { path: join(options.src, options.classes ? "herdsman-react-classes.ts" : "herdsman-react.ts") };
+          return { path: options.classes ? herdsmanReactClasses : herdsmanReact };
+        }
         const to = REDACT[args.path];
         if (!to) throw new Error(`redact has no ${args.path}`);
         return { path: Bun.resolveSync(to, redactDir) };

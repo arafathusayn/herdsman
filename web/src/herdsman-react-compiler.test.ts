@@ -130,4 +130,65 @@ describe("herdsman-react-compiler", () => {
     expect(templates(out)).toEqual([]);
     expect(out).toMatch(/^import \{ jsx as jsx_\w+ \} from "react\/jsx-runtime";\nexport/);
   });
+
+  test("a list's map becomes a loop with map's results", () => {
+    const src = `export const make = (rows, extra) => <ul>{rows.map((r, i) => <li key={r}>{r}{i}</li>)}</ul>;`;
+    const out = compileSource(src, "jsx");
+    expect(out).toContain("for (let __hrI = 0;");
+    const body = out
+      .replace(/^import \{([^}]*)\} from "([^"]*)";$/gm, (_, names: string) =>
+        names
+          .split(",")
+          .map((n) => {
+            const [a, b] = n.trim().split(" as ");
+            return `const ${b ?? a} = scope.${a};`;
+          })
+          .join("\n"),
+      )
+      .replace(/^export /gm, "");
+    const make = new Function("scope", `${body}\nreturn make;`)({
+      jsx,
+      jsxs,
+      Fragment,
+      __defaults,
+      __key,
+      __block,
+      __template,
+    });
+    const vals = (rows: unknown) =>
+      (make(rows) as { props: { children: { props: { children: unknown } }[] } }).props.children;
+    const kids = (rows: unknown) => vals(rows) as unknown as { key: string; props: { children: unknown[] } }[];
+    expect(kids(["a", "b"]).map((k) => [k.key, k.props.children])).toEqual([
+      ["a", ["a", 0]],
+      ["b", ["b", 1]],
+    ]);
+    // eslint-disable-next-line no-sparse-arrays
+    const holey = kids(["a", , "c"]);
+    expect(holey.length).toBe(3);
+    expect(1 in holey).toBe(false);
+    // Not an array: its own map.
+    const custom = { map: (f: (x: string, i: number) => unknown) => [f("z", 7)] };
+    expect(kids(custom).map((k) => k.props.children)).toEqual([["z", 7]]);
+  });
+
+  test("a list loop takes the names its body reads; bodies it could change are left as maps", () => {
+    const loop = compileSource(
+      `export const A = ({ rows, extra }) => <ul>{rows.map((r) => <li title={extra ? r.a : "x"}>{r.b}</li>)}</ul>;`,
+      "jsx",
+    );
+    expect(loop).toMatch(/function __hrL0\(__hrXs, extra\)/);
+    expect(loop).toContain("__hrL0(__hrM, extra)");
+    for (const src of [
+      `export const A = ({ rows }) => <ul>{rows.map((r) => <li onClick={() => r.f()}>{r.b}</li>)}</ul>;`,
+      `let n = 0; export const A = ({ rows }) => <ul>{rows.map((r) => <li>{n++}</li>)}</ul>;`,
+      `let n = 0; export const A = ({ rows }) => <ul>{rows.map((r) => <li>{(n = r)}</li>)}</ul>;`,
+      `export function A({ rows }) { return <ul>{rows.map((r) => <li>{this.x}</li>)}</ul>; }`,
+    ]) {
+      const out = compileSource(src, "jsx");
+      expect(out).not.toContain("function __hrL");
+      expect(out).toContain(".map(");
+      // The body was compiled once.
+      expect(out.match(/__hrTemplate\(\["li"/g)?.length).toBe(1);
+    }
+  });
 });

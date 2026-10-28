@@ -426,6 +426,8 @@ class Fiber {
   b: BlockElement | null = null;
   /** Its hole nodes once looked up (by index), then its slot fibers (at holes + index). */
   bs: Any[] | null = null;
+  /** Memoized component: how many keys its props have, once a compare counted them (-1 until). */
+  pk = -1;
   constructor(n: number, t: Any, k: Key, r: Fiber | null, o: RootImpl) {
     this.n = n;
     if (n === HOST || n === TEXT || n === BLOCK) this.f = BOX;
@@ -576,9 +578,32 @@ function patchAligned(items: Any[], old: Fiber[], n: number): number {
 // list re-render does this for each row. False when it must render.
 function memoHit(o: Fiber, it: Any): boolean {
   if (o.e === it) return !(o.f & DIRTY);
-  if (o.q !== shallowEqual || o.n !== FUNC || o.f & DIRTY || o.e === null || !shallowEqual(o.p, it.props)) return false;
+  if (o.q !== shallowEqual || o.n !== FUNC || o.f & DIRTY || o.e === null) return false;
+  const n = sameProps(o.p, it.props, o.pk);
+  if (n < 0) return false;
+  // React keeps the old props object on a bailout: its key count stays known.
+  o.pk = n;
   o.e = it;
   return true;
+}
+
+// shallowEqual(a, b) for a memoized row, walking only b when a's key count
+// na is known (else -1): b's key count if equal, else -1.
+function sameProps(a: Any, b: Any, na: number): number {
+  let nb = 0;
+  for (const k in b) {
+    const x = b[k],
+      y = a[k];
+    // Object.is, inline: NaN equals NaN, 0 and -0 differ.
+    if (x !== y ? x === x || y === y : x === 0 && 1 / x !== 1 / y) return -1;
+    if (x === undefined && !Object.hasOwn(a, k)) return -1;
+    nb++;
+  }
+  if (na < 0) {
+    na = 0;
+    for (const _ in a) na++;
+  }
+  return na === nb ? nb : -1;
 }
 
 function reconcile(p: Fiber, children: Any): void {
@@ -772,7 +797,10 @@ function append(p: Fiber, kids: Fiber[], from: number): void {
   const parent = p.d as Node,
     end = p.n === SLOT && p.s.parentNode !== null ? p.s : null;
   const out = from === 0 && nodes.length >= DETACH_MIN ? detach(p) : null;
-  for (const x of nodes) parent.insertBefore(x, end);
+  for (let ix = 0, xs = nodes; ix < xs.length; ix++) {
+    const x = xs[ix]!;
+    parent.insertBefore(x, end);
+  }
   if (out !== null) out[0].insertBefore(parent, out[1]);
 }
 
@@ -814,16 +842,25 @@ function removeAll(p: Fiber, old: Fiber[] = p.c): void {
   if (p === curHost) {
     // A slot's nodes share their parent with its anchor, which goes back.
     let count = 0;
-    for (const o of old) count += tally(o);
+    for (let ix = 0, xs = old; ix < xs.length; ix++) {
+      const o = xs[ix]!;
+      count += tally(o);
+    }
     const anchored = p.n === SLOT && p.s.parentNode !== null;
     if (count + (anchored ? 1 : 0) === p.d.childNodes.length) {
-      for (const o of old) unmount(o, false);
+      for (let ix = 0, xs = old; ix < xs.length; ix++) {
+        const o = xs[ix]!;
+        unmount(o, false);
+      }
       p.d.textContent = "";
       if (anchored) p.d.appendChild(p.s);
       return;
     }
   }
-  for (const o of old) unmount(o, true);
+  for (let ix = 0, xs = old; ix < xs.length; ix++) {
+    const o = xs[ix]!;
+    unmount(o, true);
+  }
 }
 
 function patch(o: Fiber, it: Any): void {
@@ -913,7 +950,10 @@ function update(f: Fiber, el: ReactElement, mount: boolean): void {
   if (f.n === BLOCK) {
     f.b = el as Any;
     f.p = (el as Any)[VALS];
-  } else f.p = el.props;
+  } else {
+    f.p = el.props;
+    f.pk = -1;
+  }
   run(f, old, mount);
 }
 
@@ -970,7 +1010,11 @@ function run(f: Fiber, old: Props | null, mount: boolean): void {
 function collect(f: Fiber, out: Node[]): void {
   if (f.f & BOX) {
     if (!(f.f & HOIST)) out.push(f.d);
-  } else if (f.n !== PORTAL) for (const c of f.c) collect(c, out);
+  } else if (f.n !== PORTAL)
+    for (let ix = 0, xs = f.c; ix < xs.length; ix++) {
+      const c = xs[ix]!;
+      collect(c, out);
+    }
 }
 
 // How many nodes collect() would list for f, without the list.
@@ -978,7 +1022,10 @@ function tally(f: Fiber): number {
   if (f.f & BOX) return f.f & HOIST ? 0 : 1;
   if (f.n === PORTAL) return 0;
   let n = 0;
-  for (const c of f.c) n += tally(c);
+  for (let ix = 0, xs = f.c; ix < xs.length; ix++) {
+    const c = xs[ix]!;
+    n += tally(c);
+  }
   return n;
 }
 
@@ -986,7 +1033,11 @@ function tally(f: Fiber): number {
 function tops(f: Fiber, out: Fiber[]): void {
   if (f.f & BOX) {
     if (!(f.f & HOIST)) out.push(f);
-  } else if (f.n !== PORTAL) for (const c of f.c) tops(c, out);
+  } else if (f.n !== PORTAL)
+    for (let ix = 0, xs = f.c; ix < xs.length; ix++) {
+      const c = xs[ix]!;
+      tops(c, out);
+    }
 }
 
 function next(x: Any, h: Fiber): Any {
@@ -1037,7 +1088,10 @@ function place(h: Fiber): void {
   h.f &= ~STRUCT;
   const parent = h.d as Node;
   const want: Node[] = [];
-  for (const c of h.c) collect(c, want);
+  for (let ix = 0, xs = h.c; ix < xs.length; ix++) {
+    const c = xs[ix]!;
+    collect(c, want);
+  }
   const n = want.length;
   let node = next(parent.firstChild, h),
     i = 0;
@@ -1475,11 +1529,12 @@ class Template {
   readonly $$typeof: symbol = TEMPLATE_TYPE;
   readonly desc: TemplateNode;
   n = 0;
-  readonly kinds: number[] = [];
+  /** Each hole's kind (H_ATTR...), packed: the loop over a block's holes reads it per row. */
+  readonly kinds: Uint8Array;
   readonly names: (string | null)[] = [];
   readonly paths: number[][] = [];
   /** Event hole indexes. */
-  readonly events: number[] = [];
+  readonly events: Int32Array;
   /** Per namespace: the prototype, its hole nodes, the element info of each hole and what each hole holds. */
   readonly proto: (Element | null)[] = [null, null, null];
   readonly nodes: Any[][] = [];
@@ -1487,19 +1542,23 @@ class Template {
   readonly cur: Any[][] = [];
   constructor(desc: TemplateNode) {
     this.desc = desc;
-    this.scan(desc, []);
+    const kinds: number[] = [];
+    this.scan(desc, [], kinds);
+    this.kinds = Uint8Array.from(kinds);
+    const events: number[] = [];
+    for (let i = 0; i < kinds.length; i++) if (kinds[i] === H_EVENT) events.push(i);
+    this.events = Int32Array.from(events);
   }
-  private scan(d: TemplateNode, path: number[]): void {
+  private scan(d: TemplateNode, path: number[], kinds: number[]): void {
     const props = d[1];
     if (props) {
       for (const name in props) {
         if (!isHole(props[name])) continue;
         const i: number = props[name].h;
         this.n = Math.max(this.n, i + 1);
-        this.kinds[i] = name === "style" ? H_STYLE : /^on[A-Z]/.test(name) ? H_EVENT : H_ATTR;
+        kinds[i] = name === "style" ? H_STYLE : /^on[A-Z]/.test(name) ? H_EVENT : H_ATTR;
         this.names[i] = name;
         this.paths[i] = path;
-        if (this.kinds[i] === H_EVENT) this.events.push(i);
       }
     }
     for (let c = 2; c < d.length; c++) {
@@ -1507,10 +1566,10 @@ class Template {
       const p = path.concat(c - 2);
       if (typeof x === "number") {
         this.n = Math.max(this.n, x + 1);
-        this.kinds[x] = H_CHILD;
+        kinds[x] = H_CHILD;
         this.names[x] = null;
         this.paths[x] = p;
-      } else if (typeof x !== "string") this.scan(x, p);
+      } else if (typeof x !== "string") this.scan(x, p, kinds);
     }
   }
   // Build the prototype for namespace ns: static props with React's rules,
@@ -1554,19 +1613,21 @@ class Template {
     const root = make(this.desc, ns);
     this.proto[ns] = root;
     this.nodes[ns] = this.locate(root);
-    const cur: Any[] = (this.cur[ns] = new Array(this.n));
-    for (let i = 0; i < this.n; i++) cur[i] = this.kinds[i] === H_CHILD ? "" : UNWRITTEN;
+    // Filled by push: an array with no holes, which the engine keeps packed.
+    const cur: Any[] = (this.cur[ns] = []);
+    for (let i = 0; i < this.n; i++) cur.push(this.kinds[i] === H_CHILD ? "" : UNWRITTEN);
     return root;
   }
   locate(root: Node): Any[] {
-    const out = new Array(this.n);
+    const out: Any[] = [];
     for (let i = 0; i < this.n; i++) {
       let node: Any = root;
-      for (const k of this.paths[i]!) {
+      for (let ix = 0, xs = this.paths[i]!; ix < xs.length; ix++) {
+        const k = xs[ix]!;
         node = node.firstChild;
         for (let j = 0; j < k; j++) node = node.nextSibling;
       }
-      out[i] = node;
+      out.push(node);
     }
     return out;
   }
@@ -1591,11 +1652,13 @@ class BlockElement {
   readonly key: string | null;
   readonly [TPL]: Template;
   readonly [VALS]: Any[];
-  declare [PROPS]: Props | undefined;
+  [PROPS]: Props | undefined;
   constructor(t: Template, key: string | null, values: Any[]) {
     this.key = key;
     this[TPL] = t;
     this[VALS] = values;
+    // Every field set here, in one order: one hidden class for all of them.
+    this[PROPS] = undefined;
   }
   get $$typeof(): symbol {
     return ELEMENT;
@@ -1761,7 +1824,8 @@ function blockHandlers(f: Fiber, prop: string, from: Any, out: Any[]): void {
   const s = f.bs ?? (f.bs = t.locate(f.d));
   const v = f.b![VALS];
   for (let node = from; node != null; node = node.parentNode) {
-    for (const i of t.events) {
+    for (let ix = 0, xs = t.events; ix < xs.length; ix++) {
+      const i = xs[ix]!;
       if (s[i] === node && t.names[i] === prop) {
         const h = v[i];
         if (typeof h === "function") out.push(node, h);
@@ -2022,7 +2086,10 @@ function runFunc(f: Fiber): void {
 // A component that hosted its block renders something else: the block goes,
 // and the component's children are reconciled as anyone's.
 function unfuse(f: Fiber): void {
-  for (const c of f.c) unmount(c, false);
+  for (let ix = 0, xs = f.c; ix < xs.length; ix++) {
+    const c = xs[ix]!;
+    unmount(c, false);
+  }
   f.c = NO_FIBERS;
   if (f.d.parentNode !== null) f.d.parentNode.removeChild(f.d);
   f.f &= ~BOX;
@@ -2189,7 +2256,8 @@ function readContext(f: Fiber, ctx: Any): Any {
 function setHidden(f: Fiber, hide: boolean): void {
   const list: Fiber[] = [];
   tops(f, list);
-  for (const h of list) {
+  for (let ix = 0, xs = list; ix < xs.length; ix++) {
+    const h = xs[ix]!;
     if (hide === ((h.f & HIDDEN) !== 0)) continue;
     h.f ^= HIDDEN;
     if (h.n === TEXT) h.d.data = hide ? "" : h.p;
@@ -2262,7 +2330,7 @@ function runSuspense(f: Fiber): void {
     }
   } else reconcile(fb, f.p.fallback);
   f.c = primary !== null ? [primary, fb] : [fb];
-  f.c.forEach((c, i) => (c.i = i));
+  for (let i = 0, cs = f.c; i < cs.length; i++) cs[i]!.i = i;
   curHost.f |= STRUCT;
   const again = retry(f);
   thrown.then(again, again);
@@ -2293,7 +2361,8 @@ function runActivity(f: Fiber): void {
 // Clean up and later re-run the effects of a hidden Activity's subtree.
 function disconnect(f: Fiber): void {
   if (f.h !== null) {
-    for (const h of f.h) {
+    for (let ix = 0, xs = f.h; ix < xs.length; ix++) {
+      const h = xs[ix]!;
       if (h.k !== 0 && h.x !== undefined) {
         const x = h.x;
         h.x = undefined;
@@ -2301,13 +2370,27 @@ function disconnect(f: Fiber): void {
       }
     }
   }
-  for (const c of f.c) disconnect(c);
+  for (let ix = 0, xs = f.c; ix < xs.length; ix++) {
+    const c = xs[ix]!;
+    disconnect(c);
+  }
 }
 
 function reconnect(f: Fiber): void {
-  for (const c of f.c) reconnect(c);
-  if (f.h !== null) for (const h of f.h) if (h.k === LAYOUT) layoutQ.push(h);
-  if (f.h !== null) for (const h of f.h) if (h.k === PASSIVE) passiveQ.push(h);
+  for (let ix = 0, xs = f.c; ix < xs.length; ix++) {
+    const c = xs[ix]!;
+    reconnect(c);
+  }
+  if (f.h !== null)
+    for (let ix = 0, xs = f.h; ix < xs.length; ix++) {
+      const h = xs[ix]!;
+      if (h.k === LAYOUT) layoutQ.push(h);
+    }
+  if (f.h !== null)
+    for (let ix = 0, xs = f.h; ix < xs.length; ix++) {
+      const h = xs[ix]!;
+      if (h.k === PASSIVE) passiveQ.push(h);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2320,18 +2403,25 @@ function unmount(f: Fiber, rm: boolean): void {
     case HOST:
       if ((rm || f.f & HOIST) && f.d.parentNode !== null) f.d.parentNode.removeChild(f.d);
       if (f.p.ref != null) safely(f, () => detachRef(f, f.p.ref));
-      for (const c of f.c) unmount(c, false);
+      for (let ix = 0, xs = f.c; ix < xs.length; ix++) {
+        const c = xs[ix]!;
+        unmount(c, false);
+      }
       return;
     case TEXT:
       if (rm && f.d.parentNode !== null) f.d.parentNode.removeChild(f.d);
       return;
     case BLOCK:
       if (rm && f.d.parentNode !== null) f.d.parentNode.removeChild(f.d);
-      for (const c of f.c) unmount(c, false);
+      for (let ix = 0, xs = f.c; ix < xs.length; ix++) {
+        const c = xs[ix]!;
+        unmount(c, false);
+      }
       return;
     case FUNC:
       if (f.h !== null) {
-        for (const h of f.h) {
+        for (let ix = 0, xs = f.h; ix < xs.length; ix++) {
+          const h = xs[ix]!;
           if (h.x === undefined) continue;
           if (h.k !== PASSIVE) safely(f, h.x);
           else if (h.k === PASSIVE) passiveUnmountQ.push(h.x);
@@ -2341,7 +2431,10 @@ function unmount(f: Fiber, rm: boolean): void {
       if (f.f & BOX) {
         // Its block: one node, its slots' nodes inside it.
         if (rm && f.d.parentNode !== null) f.d.parentNode.removeChild(f.d);
-        for (const c of f.c) unmount(c, false);
+        for (let ix = 0, xs = f.c; ix < xs.length; ix++) {
+          const c = xs[ix]!;
+          unmount(c, false);
+        }
         return;
       }
       break;
@@ -2349,10 +2442,16 @@ function unmount(f: Fiber, rm: boolean): void {
       if (classes !== null) safely(f, () => classes!.unmount(f));
       break;
     case PORTAL:
-      for (const c of f.c) unmount(c, true);
+      for (let ix = 0, xs = f.c; ix < xs.length; ix++) {
+        const c = xs[ix]!;
+        unmount(c, true);
+      }
       return;
   }
-  for (const c of f.c) unmount(c, rm);
+  for (let ix = 0, xs = f.c; ix < xs.length; ix++) {
+    const c = xs[ix]!;
+    unmount(c, rm);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2403,7 +2502,8 @@ function flushWork(sync: boolean): void {
         const q = queue;
         queue = [];
         if (q.length > 1) q.sort(byDepth);
-        for (const f of q) {
+        for (let ix = 0, xs = q; ix < xs.length; ix++) {
+          const f = xs[ix]!;
           f.f &= ~QUEUED;
           if ((f.f & (DIRTY | DEAD)) === DIRTY) rerender(f);
         }
@@ -2581,7 +2681,8 @@ function flushPassive(): void {
   const un = passiveUnmountQ;
   if (un.length) {
     passiveUnmountQ = [];
-    for (const x of un) {
+    for (let ix = 0, xs = un; ix < xs.length; ix++) {
+      const x = xs[ix]!;
       try {
         x();
       } catch (e) {
@@ -2596,14 +2697,16 @@ function flushPassive(): void {
 }
 
 function runEffects(q: Hook[]): void {
-  for (const h of q) {
+  for (let ix = 0, xs = q; ix < xs.length; ix++) {
+    const h = xs[ix]!;
     if (h.k !== 0 && h.x !== undefined && !(h.f.f & DEAD)) {
       const x = h.x;
       h.x = undefined;
       safely(h.f, x);
     }
   }
-  for (const h of q) {
+  for (let ix = 0, xs = q; ix < xs.length; ix++) {
+    const h = xs[ix]!;
     if (h.f.f & DEAD) continue;
     const c = h.c;
     if (h.k === 0) safely(h.f, c);
@@ -3291,7 +3394,8 @@ function dispatch(e: Any, root: RootImpl, capture: boolean): void {
   try {
     if (over) enterLeave(e, root, type, target);
     if (names !== null)
-      for (const name of names) {
+      for (let ix = 0, xs = names; ix < xs.length; ix++) {
+        const name = xs[ix]!;
         const prop = capture ? name + "Capture" : name;
         // Element and handler pairs, innermost first: host fibers, and the
         // elements of blocks on the way (entered at the event's target, or
@@ -3367,7 +3471,8 @@ function enterLeave(e: Any, root: RootImpl, type: string, target: Fiber): void {
     toNode = node(to, to === target ? e.target : related);
   const fire = (list: Fiber[], name: string, tgt: Any, rel: Any): void => {
     let syn: Any = null;
-    for (const f of list) {
+    for (let ix = 0, xs = list; ix < xs.length; ix++) {
+      const f = xs[ix]!;
       const fn = f.p[name];
       if (typeof fn !== "function") continue;
       if (syn === null) {

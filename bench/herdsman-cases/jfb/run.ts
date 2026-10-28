@@ -228,7 +228,7 @@ export async function startBrowser(): Promise<Browser> {
   return puppeteer.launch({ headless: false, executablePath: findChrome(), args, defaultViewport: { width: 1280, height: 800 } });
 }
 
-function serveRoot(): ReturnType<typeof Bun.serve> {
+export function serveRoot(): ReturnType<typeof Bun.serve> {
   return Bun.serve({
     port: 0,
     async fetch(req) {
@@ -247,7 +247,7 @@ async function pagePath(entry: string): Promise<string> {
   return (custom ?? "/").replace(/\/?$/, "/") + "index.html";
 }
 
-async function sample(browser: Browser, base: string, entry: string, b: Bench): Promise<number> {
+export async function sample(browser: Browser, base: string, entry: string, b: Bench): Promise<number> {
   for (let attempt = 1; ; attempt++) {
     const page = await browser.newPage();
     const errors: string[] = [];

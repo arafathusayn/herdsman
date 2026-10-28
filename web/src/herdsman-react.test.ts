@@ -394,3 +394,24 @@ describe("components that render one block", () => {
     expect(html()).toBe("<table><tbody></tbody></table>");
   });
 });
+
+describe("memo bailouts in lists", () => {
+  test("rows re-render exactly when a prop changes by Object.is, keys added or removed included", () => {
+    const renders: string[] = [];
+    const Item = memo(function Item(p: Record<string, unknown>) {
+      renders.push(String(p["id"]));
+      return h("li", null, String(p["id"]));
+    });
+    const list = (props: Record<string, unknown>[]) =>
+      h("ul", null, ...props.map((p) => h(Item, { key: String(p["id"]), ...p })));
+    render(list([{ id: 1, v: NaN }, { id: 2, v: 0 }, { id: 3, v: 1 }, { id: 4 }, { id: 5, v: undefined }]));
+    renders.length = 0;
+    render(list([{ id: 1, v: NaN }, { id: 2, v: 0 }, { id: 3, v: 1 }, { id: 4 }, { id: 5, v: undefined }]));
+    expect(renders).toEqual([]);
+    render(list([{ id: 1, v: NaN }, { id: 2, v: -0 }, { id: 3, v: 1, w: 2 }, { id: 4, v: undefined }, { id: 5 }]));
+    expect(renders).toEqual(["2", "3", "4", "5"]);
+    renders.length = 0;
+    render(list([{ id: 1, v: NaN }, { id: 2, v: -0 }, { id: 3, v: 1 }, { id: 4, v: undefined }, { id: 5 }]));
+    expect(renders).toEqual(["3"]);
+  });
+});
