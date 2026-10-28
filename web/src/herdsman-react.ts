@@ -861,7 +861,8 @@ function removeAll(p: Fiber, old: Fiber[] = p.c): void {
     let count = 0;
     for (let ix = 0, xs = old; ix < xs.length; ix++) {
       const o = xs[ix]!;
-      count += tally(o);
+      // A node of its own (a row) counts inline; anything else is walked.
+      count += o.f & BOX ? (o.f & HOIST ? 0 : 1) : tally(o);
     }
     const anchored = p.n === SLOT && p.s.parentNode !== null;
     if (count + (anchored ? 1 : 0) === p.d.childNodes.length) {
