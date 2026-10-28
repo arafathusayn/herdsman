@@ -253,7 +253,7 @@ export async function sample(browser: Browser, base: string, entry: string, b: B
 }
 
 /** One sample: the click window's duration and its main-thread script time. */
-export async function measure(browser: Browser, base: string, entry: string, b: Bench): Promise<{ duration: number; script: number }> {
+export async function measure(browser: Browser, base: string, entry: string, b: Bench): Promise<Record<string, number> & { duration: number; script: number }> {
   for (let attempt = 1; ; attempt++) {
     const page = await browser.newPage();
     const errors: string[] = [];
@@ -273,7 +273,8 @@ export async function measure(browser: Browser, base: string, entry: string, b: 
       if (errors.length) throw new Error(`${entry}: page errors: ${errors.join("; ")}`);
       const trace = JSON.parse(new TextDecoder().decode(buf!)) as { traceEvents: Parameters<typeof computeDuration>[0] };
       const d = computeDuration(trace.traceEvents);
-      return { duration: d.duration, script: byKind(trace.traceEvents as unknown as Parameters<typeof byKind>[0], d.tsStart, d.tsEnd)["script"]! };
+      const k = byKind(trace.traceEvents as unknown as Parameters<typeof byKind>[0], d.tsStart, d.tsEnd);
+      return { ...k, duration: d.duration, script: k["script"]! };
     } catch (e) {
       if (!(e instanceof NotOneClick) || attempt >= 3) throw e;
     } finally {

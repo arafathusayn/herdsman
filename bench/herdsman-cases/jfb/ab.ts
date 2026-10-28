@@ -7,7 +7,7 @@
 // the whole interval is below zero, proven slower when above, and
 // unproven otherwise.
 //
-//   bun jfb/ab.ts --base <git ref> [--benchmarks 04_select1k,...] [--rounds 6] [--batch 5]
+//   bun jfb/ab.ts --base <git ref> [--benchmarks 04_select1k,...] [--rounds 6] [--batch 5] [--phases]
 
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +21,8 @@ const ref = value("--base") ?? "HEAD";
 const ids = value("--benchmarks")?.split(",") ?? ["04_select1k", "03_update10th1k_x16", "05_swap1k", "02_replace1k", "01_run1k", "09_clear1k_x8"];
 const rounds = Number(value("--rounds") ?? 6);
 const batch = Number(value("--batch") ?? 5);
+// The window's duration and script time, and with --phases its style, layout and paint too.
+const metrics = argv.includes("--phases") ? ["duration", "script", "style", "layout", "paint"] : ["duration", "script"];
 const repo = join(import.meta.dir, "../../..");
 const scratch = join(import.meta.dir, ".cache/ab");
 
@@ -66,7 +68,7 @@ const base = `http://127.0.0.1:${server.port}`;
 console.log(`A/B: base ${ref} vs working tree, ${rounds} rounds of ${batch} samples per side\n`);
 try {
   for (const b of benches.filter((x) => ids.includes(x.id))) {
-    const times: Record<string, { duration: number; script: number }[]> = { "ab-base": [], "ab-head": [] };
+    const times: Record<string, Record<string, number>[]> = { "ab-base": [], "ab-head": [] };
     for (let r = 0; r < rounds; r++) {
       for (const side of r % 2 ? ["ab-head", "ab-base"] : ["ab-base", "ab-head"]) {
         const browser = await startBrowser();
@@ -77,9 +79,9 @@ try {
         }
       }
     }
-    for (const metric of ["duration", "script"] as const) {
-      const a = times["ab-base"]!.map((x) => x[metric]),
-        h = times["ab-head"]!.map((x) => x[metric]);
+    for (const metric of metrics) {
+      const a = times["ab-base"]!.map((x) => x[metric]!),
+        h = times["ab-head"]!.map((x) => x[metric]!);
       const [lo, hi] = interval(a, h);
       const verdict = hi < 0 ? "FASTER (proven)" : lo > 0 ? "SLOWER (proven)" : "no proven difference";
       console.log(
