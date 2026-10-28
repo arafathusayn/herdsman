@@ -569,9 +569,15 @@ function patchAligned(items: Any[], old: Fiber[], n: number): number {
     oi = 0;
   for (; i < n; i++) {
     let it = items[i];
+    const o = old[oi];
+    // The element the row already has (a memoized list's unchanged rows):
+    // nothing to check or render, unless the row has an update of its own.
+    if (o !== undefined && o.e === it && !(o.f & DIRTY)) {
+      oi++;
+      continue;
+    }
     if (it == null || typeof it === "boolean") continue;
     if (typeof it === "object" && it.$$typeof !== ELEMENT && isThenable(it)) it = items[i] = unwrap(it);
-    const o = old[oi];
     if (o === undefined) break;
     // An element of the fiber's own type (a list's rows): checked inline.
     if (typeof it === "object" && it.$$typeof === ELEMENT && o.t === it.type) {
@@ -1770,7 +1776,7 @@ function runBlock(f: Fiber, v: Any[], o: Any[] | null, mount: boolean): void {
     if (nodes) {
       // Element children change the clone's structure: look up every hole first.
       f.bs = t.locate(dom);
-      for (let i = 0; i < n; i++) if (kinds[i] === H_CHILD && isNodes(v[i])) setChild(f, i, v[i]);
+      for (let i = 0; i < n; i++) if (kinds[i] === H_CHILD && isNodes(v[i])) setChild(f, i, v[i], "");
     }
     return;
   }
@@ -1785,13 +1791,15 @@ function runBlock(f: Fiber, v: Any[], o: Any[] | null, mount: boolean): void {
     if (s === null) s = f.bs = t.locate(f.d);
     if (k === H_ATTR) setAttr(infos[i], s[i], t.names[i]!, x, o![i]);
     else if (k === H_STYLE) setStyle(s[i], x, o![i]);
-    else setChild(f, i, x);
+    else setChild(f, i, x, o![i]);
   }
 }
 
 // A child hole: text goes into its anchor; anything else is reconciled in a
 // slot fiber that places its nodes before the anchor.
-function setChild(f: Fiber, i: number, x: Any): void {
+// `old` is the hole's last value: what the anchor holds is known from it, so
+// the DOM is only written, never read.
+function setChild(f: Fiber, i: number, x: Any, old: Any): void {
   const s = f.bs!,
     at = f.b![TPL].n + i;
   let sf: Fiber | undefined = s[at];
@@ -1811,10 +1819,11 @@ function setChild(f: Fiber, i: number, x: Any): void {
       f.c = f.c.filter((c) => c !== sf);
     }
     const t = textOf(x);
-    if (anchor.data !== t) anchor.data = t;
+    // After element children the anchor is empty; after text it holds that text.
+    if (isNodes(old) ? t !== "" : textOf(old) !== t) anchor.data = t;
     return;
   }
-  if (anchor.data !== "") anchor.data = "";
+  if (!isNodes(old) && textOf(old) !== "") anchor.data = "";
   if (sf === undefined) {
     sf = new Fiber(SLOT, null, i, f, f.o);
     sf.d = anchor.parentNode;
