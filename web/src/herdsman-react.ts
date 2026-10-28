@@ -551,12 +551,26 @@ function patchAligned(items: Any[], old: Fiber[], n: number): number {
     if (it == null || typeof it === "boolean") continue;
     if (typeof it === "object" && it.$$typeof !== ELEMENT && isThenable(it)) it = items[i] = unwrap(it);
     const o = old[oi];
-    if (o === undefined || o.k !== keyOf(it, i) || !sameType(o, it)) break;
+    if (o === undefined) break;
+    // An element of the fiber's own type (a list's rows): checked inline.
+    if (typeof it === "object" && it.$$typeof === ELEMENT && o.t === it.type) {
+      if (o.k !== (it.key != null ? it.key : i)) break;
+    } else if (o.k !== keyOf(it, i) || !sameType(o, it)) break;
     oi++;
-    patch(o, it);
+    if (!memoHit(o, it)) patch(o, it);
   }
   alignedOld = oi;
   return i;
+}
+
+// React's bailout for a memoized function component given the element it
+// rendered or one with shallowly equal props, without patch()'s calls: a
+// list re-render does this for each row. False when it must render.
+function memoHit(o: Fiber, it: Any): boolean {
+  if (o.e === it) return !(o.f & DIRTY);
+  if (o.q !== shallowEqual || o.n !== FUNC || o.f & DIRTY || o.e === null || !shallowEqual(o.p, it.props)) return false;
+  o.e = it;
+  return true;
 }
 
 function reconcile(p: Fiber, children: Any): void {
@@ -684,7 +698,7 @@ function matchSuffix(items: Any[], old: Fiber[], i: number, oi: number, n: numbe
 function take(o: Fiber, it: Any, nc: Fiber[]): void {
   o.i = nc.length;
   nc.push(o);
-  patch(o, it);
+  if (!memoHit(o, it)) patch(o, it);
 }
 
 // Update old[ofrom...] with items[from..to] in order (holes skipped).
