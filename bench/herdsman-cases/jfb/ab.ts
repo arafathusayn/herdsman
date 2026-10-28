@@ -13,7 +13,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { reactAlias } from "../react-alias.ts";
 import { keyed } from "./prepare.ts";
-import { benches, sample, serveRoot, startBrowser } from "./run.ts";
+import { benches, measure, serveRoot, startBrowser } from "./run.ts";
 
 const argv = process.argv.slice(2);
 const value = (k: string) => (argv.includes(k) ? argv[argv.indexOf(k) + 1] : undefined);
@@ -66,25 +66,27 @@ const base = `http://127.0.0.1:${server.port}`;
 console.log(`A/B: base ${ref} vs working tree, ${rounds} rounds of ${batch} samples per side\n`);
 try {
   for (const b of benches.filter((x) => ids.includes(x.id))) {
-    const times: Record<string, number[]> = { "ab-base": [], "ab-head": [] };
+    const times: Record<string, { duration: number; script: number }[]> = { "ab-base": [], "ab-head": [] };
     for (let r = 0; r < rounds; r++) {
       for (const side of r % 2 ? ["ab-head", "ab-base"] : ["ab-base", "ab-head"]) {
         const browser = await startBrowser();
         try {
-          for (let i = 0; i < batch; i++) times[side]!.push(await sample(browser, base, side, b));
+          for (let i = 0; i < batch; i++) times[side]!.push(await measure(browser, base, side, b));
         } finally {
           await browser.close();
         }
       }
     }
-    const a = times["ab-base"]!,
-      h = times["ab-head"]!;
-    const [lo, hi] = interval(a, h);
-    const verdict = hi < 0 ? "FASTER (proven)" : lo > 0 ? "SLOWER (proven)" : "no proven difference";
-    console.log(
-      `${b.id.padEnd(22)} base ${median(a).toFixed(1).padStart(7)}  head ${median(h).toFixed(1).padStart(7)}  ` +
-        `diff ${(median(h) - median(a)).toFixed(1).padStart(6)} ms  95% [${lo.toFixed(1)}, ${hi.toFixed(1)}]  ${verdict}`,
-    );
+    for (const metric of ["duration", "script"] as const) {
+      const a = times["ab-base"]!.map((x) => x[metric]),
+        h = times["ab-head"]!.map((x) => x[metric]);
+      const [lo, hi] = interval(a, h);
+      const verdict = hi < 0 ? "FASTER (proven)" : lo > 0 ? "SLOWER (proven)" : "no proven difference";
+      console.log(
+        `${b.id.padEnd(22)} ${metric.padEnd(8)} base ${median(a).toFixed(1).padStart(7)}  head ${median(h).toFixed(1).padStart(7)}  ` +
+          `diff ${(median(h) - median(a)).toFixed(1).padStart(6)} ms  95% [${lo.toFixed(1)}, ${hi.toFixed(1)}]  ${verdict}`,
+      );
+    }
   }
 } finally {
   server.stop();

@@ -23,6 +23,7 @@ import { join } from "node:path";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { findChrome } from "../chrome.ts";
 import { computeDuration, NotOneClick } from "../trace.ts";
+import { byKind } from "./kinds.ts";
 import { OURS, root, TOP5 } from "./prepare.ts";
 
 interface Bench {
@@ -248,6 +249,11 @@ async function pagePath(entry: string): Promise<string> {
 }
 
 export async function sample(browser: Browser, base: string, entry: string, b: Bench): Promise<number> {
+  return (await measure(browser, base, entry, b)).duration;
+}
+
+/** One sample: the click window's duration and its main-thread script time. */
+export async function measure(browser: Browser, base: string, entry: string, b: Bench): Promise<{ duration: number; script: number }> {
   for (let attempt = 1; ; attempt++) {
     const page = await browser.newPage();
     const errors: string[] = [];
@@ -266,7 +272,8 @@ export async function sample(browser: Browser, base: string, entry: string, b: B
       if (b.throttle) await page.emulateCPUThrottling(1);
       if (errors.length) throw new Error(`${entry}: page errors: ${errors.join("; ")}`);
       const trace = JSON.parse(new TextDecoder().decode(buf!)) as { traceEvents: Parameters<typeof computeDuration>[0] };
-      return computeDuration(trace.traceEvents).duration;
+      const d = computeDuration(trace.traceEvents);
+      return { duration: d.duration, script: byKind(trace.traceEvents as unknown as Parameters<typeof byKind>[0], d.tsStart, d.tsEnd)["script"]! };
     } catch (e) {
       if (!(e instanceof NotOneClick) || attempt >= 3) throw e;
     } finally {
