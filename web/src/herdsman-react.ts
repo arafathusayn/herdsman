@@ -109,6 +109,19 @@ function withDefaults(type: Any, props: Props, copy: boolean): Props {
   return out;
 }
 
+/** Internal: an inline element's key (herdsman-react-compiler). */
+export function __key(k: Any): string | null {
+  return k === undefined ? null : "" + k;
+}
+
+/**
+ * Internal: an inline element's props with its type's defaultProps filled
+ * in (herdsman-react-compiler builds component elements without jsx()).
+ */
+export function __defaults(type: Any, props: Props): Props {
+  return withDefaults(type, props, false);
+}
+
 /** The automatic JSX runtime's element factory. */
 export function jsx(type: Any, config: Props, maybeKey?: Any): ReactElement {
   let key = maybeKey === undefined ? null : "" + maybeKey;
@@ -866,7 +879,9 @@ function update(f: Fiber, el: ReactElement, mount: boolean): void {
     if (el === f.e && !(f.f & DIRTY)) return;
     old = f.p;
     if (f.q !== null && (f.n === FUNC || f.n === MEMO) && !(f.f & DIRTY) && f.e !== null) {
-      if (f.q(old, el.props) && old!["ref"] === el.props["ref"]) {
+      // A custom compare does not see ref changes; shallowEqual compares it with the rest.
+      const q = f.q;
+      if (q(old, el.props) && (q === shallowEqual || old!["ref"] === el.props["ref"])) {
         f.e = el;
         return;
       }
@@ -3365,7 +3380,9 @@ function synProto(e: Any): Any {
   if (p !== undefined) return p;
   p = Object.create(SYN_BASE);
   for (const k in e) {
-    if (k in SYN_BASE) continue;
+    // Fields every synthetic event sets are its own, not accessors: setting
+    // through an accessor would redefine them on each event (a slow path).
+    if (k in SYN_BASE || k === "currentTarget" || k === "type") continue;
     Object.defineProperty(p, k, {
       configurable: true,
       enumerable: true,

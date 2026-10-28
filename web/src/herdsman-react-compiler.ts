@@ -16,7 +16,19 @@
 // runtime (herdsman-react.ts) builds each template once and clones it, and
 // writes only the holes whose values changed, with React's semantics.
 //
-// An element is left to the plain runtime when its behavior depends on more
+// A component element whose props are an object literal (no spread, key or
+// ref) is built inline, as the object the runtime's jsx() would return:
+//
+//   jsx(Row, { row }, row.id)
+//     -> (__hrP = { row }, { $$typeof: __hrE, type: Row, key: row.id === undefined ? null : "" + row.id,
+//          ref: null, props: Row?.defaultProps == null ? __hrP : __hrDefaults(Row, __hrP) })
+//
+// Each call site then sees one type and one props shape, where jsx() sees
+// every element of the app; a list's row elements cost an allocation each,
+// not a polymorphic call (as Babel's inline-elements transform once did for
+// React).
+//
+// A host element is left to the plain runtime when its behavior depends on more
 // than its attributes: spread props, refs, form fields and forms, document
 // metadata, custom elements, dangerouslySetInnerHTML, autoFocus, and events
 // that do not bubble or that React derives (enter and leave). Its children
@@ -35,6 +47,8 @@ export interface CompilerOptions {
   readonly filter?: RegExp;
   /** Skip a file (by path) even if the filter matches. */
   readonly exclude?: (path: string) => boolean;
+  /** Build component elements inline (default true). */
+  readonly inlineElements?: boolean;
 }
 
 /** The Bun plugin: compiles the app's JSX files. */
@@ -46,19 +60,19 @@ export function herdsmanReactCompiler(options: CompilerOptions = {}): BunPlugin 
       build.onLoad({ filter }, async ({ path }) => {
         if (path.includes("/node_modules/") || options.exclude?.(path)) return undefined;
         const source = await Bun.file(path).text();
-        return { contents: compileSource(source, path.endsWith(".tsx") ? "tsx" : "jsx"), loader: "js" };
+        return { contents: compileSource(source, path.endsWith(".tsx") ? "tsx" : "jsx", options), loader: "js" };
       });
     },
   };
 }
 
 /** Transpile one JSX or TSX source with Bun and compile its host element trees. */
-export function compileSource(source: string, loader: "jsx" | "tsx" = "tsx"): string {
+export function compileSource(source: string, loader: "jsx" | "tsx" = "tsx", options: CompilerOptions = {}): string {
   const t = new Bun.Transpiler({
     loader,
     tsconfig: { compilerOptions: { jsx: "react-jsx", jsxImportSource: "react" } },
   } as ConstructorParameters<typeof Bun.Transpiler>[0]);
-  return compileJs(t.transformSync(source));
+  return compileJs(t.transformSync(source), options);
 }
 
 // ---------------------------------------------------------------------------
@@ -237,7 +251,10 @@ class Compiler {
   readonly src: string;
   readonly helpers: Map<string, boolean>; // local name -> is jsxs
   readonly templates: string[] = [];
-  constructor(src: string, helpers: Map<string, boolean>) {
+  inlined = 0;
+  readonly inlineElements: boolean;
+  constructor(src: string, helpers: Map<string, boolean>, inlineElements: boolean) {
+    this.inlineElements = inlineElements;
     this.src = src;
     this.helpers = helpers;
   }
@@ -292,7 +309,10 @@ class Compiler {
   call(c: Call): string {
     const values: string[] = [];
     const desc = this.element(c, true, values);
-    if (desc === null) return `${c.helper}(${c.args.map((a) => this.rewrite(a)).join(", ")})`;
+    if (desc === null)
+      return (
+        (this.inlineElements ? this.inline(c) : null) ?? `${c.helper}(${c.args.map((a) => this.rewrite(a)).join(", ")})`
+      );
     const id = `__hrT${this.templates.length}`;
     this.templates.push(`const ${id} = __hrTemplate(${JSON.stringify(desc)});`);
     const key = c.args[2] !== undefined && c.args[2] !== "undefined" ? c.args[2] : "null";
@@ -353,6 +373,32 @@ class Compiler {
     return desc;
   }
 
+  // A component element as an inline object literal, or null when it must
+  // stay a jsx call: a computed type, props that are not a plain object
+  // literal, or a key or ref in them.
+  inline(c: Call): string | null {
+    const [type, props, key, ...rest] = c.args;
+    if (type === undefined || props === undefined || rest.length) return null;
+    if (!PATH.test(type) || type === "undefined" || type === "null") return null;
+    const entries = this.object(props);
+    if (entries === null || entries.some(([k]) => k === "key" || k === "ref" || k === "__self" || k === "__source"))
+      return null;
+    let k: string;
+    if (key === undefined || key === "undefined") k = "null";
+    else {
+      const lit = literal(key);
+      // A name is read twice; any other expression goes through __hrKey once.
+      k =
+        typeof lit === "string" || typeof lit === "number"
+          ? JSON.stringify("" + lit)
+          : PATH.test(key)
+            ? `${key} === undefined ? null : "" + ${key}`
+            : `__hrKey(${this.rewrite(key)})`;
+    }
+    this.inlined++;
+    return `(__hrP = ${this.rewrite(props)}, { $$typeof: __hrE, type: ${type}, key: ${k}, ref: null, props: ${type}?.defaultProps == null ? __hrP : __hrDefaults(${type}, __hrP) })`;
+  }
+
   undo(values: string[], mark: number): null {
     values.length = mark;
     return null;
@@ -390,6 +436,8 @@ class Compiler {
 }
 
 const NOT_LITERAL = Symbol("not a literal");
+// A name or a dotted path of names (no calls, no computed members).
+const PATH = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/;
 
 // The value of a string, number, boolean, null or undefined literal.
 function literal(src: string): unknown {
@@ -409,7 +457,7 @@ function literal(src: string): unknown {
 }
 
 /** Compile Bun's automatic-runtime output: host element trees become templates. */
-export function compileJs(js: string): string {
+export function compileJs(js: string, options: CompilerOptions = {}): string {
   // Bun's transpiler leaves the runtime's helpers as unbound names with a
   // hash suffix (jsx_w77yafs4, jsxs_..., Fragment_...), bound only when it
   // bundles JSX itself. This output is plain JavaScript, so import them.
@@ -420,9 +468,14 @@ export function compileJs(js: string): string {
     if (m[1] === "jsx" || m[1] === "jsxs") helpers.set(m[0], m[1] === "jsxs");
   }
   if (imports.size === 0) return js;
-  const c = new Compiler(js, helpers);
+  const c = new Compiler(js, helpers, options.inlineElements ?? true);
   const body = c.rewrite(js);
   const runtime = `import { ${[...imports].map(([local, name]) => `${name} as ${local}`).join(", ")} } from "react/jsx-runtime";\n`;
-  if (c.templates.length === 0) return runtime + body;
-  return `${runtime}import { __template as __hrTemplate, __block as __hrBlock } from "react";\n${c.templates.join("\n")}\n${body}`;
+  if (c.templates.length === 0 && c.inlined === 0) return runtime + body;
+  const names = [
+    ...(c.templates.length ? ["__template as __hrTemplate", "__block as __hrBlock"] : []),
+    ...(c.inlined ? ["__defaults as __hrDefaults", "__key as __hrKey"] : []),
+  ];
+  const inline = c.inlined ? `let __hrP;\nconst __hrE = Symbol.for("react.transitional.element");\n` : "";
+  return `${runtime}import { ${names.join(", ")} } from "react";\n${inline}${c.templates.join("\n")}${c.templates.length ? "\n" : ""}${body}`;
 }

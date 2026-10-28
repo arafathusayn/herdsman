@@ -208,7 +208,8 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function startBrowser(): Promise<Browser> {
   const args = [
     "--window-size=1280,800",
-    "--js-flags=--expose-gc",
+    // JFB_JS_FLAGS adds V8 flags, for experiments only (the official runner sets none).
+    `--js-flags=--expose-gc ${process.env["JFB_JS_FLAGS"] ?? ""}`.trim(),
     "--no-default-browser-check",
     "--disable-sync",
     "--no-first-run",

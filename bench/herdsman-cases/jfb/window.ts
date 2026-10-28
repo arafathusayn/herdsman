@@ -3,16 +3,25 @@
 // (from ../trace.ts), median of several samples. For finding a runtime whose
 // measured window holds more than its click's work (a second frame).
 //
-//   bun jfb/window.ts [entries] [benchmark id] [samples]
+//   bun jfb/window.ts [entries] [benchmark id] [samples] [--events] [--save] [--flame] [--kinds]
+//
+// --events sums the window's trace events by name; --save writes each trace
+// to jfb/.cache/traces/<entry>-<id>-<sample>.json, for the DevTools
+// Performance panel (Load profile). --flame merges the JS samples inside
+// the windows into a self/total table and jfb/.cache/traces/<entry>-<id>.svg.
+// --kinds prints the medians of the window's main-thread time by kind
+// (script, style, layout, paint, gc), each the union of its events' spans.
 
 import { join } from "node:path";
 import { computeDuration } from "../trace.ts";
-import { root } from "./prepare.ts";
+import { byFunction, callTree, flameSvg, fromTrace, type CpuProfile } from "./flame.ts";
+import { mkdirSync } from "node:fs";
+import { cache, root } from "./prepare.ts";
 import { benches, startBrowser } from "./run.ts";
 
 const entries = (process.argv[2] ?? "re,herdsman-react").split(",");
 const id = process.argv[3] ?? "01_run1k";
-const samples = Number(process.argv[4] ?? 5);
+const samples = Number(process.argv[4] && !process.argv[4].startsWith("--") ? process.argv[4] : 5);
 const b = benches.find((x) => x.id === id)!;
 const server = Bun.serve({
   port: 0,
@@ -26,6 +35,8 @@ const browser = await startBrowser();
 const cats = ["disabled-by-default-v8.cpu_profiler", "blink.user_timing", "devtools.timeline", "disabled-by-default-devtools.timeline", "v8", "disabled-by-default-v8.compile"];
 for (const e of entries) {
   const rows: string[] = [];
+  const windows: CpuProfile[] = [];
+  const kinds: Record<string, number[]> = { total: [], script: [], style: [], layout: [], paint: [], gc: [] };
   for (let i = 0; i < samples; i++) {
     const page = await browser.newPage();
     const pkg = Bun.file(join(root, "frameworks/keyed", e, "package.json"));
@@ -39,8 +50,16 @@ for (const e of entries) {
     await page.evaluate("window.gc({type:'major',execution:'sync',flavor:'last-resort'})");
     await b.run(page);
     await new Promise((r) => setTimeout(r, 100));
-    const t = JSON.parse(new TextDecoder().decode((await page.tracing.stop())!));
+    const raw = new TextDecoder().decode((await page.tracing.stop())!);
+    if (process.argv.includes("--save")) {
+      mkdirSync(join(cache, "traces"), { recursive: true });
+      await Bun.write(join(cache, "traces", `${e}-${id}-${i + 1}.json`), raw);
+    }
+    const t = JSON.parse(raw);
     const d = computeDuration(t.traceEvents);
+    windows.push(...fromTrace(t.traceEvents, d.tsStart, d.tsEnd));
+    kinds.total!.push(d.duration);
+    for (const [k, v] of Object.entries(byKind(t.traceEvents, d.tsStart, d.tsEnd))) kinds[k]!.push(v);
     // GC on the page's main thread inside the measured window.
     const ev = t.traceEvents as { name: string; ph: string; ts: number; dur?: number; pid: number }[];
     const gc = ev
@@ -62,7 +81,49 @@ for (const e of entries) {
     }
     await page.close();
   }
+  if (process.argv.includes("--kinds")) {
+    const med = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1] ?? 0;
+    console.log(e.padEnd(24), Object.entries(kinds).map(([k, xs]) => `${k} ${med(xs).toFixed(1).padStart(6)}`).join("  "));
+    continue;
+  }
   console.log(e.padEnd(15), rows.join(" | "));
+  if (process.argv.includes("--flame")) {
+    const tree = callTree(windows);
+    const per = (v: number) => (v / samples).toFixed(2).padStart(7);
+    console.log(`  JS samples in the window: ${per(tree.total)} ms per click; self, total, function:`);
+    for (const f of byFunction(tree).sort((a, b) => b.self - a.self).slice(0, 18)) console.log(`  ${per(f.self)} ${per(f.total)}  ${f.name}`);
+    mkdirSync(join(cache, "traces"), { recursive: true });
+    await Bun.write(join(cache, "traces", `${e}-${id}.svg`), flameSvg(tree, `${e} · ${id} · JS in the measured window, ${samples} clicks merged`));
+  }
 }
 await browser.close();
 server.stop();
+
+// Main-thread time in [from, to] by kind: the union of each kind's event spans.
+function byKind(events: { name: string; ph: string; ts: number; dur?: number; tid: number }[], from: number, to: number): Record<string, number> {
+  const KIND: Record<string, string> = {
+    FunctionCall: "script", EventDispatch: "script", "v8.callFunction": "script", RunMicrotasks: "script", TimerFire: "script", FireAnimationFrame: "script",
+    UpdateLayoutTree: "style", Layout: "layout",
+    PrePaint: "paint", Paint: "paint", Layerize: "paint", Commit: "paint",
+    MajorGC: "gc", MinorGC: "gc", "V8.GC_SCAVENGER": "gc", "BlinkGC.AtomicPhase": "gc",
+  };
+  const main = events.find((e) => e.name === "EventDispatch")?.tid;
+  const spans: Record<string, [number, number][]> = {};
+  for (const e of events) {
+    const k = KIND[e.name];
+    if (k === undefined || e.ph !== "X" || e.tid !== main) continue;
+    const a = Math.max(e.ts, from), b = Math.min(e.ts + (e.dur ?? 0), to);
+    if (b > a) (spans[k] ??= []).push([a, b]);
+  }
+  const out: Record<string, number> = { script: 0, style: 0, layout: 0, paint: 0, gc: 0 };
+  for (const [k, xs] of Object.entries(spans)) {
+    xs.sort((x, y) => x[0] - y[0]);
+    let end = -Infinity;
+    for (const [a, b] of xs) {
+      if (b <= end) continue;
+      out[k]! += (b - Math.max(a, end)) / 1000;
+      end = b;
+    }
+  }
+  return out;
+}
