@@ -44,7 +44,8 @@ export class FakeNode {
     return null;
   }
   set nodeValue(_v: string | null) {}
-  readonly ownerDocument: { activeElement: unknown } | null = null;
+  /** Every fake node's document: no focus, and fragments on request. */
+  ownerDocument: { activeElement: unknown } & Partial<typeof FAKE_DOC> = FAKE_DOC;
 
   /** True on the fake document root: nodes under it are "in the document". */
   isDocument = false;
@@ -62,6 +63,11 @@ export class FakeNode {
   }
 
   insertBefore(n: FakeNode, ref: FakeNode | null): FakeNode {
+    if (n.nodeType === 11) {
+      // A fragment hands over its children, in order, and is left empty.
+      while (n.firstChild !== null) this.insertBefore(n.firstChild, ref);
+      return n;
+    }
     if (n.parentNode) {
       ops.moves++;
       n.parentNode.unlink(n);
@@ -142,6 +148,24 @@ export class FakeNode {
     throw new Error("abstract");
   }
 }
+
+/** A document fragment: a parentless holder whose children move on insertion. */
+export class FakeFragment extends FakeNode {
+  constructor() {
+    super(11);
+  }
+  override get nodeName(): string {
+    return "#document-fragment";
+  }
+}
+
+// The fake nodes' document: what installFakeDocument's `document` makes, and fragments.
+const FAKE_DOC = {
+  activeElement: null as unknown,
+  createElement: (tag: string): FakeElement => new FakeElement(tag.toUpperCase()),
+  createTextNode: (data: string): FakeText => new FakeText(data),
+  createDocumentFragment: (): FakeFragment => new FakeFragment(),
+};
 
 export class FakeText extends FakeNode {
   data: string;

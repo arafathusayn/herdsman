@@ -332,6 +332,31 @@ describe("key lookup modes", () => {
 describe("state-preserving moves", () => {
   const ids = (n: number): Item[] => Array.from({ length: n }, (_, i) => ({ id: i }));
 
+  test("a long append to a live list goes in as one fragment, in order, after the rows already there", () => {
+    const doc = document.createElement("html") as unknown as FakeElement;
+    doc.isDocument = true;
+    const parent = document.createElement("ul") as unknown as FakeElement;
+    doc.appendChild(parent);
+    const { list } = makeList(parent, true);
+    const first = ids(10);
+    list.set(first);
+    const kept = [...parent.childNodes];
+    const more = first.concat(Array.from({ length: 100 }, (_, i) => ({ id: 10 + i })));
+    resetOps();
+    list.set(more);
+    expect(keysOf(parent)).toEqual(more.map((x) => x.id));
+    expect(parent.childNodes.slice(0, 10)).toEqual(kept);
+    // Built in the fragment (100 inserts), then moved into the list (100 moves): nothing else.
+    expect([ops.inserts, ops.moves, ops.removes]).toEqual([100, 100, 0]);
+    // Before a row (an insertion run in the middle), the order holds too.
+    const mid = more.slice(0, 5).concat(
+      Array.from({ length: 80 }, (_, i) => ({ id: 500 + i })),
+      more.slice(5),
+    );
+    list.set(mid);
+    expect(keysOf(parent)).toEqual(mid.map((x) => x.id));
+  });
+
   test("moves use moveBefore when the parent is in the document", () => {
     const doc = document.createElement("html") as unknown as FakeElement;
     doc.isDocument = true;

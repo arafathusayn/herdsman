@@ -46,6 +46,19 @@ const render = (el: unknown): void => flushSync(() => root.render(el));
 const items = (keys: string[]) => h("ul", null, ...keys.map((k) => h("li", { key: k }, k)));
 
 describe("keyed children", () => {
+  test("a long append to a live list goes in as one fragment, after the rows already there", () => {
+    const keys = Array.from({ length: 10 }, (_, i) => "k" + i);
+    render(items(keys));
+    const ul = container.firstChild!;
+    const kept = [...ul.childNodes];
+    const more = keys.concat(Array.from({ length: 100 }, (_, i) => "n" + i));
+    resetOps();
+    render(items(more));
+    expect([...ul.childNodes].map((c) => c.textContent)).toEqual(more);
+    expect([...ul.childNodes].slice(0, 10)).toEqual(kept);
+    expect(ops.removes).toBe(0);
+  });
+
   test("a reorder costs the minimum number of moves, and moved nodes keep their state", () => {
     const keys = "abcdefghij".split("");
     render(items(keys));

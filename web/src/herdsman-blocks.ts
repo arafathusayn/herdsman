@@ -754,9 +754,15 @@ export class List<T, E = Entry, K extends Key = Key> {
     for (let i = s; i <= ne; i++) newK[i] = key(items[i]!);
 
     if (s > oe) {
-      // 2b. Only insertions left.
+      // 2b. Only insertions left. Many into a live parent (an append to a
+      // long list) are gathered in a fragment: the document takes them in
+      // one insertion instead of one per row.
       const ref = ne + 1 < n ? r(newE[ne + 1]!) : a;
-      for (let i = s; i <= ne; i++) place(p, r((newE[i] = mk(items[i]!))), ref);
+      if (ne - s + 1 >= FRAGMENT_MIN && p.isConnected) {
+        const frag = p.ownerDocument!.createDocumentFragment();
+        for (let i = s; i <= ne; i++) frag.appendChild(r((newE[i] = mk(items[i]!))));
+        p.insertBefore(frag, ref);
+      } else for (let i = s; i <= ne; i++) place(p, r((newE[i] = mk(items[i]!))), ref);
     } else if (
       oe === ne &&
       oe > s &&
@@ -914,6 +920,8 @@ export class List<T, E = Entry, K extends Key = Key> {
 
 const entryRoot = (e: Entry): Node => e.root;
 const NO_ITEMS: readonly never[] = [];
+// Insertions of at least this many entries into a live parent go in as one fragment.
+const FRAGMENT_MIN = 64;
 
 type Movable = Node & { moveBefore?: (node: Node, child: Node | null) => void };
 

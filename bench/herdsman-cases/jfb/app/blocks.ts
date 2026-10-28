@@ -53,9 +53,6 @@ function setLabel(e: Entry, label: string): void {
 let rows: Row[] = [];
 let selected = 0;
 let selectedEntry: Entry | null = null;
-// Each row element carries its entry, for the delegated click.
-const ENTRY = "__entry";
-type RowElement = Element & { [ENTRY]?: Entry };
 
 // The page: static markup, one template with no holes.
 const App = html`<div class="container"><div class="jumbotron"><div class="row"><div class="col-md-6"><h1>herdsman-blocks keyed</h1></div><div class="col-md-6"><div class="row"><div class="col-sm-6 smallpad"><button type="button" class="btn btn-primary btn-block" id="run">Create 1,000 rows</button></div><div class="col-sm-6 smallpad"><button type="button" class="btn btn-primary btn-block" id="runlots">Create 10,000 rows</button></div><div class="col-sm-6 smallpad"><button type="button" class="btn btn-primary btn-block" id="add">Append 1,000 rows</button></div><div class="col-sm-6 smallpad"><button type="button" class="btn btn-primary btn-block" id="update">Update every 10th row</button></div><div class="col-sm-6 smallpad"><button type="button" class="btn btn-primary btn-block" id="clear">Clear</button></div><div class="col-sm-6 smallpad"><button type="button" class="btn btn-primary btn-block" id="swaprows">Swap Rows</button></div></div></div></div></div><table class="table table-hover table-striped test-data"><tbody></tbody></table><span class="preloadicon glyphicon glyphicon-remove" aria-hidden="true"></span></div>`;
@@ -70,7 +67,6 @@ const list = new List<Row, Entry, number>(tbody, {
     vals[2] = row.label;
     const root = RowTemplate.clone(vals);
     const e: Entry = { root, row, label: null };
-    (root as RowElement)[ENTRY] = e;
     if (row.id === selected) selectedEntry = e;
     return e;
   },
@@ -136,7 +132,8 @@ document.getElementById("main")!.addEventListener("click", (ev) => {
   const a = t.closest("a");
   const tr = a?.closest("tr");
   if (a == null || tr == null) return;
-  const e = (tr as RowElement)[ENTRY];
+  // The clicked row's entry, by its place among the rows.
+  const e = list.entries[Array.prototype.indexOf.call(tbody.children, tr)];
   if (e === undefined) return;
   ev.preventDefault();
   if (a.parentElement!.classList.contains("col-md-4")) select(e);
