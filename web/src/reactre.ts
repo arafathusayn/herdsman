@@ -401,11 +401,21 @@ class ForList<T, K> {
   }
 
   private write(e: Row<T>, hole: number, value: unknown): void {
-    const t = this.spec.t;
-    let nodes = e.nodes;
-    if (nodes === null) t.locate(e.root, (nodes = e.nodes = []));
-    t.write(hole, nodes[hole] as Node, value);
+    this.spec.t.write(hole, this.node(e, hole), value);
   }
+
+  // Row e's node for one hole, looked up (that hole only) the first time.
+  private node(e: Row<T>, hole: number): Node {
+    let nodes = e.nodes;
+    if (nodes === null) nodes = e.nodes = [];
+    let n = nodes[hole] as Node | undefined;
+    if (n === undefined) {
+      (this.finders[hole] ??= this.spec.t.locator([hole]))(e.root, nodes);
+      n = nodes[hole] as Node;
+    }
+    return n;
+  }
+  private readonly finders: ((root: Node, out: unknown[]) => void)[] = [];
 
   private dispose(e: Row<T>): void {
     if (e.obs !== null) e.obs.drop();
@@ -448,11 +458,9 @@ class ForList<T, K> {
       }
       if (e === undefined) return;
       path.push(node);
-      let nodes = e.nodes;
-      if (nodes === null) spec.t.locate(e.root, (nodes = e.nodes = []));
       for (let p = 0; p < path.length; p++) {
         for (const [t, hole, h] of spec.events!) {
-          if (t === type && nodes[hole] === path[p]) {
+          if (t === type && this.node(e, hole) === path[p]) {
             batch(() => h(e!.item)(ev));
             return;
           }
