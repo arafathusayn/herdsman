@@ -18,19 +18,25 @@
 import { join } from "node:path";
 import puppeteer from "puppeteer-core";
 import { findChrome } from "./chrome.ts";
+import { herdsmanReactCompiler } from "../../web/src/herdsman-react-compiler.ts";
 import { reactAlias, type Runtime } from "./react-alias.ts";
 
 const here = import.meta.dir;
 const dir = join(here, "react-compat");
 
-// "herdsman-react+classes" is the herdsman-react runtime with class support.
+// "herdsman-react+classes" is the herdsman-react runtime with class support,
+// "+compiler" adds herdsman-react-compiler (the scenarios' JSX compiled to
+// templates).
 async function bundle(entry: string, spec: string): Promise<string> {
-  const [runtime, extra] = spec.split("+") as [Runtime, string | undefined];
+  const [runtime, ...extras] = spec.split("+") as [Runtime, ...string[]];
   const r = await Bun.build({
     entrypoints: [join(dir, entry)],
     format: "iife",
     minify: true,
-        plugins: [reactAlias(runtime, { classes: extra === "classes" })],
+            plugins: [
+      ...(extras.includes("compiler") ? [herdsmanReactCompiler()] : []),
+      reactAlias(runtime, { classes: extras.includes("classes") }),
+    ],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
   });
   if (!r.success) throw new Error(r.logs.join("\n"));
@@ -100,7 +106,7 @@ try {
         pass++;
         continue;
       }
-            if (rt === "herdsman-react" && b.some((line) => line.includes(NO_CLASSES))) {
+            if (ours(rt) && !rt.includes("+classes") && b.some((line) => line.includes(NO_CLASSES))) {
         classes.push(name);
         continue;
       }

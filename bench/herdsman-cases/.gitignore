@@ -2,3 +2,5 @@ node_modules/
 dist/
 # Raw runs stay local; findings are written up in plans/herdsman-blocks.md.
 results/
+# The js-framework-benchmark clone and builds (jfb/prepare.ts).
+jfb/.cache/

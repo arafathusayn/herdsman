@@ -471,7 +471,7 @@ export const libraryCases: Record<string, (t: T) => Promise<void>> = {
     function Item({ text, ...props }: { text: string; [k: string]: unknown }) {
       const ref = useRef<HTMLLIElement>(null);
       return (
-        <CSSTransition {...props} nodeRef={ref} timeout={30} classNames="fade" onExited={() => t.log("exited", text)}>
+        <CSSTransition {...props} nodeRef={ref} timeout={300} classNames="fade" onExited={() => t.log("exited", text)}>
           <li ref={ref}>{text}</li>
         </CSSTransition>
       );
@@ -482,7 +482,7 @@ export const libraryCases: Record<string, (t: T) => Promise<void>> = {
       const box = useRef<HTMLDivElement>(null);
       return (
         <div>
-          <CSSTransition in={show} nodeRef={box} timeout={30} classNames="box" unmountOnExit onEntered={() => t.log("entered")}>
+          <CSSTransition in={show} nodeRef={box} timeout={300} classNames="box" unmountOnExit onEntered={() => t.log("entered")}>
             <div ref={box}>box</div>
           </CSSTransition>
           <TransitionGroup component="ul">
@@ -503,14 +503,14 @@ export const libraryCases: Record<string, (t: T) => Promise<void>> = {
     await t.step("mounted");
     t.$("#show").click();
     await t.step("entering");
-    await wait(80);
+    await wait(600);
     await t.step("entered");
     t.$("#swap").click();
     await t.step("swapping");
-    await wait(80);
+    await wait(600);
     await t.step("swapped");
     t.$("#show").click();
-    await wait(80);
+    await wait(600);
     await t.step("hidden");
   },
 };

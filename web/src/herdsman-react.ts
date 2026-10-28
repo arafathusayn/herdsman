@@ -339,6 +339,8 @@ const SUSPENSE = 9;
 const LAZY = 10;
 const ACTIVITY = 11;
 const MEMO = 12; // memo() of anything but a plain function: a wrapper around one child
+const BLOCK = 13; // a compiled template instance (herdsman-react-compiler)
+const SLOT = 14; // a child hole of a block holding elements: places its nodes before its anchor
 
 // Flags.
 const DIRTY = 1; // must render even if its element is unchanged
@@ -432,6 +434,8 @@ function kindOf(type: Any): number {
   if (type === Activity) return ACTIVITY;
   if (type != null) {
     switch (type.$$typeof) {
+      case TEMPLATE_TYPE:
+        return BLOCK;
       case CONTEXT_TYPE:
         return PROVIDER;
       case CONSUMER_TYPE:
@@ -472,10 +476,15 @@ function setupFunc(f: Fiber, type: Any): void {
 export function shallowEqual(a: Any, b: Any): boolean {
   if (Object.is(a, b)) return true;
   if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return false;
-  const ka = Object.keys(a);
-  if (ka.length !== Object.keys(b).length) return false;
-  for (const k of ka) if (!Object.hasOwn(b, k) || !Object.is(a[k], b[k])) return false;
-  return true;
+  // Counted with for-in, not Object.keys: memo compares every row on every
+  // render, and this allocates nothing.
+  let n = 0;
+  for (const k in a) {
+    if (!Object.is(a[k], b[k]) || (b[k] === undefined && !Object.hasOwn(b, k))) return false;
+    n++;
+  }
+  for (const _ in b) n--;
+  return n === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -497,7 +506,10 @@ function sameType(o: Fiber, it: Any): boolean {
   }
   if (Array.isArray(it) || isIterable(it)) return o.t === ARRAY;
   if (it.$$typeof === PORTAL_TYPE) return o.n === PORTAL && o.d === it.containerInfo;
-  return o.t === it.type && o.n !== TEXT;
+  if (o.t === it.type) return o.n !== TEXT;
+  const tpl = it[TPL];
+  // A hydrated block is a host fiber of the same tag.
+  return tpl !== undefined && o.t === tpl;
 }
 
 // Unwraps promises (React 19 renders a resolved promise's value) and lazy
@@ -537,14 +549,42 @@ function reconcile(p: Fiber, children: Any): void {
       nc.push(o);
       patch(o, it);
     }
-    if (i < n || oi < m) {
+    // The common suffix, found here and updated after the middle, so
+    // siblings still render in order.
+    let ne = n - 1,
+      oe = m - 1;
+    while (ne >= i && oe >= oi) {
+      let it = items[ne];
+      if (it == null || typeof it === "boolean") {
+        ne--;
+        continue;
+      }
+      if (typeof it === "object" && isThenable(it)) it = items[ne] = unwrap(it);
+      const o = old[oe]!;
+      if (o.k !== keyOf(it, ne) || !sameType(o, it)) break;
+      ne--;
+      oe--;
+    }
+    const tail = oe + 1;
+    if (ne > i && ne - i === oe - oi && p === curHost && swapped(items, old, i, ne, oi, oe)) {
+      // The middle's two ends traded places and the rest stayed: two moves,
+      // made here, with no map and no placement pass.
+      for (let j = i; j <= ne; j++) {
+        const o = j === i ? old[oe]! : j === ne ? old[oi]! : old[oi + j - i]!;
+        o.i = nc.length;
+        nc.push(o);
+        patch(o, items[j]);
+      }
+      i = ne + 1;
+      oi = oe + 1;
+    } else if (i <= ne || oi <= oe) {
       let map: Map<Key, Fiber> | null = null;
-      if (oi < m) {
+      if (oi <= oe) {
         map = new Map();
-        for (let j = oi; j < m; j++) map.set(old[j]!.k, old[j]!);
+        for (let j = oi; j <= oe; j++) map.set(old[j]!.k, old[j]!);
       }
       let last = -1;
-      for (; i < n; i++) {
+      for (; i <= ne; i++) {
         let it = items[i];
         if (it == null || typeof it === "boolean") continue;
         if (typeof it === "object" && isThenable(it)) it = items[i] = unwrap(it);
@@ -565,13 +605,21 @@ function reconcile(p: Fiber, children: Any): void {
         }
       }
       if (map !== null && map.size) {
-        if (nc.length === 0 && map.size === m) {
-          p.c = NO_FIBERS;
+        if (map.size === m) {
+          // Nothing old survived (a full replacement): one native clear
+          // beats a removal per node. New nodes are placed after this.
           removeAll(p, old);
-          return;
-        }
-        for (const o of map.values()) unmount(o, true);
+          if (nc.length === 0) return;
+        } else for (const o of map.values()) unmount(o, true);
       }
+    }
+    for (let j = ne + 1, os = tail; j < n; j++) {
+      const it = items[j];
+      if (it == null || typeof it === "boolean") continue;
+      const o = old[os++]!;
+      o.i = nc.length;
+      nc.push(o);
+      patch(o, it);
     }
   } catch (e) {
     // Keep every live fiber tracked, so the boundary that catches this can
@@ -587,15 +635,49 @@ function reconcile(p: Fiber, children: Any): void {
   if (moved) curHost.f |= STRUCT;
 }
 
+// Whether items[i..ne] are old[oi..oe] with the two ends swapped, each end a
+// single node; if so, swap the nodes.
+function swapped(items: Any[], old: Fiber[], i: number, ne: number, oi: number, oe: number): boolean {
+  const a = items[i],
+    b = items[ne];
+  if (a == null || b == null || typeof a === "boolean" || typeof b === "boolean") return false;
+  const x = old[oi]!,
+    y = old[oe]!;
+  if (x.k !== keyOf(b, ne) || y.k !== keyOf(a, i) || !sameType(x, b) || !sameType(y, a)) return false;
+  for (let j = 1; j < ne - i; j++) {
+    const it = items[i + j];
+    if (it == null || typeof it === "boolean" || old[oi + j]!.k !== keyOf(it, i + j)) return false;
+  }
+  const nx = single(x),
+    ny = single(y);
+  if (nx === null || ny === null) return false;
+  const parent = curHost.d as Node,
+    after = ny.nextSibling;
+  move(parent, ny, nx);
+  if (ne - i > 1) move(parent, nx, after);
+  return true;
+}
+
+// The one DOM node a fiber places, or null when it places none or several.
+function single(f: Fiber): Node | null {
+  for (;;) {
+    if (f.n === HOST || f.n === TEXT || f.n === BLOCK) return f.f & (HOIST | HIDDEN) ? null : f.d;
+    if (f.n === PORTAL || f.c.length !== 1) return null;
+    f = f.c[0]!;
+  }
+}
+
 // Remove every child of p. A host whose only content they are is cleared at once.
 function removeAll(p: Fiber, old: Fiber[] = p.c): void {
   p.c = NO_FIBERS;
   if (p === curHost) {
+    // A slot's nodes share their parent with its anchor, which goes back.
     const nodes: Node[] = [];
     for (const o of old) collect(o, nodes);
-    if (nodes.length === p.d.childNodes.length) {
+    if (nodes.length + (p.n === SLOT ? 1 : 0) === p.d.childNodes.length) {
       for (const o of old) unmount(o, false);
       p.d.textContent = "";
+      if (p.n === SLOT) p.d.appendChild(p.s);
       return;
     }
   }
@@ -643,8 +725,14 @@ function create(it: Any, p: Fiber, key: Key): Fiber {
     f.p = it;
     f.d = it.containerInfo;
   } else if (it.$$typeof === ELEMENT || it.$$typeof === LEGACY_ELEMENT) {
-    f = new Fiber(kindOf(it.type), it.type, key, p, p.o);
-    if (f.n === FUNC) setupFunc(f, it.type);
+    // A block mounts as a template, except while hydrating: then it is the
+    // host element it describes, so it claims the server's nodes.
+    const tpl = it[TPL];
+    if (tpl !== undefined && !hydrating) f = new Fiber(BLOCK, tpl, key, p, p.o);
+    else {
+      f = new Fiber(kindOf(it.type), it.type, key, p, p.o);
+      if (f.n === FUNC) setupFunc(f, it.type);
+    }
   } else {
     throw new Error(
       `Objects are not valid as a React child (found: object with keys {${Object.keys(it).join(", ")}}). If you meant to render a collection of children, use an array instead.`,
@@ -676,7 +764,7 @@ function update(f: Fiber, el: ReactElement, mount: boolean): void {
     }
   }
   f.e = el;
-  f.p = el.props;
+  f.p = f.n === BLOCK ? (el as Any)[VALS] : el.props;
   run(f, old, mount);
 }
 
@@ -720,6 +808,8 @@ function run(f: Fiber, old: Props | null, mount: boolean): void {
       return reconcile(f, element(f.t.type, null, f.p));
     case ROOT:
       return runRoot(f);
+    case BLOCK:
+      return runBlock(f, old, mount);
   }
 }
 
@@ -729,14 +819,14 @@ function run(f: Fiber, old: Props | null, mount: boolean): void {
 
 // The top-level DOM nodes of f's children, in order (portals place their own).
 function collect(f: Fiber, out: Node[]): void {
-  if (f.n === HOST || f.n === TEXT) {
+  if (f.n === HOST || f.n === TEXT || f.n === BLOCK) {
     if (!(f.f & HOIST)) out.push(f.d);
   } else if (f.n !== PORTAL) for (const c of f.c) collect(c, out);
 }
 
 // The host-level fibers (elements and text) at the top of f's subtree.
 function tops(f: Fiber, out: Fiber[]): void {
-  if (f.n === HOST || f.n === TEXT) {
+  if (f.n === HOST || f.n === TEXT || f.n === BLOCK) {
     if (!(f.f & HOIST)) out.push(f);
   } else if (f.n !== PORTAL) for (const c of f.c) tops(c, out);
 }
@@ -789,7 +879,7 @@ function place(h: Fiber): void {
     j--;
     tail = prev(tail.previousSibling, h);
   }
-  const end = j + 1 < n ? want[j + 1]! : null;
+  const end = j + 1 < n ? want[j + 1]! : h.n === SLOT ? h.s : null;
   const old: Node[] = [];
   for (let x = node; x !== null && x !== end; x = next(x.nextSibling, h)) old.push(x);
   const len = j - i + 1;
@@ -1163,6 +1253,326 @@ function styleProp(s: Any, k: string, v: Any): void {
         : "" + v;
   if (k.charCodeAt(0) === 45) s.setProperty(k, val);
   else s[k === "float" ? "cssFloat" : k] = val;
+}
+
+// ---------------------------------------------------------------------------
+// Blocks: compiled templates (herdsman-react-compiler)
+// ---------------------------------------------------------------------------
+
+// The compiler turns a JSX tree of host elements into a template, built once
+// per namespace and cloned per instance, and a values array with one value
+// per hole: an attribute, a style, an event handler, or a child. Holes have
+// React's semantics (setAttr, setStyle, delegated events, children
+// reconciled like any others), so a block renders what the JSX would.
+//
+// Mounting writes the values into the template's own prototype (only where
+// they differ from what it holds) and deep-clones it, so the clone is born
+// with its attributes and texts. Its hole nodes are looked up on the first
+// update, event or element child, never for a row that never changes.
+
+const TEMPLATE_TYPE = Symbol.for("herdsman-react.template");
+
+// Hole kinds.
+const H_ATTR = 0;
+const H_STYLE = 1;
+const H_EVENT = 2;
+const H_CHILD = 3;
+
+/**
+ * A compiled template: `[tag, props, ...children]`. Props keep their JSX
+ * order; a hole's value is `{ h: index }`, any other value is static. A child
+ * is static text, a hole index, or an element.
+ */
+export type TemplateNode = readonly [string, Record<string, Any> | 0, ...(string | number | TemplateNode)[]];
+
+const isHole = (x: Any): boolean => typeof x === "object" && x !== null;
+// What a reserved attribute holds before its first value: never equal to a value.
+const UNWRITTEN = Symbol("unwritten");
+
+class Template {
+  readonly $$typeof: symbol = TEMPLATE_TYPE;
+  readonly desc: TemplateNode;
+  n = 0;
+  readonly kinds: number[] = [];
+  readonly names: (string | null)[] = [];
+  readonly paths: number[][] = [];
+  /** Event hole indexes. */
+  readonly events: number[] = [];
+  /** Per namespace: the prototype, its hole nodes, the element info of each hole and what each hole holds. */
+  readonly proto: (Element | null)[] = [null, null, null];
+  readonly nodes: Any[][] = [];
+  readonly infos: Any[][] = [];
+  readonly cur: Any[][] = [];
+  constructor(desc: TemplateNode) {
+    this.desc = desc;
+    this.scan(desc, []);
+  }
+  private scan(d: TemplateNode, path: number[]): void {
+    const props = d[1];
+    if (props) {
+      for (const name in props) {
+        if (!isHole(props[name])) continue;
+        const i: number = props[name].h;
+        this.n = Math.max(this.n, i + 1);
+        this.kinds[i] = name === "style" ? H_STYLE : /^on[A-Z]/.test(name) ? H_EVENT : H_ATTR;
+        this.names[i] = name;
+        this.paths[i] = path;
+        if (this.kinds[i] === H_EVENT) this.events.push(i);
+      }
+    }
+    for (let c = 2; c < d.length; c++) {
+      const x = d[c] as string | number | TemplateNode;
+      const p = path.concat(c - 2);
+      if (typeof x === "number") {
+        this.n = Math.max(this.n, x + 1);
+        this.kinds[x] = H_CHILD;
+        this.names[x] = null;
+        this.paths[x] = p;
+      } else if (typeof x !== "string") this.scan(x, p);
+    }
+  }
+  // Build the prototype for namespace ns: static props with React's rules,
+  // an empty text node as each child hole's anchor.
+  build(ns: number): Element {
+    const infos: Any[] = (this.infos[ns] = []);
+    const make = (d: TemplateNode, ns0: number): Element => {
+      const tag = d[0];
+      const own = tag === "svg" ? SVG_NS : tag === "math" ? MATH_NS : ns0;
+      const el: Any = own === HTML_NS ? document.createElement(tag) : document.createElementNS(NS_URI[own]!, tag);
+      const info = { ns: own, t: tag };
+      const props = d[1];
+      if (props) {
+        // In prop order, as React sets them: a hole's attribute is reserved
+        // here, so its value later lands in the same place.
+        for (const k in props) {
+          const x = props[k];
+          if (!isHole(x)) setAttr(info as Any, el, k, x, undefined);
+          else {
+            infos[x.h] = info;
+            if (/^on[A-Z]/.test(k)) listenFor(el, k);
+            // Not style: the browser writes its attribute when it is first
+            // serialized, after the others, as React's output has it.
+            else if (k !== "style") setAttr(info as Any, el, k, "", undefined);
+          }
+        }
+      }
+      const inner = tag === "foreignObject" ? HTML_NS : own;
+      for (let c = 2; c < d.length; c++) {
+        const x = d[c] as string | number | TemplateNode;
+        el.appendChild(
+          typeof x === "string"
+            ? document.createTextNode(x)
+            : typeof x === "number"
+              ? document.createTextNode("")
+              : make(x, inner),
+        );
+      }
+      return el;
+    };
+    const root = make(this.desc, ns);
+    this.proto[ns] = root;
+    this.nodes[ns] = this.locate(root);
+    const cur: Any[] = (this.cur[ns] = new Array(this.n));
+    for (let i = 0; i < this.n; i++) cur[i] = this.kinds[i] === H_CHILD ? "" : UNWRITTEN;
+    return root;
+  }
+  locate(root: Node): Any[] {
+    const out = new Array(this.n);
+    for (let i = 0; i < this.n; i++) {
+      let node: Any = root;
+      for (const k of this.paths[i]!) {
+        node = node.firstChild;
+        for (let j = 0; j < k; j++) node = node.nextSibling;
+      }
+      out[i] = node;
+    }
+    return out;
+  }
+}
+
+/** A template from the compiler's description; the compiler hoists one per JSX tree. */
+export function __template(desc: TemplateNode): object {
+  return new Template(desc);
+}
+
+const TPL: unique symbol = Symbol("template");
+const VALS: unique symbol = Symbol("values");
+const PROPS: unique symbol = Symbol("props");
+
+// An element of a compiled template. To any code that reads it, it is the
+// element the JSX would have made: `type` is the tag, and `props` (built on
+// first read) the props, children included. Only the runtime reads the
+// template and values, under symbols.
+class BlockElement {
+  readonly $$typeof: symbol = ELEMENT;
+  readonly type: string;
+  readonly key: string | null;
+  readonly ref: null = null;
+  readonly [TPL]: Template;
+  readonly [VALS]: Any[];
+  [PROPS]: Props | undefined = undefined;
+  constructor(t: Template, key: string | null, values: Any[]) {
+    this.type = t.desc[0];
+    this.key = key;
+    this[TPL] = t;
+    this[VALS] = values;
+  }
+  get props(): Props {
+    return (this[PROPS] ??= propsOf(this[TPL].desc, this[VALS]));
+  }
+  toJSON(): object {
+    return { type: this.type, key: this.key, ref: this.ref, props: this.props };
+  }
+}
+
+function propsOf(d: TemplateNode, v: Any[]): Props {
+  const props: Props = {};
+  const ps = d[1];
+  if (ps) for (const k in ps) props[k] = isHole(ps[k]) ? v[ps[k].h] : ps[k];
+  const kids: Any[] = [];
+  for (let c = 2; c < d.length; c++) {
+    const x = d[c] as string | number | TemplateNode;
+    kids.push(typeof x === "string" ? x : typeof x === "number" ? v[x] : element(x[0], null, propsOf(x, v)));
+  }
+  if (kids.length === 1) props["children"] = kids[0];
+  else if (kids.length > 1) props["children"] = kids;
+  return props;
+}
+
+/** An element of a compiled template with its hole values. */
+export function __block(template: object, key: Any, values: Any[]): ReactElement {
+  return new BlockElement(template as Template, key == null ? null : "" + key, values) as Any;
+}
+
+const textOf = (v: Any): string => (v == null || typeof v === "boolean" ? "" : "" + v);
+const isNodes = (v: Any): boolean => typeof v === "object" && v !== null;
+
+function runBlock(f: Fiber, old: Props | null, mount: boolean): void {
+  const t: Template = f.t,
+    v: Any[] = f.p as Any,
+    n = t.n,
+    kinds = t.kinds;
+  if (mount) {
+    const ns = curNs;
+    const proto: Any = t.proto[ns] ?? t.build(ns);
+    const pn = t.nodes[ns]!,
+      cur = t.cur[ns]!,
+      infos = t.infos[ns]!;
+    let nodes = false;
+    for (let i = 0; i < n; i++) {
+      const k = kinds[i],
+        x = v[i];
+      if (k === H_CHILD) {
+        const s = isNodes(x) ? ((nodes = true), "") : textOf(x);
+        if (cur[i] !== s) pn[i].data = cur[i] = s;
+      } else if (k === H_ATTR) {
+        if (cur[i] !== x) {
+          setAttr(infos[i], pn[i], t.names[i]!, x, cur[i]);
+          cur[i] = x;
+        }
+      } else if (k === H_STYLE && cur[i] !== x) {
+        setStyle(pn[i], x, cur[i] === UNWRITTEN ? null : cur[i]);
+        cur[i] = x;
+      }
+    }
+    const dom = proto.cloneNode(true);
+    if (hydrating) {
+      // The server's node for this block is replaced, not claimed.
+      const h = curHost;
+      if (h.hc !== null) {
+        const x = cursor(h);
+        if (x !== null) h.hc = x.nextSibling;
+      }
+    }
+    f.d = dom;
+    f.ns = ns;
+    dom[FIBER] = f;
+    dom[OWN] = curHost;
+    if (nodes) {
+      // Element children change the clone's structure: look up every hole first.
+      f.s = t.locate(dom);
+      for (let i = 0; i < n; i++) if (kinds[i] === H_CHILD && isNodes(v[i])) setChild(f, i, v[i]);
+    }
+    return;
+  }
+  const o: Any[] = old as Any,
+    again = o === v; // rendered again with the same values: a retry of its children
+  let s: Any[] | null = f.s;
+  const infos = t.infos[f.ns]!;
+  for (let i = 0; i < n; i++) {
+    const k = kinds[i],
+      x = v[i];
+    if (o[i] === x && !(again && k === H_CHILD && f.q !== null && f.q[i] !== undefined)) continue;
+    if (k === H_EVENT) continue; // read when the event fires
+    if (s === null) s = f.s = t.locate(f.d);
+    if (k === H_ATTR) setAttr(infos[i], s[i], t.names[i]!, x, o[i]);
+    else if (k === H_STYLE) setStyle(s[i], x, o[i]);
+    else setChild(f, i, x);
+  }
+}
+
+// A child hole: text goes into its anchor; anything else is reconciled in a
+// slot fiber that places its nodes before the anchor.
+function setChild(f: Fiber, i: number, x: Any): void {
+  const slots: (Fiber | undefined)[] = (f.q ??= []);
+  let sf = slots[i];
+  const anchor = f.s![i];
+  if (!isNodes(x)) {
+    if (sf !== undefined) {
+      const ph = curHost;
+      curHost = sf;
+      try {
+        removeAll(sf);
+      } finally {
+        curHost = ph;
+      }
+      sf.f |= DEAD;
+      slots[i] = undefined;
+      f.c = f.c.filter((c) => c !== sf);
+    }
+    const t = textOf(x);
+    if (anchor.data !== t) anchor.data = t;
+    return;
+  }
+  if (anchor.data !== "") anchor.data = "";
+  if (sf === undefined) {
+    sf = new Fiber(SLOT, null, i, f, f.o);
+    sf.d = anchor.parentNode;
+    sf.s = anchor;
+    slots[i] = sf;
+    f.c = f.c === NO_FIBERS ? [sf] : f.c.concat(sf);
+  }
+  const ph = curHost,
+    pn = curNs;
+  curHost = sf;
+  curNs = nsOfContainer(sf.d);
+  try {
+    reconcile(sf, x);
+  } catch (e) {
+    f.f |= DIRTY;
+    throw e;
+  } finally {
+    curHost = ph;
+    curNs = pn;
+  }
+  if (sf.f & STRUCT) place(sf);
+}
+
+// Delegated handlers of block f's elements for `prop`, innermost first, on
+// the DOM path from `from` up to the block's root.
+function blockHandlers(f: Fiber, prop: string, from: Any, out: Any[]): void {
+  const t: Template = f.t;
+  if (t.events.length === 0) return;
+  const s = f.s ?? (f.s = t.locate(f.d));
+  for (let node = from; node != null; node = node.parentNode) {
+    for (const i of t.events) {
+      if (s[i] === node && t.names[i] === prop) {
+        const h = (f.p as Any)[i];
+        if (typeof h === "function") out.push(node, h);
+      }
+    }
+    if (node === f.d) return;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1690,6 +2100,10 @@ function unmount(f: Fiber, rm: boolean): void {
     case TEXT:
       if (rm && f.d.parentNode !== null) f.d.parentNode.removeChild(f.d);
       return;
+    case BLOCK:
+      if (rm && f.d.parentNode !== null) f.d.parentNode.removeChild(f.d);
+      for (const c of f.c) unmount(c, false);
+      return;
     case FUNC:
       if (f.h !== null) {
         for (const h of f.h) {
@@ -1799,7 +2213,7 @@ const afterPaint: (fn: () => void) => void =
 // Re-render a fiber from the update queue, in its place in the tree.
 function rerender(f: Fiber): void {
   let h = f.r;
-  while (h !== null && h.n !== HOST && h.n !== ROOT && h.n !== PORTAL) h = h.r;
+  while (h !== null && h.n !== HOST && h.n !== ROOT && h.n !== PORTAL && h.n !== SLOT) h = h.r;
   const ph = curHost,
     pn = curNs;
   curHost = h ?? f;
@@ -2648,17 +3062,26 @@ function dispatch(e: Any, root: RootImpl, capture: boolean): void {
     if (names !== null)
       for (const name of names) {
         const prop = capture ? name + "Capture" : name;
-        const path: Fiber[] = [];
+        // Element and handler pairs, innermost first: host fibers, and the
+        // elements of blocks on the way (entered at the event's target, or
+        // at a slot's parent element).
+        const path: Any[] = [];
+        let from: Any = e.target;
         for (let f: Fiber | null = target; f !== null; f = f.r) {
-          if (f.n === HOST && typeof f.p[prop] === "function" && !(f.f & DEAD)) path.push(f);
+          if (f.f & DEAD) continue;
+          if (f.n === HOST) {
+            if (typeof f.p[prop] === "function") path.push(f.d, f.p[prop]);
+          } else if (f.n === BLOCK) blockHandlers(f, prop, from, path);
+          else if (f.n === SLOT) from = f.d;
         }
         if (path.length === 0) continue;
         const syn = synthetic(e, name);
-        if (capture) path.reverse();
-        for (const f of path) {
+        const last = path.length - 2;
+        for (let q = 0; q <= last; q += 2) {
           if (syn._stopped) break;
-          syn.currentTarget = f.d;
-          f.p[prop](syn);
+          const at = capture ? last - q : q;
+          syn.currentTarget = path[at];
+          path[at + 1](syn);
         }
         syn.currentTarget = null;
       }
@@ -2706,7 +3129,12 @@ function enterLeave(e: Any, root: RootImpl, type: string, target: Fiber): void {
   const left = a.filter((f) => !common.has(f));
   const shared = new Set(a);
   const entered = b.filter((f) => !shared.has(f)).reverse();
-  const fire = (list: Fiber[], name: string, tgt: Fiber | null, rel: Fiber | null): void => {
+  // An end's element: a fiber's node, or inside a block the element itself.
+  const node = (f: Fiber | null, native: Any): Any =>
+    f === null ? null : f.n === BLOCK ? (native.nodeType === 1 ? native : native.parentNode) : f.d;
+  const fromNode = node(from, from === target ? e.target : related),
+    toNode = node(to, to === target ? e.target : related);
+  const fire = (list: Fiber[], name: string, tgt: Any, rel: Any): void => {
     let syn: Any = null;
     for (const f of list) {
       const fn = f.p[name];
@@ -2720,15 +3148,15 @@ function enterLeave(e: Any, root: RootImpl, type: string, target: Fiber): void {
           : name === leave
             ? "pointerleave"
             : "pointerenter";
-        syn.target = tgt === null ? null : tgt.d;
-        syn.relatedTarget = rel === null ? null : rel.d;
+        syn.target = tgt;
+        syn.relatedTarget = rel;
       }
       syn.currentTarget = f.d;
       fn(syn);
     }
   };
-  fire(left, leave, from, to);
-  fire(entered, enter, to, from);
+  fire(left, leave, fromNode, toNode);
+  fire(entered, enter, toNode, fromNode);
 }
 
 // After an event's handlers: React renders their updates in a microtask,
@@ -2763,32 +3191,60 @@ function direct(this: Any, e: Any): void {
   }
 }
 
-// A synthetic event: the native event's fields, React's methods, and
-// nativeEvent. Methods of the native event are bound to it.
-function synthetic(e: Any, name: string): Any {
-  const s: Any = {
-    nativeEvent: e,
-    currentTarget: null,
-    _stopped: false,
-    type: SYN_TYPE[name] ?? e.type,
-    preventDefault(): void {
-      e.preventDefault();
-      s.defaultPrevented = true;
-    },
-    stopPropagation(): void {
-      e.stopPropagation();
-      s._stopped = true;
-    },
-    isDefaultPrevented: (): boolean => e.defaultPrevented,
-    isPropagationStopped: (): boolean => s._stopped,
-    persist: noop,
-    isPersistent: (): boolean => true,
-  };
+// A synthetic event: React's methods and fields over the native event. The
+// native event's fields are read only when a handler reads them, through
+// accessors on a prototype made once per event class: reading them all up
+// front would read layout-dependent ones (offsetX, layerX), which forces a
+// synchronous layout on every click. Native methods come bound to the event.
+const SYN_BASE: Any = {
+  preventDefault(this: Any): void {
+    this.nativeEvent.preventDefault();
+    this.defaultPrevented = true;
+  },
+  stopPropagation(this: Any): void {
+    this.nativeEvent.stopPropagation();
+    this._stopped = true;
+  },
+  isDefaultPrevented(this: Any): boolean {
+    return this.nativeEvent.defaultPrevented;
+  },
+  isPropagationStopped(this: Any): boolean {
+    return this._stopped;
+  },
+  persist: noop,
+  isPersistent: (): boolean => true,
+};
+const synProtos = new Map<Any, Any>();
+
+function synProto(e: Any): Any {
+  let p = synProtos.get(e.constructor);
+  if (p !== undefined) return p;
+  p = Object.create(SYN_BASE);
   for (const k in e) {
-    if (k in s) continue;
-    const v = e[k];
-    s[k] = typeof v === "function" ? v.bind(e) : v;
+    if (k in SYN_BASE) continue;
+    Object.defineProperty(p, k, {
+      configurable: true,
+      enumerable: true,
+      get(this: Any): Any {
+        const v = this.nativeEvent[k];
+        return typeof v === "function" ? v.bind(this.nativeEvent) : v;
+      },
+      // A handler or the runtime may set a field: it becomes the event's own.
+      set(this: Any, v: Any): void {
+        Object.defineProperty(this, k, { value: v, writable: true, configurable: true, enumerable: true });
+      },
+    });
   }
+  synProtos.set(e.constructor, p);
+  return p;
+}
+
+function synthetic(e: Any, name: string): Any {
+  const s = Object.create(synProto(e));
+  s.nativeEvent = e;
+  s.currentTarget = null;
+  s._stopped = false;
+  s.type = SYN_TYPE[name] ?? e.type;
   return s;
 }
 
