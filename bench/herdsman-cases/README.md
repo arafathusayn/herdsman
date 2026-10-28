@@ -119,6 +119,29 @@ that stops on its no-classes error is listed as needing classes. It exits
 non-zero when any other herdsman-react scenario differs from React;
 `make react-compat` runs it for herdsman-react alone.
 
+## js-framework-benchmark replica (`jfb/`)
+
+The official benchmark's nine CPU tests (create, replace, partial update,
+select, swap, remove, create 10,000, append, clear), with its setup steps,
+warmups, CPU throttling, trace-based durations (`trace.ts`) and per-test
+weights, against the official keyed top 5 of its Chrome 156 run: re, thane,
+vanillajs-lite, vanillajs and doohtml-dp.
+
+- `bun jfb/prepare.ts` clones krausest/js-framework-benchmark at the pinned
+  commit into `jfb/.cache` (not committed) and builds the five entries as
+  their own `build-prod` scripts do, without running any install script: re
+  bundled by Bun from its local source, doohtml-dp's prebuilt module copied,
+  thane by its own compiler, the vanillajs entries as they are. It also
+  builds `jfb/app/main.jsx`, one React app, as two entries: `react` (React
+  19) and `herdsman-react` (herdsman-react and its compiler).
+  `--app-only` rebuilds just those two.
+- `bun jfb/run.ts [--iterations 10] [--entries a,b] [--benchmarks 01_run1k,...]`
+  runs the tests, interleaving entries within each iteration, and prints
+  medians, factors to the best median and each entry's weighted score as the
+  official table computes it.
+- `bun jfb/profile.ts [op] [repeat]` profiles one operation on an unminified
+  herdsman-react build and prints self time by function.
+
 ## SVG and typed-hole check in Chrome
 
 `bun check-svg.ts` (or `bun run check-svg`) bundles `check-svg.page.ts` and

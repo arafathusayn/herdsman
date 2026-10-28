@@ -2,7 +2,7 @@
 // self time by function, from Chrome's sampling profiler. Builds the React
 // app unminified for herdsman-react so the names are readable.
 //
-//   bun jfb/profile.ts [op] [repeat]     op: update | select | swap | remove | add | runlots | run | clear
+//   bun jfb/profile.ts [op] [repeat]     op: update | select | swap | remove | add | runlots | run | create | clear
 
 import { join } from "node:path";
 import puppeteer from "puppeteer-core";
@@ -44,6 +44,7 @@ for (let i = 0; i < repeat; i++) {
   if (op === "select") await clickSel(`tbody>tr:nth-of-type(${(i % 50) + 2})>td:nth-of-type(2)>a`);
   else if (op === "remove") await clickSel(`tbody>tr:nth-of-type(${i + 2})>td:nth-of-type(3)>a>span`);
   else if (op === "run" || op === "runlots") await clickSel("#" + op);
+  else if (op === "create") (await clickSel("#clear"), await page.evaluate(() => new Promise((r) => setTimeout(r, 0))), await clickSel("#run"));
   else if (op === "add") await clickSel("#add");
   else if (op === "clear") (await clickSel("#clear"), await clickSel("#run"));
   else await clickSel("#" + (op === "swap" ? "swaprows" : op));

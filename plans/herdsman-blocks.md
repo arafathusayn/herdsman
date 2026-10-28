@@ -94,6 +94,31 @@ TanStack Redact (0.2.1, announced the same week) replaces React and React DOM in
 
 The timings were taken with class support built in; the app has no class components, so it now builds without them (16.0 KB before). A one-component app (a counter in a root) is 65.8 KB gzipped with React, 26.4 KB with Redact (every feature on), 11.6 KB with herdsman-react and 12.8 KB with its class support. Reading: on this machine the noise floor is about 4% (see the noise control below), so herdsman-react is tied with Preact, about 24% ahead of Redact and 29% ahead of React by geometric mean, and it is the only React-API runtime that is never more than 1.22 times the best. Its losses are the unchanged re-render (poll) and the one-card status move, where React is fastest.
 
+### herdsman-react on js-framework-benchmark (2026-10-28)
+
+The official keyed table of the Chrome 156 run (recomputed from its raw results with the official weights, medians) has re 1.0137, thane 1.0194, vanillajs-lite 1.0212, vanillajs 1.0238 and doohtml-dp 1.0279 as its top five; React 19 with hooks is 141st at 1.561 and the best React-like runtime, Inferno, 30th at 1.115. `bench/herdsman-cases/jfb` replicates the official CPU tests against those five entries, built from the official repository at that run's commit, and one React app (`jfb/app/main.jsx`: a reducer, memoized rows, keyed by id) built with React 19 and with herdsman-react and its compiler. Headless Chromium 153, 4 cores, 10 interleaved iterations, median ms (factor to the best median in this run):
+
+| test | doohtml-dp | vanillajs-lite | re | thane | vanillajs | herdsman-react | React 19 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| create rows | 99.7 (1.02) | 108.5 (1.11) | 108.0 (1.11) | 97.6 (1.00) | 110.4 (1.13) | 123.9 (1.27) | 136.4 (1.40) |
+| replace all rows | 106.9 (1.00) | 107.9 (1.01) | 114.3 (1.07) | 112.0 (1.05) | 109.6 (1.03) | 140.2 (1.31) | 150.5 (1.41) |
+| partial update (4x) | 82.8 (1.06) | 80.0 (1.02) | 84.5 (1.08) | 78.3 (1.00) | 86.6 (1.11) | 91.9 (1.17) | 100.9 (1.29) |
+| select row (4x) | 17.5 (1.10) | 16.3 (1.02) | 15.9 (1.00) | 17.5 (1.10) | 19.9 (1.25) | 21.9 (1.37) | 33.6 (2.11) |
+| swap rows (4x) | 89.9 (1.00) | 90.7 (1.01) | 89.8 (1.00) | 99.7 (1.11) | 96.7 (1.08) | 100.5 (1.12) | 585.7 (6.52) |
+| remove row (2x) | 64.2 (1.04) | 67.2 (1.09) | 61.7 (1.00) | 62.1 (1.01) | 61.6 (1.00) | 68.2 (1.11) | 74.2 (1.20) |
+| create many rows | 1112.9 (1.05) | 1061.5 (1.00) | 1135.4 (1.07) | 1137.9 (1.07) | 1100.0 (1.04) | 1228.0 (1.16) | 1513.1 (1.43) |
+| append rows | 120.3 (1.04) | 115.6 (1.00) | 118.6 (1.03) | 133.8 (1.16) | 118.4 (1.02) | 127.5 (1.10) | 147.2 (1.27) |
+| clear rows (4x) | 43.8 (1.05) | 44.4 (1.07) | 41.7 (1.00) | 43.4 (1.04) | 43.3 (1.04) | 56.7 (1.36) | 90.0 (2.16) |
+| **weighted score** | **1.038** | **1.040** | **1.049** | **1.049** | **1.062** | **1.210** | **1.504** |
+
+Reading: the same React source scores 1.504 on React 19 and 1.210 on herdsman-react, so the runtime and compiler remove about 60% of React's gap to the fastest entries; the top five sit within 2.4% of each other and herdsman-react is 14% behind the fifth. One-iteration runs on this machine put herdsman-react between 1.17 and 1.22 with the top entries swinging up to 30% per test, so only runs of 10 or more iterations are reported. Where the rest goes, from profiles and per-click breakdowns (`jfb/profile.ts`, `jfb/breakdown.ts`):
+
+1. Creating 1,000 rows: herdsman-react's own script is 8.0 ms against vanillajs' 5.2 and re's 6.4; style, layout and paint match re's. The rows' DOM is the reference's, plus the `class=""` React writes for `className=""`.
+2. Select and partial update: the React model re-renders the list and compares 1,000 memoized rows per click (about 1 ms of script more than vanilla, 4 ms at the test's 4x throttle).
+3. Clear: in-page timing shows the same script time as re's, but the throttled trace measurement is 10 to 25 ms longer in every iteration; not explained yet.
+
+Fixed along the way (found by profiling the replica): synthetic events copied every native field, and reading layout-dependent ones (offsetX, layerX) forced a layout on every click, 15 ms per click; memo compares allocated two key arrays per row; reconcile built a key map for a swap, a full replacement and an empty list, and removed replaced rows one by one.
+
 ---
 
 ## Part 2: Design spec
@@ -502,6 +527,28 @@ Transitions render synchronously. Each transition keeps a list of what to do whe
 2. `hydrateRoot(container, element)` renders at once and claims the server's nodes instead of creating them. A host keeps a cursor over its server children, skipping comments and doctypes. A new element claims the next node when its tag matches, and creates a node otherwise. Text claims the next text node, splitting it when the server merged adjacent texts, or patches its data. Attributes and text that differ are patched in place. Server nodes nobody claimed are removed (comments, such as React's `<!-- -->` separators, stay).
 3. `createPortal(children, container)` renders into `container`, appending its nodes and listening there.
 
+#### The compiler: JSX to templates (a Bun plugin)
+
+`web/src/herdsman-react-compiler.ts` is a Bun plugin (`herdsmanReactCompiler()`) that brings Layer 1's idea, a template parsed once and cloned per instance, to React code. It has no dependencies and uses no Babel: Bun's own transpiler does the parsing.
+
+1. For each `.jsx` and `.tsx` file outside `node_modules`, Bun's transpiler strips TypeScript and turns JSX into the automatic runtime's calls: `jsx("tr", { className: x, children: [...] }, key)`, with JSX's whitespace rules applied to text and entities decoded. It leaves the runtime helpers as unbound names with a hash suffix (`jsx_w77yafs4`), so the plugin imports them from `react/jsx-runtime` itself.
+2. A small JavaScript scanner (strings, template literals, regular expressions told from division by the token before them, comments, bracket depth) finds each `jsx` or `jsxs` call and splits its arguments, its props object and, for `jsxs`, its static children array.
+3. A call whose type is a string literal is a host element. Its largest tree of host elements becomes a template. Each prop keeps its order; a literal value (string, number, boolean, null) is static, and any other value is a hole. Each child is static text, a nested host element of the same tree, or a hole. A component, fragment, keyed or bailed element, array or other expression is a child hole holding an ordinary jsx call, and that call is compiled in turn.
+4. An element stays a jsx call, its children still compiled where they qualify, when its behavior depends on more than its attributes: spread props, `ref`, `key` below the tree's root, `dangerouslySetInnerHTML`, `autoFocus`, `is`, `defaultValue`, `defaultChecked`, function `action` or `formAction`, form fields and forms (`input`, `textarea`, `select`, `option`, `form`), document metadata (`title`, `meta`, `link`), `script`, `style`, media (`video`, `audio`), custom elements, and events that do not bubble or that React derives (enter, leave, scroll, load, media and the rest of the runtime's direct list).
+5. The template's description, `[tag, props, ...children]` with a hole prop as `{ h: index }` and a hole child as its index, is hoisted to module scope once: `const __hrT0 = __template([...])`. The call becomes `__block(__hrT0, key, [values])`, with the values in hole order.
+
+The output imports `react` and `react/jsx-runtime`, so the app aliases them to herdsman-react as it does without the compiler. Compiled code does not run on React itself.
+
+#### Templates and blocks (runtime)
+
+1. A template is built once per namespace it renders in: elements created in it (SVG under `<svg>`, HTML again under `<foreignObject>`), static props set with the host rules above, in prop order. A hole prop's attribute is reserved at its place, so its value later lands where React would put it; `style` is not reserved, because the browser writes the style attribute when it is first serialized, after the others, as in React's output. Each child hole is an empty text node, its anchor. Event hole names are registered for delegation.
+2. Mounting writes each value into the prototype's own hole node where it differs from what the prototype holds (attribute and style holes with the host rules, text into a child hole's anchor), then deep-clones the prototype. A row that differs from the last row only in a text costs that text write and one clone. Hole nodes are not looked up.
+3. Hole nodes are looked up on the first update that writes one, on the first event that needs a handler, and before a child hole first receives elements (which changes the clone's structure, after which the recorded paths would be wrong).
+4. An update compares each value with the last one. An event hole is never written: delegation reads the handler from the current values when the event fires. A child hole with text writes its anchor. A child hole with elements, arrays or components gets a slot fiber, a placement host that places its nodes before its anchor with the minimum-move algorithm above. Going back to text unmounts the slot.
+5. Delegation walks up from the event's target to the first node with a fiber. For a block, it walks the DOM from the node it entered at (the target, or a slot's parent element) up to the block's root, and calls the handlers of the event holes it passes, innermost first.
+6. A compiled element is a `BlockElement`: `type` is the tag, `props` is built on first read from the template and values (children as elements), and `toJSON` gives React's shape. Code that inspects or clones elements (`Children.map`, `cloneElement`, Radix's `asChild`) sees the element the JSX describes, and a clone renders as a plain element. The runtime reads the template and values under symbols.
+7. While hydrating, a compiled element mounts as the host element it describes, so it claims the server's nodes as any element does; a host fiber of the same tag accepts compiled elements on later renders.
+
 #### What is left out or differs
 
 1. Rendering is synchronous: no time slicing, priorities or interruptible renders. A transition renders at once, and its pending state is visible only while an async action runs. A suspended update shows the fallback, keeping the old content hidden rather than keeping it on screen.
@@ -510,6 +557,7 @@ Transitions render synchronously. Each transition keeps a list of what to do whe
 4. Hydration patches mismatches in place instead of re-rendering a Suspense boundary on the client, and does not replay events that arrive before it.
 5. ViewTransition, SuspenseList ordering and Profiler timings render their children only; `addTransitionType` does nothing.
 6. Class components need the class build (above).
+7. With the compiler, a compiled element's `props` is rebuilt from the template on first read, so a library that reads a compiled element's props sees equal values but a new object each time it is built for a new element; compiled code needs herdsman-react.
 
 ### Integration with herdsman web
 
@@ -737,6 +785,7 @@ What published work and current browser engineering say about the costs this lib
 
 Newest first.
 
+- 2026-10-28: herdsman-react-compiler, a Bun plugin that compiles JSX trees of host elements to templates (no Babel), and its runtime: templates cloned with baked values, lazy hole lookup, delegated event holes, child holes in slot fibers; compiled elements read as the elements their JSX makes. Synthetic events read native fields lazily; allocation-free memo compares; reconcile trims the suffix, swaps two ends in two moves, and clears in one write for an empty list or a full replacement. The compat check runs compiled: 36 of 36 identical to React. js-framework-benchmark replica (`bench/herdsman-cases/jfb`) against the official top five: herdsman-react 1.210, React 19 1.504, top five 1.038 to 1.062 (Part 1). Part of 0.1.0.
 - 2026-10-27: Class components move to a build option (`herdsman-react-classes.ts`); the default module leaves them out (1.2 KB gzipped) and names the option when a class renders. `addTransitionType` exported (it has no effect, as no view transitions start). The React compatibility check adds scenarios with the ten React libraries npm downloads most and runs both builds: 36 of 36 identical to React with classes, and without them every scenario that renders no class. Renamed herdsman-react. Fixes the libraries found: `tabIndex` and other props outside React's alias table keep their names on SVG elements (recharts); React's value tracker for inputs (react-hook-form); `Component` and `PureComponent` are constructor functions (react-transition-group). Part of 0.1.0.
 - 2026-10-27: Version 0.1.0. Layer 5, the React API (`herdsman-react.ts`): React 19's client exports for `react`, `react-dom`, `react-dom/client` and the JSX and React Compiler runtimes, in one module apps alias those imports to. Placement reuses Layer 2's minimum-move algorithm and moves with `moveBefore`. Verified against React 19 by a differential check in headless Chrome (`bench/herdsman-cases/react-compat.ts`, 25 of 25 scenarios identical; `make react-compat`, also run in CI) and by unit tests on the fake DOM. Benchmarked on herdsman's screens against React 19 and TanStack Redact 0.2.1 (Part 1).
 

@@ -532,6 +532,11 @@ function reconcile(p: Fiber, children: Any): void {
       : [children];
   const n = items.length,
     m = old.length;
+  if (n === 0) {
+    // An empty list: no lookups, one clear where the list is all there is.
+    if (m) removeAll(p);
+    return;
+  }
   const nc: Fiber[] = [];
   let oi = 0,
     i = 0,
