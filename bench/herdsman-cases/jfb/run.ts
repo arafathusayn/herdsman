@@ -54,7 +54,7 @@ async function runClear(p: Page, n: number): Promise<void> {
 
 // The official tests and weights (webdriver-ts/src/benchmarksPuppeteer.ts,
 // webdriver-ts-results/src/Common.ts).
-const benches: Bench[] = [
+export const benches: Bench[] = [
   {
     id: "01_run1k",
     label: "create rows",
@@ -205,7 +205,7 @@ const benches: Bench[] = [
 const traceCategories = ["disabled-by-default-v8.cpu_profiler", "blink.user_timing", "devtools.timeline", "disabled-by-default-devtools.timeline"];
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function startBrowser(): Promise<Browser> {
+export async function startBrowser(): Promise<Browser> {
   const args = [
     "--window-size=1280,800",
     "--js-flags=--expose-gc",
@@ -325,4 +325,4 @@ async function main(): Promise<void> {
   console.log(`\njs-framework-benchmark replica, ${iterations} iterations, median ms (factor to the best median)\n\n${md}`);
 }
 
-await main();
+if (import.meta.main) await main();

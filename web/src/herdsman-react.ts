@@ -504,6 +504,12 @@ function sameType(o: Fiber, it: Any): boolean {
     case "bigint":
       return o.n === TEXT;
   }
+  // Elements first: a list re-render checks every row.
+  if (it.$$typeof === ELEMENT) {
+    if (o.t === it.type) return o.n !== TEXT;
+    const tpl = it[TPL];
+    return tpl !== undefined && o.t === tpl;
+  }
   if (Array.isArray(it) || isIterable(it)) return o.t === ARRAY;
   if (it.$$typeof === PORTAL_TYPE) return o.n === PORTAL && o.d === it.containerInfo;
   if (o.t === it.type) return o.n !== TEXT;
@@ -519,11 +525,53 @@ function unwrap(it: Any): Any {
   return it;
 }
 
+// Patch the leading items whose keys and types match the old children, in
+// place, and return the index in items where that stopped (alignedOld is
+// where in old). Small on purpose: it is the loop a list re-render spends
+// its time in, and the one the engine optimizes.
+let alignedOld = 0;
+function patchAligned(items: Any[], old: Fiber[], n: number): number {
+  let i = 0,
+    oi = 0;
+  for (; i < n; i++) {
+    let it = items[i];
+    if (it == null || typeof it === "boolean") continue;
+    if (typeof it === "object" && it.$$typeof !== ELEMENT && isThenable(it)) it = items[i] = unwrap(it);
+    const o = old[oi];
+    if (o === undefined || o.k !== keyOf(it, i) || !sameType(o, it)) break;
+    oi++;
+    patch(o, it);
+  }
+  alignedOld = oi;
+  return i;
+}
+
 function reconcile(p: Fiber, children: Any): void {
   const old = p.c;
   if (children == null || typeof children === "boolean") {
     if (old.length) removeAll(p);
     return;
+  }
+  // One element (what most components render): no arrays, no loop.
+  if (typeof children === "object" && children.$$typeof === ELEMENT && old.length <= 1) {
+    const key: Key = children.key != null ? children.key : 0;
+    const o = old[0];
+    try {
+      if (o === undefined) {
+        const f = create(children, p, key);
+        p.c = [f];
+        curHost.f |= STRUCT;
+        return;
+      }
+      if (o.k === key && sameType(o, children)) {
+        patch(o, children);
+        return;
+      }
+    } catch (e) {
+      p.f |= DIRTY;
+      curHost.f |= STRUCT;
+      throw e;
+    }
   }
   const items: Any[] = Array.isArray(children)
     ? children
@@ -537,78 +585,39 @@ function reconcile(p: Fiber, children: Any): void {
     if (m) removeAll(p);
     return;
   }
-  const nc: Fiber[] = [];
-  let oi = 0,
+  let nc: Fiber[] = NO_FIBERS,
+    oi = 0,
     i = 0,
     moved = false;
   try {
-    // Keys and types line up (the common case): update in place.
-    for (; i < n; i++) {
-      let it = items[i];
-      if (it == null || typeof it === "boolean") continue;
-      if (typeof it === "object" && isThenable(it)) it = items[i] = unwrap(it);
-      const o = old[oi];
-      if (o === undefined || o.k !== keyOf(it, i) || !sameType(o, it)) break;
-      oi++;
-      o.i = nc.length;
-      nc.push(o);
-      patch(o, it);
+    // Keys and types line up (the common case): update in place. When they
+    // do all the way, the children array stays as it is.
+    i = patchAligned(items, old, n);
+    oi = alignedOld;
+    if (i === n && oi === m) return;
+    nc = old.slice(0, oi);
+    if (oi === m && p === curHost && !hydrating) {
+      // Only additions at the end (appending, or filling an empty list):
+      // insert the new nodes before the end, with no placement pass.
+      createRun(items, i, n - 1, p, nc);
+      p.c = nc;
+      append(p, nc, m);
+      return;
     }
     // The common suffix, found here and updated after the middle, so
     // siblings still render in order.
-    let ne = n - 1,
-      oe = m - 1;
-    while (ne >= i && oe >= oi) {
-      let it = items[ne];
-      if (it == null || typeof it === "boolean") {
-        ne--;
-        continue;
-      }
-      if (typeof it === "object" && isThenable(it)) it = items[ne] = unwrap(it);
-      const o = old[oe]!;
-      if (o.k !== keyOf(it, ne) || !sameType(o, it)) break;
-      ne--;
-      oe--;
-    }
+    const ne = matchSuffix(items, old, i, oi, n, m),
+      oe = suffixOld;
     const tail = oe + 1;
     if (ne > i && ne - i === oe - oi && p === curHost && swapped(items, old, i, ne, oi, oe)) {
       // The middle's two ends traded places and the rest stayed: two moves,
       // made here, with no map and no placement pass.
-      for (let j = i; j <= ne; j++) {
-        const o = j === i ? old[oe]! : j === ne ? old[oi]! : old[oi + j - i]!;
-        o.i = nc.length;
-        nc.push(o);
-        patch(o, items[j]);
-      }
-      i = ne + 1;
-      oi = oe + 1;
+      take(old[oe]!, items[i], nc);
+      patchRun(items, i + 1, ne - 1, old, oi + 1, nc);
+      take(old[oi]!, items[ne], nc);
     } else if (i <= ne || oi <= oe) {
-      let map: Map<Key, Fiber> | null = null;
-      if (oi <= oe) {
-        map = new Map();
-        for (let j = oi; j <= oe; j++) map.set(old[j]!.k, old[j]!);
-      }
-      let last = -1;
-      for (; i <= ne; i++) {
-        let it = items[i];
-        if (it == null || typeof it === "boolean") continue;
-        if (typeof it === "object" && isThenable(it)) it = items[i] = unwrap(it);
-        const key = keyOf(it, i);
-        let o = map === null ? undefined : map.get(key);
-        if (o !== undefined && sameType(o, it)) {
-          map!.delete(key);
-          if (o.i < last) moved = true;
-          else last = o.i;
-          o.i = nc.length;
-          nc.push(o);
-          patch(o, it);
-        } else {
-          o = create(it, p, key);
-          o.i = nc.length;
-          nc.push(o);
-          moved = true;
-        }
-      }
+      const map = oi <= oe ? keyMap(old, oi, oe) : null;
+      moved = middle(p, items, i, ne, map, nc);
       if (map !== null && map.size) {
         if (map.size === m) {
           // Nothing old survived (a full replacement): one native clear
@@ -618,14 +627,7 @@ function reconcile(p: Fiber, children: Any): void {
         } else for (const o of map.values()) unmount(o, true);
       }
     }
-    for (let j = ne + 1, os = tail; j < n; j++) {
-      const it = items[j];
-      if (it == null || typeof it === "boolean") continue;
-      const o = old[os++]!;
-      o.i = nc.length;
-      nc.push(o);
-      patch(o, it);
-    }
+    patchRun(items, ne + 1, n - 1, old, tail, nc);
   } catch (e) {
     // Keep every live fiber tracked, so the boundary that catches this can
     // retry (suspense) or unmount (errors) the whole subtree.
@@ -638,6 +640,105 @@ function reconcile(p: Fiber, children: Any): void {
   }
   p.c = nc;
   if (moved) curHost.f |= STRUCT;
+}
+
+// The loops of reconcile, each in a function of its own: they run over every
+// row of a list, and small functions are the ones the engine optimizes
+// within a few runs. Inlined in reconcile they would stay unoptimized.
+
+// The last index in items (and in old, as suffixOld) before the common
+// suffix: the items and old children that match from the end.
+let suffixOld = 0;
+function matchSuffix(items: Any[], old: Fiber[], i: number, oi: number, n: number, m: number): number {
+  let ne = n - 1,
+    oe = m - 1;
+  while (ne >= i && oe >= oi) {
+    let it = items[ne];
+    if (it == null || typeof it === "boolean") {
+      ne--;
+      continue;
+    }
+    if (typeof it === "object" && it.$$typeof !== ELEMENT && isThenable(it)) it = items[ne] = unwrap(it);
+    const o = old[oe]!;
+    if (o.k !== keyOf(it, ne) || !sameType(o, it)) break;
+    ne--;
+    oe--;
+  }
+  suffixOld = oe;
+  return ne;
+}
+
+function take(o: Fiber, it: Any, nc: Fiber[]): void {
+  o.i = nc.length;
+  nc.push(o);
+  patch(o, it);
+}
+
+// Update old[ofrom...] with items[from..to] in order (holes skipped).
+function patchRun(items: Any[], from: number, to: number, old: Fiber[], ofrom: number, nc: Fiber[]): void {
+  for (let j = from, os = ofrom; j <= to; j++) {
+    const it = items[j];
+    if (it == null || typeof it === "boolean") continue;
+    take(old[os++]!, it, nc);
+  }
+}
+
+// Create fibers for items[from..to].
+function createRun(items: Any[], from: number, to: number, p: Fiber, nc: Fiber[]): void {
+  for (let i = from; i <= to; i++) {
+    let it = items[i];
+    if (it == null || typeof it === "boolean") continue;
+    if (typeof it === "object" && it.$$typeof !== ELEMENT && isThenable(it)) it = items[i] = unwrap(it);
+    const o = create(it, p, keyOf(it, i));
+    o.i = nc.length;
+    nc.push(o);
+  }
+}
+
+function keyMap(old: Fiber[], from: number, to: number): Map<Key, Fiber> {
+  const map = new Map<Key, Fiber>();
+  for (let j = from; j <= to; j++) map.set(old[j]!.k, old[j]!);
+  return map;
+}
+
+// The differing middle, items[i..ne]: reuse old children by key (taking
+// them out of map) or create them. Whether anything moved or was created.
+function middle(p: Fiber, items: Any[], i: number, ne: number, map: Map<Key, Fiber> | null, nc: Fiber[]): boolean {
+  let last = -1,
+    moved = false;
+  for (; i <= ne; i++) {
+    let it = items[i];
+    if (it == null || typeof it === "boolean") continue;
+    if (typeof it === "object" && it.$$typeof !== ELEMENT && isThenable(it)) it = items[i] = unwrap(it);
+    const key = keyOf(it, i);
+    let o = map === null ? undefined : map.get(key);
+    if (o !== undefined && sameType(o, it)) {
+      map!.delete(key);
+      if (o.i < last) moved = true;
+      else last = o.i;
+      take(o, it, nc);
+    } else {
+      o = create(it, p, key);
+      o.i = nc.length;
+      nc.push(o);
+      moved = true;
+    }
+  }
+  return moved;
+}
+
+// Insert the nodes of host p's children from index `from` on at the end of
+// its children (before a slot's anchor), detaching p for a big fill of an
+// empty host.
+function append(p: Fiber, kids: Fiber[], from: number): void {
+  const nodes: Node[] = [];
+  for (let k = from; k < kids.length; k++) collect(kids[k]!, nodes);
+  if (nodes.length === 0) return;
+  const parent = p.d as Node,
+    end = p.n === SLOT && p.s.parentNode !== null ? p.s : null;
+  const out = from === 0 && nodes.length >= DETACH_MIN ? detach(p) : null;
+  for (const x of nodes) parent.insertBefore(x, end);
+  if (out !== null) out[0].insertBefore(parent, out[1]);
 }
 
 // Whether items[i..ne] are old[oi..oe] with the two ends swapped, each end a
@@ -679,10 +780,11 @@ function removeAll(p: Fiber, old: Fiber[] = p.c): void {
     // A slot's nodes share their parent with its anchor, which goes back.
     const nodes: Node[] = [];
     for (const o of old) collect(o, nodes);
-    if (nodes.length + (p.n === SLOT ? 1 : 0) === p.d.childNodes.length) {
+    const anchored = p.n === SLOT && p.s.parentNode !== null;
+    if (nodes.length + (anchored ? 1 : 0) === p.d.childNodes.length) {
       for (const o of old) unmount(o, false);
       p.d.textContent = "";
-      if (p.n === SLOT) p.d.appendChild(p.s);
+      if (anchored) p.d.appendChild(p.s);
       return;
     }
   }
@@ -722,14 +824,9 @@ function create(it: Any, p: Fiber, key: Key): Fiber {
     f.d[OWN] = curHost;
     return f;
   }
-  if (Array.isArray(it) || isIterable(it)) {
-    f = new Fiber(FRAG, ARRAY, key, p, p.o);
-    f.p = it;
-  } else if (it.$$typeof === PORTAL_TYPE) {
-    f = new Fiber(PORTAL, null, key, p, p.o);
-    f.p = it;
-    f.d = it.containerInfo;
-  } else if (it.$$typeof === ELEMENT || it.$$typeof === LEGACY_ELEMENT) {
+  // Elements first: a list mount creates one per row.
+  const tt = it.$$typeof;
+  if (tt === ELEMENT || tt === LEGACY_ELEMENT) {
     // A block mounts as a template, except while hydrating: then it is the
     // host element it describes, so it claims the server's nodes.
     const tpl = it[TPL];
@@ -738,6 +835,13 @@ function create(it: Any, p: Fiber, key: Key): Fiber {
       f = new Fiber(kindOf(it.type), it.type, key, p, p.o);
       if (f.n === FUNC) setupFunc(f, it.type);
     }
+  } else if (Array.isArray(it) || isIterable(it)) {
+    f = new Fiber(FRAG, ARRAY, key, p, p.o);
+    f.p = it;
+  } else if (tt === PORTAL_TYPE) {
+    f = new Fiber(PORTAL, null, key, p, p.o);
+    f.p = it;
+    f.d = it.containerInfo;
   } else {
     throw new Error(
       `Objects are not valid as a React child (found: object with keys {${Object.keys(it).join(", ")}}). If you meant to render a collection of children, use an array instead.`,
@@ -845,6 +949,28 @@ function prev(x: Any, h: Fiber): Any {
   return x;
 }
 
+// A fill of this many nodes into a host that holds none of its own detaches
+// the host first (as vanillajs does), so style and layout run once, not as
+// the document changes under them.
+const DETACH_MIN = 64;
+
+// Take host h's element out of the document for a fill and return where it
+// goes back, or null when that could lose state: the root's or a portal's
+// container (not ours), focus inside it, or iframes and media in it, which a
+// detach resets.
+function detach(h: Fiber): [Node, Node | null] | null {
+  if (h.n !== HOST && h.n !== SLOT) return null;
+  const el = h.d as Element,
+    up = el.parentNode;
+  if (up === null || !el.isConnected) return null;
+  const active = el.ownerDocument.activeElement;
+  if (active !== null && el.contains(active)) return null;
+  if (el.firstElementChild !== null && el.querySelector("iframe,video,audio,object,embed") !== null) return null;
+  const at = el.nextSibling;
+  up.removeChild(el);
+  return [up, at];
+}
+
 type Movable = Node & { moveBefore?: (node: Node, child: Node | null) => void };
 
 // Move a node already in parent: keep its state where the browser can.
@@ -884,12 +1010,14 @@ function place(h: Fiber): void {
     j--;
     tail = prev(tail.previousSibling, h);
   }
-  const end = j + 1 < n ? want[j + 1]! : h.n === SLOT ? h.s : null;
+  const end = j + 1 < n ? want[j + 1]! : h.n === SLOT && h.s.parentNode !== null ? h.s : null;
   const old: Node[] = [];
   for (let x = node; x !== null && x !== end; x = next(x.nextSibling, h)) old.push(x);
   const len = j - i + 1;
   if (old.length === 0) {
+    const out = i === 0 && j === n - 1 && n >= DETACH_MIN ? detach(h) : null;
     for (let k = i; k <= j; k++) parent.insertBefore(want[k]!, end);
+    if (out !== null) out[0].insertBefore(parent, out[1]);
     return;
   }
   const pos = new Map<Node, number>();
@@ -1408,19 +1536,26 @@ const PROPS: unique symbol = Symbol("props");
 // element the JSX would have made: `type` is the tag, and `props` (built on
 // first read) the props, children included. Only the runtime reads the
 // template and values, under symbols.
+// Its own fields are only the key, template and values: one is made per row
+// per render. $$typeof, ref and type are read through the prototype.
 class BlockElement {
-  readonly $$typeof: symbol = ELEMENT;
-  readonly type: string;
   readonly key: string | null;
-  readonly ref: null = null;
   readonly [TPL]: Template;
   readonly [VALS]: Any[];
-  [PROPS]: Props | undefined = undefined;
+  declare [PROPS]: Props | undefined;
   constructor(t: Template, key: string | null, values: Any[]) {
-    this.type = t.desc[0];
     this.key = key;
     this[TPL] = t;
     this[VALS] = values;
+  }
+  get $$typeof(): symbol {
+    return ELEMENT;
+  }
+  get ref(): null {
+    return null;
+  }
+  get type(): string {
+    return this[TPL].desc[0];
   }
   get props(): Props {
     return (this[PROPS] ??= propsOf(this[TPL].desc, this[VALS]));
@@ -1519,8 +1654,7 @@ function runBlock(f: Fiber, old: Props | null, mount: boolean): void {
 // A child hole: text goes into its anchor; anything else is reconciled in a
 // slot fiber that places its nodes before the anchor.
 function setChild(f: Fiber, i: number, x: Any): void {
-  const slots: (Fiber | undefined)[] = (f.q ??= []);
-  let sf = slots[i];
+  let sf: Fiber | undefined = f.q === null ? undefined : f.q[i];
   const anchor = f.s![i];
   if (!isNodes(x)) {
     if (sf !== undefined) {
@@ -1531,8 +1665,9 @@ function setChild(f: Fiber, i: number, x: Any): void {
       } finally {
         curHost = ph;
       }
+      if (anchor.parentNode === null) sf.d.appendChild(anchor);
       sf.f |= DEAD;
-      slots[i] = undefined;
+      f.q[i] = undefined;
       f.c = f.c.filter((c) => c !== sf);
     }
     const t = textOf(x);
@@ -1544,8 +1679,12 @@ function setChild(f: Fiber, i: number, x: Any): void {
     sf = new Fiber(SLOT, null, i, f, f.o);
     sf.d = anchor.parentNode;
     sf.s = anchor;
-    slots[i] = sf;
+    (f.q ??= [])[i] = sf;
     f.c = f.c === NO_FIBERS ? [sf] : f.c.concat(sf);
+    // The parent's only content (a list in its <tbody>): its nodes are all
+    // the parent holds, so the anchor leaves while they are there. Clearing
+    // then empties the parent in one write, as a hand-written list does.
+    if (anchor.previousSibling === null && anchor.nextSibling === null) sf.d.removeChild(anchor);
   }
   const ph = curHost,
     pn = curNs;

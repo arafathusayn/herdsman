@@ -2,7 +2,7 @@
 // self time by function, from Chrome's sampling profiler. Builds the React
 // app unminified for herdsman-react so the names are readable.
 //
-//   bun jfb/profile.ts [op] [repeat]     op: update | select | swap | remove | add | runlots | run | create | clear
+//   bun jfb/profile.ts [op] [repeat]     op: update | select | swap | remove | add | runlots | run | create | clear | clearonly
 
 import { join } from "node:path";
 import puppeteer from "puppeteer-core";
@@ -39,8 +39,21 @@ if (op !== "runlots" && op !== "run") await clickSel("#run");
 const cdp = await page.createCDPSession();
 await cdp.send("Profiler.enable");
 await cdp.send("Profiler.setSamplingInterval", { interval: 50 });
-await cdp.send("Profiler.start");
-for (let i = 0; i < repeat; i++) {
+type Profile = { nodes: { id: number; callFrame: { functionName: string; lineNumber: number } }[]; samples: number[]; timeDeltas: number[] };
+const profiles: Profile[] = [];
+if (op === "clearonly") {
+  // Profile only the clears; the creates between them are not sampled.
+  for (let i = 0; i < repeat; i++) {
+    await clickSel("#run");
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 0)));
+    await cdp.send("Profiler.start");
+    await clickSel("#clear");
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 0)));
+    profiles.push(((await cdp.send("Profiler.stop")) as { profile: Profile }).profile);
+  }
+}
+if (op !== "clearonly") await cdp.send("Profiler.start");
+for (let i = 0; i < (op === "clearonly" ? 0 : repeat); i++) {
   if (op === "select") await clickSel(`tbody>tr:nth-of-type(${(i % 50) + 2})>td:nth-of-type(2)>a`);
   else if (op === "remove") await clickSel(`tbody>tr:nth-of-type(${i + 2})>td:nth-of-type(3)>a>span`);
   else if (op === "run" || op === "runlots") await clickSel("#" + op);
@@ -50,14 +63,16 @@ for (let i = 0; i < repeat; i++) {
   else await clickSel("#" + (op === "swap" ? "swaprows" : op));
   await page.evaluate(() => new Promise((r) => setTimeout(r, 0)));
 }
-const { profile } = (await cdp.send("Profiler.stop")) as { profile: { nodes: { id: number; callFrame: { functionName: string; lineNumber: number }; hitCount?: number }[]; samples: number[]; timeDeltas: number[] } };
+if (op !== "clearonly") profiles.push(((await cdp.send("Profiler.stop")) as { profile: Profile }).profile);
 const self = new Map<string, number>();
-const byId = new Map(profile.nodes.map((n) => [n.id, n]));
-profile.samples.forEach((id, i) => {
-  const n = byId.get(id)!;
-  const name = `${n.callFrame.functionName || "(anonymous)"}:${n.callFrame.lineNumber}`;
-  self.set(name, (self.get(name) ?? 0) + (profile.timeDeltas[i] ?? 0) / 1000);
-});
+for (const profile of profiles) {
+  const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+  profile.samples.forEach((id, i) => {
+    const n = byId.get(id)!;
+    const name = `${n.callFrame.functionName || "(anonymous)"}:${n.callFrame.lineNumber}`;
+    self.set(name, (self.get(name) ?? 0) + (profile.timeDeltas[i] ?? 0) / 1000);
+  });
+}
 const total = [...self.values()].reduce((a, b) => a + b, 0);
 console.log(`${op} x${repeat}: ${total.toFixed(1)} ms sampled`);
 for (const [k, v] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 25)) console.log(`${v.toFixed(1).padStart(8)} ms  ${k}`);
