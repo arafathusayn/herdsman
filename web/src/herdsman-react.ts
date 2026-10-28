@@ -850,7 +850,10 @@ function removeAll(p: Fiber, old: Fiber[] = p.c): void {
     if (count + (anchored ? 1 : 0) === p.d.childNodes.length) {
       for (let ix = 0, xs = old; ix < xs.length; ix++) {
         const o = xs[ix]!;
-        unmount(o, false);
+        // A row with nothing to clean up (a component hosting its block, no
+        // hooks, no slots) is only marked: no call per row.
+        if (o.n === FUNC && o.h === null && o.c === NO_FIBERS && o.f & BOX) o.f |= DEAD;
+        else unmount(o, false);
       }
       p.d.textContent = "";
       if (anchored) p.d.appendChild(p.s);
@@ -2459,6 +2462,7 @@ function unmount(f: Fiber, rm: boolean): void {
 // ---------------------------------------------------------------------------
 
 let queue: Fiber[] = [];
+let spareQueue: Fiber[] = [];
 let flushing = false;
 let batch = 0;
 let micro = false;
@@ -2481,12 +2485,14 @@ function flushSoon(sync: boolean): void {
   if (sync) microSync = true;
   if (micro) return;
   micro = true;
-  queueMicrotask(() => {
-    micro = false;
-    const s = microSync;
-    microSync = false;
-    flushWork(s);
-  });
+  queueMicrotask(runMicro);
+}
+// One function for every flush: no closure made per update.
+function runMicro(): void {
+  micro = false;
+  const s = microSync;
+  microSync = false;
+  flushWork(s);
 }
 
 const byDepth = (a: Fiber, b: Fiber): number => a.z - b.z;
@@ -2499,14 +2505,18 @@ function flushWork(sync: boolean): void {
       while (queue.length) {
         // Effects of the last commit run before the next render, as in React.
         flushPassive();
+        // Two queue arrays, swapped: updates made while this one renders go
+        // to the other, and neither is allocated again.
         const q = queue;
-        queue = [];
+        queue = spareQueue;
         if (q.length > 1) q.sort(byDepth);
-        for (let ix = 0, xs = q; ix < xs.length; ix++) {
-          const f = xs[ix]!;
+        for (let ix = 0; ix < q.length; ix++) {
+          const f = q[ix]!;
           f.f &= ~QUEUED;
           if ((f.f & (DIRTY | DEAD)) === DIRTY) rerender(f);
         }
+        q.length = 0;
+        spareQueue = q;
       }
       flushLayout();
     }
@@ -2532,14 +2542,22 @@ function flushWork(sync: boolean): void {
   }
 }
 
-const afterPaint: (fn: () => void) => void =
-  typeof MessageChannel === "function"
-    ? (fn) => {
-        const ch = new MessageChannel();
-        ch.port1.onmessage = () => fn();
-        ch.port2.postMessage(null);
-      }
-    : (fn) => void setTimeout(fn, 0);
+// One channel for the life of the page (a channel per call made two ports
+// each time); callbacks queued while a message is in flight run with it.
+let paintChannel: MessageChannel | null = null;
+const paintQ: (() => void)[] = [];
+function afterPaint(fn: () => void): void {
+  if (typeof MessageChannel !== "function") return void setTimeout(fn, 0);
+  if (paintChannel === null) {
+    paintChannel = new MessageChannel();
+    paintChannel.port1.onmessage = () => {
+      const fns = paintQ.splice(0);
+      for (let i = 0; i < fns.length; i++) fns[i]!();
+    };
+  }
+  paintQ.push(fn);
+  if (paintQ.length === 1) paintChannel.port2.postMessage(null);
+}
 
 // Re-render a fiber from the update queue, in its place in the tree.
 function rerender(f: Fiber): void {
@@ -3359,6 +3377,7 @@ function checkable(el: Any): boolean {
   return el.nodeName === "INPUT" && (el.type === "checkbox" || el.type === "radio");
 }
 
+const PROP_LIST = new Map<string, string[]>();
 const ON_INPUT = ["onInput"],
   ON_INPUT_CHANGE = ["onInput", "onChange"],
   ON_CHANGE = ["onChange"];
@@ -3370,7 +3389,11 @@ function propsFor(type: string, target: Any, capture: boolean): string[] | null 
   if (type === "click" && checkable(target) && changed(target, capture)) {
     return name === undefined ? ON_CHANGE : [name, "onChange"];
   }
-  return name === undefined ? null : [name];
+  if (name === undefined) return null;
+  // One read-only list per prop name, made once.
+  let one = PROP_LIST.get(name);
+  if (one === undefined) PROP_LIST.set(name, (one = [name]));
+  return one;
 }
 
 function dispatch(e: Any, root: RootImpl, capture: boolean): void {
