@@ -132,15 +132,18 @@ document.getElementById("main")!.addEventListener("click", (ev) => {
   const a = t.closest("a");
   const tr = a?.closest("tr");
   if (a == null || tr == null) return;
-  // The clicked row's entry, by its place among the rows.
-  const e = list.entries[Array.prototype.indexOf.call(tbody.children, tr)];
+  // The clicked row's place: the list's entries are in the rows' order.
+  const es = list.entries;
+  let i = 0;
+  while (i < es.length && es[i]!.root !== tr) i++;
+  const e = es[i];
   if (e === undefined) return;
   ev.preventDefault();
   if (a.parentElement!.classList.contains("col-md-4")) select(e);
   else {
     if (selectedEntry === e) unselect();
     const next = rows.slice();
-    next.splice(rows.indexOf(e.row), 1);
+    next.splice(i, 1);
     render(next);
   }
 });
