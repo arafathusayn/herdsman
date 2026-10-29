@@ -1,6 +1,58 @@
 # reactre: handoff of the remaining work
 
-Status as of 2026-10-28, branch `ccr-ca4b6b2d-jtluel` (HEAD `c8e5919` when written). This note is for whoever picks reactre up next: what exists, what is measured, what is not done, and how to check each item.
+Status as of 2026-10-29, branch `ccr-ca4b6b2d-jtluel`. First written 2026-10-28; the section "Status at pause" below supersedes the measurement tables where they differ. This note is for whoever picks reactre up next: what exists, what is measured, what is not done, and how to check each item.
+
+## Status at pause (2026-10-29): where to resume
+
+### Standings in the seven-entry field
+
+The field is the top 5, reactre and reactre-compat. Logs are committed in `bench/herdsman-cases/jfb/logs/`, so pool them with `bun jfb/pool.ts <logs>` from `bench/herdsman-cases`. Scores per layout:
+
+| Entry | Interleaved, 5 runs pooled¹ | Official layout, 4 runs pooled² | All 9 runs |
+|---|---|---|---|
+| vanillajs-lite | 1.027 (1st) | 1.011 (1st) | 1.012 |
+| **reactre** | **1.029 (2nd)** | **1.029 (2nd)** | **1.025 (2nd)** |
+| thane | 1.033 | 1.043 | 1.029 |
+| re | 1.035 | 1.038 | 1.032 |
+| doohtml-dp | 1.051 | 1.058 (6th) | 1.047 |
+| **reactre-compat** | **1.055 (6th)** | **1.067 (7th)** | **1.057 (7th)** |
+| vanillajs | 1.071 (7th) | 1.049 | 1.049 (6th) |
+
+¹ `jfb-f7a`, `f7b`, `f7i1`, `f7i2`, `f7i4`; 75 samples per test and entry.
+² `jfb-f7o0`, `f7o3`, `f7o1`, `f7o4`; 60 samples per test and entry.
+
+Against the goals:
+
+- **reactre: top 3 met in both layouts** (2nd in each pool). Per run it placed 2nd, 2nd, 3rd, 4th, 3rd (interleaved) and 4th, 2nd, 1st, 2nd (official).
+- **reactre-compat: top 6 met in the interleaved pool only.** It is 7th in the official-layout pool, 0.009 behind doohtml-dp, and 7th overall. Per run it ranged from 1st to 7th.
+
+### Where reactre-compat loses (official-layout pool, against doohtml-dp in 6th)
+
+| Test | compat | doohtml-dp | Weighted gap |
+|---|---|---|---|
+| clear (×0.42) | 1.13 | 1.04 | ≈ 0.008 of the 0.009 total |
+| select (×0.19) | 1.12 | 1.05 | |
+| swap (×0.13) | 1.09 | 1.01 | |
+| update (×0.56) | 1.07 | 1.05 | |
+
+**Clear is the lever.** Compat's clear script in the window comparison was 44–54 ms against about 42 for reactre and doohtml-dp. Its native clear measured directly (`jfb/native-clear.ts`) was 31.0 ms, against reactre 30.3 and vanillajs 27.1. So most of compat's extra is around the native removal, not in it.
+
+### Tried since the first handoff, and the result
+
+- **Merging `removeAll`'s two loops into one pass** (commit `b0eda87`): A/B on clear showed no proven difference (script 41.5 against 41.7 ms). Reverted in `1e68de4`.
+- **Maglev.** `--no-maglev` lowered compat's clear script from 44.3 to 40.2 ms. However, `--trace-opt` and `--trace-deopt` (via the uncommitted scratch script `jfb/.cache/tier.ts`) showed **no compilation or deopt of our functions inside the measured clear**. The Maglev effect is elsewhere, perhaps code installed during warmup. Not a lead yet.
+- **Interrupted: per-row expandos on compat's rows.** The plan was to build a variant of reactre-compat with no `FIBER` expando on keyed list rows (keeping `OWN`, which `place()` needs to recognise its nodes). It would be copied to a temporary entry `jfb/.cache/.../frameworks/keyed/compat-noexp`, and `jfb/native-clear.ts` would compare it with `reactre-compat` and `vanillajs`.
+  - Every attempt failed with a timeout waiting for rows (`rowsThere`).
+  - The last step, running `native-clear.ts` on each entry alone to find which page fails, was not run.
+  - First suspects: the copied entry itself (its `index.html` and `dist`), or `native-clear.ts` with these pages after the restart. It smoke-tested fine earlier on vanillajs and herdsman-blocks.
+  - The working tree was restored to the committed `herdsman-react.ts`. Dropping `FIBER` would also need a new way for event dispatch to find a row's fiber (a scan of the list, as reactre and the blocks app do).
+
+### Next steps, in order
+
+1. Find why `native-clear.ts` timed out (run it on each entry alone). Then measure the no-`FIBER` variant's native clear and in-benchmark clear script. If it closes clear's gap, implement dispatch without the expando, A/B it, and rerun the official-layout pool.
+2. If expandos aren't it, profile compat's clear window against reactre's event by event (`jfb/window.ts reactre-compat,reactre 09_clear1k_x8 20 --events --save`), opening the saved traces in DevTools. That shows what else runs in compat's click besides the removal.
+3. Re-pool after any change: at least 4 official-layout and 5 interleaved seven-entry runs. Done when reactre-compat is 6th or better in both.
+4. Only then rewrite `jfb/REPORT.md` around reactre, per the instruction that the report names reactre only once its results are complete.
 
 ## Goals, as set
 
@@ -43,7 +95,7 @@ React compatibility is checked by `bench/herdsman-cases/react-compat.ts`, which 
 | reactre against the top 5, interleaved (`--batch 3`), **2 runs pooled** | **1st, 1.030**; vanillajs-lite 1.044, thane 1.045, re 1.046, doohtml-dp 1.056, vanillajs 1.063. Per run: 2nd, 4th. | **Too few runs.** The first run had a two-minute compatibility check overlapping it. |
 | Script time against herdsman-blocks (`window.ts --kinds`) | create 6.4 ms against 9.1, append 7.1 against 6.8, swap 2.5 against 2.0, create-many 60.6 against 70.4, update 5.3 against 4.3 (after the per-hole locator) | Indicative, single runs |
 | reactre-compat in any field | Not measured. As herdsman-react it was 6th of 6 in every earlier pool: 1.072 interleaved and 1.089 official layout, about 1–3% behind the slowest official entry. | **Open** |
-| Seven-entry field (top 5 + reactre + reactre-compat) | Two interleaved runs (shifts 0 and 3) were started at 18:41 UTC. Logs: `jfb-f7a.log` and `jfb-f7b.log` in the session scratchpad. | **In progress. Logs are not committed and will not survive the session; rerun if lost.** |
+| Seven-entry field (top 5 + reactre + reactre-compat) | 5 interleaved and 4 official-layout runs; see "Status at pause". Logs in `bench/herdsman-cases/jfb/logs/`. | Done |
 
 ## Remaining work
 

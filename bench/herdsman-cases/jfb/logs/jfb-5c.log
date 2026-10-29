@@ -1,0 +1,34 @@
+[1/5] 01_run1k               re 96.5, thane 108.8, vanillajs-lite 99.3, vanillajs 98.0, doohtml-dp 109.0, herdsman-react 101.5
+[1/5] 02_replace1k           re 110.1, thane 97.5, vanillajs-lite 97.9, vanillajs 101.6, doohtml-dp 102.3, herdsman-react 113.4
+[1/5] 03_update10th1k_x16    re 71.1, thane 63.7, vanillajs-lite 85.8, vanillajs 113.2, doohtml-dp 81.0, herdsman-react 82.0
+[1/5] 04_select1k            re 13.2, thane 29.8, vanillajs-lite 17.2, vanillajs 12.8, doohtml-dp 12.2, herdsman-react 15.9
+[1/5] 05_swap1k              re 76.0, thane 91.3, vanillajs-lite 89.2, vanillajs 88.5, doohtml-dp 78.1, herdsman-react 90.0
+[1/5] 06_remove-one-1k       re 65.4, thane 61.0, vanillajs-lite 57.1, vanillajs 70.8, doohtml-dp 68.3, herdsman-react 79.3
+[1/5] 07_create10k           re 1066.7, thane 1102.5, vanillajs-lite 1090.3, vanillajs 1037.2, doohtml-dp 1058.3, herdsman-react 1049.9
+[1/5] 08_create1k-after1k_x2 re 127.4, thane 117.6, vanillajs-lite 147.3, vanillajs 145.2, doohtml-dp 141.7, herdsman-react 125.5
+[1/5] 09_clear1k_x8          re 43.2, thane 52.9, vanillajs-lite 47.6, vanillajs 48.5, doohtml-dp 63.5, herdsman-react 50.8
+[2/5] 01_run1k               thane 98.0, vanillajs-lite 95.1, vanillajs 128.0, doohtml-dp 93.9, herdsman-react 100.0, re 92.7
+[2/5] 02_replace1k           thane 116.2, vanillajs-lite 99.3, vanillajs 163.4, doohtml-dp 108.6, herdsman-react 111.8, re 102.9
+[2/5] 03_update10th1k_x16    thane 81.2, vanillajs-lite 80.5, vanillajs 75.7, doohtml-dp 91.1, herdsman-react 77.4, re 74.1
+[2/5] 04_select1k            thane 17.1, vanillajs-lite 19.3, vanillajs 16.6, doohtml-dp 29.9, herdsman-react 21.3, re 19.8
+[2/5] 05_swap1k              thane 99.4, vanillajs-lite 76.3, vanillajs 82.1, doohtml-dp 98.0, herdsman-react 94.2, re 85.9
+[2/5] 06_remove-one-1k       thane 67.3, vanillajs-lite 85.8, vanillajs 70.1, doohtml-dp 72.6, herdsman-react 67.3, re 112.6
+[2/5] 07_create10k           thane 1074.1, vanillajs-lite 1057.4, vanillajs 1127.8, doohtml-dp 1026.3, herdsman-react 1195.0, re 1189.4
+[2/5] 08_create1k-after1k_x2 thane 117.8, vanillajs-lite 113.4, vanillajs 111.1, doohtml-dp 115.0, herdsman-react 124.4, re 117.3
+[2/5] 09_clear1k_x8          thane 52.4, vanillajs-lite 48.2, vanillajs 43.9, doohtml-dp 37.5, herdsman-react 45.2, re 50.7
+[3/5] 01_run1k               vanillajs-lite 94.0, vanillajs 91.6, doohtml-dp 105.8, herdsman-react 107.0, re 98.6, thane 95.4
+[3/5] 02_replace1k           vanillajs-lite 132.3, vanillajs 102.7, doohtml-dp 101.8, herdsman-react 127.1, re 102.9, thane 118.8
+114 |     /**
+115 |      * @internal
+116 |      */
+117 |     _rawSend(callbacks, method, params, sessionId, options) {
+118 |         if (this.#closed) {
+119 |             return Promise.reject(new ConnectionClosedError('Connection closed.'));
+                                        ^
+ConnectionClosedError: Connection closed.
+      at _rawSend (/home/user/herdsman/bench/herdsman-cases/node_modules/puppeteer-core/lib/puppeteer/cdp/Connection.js:119:35)
+      at close (/home/user/herdsman/bench/herdsman-cases/node_modules/puppeteer-core/lib/puppeteer/cdp/Page.js:982:34)
+      at async sample (/home/user/herdsman/bench/herdsman-cases/jfb/run.ts:264:18)
+      at async main (/home/user/herdsman/bench/herdsman-cases/jfb/run.ts:291:27)
+
+Bun v1.4.4 (Linux x64)

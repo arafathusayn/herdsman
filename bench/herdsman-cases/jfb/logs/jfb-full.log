@@ -1,0 +1,105 @@
+[1/10] 01_run1k               re 109.2, thane 98.1, vanillajs-lite 122.3, vanillajs 151.4, doohtml-dp 99.0, react 120.2, herdsman-react 128.3
+[1/10] 02_replace1k           re 108.2, thane 101.2, vanillajs-lite 182.6, vanillajs 140.3, doohtml-dp 124.3, react 139.3, herdsman-react 114.3
+[1/10] 03_update10th1k_x16    re 85.4, thane 132.8, vanillajs-lite 143.1, vanillajs 107.0, doohtml-dp 80.8, react 94.9, herdsman-react 94.8
+[1/10] 04_select1k            re 13.9, thane 18.3, vanillajs-lite 15.0, vanillajs 21.3, doohtml-dp 18.0, react 37.1, herdsman-react 43.0
+[1/10] 05_swap1k              re 85.0, thane 81.3, vanillajs-lite 119.6, vanillajs 94.9, doohtml-dp 89.0, react 546.9, herdsman-react 95.7
+[1/10] 06_remove-one-1k       re 62.0, thane 63.0, vanillajs-lite 72.4, vanillajs 61.2, doohtml-dp 99.7, react 118.7, herdsman-react 109.3
+[1/10] 07_create10k           re 1168.5, thane 1161.5, vanillajs-lite 1271.0, vanillajs 1215.7, doohtml-dp 1868.2, react 2913.3, herdsman-react 2186.0
+[1/10] 08_create1k-after1k_x2 re 225.2, thane 141.2, vanillajs-lite 214.6, vanillajs 138.4, doohtml-dp 120.1, react 162.0, herdsman-react 118.3
+[1/10] 09_clear1k_x8          re 42.2, thane 46.0, vanillajs-lite 46.0, vanillajs 43.2, doohtml-dp 69.6, react 90.4, herdsman-react 50.4
+[2/10] 01_run1k               thane 92.3, vanillajs-lite 116.5, vanillajs 99.6, doohtml-dp 93.8, react 137.0, herdsman-react 147.0, re 102.3
+[2/10] 02_replace1k           thane 132.9, vanillajs-lite 128.1, vanillajs 112.3, doohtml-dp 107.6, react 192.5, herdsman-react 133.3, re 117.1
+[2/10] 03_update10th1k_x16    thane 76.6, vanillajs-lite 79.4, vanillajs 78.4, doohtml-dp 86.0, react 120.6, herdsman-react 87.1, re 126.2
+[2/10] 04_select1k            thane 18.6, vanillajs-lite 14.4, vanillajs 19.8, doohtml-dp 17.9, react 44.2, herdsman-react 22.2, re 15.6
+[2/10] 05_swap1k              thane 114.1, vanillajs-lite 149.4, vanillajs 152.9, doohtml-dp 96.9, react 610.0, herdsman-react 132.5, re 92.9
+[2/10] 06_remove-one-1k       thane 65.9, vanillajs-lite 61.3, vanillajs 56.4, doohtml-dp 75.6, react 70.8, herdsman-react 65.9, re 57.1
+[2/10] 07_create10k           thane 1387.2, vanillajs-lite 1270.2, vanillajs 1100.0, doohtml-dp 1110.1, react 1574.1, herdsman-react 1385.9, re 1940.0
+[2/10] 08_create1k-after1k_x2 thane 140.2, vanillajs-lite 140.9, vanillajs 155.1, doohtml-dp 145.5, react 163.2, herdsman-react 127.7, re 122.4
+[2/10] 09_clear1k_x8          thane 43.6, vanillajs-lite 41.3, vanillajs 48.8, doohtml-dp 43.4, react 107.9, herdsman-react 64.0, re 40.4
+[3/10] 01_run1k               vanillajs-lite 93.9, vanillajs 96.8, doohtml-dp 109.0, react 119.3, herdsman-react 106.9, re 101.4, thane 138.3
+[3/10] 02_replace1k           vanillajs-lite 108.5, vanillajs 112.6, doohtml-dp 124.5, react 135.1, herdsman-react 150.9, re 100.7, thane 123.0
+[3/10] 03_update10th1k_x16    vanillajs-lite 90.2, vanillajs 86.9, doohtml-dp 79.8, react 108.7, herdsman-react 87.3, re 81.4, thane 75.6
+[3/10] 04_select1k            vanillajs-lite 18.9, vanillajs 20.2, doohtml-dp 34.1, react 32.9, herdsman-react 21.6, re 17.5, thane 16.6
+[3/10] 05_swap1k              vanillajs-lite 82.1, vanillajs 98.4, doohtml-dp 157.7, react 723.1, herdsman-react 178.7, re 95.2, thane 97.1
+[3/10] 06_remove-one-1k       vanillajs-lite 132.1, vanillajs 63.5, doohtml-dp 62.0, react 80.7, herdsman-react 69.5, re 84.0, thane 61.0
+[3/10] 07_create10k           vanillajs-lite 1062.4, vanillajs 1022.6, doohtml-dp 1172.0, react 1514.9, herdsman-react 1246.4, re 1120.2, thane 1224.1
+[3/10] 08_create1k-after1k_x2 vanillajs-lite 112.7, vanillajs 117.8, doohtml-dp 199.1, react 176.0, herdsman-react 173.2, re 117.8, thane 132.1
+[3/10] 09_clear1k_x8          vanillajs-lite 74.3, vanillajs 36.2, doohtml-dp 48.0, react 84.5, herdsman-react 71.3, re 54.0, thane 42.7
+[4/10] 01_run1k               vanillajs 121.1, doohtml-dp 101.6, react 207.5, herdsman-react 161.9, re 106.9, thane 92.2, vanillajs-lite 94.1
+[4/10] 02_replace1k           vanillajs 106.6, doohtml-dp 106.2, react 182.8, herdsman-react 152.8, re 138.5, thane 144.3, vanillajs-lite 100.6
+[4/10] 03_update10th1k_x16    vanillajs 77.2, doohtml-dp 78.4, react 112.6, herdsman-react 89.3, re 73.0, thane 75.9, vanillajs-lite 85.8
+[4/10] 04_select1k            vanillajs 14.9, doohtml-dp 18.8, react 50.3, herdsman-react 22.1, re 20.1, thane 16.8, vanillajs-lite 19.4
+[4/10] 05_swap1k              vanillajs 119.9, doohtml-dp 81.7, react 741.3, herdsman-react 104.4, re 100.3, thane 102.2, vanillajs-lite 89.7
+[4/10] 06_remove-one-1k       vanillajs 61.5, doohtml-dp 63.2, react 69.7, herdsman-react 60.6, re 57.8, thane 121.4, vanillajs-lite 65.0
+[4/10] 07_create10k           vanillajs 1100.0, doohtml-dp 1205.4, react 1511.2, herdsman-react 1181.3, re 1152.6, thane 1114.2, vanillajs-lite 1205.3
+[4/10] 08_create1k-after1k_x2 vanillajs 152.7, doohtml-dp 120.5, react 137.7, herdsman-react 127.3, re 117.3, thane 135.5, vanillajs-lite 110.7
+[4/10] 09_clear1k_x8          vanillajs 46.5, doohtml-dp 39.0, react 106.0, herdsman-react 59.6, re 49.1, thane 53.2, vanillajs-lite 42.8
+[5/10] 01_run1k               doohtml-dp 97.8, react 124.1, herdsman-react 101.8, re 117.1, thane 97.0, vanillajs-lite 141.7, vanillajs 177.4
+[5/10] 02_replace1k           doohtml-dp 176.2, react 155.7, herdsman-react 135.6, re 111.5, thane 102.5, vanillajs-lite 102.5, vanillajs 137.8
+[5/10] 03_update10th1k_x16    doohtml-dp 124.1, react 100.3, herdsman-react 89.6, re 80.8, thane 77.2, vanillajs-lite 85.9, vanillajs 108.7
+[5/10] 04_select1k            doohtml-dp 16.1, react 30.7, herdsman-react 32.0, re 21.3, thane 16.4, vanillajs-lite 13.1, vanillajs 23.6
+[5/10] 05_swap1k              doohtml-dp 90.7, react 572.5, herdsman-react 109.0, re 128.4, thane 119.7, vanillajs-lite 169.2, vanillajs 105.1
+[5/10] 06_remove-one-1k       doohtml-dp 65.3, react 83.2, herdsman-react 72.8, re 61.3, thane 66.7, vanillajs-lite 64.7, vanillajs 61.7
+[5/10] 07_create10k           doohtml-dp 1170.5, react 1535.3, herdsman-react 1481.7, re 1172.2, thane 1360.5, vanillajs-lite 1130.8, vanillajs 1148.5
+[5/10] 08_create1k-after1k_x2 doohtml-dp 118.4, react 143.6, herdsman-react 126.6, re 119.4, thane 126.2, vanillajs-lite 113.0, vanillajs 119.0
+[5/10] 09_clear1k_x8          doohtml-dp 35.3, react 81.8, herdsman-react 52.0, re 41.1, thane 43.2, vanillajs-lite 46.2, vanillajs 49.1
+[6/10] 01_run1k               react 135.8, herdsman-react 123.8, re 138.9, thane 149.8, vanillajs-lite 129.2, vanillajs 126.6, doohtml-dp 106.4
+[6/10] 02_replace1k           react 150.9, herdsman-react 107.1, re 103.1, thane 115.1, vanillajs-lite 118.7, vanillajs 109.2, doohtml-dp 101.8
+[6/10] 03_update10th1k_x16    react 109.5, herdsman-react 111.0, re 85.1, thane 121.0, vanillajs-lite 77.6, vanillajs 77.9, doohtml-dp 85.6
+[6/10] 04_select1k            react 27.7, herdsman-react 21.6, re 15.3, thane 13.0, vanillajs-lite 16.4, vanillajs 14.4, doohtml-dp 13.7
+[6/10] 05_swap1k              react 598.8, herdsman-react 96.7, re 73.6, thane 124.7, vanillajs-lite 85.0, vanillajs 111.4, doohtml-dp 103.2
+[6/10] 06_remove-one-1k       react 77.6, herdsman-react 66.2, re 103.9, thane 61.3, vanillajs-lite 108.0, vanillajs 62.6, doohtml-dp 61.5
+[6/10] 07_create10k           react 1668.7, herdsman-react 1248.6, re 1120.1, thane 1039.6, vanillajs-lite 1019.8, vanillajs 1076.1, doohtml-dp 1036.1
+[6/10] 08_create1k-after1k_x2 react 150.8, herdsman-react 149.2, re 133.3, thane 111.5, vanillajs-lite 119.7, vanillajs 112.5, doohtml-dp 141.6
+[6/10] 09_clear1k_x8          react 104.7, herdsman-react 53.7, re 41.1, thane 42.2, vanillajs-lite 57.2, vanillajs 40.4, doohtml-dp 49.3
+[7/10] 01_run1k               herdsman-react 147.0, re 120.2, thane 152.7, vanillajs-lite 131.6, vanillajs 133.1, doohtml-dp 95.2, react 151.4
+[7/10] 02_replace1k           herdsman-react 154.4, re 118.9, thane 110.5, vanillajs-lite 107.2, vanillajs 104.4, doohtml-dp 105.4, react 142.1
+[7/10] 03_update10th1k_x16    herdsman-react 94.2, re 78.8, thane 82.0, vanillajs-lite 80.7, vanillajs 148.7, doohtml-dp 84.8, react 101.4
+[7/10] 04_select1k            herdsman-react 27.4, re 22.0, thane 15.8, vanillajs-lite 15.7, vanillajs 19.9, doohtml-dp 15.2, react 34.3
+[7/10] 05_swap1k              herdsman-react 113.5, re 86.6, thane 92.5, vanillajs-lite 91.8, vanillajs 80.4, doohtml-dp 81.1, react 541.0
+[7/10] 06_remove-one-1k       herdsman-react 65.0, re 104.3, thane 60.5, vanillajs-lite 58.7, vanillajs 58.0, doohtml-dp 60.5, react 69.9
+[7/10] 07_create10k           herdsman-react 1209.6, re 1058.7, thane 1052.1, vanillajs-lite 1011.1, vanillajs 1135.1, doohtml-dp 1030.7, react 1477.0
+[7/10] 08_create1k-after1k_x2 herdsman-react 117.2, re 136.6, thane 201.0, vanillajs-lite 124.5, vanillajs 111.5, doohtml-dp 121.6, react 135.7
+[7/10] 09_clear1k_x8          herdsman-react 67.5, re 99.5, thane 42.1, vanillajs-lite 39.4, vanillajs 48.1, doohtml-dp 44.2, react 88.4
+[8/10] 01_run1k               re 98.7, thane 97.0, vanillajs-lite 100.4, vanillajs 94.2, doohtml-dp 100.3, react 140.4, herdsman-react 124.0
+[8/10] 02_replace1k           re 108.6, thane 111.9, vanillajs-lite 127.3, vanillajs 106.3, doohtml-dp 128.3, react 138.9, herdsman-react 156.3
+[8/10] 03_update10th1k_x16    re 84.0, thane 78.4, vanillajs-lite 73.7, vanillajs 86.3, doohtml-dp 76.3, react 93.2, herdsman-react 84.7
+[8/10] 04_select1k            re 13.4, thane 26.6, vanillajs-lite 16.4, vanillajs 19.9, doohtml-dp 21.5, react 28.9, herdsman-react 20.4
+[8/10] 05_swap1k              re 86.7, thane 133.4, vanillajs-lite 96.6, vanillajs 74.1, doohtml-dp 92.8, react 638.4, herdsman-react 93.6
+[8/10] 06_remove-one-1k       re 55.4, thane 53.9, vanillajs-lite 69.3, vanillajs 65.4, doohtml-dp 68.7, react 87.8, herdsman-react 66.9
+[8/10] 07_create10k           re 1150.6, thane 1209.7, vanillajs-lite 1046.6, vanillajs 1080.0, doohtml-dp 1071.6, react 1430.4, herdsman-react 1091.2
+[8/10] 08_create1k-after1k_x2 re 111.9, thane 108.5, vanillajs-lite 109.3, vanillajs 106.4, doohtml-dp 115.9, react 160.4, herdsman-react 119.4
+[8/10] 09_clear1k_x8          re 40.4, thane 49.0, vanillajs-lite 42.1, vanillajs 37.3, doohtml-dp 44.4, react 89.7, herdsman-react 52.9
+[9/10] 01_run1k               thane 94.0, vanillajs-lite 98.4, vanillajs 97.1, doohtml-dp 92.4, react 117.9, herdsman-react 109.8, re 94.2
+[9/10] 02_replace1k           thane 112.1, vanillajs-lite 97.1, vanillajs 108.7, doohtml-dp 105.0, react 150.1, herdsman-react 144.7, re 148.0
+[9/10] 03_update10th1k_x16    thane 131.8, vanillajs-lite 69.4, vanillajs 75.0, doohtml-dp 137.9, react 92.6, herdsman-react 98.8, re 91.5
+[9/10] 04_select1k            thane 20.0, vanillajs-lite 17.2, vanillajs 31.0, doohtml-dp 17.0, react 24.7, herdsman-react 17.9, re 15.0
+[9/10] 05_swap1k              thane 83.9, vanillajs-lite 87.0, vanillajs 89.6, doohtml-dp 88.3, react 560.4, herdsman-react 89.6, re 103.4
+[9/10] 06_remove-one-1k       thane 78.5, vanillajs-lite 62.5, vanillajs 91.1, doohtml-dp 57.1, react 66.2, herdsman-react 84.3, re 76.0
+[9/10] 07_create10k           thane 1068.2, vanillajs-lite 1060.6, vanillajs 1095.9, doohtml-dp 1115.7, react 1493.3, herdsman-react 1094.1, re 1111.3
+[9/10] 08_create1k-after1k_x2 thane 118.6, vanillajs-lite 115.9, vanillajs 120.4, doohtml-dp 117.5, react 139.8, herdsman-react 136.7, re 115.6
+[9/10] 09_clear1k_x8          thane 47.4, vanillajs-lite 50.1, vanillajs 37.7, doohtml-dp 39.6, react 87.6, herdsman-react 53.0, re 47.8
+[10/10] 01_run1k               vanillajs-lite 97.7, vanillajs 99.0, doohtml-dp 104.4, react 153.9, herdsman-react 110.7, re 129.7, thane 111.6
+[10/10] 02_replace1k           vanillajs-lite 103.2, vanillajs 110.0, doohtml-dp 100.1, react 201.9, herdsman-react 130.3, re 125.6, thane 103.6
+[10/10] 03_update10th1k_x16    vanillajs-lite 67.7, vanillajs 92.4, doohtml-dp 62.9, react 90.1, herdsman-react 95.5, re 86.1, thane 78.2
+[10/10] 04_select1k            vanillajs-lite 16.3, vanillajs 15.7, doohtml-dp 14.4, react 54.4, herdsman-react 19.1, re 16.3, thane 20.9
+[10/10] 05_swap1k              vanillajs-lite 80.7, vanillajs 82.2, doohtml-dp 84.4, react 568.0, herdsman-react 85.9, re 80.9, thane 79.1
+[10/10] 06_remove-one-1k       vanillajs-lite 83.7, vanillajs 57.8, doohtml-dp 68.7, react 65.5, herdsman-react 71.4, re 58.4, thane 57.2
+[10/10] 07_create10k           vanillajs-lite 1058.9, vanillajs 1124.7, doohtml-dp 1045.5, react 1495.0, herdsman-react 1126.9, re 1047.6, thane 1051.4
+[10/10] 08_create1k-after1k_x2 vanillajs-lite 115.3, vanillajs 113.4, doohtml-dp 112.7, react 134.3, herdsman-react 127.9, re 113.8, thane 146.6
+[10/10] 09_clear1k_x8          vanillajs-lite 40.7, vanillajs 43.4, doohtml-dp 43.5, react 90.3, herdsman-react 72.4, re 39.6, thane 42.6
+
+js-framework-benchmark replica, 10 iterations, median ms (factor to the best median)
+
+| test | doohtml-dp | vanillajs-lite | re | thane | vanillajs | herdsman-react | react |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| create rows | 99.7 (1.02) | 108.5 (1.11) | 108.0 (1.11) | 97.6 (1.00) | 110.4 (1.13) | 123.9 (1.27) | 136.4 (1.40) |
+| replace all rows | 106.9 (1.00) | 107.9 (1.01) | 114.3 (1.07) | 112.0 (1.05) | 109.6 (1.03) | 140.2 (1.31) | 150.5 (1.41) |
+| partial update (4x) | 82.8 (1.06) | 80.0 (1.02) | 84.5 (1.08) | 78.3 (1.00) | 86.6 (1.11) | 91.9 (1.17) | 100.9 (1.29) |
+| select row (4x) | 17.5 (1.10) | 16.3 (1.02) | 15.9 (1.00) | 17.5 (1.10) | 19.9 (1.25) | 21.9 (1.37) | 33.6 (2.11) |
+| swap rows (4x) | 89.9 (1.00) | 90.7 (1.01) | 89.8 (1.00) | 99.7 (1.11) | 96.7 (1.08) | 100.5 (1.12) | 585.7 (6.52) |
+| remove row (2x) | 64.2 (1.04) | 67.2 (1.09) | 61.7 (1.00) | 62.1 (1.01) | 61.6 (1.00) | 68.2 (1.11) | 74.2 (1.20) |
+| create many rows | 1112.9 (1.05) | 1061.5 (1.00) | 1135.4 (1.07) | 1137.9 (1.07) | 1100.0 (1.04) | 1228.0 (1.16) | 1513.1 (1.43) |
+| append rows to large table | 120.3 (1.04) | 115.6 (1.00) | 118.6 (1.03) | 133.8 (1.16) | 118.4 (1.02) | 127.5 (1.10) | 147.2 (1.27) |
+| clear rows (4x) | 43.8 (1.05) | 44.4 (1.07) | 41.7 (1.00) | 43.4 (1.04) | 43.3 (1.04) | 56.7 (1.36) | 90.0 (2.16) |
+| **weighted score** | **1.038** | **1.040** | **1.049** | **1.049** | **1.062** | **1.210** | **1.504** |
