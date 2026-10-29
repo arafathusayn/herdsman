@@ -39,7 +39,7 @@ Against the goals:
 
 ### Tried since the first handoff, and the result
 
-- **Merging `removeAll`'s two loops into one pass** (commit `b0eda87`): A/B on clear showed no proven difference (script 41.5 against 41.7 ms). Reverted in `1e68de4`.
+- **Merging `removeAll`'s two loops into one pass** (commit `14588a3`): A/B on clear showed no proven difference (script 41.5 against 41.7 ms). Reverted in `aa29087`.
 - **Maglev.** `--no-maglev` lowered compat's clear script from 44.3 to 40.2 ms. However, `--trace-opt` and `--trace-deopt` (via the uncommitted scratch script `jfb/.cache/tier.ts`) showed **no compilation or deopt of our functions inside the measured clear**. The Maglev effect is elsewhere, perhaps code installed during warmup. Not a lead yet.
 - **Interrupted: per-row expandos on compat's rows.** The plan was to build a variant of reactre-compat with no `FIBER` expando on keyed list rows (keeping `OWN`, which `place()` needs to recognise its nodes). It would be copied to a temporary entry `jfb/.cache/.../frameworks/keyed/compat-noexp`, and `jfb/native-clear.ts` would compare it with `reactre-compat` and `vanillajs`.
   - Every attempt failed with a timeout waiting for rows (`rowsThere`).

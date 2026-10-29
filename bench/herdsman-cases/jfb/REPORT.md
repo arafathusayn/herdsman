@@ -196,7 +196,7 @@ This should come out with thane first and herdsman-blocks second (1.011 and 1.02
 | Finding | Command |
 |---|---|
 | The native-clear table ([The expando finding](#the-expando-finding)) | `bun jfb/native-clear.ts vanillajs,herdsman-blocks 40`. To see an expando's cost, give each row element a property in `jfb/app/blocks.ts`'s `create`, run `prepare.ts --app-only`, and run it again. |
-| A change's effect, as an A/B (runtime and compiler changes under `web/src`) | `bun jfb/ab.ts --base <git ref> --benchmarks 05_swap1k,03_update10th1k_x16 --rounds 12 --batch 8 [--phases]`. It builds the herdsman-react app from `<ref>` and from the working tree. Example: `--base 762c194` against `00e81f6` shows swap's script proven faster by the list reports. |
+| A change's effect, as an A/B (runtime and compiler changes under `web/src`) | `bun jfb/ab.ts --base <git ref> --benchmarks 05_swap1k,03_update10th1k_x16 --rounds 12 --batch 8 [--phases]`. It builds the herdsman-react app from `<ref>` and from the working tree. Example: `--base b740ea7` against `25631b3` shows swap's script proven faster by the list reports. |
 | Script time by test, entry against entry | `bun jfb/window.ts herdsman-blocks,vanillajs-lite 01_run1k 12 --kinds` |
 | Where a click spends its time | `bun jfb/profile.ts select 30 --cold --entry herdsman-react`. This writes a `.cpuprofile` for the DevTools Performance panel and a flame graph to `jfb/.cache/profiles`. |
 | V8 tiering in the measured click | `JFB_JS_FLAGS=--invocation-count-for-feedback-allocation=4 bun jfb/window.ts herdsman-react 04_select1k 25 --kinds`. Compare it with the same command without the variable. |
