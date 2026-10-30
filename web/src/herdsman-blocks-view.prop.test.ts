@@ -20,6 +20,7 @@ import {
 } from "./herdsman-blocks-view.ts";
 import { assertProperty, type Choices, type Gen } from "./herdsman-blocks.prop.ts";
 import { asDom, type FakeElement, FakeEvent, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
+import { List } from "./herdsman-blocks.ts";
 
 installFakeDocument();
 beforeEach(installFakeDocument);
@@ -287,6 +288,138 @@ describe("view properties", () => {
         render(asDom(fresh), V(realize(shape.kinds, versions[versions.length - 1]!, freshLog)));
         expect(canon(patched)).toBe(canon(fresh));
         expect(clicks(patched, patchedLog)).toEqual(clicks(fresh, freshLog));
+      },
+      3000,
+    );
+  });
+
+  test("a low-level list in a node held by a child hole and view re-renders never clobber each other", () => {
+    // Each step either re-renders the view (new title, same node in the
+    // child hole, or the node dropped and put back) or sets the low-level
+    // list inside that node.
+    type Step = { readonly view: string; readonly keep: boolean } | { readonly ids: readonly number[] };
+    const gen: Gen<Step[]> = (c) =>
+      Array.from({ length: 2 + c.int(8) }, (): Step => {
+        if (c.bool()) return { view: c.pick(["a", "b", "c"]), keep: c.int(4) > 0 };
+        const pool = [1, 2, 3, 4, 5, 6];
+        const ids: number[] = [];
+        const n = c.int(7);
+        for (let i = 0; i < n && pool.length; i++) ids.push(pool.splice(c.int(pool.length), 1)[0]!);
+        return { ids };
+      });
+    const Panel = html`<section>
+      <h1>${text()}</h1>
+      ${child<Node | null>()}
+      <p>${text()}</p>
+    </section>`;
+    assertProperty(
+      "hot node",
+      gen,
+      (steps) => {
+        const root = document.createElement("main") as unknown as FakeElement;
+        const host = document.createElement("ul");
+        const rows = new List<number, FakeElement, number>(host, {
+          key: (n) => n,
+          create: (n) => {
+            const li = document.createElement("li") as unknown as FakeElement;
+            li.textContent = `${n}`;
+            return li;
+          },
+          update: () => {},
+          root: (li) => asDom(li),
+          owns: true,
+        });
+        let title = "",
+          ids: readonly number[] = [];
+        render(asDom(root), Panel([title, host, title]));
+        for (const st of steps) {
+          if ("view" in st) {
+            title = st.view;
+            render(asDom(root), Panel([title, st.keep ? host : null, title]));
+            if (!st.keep) render(asDom(root), Panel([title, host, title])); // and back
+          } else {
+            ids = st.ids;
+            rows.set(ids);
+          }
+          const sec = root.firstChild as FakeElement;
+          const els = sec.childNodes.filter((n) => n.nodeType === 1) as FakeElement[];
+          expect(els.map((e) => e.tagName.toLowerCase())).toEqual(["h1", "ul", "p"]);
+          expect(els[0]!.textContent).toBe(title);
+          expect(els[2]!.textContent).toBe(title);
+          expect(els[1]).toBe(host as unknown as FakeElement);
+          expect((host as unknown as FakeElement).childNodes.map((n) => n.textContent)).toEqual(ids.map(String));
+        }
+      },
+      2000,
+    );
+  });
+
+  test("a pure list, or one with same, with a selection renders like a plain one", () => {
+    interface Item {
+      readonly id: number;
+      readonly label: string;
+    }
+    interface Step {
+      readonly ids: readonly number[];
+      readonly fresh: readonly boolean[]; // per position: a new object for the item, or the last one
+      readonly labels: readonly string[];
+      readonly mode: number; // what the render function closes over
+      readonly sel: number | undefined; // the selected key, maybe absent from the list
+    }
+    const stepGen = (c: Choices): Step => {
+      const pool = [1, 2, 3, 4, 5, 6, 7];
+      const ids: number[] = [];
+      const n = c.int(8);
+      for (let i = 0; i < n && pool.length; i++) ids.push(pool.splice(c.int(pool.length), 1)[0]!);
+      return {
+        ids,
+        fresh: ids.map(() => c.int(3) === 0),
+        labels: ids.map(() => c.pick(["a", "b"])),
+        mode: c.int(2),
+        sel: c.int(3) === 0 ? undefined : c.int(9),
+      };
+    };
+    const gen: Gen<Step[]> = (c) => Array.from({ length: 2 + c.int(5) }, () => stepGen(c));
+    const Row = html`<li class=${cls()}>${text()}</li>`;
+    const Box = html`<ul>
+      ${child()}
+    </ul>`;
+    // One render function per mode, so the same mode gives the same function.
+    const renders = [0, 1].map(
+      (m) => (it: Item, selected: boolean) => Row([`m${m}${selected ? " sel" : ""}`, `${it.id}${it.label}`]),
+    );
+    assertProperty(
+      "pure list equals plain list",
+      gen,
+      (steps) => {
+        const pureBox = document.createElement("main") as unknown as FakeElement;
+        const plainBox = document.createElement("main") as unknown as FakeElement;
+        const sameBox = document.createElement("main") as unknown as FakeElement;
+        const last = new Map<number, Item>();
+        for (const st of steps) {
+          const items = st.ids.map((id, i) => {
+            const prev = last.get(id);
+            const it = prev === undefined || st.fresh[i] ? { id, label: st.labels[i]! } : prev;
+            last.set(id, it);
+            return it;
+          });
+          const r = renders[st.mode]!;
+          render(asDom(pureBox), Box([list(items, (it) => it.id, r, { pure: true, selected: st.sel })]));
+          render(
+            asDom(plainBox),
+            Box([
+              list(
+                items,
+                (it) => it.id,
+                (it) => r(it, it.id === st.sel),
+              ),
+            ]),
+          );
+          const same = (x: Item, y: Item): boolean => x.label === y.label;
+          render(asDom(sameBox), Box([list(items, (it) => it.id, r, { same, selected: st.sel })]));
+          expect(canon(pureBox)).toBe(canon(plainBox));
+          expect(canon(sameBox)).toBe(canon(plainBox));
+        }
       },
       3000,
     );

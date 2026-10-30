@@ -13,7 +13,7 @@
 // paths (mount, set, List.set) for the sake of types.
 
 /** Library version, bumped with every release of the zip package. */
-export const VERSION = "0.0.9";
+export const VERSION = "0.0.11";
 
 // ---------------------------------------------------------------------------
 // Hole markers: typed at compile time, small negative numbers at runtime
@@ -491,47 +491,76 @@ function walk(
   }
 }
 
-// Turn hole paths into one straight-line function of firstChild/nextSibling
-// hops that shares common prefixes. Falls back to a loop where eval is blocked (CSP).
+// Turn hole paths into a locator: a short program of firstChild/nextSibling
+// hops that shares common prefixes, run by a loop. No code is generated, so
+// it works under a content security policy without 'unsafe-eval'.
 // It fills the first half of a block's single state array: hole nodes in
 // [0, n), with [n, 2n) left for the holes' last values.
 function compileLocator(paths: readonly (Path | undefined)[]): Locator {
-  try {
-    let body = "";
-    const seen = new Map<string, string>();
-    let v = 0;
-    const ref = (path: Path): string => {
-      if (path.length === 0) return "r";
-      const key = path.join(",");
-      const hit = seen.get(key);
-      if (hit) return hit;
-      let expr = ref(path.slice(0, -1)) + ".firstChild";
-      for (let j = 0; j < path[path.length - 1]!; j++) expr += ".nextSibling";
-      const name = "v" + v++;
-      body += "var " + name + "=" + expr + ";";
-      seen.set(key, name);
-      return name;
-    };
-    paths.forEach((p, i) => {
-      if (p === undefined) return;
-      const r = ref(p); // must run before reading `body`: ref() appends declarations
-      body += "n[" + i + "]=" + r + ";";
-    });
-    return new Function("r", "n", body) as Locator;
-  } catch {
-    return (r, out) => {
-      paths.forEach((p, i) => {
-        if (p === undefined) return;
-        let node = r;
-        for (const k of p) {
-          node = node.firstChild!;
-          for (let j = 0; j < k; j++) node = node.nextSibling!;
-        }
-        out[i] = node;
-      });
-    };
-  }
+  // A small program, run by a loop (no generated code, so it works under a
+  // strict content security policy): each step makes node v[x + 1] from node
+  // v[from], optionally its firstChild, then `steps` nextSibling hops. Common
+  // path prefixes are shared, and a node is reached from its nearest earlier
+  // sibling when one was already found, so every node is visited once.
+  const from: number[] = [],
+    first: number[] = [],
+    steps: number[] = [];
+  const seen = new Map<string, number>(); // path -> var index (0 = root)
+  const kids = new Map<number, number[]>(); // parent var -> child indexes found, ascending
+  const ref = (path: Path): number => {
+    if (path.length === 0) return 0;
+    const key = path.join(",");
+    const hit = seen.get(key);
+    if (hit !== undefined) return hit;
+    const parent = ref(path.slice(0, -1)),
+      k = path[path.length - 1]!;
+    const found = kids.get(parent) ?? [];
+    let near = -1;
+    for (const c of found) if (c < k) near = c;
+    if (near >= 0) {
+      from.push(seen.get(path.slice(0, -1).concat(near).join(","))!);
+      first.push(0);
+      steps.push(k - near);
+    } else {
+      from.push(parent);
+      first.push(1);
+      steps.push(k);
+    }
+    found.push(k);
+    found.sort((x, y) => x - y);
+    kids.set(parent, found);
+    const v = from.length;
+    seen.set(key, v);
+    return v;
+  };
+  const holes: number[] = [],
+    vars: number[] = [];
+  paths.forEach((p, i) => {
+    if (p === undefined) return;
+    holes.push(i);
+    vars.push(ref(p));
+  });
+  const F = Int32Array.from(from),
+    S = Int32Array.from(steps),
+    D = Uint8Array.from(first),
+    H = Int32Array.from(holes),
+    X = Int32Array.from(vars),
+    count = F.length;
+  return (r, out) => {
+    const v = scratchNodes;
+    v[0] = r;
+    for (let x = 0; x < count; x++) {
+      let node = v[F[x]!]!;
+      if (D[x] === 1) node = node.firstChild!;
+      for (let j = S[x]!; j > 0; j--) node = node.nextSibling!;
+      v[x + 1] = node;
+    }
+    for (let o = 0; o < H.length; o++) out[H[o]!] = v[X[o]!];
+  };
 }
+
+// Nodes of one locator run; locators never nest, so one array serves all.
+const scratchNodes: Node[] = [];
 
 function apply(kind: KindCode, name: string | undefined, node: Node, v: unknown): void {
   switch (kind) {
@@ -630,6 +659,19 @@ export interface ListBase<T, E, K extends Key = Key> {
    * inside it, so leave this off for scrolling containers.
    */
   readonly detach?: boolean;
+  /**
+   * `update` reads nothing but its item: a kept entry whose item is the same
+   * object (===) as in the last `set` is not updated again. When something
+   * else `update` reads changes, call `refresh` for the entries it affects,
+   * or `invalidate` before the next `set`.
+   */
+  readonly pure?: boolean;
+  /**
+   * Like `pure`, for items that are new objects each time (fresh snapshots):
+   * a kept entry is not updated when `same(last, next)` says its item did not
+   * change, such as `(a, b) => a.rev === b.rev`. Implies `pure`.
+   */
+  readonly same?: (last: T, next: T) => boolean;
 }
 
 /** A keyed list of items rendered into a parent node. Call `set` with each new array. */
@@ -643,6 +685,12 @@ export class List<T, E = Entry, K extends Key = Key> {
   private readonly anchor: Node | null;
   private readonly owns: boolean;
   private readonly detach: boolean;
+  private readonly pure: boolean;
+  private readonly same: ((last: T, next: T) => boolean) | null;
+  // The items of the last render, in order (with pure: what skips compare against).
+  private items: readonly T[] = [];
+  // With pure, set() after invalidate() updates every kept entry once.
+  private stale = false;
   private readonly key: (item: T) => K;
   private readonly create: (item: T) => E;
   private readonly update: (entry: E, item: T) => void;
@@ -653,6 +701,8 @@ export class List<T, E = Entry, K extends Key = Key> {
     this.anchor = o.anchor ?? null;
     this.owns = o.owns === true && this.anchor === null;
     this.detach = this.owns && o.detach === true;
+    this.same = o.same ?? null;
+    this.pure = o.pure === true || this.same !== null;
     this.key = o.key;
     this.create = o.create;
     this.update = o.update;
@@ -668,6 +718,27 @@ export class List<T, E = Entry, K extends Key = Key> {
     else for (let i = 0; i < e.length; i++) p.removeChild(r(e[i]!));
     this.keys = [];
     this.entries = [];
+    this.items = [];
+    this.stale = false;
+  }
+
+  /**
+   * Run `update` again for the entry with key `k`, with its item from the
+   * last `set` (so do not mutate that array). Use it when something `update`
+   * reads besides the item changed for a few entries, such as the selected
+   * row: two `refresh` calls instead of a `set` over every item. Returns
+   * whether the key was found.
+   */
+  refresh(k: K): boolean {
+    const i = this.keys.indexOf(k);
+    if (i < 0) return false;
+    this.update(this.entries[i]!, this.items[i]!);
+    return true;
+  }
+
+  /** With `pure`: the next `set` updates every kept entry, as if each item were new. */
+  invalidate(): void {
+    this.stale = true;
   }
 
   /** Render `items`, reusing the entries of items whose keys were already there. */
@@ -679,7 +750,9 @@ export class List<T, E = Entry, K extends Key = Key> {
       mk = this.create,
       r = this.r;
     const oldK = this.keys,
-      oldE = this.entries;
+      oldE = this.entries,
+      // With pure, an unchanged item (same object, same old position) skips its update.
+      oldI = this.pure && !this.stale ? this.items : null;
     const n = items.length,
       m = oldK.length;
 
@@ -696,6 +769,8 @@ export class List<T, E = Entry, K extends Key = Key> {
       this.fill(items, newE);
       this.keys = newK;
       this.entries = newE;
+      this.items = items;
+      this.stale = false;
       return;
     }
 
@@ -704,11 +779,13 @@ export class List<T, E = Entry, K extends Key = Key> {
       oe = m - 1,
       ne = n - 1;
     while (s <= oe && s <= ne && oldK[s] === newK[s]) {
-      upd((newE[s] = oldE[s]!), items[s]!);
+      newE[s] = oldE[s]!;
+      if (changed(oldI, s, items[s]!, this.same)) upd(newE[s]!, items[s]!);
       s++;
     }
     while (oe >= s && ne >= s && oldK[oe] === newK[ne]) {
-      upd((newE[ne] = oldE[oe]!), items[ne]!);
+      newE[ne] = oldE[oe]!;
+      if (changed(oldI, oe, items[ne]!, this.same)) upd(newE[ne]!, items[ne]!);
       oe--;
       ne--;
     }
@@ -736,16 +813,21 @@ export class List<T, E = Entry, K extends Key = Key> {
       move(p, lastRoot, firstRoot);
       if (oe - s > 1) move(p, firstRoot, ref); // adjacent: one move is enough
       newE[s] = last;
-      upd(last, items[s]!);
+      if (changed(oldI, oe, items[s]!, this.same)) upd(last, items[s]!);
       newE[ne] = first;
-      upd(first, items[ne]!);
-      for (let i = s + 1; i < oe; i++) upd((newE[i] = oldE[i]!), items[i]!);
+      if (changed(oldI, s, items[ne]!, this.same)) upd(first, items[ne]!);
+      for (let i = s + 1; i < oe; i++) {
+        newE[i] = oldE[i]!;
+        if (changed(oldI, i, items[i]!, this.same)) upd(newE[i]!, items[i]!);
+      }
     } else {
       this.general(items, newK, newE, s, oe, ne);
     }
 
     this.keys = newK;
     this.entries = newE;
+    this.items = items;
+    this.stale = false;
   }
 
   // Build every entry into a parent that holds none of them yet.
@@ -853,7 +935,11 @@ export class List<T, E = Entry, K extends Key = Key> {
     if (kept < oe - s + 1) {
       for (let i = s; i <= oe; i++) if (find(oldK[i]!) < 0) p.removeChild(r(oldE[i]!));
     }
-    for (let j = 0; j < len; j++) if (src[j] !== -1) upd(newE[j + s]!, items[j + s]!);
+    const oldI = this.pure && !this.stale ? this.items : null; // still the last render's: set() replaces it after
+    for (let j = 0; j < len; j++) {
+      const o = src[j]!;
+      if (o !== -1 && changed(oldI, o, items[j + s]!, this.same)) upd(newE[j + s]!, items[j + s]!);
+    }
 
     // Walk right to left. Survivors on the LIS stay put; everything else is
     // inserted before its right neighbour, which is already in final position.
@@ -890,6 +976,19 @@ function move(p: Node, node: Node, ref: Node | null): void {
 function place(p: Node, node: Node, ref: Node | null): void {
   if (node.parentNode !== null && node.isConnected) move(p, node, ref);
   else p.insertBefore(node, ref);
+}
+
+// Whether a kept entry needs its update: always without pure (oldI null),
+// else when its item is another object that `same` does not call equal.
+function changed<T>(
+  oldI: readonly T[] | null,
+  o: number,
+  it: T,
+  same: ((last: T, next: T) => boolean) | null,
+): boolean {
+  if (oldI === null) return true;
+  const was = oldI[o]!;
+  return was !== it && (same === null || !same(was, it));
 }
 
 function sameRange(x: readonly Key[], y: readonly Key[], from: number, to: number): boolean {

@@ -157,13 +157,42 @@ export function svg<const H extends readonly AnyHole[]>(
 export function list<T, K extends Key, N extends ViewNode>(
   items: readonly T[],
   key: (item: NoInfer<T>) => K,
-  render: (item: NoInfer<T>) => N,
+  render: (item: NoInfer<T>, selected: boolean) => N,
+  options?: ListViewOptions<NoInfer<T>, NoInfer<K>>,
 ): ListNode<N, K> {
+  const same = (options?.same ?? null) as Same | null;
   return new ListOf(
     items as readonly unknown[],
     key as (item: unknown) => Key,
-    render as (item: unknown) => ViewNode,
+    render as Render,
+    options?.pure === true || same !== null,
+    same,
+    options?.selected,
   ) as unknown as ListNode<N, K>;
+}
+
+/** Options for `list`. */
+export interface ListViewOptions<T = unknown, K extends Key = Key> {
+  /**
+   * The render function reads nothing but its arguments (and what it closed
+   * over when it was made). A kept item that is the same object as last time,
+   * with the same render function and selection state, is then not rendered
+   * or patched again. Pass a new render function when something else it
+   * reads changes (make it with that value), or leave this off.
+   */
+  readonly pure?: boolean;
+  /**
+   * The key of the selected item, if any: `render` gets `selected` true for
+   * it and false for the rest. In a pure list, a change of selection renders
+   * only the item that lost it and the item that gained it.
+   */
+  readonly selected?: K | undefined;
+  /**
+   * Like `pure`, for items that are new objects each time (fresh snapshots):
+   * a kept item is not rendered again when `same(last, next)` says it did not
+   * change, such as `(a, b) => a.rev === b.rev`. Implies `pure`.
+   */
+  readonly same?: ((last: T, next: T) => boolean) | undefined;
 }
 
 /**
@@ -559,14 +588,30 @@ class RunsOf {
   }
 }
 
+type Render = (item: unknown, selected: boolean) => ViewNode;
+type Same = (last: unknown, next: unknown) => boolean;
+
 class ListOf {
   readonly items: readonly unknown[];
   readonly key: (item: unknown) => Key;
-  readonly render: (item: unknown) => ViewNode;
-  constructor(items: readonly unknown[], key: (item: unknown) => Key, render: (item: unknown) => ViewNode) {
+  readonly render: Render;
+  readonly pure: boolean;
+  readonly same: Same | null;
+  readonly sel: Key | undefined;
+  constructor(
+    items: readonly unknown[],
+    key: (item: unknown) => Key,
+    render: Render,
+    pure: boolean,
+    same: Same | null,
+    sel: Key | undefined,
+  ) {
     this.items = items;
     this.key = key;
     this.render = render;
+    this.pure = pure;
+    this.same = same;
+    this.sel = sel;
   }
 }
 
@@ -705,7 +750,11 @@ class Slot {
   inst: Inst | null = null;
   list: List<unknown, Inst, Key> | null = null;
   key: (item: unknown) => Key = noKey;
-  render: (item: unknown) => ViewNode = noRender;
+  render: Render = noRender;
+  /** For a list: the selected key, if any. */
+  sel: Key | undefined = undefined;
+  /** For a list: its `same` option, if any. */
+  same: Same | null = null;
   /** For runs: a text node or an instance per run, in order. */
   runs: (Text | Inst)[] | null = null;
   constructor(anchor: Node) {
@@ -756,12 +805,16 @@ function setChild(sl: Slot, v: unknown): void {
       return;
     case LIST: {
       const alone = sl.anchor.previousSibling === null && sl.anchor.nextSibling === null;
+      const desc = (item: unknown): Desc =>
+        sl.render(item, sl.sel !== undefined && sl.key(item) === sl.sel) as unknown as Desc;
       sl.list = new List<unknown, Inst, Key>(sl.parent, {
         owns: alone,
         anchor: alone ? null : sl.anchor,
+        pure: true, // setList invalidates when the list is not pure or its render changed
+        same: (a, b) => sl.same !== null && sl.same(a, b),
         key: (item) => sl.key(item),
-        create: (item) => make(sl.render(item) as unknown as Desc),
-        update: (inst, item) => patch(inst, sl.render(item) as unknown as Desc),
+        create: (item) => make(desc(item)),
+        update: (inst, item) => patch(inst, desc(item)),
       });
       return setList(sl, v as ListOf);
     }
@@ -804,10 +857,23 @@ function setRuns(sl: Slot, items: readonly unknown[]): void {
 
 const runRoot = (r: Text | Inst): Node => (r instanceof Inst ? r.root : r);
 
+// A pure list with the same render function as last time skips kept items
+// that are the same objects as last time (List's pure option), and on a
+// change of selection renders just the two items it moved between.
 function setList(sl: Slot, l: ListOf): void {
+  const ls = sl.list!,
+    was = sl.sel,
+    same = l.pure && l.render === sl.render;
+  if (!same) ls.invalidate();
   sl.key = l.key;
   sl.render = l.render;
-  sl.list!.set(l.items);
+  sl.sel = l.sel;
+  sl.same = l.same;
+  ls.set(l.items);
+  if (same && was !== l.sel) {
+    if (was !== undefined) ls.refresh(was);
+    if (l.sel !== undefined) ls.refresh(l.sel);
+  }
 }
 
 function clearChild(sl: Slot): void {
@@ -828,6 +894,8 @@ function clearChild(sl: Slot): void {
       sl.list = null;
       sl.key = noKey;
       sl.render = noRender;
+      sl.sel = undefined;
+      sl.same = null;
       if (sl.anchor.parentNode === null) sl.parent.appendChild(sl.anchor); // an owning list's clear drops it
       break;
     case RUNS:

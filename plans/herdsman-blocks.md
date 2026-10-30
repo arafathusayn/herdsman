@@ -98,7 +98,11 @@ A template is written as a tagged template literal whose interpolations mark hol
    - Untyped holes (plain numbers) are not checked.
 
    This check runs once per template, never per instance. The event kind exists only here: an event hole is a property hole at runtime, so mounting and updating never see it.
-7. Generate a locator: one straight-line function that walks from a root through `firstChild` and `nextSibling` steps to each hole's node, sharing common path prefixes so each node is reached once, and writes the nodes into the first half of a given array. If generating functions at runtime is not allowed (a strict content security policy), fall back to walking each path in a loop.
+7. Build a locator, with no generated code (so it works under a content security policy without `unsafe-eval`):
+   1. Number the nodes on the holes' paths, sharing common path prefixes so each node gets one number; the root is node 0.
+   2. For each node in order, record one step: the number of an earlier node to start from, whether to take that node's `firstChild` first, and how many `nextSibling` hops follow. A node starts from its nearest earlier sibling on some path when there is one (hops from there), otherwise from its parent (its first child, then hops).
+   3. Record, for each hole, the number of its node.
+   4. Locating runs the steps in a loop over one shared scratch array of nodes (locators never nest), then copies each hole's node into the first half of the given array.
 8. Run the locator once on the parsed root itself, the **prototype**, and keep its hole nodes. Record what the prototype holds in each hole: the empty string for text and class holes, absent (null) for attribute holes.
 
 #### Block state
@@ -146,13 +150,20 @@ Values are never parsed as HTML. A string with angle brackets becomes literal te
 
 A list's entries are either objects exposing the item's root node, or anything else together with a function that returns an entry's root node (for example the root element itself, so the list keeps no object per item). The type requires that function exactly when entries have no root property.
 
-A list is bound to a parent node and, optionally, an anchor (a node before which the list lives; none means the end of the parent). It is configured with a key function, a create function (item to entry), an update function (entry and item), an `owns` flag (the list is the parent's only content) and a `detach` flag. It remembers the keys and entries of the last render.
+A list is bound to a parent node and, optionally, an anchor (a node before which the list lives; none means the end of the parent). It is configured with a key function, a create function (item to entry), an update function (entry and item), an `owns` flag (the list is the parent's only content), a `detach` flag, a `pure` flag and an optional `same` function. It remembers the keys, entries and items of the last render.
+
+`pure` says that update reads nothing but its item: a kept entry whose item is the same object as the item at its old position in the last render is not updated. `same(last, next)` extends that to items that are new objects each time (fresh snapshots): a kept entry is not updated when it returns true; giving `same` turns `pure` on. Both are opt-in, because a caller that mutates items in place relies on update running for every survivor. A caller writes its own `same`, such as a revision compare or a shallow compare of flat fields; the library exports none.
+
+Two calls serve a pure list whose update reads something besides the item:
+
+1. `refresh(key)`: find the key among the last render's keys and run update for that entry with its item from the last render. A selection changing from one key to another is two refreshes instead of a reconcile over every item. It returns whether the key was found.
+2. `invalidate()`: the next reconcile updates every kept entry, as if each item were new.
 
 `owns` only applies without an anchor. `detach` only applies with `owns`.
 
 #### Clearing
 
-If the list owns its parent, set the parent's text content to empty (one native operation). Otherwise remove each entry's root. Forget all keys and entries.
+If the list owns its parent, set the parent's text content to empty (one native operation). Otherwise remove each entry's root. Forget all keys, entries and items.
 
 #### Filling (building into a parent that holds none of the list's entries)
 
@@ -176,7 +187,9 @@ Let `m` be the old length and `n` the new length.
    - **Only removals** (the new window is empty): remove the roots of the old window.
    - **Swap of the two ends** (both windows have the same length of at least two, the old first key is the new last key, the old last key is the new first key, and every key in between is unchanged): move the old last root before the old first root. If the two were not adjacent, also move the old first root to where the old last root used to be, which is before the old last root's original next sibling. Update all window entries with their new items. This costs one move for adjacent items and two otherwise, which is minimal, and it needs no map and no LIS.
    - **General case**: described next.
-7. Remember the new keys and entries.
+7. Remember the new keys, entries and items, and clear the invalidated mark.
+
+Wherever a step above or below updates a kept entry, a pure list first compares the entry's item from the last render (at the entry's old index) with the new item, unless the list was invalidated: if they are the same object, or `same` says they are equal, the update is skipped.
 
 #### The general case
 
@@ -305,6 +318,8 @@ A child hole accepts text (a string or number), nothing (null, undefined or fals
 2. If the class is the same as the current content's:
    - Text: set the anchor's data to the value as a string.
    - Node: if it is the same node, do nothing. Otherwise replace the old node with the new one when the old one is still in the slot's parent, or insert the new one before the anchor when the old one was moved elsewhere.
+
+     So a component can host low-level code inside a view: it creates an element once, passes the same element to a child hole on every render, and updates the element's content itself (a Layer 2 list, blocks). The view never looks inside it.
    - View: patch the held instance toward the description (which replaces it when the view differs).
    - List: reconcile the list (below).
    - Runs: reconcile the runs (below).
@@ -312,11 +327,18 @@ A child hole accepts text (a string or number), nothing (null, undefined or fals
 
 #### Keyed list descriptions
 
-`list(items, key, render)` describes a keyed list: the items, a key function on the item (never its index; keys unique among siblings) and a render function from item to description.
+`list(items, key, render, options)` describes a keyed list: the items, a key function on the item (never its index; keys unique among siblings), a render function from an item and whether it is selected to a description, and options:
+
+- `pure`: render reads nothing but its arguments (and what it closed over when it was made).
+- `selected`: the key of the selected item, if any; render gets true for it and false for the rest.
+- `same`: as Layer 2's, for fresh snapshots; it implies `pure`.
 
 1. Creating the list in a slot: if the anchor has no siblings, the list **owns** the parent (Layer 2: clearing is one native text-content write, and the anchor is dropped while the list is shown); otherwise the list is anchored before the slot's anchor, so content around the hole is never touched.
-2. The Layer 2 list's create mounts `render(item)`, its update patches the entry's instance toward `render(item)`, and its key calls the key function. Entries are view instances. These callbacks read the slot's current key and render functions, which are replaced on every reconcile, so closures passed by the latest render are the ones used.
-3. Reconciling: store the description's key and render functions on the slot and set the list to the items (Layer 2). Kept items are patched; moved items are moved with the minimum number of DOM moves; an item whose render returns a different view is replaced where it stands.
+2. The Layer 2 list is always created pure, with a `same` that calls the slot's current `same` option when there is one. Its create mounts `render(item, selected)`, its update patches the entry's instance toward `render(item, selected)`, where selected is whether the item's key is the slot's selected key, and its key calls the key function. Entries are view instances. These callbacks read the slot's current key, render, selection and `same`, which are replaced on every reconcile, so closures passed by the latest render are the ones used.
+3. Reconciling:
+   1. The skips may apply only when the description is pure and its render function is the one the slot used last time. Otherwise invalidate the Layer 2 list, so every kept item is patched.
+   2. Store the description's key and render functions, selection and `same` on the slot, and set the list to the items (Layer 2). Kept items are patched (or skipped, as above); moved items are moved with the minimum number of DOM moves; an item whose render returns a different view is replaced where it stands.
+   3. If the skips applied and the selected key changed, refresh the old selected key and the new one (Layer 2), so the item that lost the selection and the item that gained it are rendered again. A key not in the list is skipped. A selected item that is new, moved, removed or replaced needs nothing more: new and changed items are rendered with the current selection.
 
 #### Runs descriptions
 
@@ -515,7 +537,7 @@ In Chrome the reconciler became 2 to 4 times faster for integer keys at every si
 
 The library ships a small property testing engine for its own tests, with no dependencies: properties are executable statements checked on generated inputs (after QuickCheck, Claessen and Hughes, ICFP 2000), and every random decision a generator makes is recorded, so a failure is reduced by shrinking that sequence of choices and re-running the generator (internal test-case reduction, as in Hypothesis: MacIver and Donaldson, ECOOP 2020). Reduced cases are therefore always valid inputs (a key list never gains duplicates). Shrinking deletes chunks of choices, largest first, then lowers single choices, keeping any change that still fails, within 4,000 attempts and 5 seconds.
 
-Properties checked, each over 1,500 to 3,000 generated cases per run: keyed reconcile output, entry reuse and exactly minimal moves across every lookup mode, with and without `owns`, anchors and an attached parent (where every move must be state-preserving); setting the same items twice does no DOM work; the LIS matches an O(n²) reference; eager and lazy blocks end in the same DOM as a fresh mount of their final values; morph turns any live tree into any fresh tree (random tags, keys, attributes and text, up to three levels), and morphing again does no DOM work. A planted bug (two moves for an adjacent swap) shrinks to the two-item list zero, one becoming one, zero within a second.
+Properties checked, each over 1,500 to 3,000 generated cases per run: keyed reconcile output, entry reuse and exactly minimal moves across every lookup mode, with and without `owns`, anchors and an attached parent (where every move must be state-preserving); setting the same items twice does no DOM work; the LIS matches an O(n²) reference; eager and lazy blocks end in the same DOM as a fresh mount of their final values; a pure list, and one with `same`, ends like a plain list when update reads its item, a marked key it refreshes and a suffix it invalidates for; a pure view list, and one with `same`, with a selection, renders like a plain list; view re-renders and a low-level list inside a node held by a child hole never undo each other; morph turns any live tree into any fresh tree (random tags, keys, attributes and text, up to three levels), and morphing again does no DOM work. A planted bug (two moves for an adjacent swap) shrinks to the two-item list zero, one becoming one, zero within a second.
 
 Two lessons recorded: a property's measurement must not include building its own input (twice a test counted fresh-tree construction as the library's work), and a shrinker must be bounded by attempts, not by successful reductions, or a failing slow property hangs.
 
@@ -544,6 +566,23 @@ Why branches mostly won here: in the prefix and suffix loops, the hole-kind swit
 
 1. **Batched cloning** (cloning a fragment of 10, 50 or 250 prefilled rows at once, as vanillajs-lite does) against one clone per row, timed to forced layout, medians of 41 runs for 1,000 rows and 15 runs for 10,000 rows: 1,000 rows took 34.6 ms singly and 36.1 to 39.6 ms batched; 10,000 rows took 409.6 ms singly and 407.6 to 422.3 ms batched. Batching brought no gain, so the library clones one row at a time.
 2. **State-preserving move against insertion**, 1,000 rows, medians of 31 runs: swapping two rows took 2.6 ms with `moveBefore` and 2.3 ms with `insertBefore`; reversing 999 rows took 29.2 ms and 31.6 ms. Same speed within noise. A focused input inside a moved row kept focus with `moveBefore` and lost it with `insertBefore`; `moveBefore` on a parent outside the document threw a hierarchy request error.
+
+### First fill: whitespace and detach (2026-10-27)
+
+One interleaved experiment on the low-level entry, both factors changing only a list's first fill: removing the owned parent's leftover whitespace text (the page's indentation inside `<tbody>`) before filling, and `detach` (take the parent out of the document while filling). 6 rounds, rotated and reversed, 60 samples per test, with an A/A pair and vanillajs-lite; two-sided 90% bootstrap CIs.
+
+| variant | score | ratio to base, 90% CI | notes |
+| --- | ---: | ---: | --- |
+| base | 1.018 | | |
+| base, second copy (A/A) | 1.031 | 1.012 (1.002 to 1.069) | the CI width comes from partial update's total, 15 to 24 ms between rounds |
+| whitespace removed | 1.086 | 1.067 (1.059 to 1.075) | slower: partial update total 15.1 to 24.3 ms |
+| detach | 1.015 | 0.996 (0.987 to 1.060) | create 10,000 rows script 12.0 to 11.6 ms (0.96 to 0.97), total 204 to 196; clear script 6.6 to 6.4 |
+| both | 1.010 | 0.992 (0.986 to 1.057) | as detach |
+| vanillajs-lite | 1.049 | base / vanillajs-lite 0.970 (0.946 to 1.010): non-inferior | |
+
+Without partial update the scores are base 1.021, A/A 1.025, detach 1.013, both 1.010, vanillajs-lite 1.007.
+
+Whitespace removal is rejected: it makes partial update's rendering slower, not faster. Detach is kept as an option and turned on in the low-level benchmark app; the update and swap regressions an earlier, smaller run showed were noise. The view layer does not detach: its lists live in containers an app may scroll or focus.
 
 ## Part 4: Versioning and packaging
 
@@ -583,6 +622,12 @@ What published work and current browser engineering say about the costs this lib
 ## Change log
 
 Newest first.
+
+- 2026-10-27: Version 0.0.11. Locators generate no code: a template's hole paths compile to a short program of firstChild and nextSibling steps that one loop runs, so templates work under a content security policy without `unsafe-eval` (the js-framework-benchmark CSP check now passes for both the low-level and the declarative entry; before, both failed it). Chrome microbenchmark, 2,000 rows of a four-hole template: 82.4 ns per locate against 86.9 for the generated function. Unit test: compiling, mounting and updating never call `Function`.
+
+- 2026-10-27: Version 0.0.10. Opt-in skips for kept list items: Layer 2 lists take `pure` (an unchanged item object is not updated) and `same(last, next)` (items judged equal are not updated; implies pure), with `refresh(key)` to update one entry again and `invalidate()` to update all on the next set. Views' `list(items, key, render, options)` takes `pure`, `selected` (render gets whether the item is selected; a new selection renders only the two rows it moves between) and `same`. Official benchmark, view entry with a pure list and the selection against the plain one, 6 interleaved rounds, 60 samples per test, Chrome script time with two-sided 90% CIs of the ratio: select 1.3 to 0.9 ms (0.57 to 0.69), partial update 1.4 to 1.1 (0.71 to 0.89), swap 1.2 to 0.4 (0.08 to 0.45), remove 0.7 to 0.4 (0.57 to 0.71); score ratio 1.000 (0.988 to 1.021), inconclusive at this sample size. herdsman-cases with `same` on fresh snapshots: 0.995 (0.986 to 1.014), equivalent, so it does not change herdsman web's screens, which are bound by rendering. Profile (CDP, select at 4x CPU, 10 runs): view script per click 1.16 to 0.49 ms; top self time before: the list's update 0.37 ms and patch 0.22 (every row re-rendered, 117 kB allocated by the row function); after: delegated dispatch 0.27 and setList 0.08.
+
+- 2026-10-27: First-fill experiment on the low-level entry (60 samples per test, A/A pair): removing an owned parent's leftover whitespace before the first fill is rejected (partial update total 15.1 to 24.3 ms); `detach` is turned on in the low-level benchmark app (create 10,000 rows script 12.0 to 11.6 ms, 90% CI of the ratio 0.96 to 0.97); the earlier rejection of detach was noise. Low-level entry against vanillajs-lite: 0.970 (90% CI 0.946 to 1.010), non-inferior. No library change.
 
 - 2026-10-27: Version 0.0.9. Delegated events find instances by descent from the render root along the event's path (child holes, list entries, runs), so views whose handlers are all delegated put no mark on their elements. Official benchmark, Chrome script time, 3 interleaved rounds with an A/A pair (15 samples): create 10,000 rows 13.5 to 12.9 ms (95% CI of the ratio 0.92 to 0.97), clear 7.0 to 6.6; other tests unchanged.
 - 2026-10-27: "Integration with dom.ts" rewritten as "Integration with herdsman web": the app uses views only; morph and `renderDirect` have no app user and stay exported.

@@ -42,6 +42,11 @@ beforeEach(installFakeDocument);
 const fake = (n: unknown): FakeElement => n as FakeElement;
 const box = (): FakeElement => fake(document.createElement("main"));
 const first = (root: FakeElement): FakeElement => root.firstChild as FakeElement;
+// The text of each element in the first child of root (a list's rows).
+const texts = (root: FakeElement): string[] =>
+  first(root)
+    .childNodes.filter((n) => n.nodeType === 1)
+    .map((n) => n.textContent ?? "");
 // Elements and non-empty text, so a slot's empty anchor does not count.
 const shape = (n: FakeNode): string =>
   n.nodeType === 3
@@ -205,6 +210,73 @@ describe("keyed lists", () => {
     render(asDom(root), Ul([pick(0)]));
     render(asDom(root), Ul([pick(2)]));
     expect(shape(root)).toBe("<main><ul><li>#1</li><li><b>#2</b></li><li>#3</li></ul></main>");
+  });
+
+  test("a pure list renders only new items, changed items, or all when its render function changes", () => {
+    const root = box();
+    const a = { id: 1, t: "a" },
+      b = { id: 2, t: "b" },
+      c = { id: 3, t: "c" };
+    let calls: string[] = [];
+    const rowFor = (mark: string) => (it: { id: number; t: string }) => {
+      calls.push(it.t);
+      return Li([it.t + mark]);
+    };
+    const r1 = rowFor("");
+    const draw = (its: { id: number; t: string }[], r: typeof r1) =>
+      render(asDom(root), Ul([list(its, (it) => it.id, r, { pure: true })]));
+    draw([a, b, c], r1);
+    expect(calls).toEqual(["a", "b", "c"]);
+    calls = [];
+    const b2 = { id: 2, t: "B" };
+    draw([c, b2, a], r1); // moved a and c are the same objects: only b2 renders
+    expect(calls).toEqual(["B"]);
+    expect(texts(root)).toEqual(["c", "B", "a"]);
+    calls = [];
+    draw([c, b2, a], rowFor("!")); // a new render function: everything renders
+    expect(calls.sort()).toEqual(["B", "a", "c"]);
+    expect(texts(root)).toEqual(["c!", "B!", "a!"]);
+  });
+
+  test("a pure list's selection renders only the rows it leaves and reaches", () => {
+    const root = box();
+    type It = { id: number; t: string };
+    const [a, b, c] = [1, 2, 3].map((id): It => ({ id, t: "abc"[id - 1]! }));
+    let calls: string[] = [];
+    const row = (it: It, selected: boolean) => {
+      calls.push(it.t);
+      return Li([selected ? `[${it.t}]` : it.t]);
+    };
+    const draw = (its: It[], sel?: number) =>
+      render(asDom(root), Ul([list(its, (it) => it.id, row, { pure: true, selected: sel })]));
+    draw([a!, b!, c!], 4); // the selected key is not in the list yet
+    expect(texts(root)).toEqual(["a", "b", "c"]);
+    calls = [];
+    draw([a!, b!, c!], 2);
+    expect(calls).toEqual(["b"]);
+    expect(texts(root)).toEqual(["a", "[b]", "c"]);
+    calls = [];
+    draw([a!, b!, c!], 3);
+    expect(calls.sort()).toEqual(["b", "c"]);
+    expect(texts(root)).toEqual(["a", "b", "[c]"]);
+    calls = [];
+    draw([c!, a!, b!], 3); // the selected row moves: nothing renders
+    expect(calls).toEqual([]);
+    expect(texts(root)).toEqual(["[c]", "a", "b"]);
+    draw([a!, b!], 3); // the selected key is removed
+    expect(texts(root)).toEqual(["a", "b"]);
+    draw([a!, b!, c!], 3); // and comes back: its new row starts selected
+    expect(texts(root)).toEqual(["a", "b", "[c]"]);
+    draw([{ id: 3, t: "C" }], 3); // replaced by a new item with the same key
+    expect(texts(root)).toEqual(["[C]"]);
+    draw([], 3); // cleared
+    expect(texts(root)).toEqual([]);
+    draw([a!, c!], 3);
+    expect(texts(root)).toEqual(["a", "[c]"]);
+    calls = [];
+    draw([a!, c!]); // no selection
+    expect(calls).toEqual(["c"]);
+    expect(texts(root)).toEqual(["a", "c"]);
   });
 
   test("nested lists: cards move between lanes and reorder within one", () => {

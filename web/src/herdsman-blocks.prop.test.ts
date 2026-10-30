@@ -265,3 +265,95 @@ describe("morph properties", () => {
     );
   });
 });
+
+describe("pure list properties", () => {
+  test("a pure list, or one with same, ends like a plain one, with refresh for a mark and invalidate for a suffix", () => {
+    interface Item {
+      readonly id: number;
+      readonly label: string;
+    }
+    // Each step: an order of ids, per position whether the item is a new
+    // object, the marked id (update reads it besides the item, so the pure
+    // list refreshes the old and the new marked entry), and a suffix every
+    // entry reads (a change invalidates the pure list).
+    interface Step {
+      readonly ids: number[];
+      readonly fresh: boolean[];
+      readonly label: string;
+      readonly mark: number;
+      readonly suffix: string;
+    }
+    const gen: Gen<Step[]> = (c) =>
+      Array.from({ length: 2 + c.int(6) }, () => {
+        const pool = [1, 2, 3, 4, 5, 6, 7, 8];
+        const ids: number[] = [];
+        const n = c.int(9);
+        for (let i = 0; i < n && pool.length; i++) ids.push(pool.splice(c.int(pool.length), 1)[0]!);
+        return {
+          ids,
+          fresh: ids.map(() => c.int(3) === 0),
+          label: c.pick(["a", "b", "c"]),
+          mark: c.int(10),
+          suffix: c.pick(["", "", "", "!"]),
+        };
+      });
+    let mark = 0,
+      suffix = "";
+    const make = (pure: boolean, same?: (a: Item, b: Item) => boolean) => {
+      const p = el("ul");
+      const write = (li: FakeElement, it: Item): void => {
+        li.textContent = `${it.id}${it.label}${it.id === mark ? "*" : ""}${suffix}`;
+      };
+      const l = new List<Item, FakeElement, number>(asDom(p), {
+        key: (it) => it.id,
+        create: (it) => {
+          const li = el("li");
+          write(li, it);
+          return li;
+        },
+        update: write,
+        root: (li) => asDom(li),
+        owns: true,
+        pure,
+        ...(same ? { same } : {}),
+      });
+      return { p, l };
+    };
+    assertProperty(
+      "pure list",
+      gen,
+      (steps) => {
+        const a = make(true),
+          b = make(false),
+          c = make(false, (x, y) => x.label === y.label); // fresh objects with the same label are the same
+        const last = new Map<number, Item>();
+        mark = 0;
+        suffix = "";
+        for (const st of steps) {
+          const items = st.ids.map((id, i) => {
+            const prev = last.get(id);
+            const it = prev === undefined || st.fresh[i] ? { id, label: st.label } : prev;
+            last.set(id, it);
+            return it;
+          });
+          const was = mark;
+          mark = st.mark;
+          if (st.suffix !== suffix) {
+            suffix = st.suffix;
+            a.l.invalidate();
+            c.l.invalidate();
+          }
+          for (const x of [a, c]) {
+            x.l.set(items);
+            x.l.refresh(was);
+            x.l.refresh(mark);
+          }
+          b.l.set(items);
+          expect(a.p.childNodes.map((n) => n.textContent)).toEqual(b.p.childNodes.map((n) => n.textContent));
+          expect(c.p.childNodes.map((n) => n.textContent)).toEqual(b.p.childNodes.map((n) => n.textContent));
+        }
+      },
+      3000,
+    );
+  });
+});
