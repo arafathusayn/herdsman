@@ -7,7 +7,7 @@ import { dispatch, dump, installDom, markup } from "../testdom.ts";
 const g = globalThis as unknown as Record<string, unknown>;
 g["location"] ??= { search: "" };
 g["window"] ??= { addEventListener: () => {} };
-const { openNewRoute } = await import("./new-route.ts");
+const { openNewRoute } = await import("./new-route.tsx");
 
 const realFetch = globalThis.fetch;
 // The test DOM gives a view's elements the dialog methods the app calls

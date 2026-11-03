@@ -3,7 +3,8 @@ import { beforeAll, expect, test } from "bun:test";
 import { FakeElement } from "../herdsman-blocks.testdom.ts";
 import { all, byName, dispatch, dump, find, installDom, markup } from "../testdom.ts";
 import type { Catalog, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
-import type { Deps } from "./route-form.ts";
+import { createRouteFormState } from "./route-form-state.ts";
+import type { Deps } from "./route-form.tsx";
 
 beforeAll(installDom);
 
@@ -72,7 +73,7 @@ interface Harness {
 }
 
 async function mountForm(answer?: Promise<RouteResult>, keepRecommended = false): Promise<Harness> {
-  const { routeForm } = await import("./route-form.ts");
+  const { routeForm } = await import("./route-form.tsx");
   const placeholder = document.createElement("form");
   const h: Partial<Harness> = { sent: [], reads: [], debounce: [] };
   const deps: Deps = {
@@ -387,11 +388,78 @@ const bareDeps = {
   every: () => () => {},
   later: () => () => {},
 } as Deps;
+
+test("a folder changed away and back ignores the first GitHub response", async () => {
+  const reads: { folder: string; resolve(value: import("../types.ts").GitHubAccess): void }[] = [];
+  const controller = createRouteFormState(catalog, state, {
+    ...bareDeps,
+    github: (folder) => new Promise((resolve) => reads.push({ folder, resolve })),
+  });
+  controller.change({ folder: "/a" });
+  controller.change({ folder: "/b" });
+  controller.change({ folder: "/a" });
+  const access = { repo: "new/repo", accounts: [], suggested: "" };
+  reads[2]!.resolve(access);
+  await flush();
+  reads[0]!.resolve({ ...access, repo: "stale/repo" });
+  reads[1]!.resolve({ ...access, repo: "other/repo" });
+  await flush();
+  expect(reads.map((read) => read.folder)).toEqual(["/a", "/b", "/a"]);
+  expect(controller.state().github?.repo).toBe("new/repo");
+  controller.stop();
+});
+
+test("stopping a form cancels its timers and ignores pending requests and edits", async () => {
+  let cancellations = 0;
+  let rejectCreate!: (error: Error) => void;
+  let resolveGitHub!: (value: import("../types.ts").GitHubAccess) => void;
+  let resolveInbox!: (value: InboxState) => void;
+  const failures: unknown[] = [];
+  const controller = createRouteFormState(catalog, state, {
+    ...bareDeps,
+    createRoute: () =>
+      new Promise((_resolve, reject) => {
+        rejectCreate = reject;
+      }),
+    inboxState: () =>
+      new Promise((resolve) => {
+        resolveInbox = resolve;
+      }),
+    github: () =>
+      new Promise((resolve) => {
+        resolveGitHub = resolve;
+      }),
+    every: () => () => {
+      cancellations++;
+    },
+    later: () => () => {
+      cancellations++;
+    },
+    failed: (error) => failures.push(error),
+  });
+  controller.start();
+  controller.change({ folder: "/repo", inbox: "/Users/me/inbox", request: "Build it" });
+  resolveGitHub({ repo: "o/r", accounts: [], suggested: "" });
+  await flush();
+  controller.submit({ preventDefault() {}, submitter: null } as SubmitEvent);
+  expect(controller.state().busy).toBe(true);
+  controller.stop();
+  controller.stop();
+  const stopped = controller.state();
+  rejectCreate(new Error("late error"));
+  resolveInbox(inbox());
+  controller.change({ request: "late edit" });
+  controller.setCatalog({ ...catalog, home: "/late" });
+  await flush();
+  expect(controller.state() === stopped).toBe(true);
+  expect(cancellations).toBe(2);
+  expect(failures).toEqual([]);
+});
 // Loaded once the fake document is in place; formOf builds a form at once,
 // before any probe's answer.
-let routeForm: typeof import("./route-form.ts").routeForm;
+let routeForm: typeof import("./route-form.tsx").routeForm;
 beforeAll(async () => {
-  ({ routeForm } = await import("./route-form.ts"));
+  ({ routeForm } = await import("./route-form.tsx"));
 });
 function formOf(
   c: Catalog,

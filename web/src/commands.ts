@@ -20,7 +20,7 @@ import type { Route } from "./types.ts";
 import { applyTheme, type Theme, toast } from "./ui.ts";
 import { openAppearance } from "./views/appearance.tsx";
 import { openHosts, switchTo } from "./views/hosts.tsx";
-import { openNewRoute } from "./views/new-route.ts";
+import { openNewRoute } from "./views/new-route.tsx";
 
 export interface Context {
   app: App;

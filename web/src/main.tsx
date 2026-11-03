@@ -38,7 +38,7 @@ import {
 } from "./views/hosts.tsx";
 import { LogView } from "./views/log-view.tsx";
 import { createMessagesState, MessagesView } from "./views/messages.tsx";
-import { openNewRoute } from "./views/new-route.ts";
+import { openNewRoute } from "./views/new-route.tsx";
 import { showPairing } from "./views/pair.tsx";
 import { ActivityView, ChecklistView, RouteShell, SessionView, TabRow } from "./views/route.tsx";
 import {

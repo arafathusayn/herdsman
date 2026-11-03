@@ -72,13 +72,13 @@ void mock.module("../ui.ts", () => ({
 
 const dialog = (): FakeElement => {
   const body = (document as unknown as { body: FakeElement }).body;
-  return body.lastChild as FakeElement;
+  return body.childNodes.find((node): node is FakeElement => node.nodeType === 1)!;
 };
 
 // The dialog wires the answers to the form: the custom setup opens the
 // form with the recommended setup off and the previous choice filled in.
 test("the New route dialog carries the setup answer and the previous choice into the form", async () => {
-  const { openNewRoute } = await import("./new-route.ts");
+  const { openNewRoute } = await import("./new-route.tsx");
   openNewRoute();
   const dlg = dialog();
   expect(dlg["open"]).toBe(true);
@@ -97,13 +97,13 @@ test("the New route dialog carries the setup answer and the previous choice into
   expect(forms.length).toBe(1);
   expect(find(forms[0]!, (e) => e.getAttribute("name") === "start")).toBeDefined();
   (dlg as unknown as HTMLDialogElement).close();
-  // Closing removes the dialog; its form stays as it was.
+  // Closing removes the dialog and disposes its owned form.
   expect(dlg.parentNode).toBeNull();
-  expect(find(dlg, (e) => e.getAttribute("name") === "main-model")).toBeDefined();
+  expect(find(dlg, (e) => e.getAttribute("name") === "main-model")).toBeUndefined();
 });
 
 test("a catalog that cannot be read shows the error in the dialog", async () => {
-  const { openNewRoute } = await import("./new-route.ts");
+  const { openNewRoute } = await import("./new-route.tsx");
   failCatalog = true;
   openNewRoute();
   const dlg = dialog();
