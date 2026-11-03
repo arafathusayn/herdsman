@@ -40,8 +40,16 @@ const realFetch = globalThis.fetch;
 let actions: unknown[] = [];
 let panels: { destroy(): void }[] = [];
 let focused: FakeElement | null = null;
+let previousStorage: unknown;
 beforeEach(() => {
   installDom();
+  previousStorage = g["localStorage"];
+  const storage = new Map<string, string>();
+  g["localStorage"] = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => void storage.set(key, value),
+    removeItem: (key: string) => void storage.delete(key),
+  };
   actions = [];
   focused = null;
   const doc = g["document"] as Record<string, unknown>;
@@ -60,16 +68,12 @@ beforeEach(() => {
     actions.push(JSON.parse(String(init?.body)));
     return new Response(JSON.stringify({ ok: true }));
   }) as unknown as typeof fetch;
-  try {
-    localStorage.clear();
-  } catch {
-    // No storage: the panel's choices last for the test only.
-  }
 });
 afterEach(() => {
   for (const p of panels) p.destroy();
   panels = [];
   globalThis.fetch = realFetch;
+  g["localStorage"] = previousStorage;
   delete proto["focus"];
   delete proto["blur"];
   delete proto["append"];
@@ -415,7 +419,7 @@ test("the terminal view takes typing and keeps keys from the page", async () => 
   const [, termBtn] = elements(byClass(p.el, "view-switch"));
   dispatch(termBtn!, "click");
   const input = byClass(p.el, "term-input");
-  expect(focused).toBe(input);
+  expect(focused === input).toBe(true);
   dispatch(input, "focus"); // what the browser fires on focus()
   expect(input.disabled).toBe(false);
   expect(fake(p.el).getAttribute("class")).toBe("panel terminal-view typing");
