@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
+import { applyCodeTheme } from "../appearance.ts";
 import { render } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { icon, icons } from "../icons.ts";
@@ -36,13 +37,12 @@ const realFetch = globalThis.fetch;
 const realGo = store.go;
 let went: unknown[] = [];
 let sources: DiffSource[] = [];
-let dataset: Record<string, string> = {};
 
 beforeEach(() => {
   installFakeDocument();
-  dataset = { code: "off" };
   const doc = g["document"] as Record<string, unknown>;
-  doc["documentElement"] = { dataset };
+  doc["documentElement"] = { dataset: {}, style: { setProperty() {}, removeProperty() {} } };
+  applyCodeTheme("off", false);
   doc["visibilityState"] = "visible";
   proto["value"] = ""; // the search input's
   win["setInterval"] = () => 1;
@@ -271,7 +271,7 @@ test("before the first poll, then sources, files, the head and an inline diff as
 });
 
 test("side by side, with highlighting: both cells of a context line show its colored code", async () => {
-  dataset["code"] = "on";
+  applyCodeTheme("match", false);
   const v = await opened();
   dispatch(child(v.el, 1, 0, 1, 1), "click"); // Side by side
   expect(dump(child(v.el, 1, 1))).toBe(

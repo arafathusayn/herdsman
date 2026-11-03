@@ -1,26 +1,24 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { child, html, render, type ViewNode } from "./herdsman-blocks-view.ts";
-import { FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
+import { signal } from "@reactre/core";
+
+import { applyCodeTheme } from "./appearance.ts";
+import { installFakeDocument, ops, resetOps } from "./herdsman-blocks.testdom.ts";
 import { languageOf, tokenizeLines } from "./highlight.ts";
-import { codeBlock, type CodeNode, renderMarkdown } from "./markdown.ts";
+import { CodeBlock, Markdown } from "./markdown.tsx";
+import { mount } from "./test-mount.ts";
 import { dump, markup } from "./testdom.ts";
 
 // What markdown needs beyond the fake DOM: the page's highlighting switch
 // (documentElement's data-code).
 const g = globalThis as unknown as { document: Record<string, unknown> };
-const page = { dataset: {} as Record<string, string> };
+const page = { dataset: {} as Record<string, string>, style: { setProperty() {}, removeProperty() {} } };
 beforeEach(() => {
   installFakeDocument();
   g.document["documentElement"] = page;
   page.dataset = {};
+  applyCodeTheme("match", false);
 });
-
-const rendered = (v: ViewNode): FakeNode => {
-  const box = document.createElement("div");
-  render(box, v);
-  return box.firstChild as unknown as FakeNode;
-};
 
 const sample = `# Route: ship the **web** view
 
@@ -95,40 +93,68 @@ describe("markdown as views", () => {
   ];
 
   test("renders every block kind, whole and block by block", () => {
-    page.dataset["code"] = "off";
-    expect(dump(rendered(renderMarkdown(sample)))).toBe(`<div class="md">${blocks.join("")}</div>`);
+    applyCodeTheme("off", false);
+    expect(dump(mount(() => <Markdown source={sample} />))).toBe(`<div class="md">${blocks.join("")}</div>`);
     const parts = sample.split("\n\n");
     expect(parts.length).toBe(blocks.length);
     parts.forEach((block, i) =>
-      expect(dump(rendered(renderMarkdown(block)))).toBe(`<div class="md">${blocks[i]}</div>`),
+      expect(dump(mount(() => <Markdown source={block} />))).toBe(`<div class="md">${blocks[i]}</div>`),
     );
   });
 
   test("text that looks like markup stays text", () => {
-    const md = rendered(renderMarkdown("<script>x</script> **<i>b</i>**"));
+    const md = mount(() => <Markdown source="<script>x</script> **<i>b</i>**" />);
     expect(dump(md)).toBe('<div class="md"><p><script>x</script> <strong><i>b</i></strong></p></div>');
-    const p = (md as FakeElement).firstChild!;
+    const p = md.childNodes.find((node) => node.nodeType === 1)!;
     expect(p.childNodes.filter((n) => n.nodeType === 1).length).toBe(1); // only the strong
   });
 
   test("highlighted code: a span per token kind, text between, as the pieces say", () => {
     const lines = ["const x = 1; // one", 'let s = "two";'];
     const lang = languageOf("ts");
-    const Code = html`<code>${child<CodeNode>()}</code>`;
     const want = tokenizeLines(lang, lines)
       .map((pieces) => pieces.map(([k, t]) => (k ? `<span class="hl-${k}">${t}</span>` : t)).join(""))
       .join("\n");
-    expect(dump(rendered(Code([codeBlock(lines, lang)])))).toBe(`<code>${want}</code>`);
+    expect(
+      dump(
+        mount(() => (
+          <code>
+            <CodeBlock lines={lines} lang={lang} />
+          </code>
+        )),
+      ),
+    ).toBe(`<code>${want}</code>`);
     expect(want).toContain("hl-");
-    page.dataset["code"] = "off";
-    expect(codeBlock(lines, lang)).toBe(lines.join("\n"));
+    applyCodeTheme("off", false);
+    expect(
+      mount(() => (
+        <code>
+          <CodeBlock lines={lines} lang={lang} />
+        </code>
+      )).textContent,
+    ).toBe(lines.join("\n"));
   });
 
   test("the same document rendered again writes nothing new", () => {
-    const box = document.createElement("div");
-    render(box, renderMarkdown(sample));
-    const first = box.firstChild!.firstChild;
-    render(box, renderMarkdown(sample));
-    expect(box.firstChild!.firstChild).toBe(first); // positional runs: blocks patched in place
+    const [value, setValue] = signal({ source: sample });
+    const doc = mount(() => <Markdown source={value().source} />);
+    const first = doc.childNodes.find((node) => node.nodeType === 1);
+    resetOps();
+    setValue({ source: sample });
+    expect(doc.childNodes.find((node) => node.nodeType === 1)).toBe(first);
+    expect(Object.values(ops).every((count) => count === 0)).toBe(true);
+  });
+
+  test("editing a document updates positional blocks and inline text in place", () => {
+    const [source, setSource] = signal("# Before\n\nA **bold** word\n\n- [ ] open");
+    const doc = mount(() => <Markdown source={source()} />);
+    const before = doc.childNodes.filter((node) => node.nodeType === 1);
+    setSource("# After\n\nA **new** word\n\n- [x] done");
+    const after = doc.childNodes.filter((node) => node.nodeType === 1);
+    expect(after.length).toBe(before.length);
+    expect(after.map((node, index) => node === before[index])).toEqual([true, true, true]);
+    expect(dump(doc)).toBe(
+      '<div class="md"><h2>After</h2><p>A <strong>new</strong> word</p><ul><li class="task"><input checked="" disabled="" type="checkbox"></input> done</li></ul></div>',
+    );
   });
 });

@@ -46,9 +46,5 @@ export function createAppState(initial: App, navigate: (view: View, push: boolea
     addEntries(entries: Entry[]): void {
       setState((app) => ({ ...app, entries: [...app.entries, ...entries].slice(-400) }));
     },
-    // Temporary invalidation while the remaining view controllers move to signals.
-    refresh(): void {
-      setState((app) => ({ ...app }));
-    },
   };
 }

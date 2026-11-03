@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { render } from "../herdsman-blocks-view.ts";
+import { applyCodeTheme } from "../appearance.ts";
+import { Icon } from "../components/icons.tsx";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
-import { icon, icons } from "../icons.ts";
+import { icons } from "../icons.ts";
 import { ago } from "../model.ts";
+import { mount } from "../test-mount.ts";
 import { dispatch, markup } from "../testdom.ts";
 import type { Route, RouteFile } from "../types.ts";
 
@@ -12,7 +14,12 @@ const g = globalThis as unknown as Record<string, unknown>;
 g["location"] ??= { search: "", pathname: "/" };
 g["window"] ??= { addEventListener: () => {} };
 const { store } = await import("../store.ts");
-const { FilesView } = await import("./files.ts");
+const { FilesView, createFilesState } = await import("./files.tsx");
+const createView = (routeId: string) => {
+  const state = createFilesState(routeId);
+  const el = mount(() => <FilesView state={state} />);
+  return { ...state, el };
+};
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 const fake = (n: unknown): FakeElement => n as FakeElement;
@@ -26,10 +33,10 @@ let fetched: string[] = [];
 beforeEach(() => {
   installFakeDocument();
   const doc = g["document"] as Record<string, unknown>;
-  doc["documentElement"] = { dataset: {} }; // code highlighting on
+  doc["documentElement"] = { dataset: {}, style: { setProperty() {}, removeProperty() {} } };
+  applyCodeTheme("match", false);
   // The view scrolls the cursor row into view.
   proto["querySelector"] = () => null;
-  proto["value"] = ""; // the search input's
   went = [];
   fetched = [];
   served = {};
@@ -44,7 +51,6 @@ beforeEach(() => {
 afterEach(async () => {
   await settle(); // loads still pending render before the fakes go
   delete proto["querySelector"];
-  delete proto["value"];
   store.go = realGo;
   globalThis.fetch = realFetch;
 });
@@ -63,9 +69,7 @@ const dump = (n: FakeNode): string => {
 };
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 const iconMarkup = (paths: readonly string[], label?: string): string => {
-  const box = document.createElement("div");
-  render(box, icon(paths, label));
-  return dump(box.firstChild as unknown as FakeNode);
+  return dump(mount(() => <Icon paths={paths} {...(label ? { label } : {})} />));
 };
 const child = (n: unknown, ...path: number[]): FakeElement => {
   let e = fake(n);
@@ -91,7 +95,7 @@ const routeOf = (files: RouteFile[]): Route => ({
 const files = [file("00-route.md"), file("reports/b.md"), file("reports/a.md"), file("probes/p.md"), file("doc/x.md")];
 
 test("before the first update it is an empty shell", () => {
-  const v = new FilesView("r1");
+  const v = createView("r1");
   expect(dump(fake(v.el))).toBe(markup`
     <div class="files">
       <div class="file-pane">
@@ -112,7 +116,7 @@ test("before the first update it is an empty shell", () => {
 
 test("groups, the viewer and the loaded markdown render what the h() version did", async () => {
   served["00-route.md"] = "# Route\n\nSome *text*.";
-  const v = new FilesView("r1");
+  const v = createView("r1");
   v.update(routeOf(files), "");
   // The groups (probes closed), the head of 00-route.md, and a body.
   const shell = (body: string): string => markup`
@@ -205,7 +209,7 @@ test("groups, the viewer and the loaded markdown render what the h() version did
 
 test("an unchanged update writes nothing and keeps every node", async () => {
   served["00-route.md"] = "hello";
-  const v = new FilesView("r1");
+  const v = createView("r1");
   const route = routeOf(files);
   v.update(route, "");
   await settle();
@@ -218,7 +222,7 @@ test("an unchanged update writes nothing and keeps every node", async () => {
 });
 
 test("search: marked matches, a cursor, Enter opens the cursor's file and Escape clears", () => {
-  const v = new FilesView("r1");
+  const v = createView("r1");
   v.update(routeOf(files), "doc/x.md");
   const search = child(v.el, 0, 0, 1);
   search["value"] = "reports";
@@ -271,7 +275,7 @@ test("search: marked matches, a cursor, Enter opens the cursor's file and Escape
 });
 
 test("a row click opens its file; a closed group stays closed across updates", () => {
-  const v = new FilesView("r1");
+  const v = createView("r1");
   const route = routeOf(files);
   v.update(route, "");
   const reports = child(v.el, 0, 1, 1);
@@ -290,9 +294,9 @@ test("a row click opens its file; a closed group stays closed across updates", (
 });
 
 test("Raw shows the source; a failed load offers Try again", async () => {
-  (g["document"] as { documentElement: { dataset: Record<string, string> } }).documentElement.dataset["code"] = "off";
+  applyCodeTheme("off", false);
   served["00-route.md"] = "# Title";
-  const v = new FilesView("r1");
+  const v = createView("r1");
   v.update(routeOf(files), "");
   await settle();
   dispatch(child(v.el, 1, 0, 1, 1), "click"); // Raw
@@ -315,4 +319,35 @@ test("Raw shows the source; a failed load offers Try again", async () => {
   dispatch(child(body, 1), "click");
   await settle();
   expect(dump(body)).toBe('<div class="viewer-body"><pre class="raw">x</pre></div>');
+});
+
+test("highlighting changes update the open code without fetching the file again", async () => {
+  served["00-route.md"] = "```ts\nconst answer = 42;\n```";
+  const view = createView("r1");
+  view.update(routeOf(files), "");
+  await settle();
+  const pre = child(view.el, 1, 1, 0, 0);
+  expect(dump(pre)).toContain("hl-");
+  applyCodeTheme("off", false);
+  expect(child(view.el, 1, 1, 0, 0)).toBe(pre);
+  expect(dump(pre)).not.toContain("hl-");
+  expect(pre.textContent).toBe("const answer = 42;");
+  expect(fetched).toEqual(["00-route.md"]);
+});
+
+test("a file response arriving after a new selection is ignored", async () => {
+  const finish = new Map<string, (response: Response) => void>();
+  globalThis.fetch = (async (url: string) =>
+    new Promise<Response>((resolve) => {
+      finish.set(new URL(url, "http://x").searchParams.get("path")!, resolve);
+    })) as typeof fetch;
+  const view = createView("r1");
+  view.update(routeOf(files), "");
+  view.update(routeOf(files), "doc/x.md");
+  finish.get("doc/x.md")!(new Response("new selection"));
+  await settle();
+  finish.get("00-route.md")!(new Response("stale response"));
+  await settle();
+  expect(view.el.textContent).toContain("new selection");
+  expect(view.el.textContent).not.toContain("stale response");
 });

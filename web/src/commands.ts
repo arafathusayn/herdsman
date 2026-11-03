@@ -299,7 +299,6 @@ export function buildCommands(ctx: Context): Command[] {
       icon: icons.swatch,
       run: () => {
         applyCodeTheme(t.id);
-        store.refresh();
       },
     });
   for (const [t, label] of [

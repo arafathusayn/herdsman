@@ -173,7 +173,6 @@ export function AppearanceForm() {
         choose={(id) => {
           applyCodeTheme(id);
           setCode(id);
-          store.refresh();
         }}
       />
       <div class="dialog-actions">

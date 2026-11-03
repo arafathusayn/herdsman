@@ -2,7 +2,7 @@ import { batch, effect, Match, memo, onCleanup, Show, signal, Switch, untrack } 
 
 import { activityPinger } from "./activity.ts";
 import { AuthError, openStream, pairStatus, readChannel, sendActivity, startSession, useHost } from "./api.ts";
-import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "./appearance.ts";
+import { applyCodeTheme, applyTermScheme, highlighting, loadCodeTheme, loadTermScheme } from "./appearance.ts";
 import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
 import { mountRoot } from "./components/mount-root.ts";
@@ -27,7 +27,7 @@ import { AgentPanel } from "./views/agent.ts";
 import { openAppearance } from "./views/appearance.tsx";
 import { type ArtifactsState, ArtifactsView, createArtifactsState } from "./views/artifacts.tsx";
 import { DiffView } from "./views/diff.ts";
-import { FilesView } from "./views/files.ts";
+import { createFilesState, type FilesState, FilesView } from "./views/files.tsx";
 import {
   confirmHost,
   disposeHostScreen,
@@ -90,7 +90,7 @@ function toggleNav(): void {
     }
   }
 }
-let files: FilesView | null = null;
+let files: FilesState | null = null;
 let changes: DiffView | null = null; // polls git only while its tab shows
 let artifacts: ArtifactsState | null = null; // lists pages only while its tab shows
 const messages = createMessagesState();
@@ -445,13 +445,13 @@ function RouteScreen(props: { route: Route; app: App; idx: Index }) {
 }
 
 function DocsTab(props: { route: Route; selected: string }) {
-  const view = files?.routeId === props.route.id ? files : (files = new FilesView(props.route.id));
+  const view = files?.routeId === props.route.id ? files : (files = createFilesState(props.route.id));
   effect(() => {
     const route = props.route,
       selected = props.selected;
     untrack(() => view.update(route, selected));
   });
-  return view.el;
+  return <FilesView state={view} />;
 }
 
 function ChangesTab(props: { route: Route; app: App }) {
@@ -462,6 +462,7 @@ function ChangesTab(props: { route: Route; app: App }) {
   const view = changes;
   effect(() => {
     const selected = props.app.view;
+    highlighting();
     untrack(() => {
       view.update(selected.source, selected.diffFile);
       view.start();
