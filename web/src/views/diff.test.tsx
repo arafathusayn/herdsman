@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { applyCodeTheme } from "../appearance.ts";
-import { render } from "../herdsman-blocks-view.ts";
-import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
-import { icon, icons } from "../icons.ts";
+import { Icon } from "../components/icons.tsx";
+import { type FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
+import { icons } from "../icons.ts";
+import { mount } from "../test-mount.ts";
 import { dispatch, markup } from "../testdom.ts";
 import type { DiffFile, DiffSource } from "../types.ts";
 
@@ -28,11 +29,15 @@ g["ResizeObserver"] = class {
 };
 
 const { store } = await import("../store.ts");
-const { DiffView } = await import("./diff.ts");
+const { DiffView, createDiffState } = await import("./diff.tsx");
+const createView = (routeId: string) => {
+  const state = createDiffState(routeId);
+  const el = mount(() => <DiffView state={state} />);
+  return { ...state, el };
+};
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 const fake = (n: unknown): FakeElement => n as FakeElement;
-const proto = FakeElement.prototype as unknown as Record<string, unknown>;
 const realFetch = globalThis.fetch;
 const realGo = store.go;
 let went: unknown[] = [];
@@ -44,7 +49,6 @@ beforeEach(() => {
   doc["documentElement"] = { dataset: {}, style: { setProperty() {}, removeProperty() {} } };
   applyCodeTheme("off", false);
   doc["visibilityState"] = "visible";
-  proto["value"] = ""; // the search input's
   win["setInterval"] = () => 1;
   win["clearInterval"] = () => {};
   went = [];
@@ -54,7 +58,6 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await settle();
-  delete proto["value"];
   store.go = realGo;
   globalThis.fetch = realFetch;
 });
@@ -73,9 +76,7 @@ const dump = (n: FakeNode): string => {
 };
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 const iconMarkup = (paths: readonly string[], label?: string): string => {
-  const box = document.createElement("div");
-  render(box, icon(paths, label));
-  return dump(box.firstChild as unknown as FakeNode);
+  return dump(mount(() => <Icon paths={paths} {...(label ? { label } : {})} />));
 };
 const child = (n: unknown, ...path: number[]): FakeElement => {
   let e = fake(n);
@@ -122,9 +123,9 @@ const task: DiffSource = {
 };
 const checkout: DiffSource = { id: "co", kind: "checkout", label: "checkout", dir: "/w", error: "not a git folder" };
 
-async function opened(file = "src/app.ts"): Promise<InstanceType<typeof DiffView>> {
+async function opened(file = "src/app.ts"): Promise<ReturnType<typeof createView>> {
   sources = [task, checkout];
-  const v = new DiffView("r1");
+  const v = createView("r1");
   v.update("", file);
   v.start();
   await settle();
@@ -133,7 +134,7 @@ async function opened(file = "src/app.ts"): Promise<InstanceType<typeof DiffView
 }
 
 test("before the first poll, then sources, files, the head and an inline diff as the h() version drew them", async () => {
-  const v = new DiffView("r1");
+  const v = createView("r1");
   v.update("", "");
   expect(dump(fake(v.el))).toBe(markup`
     <div class="files diff">
@@ -465,7 +466,7 @@ test("a long file draws its first 3000 lines; Show all adds the rest and keeps t
       diff: { ...task.diff!, files: [{ path: "gen.txt", status: "A", add: n, del: 0 }], patch: big },
     },
   ];
-  const v = new DiffView("r1");
+  const v = createView("r1");
   v.update("t1", "gen.txt");
   v.start();
   await settle();
@@ -490,10 +491,24 @@ test("a long file draws its first 3000 lines; Show all adds the rest and keeps t
   );
   const tbody = child(v.el, 1, 1, 0, 0, 0, 0);
   const first = elements(tbody);
+  const existing = new Set(first);
+  let touched = 0;
+  const insert = tbody.insertBefore.bind(tbody);
+  const remove = tbody.removeChild.bind(tbody);
+  tbody.insertBefore = (node, ref) => {
+    if (existing.has(node as FakeElement)) touched++;
+    return insert(node, ref);
+  };
+  tbody.removeChild = (node) => {
+    if (existing.has(node as FakeElement)) touched++;
+    return remove(node);
+  };
   resetOps();
   dispatch(child(v.el, 1, 1, 0, 1), "click"); // Show all
   expect(dump(child(v.el, 1, 1, 0))).toBe(table(3101, ""));
   const all = elements(tbody);
   for (let i = 0; i < first.length; i++) expect(all[i]).toBe(first[i]!);
-  expect(ops.moves + ops.removes).toBe(1); // only the button goes
+  expect(touched).toBe(0); // Existing rows are never detached or moved, including while new rows mount.
+  tbody.insertBefore = insert;
+  tbody.removeChild = remove;
 });

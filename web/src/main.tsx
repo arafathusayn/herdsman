@@ -2,7 +2,7 @@ import { batch, effect, Match, memo, onCleanup, Show, signal, Switch, untrack } 
 
 import { activityPinger } from "./activity.ts";
 import { AuthError, openStream, pairStatus, readChannel, sendActivity, startSession, useHost } from "./api.ts";
-import { applyCodeTheme, applyTermScheme, highlighting, loadCodeTheme, loadTermScheme } from "./appearance.ts";
+import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "./appearance.ts";
 import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
 import { mountRoot } from "./components/mount-root.ts";
@@ -26,7 +26,7 @@ import { applyTheme } from "./ui.ts";
 import { AgentPanel } from "./views/agent.ts";
 import { openAppearance } from "./views/appearance.tsx";
 import { type ArtifactsState, ArtifactsView, createArtifactsState } from "./views/artifacts.tsx";
-import { DiffView } from "./views/diff.ts";
+import { createDiffState, type DiffState, DiffView } from "./views/diff.tsx";
 import { createFilesState, type FilesState, FilesView } from "./views/files.tsx";
 import {
   confirmHost,
@@ -91,7 +91,7 @@ function toggleNav(): void {
   }
 }
 let files: FilesState | null = null;
-let changes: DiffView | null = null; // polls git only while its tab shows
+let changes: DiffState | null = null; // polls git only while its tab shows
 let artifacts: ArtifactsState | null = null; // lists pages only while its tab shows
 const messages = createMessagesState();
 const [host, setHost] = signal<Host | null>(null);
@@ -457,19 +457,18 @@ function DocsTab(props: { route: Route; selected: string }) {
 function ChangesTab(props: { route: Route; app: App }) {
   if (changes?.routeId !== props.route.id) {
     changes?.stop();
-    changes = new DiffView(props.route.id);
+    changes = createDiffState(props.route.id);
   }
   const view = changes;
   effect(() => {
     const selected = props.app.view;
-    highlighting();
     untrack(() => {
       view.update(selected.source, selected.diffFile);
       view.start();
     });
   });
   onCleanup(() => view.stop());
-  return view.el;
+  return <DiffView state={view} />;
 }
 
 function ArtifactsTab(props: { route: Route; selected: string }) {
