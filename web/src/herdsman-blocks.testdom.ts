@@ -62,6 +62,10 @@ export class FakeNode {
   }
 
   insertBefore(n: FakeNode, ref: FakeNode | null): FakeNode {
+    if (n.nodeType === 11) {
+      while (n.firstChild) this.insertBefore(n.firstChild, ref);
+      return n;
+    }
     if (n.parentNode) {
       ops.moves++;
       n.parentNode.unlink(n);
@@ -207,7 +211,45 @@ export class FakeEvent {
   }
 }
 
+class FakeStyle {
+  private readonly element: FakeElement;
+  constructor(element: FakeElement) {
+    this.element = element;
+  }
+  get cssText(): string {
+    return this.element.getAttribute("style") ?? "";
+  }
+  set cssText(value: string) {
+    if (value) this.element.setAttribute("style", value);
+    else this.element.removeAttribute("style");
+  }
+  private declarations(): Map<string, string> {
+    return new Map(
+      this.cssText.split(";").flatMap((declaration) => {
+        const colon = declaration.indexOf(":");
+        return colon < 0 ? [] : [[declaration.slice(0, colon).trim(), declaration.slice(colon + 1).trim()]];
+      }),
+    );
+  }
+  setProperty(name: string, value: string): void {
+    const declarations = this.declarations();
+    declarations.set(name, value);
+    this.cssText = [...declarations].map(([key, text]) => `${key}: ${text};`).join(" ");
+  }
+  getPropertyValue(name: string): string {
+    return this.declarations().get(name) ?? "";
+  }
+  removeProperty(name: string): string {
+    const declarations = this.declarations();
+    const before = declarations.get(name) ?? "";
+    declarations.delete(name);
+    this.cssText = [...declarations].map(([key, text]) => `${key}: ${text};`).join(" ");
+    return before;
+  }
+}
+
 export class FakeElement extends FakeNode {
+  readonly style: FakeStyle = new FakeStyle(this);
   // Handler properties, like a browser element's (an event with none, such as
   // compositionstart, has no property: "oncompositionstart" in el is false).
   onclick: unknown = null;
@@ -240,6 +282,7 @@ export class FakeElement extends FakeNode {
     this.cls = v;
   }
   private attrs: Map<string, string> | null = null;
+  private inputValue = "";
   [prop: string]: unknown;
 
   private listeners: Map<string, ((e: { type: string; target: FakeNode }) => void)[]> | null = null;
@@ -261,6 +304,21 @@ export class FakeElement extends FakeNode {
   }
   hasAttribute(k: string): boolean {
     return k === "class" ? this.cls !== "" : (this.attrs?.has(k) ?? false);
+  }
+  get placeholder(): string {
+    return this.getAttribute("placeholder") ?? "";
+  }
+  set placeholder(value: string) {
+    this.setAttribute("placeholder", value);
+  }
+  get value(): string {
+    return this.tagName === "BUTTON" || this.tagName === "OPTION"
+      ? (this.getAttribute("value") ?? "")
+      : this.inputValue;
+  }
+  set value(value: string) {
+    if (this.tagName === "BUTTON" || this.tagName === "OPTION") this.setAttribute("value", value);
+    else this.inputValue = value;
   }
   /** data-* attributes as a plain object view, enough for h()'s Object.assign. */
   get dataset(): Record<string, string> {
@@ -345,6 +403,22 @@ export class FakeElement extends FakeNode {
 const TOKEN =
   /<!--([\s\S]*?)-->|<\/([a-z0-9-]+)\s*>|<([a-z0-9-]+)((?:\s+[^\s=>/]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>|([^<]+)/gi;
 const ATTR = /([^\s=>/]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+const VOID = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
 
 // Character references, as the HTML parser decodes them in text and
 // attribute values: numeric ones, and the common named ones. An unknown name
@@ -395,14 +469,16 @@ function parse(src: string, root: FakeElement): void {
   for (const m of src.matchAll(TOKEN)) {
     const top = stack[stack.length - 1]!;
     if (m[1] !== undefined) top.appendChild(new FakeComment(m[1]));
-    else if (m[2]) stack.pop();
-    else if (m[3]) {
+    else if (m[2]) {
+      const at = stack.findLastIndex((element) => element.tagName.toLowerCase() === m[2]!.toLowerCase());
+      if (at > 0) stack.length = at;
+    } else if (m[3]) {
       // As the HTML parser does: an svg element and its content are SVG, with case-kept tag names.
       const svg = top.namespaceURI === SVG_NS || m[3].toLowerCase() === "svg";
       const el = svg ? new FakeElement(m[3], SVG_NS) : new FakeElement(m[3].toUpperCase());
       for (const a of (m[4] ?? "").matchAll(ATTR)) el.setAttribute(a[1]!, decode(a[2] ?? a[3] ?? a[4] ?? ""));
       top.appendChild(el);
-      if (!m[5]) stack.push(el);
+      if (!m[5] && (svg || !VOID.has(m[3].toLowerCase()))) stack.push(el);
     } else if (m[6]) top.appendChild(new FakeText(decode(m[6])));
   }
   resetOps();
@@ -414,6 +490,7 @@ export function installFakeDocument(): void {
   g.document = {
     createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
     createTextNode: (data: string) => new FakeText(data),
+    createDocumentFragment: () => new FakeNode(11),
   };
   g.Node = FakeNode;
 }

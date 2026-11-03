@@ -1,0 +1,35 @@
+import { For } from "@reactre/core";
+
+/** A compiled SVG whose paths retain their identities when the glyph changes. */
+export function Icon(props: { paths: readonly string[]; label?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      class="icon"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-label={props.label || null}
+      aria-hidden={props.label ? null : "true"}
+    >
+      <For each={props.paths} key={(path) => path}>
+        {(path) => <path d={path} />}
+      </For>
+    </svg>
+  );
+}
+
+export function Logo() {
+  return (
+    <svg viewBox="0 0 32 32" class="logo" aria-hidden="true">
+      <rect width="32" height="32" rx="8" fill="#1d4d38" />
+      <g fill="none" stroke="#e9f6ef" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 6.5V26" />
+        <path d="M10 17.5a5.5 5.5 0 0 1 11 0v5.5a3 3 0 0 0 3 3" />
+      </g>
+      <circle cx="15.5" cy="24" r="2" fill="#5cc093" />
+    </svg>
+  );
+}

@@ -1,3 +1,5 @@
+import { batch, effect, untrack } from "@reactre/core";
+
 import { activityPinger } from "./activity.ts";
 import { AuthError, openStream, pairStatus, readChannel, sendActivity, startSession, useHost } from "./api.ts";
 import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "./appearance.ts";
@@ -15,14 +17,14 @@ import {
   upsert,
 } from "./hosts.ts";
 import { canonicalRoute, Index, paneSize, team } from "./model.ts";
-import { isMac, openPalette, paletteOpen } from "./palette.ts";
-import { loadWidths, navResizer } from "./resize.ts";
+import { isMac, openPalette, paletteOpen } from "./palette.tsx";
+import { loadWidths, navResizer } from "./resize.tsx";
 import { type App, store } from "./store.ts";
 import { installTooltips } from "./tooltip.ts";
 import type { Snapshot } from "./types.ts";
 import { applyTheme } from "./ui.ts";
 import { AgentPanel } from "./views/agent.ts";
-import { openAppearance } from "./views/appearance.ts";
+import { openAppearance } from "./views/appearance.tsx";
 import { ArtifactsView } from "./views/artifacts.ts";
 import { DiffView } from "./views/diff.ts";
 import { element, ElementView } from "./views/element-view.ts";
@@ -31,7 +33,7 @@ import { confirmHost, keepPendingLink, openHosts, showConnect, takePendingLink }
 import { logView } from "./views/log-view.ts";
 import { MessagesView } from "./views/messages.ts";
 import { openNewRoute } from "./views/new-route.ts";
-import { showPairing } from "./views/pair.ts";
+import { showPairing } from "./views/pair.tsx";
 import {
   activityView,
   checklistView,
@@ -63,6 +65,7 @@ if (!appRoot) throw new Error("index.html has no #app");
 const root: HTMLElement = appRoot;
 
 let panel: AgentPanel | null = null;
+let disposePairing: (() => void) | null = null;
 let navOpen = false; // the drawer on narrow screens
 let navCollapsed = readCollapsed(); // the sidebar on wide screens
 
@@ -86,7 +89,7 @@ function toggleNav(): void {
       // Not remembered, still applied.
     }
   }
-  store.emit();
+  store.refresh();
 }
 let files: FilesView | null = null;
 let changes: DiffView | null = null; // polls git only while its tab shows
@@ -136,7 +139,7 @@ const scrim = element(
   Scrim([
     () => {
       navOpen = false;
-      store.emit();
+      store.refresh();
     },
   ]),
 );
@@ -150,7 +153,10 @@ applyTermScheme(loadTermScheme(), false);
 applyCodeTheme(loadCodeTheme(), false);
 loadWidths();
 installTooltips();
-store.on(renderApp);
+effect(() => {
+  const app = store.state();
+  untrack(() => renderApp(app));
+});
 // The user's own clicks and keys (route tabs, Changes, a terminal) say the
 // user is here, at most every 10 s (A33); timers never do.
 const ping = activityPinger(sendActivity, 10_000);
@@ -215,7 +221,7 @@ async function boot(): Promise<void> {
   }
   host = current;
   useHost(current);
-  store.emit(); // shows "Connecting to …" while the host answers
+  store.refresh(); // shows "Connecting to …" while the host answers
   token ||= takePendingLink(current.url);
   let st: Awaited<ReturnType<typeof pairStatus>>;
   try {
@@ -237,7 +243,7 @@ async function boot(): Promise<void> {
   }
   if (st.status === "paired") connect();
   else if (st.status === "pairing")
-    showPairing(root, current.name, (device) => {
+    disposePairing = showPairing(root, current.name, (device) => {
       rememberDevice(device);
       connectAfterPairing();
     });
@@ -267,16 +273,19 @@ function rememberDevice(device: string): void {
 
 // Pairing replaces the app's frame until the browser is paired.
 function connectAfterPairing(): void {
+  disposePairing?.();
+  disposePairing = null;
   root.replaceChildren(topbarView.el, frameBody.el);
   connect();
 }
 
 function connect(): void {
   openStream({
-    state: (s) => {
-      store.set({ server: s });
-      pickDefaultRoute();
-    },
+    state: (s) =>
+      batch(() => {
+        store.set({ server: s });
+        pickDefaultRoute();
+      }),
     entries: (e) => store.set({ entries: e }),
     entry: (e) => store.addEntries([e]),
     connection: (up) => store.set({ connected: up }),
@@ -393,7 +402,7 @@ function renderMain(app: App, snap: Snapshot, idx: Index): void {
       tab === "checklist"
         ? checklistView(r)
         : tab === "log"
-          ? logView(r, () => store.emit())
+          ? logView(r, () => store.refresh())
           : tab === "activity"
             ? activityView(app, team(r, idx))
             : teamBoard(team(r, idx), app);
@@ -422,7 +431,7 @@ function renderPanel(app: App, idx: Index): void {
   if (panel?.pane !== pane) {
     panel?.destroy();
     panel = new AgentPanel(pane, () => [
-      ...new Set((app.server?.snapshot.agents ?? []).map((a) => a.agent).filter((k): k is string => !!k)),
+      ...new Set((store.app.server?.snapshot.agents ?? []).map((a) => a.agent).filter((k): k is string => !!k)),
     ]);
     panelHost.update(PanelHost([panel.el]));
   }
@@ -479,7 +488,7 @@ window.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === "Escape" && navOpen) {
     navOpen = false;
-    store.emit();
+    store.refresh();
   } else if (e.key === "Escape" && store.app.view.pane) store.go({ pane: "" });
   else if (e.key === "/" && panel) {
     e.preventDefault();

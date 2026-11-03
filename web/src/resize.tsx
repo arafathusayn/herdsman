@@ -1,7 +1,6 @@
 // Draggable widths: the agent panel at its left edge and the sidebar at its
 // right edge, each kept for next time.
-import { attr, cls, html, on } from "./herdsman-blocks-view.ts";
-import { element } from "./views/element-view.ts";
+import { onCleanup, signal } from "@reactre/core";
 
 /** One resizable column: where its width lives and how far it may go. */
 interface Edge {
@@ -83,49 +82,46 @@ export function navResizer(nav: HTMLElement): HTMLElement {
   return resizer(nav, navEdge);
 }
 
-// A handle is an element its column owns, made once with its handlers; a drag
-// adds and removes its move listeners as it goes.
-const Handle = html`<div
-  class=${cls()}
-  role="separator"
-  tabindex="0"
-  aria-orientation="vertical"
-  aria-label=${attr()}
-  title="Drag to resize · double-click for the default width"
-  onpointerdown=${on<"pointerdown">()}
-  onkeydown=${on<"keydown">()}
-  ondblclick=${on<"dblclick">()}
-></div>`;
-
 /**
  * A handle on a column's edge: drag it, or focus it and use the arrow keys;
  * a double click goes back to the default width.
  */
 function resizer(col: HTMLElement, e: Edge): HTMLElement {
-  const apply = (handle: HTMLElement, w: number): number => {
+  const [width, setWidthValue] = signal<number | null>(null);
+  let handle!: HTMLDivElement;
+  let stopDrag = (): void => {};
+  onCleanup(() => stopDrag());
+  const apply = (w: number): number => {
     const c = clampWidth(w, e.max(), e.min);
     setWidth(e, c);
-    handle.setAttribute("aria-valuenow", String(Math.round(c)));
+    setWidthValue(Math.round(c));
     return c;
   };
   // The arrow toward the column's free side widens it.
   const grow = e.side === "left" ? "ArrowLeft" : "ArrowRight";
   const shrink = e.side === "left" ? "ArrowRight" : "ArrowLeft";
-  return element(
-    "div",
-    Handle([
-      `col-resize ${e.side}`,
-      e.label,
-      function (ev) {
+  return (
+    <div
+      class={`col-resize ${e.side}`}
+      role="separator"
+      tabindex="0"
+      aria-orientation="vertical"
+      aria-label={e.label}
+      title="Drag to resize · double-click for the default width"
+      aria-valuenow={width()}
+      ref={(element) => {
+        handle = element;
+      }}
+      onPointerDown={(ev) => {
         if (ev.button !== 0) return;
         ev.preventDefault();
-        const handle = this;
+        stopDrag();
         handle.setPointerCapture(ev.pointerId);
         const r = col.getBoundingClientRect();
         let w = r.width;
         document.body.classList.add("resizing");
         const move = (m: PointerEvent): void => {
-          w = apply(handle, e.side === "left" ? r.right - m.clientX : m.clientX - r.left);
+          w = apply(e.side === "left" ? r.right - m.clientX : m.clientX - r.left);
         };
         const up = (): void => {
           handle.removeEventListener("pointermove", move);
@@ -133,21 +129,24 @@ function resizer(col: HTMLElement, e: Edge): HTMLElement {
           handle.removeEventListener("pointercancel", up);
           document.body.classList.remove("resizing");
           saveWidth(e, w);
+          stopDrag = () => {};
         };
+        stopDrag = up;
         handle.addEventListener("pointermove", move);
         handle.addEventListener("pointerup", up);
         handle.addEventListener("pointercancel", up);
-      },
-      function (k) {
+      }}
+      onKeyDown={(k) => {
         const d = k.key === grow ? step : k.key === shrink ? -step : 0;
         if (!d) return;
         k.preventDefault();
-        saveWidth(e, apply(this, col.getBoundingClientRect().width + d));
-      },
-      () => {
+        saveWidth(e, apply(col.getBoundingClientRect().width + d));
+      }}
+      onDblClick={() => {
         document.documentElement.style.removeProperty(e.prop);
         saveWidth(e, null);
-      },
-    ]),
-  );
+        setWidthValue(null);
+      }}
+    />
+  ) as HTMLDivElement;
 }

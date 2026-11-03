@@ -4,7 +4,7 @@ import { render, type ViewNode } from "../herdsman-blocks-view.ts";
 import { type FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { icon, icons } from "../icons.ts";
 import { ago, Index, type Member } from "../model.ts";
-import { isMac, paletteKeys, sidebarKeys } from "../palette.ts";
+import { isMac, paletteKeys, sidebarKeys } from "../palette.tsx";
 import type { App } from "../store.ts";
 import { dispatch, dump, markup } from "../testdom.ts";
 import type { Agent, Entry, Pane, Route, State, Workspace } from "../types.ts";

@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
+import type { pair } from "../api.ts";
 import { render } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
 import { icon, icons } from "../icons.ts";
-import { dispatch, dump, FakeElement as FormElement, markup } from "../testdom.ts";
-import { showPairing } from "./pair.ts";
+import { dispatch, dump, FakeElement as FormElement, find, markup } from "../testdom.ts";
+import { showPairing } from "./pair.tsx";
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
 const proto = FakeElement.prototype as unknown as Record<string, unknown>;
@@ -15,6 +16,80 @@ beforeEach(() => {
   proto["focus"] = function (this: FakeElement) {
     focused.push(this);
   };
+});
+
+test("pairing submits once while busy, then keeps and resets the same field after an incorrect code", async () => {
+  const root = new FormElement("DIV");
+  let resolve!: (value: Awaited<ReturnType<typeof pair>>) => void;
+  const sent: string[] = [];
+  const dispose = showPairing(
+    root as unknown as HTMLElement,
+    "mac",
+    () => {},
+    (code) => {
+      sent.push(code);
+      return new Promise((done) => {
+        resolve = done;
+      });
+    },
+  );
+  const input = find(root, (element) => element.tagName === "INPUT")!;
+  const button = find(root, (element) => element.className === "btn primary pair-submit")!;
+  input.value = "123456";
+  dispatch(input, "input");
+  dispatch(input, "input");
+  expect(sent).toEqual(["123456"]);
+  expect(button.hasAttribute("disabled")).toBe(true);
+  resolve({ status: "pairing", error: "Wrong code.", left: 2 });
+  await Promise.resolve();
+  expect(find(root, (element) => element.tagName === "INPUT")).toBe(input);
+  expect(input.value).toBe("");
+  expect(find(root, (element) => element.className === "pair-message error")?.textContent).toBe(
+    "Wrong code. 2 tries left.",
+  );
+  expect(button.hasAttribute("disabled")).toBe(true);
+  expect(focused.at(-1)).toBe(input);
+  dispose();
+});
+
+test("a disposed pairing flow ignores a successful response that arrives later", async () => {
+  const root = new FormElement("DIV");
+  let resolve!: (value: Awaited<ReturnType<typeof pair>>) => void;
+  const paired: string[] = [];
+  const dispose = showPairing(
+    root as unknown as HTMLElement,
+    "mac",
+    (device) => paired.push(device),
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const input = find(root, (element) => element.tagName === "INPUT")!;
+  input.value = "123456";
+  dispatch(input, "input");
+  dispose();
+  resolve({ status: "paired", device: "device" });
+  await Promise.resolve();
+  expect(paired).toEqual([]);
+  expect(elements(root)).toEqual([]);
+});
+
+test("an ended pairing request replaces the form with its reason", async () => {
+  const root = new FormElement("DIV");
+  const dispose = showPairing(
+    root as unknown as HTMLElement,
+    "mac",
+    () => {},
+    async () => ({ status: "none", error: "Expired." }),
+  );
+  const input = find(root, (element) => element.tagName === "INPUT")!;
+  input.value = "123456";
+  dispatch(input, "input");
+  await Promise.resolve();
+  expect(find(root, (element) => element.tagName === "FORM")).toBeUndefined();
+  expect(root.textContent).toContain("Pairing endedExpired.");
+  dispose();
 });
 afterEach(() => {
   delete proto["focus"];

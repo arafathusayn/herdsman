@@ -352,11 +352,11 @@ export class MessagesView {
           .finally(() => {
             // The body changed but not the set of loaded ids, so force the redraw.
             this.lastKey = "";
-            store.emit();
+            store.refresh();
           });
       }
     }
     this.lastKey = "";
-    store.emit();
+    store.refresh();
   }
 }

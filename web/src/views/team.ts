@@ -95,7 +95,7 @@ function pickBoard(by: BoardBy): void {
   } catch {
     // The choice lasts for this page only.
   }
-  store.emit();
+  store.refresh();
 }
 
 function lane(l: Lane, app: App): ViewNodeOf<typeof LaneView> {

@@ -1,5 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 
+import { attach } from "@reactre/core";
+
 import { appThemes, codeThemes, matchApp, noHighlight, termSchemes } from "../appearance.ts";
 import { render } from "../herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
@@ -18,7 +20,7 @@ g["localStorage"] = {
   setItem: (k: string, v: string) => void stored.set(k, v),
 };
 const { store } = await import("../store.ts");
-const { appearanceForm } = await import("./appearance.ts");
+const { AppearanceForm } = await import("./appearance.tsx");
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
 beforeEach(() => {
@@ -140,8 +142,7 @@ const formMarkup = (theme: string, term: string, code: string): string => markup
 
 const renderForm = (): FakeElement => {
   const box = document.createElement("div");
-  const redraw = (): void => render(box, appearanceForm(redraw));
-  redraw();
+  attach(AppearanceForm, box);
   return fake(fake(box).firstChild);
 };
 
@@ -168,8 +169,7 @@ test("the form renders what the h() version did", () => {
 test("a choice applies, re-renders in place and keeps every node", () => {
   store.set({ theme: "system" });
   const box = document.createElement("div");
-  const redraw = (): void => render(box, appearanceForm(redraw));
-  redraw();
+  attach(AppearanceForm, box);
   const form = fake(fake(box).firstChild);
   const [, term, codeGrid] = grids(form);
   const before = [...elements(term!), ...elements(codeGrid!)];
@@ -177,7 +177,7 @@ test("a choice applies, re-renders in place and keeps every node", () => {
   const sampleNode = pre.firstChild;
 
   resetOps();
-  redraw();
+  store.set({ theme: store.app.theme });
   expect(ops).toEqual({
     inserts: 0,
     moves: 0,
@@ -206,8 +206,7 @@ test("a choice applies, re-renders in place and keeps every node", () => {
 test("the theme switch and the color themes are one choice", () => {
   store.set({ theme: "system" });
   const box = document.createElement("div");
-  const redraw = (): void => render(box, appearanceForm(redraw));
-  redraw();
+  attach(AppearanceForm, box);
   const form = fake(fake(box).firstChild);
   const [colors] = grids(form);
   dispatch(elements(colors!)[0]!, "click");

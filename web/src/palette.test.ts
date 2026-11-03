@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "./herdsman-blocks-view.ts";
 import { FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import { icon, icons } from "./icons.ts";
-import { type Command, openPalette, paletteOpen } from "./palette.ts";
+import { type Command, openPalette, paletteOpen } from "./palette.tsx";
 import { dispatch, dump, markup } from "./testdom.ts";
 
 const g = globalThis as unknown as { document: Record<string, unknown> };

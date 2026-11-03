@@ -5,7 +5,7 @@
 import {
   FakeElement as BaseElement,
   FakeEvent as BaseEvent,
-  type FakeNode,
+  FakeNode,
   FakeText,
   installFakeDocument,
   SVG_NS,
@@ -66,7 +66,6 @@ const dataName = (k: string): string => "data-" + k.replace(/[A-Z]/g, (c) => "-"
 
 export class FakeElement extends BaseElement {
   // Form properties the app reads and writes.
-  value = "";
   checked = false;
   disabled = false;
   selected = false;
@@ -167,6 +166,7 @@ export function installDom(): void {
     createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
     createElementNS: (ns: string, tag: string) => new (ns === SVG_NS ? BaseElement : FakeElement)(tag, ns),
     createTextNode: (s: string) => new FakeText(s),
+    createDocumentFragment: () => new FakeNode(11),
     body: new FakeElement("body"),
   };
 }

@@ -21,8 +21,8 @@ import {
 } from "../herdsman-blocks-view.ts";
 import { icon, type IconNode, icons } from "../icons.ts";
 import { afterSend, type Member, roleName } from "../model.ts";
-import { isMac } from "../palette.ts";
-import { panelResizer } from "../resize.ts";
+import { isMac } from "../palette.tsx";
+import { panelResizer } from "../resize.tsx";
 import { store } from "../store.ts";
 import {
   type Input,

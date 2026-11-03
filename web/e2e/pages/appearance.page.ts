@@ -1,7 +1,7 @@
 // The Appearance dialog: its sections, one checked choice per group, and
 // picking a choice (or a theme in the theme switch) marks it, keeps the
 // choice buttons' nodes and leaves the dialog open.
-import { openAppearance } from "../../src/views/appearance.ts";
+import { openAppearance } from "../../src/views/appearance.tsx";
 import { check, equal, q, run } from "./lib.ts";
 
 (window as unknown as { requestAnimationFrame: unknown }).requestAnimationFrame ??= () => 0;

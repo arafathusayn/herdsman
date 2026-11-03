@@ -1,39 +1,8 @@
-// App state, the URL it is kept in, and change notification.
-import { nextView } from "./model.ts";
-import type { Channel, Entry, State } from "./types.ts";
-import { loadTheme, type Theme } from "./ui.ts";
+// Browser navigation and persistence around the reactive application state.
+import { createAppState, type RouteTab, type View } from "./app-state.ts";
+import { loadTheme } from "./ui.ts";
 
-export type RouteTab = "team" | "checklist" | "log" | "docs" | "changes" | "artifacts" | "messages" | "activity";
-
-export interface View {
-  /** Route name, or "" for the whole session. */
-  route: string;
-  tab: RouteTab;
-  /** The open file of the Docs tab. */
-  file: string;
-  /** The Changes tab's open source (a task, or the project checkout) and file. */
-  source: string;
-  diffFile: string;
-  /** The Artifacts tab's open page: its full path. */
-  artifact: string;
-  /** Open agent pane, or "". */
-  pane: string;
-  /** The workspace the session view shows, or "" for every workspace. */
-  ws: string;
-}
-
-export interface App {
-  server: State | null;
-  entries: Entry[];
-  connected: boolean;
-  view: View;
-  theme: Theme;
-  fatal: string;
-  /** The adjutant's message channel, or null until it is read. */
-  channel: Channel | null;
-}
-
-const maxEntries = 400;
+export type { App, RouteTab, View } from "./app-state.ts";
 
 const tabs: RouteTab[] = ["team", "checklist", "log", "docs", "changes", "artifacts", "messages", "activity"];
 
@@ -67,10 +36,8 @@ function writeView(v: View, push: boolean): void {
   else history.replaceState(null, "", url);
 }
 
-type Listener = (app: App) => void;
-
-class Store {
-  readonly app: App = {
+export const store = createAppState(
+  {
     server: null,
     entries: [],
     connected: false,
@@ -78,46 +45,8 @@ class Store {
     theme: loadTheme(),
     fatal: "",
     channel: null,
-  };
-  private listeners: Listener[] = [];
-  private queued = false;
+  },
+  writeView,
+);
 
-  constructor() {
-    window.addEventListener("popstate", () => {
-      this.app.view = readView();
-      this.emit();
-    });
-  }
-
-  on(fn: Listener): void {
-    this.listeners.push(fn);
-  }
-
-  /** Batches changes into one render per frame. */
-  emit(): void {
-    if (this.queued) return;
-    this.queued = true;
-    requestAnimationFrame(() => {
-      this.queued = false;
-      for (const fn of this.listeners) fn(this.app);
-    });
-  }
-
-  set(patch: Partial<App>): void {
-    Object.assign(this.app, patch);
-    this.emit();
-  }
-
-  go(patch: Partial<View>, push = true): void {
-    this.app.view = nextView(this.app.view, patch);
-    writeView(this.app.view, push);
-    this.emit();
-  }
-
-  addEntries(e: Entry[]): void {
-    this.app.entries = [...this.app.entries, ...e].slice(-maxEntries);
-    this.emit();
-  }
-}
-
-export const store = new Store();
+window.addEventListener("popstate", () => store.set({ view: readView() }));

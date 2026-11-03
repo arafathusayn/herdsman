@@ -4,7 +4,7 @@ import { attr, child, cls, html, list, type ListNode, on, text, type ViewNodeOf 
 // owns the state and places these; every function here is data to a view.
 import { icon, type IconNode, icons, logoMark, type LogoNode } from "../icons.ts";
 import { checklistCounts, routeFor, routeLabel, statusLabel, workspaceGroups } from "../model.ts";
-import { isMac, paletteKeys, sidebarKeys } from "../palette.ts";
+import { isMac, paletteKeys, sidebarKeys } from "../palette.tsx";
 import type { App } from "../store.ts";
 import type { Route, Workspace } from "../types.ts";
 import { type Theme, themeSwitch, type ThemeSwitchNode } from "../ui.ts";
