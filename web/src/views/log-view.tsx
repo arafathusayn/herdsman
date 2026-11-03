@@ -35,7 +35,7 @@ function joined(route: Route, previous: Seen | undefined): Seen & { cached: bool
   const from = route.run_state_from ?? 0;
   const end = previous ? previous.lo + previous.lines.length : 0;
   const fresh = { lo: at, lines: newest, history: route.history, cached: false };
-  if (!previous || previous.history !== route.history || previous.lo >= at || end < at || end > at + newest.length)
+  if (!previous || previous.history !== route.history || previous.lo > at || end < at || end > at + newest.length)
     return fresh;
   for (let index = at; index < end; index++) {
     const old = previous.lines[index - previous.lo]!;

@@ -228,6 +228,8 @@ for (const alreadyLoaded of [false, true]) {
       await flush();
       dispatch(find(view, isTag("button"))!, "click");
     }
+    // State updates also arrive when the log has not appended anything.
+    setRoute(snapshot(300));
     for (let at = 301; at <= 310; at++) setRoute(snapshot(at));
     const lo = alreadyLoaded ? 100 : 200;
     resolve({ lines: span(lo, lo + 100), older: lo, history: "same" });
