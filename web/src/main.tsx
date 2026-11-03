@@ -1,11 +1,11 @@
-import { batch, effect, untrack } from "@reactre/core";
+import { batch, effect, Match, memo, onCleanup, Show, signal, Switch, untrack } from "@reactre/core";
 
 import { activityPinger } from "./activity.ts";
 import { AuthError, openStream, pairStatus, readChannel, sendActivity, startSession, useHost } from "./api.ts";
 import { applyCodeTheme, applyTermScheme, loadCodeTheme, loadTermScheme } from "./appearance.ts";
 import { unread } from "./channel.ts";
 import { buildCommands } from "./commands.ts";
-import { render } from "./herdsman-blocks-view.ts";
+import { mountRoot } from "./components/mount-root.ts";
 import {
   blockedReason,
   type Host,
@@ -21,44 +21,30 @@ import { isMac, openPalette, paletteOpen } from "./palette.tsx";
 import { loadWidths, navResizer } from "./resize.tsx";
 import { type App, store } from "./store.ts";
 import { installTooltips } from "./tooltip.ts";
-import type { Snapshot } from "./types.ts";
+import type { Route, State } from "./types.ts";
 import { applyTheme } from "./ui.ts";
 import { AgentPanel } from "./views/agent.ts";
 import { openAppearance } from "./views/appearance.tsx";
 import { ArtifactsView } from "./views/artifacts.ts";
 import { DiffView } from "./views/diff.ts";
-import { element, ElementView } from "./views/element-view.ts";
 import { FilesView } from "./views/files.ts";
 import { confirmHost, keepPendingLink, openHosts, showConnect, takePendingLink } from "./views/hosts.ts";
-import { logView } from "./views/log-view.ts";
+import { LogView } from "./views/log-view.tsx";
 import { MessagesView } from "./views/messages.ts";
 import { openNewRoute } from "./views/new-route.ts";
 import { showPairing } from "./views/pair.tsx";
+import { ActivityView, ChecklistView, RouteShell, SessionView, TabRow } from "./views/route.tsx";
 import {
-  activityView,
-  checklistView,
-  routeShell,
-  sessionView,
-  type TabBody,
-  tabRow,
-  type TabsNode,
-} from "./views/route.ts";
-import {
-  Body,
-  connectingView,
+  ConnectingView,
   currentRoute,
-  fatalView,
-  MainColumn,
-  notFoundView,
-  PanelHost,
-  Scrim,
+  FatalView,
+  NotFoundView,
   SESSION,
-  sidebar,
-  type SidebarNode,
-  topbar,
-  type TopbarNode,
-} from "./views/shell.ts";
-import { teamBoard } from "./views/team.ts";
+  Sidebar,
+  type SidebarActions,
+  Topbar,
+} from "./views/shell.tsx";
+import { TeamBoard } from "./views/team.tsx";
 
 const appRoot = document.getElementById("app");
 if (!appRoot) throw new Error("index.html has no #app");
@@ -66,10 +52,17 @@ const root: HTMLElement = appRoot;
 
 let panel: AgentPanel | null = null;
 let disposePairing: (() => void) | null = null;
-let navOpen = false; // the drawer on narrow screens
-let navCollapsed = readCollapsed(); // the sidebar on wide screens
+const [navOpen, setNavOpen] = signal(false);
+const [navCollapsed, setNavCollapsed] = signal(readCollapsed());
 
 const narrow = matchMedia("(max-width: 860px)");
+const [isNarrow, setNarrow] = signal(narrow.matches);
+narrow.addEventListener("change", (event) =>
+  batch(() => {
+    setNarrow(event.matches);
+    setNavOpen(false);
+  }),
+);
 
 function readCollapsed(): boolean {
   try {
@@ -80,73 +73,84 @@ function readCollapsed(): boolean {
 }
 
 function toggleNav(): void {
-  if (narrow.matches) navOpen = !navOpen;
+  if (isNarrow()) setNavOpen((open) => !open);
   else {
-    navCollapsed = !navCollapsed;
+    setNavCollapsed((collapsed) => !collapsed);
     try {
-      localStorage.setItem("herdsman.nav", navCollapsed ? "collapsed" : "open");
+      localStorage.setItem("herdsman.nav", navCollapsed() ? "collapsed" : "open");
     } catch {
       // Not remembered, still applied.
     }
   }
-  store.refresh();
 }
 let files: FilesView | null = null;
 let changes: DiffView | null = null; // polls git only while its tab shows
 let artifacts: ArtifactsView | null = null; // lists pages only while its tab shows
 const messages = new MessagesView();
-let host: Host | null = null;
-let shownTab = "";
+const [host, setHost] = signal<Host | null>(null);
 
-const topbarOf = (app: App): TopbarNode =>
-  topbar(app, host, narrow.matches ? navOpen : !navCollapsed, {
-    toggleNav,
-    home: () => store.go({ route: "", pane: "", tab: "team" }),
-    palette: () => showPalette(),
-    hosts: openHosts,
-  });
-
-// A sidebar link or button closes the drawer first.
-const sidebarOf = (app: App): SidebarNode =>
-  sidebar(app, {
-    go: (route, ws) => {
-      navOpen = false;
+const sidebarActions: SidebarActions = {
+  go: (route, ws) =>
+    batch(() => {
+      setNavOpen(false);
       store.go(
         ws === undefined ? { route, tab: "team", file: "", pane: "" } : { route, ws, tab: "team", file: "", pane: "" },
       );
-    },
-    newRoute: () => {
-      navOpen = false;
-      openNewRoute();
-    },
-    theme: (t) => {
-      applyTheme(t);
-      store.set({ theme: t });
-    },
-    appearance: () => openAppearance(),
-  });
+    }),
+  newRoute: () => {
+    setNavOpen(false);
+    openNewRoute();
+  },
+  theme: (theme) => {
+    applyTheme(theme);
+    store.set({ theme });
+  },
+  appearance: openAppearance,
+};
 
-// The frame. The topbar, the sidebar, the panel's column and the route's tab
-// row are views whose roots are placed once and patched in place; the main
-// column is a render container for whatever shows there.
-const topbarView = new ElementView("header", topbarOf(store.app));
-const nav = new ElementView("nav", sidebarOf(store.app));
-const main = element("main", MainColumn([]));
-const panelHost = new ElementView("div", PanelHost([null]));
-// Behind the drawer on phones: a tap outside closes it.
-const scrim = element(
-  "div",
-  Scrim([
-    () => {
-      navOpen = false;
-      store.refresh();
-    },
-  ]),
-);
-const frameBody = new ElementView("div", Body([nav.el, navResizer(nav.el), scrim, main, panelHost.el]));
+const topbarView = mountRoot("header", () => (
+  <Topbar
+    app={store.state()}
+    host={host()}
+    navShown={isNarrow() ? navOpen() : !navCollapsed()}
+    actions={{
+      toggleNav,
+      home: () => store.go({ route: "", pane: "", tab: "team" }),
+      palette: () => showPalette(),
+      hosts: openHosts,
+    }}
+  />
+));
+const nav = mountRoot("nav", () => <Sidebar app={store.state()} actions={sidebarActions} />);
+const main = mountRoot("main", () => (
+  <main class="main" tabindex="-1">
+    <MainContent />
+  </main>
+)).el;
+const [panelNode, setPanelNode] = signal<HTMLElement | null>(null);
+const panelHost = mountRoot("div", () => (
+  <div class="panel-host">
+    <>{panelNode()}</>
+  </div>
+));
+const frameBody = mountRoot("div", () => (
+  <div class="body">
+    <>
+      {nav.el}
+      {navResizer(nav.el)}
+      <div class="scrim" aria-hidden="true" onClick={() => setNavOpen(false)} />
+      {main}
+      {panelHost.el}
+    </>
+  </div>
+));
 root.replaceChildren(topbarView.el, frameBody.el);
-// The route's tab row is kept, so the open tab can be scrolled into view.
-let routeTabs: ElementView<"div", TabsNode> | null = null;
+effect(() => {
+  document.body.classList.toggle("nav-open", navOpen());
+});
+effect(() => {
+  document.body.classList.toggle("nav-collapsed", navCollapsed());
+});
 
 applyTheme(store.app.theme);
 applyTermScheme(loadTermScheme(), false);
@@ -219,7 +223,7 @@ async function boot(): Promise<void> {
     );
     return;
   }
-  host = current;
+  setHost(current);
   useHost(current);
   store.refresh(); // shows "Connecting to …" while the host answers
   token ||= takePendingLink(current.url);
@@ -260,13 +264,14 @@ async function boot(): Promise<void> {
 
 /** Keeps the current host's device secret, or forgets it with "". */
 function rememberDevice(device: string): void {
-  if (!host) return;
+  const current = host();
+  if (!current) return;
   const hs = loadHosts();
-  const x = hs.hosts.find((y) => y.id === host?.id);
+  const x = hs.hosts.find((y) => y.id === current.id);
   if (!x) return;
   if (device) x.device = device;
   else delete x.device;
-  host = x;
+  setHost(x);
   saveHosts(hs);
   useHost(x);
 }
@@ -294,7 +299,7 @@ function connect(): void {
       showConnect(
         root,
         "Pairing ended",
-        `${host?.name ?? "The host"} no longer knows this browser: its server restarted. Paste the new pairing link that herdsman web printed.`,
+        `${host()?.name ?? "The host"} no longer knows this browser: its server restarted. Paste the new pairing link that herdsman web printed.`,
       );
     },
   });
@@ -325,99 +330,165 @@ function pickDefaultRoute(): void {
 }
 
 function renderApp(app: App): void {
-  document.body.classList.toggle("nav-open", navOpen);
-  document.body.classList.toggle("nav-collapsed", navCollapsed);
   document.body.classList.toggle("has-panel", !!app.view.pane);
-  topbarView.update(topbarOf(app));
-  nav.update(sidebarOf(app));
-  if (app.fatal) {
+  if (app.fatal || !app.server) {
     panel?.destroy();
     panel = null;
-    panelHost.update(PanelHost([null]));
-    render(main, fatalView(app.fatal, openHosts));
+    setPanelNode(null);
     return;
   }
-  if (!app.server) {
-    render(main, connectingView(host?.name ?? "herdr"));
-    return;
-  }
-  const idx = new Index(app.server.snapshot);
-  renderMain(app, app.server.snapshot, idx);
-  renderPanel(app, idx);
+  renderPanel(app, new Index(app.server.snapshot));
 }
 
-function renderMain(app: App, snap: Snapshot, idx: Index): void {
-  if (app.view.tab !== "changes" || app.view.route !== changes?.routeId) changes?.stop();
-  if (app.view.tab !== "artifacts" || app.view.route !== artifacts?.routeId) artifacts?.stop();
-  if (app.view.route === SESSION || !app.view.route) {
-    render(
-      main,
-      sessionView(app, snap, idx, (pane) => store.go({ pane })),
+function MainContent() {
+  const app = store.state;
+  return (
+    <Show when={!app().fatal} fallback={<FatalView reason={app().fatal} hosts={openHosts} />}>
+      <Show when={app().server} fallback={<ConnectingView hostName={host()?.name ?? "herdr"} />}>
+        {(server) => <ConnectedContent app={app()} server={server()} />}
+      </Show>
+    </Show>
+  );
+}
+
+function ConnectedContent(props: { app: App; server: State }) {
+  const idx = memo(() => new Index(props.server.snapshot));
+  const route = memo(() => currentRoute(props.app));
+  return (
+    <Show
+      when={props.app.view.route !== SESSION && !!props.app.view.route}
+      fallback={
+        <SessionView app={props.app} snap={props.server.snapshot} idx={idx()} open={(pane) => store.go({ pane })} />
+      }
+    >
+      <Show when={route()} fallback={<NotFoundView route={props.app.view.route} />}>
+        {(current) => (
+          <Show when={current().id} keyed>
+            {() => <RouteScreen route={current()} app={props.app} idx={idx()} />}
+          </Show>
+        )}
+      </Show>
+    </Show>
+  );
+}
+
+function RouteScreen(props: { route: Route; app: App; idx: Index }) {
+  let row!: HTMLDivElement;
+  let shown = "";
+  let disposed = false;
+  onCleanup(() => {
+    disposed = true;
+  });
+  effect(() => {
+    const tab = props.app.view.tab;
+    queueMicrotask(() => {
+      if (disposed || shown === tab || props.app.view.tab !== tab) return;
+      shown = tab;
+      const active = row?.querySelector<HTMLElement>(".tab.active");
+      if (active) {
+        const left = active.getBoundingClientRect().left - row.getBoundingClientRect().left + row.scrollLeft;
+        row.scrollLeft = left - (row.clientWidth - active.offsetWidth) / 2;
+      }
+    });
+  });
+  return (
+    <RouteShell
+      route={props.route}
+      tabs={
+        <TabRow
+          route={props.route}
+          app={props.app}
+          unread={unread(props.app.channel)}
+          pick={(tab) => store.go({ tab })}
+          ref={(element) => {
+            row = element;
+          }}
+        />
+      }
+    >
+      <Switch>
+        <Match when={props.app.view.tab === "docs"}>
+          <DocsTab route={props.route} selected={props.app.view.file} />
+        </Match>
+        <Match when={props.app.view.tab === "changes"}>
+          <ChangesTab route={props.route} app={props.app} />
+        </Match>
+        <Match when={props.app.view.tab === "artifacts"}>
+          <ArtifactsTab route={props.route} selected={props.app.view.artifact} />
+        </Match>
+        <Match when={props.app.view.tab === "messages"}>
+          <MessagesTab route={props.route} channel={props.app.channel} />
+        </Match>
+        <Match when={props.app.view.tab === "checklist"}>
+          <ChecklistView route={props.route} />
+        </Match>
+        <Match when={props.app.view.tab === "log"}>
+          <LogView route={props.route} />
+        </Match>
+        <Match when={props.app.view.tab === "activity"}>
+          <ActivityView app={props.app} members={team(props.route, props.idx)} />
+        </Match>
+        <Match when={props.app.view.tab === "team"}>
+          <TeamBoard members={team(props.route, props.idx)} app={props.app} />
+        </Match>
+      </Switch>
+    </RouteShell>
+  );
+}
+
+function DocsTab(props: { route: Route; selected: string }) {
+  const view = files?.routeId === props.route.id ? files : (files = new FilesView(props.route.id));
+  effect(() => {
+    const route = props.route,
+      selected = props.selected;
+    untrack(() => view.update(route, selected));
+  });
+  return view.el;
+}
+
+function ChangesTab(props: { route: Route; app: App }) {
+  if (changes?.routeId !== props.route.id) {
+    changes?.stop();
+    changes = new DiffView(props.route.id);
+  }
+  const view = changes;
+  effect(() => {
+    const selected = props.app.view;
+    untrack(() => {
+      view.update(selected.source, selected.diffFile);
+      view.start();
+    });
+  });
+  onCleanup(() => view.stop());
+  return view.el;
+}
+
+function ArtifactsTab(props: { route: Route; selected: string }) {
+  if (artifacts?.routeId !== props.route.id) {
+    artifacts?.stop();
+    artifacts = new ArtifactsView(props.route.id);
+  }
+  const view = artifacts;
+  effect(() => {
+    const selected = props.selected;
+    untrack(() => {
+      view.update(selected);
+      view.start();
+    });
+  });
+  onCleanup(() => view.stop());
+  return view.el;
+}
+
+function MessagesTab(props: { route: Route; channel: App["channel"] }) {
+  effect(() => {
+    const channel = props.channel,
+      route = props.route;
+    untrack(() =>
+      messages.render(channel, { adjutant: route.adjutant_pane ?? "", orchestrator: route.orchestrator_pane }),
     );
-    return;
-  }
-  const r = currentRoute(app);
-  if (!r) {
-    render(main, notFoundView(app.view.route));
-    return;
-  }
-  const tabs = tabRow(r, app, unread(app.channel), (tab) => store.go({ tab }));
-  if (routeTabs) routeTabs.update(tabs);
-  else routeTabs = new ElementView("div", tabs);
-  // A component's element is placed first and updated after, as before.
-  let body: TabBody;
-  let after = (): void => {};
-  const tab = app.view.tab;
-  if (tab === "docs") {
-    const f = files?.routeId === r.id ? files : (files = new FilesView(r.id));
-    body = f.el;
-    after = () => f.update(r, app.view.file);
-  } else if (tab === "artifacts") {
-    if (artifacts?.routeId !== r.id) {
-      artifacts?.stop();
-      artifacts = new ArtifactsView(r.id);
-    }
-    const a = artifacts;
-    body = a.el;
-    after = () => {
-      a.update(app.view.artifact);
-      a.start();
-    };
-  } else if (tab === "messages") {
-    body = messages.el;
-    after = () => messages.render(app.channel, { adjutant: r.adjutant_pane ?? "", orchestrator: r.orchestrator_pane });
-  } else if (tab === "changes") {
-    if (changes?.routeId !== r.id) {
-      changes?.stop();
-      changes = new DiffView(r.id);
-    }
-    const c = changes;
-    body = c.el;
-    after = () => {
-      c.update(app.view.source, app.view.diffFile);
-      c.start();
-    };
-  } else
-    body =
-      tab === "checklist"
-        ? checklistView(r)
-        : tab === "log"
-          ? logView(r, () => store.refresh())
-          : tab === "activity"
-            ? activityView(app, team(r, idx))
-            : teamBoard(team(r, idx), app);
-  render(main, routeShell(r, routeTabs.el, body));
-  // On a phone the tab row scrolls; keep the open tab in view, Docs included.
-  if (shownTab !== tab) {
-    shownTab = tab;
-    const row = routeTabs.el;
-    const active = row.querySelector<HTMLElement>(".tab.active");
-    if (active) {
-      const left = active.getBoundingClientRect().left - row.getBoundingClientRect().left + row.scrollLeft;
-      row.scrollLeft = left - (row.clientWidth - active.offsetWidth) / 2;
-    }
-  }
-  after();
+  });
+  return messages.el;
 }
 
 function renderPanel(app: App, idx: Index): void {
@@ -425,7 +496,7 @@ function renderPanel(app: App, idx: Index): void {
   if (!pane) {
     panel?.destroy();
     panel = null;
-    panelHost.update(PanelHost([null]));
+    setPanelNode(null);
     return;
   }
   if (panel?.pane !== pane) {
@@ -433,7 +504,7 @@ function renderPanel(app: App, idx: Index): void {
     panel = new AgentPanel(pane, () => [
       ...new Set((store.app.server?.snapshot.agents ?? []).map((a) => a.agent).filter((k): k is string => !!k)),
     ]);
-    panelHost.update(PanelHost([panel.el]));
+    setPanelNode(panel.el);
   }
   const r = currentRoute(app);
   const m = r ? team(r, idx).find((x) => x.pane_id === pane) : undefined;
@@ -486,9 +557,8 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.key === "Escape" && navOpen) {
-    navOpen = false;
-    store.refresh();
+  if (e.key === "Escape" && navOpen()) {
+    setNavOpen(false);
   } else if (e.key === "Escape" && store.app.view.pane) store.go({ pane: "" });
   else if (e.key === "/" && panel) {
     e.preventDefault();

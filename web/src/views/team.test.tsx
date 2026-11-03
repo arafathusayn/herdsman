@@ -1,9 +1,11 @@
 import { beforeEach, expect, test } from "bun:test";
 
-import { render, type ViewNode } from "../herdsman-blocks-view.ts";
+import { signal } from "@reactre/core";
+
 import { type FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
 import type { BoardBy, Member, Role } from "../model.ts";
 import type { App } from "../store.ts";
+import { mount } from "../test-mount.ts";
 import { dispatch, markup } from "../testdom.ts";
 
 // The store reads the URL and listens for history changes when it loads,
@@ -13,7 +15,7 @@ g["location"] ??= { search: "", pathname: "/" };
 g["window"] ??= { addEventListener: () => {} };
 g["history"] ??= { pushState: () => {}, replaceState: () => {} };
 g["requestAnimationFrame"] ??= () => 0;
-const { card, teamBoard } = await import("./team.ts");
+const { MemberCard, TeamBoard } = await import("./team.tsx");
 const { store } = await import("../store.ts");
 
 beforeEach(installFakeDocument);
@@ -31,10 +33,6 @@ const member = (pane_id: string, role: Role): Member => ({
   status: "idle",
 });
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
-const rendered = (box: FakeElement, v: ViewNode): FakeElement => {
-  render(box as unknown as Node, v);
-  return fake(box.firstChild);
-};
 const lanesOf = (team: FakeElement): FakeElement[] => {
   const kanban = elements(team).find((n) => n.className === "kanban")!;
   return elements(kanban);
@@ -138,14 +136,16 @@ test("cards render what the h() version did", () => {
     ],
   ] as const) {
     const box = fake(document.createElement("div"));
-    expect(dump(rendered(box, card(m, a, role)))).toBe(want);
+    expect(dump(mount(() => <MemberCard member={m} app={a} role={role} />, box as unknown as HTMLElement))).toBe(want);
   }
 });
 
 test("a card patched to another member keeps its node and opens the latest pane", () => {
   const box = fake(document.createElement("div"));
-  const el = rendered(box, card(member("p1", "reviewer"), app));
-  expect(rendered(box, card(full, app))).toBe(el);
+  const [current, setCurrent] = signal(member("p1", "reviewer"));
+  const el = mount(() => <MemberCard member={current()} app={app} />, box as unknown as HTMLElement);
+  setCurrent(full);
+  expect(elements(box)[0]).toBe(el);
   expect(dump(el)).toBe(fullCard("", "Claude · fix-parser"));
   dispatch(el, "click");
   expect(store.app.view.pane).toBe("p7");
@@ -173,12 +173,13 @@ test("the board renders what the h() version did, and its switch picks the colum
     </div>
   `;
   const box = fake(document.createElement("div"));
-  const team = rendered(box, teamBoard(ms, app));
+  const [members, setMembers] = signal(ms);
+  const team = mount(() => <TeamBoard members={members()} app={app} />, box as unknown as HTMLElement);
   // The test's localStorage is empty or absent, so the board starts by role.
   expect(dump(team)).toBe(byRole);
   const [, byStatus] = elements(elements(elements(team)[0]!)[0]!);
   dispatch(byStatus!, "click");
-  expect(rendered(box, teamBoard(ms, app))).toBe(team);
+  expect(elements(box)[0]).toBe(team);
   expect(dump(team)).toBe(markup`
     <div class="team">
       ${teamBar("status")}
@@ -204,9 +205,10 @@ test("the board renders what the h() version did, and its switch picks the colum
     </div>
   `);
   dispatch(elements(elements(elements(team)[0]!)[0]!)[0]!, "click");
-  rendered(box, teamBoard(ms, app));
+
   expect(dump(team)).toBe(byRole);
-  expect(dump(rendered(box, teamBoard([], app)))).toBe(markup`
+  setMembers([]);
+  expect(dump(team)).toBe(markup`
     <div class="team">
       ${teamBar("role")}
       <p class="muted">This route's task table names no panes.</p>
@@ -216,12 +218,14 @@ test("the board renders what the h() version did, and its switch picks the colum
 
 test("lanes keep their nodes when a lane appears ahead of them and their cards change", () => {
   const box = fake(document.createElement("div"));
-  const team = rendered(box, teamBoard([member("p1", "implementer"), member("p2", "reviewer")], app));
+  const [members, setMembers] = signal([member("p1", "implementer"), member("p2", "reviewer")]);
+  const team = mount(() => <TeamBoard members={members()} app={app} />, box as unknown as HTMLElement);
   const [impl, rev] = lanesOf(team);
   const cards = cardsOf(impl!);
 
   const next = [member("p0", "orchestrator"), member("p1", "implementer"), member("p3", "implementer")];
-  expect(rendered(box, teamBoard([...next, member("p2", "reviewer")], app))).toBe(team);
+  setMembers([...next, member("p2", "reviewer")]);
+  expect(elements(box)[0]).toBe(team);
   const lanes = lanesOf(team);
   expect(lanes.map((l) => l.getAttribute("aria-label"))).toEqual(["Orchestrator", "Implementers", "Reviewers"]);
   expect(lanes[1]).toBe(impl!);

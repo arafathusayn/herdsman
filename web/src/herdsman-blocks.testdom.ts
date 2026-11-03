@@ -333,6 +333,14 @@ export class FakeElement extends FakeNode {
     const map = (this.listeners ??= new Map());
     map.set(type, [...(map.get(type) ?? []), fn]);
   }
+  removeEventListener(type: string, fn: (e: { type: string; target: FakeNode }) => void): void {
+    const current = this.listeners?.get(type);
+    if (current)
+      this.listeners!.set(
+        type,
+        current.filter((listener) => listener !== fn),
+      );
+  }
   /** Calls this element's listeners for `type` with this element as `this`. */
   fire(type: string): void {
     for (const fn of this.listeners?.get(type) ?? []) fn.call(this, { type, target: this });

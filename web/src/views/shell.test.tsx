@@ -1,36 +1,32 @@
 import { beforeEach, expect, test } from "bun:test";
 
-import { render, type ViewNode } from "../herdsman-blocks-view.ts";
+import { Show, signal } from "@reactre/core";
+
+import { Icon } from "../components/icons.tsx";
+import { mountRoot } from "../components/mount-root.ts";
 import { type FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
-import { icon, icons } from "../icons.ts";
+import { icons } from "../icons.ts";
 import { ago, Index, type Member } from "../model.ts";
 import { isMac, paletteKeys, sidebarKeys } from "../palette.tsx";
 import type { App } from "../store.ts";
+import { mount } from "../test-mount.ts";
 import { dispatch, dump, markup } from "../testdom.ts";
 import type { Agent, Entry, Pane, Route, State, Workspace } from "../types.ts";
+import { ConnectingView, FatalView, NotFoundView, SESSION, Sidebar, Topbar, type TopbarProps } from "./shell.tsx";
 
 // The store reads the URL and listens for history changes when it loads.
 const g = globalThis as unknown as Record<string, unknown>;
 g["location"] ??= { search: "", pathname: "/" };
 g["window"] ??= { addEventListener: () => {} };
-const { activityView, checklistView, routeShell, sessionView, tabRow } = await import("./route.ts");
-const { logView: routeLog } = await import("./log-view.ts");
-const logView = (r: Route) => routeLog(r, () => {});
-const { connectingView, fatalView, notFoundView, SESSION, sidebar, topbar } = await import("./shell.ts");
+const { ActivityView, ChecklistView, RouteShell, SessionView, TabRow } = await import("./route.tsx");
+const { LogView } = await import("./log-view.tsx");
 
 beforeEach(installFakeDocument);
 
 const fake = (n: unknown): FakeElement => n as FakeElement;
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
-const iconMarkup = (paths: readonly string[], label?: string): string => {
-  const box = document.createElement("div");
-  render(box, icon(paths, label));
-  return dump(box.firstChild as unknown as FakeNode);
-};
-const rendered = (v: ViewNode, box = document.createElement("div")): FakeElement => {
-  render(box, v);
-  return fake(box.firstChild);
-};
+const iconMarkup = (paths: readonly string[], label?: string): string =>
+  dump(mount(() => <Icon paths={paths} {...(label ? { label } : {})} />));
 
 // ---------------------------------------------------------------------------
 // Fixtures: two workspaces, one with two agents and a live route, one idle.
@@ -198,8 +194,12 @@ const topActs = (log: string[]) => ({
 test("topbar: the markup of the h() version in each state, patched in place, and its buttons call back", () => {
   const host = { name: "mac", url: "http://mac:8080" };
   const log: string[] = [];
-  const box = document.createElement("div");
-  const bar = rendered(topbar(app(), host, true, topActs(log)), box);
+  const [props, setProps] = signal<TopbarProps>({ app: app(), host, navShown: true, actions: topActs(log) });
+  const bar = fake(
+    mountRoot("header", () => (
+      <Topbar app={props().app} host={props().host} navShown={props().navShown} actions={props().actions} />
+    )).el,
+  );
   expect(dump(bar)).toBe(markup`
     <header class="topbar">
       <button aria-expanded="true" aria-keyshortcuts="${toggleKeys}" aria-label="Toggle the sidebar" class="icon-btn nav-toggle" title="Toggle the sidebar (${sidebarKeys})">
@@ -225,7 +225,7 @@ test("topbar: the markup of the h() version in each state, patched in place, and
   const [toggle, brand] = elements(bar);
 
   const down = app({ route: SESSION }, { connected: false, server: { ...state, error: "no herdr" } });
-  rendered(topbar(down, null, false, topActs(log)), box);
+  setProps({ app: down, host: null, navShown: false, actions: topActs(log) });
   expect(dump(bar)).toBe(markup`
     <header class="topbar">
       <button aria-expanded="false" aria-keyshortcuts="${toggleKeys}" aria-label="Toggle the sidebar" class="icon-btn nav-toggle" title="Toggle the sidebar (${sidebarKeys})">
@@ -251,7 +251,7 @@ test("topbar: the markup of the h() version in each state, patched in place, and
   `);
   expect(elements(bar)[0]).toBe(toggle!);
 
-  rendered(topbar(app({}, { server: null }), null, false, topActs(log)), box);
+  setProps({ app: app({}, { server: null }), host: null, navShown: false, actions: topActs(log) });
   expect(dump(bar)).toBe(markup`
     <header class="topbar">
       <button aria-expanded="false" aria-keyshortcuts="${toggleKeys}" aria-label="Toggle the sidebar" class="icon-btn nav-toggle" title="Toggle the sidebar (${sidebarKeys})">
@@ -286,16 +286,16 @@ const navActs = (log: string[]) => ({
 
 test("sidebar: the markup of the h() version, links keep their nodes, and they call back", () => {
   const log: string[] = [];
-  const box = document.createElement("div");
   for (const a of [app({}, { server: null }), app({}, { fatal: "gone" })]) {
-    expect(dump(rendered(sidebar(a, navActs(log)), document.createElement("div")))).toBe(markup`
+    expect(dump(fake(mountRoot("nav", () => <Sidebar app={a} actions={navActs(log)} />).el))).toBe(markup`
       <nav aria-label="Routes" class="sidebar">
         <div class="nav-scroll"></div>
         ${navFoot()}
       </nav>
     `);
   }
-  const nav = rendered(sidebar(app(), navActs(log)), box);
+  const [current, setApp] = signal(app());
+  const nav = fake(mountRoot("nav", () => <Sidebar app={current()} actions={navActs(log)} />).el);
   expect(dump(nav)).toBe(markup`
     <nav aria-label="Routes" class="sidebar">
       <div class="nav-scroll">
@@ -342,7 +342,7 @@ test("sidebar: the markup of the h() version, links keep their nodes, and they c
   const scroll = elements(nav)[0]!;
   const links = elements(scroll);
   const onSession = app({ route: SESSION, ws: "w1" });
-  rendered(sidebar(onSession, navActs(log)), box);
+  setApp(onSession);
   expect(dump(nav)).toBe(markup`
     <nav aria-label="Routes" class="sidebar">
       <div class="nav-scroll">
@@ -390,7 +390,7 @@ test("sidebar: the markup of the h() version, links keep their nodes, and they c
   expect(elements(scroll)).toEqual(links);
 
   resetOps();
-  rendered(sidebar(onSession, navActs(log)), box);
+  setApp({ ...onSession });
   expect(Object.values(ops).reduce((x, y) => x + y, 0)).toBe(0); // an unchanged render writes nothing
 
   const group = elements(scroll)[2]!;
@@ -405,7 +405,9 @@ test("sidebar: the markup of the h() version, links keep their nodes, and they c
 
 test("the main column's empty states are the h() versions", () => {
   const log: string[] = [];
-  const fatal = rendered(fatalView("Session expired.", () => log.push("hosts")));
+  const fatal = fake(
+    mountRoot("div", () => <FatalView reason="Session expired." hosts={() => log.push("hosts")} />).el,
+  );
   expect(dump(fatal)).toBe(
     markup`
       <div class="empty fatal">
@@ -417,10 +419,10 @@ test("the main column's empty states are the h() versions", () => {
   );
   dispatch(elements(fatal)[2]!, "click");
   expect(log).toEqual(["hosts"]);
-  expect(dump(rendered(connectingView("mac")))).toBe(
+  expect(dump(fake(mountRoot("div", () => <ConnectingView hostName="mac" />).el))).toBe(
     '<div class="empty"><div aria-hidden="true" class="spinner"></div><p>Connecting to mac…</p></div>',
   );
-  expect(dump(rendered(notFoundView("x")))).toBe(
+  expect(dump(fake(mountRoot("div", () => <NotFoundView route="x" />).el))).toBe(
     '<div class="empty"><h2>Route not found</h2><p>No route named x under the panes\' folders.</p></div>',
   );
 });
@@ -432,11 +434,9 @@ test("the main column's empty states are the h() versions", () => {
 test("route shell: head, tabs and body as the h() version, and the body changes in place", () => {
   const r = routes[0]!;
   const picked: string[] = [];
-  const tabsBox = document.createElement("div");
-  const tabs = rendered(
-    tabRow(r, app(), 0, (t) => picked.push(t)),
-    tabsBox,
-  );
+  const [tabApp, setTabApp] = signal(app());
+  const [unread, setUnread] = signal(0);
+  const tabs = mount(() => <TabRow route={r} app={tabApp()} unread={unread()} pick={(t) => picked.push(t)} />);
   expect(dump(tabs)).toBe(markup`
     <div class="tabs" role="tablist">
       <button aria-selected="true" class="tab active" role="tab" title="The agents of this route and what each is doing">
@@ -470,10 +470,8 @@ test("route shell: head, tabs and body as the h() version, and the body changes 
     </div>
   `);
   const withMsgs = app({ tab: "messages" });
-  rendered(
-    tabRow(r, withMsgs, 3, (t) => picked.push(t)),
-    tabsBox,
-  );
+  setTabApp(withMsgs);
+  setUnread(3);
   // The tab row with Messages picked and 3 unread, in the shells below too.
   const messagesTabs = markup`
     <div class="tabs" role="tablist">
@@ -545,7 +543,17 @@ test("route shell: head, tabs and body as the h() version, and the body changes 
       </div>
     </div>
   `;
-  const shell = rendered(routeShell(r, tabsEl, checklistView(r)), box);
+  const [showLog, setShowLog] = signal(false);
+  const shell = mount(
+    () => (
+      <RouteShell route={r} tabs={tabsEl}>
+        <Show when={showLog()} fallback={<ChecklistView route={r} />}>
+          <LogView route={r} />
+        </Show>
+      </RouteShell>
+    ),
+    box,
+  );
   expect(dump(shell)).toBe(markup`
     <div class="route-shell">
       ${routeHead}
@@ -568,7 +576,7 @@ test("route shell: head, tabs and body as the h() version, and the body changes 
   `);
   const head = elements(shell)[0]!;
 
-  rendered(routeShell(r, tabsEl, logView(r)), box);
+  setShowLog(true);
   expect(elements(shell)[0]).toBe(head); // patched: the head and the tab row stay
   expect(elements(shell)[1]).toBe(fake(tabsEl));
   expect(dump(shell)).toBe(
@@ -587,8 +595,10 @@ test("route shell: head, tabs and body as the h() version, and the body changes 
   );
 
   const empty = route("bare", false);
-  expect(dump(rendered(checklistView(empty)))).toBe('<p class="muted pad">This route has no checklist.</p>');
-  expect(dump(rendered(logView(empty)))).toBe('<p class="muted pad">No run-state lines yet.</p>');
+  expect(dump(mount(() => <ChecklistView route={empty} />))).toBe(
+    '<p class="muted pad">This route has no checklist.</p>',
+  );
+  expect(dump(mount(() => <LogView route={empty} />))).toBe('<p class="muted pad">No run-state lines yet.</p>');
 });
 
 test("repeated checklist and run-state lines move as rows of their own", () => {
@@ -609,15 +619,16 @@ test("repeated checklist and run-state lines move as rows of their own", () => {
   ];
   for (const view of ["checklist", "log"] as const) {
     const box = document.createElement("div");
+    const [current, setCurrent] = signal(route("rep", true));
+    mount(() => (view === "checklist" ? <ChecklistView route={current()} /> : <LogView route={current()} />), box);
     for (const texts of orders) {
       const r =
         view === "checklist"
           ? route("rep", true, { checklist: texts.map(line) })
           : route("rep", true, { run_state: texts.map(log).reverse() });
-      const v = view === "checklist" ? checklistView(r) : logView(r);
-      render(box, v);
-      const fresh = view === "checklist" ? checklistView(r) : logView(r);
-      expect(dump(fake(box))).toBe(dump(fake(rendered(fresh).parentNode)));
+      setCurrent(r);
+      const fresh = mount(() => (view === "checklist" ? <ChecklistView route={r} /> : <LogView route={r} />));
+      expect(dump(fake(box))).toBe(dump(fake(fresh.parentNode)));
     }
   }
 });
@@ -641,7 +652,7 @@ test("activity: the h() version's events, newest first", () => {
   // test's time zone.
   const time = (at: string): string =>
     `<time datetime="${at}" title="${new Date(at).toLocaleString()}">${clock.format(new Date(at))}</time>`;
-  expect(dump(rendered(activityView(app({}, { entries }), members)))).toBe(markup`
+  expect(dump(mount(() => <ActivityView app={app({}, { entries })} members={members} />))).toBe(markup`
     <ol class="timeline activity">
       <li class="web">
         ${time(entries[2]!.at)}
@@ -660,7 +671,7 @@ test("activity: the h() version's events, newest first", () => {
       </li>
     </ol>
   `);
-  expect(dump(rendered(activityView(app(), members)))).toBe(
+  expect(dump(mount(() => <ActivityView app={app()} members={members} />))).toBe(
     '<p class="muted pad">Nothing has happened since this page opened.</p>',
   );
 });
@@ -670,8 +681,9 @@ test("session view: groups by tab, idle workspaces, rows open their pane", () =>
   const opened: string[] = [];
   const a = app({ route: SESSION });
   const box = document.createElement("div");
-  const view = rendered(
-    sessionView(a, state.snapshot, idx, (p) => opened.push(p)),
+  const [current, setCurrent] = signal(a);
+  const view = mount(
+    () => <SessionView app={current()} snap={state.snapshot} idx={idx} open={(p) => opened.push(p)} />,
     box,
   );
   const [head, board] = elements(view);
@@ -709,10 +721,7 @@ test("session view: groups by tab, idle workspaces, rows open their pane", () =>
     `,
   );
   idle!.setAttribute("open", ""); // the person opened it
-  rendered(
-    sessionView(a, state.snapshot, idx, (p) => opened.push(p)),
-    box,
-  );
+  setCurrent({ ...a });
   expect(elements(elements(view)[1]!)[1]).toBe(idle!); // kept, open
   expect(idle!.hasAttribute("open")).toBe(true);
   dispatch(elements(elements(elements(idle!)[1]!)[0]!)[1]!, "click");

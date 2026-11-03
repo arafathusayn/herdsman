@@ -1,10 +1,10 @@
 import { beforeAll, expect, mock, test } from "bun:test";
 
-import { render } from "../herdsman-blocks-view.ts";
 import type { FakeElement } from "../herdsman-blocks.testdom.ts";
+import { mount } from "../test-mount.ts";
 import { all, dispatch, dump, find, installDom, markup } from "../testdom.ts";
 import type { LogLine, Route } from "../types.ts";
-import type { PageReader } from "./log-view.ts";
+import type { PageReader } from "./log-view.tsx";
 
 beforeAll(installDom);
 
@@ -24,18 +24,14 @@ const text = (b: FakeElement) =>
     .join("\n");
 const isTag = (tag: string) => (e: FakeElement) => e.tagName.toLowerCase() === tag;
 
-/**
- * Renders route r's log into a box, as the app does: the view asks for a
- * redraw when a page arrives, and the box is rendered again from the same
- * route (the app would use its newest). Returns the box.
- */
+/** A page arriving updates the mounted component through its own signals. */
 async function logBox(r: Route, page?: PageReader, failed?: (msg: string) => void): Promise<FakeElement> {
-  const { logView } = await import("./log-view.ts");
-  const box = document.createElement("div");
-  const draw = (): void => render(box, logView(r, draw, page, failed));
-  draw();
-  return box as unknown as FakeElement;
+  const { LogView } = await import("./log-view.tsx");
+  const el = mount(() => <LogView route={r} {...(page ? { page } : {})} {...(failed ? { failed } : {})} />);
+  return el.parentNode as FakeElement;
 }
+
+const root = (box: FakeElement) => box.childNodes.find((node) => node.nodeType === 1)!;
 
 // The route view pages the newest 2,000 records only; past them it says
 // where the older history is.
@@ -158,7 +154,7 @@ test("loaded pages stay when a new line rebuilds the view", async () => {
 // The loaded pages are kept for the few routes viewed last only: a route
 // not viewed since starts again from its newest lines.
 test("loaded pages are kept for the last few routes only", async () => {
-  const { SEEN_ROUTES } = await import("./log-view.ts");
+  const { SEEN_ROUTES } = await import("./log-view.tsx");
   const span = (a: number, b: number): LogLine[] =>
     Array.from({ length: b - a }, (_, i) => ({ time: "09:00", text: `l${a + i}` }));
   const page = (_id: string, before: number) =>
@@ -239,7 +235,7 @@ test("the log's markup", async () => {
   const paged = await logBox({ id: "m1", run_state: lines, older_run_state: 7 } as unknown as Route, () =>
     Promise.reject(new Error("no")),
   );
-  expect(dump(paged.firstChild!)).toBe(
+  expect(dump(root(paged))).toBe(
     markup`
       <div>
         <ol class="timeline">
@@ -256,7 +252,7 @@ test("the log's markup", async () => {
     older_run_state: 7,
     run_state_from: 7,
   } as unknown as Route);
-  expect(dump(windowed.firstChild!)).toBe(
+  expect(dump(root(windowed))).toBe(
     markup`
       <div>
         <ol class="timeline">
@@ -268,7 +264,7 @@ test("the log's markup", async () => {
     `,
   );
   const whole = await logBox({ id: "m3", run_state: lines } as unknown as Route);
-  expect(dump(whole.firstChild!)).toBe(
+  expect(dump(root(whole))).toBe(
     markup`
       <ol class="timeline">
         <li class="web"><time>10:05</time><p>web: prompted</p></li>
@@ -297,7 +293,7 @@ test("the last page of a whole history keeps the list's node", async () => {
   await flush();
   expect(find(view, isTag("ol"))).toBe(list);
   expect(find(view, isTag("button"))).toBeUndefined();
-  expect(dump(view.firstChild!)).toBe(
+  expect(dump(root(view))).toBe(
     markup`
       <div>
         <ol class="timeline">

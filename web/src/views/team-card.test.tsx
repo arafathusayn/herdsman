@@ -1,8 +1,7 @@
 import { beforeAll, expect, test } from "bun:test";
 
-import { render } from "../herdsman-blocks-view.ts";
-import type { FakeElement } from "../herdsman-blocks.testdom.ts";
 import type { Member } from "../model.ts";
+import { mount } from "../test-mount.ts";
 import { find, installDom } from "../testdom.ts";
 
 beforeAll(() => {
@@ -27,12 +26,9 @@ const member = {
 } as unknown as Member;
 
 test("an agent card's one-line texts clip, each with its full text as a tooltip", async () => {
-  const { card } = await import("./team.ts");
+  const { MemberCard } = await import("./team.tsx");
   const { store } = await import("../store.ts");
-  // card() returns a view: render it and read the button it made.
-  const box = document.createElement("div");
-  render(box, card(member, store.app));
-  const el = box.firstChild as unknown as FakeElement;
+  const el = mount(() => <MemberCard member={member} app={store.app} />);
   const byClass = (c: string) => find(el, (e) => e.className.split(" ").includes(c));
   expect(byClass("card-title")?.getAttribute("title")).toBe(member.title);
   expect(byClass("card-sub")?.getAttribute("title")).toBe("claude · arafat-ll/scm-574-sown-to-grow-integration");
