@@ -37,6 +37,8 @@ await run(async () => {
     return response;
   }) as typeof fetch;
   const root = q(document, "#app");
+  // Exercise the wide layout independently of the host browser's viewport.
+  root.style.width = "1100px";
   const state = createDiffState("browser-diff");
   const dispose = attach(() => <DiffView state={state} />, root);
   try {

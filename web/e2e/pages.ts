@@ -23,11 +23,13 @@ export async function pageChecks(browser: Browser, check: Check): Promise<void> 
     const code = await built.outputs[0]!.text();
     const server = Bun.serve({
       port: 0,
-      fetch: () =>
-        new Response(
-          `<!doctype html><html><head><meta charset="utf-8"></head><body><div id="app"></div><script type="module">${code}</script></body></html>`,
-          { headers: { "content-type": "text/html; charset=utf-8" } },
-        ),
+      fetch: (request) =>
+        new URL(request.url).pathname === "/fixture.js"
+          ? new Response(code, { headers: { "content-type": "text/javascript; charset=utf-8" } })
+          : new Response(
+              '<!doctype html><html><head><meta charset="utf-8"></head><body><div id="app"></div><script type="module" src="/fixture.js"></script></body></html>',
+              { headers: { "content-type": "text/html; charset=utf-8" } },
+            ),
     });
     const page = await browser.newPage();
     const errors: string[] = [];

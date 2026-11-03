@@ -76,6 +76,7 @@ export function Topbar(props: TopbarProps) {
       <span class="grow" />
       <button
         class="palette-trigger"
+        aria-label="Command palette"
         title={`Command palette (${paletteKeys})`}
         onClick={() => props.actions.palette()}
       >

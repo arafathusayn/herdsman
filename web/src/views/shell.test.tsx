@@ -211,7 +211,7 @@ test("topbar: the markup of the h() version in each state, patched in place, and
       </a>
       <span class="crumb">auth</span>
       <span class="grow"></span>
-      <button class="palette-trigger" title="Command palette (${paletteKeys})">
+      <button aria-label="Command palette" class="palette-trigger" title="Command palette (${paletteKeys})">
         ${iconMarkup(icons.search)}
         <span class="label">Search or run a command</span>
         <kbd>${paletteKeys}</kbd>
@@ -237,7 +237,7 @@ test("topbar: the markup of the h() version in each state, patched in place, and
       </a>
       <span class="crumb">All agents</span>
       <span class="grow"></span>
-      <button class="palette-trigger" title="Command palette (${paletteKeys})">
+      <button aria-label="Command palette" class="palette-trigger" title="Command palette (${paletteKeys})">
         ${iconMarkup(icons.search)}
         <span class="label">Search or run a command</span>
         <kbd>${paletteKeys}</kbd>
@@ -263,7 +263,7 @@ test("topbar: the markup of the h() version in each state, patched in place, and
       </a>
       <span class="crumb"></span>
       <span class="grow"></span>
-      <button class="palette-trigger" title="Command palette (${paletteKeys})">
+      <button aria-label="Command palette" class="palette-trigger" title="Command palette (${paletteKeys})">
         ${iconMarkup(icons.search)}
         <span class="label">Search or run a command</span>
         <kbd>${paletteKeys}</kbd>
