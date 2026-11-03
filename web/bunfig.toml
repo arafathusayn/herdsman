@@ -1,6 +1,8 @@
 [fmt]
 printWidth = 120
 sortImports = true
+ignorePatterns = ["vendor/"]
 
 [test]
 preload = ["./src/test-setup.ts"]
+pathIgnorePatterns = ["vendor/**"]
