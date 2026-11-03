@@ -1,5 +1,7 @@
 import { beforeAll, expect, test } from "bun:test";
 
+import { signal } from "@reactre/core";
+
 import type { FakeElement } from "../test-dom-core.ts";
 import { mount } from "../test-mount.ts";
 import { all, dispatch, dump, find, installDom, markup } from "../testdom.ts";
@@ -7,6 +9,10 @@ import type { LogLine, Route } from "../types.ts";
 import type { PageReader } from "./log-view.tsx";
 
 beforeAll(installDom);
+
+const globals = globalThis as unknown as Record<string, unknown>;
+globals["location"] ??= { search: "" };
+globals["window"] ??= { addEventListener() {} };
 
 const toasts = (): FakeElement[] =>
   all((document as unknown as { body: FakeElement }).body).filter((element) =>
@@ -146,6 +152,54 @@ test("loaded pages stay when a new line rebuilds the view", async () => {
       } as unknown as Route),
     ),
   ).toBe(100);
+});
+
+test("loaded pages survive more than a newest-window of consecutive live appends", async () => {
+  const { LogView } = await import("./log-view.tsx");
+  const span = (from: number, to: number): LogLine[] =>
+    Array.from({ length: to - from }, (_, index) => ({ time: "09:00", text: `line${from + index}` }));
+  const snapshot = (at: number): Route =>
+    ({ id: "live-appends", run_state: span(at, at + 4), older_run_state: at }) as Route;
+  const [route, setRoute] = signal(snapshot(300));
+  const view = mount(() => <LogView route={route()} page={async () => ({ lines: span(200, 300), older: 200 })} />);
+  dispatch(find(view, isTag("button"))!, "click");
+  await flush();
+  const earlier = find(
+    view,
+    (element) => element.tagName.toLowerCase() === "li" && element.textContent.endsWith("line200"),
+  );
+  expect(earlier).toBeDefined();
+  for (let at = 301; at <= 310; at++) setRoute(snapshot(at));
+  expect(all(view).filter(isTag("li")).length).toBe(114);
+  expect(find(view, (element) => element === earlier) === earlier).toBe(true);
+  expect(text(view)).toContain("line313");
+  const remounted = await logBox(snapshot(311));
+  expect(all(remounted).filter(isTag("li")).length).toBe(115);
+  expect(text(remounted)).toContain("line200");
+});
+
+test("an incompatible snapshot evicts cached pages so old history cannot resurrect them", async () => {
+  const { LogView } = await import("./log-view.tsx");
+  const initial = {
+    id: "history-return",
+    history: "first",
+    run_state: [{ time: "10:00", text: "new" }],
+    older_run_state: 1,
+  } as Route;
+  const [route, setRoute] = signal(initial);
+  const view = mount(() => (
+    <LogView
+      route={route()}
+      page={async () => ({ lines: [{ time: "09:00", text: "old loaded page" }], older: 0, history: "first" })}
+    />
+  ));
+  dispatch(find(view, isTag("button"))!, "click");
+  await flush();
+  expect(view.textContent).toContain("old loaded page");
+  setRoute({ ...initial, history: "second" });
+  expect(view.textContent).not.toContain("old loaded page");
+  setRoute(initial);
+  expect(view.textContent).not.toContain("old loaded page");
 });
 
 // The loaded pages are kept for the few routes viewed last only: a route

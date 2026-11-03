@@ -69,13 +69,19 @@ function LogLines(props: { lines: LogLine[] }) {
 }
 
 export function LogView(props: { route: Route; page?: PageReader; failed?: (message: string) => void }) {
-  const routeId = memo(() => props.route.id);
   effect(() => {
-    const id = routeId();
+    const route = props.route;
     untrack(() => {
-      const current = seen();
-      const item = current.get(id);
-      if (item && [...current.keys()].at(-1) !== id) remember(id, item);
+      const previous = seen().get(route.id);
+      if (!previous) return;
+      const merged = joined(route, previous);
+      if (merged.cached) remember(route.id, merged);
+      else
+        setSeen((current) => {
+          const next = new Map(current);
+          next.delete(route.id);
+          return next;
+        });
     });
   });
   const shown = memo(() => joined(props.route, seen().get(props.route.id)));
