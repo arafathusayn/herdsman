@@ -1,15 +1,15 @@
-// A small DOM for app tests: herdsman-blocks' linked-list fake DOM (so views,
+// A small DOM for app tests: a linked-list fake DOM (so views,
 // templates and lists run on it) plus what the app's forms use: form
 // properties, classList, readable dataset, bubbling events with extras.
 // Bun ships no DOM, and the repository takes no npm packages.
 import {
   FakeElement as BaseElement,
   FakeEvent as BaseEvent,
-  type FakeNode,
+  FakeNode,
   FakeText,
   installFakeDocument,
   SVG_NS,
-} from "./herdsman-blocks.testdom.ts";
+} from "./test-dom-core.ts";
 
 /** A bubbling event with what form and key handlers read: the submitter, the key, its code and modifiers, and preventDefault. */
 export class FakeEvent extends BaseEvent {
@@ -41,7 +41,10 @@ export class FakeEvent extends BaseEvent {
 }
 
 class ClassList {
-  constructor(private el: BaseElement) {}
+  private el: BaseElement;
+  constructor(el: BaseElement) {
+    this.el = el;
+  }
   private get list(): string[] {
     return this.el.className.split(/\s+/).filter(Boolean);
   }
@@ -66,9 +69,7 @@ const dataName = (k: string): string => "data-" + k.replace(/[A-Z]/g, (c) => "-"
 
 export class FakeElement extends BaseElement {
   // Form properties the app reads and writes.
-  value = "";
   checked = false;
-  disabled = false;
   selected = false;
   name = "";
   id = "";
@@ -167,6 +168,7 @@ export function installDom(): void {
     createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
     createElementNS: (ns: string, tag: string) => new (ns === SVG_NS ? BaseElement : FakeElement)(tag, ns),
     createTextNode: (s: string) => new FakeText(s),
+    createDocumentFragment: () => new FakeNode(11),
     body: new FakeElement("body"),
   };
 }

@@ -4,7 +4,7 @@
 // keyed lists are list(), handlers are fresh closures (stored indirectly, so a
 // new one costs no DOM write). No hand-written per-hole updates.
 
-import { attr, child, cls, html, list, on, render, text, type ViewNode } from "../../../../web/src/herdsman-blocks-view.ts";
+import { attr, child, cls, html, list, on, render, text, type ViewNode } from "../../legacy/herdsman-blocks-view.ts";
 import { start } from "../../shared/driver.ts";
 import {
   type Check,

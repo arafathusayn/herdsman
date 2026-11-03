@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import type { FakeElement, FakeNode } from "../herdsman-blocks.testdom.ts";
+import type { FakeElement, FakeNode } from "../test-dom-core.ts";
 import { dispatch, dump, installDom, markup } from "../testdom.ts";
 
 // The store reads the URL and listens for history changes when it loads.
 const g = globalThis as unknown as Record<string, unknown>;
 g["location"] ??= { search: "" };
 g["window"] ??= { addEventListener: () => {} };
-const { openNewRoute } = await import("./new-route.ts");
+const { openNewRoute } = await import("./new-route.tsx");
 
 const realFetch = globalThis.fetch;
 // The test DOM gives a view's elements the dialog methods the app calls
@@ -64,5 +64,9 @@ test("new route dialog: the first question, loading, then the failure as the h()
   );
 
   dispatch(dlg, "close");
-  expect(elements(body)).toEqual([]);
+  expect(elements(body).some((element) => element.tagName.toLowerCase() === "dialog")).toBe(false);
+  expect(dlg.parentNode).toBeNull();
+  expect(elements(body).find((element) => element.className === "toasts")?.textContent).toBe(
+    "cannot read the harness list (500)",
+  );
 });

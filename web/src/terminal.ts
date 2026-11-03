@@ -165,7 +165,10 @@ export class InputQueue {
   private queue: Input[] = [];
   private busy = false;
 
-  constructor(private readonly send: (i: Input) => Promise<boolean>) {}
+  private readonly send: (i: Input) => Promise<boolean>;
+  constructor(send: (i: Input) => Promise<boolean>) {
+    this.send = send;
+  }
 
   push(i: Input): void {
     const last = this.queue.at(-1);

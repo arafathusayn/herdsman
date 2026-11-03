@@ -41,7 +41,9 @@ export class Index {
   readonly agents = new Map<string, Agent>();
   readonly tabs = new Map<string, Tab>();
 
-  constructor(readonly snap: Snapshot) {
+  readonly snap: Snapshot;
+  constructor(snap: Snapshot) {
+    this.snap = snap;
     for (const p of snap.panes ?? []) this.panes.set(p.pane_id, p);
     for (const a of snap.agents ?? []) this.agents.set(a.pane_id, a);
     for (const t of snap.tabs ?? []) this.tabs.set(t.tab_id, t);

@@ -1,7 +1,7 @@
 import { beforeAll, expect, test } from "bun:test";
 
-import type { FakeElement } from "../herdsman-blocks.testdom.ts";
 import type { RouteForm } from "../new-route.ts";
+import type { FakeElement } from "../test-dom-core.ts";
 import { all, byName, dispatch, dump, installDom, markup } from "../testdom.ts";
 import type { Catalog, ChoicePick } from "../types.ts";
 
@@ -58,7 +58,7 @@ const probed: Catalog = {
 };
 
 async function run(picks: ChoicePick[], role: "orchestrator" | "adjutant", checkpointerOk = true) {
-  const { newRouteFlow } = await import("./new-route-flow.ts");
+  const { newRouteFlow } = await import("./new-route-flow.tsx");
   const body = document.createElement("form") as unknown as FakeElement;
   const probes: boolean[] = [];
   const opened: { previous: boolean; recommended: unknown }[] = [];
@@ -92,6 +92,38 @@ async function run(picks: ChoicePick[], role: "orchestrator" | "adjutant", check
 }
 
 const names = (b: FakeElement) => all(b).map((e) => e.getAttribute("data-field") ?? e.getAttribute("name"));
+
+test("stopped questions ignore a catalog response instead of opening a form", async () => {
+  const { newRouteFlow } = await import("./new-route-flow.tsx");
+  const body = document.createElement("form");
+  let resolve!: (catalog: Catalog) => void;
+  let opened = 0;
+  const flow = newRouteFlow(
+    body,
+    {
+      savedChoices: async () => [],
+      catalog: () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    },
+    () => {
+      opened++;
+      throw new Error("must not open");
+    },
+    () => {
+      throw new Error("must not fail");
+    },
+  );
+  await flush();
+  click(body as unknown as FakeElement, "use-recommended");
+  await flush();
+  flow.stop();
+  resolve(quick);
+  await flush();
+  expect(opened).toBe(0);
+  expect(body.childNodes.length).toBe(0);
+});
 
 // A32: the first question is "Use the recommended setup?"; A30's previous
 // choice follows it; nothing is probed until the user leaves that path.
@@ -164,8 +196,8 @@ test("the first summary states when the checkpointer runs", async () => {
 // A fresh role is offered the live lists only: another role's saved model
 // that the probe did not list is not among its choices.
 test("a fresh role does not see another role's saved model", async () => {
-  const { newRouteFlow } = await import("./new-route-flow.ts");
-  const { routeForm } = await import("./route-form.ts");
+  const { newRouteFlow } = await import("./new-route-flow.tsx");
+  const { routeForm } = await import("./route-form.tsx");
   // The route form takes the flow's form's place in the dialog: the test
   // reads the dialog.
   const dialog = document.createElement("dialog") as unknown as FakeElement;
@@ -240,7 +272,7 @@ test("a fresh role does not see another role's saved model", async () => {
 });
 
 test("saved picks that cannot be read count as none", async () => {
-  const { newRouteFlow } = await import("./new-route-flow.ts");
+  const { newRouteFlow } = await import("./new-route-flow.tsx");
   const body = document.createElement("form") as unknown as FakeElement;
   const opened: boolean[] = [];
   newRouteFlow(
@@ -279,7 +311,7 @@ test("a form from saved picks can ask for the lists once", async () => {
 // A failed read of the lists can be tried again; a second request while
 // one is on its way is not sent.
 test("Choose again retries after a failed read, never twice at once", async () => {
-  const { newRouteFlow } = await import("./new-route-flow.ts");
+  const { newRouteFlow } = await import("./new-route-flow.tsx");
   const body = document.createElement("form") as unknown as FakeElement;
   const probes: boolean[] = [];
   const errors: unknown[] = [];
@@ -327,7 +359,7 @@ test("Choose again retries after a failed read, never twice at once", async () =
 
 // The questions' markup, as the h() version drew them into the form.
 test("the questions before the form, as markup", async () => {
-  const { FIRST_SUMMARY } = await import("./new-route-flow.ts");
+  const { FIRST_SUMMARY } = await import("./new-route-flow.tsx");
   const r = await run([pick("orchestrator"), { ...pick("adjutant"), runner: "tmux" }], "orchestrator");
   // The summary lists the recommended setup: data the test cannot fix.
   const summary = FIRST_SUMMARY.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");

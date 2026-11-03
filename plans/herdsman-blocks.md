@@ -1,5 +1,9 @@
 # herdsman-blocks: article and design spec
 
+> Historical renderer spec. The app now uses Reactre TSX and signals; the
+> renderer described here lives in `bench/herdsman-cases/legacy` for the
+> existing benchmark baselines. See [`web/README.md`](../web/README.md).
+
 A living document. It explains why herdsman-blocks exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
 
 - Status: draft, on branch `herdsman-blocks`

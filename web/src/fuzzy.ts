@@ -1,5 +1,4 @@
 // Fuzzy matching for the file search and the command palette.
-import { html, runs, type RunsNode, text, type ViewNodeOf } from "./herdsman-blocks-view.ts";
 
 const separators = "/-_. :";
 
@@ -65,29 +64,4 @@ export function fuzzy(query: string, text: string): { score: number; hits: numbe
     from = at + 1;
   }
   return finish(hits, score);
-}
-
-const Mark = html`<mark>${text()}</mark>`;
-
-/** What `highlight` returns: text runs with the matched ones in `<mark>`, for a child hole. */
-export type HighlightNode = RunsNode<ViewNodeOf<typeof Mark>>;
-
-/** The text with the characters at `hits` (from `fuzzy`) marked, run by run, with no wrapper. */
-export function highlight(value: string, hits: readonly number[]): HighlightNode {
-  if (!hits.length) return runs<ViewNodeOf<typeof Mark>>([value]);
-  const set = new Set(hits);
-  const out: (string | ViewNodeOf<typeof Mark>)[] = [];
-  let run = "";
-  let inHit = false;
-  for (let i = 0; i < value.length; i++) {
-    const hit = set.has(i);
-    if (hit !== inHit && run) {
-      out.push(inHit ? Mark([run]) : run);
-      run = "";
-    }
-    inHit = hit;
-    run += value[i];
-  }
-  if (run) out.push(inHit ? Mark([run]) : run);
-  return runs(out);
 }

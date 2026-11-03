@@ -1,5 +1,9 @@
 # Migrating herdsman web to views
 
+> Historical migration record. The app now uses native Reactre TSX and signals;
+> see [`web/README.md`](../web/README.md). The renderer described below is kept
+> in `bench/herdsman-cases/legacy` for benchmark comparisons.
+
 How every part of the web app moved from `h()` + `patch()` (dom.ts) to herdsman-blocks' declarative view layer (`web/src/herdsman-blocks-view.ts`, spec in `plans/herdsman-blocks.md`, Layer 4 and Types), and the conventions the views follow. Status as of 2026-10-27: **the migration is complete.** Stage 3 removed `h()`, `patch()`, `each()`, the bridge and `mountElement`; dom.ts is now `icons.ts` (the icon path data and the icon and logo views). See [Stage 3: what replaced what](#stage-3-what-replaced-what).
 
 ## Why

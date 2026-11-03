@@ -1,13 +1,11 @@
 {
-  // The strictest settings, for herdsman-blocks only, on top of tsconfig.json.
+  // Additional checks for the application and its component tests.
   // tsconfig.json already sets strict, noUncheckedIndexedAccess,
   // exactOptionalPropertyTypes, noImplicitOverride, noUnusedLocals,
   // noUnusedParameters, noFallthroughCasesInSwitch, verbatimModuleSyntax and
   // isolatedModules.
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "isolatedDeclarations": true,
-    "declaration": true,
     "erasableSyntaxOnly": true,
     "noPropertyAccessFromIndexSignature": true,
     "noImplicitReturns": true,
@@ -19,5 +17,5 @@
     "forceConsistentCasingInFileNames": true,
     "libReplacement": false
   },
-  "include": ["src/herdsman-blocks*.ts"]
+  "include": ["src", "build.ts", "build.test.ts", "reactre.ts", "test-fixtures"]
 }

@@ -12,7 +12,7 @@
     <title>herdsman docs</title>
     <link rel="icon" type="image/svg+xml" href="../logo.svg" />
     <link rel="stylesheet" href="../styles/docs.css" />
-    <script type="module" src="../src/docs.ts"></script>
+    <script type="module" src="../src/docs.tsx"></script>
   </head>
   <body>
     <a class="skip" href="#content">Skip to the content</a>
@@ -273,7 +273,7 @@ brew install --cask arafathusayn/tap/herdsman</code></pre>
 
           <details class="fold">
             <summary>Edit the skill while you use it: link a clone</summary>
-            <pre><code>git clone https://github.com/arafathusayn/herdsman.git
+            <pre><code>git clone --recurse-submodules https://github.com/arafathusayn/herdsman.git
 ln -s "$PWD/herdsman/skills/herdsman" &lt;harness skills folder&gt;/herdsman</code></pre>
             <p>
               A skill from <code>main</code> needs a <code>herdsman</code> built from the same clone (<code
@@ -347,7 +347,7 @@ brew install --cask arafathusayn/tap/herdsman</code></pre>
                 Build from a clone with Go and Bun. This writes
                 <code>bin/herdsman</code>.
               </p>
-              <pre><code>git clone https://github.com/arafathusayn/herdsman.git
+              <pre><code>git clone --recurse-submodules https://github.com/arafathusayn/herdsman.git
 cd herdsman
 make build</code></pre>
             </div>

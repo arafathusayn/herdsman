@@ -2,8 +2,8 @@
 // fields, refusals show by their fields, a sent form locks, the result
 // screen lists the steps, and typing keeps focus and caret.
 import type { Catalog, GitHubAccess, RouteResult } from "../../src/types.ts";
-import type { Deps } from "../../src/views/route-form.ts";
-import { routeForm } from "../../src/views/route-form.ts";
+import type { Deps } from "../../src/views/route-form.tsx";
+import { routeForm } from "../../src/views/route-form.tsx";
 import { check, equal, flush, pick, q, run, typeIn } from "./lib.ts";
 
 const efforts = ["low", "medium", "high"];

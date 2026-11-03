@@ -260,7 +260,7 @@ async function dialogs(browser: Browser, mock: Mock, check: Check, errors: strin
   await page.waitForSelector("dialog.new-route[open] .error", { timeout: 2000 });
   check("new route failure", true);
   await page.click("dialog.new-route .btn.ghost");
-  await sleep(50);
+  await page.waitForFunction(() => document.querySelector("dialog.new-route") === null, { timeout: 2000 });
   check("new route closes", (await page.$("dialog.new-route")) === null);
 
   // With one, the form opens with focus on its first empty field.

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { reactre } from "./reactre.ts";
-import { type FakeElement, installFakeDocument } from "./src/herdsman-blocks.testdom.ts";
+import { type FakeElement, installFakeDocument } from "./src/test-dom-core.ts";
 import { dispatch, find } from "./src/testdom.ts";
 
 test("vendored Reactre compiles TSX and updates keyed DOM without installed packages", async () => {
