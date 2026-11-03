@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { render } from "../herdsman-blocks-view.ts";
+import { Icon } from "../components/icons.tsx";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
-import { icon, icons } from "../icons.ts";
+import { icons } from "../icons.ts";
 import { ago } from "../model.ts";
+import { mount } from "../test-mount.ts";
 import { dispatch, markup } from "../testdom.ts";
 import type { Artifact } from "../types.ts";
 
@@ -13,7 +14,12 @@ g["location"] ??= { search: "", pathname: "/" };
 g["window"] ??= { addEventListener: () => {} };
 const win = g["window"] as Record<string, unknown>;
 const { store } = await import("../store.ts");
-const { ArtifactsView, artifactPath } = await import("./artifacts.ts");
+const { ArtifactsView, createArtifactsState, artifactPath } = await import("./artifacts.tsx");
+const createView = (routeId: string) => {
+  const state = createArtifactsState(routeId);
+  const el = mount(() => <ArtifactsView state={state} />);
+  return { ...state, el };
+};
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 const fake = (n: unknown): FakeElement => n as FakeElement;
@@ -28,7 +34,6 @@ let opened: string[] = [];
 beforeEach(() => {
   installFakeDocument();
   proto["querySelector"] = () => null;
-  proto["value"] = ""; // the search input's
   win["setTimeout"] = setTimeout;
   went = [];
   opened = [];
@@ -46,7 +51,6 @@ beforeEach(() => {
 afterEach(async () => {
   await settle(); // loads still pending render before the fakes go
   delete proto["querySelector"];
-  delete proto["value"];
   store.go = realGo;
   globalThis.fetch = realFetch;
 });
@@ -65,9 +69,7 @@ const dump = (n: FakeNode): string => {
 };
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 const iconMarkup = (paths: readonly string[], label?: string): string => {
-  const box = document.createElement("div");
-  render(box, icon(paths, label));
-  return dump(box.firstChild as unknown as FakeNode);
+  return dump(mount(() => <Icon paths={paths} {...(label ? { label } : {})} />));
 };
 const child = (n: unknown, ...path: number[]): FakeElement => {
   let e = fake(n);
@@ -83,7 +85,7 @@ const b1 = page("/w/two/reports", "report.html");
 
 test("before the list loads, then the groups, the head and the frame of the newest page", async () => {
   pages = [a1, a2, b1];
-  const v = new ArtifactsView("r1");
+  const v = createView("r1");
   v.update("");
   expect(dump(fake(v.el))).toBe(markup`
     <div class="files artifacts">
@@ -181,7 +183,7 @@ test("before the list loads, then the groups, the head and the frame of the newe
 
 test("a poll that finds nothing new writes nothing; a gone page says so", async () => {
   pages = [a1, b1];
-  const v = new ArtifactsView("r1");
+  const v = createView("r1");
   v.update(artifactPath(b1));
   v.start();
   await settle();
@@ -212,7 +214,7 @@ test("a poll that finds nothing new writes nothing; a gone page says so", async 
 
 test("search marks hits with the workspace folder; Enter opens the cursor's page; reload refetches", async () => {
   pages = [a1, a2, b1];
-  const v = new ArtifactsView("r1");
+  const v = createView("r1");
   v.update(artifactPath(a1));
   v.start();
   await settle();
@@ -253,7 +255,7 @@ test("search marks hits with the workspace folder; Enter opens the cursor's page
 
 test("a closed group stays closed; a failed first load shows the error", async () => {
   pages = [a1, b1];
-  const v = new ArtifactsView("r1");
+  const v = createView("r1");
   v.update("");
   v.start();
   await settle();
@@ -268,7 +270,7 @@ test("a closed group stays closed; a failed first load shows the error", async (
   expect(group.hasAttribute("open")).toBe(false);
 
   listFails = true;
-  const w = new ArtifactsView("r2");
+  const w = createView("r2");
   w.start();
   await settle();
   w.stop();
@@ -279,4 +281,29 @@ test("a closed group stays closed; a failed first load shows the error", async (
       </div>
     `,
   );
+});
+
+test("an older preview response cannot replace the selected page", async () => {
+  pages = [a1, b1];
+  const finish = new Map<string, (response: Response) => void>();
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    if (!url.startsWith("/api/artifacts/open")) return Response.json({ artifacts: pages });
+    const { path } = JSON.parse(String(init?.body)) as { path: string };
+    return new Promise<Response>((resolve) => {
+      finish.set(path, resolve);
+    });
+  }) as typeof fetch;
+  const view = createView("r1");
+  view.start();
+  await settle();
+  view.stop();
+  view.update(artifactPath(b1));
+  finish.get(b1.path)!(Response.json({ url: "/frame/newer" }));
+  await settle();
+  const frame = child(view.el, 1, 1, 0);
+  expect(frame.getAttribute("src")).toBe("/frame/newer");
+  finish.get(a1.path)!(Response.json({ url: "/frame/stale" }));
+  await settle();
+  expect(child(view.el, 1, 1, 0)).toBe(frame);
+  expect(frame.getAttribute("src")).toBe("/frame/newer");
 });

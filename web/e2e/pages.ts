@@ -13,7 +13,7 @@ plugin(reactreSources);
 
 export async function pageChecks(browser: Browser, check: Check): Promise<void> {
   const dir = join(import.meta.dir, "pages");
-  const entries = [...new Glob("*.page.ts").scanSync(dir)].sort();
+  const entries = [...new Glob("*.page.{ts,tsx}").scanSync(dir)].sort();
   for (const name of entries) {
     const built = await Bun.build({ entrypoints: [join(dir, name)], target: "browser", plugins: reactre() });
     if (!built.success) {
@@ -39,7 +39,7 @@ export async function pageChecks(browser: Browser, check: Check): Promise<void> 
         () => (window as unknown as { __results?: { name: string; ok: boolean; detail: string }[] }).__results,
       );
       if (!results) check(`${name}: reports its checks`, false, "no results");
-      for (const r of results ?? []) check(`${name.replace(/\.page\.ts$/, "")}: ${r.name}`, r.ok, r.detail);
+      for (const r of results ?? []) check(`${name.replace(/\.page\.tsx?$/, "")}: ${r.name}`, r.ok, r.detail);
       for (const e of errors) check(`${name}: page error`, false, e);
     } finally {
       await page.close();

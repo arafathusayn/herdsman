@@ -25,7 +25,7 @@ import type { Route, State } from "./types.ts";
 import { applyTheme } from "./ui.ts";
 import { AgentPanel } from "./views/agent.ts";
 import { openAppearance } from "./views/appearance.tsx";
-import { ArtifactsView } from "./views/artifacts.ts";
+import { type ArtifactsState, ArtifactsView, createArtifactsState } from "./views/artifacts.tsx";
 import { DiffView } from "./views/diff.ts";
 import { FilesView } from "./views/files.ts";
 import {
@@ -37,7 +37,7 @@ import {
   takePendingLink,
 } from "./views/hosts.tsx";
 import { LogView } from "./views/log-view.tsx";
-import { MessagesView } from "./views/messages.ts";
+import { createMessagesState, MessagesView } from "./views/messages.tsx";
 import { openNewRoute } from "./views/new-route.ts";
 import { showPairing } from "./views/pair.tsx";
 import { ActivityView, ChecklistView, RouteShell, SessionView, TabRow } from "./views/route.tsx";
@@ -92,8 +92,8 @@ function toggleNav(): void {
 }
 let files: FilesView | null = null;
 let changes: DiffView | null = null; // polls git only while its tab shows
-let artifacts: ArtifactsView | null = null; // lists pages only while its tab shows
-const messages = new MessagesView();
+let artifacts: ArtifactsState | null = null; // lists pages only while its tab shows
+const messages = createMessagesState();
 const [host, setHost] = signal<Host | null>(null);
 
 const sidebarActions: SidebarActions = {
@@ -474,7 +474,7 @@ function ChangesTab(props: { route: Route; app: App }) {
 function ArtifactsTab(props: { route: Route; selected: string }) {
   if (artifacts?.routeId !== props.route.id) {
     artifacts?.stop();
-    artifacts = new ArtifactsView(props.route.id);
+    artifacts = createArtifactsState(props.route.id);
   }
   const view = artifacts;
   effect(() => {
@@ -485,18 +485,17 @@ function ArtifactsTab(props: { route: Route; selected: string }) {
     });
   });
   onCleanup(() => view.stop());
-  return view.el;
+  return <ArtifactsView state={view} />;
 }
 
 function MessagesTab(props: { route: Route; channel: App["channel"] }) {
-  effect(() => {
-    const channel = props.channel,
-      route = props.route;
-    untrack(() =>
-      messages.render(channel, { adjutant: route.adjutant_pane ?? "", orchestrator: route.orchestrator_pane }),
-    );
-  });
-  return messages.el;
+  return (
+    <MessagesView
+      channel={props.channel}
+      panes={{ adjutant: props.route.adjutant_pane ?? "", orchestrator: props.route.orchestrator_pane }}
+      state={messages}
+    />
+  );
 }
 
 function renderPanel(app: App, idx: Index): void {

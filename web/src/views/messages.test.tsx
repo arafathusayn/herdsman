@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { render } from "../herdsman-blocks-view.ts";
+import { signal } from "@reactre/core";
+
+import { Icon } from "../components/icons.tsx";
 import type { FakeElement, FakeNode } from "../herdsman-blocks.testdom.ts";
-import { icon, icons } from "../icons.ts";
+import { icons } from "../icons.ts";
+import { mount } from "../test-mount.ts";
 import { dispatch, installDom, markup } from "../testdom.ts";
 import type { Channel, ChannelMessage } from "../types.ts";
 
@@ -13,7 +16,7 @@ g["location"] ??= { search: "", pathname: "/" };
 g["window"] ??= { addEventListener: () => {} };
 g["history"] ??= { pushState: () => {}, replaceState: () => {} };
 g["requestAnimationFrame"] ??= () => 0;
-const { MessagesView } = await import("./messages.ts");
+const { MessagesView, createMessagesState } = await import("./messages.tsx");
 const { store } = await import("../store.ts");
 
 const realFetch = globalThis.fetch;
@@ -32,9 +35,7 @@ afterEach(() => {
 const fake = (n: unknown): FakeElement => n as FakeElement;
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 const iconMarkup = (paths: readonly string[], label?: string): string => {
-  const box = document.createElement("div");
-  render(box, icon(paths, label));
-  return dump(box.firstChild as unknown as FakeNode);
+  return dump(mount(() => <Icon paths={paths} {...(label ? { label } : {})} />));
 };
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -113,13 +114,23 @@ const bodies: [string, { text?: string; error?: string }][] = [
   ["m6", {}],
 ];
 
-type Internals = { expanded: Set<string>; bodies: Map<string, { text?: string; error?: string }>; lastKey: string };
-// Opens messages and loads bodies as toggle() and the fetch would.
-const open = (v: object, ids: string[], loaded: typeof bodies): void => {
-  const i = v as Internals;
-  for (const id of ids) i.expanded.add(id);
-  for (const [id, b] of loaded) i.bodies.set(id, b);
-  i.lastKey = "";
+function createView(read?: Parameters<typeof createMessagesState>[0]) {
+  const state = createMessagesState(read);
+  const [current, setCurrent] = signal<{ channel: Channel | null; panes: typeof panes }>({ channel: null, panes });
+  const el = mount(() => <MessagesView channel={current().channel} panes={current().panes} state={state} />);
+  return { el, state, render: (channel: Channel | null, peers: typeof panes) => setCurrent({ channel, panes: peers }) };
+}
+
+// Exercise the public expansion and body-read API, including a request still in flight.
+const fixtureReader = (_to: string, id: string): Promise<string> => {
+  const body = new Map(bodies).get(id);
+  if (body?.error) return Promise.reject(new Error(body.error));
+  if (body?.text !== undefined) return Promise.resolve(body.text);
+  return new Promise(() => {});
+};
+const open = async (view: ReturnType<typeof createView>, ids: string[]): Promise<void> => {
+  for (const id of ids) view.state.toggle(messages.find((message) => message.id === id)!);
+  await flush();
 };
 
 // The markup of each state. A message's time shows month, day and time
@@ -310,7 +321,7 @@ const opened = (): string => markup`
   </div>
 `;
 
-test("every state renders what the h() version did", () => {
+test("every state renders what the h() version did", async () => {
   const cases: [Channel | null, string[], () => string][] = [
     [null, [], () => loading],
     [{ ...channel([]), configured: false }, [], unconfigured],
@@ -329,15 +340,15 @@ test("every state renders what the h() version did", () => {
     [channel(messages), ["m1", "m2", "m3", "m5", "m6"], opened],
   ];
   for (const [ch, ids, want] of cases) {
-    const now = new MessagesView();
-    open(now, ids, bodies);
+    const now = createView(fixtureReader);
+    await open(now, ids);
     now.render(ch, panes);
     expect(dump(fake(now.el))).toBe(want());
   }
 });
 
 test("one view moves between states and still renders what the h() version did", () => {
-  const now = new MessagesView();
+  const now = createView();
   const el = now.el;
   const states: [Channel | null, () => string][] = [
     [null, () => loading],
@@ -354,7 +365,7 @@ test("one view moves between states and still renders what the h() version did",
 });
 
 test("the view keeps its messages' nodes across renders", () => {
-  const v = new MessagesView();
+  const v = createView();
   v.render(channel(messages.slice(0, 2)), panes);
   const thread = elements(fake(v.el)).find((e) => e.className === "msg-thread")!;
   const [m2, m1] = elements(thread);
@@ -371,7 +382,7 @@ test("a message opens, loads its body once, and its reply link scrolls to the me
     fetched++;
     return new Response(JSON.stringify({ body: JSON.stringify({ text: "hi", k: "v" }) }));
   }) as unknown as typeof fetch;
-  const v = new MessagesView();
+  const v = createView();
   const ch = channel(messages.slice(0, 2));
   v.render(ch, panes);
   const thread = elements(fake(v.el)).find((e) => e.className === "msg-thread")!;
@@ -390,8 +401,7 @@ test("a message opens, loads its body once, and its reply link scrolls to the me
   );
   // A render that changes nothing keeps the fields' nodes.
   const dl = elements(elements(body)[0]!)[1]!;
-  (v as unknown as Internals).lastKey = "";
-  v.render(ch, panes);
+  v.render({ ...ch }, panes);
   expect(elements(elements(elements(m1).at(-1)!)[0]!)[1]).toBe(dl);
 
   const m2 = elements(thread)[0]!;
@@ -407,11 +417,49 @@ test("a message opens, loads its body once, and its reply link scrolls to the me
 });
 
 test("a peer opens its pane", () => {
-  const v = new MessagesView();
+  const v = createView();
   v.render(channel([]), panes);
   const pair = elements(elements(fake(v.el))[0]!)[0]!;
   const [adj, orch] = elements(pair).filter((e) => e.tagName === "BUTTON");
   expect(orch!.getAttribute("disabled")).toBe("");
   dispatch(adj!, "click");
   expect(store.app.view.pane).toBe("p1");
+});
+
+test("quarantine hides an already cached body and refuses another read", async () => {
+  const read: string[] = [];
+  const view = createView(async (_to, id) => {
+    read.push(id);
+    return "verified body";
+  });
+  const ready = msg("guarded");
+  view.render(channel([ready]), panes);
+  view.state.toggle(ready);
+  await flush();
+  expect(view.el.textContent).toContain("verified body");
+  const quarantined = { ...ready, state: "quarantine" as const };
+  view.render(channel([quarantined]), panes);
+  view.state.toggle(quarantined);
+  expect(view.el.textContent).not.toContain("verified body");
+  expect(read).toEqual(["guarded"]);
+});
+
+test("a failed body read retries on reopening and survives a component remount", async () => {
+  let calls = 0;
+  const state = createMessagesState(async () => {
+    if (++calls === 1) throw new Error("offline");
+    return "retried body";
+  });
+  const message = msg("retry");
+  const el = mount(() => <MessagesView channel={channel([message])} panes={panes} state={state} />);
+  state.toggle(message);
+  await flush();
+  expect(el.textContent).toContain("offline");
+  state.toggle(message);
+  state.toggle(message);
+  await flush();
+  expect(el.textContent).toContain("retried body");
+  const remounted = mount(() => <MessagesView channel={channel([message])} panes={panes} state={state} />);
+  expect(remounted.textContent).toContain("retried body");
+  expect(calls).toBe(2);
 });
