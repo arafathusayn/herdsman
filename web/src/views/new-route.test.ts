@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, mock, test } from "bun:test";
 
-import type { FakeElement } from "../herdsman-blocks.testdom.ts";
+import type { FakeElement } from "../test-dom-core.ts";
 import { all, byName, dispatch, find, installDom } from "../testdom.ts";
 import type { Catalog, ChoicePick } from "../types.ts";
 

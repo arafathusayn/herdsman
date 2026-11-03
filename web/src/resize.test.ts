@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { type FakeElement, installFakeDocument } from "./herdsman-blocks.testdom.ts";
 import { clampWidth, navResizer } from "./resize.tsx";
+import { type FakeElement, installFakeDocument } from "./test-dom-core.ts";
 
 test("the panel width stays between its minimum and the room left", () => {
   expect(clampWidth(200, 900)).toBe(340);

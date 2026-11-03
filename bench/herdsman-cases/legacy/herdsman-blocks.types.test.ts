@@ -3,7 +3,7 @@
 // lines live in functions that never run: they test the compiler, not the DOM.
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { asDom, type FakeElement, installFakeDocument, SVG_NS } from "./herdsman-blocks.testdom.ts";
+import { asDom, type FakeElement, installFakeDocument, SVG_NS } from "../../../web/src/test-dom-core.ts";
 import {
   attr,
   type Block,

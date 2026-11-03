@@ -4,7 +4,7 @@ import { signal } from "@reactre/core";
 
 import { Highlight } from "./components/highlight.tsx";
 import { fuzzy } from "./fuzzy.ts";
-import { installFakeDocument } from "./herdsman-blocks.testdom.ts";
+import { installFakeDocument } from "./test-dom-core.ts";
 import { mount } from "./test-mount.ts";
 import { dump } from "./testdom.ts";
 test("fuzzy", () => {

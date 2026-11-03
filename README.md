@@ -229,7 +229,7 @@ Or download the archive for macOS or Linux from [Releases](https://github.com/ar
 
 For a source build, initialize the pinned Reactre submodule with `git submodule update --init web/vendor/reactre`
 (or clone with `--recurse-submodules`). The web build reads its TypeScript sources directly; no npm install,
-`node_modules`, or Reactre JavaScript build is needed. New components can be authored in TSX; see
+`node_modules`, or Reactre JavaScript build is needed. The UI is authored in TSX and uses Reactre signals; see
 [`web/README.md`](web/README.md).
 
 It prints a URL with a one-run token. The browser that opens it must type a 6-digit pairing code that the same terminal prints, so a leaked link alone controls nothing. Each link allows 20 wrong codes in all; then it stops working, and the terminal prints a new one. A paired browser keeps a device secret for that host until the server stops.

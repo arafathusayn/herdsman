@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { render } from "./herdsman-blocks-view.ts";
-import { FakeElement, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
-import { icon, icons } from "./icons.ts";
+import { Icon } from "./components/icons.tsx";
+import { icons } from "./icons.ts";
 import { type Command, openPalette, paletteOpen } from "./palette.tsx";
+import { FakeElement, type FakeNode, installFakeDocument } from "./test-dom-core.ts";
+import { mount } from "./test-mount.ts";
 import { dispatch, dump, markup } from "./testdom.ts";
 
 const g = globalThis as unknown as { document: Record<string, unknown> };
@@ -41,9 +42,7 @@ afterEach(() => {
 
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 const iconMarkup = (paths: readonly string[], label?: string): string => {
-  const box = document.createElement("div");
-  render(box, icon(paths, label));
-  return dump(box.firstChild as unknown as FakeNode);
+  return dump(mount(() => <Icon paths={paths} {...(label ? { label } : {})} />));
 };
 
 test("palette: markup of the h() version, filtering and moving keep row nodes, asking and back", () => {

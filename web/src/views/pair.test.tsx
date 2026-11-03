@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import type { pair } from "../api.ts";
-import { render } from "../herdsman-blocks-view.ts";
-import { FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
-import { icon, icons } from "../icons.ts";
+import { Icon } from "../components/icons.tsx";
+import { icons } from "../icons.ts";
+import { FakeElement, type FakeNode, installFakeDocument } from "../test-dom-core.ts";
+import { mount } from "../test-mount.ts";
 import { dispatch, dump, FakeElement as FormElement, find, markup } from "../testdom.ts";
 import { showPairing } from "./pair.tsx";
 
-const fake = (n: unknown): FakeElement => n as FakeElement;
 const proto = FakeElement.prototype as unknown as Record<string, unknown>;
 let focused: unknown[] = [];
 beforeEach(() => {
@@ -97,9 +97,7 @@ afterEach(() => {
 
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 const iconMarkup = (paths: readonly string[]): string => {
-  const box = document.createElement("div");
-  render(box, icon(paths));
-  return dump(fake(box).firstChild!);
+  return dump(mount(() => <Icon paths={paths} />));
 };
 
 test("pairing screen: the markup of the h() version, and typing formats the code in place", () => {

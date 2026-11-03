@@ -3,7 +3,7 @@ import { afterEach } from "bun:test";
 import { attach } from "@reactre/core";
 import type { Child } from "@reactre/core/jsx-runtime";
 
-import type { FakeElement } from "./herdsman-blocks.testdom.ts";
+import type { FakeElement } from "./test-dom-core.ts";
 
 const mounted: (() => void)[] = [];
 afterEach(() => {

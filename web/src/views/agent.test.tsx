@@ -6,9 +6,9 @@ import type { Child } from "@reactre/core/jsx-runtime";
 import { Icon } from "../components/icons.tsx";
 import { mountRoot } from "../components/mount-root.ts";
 import { Pill } from "../components/status.tsx";
-import { FakeElement as BaseElement, type FakeNode } from "../herdsman-blocks.testdom.ts";
 import { icons } from "../icons.ts";
 import { type Member, roleName } from "../model.ts";
+import { FakeElement as BaseElement, type FakeNode } from "../test-dom-core.ts";
 import { mount } from "../test-mount.ts";
 import { dispatch, FakeElement, FakeEvent, installDom } from "../testdom.ts";
 

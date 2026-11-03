@@ -20,7 +20,7 @@ import { canonicalRoute, Index, paneSize, team } from "./model.ts";
 import { isMac, openPalette, paletteOpen } from "./palette.tsx";
 import { loadWidths, navResizer } from "./resize.tsx";
 import { type App, store } from "./store.ts";
-import { installTooltips } from "./tooltip.ts";
+import { installTooltips } from "./tooltip.tsx";
 import type { Route, State } from "./types.ts";
 import { applyTheme } from "./ui.ts";
 import { type AgentHandle, AgentPanel } from "./views/agent.tsx";

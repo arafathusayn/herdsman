@@ -3,9 +3,10 @@ import { beforeEach, expect, test } from "bun:test";
 import { attach } from "@reactre/core";
 
 import { appThemes, codeThemes, matchApp, noHighlight, termSchemes } from "../appearance.ts";
-import { render } from "../herdsman-blocks-view.ts";
-import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
-import { icon, icons } from "../icons.ts";
+import { Icon } from "../components/icons.tsx";
+import { icons } from "../icons.ts";
+import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../test-dom-core.ts";
+import { mount } from "../test-mount.ts";
 import { dispatch, dump, markup } from "../testdom.ts";
 
 // The store reads the URL and listens for history changes when it loads; the
@@ -40,9 +41,7 @@ const { termVars: termVarsOf, codeVars: codeVarsOf, appVars: appVarsOf } = await
 // serializes style.setProperty's result), so the expected markup is built
 // from the theme lists rather than written out in full.
 const iconMarkup = (paths: readonly string[]): string => {
-  const box = document.createElement("div");
-  render(box, icon(paths));
-  return dump(fake(box).firstChild as FakeNode);
+  return dump(mount(() => <Icon paths={paths} />));
 };
 const styleOf = (vars: Record<string, string> | null | undefined): string => {
   const s = Object.entries(vars ?? {})

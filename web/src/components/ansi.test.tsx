@@ -3,7 +3,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { signal } from "@reactre/core";
 
 import { contrast, type Palette } from "../ansi.ts";
-import { ops, resetOps } from "../herdsman-blocks.testdom.ts";
+import { ops, resetOps } from "../test-dom-core.ts";
 import { mount } from "../test-mount.ts";
 import { all, installDom } from "../testdom.ts";
 import { AnsiText } from "./ansi.tsx";

@@ -227,7 +227,7 @@ function GitHubField(props: { controller: FormController; id: string }) {
         name="ghAccount"
         label="GitHub account"
         wide
-        error={snapshot().errors.ghAccount}
+        error={snapshot().errors["ghAccount"]}
         hint={
           snapshot().githubPending
             ? null
@@ -379,7 +379,7 @@ function Checkpointer(props: { controller: FormController; id: string }) {
               controller={controller}
               id={props.id}
               name="minutes"
-              options={{ cls: `nr-num${snapshot().errors.minutes ? " invalid" : ""}`, inputmode: "numeric" }}
+              options={{ cls: `nr-num${snapshot().errors["minutes"] ? " invalid" : ""}`, inputmode: "numeric" }}
             />
             min
           </label>
@@ -389,7 +389,7 @@ function Checkpointer(props: { controller: FormController; id: string }) {
               controller={controller}
               id={props.id}
               name="limit"
-              options={{ cls: `nr-num${snapshot().errors.limit ? " invalid" : ""}` }}
+              options={{ cls: `nr-num${snapshot().errors["limit"] ? " invalid" : ""}` }}
             />
             tokens
           </label>
@@ -507,7 +507,7 @@ function DraftScreen(props: { controller: FormController; id: string }) {
               id={`${props.id}-workspace`}
               name="workspace"
               label="Workspace"
-              error={snapshot().errors.workspace}
+              error={snapshot().errors["workspace"]}
               hint="The Herdr workspace the route's tabs open in."
             >
               <SelectBox
@@ -526,7 +526,7 @@ function DraftScreen(props: { controller: FormController; id: string }) {
               id={`${props.id}-folder`}
               name="folder"
               label="Folder"
-              error={snapshot().errors.folder}
+              error={snapshot().errors["folder"]}
               wide
               tabsHint
               hint={
@@ -574,7 +574,7 @@ function DraftScreen(props: { controller: FormController; id: string }) {
                 id={`${props.id}-routeName`}
                 name="routeName"
                 label="Route name"
-                error={snapshot().errors.routeName}
+                error={snapshot().errors["routeName"]}
                 hint="Names the route's folder and its inbox."
               >
                 <DraftInput controller={controller} id={props.id} name="routeName" />
@@ -583,7 +583,7 @@ function DraftScreen(props: { controller: FormController; id: string }) {
                 id={`${props.id}-inbox`}
                 name="inbox"
                 label="Private inbox"
-                error={snapshot().errors.inbox}
+                error={snapshot().errors["inbox"]}
                 wide
                 hint="One inbox per route. The app never creates or writes it."
               >
@@ -600,7 +600,7 @@ function DraftScreen(props: { controller: FormController; id: string }) {
               id={`${props.id}-request`}
               name="request"
               label="Route request"
-              error={snapshot().errors.request}
+              error={snapshot().errors["request"]}
               wide
               hint="The tasks, in your words; the orchestrator plans them and asks before it starts anything."
             >

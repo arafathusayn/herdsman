@@ -1,7 +1,7 @@
 import { beforeAll, expect, test } from "bun:test";
 
-import type { FakeElement } from "../herdsman-blocks.testdom.ts";
 import type { RouteForm } from "../new-route.ts";
+import type { FakeElement } from "../test-dom-core.ts";
 import { all, byName, dispatch, dump, installDom, markup } from "../testdom.ts";
 import type { Catalog, ChoicePick } from "../types.ts";
 

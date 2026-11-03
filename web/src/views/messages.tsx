@@ -80,8 +80,8 @@ function MessageBody(props: { text: string }) {
     <Show when={parsed()} fallback={<pre class="msg-text">{props.text}</pre>}>
       {(value) => (
         <div>
-          <Show when={typeof value().text === "string"}>
-            <pre class="msg-text">{String(value().text)}</pre>
+          <Show when={typeof value()["text"] === "string"}>
+            <pre class="msg-text">{String(value()["text"])}</pre>
           </Show>
           <Show when={fields().length > 0}>
             <dl class="msg-fields">
@@ -128,7 +128,7 @@ interface ChannelChip {
 }
 function channelChips(channel: Channel): ChannelChip[] {
   const boxes = channel.boxes.filter(
-    (box) => box.unacked || box.claim !== "none" || box.counts.quarantine || box.orphan,
+    (box) => box.unacked || box.claim !== "none" || box.counts["quarantine"] || box.orphan,
   );
   return [
     ...channel.health.map((health) => ({
@@ -151,12 +151,12 @@ function channelChips(channel: Channel): ChannelChip[] {
     })),
     ...boxes.map((box) => ({
       id: `box:${box.name}`,
-      cls: box.counts.quarantine || box.orphan ? "chip warn" : "chip",
+      cls: box.counts["quarantine"] || box.orphan ? "chip warn" : "chip",
       tip: null,
       text:
         `${box.name}: ${box.unacked} unread` +
         (box.claim !== "none" ? ` · claim ${box.claim}` : "") +
-        (box.counts.quarantine ? ` · ${box.counts.quarantine} quarantined` : "") +
+        (box.counts["quarantine"] ? ` · ${box.counts["quarantine"]} quarantined` : "") +
         (box.orphan ? " · not enrolled" : ""),
     })),
   ];

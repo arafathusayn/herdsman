@@ -33,7 +33,7 @@ import {
   ops,
   resetOps,
   SVG_NS,
-} from "./herdsman-blocks.testdom.ts";
+} from "../../../web/src/test-dom-core.ts";
 
 // Templates below compile when their describe block runs, before any beforeEach.
 installFakeDocument();

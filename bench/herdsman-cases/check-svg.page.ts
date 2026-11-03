@@ -14,7 +14,7 @@ import {
   type SvgChild,
   svg,
   text,
-} from "../../web/src/herdsman-blocks-view.ts";
+} from "./legacy/herdsman-blocks-view.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const results: { name: string; ok: boolean; detail: string }[] = [];

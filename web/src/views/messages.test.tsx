@@ -3,8 +3,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { signal } from "@reactre/core";
 
 import { Icon } from "../components/icons.tsx";
-import type { FakeElement, FakeNode } from "../herdsman-blocks.testdom.ts";
 import { icons } from "../icons.ts";
+import type { FakeElement, FakeNode } from "../test-dom-core.ts";
 import { mount } from "../test-mount.ts";
 import { dispatch, installDom, markup } from "../testdom.ts";
 import type { Channel, ChannelMessage } from "../types.ts";

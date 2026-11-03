@@ -11,7 +11,7 @@ import {
   installFakeDocument,
   ops,
   resetOps,
-} from "./herdsman-blocks.testdom.ts";
+} from "../../../web/src/test-dom-core.ts";
 import { attr, cls, html, lis, List, morph, text } from "./herdsman-blocks.ts";
 
 beforeEach(installFakeDocument);

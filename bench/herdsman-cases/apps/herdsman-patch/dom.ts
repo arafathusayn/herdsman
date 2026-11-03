@@ -3,7 +3,7 @@
 // each() keys a list's elements. The app no longer has it (its views
 // migration removed it on 2026-10-27); this benchmark app measures the
 // approach, so it keeps its own copy, without the views bridge.
-import { KEY_ATTR, morph } from "../../../../web/src/herdsman-blocks.ts";
+import { KEY_ATTR, morph } from "../../legacy/herdsman-blocks.ts";
 
 declare const KEYED: unique symbol;
 declare const UNKEYED: unique symbol;

@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { render, type ViewNode } from "./herdsman-blocks-view.ts";
-import { FakeElement, type FakeNode, installFakeDocument, SVG_NS } from "./herdsman-blocks.testdom.ts";
-import { icon, icons, logoMark } from "./icons.ts";
+import { signal } from "@reactre/core";
 
-const fake = (n: unknown): FakeElement => n as FakeElement;
+import { Icon, Logo } from "./components/icons.tsx";
+import { icons } from "./icons.ts";
+import { FakeElement, type FakeNode, installFakeDocument, SVG_NS } from "./test-dom-core.ts";
+import { mount } from "./test-mount.ts";
 
 beforeEach(installFakeDocument);
 
@@ -62,32 +63,25 @@ describe("icons as views", () => {
       .join(" ");
     return `<${e.tagName} ${e.namespaceURI} ${attrs}>${e.childNodes.map(dump).join("")}</${e.tagName}>`;
   };
-  const rendered = (v: ViewNode): FakeElement => {
-    const box = document.createElement("div");
-    render(box, v);
-    return fake(box).firstChild as FakeElement;
-  };
 
   test("every icon renders the same SVG as the old builder, labelled or not", () => {
     for (const paths of Object.values(icons)) {
       expect(new Set(paths).size).toBe(paths.length); // path data keys the list
-      expect(dump(rendered(icon(paths)))).toBe(dump(oldIcon(paths)));
-      expect(dump(rendered(icon(paths, "Label")))).toBe(dump(oldIcon(paths, "Label")));
+      expect(dump(mount(() => <Icon paths={paths} />))).toBe(dump(oldIcon(paths)));
+      expect(dump(mount(() => <Icon paths={paths} label="Label" />))).toBe(dump(oldIcon(paths, "Label")));
     }
   });
 
   test("the logo renders the same SVG as the old builder", () => {
-    expect(dump(rendered(logoMark()))).toBe(dump(oldLogo()));
+    expect(dump(mount(Logo))).toBe(dump(oldLogo()));
   });
 
   test("an icon swapped in place reuses the svg and its kept paths", () => {
-    const box = document.createElement("div");
-    render(box, icon(icons.sidebar));
-    const svgEl = fake(box).firstChild as FakeElement;
-    const frame = svgEl.firstChild;
-    render(box, icon(icons.sidebarOpen));
-    expect(fake(box).firstChild).toBe(svgEl);
-    expect(svgEl.firstChild).toBe(frame); // the shared frame path is kept
+    const [paths, setPaths] = signal<readonly string[]>(icons.sidebar);
+    const svgEl = mount(() => <Icon paths={paths()} />);
+    const frame = svgEl.childNodes.find((node) => node.nodeType === 1);
+    setPaths(icons.sidebarOpen);
+    expect(svgEl.childNodes.find((node) => node.nodeType === 1)).toBe(frame);
     expect(dump(svgEl)).toBe(dump(oldIcon(icons.sidebarOpen)));
   });
 });

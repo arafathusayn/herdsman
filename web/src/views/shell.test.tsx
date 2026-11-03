@@ -4,11 +4,11 @@ import { Show, signal } from "@reactre/core";
 
 import { Icon } from "../components/icons.tsx";
 import { mountRoot } from "../components/mount-root.ts";
-import { type FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { icons } from "../icons.ts";
 import { ago, Index, type Member } from "../model.ts";
 import { isMac, paletteKeys, sidebarKeys } from "../palette.tsx";
 import type { App } from "../store.ts";
+import { type FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../test-dom-core.ts";
 import { mount } from "../test-mount.ts";
 import { dispatch, dump, markup } from "../testdom.ts";
 import type { Agent, Entry, Pane, Route, State, Workspace } from "../types.ts";

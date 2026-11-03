@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { signal } from "@reactre/core";
 
 import { applyCodeTheme } from "./appearance.ts";
-import { installFakeDocument, ops, resetOps } from "./herdsman-blocks.testdom.ts";
 import { languageOf, tokenizeLines } from "./highlight.ts";
 import { CodeBlock, Markdown } from "./markdown.tsx";
+import { installFakeDocument, ops, resetOps } from "./test-dom-core.ts";
 import { mount } from "./test-mount.ts";
 import { dump, markup } from "./testdom.ts";
 

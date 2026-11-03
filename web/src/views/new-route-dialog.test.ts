@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import type { FakeElement, FakeNode } from "../herdsman-blocks.testdom.ts";
+import type { FakeElement, FakeNode } from "../test-dom-core.ts";
 import { dispatch, dump, installDom, markup } from "../testdom.ts";
 
 // The store reads the URL and listens for history changes when it loads.

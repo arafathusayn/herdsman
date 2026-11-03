@@ -2,8 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { applyCodeTheme } from "../appearance.ts";
 import { Icon } from "../components/icons.tsx";
-import { type FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
 import { icons } from "../icons.ts";
+import { type FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../test-dom-core.ts";
 import { mount } from "../test-mount.ts";
 import { dispatch, markup } from "../testdom.ts";
 import type { DiffFile, DiffSource } from "../types.ts";

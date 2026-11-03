@@ -2,9 +2,9 @@ import { beforeEach, expect, test } from "bun:test";
 
 import { signal } from "@reactre/core";
 
-import { type FakeElement, type FakeNode, installFakeDocument } from "../herdsman-blocks.testdom.ts";
 import type { BoardBy, Member, Role } from "../model.ts";
 import type { App } from "../store.ts";
+import { type FakeElement, type FakeNode, installFakeDocument } from "../test-dom-core.ts";
 import { mount } from "../test-mount.ts";
 import { dispatch, markup } from "../testdom.ts";
 

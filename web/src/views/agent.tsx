@@ -153,10 +153,12 @@ class AgentController implements AgentHandle {
   private fastUntil = 0;
   private generation = 0;
 
-  constructor(
-    readonly pane: string,
-    readonly kinds: () => string[],
-  ) {}
+  readonly pane: string;
+  readonly kinds: () => string[];
+  constructor(pane: string, kinds: () => string[]) {
+    this.pane = pane;
+    this.kinds = kinds;
+  }
 
   mount(): void {
     this.set({ resizer: panelResizer(this.el) });

@@ -256,7 +256,7 @@ export function displayAnsi(text: string, pal: Palette): DisplayRun[] {
     const background = rgbOf(under);
     if (style.dim && foreground && background) fg = toHex(mix(foreground, background, 0.4));
     const css: Record<string, string> = { color: readable(fg, under, style.dim ? minDimContrast : minContrast) };
-    if (bg !== undefined) css.backgroundColor = bg;
+    if (bg !== undefined) css["backgroundColor"] = bg;
     const className = [
       style.bold && "a-b",
       style.dim && "a-d",

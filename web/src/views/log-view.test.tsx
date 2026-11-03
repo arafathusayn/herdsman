@@ -1,6 +1,6 @@
 import { beforeAll, expect, mock, test } from "bun:test";
 
-import type { FakeElement } from "../herdsman-blocks.testdom.ts";
+import type { FakeElement } from "../test-dom-core.ts";
 import { mount } from "../test-mount.ts";
 import { all, dispatch, dump, find, installDom, markup } from "../testdom.ts";
 import type { LogLine, Route } from "../types.ts";

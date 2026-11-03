@@ -19,7 +19,7 @@ import {
   type ViewNode,
 } from "./herdsman-blocks-view.ts";
 import { assertProperty, type Choices, type Gen } from "./herdsman-blocks.prop.ts";
-import { asDom, type FakeElement, FakeEvent, type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
+import { asDom, type FakeElement, FakeEvent, type FakeNode, installFakeDocument } from "../../../web/src/test-dom-core.ts";
 
 installFakeDocument();
 beforeEach(installFakeDocument);

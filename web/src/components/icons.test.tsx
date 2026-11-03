@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 
 import { attach, signal } from "@reactre/core";
 
-import { type FakeElement, ops, resetOps, SVG_NS } from "../herdsman-blocks.testdom.ts";
 import { icons } from "../icons.ts";
+import { type FakeElement, ops, resetOps, SVG_NS } from "../test-dom-core.ts";
 import { Icon } from "./icons.tsx";
 
 test("compiled icons keep the SVG and shared paths when the signal changes", () => {

@@ -50,8 +50,34 @@ compiles a TSX fixture with the same plugins as the production build, then
 tests its events, reactive updates, keyed node reuse and disposal on the
 existing fake DOM. The browser page checks use the same plugins and include
 a TSX regression page. Upstream submodule tests and formatting are
-excluded from the app's checks. The existing views still use herdsman-blocks;
-they have not been migrated.
+excluded from the app's checks.
+
+## Application ownership and state
+
+The app, dialogs, route creation, terminal panel and docs controls use native
+Reactre TSX components. `app-state.ts` holds the shared immutable signal
+snapshot. View state factories keep tab data across navigation; components
+read their signals and own their effects, observers and event handlers.
+Closing a dialog or leaving a screen disposes its owner. Async controllers
+ignore responses after disposal and reject stale responses for an older
+selection. There is no global refresh or hand-written DOM reconciliation.
+
+Use `<For>` for keyed DOM lists. When server snapshots replace row objects,
+use Reactre's keyed `map` to expose a stable accessor per row, then render those
+accessors through `<For>` so changes update the existing component. This keeps
+focused fields, open details, scroll positions and loaded preview frames.
+Wrap nullable state in `<Show>` and read its child accessor inside that owner.
+
+`test-dom-core.ts` and `testdom.ts` provide the dependency-free fake DOM;
+`test-mount.ts` mounts components with automatic cleanup. `make web-check`
+runs the normal and additional strict app checks, the compiler integration
+tests and app regressions. `make web-e2e` also builds and checks the app in
+headless Chrome, including typing, keyboard navigation, polling, preview
+sandboxing, terminal input, route creation and the docs controls.
+
+The retired renderer is preserved only under `bench/herdsman-cases/legacy`
+for the existing benchmark baselines. Its strict type checks and unit/property
+tests still run in `make web-check`; production app code does not import it.
 
 ## Update Reactre
 

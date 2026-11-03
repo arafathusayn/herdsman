@@ -1,6 +1,6 @@
 import { beforeAll, expect, test } from "bun:test";
 
-import { FakeElement } from "../herdsman-blocks.testdom.ts";
+import { FakeElement } from "../test-dom-core.ts";
 import { all, byName, dispatch, dump, find, installDom, markup } from "../testdom.ts";
 import type { Catalog, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
 import { createRouteFormState } from "./route-form-state.ts";
