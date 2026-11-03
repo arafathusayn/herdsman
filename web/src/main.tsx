@@ -23,7 +23,7 @@ import { type App, store } from "./store.ts";
 import { installTooltips } from "./tooltip.ts";
 import type { Route, State } from "./types.ts";
 import { applyTheme } from "./ui.ts";
-import { AgentPanel } from "./views/agent.ts";
+import { type AgentHandle, AgentPanel } from "./views/agent.tsx";
 import { openAppearance } from "./views/appearance.tsx";
 import { type ArtifactsState, ArtifactsView, createArtifactsState } from "./views/artifacts.tsx";
 import { createDiffState, type DiffState, DiffView } from "./views/diff.tsx";
@@ -57,7 +57,7 @@ const appRoot = document.getElementById("app");
 if (!appRoot) throw new Error("index.html has no #app");
 const root: HTMLElement = appRoot;
 
-let panel: AgentPanel | null = null;
+let panel: AgentHandle | null = null;
 let disposePairing: (() => void) | null = null;
 const [navOpen, setNavOpen] = signal(false);
 const [navCollapsed, setNavCollapsed] = signal(readCollapsed());
@@ -134,10 +134,9 @@ const main = mountRoot("main", () => (
     <MainContent />
   </main>
 )).el;
-const [panelNode, setPanelNode] = signal<HTMLElement | null>(null);
 const panelHost = mountRoot("div", () => (
   <div class="panel-host">
-    <>{panelNode()}</>
+    <PanelContent />
   </div>
 ));
 const frameBody = mountRoot("div", () => (
@@ -165,8 +164,7 @@ applyCodeTheme(loadCodeTheme(), false);
 loadWidths();
 installTooltips();
 effect(() => {
-  const app = store.state();
-  untrack(() => renderApp(app));
+  document.body.classList.toggle("has-panel", !!store.state().view.pane);
 });
 // The user's own clicks and keys (route tabs, Changes, a terminal) say the
 // user is here, at most every 10 s (A33); timers never do.
@@ -337,17 +335,6 @@ function pickDefaultRoute(): void {
   store.go({ route: live ? live.id : SESSION }, false);
 }
 
-function renderApp(app: App): void {
-  document.body.classList.toggle("has-panel", !!app.view.pane);
-  if (app.fatal || !app.server) {
-    panel?.destroy();
-    panel = null;
-    setPanelNode(null);
-    return;
-  }
-  renderPanel(app, new Index(app.server.snapshot));
-}
-
 function MainContent() {
   const app = store.state;
   return (
@@ -498,24 +485,53 @@ function MessagesTab(props: { route: Route; channel: App["channel"] }) {
   );
 }
 
-function renderPanel(app: App, idx: Index): void {
-  const pane = app.view.pane;
-  if (!pane) {
-    panel?.destroy();
-    panel = null;
-    setPanelNode(null);
-    return;
-  }
-  if (panel?.pane !== pane) {
-    panel?.destroy();
-    panel = new AgentPanel(pane, () => [
-      ...new Set((store.app.server?.snapshot.agents ?? []).map((a) => a.agent).filter((k): k is string => !!k)),
-    ]);
-    setPanelNode(panel.el);
-  }
-  const r = currentRoute(app);
-  const m = r ? team(r, idx).find((x) => x.pane_id === pane) : undefined;
-  panel.update(m ?? idx.member(pane, "agent", null), paneSize(idx.snap, pane), !!r?.adjutant_pane);
+function PanelContent() {
+  const pane = memo(() => {
+    const app = store.state();
+    return !app.fatal && app.server ? app.view.pane : "";
+  });
+  return (
+    <Show when={pane()} keyed>
+      {(pane) => <PanePanel pane={pane} />}
+    </Show>
+  );
+}
+
+function PanePanel(props: { pane: string }) {
+  const data = memo(() => {
+    const app = store.state();
+    if (!app.server) return null;
+    const idx = new Index(app.server.snapshot);
+    const route = currentRoute(app);
+    const member = route ? team(route, idx).find((member) => member.pane_id === props.pane) : undefined;
+    return {
+      member: member ?? idx.member(props.pane, "agent", null),
+      size: paneSize(idx.snap, props.pane),
+      hasAdjutant: !!route?.adjutant_pane,
+    };
+  });
+  return (
+    <Show when={data()}>
+      {(data) => (
+        <AgentPanel
+          pane={props.pane}
+          member={data().member}
+          size={data().size}
+          hasAdjutant={data().hasAdjutant}
+          kinds={() => [
+            ...new Set(
+              (store.app.server?.snapshot.agents ?? [])
+                .map((agent) => agent.agent)
+                .filter((kind): kind is string => !!kind),
+            ),
+          ]}
+          handle={(handle) => {
+            panel = handle;
+          }}
+        />
+      )}
+    </Show>
+  );
 }
 
 // Keyboard: j/k move between cards, / focuses the composer, Esc closes.

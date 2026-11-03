@@ -67,7 +67,6 @@ const dataName = (k: string): string => "data-" + k.replace(/[A-Z]/g, (c) => "-"
 export class FakeElement extends BaseElement {
   // Form properties the app reads and writes.
   checked = false;
-  disabled = false;
   selected = false;
   name = "";
   id = "";

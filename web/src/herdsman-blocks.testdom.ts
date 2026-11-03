@@ -232,6 +232,10 @@ class FakeStyle {
     );
   }
   setProperty(name: string, value: string): void {
+    if (value === "") {
+      this.removeProperty(name);
+      return;
+    }
     const declarations = this.declarations();
     declarations.set(name, value);
     this.cssText = [...declarations].map(([key, text]) => `${key}: ${text};`).join(" ");
@@ -250,6 +254,13 @@ class FakeStyle {
 
 export class FakeElement extends FakeNode {
   readonly style: FakeStyle = new FakeStyle(this);
+  get disabled(): boolean {
+    return this.hasAttribute("disabled");
+  }
+  set disabled(value: boolean) {
+    if (value) this.setAttribute("disabled", "");
+    else this.removeAttribute("disabled");
+  }
   // Handler properties, like a browser element's (an event with none, such as
   // compositionstart, has no property: "oncompositionstart" in el is false).
   onclick: unknown = null;

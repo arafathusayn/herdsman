@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { render, type ViewNode } from "../herdsman-blocks-view.ts";
+import { signal } from "@reactre/core";
+import type { Child } from "@reactre/core/jsx-runtime";
+
+import { Icon } from "../components/icons.tsx";
+import { mountRoot } from "../components/mount-root.ts";
+import { Pill } from "../components/status.tsx";
 import { FakeElement as BaseElement, type FakeNode } from "../herdsman-blocks.testdom.ts";
-import { icon, icons } from "../icons.ts";
+import { icons } from "../icons.ts";
 import { type Member, roleName } from "../model.ts";
+import { mount } from "../test-mount.ts";
 import { dispatch, FakeElement, FakeEvent, installDom } from "../testdom.ts";
-import { pill } from "../ui.ts";
 
 // What the panel needs beyond the test DOM: the store's URL and frames, the
 // window's timers and selection, a resize observer, and fetch (pane reads
@@ -24,7 +29,7 @@ g["ResizeObserver"] ??= class {
   observe(): void {}
   disconnect(): void {}
 };
-const { AgentPanel } = await import("./agent.ts");
+const { AgentPanel } = await import("./agent.tsx");
 const { arrowKeys, keySet } = await import("../agent-actions.ts");
 const { store } = await import("../store.ts");
 
@@ -71,7 +76,26 @@ afterEach(() => {
 });
 
 const panel = (pane = "p7") => {
-  const p = new AgentPanel(pane, () => ["claude"]);
+  const [state, setState] = signal<{ member: Member | null; size: { cols: number } | null; hasAdjutant: boolean }>({
+    member: null,
+    size: null,
+    hasAdjutant: false,
+  });
+  const view = mountRoot("aside", () => (
+    <AgentPanel
+      pane={pane}
+      kinds={() => ["claude"]}
+      member={state().member}
+      size={state().size}
+      hasAdjutant={state().hasAdjutant}
+    />
+  ));
+  const p = {
+    el: view.el,
+    destroy: view.dispose,
+    update: (member: Member, size: { cols: number } | null, hasAdjutant = false) =>
+      setState({ member, size, hasAdjutant }),
+  };
   panels.push(p);
   return p;
 };
@@ -130,12 +154,10 @@ const el = (tag: string, attrs: Record<string, string> | null, ...kids: Kid[]): 
   for (const k of kids) if (k !== null) e.append(k);
   return e;
 };
-const node = (v: ViewNode): FakeNode => {
-  const box = document.createElement("div");
-  render(box, v);
-  const n = fake(box).firstChild!;
-  fake(box).removeChild(n);
-  return n;
+const node = (view: () => Child): FakeNode => {
+  const el = mount(view);
+  el.parentNode?.removeChild(el);
+  return el;
 };
 
 function oldPanel(m: Member | null, o: { view: "log" | "terminal"; open: boolean; resizer: FakeNode }): FakeElement {
@@ -145,7 +167,7 @@ function oldPanel(m: Member | null, o: { view: "log" | "terminal"; open: boolean
     el(
       "button",
       { class: danger ? "icon-btn danger" : "icon-btn", title: label, "aria-label": label },
-      node(icon(glyph)),
+      node(() => <Icon paths={glyph} />),
     );
   const head = el(
     "div",
@@ -156,7 +178,7 @@ function oldPanel(m: Member | null, o: { view: "log" | "terminal"; open: boolean
           el(
             "button",
             { class: "icon-btn", title: "Close panel", "aria-label": "Close panel" },
-            node(icon(icons.close)),
+            node(() => <Icon paths={icons.close} />),
           ),
           el(
             "div",
@@ -165,7 +187,7 @@ function oldPanel(m: Member | null, o: { view: "log" | "terminal"; open: boolean
             el(
               "div",
               { class: "sub" },
-              node(pill(m.status)),
+              node(() => <Pill status={m.status} />),
               m.role === "adjutant" || m.role === "orchestrator"
                 ? el("span", { class: `chip role-${m.role}` }, roleName[m.role])
                 : null,
@@ -208,7 +230,7 @@ function oldPanel(m: Member | null, o: { view: "log" | "terminal"; open: boolean
         ...(v === o.view ? { class: "active" } : {}),
         "aria-pressed": String(v === o.view),
       },
-      node(icon(glyph)),
+      node(() => <Icon paths={glyph} />),
       label,
     );
   return el(
@@ -227,7 +249,7 @@ function oldPanel(m: Member | null, o: { view: "log" | "terminal"; open: boolean
           "aria-controls": meta.getAttribute("id")!,
           "aria-expanded": String(o.open),
         },
-        node(icon(icons.chevronDown)),
+        node(() => <Icon paths={icons.chevronDown} />),
         el("span", { class: "pane-info-label" }, "Details"),
         el(
           "span",
@@ -272,7 +294,7 @@ function oldPanel(m: Member | null, o: { view: "log" | "terminal"; open: boolean
     el(
       "div",
       { class: "keys", role: "group", "aria-label": "Send a key" },
-      node(icon(icons.keyboard)),
+      node(() => <Icon paths={icons.keyboard} />),
       ...keySet.map((k) => el("button", { class: "key", title: k.hint }, k.label)),
       el(
         "span",
@@ -305,13 +327,13 @@ function oldPanel(m: Member | null, o: { view: "log" | "terminal"; open: boolean
             el("option", { value: "prompt" }, "Prompt"),
             el("option", { value: "text" }, "Type raw"),
           ),
-          node(icon(icons.chevronDown)),
+          node(() => <Icon paths={icons.chevronDown} />),
         ),
         el("span", { class: "grow" }),
         el(
           "button",
           { class: "btn primary", type: "submit", ...(gone ? { disabled: "" } : {}) },
-          node(icon(icons.send)),
+          node(() => <Icon paths={icons.send} />),
           "Send",
         ),
       ),
@@ -470,4 +492,64 @@ test("the composer sends with Ctrl+Enter and submit, and the close button closes
     "click",
   );
   expect(store.app.view.pane).toBe("");
+});
+
+test("a disposed panel ignores a late unauthorized pane response", async () => {
+  let finish!: (response: Response) => void;
+  globalThis.fetch = (async () =>
+    new Promise<Response>((resolve) => {
+      finish = resolve;
+    })) as unknown as typeof fetch;
+  const p = panel("late-read");
+  p.update(member, null);
+  const fatal = store.app.fatal;
+  p.destroy();
+  finish(new Response("", { status: 401 }));
+  await flush();
+  expect(store.app.fatal).toBe(fatal);
+});
+
+test("disposing a panel drops terminal input queued behind an in-flight send", async () => {
+  let finish!: (response: Response) => void;
+  const sent: unknown[] = [];
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    if (!url.includes("/api/actions")) return new Promise<Response>(() => {});
+    sent.push(JSON.parse(String(init?.body)));
+    return new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+  }) as typeof fetch;
+  const p = panel();
+  p.update(member, null);
+  dispatch(elements(byClass(p.el, "view-switch"))[1]!, "click");
+  const input = byClass(p.el, "term-input");
+  input.value = "first";
+  dispatch(input, "input");
+  input.value = "queued";
+  dispatch(input, "input");
+  p.destroy();
+  finish(Response.json({ ok: true }));
+  await flush();
+  expect(sent).toEqual([{ type: "input", pane: "p7", text: "first" }]);
+});
+
+test("the composer retains edits made while its previous message is sending", async () => {
+  let finish!: (response: Response) => void;
+  globalThis.fetch = (async (url: string) => {
+    if (!url.includes("/api/actions")) return new Promise<Response>(() => {});
+    return new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+  }) as typeof fetch;
+  const p = panel();
+  p.update(member, null);
+  const form = byClass(p.el, "composer");
+  const box = elements(form)[0]!;
+  box.value = "first draft";
+  dispatch(form, "submit");
+  box.value = "edited while sending";
+  finish(Response.json({ ok: true }));
+  await flush();
+  expect(elements(form)[0]).toBe(box);
+  expect(box.value).toBe("edited while sending");
 });

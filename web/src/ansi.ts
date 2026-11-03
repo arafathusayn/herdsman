@@ -236,33 +236,37 @@ function resolve(c: Color, pal: Palette): string {
 const minContrast = 4.5;
 const minDimContrast = 3;
 
-/** Builds the runs as text nodes and spans in the palette's colors, every one legible. */
-export function renderAnsi(text: string, pal: Palette): DocumentFragment {
-  const frag = document.createDocumentFragment();
-  for (const r of parseAnsi(text)) {
-    const s = r.style;
-    if (!Object.keys(s).length) {
-      frag.append(r.text);
-      continue;
-    }
-    const el = document.createElement("span");
-    el.textContent = r.text;
-    let fg = s.fg === undefined ? pal.fg : resolve(s.fg, pal);
-    let bg = s.bg === undefined ? undefined : resolve(s.bg, pal);
-    if (s.inverse) [fg, bg] = [bg ?? pal.bg, fg];
+export interface DisplayRun {
+  text: string;
+  styled: boolean;
+  className: string;
+  css: Record<string, string>;
+}
+
+/** Compute readable terminal colors as data; the UI renders these runs as components. */
+export function displayAnsi(text: string, pal: Palette): DisplayRun[] {
+  return parseAnsi(text).map((run) => {
+    const style = run.style;
+    if (!Object.keys(style).length) return { text: run.text, styled: false, className: "", css: {} };
+    let fg = style.fg === undefined ? pal.fg : resolve(style.fg, pal);
+    let bg = style.bg === undefined ? undefined : resolve(style.bg, pal);
+    if (style.inverse) [fg, bg] = [bg ?? pal.bg, fg];
     const under = bg ?? pal.bg;
-    const f = rgbOf(fg);
-    const u = rgbOf(under);
-    if (s.dim && f && u) fg = toHex(mix(f, u, 0.4)); // dim the way a terminal does, toward the background
-    el.style.color = readable(fg, under, s.dim ? minDimContrast : minContrast);
-    if (bg !== undefined) el.style.backgroundColor = bg;
-    if (s.bold) el.classList.add("a-b");
-    if (s.dim) el.classList.add("a-d");
-    if (s.italic) el.classList.add("a-i");
-    if (s.underline) el.classList.add("a-u");
-    if (s.strike) el.classList.add("a-s");
-    if (s.hidden) el.classList.add("a-h");
-    frag.append(el);
-  }
-  return frag;
+    const foreground = rgbOf(fg);
+    const background = rgbOf(under);
+    if (style.dim && foreground && background) fg = toHex(mix(foreground, background, 0.4));
+    const css: Record<string, string> = { color: readable(fg, under, style.dim ? minDimContrast : minContrast) };
+    if (bg !== undefined) css.backgroundColor = bg;
+    const className = [
+      style.bold && "a-b",
+      style.dim && "a-d",
+      style.italic && "a-i",
+      style.underline && "a-u",
+      style.strike && "a-s",
+      style.hidden && "a-h",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return { text: run.text, styled: true, className, css };
+  });
 }
