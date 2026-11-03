@@ -1,6 +1,6 @@
 // The Hosts dialog (list, rename, add, forget) and the full-page connect and
 // confirm screens, against hosts kept in localStorage.
-import { confirmHost, openHosts, showConnect } from "../../src/views/hosts.ts";
+import { confirmHost, openHosts, showConnect } from "../../src/views/hosts.tsx";
 import { check, equal, flush, q, run, typeIn } from "./lib.ts";
 
 const hosts = {

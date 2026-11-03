@@ -3,7 +3,7 @@ import { attach, batch, onCleanup, Show, signal } from "@reactre/core";
 import { pair } from "../api.ts";
 import { Icon, Logo } from "../components/icons.tsx";
 import { icons } from "../icons.ts";
-import { openHosts } from "./hosts.ts";
+import { openHosts } from "./hosts.tsx";
 
 const digits = 6;
 

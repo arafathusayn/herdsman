@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { render } from "../herdsman-blocks-view.ts";
+import { Icon } from "../components/icons.tsx";
 import { FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../herdsman-blocks.testdom.ts";
-import { icon, icons } from "../icons.ts";
+import { icons } from "../icons.ts";
+import { mount } from "../test-mount.ts";
 import { dispatch, dump, markup } from "../testdom.ts";
-import { hostsDialog, hostsState } from "./hosts.ts";
+import { HostsDialog, hostsState } from "./hosts.tsx";
 
 const g = globalThis as unknown as Record<string, unknown>;
 const stored = new Map<string, string>();
@@ -20,7 +21,6 @@ g["location"] = {
   assign: (u: string) => void assigned.push(u),
 };
 
-const fake = (n: unknown): FakeElement => n as FakeElement;
 // What the dialog needs beyond the fake DOM: a body for toasts, focus and select.
 const proto = FakeElement.prototype as unknown as Record<string, unknown>;
 let focused: unknown[] = [];
@@ -57,9 +57,7 @@ afterEach(() => {
 
 const elements = (n: FakeNode): FakeElement[] => n.childNodes.filter((c): c is FakeElement => c.nodeType === 1);
 const iconMarkup = (paths: readonly string[], label?: string): string => {
-  const box = document.createElement("div");
-  render(box, icon(paths, label));
-  return dump(box.firstChild as unknown as FakeNode);
+  return dump(mount(() => <Icon paths={paths} {...(label ? { label } : {})} />));
 };
 const all = (n: FakeElement): FakeElement[] => [n, ...elements(n).flatMap(all)];
 const byAttr = (n: FakeElement, k: string, v: string): FakeElement => {
@@ -70,11 +68,8 @@ const byAttr = (n: FakeElement, k: string, v: string): FakeElement => {
 const byClass = (n: FakeElement, c: string): FakeElement[] => all(n).filter((e) => e.className.split(" ").includes(c));
 
 function open(): { dlg: FakeElement; redraw: () => void } {
-  const box = document.createElement("div");
-  const s = hostsState();
-  const redraw = (): void => render(box, hostsDialog(s, redraw));
-  redraw();
-  return { dlg: fake(fake(box).firstChild), redraw };
+  const form = hostsState();
+  return { dlg: mount(() => <HostsDialog form={form} />), redraw: form.reload };
 }
 
 const typeIn = (el: FakeElement, v: string): void => {
@@ -119,7 +114,7 @@ test("typing in the add form keeps the inputs, and an unchanged render writes no
   expect(input["value"]).toBe("10.0.0.9:7878");
   resetOps();
   redraw();
-  expect(Object.values(ops).every((n) => n === 0)).toBe(true);
+  expect(Object.values(ops).every((count) => count === 0)).toBe(true);
 });
 
 test("a refused address shows the error note; an added one clears the fields", () => {

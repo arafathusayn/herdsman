@@ -28,7 +28,14 @@ import { openAppearance } from "./views/appearance.tsx";
 import { ArtifactsView } from "./views/artifacts.ts";
 import { DiffView } from "./views/diff.ts";
 import { FilesView } from "./views/files.ts";
-import { confirmHost, keepPendingLink, openHosts, showConnect, takePendingLink } from "./views/hosts.ts";
+import {
+  confirmHost,
+  disposeHostScreen,
+  keepPendingLink,
+  openHosts,
+  showConnect,
+  takePendingLink,
+} from "./views/hosts.tsx";
 import { LogView } from "./views/log-view.tsx";
 import { MessagesView } from "./views/messages.ts";
 import { openNewRoute } from "./views/new-route.ts";
@@ -201,6 +208,7 @@ async function boot(): Promise<void> {
     }
     // The question took the frame's place; a host that answers "paired"
     // connects into the frame, so it comes back first.
+    disposeHostScreen(root);
     root.replaceChildren(topbarView.el, frameBody.el);
   }
   if (link) {
@@ -225,7 +233,6 @@ async function boot(): Promise<void> {
   }
   setHost(current);
   useHost(current);
-  store.refresh(); // shows "Connecting to …" while the host answers
   token ||= takePendingLink(current.url);
   let st: Awaited<ReturnType<typeof pairStatus>>;
   try {
@@ -246,12 +253,13 @@ async function boot(): Promise<void> {
     return;
   }
   if (st.status === "paired") connect();
-  else if (st.status === "pairing")
+  else if (st.status === "pairing") {
+    disposeHostScreen(root);
     disposePairing = showPairing(root, current.name, (device) => {
       rememberDevice(device);
       connectAfterPairing();
     });
-  else {
+  } else {
     if (current.device) rememberDevice("");
     showConnect(
       root,

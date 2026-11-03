@@ -19,7 +19,7 @@ import { type App, type RouteTab, store } from "./store.ts";
 import type { Route } from "./types.ts";
 import { applyTheme, type Theme, toast } from "./ui.ts";
 import { openAppearance } from "./views/appearance.tsx";
-import { openHosts, switchTo } from "./views/hosts.ts";
+import { openHosts, switchTo } from "./views/hosts.tsx";
 import { openNewRoute } from "./views/new-route.ts";
 
 export interface Context {
