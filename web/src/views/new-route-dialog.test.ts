@@ -64,5 +64,9 @@ test("new route dialog: the first question, loading, then the failure as the h()
   );
 
   dispatch(dlg, "close");
-  expect(elements(body)).toEqual([]);
+  expect(elements(body).some((element) => element.tagName.toLowerCase() === "dialog")).toBe(false);
+  expect(dlg.parentNode).toBeNull();
+  expect(elements(body).find((element) => element.className === "toasts")?.textContent).toBe(
+    "cannot read the harness list (500)",
+  );
 });

@@ -1,10 +1,15 @@
-import { afterAll, beforeAll, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import type { FakeElement } from "../test-dom-core.ts";
 import { all, byName, dispatch, find, installDom } from "../testdom.ts";
 import type { Catalog, ChoicePick } from "../types.ts";
 
-beforeAll(installDom);
+beforeEach(() => {
+  installDom();
+  probes.length = 0;
+  failCatalog = false;
+  globalThis.fetch = serverFetch;
+});
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 /** A select's chosen value: the option the view marks selected. */
@@ -37,13 +42,12 @@ const live: Catalog = {
 };
 const probes: boolean[] = [];
 let failCatalog = false;
-const toasts: string[] = [];
 
 // The server, as the real api.ts asks it: the harness lists (probed or the
 // saved picks alone), the saved picks, and calls that never answer. A fetch
 // stub, not a module mock: a module mock would last for the whole run.
 const realFetch = globalThis.fetch;
-globalThis.fetch = ((url: string) => {
+const serverFetch = ((url: string) => {
   const path = String(url);
   const json = (v: unknown) => Promise.resolve(new Response(JSON.stringify(v)));
   if (path.endsWith("/api/choices")) return json({ picks: saved });
@@ -54,25 +58,19 @@ globalThis.fetch = ((url: string) => {
   }
   return new Promise(() => {});
 }) as unknown as typeof fetch;
-afterAll(() => {
+afterEach(() => {
   globalThis.fetch = realFetch;
 });
 // The store reads the address and listens for history moves when loaded.
 const g = globalThis as unknown as Record<string, unknown>;
 g["location"] ??= { search: "" };
 g["window"] ??= { addEventListener() {} };
-// A module mock lasts for the whole run, so it keeps ui.ts's other exports
-// for the test files that load after this one.
-const realUi = { ...(await import("../ui.ts")) };
-void mock.module("../ui.ts", () => ({
-  ...realUi,
-  dismissOnBackdrop: () => {},
-  toast: (m: string) => void toasts.push(m),
-}));
 
 const dialog = (): FakeElement => {
   const body = (document as unknown as { body: FakeElement }).body;
-  return body.childNodes.find((node): node is FakeElement => node.nodeType === 1)!;
+  return body.childNodes.find(
+    (node): node is FakeElement => node.nodeType === 1 && (node as FakeElement).tagName.toLowerCase() === "dialog",
+  )!;
 };
 
 // The dialog wires the answers to the form: the custom setup opens the
@@ -114,6 +112,8 @@ test("a catalog that cannot be read shows the error in the dialog", async () => 
   await flush();
   expect(all(dlg).some((e) => e.className.split(" ").includes("error"))).toBe(true);
   expect(all(dlg).some((e) => e.className.split(" ").includes("nr-loading"))).toBe(false);
-  expect(toasts).toContain("lists unreadable");
+  const body = (document as unknown as { body: FakeElement }).body;
+  expect(find(body, (element) => element.className === "toast error")?.textContent).toBe("lists unreadable");
+  (dlg as unknown as HTMLDialogElement).close();
   failCatalog = false;
 });

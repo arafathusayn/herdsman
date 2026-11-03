@@ -1,4 +1,4 @@
-import { beforeAll, expect, mock, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 
 import type { FakeElement } from "../test-dom-core.ts";
 import { mount } from "../test-mount.ts";
@@ -8,14 +8,10 @@ import type { PageReader } from "./log-view.tsx";
 
 beforeAll(installDom);
 
-const toasts: [string, string | undefined][] = [];
-// A module mock lasts for the whole run, so it keeps ui.ts's other exports
-// for the test files that load after this one.
-const realUi = { ...(await import("../ui.ts")) };
-void mock.module("../ui.ts", () => ({
-  ...realUi,
-  toast: (m: string, kind?: string) => void toasts.push([m, kind]),
-}));
+const toasts = (): FakeElement[] =>
+  all((document as unknown as { body: FakeElement }).body).filter((element) =>
+    element.className.split(" ").includes("toast"),
+  );
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const text = (b: FakeElement) =>
@@ -99,7 +95,8 @@ test("the default failure report is an error toast", async () => {
   const view = await logBox(r, () => Promise.reject(new Error("gone")));
   dispatch(find(view, isTag("button"))!, "click");
   await flush();
-  expect(toasts).toEqual([["Could not load earlier lines: gone", "error"]]);
+  expect(toasts().at(-1)?.textContent).toBe("Could not load earlier lines: gone");
+  expect(toasts().at(-1)?.className).toBe("toast error");
 });
 
 // The app describes the view again on every update: the pages already loaded
@@ -208,7 +205,7 @@ test("a new history drops the loaded pages", async () => {
 
 // A page read from a newer history than the view's is not joined to it.
 test("a page from another history is refused", async () => {
-  const before = toasts.length;
+  const before = toasts().length;
   const lines = [{ time: "09:00", text: "from g2" }];
   const v = await logBox(
     {
@@ -222,7 +219,7 @@ test("a page from another history is refused", async () => {
   dispatch(find(v, isTag("button"))!, "click");
   await flush();
   expect(text(v)).not.toContain("from g2");
-  expect(toasts.length).toBe(before + 1);
+  expect(toasts().length).toBe(before + 1);
 });
 
 // The markup the h() version drew: the lines newest first, then the button
