@@ -93,13 +93,18 @@ export function LogView(props: { route: Route; page?: PageReader; failed?: (mess
     if (loading().has(route.id)) return;
     const current = shown();
     setLoading((value) => new Set([...value, route.id]));
+    // Track live appends even while the first page is still on its way.
+    remember(route.id, current);
     try {
       const page = await (props.page ?? routeRunState)(route.id, current.lo);
       if (page.history !== route.history) {
         failed("Could not load earlier lines: the route file changed: reload the route");
         return;
       }
-      remember(route.id, { lo: page.older, lines: [...page.lines, ...current.lines], history: route.history });
+      const latest = seen().get(route.id);
+      // An incompatible snapshot or cache eviction invalidates this request.
+      if (!latest || latest.history !== route.history || latest.lo !== current.lo) return;
+      remember(route.id, { lo: page.older, lines: [...page.lines, ...latest.lines], history: route.history });
     } catch (error) {
       failed(`Could not load earlier lines: ${error instanceof Error ? error.message : String(error)}`);
     } finally {

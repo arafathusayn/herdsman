@@ -39,6 +39,27 @@ await run(async () => {
     equal("a new history drops loaded pages", root.querySelectorAll("li").length, 4);
     setRoute(snapshot(311));
     equal("returning to old history does not resurrect pages", root.querySelectorAll("li").length, 4);
+    dispose();
+    const pendingSnapshot = (at: number): Route => ({ ...snapshot(at), id: "log-browser-pending" });
+    const [pending, setPending] = signal(pendingSnapshot(300));
+    let resolvePage!: (value: { lines: LogLine[]; older: number; history: string }) => void;
+    const readPage = async (_id: string, before: number) => {
+      if (before === 300) return page();
+      return new Promise<{ lines: LogLine[]; older: number; history: string }>((resolve) => {
+        resolvePage = resolve;
+      });
+    };
+    dispose = attach(() => <LogView route={pending()} page={readPage} />, root);
+    q<HTMLButtonElement>(root, "button").click();
+    await flush();
+    const loaded = [...root.querySelectorAll("li")].find((element) => element.textContent?.endsWith("line200"));
+    q<HTMLButtonElement>(root, "button").click();
+    for (let at = 301; at <= 310; at++) setPending(pendingSnapshot(at));
+    resolvePage({ lines: span(100, 200), older: 100, history: "first" });
+    await flush();
+    equal("delayed second page preserves all live appends", root.querySelectorAll("li").length, 214);
+    check("delayed page preserves existing row nodes", loaded?.isConnected === true);
+    check("delayed page includes the latest line", root.textContent?.includes("line313") === true);
   } finally {
     dispose();
   }

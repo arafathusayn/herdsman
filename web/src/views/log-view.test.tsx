@@ -202,6 +202,72 @@ test("an incompatible snapshot evicts cached pages so old history cannot resurre
   expect(view.textContent).not.toContain("old loaded page");
 });
 
+for (const alreadyLoaded of [false, true]) {
+  test(`live appends survive a delayed ${alreadyLoaded ? "second" : "first"} page response`, async () => {
+    const { LogView } = await import("./log-view.tsx");
+    const span = (from: number, to: number): LogLine[] =>
+      Array.from({ length: to - from }, (_, index) => ({ time: "09:00", text: `line${from + index}` }));
+    const snapshot = (at: number): Route =>
+      ({
+        id: `pending-page-${alreadyLoaded}`,
+        history: "same",
+        run_state: span(at, at + 4),
+        older_run_state: at,
+      }) as Route;
+    const [route, setRoute] = signal(snapshot(300));
+    let resolve!: (value: Awaited<ReturnType<PageReader>>) => void;
+    const page: PageReader = async (_id, before) => {
+      if (alreadyLoaded && before === 300) return { lines: span(200, 300), older: 200, history: "same" };
+      return new Promise((done) => {
+        resolve = done;
+      });
+    };
+    const view = mount(() => <LogView route={route()} page={page} />);
+    dispatch(find(view, isTag("button"))!, "click");
+    if (alreadyLoaded) {
+      await flush();
+      dispatch(find(view, isTag("button"))!, "click");
+    }
+    for (let at = 301; at <= 310; at++) setRoute(snapshot(at));
+    const lo = alreadyLoaded ? 100 : 200;
+    resolve({ lines: span(lo, lo + 100), older: lo, history: "same" });
+    await flush();
+    expect(all(view).filter(isTag("li")).length).toBe(314 - lo);
+    expect(view.textContent).toContain(`line${lo}`);
+    expect(view.textContent).toContain("line313");
+    expect(find(view, isTag("button"))?.hasAttribute("disabled")).toBe(false);
+  });
+}
+
+test("a pending page cannot restore a cache invalidated by new history", async () => {
+  const { LogView } = await import("./log-view.tsx");
+  const initial = {
+    id: "pending-new-history",
+    history: "first",
+    run_state: [{ time: "10:00", text: "new" }],
+    older_run_state: 1,
+  } as Route;
+  const [route, setRoute] = signal(initial);
+  let resolve!: (value: Awaited<ReturnType<PageReader>>) => void;
+  const view = mount(() => (
+    <LogView
+      route={route()}
+      page={() =>
+        new Promise((done) => {
+          resolve = done;
+        })
+      }
+    />
+  ));
+  dispatch(find(view, isTag("button"))!, "click");
+  setRoute({ ...initial, history: "second" });
+  resolve({ lines: [{ time: "09:00", text: "stale loaded page" }], older: 0, history: "first" });
+  await flush();
+  setRoute(initial);
+  expect(view.textContent).not.toContain("stale loaded page");
+  expect(all(view).filter(isTag("li")).length).toBe(1);
+});
+
 // The loaded pages are kept for the few routes viewed last only: a route
 // not viewed since starts again from its newest lines.
 test("loaded pages are kept for the last few routes only", async () => {
