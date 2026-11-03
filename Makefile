@@ -2,8 +2,8 @@
 #
 # Tools: Go (the version in go.mod's toolchain line) and Bun. Bun builds,
 # type-checks, formats and tests the web app; it is not needed at run time.
-# The web app has no package.json and no node_modules: Bun's own types come
-# from a global install (`make tools`). Only its browser checks (web/e2e) have
+# The web app uses Reactre's source submodule, with no app package.json or
+# node_modules. Bun's own types come from a global install (`make tools`). Only its browser checks (web/e2e) have
 # a package.json, for puppeteer-core, and they need Chrome or Chromium.
 
 BUN_TYPES_VERSION := 1.4.4
@@ -13,10 +13,6 @@ GORELEASER        := github.com/goreleaser/goreleaser/v2@v2.19.0
 
 BUN_GLOBAL  := $(or $(BUN_INSTALL),$(HOME)/.bun)/install/global/node_modules
 WEB_DIST    := internal/web/dist
-# Two pages: the app at / and the docs at /docs/. Names keep their folder, so
-# both pages can be index.html; the app's files keep the names they had.
-BUN_BUILD   := bun build ./index.html ./docs/index.html --outdir ../$(WEB_DIST) --minify \
-               --entry-naming '[dir]/[name].[ext]' --asset-naming '[name].[ext]' --chunk-naming '[dir]/[name].[ext]'
 
 .PHONY: all tools web pages web-check web-e2e web-fmt build check test lint vuln release-check clean
 
@@ -28,8 +24,9 @@ tools:
 
 ## web: build the web app into internal/web/dist for go:embed
 web:
+	@test -f web/vendor/reactre/packages/core/src/index.ts || { echo "run git submodule update --init web/vendor/reactre"; exit 1; }
 	find $(WEB_DIST) -type f ! -name .gitkeep -delete
-	cd web && $(BUN_BUILD)
+	cd web && bun run build.ts
 
 ## pages: the web app as a static site (Cloudflare Pages runs this), with its
 ## security headers

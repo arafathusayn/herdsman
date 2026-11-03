@@ -227,6 +227,11 @@ Homebrew installs from a tap outside its own only after you trust it; `brew trus
 
 Or download the archive for macOS or Linux from [Releases](https://github.com/arafathusayn/herdsman/releases), or build from a clone with Go and Bun: `make build` writes `bin/herdsman`.
 
+For a source build, initialize the pinned Reactre submodule with `git submodule update --init web/vendor/reactre`
+(or clone with `--recurse-submodules`). The web build reads its TypeScript sources directly; no npm install,
+`node_modules`, or Reactre JavaScript build is needed. New components can be authored in TSX; see
+[`web/README.md`](web/README.md).
+
 It prints a URL with a one-run token. The browser that opens it must type a 6-digit pairing code that the same terminal prints, so a leaked link alone controls nothing. Each link allows 20 wrong codes in all; then it stops working, and the terminal prints a new one. A paired browser keeps a device secret for that host until the server stops.
 
 **From a phone.** The terminal also shows a QR code. A phone can use the hosted app only when it reaches this server over HTTPS, so the QR code opens the hosted app when `--public-url` names that address, and this server's own app otherwise:
