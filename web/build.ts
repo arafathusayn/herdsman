@@ -1,4 +1,8 @@
-import { reactre } from "./reactre.ts";
+import { plugin } from "bun";
+
+import { reactre, reactreSources } from "./reactre.ts";
+
+plugin(reactreSources);
 
 // HTML entries keep both pages and their assets in Go's embedded filesystem.
 // Reactre compiles TSX to templates; tsconfig paths resolve its vendored source.

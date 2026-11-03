@@ -8,6 +8,7 @@
     "jsxImportSource": "@reactre/core",
     "paths": {
       "@reactre/core": ["./vendor/reactre/packages/core/src/index.ts"],
+      "@reactre/core/server": ["./vendor/reactre/packages/core/src/server.browser.ts"],
       "@reactre/core/*": ["./vendor/reactre/packages/core/src/*"],
       "@reactre/dom": ["./vendor/reactre/packages/dom/src/index.ts"]
     },

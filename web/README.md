@@ -38,11 +38,18 @@ TypeScript config, and loads the upstream compiler. `build.ts` builds both
 HTML pages into `internal/web/dist` for Go to embed. The browser receives the
 normal JavaScript bundle; Reactre does not need a separate build.
 
-`make web-check` checks TSX types and runs the app tests. `build.test.ts`
+`make web-check` checks TSX types and runs the app tests. The test preload
+registers Reactre's compiler and loads the runtime's TypeScript sources, so
+tests can import and render `.tsx` components directly. Application `.ts`
+modules are compiled too, including `features/memo`'s `lazy` and `unobserved`
+options. Vendored modules are excluded from the application compiler filter.
+`@reactre/core/server` resolves to its browser implementation in builds and tests.
+
+`build.test.ts`
 compiles a TSX fixture with the same plugins as the production build, then
 tests its events, reactive updates, keyed node reuse and disposal on the
-existing fake DOM. Tests exercise compiled TSX through the bundler rather
-than Bun's default JSX transform. Upstream submodule tests and formatting are
+existing fake DOM. The browser page checks use the same plugins and include
+a TSX regression page. Upstream submodule tests and formatting are
 excluded from the app's checks. The existing views still use herdsman-blocks;
 they have not been migrated.
 

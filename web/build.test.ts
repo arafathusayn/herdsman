@@ -51,3 +51,32 @@ test("vendored Reactre compiles TSX and updates keyed DOM without installed pack
     await rm(outdir, { recursive: true, force: true });
   }
 });
+
+test("browser bundles compile .ts memo options and select the browser server entry", async () => {
+  const outdir = await mkdtemp(join(tmpdir(), "herdsman-reactre-memo-"));
+  try {
+    const build = await Bun.build({
+      entrypoints: [join(import.meta.dir, "test-fixtures/memo.ts")],
+      outdir,
+      target: "browser",
+      minify: true,
+      plugins: reactre(),
+    });
+    if (!build.success) throw new AggregateError(build.logs);
+    const { isServer, makeMemo } = (await import(build.outputs[0]!.path)) as typeof import("./test-fixtures/memo.ts");
+    expect(isServer).toBe(false);
+    const state = makeMemo();
+    expect(state.runs).toBe(0);
+    const dispose = state.subscribe();
+    expect(state.seen).toBe(2);
+    state.setValue(2);
+    expect(state.seen).toBe(4);
+    dispose();
+    await Promise.resolve();
+    expect(state.releases).toBe(1);
+    state.setValue(3);
+    expect(state.runs).toBe(2);
+  } finally {
+    await rm(outdir, { recursive: true, force: true });
+  }
+});

@@ -3,16 +3,19 @@
 // reports its checks on window.__results (pages/lib.ts).
 import { join } from "node:path";
 
-import { Glob } from "bun";
+import { Glob, plugin } from "bun";
 import type { Browser } from "puppeteer-core";
 
+import { reactre, reactreSources } from "../reactre.ts";
 import type { Check } from "./app.ts";
+
+plugin(reactreSources);
 
 export async function pageChecks(browser: Browser, check: Check): Promise<void> {
   const dir = join(import.meta.dir, "pages");
   const entries = [...new Glob("*.page.ts").scanSync(dir)].sort();
   for (const name of entries) {
-    const built = await Bun.build({ entrypoints: [join(dir, name)], target: "browser" });
+    const built = await Bun.build({ entrypoints: [join(dir, name)], target: "browser", plugins: reactre() });
     if (!built.success) {
       check(`${name}: builds`, false, built.logs.join("\n"));
       continue;
