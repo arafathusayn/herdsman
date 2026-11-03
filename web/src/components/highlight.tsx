@@ -1,4 +1,4 @@
-import { memo } from "@reactre/core";
+import { For, memo, Show } from "@reactre/core";
 
 /** Fuzzy-match highlights are text and compiled marks, never HTML from the input. */
 export function Highlight(props: { value: string; hits: readonly number[] }) {
@@ -13,5 +13,13 @@ export function Highlight(props: { value: string; hits: readonly number[] }) {
     }
     return parts;
   });
-  return <>{pieces().map((piece) => (piece.hit ? <mark>{piece.text}</mark> : piece.text))}</>;
+  return (
+    <For each={pieces()} keyed={false}>
+      {(piece) => (
+        <Show when={piece().hit} fallback={piece().text}>
+          <mark>{piece().text}</mark>
+        </Show>
+      )}
+    </For>
+  );
 }

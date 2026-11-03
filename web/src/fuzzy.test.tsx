@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { fuzzy, highlight, type HighlightNode } from "./fuzzy.ts";
-import { child, html, render } from "./herdsman-blocks-view.ts";
-import { type FakeNode, installFakeDocument } from "./herdsman-blocks.testdom.ts";
+import { signal } from "@reactre/core";
+
+import { Highlight } from "./components/highlight.tsx";
+import { fuzzy } from "./fuzzy.ts";
+import { installFakeDocument } from "./herdsman-blocks.testdom.ts";
+import { mount } from "./test-mount.ts";
 import { dump } from "./testdom.ts";
 test("fuzzy", () => {
   expect(fuzzy("split", "probes/rv-codex/cases-1792832794680869000/replaced-recipient/x.md")).toBeNull();
@@ -18,7 +21,6 @@ test("fuzzy", () => {
 
 describe("highlight as runs", () => {
   beforeEach(installFakeDocument);
-  const Name = html`<span class="name">${child<HighlightNode>()}</span>`;
   // A value, its hits, and the markup: a mark per run of hits.
   const cases: [string, number[], string][] = [
     ["", [], '<span class="name"></span>'],
@@ -35,20 +37,28 @@ describe("highlight as runs", () => {
 
   test("renders a mark per run of hits", () => {
     for (const [value, hits, want] of cases) {
-      const box = document.createElement("div");
-      render(box, Name([highlight(value, hits)]));
-      expect(dump(box.firstChild as unknown as FakeNode)).toBe(want);
+      expect(
+        dump(
+          mount(() => (
+            <span class="name">
+              <Highlight value={value} hits={hits} />
+            </span>
+          )),
+        ),
+      ).toBe(want);
     }
   });
 
   test("a new query patches the runs in place", () => {
-    const box = document.createElement("div");
-    render(box, Name([highlight("rv-codex", [0, 1])]));
-    const span = box.firstChild!;
-    const mark = span.firstChild;
-    render(box, Name([highlight("rv-codex", [0, 1, 2])]));
-    expect(box.firstChild).toBe(span);
-    expect(span.firstChild).toBe(mark); // the first run is still a mark: patched, not rebuilt
-    expect(dump(span as unknown as FakeNode)).toBe('<span class="name"><mark>rv-</mark>codex</span>');
+    const [hits, setHits] = signal([0, 1]);
+    const span = mount(() => (
+      <span class="name">
+        <Highlight value="rv-codex" hits={hits()} />
+      </span>
+    ));
+    const mark = span.childNodes.find((node) => node.nodeType === 1);
+    setHits([0, 1, 2]);
+    expect(span.childNodes.find((node) => node.nodeType === 1)).toBe(mark);
+    expect(dump(span)).toBe('<span class="name"><mark>rv-</mark>codex</span>');
   });
 });
