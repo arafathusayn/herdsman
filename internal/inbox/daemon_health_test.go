@@ -86,3 +86,72 @@ func TestDaemonHeartbeatAge(t *testing.T) {
 		t.Fatalf("no home: %d", age)
 	}
 }
+
+// TestDaemonLockReadersStrict: a lock owner record or an account lock
+// with duplicate keys or wrong types never passes for the daemon's.
+func TestDaemonLockReadersStrict(t *testing.T) {
+	ph := t.TempDir()
+	dir := filepath.Join(ph, "r")
+	inboxtest.DaemonOwn(t, dir, "e1", true)
+	lock := filepath.Join(dir, "channel.lock")
+	for _, body := range []string{
+		`{"owner":"courier","owner":"daemon","epoch":"e1"}`,
+		`{"owner":"daemon","epoch":"e0","epoch":"e1"}`,
+		`{"owner":"daemon","epoch":1}`,
+	} {
+		if err := os.WriteFile(filepath.Join(lock, "owner.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if inbox.DaemonRetainedLock(dir, lock) {
+			t.Fatalf("lock record %s taken as the daemon's", body)
+		}
+	}
+	acct := filepath.Join(os.Getenv("HOME"), ".herdsman-daemon.lock")
+	if pid, age := inbox.DaemonLiveness(dir, time.Now()); pid != "1" || age < 0 {
+		t.Fatalf("live daemon: pid %s age %d", pid, age)
+	}
+	for _, body := range []string{
+		`{"pid":1,"private_home":"/elsewhere","private_home":"` + ph + `"}`,
+		`{"pid":1,"private_home":["` + ph + `"]}`,
+	} {
+		if err := os.WriteFile(acct, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if pid, age := inbox.DaemonLiveness(dir, time.Now()); pid != "none" || age != -1 {
+			t.Fatalf("account lock %s: pid %s age %d", body, pid, age)
+		}
+	}
+	// A pid that is not a positive integer is reported unknown.
+	if err := os.WriteFile(acct, []byte(`{"pid":"7","private_home":"`+ph+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if pid, _ := inbox.DaemonLiveness(dir, time.Now()); pid != "unknown" {
+		t.Fatalf("pid %s", pid)
+	}
+}
+
+// TestDaemonLivenessNoHeartbeat: a live daemon without a heartbeat file
+// has its pid and no age.
+func TestDaemonLivenessNoHeartbeat(t *testing.T) {
+	ph := t.TempDir()
+	dir := filepath.Join(ph, "r")
+	inboxtest.DaemonOwn(t, dir, "e1", true)
+	os.Remove(filepath.Join(ph, "daemon", "heartbeat"))
+	if pid, age := inbox.DaemonLiveness(dir, time.Now()); pid != "1" || age != -1 {
+		t.Fatalf("pid %s age %d", pid, age)
+	}
+}
+
+// TestDaemonLivenessFutureHeartbeat: a heartbeat dated more than a second
+// after the reader's clock is invalid.
+func TestDaemonLivenessFutureHeartbeat(t *testing.T) {
+	ph := t.TempDir()
+	dir := filepath.Join(ph, "r")
+	inboxtest.DaemonOwn(t, dir, "e1", true)
+	now := time.Now()
+	future := now.Add(2 * time.Second)
+	_ = os.Chtimes(filepath.Join(ph, "daemon", "heartbeat"), future, future)
+	if pid, age := inbox.DaemonLiveness(dir, now); pid != "1" || age != -1 {
+		t.Fatalf("pid %s age %d", pid, age)
+	}
+}

@@ -271,9 +271,15 @@ func (e *Env) healthSnapshot() []string {
 			flags = append(flags, role+"-down")
 		}
 	}
-	for _, role := range []string{"herdr-mutation", "channel"} {
+	roles := []string{"herdr-mutation", "channel"}
+	if daemonOwned {
+		// The daemon retains the service locks too; one without its
+		// record is a foreign or old writer's (design 4.5).
+		roles = append(roles, inbox.DaemonServiceLocks...)
+	}
+	for _, role := range roles {
 		p := r.Path(role + ".lock")
-		if role == "channel" && inbox.DaemonRetainedLock(r.Dir, p) {
+		if role != "herdr-mutation" && inbox.DaemonRetainedLock(r.Dir, p) {
 			continue
 		}
 		if st, err := os.Stat(p); err == nil && st.IsDir() {

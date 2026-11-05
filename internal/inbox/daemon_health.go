@@ -1,16 +1,28 @@
 package inbox
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 )
 
 // Health of a daemon-owned inbox (design 4.5), for the retained readers:
 // the file-only `message status` and the web reader. The per-service
-// heartbeats do not exist; liveness is the daemon's.
+// heartbeats do not exist; liveness is the daemon's. Every record read
+// here is strict JSON (duplicate keys and wrong types refused), so a
+// malformed record never passes for the daemon's.
+
+// strictObject reads a bounded regular file as one strict JSON object.
+func strictObject(p string, max int64) map[string]any {
+	b, err := ReadBounded(p, max)
+	if err != nil || StrictJSON(b) != nil {
+		return nil
+	}
+	v, _ := Decode(b)
+	return Object(v)
+}
 
 // daemonEpoch is the epoch of a daemon-owned inbox ("" when none).
 func daemonEpoch(dir string) string {
@@ -33,56 +45,65 @@ func daemonEpoch(dir string) string {
 // script's rule.
 func DaemonRetainedLock(dir, lockDir string) bool {
 	epoch := daemonEpoch(dir)
-	b, err := ReadBounded(filepath.Join(lockDir, "owner.json"), 4096)
-	if epoch == "" || err != nil {
+	if epoch == "" {
 		return false
 	}
-	var o struct {
-		Owner string `json:"owner"`
-		Epoch string `json:"epoch"`
-	}
-	return json.Unmarshal(b, &o) == nil && o.Owner == "daemon" && o.Epoch == epoch
+	o := strictObject(filepath.Join(lockDir, "owner.json"), 4096)
+	e, ok := String(o, "epoch")
+	return o["owner"] == "daemon" && ok && e == epoch
 }
+
+// DaemonServiceLocks are the service locks a daemon-owned inbox's
+// readers judge beside the script's two: the daemon retains them, so
+// one without the daemon's record is a foreign or old writer's.
+var DaemonServiceLocks = []string{"courier", "watch"}
 
 // DaemonHeartbeatAge is the age in seconds of the daemon's heartbeat for
 // an inbox under its private home, when the account lock names a live
 // daemon of that private home; -1 otherwise.
 func DaemonHeartbeatAge(dir string, now time.Time) int64 {
+	_, age := DaemonLiveness(dir, now)
+	return age
+}
+
+// DaemonLiveness is the daemon's pid as its account lock records it and
+// its heartbeat age (DaemonHeartbeatAge); "none" and -1 when no live
+// daemon of the inbox's private home holds the lock.
+func DaemonLiveness(dir string, now time.Time) (pid string, age int64) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return -1
+		return "none", -1
 	}
 	lock := filepath.Join(home, ".herdsman-daemon.lock")
-	b, err := ReadBounded(lock, 4096)
-	if err != nil {
-		return -1
-	}
-	var l struct {
-		PrivateHome string `json:"private_home"`
-	}
-	if json.Unmarshal(b, &l) != nil || l.PrivateHome == "" || filepath.Dir(dir) != filepath.Clean(l.PrivateHome) {
-		return -1
+	l := strictObject(lock, 4096)
+	ph, ok := String(l, "private_home")
+	if !ok || ph == "" || filepath.Dir(dir) != filepath.Clean(ph) {
+		return "none", -1
 	}
 	f, err := os.Open(lock)
 	if err != nil {
-		return -1
+		return "none", -1
 	}
 	defer f.Close()
 	if syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB) == nil {
 		// Nobody holds the account lock: no daemon runs.
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		return -1
+		return "none", -1
 	}
-	st, err := os.Lstat(filepath.Join(l.PrivateHome, "daemon", "heartbeat"))
+	pid = "unknown"
+	if n, ok := Int(l, "pid"); ok && n > 0 {
+		pid = strconv.FormatInt(n, 10)
+	}
+	st, err := os.Lstat(filepath.Join(ph, "daemon", "heartbeat"))
 	if err != nil || !st.Mode().IsRegular() {
-		return -1
+		return pid, -1
 	}
 	// A heartbeat written within the second after the reader took its
 	// clock is fresh (age 0); one dated later than that is not a
 	// heartbeat of this clock and is invalid.
-	age := now.Sub(st.ModTime())
-	if age < -time.Second {
-		return -1
+	d := now.Sub(st.ModTime())
+	if d < -time.Second {
+		return pid, -1
 	}
-	return max(0, int64(age/time.Second))
+	return pid, max(0, int64(d/time.Second))
 }

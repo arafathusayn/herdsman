@@ -10,9 +10,16 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
 // AdminEnv is one run of `herdsman daemon ...`.
@@ -90,11 +97,16 @@ func (a *AdminEnv) fail(err error) int {
 		fmt.Fprintf(a.Stderr, "herdsman daemon: %v\n", err)
 		return 2
 	}
-	fmt.Fprintf(a.Stderr, "herdsman daemon: %v\n", err)
+	code, exit := "failed", 1
 	if IsDown(err) {
-		return 75
+		code, exit = "daemon_down", 75
 	}
-	return 1
+	if a.JSON {
+		b, _ := encode(errorBody{Error: &APIError{Code: code, Message: err.Error()}})
+		fmt.Fprintln(a.Stdout, string(b))
+	}
+	fmt.Fprintf(a.Stderr, "herdsman daemon: %v\n", err)
+	return exit
 }
 
 func (a *AdminEnv) usage(msg string) int {
@@ -110,7 +122,16 @@ func RunDaemon(a *AdminEnv, args []string) int {
 		switch args[i] {
 		case "--json":
 			a.JSON = true
-		case "-h", "--help", "help":
+		case "-h", "--help":
+			fmt.Fprint(a.Stdout, DaemonHelp)
+			return 0
+		case "help":
+			// help is the command only in the command's place; after it,
+			// it is a value (a route may be named help).
+			if len(rest) > 0 {
+				rest = append(rest, args[i])
+				continue
+			}
 			fmt.Fprint(a.Stdout, DaemonHelp)
 			return 0
 		case "--private-home":
@@ -142,6 +163,14 @@ func RunDaemon(a *AdminEnv, args []string) int {
 	defer c.Close()
 	ctx := context.Background()
 	cmd, rest := rest[0], rest[1:]
+	switch cmd {
+	case "install", "uninstall", "start", "stop", "restart", "status":
+		// The lifecycle commands take no arguments: an unexpected one is
+		// refused before anything acts.
+		if len(rest) != 0 {
+			return a.usage(cmd + " takes no arguments")
+		}
+	}
 	switch cmd {
 	case "run":
 		if len(rest) != 0 {
@@ -230,10 +259,19 @@ func RunDaemon(a *AdminEnv, args []string) int {
 
 // run is `herdsman daemon run`: start, serve until a signal, drain.
 func (a *AdminEnv) run(ph, home string) int {
-	logf := func(s string) { fmt.Fprintf(a.Stderr, "%s %s\n", time.Now().Format(time.RFC3339), s) }
+	lg := newBoundedLog(ph, a.Stderr)
+	defer lg.Close()
+	// Every diagnostic of the run, its startup failure too, goes through
+	// the bounded log (9.3): a KeepAlive restart loop cannot grow it.
+	a.Stderr = lg
+	logf := func(s string) { lg.Line(time.Now().Format(time.RFC3339) + " " + s) }
 	d := New(Config{PrivateHome: ph, Home: home, Version: a.Version, Executable: a.Executable, HerdrSocket: herdrDefaultSocket(), Log: logf})
 	if err := d.Start(); err != nil {
 		return a.fail(err)
+	}
+	// The identity stop checks before it signals a daemon started by hand.
+	if err := writeOwnIdentity(ph); err != nil {
+		logf("identity record: " + err.Error() + "; stop will refuse to signal this daemon")
 	}
 	logf("herdsman daemon " + a.Version + " on " + SocketPath(ph))
 	sigs := a.Signals
@@ -358,6 +396,36 @@ func (a *AdminEnv) setup(ctx context.Context, c *Client, args []string) int {
 	if fs.Parse(args[1:]) != nil || fs.NArg() != 0 || len(rules) == 0 {
 		return a.usage("setup <route> --rule <file>... [--binary <path>] [--boundary <file>] [--watch-targets <file>] [--resume-targets <file>]")
 	}
+	q := SetupRequest{Rules: rules, Binary: *bin}
+	// Every input is checked before the first question.
+	boundary := map[string]any{"version": 1, "courier_panes": []any{}, "lower_trust": []any{}}
+	if *boundaryFile != "" {
+		b, err := readSmall(*boundaryFile, 128<<10)
+		if err != nil || inbox.StrictJSON(b) != nil || json.Unmarshal(b, &boundary) != nil || boundary == nil {
+			fmt.Fprintf(a.Stderr, "herdsman daemon setup: --boundary %s: not one JSON object (duplicate keys refused)\n", *boundaryFile)
+			return 2
+		}
+	}
+	targets := []struct {
+		path string
+		dst  *json.RawMessage
+	}{{*watch, &q.WatchTargets}, {*resume, &q.ResumeTargets}}
+	for _, x := range targets {
+		if x.path == "" {
+			continue
+		}
+		b, err := readSmall(x.path, 128<<10)
+		if err != nil || inbox.StrictJSON(b) != nil {
+			fmt.Fprintf(a.Stderr, "herdsman daemon setup: %s: not JSON (duplicate keys refused)\n", x.path)
+			return 2
+		}
+		*x.dst = b
+	}
+	timeout, err := askTimeout(a.env("HERDSMAN_ASK_TIMEOUT"))
+	if err != nil {
+		fmt.Fprintf(a.Stderr, "herdsman daemon setup: HERDSMAN_ASK_TIMEOUT: %v (got %q)\n", err, a.env("HERDSMAN_ASK_TIMEOUT"))
+		return 2
+	}
 	if !a.Attended {
 		fmt.Fprintln(a.Stderr, "herdsman daemon setup: needs an attended terminal (stdin and stdout a TTY); only the human records the setup proof")
 		return 2
@@ -370,35 +438,33 @@ func (a *AdminEnv) setup(ctx context.Context, c *Client, args []string) int {
 	for _, x := range inv.Inventory {
 		fmt.Fprintf(a.Stdout, "  %s %s %s\n", x.Pane, x.Agent, x.Session)
 	}
-	boundary := map[string]any{"version": 1, "courier_panes": []any{}, "lower_trust": []any{}}
-	if *boundaryFile != "" {
-		b, err := readSmall(*boundaryFile, 128<<10)
-		if err != nil || json.Unmarshal(b, &boundary) != nil {
-			return a.fail(fmt.Errorf("--boundary %s: not a JSON object", *boundaryFile))
+	// Each question has a deadline (A33): no answer in time fails closed,
+	// and nothing is recorded.
+	done := make(chan struct{})
+	defer close(done)
+	lines := readLines(a.Stdin, done)
+	ask := func(question string) (bool, bool) {
+		fmt.Fprintf(a.Stdout, "%s [y/N] ", question)
+		select {
+		case l, ok := <-lines:
+			return ok && strings.TrimSpace(strings.ToLower(l)) == "y", ok
+		case <-time.After(timeout):
+			return false, false
 		}
-	}
-	in := bufio.NewReader(a.Stdin)
-	ask := func(q string) bool {
-		fmt.Fprintf(a.Stdout, "%s [y/N] ", q)
-		l, _ := in.ReadString('\n')
-		return strings.TrimSpace(strings.ToLower(l)) == "y"
 	}
 	for _, f := range boundaryFields {
-		boundary[f] = ask("Confirm " + f + " (checked by you, not inferred)?")
+		yes, ok := ask("Confirm " + f + " (checked by you, not inferred)?")
+		if !ok {
+			return a.noAnswer(timeout)
+		}
+		boundary[f] = yes
 	}
-	verified := ask("Confirm the sandbox policy files are the effective ones (policy_verified)?")
-	q := SetupRequest{Rules: rules, Binary: *bin, PolicyVerified: verified}
+	verified, ok := ask("Confirm the sandbox policy files are the effective ones (policy_verified)?")
+	if !ok {
+		return a.noAnswer(timeout)
+	}
+	q.PolicyVerified = verified
 	q.Boundary, _ = json.Marshal(boundary)
-	for p, dst := range map[string]*json.RawMessage{*watch: &q.WatchTargets, *resume: &q.ResumeTargets} {
-		if p == "" {
-			continue
-		}
-		b, err := readSmall(p, 128<<10)
-		if err != nil || !json.Valid(b) {
-			return a.fail(fmt.Errorf("%s: not JSON", p))
-		}
-		*dst = b
-	}
 	var res SetupResult
 	if _, err := c.Do(ctx, "PUT", "/v1/routes/"+route+"/setup", q, &res); err != nil {
 		return a.fail(err)
@@ -459,6 +525,174 @@ func (a *AdminEnv) pair(ctx context.Context, c *Client, args []string) int {
 		return 0
 	}
 	return a.usage("pair approve|retire ...")
+}
+
+// writeOwnIdentity records this process's native identity for stop.
+func writeOwnIdentity(ph string) error {
+	p, err := procIdentity(os.Getpid())
+	if err != nil {
+		return err
+	}
+	b, _ := encode(DaemonIdentity{PID: os.Getpid(), Executable: p.Executable, StartNS: p.Start.UnixNano()})
+	return writeDurable(identityPath(ph), append(b, '\n'), 0o600)
+}
+
+// logMax bounds daemon.log; one previous file is kept (9.3).
+const logMax = 1 << 20
+
+// boundedLog is the daemon's log, <private home>/daemon/daemon.log, at
+// most logMax bytes plus one previous file, daemon.log.1. When the
+// process's stderr is that file (the LaunchAgent's StandardErrorPath),
+// a rotation moves that descriptor to the new file too, so nothing else
+// appends to it unbounded; otherwise every line also goes to stderr.
+type boundedLog struct {
+	path   string
+	max    int64
+	stderr io.Writer
+	mu     sync.Mutex
+	f      *os.File
+	size   int64
+	// redirect: stderr is the log file; its descriptor (fd) follows the
+	// log on rotation.
+	redirect bool
+	fd       int
+}
+
+func newBoundedLog(ph string, stderr io.Writer) *boundedLog {
+	l := &boundedLog{path: filepath.Join(ph, "daemon", "daemon.log"), max: logMax, stderr: stderr}
+	if f, ok := stderr.(*os.File); ok {
+		a, err1 := f.Stat()
+		b, err2 := os.Stat(l.path)
+		l.redirect = err1 == nil && err2 == nil && os.SameFile(a, b)
+		l.fd = int(f.Fd())
+	}
+	return l
+}
+
+// Write writes text through Line, one line at a time, so every write of
+// the daemon run (its startup failure included) is bounded.
+func (l *boundedLog) Write(b []byte) (int, error) {
+	for _, s := range strings.Split(strings.TrimSuffix(string(b), "\n"), "\n") {
+		l.Line(s)
+	}
+	return len(b), nil
+}
+
+// open opens the log for appending; the daemon folder is made only
+// inside an existing private home.
+func (l *boundedLog) open() error {
+	if err := os.Mkdir(filepath.Dir(l.path), 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	f, err := os.OpenFile(l.path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	st, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return err
+	}
+	l.f, l.size = f, st.Size()
+	if l.redirect {
+		_ = unix.Dup2(int(f.Fd()), l.fd)
+	}
+	return nil
+}
+
+// Line writes one log line, rotating first when it would pass max.
+func (l *boundedLog) Line(s string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b := []byte(s + "\n")
+	if !l.redirect {
+		_, _ = l.stderr.Write(b)
+	}
+	if l.f == nil && l.open() != nil {
+		return
+	}
+	if l.size > 0 && l.size+int64(len(b)) > l.max {
+		l.f.Close()
+		l.f = nil
+		_ = os.Rename(l.path, l.path+".1")
+		if l.open() != nil {
+			return
+		}
+	}
+	if int64(len(b)) > l.max {
+		b = append(b[:l.max-1], '\n')
+	}
+	n, _ := l.f.Write(b)
+	l.size += int64(n)
+}
+
+// Close closes the log file.
+func (l *boundedLog) Close() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.f != nil {
+		l.f.Close()
+		l.f = nil
+	}
+}
+
+// noAnswer ends setup when a question had no answer by its deadline or
+// the input ended: nothing is recorded.
+func (a *AdminEnv) noAnswer(timeout time.Duration) int {
+	fmt.Fprintf(a.Stderr, "herdsman daemon setup: no answer within %s (HERDSMAN_ASK_TIMEOUT); nothing recorded, run setup again when you are at the terminal\n", timeout)
+	return 2
+}
+
+// readLines delivers the input's lines until done; the channel closes at
+// the input's end. A read blocked on a terminal ends with the process.
+func readLines(r io.Reader, done <-chan struct{}) <-chan string {
+	ch := make(chan string)
+	go func() {
+		defer close(ch)
+		in := bufio.NewReader(r)
+		for {
+			l, err := in.ReadString('\n')
+			if l != "" || err == nil {
+				select {
+				case ch <- l:
+				case <-done:
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return ch
+}
+
+// askTimeout is HERDSMAN_ASK_TIMEOUT (A33): plain seconds or a number
+// with an s, m, h or d suffix, at most one day; default 5 minutes.
+func askTimeout(v string) (time.Duration, error) {
+	if v == "" {
+		return 5 * time.Minute, nil
+	}
+	unit := time.Second
+	num := v
+	switch v[len(v)-1] {
+	case 's':
+		num = v[:len(v)-1]
+	case 'm':
+		unit, num = time.Minute, v[:len(v)-1]
+	case 'h':
+		unit, num = time.Hour, v[:len(v)-1]
+	case 'd':
+		unit, num = 24*time.Hour, v[:len(v)-1]
+	}
+	n, err := strconv.ParseUint(num, 10, 64)
+	if err != nil || n == 0 {
+		return 0, errors.New("a positive duration: seconds, or a number with s, m, h or d")
+	}
+	if n > uint64(24*time.Hour/unit) {
+		return 24 * time.Hour, nil
+	}
+	return time.Duration(n) * unit, nil
 }
 
 // herdrDefaultSocket is the default Herdr socket of new routes.
