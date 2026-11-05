@@ -58,6 +58,14 @@ func fullInbox(t *testing.T) *importInbox {
 	x.write(t, "state/resume-k1.sent", []byte("1700000500 intent\n"))
 	x.write(t, "state/resume-k2", []byte("intent\n"))
 	x.write(t, "state/route-paused", []byte("by the human\n"))
+	x.write(t, "ids/m000000000004/notice-published", nil)
+	x.write(t, "state/resume-k1", []byte("intent\n"))
+	x.write(t, "state/resume-k1.readback", []byte("screen\n"))
+	// A quarantined entry that is no envelope stays legacy evidence, and
+	// so does its notice.
+	x.write(t, "adj-1/quarantine/m000000000005.md", []byte("not an envelope"))
+	x.write(t, "ids/m000000000005/envelope", []byte("not an envelope either"))
+	x.write(t, "orch-1/notices/m000000000005.md.json", prettyJSON(obj("id", "m000000000005", "to", "adj-1", "state", "quarantined", "authority", "notice-only")))
 	return x
 }
 
