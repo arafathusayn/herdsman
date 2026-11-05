@@ -77,8 +77,10 @@ type OpenResult struct {
 // account's reservations (so no detection gap can reuse an id or seq);
 // when the route's store_gen is not the account's open_gen (a restored
 // backup, a copied file, or a crash between the two writes below) the
-// route starts newEpoch with no events. Then a new store_gen is written
-// to the route, and after it to the account row.
+// route starts newEpoch with no events, else the seqs the raise skipped
+// are recorded as never issued, so a cursor from a timeline a
+// same-generation copy lost is refused (ReadEvents, D6). Then a new
+// store_gen is written to the route, and after it to the account row.
 func OpenGeneration(acct, rc Conn, route, newGen, newEpoch string) (OpenResult, error) {
 	var out OpenResult
 	res, err := ReadReservation(acct, route)
@@ -87,6 +89,10 @@ func OpenGeneration(acct, rc Conn, route, newGen, newEpoch string) (OpenResult, 
 	}
 	err = rc.Tx(func(tx Conn) error {
 		gen, err := metaGet(tx, "store_gen")
+		if err != nil {
+			return err
+		}
+		head, err := VisibleSeq(tx)
 		if err != nil {
 			return err
 		}
@@ -111,13 +117,11 @@ func OpenGeneration(acct, rc Conn, route, newGen, newEpoch string) (OpenResult, 
 		}
 		if gen != res.OpenGen {
 			out.Restored = true
-			if _, err := tx.Exec("DELETE FROM events"); err != nil {
+			if err := startEpoch(tx, newEpoch); err != nil {
 				return err
 			}
-			if err := metaSet(tx, "epoch", newEpoch); err != nil {
-				return err
-			}
-			if err := metaSet(tx, "oldest_seq", strconv.FormatInt(next, 10)); err != nil {
+		} else if next-1 > head {
+			if err := addGap(tx, seqRange{head + 1, next - 1}); err != nil {
 				return err
 			}
 		}

@@ -1,9 +1,12 @@
 package store
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // The route's stored event stream (design section 3, 5.3 of the note):
@@ -20,10 +23,12 @@ type Event struct {
 	Data      string
 }
 
-// Replay refusals; the stream answers each with a reset.
+// Replay refusals; the stream answers each with a reset. ErrLostTimeline
+// is also ErrEpochChanged: the refusal started a new epoch.
 var (
 	ErrCursorExpired = errors.New("cursor_expired")
 	ErrEpochChanged  = errors.New("epoch_changed")
+	ErrLostTimeline  = fmt.Errorf("lost_timeline: %w", ErrEpochChanged)
 )
 
 // Retention bounds (design section 3).
@@ -98,15 +103,101 @@ func AppendEvent(tx Conn, e Event) (Event, error) {
 	return e, nil
 }
 
-// VisibleSeq is the last committed seq (0 before the first event).
+// VisibleSeq is the last committed seq (0 before the first event): the
+// newest event's, or below oldest_seq when the epoch has none. It is not
+// next_seq - 1, which the reservation max rule lifts above seqs this
+// timeline never issued (design section 4, D6).
 func VisibleSeq(c Conn) (int64, error) {
-	n, err := metaInt(c, "next_seq")
-	return n - 1, err
+	head := int64(-1)
+	err := c.Query("SELECT max(seq) FROM events", nil, func(r Row) error {
+		if !r.Null(0) {
+			head = r.Int64(0)
+		}
+		return nil
+	})
+	if err != nil || head >= 0 {
+		return head, err
+	}
+	oldest, err := metaInt(c, "oldest_seq")
+	return oldest - 1, err
+}
+
+// seqRange is the seqs first..last; meta.seq_gaps lists, as
+// "first-last,…" in order, the ranges of the current epoch that the max
+// rule skipped at an open, so this timeline never issued them.
+type seqRange struct{ first, last int64 }
+
+func readGaps(c Conn) ([]seqRange, error) {
+	v, err := metaGet(c, "seq_gaps")
+	if err != nil || v == "" {
+		return nil, err
+	}
+	var out []seqRange
+	for _, part := range strings.Split(v, ",") {
+		a, b, ok := strings.Cut(part, "-")
+		first, err1 := strconv.ParseInt(a, 10, 64)
+		last, err2 := strconv.ParseInt(b, 10, 64)
+		if !ok || err1 != nil || err2 != nil || first > last {
+			return nil, fmt.Errorf("store: meta seq_gaps = %q: %w", v, ErrSchemaCorrupt)
+		}
+		out = append(out, seqRange{first, last})
+	}
+	return out, nil
+}
+
+// addGap records the skipped seqs g, merged with the ranges it touches,
+// and drops the ranges below the kept window (a cursor there is expired).
+// g starts above the last committed seq, so it is the newest range.
+func addGap(tx Conn, g seqRange) error {
+	gaps, err := readGaps(tx)
+	if err != nil {
+		return err
+	}
+	oldest, err := metaInt(tx, "oldest_seq")
+	if err != nil {
+		return err
+	}
+	var parts []string
+	for _, h := range gaps {
+		switch {
+		case h.last+1 >= g.first && h.first <= g.last+1:
+			g = seqRange{min(g.first, h.first), max(g.last, h.last)}
+		case h.last >= oldest-1:
+			parts = append(parts, fmt.Sprintf("%d-%d", h.first, h.last))
+		}
+	}
+	parts = append(parts, fmt.Sprintf("%d-%d", g.first, g.last))
+	return metaSet(tx, "seq_gaps", strings.Join(parts, ","))
+}
+
+// lostCursor reports whether cursor names a seq of the current epoch that
+// this timeline never committed: above the last committed seq, or in a
+// range the max rule skipped. With synchronous=FULL every seq a consumer
+// saw was committed, so such a cursor comes from a timeline a restored
+// copy lost (D6).
+func lostCursor(c Conn, cursor int64) (bool, error) {
+	head, err := VisibleSeq(c)
+	if err != nil {
+		return false, err
+	}
+	if cursor > head {
+		return true, nil
+	}
+	gaps, err := readGaps(c)
+	for _, g := range gaps {
+		if g.first <= cursor && cursor <= g.last {
+			return true, nil
+		}
+	}
+	return false, err
 }
 
 // ReadEvents returns at most limit events of epoch with cursor < seq <=
 // barrier, oldest first. A cursor of another epoch gets ErrEpochChanged;
-// one below the kept window gets ErrCursorExpired.
+// one below the kept window gets ErrCursorExpired. A cursor this timeline
+// never issued (lostCursor) gets ErrLostTimeline, and the route starts a
+// new epoch first, in one transaction, so every consumer of the old epoch
+// resyncs; c is then the writer, outside a transaction.
 func ReadEvents(c Conn, epoch string, cursor, barrier int64, limit int) ([]Event, error) {
 	cur, err := metaGet(c, "epoch")
 	if err != nil {
@@ -114,6 +205,12 @@ func ReadEvents(c Conn, epoch string, cursor, barrier int64, limit int) ([]Event
 	}
 	if epoch != cur {
 		return nil, ErrEpochChanged
+	}
+	if lost, err := lostCursor(c, cursor); err != nil || lost {
+		if err != nil {
+			return nil, err
+		}
+		return nil, resetLostTimeline(c, cur)
 	}
 	oldest, err := metaInt(c, "oldest_seq")
 	if err != nil {
@@ -166,17 +263,40 @@ func PruneEvents(c Conn, keep int64) (int64, error) {
 // ResetEvents starts a new epoch with no events; next_seq stays, so no
 // seq is issued twice (reset-events, design section 3).
 func ResetEvents(c Conn, epoch string) error {
-	return c.Tx(func(tx Conn) error {
-		next, err := metaInt(tx, "next_seq")
-		if err != nil {
+	return c.Tx(func(tx Conn) error { return startEpoch(tx, epoch) })
+}
+
+// startEpoch empties events and starts epoch at next_seq, inside tx.
+func startEpoch(tx Conn, epoch string) error {
+	next, err := metaInt(tx, "next_seq")
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM events"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM meta WHERE k = 'seq_gaps'"); err != nil {
+		return err
+	}
+	if err := metaSet(tx, "epoch", epoch); err != nil {
+		return err
+	}
+	return metaSet(tx, "oldest_seq", strconv.FormatInt(next, 10))
+}
+
+// resetLostTimeline starts a new random epoch after epoch, unless another
+// refusal already did, and answers ErrLostTimeline.
+func resetLostTimeline(c Conn, epoch string) error {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	err := c.Tx(func(tx Conn) error {
+		if cur, err := metaGet(tx, "epoch"); err != nil || cur != epoch {
 			return err
 		}
-		if _, err := tx.Exec("DELETE FROM events"); err != nil {
-			return err
-		}
-		if err := metaSet(tx, "epoch", epoch); err != nil {
-			return err
-		}
-		return metaSet(tx, "oldest_seq", strconv.FormatInt(next, 10))
+		return startEpoch(tx, hex.EncodeToString(b[:]))
 	})
+	if err != nil {
+		return fmt.Errorf("%w (no new epoch: %v)", ErrLostTimeline, err)
+	}
+	return ErrLostTimeline
 }

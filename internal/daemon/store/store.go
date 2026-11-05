@@ -235,6 +235,23 @@ func checkRegular(st os.FileInfo, p string) error {
 // openRegular opens the database file without following a link and
 // without blocking on a FIFO, and checks it; create makes a missing file.
 func openRegular(p string, create bool) (*os.File, error) {
+	f, err := openFile(p, create)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stat()
+	if err == nil {
+		err = checkRegular(st, p)
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+// openFile is openRegular's open, without the checks.
+func openFile(p string, create bool) (*os.File, error) {
 	flags := os.O_RDONLY | syscall.O_NOFOLLOW | syscall.O_NONBLOCK
 	f, err := os.OpenFile(p, flags, 0)
 	if errors.Is(err, os.ErrNotExist) && create {
@@ -245,14 +262,6 @@ func openRegular(p string, create bool) (*os.File, error) {
 			return nil, fmt.Errorf("store: %s: %w", p, err)
 		}
 		return nil, fmt.Errorf("store: open %s: %v", p, err)
-	}
-	st, err := f.Stat()
-	if err == nil {
-		err = checkRegular(st, p)
-	}
-	if err != nil {
-		_ = f.Close()
-		return nil, err
 	}
 	return f, nil
 }
