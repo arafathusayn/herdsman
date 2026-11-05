@@ -503,6 +503,11 @@ func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir str
 // other owner record is refused and nothing is read (store is true). The
 // message list and alerts of a contract 3 inbox are not read here.
 func offlineStatus(route, dir, privateHome string) (st StatusReport, store bool, err error) {
+	if dir == "" {
+		// No inbox (the route is in no routes.json): nothing to read, and
+		// never the working folder's state/owner.json.
+		return FileStatus(route, ""), false, nil
+	}
 	mode, p, cerr := routedb.Classify(dir, privateHome, route)
 	if mode == routedb.Files {
 		return FileStatus(route, dir), false, nil

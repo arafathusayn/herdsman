@@ -41,12 +41,17 @@ const (
 	Refused
 )
 
-// Classify reads dir's state/owner.json (design section 2). A contract 3
+// Classify reads dir's state/owner.json (design section 2); dir "" (no
+// inbox) is refused, never read as the working folder. A contract 3
 // record is this user's, of mode 600, and names its store as
 // <privateHome>/daemon/routes/<route>.db, <route> a name the daemon
 // accepts (routename.Valid); route "" takes any route name.
 // For Store it returns the database path, for Refused the reason.
 func Classify(dir, privateHome, route string) (Mode, string, error) {
+	if dir == "" {
+		// No inbox: never the working folder's owner record.
+		return Refused, "", errors.New("no inbox named; no owner record is read")
+	}
 	p := filepath.Join(dir, "state", "owner.json")
 	if _, err := os.Lstat(p); errors.Is(err, os.ErrNotExist) {
 		return Files, "", nil
