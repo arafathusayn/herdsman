@@ -357,6 +357,9 @@ func (a *AdminEnv) route(ctx context.Context, c *Client, args []string) int {
 		a.out(res, fmt.Sprintf("new epoch %v", res["epoch"]))
 		return 0
 	case "list":
+		if len(args) != 1 {
+			return a.usage("route list")
+		}
 		var res struct {
 			Routes []RouteInfo `json:"routes"`
 		}
