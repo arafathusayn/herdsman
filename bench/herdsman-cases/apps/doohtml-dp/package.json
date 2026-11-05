@@ -1,0 +1,7 @@
+{
+  "name": "herdsman-cases-doohtml-dp",
+  "private": true,
+  "dependencies": {
+    "doohtml": "0.98.9-beta.0"
+  }
+}

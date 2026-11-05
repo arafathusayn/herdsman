@@ -15,9 +15,9 @@ Ship one `herdsman` binary through GitHub releases. It carries every herdsman co
 | Binary | Go, one static binary per OS and architecture. The built web app is embedded with `embed.FS`. goreleaser publishes the GitHub releases |
 | Frontend | TypeScript with no React, no npm and no `node_modules`. `bun build` compiles it to JS, `bun check` type-checks it and `bun fmt` formats it, on the latest Bun (1.4.4 or later). Bun is a build-time tool only |
 | Access | Binds to `127.0.0.1` only, with a random token per run |
-| Scripts | All bash scripts move into CLI subcommands in a single PR, and the scripts are deleted in that PR |
-| PRs | 1) CLI skeleton, releases and `herdsman web`. 2) Landing page. 3) Port every script |
-| Release | Changed on 2026-10-25. `v0.1.0` and `v0.2.0` shipped PR 1. `v1.0.0` ships PR 1, the docs page at `/docs/` (in place of PR 2), and the pairing hardening; the skill keeps its shell scripts. PR 3 ships in a later `1.x` release |
+| Scripts | All bash scripts move into CLI subcommands in a stack of five pull requests; the last one deletes the scripts. Bash defects are fixed in Go, not ported |
+| PRs | 1) CLI skeleton, releases and `herdsman web`. 2) Landing page. 3) Port every script (a stack of five pull requests). Next: the `herdsman daemon` on SQLite storage |
+| Release | `v0.1.0` and `v0.2.0` shipped PR 1. PR 3, the script port, is done. `v1.0.0` waits for the `herdsman daemon`, which serves the message channel over SSE, keeps its state in SQLite with fixed versioned schemas, and replaces the file channel. `v1.0.0` then ships PR 1, the docs page at `/docs/` (in place of PR 2), the pairing hardening, PR 3 and the daemon |
 | Homebrew | goreleaser publishes the formula to `arafathusayn/tap` |
 | Agents | Agent-type agnostic: no harness-specific UI. Starting an agent takes any `kind` and command line. PR 1 operates existing routes and does not start new ones |
 | Machines | The local herdr session only |
@@ -70,7 +70,7 @@ The browser gets live state over one SSE stream and sends every action as a POST
   - It records the focused tab before a start, prompt, key or zoom, and restores it with `tab.focus` as the next mutation.
   - It refuses actions on the orchestrator's own pane, such as close or `esc`, unless the request says `force`.
   - It reads the pane after each prompt and reports whether the prompt landed, was queued or was dropped (`agent_prompted` or not).
-- **Route awareness.** The server finds `.herdsman/<route>/00-route.md` from `--route` or from the agents' folders, then parses the task table, which maps agent names to task, role, branch and contract. Every web action is appended to the run-state list as `- HH:MM web: <action>`, the same format as `route-log.sh`, so the orchestrator sees what the human did.
+- **Route awareness.** The server finds `.herdsman/<route>/00-route.md` from `--route` or from the agents' folders, then parses the task table, which maps agent names to task, role, branch and contract. Every web action is appended to the run-state list as `- HH:MM web: <action>`, the same format as `herdsman route log`, so the orchestrator sees what the human did.
 
 ### App (TypeScript, no framework)
 
@@ -107,22 +107,27 @@ The browser gets live state over one SSE stream and sends every action as a POST
 - Sections: hero ("Run a whole team of coding agents from one conversation"), the team (four roles), how a route runs (the six steps as a diagram), a screenshot of the web app in light and dark, install (`brew` or a release download, then `herdsman web`), and links to the README and the skill.
 - It shares the web app's design tokens (`web/tokens.css`), so the page and the product look like one system. It works in light and dark, with no tracking and no external scripts.
 
-## PR 3: Port every script into the CLI (after `v1.0.0`)
+## PR 3: Port every script into the CLI (before `v1.0.0`)
+
+Done in a stack of five pull requests, in this order: the core commands (status, route check and log, run-check, wait, watch, transcript-audit, approval-gate), the checkpointer, the message channel, the tools (`herdsman doctor`, `herdsman review start` and a leaner `herdsman web`), and last the switch of the skill, README, docs page and CI to the binary, which deletes the scripts.
 
 | Script | Subcommand |
 | --- | --- |
 | `agent-status.sh` | `herdsman status` |
-| `checkpointer.sh` | `herdsman checkpoint start\|now\|probe\|status\|stop` |
-| `route-check.sh` | `herdsman route check <folder> [launch]` |
-| `route-log.sh` | `herdsman route log <folder> "<text>"` |
-| `run-check.sh` | `herdsman run-check -- <command>` |
+| `checkpointer.sh`, `checkpointer-guard.sh` | `herdsman checkpointer [--once\|--probe]`, `herdsman checkpointer guard` |
+| `route-check.sh` | `herdsman route check <folder> [plan\|launch\|close]` |
+| `route-log.sh` | `herdsman route log <00-route.md> "<text>"` |
+| `run-check.sh` | `herdsman run-check <command>`, `herdsman run-check --publish <hours>` |
 | `wait-event.sh` | `herdsman wait` |
 | `watch-implementers.sh`, `watch-prs.sh`, `watch-reviewer.sh` | `herdsman watch implementers\|prs\|reviewer` |
+| `transcript-audit.sh`, `approval-gate.sh` | `herdsman transcript-audit`, `herdsman approval-gate` |
+| `messages/*.sh` | `herdsman message <action>` and `herdsman message register\|courier\|card-watch\|resume-goal\|authority\|leak-gate` |
 
-- Behavior parity first. The 633 lines of `scripts/test/*.sh` become Go table tests, with the fake `herdr` (as a fake socket) and the fake `gh` (still on `PATH`, because `watch-prs` keeps running `gh`).
+- Behavior parity first, for valid input. A script behavior that is a defect (an error on the wrong path, an ignored failure, a race, an unbounded wait) is fixed in Go with a test, not ported. Every case of the shell suites becomes a Go table test, with the fake `herdr` (as a fake socket) and the fake `gh` (still on `PATH`, because `watch-prs` keeps running `gh`).
 - Update `SKILL.md` and every reference that names a script. The skill's start gate checks `herdsman version` next to `HERDR_ENV=1`, and the README install gains the binary step.
 - `run-check` today is copied into the route folder and run by implementers and reviewers as `/bin/bash <route folder>/run-check.sh`. After the port, agents call `herdsman run-check`, so the binary must sit on a `PATH` that every harness sandbox can run, or the route folder gets a copy or symlink of it. Check this with Codex and Claude Code sandboxes before the scripts are deleted.
-- Delete `skills/herdsman/scripts/` in the same PR.
+- Long-running commands (`web`, `wait`, `watch`, `run-check --publish`, the checkpointer loop, the message waiter and services, later the daemon) idle near zero CPU and keep memory flat: they wait on Herdr socket events instead of polling, bound their reads and prune what they remember, with tests and measured limits on the built binary.
+- Delete `skills/herdsman/scripts/` in the last pull request of the stack, after every case runs in Go.
 
 ## Risks
 

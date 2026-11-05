@@ -1,0 +1,13 @@
+{
+  "name": "herdsman-cases-solid-2",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@solidjs/web": "2.0.0-rc.18",
+    "solid-js": "2.0.0-rc.18"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "babel-preset-solid": "2.0.0-rc.2"
+  }
+}

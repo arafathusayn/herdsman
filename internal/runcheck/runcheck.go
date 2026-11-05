@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -29,6 +28,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/machine"
 
+	"github.com/arafathusayn/herdsman/internal/settings"
 	"github.com/arafathusayn/herdsman/internal/shnum"
 )
 
@@ -42,6 +42,7 @@ const (
 	ExitUsage    = 64 // a usage error
 	ExitNoLock   = 69 // the lock file cannot be opened or locked
 	ExitMarker   = 70 // the start marker cannot be written
+	ExitPublish  = 73 // the publisher cannot write its reading
 )
 
 // Config is the environment of a run, with the script's defaults filled
@@ -50,18 +51,18 @@ type Config struct {
 	Lock     string        // HERDSMAN_LOCK, default /tmp/herdsman-checks.lock
 	Reading  string        // HERDSMAN_READING, default /tmp/herdsman-load
 	LockWait time.Duration // HERDSMAN_LOCK_WAIT seconds, default 5400
-	GateWait time.Duration // HERDSMAN_GATE_WAIT seconds, default 600 (never, when test refuses it)
-	// GateWaitText is HERDSMAN_GATE_WAIT as written, for the NOT RUN line;
-	// "" prints GateWait.
-	GateWaitText string
-	MinFree      int           // HERDSMAN_MIN_FREE percent, default 10 (no reading passes when test refuses it)
-	Nice         int           // HERDSMAN_NICE, default 10
-	Poll         time.Duration // HERDSMAN_GATE_POLL seconds, default 15
-	LoadLimit    string        // HERDSMAN_LOAD_LIMIT, default the core count
-	Probes       bool          // HERDSMAN_PROBES, on unless "off"
+	GateWait time.Duration // HERDSMAN_GATE_WAIT seconds, default 600
+	MinFree  int           // HERDSMAN_MIN_FREE percent, default 10
+	Nice     int           // HERDSMAN_NICE, default 10
+	Poll     time.Duration // HERDSMAN_GATE_POLL seconds, default 15
+	// LoadLimit is HERDSMAN_LOAD_LIMIT, default the core count.
+	LoadLimit string
+	Probes    bool // HERDSMAN_PROBES, on unless "off"
 
-	PublishSeconds string        // HERDSMAN_PUBLISH_SECONDS, default hours*3600
-	PublishEvery   time.Duration // HERDSMAN_PUBLISH_EVERY seconds, default 15
+	// PublishFor is HERDSMAN_PUBLISH_SECONDS; negative (unset) runs the
+	// publisher for its hours.
+	PublishFor   time.Duration
+	PublishEvery time.Duration // HERDSMAN_PUBLISH_EVERY seconds, default 15
 
 	Check    string // HERDSMAN_CHECK: "", "locked" or "gated"
 	CheckIn  string // HERDSMAN_CHECK_IN
@@ -76,62 +77,58 @@ type Config struct {
 	Env []string
 }
 
-// testInt reads a number the script compares with [ -ge ]: as test reads
-// it, and math.MaxInt (a comparison that never holds) when test refuses it.
-func testInt(s string) int {
-	if n, ok := shnum.Test(s); ok {
-		return int(n)
-	}
-	return math.MaxInt
-}
+// MaxDuration caps every duration setting: the script had no range, so
+// one day (A25), and no multiplication overflows.
+const MaxDuration = 24 * time.Hour
 
-// testSecs is testInt in seconds; a refused value never elapses.
-func testSecs(s string) time.Duration {
-	if n, ok := shnum.Test(s); ok && n < math.MaxInt64/int64(time.Second) {
-		return time.Duration(n) * time.Second
-	}
-	return math.MaxInt64
-}
-
-// FromEnv reads the settings the script reads, with its defaults.
+// FromEnv is Load for a caller that has checked the settings already: an
+// invalid setting keeps its default.
 func FromEnv(getenv func(string) string) Config {
+	c, _ := Load(getenv)
+	return c
+}
+
+// Load reads the settings the script reads, with its defaults, through
+// the strict parser (A25): the first invalid one is the error, which the
+// command prints before it exits 2 and runs nothing.
+func Load(getenv func(string) string) (Config, error) {
 	or := func(k, d string) string {
 		if v := getenv(k); v != "" {
 			return v
 		}
 		return d
 	}
-	secs := func(k string, d int) time.Duration {
-		n, err := strconv.Atoi(or(k, strconv.Itoa(d)))
-		if err != nil {
-			n = d
+	r := settings.Reader{Getenv: getenv}
+	c := Config{
+		Lock:         or("HERDSMAN_LOCK", "/tmp/herdsman-checks.lock"),
+		Reading:      or("HERDSMAN_READING", "/tmp/herdsman-load"),
+		LockWait:     r.Duration("HERDSMAN_LOCK_WAIT", 5400*time.Second, MaxDuration),
+		GateWait:     r.Duration("HERDSMAN_GATE_WAIT", 600*time.Second, MaxDuration),
+		MinFree:      int(r.Int("HERDSMAN_MIN_FREE", 10, 0, 100)),
+		Nice:         int(r.Int("HERDSMAN_NICE", 10, -20, 20)),
+		Poll:         r.Duration("HERDSMAN_GATE_POLL", 15*time.Second, MaxDuration),
+		LoadLimit:    strings.Trim(getenv("HERDSMAN_LOAD_LIMIT"), " \t\n"),
+		Probes:       or("HERDSMAN_PROBES", "on") != "off",
+		PublishFor:   -1,
+		PublishEvery: r.Duration("HERDSMAN_PUBLISH_EVERY", 15*time.Second, MaxDuration),
+		Check:        getenv("HERDSMAN_CHECK"),
+		CheckIn:      getenv("HERDSMAN_CHECK_IN"),
+		CheckRan:     getenv("HERDSMAN_CHECK_RAN"),
+	}
+	r.Decimal("HERDSMAN_LOAD_LIMIT")
+	if getenv("HERDSMAN_PUBLISH_SECONDS") != "" {
+		c.PublishFor = r.Duration("HERDSMAN_PUBLISH_SECONDS", 0, MaxDuration)
+	}
+	// A sleep of 0 between polls would spin (A24).
+	for _, d := range []struct {
+		k string
+		v time.Duration
+	}{{"HERDSMAN_GATE_POLL", c.Poll}, {"HERDSMAN_PUBLISH_EVERY", c.PublishEvery}} {
+		if d.v < time.Second && r.Err == nil {
+			r.Err = &settings.Error{Var: d.k, Reason: "must be at least 1 second", Got: getenv(d.k)}
 		}
-		return time.Duration(n) * time.Second
 	}
-	num := func(k string, d int) int {
-		n, err := strconv.Atoi(or(k, strconv.Itoa(d)))
-		if err != nil {
-			return d
-		}
-		return n
-	}
-	return Config{
-		Lock:           or("HERDSMAN_LOCK", "/tmp/herdsman-checks.lock"),
-		Reading:        or("HERDSMAN_READING", "/tmp/herdsman-load"),
-		LockWait:       secs("HERDSMAN_LOCK_WAIT", 5400),
-		GateWait:       testSecs(or("HERDSMAN_GATE_WAIT", "600")),
-		GateWaitText:   or("HERDSMAN_GATE_WAIT", "600"),
-		MinFree:        testInt(or("HERDSMAN_MIN_FREE", "10")),
-		Nice:           num("HERDSMAN_NICE", 10),
-		Poll:           secs("HERDSMAN_GATE_POLL", 15),
-		LoadLimit:      getenv("HERDSMAN_LOAD_LIMIT"),
-		Probes:         or("HERDSMAN_PROBES", "on") != "off",
-		PublishSeconds: getenv("HERDSMAN_PUBLISH_SECONDS"),
-		PublishEvery:   secs("HERDSMAN_PUBLISH_EVERY", 15),
-		Check:          getenv("HERDSMAN_CHECK"),
-		CheckIn:        getenv("HERDSMAN_CHECK_IN"),
-		CheckRan:       getenv("HERDSMAN_CHECK_RAN"),
-	}
+	return c, r.Err
 }
 
 func (c *Config) defaults() {
@@ -168,41 +165,70 @@ func (c *Config) reading() string {
 }
 
 // Publish writes the machine's reading to the reading file every
-// PublishEvery until hours (or PublishSeconds) pass, as `run-check.sh
-// --publish <hours>` does.
+// PublishEvery until hours (or PublishFor) pass, as `run-check.sh
+// --publish <hours>` does. Hours are a whole number, read as test reads
+// it; a span over a day is a day.
 func Publish(c Config, hours string, stderr io.Writer) int {
 	c.defaults()
 	if hours == "" {
 		fmt.Fprintln(stderr, "usage: herdsman run-check --publish <hours>")
 		return ExitUsage
 	}
-	span := c.PublishSeconds
-	if span == "" {
-		// $(( $2 * 3600 )): blanks, octal and hexadecimal as bash reads them.
-		h, ok := shnum.Arith(hours)
-		if !ok {
-			fmt.Fprintln(stderr, "usage: herdsman run-check --publish <hours>")
-			return ExitUsage
+	// An hour count the script could not read sent it on to the check path
+	// with "--publish" as the command (A26): refuse it here.
+	h, ok := shnum.Test(hours)
+	if !ok || h < 0 {
+		fmt.Fprintf(stderr, "herdsman run-check: --publish: not a whole number of hours (got %q)\n", hours)
+		return settings.ExitInvalid
+	}
+	span := c.PublishFor
+	if span < 0 {
+		span = MaxDuration
+		if h < int64(MaxDuration/time.Hour) {
+			span = time.Duration(h) * time.Hour
 		}
-		span = strconv.FormatInt(h*3600, 10)
 	}
-	secs, ok := shnum.Arith(span)
-	if !ok {
-		fmt.Fprintln(stderr, "usage: herdsman run-check --publish <hours>")
-		return ExitUsage
-	}
-	end := c.Now().Unix() + secs
-	for c.Now().Unix() < end {
+	end := c.Now().Add(span)
+	for c.Now().Before(end) {
 		if r := c.probe(); r != "" {
-			tmp := c.Reading + "." + strconv.Itoa(os.Getpid())
-			if os.WriteFile(tmp, []byte(r+"\n"), 0o644) == nil {
-				_ = os.Rename(tmp, c.Reading)
+			// The script ignored a failed write or rename (A26): checks then
+			// ran on a stale or missing reading while it went on.
+			if err := publishReading(c.Reading, r+"\n"); err != nil {
+				fmt.Fprintf(stderr, "run-check: NOT PUBLISHED (cannot write the reading %s: %v)\n", c.Reading, err)
+				return ExitPublish
 			}
 		}
 		c.Sleep(c.PublishEvery)
 	}
 	fmt.Fprintf(stderr, "run-check: publisher stopped at %s; sandboxed checks now run without a load gate\n", c.Now().Format("15:04"))
 	return 0
+}
+
+// publishReading replaces the reading at path with text. The script wrote
+// a predictable <reading>.<pid> leaf, following a link already there and
+// truncating its target (A26); here the temporary file is new and
+// exclusive (O_CREATE|O_EXCL under a random name), gets the reading's
+// 0644 mode, and is renamed over the reading.
+func publishReading(path, text string) error {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	_, err = f.WriteString(text)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, 0o644)
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+	}
+	return err
 }
 
 // Run runs args as one check. It returns the check's exit code, or one of
@@ -288,7 +314,7 @@ func (c *Config) gateAndRun(args []string, lock *os.File, stdin io.Reader, stdou
 			break
 		}
 		if c.Now().Sub(start) >= c.GateWait {
-			fmt.Fprintf(stderr, "run-check: NOT RUN (load gate gave up after %ss: load %s, limit %s, free %s%%)\n", c.gateWaitText(), load, limit, free)
+			fmt.Fprintf(stderr, "run-check: NOT RUN (load gate gave up after %ds: load %s, limit %s, free %s%%)\n", int64(c.GateWait/time.Second), load, limit, free)
 			return ExitTempFail
 		}
 		c.Sleep(c.Poll)
@@ -316,14 +342,24 @@ func (c *Config) start(args []string, lock *os.File, stdin io.Reader, stdout, st
 	if lock != nil {
 		cmd.ExtraFiles = []*os.File{lock}
 	}
-	if nice {
-		// The child inherits this process's niceness: lower it by Nice
-		// first (the kernel caps it at its maximum), as `nice -n` does.
-		if cur, err := getNice(); err == nil {
-			_ = setNice(cur + c.Nice)
+	started := make(chan error, 1)
+	go func() {
+		// The child inherits the niceness of the thread that forks it:
+		// lower it by Nice first (the kernel caps it at its maximum), as
+		// `nice -n` does. Linux sets the priority of the calling thread
+		// only, so one locked thread lowers it and starts the child, and it
+		// is never unlocked: it ends with this goroutine instead of going
+		// back to the pool at the lower priority. Darwin lowers the whole
+		// process, as before.
+		runtime.LockOSThread()
+		if nice {
+			if cur, err := getNice(); err == nil {
+				_ = setNice(cur + c.Nice)
+			}
 		}
-	}
-	if err := cmd.Start(); err != nil {
+		started <- cmd.Start()
+	}()
+	if err := <-started; err != nil {
 		fmt.Fprintf(stderr, "run-check: %v\n", err)
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			return 127
@@ -457,12 +493,4 @@ func holders(f *os.File) string {
 		return s
 	}
 	return "?"
-}
-
-// gateWaitText is HERDSMAN_GATE_WAIT as the script prints it.
-func (c *Config) gateWaitText() string {
-	if c.GateWaitText != "" {
-		return c.GateWaitText
-	}
-	return strconv.Itoa(int(c.GateWait / time.Second))
 }

@@ -13,6 +13,10 @@ import (
 )
 
 func TestRun(t *testing.T) {
+	probeWant, probeErr := "", `unknown command "--cgo-probe"`
+	if cgoProbe != nil {
+		probeWant, probeErr = "cgo probe: sqlite ", ""
+	}
 	cases := []struct {
 		args    []string
 		want    string
@@ -22,6 +26,8 @@ func TestRun(t *testing.T) {
 		{args: []string{"help"}, want: "herdsman web"},
 		{args: []string{"version"}, want: "herdsman dev"},
 		{args: []string{"fly"}, wantErr: `unknown command "fly"`},
+		// Only a build with the cgoprobe tag knows the probe.
+		{args: []string{"--cgo-probe"}, want: probeWant, wantErr: probeErr},
 		{args: []string{"web", "--nope"}, wantErr: "flag provided but not defined"},
 	}
 	for _, tc := range cases {

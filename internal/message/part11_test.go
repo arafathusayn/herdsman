@@ -109,7 +109,7 @@ func evcase(t *testing.T, steps ...string) (*tc, *scripted) {
 	return c, s
 }
 
-// message-tests.sh parts 11, 12 and 16: EV, the event hints.
+// Parts 11, 12 and 16: EV, the event hints.
 func TestPart11EventHints(t *testing.T) {
 	c, s := evcase(t, "@sleep 1", "@stage")
 	c.courier("RUN_FOR=4", "SWEEP=60")

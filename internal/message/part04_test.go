@@ -28,7 +28,7 @@ func snapshot(t *testing.T, root string) string {
 	return strings.Join(b, "\n")
 }
 
-// message-tests.sh part 04: H1-H8.
+// Part 04: H1-H8.
 func TestPart04AlertsSingletonsStatus(t *testing.T) {
 	c := newCase(t, true)
 	c.fx.Shown(false)
@@ -57,7 +57,7 @@ func TestPart04AlertsSingletonsStatus(t *testing.T) {
 	check(t, "H4 a queue symlink is held with a safe alert", "notification show Suspicious queue entry", c.calls())
 	check(t, "H4b the link stays in new and its target is untouched", "^yes full brief$", yn(c.ob("new", "m000000000051.md"))+" "+strings.TrimSpace(c.read(c.base("body.txt"))))
 	out, _ := c.courier("SWEEP=abc")
-	check(t, "H5 a malformed control fails before start", "invalid SWEEP", out)
+	check(t, "H5 a malformed control fails before start", `SWEEP: not a duration`, out)
 	check(t, "H5b without taking the courier lock", "^no$", yn(c.in("courier.lock")))
 	os.Mkdir(c.in("courier.lock"), 0o700)
 	out, _ = c.courier()

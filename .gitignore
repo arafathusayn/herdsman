@@ -5,3 +5,6 @@
 # goreleaser output and local builds
 /dist/
 /bin/
+
+# setup-zig restores this cache before GoReleaser checks for a clean tree.
+/.zig-cache/

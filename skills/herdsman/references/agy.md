@@ -2,7 +2,7 @@
 
 These notes come from a probe of a pane that the user started. They do not yet hold a verified launch command, working marker or interrupt key. Before a route uses this harness, probe those three first (as [`SKILL.md`](../SKILL.md), References, says for a harness with no notes) and add them here.
 
-Antigravity CLI can take any agent type. Herdr kind: `agy`. The probed pane used a Gemini model and "auto" mode.
+Antigravity CLI can take any agent type. Herdr kind: `agy`. The probed pane ran in "auto" mode; its model comes from the harness's model list and the user's choice ([`SKILL.md`](../SKILL.md) step 1).
 
 ## Launch and modes
 

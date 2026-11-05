@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 )
 
-// The write side of the channel, as message-lib.sh: atomic state files,
+// The write side of the channel, as the old channel library: atomic state files,
 // unique moves, mailboxes, the diagnostic log, the envelope and ack
 // checks and the queue counts. Every function keeps the script's paths and
 // formats, so the scripts and the binary can share one inbox.
@@ -315,7 +315,7 @@ func (r *Root) Unacked(box string) []string {
 
 // catText is a file's text as $(cat file) gives it: trailing newlines cut.
 func catText(p string) string {
-	b, _ := os.ReadFile(p)
+	b, _ := ReadFile(p)
 	return strings.TrimRight(string(b), "\n")
 }
 
@@ -348,11 +348,11 @@ func (r *Root) AckValid(box, id string) bool {
 	if !Bounded(r.Dir, cur) {
 		return false
 	}
-	if d, err := DigestFile(cur); err != nil || d != sum {
+	if b := readState(cur); b == nil || Digest(b) != sum {
 		return false
 	}
 	claim := r.Path("ids", id, "claim")
-	return Regular(r.Dir, claim) && a["claim"] == catText(claim)
+	return Regular(r.Dir, claim) && a["claim"] == strings.TrimRight(string(readState(claim)), "\n")
 }
 
 // ClaimValid is the scripts' claim_valid: a mailbox's claim folder, not a

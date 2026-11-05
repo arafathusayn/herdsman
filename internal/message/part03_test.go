@@ -9,7 +9,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 )
 
-// message-tests.sh part 03: V1-V6, E1-E8.
+// Part 03: V1-V6, E1-E8.
 func TestPart03NamesEnvelopes(t *testing.T) {
 	c := newCase(t, true)
 	for _, bad := range []string{"Upper", "has space", "abcdefghijklmnopqrstuvwxyz0123456", "-dash"} {

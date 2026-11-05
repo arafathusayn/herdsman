@@ -82,9 +82,9 @@ func (s *Server) Requests() []Request {
 	return append([]Request(nil), s.requests...)
 }
 
-// ForgetRequests drops the requests recorded so far (a long loop test
-// measures the heap without the fake's own log).
-func (s *Server) ForgetRequests() {
+// Forget drops the recorded requests, so a long test measures the code
+// under test and not this record.
+func (s *Server) Forget() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.requests = nil
@@ -184,4 +184,22 @@ func (s *Server) conn(c net.Conn) {
 		s.mu.Unlock()
 	}
 	_ = c.Close()
+}
+
+// ForgetRequests drops the request log, so a long loop test measures the
+// code under test, not the fake's own record.
+func (s *Server) ForgetRequests() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requests = nil
+}
+
+// Hangup closes every open subscription, as a restarting server would, so
+// tests can drive the client's reconnects.
+func (s *Server) Hangup() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.subs {
+		_ = c.Close()
+	}
 }

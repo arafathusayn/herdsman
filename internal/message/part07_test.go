@@ -10,7 +10,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// message-tests.sh parts 07 and 08: S1-S16.
+// Parts 07 and 08: S1-S16.
 func TestPart07SenderAcksClaimsBounds(t *testing.T) {
 	c := newCase(t, true)
 	c.send()

@@ -1,0 +1,11 @@
+{
+  "name": "herdsman-web-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "e2e": "bun run.ts"
+  },
+  "devDependencies": {
+    "puppeteer-core": "25.16.0"
+  }
+}

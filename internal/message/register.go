@@ -6,7 +6,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// Register is message-register.sh propose <name> adjutant|orchestrator |
+// Register is `herdsman message register`: propose <name> adjutant|orchestrator |
 // approve <checksum> | retire <name> <checksum>. Approve and retire are
 // human-run registry administration, never a message action.
 func (e *Env) Register(args []string) int { return e.finish(e.register(args)) }

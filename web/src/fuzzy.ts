@@ -1,5 +1,4 @@
 // Fuzzy matching for the file search and the command palette.
-import { h } from "./dom.ts";
 
 const separators = "/-_. :";
 
@@ -65,23 +64,4 @@ export function fuzzy(query: string, text: string): { score: number; hits: numbe
     from = at + 1;
   }
   return finish(hits, score);
-}
-
-export function highlight(text: string, hits: number[]): (Node | string)[] {
-  if (!hits.length) return [text];
-  const set = new Set(hits);
-  const out: (Node | string)[] = [];
-  let run = "";
-  let inHit = false;
-  for (let i = 0; i < text.length; i++) {
-    const hit = set.has(i);
-    if (hit !== inHit && run) {
-      out.push(inHit ? h("mark", null, run) : run);
-      run = "";
-    }
-    inHit = hit;
-    run += text[i];
-  }
-  if (run) out.push(inHit ? h("mark", null, run) : run);
-  return out;
 }

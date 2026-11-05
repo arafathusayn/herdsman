@@ -1,0 +1,21 @@
+{
+  // Additional checks for the application and its component tests.
+  // tsconfig.json already sets strict, noUncheckedIndexedAccess,
+  // exactOptionalPropertyTypes, noImplicitOverride, noUnusedLocals,
+  // noUnusedParameters, noFallthroughCasesInSwitch, verbatimModuleSyntax and
+  // isolatedModules.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "erasableSyntaxOnly": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "noUncheckedSideEffectImports": true,
+    "strictBuiltinIteratorReturn": true,
+    "moduleDetection": "force",
+    "forceConsistentCasingInFileNames": true,
+    "libReplacement": false
+  },
+  "include": ["src", "build.ts", "build.test.ts", "reactre.ts", "test-fixtures"]
+}

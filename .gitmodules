@@ -1,0 +1,3 @@
+[submodule "reactre"]
+	path = web/vendor/reactre
+	url = https://github.com/arafathusayn/reactre.git

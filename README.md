@@ -29,6 +29,7 @@ Read the docs at <https://herdsman.arafat.ai/docs/>, or at `/docs/` on any runni
 - [Features](#features)
 - [Install](#install)
 - [Usage](#usage)
+- [The herdsman CLI](#the-herdsman-cli)
 - [Web app](#web-app)
 - [Requirements](#requirements)
 - [Develop](#develop)
@@ -43,7 +44,7 @@ Every agent runs in its own herdr pane. Each one can use a different harness and
 
 | Role | What it does |
 | --- | --- |
-| **Adjutant** | Optional, at most one. When a route has one, you talk to the adjutant instead of the orchestrator. It asks you the route's questions, relays full briefs and your answers to the orchestrator as herdsman messages, and runs only the pane administration you approve. It never writes code, runs tests, commits or pushes. See [`references/adjutant.md`](skills/herdsman/references/adjutant.md). |
+| **Adjutant** | Optional, at most one. When a route has one, you talk to the adjutant instead of the orchestrator. It asks you every question of the route, gos included, relays full briefs and your answers to the orchestrator as herdsman messages (your answer there is your go), and runs only the pane administration you approve. It never writes code, runs tests, commits or pushes. See [`references/adjutant.md`](skills/herdsman/references/adjutant.md). |
 | **Orchestrator** | Runs the route. You talk to it directly, or through the adjutant. It runs the interview, writes the contracts, launches and watches the other agents, forwards review findings and records the results. It never writes application code and never pushes. |
 | **Implementer** | One per task. It writes the code and the tests for its task on its own branch. |
 | **Integrator** | Used when several tasks ship as one branch or one pull request. It combines the accepted task branches, fixes what breaks between them, and is the only agent that pushes and answers review threads. |
@@ -100,7 +101,7 @@ Purple is planning with you, blue is agents at work, grey is the orchestrator as
 - **An optional adjutant.** You talk to an adjutant while the orchestrator works. Messages go through a private file channel: an approved pair, a courier that checks every message, a watcher, and alerts when either stops ([`references/messages.md`](skills/herdsman/references/messages.md)).
 - **Event-driven waits.** The orchestrator wakes on a new report, a new review, a blocked agent or a stalled one, and sleeps otherwise.
 - **Health checks.** Each wake shows every agent's state, model, background jobs and their ages, recent file writes, and the machine's load and free memory. Long-running jobs, idle trees and a loaded machine are flagged. Between wakes the waiter checks every ten minutes and wakes the orchestrator only for a new flag.
-- **One heavy check at a time.** Type checks, lint, tests and builds go through [`run-check.sh`](skills/herdsman/scripts/run-check.sh): a machine-wide lock with a load gate, at lower CPU priority, so checks queue instead of piling up.
+- **One heavy check at a time.** Type checks, lint, tests and builds go through `herdsman run-check`: a machine-wide lock with a load gate, at lower CPU priority, so checks queue instead of piling up.
 
 **Manage context**
 
@@ -113,11 +114,25 @@ Purple is planning with you, blue is agents at work, grey is the orchestrator as
 
 **2. Install the skill** for the orchestrator's harness with the [GitHub CLI](https://cli.github.com/manual/gh_skill_install):
 
+**Claude Code** (then run it as `/herdsman`):
+
+```sh
+gh skill install arafathusayn/herdsman herdsman --agent claude-code --scope user
+```
+
+**Codex** (then run it as `$herdsman`):
+
+```sh
+gh skill install arafathusayn/herdsman herdsman --agent codex --scope user
+```
+
+**Another harness:**
+
 ```sh
 gh skill install arafathusayn/herdsman herdsman --agent <agent> --scope user
 ```
 
-`<agent>` is the orchestrator's harness, as `gh skill install --help` names it. Add `--pin <tag or commit>` to pin a version, and run `gh skill update` to update later.
+`<agent>` is the harness's name as `gh skill install --help` lists it. Add `--pin <tag or commit>` to pin a version, and run `gh skill update` to update later.
 
 <details>
 <summary>Want to edit the skill while you use it? Link a clone instead.</summary>
@@ -127,9 +142,11 @@ git clone https://github.com/arafathusayn/herdsman.git
 ln -s "$PWD/herdsman/skills/herdsman" <harness skills folder>/herdsman
 ```
 
+A skill from `main` needs a `herdsman` built from the same clone (`make build`), because `main` can be ahead of the latest release.
+
 </details>
 
-**3. Start the orchestrator** inside a herdr pane. The skill stops when `HERDR_ENV` is not `1`.
+**3. Start the orchestrator** inside a herdr pane. Outside herdr (`HERDR_ENV` is not `1`), the skill asks whether each role's agents run in herdr panes or as background subagents of the orchestrator's harness.
 
 ## Usage
 
@@ -175,6 +192,26 @@ In the orchestrator session, inside herdr:
 | `--compact "<command>"` | `/compact` | The harness's compact command |
 | `--side right\|down` | `right` | Where the new pane goes (`start` only) |
 
+## The herdsman CLI
+
+Besides `web`, the `herdsman` command holds the tools the skill runs, in one Go binary. Each command reads strict settings, stops with exit code 2 and the setting's name when one is wrong, and prints its usage and exit codes with `--help`. Most print JSON with `--json`. `herdsman help` lists them all.
+
+| Command | What it does |
+| --- | --- |
+| `wait` | Waits for the next event of the loop (a report, a review, a blocked or stalled agent, a health flag), or prints `TICK`. |
+| `watch implementers\|reviewer\|prs` | Watches the implementers, the reviewer or pull requests. |
+| `status` | A health snapshot of every agent and of the machine. |
+| `route check\|log` | Lists what a route folder is missing at a stage, or appends a run-state line. |
+| `checkpointer` | The checkpointer loop, one checkpoint (`--once`) or a probe of the context size. |
+| `message` | The adjutant message channel and its services: the courier, the card watch, the leak gate. |
+| `approval-gate consume\|complete` | Binds a relayed go to one effect before it runs, and records its outcome. |
+| `transcript-audit claude\|codex` | Audits a Claude or Codex transcript for writes. |
+| `run-check` | Runs one heavy check at a time on this machine, behind a load gate, at a lower priority. |
+| `doctor` | Checks that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load. |
+| `models [last\|save]` | Probes each installed harness for its version, models and efforts; `last` and `save` keep your last pick for each role. |
+| `afk` | How long you have been away: the machine's idle time or your newest message, whichever is newer. |
+| `review start` | Prepares a clean, detached worktree at a commit for a reviewer, with its own build caches. |
+
 ## Web app
 
 `herdsman web` serves a browser app that shows and steers the team: a board of every agent by role or status, each agent's live terminal with its keys and a prompt box, the route's checklist, run state, docs and code changes, the HTML pages agents wrote, and the adjutant's messages. It is one Go binary with the app inside; nothing else runs on your machine.
@@ -189,6 +226,11 @@ herdsman web --open
 Homebrew installs from a tap outside its own only after you trust it; `brew trust` does that once. Later, `brew upgrade --cask herdsman` gets new releases.
 
 Or download the archive for macOS or Linux from [Releases](https://github.com/arafathusayn/herdsman/releases), or build from a clone with Go and Bun: `make build` writes `bin/herdsman`.
+
+For a source build, initialize the pinned Reactre submodule with `git submodule update --init web/vendor/reactre`
+(or clone with `--recurse-submodules`). The web build reads its TypeScript sources directly; no npm install,
+`node_modules`, or Reactre JavaScript build is needed. The UI is authored in TSX and uses Reactre signals; see
+[`web/README.md`](web/README.md).
 
 It prints a URL with a one-run token. The browser that opens it must type a 6-digit pairing code that the same terminal prints, so a leaked link alone controls nothing. Each link allows 20 wrong codes in all; then it stops working, and the terminal prints a new one. A paired browser keeps a device secret for that host until the server stops.
 
@@ -215,6 +257,10 @@ herdsman web --public-url https://<machine>.<tailnet>.ts.net
 
 **Hosted app.** A copy of the app built from `main` is served at <https://herdsman.arafat.ai> (also `herdsman.arafat.dev`, and the short names `h.` and `herd.` on both domains). The server prints a link that opens the hosted app with this host filled in (`--client` picks another copy, `--client none` turns it off). The first time the hosted app calls this computer or a private address, the browser asks to access devices on your local network: allow it, then choose **Try again**; the link's pairing token waits until the host answers. Each address is its own browser origin, so hosts and pairings saved on one do not show on another. The hosted copy sends the same content security policy as the embedded one ([`web/public/_headers`](web/public/_headers)).
 
+**New route.** **New route** in the sidebar, or `Route: New route…` in the command palette, opens a form that starts a route for you. It first offers the recommended setup or a custom one; each role then offers your previous harness, model and effort (**Choose again** reads the harness lists afresh). Pick a folder, type the request, confirm the GitHub account that can read the repository, and press **Start route**: the app opens a herdr tab named `<project>-orchestrator`, starts the chosen harness through herdr, sends `/herdsman run "<request>"` (`$herdsman` for Codex) and splits a `checkpointer` pane beside it. Models and efforts come from each installed harness, as `herdsman models` reports them. With the Adjutant role it starts an adjutant and its orchestrator with one private inbox per route, and lists the channel steps that stay yours.
+
+**Run state.** The run-state tab shows the newest lines first and loads older ones a page at a time.
+
 **Artifacts.** A route's Artifacts tab lists the HTML files in that route's current Herdr workspace folders: the folders of the panes in the workspace that holds the route's orchestrator, adjutant or first task pane, plus the route folder and its task worktrees. Each fresh listing follows what those paths point to now, and opening a page from a listing is checked against the folders as they were listed, so a folder renamed or replaced since then is refused. It skips dependency, build and hidden folders except `.lavish`, `.herdsman` and `.artifacts`, and shows one page in a sandboxed frame. The frame gets a short-lived link that serves only page files (HTML, scripts, styles, images, fonts and media) from that file's folder, and only to the browser that opened it; its scripts run without access to the app or your pairing.
 
 **Messages.** With an adjutant, the Messages tab shows the channel between the adjutant and the orchestrator the way `message status` reads it: the approved pair, courier and watcher health, alerts, and each message with its queue state. A body loads when you open it, and never for queued or quarantined entries. The app does not send messages.
@@ -223,22 +269,22 @@ herdsman web --public-url https://<machine>.<tailnet>.ts.net
 
 | Tool | Why |
 | --- | --- |
-| `/bin/bash` 3.2+ | Runs the scripts. They avoid associative arrays, so the macOS default shell works, with either BSD or GNU tools, started from bash or zsh. |
-| `jq` | Used by [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh). The message scripts need a `jq` with streaming and `IN` support. |
-| `nc` with Unix sockets | Only with an adjutant: the message courier and waiter read Herdr events through it. |
+| The `herdsman` binary | On `PATH` (the Homebrew cask or a release archive, see Install). The skill runs every command through it (`herdsman route check`, `herdsman wait`, `herdsman run-check`, `herdsman checkpointer`, `herdsman message` and the rest); no `jq` or `nc` needed. |
+| `/bin/bash` 3.2+ | Runs the route folder's one-line `run-check.sh` wrapper (`exec herdsman run-check "$@"`), which every check goes through. The macOS default shell works. |
 | GitHub CLI (`gh`) | A version with `gh skill` (tested with 2.101.0) to install the skill; any recent version when the route opens pull requests. |
-| Memory checkpoint command | Needed in the orchestrator's harness. The checkpointer's prompt is set at the top of [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh). |
+| Memory checkpoint command | Needed in the orchestrator's harness. The checkpointer's default prompt is built into `herdsman checkpointer` (`PROMPT` overrides it). |
+
+`gh skill install` takes the skill from the latest release. Keep the skill and the `herdsman` binary on the same release: `gh skill update` for the skill, `brew upgrade --cask herdsman` for the binary.
 
 ## Develop
 
-Run the tests after each change to the scripts, from zsh or bash:
+Run the checks after each change, from a clone with Go and Bun:
 
 ```sh
-zsh <skill folder>/scripts/test/run-tests.sh
-zsh <skill folder>/scripts/test/checkpointer-tests.sh
+make check
 ```
 
-`run-tests.sh` also runs `message-tests.sh` (the message channel) and adds its result. Started from zsh or sh, each test script re-runs itself under `/bin/bash`. CI runs both on macOS (bash 3.2, BSD tools) and Linux (GNU tools).
+The Go tests cover every `herdsman` command the skill runs (the waiter, the watchers, status, route check and log, run-check, the checkpointer and the message channel), with a fake Herdr socket server and a fake `gh`. CI runs them on macOS and Linux.
 
 <details>
 <summary>Try the checkpointer against a live orchestrator pane</summary>
@@ -246,7 +292,7 @@ zsh <skill folder>/scripts/test/checkpointer-tests.sh
 The probe sends nothing:
 
 ```sh
-TARGET=<orchestrator pane id> /bin/bash <skill folder>/scripts/checkpointer.sh --probe
+TARGET=<orchestrator pane id> herdsman checkpointer --probe
 ```
 
 To run it in its own pane, to the right of the orchestrator:
@@ -254,10 +300,10 @@ To run it in its own pane, to the right of the orchestrator:
 ```sh
 herdr pane split <orchestrator pane id> --direction right --ratio 0.7 --no-focus
 herdr pane rename <new pane id> checkpointer
-herdr pane run <new pane id> "TARGET=<orchestrator pane id> /bin/bash <skill folder>/scripts/checkpointer.sh"
+herdr pane run <new pane id> "TARGET=<orchestrator pane id> herdsman checkpointer"
 ```
 
-The script reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 250000), `PROMPT` and `COMPACT` from the environment. `--once` runs one checkpoint now and exits.
+The command reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 250000), `PROMPT` and `COMPACT` from the environment. `--once` runs one checkpoint now and exits.
 
 </details>
 
@@ -268,7 +314,7 @@ The script reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 250
 - **A lock, not a rule.** A sentence in each contract does not stop agents from starting heavy checks at the same moment. A lock shared by every agent on the machine does, and the kernel frees it when its holder exits.
 - **One herdr change per call.** Two changes in one shell call have failed without output.
 - **Deadlines belong to the orchestrator.** Agents ignored stop times written in their own briefs, and a queued instruction runs only when the agent's turn ends. So the orchestrator interrupts when a deadline passes.
-- **Context size from the transcript.** The checkpointer reads the input and cache token counts of the orchestrator's last turn from its session transcript. The included reader expects JSONL transcripts with a usage block per turn; for another format, replace `transcript()` and `context_tokens()` in [`checkpointer.sh`](skills/herdsman/scripts/checkpointer.sh).
+- **Context size from the transcript.** The checkpointer reads the input and cache token counts of the orchestrator's last turn from its session transcript. The included reader expects JSONL transcripts with a usage block per turn; another format needs a change to that reader in `herdsman checkpointer`.
 
 ## License
 

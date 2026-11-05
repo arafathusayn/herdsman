@@ -12,7 +12,7 @@ import (
 
 func (c *tc) prompts() int { return c.count("^agent prompt") }
 
-// message-tests.sh part 05: G (resume), C (cards), X, L2.
+// Part 05: G (resume), C (cards), X, L2.
 func TestPart05ResumeCardsStrict(t *testing.T) {
 	c := newCase(t, true)
 	c.codexTask()

@@ -1,6 +1,6 @@
 // Package message is the adjutant message channel's commands (`herdsman
-// message ...`), ported from the skill's scripts/messages: the public
-// grammar of message.sh (status, wait, read, release, ack, send, hold,
+// message ...`), ported from the skill's former message scripts: the public
+// grammar of the old message front (status, wait, read, release, ack, send, hold,
 // unhold) and the commands it does not front (register, courier,
 // card-watch, resume-goal, authority, leak-gate). Each keeps its script's
 // arguments, environment variables and defaults, output lines, exit codes
@@ -24,6 +24,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
 // Env is one command run: its environment, output and herdr.
@@ -135,13 +136,13 @@ func (e *Env) finish(err error) int {
 // options are the inbox settings of the environment.
 func (e *Env) options(readOnly bool) inbox.Options {
 	return inbox.Options{
-		Dir: e.env("HERDSMAN_INBOX"), Preflight: e.env("HERDSMAN_PREFLIGHT"), Installed: e.env("HERDSMAN_MESSAGES_DIR"),
+		Dir: e.env("HERDSMAN_INBOX"), Preflight: e.env("HERDSMAN_PREFLIGHT"),
 		HealthAfter: e.healthAfter, LockWait: e.lockWait, ReadOnly: readOnly, Now: e.Now, Sleep: e.Sleep,
 	}
 }
 
-// open is root_init. An unset HERDSMAN_INBOX ends the run with exit 1, as
-// the scripts' ${HERDSMAN_INBOX:?} does under set -e.
+// open is root_init. An unset or empty HERDSMAN_INBOX is a missing
+// required setting: the shared line, exit 2 (A25).
 func (e *Env) open(readOnly bool) error {
 	if !e.settingsDone {
 		if err := e.commonSettings(); err != nil {
@@ -149,7 +150,7 @@ func (e *Env) open(readOnly bool) error {
 		}
 	}
 	if e.env("HERDSMAN_INBOX") == "" {
-		return &exitErr{code: 1, msg: "HERDSMAN_INBOX: set HERDSMAN_INBOX"}
+		return settingError(settings.Missing("HERDSMAN_INBOX"))
 	}
 	// A file-mode writer refuses an inbox the daemon owns (design 12.1).
 	if !readOnly && inbox.DaemonOwned(e.env("HERDSMAN_INBOX")) {
@@ -331,7 +332,7 @@ func sortedCompact(v any) string {
 
 // decodeFile reads and decodes a JSON file (no checks; callers check).
 func decodeFile(p string) (any, error) {
-	b, err := os.ReadFile(p)
+	b, err := inbox.ReadFile(p)
 	if err != nil {
 		return nil, err
 	}

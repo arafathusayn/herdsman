@@ -132,59 +132,77 @@ func Load(dir string) (*Route, error) {
 	}
 	defer f.Close()
 	st, _ := f.Stat()
-	r := &Route{Dir: dir, Name: filepath.Base(dir), Modified: st.ModTime()}
-	section := ""
-	var header []string
+	p := &parser{r: &Route{Dir: dir, Name: filepath.Base(dir), Modified: st.ModTime()}}
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 1<<22)
 	for sc.Scan() {
-		line := sc.Text()
-		switch {
-		case strings.HasPrefix(line, "# ") && r.Title == "":
-			r.Title = strings.TrimSpace(line[2:])
-			continue
-		case strings.HasPrefix(line, "## "):
-			section = strings.ToLower(strings.TrimSpace(line[3:]))
-			header = nil
-			continue
-		}
-		if r.AdjutantPane == "" {
-			if m := adjutantPane.FindStringSubmatch(line); m != nil {
-				r.AdjutantPane = m[1]
-				continue
-			}
-		}
-		if r.OrchestratorPane == "" {
-			if m := orchestratorPane.FindStringSubmatch(line); m != nil {
-				r.OrchestratorPane = m[1]
-			}
-		}
-		switch section {
-		case "task table":
-			cells := tableCells(line)
-			if cells == nil || isSeparator(cells) {
-				continue
-			}
-			if header == nil {
-				header = lower(cells)
-				continue
-			}
-			r.Tasks = append(r.Tasks, taskFrom(header, cells))
-		case "checklist":
-			if m := checkLine.FindStringSubmatch(line); m != nil {
-				r.Checklist = append(r.Checklist, CheckItem{Done: m[1] == "x" || m[1] == "X", Skipped: m[1] == "-", ID: m[2], Text: m[3]})
-			}
-		case "run state":
-			if m := runLine.FindStringSubmatch(line); m != nil {
-				r.RunState = append(r.RunState, LogLine{Time: m[1], Text: m[2]})
-			}
-		}
+		p.line(sc.Text())
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
-	r.Files = listFiles(dir)
-	return r, nil
+	p.r.Files = listFiles(dir)
+	return p.r, nil
+}
+
+// parser reads a route file line by line; it keeps its place between
+// lines, so a file that grew can be read on from where it stopped.
+type parser struct {
+	r       *Route
+	section string
+	header  []string
+	// keep > 0 bounds the run state to the newest keep lines (it may hold
+	// up to twice that while parsing); total counts every run-state line.
+	keep  int
+	total int
+}
+
+func (p *parser) line(line string) {
+	r := p.r
+	switch {
+	case strings.HasPrefix(line, "# ") && r.Title == "":
+		r.Title = strings.TrimSpace(line[2:])
+		return
+	case strings.HasPrefix(line, "## "):
+		p.section = strings.ToLower(strings.TrimSpace(line[3:]))
+		p.header = nil
+		return
+	}
+	if r.AdjutantPane == "" {
+		if m := adjutantPane.FindStringSubmatch(line); m != nil {
+			r.AdjutantPane = m[1]
+			return
+		}
+	}
+	if r.OrchestratorPane == "" {
+		if m := orchestratorPane.FindStringSubmatch(line); m != nil {
+			r.OrchestratorPane = m[1]
+		}
+	}
+	switch p.section {
+	case "task table":
+		cells := tableCells(line)
+		if cells == nil || isSeparator(cells) {
+			return
+		}
+		if p.header == nil {
+			p.header = lower(cells)
+			return
+		}
+		r.Tasks = append(r.Tasks, taskFrom(p.header, cells))
+	case "checklist":
+		if m := checkLine.FindStringSubmatch(line); m != nil {
+			r.Checklist = append(r.Checklist, CheckItem{Done: m[1] == "x" || m[1] == "X", Skipped: m[1] == "-", ID: m[2], Text: m[3]})
+		}
+	case "run state":
+		if m := runLine.FindStringSubmatch(line); m != nil {
+			p.total++
+			r.RunState = append(r.RunState, LogLine{Time: m[1], Text: m[2]})
+			if p.keep > 0 && len(r.RunState) >= 2*p.keep {
+				r.RunState = append([]LogLine(nil), r.RunState[len(r.RunState)-p.keep:]...)
+			}
+		}
+	}
 }
 
 func tableCells(line string) []string {
@@ -261,6 +279,10 @@ func cellValue(cell string, path bool) string {
 	}
 	return cell
 }
+
+// ListFiles is a route folder's file list as Load reads it; the web hub
+// reads it on each refresh, apart from the parsed route file.
+func ListFiles(dir string) []File { return listFiles(dir) }
 
 // listFiles lists the readable text files of a route folder, skipping large
 // probe output and anything outside the folder.

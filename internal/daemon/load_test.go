@@ -97,7 +97,7 @@ func TestLoopsStayFlat(t *testing.T) {
 	fsync = func(*os.File) error { return nil }
 	t.Cleanup(func() { fsync = oldSync })
 	g0 := runtime.NumGoroutine()
-	h.srv.ForgetRequests()
+	h.srv.Forget()
 	base := heapAfterGC()
 	// The streams run first: a snapshot reads every mailbox, so its cost
 	// grows with the acknowledged history the actor loop leaves.
@@ -116,7 +116,7 @@ func TestLoopsStayFlat(t *testing.T) {
 			ev.Close()
 		}
 	})
-	h.srv.ForgetRequests()
+	h.srv.Forget()
 	if grown := int64(heapAfterGC()) - int64(base); grown > 1<<20 {
 		t.Errorf("stream loops: live heap grew %d bytes", grown)
 	}
@@ -136,14 +136,14 @@ func TestLoopsStayFlat(t *testing.T) {
 	for range 600 {
 		cycle(t)
 	}
-	h.srv.ForgetRequests()
+	h.srv.Forget()
 	actorBase := heapAfterGC()
 	t.Run("actor", func(t *testing.T) {
 		for range 1000 {
 			cycle(t)
 		}
 	})
-	h.srv.ForgetRequests()
+	h.srv.Forget()
 	if grown := int64(heapAfterGC()) - int64(actorBase); grown > 1<<20 {
 		t.Errorf("actor loop: live heap grew %d bytes", grown)
 	}
@@ -175,7 +175,7 @@ func TestLoadManyRoutes(t *testing.T) {
 		a, o, _ := h.route(n)
 		routes = append(routes, rp{n, a, o})
 	}
-	h.srv.ForgetRequests()
+	h.srv.Forget()
 	base := heapAfterGC()
 	var streams []*EventReader
 	for i := range 50 {
@@ -215,7 +215,7 @@ func TestLoadManyRoutes(t *testing.T) {
 		r.adj.c.Close()
 		r.orch.c.Close()
 	}
-	h.srv.ForgetRequests()
+	h.srv.Forget()
 	if grown := int64(heapAfterGC()) - int64(base); grown > 2<<20 {
 		t.Fatalf("heap grew %d bytes", grown)
 	}

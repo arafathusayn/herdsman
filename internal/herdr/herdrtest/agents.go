@@ -177,3 +177,6 @@ func (f *Fixture) notify(map[string]any) (any, string) {
 	defer f.mu.Unlock()
 	return map[string]any{"type": "notification_show", "shown": f.shown}, ""
 }
+
+// Server is the fake server the fixture answers on.
+func (f *Fixture) Server() *Server { return f.srv }

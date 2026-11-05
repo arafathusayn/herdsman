@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,7 +48,7 @@ func TestGateSignalReleasesItsLocks(t *testing.T) {
 			c.WriteJSON(goFile, map[string]any{"version": 1, "type": "user_go", "question_id": "choice", "request_id": "s1", "action": "post",
 				"target": "pr-comment", "revision": "head1", "draft_hash": sum, "expires_at": time.Now().Unix() + 600, "text": "post this draft",
 				"human_interaction": "ask-s1"})
-			c.WriteJSON(filepath.Join(apr, "interactions", "ask-s1.json"), map[string]any{"source": "ask-tool", "question_id": "choice",
+			c.WriteJSON(filepath.Join(apr, "interactions", "ask-s1.json"), map[string]any{"source": "ask-tool", "asked_by": inboxtest.Adjutant, "question_id": "choice",
 				"request_id": "s1", "revision": "head1", "approved": true, "action": "post", "target": "pr-comment", "draft_hash": sum})
 			// The authority check lists the agents: hold it there.
 			called, release := make(chan struct{}, 1), make(chan struct{})
@@ -93,5 +94,23 @@ func TestGateSignalReleasesItsLocks(t *testing.T) {
 				t.Error("an interrupted gate recorded a consumption")
 			}
 		})
+	}
+}
+
+// PR #25 (P1): the gate's lock wait ends at once when its context ends
+// (a stopped gate), and otherwise waits the time given.
+func TestGateLockWaitEndsWithItsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sleep := ctxSleep(ctx)
+	start := time.Now()
+	sleep(5 * time.Millisecond)
+	if time.Since(start) < 5*time.Millisecond {
+		t.Error("a running gate's wait ended early")
+	}
+	cancel()
+	start = time.Now()
+	sleep(time.Hour)
+	if time.Since(start) > time.Second {
+		t.Error("a stopped gate's wait did not end at once")
 	}
 }

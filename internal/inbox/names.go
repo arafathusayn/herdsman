@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 var (
@@ -59,9 +60,9 @@ func Digest(b []byte) string {
 	return strconv.FormatUint(uint64(^crc), 10) + "-" + strconv.Itoa(len(b))
 }
 
-// DigestFile is Digest of a file's bytes.
+// DigestFile is Digest of a regular file's bytes, after links.
 func DigestFile(p string) (string, error) {
-	b, err := os.ReadFile(p)
+	b, err := ReadFile(p)
 	if err != nil {
 		return "", err
 	}
@@ -166,6 +167,10 @@ func GuardPath(root, p string) bool {
 	return true
 }
 
+// beforeRegularOpen runs in Regular between its Lstat and its open; tests
+// swap the leaf there.
+var beforeRegularOpen func(p string)
+
 // Regular is the scripts' regular: a readable regular file that is not a
 // link, whose folders under root are real (root "" skips that part).
 func Regular(root, p string) bool {
@@ -173,11 +178,20 @@ func Regular(root, p string) bool {
 	if err != nil || !st.Mode().IsRegular() {
 		return false
 	}
-	f, err := os.Open(p)
+	if beforeRegularOpen != nil {
+		beforeRegularOpen(p)
+	}
+	// The open is checked on its own descriptor: no link followed, no
+	// blocking on a fifo that replaced the file after the Lstat.
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return false
 	}
+	fst, err := f.Stat()
 	_ = f.Close()
+	if err != nil || !fst.Mode().IsRegular() {
+		return false
+	}
 	return GuardPath(root, p)
 }
 
@@ -191,12 +205,14 @@ func Bounded(root, p string) bool {
 }
 
 // ReadStrict reads a file the way the scripts' strict_json accepts one:
-// bounded, regular, guarded, and strict JSON.
+// bounded, regular, guarded, and strict JSON. The path checks are
+// Regular's; the type and the bound are checked again on the file read
+// (ReadBounded), so a file replaced or grown after the checks is refused.
 func ReadStrict(root, p string) ([]byte, bool) {
 	if !Bounded(root, p) {
 		return nil, false
 	}
-	b, err := os.ReadFile(p)
+	b, err := ReadBounded(p, MaxSize)
 	if err != nil || StrictJSON(b) != nil {
 		return nil, false
 	}

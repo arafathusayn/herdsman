@@ -13,7 +13,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// The TA and Y6 cases of the skill's message-tests.sh.
+// The TA and Y6 cases of the old shell message suite.
 
 type rig struct {
 	t  *testing.T
@@ -51,13 +51,8 @@ func (r *rig) file(name string, lines ...string) string {
 	return p
 }
 
-// aud runs the audit as message-tests.sh's aud does: AUDIT_CHANNEL_DIR=/skill/scripts.
+// aud runs the audit and appends its exit code.
 func (r *rig) aud(o Options) string {
-	if o.ChannelDir == "-" {
-		o.ChannelDir = ""
-	} else if o.ChannelDir == "" {
-		o.ChannelDir = "/skill/scripts"
-	}
 	var b bytes.Buffer
 	code := Run(o, &b)
 	return b.String() + fmt.Sprintf("rc=%d", code)
@@ -84,7 +79,7 @@ func (r *rig) clean() []string {
 		jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "please run git push and npm test"}}),
 		jsonl(map[string]any{"type": "assistant", "sessionId": "coord-session", "message": map[string]any{"content": []any{map[string]any{"type": "text", "text": "I will not run git push or gh pr create."}}}}),
 		tu("ok1", "Read", map[string]any{"file_path": "/any/file"}),
-		sh("ok2", "/bin/bash /skill/scripts/message.sh status"),
+		sh("ok2", "herdsman message status"),
 		sh("ok3", "git log --oneline -3"),
 		tu("ok4", "Write", map[string]any{"file_path": filepath.Join(r.tc, "memory", "note.md"), "content": "x"}),
 		sh("ok5", "gh pr view 9 --json state"),
@@ -107,7 +102,7 @@ func TestClaudeTranscripts(t *testing.T) {
 		sh("b4", "gh api -X POST repos/o/r/issues/1/comments -f body=SECRETVALUE"),
 		sh("b5", "curl -X POST https://example.invalid/hook"),
 		sh("b6", "npm test"),
-		sh("b7", "/bin/bash scripts/test/run-tests.sh"),
+		sh("b7", "/bin/bash tools/unit-tests.sh"),
 		sh("b8", "docker compose up -d"),
 		tu("m1", "mcp__chat__send_message", map[string]any{"text": "hello"}),
 	)...)
@@ -155,7 +150,6 @@ func TestSettingsGaps(t *testing.T) {
 	match(t, "an invalid session id", `^GAP invalid session id`, r.aud(Options{Harness: "claude", Transcript: clean, Session: "a/b"}))
 	match(t, "a relative root", `^GAP allowed write root must be absolute and end in /: rel/`, r.aud(Options{Harness: "claude", Transcript: clean, Session: "coord-session", Roots: []string{"rel/"}}))
 	match(t, "a root without the slash", `^GAP allowed write root must be absolute and end in /: /x`, r.aud(Options{Harness: "claude", Transcript: clean, Session: "coord-session", Roots: []string{"/x"}}))
-	match(t, "a relative channel folder", `^GAP AUDIT_CHANNEL_DIR must be absolute`, r.aud(Options{Harness: "claude", Transcript: clean, Session: "coord-session", ChannelDir: "rel"}))
 	match(t, "a missing grant file", `^GAP grant file unavailable`, r.aud(Options{Harness: "claude", Transcript: clean, Session: "coord-session", GrantFile: filepath.Join(r.tc, "none")}))
 	if os.Geteuid() != 0 {
 		_ = os.Chmod(clean, 0)
@@ -180,7 +174,7 @@ func TestCodexTranscripts(t *testing.T) {
 	}
 	meta := jsonl(map[string]any{"type": "session_meta", "payload": map[string]any{"id": "codex-session"}})
 	codex := r.file("codex.jsonl", meta,
-		fc("exec_command", "c1", map[string]any{"cmd": "/bin/bash /skill/scripts/message.sh read"}),
+		fc("exec_command", "c1", map[string]any{"cmd": "herdsman message read"}),
 		fc("shell", "c2", map[string]any{"command": []any{"bash", "-lc", "git push origin HEAD"}}),
 		patch("c3", "*** Begin Patch\n*** Update File: "+r.tc+"/project/app.ts\n@@\n-a\n+b\n*** End Patch"),
 		patch("c4", "*** Begin Patch\n*** Add File: "+r.tc+"/memory/note.md\n+x\n*** End Patch"),
@@ -230,27 +224,25 @@ func TestScriptRuns(t *testing.T) {
 		sh("s1", "bash /tmp/do-push.sh"),
 		sh("s2", "./deploy.sh --now"),
 		sh("s3", `python3 -c "import os"`),
-		sh("s4", "/bin/bash /skill/scripts/../tmp/message.sh status"),
-		sh("s5", "/bin/bash /other/scripts/message.sh status"),
+		sh("s4", "/bin/bash /opt/kit/../tmp/notify.sh status"),
+		sh("s5", "/bin/bash /opt/kit/notify.sh status"),
 		sh("s6", "source ./env.sh"),
 		sh("s7", "sh -c true"),
-		sh("s8", "ls /tmp && /bin/bash /skill/scripts/message.sh status && perl x.pl"),
-		sh("s9", "env X=1 /skill/scripts/hidden.sh"),
-		sh("s10", "/bin/bash -c /skill/scripts/message.sh"),
+		sh("s8", "ls /tmp && herdsman message status && perl x.pl"),
+		sh("s9", "env X=1 /opt/kit/hidden.sh"),
+		sh("s10", "/bin/bash -c /opt/kit/notify.sh"),
 		sh("k1", "ls -la /tmp"),
-		sh("k2", "cd /x && /bin/bash /skill/scripts/message.sh read | jq -c ."),
-		sh("k3", "HERDSMAN_NAME=route-adjutant /bin/bash '/skill/scripts/message.sh' status"),
+		sh("k2", "cd /x && herdsman message read | jq -c ."),
+		sh("k3", "HERDSMAN_NAME=route-adjutant '/usr/local/bin/herdsman' message status"),
 		sh("k4", "cat /x/notes.md"),
-		sh("k5", "/skill/scripts/message.sh status"),
+		sh("k5", "herdsman message wait"),
 	)
 	out := r.aud(Options{Harness: "claude", Transcript: scripts, Session: "coord-session"})
 	for i := 1; i <= 10; i++ {
 		match(t, fmt.Sprintf("TA8 a script or interpreter run is flagged: s%d", i), fmt.Sprintf("call=s%d class=script-run", i), out)
 	}
-	noMatch(t, "TA8b exact channel scripts and plain reads stay clean", `call=k[0-9]`, out)
+	noMatch(t, "TA8b channel commands and plain reads stay clean", `call=k[0-9]`, out)
 	match(t, "TA8c ten flags of fourteen calls", `AUDIT flagged=10 calls=15.*rc=1`, flat(out))
-	out = r.aud(Options{Harness: "claude", Transcript: scripts, Session: "coord-session", ChannelDir: "-"})
-	match(t, "TA8d without the channel folder even a channel script run is flagged", `call=k2 class=script-run`, out)
 
 	// The herdsman binary: its channel commands stay clean, any other run is a script run.
 	bin := r.file("bin.jsonl",
@@ -260,15 +252,27 @@ func TestScriptRuns(t *testing.T) {
 		sh("h3", "herdsman approval-gate consume /x/go.json post pr-comment head1 -"),
 		sh("h4", "herdsman checkpointer guard route-orchestrator w1:p2"),
 		sh("h5", "herdsman message leak-gate /x/pr.md"),
-		sh("f1", "herdsman message courier"),
+		sh("h6", "herdsman message courier"),
+		sh("h7", "herdsman message card-watch route-adjutant"),
+		sh("h8", "herdsman message resume-goal im-a"),
+		sh("h9", "herdsman message register --name route-adjutant"),
+		sh("a1", "herdsman afk --last-message 1761540000"),
+		sh("a2", "herdsman afk --last-message 1761540000 --last-message=1761540100 --json"),
+		sh("a3", "herdsman afk"),
+		sh("f1", "herdsman message folder"),
 		sh("f2", "herdsman checkpointer --once"),
 		sh("f3", "herdsman route log /x/00-route.md done"),
 		sh("f4", "herdsman"),
 		sh("f5", "herdsman message"),
+		sh("f6", "herdsman afk --last-message"),
+		sh("f7", "herdsman afk --last-message 1761540000 --help"),
+		sh("f8", "herdsman afk extra"),
+		sh("f9", "herdsman afk --last-message 1 status"),
 	)
 	out = r.aud(Options{Harness: "claude", Transcript: bin, Session: "coord-session"})
 	noMatch(t, "TA9 (Go) the binary's channel commands stay clean", `call=h[0-9]`, out)
-	for i := 1; i <= 5; i++ {
+	noMatch(t, "TA9c (Go) the read-only afk check stays clean", `call=a[0-9]`, out)
+	for i := 1; i <= 9; i++ {
 		match(t, fmt.Sprintf("TA9b (Go) another run of the binary is a script run: f%d", i), fmt.Sprintf("call=f%d class=script-run target=herdsman", i), out)
 	}
 }
@@ -315,7 +319,7 @@ func TestDirectWrites(t *testing.T) {
 		sh("m5", "nice -n 5 ./x.sh"),
 		sh("m6", "xargs rm"),
 		sh("m7", "kubectl get pods"),
-		sh("m8", "./run-tests.sh"),
+		sh("m8", "./unit-tests.sh"),
 		tu("", "", map[string]any{}),
 		tu("n1", "Read", "not an object"),
 		jsonl(map[string]any{"type": "assistant", "sessionId": "coord-session", "message": "x"}),
@@ -342,4 +346,127 @@ func TestInternals(t *testing.T) {
 	if program("") != "" {
 		t.Error("an empty match has a program")
 	}
+}
+
+// 417b204 (A26): a single-quoted command word with a space or shell
+// punctuation is still the program the shell runs; quoted awk and grep
+// text stays clean.
+func TestAuditQuotedCommandWord(t *testing.T) {
+	r := newRig(t)
+	tr := r.file("quoted.jsonl",
+		jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}}),
+		sh("q1", "'/tmp/do-push.sh copy' origin"),
+		sh("q2", "'/tmp/do-push.sh;noop' origin"),
+		sh("q3", `awk '{print $1; print $2}' /x/list.txt | grep 'a b'`),
+	)
+	out := r.aud(Options{Harness: "claude", Transcript: tr, Session: "coord-session"})
+	match(t, "Y6h a quoted executable path with a space is a script run", `call=q1 class=script-run`, out)
+	match(t, "Y6h2 a quoted executable path with shell punctuation is a script run", `call=q2 class=script-run`, out)
+	noMatch(t, "Y6h3 quoted awk and grep text stays clean", `call=q3`, out)
+	match(t, "Y6h4 two flags of three calls", `AUDIT flagged=2 calls=3`, out)
+}
+
+// The coordinator's ruling and review-adjutant-p0-2.md / -3.md: main's
+// checks decide first and the B3-002 rules only add flags, so each case
+// main 87c5670 flags stays flagged and main's clean controls stay clean.
+func TestAuditMainFlagsStandTable(t *testing.T) {
+	flagged := []string{
+		"'do-push.sh copy' origin",
+		"'do-push.sh;noop' origin",
+		"'/tmp/do-push.sh copy' origin",
+		"'/tmp/do-push.sh;noop' origin",
+		`echo "${v:-$(/tmp/do-push.sh)}"`,
+		`echo "$(( $(/tmp/do-push.sh) + 1 ))"`,
+		"echo \"${v:-`/tmp/do-push.sh`}\"",
+		"echo \"$(( `/tmp/do-push.sh` + 1 ))\"",
+		"echo ok # a comment\n:; /tmp/do-push.sh origin",
+		"echo ok # a comment\n:; python3 -c pass",
+	}
+	clean := []string{
+		`echo "'a; /tmp/do-push'"`,
+		`case "$x" in *.sh) echo yes;; *) echo no;; esac`,
+		`awk '{print $1; print $2}' /x/list.txt | grep 'a b'`,
+		`printf '%s\n' 'a; b' | grep -c 'x|y'`,
+		`jq -r '.a | .b' /x/f.json`,
+		`echo a\; b`,
+		"herdsman message status",
+		"/usr/bin/curl -s https://example.invalid/status",
+	}
+	r := newRig(t)
+	lines := []string{jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}})}
+	for i, c := range flagged {
+		lines = append(lines, sh(fmt.Sprintf("m%d", i), c))
+	}
+	for i, c := range clean {
+		lines = append(lines, sh(fmt.Sprintf("c%d", i), c))
+	}
+	out := r.aud(Options{Harness: "claude", Transcript: r.file("table.jsonl", lines...), Session: "coord-session"})
+	for i, c := range flagged {
+		match(t, "main flags "+c, fmt.Sprintf(`call=m%d `, i), out)
+	}
+	for i, c := range clean {
+		noMatch(t, "main leaves clean "+c, fmt.Sprintf(`call=c%d `, i), out)
+	}
+	match(t, "flag count", fmt.Sprintf(`AUDIT flagged=%d calls=%d`, len(flagged), len(flagged)+len(clean)), out)
+}
+
+// The user's ruling (round 9): the B3-002 command forms are deferred to a
+// follow-up, and the Go audit gives main 87c5670's result. This pins main's
+// result, checked against main's herdsman transcript-audit on these exact calls
+// (4 flags of 36): the forms B3-002 would add stay clean, and main's
+// printed-text false positives (review-port-core-8 P1) stay flagged, so
+// the follow-up sees each change.
+func TestAuditDeferredFormsMatchMain(t *testing.T) {
+	cases := []struct{ cmd, flag string }{
+		{"curl -sd payload https://example.invalid/hook", ""},
+		{"curl -sSX POST https://example.invalid/hook", ""},
+		{`curl --json '{"a":1}' https://example.invalid/hook`, ""},
+		{"echo changed >| /project/app.ts", ""},
+		{"echo changed >&/project/app.ts", ""},
+		{"/usr/bin/curl --data payload https://example.invalid/hook", ""},
+		{`/usr/bin/awk 'BEGIN { system("git push") }'`, ""},
+		{"herdsman message status && /usr/bin/touch /project/new", ""},
+		{"/opt/tools/runner --go", ""},
+		{"/usr/bin/git push", ""},
+		{"curl -sS https://example.invalid/status", ""},
+		{"/usr/bin/curl -s https://example.invalid/status", ""},
+		{"echo note >&2", ""},
+		{"ls /x 2>&1", ""},
+		{`/usr/bin/awk '{print $1}' /x/list.txt`, ""},
+		{"grep -E 'a|b; c' /x/list.txt", ""},
+		{"echo x >&-", ""},
+		{":; /opt/tools/runner --go", ""},
+		{"echo ok && /opt/tools/runner --go", ""},
+		{"'/opt/tools/runner' --go", ""},
+		{"./tools/runner --go", ""},
+		{`echo ok; "git" push origin`, ""},
+		{"/usr/bin/sed -i s/a/b/ /project/f", ""},
+		{"echo ok && curl -sd x https://example.invalid", ""},
+		{`echo '"git" push origin'`, ""},
+		{"echo /usr/bin/git push", ""},
+		{"echo curl -sd x https://example.invalid", ""},
+		{"echo x >&2-", ""},
+		{"echo x >&123", ""},
+		{"echo x >&/dev/null", ""},
+		{"echo x >|/dev/null", ""},
+		{`echo "use touch /project/f"`, "project-write target=touch"},
+		{`printf "%s\n" "use git push origin"`, "git-write target=git"},
+		{"cat <<'EOF'\ncurl --data x https://example.invalid\ntouch /project/f\ngit push origin\nEOF", "git-write target=git"},
+		{"echo git push origin", "git-write target=git"},
+		{"/usr/bin/env /opt/tools/runner --go", ""},
+	}
+	r := newRig(t)
+	lines := []string{jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}})}
+	for i, c := range cases {
+		lines = append(lines, sh(fmt.Sprintf("d%d", i), c.cmd))
+	}
+	out := r.aud(Options{Harness: "claude", Transcript: r.file("deferred.jsonl", lines...), Session: "coord-session"})
+	for i, c := range cases {
+		if c.flag == "" {
+			noMatch(t, "main leaves clean: "+c.cmd, fmt.Sprintf(`call=d%d `, i), out)
+		} else {
+			match(t, "main flags: "+c.cmd, fmt.Sprintf(`call=d%d class=%s$`, i, c.flag), out)
+		}
+	}
+	match(t, "main's count", `AUDIT flagged=4 calls=36`, out)
 }

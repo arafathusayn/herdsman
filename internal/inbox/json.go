@@ -4,7 +4,7 @@
 // POSIX cksum digest, the name and id rules, the path and symlink guards,
 // the mkdir+pid locks, the registry, the live identity check, the setup
 // proof and the authority decision. It keeps the rules, paths and formats
-// of the skill's messages/message-lib.sh, so the scripts and the herdsman
+// of the old channel library, so the old scripts and the herdsman
 // binary can share one inbox.
 //
 // The read side is safe for any reader (the web app uses it). The write
@@ -19,22 +19,86 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // MaxSize bounds every state file the channel reads: 128 KiB, as the
 // scripts' `bounded` does.
 const MaxSize = 131072
 
-// ReadBounded reads a regular, non-link file of at most max bytes.
+// beforeOpen runs just before ReadBounded opens its file; tests replace or
+// grow the file there.
+var beforeOpen func(p string)
+
+// ReadBounded reads a regular, non-link file of at most max bytes. The
+// checks hold for the file actually read: it is opened once without
+// following a link (and without blocking on a fifo), its type is checked
+// on the open file, and at most max+1 bytes are read, so a file replaced
+// or grown after an earlier check of its path is refused, never read whole.
 func ReadBounded(p string, max int64) ([]byte, error) {
-	st, err := os.Lstat(p)
+	if beforeOpen != nil {
+		beforeOpen(p)
+	}
+	f, err := openRegular(p, false)
 	if err != nil {
 		return nil, err
 	}
-	if !st.Mode().IsRegular() || st.Size() > max {
-		return nil, errors.New("not a bounded regular file")
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
 	}
-	return os.ReadFile(p)
+	if int64(len(b)) > max {
+		return nil, errNotBounded
+	}
+	return b, nil
+}
+
+var errNotBounded = errors.New("not a bounded regular file")
+
+// openRegular opens p for reading without blocking on a fifo and refuses
+// what the opened descriptor shows is not a regular file, so a path
+// replaced after an earlier check is refused, never waited on. follow
+// lets a link through, as cat and cksum do; otherwise a link is refused.
+func openRegular(p string, follow bool) (*os.File, error) {
+	flags := os.O_RDONLY | syscall.O_NONBLOCK
+	if !follow {
+		flags |= syscall.O_NOFOLLOW
+	}
+	f, err := os.OpenFile(p, flags, 0)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stat()
+	if err == nil && !st.Mode().IsRegular() {
+		err = errNotBounded
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+// ReadFile is os.ReadFile of a regular file, after links: a fifo, a device
+// or a folder is refused, never waited on.
+func ReadFile(p string) ([]byte, error) {
+	f, err := openRegular(p, true)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(f)
+}
+
+// readState is a state file checked earlier, read again: bounded and
+// regular on the file read, nil when it is not.
+func readState(p string) []byte {
+	b, err := ReadBounded(p, MaxSize)
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // StrictJSON fails on malformed JSON, trailing data, an empty input and

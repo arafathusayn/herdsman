@@ -1,0 +1,15 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "herdsman-cases-doohtml-dp",
+      "dependencies": {
+        "doohtml": "0.98.9-beta.0",
+      },
+    },
+  },
+  "packages": {
+    "doohtml": ["doohtml@0.98.9-beta.0", "", {}, "sha512-ByhL6bUR+NidBGqkcFNy60j3qIVW7kugUHkWZrL3rwvpl5orBxD0Sfbq2PHvO3HH7ZF1GK0bNtFmwtR4BWvlJw=="],
+  }
+}

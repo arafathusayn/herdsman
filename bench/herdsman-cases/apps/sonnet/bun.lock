@@ -1,0 +1,17 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "herdsman-cases-sonnet",
+      "dependencies": {
+        "@sonnetjs/core": "0.0.33",
+      },
+    },
+  },
+  "packages": {
+    "@sonnetjs/core": ["@sonnetjs/core@0.0.33", "", { "dependencies": { "@sonnetjs/shared": "*" } }, "sha512-47lIPEKlPAd/sYyNH8WruLdU1R+QGZ02PPTIo9MTXlG3UrzQ5tC6mKpMIvKrGGHZeiJe3NuE4ag79YjYIH4H8w=="],
+
+    "@sonnetjs/shared": ["@sonnetjs/shared@0.0.5", "", {}, "sha512-fck3t3b0h0aZBHOpxLR4Ir0QiHtoYYS1qHoE0MGZYXjzmqHNRkiFjwADO64Swr+vA4byMwfjiVTgEN9+NiyMBA=="],
+  }
+}

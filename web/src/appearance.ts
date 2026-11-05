@@ -2,6 +2,8 @@
 // CSS variables put on <html>; "Match app" removes them, so the defaults in
 // tokens.css follow the light or dark app theme. Each terminal scheme also
 // makes a whole app theme.
+import { signal } from "@reactre/core";
+
 import { blend, isDark, readable } from "./ansi.ts";
 export interface TermScheme {
   id: string;
@@ -617,6 +619,7 @@ export function codeVars(id: string): Record<string, string> {
 }
 
 const applied = { term: new Set<string>(), code: new Set<string>() };
+const [codeHighlighting, setCodeHighlighting] = signal(true);
 
 function put(kind: "term" | "code", vars: Record<string, string>): void {
   const st = document.documentElement.style;
@@ -634,12 +637,13 @@ export function applyCodeTheme(id: string, remember = true): void {
   put("code", codeVars(id));
   if (id === noHighlight) document.documentElement.dataset["code"] = "off";
   else delete document.documentElement.dataset["code"];
+  setCodeHighlighting(id !== noHighlight);
   if (remember) write(codeKey, id);
 }
 
 /** Highlighting runs unless the code theme is "No highlighting". */
 export function highlighting(): boolean {
-  return document.documentElement.dataset["code"] !== "off";
+  return codeHighlighting();
 }
 
 /** The app themes made from the terminal schemes, besides herdsman's own Light and Dark. */

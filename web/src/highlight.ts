@@ -576,19 +576,3 @@ export function tokenizeLines(lang: string, lines: string[]): Piece[][] {
     return r.pieces;
   });
 }
-
-/** The pieces as text nodes and spans. */
-export function renderPieces(pieces: Piece[]): DocumentFragment {
-  const frag = document.createDocumentFragment();
-  for (const [k, t] of pieces) {
-    if (!k) {
-      frag.append(t);
-      continue;
-    }
-    const el = document.createElement("span");
-    el.className = `hl-${k}`;
-    el.textContent = t;
-    frag.append(el);
-  }
-  return frag;
-}

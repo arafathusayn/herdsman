@@ -1,0 +1,12 @@
+{
+  "name": "herdsman-cases-thane",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "thane": "github:timlouw/thane#032ddd1f40c74dc3cf56ee053789100aafc0c0ba"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4",
+    "@types/node": "26.6.5"
+  }
+}

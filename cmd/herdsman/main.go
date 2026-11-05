@@ -14,16 +14,16 @@ import (
 	neturl "net/url"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/afk"
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/termqr"
 	"github.com/arafathusayn/herdsman/internal/web"
 )
@@ -37,10 +37,14 @@ var (
 	commit  = "none"
 )
 
+// cgoProbe runs for the hidden --cgo-probe argument; only a build with the
+// cgoprobe tag sets it (cgoprobe.go).
+var cgoProbe func(stdout io.Writer) error
+
 const usage = `herdsman: run a team of coding agents inside herdr.
 
 Usage:
-  herdsman web [--port 7878] [--host <ip>] [--allow-host <name>]... [--inbox <folder>] [--skill-dir <folder>]
+  herdsman web [--port 7878] [--host <ip>] [--allow-host <name>]... [--inbox <folder>]
                [--client <url>|none] [--public-url <https url>] [--session <name>]
                [--route <folder>]... [--open] [--no-qr]
   herdsman <command> [args]   (the commands below)
@@ -67,6 +71,12 @@ const usageTail = `  version  Print the version.
 type command struct {
 	name    string
 	summary string // one line for help
+	// help is `herdsman <name> --help`: the usage and one table of exit
+	// codes; "" prints the summary.
+	help string
+	// subHelp is `herdsman <name> <sub> --help` for each subcommand that
+	// has its own help.
+	subHelp map[string]string
 	// run returns the exit code; the command prints its own output.
 	run func(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 }
@@ -131,8 +141,24 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return nil
 	case "web":
 		return runWeb(args[1:], stdout, stderr)
+	case "--cgo-probe":
+		if cgoProbe != nil {
+			return cgoProbe(stdout)
+		}
 	}
 	if c, ok := commands[args[0]]; ok {
+		if n := len(args); n == 2 || n == 3 {
+			if last := args[n-1]; last == "--help" || last == "-h" {
+				h := c.help
+				if n == 3 {
+					h = c.subHelp[args[1]]
+				}
+				if h != "" {
+					fmt.Fprint(stdout, h)
+					return nil
+				}
+			}
+		}
 		if code := c.run(args[1:], os.Stdin, stdout, stderr); code != 0 {
 			return &exitError{code: code}
 		}
@@ -156,7 +182,6 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	session := fs.String("session", "", "herdr session name (default: HERDR_SESSION or the default session)")
 	open := fs.Bool("open", false, "open the app in the default browser")
 	inbox := fs.String("inbox", os.Getenv("HERDSMAN_INBOX"), "private herdsman message folder of the adjutant channel (default: HERDSMAN_INBOX)")
-	skillDir := fs.String("skill-dir", "", "herdsman skill folder whose scripts/checkpointer.sh a new route runs (default: the installed skill)")
 	clientDefault := defaultClient
 	if v, ok := os.LookupEnv("HERDSMAN_CLIENT"); ok {
 		clientDefault = v
@@ -166,14 +191,19 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	var routes, allow multi
 	fs.Var(&routes, "route", "route folder to show first (repeatable)")
 	fs.Var(&allow, "allow-host", "another host name to answer to, such as the domain of a proxy or tunnel in front of this server (repeatable)")
+	for _, a := range args {
+		if a == "-h" || a == "-help" || a == "--help" {
+			fs.SetOutput(stdout)
+		}
+	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if ip := net.ParseIP(*host); ip != nil && ip.IsUnspecified() {
 		return fmt.Errorf("--host %s listens on every interface; name the one address to use, such as a LAN or Tailscale IP", *host)
-	}
-	if *skillDir != "" && !filepath.IsAbs(*skillDir) {
-		return fmt.Errorf("--skill-dir %s must be an absolute path", *skillDir)
 	}
 	if *inbox != "" && !filepath.IsAbs(*inbox) {
 		return fmt.Errorf("--inbox %s must be an absolute path", *inbox)
@@ -218,7 +248,7 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	client := herdr.New(sock)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := webContext()
 	defer stop()
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	pong, err := client.Check(cctx)
@@ -238,8 +268,11 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	qr := !*noQR && isTerminal(stdout)
 	srv := &http.Server{
 		Handler: web.NewServer(client, hub, queue, web.Config{
-			Token: token, Port: actual, Hosts: hosts, Inbox: *inbox, SkillDir: *skillDir,
-			OnPair: func(n web.PairNotice) { printPair(stdout, n) },
+			Token: token, Port: actual, Hosts: hosts, Inbox: *inbox, Executable: runningBinary(),
+			Choices:      webChoices(),
+			GitHub:       webGitHub,
+			ActivityFile: afk.DefaultWebFile(),
+			OnPair:       func(n web.PairNotice) { printPair(stdout, n) },
 			OnRotate: func(t string) {
 				fmt.Fprintln(stdout, "\n  Too many wrong pairing codes: the links above no longer work. Paired browsers keep working. New links:")
 				printLinks(stdout, stderr, makeLinks(hostport, t, publicURL, clientURL), qr)
@@ -274,6 +307,10 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 
 	return serve(ctx, srv, ln)
 }
+
+// webContext is the server's lifetime: until Ctrl+C or SIGTERM. Tests
+// replace it with a context they cancel.
+var webContext = signalContext
 
 // serve runs srv until ctx ends, then shuts it down. Requests get ctx as
 // their base, so the event streams end with it instead of holding Shutdown
@@ -428,3 +465,7 @@ func openBrowser(url string) {
 	}
 	_ = cmd.Start()
 }
+
+// runningBinary is this herdsman binary, links resolved: a new route's
+// checkpointer pane runs it as `<binary> checkpointer`.
+func runningBinary() string { return inbox.RunningExecutable() }

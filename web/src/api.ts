@@ -5,9 +5,12 @@ import type {
   ArtifactList,
   Catalog,
   Channel,
+  ChoicePick,
   DiffSource,
   Entry,
+  GitHubAccess,
   InboxState,
+  LogLine,
   PaneRead,
   RouteRequest,
   RouteResult,
@@ -249,6 +252,20 @@ export async function routeFile(route: string, path: string): Promise<string> {
   return res.text();
 }
 
+/** Up to a page of run-state lines ending before line index `before`, and how many precede them. */
+export async function routeRunState(
+  route: string,
+  before: number,
+): Promise<{ lines: LogLine[]; older: number; history: string | undefined }> {
+  const res = await call(`/api/route/runstate?${new URLSearchParams({ route, before: String(before) })}`, {
+    headers: headers(),
+  });
+  if (res.status === 401) throw new AuthError("Session expired.");
+  const body = (await res.json()) as { lines?: LogLine[]; older?: number; history?: string; error?: string };
+  if (!res.ok || !body.lines) throw new Error(body.error ?? `run state failed (${res.status})`);
+  return { lines: body.lines, older: body.older ?? 0, history: body.history };
+}
+
 const diffs = new Map<string, { etag: string; sources: DiffSource[] }>();
 
 /** The code diffs of a route; a repeat request costs a bodyless 304 while nothing changed. */
@@ -263,6 +280,11 @@ export async function routeDiff(route: string): Promise<DiffSource[]> {
   const etag = res.headers.get("ETag");
   if (etag) diffs.set(route, { etag, sources: body.sources });
   return body.sources;
+}
+
+/** Tells the server the paired user is here (A33); a failure is ignored. */
+export function sendActivity(): void {
+  call("/api/activity", { method: "POST", headers: headers() }).catch(() => {});
 }
 
 /** The HTML pages in a route's workspace folders. */
@@ -304,11 +326,28 @@ export async function messageBody(box: string, id: string): Promise<string> {
 }
 
 /** The harnesses a new route can start, with their models and efforts. */
-export async function catalog(): Promise<Catalog> {
-  const res = await call("/api/catalog", { headers: headers() });
+export async function catalog(probe = true): Promise<Catalog> {
+  const res = await call(probe ? "/api/catalog" : "/api/catalog?probe=0", { headers: headers() });
   if (res.status === 401) throw new AuthError("Session expired.");
   if (!res.ok) throw new Error(`cannot read the harness list (${res.status})`);
   return (await res.json()) as Catalog;
+}
+
+/** Each role's saved pick, read without asking any harness. */
+export async function savedChoices(): Promise<ChoicePick[]> {
+  const res = await call("/api/choices", { headers: headers() });
+  if (res.status === 401) throw new AuthError("Session expired.");
+  if (!res.ok) throw new Error(`cannot read the saved choices (${res.status})`);
+  return ((await res.json()) as { picks: ChoicePick[] }).picks ?? [];
+}
+
+/** The gh accounts that can read the folder's GitHub repository, with the one to confirm. */
+export async function githubAccess(folder: string): Promise<GitHubAccess> {
+  const res = await call(`/api/routes/github?folder=${encodeURIComponent(folder)}`, { headers: headers() });
+  if (res.status === 401) throw new AuthError("Session expired.");
+  const body = (await res.json()) as Partial<GitHubAccess>;
+  if (!res.ok) throw new Error(body.error ?? `cannot probe GitHub (${res.status})`);
+  return { repo: "", accounts: [], suggested: "", ...body };
 }
 
 /** Creates a route: a refusal or a failed step comes back in the result, not as a throw. */

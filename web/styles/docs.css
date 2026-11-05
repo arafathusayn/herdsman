@@ -753,6 +753,12 @@ pre.has-copy {
   margin-top: 18px;
 }
 
+/* Cards whose commands need the full width, one under the other. */
+.split.stack {
+  grid-template-columns: minmax(0, 1fr);
+  margin-bottom: 18px;
+}
+
 .card {
   min-width: 0;
   padding: 18px 18px 6px;

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>herdsman-cases: doohtml-dp</title>
+    <link rel="stylesheet" href="../../../../web/styles/app.css" />
+  </head>
+  <body>
+    <div id="toolbar"></div>
+    <div class="route-body" id="main"></div>
+    <!-- DooHTML templates: one data-bind row each, {{field}} slots. -->
+    <template id="lane-working"><div><section data-bind class="lane s-working" aria-label="Working"><h2><span class="lane-dot" aria-hidden="true"></span>Working<span class="count">{{count}}</span></h2></section></div></template>
+    <template id="lane-blocked"><div><section data-bind class="lane s-blocked" aria-label="Needs input"><h2><span class="lane-dot" aria-hidden="true"></span>Needs input<span class="count">{{count}}</span></h2></section></div></template>
+    <template id="lane-idle"><div><section data-bind class="lane s-idle" aria-label="Idle"><h2><span class="lane-dot" aria-hidden="true"></span>Idle<span class="count">{{count}}</span></h2></section></div></template>
+    <template id="lane-done"><div><section data-bind class="lane s-done" aria-label="Done"><h2><span class="lane-dot" aria-hidden="true"></span>Done<span class="count">{{count}}</span></h2></section></div></template>
+    <template id="lane-unknown"><div><section data-bind class="lane s-unknown" aria-label="Unknown"><h2><span class="lane-dot" aria-hidden="true"></span>Unknown<span class="count">{{count}}</span></h2></section></div></template>
+    <template id="lane-gone"><div><section data-bind class="lane s-gone" aria-label="Pane gone"><h2><span class="lane-dot" aria-hidden="true"></span>Pane gone<span class="count">{{count}}</span></h2></section></div></template>
+    <template id="lane-empty"><div><p data-bind class="lane-empty">None</p></div></template>
+    <template id="card-task"><div><button data-bind class="{{cls}}" title="{{hover}}" data-pane="{{pane}}"><div class="card-top"><span class="card-title">{{title}}</span><span class="{{pillCls}}"><span class="dot" aria-hidden="true"></span>{{statusLabel}}</span></div><div class="card-task">{{task}}</div><div class="card-sub">{{sub}}</div><div class="card-foot"><code>{{pane}}</code><span class="muted">{{tab}}</span><span class="muted clip" title="{{term}}">{{term}}</span></div></button></div></template>
+    <template id="card"><div><button data-bind class="{{cls}}" title="{{hover}}" data-pane="{{pane}}"><div class="card-top"><span class="card-title">{{title}}</span><span class="{{pillCls}}"><span class="dot" aria-hidden="true"></span>{{statusLabel}}</span></div><div class="card-sub">{{sub}}</div><div class="card-foot"><code>{{pane}}</code><span class="muted">{{tab}}</span><span class="muted clip" title="{{term}}">{{term}}</span></div></button></div></template>
+    <template id="ev-web"><ol><li data-bind class="{{source}}"><time datetime="{{at}}">{{clock}}</time><p class="event"><span class="chip accent">web</span><span>{{text}}</span></p></li></ol></template>
+    <template id="ev-status"><ol><li data-bind class="{{source}}"><time datetime="{{at}}">{{clock}}</time><p class="event"><strong>{{who}}</strong><span class="{{pillCls}}"><span class="dot" aria-hidden="true"></span>{{statusLabel}}</span></p></li></ol></template>
+    <template id="ev-status-anon"><ol><li data-bind class="{{source}}"><time datetime="{{at}}">{{clock}}</time><p class="event"><span class="{{pillCls}}"><span class="dot" aria-hidden="true"></span>{{statusLabel}}</span></p></li></ol></template>
+    <template id="ev-label"><ol><li data-bind class="{{source}}"><time datetime="{{at}}">{{clock}}</time><p class="event"><span class="chip">{{label}}</span><strong>{{who}}</strong></p></li></ol></template>
+    <template id="ev-label-anon"><ol><li data-bind class="{{source}}"><time datetime="{{at}}">{{clock}}</time><p class="event"><span class="chip">{{label}}</span></p></li></ol></template>
+    <template id="check"><ul><li data-bind class="{{cls}}"><span class="box" aria-label="{{state}}">{{mark}}</span><code>{{id}}</code><span>{{text}}</span></li></ul></template>
+    <template id="check-noid"><ul><li data-bind class="{{cls}}"><span class="box" aria-label="{{state}}">{{mark}}</span><span>{{text}}</span></li></ul></template>
+    <template id="line"><ol><li data-bind class="{{cls}}"><time>{{time}}</time><p>{{text}}</p></li></ol></template>
+    <template id="view-team"><div class="team"><div class="kanban"></div></div></template>
+    <template id="view-activity"><ol class="timeline activity"></ol></template>
+    <template id="view-checklist"><ul class="checklist"></ul></template>
+    <template id="view-log"><ol class="timeline"></ol></template>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

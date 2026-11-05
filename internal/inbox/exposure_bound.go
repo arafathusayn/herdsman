@@ -28,17 +28,28 @@ func fitAgents(unknown []Unknown, build func(agents []Unknown, omitted int) []by
 	return build(unknown[:lo], len(unknown)-lo)
 }
 
-// pendingRecord is a waiting exposure record, bounded.
+// pendingRecord is a waiting exposure record, bounded as record_exposure
+// keeps it (PR 24, a38ff72): every agent when the record fits MaxSize;
+// otherwise the first twenty, marked truncated with the full count; when
+// even those do not fit, the minimal record without agents, truncated.
+// keepPending passes a non-nil list.
 func pendingRecord(unknown []Unknown, now int64) []byte {
-	return fitAgents(unknown, func(agents []Unknown, omitted int) []byte {
-		rec := map[string]any{"agents": agents, "time": now}
-		if omitted > 0 {
-			rec["omitted"] = omitted
-		}
+	enc := func(rec map[string]any) []byte {
 		b, _ := json.Marshal(rec)
 		return append(b, '\n')
-	})
+	}
+	if b := enc(map[string]any{"agents": unknown, "time": now}); len(b) <= MaxSize {
+		return b
+	}
+	first := unknown[:min(pendingFirst, len(unknown))]
+	if b := enc(map[string]any{"agents": first, "truncated": true, "count": len(unknown), "time": now}); len(b) <= MaxSize {
+		return b
+	}
+	return enc(map[string]any{"agents": []Unknown{}, "truncated": true, "count": len(unknown), "time": now})
 }
+
+// pendingFirst is how many agents a truncated waiting record keeps.
+const pendingFirst = 20
 
 // taintedRecord is state/boundary-tainted, bounded; omitted adds the
 // agents that waiting records had already left out.
@@ -51,4 +62,11 @@ func taintedRecord(unknown []Unknown, omitted int, now int64) []byte {
 		_ = enc.Encode(exposure{Reason: "live agent outside the protected setup", Agents: agents, Omitted: omitted + more, Time: now})
 		return b.Bytes()
 	})
+}
+
+// TaintedRecord is the bounded state/boundary-tainted record of unknown
+// agents (non-nil) at now, for a writer that writes it itself (the
+// approval gate, whose writes stop with the gate).
+func TaintedRecord(unknown []Unknown, now int64) []byte {
+	return taintedRecord(unknown, 0, now)
 }

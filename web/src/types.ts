@@ -129,6 +129,12 @@ export interface Route {
   tasks: Task[] | null;
   checklist: CheckItem[] | null;
   run_state: LogLine[] | null;
+  /** Run-state lines before run_state, which holds the newest only; paged by routeRunState. */
+  older_run_state?: number;
+  /** The oldest record the view pages to (the newest 2,000 only); older ones are in 00-route.md. */
+  run_state_from?: number;
+  /** Names the run state's history: an append keeps it, an edit changes it, and loaded older pages go with it. */
+  history?: string;
   files: RouteFile[] | null;
   modified: string;
   live: boolean;
@@ -289,6 +295,16 @@ export interface CatalogKind {
   skill_prefix: string;
   skill_installed: boolean;
   offline: boolean;
+  /** The harness maker's page of its models. */
+  docs_url?: string;
+  /** The harness's own command that describes its models, when it has no page. */
+  docs_command?: string;
+  /** A kind from the saved picks alone (?probe=0): its picks start as saved. */
+  saved?: boolean;
+  /** Why the harness's list could not be read (A29); then it offers no models. */
+  unavailable?: string;
+  version?: string;
+  effort_flag?: string;
 }
 
 export interface Catalog {
@@ -297,6 +313,31 @@ export interface Catalog {
   home: string;
   checkpointer_ok: boolean;
   checkpointer_why?: string;
+  /** The last pick of each role, saved when a route started (A30). */
+  previous?: ChoicePick[];
+  /** A catalog of the saved picks alone (?probe=0): no harness list was read. */
+  from_picks?: boolean;
+}
+
+/** The gh accounts that can read a folder's GitHub repository (A32). */
+export interface GitHubAccess {
+  repo: string;
+  accounts: { name: string; active: boolean; can_read: boolean }[];
+  suggested: string;
+  error?: string;
+}
+
+/** One role's saved pick: where its agents ran and the harness, model and effort. */
+export interface ChoicePick {
+  role: string;
+  runner: string;
+  harness: string;
+  model: string;
+  effort: string;
+  /** The option a harness other than Claude and Codex takes the effort with. */
+  effort_flag?: string;
+  route: string;
+  at: string;
 }
 
 export type RouteRole = "orchestrator" | "adjutant";
@@ -317,6 +358,20 @@ export interface RouteRequest {
   orch_effort?: string;
   route_name?: string;
   inbox?: string;
+  /** The chosen setup (A32), sent to the orchestrator as text after the request. */
+  setup?: RouteSetup;
+}
+
+/** The setup the form chose (A32): the server renders it into the orchestrator's prompt. */
+export interface RouteSetup {
+  recommended: boolean;
+  /** The checkpointer as the route starts it: false when it is unavailable. */
+  checkpointer: boolean;
+  github_account?: string;
+  /** The coordinators' picks. */
+  roles: { role: string; runner: string; harness: string; model: string; effort: string }[];
+  /** One answer per setup item: the recommended sentence, or the user's (empty: the route asks). */
+  answers: { item: string; answer: string }[];
 }
 
 export interface RouteStep {

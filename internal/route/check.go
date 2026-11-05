@@ -29,8 +29,13 @@ var (
 	openLine     = regexp.MustCompile(`^- \[ \] `)
 	closedLine   = regexp.MustCompile(`^- \[[x-]\] `)
 	nopaneLine   = regexp.MustCompile(`^- \[[ x]\] C3\.2 nopane: `)
-	separatorRow = regexp.MustCompile(`^\| *:?-+:? *\|`)
-	cellTrim     = regexp.MustCompile(`^ +| +$`)
+	// The adjutant rule's patterns, as herdsman route check greps them.
+	adjutantLine  = regexp.MustCompile(`(?i)^[^[:alnum:]]*adjutant:[[:space:]]*[^[:space:]]`)
+	noAdjutant    = regexp.MustCompile(`(?i)adjutant:[[:space:]]*(none|no|-)([[:space:]]|$)`)
+	questionsLine = regexp.MustCompile(`^[^[:alnum:]]*Questions: through the adjutant`)
+	adjLine       = regexp.MustCompile(`^- \[[ x]\] C2.13 adj: `)
+	separatorRow  = regexp.MustCompile(`^\| *:?-+:? *\|`)
+	cellTrim      = regexp.MustCompile(`^ +| +$`)
 )
 
 // section returns the lines under the first heading that starts with
@@ -84,7 +89,7 @@ func columns(header string, want ...string) []int {
 }
 
 // Check checks what a route folder shows on disk, the way the skill's
-// route-check.sh does, and prints its lines to w: "ok <check>", "MISSING
+// herdsman route check does, and prints its lines to w: "ok <check>", "MISSING
 // <check>", "BAD <line> (...)" and "OPEN <text>". It is strict where Load
 // is lenient: a checklist line in any form but "- [ ] ", "- [x] ... --
 // <evidence>" or "- [-] ... -- <reason>" is BAD. It returns 1 on any
@@ -148,8 +153,11 @@ func Check(dir, stage string, w io.Writer) int {
 			ok("checklist lines well formed")
 		}
 	}
+	// A requirement is an open or done line. The script counted a dropped
+	// [-] line too (A26), though the checklist says [-] stopped applying;
+	// a dropped line is still checked above for its reason.
 	has := func(pattern string) bool {
-		re := regexp.MustCompile(`^- \[.\] ` + pattern + ` `)
+		re := regexp.MustCompile(`^- \[[ x]\] ` + pattern + ` `)
 		return slices.ContainsFunc(lines, re.MatchString)
 	}
 	need := func(name string, paths ...string) {
@@ -245,6 +253,24 @@ func Check(dir, stage string, w io.Writer) int {
 		}
 	}
 
+	// A route with an adjutant (an "Adjutant:" line whose value is not
+	// none) sends every question, gos included, through the adjutant: the
+	// route file records that in a "Questions: through the adjutant" line,
+	// and the checklist keeps C2.13 open or done (a dropped line does not
+	// count).
+	if slices.ContainsFunc(all, func(l string) bool { return adjutantLine.MatchString(l) && !noAdjutant.MatchString(l) }) {
+		if slices.ContainsFunc(all, questionsLine.MatchString) {
+			ok("questions through the adjutant (C2.13)")
+		} else {
+			missing(`a "Questions: through the adjutant" line in 00-route.md of a route with an adjutant (C2.13)`)
+		}
+		if slices.ContainsFunc(lines, adjLine.MatchString) {
+			ok("adjutant question line kept (C2.13)")
+		} else {
+			missing("the checklist line C2.13 adj, open or done, in a route with an adjutant")
+		}
+	}
+
 	if stage != StagePlan {
 		if slices.ContainsFunc(lines, nopaneLine.MatchString) {
 			ok("no agent panes (C3.2 nopane)")
@@ -335,7 +361,7 @@ func gitIgnores(dir, file string) bool {
 }
 
 // AppendLogLine appends "- HH:MM <text>" to the route file at path, as
-// the skill's route-log.sh does: the text as given, the time from the
+// the old route log script did: the text as given, the time from the
 // clock. The file must exist.
 func AppendLogLine(path, text string, now time.Time) error {
 	if st, err := os.Stat(path); err != nil || !st.Mode().IsRegular() {

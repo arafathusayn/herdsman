@@ -19,7 +19,7 @@ import (
 // openEnv is an Env on the case's inbox, opened for writing.
 func openEnv(t *testing.T, c *tc, extra map[string]string) *Env {
 	t.Helper()
-	vars := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "HERDSMAN_MESSAGES_DIR": c.ic.Installed, "LOCK_WAIT": "1"}
+	vars := map[string]string{"HERDSMAN_INBOX": c.ic.Dir, "HERDSMAN_PREFLIGHT": c.ic.Proof, "LOCK_WAIT": "1"}
 	for k, v := range extra {
 		vars[k] = v
 	}

@@ -9,30 +9,10 @@ permissions:
   contents: read
 
 jobs:
-  scripts:
-    strategy:
-      fail-fast: false
-      matrix:
-        # macOS: /bin/bash 3.2 with BSD tools, zsh as the login shell. Linux: GNU tools.
-        os: [macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install zsh
-        if: runner.os == 'Linux'
-        run: sudo apt-get update -q && sudo apt-get install -y -q zsh
-      - name: Shells
-        run: |
-          /bin/bash --version | head -1
-          zsh --version
-      - name: Watcher, waiter, status, gate and route-log tests, started from zsh
-        run: zsh skills/herdsman/scripts/test/run-tests.sh
-      - name: Checkpointer tests, started from zsh
-        run: zsh skills/herdsman/scripts/test/checkpointer-tests.sh
-
   cli:
-    # The Go CLI and the web app inside it: format, types, tests, lint,
-    # known vulnerabilities, then a build with the app embedded.
+    # The Go CLI and the web app inside it: format, types, tests (which
+    # cover every command the skill runs), lint, known vulnerabilities,
+    # then a build with the app embedded.
     strategy:
       fail-fast: false
       matrix:
@@ -40,6 +20,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: true
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -54,3 +36,21 @@ jobs:
         run: make build && ./bin/herdsman version
       - name: Release config
         run: make release-check
+
+  web-e2e:
+    # The built web app and its forms in headless Chrome against a mock API.
+    # GitHub's Ubuntu image ships Google Chrome; the checks find it on PATH.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Bun types (global, outside the repo)
+        run: make tools
+      - name: Chrome
+        run: google-chrome --version
+      - name: Browser checks
+        run: make web-e2e

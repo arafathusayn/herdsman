@@ -14,7 +14,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/shnum"
 )
 
-// Courier is message-courier.sh: it moves each verified message from new
+// Courier is herdsman message courier: it moves each verified message from new
 // to ready and each failed one to quarantine (with a permanent disposition
 // and a sender notice), reports the recipients' counts, alerts on
 // incidents, keeps the heartbeat, and sweeps on event hints with SWEEP
@@ -322,8 +322,8 @@ func isDir(p string) bool {
 }
 
 func sameBytes(a, b string) bool {
-	x, err1 := os.ReadFile(a)
-	y, err2 := os.ReadFile(b)
+	x, err1 := inbox.ReadFile(a)
+	y, err2 := inbox.ReadFile(b)
 	return err1 == nil && err2 == nil && bytes.Equal(x, y)
 }
 
@@ -400,13 +400,9 @@ func (c *courier) sweep() error {
 	if err := r.SafeTouch(e.path("state", "heartbeat")); err != nil {
 		return err
 	}
-	if err := c.pruneRings(); err != nil {
-		return err
-	}
-	if err := c.retireAbandoned(); err != nil {
-		return err
-	}
 	e.retryAlerts()
+	// Recheck the setup proof before each sweep's record changes: a stale
+	// proof pauses ring pruning and allocation recovery with delivery.
 	if !e.ch.ProofValid() {
 		r.ProofStale = true
 		return c.proofStaleAlert(e)
@@ -416,6 +412,12 @@ func (c *courier) sweep() error {
 		if err := e.resolveAlert("setup-proof-stale"); err != nil {
 			return err
 		}
+	}
+	if err := c.pruneRings(); err != nil {
+		return err
+	}
+	if err := c.retireAbandoned(); err != nil {
+		return err
 	}
 	if _, ok := r.Registry(); !ok {
 		baseline, key := "unavailable", "unavailable"
@@ -581,9 +583,9 @@ func isDirFollow(p string) bool {
 	return err == nil && st.IsDir()
 }
 
-// readCount is `read -r previous stamp < count-<name>` and the stamp as
-// $((t-stamp)) reads it: bash arithmetic on a literal; an empty or bad
-// stamp counts as 0 (a resend, never a crash).
+// readCount is `read -r previous stamp < count-<name>`; the stamp is a
+// plain integer the courier wrote (shnum.Test, no arithmetic evaluator,
+// A27): an empty or bad stamp counts as 0 (a resend, never a crash).
 func readCount(s string) (string, int64) {
 	f := strings.Fields(strings.SplitN(s, "\n", 2)[0])
 	prev, stamp := "", ""
@@ -593,7 +595,7 @@ func readCount(s string) (string, int64) {
 	if len(f) > 1 {
 		stamp = strings.Join(f[1:], " ")
 	}
-	n, ok := shnum.Arith(stamp)
+	n, ok := shnum.Test(stamp)
 	if !ok {
 		n = 0
 	}
@@ -606,7 +608,7 @@ func readCount(s string) (string, int64) {
 func registrySummary(paths ...string) string {
 	var out []byte
 	for _, p := range paths {
-		b, err := os.ReadFile(p)
+		b, err := inbox.ReadFile(p)
 		if err != nil {
 			return "unavailable"
 		}

@@ -11,16 +11,16 @@ import {
   noHighlight,
   termSchemes,
 } from "./appearance.ts";
-import { icons } from "./dom.ts";
 import { loadHosts } from "./hosts.ts";
+import { icons } from "./icons.ts";
 import { type Index, type Member, routeLabel, statusLabel, team } from "./model.ts";
-import { type Command, sidebarKeys } from "./palette.ts";
+import { type Command, sidebarKeys } from "./palette.tsx";
 import { type App, type RouteTab, store } from "./store.ts";
 import type { Route } from "./types.ts";
 import { applyTheme, type Theme, toast } from "./ui.ts";
-import { openAppearance } from "./views/appearance.ts";
-import { openHosts, switchTo } from "./views/hosts.ts";
-import { openNewRoute } from "./views/new-route.ts";
+import { openAppearance } from "./views/appearance.tsx";
+import { openHosts, switchTo } from "./views/hosts.tsx";
+import { openNewRoute } from "./views/new-route.tsx";
 
 export interface Context {
   app: App;
@@ -299,7 +299,6 @@ export function buildCommands(ctx: Context): Command[] {
       icon: icons.swatch,
       run: () => {
         applyCodeTheme(t.id);
-        store.emit();
       },
     });
   for (const [t, label] of [

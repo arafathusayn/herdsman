@@ -92,11 +92,16 @@ func (ch *Channel) FoldExposure() error {
 		p := filepath.Join(d, en.Name())
 		if b, ok := ReadStrict(ch.Dir, p); ok {
 			var rec struct {
-				Agents  []Unknown `json:"agents"`
-				Omitted int       `json:"omitted"`
+				Agents    []Unknown `json:"agents"`
+				Omitted   int       `json:"omitted"`
+				Truncated bool      `json:"truncated"`
+				Count     int       `json:"count"`
 			}
 			if json.Unmarshal(b, &rec) == nil {
 				omitted += max(rec.Omitted, 0)
+				if rec.Truncated {
+					omitted += max(rec.Count-len(rec.Agents), 0)
+				}
 				for _, a := range rec.Agents {
 					k, _ := json.Marshal(a)
 					if !seen[string(k)] {
@@ -110,8 +115,16 @@ func (ch *Channel) FoldExposure() error {
 	if err := ch.publishWaiting(agents, omitted); err != nil {
 		return err
 	}
+	// The record is published. An entry that cannot be removed stays for
+	// the human; it is not a failure of the fold (PR 24).
+	kept := false
 	for _, en := range ents {
-		_ = os.Remove(filepath.Join(d, en.Name()))
+		if err := os.Remove(filepath.Join(d, en.Name())); err != nil {
+			kept = true
+		}
+	}
+	if kept {
+		_ = ch.LogLine("EXPOSURE a pending entry could not be removed; kept for the human")
 	}
 	return nil
 }

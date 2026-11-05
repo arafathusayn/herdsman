@@ -1,0 +1,9 @@
+{
+  "name": "herdsman-cases-preact-signals",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@preact/signals": "2.11.3",
+    "preact": "11.0.2"
+  }
+}

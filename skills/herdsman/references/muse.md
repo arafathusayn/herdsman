@@ -5,12 +5,12 @@ Muse can take any agent type. The notes come from implementer panes.
 ## Launch
 
 ```
-herdr agent start im-<x> --kind muse --pane <id> --timeout 90000 -- --model muse-spark-1.3 --reasoning-effort high --yolo --workspace <repo>
+herdr agent start im-<x> --kind muse --pane <id> --timeout 90000 -- --model <model> --reasoning-effort <effort> --yolo --workspace <repo>
 ```
 
 - The auto-mode classifier refuses the second and later `--yolo` launches ("Create Unsafe Agents"). Do not retry: put the exact lines on the clipboard (`printf '%s\n' ... | pbcopy`) and the user runs them with `!`. Prompts to those agents pass afterwards.
 - A fresh `muse` in an untrusted folder shows a trust dialog; `--yolo` skips it. Start scratch Muse sessions in an already trusted folder.
-- User rule: `muse-spark-1.3`, not `-contributor`; the CLI default is the contributor model.
+- `<model>` and `<effort>` come from Muse's model list and the user's choice in the interview, in the order of [`SKILL.md`](../SKILL.md) step 1; the skill names none. Pass the model explicitly: the CLI default may be another model than the one chosen.
 
 ## Prompts
 
@@ -22,14 +22,14 @@ herdr agent start im-<x> --kind muse --pane <id> --timeout 90000 -- --model muse
 
 - `/clear` (fresh session, same process and Herdr name), `/compact`, `/effort`, `/model`. Close a menu with `esc`.
 - `/compact` right after a finished turn can answer "no compactable run is available" (`agent_prompt_stalled`); then `/clear` and make the next brief self-contained.
-- `/model` needs the pane surface, not `agent prompt` (its Enter lands before the picker renders): `pane send-text <pane> "/model"`, `pane wait-output --match "Choose model"`, `send-keys enter` (a second Enter when the first only accepted the autocomplete), `wait-output --match "enter confirm"`, arrows (order: muse-spark-1.3, 1.3-contributor, 1.2, 1.2-contributor; the cursor starts on the current model), `enter`, effort picker `enter`. The footer shows the new model. A background Workflow started earlier keeps its old model.
+- `/model` needs the pane surface, not `agent prompt` (its Enter lands before the picker renders): `pane send-text <pane> "/model"`, `pane wait-output --match "Choose model"`, `send-keys enter` (a second Enter when the first only accepted the autocomplete), `wait-output --match "enter confirm"`, arrows to the chosen model (the list is Muse's own; the cursor starts on the current model), `enter`, effort picker `enter`. The footer shows the new model. A background Workflow started earlier keeps its old model.
 - `muse resume <id> <flags>` takes no prompt text: a positional prompt is rejected. Resume with no text, then send the prompt with `herdr agent prompt` when the screen is idle. Detect the end of a turn from the `terminal` event in the session file, because Herdr shows idle a few seconds before that event.
 - After the user restarts an agent with `muse resume`: the default model is back, the Herdr name is gone, background jobs are cancelled. Fix: `herdr agent rename <pane> <name>`, `esc`, `/model`, then a prompt listing what finished and what to rerun.
 
 ## State and health
 
 - Muse starts long commands and Workflows as background tasks (footer `└ ◆ <label> running 23m`). Herdr then reports `idle`/`done` while work continues: read the footer before prompting or clearing.
-- The "Thinking (1h 09m)" / "Calling tools" timer counts the whole turn. Real progress: files written in the last 10 minutes (`find <tree> -type f -mmin -10`; BSD `-newermt '-10 minutes'` silently matches nothing). [`scripts/agent-status.sh`](../scripts/agent-status.sh) prints both and flags jobs over 30 minutes and trees with no writes.
+- The "Thinking (1h 09m)" / "Calling tools" timer counts the whole turn. Real progress: files written in the last 10 minutes (`find <tree> -type f -mmin -10`; BSD `-newermt '-10 minutes'` silently matches nothing). `herdsman status` prints both and flags jobs over 30 minutes and trees with no writes.
 - The report file may be written before a long run ends; its mtime churns, so the waiter emits several REPORT-UPDATED events. Act when the pane shows `Worked for ...`.
 
 ## Deadlines

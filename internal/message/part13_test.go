@@ -11,7 +11,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 )
 
-// message-tests.sh parts 13 and 14: RC1-RC12, GX2.
+// Parts 13 and 14: RC1-RC12, GX2.
 func TestPart13RefusalsAndRecovery(t *testing.T) {
 	c := newCase(t, false)
 	for _, sc := range []string{"send", "read", "ack", "wait", "resume", "hold", "register"} {

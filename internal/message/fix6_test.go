@@ -83,16 +83,16 @@ func FuzzSettings(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, v string) {
-		if n, ok := settingDuration(v, 1, 3600); ok {
+		if n, err := durSetting("SWEEP", v, 1, 3600); err == nil {
 			if n < 1 || n > 3600 {
 				t.Fatalf("%q -> %d out of range", v, n)
 			}
-			body := strings.TrimRight(v, "smhd")
-			if body == "" || len(v)-len(body) > 1 || strings.Trim(body, "0123456789") != "" {
+			body := strings.TrimRight(strings.Trim(v, " \t\n"), "smhd")
+			if v != "" && (body == "" || strings.Trim(body, "0123456789") != "") {
 				t.Fatalf("%q accepted", v)
 			}
 		}
-		if n, ok := settingInt(v, 1, 60); ok && (n < 1 || n > 60 || strings.Trim(v, "0123456789") != "") {
+		if n, err := intSetting("LOCK_WAIT", v, 1, 60); err == nil && (n < 1 || n > 60) {
 			t.Fatalf("int %q -> %d", v, n)
 		}
 	})

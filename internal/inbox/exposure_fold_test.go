@@ -11,8 +11,10 @@ import (
 )
 
 type foldedRecord struct {
-	Agents  []inbox.Unknown `json:"agents"`
-	Omitted int             `json:"omitted"`
+	Agents    []inbox.Unknown `json:"agents"`
+	Omitted   int             `json:"omitted"`
+	Truncated bool            `json:"truncated"`
+	Count     int             `json:"count"`
 }
 
 func readRecord(t *testing.T, p string) foldedRecord {
@@ -60,8 +62,8 @@ func TestR5OversizedAgentCounted(t *testing.T) {
 	if len(ents) != 1 {
 		t.Fatalf("pending records %d", len(ents))
 	}
-	if r := readRecord(t, filepath.Join(c.Dir, "state", "exposure-pending", ents[0].Name())); len(r.Agents) != 0 || r.Omitted != 1 {
-		t.Errorf("pending kept %d agents, omitted %d; want 0 and 1", len(r.Agents), r.Omitted)
+	if r := readRecord(t, filepath.Join(c.Dir, "state", "exposure-pending", ents[0].Name())); len(r.Agents) != 0 || !r.Truncated || r.Count != 1 {
+		t.Errorf("pending kept %d agents, truncated %v, count %d; want 0, true and 1 (PR 24 minimal record)", len(r.Agents), r.Truncated, r.Count)
 	}
 	if err := ch.FoldExposure(); err != nil {
 		t.Fatal(err)

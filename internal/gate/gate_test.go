@@ -19,7 +19,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox/inboxtest"
 )
 
-// The AG, Y1, Y2, GX1 and Z1e cases of the skill's message-tests.sh.
+// The AG, Y1, Y2, GX1 and Z1e cases of the old shell message suite.
 
 type rig struct {
 	t     *testing.T
@@ -79,7 +79,7 @@ func (r *rig) gojson(req string, expires int, edit func(map[string]any)) {
 		edit(g)
 	}
 	r.c.WriteJSON(r.goFile(req), g)
-	r.c.WriteJSON(r.interaction(req), map[string]any{"source": "ask-tool", "question_id": "choice", "request_id": req, "revision": "head1",
+	r.c.WriteJSON(r.interaction(req), map[string]any{"source": "ask-tool", "asked_by": inboxtest.Adjutant, "question_id": "choice", "request_id": req, "revision": "head1",
 		"approved": true, "action": "post", "target": "pr-comment", "draft_hash": r.digest(r.draft)})
 }
 
@@ -304,12 +304,12 @@ func TestGateBindingsAndErrors(t *testing.T) {
 	match(t, "a consumption that cannot be recorded", `cannot record consumption.*rc=2`, r.consume("y13"))
 }
 
-// Z1e: a changed adapter makes the proof stale, and the gate refuses.
+// Z1e: a changed rule file makes the proof stale, and the gate refuses.
 func TestGateRefusesAStaleProof(t *testing.T) {
 	r := newRig(t)
-	r.c.Write(filepath.Join(r.c.Base, "skill", "approval-gate.sh"), "#!/bin/bash\n# changed\n")
+	r.c.Write(filepath.Join(r.c.Base, "ignore-rule"), "sandbox policy\nchanged\n")
 	out, _ := r.gate("complete", "r1", "posted")
-	match(t, "Z1e and the changed adapter refuses to run", `proof stale.*rc=2`, out)
+	match(t, "Z1e and the gate refuses on the stale proof", `proof stale.*rc=2`, out)
 }
 
 // Y2: an admission writer that runs during the authority check waits for
@@ -426,17 +426,17 @@ func TestSetFieldsRefusesBadJSON(t *testing.T) {
 	}
 }
 
-// R2 finding 1: a proof that lists only an unrelated copy of message-lib.sh
-// is stale for the configured installation; complete exits 2 and keeps the
+// R2 finding 1: a proof that names only an unrelated copy of the binary
+// is stale for the running one; complete exits 2 and keeps the
 // consuming record, as the script does.
 func TestGateRefusesAProofOfAnUnrelatedCopy(t *testing.T) {
 	r := newRig(t)
 	r.gojson("u1", 600, nil)
 	match(t, "the positive control", `^CONSUME u1.*rc=0`, r.consume("u1"))
-	other := filepath.Join(r.c.Base, "other", "messages", "message-lib.sh")
-	r.c.Write(other, "#!/bin/bash\n# other\n")
+	other := filepath.Join(r.c.Base, "other", "herdsman")
+	r.c.Write(other, "another binary\n")
 	r.c.Edit(r.c.Proof, func(m map[string]any) {
-		m["scripts"] = []any{map[string]any{"path": other, "checksum": r.digest(other)}}
+		m["binary"] = map[string]any{"path": other, "checksum": r.digest(other)}
 	})
 	out, code := r.gate("complete", "u1", "posted")
 	if code != 2 || !strings.Contains(out, "proof stale") {
@@ -444,5 +444,120 @@ func TestGateRefusesAProofOfAnUnrelatedCopy(t *testing.T) {
 	}
 	if st := r.c.ReadJSON(r.consumed("u1"))["state"]; st != "consuming" {
 		t.Errorf("the record changed: %v", st)
+	}
+}
+
+// XB3 (A26, e93bcc1): an agent outside the protected setup that the gate's
+// locked authority check sees is recorded in state/boundary-tainted, the
+// gate answers HUMAN (exit 3), and nothing is consumed.
+func TestGateRecordsTheExposureItSees(t *testing.T) {
+	r := newRig(t)
+	r.gojson("xb3", 600, nil)
+	r.srv.Handle("agent.list", func(map[string]any) (any, string) {
+		return map[string]any{"type": "agent_list", "agents": []any{herdrtest.Agent("sender-pane", "sender-session"),
+			herdrtest.Agent("receiver-pane", "receiver-session"), herdrtest.Agent("brief-pane", "brief-session")}}, ""
+	})
+	out := r.consume("xb3")
+	match(t, "XB3 the gate refuses under the HUMAN boundary", `rc=3`, out)
+	b, _ := os.ReadFile(filepath.Join(r.c.Dir, "state", "boundary-tainted"))
+	if !strings.Contains(string(b), "brief-pane") || !strings.Contains(string(b), "live agent outside the protected setup") {
+		t.Errorf("XB3b and records the agent it saw: %q", b)
+	}
+	if exists(r.consumed("xb3")) {
+		t.Error("XB3c nothing is consumed")
+	}
+	// An exposure already recorded stays as it was.
+	r.c.Write(filepath.Join(r.c.Dir, "state", "boundary-tainted"), "earlier\n")
+	r.gojson("xb3b", 600, nil)
+	match(t, "XB3d a recorded exposure keeps the gate at HUMAN", `rc=3`, r.consume("xb3b"))
+	if b, _ := os.ReadFile(filepath.Join(r.c.Dir, "state", "boundary-tainted")); string(b) != "earlier\n" {
+		t.Errorf("XB3e the earlier record stands: %q", b)
+	}
+}
+
+// XB4 (a0a1517): an agent that only the gate's first locked list sees is
+// recorded from that same observation (one list, no second check), so a
+// retry after it exits stays held.
+func TestGateRecordsFromTheRefusingCheck(t *testing.T) {
+	r := newRig(t)
+	r.gojson("xb4", 600, nil)
+	var mu sync.Mutex
+	lists := 0
+	r.srv.Handle("agent.list", func(map[string]any) (any, string) {
+		mu.Lock()
+		lists++
+		n := lists
+		mu.Unlock()
+		agents := []any{herdrtest.Agent("sender-pane", "sender-session"), herdrtest.Agent("receiver-pane", "receiver-session")}
+		if n == 1 {
+			agents = append(agents, herdrtest.Agent("brief-pane", "brief-session"))
+		}
+		return map[string]any{"type": "agent_list", "agents": agents}, ""
+	})
+	match(t, "XB4 the gate refuses when only its first list sees the agent", `rc=3`, r.consume("xb4"))
+	b, _ := os.ReadFile(filepath.Join(r.c.Dir, "state", "boundary-tainted"))
+	if !strings.Contains(string(b), "brief-pane") {
+		t.Errorf("XB4b and records the agent from that observation: %q", b)
+	}
+	match(t, "XB4c a retry after the agent exits stays held", `rc=3`, r.consume("xb4"))
+	if exists(r.consumed("xb4")) {
+		t.Error("XB4d nothing is consumed")
+	}
+}
+
+// PR #25 (P1): an interrupt during consume stops the gate at its next
+// write. The running gate frees its own locks; no record is written after
+// a stop, nothing panics, and the run ends 128+signal (130, 143, 129).
+func TestGateStopDuringConsume(t *testing.T) {
+	for _, code := range []int{130, 143, 129} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			r := newRig(t)
+			req := fmt.Sprintf("st%d", code)
+			r.gojson(req, 600, nil)
+			var out bytes.Buffer
+			o := r.c.Options(false)
+			o.Now = r.clock
+			o.Sleep = func(time.Duration) {}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			g := &Gate{Options: o, Client: r.hc, Stdout: &out, Stderr: &out}
+			paused, resume := make(chan struct{}, 1), make(chan struct{})
+			g.beforeWrite = func(target string) {
+				if filepath.Base(filepath.Dir(target)) == "consumed" {
+					paused <- struct{}{}
+					<-resume
+				}
+			}
+			done := make(chan int, 1)
+			go func() { done <- g.Run(ctx, []string{"consume", r.goFile(req), "post", "pr-comment", "head1", r.draft}) }()
+			select {
+			case <-paused:
+			case <-time.After(10 * time.Second):
+				t.Fatal("consume never reached its record write")
+			}
+			// Both locks are still held by the running gate.
+			for _, l := range []string{filepath.Join(r.apr, inbox.ActionLock), filepath.Join(r.c.Dir, inbox.MutationLock)} {
+				if !exists(l) {
+					t.Fatalf("%s was freed before the gate ended", l)
+				}
+			}
+			g.Stop(code)
+			cancel()
+			close(resume)
+			if got := <-done; got != code {
+				t.Errorf("exit %d, want %d", got, code)
+			}
+			if exists(r.consumed(req)) {
+				t.Error("a stopped gate recorded a consumption")
+			}
+			for _, l := range []string{filepath.Join(r.apr, inbox.ActionLock), filepath.Join(r.c.Dir, inbox.MutationLock)} {
+				if exists(l) {
+					t.Errorf("%s is left behind", l)
+				}
+			}
+			if strings.Contains(out.String(), "CONSUME") {
+				t.Errorf("a stopped gate printed %q", out.String())
+			}
+		})
 	}
 }
