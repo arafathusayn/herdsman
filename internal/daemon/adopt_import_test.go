@@ -197,3 +197,105 @@ func TestAdoptionLeavesNewToIntake(t *testing.T) {
 		t.Errorf("the new/ entry was imported: %v", got)
 	}
 }
+
+// TestPublishStagingStates: publish renames the staging database (and
+// its sides) to the route's path; a resume after the rename finds it
+// done; a missing staging file, or one beside an existing database,
+// keeps the adoption pending; a staging import that cannot start is
+// refused with nothing left.
+func TestPublishStagingStates(t *testing.T) {
+	h := newHarness(t)
+	const epoch = "0123456789abcdef0123456789abcdef"
+	final, staged := routedb.Path(h.ph, "r"), h.d.stagingPath("r", epoch)
+	if e := h.d.publishStaging("r", epoch); e == nil || !strings.Contains(e.Message, "missing") {
+		t.Errorf("no staging file: %v", e)
+	}
+	if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"", "-wal"} {
+		if err := os.WriteFile(staged+s, []byte("db"+s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if e := h.d.publishStaging("r", epoch); e != nil {
+		t.Fatal(e)
+	}
+	if b, _ := os.ReadFile(final + "-wal"); string(b) != "db-wal" || exists(staged) || exists(final+"-shm") {
+		t.Errorf("publish moved %q; staging left %v", b, exists(staged))
+	}
+	if e := h.d.publishStaging("r", epoch); e != nil {
+		t.Errorf("a resume after the rename: %v", e)
+	}
+	if err := os.WriteFile(staged, []byte("again"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if e := h.d.publishStaging("r", epoch); e == nil || e.Code != "route_exists" {
+		t.Errorf("staging beside a database: %v", e)
+	}
+	// The routes folder is not this user's private folder: the staging
+	// database cannot open, and nothing is left.
+	other := "s"
+	routes := filepath.Dir(routedb.Path(h.ph, other))
+	if err := os.Chmod(routes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chmod(routes, 0o700) }()
+	if e := h.d.importStaging(other, h.ph, epoch); e == nil || !strings.Contains(e.Message, "staging route database") {
+		t.Errorf("an unsafe routes folder: %v", e)
+	}
+	if exists(h.d.stagingPath(other, epoch)) {
+		t.Error("a staging file was left")
+	}
+}
+
+// TestStagingFileErrors: a routes folder that is a file refuses the
+// import; a leftover staging file of an earlier adoption is removed; a
+// rename that fails keeps the adoption pending.
+func TestStagingFileErrors(t *testing.T) {
+	h := newHarness(t)
+	const epoch = "0123456789abcdef0123456789abcdef"
+	routes := filepath.Dir(routedb.Path(h.ph, "r"))
+	if err := os.WriteFile(routes, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if e := h.d.importStaging("r", h.ph, epoch); e == nil || !strings.Contains(e.Message, "not a directory") {
+		t.Errorf("routes folder a file: %v", e)
+	}
+	_ = os.Remove(routes)
+	daemonDir := filepath.Dir(routes)
+	if err := os.Chmod(daemonDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	e := h.d.importStaging("r", h.ph, epoch)
+	_ = os.Chmod(daemonDir, 0o700)
+	if e == nil || !strings.Contains(e.Message, "route database folder") {
+		t.Errorf("routes folder cannot be made: %v", e)
+	}
+	if err := os.Mkdir(routes, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	leftover := h.d.stagingPath("r", "ffffffffffffffffffffffffffffffff")
+	if err := os.WriteFile(leftover, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if e := h.d.importStaging("r", h.ph, epoch); e == nil {
+		t.Error("the private home imported as an inbox")
+	}
+	if exists(leftover) || exists(h.d.stagingPath("r", epoch)) {
+		t.Error("a staging file was left")
+	}
+	staged, final := h.d.stagingPath("r", epoch), routedb.Path(h.ph, "r")
+	if err := os.WriteFile(staged, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staged+"-shm", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(final+"-shm", "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if e := h.d.publishStaging("r", epoch); e == nil || !strings.Contains(e.Message, "stays pending") {
+		t.Errorf("a failed rename: %v", e)
+	}
+}

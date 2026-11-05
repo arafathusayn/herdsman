@@ -37,8 +37,10 @@ func removeDB(p string) {
 // path is never overwritten.
 func (d *Daemon) importStaging(name, dir, epoch string) *APIError {
 	final := routedb.Path(d.cfg.PrivateHome, name)
-	if _, err := os.Lstat(final); err == nil || !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(final); err == nil {
 		return Errf("route_exists", "route database %s already exists; move it away before adopting", final)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Errf("internal", "route database %s: %v", final, err)
 	}
 	routes := filepath.Dir(final)
 	if err := os.MkdirAll(routes, 0o700); err != nil {
