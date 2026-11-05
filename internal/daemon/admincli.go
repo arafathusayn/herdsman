@@ -259,6 +259,12 @@ func RunDaemon(a *AdminEnv, args []string) int {
 
 // run is `herdsman daemon run`: start, serve until a signal, drain.
 func (a *AdminEnv) run(ph, home string) int {
+	// The private home is checked before anything is written in it: a
+	// refused home gets its diagnostic on stderr only.
+	if err := checkPrivateHome(ph); err != nil {
+		boundStderr(a.Stderr)
+		return a.fail(err)
+	}
 	lg := newBoundedLog(ph, a.Stderr)
 	defer lg.Close()
 	// Every diagnostic of the run, its startup failure too, goes through
@@ -537,6 +543,21 @@ func writeOwnIdentity(ph string) error {
 	return writeDurable(identityPath(ph), append(b, '\n'), 0o600)
 }
 
+// boundStderr keeps a regular-file stderr (the LaunchAgent's
+// StandardErrorPath) bounded when startup refuses the private home: no
+// path in that home is opened, so the file is emptied through the given
+// descriptor once it reaches logMax, and a KeepAlive restart loop cannot
+// grow it.
+func boundStderr(w io.Writer) {
+	f, ok := w.(*os.File)
+	if !ok {
+		return
+	}
+	if st, err := f.Stat(); err == nil && st.Mode().IsRegular() && st.Size() >= logMax-4096 {
+		_ = f.Truncate(0)
+	}
+}
+
 // logMax bounds daemon.log; one previous file is kept (9.3).
 const logMax = 1 << 20
 
@@ -579,23 +600,40 @@ func (l *boundedLog) Write(b []byte) (int, error) {
 }
 
 // open opens the log for appending; the daemon folder is made only
-// inside an existing private home.
+// inside an existing private home. The folder must be a real folder of
+// this user of mode 700 and the log a regular file of this user of mode
+// 600, opened under the checked folder's descriptor without following a
+// link and without blocking on a FIFO, so no line goes outside the
+// private home and no open waits for a reader.
 func (l *boundedLog) open() error {
-	if err := os.Mkdir(filepath.Dir(l.path), 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+	dir := filepath.Dir(l.path)
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return err
 	}
-	f, err := os.OpenFile(l.path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	dfd, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("log folder %s: %v", dir, err)
 	}
-	st, err := f.Stat()
+	defer unix.Close(dfd)
+	var ds unix.Stat_t
+	if err := unix.Fstat(dfd, &ds); err != nil {
+		return fmt.Errorf("log folder %s: %v", dir, err)
+	}
+	if int(ds.Uid) != os.Getuid() || ds.Mode&0o777 != 0o700 {
+		return fmt.Errorf("log folder %s is not this user's with mode 700", dir)
+	}
+	fd, err := unix.Openat(dfd, filepath.Base(l.path), unix.O_WRONLY|unix.O_APPEND|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0o600)
 	if err != nil {
-		f.Close()
-		return err
+		return fmt.Errorf("log %s: %v", l.path, err)
 	}
-	l.f, l.size = f, st.Size()
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil || st.Mode&unix.S_IFMT != unix.S_IFREG || int(st.Uid) != os.Getuid() || st.Mode&0o777 != 0o600 {
+		_ = unix.Close(fd)
+		return fmt.Errorf("log %s is not a regular file of this user with mode 600", l.path)
+	}
+	l.f, l.size = os.NewFile(uintptr(fd), l.path), st.Size
 	if l.redirect {
-		_ = unix.Dup2(int(f.Fd()), l.fd)
+		_ = unix.Dup2(fd, l.fd)
 	}
 	return nil
 }

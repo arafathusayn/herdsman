@@ -141,8 +141,9 @@ func TestSetupLastQuestionUnanswered(t *testing.T) {
 }
 
 // TestStartupFailuresKeepLaunchdLogBounded: a daemon run whose start
-// fails (a KeepAlive restart loop) writes its error through the bounded
-// log, and the stderr file it was given follows the rotation.
+// fails on its private home (a KeepAlive restart loop) opens nothing in
+// that home and keeps the stderr file it was given bounded through that
+// descriptor.
 func TestStartupFailuresKeepLaunchdLogBounded(t *testing.T) {
 	ph := t.TempDir()
 	if err := os.Mkdir(filepath.Join(ph, "daemon"), 0o700); err != nil {
@@ -171,10 +172,10 @@ func TestStartupFailuresKeepLaunchdLogBounded(t *testing.T) {
 	if err != nil || st.Size() > logMax || st.Size() == 0 {
 		t.Fatalf("daemon.log: %v %v", st.Size(), err)
 	}
-	if old, err := os.Stat(logPath + ".1"); err != nil || old.Size() > logMax {
-		t.Fatalf("daemon.log.1: %v", err)
+	if _, err := os.Stat(logPath + ".1"); err == nil {
+		t.Fatal("a refused private home was written: daemon.log.1")
 	}
-	// The given descriptor now writes to the new file.
+	// The given descriptor still writes to the file.
 	_, _ = log.WriteString("after\n")
 	if b, _ := os.ReadFile(logPath); !strings.HasSuffix(string(b), "after\n") || !strings.Contains(string(b), "herdsman daemon:") {
 		t.Fatalf("daemon.log: %q", b)
