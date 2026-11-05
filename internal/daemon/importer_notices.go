@@ -37,7 +37,11 @@ func (im *importer) notices(box string) *APIError {
 		if o["id"] != idText || !sok {
 			return importErr("%s is not a notice of %s", im.rel(p), idText)
 		}
-		if _, seen := im.seen[id]; seen && !im.imported(id) {
+		in, e := im.imported(id)
+		if e != nil {
+			return e
+		}
+		if _, seen := im.seen[id]; seen && !in {
 			// Its quarantined message stayed legacy evidence (no envelope).
 			if e := im.log(p, b, "legacy evidence: the notice of a message not imported"); e != nil {
 				return e
@@ -129,9 +133,12 @@ func (im *importer) resumeIntents() *APIError {
 	return nil
 }
 
-// imported reports whether message id has a row.
-func (im *importer) imported(id int64) bool {
+// imported reports whether message id has a row; a failed read refuses
+// the import rather than guess.
+func (im *importer) imported(id int64) (bool, *APIError) {
 	n := int64(0)
-	_ = im.tx.Query(`SELECT count(*) FROM messages WHERE id = ?`, []any{id}, func(r store.Row) error { n = r.Int64(0); return nil })
-	return n == 1
+	if err := im.tx.Query(`SELECT count(*) FROM messages WHERE id = ?`, []any{id}, func(r store.Row) error { n = r.Int64(0); return nil }); err != nil {
+		return false, importErr("message %d: %v", id, err)
+	}
+	return n == 1, nil
 }

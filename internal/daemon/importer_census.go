@@ -84,7 +84,10 @@ func (im *importer) censusDir(dir string) *APIError {
 		if im.logged[rel] {
 			continue
 		}
-		disposition := im.classify(rel)
+		disposition, e := im.classify(rel)
+		if e != nil {
+			return e
+		}
 		if disposition == "" {
 			return importErr("%s has no import target and no listed reason; move it out of the inbox or report it", rel)
 		}
@@ -95,43 +98,54 @@ func (im *importer) censusDir(dir string) *APIError {
 	return nil
 }
 
-// classify is the listed reason for a file no target imported, or "".
-func (im *importer) classify(rel string) string {
+// classify is the listed reason for a file no target imported, or "";
+// a failed read of the staged rows refuses the import rather than guess.
+func (im *importer) classify(rel string) (string, *APIError) {
 	base := filepath.Base(rel)
 	if strings.HasPrefix(base, ".") {
-		return "partial-write"
+		return "partial-write", nil
 	}
 	for _, r := range censusRules {
 		if r.match(rel) {
-			return r.disposition
+			return r.disposition, nil
 		}
 	}
 	parts := strings.Split(rel, "/")
 	if parts[0] == "ids" && len(parts) == 3 {
-		if id, ok := messageID(parts[1]); ok && im.imported(id) {
-			return "" // every file of an imported message has its target
+		if id, ok := messageID(parts[1]); ok {
+			in, e := im.imported(id)
+			if e != nil || in {
+				return "", e // every file of an imported message has its target
+			}
 		}
-		return "legacy evidence: an allocation record of a message not imported"
+		return "legacy evidence: an allocation record of a message not imported", nil
 	}
-	if len(parts) == 3 && im.isBox(parts[0]) {
-		switch parts[1] {
-		case "tmp", "recovery":
-			return "partial-write"
-		case "new":
-			// The daemon serves the adopted route from its files, and its
-			// intake delivers new/ at the route's first open (to ready/, or
-			// to quarantine/ with a sender notice).
-			return "not imported: queued in new/; the daemon's intake delivers it at the route's first open"
-		case "ack":
-			return "legacy evidence: an ack without its cur entry"
-		}
+	if len(parts) != 3 {
+		return "", nil
 	}
-	return ""
+	box, e := im.isBox(parts[0])
+	if e != nil || !box {
+		return "", e
+	}
+	switch parts[1] {
+	case "tmp", "recovery":
+		return "partial-write", nil
+	case "new":
+		// The daemon serves the adopted route from its files, and its
+		// intake delivers new/ at the route's first open (to ready/, or
+		// to quarantine/ with a sender notice).
+		return "not imported: queued in new/; the daemon's intake delivers it at the route's first open", nil
+	case "ack":
+		return "legacy evidence: an ack without its cur entry", nil
+	}
+	return "", nil
 }
 
 // isBox reports a mailbox of the imported pair.
-func (im *importer) isBox(name string) bool {
+func (im *importer) isBox(name string) (bool, *APIError) {
 	n := int64(0)
-	_ = im.tx.Query(`SELECT count(*) FROM parties WHERE name = ?`, []any{name}, func(r store.Row) error { n = r.Int64(0); return nil })
-	return n == 1
+	if err := im.tx.Query(`SELECT count(*) FROM parties WHERE name = ?`, []any{name}, func(r store.Row) error { n = r.Int64(0); return nil }); err != nil {
+		return false, importErr("party %s: %v", name, err)
+	}
+	return n == 1, nil
 }
