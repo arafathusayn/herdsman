@@ -255,7 +255,8 @@ func checkHeld(path string, f *os.File) error {
 type inode struct{ dev, ino uint64 }
 
 // heldInodes lists the inodes this process holds open, except through
-// Open's kept descriptors. The caller holds openMu.
+// Open's kept descriptors and the refused descriptors the checked open
+// parked: neither is a SQLite connection's. The caller holds openMu.
 func heldInodes() (map[inode]bool, error) {
 	skip := map[int]bool{}
 	for _, k := range kept {
@@ -280,7 +281,7 @@ func heldInodes() (map[inode]bool, error) {
 	held := map[inode]bool{}
 	for _, name := range names {
 		fd, err := strconv.Atoi(name)
-		if err != nil || skip[fd] || fd == own {
+		if err != nil || skip[fd] || fd == own || parked(fd) {
 			continue
 		}
 		var st syscall.Stat_t

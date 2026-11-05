@@ -132,6 +132,14 @@ static int herdsman_close_parked(void) {
 	return kept;
 }
 
+// herdsman_parked_fd reports whether the checked open parked fd.
+static int herdsman_parked_fd(int fd) {
+	pthread_mutex_lock(&herdsman_park_mu);
+	int p = herdsman_is_parked(fd);
+	pthread_mutex_unlock(&herdsman_park_mu);
+	return p;
+}
+
 static int herdsman_checked_open(const char *z, int flags, int mode) {
 	int fd = open(z, flags | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC, mode);
 	if (fd < 0) {
@@ -207,6 +215,10 @@ func installCheckedOpen() error {
 // whose inode no other descriptor of the process holds any more; it
 // reports how many stay parked.
 func closeParked() int { return int(C.herdsman_close_parked()) }
+
+// parked reports whether fd is a refused descriptor the checked open
+// parked: it holds an inode, but no SQLite connection uses it.
+func parked(fd int) bool { return C.herdsman_parked_fd(C.int(fd)) == 1 }
 
 // checkedOpenInstalled reports whether SQLite opens files through it.
 func checkedOpenInstalled() bool { return C.herdsman_installed() == 1 }
