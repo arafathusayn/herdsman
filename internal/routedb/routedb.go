@@ -121,8 +121,9 @@ type Status struct {
 // Peer is one approved party.
 type Peer struct{ Name, Role, Pane, Session string }
 
-// Box is one mailbox's message counts. Unacked counts the claimed (cur)
-// messages: an ack moves a message to handled.
+// Box is one mailbox's message counts. Unacked counts the delivered
+// messages no ack has handled yet, ready and cur, as the live daemon and
+// file mode count them: an ack moves a message to handled.
 type Box struct {
 	Name                                 string
 	New, Ready, Cur, Unacked, Quarantine int
@@ -204,8 +205,10 @@ func read(c store.Conn) (Status, error) {
 			b.New = n
 		case "ready":
 			b.Ready = n
+			b.Unacked += n
 		case "cur":
-			b.Cur, b.Unacked = n, n
+			b.Cur = n
+			b.Unacked += n
 		case "quarantined":
 			b.Quarantine = n
 		}

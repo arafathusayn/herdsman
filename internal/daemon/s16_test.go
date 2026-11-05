@@ -103,7 +103,7 @@ func TestOfflineStatusReadsTheRouteDB(t *testing.T) {
 		"registry approved \n",
 		"peer adj role adjutant pane p1 session {\"agent\":\"a\"}\n",
 		"peer orch role orchestrator pane p2 session {\"agent\":\"o\"}\n",
-		"box orch new 0 ready 1 cur 0 unacked 0 quarantine 0 claim false\n",
+		"box orch new 0 ready 1 cur 0 unacked 1 quarantine 0 claim false\n", // ready+cur, as the live daemon and file mode count
 		"hold orch by adj\n",
 	} {
 		if !strings.Contains(out, want) {

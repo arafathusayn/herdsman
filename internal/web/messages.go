@@ -421,7 +421,7 @@ func dbChannel(ch Channel, path string) Channel {
 		if b.Claim {
 			claim = "held"
 		}
-		ch.Boxes = append(ch.Boxes, ChannelBox{Name: b.Name, Orphan: b.Orphan, Unacked: b.Ready + b.Cur, Claim: claim,
+		ch.Boxes = append(ch.Boxes, ChannelBox{Name: b.Name, Orphan: b.Orphan, Unacked: b.Unacked, Claim: claim,
 			Counts: map[string]int{"new": b.New, "ready": b.Ready, "cur": b.Cur, "quarantine": b.Quarantine}})
 	}
 	ch.Holds = slices.DeleteFunc(ch.Holds, func(h ChannelHold) bool { return strings.HasPrefix(h.Name, "hold-") })
