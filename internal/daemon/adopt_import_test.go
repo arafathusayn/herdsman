@@ -210,7 +210,7 @@ func TestPublishStagingStates(t *testing.T) {
 	if e := h.d.publishStaging("r", epoch); e == nil || !strings.Contains(e.Message, "missing") {
 		t.Errorf("no staging file: %v", e)
 	}
-	if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(staged), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range []string{"", "-wal"} {
@@ -227,22 +227,29 @@ func TestPublishStagingStates(t *testing.T) {
 	if e := h.d.publishStaging("r", epoch); e != nil {
 		t.Errorf("a resume after the rename: %v", e)
 	}
+	if exists(h.d.stagingDir("r")) {
+		t.Error("publish left the route's staging folder")
+	}
+	if err := os.MkdirAll(filepath.Dir(staged), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(staged, []byte("again"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if e := h.d.publishStaging("r", epoch); e == nil || e.Code != "route_exists" {
 		t.Errorf("staging beside a database: %v", e)
 	}
-	// The routes folder is not this user's private folder: the staging
+	// The staging folder is not this user's private folder: the staging
 	// database cannot open, and nothing is left.
 	other := "s"
-	routes := filepath.Dir(routedb.Path(h.ph, other))
-	if err := os.Chmod(routes, 0o755); err != nil {
+	if err := os.MkdirAll(h.d.stagingDir(other), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = os.Chmod(routes, 0o700) }()
+	if err := os.Chmod(h.d.stagingDir(other), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if e := h.d.importStaging(other, h.ph, epoch); e == nil || !strings.Contains(e.Message, "staging route database") {
-		t.Errorf("an unsafe routes folder: %v", e)
+		t.Errorf("an unsafe staging folder: %v", e)
 	}
 	if exists(h.d.stagingPath(other, epoch)) {
 		t.Error("a staging file was left")
@@ -276,6 +283,9 @@ func TestStagingFileErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	leftover := h.d.stagingPath("r", "ffffffffffffffffffffffffffffffff")
+	if err := os.MkdirAll(filepath.Dir(leftover), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(leftover, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -286,6 +296,9 @@ func TestStagingFileErrors(t *testing.T) {
 		t.Error("a staging file was left")
 	}
 	staged, final := h.d.stagingPath("r", epoch), routedb.Path(h.ph, "r")
+	if err := os.MkdirAll(filepath.Dir(staged), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(staged, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
