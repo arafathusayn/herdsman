@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -145,24 +144,17 @@ func (im *importer) text(p string) (string, []byte, bool, *APIError) {
 	return strings.TrimSpace(string(b)), b, ok, e
 }
 
-// names lists a source folder, sorted; a missing folder is empty.
+// names lists a source folder, sorted, from the descriptor its checks
+// opened; a missing folder is empty.
 func (im *importer) names(dir string) ([]string, *APIError) {
-	if err := inbox.SourceDir(im.rt.Dir, dir); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
+	names, err := inbox.ListSource(im.rt.Dir, dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
 		return nil, importErr("unsafe source: %v", err)
 	}
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, importErr("%s: %v", im.rel(dir), err)
-	}
-	out := make([]string, 0, len(ents))
-	for _, e := range ents {
-		out = append(out, e.Name())
-	}
-	sort.Strings(out)
-	return out, nil
+	return names, nil
 }
 
 // parties imports the approved pair: one adjutant and one orchestrator,
