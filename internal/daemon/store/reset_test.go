@@ -30,22 +30,33 @@ func timeline(t *testing.T, c Conn) string {
 }
 
 // TestLostTimelineResetAtomic: a lost-timeline refusal whose new-epoch
-// transaction fails answers ErrLostTimeline with the reason and leaves
-// the epoch, the kept window, the gaps and the events as they were. The
-// refusal is read on a reader, whose writes SQLite refuses (query_only).
+// transaction fails after its first writes answers ErrLostTimeline with
+// the reason and leaves the epoch, the kept window, the gaps and the
+// events as they were. The failure is a TEMP trigger on the writer that
+// refuses the reset's last write (oldest_seq), after DELETE FROM events
+// and the seq_gaps delete have run, so only the transaction undoes them.
 func TestLostTimelineResetAtomic(t *testing.T) {
-	p := filepath.Join(dir(t), "r.db")
-	w := open(t, p, Writer)
+	w := open(t, filepath.Join(dir(t), "r.db"), Writer)
 	if err := InitEvents(w, epochA); err != nil {
 		t.Fatal(err)
 	}
 	appendN(t, w, 3)
 	setGaps(t, w, "2-2")
-	r := open(t, p, Reader)
 	before := timeline(t, w)
-	_, err := ReadEvents(r, epochA, 2, 3, ReplayPage)
-	if !errors.Is(err, ErrLostTimeline) || !strings.Contains(err.Error(), "no new epoch") {
-		t.Fatalf("lost cursor on a reader: %v, want lost_timeline (no new epoch: ...)", err)
+	for _, op := range []string{"INSERT", "UPDATE"} {
+		q := "CREATE TEMP TRIGGER fail_oldest_" + op + " BEFORE " + op + " ON meta WHEN NEW.k = 'oldest_seq' BEGIN SELECT RAISE(ABORT, 'injected oldest_seq failure'); END"
+		if _, err := w.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := ReadEvents(w, epochA, 2, 3, ReplayPage)
+	if !errors.Is(err, ErrLostTimeline) || !strings.Contains(err.Error(), "no new epoch") || !strings.Contains(err.Error(), "injected") {
+		t.Fatalf("lost cursor with a failing reset: %v, want lost_timeline (no new epoch: injected ...)", err)
+	}
+	for _, op := range []string{"INSERT", "UPDATE"} {
+		if _, err := w.Exec("DROP TRIGGER fail_oldest_" + op); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if got := timeline(t, w); got != before {
 		t.Errorf("a failed reset changed the timeline:\n got %s\nwant %s", got, before)
