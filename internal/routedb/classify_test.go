@@ -68,3 +68,70 @@ func TestClassifyRefusesBadRouteName(t *testing.T) {
 		t.Errorf("store of another route: %v %v, want Refused naming %s", mode, err, Path(ph, "other"))
 	}
 }
+
+// TestClassifyRefusesLinkedFolder: the private home, its daemon folder
+// and the routes folder must be real folders, not links, so no linked
+// component reads a database outside the private home.
+func TestClassifyRefusesLinkedFolder(t *testing.T) {
+	for _, comp := range []string{"", "daemon", filepath.Join("daemon", "routes")} {
+		t.Run("link at ph/"+comp, func(t *testing.T) {
+			ph, dir, _ := fixture(t, "r")
+			at := filepath.Join(ph, comp)
+			outside := filepath.Join(filepath.Dir(ph), "outside")
+			if err := os.Rename(at, outside); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, at); err != nil {
+				t.Fatal(err)
+			}
+			if mode, _, err := Classify(dir, ph, "r"); mode != Refused || err == nil {
+				t.Errorf("linked %s: %v %v, want Refused", at, mode, err)
+			}
+		})
+	}
+}
+
+// TestClassifyRefusesOpenPrivateHome: a private home other users can
+// read, or a daemon folder that is a file, is refused; a missing one is
+// not.
+func TestClassifyRefusesOpenPrivateHome(t *testing.T) {
+	ph, dir, _ := fixture(t, "r")
+	if err := os.Chmod(ph, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if mode, _, err := Classify(dir, ph, "r"); mode != Refused || err == nil || !strings.Contains(err.Error(), "700") {
+		t.Errorf("private home of mode 755: %v %v, want Refused", mode, err)
+	}
+	ph, dir, _ = fixture(t, "r")
+	if err := os.RemoveAll(filepath.Join(ph, "daemon")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ph, "daemon"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if mode, _, err := Classify(dir, ph, "r"); mode != Refused || err == nil {
+		t.Errorf("daemon folder that is a file: %v %v, want Refused", mode, err)
+	}
+	// A missing folder is no link: the store is missing, and Read says so.
+	ph, dir, store := fixture(t, "r")
+	if err := os.RemoveAll(filepath.Join(ph, "daemon")); err != nil {
+		t.Fatal(err)
+	}
+	if mode, p, err := Classify(dir, ph, "r"); mode != Store || p != store || err != nil {
+		t.Errorf("missing daemon folder: %v %q %v, want Store %q", mode, p, err, store)
+	}
+}
+
+// TestClassifyUncheckableFolder: a folder that cannot be checked (its
+// parent denies search) refuses the record.
+func TestClassifyUncheckableFolder(t *testing.T) {
+	ph, dir, _ := fixture(t, "r")
+	daemon := filepath.Join(ph, "daemon")
+	if err := os.Chmod(daemon, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(daemon, 0o700) })
+	if mode, _, err := Classify(dir, ph, "r"); mode != Refused || err == nil || !strings.Contains(err.Error(), "cannot be checked") {
+		t.Errorf("unsearchable daemon folder: %v %v, want Refused", mode, err)
+	}
+}

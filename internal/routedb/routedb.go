@@ -91,6 +91,24 @@ func Classify(dir, privateHome, route string) (Mode, string, error) {
 		}
 		return refuse("names store %q, not %s", s, want)
 	}
+	// The check above is lexical: each folder from the private home down
+	// to routes must be a real folder of this user, not a link out of it.
+	// The store's reader checks the routes folder and the file again.
+	for _, d := range []string{privateHome, filepath.Join(privateHome, "daemon"), filepath.Dir(s)} {
+		st, err := os.Lstat(d)
+		if errors.Is(err, os.ErrNotExist) {
+			break // nothing below it: Read reports the missing database
+		}
+		if err != nil {
+			return refuse("names store %q; %s cannot be checked: %v", s, d, err)
+		}
+		if sys, ok := st.Sys().(*syscall.Stat_t); !st.IsDir() || !ok || int(sys.Uid) != os.Getuid() {
+			return refuse("names store %q, but %s is not a folder of this user (a link or another file)", s, d)
+		}
+		if d == privateHome && st.Mode().Perm() != 0o700 {
+			return refuse("names store %q, but private home %s has mode %o, want 700", s, d, st.Mode().Perm())
+		}
+	}
 	return Store, s, nil
 }
 
