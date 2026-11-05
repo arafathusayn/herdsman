@@ -17,6 +17,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/routename"
 )
 
 // Contract is the owner.json contract of a daemon-owned inbox whose data
@@ -42,7 +43,8 @@ const (
 
 // Classify reads dir's state/owner.json (design section 2). A contract 3
 // record is this user's, of mode 600, and names its store as
-// <privateHome>/daemon/routes/<route>.db; route "" takes any route name.
+// <privateHome>/daemon/routes/<route>.db, <route> a name the daemon
+// accepts (routename.Valid); route "" takes any route name.
 // For Store it returns the database path, for Refused the reason.
 func Classify(dir, privateHome, route string) (Mode, string, error) {
 	p := filepath.Join(dir, "state", "owner.json")
@@ -81,7 +83,7 @@ func Classify(dir, privateHome, route string) (Mode, string, error) {
 	}
 	s, _ := inbox.String(o, "store")
 	name, isDB := strings.CutSuffix(filepath.Base(s), ".db")
-	if !filepath.IsAbs(s) || filepath.Clean(s) != s || !isDB || !inbox.NameOK(name) || (route != "" && name != route) ||
+	if !filepath.IsAbs(s) || filepath.Clean(s) != s || !isDB || !routename.Valid(name) || (route != "" && name != route) ||
 		filepath.Dir(s) != filepath.Join(privateHome, "daemon", "routes") {
 		want := Path(privateHome, route)
 		if route == "" {

@@ -9,15 +9,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/routename"
 )
 
 // Config is a daemon's settings. Tests inject the clock, the crash hook,
@@ -248,10 +247,9 @@ type DaemonInfo struct {
 	Socket   string `json:"socket"`
 }
 
-var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-
-// validName checks a route or repository name: a path segment.
-func validName(s string) bool { return nameRe.MatchString(s) && !strings.Contains(s, "..") }
+// validName checks a route or repository name: a path segment, by the
+// rule the route database readers share (routename).
+func validName(s string) bool { return routename.Valid(s) }
 
 // checkPrivateHome creates (mode 700) and checks the private home.
 func checkPrivateHome(p string) error {
