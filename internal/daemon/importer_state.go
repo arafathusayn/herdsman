@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -369,7 +370,26 @@ func (im *importer) approval() *APIError {
 	if len(a) != 4 || len(sum) != 64 || strings.Trim(sum, "0123456789abcdef") != "" || !iok || !cok || !rok {
 		return importErr("%s is not an approval record (sha256, interaction, credentials, revoked)", im.rel(p))
 	}
-	result, _ := json.Marshal(map[string]any{"approved": true, "credentials": creds, "revoked": revoked})
+	// Typed, strictly: a credential is its name and option only, so no
+	// credential value of any shape is ever copied into the evidence.
+	var rec approvalRecord
+	if strictDecode(b, &rec) != nil || len(creds) != len(rec.Credentials) || len(revoked) != len(rec.Revoked) {
+		return importErr("%s is not an approval record (credentials of name and option, revoked names)", im.rel(p))
+	}
+	res := ApproveResult{Approved: true, Credentials: []ApprovedCredential{}, Revoked: []string{}}
+	for _, c := range rec.Credentials {
+		if !inbox.NameOK(c.Name) || !slices.Contains([]string{"identity", "file", "keychain"}, c.Option) {
+			return importErr("%s: credential %q with option %q is not a party name and a credential option", im.rel(p), c.Name, c.Option)
+		}
+		res.Credentials = append(res.Credentials, ApprovedCredential{Name: c.Name, Option: c.Option})
+	}
+	for _, n := range rec.Revoked {
+		if !inbox.NameOK(n) {
+			return importErr("%s: revoked %q is not a party name", im.rel(p), n)
+		}
+		res.Revoked = append(res.Revoked, n)
+	}
+	result, _ := json.Marshal(res)
 	request := sha256.Sum256(b)
 	if _, err := im.tx.Exec(`INSERT INTO approvals(seq, registry_sha256, request_sha256, interaction, approved_by, result, time)
 		VALUES (0, ?, ?, ?, 'import', ?, ?)`, sum, "import-"+hex.EncodeToString(request[:]), interaction, string(result), mtime(p)); err != nil {
