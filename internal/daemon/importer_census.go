@@ -117,6 +117,11 @@ func (im *importer) classify(rel string) string {
 		switch parts[1] {
 		case "tmp", "recovery":
 			return "partial-write"
+		case "new":
+			// The daemon serves the adopted route from its files, and its
+			// intake delivers new/ at the route's first open (to ready/, or
+			// to quarantine/ with a sender notice).
+			return "not imported: queued in new/; the daemon's intake delivers it at the route's first open"
 		case "ack":
 			return "legacy evidence: an ack without its cur entry"
 		}

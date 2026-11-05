@@ -209,6 +209,15 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool
 			}
 			return AdoptResult{}, Errf("checksum_mismatch", "confirm_pair_sha256 does not match peers.approved")
 		}
+		// Step 2.5 (section 5 step 3): the import into a staging route
+		// database, before anything of the inbox changes; a refusal
+		// leaves the route unadopted and the inbox as it was.
+		if e := d.importStaging(name, dir, m.Epoch); e != nil {
+			for _, t := range taken {
+				releaseLock(t)
+			}
+			return AdoptResult{}, e
+		}
 		// Step 2.4: the pending list first, then the marker.
 		pl := d.readPending()
 		if !slices.ContainsFunc(pl.Inboxes, func(e pendingEntry) bool { return e.Inbox == dir }) {
@@ -257,8 +266,12 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool
 	if err := writeMarker(marker, m); err != nil {
 		return AdoptResult{}, Errf("internal", "marker: %v", err)
 	}
-	// d. publish: owner.json, the route lock (open), routes.json, the
-	// journal's first checkpoint and the replay (open).
+	// d. publish: the imported route database, owner.json, the route
+	// lock (open), routes.json, the journal's first checkpoint and the
+	// replay (open).
+	if e := d.publishStaging(name, m.Epoch); e != nil {
+		return AdoptResult{}, e
+	}
 	if _, ok := ReadOwner(dir); !ok {
 		o := d.newOwner(true)
 		o.Epoch = m.Epoch
