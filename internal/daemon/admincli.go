@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/routedb"
 )
 
 // AdminEnv is one run of `herdsman daemon ...`.
@@ -147,7 +148,7 @@ func RunDaemon(a *AdminEnv, args []string) int {
 	if len(rest) == 0 {
 		return a.usage("name a command")
 	}
-	ph, err := PrivateHome(option, a.env)
+	ph, err := routedb.PrivateHome(option, a.env)
 	if err != nil {
 		return a.fail(err)
 	}

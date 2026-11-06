@@ -95,7 +95,9 @@ func files(t *testing.T, dir string) []string {
 
 func TestOfflineStatusReadsTheRouteDB(t *testing.T) {
 	ph, dir, path := s16Route(t, true)
-	before := files(t, filepath.Dir(path))
+	// The whole tree: the private home and the inbox.
+	base := filepath.Dir(ph)
+	before := files(t, base)
 	out, errOut, code := s16Status(t, ph)
 	for _, want := range []string{
 		"daemon=down heartbeat_age=",
@@ -113,12 +115,10 @@ func TestOfflineStatusReadsTheRouteDB(t *testing.T) {
 	if code != 1 {
 		t.Errorf("exit %d, want 1 (daemon down)", code)
 	}
-	if after := files(t, filepath.Dir(path)); !slices.Equal(before, after) {
-		t.Errorf("the reader changed the database folder: %v -> %v", before, after)
+	if after := files(t, base); !slices.Equal(before, after) {
+		t.Errorf("the reader changed the private home or the inbox: %v -> %v", before, after)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "peers.approved")); err == nil {
-		t.Error("status wrote a file in the inbox")
-	}
+	_, _ = dir, path
 }
 
 func TestOfflineStatusMissingDB(t *testing.T) {

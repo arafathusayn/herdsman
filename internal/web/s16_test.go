@@ -51,6 +51,7 @@ func s16Route(t *testing.T) (base, dir, path string) {
 	if err := os.WriteFile(filepath.Join(dir, "state", "owner.json"), []byte(s16Owner(path, nil)), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	s16Routes(t, base, `{"r":{"inbox":"`+dir+`"}}`)
 	c, err := store.Open(path, store.Writer, store.KindRoute)
 	if err != nil {
 		t.Fatal(err)
@@ -70,6 +71,14 @@ func s16Route(t *testing.T) (base, dir, path string) {
 	}
 	_ = c.Close()
 	return base, dir, path
+}
+
+// s16Routes writes the private home's routes.json with these routes.
+func s16Routes(t *testing.T, base, routes string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(base, "ph", "daemon", "routes.json"), []byte(`{"version":1,"routes":`+routes+`}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // S16: the web reader shows a contract 3 inbox's registry, mailboxes and

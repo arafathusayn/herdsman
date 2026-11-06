@@ -84,22 +84,6 @@ func (e *MessageEnv) sleep(d time.Duration) {
 	e.Sleep(d)
 }
 
-// PrivateHome resolves the private home: the option, then
-// HERDSMAN_PRIVATE_HOME, then ~/.herdsman-private (3.6 discovery).
-func PrivateHome(option string, getenv func(string) string) (string, error) {
-	if option != "" {
-		return option, nil
-	}
-	if v := getenv("HERDSMAN_PRIVATE_HOME"); v != "" {
-		return v, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".herdsman-private"), nil
-}
-
 // fail prints a refusal in the command's form and returns its exit code.
 func (e *MessageEnv) fail(action string, err error) int {
 	if a, ok := AsAPIError(err); ok {
@@ -137,7 +121,7 @@ func OtherHome(getenv func(string) string) string {
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
-	ph, err := PrivateHome("", getenv)
+	ph, err := routedb.PrivateHome("", getenv)
 	if home == "" || err != nil {
 		return ""
 	}
@@ -168,7 +152,7 @@ func (e *MessageEnv) usage(msg string) int {
 
 // client is the party's client: socket, pane, name and credential.
 func (e *MessageEnv) client(route, name string) (*Client, string, error) {
-	ph, err := PrivateHome("", e.env)
+	ph, err := routedb.PrivateHome("", e.env)
 	if err != nil {
 		return nil, "", err
 	}
@@ -444,8 +428,8 @@ func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir str
 				return e.fail("status", err)
 			}
 		}
-		ph, _ := PrivateHome("", e.env)
-		rep, store, serr := offlineStatus(route, dir, ph)
+		ph, _ := routedb.PrivateHome("", e.env)
+		rep, mode, serr := offlineStatus(route, dir, ph)
 		if serr != nil {
 			fmt.Fprintf(e.Stderr, "herdsman message status: %v\n", serr)
 		}
@@ -462,7 +446,7 @@ func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir str
 			boxes = append(boxes, b.Name)
 		}
 		out.Messages, out.Alerts = []MessageHeader{}, []json.RawMessage{}
-		if dir != "" && !store {
+		if dir != "" && mode == routedb.Files {
 			out.Messages, out.Alerts = statusDetail(rt, boxes, rt.AckValid)
 		}
 		code = 1
@@ -496,26 +480,27 @@ func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir str
 	return code
 }
 
-// offlineStatus is the status while the daemon does not answer (S16): a
-// contract 3 inbox's route database through the store's reader (store is
-// true; it creates nothing and a missing database is reported), an inbox
-// with no owner record or one of contract 2 or lower from its files. Any
-// other owner record is refused and nothing is read (store is true). The
-// message list and alerts of a contract 3 inbox are not read here.
-func offlineStatus(route, dir, privateHome string) (st StatusReport, store bool, err error) {
+// offlineStatus is the status while the daemon does not answer (S16), by
+// the inbox's mode: a contract 3 inbox's route database through the
+// store's reader (Store; it creates nothing and a missing database is
+// reported), an inbox with no owner record or one of contract 2 or lower
+// from its files (Files). Any other owner record is refused and nothing
+// is read (Refused). The message list and alerts are read from the files
+// in Files mode only.
+func offlineStatus(route, dir, privateHome string) (st StatusReport, mode routedb.Mode, err error) {
 	if dir == "" {
 		// No inbox (the route is in no routes.json): nothing to read, and
 		// never the working folder's state/owner.json.
-		return FileStatus(route, ""), false, nil
+		return FileStatus(route, ""), routedb.Files, nil
 	}
 	mode, p, cerr := routedb.Classify(dir, privateHome, route)
 	if mode == routedb.Files {
-		return FileStatus(route, dir), false, nil
+		return FileStatus(route, dir), mode, nil
 	}
 	st = StatusReport{Route: route, Inbox: dir, Status: "daemon-down", Flags: []string{"daemon-down"}, Peers: []PeerInfo{}, Boxes: []BoxCount{}, Holds: []HoldInfo{}}
-	fail := func(status string, e error) (StatusReport, bool, error) {
+	fail := func(status string, e error) (StatusReport, routedb.Mode, error) {
 		st.Status, st.Flags = status, append(st.Flags, status)
-		return st, true, e
+		return st, mode, e
 	}
 	if mode == routedb.Refused {
 		return fail("owner-refused", fmt.Errorf("owner record refused, nothing was read: %v", cerr))
@@ -540,13 +525,13 @@ func offlineStatus(route, dir, privateHome string) (st StatusReport, store bool,
 			Quarantine: b.Quarantine, Claim: b.Claim, Orphan: b.Orphan})
 	}
 	for _, h := range s.Holds {
-		if n := len(st.Holds); n > 0 && st.Holds[n-1].Target == h.Target {
-			st.Holds[n-1].Owners = append(st.Holds[n-1].Owners, h.Owner)
-			continue
+		hi := HoldInfo{Target: h.Target, Owners: []string{}}
+		for _, o := range h.Owners {
+			hi.Owners = append(hi.Owners, o.Owner)
 		}
-		st.Holds = append(st.Holds, HoldInfo{Target: h.Target, Owners: []string{h.Owner}})
+		st.Holds = append(st.Holds, hi)
 	}
-	return st, true, nil
+	return st, mode, nil
 }
 
 // FileStatus reads a daemon-owned inbox's status from its files alone:

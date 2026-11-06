@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/arafathusayn/herdsman/internal/routedb"
 )
 
 // TestOfflineStatusEmptyDirIgnoresCwd: a route missing from routes.json
@@ -22,8 +24,8 @@ func TestOfflineStatusEmptyDirIgnoresCwd(t *testing.T) {
 		strings.Contains(errOut, "owner.json") {
 		t.Fatalf("exit %d, stdout %q, stderr %q; want an empty daemon-down route", code, out, errOut)
 	}
-	rep, store, err := offlineStatus("r", "", ph)
-	if store || err != nil || rep.Inbox != "" || rep.Status != "daemon-down" {
-		t.Errorf("offlineStatus(r, \"\") = %+v store=%v %v, want the empty file report", rep, store, err)
+	rep, mode, err := offlineStatus("r", "", ph)
+	if mode != routedb.Files || err != nil || rep.Inbox != "" || rep.Status != "daemon-down" {
+		t.Errorf("offlineStatus(r, \"\") = %+v mode=%v %v, want the empty file report", rep, mode, err)
 	}
 }

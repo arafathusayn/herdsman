@@ -117,10 +117,53 @@ func Classify(dir, privateHome, route string) (Mode, string, error) {
 	return Store, s, nil
 }
 
-// PrivateHome is the private home of a reader with no option:
+// ClassifyInbox is Classify for a reader that knows the inbox but not its
+// route (the web reader): a contract 3 record must name the database of
+// the route the private home's routes.json lists for dir, and is refused
+// when no route lists it, so an inbox never shows another route's data.
+func ClassifyInbox(dir, privateHome string) (Mode, string, error) {
+	mode, p, err := Classify(dir, privateHome, "")
+	if mode != Store {
+		return mode, p, err
+	}
+	route, err := InboxRoute(privateHome, dir)
+	if err != nil {
+		return Refused, "", fmt.Errorf("%s is a contract %d record, but %v", filepath.Join(dir, "state", "owner.json"), Contract, err)
+	}
+	return Classify(dir, privateHome, route)
+}
+
+// InboxRoute is the route that <privateHome>/daemon/routes.json lists
+// with inbox dir.
+func InboxRoute(privateHome, dir string) (string, error) {
+	p := filepath.Join(privateHome, "daemon", "routes.json")
+	b, err := inbox.ReadBounded(p, 1<<20)
+	if err != nil {
+		return "", fmt.Errorf("%s cannot be read: %v", p, err)
+	}
+	var rf struct {
+		Routes map[string]struct {
+			Inbox string `json:"inbox"`
+		} `json:"routes"`
+	}
+	if err := json.Unmarshal(b, &rf); err != nil {
+		return "", fmt.Errorf("%s is not valid: %v", p, err)
+	}
+	for name, e := range rf.Routes {
+		if e.Inbox == dir {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no route in %s lists inbox %s", p, dir)
+}
+
+// PrivateHome resolves the private home: the option, then
 // HERDSMAN_PRIVATE_HOME, then ~/.herdsman-private (3.6 discovery).
-func PrivateHome() (string, error) {
-	if v := os.Getenv("HERDSMAN_PRIVATE_HOME"); v != "" {
+func PrivateHome(option string, getenv func(string) string) (string, error) {
+	if option != "" {
+		return option, nil
+	}
+	if v := getenv("HERDSMAN_PRIVATE_HOME"); v != "" {
 		return v, nil
 	}
 	home, err := os.UserHomeDir()
@@ -140,7 +183,7 @@ type Status struct {
 	PendingSHA256 string // of the pending rows, when there are any
 	Peers         []Peer // the approved parties, by role
 	Boxes         []Box  // the approved parties' and every recipient's mailbox, by name
-	Holds         []Hold // by target, then owner
+	Holds         []Hold // by target
 }
 
 // Peer is one approved party.
@@ -156,10 +199,16 @@ type Box struct {
 	Orphan                               bool // no approved party of that name
 }
 
-// Hold is one owner's hold of a target.
+// Hold is a target's holds, one per owner, by owner.
 type Hold struct {
-	Target, Owner, Reason string
-	Time                  int64
+	Target string
+	Owners []HoldOwner
+}
+
+// HoldOwner is one owner's hold of a target.
+type HoldOwner struct {
+	Owner, Reason string
+	Time          int64
 }
 
 // Read reads path's status through the store's reader. A missing file is
@@ -249,7 +298,12 @@ func read(c store.Conn) (Status, error) {
 	}
 	sort.Slice(st.Boxes, func(i, j int) bool { return st.Boxes[i].Name < st.Boxes[j].Name })
 	err = c.Query("SELECT target, owner, reason, time FROM holds ORDER BY target, owner", nil, func(r store.Row) error {
-		st.Holds = append(st.Holds, Hold{Target: r.Text(0), Owner: r.Text(1), Reason: r.Text(2), Time: r.Int64(3)})
+		o := HoldOwner{Owner: r.Text(1), Reason: r.Text(2), Time: r.Int64(3)}
+		if n := len(st.Holds); n > 0 && st.Holds[n-1].Target == r.Text(0) {
+			st.Holds[n-1].Owners = append(st.Holds[n-1].Owners, o)
+			return nil
+		}
+		st.Holds = append(st.Holds, Hold{Target: r.Text(0), Owners: []HoldOwner{o}})
 		return nil
 	})
 	return st, err

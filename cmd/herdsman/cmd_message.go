@@ -10,6 +10,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/daemon"
 	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/message"
+	"github.com/arafathusayn/herdsman/internal/routedb"
 )
 
 func init() {
@@ -61,7 +62,7 @@ func daemonPath(args []string, getenv func(string) string) (route string, rest [
 		return route, rest, json, false
 	}
 	var routes daemon.RoutesFile
-	if ph, err := daemon.PrivateHome("", getenv); err == nil {
+	if ph, err := routedb.PrivateHome("", getenv); err == nil {
 		routes, _ = daemon.ReadRoutes(ph)
 	}
 	// A route missing from this private home's registry may be served by
