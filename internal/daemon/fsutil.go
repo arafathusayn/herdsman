@@ -55,8 +55,9 @@ func writeDurable(path string, data []byte, perm os.FileMode) error {
 	return syncDir(dir)
 }
 
-// fsync makes a file's or a folder's data durable. Only the memory and
-// goroutine loop tests (A24.3), which measure neither, replace it.
+// fsync makes a file's or a folder's data durable. The package's tests run
+// it as plain fsync(2) (main_test.go); fault tests make it fail, and the
+// memory and goroutine loop tests (A24.3), which measure neither, skip it.
 var fsync = (*os.File).Sync
 
 // syncDir fsyncs a folder, so a rename or a new entry in it is durable. A
