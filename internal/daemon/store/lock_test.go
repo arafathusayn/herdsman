@@ -214,6 +214,9 @@ func TestRefusedOpenKeepsSQLiteLocks(t *testing.T) {
 			if n := closeParked(); n != 0 {
 				t.Errorf("%d refused descriptors still parked after the last close", n)
 			}
+			if got := lockState(t, locked, tc.env...); got != "free" {
+				t.Errorf("after the last close: lock %s, want free", got)
+			}
 		})
 	}
 }

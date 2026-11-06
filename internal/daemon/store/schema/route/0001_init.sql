@@ -3,6 +3,7 @@ CREATE TABLE meta (
   k TEXT PRIMARY KEY, v TEXT NOT NULL
 ) STRICT;  -- kind=route, created_by, migrated_by.<n>, route, inbox, epoch, next_seq,
            -- last_message_id, oldest_seq, health_flags,
+           -- seq_gaps ('first-last,...' in order: seqs of this epoch the max rule skipped at an open; D6),
            -- registry_rev (raised by enroll, approve and retire; launch match, P1-4),
            -- clean_shutdown (set by a clean stop, cleared at open; quick_check rule, P1-6),
            -- store_gen (random, written at every open; restore detection, N-P1-4),

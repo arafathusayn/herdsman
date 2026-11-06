@@ -255,9 +255,29 @@ func PruneEvents(c Conn, keep int64) (int64, error) {
 		if cur, err := metaInt(tx, "oldest_seq"); err != nil || oldest <= cur {
 			return err
 		}
+		if err := trimGaps(tx, oldest); err != nil {
+			return err
+		}
 		return metaSet(tx, "oldest_seq", strconv.FormatInt(oldest, 10))
 	})
 	return n, err
+}
+
+// trimGaps keeps only the part of each gap at or above oldest, inside tx.
+// A cursor below oldest is expired, not lost, and oldest-1, VisibleSeq of
+// a route whose events retention dropped, is then never inside a gap.
+func trimGaps(tx Conn, oldest int64) error {
+	gaps, err := readGaps(tx)
+	if err != nil || gaps == nil {
+		return err
+	}
+	var parts []string
+	for _, g := range gaps {
+		if g.last >= oldest {
+			parts = append(parts, fmt.Sprintf("%d-%d", max(g.first, oldest), g.last))
+		}
+	}
+	return metaSet(tx, "seq_gaps", strings.Join(parts, ","))
 }
 
 // ResetEvents starts a new epoch with no events; next_seq stays, so no
