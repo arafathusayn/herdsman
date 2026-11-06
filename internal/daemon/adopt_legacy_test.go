@@ -12,7 +12,7 @@ import (
 // state/legacy that is not a folder is an error.
 func TestMoveLegacy(t *testing.T) {
 	dir := t.TempDir()
-	if moved, err := moveLegacy(dir, "setup.json", "setup"); moved || err != nil {
+	if moved, err := moveLegacy(dir, "setup.json", "setup", ".json"); moved || err != nil {
 		t.Fatalf("no file: %v %v", moved, err)
 	}
 	if err := mkdirs(dir, "state/legacy"); err != nil {
@@ -23,7 +23,7 @@ func TestMoveLegacy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if moved, err := moveLegacy(dir, "state/approval.json", "approval"); !moved || err != nil {
+	if moved, err := moveLegacy(dir, "state/approval.json", "approval", ".json"); !moved || err != nil {
 		t.Fatalf("second copy: %v %v", moved, err)
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "state", "legacy", "approval-v1.2.json")); err != nil || string(b) != "state/approval.json" {
@@ -33,7 +33,7 @@ func TestMoveLegacy(t *testing.T) {
 	_ = mkdirs(other, "state")
 	_ = os.WriteFile(filepath.Join(other, "state", "legacy"), nil, 0o600)
 	_ = os.WriteFile(filepath.Join(other, "setup.json"), nil, 0o600)
-	if _, err := moveLegacy(other, "setup.json", "setup"); err == nil {
+	if _, err := moveLegacy(other, "setup.json", "setup", ".json"); err == nil {
 		t.Error("state/legacy as a file: no error")
 	}
 }

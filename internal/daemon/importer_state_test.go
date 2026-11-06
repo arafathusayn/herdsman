@@ -84,7 +84,7 @@ func TestImportState(t *testing.T) {
 		"state/owner.json":            "not imported: owner.json is written again at publish",
 		"state/events/current.ndjson": "not imported: a new epoch starts",
 		"state/approval.json":         "approvals (evidence)",
-		"state/credentials/adj-1":     "not imported: secrets are reissued at the next approval",
+		"state/credentials/adj-1":     "not imported: moved to state/legacy; the adoption issues its own credentials",
 		"state/proof-stale":           "legacy evidence: the route is HUMAN until setup writes version 3",
 	} {
 		if logged[p] != d {

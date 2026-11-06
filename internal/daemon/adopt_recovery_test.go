@@ -104,11 +104,19 @@ func TestAdoptStartDoesNotWaitOnDrain(t *testing.T) {
 // cause is gone the adoption finishes with them.
 func TestAdoptCredentialFailureStaysPending(t *testing.T) {
 	h := newHarness(t)
+	h.stop()
 	dir, sum := fileInbox(t, h)
 	creds := filepath.Join(dir, "state", "credentials")
-	if err := os.Mkdir(creds, 0o500); err != nil {
-		t.Fatal(err)
+	// After step b moved file mode's credentials aside, just before the
+	// credentials are issued.
+	h.cfg.Crash = func(p string) {
+		if p == "adopt.registered" && !exists(creds) {
+			if err := os.Mkdir(creds, 0o500); err != nil {
+				t.Error(err)
+			}
+		}
 	}
+	h.start()
 	t.Cleanup(func() { _ = os.Chmod(creds, 0o700) })
 	_, err := h.client().Do(context.Background(), "POST", "/v1/routes/old/adopt", AdoptRequest{Inbox: dir, ConfirmPairSHA256: sum}, nil)
 	if err == nil || !strings.Contains(err.Error(), "credentials at adoption") {

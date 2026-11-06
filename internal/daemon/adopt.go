@@ -125,8 +125,8 @@ func (d *Daemon) adoptRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	if e, ok := rf.Routes[name]; ok && e.Inbox != q.Inbox {
 		return Errf("route_exists", "route %s is registered with another inbox", name)
 	}
-	if twin := d.caseTwin(rf, name); twin != "" {
-		return Errf("route_exists", "route %s differs from route %s only in case; on a case-insensitive file system they share a database", name, twin)
+	if e := d.caseTwin(rf, name); e != nil {
+		return e
 	}
 	d.mu.Lock()
 	_, served := d.routes[name]
@@ -142,11 +142,11 @@ func (d *Daemon) adoptRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	return nil
 }
 
-// caseTwin names a registered, served or pending route other than name
-// that equals it ignoring case: on a case-insensitive file system (the
-// macOS default) the two would share a route database and a staging
-// folder. The caller holds regMu.
-func (d *Daemon) caseTwin(rf RoutesFile, name string) string {
+// caseTwin refuses name with route_exists when a registered, served or
+// pending route other than name equals it ignoring case: on a
+// case-insensitive file system (the macOS default) the two would share a
+// route database and a staging folder. The caller holds regMu.
+func (d *Daemon) caseTwin(rf RoutesFile, name string) *APIError {
 	var names []string
 	for n := range rf.Routes {
 		names = append(names, n)
@@ -161,37 +161,58 @@ func (d *Daemon) caseTwin(rf RoutesFile, name string) string {
 	d.mu.Unlock()
 	for _, n := range names {
 		if n != name && strings.EqualFold(n, name) {
-			return n
+			return Errf("route_exists", "route %s differs from route %s only in case; on a case-insensitive file system they share a database", name, n)
 		}
 	}
-	return ""
+	return nil
 }
 
 // adopt is the resumable adoption transaction (12.2): every step is
 // idempotent, so a crash anywhere is finished by running it again. wait
 // lets the drain wait up to DrainWait; a resume at start or from the
-// scheduler checks once and leaves the rest to the next tick.
+// scheduler checks once and leaves the rest to the next tick. A fresh run
+// begins the adoption and releases its locks on any refusal, so the inbox
+// stays as it was; a run that finds the marker resumes it and keeps its
+// locks on a refusal, so the adoption stays pending.
 func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool) (AdoptResult, *APIError) {
 	if e := d.checkAdoptInbox(dir); e != nil {
 		return AdoptResult{}, e
 	}
 	marker := filepath.Join(dir, "state", "adopting.json")
-	m := adoptMarker{Phase: "locks", Started: d.now().Unix(), Epoch: randomHex(16), Route: name, Confirm: confirm}
-	resuming := false
 	if _, err := os.Lstat(marker); err == nil {
-		old, e := d.resumeMarker(marker, name, dir, confirm)
+		m, e := d.resumeMarker(marker, name, dir, confirm)
+		if e == nil {
+			_, e = d.takeAdoptLocks(dir, m.Epoch)
+		}
 		if e != nil {
 			return AdoptResult{}, e
 		}
-		m, resuming, confirm = old, true, old.Confirm
+		return d.adoptPending(ctx, name, dir, m, wait)
 	}
-	if o, ok := ReadOwner(dir); ok && !resuming {
+	if o, ok := ReadOwner(dir); ok {
 		return AdoptResult{}, Errf("route_exists", "inbox already owned by the daemon (epoch %s)", o.Epoch)
 	}
-	// a. the four lock folders, each with the daemon's owner record.
-	// Once owner.json is published (a resume after the route's first
-	// open), the locks carry the route's epoch, as its open expects.
-	lockEpoch := m.Epoch
+	m := adoptMarker{Phase: "invalidate", Started: d.now().Unix(), Epoch: randomHex(16), Route: name, Confirm: confirm}
+	taken, e := d.takeAdoptLocks(dir, m.Epoch)
+	if e == nil {
+		e = d.beginAdoption(name, dir, marker, m)
+	}
+	if e != nil {
+		for _, t := range taken {
+			releaseLock(t)
+		}
+		return AdoptResult{}, e
+	}
+	return d.adoptPending(ctx, name, dir, m, wait)
+}
+
+// takeAdoptLocks is step a: the four lock folders, each with the daemon's
+// owner record. Once owner.json is published (a resume after the route's
+// first open), the locks carry the route's epoch, as its open expects.
+// It returns the locks it took, a refusal's too, for a fresh run to
+// release.
+func (d *Daemon) takeAdoptLocks(dir, epoch string) ([]*inbox.Lock, *APIError) {
+	lockEpoch := epoch
 	if o, ok := ReadOwner(dir); ok {
 		lockEpoch = o.Epoch
 	}
@@ -199,91 +220,99 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool
 	for _, l := range adoptLocks {
 		lk, err := retakeDaemonLock(filepath.Join(dir, l), lockEpoch)
 		if err != nil {
-			for _, t := range taken {
-				if !resuming {
-					releaseLock(t)
-				}
-			}
-			return AdoptResult{}, Errf("adopt_locked", "%v", err)
+			return taken, Errf("adopt_locked", "%v", err)
 		}
 		taken = append(taken, lk)
 	}
 	// The input lock's record names the adoption, so a start that finds
 	// it after the commit (a crash before the release) knows it is
 	// leftover; the daemon's operations write random tokens instead.
-	b, _ := encode(lockOwner{Owner: "daemon", Epoch: adoptLockPrefix + m.Epoch, PID: os.Getpid(), Start: d.now().Unix()})
+	b, _ := encode(lockOwner{Owner: "daemon", Epoch: adoptLockPrefix + epoch, PID: os.Getpid(), Start: d.now().Unix()})
 	if err := writeDurable(filepath.Join(dir, inbox.MutationLock, "owner.json"), append(b, '\n'), 0o600); err != nil {
-		return AdoptResult{}, Errf("internal", "input lock: %v", err)
+		return taken, Errf("internal", "input lock: %v", err)
 	}
 	d.crash("adopt.locks")
-	// A refusal of a fresh run leaves the inbox as it was; a resume keeps
-	// its locks, so the adoption stays pending.
-	release := func() {
-		if !resuming {
-			for _, t := range taken {
-				releaseLock(t)
-			}
-		}
-	}
+	return taken, nil
+}
+
+// beginAdoption is a fresh run's prologue, under the locks: no partial
+// write in flight, the pair the human confirmed, the import into a
+// staging route database, then the daemon's record of the adoption and
+// the inbox's marker. Until the marker is written nothing of the inbox
+// has changed, so a refusal leaves the route unadopted.
+func (d *Daemon) beginAdoption(name, dir, marker string, m adoptMarker) *APIError {
 	// Step 2.3: no partial write in flight.
-	if !resuming {
-		if partial := partialWrites(dir); partial != "" {
-			release()
-			return AdoptResult{}, Errf("adopt_locked", "a file-mode write is in flight (%s); retry when it ends", partial)
-		}
+	if partial := partialWrites(dir); partial != "" {
+		return Errf("adopt_locked", "a file-mode write is in flight (%s); retry when it ends", partial)
 	}
+	if e := confirmedPair(dir, m.Confirm); e != nil {
+		return e
+	}
+	// Step 2.5 (section 5 step 3): the import into a staging route
+	// database, before anything of the inbox changes.
+	if e := d.importStaging(name, dir, m.Epoch); e != nil {
+		return e
+	}
+	// Step 2.4: the pending list first, then the marker. The entry is the
+	// daemon's record of this adoption (its route, confirmed pair and
+	// epoch); an entry of an earlier run that never wrote its marker is
+	// replaced.
+	pl := d.readPending()
+	pl.Inboxes = slices.DeleteFunc(pl.Inboxes, func(e pendingEntry) bool { return e.Inbox == dir })
+	pl.Inboxes = append(pl.Inboxes, pendingEntry{Inbox: dir, Route: name, Started: m.Started, Confirm: m.Confirm, Epoch: m.Epoch})
+	if err := d.writePending(pl); err != nil {
+		return Errf("internal", "pending list: %v", err)
+	}
+	d.crash("adopt.pending")
+	if err := mkdirs(dir, "state"); err != nil {
+		return Errf("internal", "%v", err)
+	}
+	if err := writeMarker(marker, m); err != nil {
+		return Errf("internal", "marker: %v", err)
+	}
+	d.crash("adopt.marker")
+	return nil
+}
+
+// pendingRefusal is the answer when a pending adoption's pair is not the
+// one the human confirmed: checksum_mismatch, naming the route and the
+// recorded confirm, so the human knows which bytes finish it.
+func pendingRefusal(why, name, confirm string) *APIError {
+	return Errf("checksum_mismatch", "%s; the adoption of route %s stays pending until peers.approved is again the confirmed pair (confirm_pair_sha256 %s)", why, name, confirm)
+}
+
+// legacyFiles are file mode's records that go to state/legacy at step b:
+// the old proof, and the approval and credential records (the import has
+// copied the approval record into the route database), so the route's
+// state/approval.json and credentials are only ever the daemon's own and
+// the adoption always issues its own generation.
+var legacyFiles = []struct{ src, base, ext, what string }{
+	{"setup.json", "setup", ".json", "the old proof"},
+	{"state/approval.json", "approval", ".json", "file mode's approval record"},
+	{"state/credentials.json", "credentials", ".json", "file mode's credential records"},
+	{"state/credentials", "credentials", "", "file mode's credential folder"},
+}
+
+// adoptPending is the resumable body, from the pair check to the commit,
+// run under the locks by a fresh run after its prologue and by every
+// resume.
+func (d *Daemon) adoptPending(ctx context.Context, name, dir string, m adoptMarker, wait bool) (AdoptResult, *APIError) {
+	marker := filepath.Join(dir, "state", "adopting.json")
+	confirm := m.Confirm
 	// The pair the human confirmed, on every run: an inbox writer can
 	// change the registry while an adoption is pending.
 	if e := confirmedPair(dir, confirm); e != nil {
-		release()
-		if resuming {
-			e.Message += "; the adoption stays pending until the confirmed pair is back"
-		}
-		return AdoptResult{}, e
-	}
-	if !resuming {
-		// Step 2.5 (section 5 step 3): the import into a staging route
-		// database, before anything of the inbox changes; a refusal
-		// leaves the route unadopted and the inbox as it was.
-		if e := d.importStaging(name, dir, m.Epoch); e != nil {
-			for _, t := range taken {
-				releaseLock(t)
-			}
-			return AdoptResult{}, e
-		}
-		// Step 2.4: the pending list first, then the marker. The entry is
-		// the daemon's record of this adoption (its route, confirmed pair
-		// and epoch); an entry of an earlier run that never wrote its
-		// marker is replaced.
-		pl := d.readPending()
-		pl.Inboxes = slices.DeleteFunc(pl.Inboxes, func(e pendingEntry) bool { return e.Inbox == dir })
-		pl.Inboxes = append(pl.Inboxes, pendingEntry{Inbox: dir, Route: name, Started: m.Started, Confirm: confirm, Epoch: m.Epoch})
-		if err := d.writePending(pl); err != nil {
-			return AdoptResult{}, Errf("internal", "pending list: %v", err)
-		}
-		d.crash("adopt.pending")
-		if err := mkdirs(dir, "state"); err != nil {
-			return AdoptResult{}, Errf("internal", "%v", err)
-		}
-		m.Phase = "invalidate"
-		if err := writeMarker(marker, m); err != nil {
-			return AdoptResult{}, Errf("internal", "marker: %v", err)
-		}
-		d.crash("adopt.marker")
+		return AdoptResult{}, pendingRefusal(e.Message, name, confirm)
 	}
 	// b. invalidate the old proof (whatever the phase says).
 	legacy := exists(filepath.Join(dir, "state", "legacy", "setup-v1.json"))
-	// File mode's approval record goes aside too (the import has copied
-	// it into the route database), so the route's state/approval.json is
-	// only ever the daemon's own record of an approval it issued.
 	if _, owned := ReadOwner(dir); !owned {
-		moved, err := moveLegacy(dir, "setup.json", "setup")
-		if err != nil {
-			return AdoptResult{}, Errf("internal", "moving the old proof: %v", err)
-		}
-		legacy = legacy || moved
-		if _, err := moveLegacy(dir, filepath.Join("state", "approval.json"), "approval"); err != nil {
-			return AdoptResult{}, Errf("internal", "moving file mode's approval record: %v", err)
+		for _, l := range legacyFiles {
+			moved, err := moveLegacy(dir, filepath.FromSlash(l.src), l.base, l.ext)
+			if err != nil {
+				return AdoptResult{}, Errf("internal", "moving %s: %v", l.what, err)
+			}
+			legacy = legacy || (moved && l.base == "setup")
 		}
 	}
 	if m.Phase == "invalidate" || m.Phase == "locks" {
@@ -344,6 +373,9 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool
 	// so the next run issues them before anything commits.
 	if len(rt.creds) == 0 {
 		if _, e := rt.approve(ApproveRequest{SHA256: confirm, Interaction: "adopt"}); e != nil {
+			if e.Code == "checksum_mismatch" || confirmedPair(dir, confirm) != nil {
+				return AdoptResult{}, pendingRefusal("the registry changed before the credentials were issued", name, confirm)
+			}
 			return AdoptResult{}, Errf("internal", "credentials at adoption: %s; the adoption stays pending", e.Message)
 		}
 	}
@@ -407,18 +439,22 @@ func (d *Daemon) resumeMarker(marker, name, dir, confirm string) (adoptMarker, *
 	switch {
 	case !validEpoch(e.Epoch) || e.Epoch != m.Epoch:
 		return refuse("its epoch is not the pending adoption's")
-	case e.Route != name || m.Route != name:
+	case e.Route != m.Route:
 		return refuse("the pending adoption is of route " + e.Route)
-	case e.Confirm != m.Confirm || (confirm != "" && confirm != e.Confirm):
+	case e.Confirm != m.Confirm:
 		return refuse("its confirmed pair is not the pending adoption's")
+	case e.Route != name || (confirm != "" && confirm != e.Confirm):
+		// The daemon's own pending adoption: the request differs, and the
+		// marker must stay so the daemon can finish it.
+		return adoptMarker{}, Errf("bad_request", "an adoption of route %s with confirm_pair_sha256 %s is pending for this inbox; run adopt again with that route and pair to finish it", e.Route, e.Confirm)
 	}
 	return m, nil
 }
 
-// moveLegacy moves file mode's file src (relative to the inbox) to
-// state/legacy/<base>-v1.json, or the first free <base>-v1.<n>.json; it
-// reports whether there was a file to move.
-func moveLegacy(dir, src, base string) (bool, error) {
+// moveLegacy moves file mode's file or folder src (relative to the inbox)
+// to state/legacy/<base>-v1<ext>, or the first free <base>-v1.<n><ext>;
+// it reports whether there was one to move.
+func moveLegacy(dir, src, base, ext string) (bool, error) {
 	from := filepath.Join(dir, src)
 	if !exists(from) {
 		return false, nil
@@ -426,9 +462,9 @@ func moveLegacy(dir, src, base string) (bool, error) {
 	if err := mkdirs(dir, "state/legacy"); err != nil {
 		return false, err
 	}
-	dst := filepath.Join(dir, "state", "legacy", base+"-v1.json")
+	dst := filepath.Join(dir, "state", "legacy", base+"-v1"+ext)
 	for n := 2; exists(dst); n++ {
-		dst = filepath.Join(dir, "state", "legacy", base+"-v1."+strconv.Itoa(n)+".json")
+		dst = filepath.Join(dir, "state", "legacy", base+"-v1."+strconv.Itoa(n)+ext)
 	}
 	return true, renameDurable(from, dst)
 }

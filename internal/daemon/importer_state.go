@@ -322,9 +322,9 @@ func (im *importer) targets() *APIError {
 // contract2 imports a contract 2 inbox's state/approval.json as an
 // approvals evidence row (approval) and logs its other daemon files, which
 // stay legacy evidence: events and checkpoints end with the old epoch,
-// owner.json is written again at publish, the credential hashes are not
-// imported and the secrets are reissued at the next approval, and the
-// stale latch has no version 3 proof to mark (the route is HUMAN until
+// owner.json is written again at publish, the credential records are not
+// imported (they go to state/legacy and the adoption issues its own), and
+// the stale latch has no version 3 proof to mark (the route is HUMAN until
 // setup writes one).
 func (im *importer) contract2() *APIError {
 	if e := im.approval(); e != nil {
@@ -334,8 +334,8 @@ func (im *importer) contract2() *APIError {
 		{"owner.json", "not imported: owner.json is written again at publish"},
 		{"events", "not imported: a new epoch starts"},
 		{"checkpoints", "not imported: a new epoch starts"},
-		{"credentials.json", "legacy evidence: the credential hashes; secrets are reissued at the next approval"},
-		{"credentials", "not imported: secrets are reissued at the next approval"},
+		{"credentials.json", "legacy evidence: the credential hashes, moved to state/legacy; the adoption issues its own credentials"},
+		{"credentials", "not imported: moved to state/legacy; the adoption issues its own credentials"},
 		{"proof-stale", "legacy evidence: the route is HUMAN until setup writes version 3"},
 	} {
 		p := im.rt.Path("state", f.name)
