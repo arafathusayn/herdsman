@@ -77,6 +77,9 @@ func (d *Daemon) removeStagingDir(name string) {
 // adoption of route name with epoch. A database already at the route's
 // path is never overwritten.
 func (d *Daemon) importStaging(name, dir, epoch string) *APIError {
+	if !validEpoch(epoch) {
+		return Errf("internal", "invalid adoption epoch %q", epoch)
+	}
 	final := routedb.Path(d.cfg.PrivateHome, name)
 	if _, err := os.Lstat(final); err == nil {
 		return Errf("route_exists", "route database %s already exists; move it away before adopting", final)
@@ -128,6 +131,9 @@ func (d *Daemon) importStaging(name, dir, epoch string) *APIError {
 // publishStaging makes the adoption's staging database the route's
 // database; a resume after that rename finds it done.
 func (d *Daemon) publishStaging(name, epoch string) *APIError {
+	if !validEpoch(epoch) {
+		return Errf("internal", "invalid adoption epoch %q; the adoption stays pending", epoch)
+	}
 	final, p := routedb.Path(d.cfg.PrivateHome, name), d.stagingPath(name, epoch)
 	staged, published := exists(p), exists(final)
 	switch {

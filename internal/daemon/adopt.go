@@ -53,6 +53,10 @@ type pendingEntry struct {
 	// Confirm is the pair the human confirmed, kept so a start that
 	// finds the entry before the marker exists can finish unattended.
 	Confirm string `json:"confirm,omitempty"`
+	// Epoch is the adoption's epoch (randomHex(16)), which names its
+	// staging database; a resume takes it from here, never from the
+	// inbox's marker.
+	Epoch string `json:"epoch,omitempty"`
 }
 
 // adoptLocks are the file-mode locks adoption takes, in the scripts'
@@ -146,14 +150,12 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool
 	marker := filepath.Join(dir, "state", "adopting.json")
 	m := adoptMarker{Phase: "locks", Started: d.now().Unix(), Epoch: randomHex(16), Route: name, Confirm: confirm}
 	resuming := false
-	if b, err := readSmall(marker, 4096); err == nil {
-		var old adoptMarker
-		if strictDecode(b, &old) == nil && len(old.Epoch) == 32 {
-			m, resuming = old, true
-			if confirm == "" {
-				confirm = m.Confirm
-			}
+	if _, err := os.Lstat(marker); err == nil {
+		old, e := d.resumeMarker(marker, name, dir, confirm)
+		if e != nil {
+			return AdoptResult{}, e
 		}
+		m, resuming, confirm = old, true, old.Confirm
 	}
 	if o, ok := ReadOwner(dir); ok && !resuming {
 		return AdoptResult{}, Errf("route_exists", "inbox already owned by the daemon (epoch %s)", o.Epoch)
@@ -218,13 +220,15 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool
 			}
 			return AdoptResult{}, e
 		}
-		// Step 2.4: the pending list first, then the marker.
+		// Step 2.4: the pending list first, then the marker. The entry is
+		// the daemon's record of this adoption (its route, confirmed pair
+		// and epoch); an entry of an earlier run that never wrote its
+		// marker is replaced.
 		pl := d.readPending()
-		if !slices.ContainsFunc(pl.Inboxes, func(e pendingEntry) bool { return e.Inbox == dir }) {
-			pl.Inboxes = append(pl.Inboxes, pendingEntry{Inbox: dir, Route: name, Started: m.Started, Confirm: confirm})
-			if err := d.writePending(pl); err != nil {
-				return AdoptResult{}, Errf("internal", "pending list: %v", err)
-			}
+		pl.Inboxes = slices.DeleteFunc(pl.Inboxes, func(e pendingEntry) bool { return e.Inbox == dir })
+		pl.Inboxes = append(pl.Inboxes, pendingEntry{Inbox: dir, Route: name, Started: m.Started, Confirm: confirm, Epoch: m.Epoch})
+		if err := d.writePending(pl); err != nil {
+			return AdoptResult{}, Errf("internal", "pending list: %v", err)
 		}
 		d.crash("adopt.pending")
 		if err := mkdirs(dir, "state"); err != nil {
@@ -342,6 +346,41 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool
 		d.attachView(rt, s)
 	}
 	return res, nil
+}
+
+// resumeMarker checks an inbox's adoption marker before a resume. Any
+// writer of the inbox can make the marker, so it is only a hint: the
+// resume follows the daemon's own record of the adoption in the private
+// home (written before the marker), which must list this inbox as route
+// name with the marker's epoch and confirmed pair; a request's pair, when
+// given, must be that pair too. The epoch is randomHex(16)'s form.
+func (d *Daemon) resumeMarker(marker, name, dir, confirm string) (adoptMarker, *APIError) {
+	refuse := func(why string) (adoptMarker, *APIError) {
+		return adoptMarker{}, Errf("bad_request", "%s is not an adoption this daemon started (%s); remove it to adopt again", marker, why)
+	}
+	b, err := readSmall(marker, 4096)
+	if err != nil {
+		return refuse(err.Error())
+	}
+	var m adoptMarker
+	if err := strictDecode(b, &m); err != nil {
+		return refuse("malformed: " + err.Error())
+	}
+	pl := d.readPending()
+	i := slices.IndexFunc(pl.Inboxes, func(e pendingEntry) bool { return e.Inbox == dir })
+	if i < 0 {
+		return refuse("the daemon's pending list does not name this inbox")
+	}
+	e := pl.Inboxes[i]
+	switch {
+	case !validEpoch(e.Epoch) || e.Epoch != m.Epoch:
+		return refuse("its epoch is not the pending adoption's")
+	case e.Route != name || m.Route != name:
+		return refuse("the pending adoption is of route " + e.Route)
+	case e.Confirm != m.Confirm || (confirm != "" && confirm != e.Confirm):
+		return refuse("its confirmed pair is not the pending adoption's")
+	}
+	return m, nil
 }
 
 func writeMarker(p string, m adoptMarker) error {
