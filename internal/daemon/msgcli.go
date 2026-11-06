@@ -17,8 +17,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
-	"github.com/arafathusayn/herdsman/internal/message"
 	"github.com/arafathusayn/herdsman/internal/routedb"
+	"github.com/arafathusayn/herdsman/internal/settings"
 )
 
 // MessageEnv is one run of a `herdsman message` command on the daemon
@@ -617,15 +617,16 @@ func tailSeq(p string) int64 {
 	return 0
 }
 
-// parseDuration is the strict duration setting (A25), the shared parser
-// of internal/message: plain seconds or with an s, m, h or d suffix,
-// clamped to lo..hi (whole seconds).
+// parseDuration is the duration setting (A25) through file mode's parser,
+// settings.Duration: plain seconds or with an s, m, h or d suffix, blanks
+// around it allowed, clamped to lo..hi. An empty value is refused, as the
+// callers have no default to fall back to.
 func parseDuration(v string, lo, hi time.Duration) (time.Duration, error) {
-	d, ok := message.SettingDuration(v, lo, hi)
-	if !ok {
+	d, err := settings.Duration("", v, 0, hi)
+	if v == "" || err != nil {
 		return 0, errors.New("not a duration (seconds, or with an s, m, h or d suffix)")
 	}
-	return d, nil
+	return max(d, lo), nil
 }
 
 // DefaultWaitDeadline is wait's TICK deadline: 4 minutes 30 seconds, so
