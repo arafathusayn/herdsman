@@ -188,29 +188,32 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool
 		return AdoptResult{}, Errf("internal", "input lock: %v", err)
 	}
 	d.crash("adopt.locks")
-	if !resuming {
-		// Step 2.3: no partial write in flight, and the pair the human
-		// confirmed.
-		if partial := partialWrites(dir); partial != "" {
+	// A refusal of a fresh run leaves the inbox as it was; a resume keeps
+	// its locks, so the adoption stays pending.
+	release := func() {
+		if !resuming {
 			for _, t := range taken {
 				releaseLock(t)
 			}
+		}
+	}
+	// Step 2.3: no partial write in flight.
+	if !resuming {
+		if partial := partialWrites(dir); partial != "" {
+			release()
 			return AdoptResult{}, Errf("adopt_locked", "a file-mode write is in flight (%s); retry when it ends", partial)
 		}
-		rt := &inbox.Root{Dir: dir}
-		if _, ok := rt.Registry(); !ok {
-			for _, t := range taken {
-				releaseLock(t)
-			}
-			return AdoptResult{}, Errf("checksum_mismatch", "the registry is not an approved pair with no pending change")
+	}
+	// The pair the human confirmed, on every run: an inbox writer can
+	// change the registry while an adoption is pending.
+	if e := confirmedPair(dir, confirm); e != nil {
+		release()
+		if resuming {
+			e.Message += "; the adoption stays pending until the confirmed pair is back"
 		}
-		ab, _ := os.ReadFile(filepath.Join(dir, "peers.approved"))
-		if sha256Hex(ab) != confirm {
-			for _, t := range taken {
-				releaseLock(t)
-			}
-			return AdoptResult{}, Errf("checksum_mismatch", "confirm_pair_sha256 does not match peers.approved")
-		}
+		return AdoptResult{}, e
+	}
+	if !resuming {
 		// Step 2.5 (section 5 step 3): the import into a staging route
 		// database, before anything of the inbox changes; a refusal
 		// leaves the route unadopted and the inbox as it was.
@@ -307,11 +310,12 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool
 			rt.closeFiles()
 		}
 	}()
-	// Credentials are issued at adoption, file by default (12.2 step 3).
+	// Credentials are issued at adoption, file by default (12.2 step 3),
+	// only for the pair the human confirmed (approve refuses any other).
 	// A failure keeps the adoption pending (marker and list entry stay),
 	// so the next run issues them before anything commits.
-	if pb, ok := rt.registryBytes("peers"); ok && len(rt.creds) == 0 {
-		if _, e := rt.approve(ApproveRequest{SHA256: sha256Hex(pb), Interaction: "adopt"}); e != nil {
+	if len(rt.creds) == 0 {
+		if _, e := rt.approve(ApproveRequest{SHA256: confirm, Interaction: "adopt"}); e != nil {
 			return AdoptResult{}, Errf("internal", "credentials at adoption: %s; the adoption stays pending", e.Message)
 		}
 	}
@@ -381,6 +385,19 @@ func (d *Daemon) resumeMarker(marker, name, dir, confirm string) (adoptMarker, *
 		return refuse("its confirmed pair is not the pending adoption's")
 	}
 	return m, nil
+}
+
+// confirmedPair checks that the inbox's registry is an approved pair with
+// no pending change whose peers.approved is the pair the human confirmed.
+func confirmedPair(dir, confirm string) *APIError {
+	if _, ok := (&inbox.Root{Dir: dir}).Registry(); !ok {
+		return Errf("checksum_mismatch", "the registry is not an approved pair with no pending change")
+	}
+	ab, _ := os.ReadFile(filepath.Join(dir, "peers.approved"))
+	if sha256Hex(ab) != confirm {
+		return Errf("checksum_mismatch", "confirm_pair_sha256 does not match peers.approved")
+	}
+	return nil
 }
 
 func writeMarker(p string, m adoptMarker) error {
