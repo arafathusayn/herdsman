@@ -30,6 +30,22 @@ func settle(n int) int {
 	return g
 }
 
+// steady waits, at most 2 s, until the goroutine count has not changed for
+// 100 ms, and returns it.
+func steady() int {
+	g := runtime.NumGoroutine()
+	for i, same := 0, 0; i < 200 && same < 10; i++ {
+		time.Sleep(10 * time.Millisecond)
+		n := runtime.NumGoroutine()
+		if n == g {
+			same++
+		} else {
+			g, same = n, 0
+		}
+	}
+	return g
+}
+
 // TestSlowClientBounded: a subscriber that never reads while many events
 // are published costs at most its fixed queue; the stream is closed and a
 // reconnect with its cursor receives every event (9.3, 9.4).
@@ -185,8 +201,18 @@ func TestLoadManyRoutes(t *testing.T) {
 		a, o, _ := h.route(n)
 		routes = append(routes, rp{n, a, o})
 	}
+	// The base has no client connection open: close every idle one the
+	// setup left, and wait for the server to end their goroutines.
+	closeAll := func() {
+		h.closeClients()
+		for _, r := range routes {
+			r.adj.c.Close()
+			r.orch.c.Close()
+		}
+	}
+	closeAll()
+	g0 := steady()
 	h.srv.Forget()
-	g0 := runtime.NumGoroutine()
 	base := heapAfterGC()
 	var streams []*EventReader
 	for i := range 50 {
@@ -221,16 +247,17 @@ func TestLoadManyRoutes(t *testing.T) {
 		}
 		ev.Close()
 	}
-	h.closeClients()
-	for _, r := range routes {
-		r.adj.c.Close()
-		r.orch.c.Close()
-	}
+	closeAll()
 	// The server ends a closed connection's goroutines and buffers after
-	// the client closes it: wait for that before the heap is measured.
-	settle(g0)
+	// the client closes it. With every stream and connection closed, the
+	// count must fall back to the base: a goroutine left per stream fails.
+	if g := settle(g0); g > g0 {
+		t.Fatalf("goroutines %d after every stream and connection closed, base %d", g, g0)
+	}
 	h.srv.Forget()
-	if grown := int64(heapAfterGC()) - int64(base); grown > 2<<20 {
+	grown := int64(heapAfterGC()) - int64(base)
+	t.Logf("goroutine base %d; live heap %+d bytes", g0, grown)
+	if grown > 2<<20 {
 		t.Fatalf("heap grew %d bytes", grown)
 	}
 }
