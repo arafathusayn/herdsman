@@ -388,6 +388,12 @@ func (r *Route) priorApproval(q ApproveRequest, pb []byte, want ApproveResult) (
 	if err != nil || strictDecode(b, &a) != nil || a.SHA256 != sha256Hex(pb) {
 		return ApproveResult{}, false, nil // approved before this record existed: approve issues credentials
 	}
+	if !r.issuedBy(a) {
+		// The record is evidence of an approval whose credentials this
+		// route never issued (file mode's, kept in an adopted inbox and
+		// imported into the route database): approve issues them.
+		return ApproveResult{}, false, nil
+	}
 	got := slices.Clone(want.Credentials)
 	slices.SortFunc(got, func(x, y ApprovedCredential) int { return strings.Compare(x.Name, y.Name) })
 	if a.Interaction != q.Interaction || !slices.Equal(got, a.Credentials) {
@@ -395,6 +401,20 @@ func (r *Route) priorApproval(q ApproveRequest, pb []byte, want ApproveResult) (
 	}
 	res := ApproveResult{Approved: true, Credentials: a.Credentials, Revoked: a.Revoked}
 	return res, true, nil
+}
+
+// issuedBy reports whether the route's credential generation is the one
+// approval record a names: the same parties with the same options.
+func (r *Route) issuedBy(a approvalRecord) bool {
+	if len(r.creds) == 0 || len(r.creds) != len(a.Credentials) {
+		return false
+	}
+	for _, c := range a.Credentials {
+		if have, ok := r.creds[c.Name]; !ok || have.Option != c.Option {
+			return false
+		}
+	}
+	return true
 }
 
 // retire retires an approved name (7.7): it leaves the pending registry,
