@@ -81,9 +81,11 @@ func openRetry(t *testing.T, c *Client, path string) *EventReader {
 	}
 }
 
-// TestLoopsStayFlat runs the daemon's loops 1000 times (A24.3): actor
-// operations (send, read, ack, release), stream connects and the view
-// stream; the live heap grows by under 1 MiB and the goroutines return.
+// TestLoopsStayFlat runs the daemon's loops (A24.3): 1000 stream connects
+// and view stream connects, then 400 actor cycles (send, read, ack,
+// release) once the actor's bounded memory is full; the live heap grows by
+// under 1 MiB for the streams and 1 KiB a cycle for the actor, and the
+// goroutines return.
 func TestLoopsStayFlat(t *testing.T) {
 	h := newHarness(t)
 	adj, orch, _ := h.route("r")
@@ -138,14 +140,22 @@ func TestLoopsStayFlat(t *testing.T) {
 	}
 	h.srv.Forget()
 	actorBase := heapAfterGC()
+	// Each cycle adds one acknowledged message, and every read, release
+	// and send checks every acknowledged message of the mailbox, so the
+	// loop's time grows with the square of its length. 400 cycles with a
+	// bound of 1 KiB a cycle catch the same per-cycle growth as 1000
+	// cycles with 1 MiB, at a fraction of the time.
+	const actorCycles = 400
 	t.Run("actor", func(t *testing.T) {
-		for range 1000 {
+		for range actorCycles {
 			cycle(t)
 		}
 	})
 	h.srv.Forget()
-	if grown := int64(heapAfterGC()) - int64(actorBase); grown > 1<<20 {
-		t.Errorf("actor loop: live heap grew %d bytes", grown)
+	grown := int64(heapAfterGC()) - int64(actorBase)
+	t.Logf("actor loop: live heap %+d bytes over %d cycles", grown, actorCycles)
+	if grown > actorCycles<<10 {
+		t.Errorf("actor loop: live heap grew %d bytes, over 1 KiB a cycle", grown)
 	}
 	adj.c.Close()
 	orch.c.Close()
