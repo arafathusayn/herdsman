@@ -319,12 +319,13 @@ func (im *importer) targets() *APIError {
 	return nil
 }
 
-// contract2 logs a contract 2 inbox's daemon files, which stay legacy
-// evidence: events and checkpoints end with the old epoch, owner.json is
-// written again at publish, the approval and credential records wait for
-// an imported approvals row (handoff), the secrets are reissued at the
-// next approval, and the stale latch has no version 3 proof to mark (the
-// route is HUMAN until setup writes one).
+// contract2 imports a contract 2 inbox's state/approval.json as an
+// approvals evidence row (approval) and logs its other daemon files, which
+// stay legacy evidence: events and checkpoints end with the old epoch,
+// owner.json is written again at publish, the credential hashes are not
+// imported and the secrets are reissued at the next approval, and the
+// stale latch has no version 3 proof to mark (the route is HUMAN until
+// setup writes one).
 func (im *importer) contract2() *APIError {
 	if e := im.approval(); e != nil {
 		return e
