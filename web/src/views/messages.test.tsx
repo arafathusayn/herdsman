@@ -426,6 +426,24 @@ test("a peer opens its pane", () => {
   expect(store.app.view.pane).toBe("p1");
 });
 
+test("a daemon-owned channel shows the daemon's liveness and its service locks", () => {
+  const v = createView();
+  v.render(
+    {
+      ...channel([]),
+      health: [{ name: "daemon", age: 3, ok: true }],
+      flags: ["courier-lock-stale", "watch-lock-stale"],
+      holds: [],
+    },
+    panes,
+  );
+  const chips = dump(elements(elements(fake(v.el))[0]!)[1]!);
+  expect(chips).toContain('<span class="chip ok" data-tip="Heartbeat 3s ago; down after 120s">Daemon up</span>');
+  expect(chips).not.toContain("Watcher");
+  expect(chips).toContain(">Courier lock stale</span>");
+  expect(chips).toContain(">Watch lock stale</span>");
+});
+
 test("quarantine hides an already cached body and refuses another read", async () => {
   const read: string[] = [];
   const view = createView(async (_to, id) => {
