@@ -28,9 +28,13 @@ func stampOf(p string) (fileStamp, bool) {
 type ackEntry struct{ cur, ack, claim fileStamp }
 
 // ackCache remembers acks found valid, gated on the files' stamps, so a
-// read, release or snapshot does not decode every acknowledged message
-// again (A24: the cost of an operation must not grow with the history).
-// A changed file, or a stamp that cannot be read, checks the ack again.
+// send, read, release or snapshot does not read and decode every
+// acknowledged message's files again. It saves the decode only: each
+// operation still stamps and path-checks every acknowledged message (a few
+// file status calls each), so in file mode its cost still grows with the
+// number of acknowledged messages in the mailbox, until the daemon serves
+// from the route database. A changed file, or a stamp that cannot be read,
+// checks the ack again.
 type ackCache struct {
 	mu sync.Mutex
 	m  map[string]ackEntry // "<box>/<id>"
