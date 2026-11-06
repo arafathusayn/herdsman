@@ -346,7 +346,7 @@ func (d *Daemon) createRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	if _, ok := rf.Routes[q.Route]; ok {
 		return Errf("route_exists", "route %s is already registered", q.Route)
 	}
-	if e := d.caseTwin(rf, q.Route); e != nil {
+	if e := d.nameTaken(rf, q.Route, ""); e != nil {
 		return e
 	}
 	dir := filepath.Join(d.cfg.PrivateHome, q.Repo+"-"+q.Route)

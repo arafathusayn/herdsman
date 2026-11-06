@@ -125,7 +125,7 @@ func (d *Daemon) adoptRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	if e, ok := rf.Routes[name]; ok && e.Inbox != q.Inbox {
 		return Errf("route_exists", "route %s is registered with another inbox", name)
 	}
-	if e := d.caseTwin(rf, name); e != nil {
+	if e := d.nameTaken(rf, name, q.Inbox); e != nil {
 		return e
 	}
 	d.mu.Lock()
@@ -142,26 +142,34 @@ func (d *Daemon) adoptRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	return nil
 }
 
-// caseTwin refuses name with route_exists when a registered, served or
-// pending route other than name equals it ignoring case: on a
-// case-insensitive file system (the macOS default) the two would share a
-// route database and a staging folder. The caller holds regMu.
-func (d *Daemon) caseTwin(rf RoutesFile, name string) *APIError {
-	var names []string
-	for n := range rf.Routes {
-		names = append(names, n)
+// nameTaken refuses name with route_exists when a registered, served or
+// pending route of another inbox has it, exactly or ignoring case: on a
+// case-insensitive file system (the macOS default) a case twin shares the
+// route database and the staging folder, and an exact name would publish
+// over the other inbox's route. Only dir's own route of exactly that name
+// passes (adopt's resume); dir "" (create) passes none, so every pending
+// name is refused. The caller holds regMu.
+func (d *Daemon) nameTaken(rf RoutesFile, name, dir string) *APIError {
+	type use struct{ name, inbox, what string }
+	var uses []use
+	for n, e := range rf.Routes {
+		uses = append(uses, use{n, e.Inbox, "registered"})
 	}
 	for _, e := range d.readPending().Inboxes {
-		names = append(names, e.Route)
+		uses = append(uses, use{e.Route, e.Inbox, "being adopted"})
 	}
 	d.mu.Lock()
-	for n := range d.routes {
-		names = append(names, n)
+	for n, rt := range d.routes {
+		uses = append(uses, use{n, rt.inbox, "served"})
 	}
 	d.mu.Unlock()
-	for _, n := range names {
-		if n != name && strings.EqualFold(n, name) {
-			return Errf("route_exists", "route %s differs from route %s only in case; on a case-insensitive file system they share a database", name, n)
+	for _, u := range uses {
+		switch {
+		case !strings.EqualFold(u.name, name) || (u.name == name && dir != "" && u.inbox == dir):
+		case u.name == name:
+			return Errf("route_exists", "route %s is %s for another inbox (%s)", name, u.what, u.inbox)
+		default:
+			return Errf("route_exists", "route %s differs from route %s only in case; on a case-insensitive file system they share a database", name, u.name)
 		}
 	}
 	return nil
