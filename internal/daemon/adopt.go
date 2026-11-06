@@ -245,18 +245,18 @@ func (d *Daemon) adopt(ctx context.Context, name, dir, confirm string, wait bool
 	}
 	// b. invalidate the old proof (whatever the phase says).
 	legacy := exists(filepath.Join(dir, "state", "legacy", "setup-v1.json"))
-	if _, owned := ReadOwner(dir); !owned && exists(filepath.Join(dir, "setup.json")) {
-		if err := mkdirs(dir, "state/legacy"); err != nil {
-			return AdoptResult{}, Errf("internal", "%v", err)
-		}
-		dst := filepath.Join(dir, "state", "legacy", "setup-v1.json")
-		for n := 2; exists(dst); n++ {
-			dst = filepath.Join(dir, "state", "legacy", "setup-v1."+strconv.Itoa(n)+".json")
-		}
-		if err := renameDurable(filepath.Join(dir, "setup.json"), dst); err != nil {
+	// File mode's approval record goes aside too (the import has copied
+	// it into the route database), so the route's state/approval.json is
+	// only ever the daemon's own record of an approval it issued.
+	if _, owned := ReadOwner(dir); !owned {
+		moved, err := moveLegacy(dir, "setup.json", "setup")
+		if err != nil {
 			return AdoptResult{}, Errf("internal", "moving the old proof: %v", err)
 		}
-		legacy = true
+		legacy = legacy || moved
+		if _, err := moveLegacy(dir, filepath.Join("state", "approval.json"), "approval"); err != nil {
+			return AdoptResult{}, Errf("internal", "moving file mode's approval record: %v", err)
+		}
 	}
 	if m.Phase == "invalidate" || m.Phase == "locks" {
 		m.Phase = "drain"
@@ -385,6 +385,24 @@ func (d *Daemon) resumeMarker(marker, name, dir, confirm string) (adoptMarker, *
 		return refuse("its confirmed pair is not the pending adoption's")
 	}
 	return m, nil
+}
+
+// moveLegacy moves file mode's file src (relative to the inbox) to
+// state/legacy/<base>-v1.json, or the first free <base>-v1.<n>.json; it
+// reports whether there was a file to move.
+func moveLegacy(dir, src, base string) (bool, error) {
+	from := filepath.Join(dir, src)
+	if !exists(from) {
+		return false, nil
+	}
+	if err := mkdirs(dir, "state/legacy"); err != nil {
+		return false, err
+	}
+	dst := filepath.Join(dir, "state", "legacy", base+"-v1.json")
+	for n := 2; exists(dst); n++ {
+		dst = filepath.Join(dir, "state", "legacy", base+"-v1."+strconv.Itoa(n)+".json")
+	}
+	return true, renameDurable(from, dst)
 }
 
 // confirmedPair checks that the inbox's registry is an approved pair with
