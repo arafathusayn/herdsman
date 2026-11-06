@@ -176,6 +176,7 @@ func TestLoadManyRoutes(t *testing.T) {
 		routes = append(routes, rp{n, a, o})
 	}
 	h.srv.Forget()
+	g0 := runtime.NumGoroutine()
 	base := heapAfterGC()
 	var streams []*EventReader
 	for i := range 50 {
@@ -215,6 +216,9 @@ func TestLoadManyRoutes(t *testing.T) {
 		r.adj.c.Close()
 		r.orch.c.Close()
 	}
+	// The server ends a closed connection's goroutines and buffers after
+	// the client closes it: wait for that before the heap is measured.
+	settle(g0)
 	h.srv.Forget()
 	if grown := int64(heapAfterGC()) - int64(base); grown > 2<<20 {
 		t.Fatalf("heap grew %d bytes", grown)
