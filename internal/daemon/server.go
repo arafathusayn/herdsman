@@ -346,6 +346,9 @@ func (d *Daemon) createRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	if _, ok := rf.Routes[q.Route]; ok {
 		return Errf("route_exists", "route %s is already registered", q.Route)
 	}
+	if twin := d.caseTwin(rf, q.Route); twin != "" {
+		return Errf("route_exists", "route %s differs from route %s only in case; on a case-insensitive file system they share a database", q.Route, twin)
+	}
 	dir := filepath.Join(d.cfg.PrivateHome, q.Repo+"-"+q.Route)
 	if err := mkdirDurable(dir); err != nil {
 		if errors.Is(err, os.ErrExist) {

@@ -125,6 +125,9 @@ func (d *Daemon) adoptRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	if e, ok := rf.Routes[name]; ok && e.Inbox != q.Inbox {
 		return Errf("route_exists", "route %s is registered with another inbox", name)
 	}
+	if twin := d.caseTwin(rf, name); twin != "" {
+		return Errf("route_exists", "route %s differs from route %s only in case; on a case-insensitive file system they share a database", name, twin)
+	}
 	d.mu.Lock()
 	_, served := d.routes[name]
 	d.mu.Unlock()
@@ -137,6 +140,31 @@ func (d *Daemon) adoptRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	}
 	writeJSON(w, 200, res)
 	return nil
+}
+
+// caseTwin names a registered, served or pending route other than name
+// that equals it ignoring case: on a case-insensitive file system (the
+// macOS default) the two would share a route database and a staging
+// folder. The caller holds regMu.
+func (d *Daemon) caseTwin(rf RoutesFile, name string) string {
+	var names []string
+	for n := range rf.Routes {
+		names = append(names, n)
+	}
+	for _, e := range d.readPending().Inboxes {
+		names = append(names, e.Route)
+	}
+	d.mu.Lock()
+	for n := range d.routes {
+		names = append(names, n)
+	}
+	d.mu.Unlock()
+	for _, n := range names {
+		if n != name && strings.EqualFold(n, name) {
+			return n
+		}
+	}
+	return ""
 }
 
 // adopt is the resumable adoption transaction (12.2): every step is
