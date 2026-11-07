@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
 func sum(t *testing.T, p string) string {
@@ -37,11 +39,20 @@ func TestGateAcceptsDaemonProof(t *testing.T) {
 
 	// Contract 2 with the version 2 proof: consumed.
 	rule := filepath.Join(r.c.Base, "ignore-rule")
-	bin := filepath.Join(r.c.Base, "herdsman-bin")
-	r.c.Write(bin, "binary\n")
+	exe := inbox.RunningExecutable()
 	v2 := map[string]any{"version": 2, "inbox": r.c.Dir, "policy_verified": true,
-		"rules": []any{map[string]any{"path": rule, "sha256": sum(t, rule)}}, "binary": map[string]any{"path": bin, "sha256": sum(t, bin)},
+		"rules": []any{map[string]any{"path": rule, "sha256": sum(t, rule)}}, "binary": map[string]any{"path": exe, "sha256": sum(t, exe)},
 		"boundary": old["boundary"], "probes": []any{}}
+
+	// A version 2 proof of another binary, still in place, does not prove
+	// the running one.
+	other := filepath.Join(r.c.Base, "herdsman-bin")
+	r.c.Write(other, "binary\n")
+	v2["binary"] = map[string]any{"path": other, "sha256": sum(t, other)}
+	r.c.WriteJSON(r.c.Proof, v2)
+	match(t, "a version 2 proof of another binary", `proof stale.*rc=2`, r.consume("d1"))
+
+	v2["binary"] = map[string]any{"path": exe, "sha256": sum(t, exe)}
 	r.c.WriteJSON(r.c.Proof, v2)
 	match(t, "the version 2 proof on a contract 2 inbox", `^CONSUME d1.*rc=0`, r.consume("d1"))
 
@@ -52,8 +63,10 @@ func TestGateAcceptsDaemonProof(t *testing.T) {
 	match(t, "a latched version 2 proof", `proof stale.*rc=2`, r.consume("d3"))
 	_ = os.Remove(latch)
 
-	// A changed binary makes the version 2 proof stale.
-	r.c.Write(bin, "other\n")
+	// A changed binary makes the version 2 proof stale: the proof's
+	// checksum no longer matches its bytes.
+	v2["binary"] = map[string]any{"path": exe, "sha256": sum(t, other)}
+	r.c.WriteJSON(r.c.Proof, v2)
 	r.gojson("d2", 600, nil)
 	match(t, "a version 2 proof with a changed binary", `proof stale.*rc=2`, r.consume("d2"))
 

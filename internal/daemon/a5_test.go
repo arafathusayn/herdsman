@@ -171,12 +171,12 @@ func TestRetainedProofTargetDrift(t *testing.T) {
 	if _, e := x.r.setup(q); e != nil {
 		t.Fatal(e)
 	}
-	if !inbox.ProofV2Valid(x.dir) {
+	if !inbox.ProofV2Valid(x.dir, x.r.installedBinary()) {
 		t.Fatal("fresh retained proof refused")
 	}
 	_ = os.WriteFile(x.path("watch-targets.json"), []byte("[]\n"), 0600)
 	// Check retained reader before daemon detection can create the latch.
-	if inbox.ProofV2Valid(x.dir) {
+	if inbox.ProofV2Valid(x.dir, x.r.installedBinary()) {
 		t.Error("retained approval proof accepts changed targets")
 	}
 	if x.r.proofValid() {

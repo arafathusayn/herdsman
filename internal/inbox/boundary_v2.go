@@ -80,11 +80,17 @@ func BoundaryV2(ctx context.Context, c *herdr.Client, dir string, boundary map[s
 }
 
 // ProofV2Valid checks a daemon-owned inbox's version 2 setup proof
-// (design 4.6, 7.3): setup.json of this inbox with version 2, a verified
-// policy, at least one rule, and every rule and the binary an absolute
-// regular file whose SHA-256 matches. The script and CRC binary forms of
-// contract 1 are not version 2 and fail.
-func ProofV2Valid(dir string) bool {
+// (design 4.6, 7.3) for the executable exe (absolute, links resolved; ""
+// accepts no proof): setup.json of this inbox with version 2, a verified
+// policy, at least one rule, the binary named exe, and every rule and the
+// binary an absolute regular file whose SHA-256 matches. A proof of
+// another binary does not prove exe, even when that binary is still in
+// place after an upgrade. The script and CRC binary forms of contract 1
+// are not version 2 and fail.
+func ProofV2Valid(dir, exe string) bool {
+	if exe == "" || !filepath.IsAbs(exe) {
+		return false
+	}
 	if _, err := os.Lstat(filepath.Join(dir, "state", "proof-stale")); err == nil {
 		return false // the daemon saw this proof stale; only a new setup clears it
 	}
@@ -107,7 +113,7 @@ func ProofV2Valid(dir string) bool {
 		WatchTargets  json.RawMessage `json:"watch_targets"`
 		ResumeTargets json.RawMessage `json:"resume_targets"`
 	}
-	if json.Unmarshal(b, &doc) != nil || doc.Version != 2 || doc.Inbox != dir || !doc.PolicyVerified || len(doc.Rules) == 0 {
+	if json.Unmarshal(b, &doc) != nil || doc.Version != 2 || doc.Inbox != dir || !doc.PolicyVerified || len(doc.Rules) == 0 || doc.Binary.Path != exe {
 		return false
 	}
 	for _, f := range append(doc.Rules, doc.Binary) {

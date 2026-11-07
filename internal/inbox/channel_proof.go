@@ -59,7 +59,7 @@ func OpenChannel(o Options, exe string) (*Channel, error) {
 // daemon-owned (contract 2) inbox takes only the version 2 proof (4.6).
 func (ch *Channel) ProofValid() bool {
 	if DaemonOwned(ch.Dir) {
-		return ProofV2Valid(ch.Dir)
+		return ProofV2Valid(ch.Dir, ch.Executable)
 	}
 	return ch.BinaryProofValid()
 }
