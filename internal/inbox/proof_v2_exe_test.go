@@ -5,27 +5,39 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/arafathusayn/herdsman/internal/herdr"
 )
 
-// TestProofV2NeedsAnExecutable: no executable, or a relative one, accepts
-// no version 2 proof; on a daemon-owned inbox BoundaryOK checks the proof
-// itself, so a root whose Open saw a valid proof is refused once the proof
-// is gone.
+// TestProofV2NeedsAnExecutable: a version 2 proof with an approved pair
+// proves the executable it names and no other. ProofV2Valid accepts it
+// for that executable and refuses another (an identical copy too), a
+// relative path and none. On a daemon-owned inbox BoundaryOK checks the
+// proof itself: a root of the named executable passes the proof and the
+// boundary fields and fails only on the agent list (no Herdr here), and a
+// root of another executable, whose Open saw no stale proof, is refused
+// at the proof.
 func TestProofV2NeedsAnExecutable(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o700); err != nil {
+	x := newV2Inbox(t)
+	other := filepath.Join(x.base, "other")
+	b, err := os.ReadFile(x.exe)
+	if err != nil {
 		t.Fatal(err)
 	}
-	for _, exe := range []string{"", "herdsman"} {
-		if ProofV2Valid(dir, exe) {
-			t.Errorf("executable %q accepts a proof", exe)
+	x.write(t, other, b)
+	if !ProofV2Valid(x.dir, x.exe) {
+		t.Fatal("the proof does not prove the executable it names")
+	}
+	for _, exe := range []string{other, "", "herdsman"} {
+		if ProofV2Valid(x.dir, exe) {
+			t.Errorf("executable %q accepts a proof of %s", exe, x.exe)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "state", "owner.json"), []byte(`{"owner":"daemon"}`), 0o600); err != nil {
-		t.Fatal(err)
+	hc := herdr.New(filepath.Join(x.base, "no-herdr.sock"))
+	if ok, fault, _ := (&Root{Dir: x.dir, Executable: x.exe}).BoundaryOK(context.Background(), hc); ok || fault != FaultList {
+		t.Fatalf("the named executable's boundary check: %v %q, want the agent list fault", ok, fault)
 	}
-	r := &Root{Dir: dir, Executable: "/usr/bin/herdsman"} // ProofStale false, as Open left it
-	if ok, fault, _ := r.BoundaryOK(context.Background(), nil); ok || fault != FaultStatic {
-		t.Fatalf("no proof on the boundary check: %v %q", ok, fault)
+	if ok, fault, _ := (&Root{Dir: x.dir, Executable: other}).BoundaryOK(context.Background(), hc); ok || fault != FaultStatic {
+		t.Fatalf("another executable's boundary check: %v %q, want the proof fault", ok, fault)
 	}
 }
