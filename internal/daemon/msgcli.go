@@ -536,7 +536,8 @@ func offlineStatus(route, dir, privateHome string) (st StatusReport, mode routed
 
 // FileStatus reads a daemon-owned inbox's status from its files alone:
 // read-only, no lock, no Herdr call, no bodies, no claim tokens; a bad
-// mailbox is reported and skipped (4.5, D25). The last sequence comes
+// mailbox is reported and skipped (4.5, D25). Saved holds are listed as
+// the live reader lists them. The last sequence comes
 // from a bounded tail of the journal.
 func FileStatus(route, dir string) StatusReport {
 	st := StatusReport{Route: route, Inbox: dir, Status: "daemon-down", Flags: []string{"daemon-down"}, Peers: []PeerInfo{}, Boxes: []BoxCount{}, Holds: []HoldInfo{}}
@@ -573,6 +574,7 @@ func FileStatus(route, dir string) StatusReport {
 			Cur: inbox.CountState(filepath.Join(box, "cur")), Quarantine: inbox.CountState(filepath.Join(box, "quarantine")),
 			Unacked: len(rt.Unacked(box)), Claim: rt.ClaimValid(box), Orphan: !hasPeer(st.Peers, n)})
 	}
+	st.Holds = append(st.Holds, holdInfos(dir)...)
 	return st
 }
 

@@ -569,11 +569,17 @@ type HoldResult struct {
 // {"holds":{<owner>:{"reason":string,"time":integer}}}; anything else is
 // left as it is for human inspection.
 func (r *Route) holdOwners(name string) (ordered, bool) {
-	p := r.path("state", "hold-"+name)
+	return readHoldOwners(r.inbox, name)
+}
+
+// readHoldOwners is holdOwners for any inbox folder: the live reader and
+// the file-mode status (FileStatus) share it.
+func readHoldOwners(dir, name string) (ordered, bool) {
+	p := filepath.Join(dir, "state", "hold-"+name)
 	if !exists(p) {
 		return ordered{}, true
 	}
-	b, ok := inbox.ReadStrict(r.inbox, p)
+	b, ok := inbox.ReadStrict(dir, p)
 	if !ok {
 		return nil, false
 	}

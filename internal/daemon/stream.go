@@ -427,21 +427,31 @@ func (r *Route) status() StatusReport {
 			Unacked: len(r.unacked(box)), Claim: rt.ClaimValid(box), Orphan: !hasPeer(st.Peers, b)}
 		st.Boxes = append(st.Boxes, c)
 	}
-	if ents, err := os.ReadDir(r.path("state")); err == nil {
-		for _, e := range ents {
-			if t, ok := strings.CutPrefix(e.Name(), "hold-"); ok {
-				h := HoldInfo{Target: t, Owners: []string{}}
-				if o, ok := r.holdOwners(t); ok {
-					for _, x := range o {
-						h.Owners = append(h.Owners, x.K)
-					}
+	st.Holds = append(st.Holds, holdInfos(r.inbox)...)
+	return st
+}
+
+// holdInfos lists the saved state/hold-* records of an inbox with their
+// owners; a record not in the owner format is listed with no owners.
+func holdInfos(dir string) []HoldInfo {
+	var out []HoldInfo
+	ents, err := os.ReadDir(filepath.Join(dir, "state"))
+	if err != nil {
+		return out
+	}
+	for _, e := range ents {
+		if t, ok := strings.CutPrefix(e.Name(), "hold-"); ok {
+			h := HoldInfo{Target: t, Owners: []string{}}
+			if o, ok := readHoldOwners(dir, t); ok {
+				for _, x := range o {
+					h.Owners = append(h.Owners, x.K)
 				}
-				sort.Strings(h.Owners)
-				st.Holds = append(st.Holds, h)
 			}
+			sort.Strings(h.Owners)
+			out = append(out, h)
 		}
 	}
-	return st
+	return out
 }
 
 // writeFrame writes one SSE frame: id (stored events, and the cursor of a
