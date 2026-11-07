@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -42,10 +43,12 @@ func BoundaryV2(ctx context.Context, c *herdr.Client, dir string, boundary map[s
 	if (&Channel{Root: r}).ExposurePending() {
 		return false, FaultPending, nil
 	}
-	if _, ok := r.Registry(); !ok || Exists(r.Path("state", "boundary-tainted")) {
+	// The pair is the approved registry as Registry read it (bounded, no
+	// link, no FIFO), not a second read of the path.
+	pb, _, ok := r.registry()
+	if !ok || Exists(r.Path("state", "boundary-tainted")) {
 		return false, FaultStatic, nil
 	}
-	pb, _ := os.ReadFile(r.Path("peers.approved"))
 	pair, _ := Decode(pb)
 	if !boundaryFields(boundary, pair) {
 		return false, FaultStatic, nil
@@ -88,15 +91,23 @@ func BoundaryV2(ctx context.Context, c *herdr.Client, dir string, boundary map[s
 // place after an upgrade. The script and CRC binary forms of contract 1
 // are not version 2 and fail.
 func ProofV2Valid(dir, exe string) bool {
+	_, ok := proofV2(dir, exe)
+	return ok
+}
+
+// proofV2 is ProofV2Valid that also returns the setup.json bytes it
+// checked, so a caller reads the boundary from the proof it verified and
+// not from a second read of the path.
+func proofV2(dir, exe string) ([]byte, bool) {
 	if exe == "" || !filepath.IsAbs(exe) {
-		return false
+		return nil, false
 	}
 	if _, err := os.Lstat(filepath.Join(dir, "state", "proof-stale")); err == nil {
-		return false // the daemon saw this proof stale; only a new setup clears it
+		return nil, false // the daemon saw this proof stale; only a new setup clears it
 	}
 	b, ok := ReadStrict(dir, filepath.Join(dir, "setup.json"))
 	if !ok {
-		return false
+		return nil, false
 	}
 	var doc struct {
 		Version        int    `json:"version"`
@@ -114,23 +125,17 @@ func ProofV2Valid(dir, exe string) bool {
 		ResumeTargets json.RawMessage `json:"resume_targets"`
 	}
 	if json.Unmarshal(b, &doc) != nil || doc.Version != 2 || doc.Inbox != dir || !doc.PolicyVerified || len(doc.Rules) == 0 || doc.Binary.Path != exe {
-		return false
+		return nil, false
 	}
 	for _, f := range append(doc.Rules, doc.Binary) {
 		if !filepath.IsAbs(f.Path) || len(f.SHA256) != 64 {
-			return false
+			return nil, false
 		}
-		st, err := os.Lstat(f.Path)
-		if err != nil || !st.Mode().IsRegular() {
-			return false
+		if beforeHash != nil {
+			beforeHash(f.Path)
 		}
-		data, err := os.ReadFile(f.Path)
-		if err != nil {
-			return false
-		}
-		sum := sha256.Sum256(data)
-		if hex.EncodeToString(sum[:]) != f.SHA256 {
-			return false
+		if sum, err := hashRegular(f.Path); err != nil || sum != f.SHA256 {
+			return nil, false
 		}
 	}
 	// The target files are part of the proof (7.3): each equals the
@@ -139,15 +144,37 @@ func ProofV2Valid(dir, exe string) bool {
 		p := filepath.Join(dir, name)
 		if len(raw) == 0 || string(raw) == "null" {
 			if _, err := os.Lstat(p); err == nil {
-				return false
+				return nil, false
 			}
 			continue
 		}
-		b, ok := ReadStrict(dir, p)
+		t, ok := ReadStrict(dir, p)
 		var x, y bytes.Buffer
-		if !ok || json.Compact(&x, b) != nil || json.Compact(&y, raw) != nil || !bytes.Equal(x.Bytes(), y.Bytes()) {
-			return false
+		if !ok || json.Compact(&x, t) != nil || json.Compact(&y, raw) != nil || !bytes.Equal(x.Bytes(), y.Bytes()) {
+			return nil, false
 		}
 	}
-	return true
+	return b, true
 }
+
+// hashRegular is the SHA-256 of a regular file, streamed: it is opened once
+// without following a link and without blocking on a FIFO, and its type is
+// checked on the open descriptor, so a file swapped after an earlier check
+// is refused at once. The read has no size bound: the binary is larger
+// than MaxSize.
+func hashRegular(p string) (string, error) {
+	f, err := openRegular(p, false)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// beforeHash runs in ProofV2Valid just before a proof file is hashed;
+// tests swap the file there.
+var beforeHash func(p string)
