@@ -99,6 +99,7 @@ Purple is planning with you, blue is agents at work, grey is the orchestrator as
 **Stay responsive and healthy**
 
 - **An optional adjutant.** You talk to an adjutant while the orchestrator works. Messages go through a private file channel: an approved pair, a courier that checks every message, a watcher, and alerts when either stops ([`references/messages.md`](skills/herdsman/references/messages.md)).
+- **A message channel daemon** *(next release)*. One `herdsman daemon` per user, installed as a LaunchAgent or a systemd user unit, can own a route's channel in place of that route's courier and watcher: it serves the message commands over a local socket, imports the route into a SQLite database with a journal and crash replay, and file-mode writers refuse an inbox it owns. `message status` and the web app read its liveness, even while it is down.
 - **Event-driven waits.** The orchestrator wakes on a new report, a new review, a blocked agent or a stalled one, and sleeps otherwise.
 - **Health checks.** Each wake shows every agent's state, model, background jobs and their ages, recent file writes, and the machine's load and free memory. Long-running jobs, idle trees and a loaded machine are flagged. Between wakes the waiter checks every ten minutes and wakes the orchestrator only for a new flag.
 - **One heavy check at a time.** Type checks, lint, tests and builds go through `herdsman run-check`: a machine-wide lock with a load gate, at lower CPU priority, so checks queue instead of piling up.
@@ -138,7 +139,7 @@ gh skill install arafathusayn/herdsman herdsman --agent <agent> --scope user
 <summary>Want to edit the skill while you use it? Link a clone instead.</summary>
 
 ```sh
-git clone https://github.com/arafathusayn/herdsman.git
+git clone --recurse-submodules https://github.com/arafathusayn/herdsman.git
 ln -s "$PWD/herdsman/skills/herdsman" <harness skills folder>/herdsman
 ```
 
@@ -198,19 +199,42 @@ Besides `web`, the `herdsman` command holds the tools the skill runs, in one Go 
 
 | Command | What it does |
 | --- | --- |
-| `wait` | Waits for the next event of the loop (a report, a review, a blocked or stalled agent, a health flag), or prints `TICK`. |
-| `watch implementers\|reviewer\|prs` | Watches the implementers, the reviewer or pull requests. |
-| `status` | A health snapshot of every agent and of the machine. |
-| `route check\|log` | Lists what a route folder is missing at a stage, or appends a run-state line. |
-| `checkpointer` | The checkpointer loop, one checkpoint (`--once`) or a probe of the context size. |
-| `message` | The adjutant message channel and its services: the courier, the card watch, the leak gate. |
-| `approval-gate consume\|complete` | Binds a relayed go to one effect before it runs, and records its outcome. |
-| `transcript-audit claude\|codex` | Audits a Claude or Codex transcript for writes. |
-| `run-check` | Runs one heavy check at a time on this machine, behind a load gate, at a lower priority. |
+| `wait` | Waits for the next event of the loop (a report, a review, a blocked or stalled agent, a health flag), or prints `TICK` after the deadline. |
+| `watch implementers\|reviewer\|prs` | Watches the implementers, the reviewer or pull requests; `prs` returns on the first pull request change, or with a `TICK`. |
+| `status` | A health snapshot of every agent in `HERDSMAN_STATUS_SPECS` and of the machine. |
+| `route check\|log` | `route check` prints an `ok` or `MISSING` line per item of a route folder at a stage (`plan`, `launch` or `close`); `route log` appends a dated run-state line. |
+| `checkpointer` | The checkpointer loop (`TARGET=<pane>`), one checkpoint (`--once`) or a probe of the context size (`--probe`). `checkpointer guard <name> <pane>` checks, in adjutant mode, that the approved registry still names that pane as the orchestrator. |
+| `message` | The adjutant message channel: `status`, `wait`, `read`, `release`, `ack`, `send`, `hold` and `unhold`, and its services `register`, `courier`, `card-watch`, `resume-goal`, `authority` and `leak-gate`. For a route the daemon owns (`--route`, or `HERDSMAN_ROUTE`), the same actions go through the daemon, plus `enroll` *(next release)*. |
+| `daemon` *(next release)* | The per-user message channel daemon: `run`, `install`, `uninstall`, `start`, `stop`, `restart`, `status`, `route`, `setup`, `pair` and `credential` ([below](#the-daemon)). |
+| `approval-gate consume\|complete` | Binds a relayed go to one effect before it runs (`consume`), and records its outcome (`complete`). |
+| `transcript-audit claude\|codex` | Audits a Claude or Codex transcript for writes outside the allowed roots: `GAP`, `FLAG` and `AUDIT` lines. |
+| `run-check` | Runs one heavy check at a time on this machine, under a shared lock, behind a load gate, at a lower priority. `--publish <hours>` writes the machine's load reading for the gate. |
 | `doctor` | Checks that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load. |
-| `models [last\|save]` | Probes each installed harness for its version, models and efforts; `last` and `save` keep your last pick for each role. |
+| `models [last\|save]` | Probes each installed harness for its version, models, efforts and default effort as it reports them; `last` and `save` keep your last pick for each role. |
 | `afk` | How long you have been away: the machine's idle time or your newest message, whichever is newer. |
 | `review start` | Prepares a clean, detached worktree at a commit for a reviewer, with its own build caches. |
+
+Commands marked *next release* are on `main`; build from source to use them now.
+
+### The daemon
+
+Without the daemon, each route with an adjutant runs its own courier and watcher as `herdsman message` services. `herdsman daemon` is one process per user that can own a route's channel instead. It is on `main` and comes with the next release; the skill's routes still start the file-mode services, so moving a route to the daemon is a step you run by hand.
+
+```sh
+herdsman daemon install          # write and start the LaunchAgent (macOS) or the systemd user unit (Linux)
+herdsman daemon status           # the health of every route and herdr link
+herdsman daemon route create --repo <repo> --route <route>
+herdsman daemon route adopt --inbox <path> --route <route> --confirm <peers.approved sha256>
+herdsman daemon setup <route> --rule <policy file>...
+herdsman daemon pair approve <route> <sha256>
+```
+
+- **Private home.** Its files live where no sandboxed agent can reach: `--private-home`, else `HERDSMAN_PRIVATE_HOME`, else `~/.herdsman-private`. The route databases are SQLite files under `daemon/routes/` there, and its socket is `run/daemon.sock`.
+- **Routes.** `route create` makes a new route; `route adopt` moves an existing inbox to the daemon as one resumable transaction: it drains the file-mode writers, imports the inbox into a staging database, then publishes the route. A refusal or a storage failure leaves the route unadopted and the inbox unchanged. `route remove`, `route reset-events` and `route list` do the rest. Route names are unique across the daemon and compared without case.
+- **Setup and pairing.** `setup` records a route's setup proof and `pair approve` approves a proposed pair; both need an attended terminal (`pair approve` takes `--interaction <ask reference>` instead), because only the human records them. `pair retire` and `credential revoke` take a party or a credential back.
+- **Supervisor.** `start`, `stop` and `restart` go through the LaunchAgent or unit; a stopped daemon stays stopped until `start`. `uninstall` stops it and removes the unit. Only one daemon runs per account.
+- **What changes for a route.** Once the daemon owns a route's inbox, `herdsman message` takes the daemon path for that route, file-mode writers refuse the inbox, and `message status` and the web app's Messages tab show the daemon's liveness instead of the courier and watcher heartbeats.
+- **Exit codes.** `0` done; `1` the daemon is down or degraded (`status`), or no answer within 10 s (`start`, `stop`, `restart`, `uninstall`); `2` usage, a refusal, another daemon of this account running, or no attended terminal; `3` the human boundary; `75` retryable: busy, the route is unowned, herdr is unreachable, or the daemon is not answering.
 
 ## Web app
 
@@ -263,28 +287,31 @@ herdsman web --public-url https://<machine>.<tailnet>.ts.net
 
 **Artifacts.** A route's Artifacts tab lists the HTML files in that route's current Herdr workspace folders: the folders of the panes in the workspace that holds the route's orchestrator, adjutant or first task pane, plus the route folder and its task worktrees. Each fresh listing follows what those paths point to now, and opening a page from a listing is checked against the folders as they were listed, so a folder renamed or replaced since then is refused. It skips dependency, build and hidden folders except `.lavish`, `.herdsman` and `.artifacts`, and shows one page in a sandboxed frame. The frame gets a short-lived link that serves only page files (HTML, scripts, styles, images, fonts and media) from that file's folder, and only to the browser that opened it; its scripts run without access to the app or your pairing.
 
-**Messages.** With an adjutant, the Messages tab shows the channel between the adjutant and the orchestrator the way `message status` reads it: the approved pair, courier and watcher health, alerts, and each message with its queue state. A body loads when you open it, and never for queued or quarantined entries. The app does not send messages.
+**Messages.** With an adjutant, the Messages tab shows the channel between the adjutant and the orchestrator the way `message status` reads it: the approved pair, courier and watcher health, alerts, and each message with its queue state. For an inbox the daemon owns, one health entry shows the daemon's liveness instead, and a courier or watch lock without the daemon's record is flagged as stale. A body loads when you open it, only after its route is verified, and never for queued or quarantined entries. The app does not send messages.
 
 ## Requirements
 
 | Tool | Why |
 | --- | --- |
-| The `herdsman` binary | On `PATH` (the Homebrew cask or a release archive, see Install). The skill runs every command through it (`herdsman route check`, `herdsman wait`, `herdsman run-check`, `herdsman checkpointer`, `herdsman message` and the rest); no `jq` or `nc` needed. |
+| The `herdsman` binary | On `PATH`, for macOS or Linux (the Homebrew cask or a release archive, see Install). The skill runs every command through it (`herdsman route check`, `herdsman wait`, `herdsman run-check`, `herdsman checkpointer`, `herdsman message` and the rest); no `jq` or `nc` needed. |
+| Go, Bun and a C compiler | Only to build from source: `make build` builds with cgo, because the daemon's store links the SQLite driver (clang from the Xcode command line tools on macOS; gcc or clang on Linux), and the web build reads the Reactre submodule (`git submodule update --init web/vendor/reactre`). The Homebrew cask and the release archives need none of this: the release workflow builds them with cgo, the Linux ones statically against musl. |
 | `/bin/bash` 3.2+ | Runs the route folder's one-line `run-check.sh` wrapper (`exec herdsman run-check "$@"`), which every check goes through. The macOS default shell works. |
 | GitHub CLI (`gh`) | A version with `gh skill` (tested with 2.101.0) to install the skill; any recent version when the route opens pull requests. |
 | Memory checkpoint command | Needed in the orchestrator's harness. The checkpointer's default prompt is built into `herdsman checkpointer` (`PROMPT` overrides it). |
 
-`gh skill install` takes the skill from the latest release. Keep the skill and the `herdsman` binary on the same release: `gh skill update` for the skill, `brew upgrade --cask herdsman` for the binary.
+`gh skill install` takes the skill from the latest release. Keep the skill and the `herdsman` binary on the same release: `gh skill update` for the skill, `brew upgrade --cask herdsman` for the binary. The daemon is on `main` and comes with the next release; a skill linked from a clone of `main` needs a `herdsman` built from `main`.
 
 ## Develop
 
-Run the checks after each change, from a clone with Go and Bun:
+Run the checks after each change, from a clone with Go, Bun and a C compiler (cgo, for the SQLite driver), with the Reactre submodule initialized and Bun's types installed once:
 
 ```sh
+git submodule update --init web/vendor/reactre
+make tools
 make check
 ```
 
-The Go tests cover every `herdsman` command the skill runs (the waiter, the watchers, status, route check and log, run-check, the checkpointer and the message channel), with a fake Herdr socket server and a fake `gh`. CI runs them on macOS and Linux.
+`make check` runs the web app's format check, type checks and tests (`make web-check`), the web build, gofmt, `go vet` and staticcheck (`make lint`), the Go tests with the race detector (`make test`) and govulncheck (`make vuln`). `make build` writes `bin/herdsman` with the app embedded and `CGO_ENABLED=1`; `make web-e2e` runs the built app and its forms in headless Chrome. The Go tests cover every `herdsman` command the skill runs (the waiter, the watchers, status, route check and log, run-check, the checkpointer, the message channel, the approval gate, and the daemon with its SQLite store), with a fake Herdr socket server and a fake `gh`. CI runs them on macOS and Linux. A pushed `v*` tag builds the release binaries on a macOS runner: the darwin ones with its clang, the Linux ones with `zig cc` against musl.
 
 <details>
 <summary>Try the checkpointer against a live orchestrator pane</summary>
@@ -314,6 +341,7 @@ The command reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 25
 - **A lock, not a rule.** A sentence in each contract does not stop agents from starting heavy checks at the same moment. A lock shared by every agent on the machine does, and the kernel frees it when its holder exits.
 - **One herdr change per call.** Two changes in one shell call have failed without output.
 - **Deadlines belong to the orchestrator.** Agents ignored stop times written in their own briefs, and a queued instruction runs only when the agent's turn ends. So the orchestrator interrupts when a deadline passes.
+- **One daemon per user, not one courier per route.** A route's courier and watcher are two processes per route that must each stay alive, and their heartbeats are its only health. The daemon is one supervised process per user that owns the channel of every route it adopts, with a journal, checkpoints and crash replay, and one heartbeat that the readers check even while it is down.
 - **Context size from the transcript.** The checkpointer reads the input and cache token counts of the orchestrator's last turn from its session transcript. The included reader expects JSONL transcripts with a usage block per turn; another format needs a change to that reader in `herdsman checkpointer`.
 
 ## License
