@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"os"
 	"os/signal"
@@ -35,7 +36,7 @@ var fileOnly = map[string]bool{"register": true, "courier": true, "card-watch": 
 
 // daemonPath picks the daemon path of a message command (design 12.1):
 // the daemon serves the action and the route's inbox is owned by the
-// daemon (its state/owner.json says so). The inbox is the route's entry
+// daemon (its state/owner.json says so, or is present and refused). The inbox is the route's entry
 // in routes.json (the route from --route or HERDSMAN_ROUTE), else
 // HERDSMAN_INBOX, whose route is then found in routes.json. enroll always
 // takes the daemon path. It returns the arguments without --route and
@@ -83,7 +84,17 @@ func daemonPath(args []string, getenv func(string) string) (route string, rest [
 		// 6.2: parties need no HERDSMAN_INBOX).
 		return route, rest, json, daemon.OtherHome(getenv) != ""
 	}
-	return route, rest, json, route != "" && inbox.DaemonOwned(dir)
+	return route, rest, json, route != "" && (inbox.DaemonOwned(dir) || ownerRecordPresent(dir))
+}
+
+// ownerRecordPresent reports an inbox with any entry at state/owner.json.
+// Only an absent record means file mode: a record that is present but
+// malformed, has a duplicate key or names no daemon takes the daemon
+// path, whose reader refuses it (owner-refused) and reads nothing, so the
+// file reader never shows that inbox.
+func ownerRecordPresent(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, "state", "owner.json"))
+	return !errors.Is(err, os.ErrNotExist)
 }
 
 // messageSubHelp is each action's `herdsman message <action> --help`.
