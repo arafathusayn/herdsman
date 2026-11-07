@@ -295,10 +295,13 @@ type Unknown struct {
 // approved pair, a courier pane or a sandboxed lower-trust launch. On a
 // failure it returns the fault and, for FaultInventory, the unknown agents.
 func (r *Root) BoundaryOK(ctx context.Context, c *herdr.Client) (bool, string, []Unknown) {
-	// A daemon-owned inbox's boundary is in its version 2 proof, which
-	// Open checked (ProofStale).
+	// A daemon-owned inbox's boundary is in its version 2 proof. Open
+	// checked it (ProofStale), but a policy or binary change or a new
+	// state/proof-stale can land after that, for example while the gate
+	// waits for the input lock, so it is checked again here, where the
+	// caller holds that lock.
 	if DaemonOwned(r.Dir) {
-		if r.ProofStale {
+		if r.ProofStale || !ProofV2Valid(r.Dir, r.Executable) {
 			return false, FaultStatic, nil
 		}
 		pb, _ := os.ReadFile(r.Path("setup.json"))
