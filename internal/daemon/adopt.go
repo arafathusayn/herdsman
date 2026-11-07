@@ -479,16 +479,26 @@ func moveLegacy(dir, src, base, ext string) (bool, error) {
 
 // confirmedPair checks that the inbox's registry is an approved pair with
 // no pending change whose peers.approved is the pair the human confirmed.
+// The checksum read is bounded, follows no link and never blocks on a
+// FIFO that replaced the checked file, since adoption holds regMu and the
+// inbox locks.
 func confirmedPair(dir, confirm string) *APIError {
 	if _, ok := (&inbox.Root{Dir: dir}).Registry(); !ok {
 		return Errf("checksum_mismatch", "the registry is not an approved pair with no pending change")
 	}
-	ab, _ := os.ReadFile(filepath.Join(dir, "peers.approved"))
-	if sha256Hex(ab) != confirm {
+	if pairChecked != nil {
+		pairChecked(dir)
+	}
+	ab, ok := inbox.ReadStrict(dir, filepath.Join(dir, "peers.approved"))
+	if !ok || sha256Hex(ab) != confirm {
 		return Errf("checksum_mismatch", "confirm_pair_sha256 does not match peers.approved")
 	}
 	return nil
 }
+
+// pairChecked runs in confirmedPair between the registry check and the
+// checksum read; tests swap peers.approved there.
+var pairChecked func(dir string)
 
 func writeMarker(p string, m adoptMarker) error {
 	b, _ := encode(m)
