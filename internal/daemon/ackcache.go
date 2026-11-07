@@ -5,14 +5,19 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// fileStamp identifies one version of a file without reading it.
+// fileStamp identifies one version of a file without reading it, as
+// inbox's digest cache does: the same device and inode with the same
+// size, modification time and change time has the same bytes. A writer
+// can set the modification time back but not the change time, so a
+// same-length rewrite in place always changes the stamp.
 type fileStamp struct {
-	ino, size uint64
-	mtime     int64
+	dev, ino, size uint64
+	mtime, ctime   int64
 }
 
 func stampOf(p string) (fileStamp, bool) {
@@ -20,7 +25,11 @@ func stampOf(p string) (fileStamp, bool) {
 	if err != nil || !st.Mode().IsRegular() {
 		return fileStamp{}, false
 	}
-	return fileStamp{ino: inode(st), size: uint64(st.Size()), mtime: st.ModTime().UnixNano()}, true
+	s, ok := st.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fileStamp{}, false
+	}
+	return fileStamp{dev: uint64(s.Dev), ino: uint64(s.Ino), size: uint64(st.Size()), mtime: st.ModTime().UnixNano(), ctime: changeTime(s)}, true
 }
 
 // ackEntry is a valid ack seen with these versions of the message in cur,
