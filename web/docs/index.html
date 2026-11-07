@@ -98,6 +98,7 @@
             <a href="#commands">Skill commands</a>
             <a href="#checkpointer">Checkpointer</a>
             <a href="#cli">CLI commands</a>
+            <a href="#daemon">Message channel daemon</a>
             <a href="#web-app">Web app</a>
             <a href="#hosts">Phones and other hosts</a>
             <a href="#options">Web app options</a>
@@ -344,7 +345,7 @@ brew install --cask arafathusayn/tap/herdsman</code></pre>
             <div class="tab-panel" role="tabpanel" id="ins-source" aria-labelledby="ins-source-tab">
               <p class="tab-title">From source</p>
               <p>
-                Build from a clone with Go and Bun. This writes
+                Build from a clone with Go, Bun and a C compiler (cgo, for the SQLite driver). This writes
                 <code>bin/herdsman</code>.
               </p>
               <pre><code>git clone --recurse-submodules https://github.com/arafathusayn/herdsman.git
@@ -699,47 +700,79 @@ herdsman &lt;command&gt; --help</code></pre>
                   <td><code>wait</code></td>
                   <td>
                     Waits for the next event of the loop: a report, a review, a blocked or stalled agent, a health flag.
-                    Prints
-                    <code>TICK</code> when none comes before the deadline.
+                    Prints <code>TICK</code> when none comes before the deadline.
                   </td>
                 </tr>
                 <tr>
                   <td><code>watch</code></td>
                   <td>
                     Watches the implementers, the reviewer or pull requests:
-                    <code>implementers|reviewer|prs</code>.
+                    <code>implementers|reviewer|prs</code>. <code>prs</code> returns on the first pull request change,
+                    or with a <code>TICK</code>.
                   </td>
                 </tr>
                 <tr>
                   <td><code>status</code></td>
-                  <td>A health snapshot of every agent and of the machine.</td>
+                  <td>A health snapshot of every agent in <code>HERDSMAN_STATUS_SPECS</code> and of the machine.</td>
                 </tr>
                 <tr>
                   <td><code>route</code></td>
                   <td>
-                    <code>route check</code> lists what a route folder is missing at a stage; <code>route log</code>
-                    appends a run-state line.
+                    <code>route check</code> prints an <code>ok</code> or <code>MISSING</code> line per item of a route
+                    folder at a stage (<code>plan</code>, <code>launch</code> or <code>close</code>);
+                    <code>route log</code> appends a dated run-state line.
                   </td>
                 </tr>
                 <tr>
                   <td><code>checkpointer</code></td>
-                  <td>The checkpointer loop, one checkpoint (<code>--once</code>) or a probe of the context size.</td>
+                  <td>
+                    The checkpointer loop (<code>TARGET=&lt;pane&gt;</code>), one checkpoint (<code>--once</code>) or a
+                    probe of the context size (<code>--probe</code>).
+                    <code>checkpointer guard &lt;name&gt; &lt;pane&gt;</code> checks, in adjutant mode, that the
+                    approved registry still names that pane as the orchestrator.
+                  </td>
                 </tr>
                 <tr>
                   <td><code>message</code></td>
-                  <td>The adjutant message channel and its services: the courier, the card watch, the leak gate.</td>
+                  <td>
+                    The adjutant message channel: <code>status</code>, <code>wait</code>, <code>read</code>,
+                    <code>release</code>, <code>ack</code>, <code>send</code>, <code>hold</code> and
+                    <code>unhold</code>, and its services <code>register</code>, <code>courier</code>,
+                    <code>card-watch</code>, <code>resume-goal</code>, <code>authority</code> and
+                    <code>leak-gate</code>. For a route the daemon owns (<code>--route</code>, or
+                    <code>HERDSMAN_ROUTE</code>), the same actions go through the daemon, plus <code>enroll</code>
+                    <span class="muted">(next release)</span>.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>daemon</code><br /><span class="muted">next release</span></td>
+                  <td>
+                    The per-user message channel daemon: <code>run</code>, <code>install</code>, <code>uninstall</code>,
+                    <code>start</code>, <code>stop</code>, <code>restart</code>, <code>status</code>,
+                    <code>route</code>, <code>setup</code>, <code>pair</code> and <code>credential</code>. See
+                    <a href="#daemon">Message channel daemon</a>.
+                  </td>
                 </tr>
                 <tr>
                   <td><code>approval-gate</code></td>
-                  <td>Binds a relayed go to one effect before it runs, and records its outcome.</td>
+                  <td>
+                    Binds a relayed go to one effect before it runs (<code>consume</code>), and records its outcome
+                    (<code>complete</code>).
+                  </td>
                 </tr>
                 <tr>
                   <td><code>transcript-audit</code></td>
-                  <td>Audits a Claude or Codex transcript for writes.</td>
+                  <td>
+                    Audits a Claude or Codex transcript for writes outside the allowed roots: <code>GAP</code>,
+                    <code>FLAG</code> and <code>AUDIT</code> lines.
+                  </td>
                 </tr>
                 <tr>
                   <td><code>run-check</code></td>
-                  <td>Runs one heavy check at a time on this machine, behind a load gate, at a lower priority.</td>
+                  <td>
+                    Runs one heavy check at a time on this machine, under a shared lock, behind a load gate, at a lower
+                    priority. <code>--publish &lt;hours&gt;</code> writes the machine's load reading for the gate.
+                  </td>
                 </tr>
                 <tr>
                   <td><code>doctor</code></td>
@@ -750,8 +783,8 @@ herdsman &lt;command&gt; --help</code></pre>
                 <tr>
                   <td><code>models</code></td>
                   <td>
-                    Probes each installed harness for its version, models and efforts. <code>models last</code> and
-                    <code>models save</code> keep your last pick for each role.
+                    Probes each installed harness for its version, models, efforts and default effort as it reports
+                    them. <code>models last</code> and <code>models save</code> keep your last pick for each role.
                   </td>
                 </tr>
                 <tr>
@@ -770,6 +803,79 @@ herdsman &lt;command&gt; --help</code></pre>
               </tbody>
             </table>
           </div>
+          <p>The commands marked <i>next release</i> are on <code>main</code>; build from source to use them now.</p>
+        </section>
+
+        <!-- Daemon -->
+        <section id="daemon">
+          <h2>Message channel daemon</h2>
+          <p>
+            Without the daemon, each route with an adjutant runs its own courier and watcher as
+            <code>herdsman message</code> services. <code>herdsman daemon</code> is one process per user that can own a
+            route's channel instead: it serves the message commands over a local socket, imports the route into a SQLite
+            database with a journal and crash replay, and file-mode writers refuse an inbox it owns.
+          </p>
+          <p class="note">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z" />
+              <path d="M12 8h.01" />
+              <path d="M11 12h1v5h1" />
+            </svg>
+            <span
+              >The daemon is on <code>main</code> and comes with the next release. The skill's routes still start the
+              file-mode services, so moving a route to the daemon is a step you run by hand.</span
+            >
+          </p>
+          <pre><code><span class="c"># Install the LaunchAgent (macOS) or the systemd user unit (Linux), then check it</span>
+herdsman daemon install
+herdsman daemon status
+
+<span class="c"># A new route, or an existing inbox moved to the daemon</span>
+herdsman daemon route create --repo &lt;repo&gt; --route &lt;route&gt;
+herdsman daemon route adopt --inbox &lt;path&gt; --route &lt;route&gt; --confirm &lt;peers.approved sha256&gt;
+
+<span class="c"># The setup proof and the pair, recorded by you at a terminal</span>
+herdsman daemon setup &lt;route&gt; --rule &lt;policy file&gt;...
+herdsman daemon pair approve &lt;route&gt; &lt;sha256&gt;</code></pre>
+          <ul class="facts">
+            <li>
+              <b>Private home.</b> Its files live where no sandboxed agent can reach: <code>--private-home</code>, else
+              <code>HERDSMAN_PRIVATE_HOME</code>, else <code>~/.herdsman-private</code>. The route databases are SQLite
+              files under <code>daemon/routes/</code> there, and its socket is <code>run/daemon.sock</code>.
+            </li>
+            <li>
+              <b>Routes.</b> <code>route create</code> makes a new route. <code>route adopt</code> moves an existing
+              inbox to the daemon as one resumable transaction: it drains the file-mode writers, imports the inbox into
+              a staging database, then publishes the route. A refusal or a storage failure leaves the route unadopted
+              and the inbox unchanged. <code>route remove</code>, <code>route reset-events</code> and
+              <code>route list</code> do the rest. Route names are unique across the daemon and compared without case.
+            </li>
+            <li>
+              <b>Setup and pairing.</b> <code>setup</code> records a route's setup proof and
+              <code>pair approve</code> approves a proposed pair. Both need an attended terminal (<code
+                >pair approve</code
+              >
+              takes <code>--interaction &lt;ask reference&gt;</code> instead), because only the human records them.
+              <code>pair retire</code> and <code>credential revoke</code> take a party or a credential back.
+            </li>
+            <li>
+              <b>Supervisor.</b> <code>start</code>, <code>stop</code> and <code>restart</code> go through the
+              LaunchAgent or unit; a stopped daemon stays stopped until <code>start</code>. <code>uninstall</code> stops
+              it and removes the unit. Only one daemon runs per account.
+            </li>
+            <li>
+              <b>What changes for a route.</b> Once the daemon owns a route's inbox, <code>herdsman message</code> takes
+              the daemon path for that route, file-mode writers refuse the inbox, and <code>message status</code> and
+              the web app's Messages tab show the daemon's liveness instead of the courier and watcher heartbeats.
+            </li>
+            <li>
+              <b>Exit codes.</b> <code>0</code> done; <code>1</code> the daemon is down or degraded
+              (<code>status</code>), or no answer within 10 s (<code>start</code>, <code>stop</code>,
+              <code>restart</code>, <code>uninstall</code>); <code>2</code> usage, a refusal, another daemon of this
+              account running, or no attended terminal; <code>3</code> the human boundary; <code>75</code> retryable:
+              busy, the route is unowned, herdr is unreachable, or the daemon is not answering.
+            </li>
+          </ul>
         </section>
 
         <!-- Web app -->
@@ -845,7 +951,11 @@ herdsman &lt;command&gt; --help</code></pre>
                 <path d="M4 5h16v11H9l-5 4z" />
                 <path d="M8 9h8" />
                 <path d="M8 12h5" /></svg
-              ><b>Messages</b><span>The channel between the adjutant and the orchestrator. Read only.</span>
+              ><b>Messages</b
+              ><span
+                >The channel between the adjutant and the orchestrator, and the daemon's health when it owns the inbox.
+                Read only.</span
+              >
             </div>
           </div>
           <p class="note">
@@ -1083,6 +1193,13 @@ herdsman &lt;command&gt; --help</code></pre>
                 pane.
               </p>
             </details>
+            <details class="fold">
+              <summary>A message or daemon command exits 75</summary>
+              <p>
+                It is retryable: the daemon is busy or not answering, the route is unowned, or herdr is unreachable. Run
+                <code>herdsman daemon status</code>, then run the command again.
+              </p>
+            </details>
           </div>
         </section>
 
@@ -1109,6 +1226,14 @@ herdsman &lt;command&gt; --help</code></pre>
                   <td>
                     On <code>PATH</code>, for macOS or Linux (the Homebrew cask or a release archive). The skill runs
                     every command through it; no <code>jq</code> or <code>nc</code> needed. A browser for the web app.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Go, Bun and a C compiler</td>
+                  <td>
+                    Only to build from source: <code>make build</code> builds with cgo, because the daemon's store links
+                    the SQLite driver (clang from the Xcode command line tools on macOS; gcc or clang on Linux), and the
+                    web build reads the Reactre submodule. The Homebrew cask and the release archives need none of this.
                   </td>
                 </tr>
                 <tr>
@@ -1139,7 +1264,8 @@ herdsman &lt;command&gt; --help</code></pre>
               ><code>gh skill install</code> takes the skill from the latest release. Keep the skill and the
               <code>herdsman</code> binary on the same release: <code>gh skill update</code> for the skill,
               <code>brew upgrade --cask herdsman</code> for the binary. A skill linked from a clone of
-              <code>main</code> needs a <code>herdsman</code> built from <code>main</code>.</span
+              <code>main</code> needs a <code>herdsman</code> built from <code>main</code>. The daemon is on
+              <code>main</code> and comes with the next release.</span
             >
           </p>
         </section>
