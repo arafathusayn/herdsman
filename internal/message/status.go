@@ -65,7 +65,21 @@ func (e *Env) status(args []string) error {
 		rep.Health = append(rep.Health, f)
 	}
 	now := e.unix()
+	if inbox.DaemonOwned(r.Dir) {
+		// Contract 2: the service heartbeats do not exist; the one role
+		// is the daemon's liveness (design 4.5).
+		pid, n := inbox.DaemonLiveness(r.Dir, e.now())
+		age := "unknown"
+		if n >= 0 {
+			age = strconv.FormatInt(n, 10)
+		}
+		fmt.Fprintf(out, "daemon pid=%s heartbeat-age=%s; PID existence alone is not proof of health\n", pid, age)
+		rep.Roles = append(rep.Roles, RoleStatus{Role: "daemon", PID: pid, HeartbeatAge: age})
+	}
 	for _, role := range []string{"courier", "watch"} {
+		if inbox.DaemonOwned(r.Dir) {
+			break
+		}
 		pid, age := "none", "unknown"
 		if st, err := os.Stat(r.Path(role + ".lock")); err == nil && st.IsDir() {
 			if err := inbox.SafeLeaf(r.Dir, r.Path(role+".lock", "pid")); err != nil {
@@ -272,7 +286,7 @@ func orderedPeers(b []byte, peers []inbox.Peer) []inbox.Peer {
 // text output's facts. Fields:
 //
 //	health           the health flags (courier-down, watch-down, *-lock-stale, setup-proof-stale, timing-invalid, automation-held)
-//	roles            the courier and the watcher: role, pid ("none") and heartbeat_age (seconds, or "unknown")
+//	roles            the courier and the watcher (a daemon-owned inbox: the daemon): role, pid ("none") and heartbeat_age (seconds, or "unknown")
 //	registry         valid, approved and pending, as booleans
 //	peers            the approved peers: name, role, pane, session
 //	holds            the hold and resume intent file names under state/

@@ -2,7 +2,9 @@
 
 // The release-build check (.github/workflows/release-build.yml) builds with
 // -tags cgoprobe to prove that cgo and the SQLite driver link for every
-// release target. This file goes when the daemon imports the driver itself.
+// release target. cmd/herdsman also links the driver through
+// internal/daemon/store, but the probe stays: it opens a database in the
+// built binary, and the workflow checks its output line.
 
 package main
 

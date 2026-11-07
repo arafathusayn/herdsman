@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/routedb"
 )
 
 // The message channel: the private inbox where the adjutant and the
@@ -158,7 +159,8 @@ type Channel struct {
 	Health      []ChannelHealth `json:"health"`
 	HealthAfter int64           `json:"health_after"`
 	// Flags are the health problems `message status` reports beyond the heartbeats:
-	// timing-invalid, mutation-lock-stale, channel-lock-stale, alert-lock-stale, automation-held.
+	// timing-invalid, mutation-lock-stale, channel-lock-stale, alert-lock-stale, automation-held,
+	// and on a daemon-owned inbox courier-lock-stale and watch-lock-stale.
 	Flags []string `json:"flags"`
 	// Holds are the hold and resume intents in state/: route-paused, route-frozen, hold-*, resume-*.sent, resume-held-*.
 	Holds    []ChannelHold    `json:"holds"`
@@ -228,6 +230,10 @@ func ackValid(root, box, id string) bool {
 	return err == nil && string(bytes.TrimRight(claim, "\n")) == a.Claim
 }
 
+// readChannel classifies the inbox first and dispatches: a refused owner
+// record shows only its error, a contract 3 inbox reads its route database
+// (dbChannel) and a file-mode inbox its files (filesChannel). Both start
+// from the inbox's own status files (statusFiles).
 func readChannel(root string, now time.Time) Channel {
 	ch := emptyChannel()
 	ch.Configured = true
@@ -235,6 +241,26 @@ func readChannel(root string, now time.Time) Channel {
 		ch.Error = err.Error()
 		return ch
 	}
+	// With no private home the store path matches nothing: refused.
+	ph, _ := routedb.PrivateHome("", os.Getenv)
+	switch mode, p, err := routedb.ClassifyInbox(root, ph); mode {
+	case routedb.Store:
+		// A contract 3 inbox: its registry, mailboxes and holds are in the
+		// route database (S16); the message list and bodies are not read here.
+		return dbChannel(statusFiles(ch, root, now, false), p)
+	case routedb.Refused:
+		// An owner record that is not a valid contract 3 or older daemon
+		// record: nothing is read, not even the files it may have left.
+		ch.Error = "owner record: " + err.Error()
+		return ch
+	}
+	return filesChannel(statusFiles(ch, root, now, true), root)
+}
+
+// statusFiles adds the inbox's status files to ch: the timing, the stale
+// lock and automation flags, the route and resume holds (with the
+// state/hold-* files only when holdFiles) and the liveness.
+func statusFiles(ch Channel, root string, now time.Time, holdFiles bool) Channel {
 	ch.HealthAfter = defaultHealthSecs
 	// A present but invalid timing file keeps the default and is flagged, as read-only status does.
 	if timing := filepath.Join(root, "state", "timing.json"); inbox.Exists(timing) {
@@ -253,7 +279,19 @@ func readChannel(root string, now time.Time) Channel {
 			ch.Flags = append(ch.Flags, "timing-invalid")
 		}
 	}
-	for _, l := range []struct{ dir, flag string }{{"herdr-mutation.lock", "mutation-lock-stale"}, {"channel.lock", "channel-lock-stale"}} {
+	locks := []struct{ dir, flag string }{{"herdr-mutation.lock", "mutation-lock-stale"}, {"channel.lock", "channel-lock-stale"}}
+	if inbox.DaemonOwned(root) {
+		// The daemon retains the service locks too; one without its
+		// record is a foreign or old writer's (design 4.5).
+		for _, s := range inbox.DaemonServiceLocks {
+			locks = append(locks, struct{ dir, flag string }{s + ".lock", s + "-lock-stale"})
+		}
+	}
+	for _, l := range locks {
+		// The daemon's retained locks are never stale (design 4.5).
+		if l.dir != "herdr-mutation.lock" && inbox.DaemonRetainedLock(root, filepath.Join(root, l.dir)) {
+			continue
+		}
 		if staleDir(filepath.Join(root, l.dir), now, ch.HealthAfter) {
 			ch.Flags = append(ch.Flags, l.flag)
 		}
@@ -267,6 +305,9 @@ func readChannel(root string, now time.Time) Channel {
 	// A name matched by two patterns shows once.
 	seen := map[string]bool{}
 	for _, pat := range []string{"route-paused", "route-frozen", "hold-*", "resume-*.sent", "resume-held-*"} {
+		if pat == "hold-*" && !holdFiles {
+			continue
+		}
 		found, _ := filepath.Glob(filepath.Join(root, "state", pat))
 		for _, f := range found {
 			h := ChannelHold{Name: filepath.Base(f)}
@@ -282,7 +323,16 @@ func readChannel(root string, now time.Time) Channel {
 			ch.Holds = append(ch.Holds, h)
 		}
 	}
+	if inbox.DaemonOwned(root) {
+		// A daemon-owned inbox: one liveness, the daemon's (design 4.5).
+		h := ChannelHealth{Name: "daemon", Age: inbox.DaemonHeartbeatAge(root, now)}
+		h.OK = h.Age >= 0 && h.Age <= ch.HealthAfter
+		ch.Health = append(ch.Health, h)
+	}
 	for _, s := range []struct{ name, file string }{{"courier", "heartbeat"}, {"watcher", "watch-heartbeat"}} {
+		if inbox.DaemonOwned(root) {
+			break
+		}
 		h := ChannelHealth{Name: s.name, Age: -1}
 		if st, err := os.Lstat(filepath.Join(root, "state", s.file)); err == nil && st.Mode().IsRegular() {
 			h.Age = int64(now.Sub(st.ModTime()) / time.Second)
@@ -290,6 +340,12 @@ func readChannel(root string, now time.Time) Channel {
 		}
 		ch.Health = append(ch.Health, h)
 	}
+	return ch
+}
+
+// filesChannel reads a file-mode inbox's registry, mailboxes, messages
+// and alerts into ch.
+func filesChannel(ch Channel, root string) Channel {
 	peers, perr := inbox.ReadBounded(filepath.Join(root, "peers"), envelopeMax)
 	approved, aerr := inbox.ReadBounded(filepath.Join(root, "peers.approved"), envelopeMax)
 	names := map[string]bool{}
@@ -367,6 +423,38 @@ func readChannel(root string, now time.Time) Channel {
 	return ch
 }
 
+// dbChannel fills ch's registry, mailboxes and holds from the route
+// database at path, through the store's read-only reader, which creates
+// nothing. The database's holds replace the state/hold-* files, which
+// statusFiles left out.
+func dbChannel(ch Channel, path string) Channel {
+	st, err := routedb.Read(path)
+	if err != nil {
+		ch.Error = "route database: " + err.Error()
+		return ch
+	}
+	for _, p := range st.Peers {
+		ch.Peers = append(ch.Peers, ChannelPeer{Name: p.Name, Role: p.Role, Pane: p.Pane})
+	}
+	ch.Approved, ch.Pending = st.Approved, !st.Approved
+	for _, b := range st.Boxes {
+		claim := "none"
+		if b.Claim {
+			claim = "held"
+		}
+		ch.Boxes = append(ch.Boxes, ChannelBox{Name: b.Name, Orphan: b.Orphan, Unacked: b.Unacked, Claim: claim,
+			Counts: map[string]int{"new": b.New, "ready": b.Ready, "cur": b.Cur, "quarantine": b.Quarantine}})
+	}
+	for _, h := range st.Holds {
+		hold := ChannelHold{Name: "hold-" + h.Target, Owners: []ChannelHolding{}}
+		for _, o := range h.Owners {
+			hold.Owners = append(hold.Owners, ChannelHolding{By: o.Owner, Reason: o.Reason})
+		}
+		ch.Holds = append(ch.Holds, hold)
+	}
+	return ch
+}
+
 func (s *Server) messages(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.Inbox == "" {
 		writeJSON(w, http.StatusOK, emptyChannel())
@@ -382,17 +470,32 @@ func (s *Server) messageBody(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such message"})
 		return
 	}
-	for _, state := range []string{"cur", "ready"} {
-		if !inbox.RealDirs(s.cfg.Inbox, box, state) {
-			continue
-		}
-		env, err := readEnvelope(filepath.Join(s.cfg.Inbox, box, state, id+".md"))
-		if err == nil && env.To == box {
-			writeJSON(w, http.StatusOK, map[string]any{"id": env.ID, "body": env.Body})
-			return
-		}
+	if body, ok := verifiedBody(s.cfg.Inbox, box, id); ok {
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "body": body})
+		return
 	}
 	writeJSON(w, http.StatusNotFound, map[string]string{"error": "no verified message with that id"})
+}
+
+// verifiedBody is the body of message id in box's cur/ or ready/, when
+// its envelope verifies and is addressed to box. Only a file-mode inbox's
+// files are read: a contract 3 inbox's bodies are in its route database,
+// and a refused owner record reads nothing.
+func verifiedBody(root, box, id string) (string, bool) {
+	ph, _ := routedb.PrivateHome("", os.Getenv)
+	if mode, _, _ := routedb.ClassifyInbox(root, ph); mode != routedb.Files {
+		return "", false
+	}
+	for _, state := range []string{"cur", "ready"} {
+		if !inbox.RealDirs(root, box, state) {
+			continue
+		}
+		env, err := readEnvelope(filepath.Join(root, box, state, id+".md"))
+		if err == nil && env.To == box {
+			return env.Body, true
+		}
+	}
+	return "", false
 }
 
 // webRegistry reads a registry file's peers as the app shows them.

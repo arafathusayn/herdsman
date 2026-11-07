@@ -69,15 +69,21 @@ func (r *Root) readRegistry(name string) ([]byte, []Peer, bool) {
 // and byte for byte the same (no change awaits the human's approval). It
 // returns the approved peers.
 func (r *Root) Registry() ([]Peer, bool) {
+	_, peers, ok := r.registry()
+	return peers, ok
+}
+
+// registry is Registry that also returns the peers.approved bytes it read.
+func (r *Root) registry() ([]byte, []Peer, bool) {
 	pb, _, ok := r.readRegistry("peers")
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
 	ab, peers, ok := r.readRegistry("peers.approved")
 	if !ok || !bytes.Equal(pb, ab) {
-		return nil, false
+		return nil, nil, false
 	}
-	return peers, true
+	return ab, peers, true
 }
 
 // Peer is the scripts' peer: the approved entry of a name.
@@ -295,6 +301,24 @@ type Unknown struct {
 // approved pair, a courier pane or a sandboxed lower-trust launch. On a
 // failure it returns the fault and, for FaultInventory, the unknown agents.
 func (r *Root) BoundaryOK(ctx context.Context, c *herdr.Client) (bool, string, []Unknown) {
+	// A daemon-owned inbox's boundary is in its version 2 proof. Open
+	// checked it (ProofStale), but a policy or binary change or a new
+	// state/proof-stale can land after that, for example while the gate
+	// waits for the input lock, so it is checked again here, where the
+	// caller holds that lock.
+	if DaemonOwned(r.Dir) {
+		if r.ProofStale {
+			return false, FaultStatic, nil
+		}
+		// The boundary comes from the setup.json bytes the proof check
+		// read, never from a second read of the path.
+		pb, ok := proofV2(r.Dir, r.Executable)
+		if !ok {
+			return false, FaultStatic, nil
+		}
+		pv, _ := Decode(pb)
+		return BoundaryV2(ctx, c, r.Dir, Object(Object(pv)["boundary"]))
+	}
 	if r.ProofStale || !r.PreflightValid() {
 		return false, FaultStatic, nil
 	}

@@ -55,8 +55,12 @@ func OpenChannel(o Options, exe string) (*Channel, error) {
 	return ch, nil
 }
 
-// ProofValid is preflight_valid: the binary proof of ch.Executable.
+// ProofValid is preflight_valid: the binary proof of ch.Executable; a
+// daemon-owned (contract 2) inbox takes only the version 2 proof (4.6).
 func (ch *Channel) ProofValid() bool {
+	if DaemonOwned(ch.Dir) {
+		return ProofV2Valid(ch.Dir, ch.Executable)
+	}
 	return ch.BinaryProofValid()
 }
 
@@ -121,6 +125,9 @@ func DigestFileFast(p string) (string, error) {
 // Boundary is BoundaryOK with either proof form.
 func (ch *Channel) Boundary(ctx context.Context, c *herdr.Client) (bool, string, []Unknown) {
 	r := ch.Root
+	if DaemonOwned(r.Dir) {
+		return r.BoundaryOK(ctx, c) // the version 2 proof's boundary
+	}
 	if r.ProofStale || !ch.ProofValid() {
 		return false, FaultStatic, nil
 	}

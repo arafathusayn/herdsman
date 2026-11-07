@@ -141,7 +141,12 @@ func Open(o Options) (*Root, error) {
 			}
 		}
 	}
-	if !r.PreflightValid() {
+	// A daemon-owned inbox (contract 2) takes only the version 2 proof.
+	valid := func() bool { return ProofV2Valid(r.Dir, r.Executable) }
+	if !DaemonOwned(r.Dir) {
+		valid = r.PreflightValid
+	}
+	if !valid() {
 		r.ProofStale = true
 		if !r.ReadOnly {
 			return nil, die("sandbox policy or protected installation proof stale; repeat human setup%s", r.OldProofHint())

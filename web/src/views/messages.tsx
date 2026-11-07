@@ -3,7 +3,7 @@ import { batch, For, memo, Show, signal } from "@reactre/core";
 import { map } from "@reactre/core/features/lists";
 
 import { messageBody } from "../api.ts";
-import { describeFlag, kindLabel, stateLabel, stateTip } from "../channel.ts";
+import { describeFlag, healthLabel, kindLabel, stateLabel, stateTip } from "../channel.ts";
 import { Icon } from "../components/icons.tsx";
 import { icons } from "../icons.ts";
 import { store } from "../store.ts";
@@ -135,7 +135,7 @@ function channelChips(channel: Channel): ChannelChip[] {
       id: `health:${health.name}`,
       cls: health.ok ? "chip ok" : "chip bad",
       tip: `Heartbeat ${seconds(health.age)}; down after ${channel.health_after}s`,
-      text: `${health.name === "courier" ? "Courier" : "Watcher"} ${health.ok ? "up" : "down"}`,
+      text: `${healthLabel(health.name)} ${health.ok ? "up" : "down"}`,
     })),
     ...[...new Set(channel.flags ?? [])].map((flag) => {
       const [text, tip] = describeFlag(flag);

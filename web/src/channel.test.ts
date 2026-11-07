@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { describeFlag, kindLabel, stateLabel, unread } from "./channel.ts";
+import { describeFlag, healthLabel, kindLabel, stateLabel, unread } from "./channel.ts";
 import type { Channel, ChannelMessage } from "./types.ts";
 
 const msg = (state: ChannelMessage["state"], acknowledged = false): ChannelMessage => ({
@@ -41,4 +41,13 @@ test("side-agent cards and health flags have words of their own", () => {
   expect(kindLabel.side_agent_data).toBe("Side agent");
   expect(describeFlag("automation-held")[0]).toBe("Automation held");
   expect(describeFlag("something-new")).toEqual(["something-new", "Reported by the message channel"]);
+  expect(describeFlag("courier-lock-stale")[0]).toBe("Courier lock stale");
+  expect(describeFlag("watch-lock-stale")[0]).toBe("Watch lock stale");
+});
+
+test("each health entry is named for what it watches", () => {
+  expect(healthLabel("courier")).toBe("Courier");
+  expect(healthLabel("watcher")).toBe("Watcher");
+  expect(healthLabel("daemon")).toBe("Daemon");
+  expect(healthLabel("other")).toBe("other");
 });

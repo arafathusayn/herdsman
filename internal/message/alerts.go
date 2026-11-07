@@ -243,7 +243,18 @@ func (e *Env) healthSnapshot() []string {
 	var flags []string
 	r := e.ch
 	now := e.unix()
+	// A daemon-owned inbox has no service heartbeats; its liveness is the
+	// daemon's (design 4.5).
+	daemonOwned := inbox.DaemonOwned(r.Dir)
+	if daemonOwned {
+		if age := inbox.DaemonHeartbeatAge(r.Dir, e.now()); age < 0 || age > int64(r.HealthAfter) {
+			flags = append(flags, "daemon-down")
+		}
+	}
 	for _, role := range []string{"courier", "watch"} {
+		if daemonOwned {
+			break
+		}
 		if role == "watch" && e.envDefault("WATCH_REQUIRED", "1") != "1" {
 			continue
 		}
@@ -261,8 +272,17 @@ func (e *Env) healthSnapshot() []string {
 			flags = append(flags, role+"-down")
 		}
 	}
-	for _, role := range []string{"herdr-mutation", "channel"} {
+	roles := []string{"herdr-mutation", "channel"}
+	if daemonOwned {
+		// The daemon retains the service locks too; one without its
+		// record is a foreign or old writer's (design 4.5).
+		roles = append(roles, inbox.DaemonServiceLocks...)
+	}
+	for _, role := range roles {
 		p := r.Path(role + ".lock")
+		if role != "herdr-mutation" && inbox.DaemonRetainedLock(r.Dir, p) {
+			continue
+		}
 		if st, err := os.Stat(p); err == nil && st.IsDir() {
 			if t, err := inbox.Mtime(p); err == nil && now-t > int64(r.HealthAfter) {
 				if role == "herdr-mutation" {

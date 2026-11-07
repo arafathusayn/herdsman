@@ -53,9 +53,10 @@ web-e2e: web
 web-fmt:
 	cd web && bun fmt
 
-## build: the herdsman binary with the web app inside, into bin/
+## build: the herdsman binary with the web app inside, into bin/ (cgo: the
+## daemon store links the SQLite driver)
 build: web
-	CGO_ENABLED=0 go build -trimpath -o bin/herdsman ./cmd/herdsman
+	CGO_ENABLED=1 go build -trimpath -o bin/herdsman ./cmd/herdsman
 
 ## test: Go tests with the race detector
 test:

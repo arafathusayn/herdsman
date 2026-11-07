@@ -18,8 +18,24 @@ export const flagLabel: Record<string, [string, string]> = {
   "mutation-lock-stale": ["Mutation lock stale", "A herdr mutation lock is older than the health threshold"],
   "channel-lock-stale": ["Channel lock stale", "The channel lock is older than the health threshold"],
   "alert-lock-stale": ["Alert lock stale", "An alert lock is older than the health threshold"],
+  "courier-lock-stale": [
+    "Courier lock stale",
+    "The courier lock has no daemon record and is older than the health threshold",
+  ],
+  "watch-lock-stale": [
+    "Watch lock stale",
+    "The watch lock has no daemon record and is older than the health threshold",
+  ],
   "automation-held": ["Automation held", "Automation is held until the human releases it"],
 };
+
+/** What each health entry watches: file mode's courier and watcher, or a daemon-owned inbox's daemon. */
+const healthNames: Record<string, string> = { courier: "Courier", watcher: "Watcher", daemon: "Daemon" };
+
+/** A health entry's chip name; an unknown entry shows as it is named. */
+export function healthLabel(name: string): string {
+  return healthNames[name] ?? name;
+}
 
 /** A flag's chip text and tip; an unknown flag shows as it is named. */
 export function describeFlag(flag: string): [string, string] {
