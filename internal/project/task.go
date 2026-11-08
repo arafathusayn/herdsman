@@ -115,6 +115,9 @@ func (s *Store) CreateTask(in TaskInput) (*Task, error) {
 		if err != nil {
 			return err
 		}
+		if len(repos) == 0 {
+			return fmt.Errorf("%w: project %s has no repositories for a task to name", ErrInvalid, p.Name)
+		}
 		slug, err := chooseSlug(c, p.ID, in.Slug, title)
 		if err != nil {
 			return err
@@ -368,6 +371,9 @@ func changeTaskRepos(c store.Conn, t *Task, patch TaskPatch) error {
 			return fmt.Errorf("%w: task %s does not name repository %s", ErrNotFound, t.Slug, r)
 		}
 		delete(current, r)
+		if _, err := c.Exec("DELETE FROM task_links WHERE task_id = ? AND repo = ?", t.ID, r); err != nil {
+			return err
+		}
 		if _, err := c.Exec("DELETE FROM task_repos WHERE task_id = ? AND repo = ?", t.ID, r); err != nil {
 			return err
 		}

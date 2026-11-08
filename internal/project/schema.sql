@@ -68,9 +68,10 @@ CREATE TABLE task_repos (
 CREATE INDEX task_repos_repo ON task_repos(project_id, repo);
 
 CREATE TABLE task_links (
-  task_id TEXT NOT NULL REFERENCES tasks(id),
+  task_id TEXT NOT NULL,
   repo TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('pr','issue','url')),
   target TEXT NOT NULL,
-  PRIMARY KEY (task_id, repo, kind, target)
+  PRIMARY KEY (task_id, repo, kind, target),
+  FOREIGN KEY (task_id, repo) REFERENCES task_repos(task_id, repo)
 ) STRICT;

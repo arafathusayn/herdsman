@@ -86,7 +86,7 @@ func (s *Store) UpdateProject(ref string, patch ProjectPatch) (*Project, error) 
 		return nil, err
 	}
 	var out *Project
-	err = s.db.Tx(func(c store.Conn) error {
+	err = s.txFiles(func(c store.Conn, files *fileEdits) error {
 		p, err := activeProject(c, ref)
 		if err != nil {
 			return err
@@ -115,7 +115,7 @@ func (s *Store) UpdateProject(ref string, patch ProjectPatch) (*Project, error) 
 			return nil
 		}
 		for _, folder := range out.Folders {
-			if err := renameBinding(folder, out.ID, out.Name); err != nil {
+			if err := renameBinding(files, folder, out.ID, out.Name); err != nil {
 				return err
 			}
 		}
@@ -165,24 +165,23 @@ func removeRepos(c store.Conn, projectID string, names []string) error {
 	return nil
 }
 
-// DeleteProject removes a project with no open tasks. With force it instead
+// DeleteProject removes a project with no open tasks and no task on a route
+// that still exists, whatever that task's status. With force it instead
 // archives the project and its open tasks, keeping every row and freeing the
 // name. Either way the bound folders are released.
 func (s *Store) DeleteProject(ref string, force bool) error {
-	return s.db.Tx(func(c store.Conn) error {
+	return s.txFiles(func(c store.Conn, files *fileEdits) error {
 		p, err := activeProject(c, ref)
 		if err != nil {
 			return err
 		}
-		open, err := column(c, "SELECT slug FROM tasks WHERE project_id = ? AND status IN "+openStatuses+" ORDER BY slug", p.ID)
-		if err != nil {
-			return err
-		}
-		if len(open) > 0 && !force {
-			return fmt.Errorf("%w: project %s has open tasks: %s", ErrRefused, p.Name, strings.Join(open, ", "))
+		if !force {
+			if err := refuseBusyProject(c, p); err != nil {
+				return err
+			}
 		}
 		for _, folder := range p.Folders {
-			if err := clearBinding(folder, p.ID); err != nil {
+			if err := clearBinding(files, folder, p.ID); err != nil {
 				return err
 			}
 		}
@@ -194,6 +193,24 @@ func (s *Store) DeleteProject(ref string, force bool) error {
 		}
 		return purgeProject(c, p.ID)
 	})
+}
+
+func refuseBusyProject(c store.Conn, p *Project) error {
+	open, err := column(c, "SELECT slug FROM tasks WHERE project_id = ? AND status IN "+openStatuses+" ORDER BY slug", p.ID)
+	if err != nil {
+		return err
+	}
+	if len(open) > 0 {
+		return fmt.Errorf("%w: project %s has open tasks: %s", ErrRefused, p.Name, strings.Join(open, ", "))
+	}
+	running, err := column(c, "SELECT t.slug || ' on route ' || t.route FROM tasks t JOIN routes r ON r.route = t.route WHERE t.project_id = ? AND r.state <> 'removed' ORDER BY t.slug", p.ID)
+	if err != nil {
+		return err
+	}
+	if len(running) > 0 {
+		return fmt.Errorf("%w: project %s has tasks on running routes: %s", ErrRefused, p.Name, strings.Join(running, ", "))
+	}
+	return nil
 }
 
 func archiveProject(c store.Conn, id string) error {

@@ -20,21 +20,108 @@ const ConfigFile = "herdsman.config.toml"
 var (
 	projectHeader = regexp.MustCompile(`^\[\s*(?:"project"|'project'|project)\s*\]\s*(?:#.*)?$`)
 	rootProject   = regexp.MustCompile(`^(?:"project"|'project'|project)\s*[.=]`)
-	idKey         = regexp.MustCompile(`^id\s*=\s*(.*)$`)
-	nameKey       = regexp.MustCompile(`^name\s*=\s*(.*)$`)
+	idKey         = regexp.MustCompile(`^(?:id|"id"|'id')\s*=\s*(.*)$`)
+	nameKey       = regexp.MustCompile(`^(?:name|"name"|'name')\s*=\s*(.*)$`)
+	escapedKey    = regexp.MustCompile(`^"[^"]*\\`)
 	stringValue   = regexp.MustCompile(`^("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$`)
 )
 
+// fileEdit is one planned change to a config file, with what undoes it.
+type fileEdit struct {
+	path    string
+	before  string
+	existed bool
+	after   string
+	remove  bool
+	mode    os.FileMode
+	applied bool
+}
+
+// fileEdits collects a transaction's file changes. They are planned while the
+// transaction reads, so a config that cannot be edited stops it before any file
+// has changed, and applied last.
+type fileEdits struct {
+	list []*fileEdit
+}
+
+// add plans a change of path from before to after; an empty after removes the
+// file, unless it is a link, whose target is emptied so the link survives.
+func (e *fileEdits) add(path, before string, existed bool, after string) error {
+	if existed && before == after {
+		return nil
+	}
+	edit := &fileEdit{path: path, before: before, existed: existed, after: after, mode: 0o644}
+	info, err := os.Lstat(path)
+	linked := err == nil && info.Mode()&os.ModeSymlink != 0
+	edit.remove = after == "" && !linked
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		edit.path = target
+	}
+	if info, err := os.Stat(edit.path); err == nil {
+		edit.mode = info.Mode().Perm()
+	}
+	e.list = append(e.list, edit)
+	return nil
+}
+
+func (e *fileEdits) apply() error {
+	for _, edit := range e.list {
+		var err error
+		if edit.remove {
+			err = os.Remove(edit.path)
+		} else {
+			err = replaceFile(edit.path, edit.after, edit.mode)
+		}
+		if err != nil {
+			return err
+		}
+		edit.applied = true
+	}
+	return nil
+}
+
+// undo reverses the applied edits, newest first.
+func (e *fileEdits) undo() error {
+	var errs []error
+	for _, edit := range slices.Backward(e.list) {
+		if !edit.applied {
+			continue
+		}
+		if edit.existed {
+			errs = append(errs, replaceFile(edit.path, edit.before, edit.mode))
+		} else {
+			errs = append(errs, os.Remove(edit.path))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// txFiles runs fn in a transaction, applies the file edits it planned as the
+// transaction's last work, and undoes them if an edit or the commit fails. A
+// crash between the edits and the commit is not covered here.
+func (s *Store) txFiles(fn func(store.Conn, *fileEdits) error) error {
+	var files fileEdits
+	err := s.db.Tx(func(c store.Conn) error {
+		if err := fn(c, &files); err != nil {
+			return err
+		}
+		return files.apply()
+	})
+	if err != nil {
+		return errors.Join(err, files.undo())
+	}
+	return nil
+}
+
 // Bind records folder under the project and writes the project's identity to
-// the folder's config. The file is written inside the transaction, so a failed
-// write leaves no record.
+// the folder's config, both or neither.
 func (s *Store) Bind(ref, folder string) (*Project, error) {
 	canon, err := existingFolder(folder)
 	if err != nil {
 		return nil, err
 	}
 	var out *Project
-	err = s.db.Tx(func(c store.Conn) error {
+	err = s.txFiles(func(c store.Conn, files *fileEdits) error {
 		p, err := activeProject(c, ref)
 		if err != nil {
 			return err
@@ -49,7 +136,7 @@ func (s *Store) Bind(ref, folder string) (*Project, error) {
 		if _, err := c.Exec("INSERT OR IGNORE INTO project_folders (path, project_id) VALUES (?, ?)", canon, p.ID); err != nil {
 			return err
 		}
-		if err := writeBinding(canon, p.ID, p.Name); err != nil {
+		if err := writeBinding(files, canon, p.ID, p.Name); err != nil {
 			return err
 		}
 		out, err = loadProject(c, p.ID)
@@ -68,7 +155,7 @@ func (s *Store) Unbind(folder string) (*Project, error) {
 		canon = resolved
 	}
 	var out *Project
-	err := s.db.Tx(func(c store.Conn) error {
+	err := s.txFiles(func(c store.Conn, files *fileEdits) error {
 		ids, err := column(c, "SELECT project_id FROM project_folders WHERE path = ?", canon)
 		if err != nil {
 			return err
@@ -79,7 +166,7 @@ func (s *Store) Unbind(folder string) (*Project, error) {
 		if _, err := c.Exec("DELETE FROM project_folders WHERE path = ?", canon); err != nil {
 			return err
 		}
-		if err := clearBinding(canon, ids[0]); err != nil {
+		if err := clearBinding(files, canon, ids[0]); err != nil {
 			return err
 		}
 		out, err = loadProject(c, ids[0])
@@ -214,7 +301,13 @@ func parseConfig(path, text string) (*config, error) {
 }
 
 func (cfg *config) readKey(path string, i int, line string) error {
+	if escapedKey.MatchString(line) {
+		return fmt.Errorf("%w: %s: [project] has a key with escapes, which cannot be edited", ErrInvalid, path)
+	}
 	if m := idKey.FindStringSubmatch(line); m != nil {
+		if cfg.idLine >= 0 {
+			return fmt.Errorf("%w: %s: [project] sets id twice", ErrInvalid, path)
+		}
 		v, err := parseString(path, "id", m[1])
 		if err != nil {
 			return err
@@ -222,6 +315,9 @@ func (cfg *config) readKey(path string, i int, line string) error {
 		cfg.id, cfg.idLine = v, i
 	}
 	if m := nameKey.FindStringSubmatch(line); m != nil {
+		if cfg.nameLine >= 0 {
+			return fmt.Errorf("%w: %s: [project] sets name twice", ErrInvalid, path)
+		}
 		v, err := parseString(path, "name", m[1])
 		if err != nil {
 			return err
@@ -325,9 +421,9 @@ func readConfig(path string) (text string, exists bool, err error) {
 	return string(b), true, nil
 }
 
-func writeBinding(folder, id, name string) error {
+func writeBinding(files *fileEdits, folder, id, name string) error {
 	path := filepath.Join(folder, ConfigFile)
-	text, _, err := readConfig(path)
+	text, exists, err := readConfig(path)
 	if err != nil {
 		return err
 	}
@@ -339,14 +435,11 @@ func writeBinding(folder, id, name string) error {
 		return fmt.Errorf("%w: %s is bound to project %s", ErrConflict, path, cfg.id)
 	}
 	cfg.setIdentity(id, name)
-	if updated := cfg.text(); updated != text {
-		return replaceFile(path, updated)
-	}
-	return nil
+	return files.add(path, text, exists, cfg.text())
 }
 
 // renameBinding updates the name in a folder that still holds this binding.
-func renameBinding(folder, id, name string) error {
+func renameBinding(files *fileEdits, folder, id, name string) error {
 	path := filepath.Join(folder, ConfigFile)
 	text, exists, err := readConfig(path)
 	if err != nil || !exists {
@@ -360,12 +453,12 @@ func renameBinding(folder, id, name string) error {
 		return nil
 	}
 	cfg.setIdentity(id, name)
-	return replaceFile(path, cfg.text())
+	return files.add(path, text, true, cfg.text())
 }
 
 // clearBinding removes the section when it still names this project, and the
 // file when nothing else is left in it.
-func clearBinding(folder, id string) error {
+func clearBinding(files *fileEdits, folder, id string) error {
 	path := filepath.Join(folder, ConfigFile)
 	text, exists, err := readConfig(path)
 	if err != nil || !exists {
@@ -381,21 +474,14 @@ func clearBinding(folder, id string) error {
 	cfg.removeSection()
 	updated := cfg.text()
 	if strings.TrimSpace(updated) == "" {
-		return os.Remove(path)
+		updated = ""
 	}
-	return replaceFile(path, updated)
+	return files.add(path, text, true, updated)
 }
 
-// replaceFile swaps the content in by rename, through a link when path is one,
-// so a crash leaves the old file or the new one and never half of either.
-func replaceFile(path, text string) (err error) {
-	if target, resolveErr := filepath.EvalSymlinks(path); resolveErr == nil {
-		path = target
-	}
-	mode := os.FileMode(0o644)
-	if info, statErr := os.Stat(path); statErr == nil {
-		mode = info.Mode().Perm()
-	}
+// replaceFile swaps the content in by rename, so a crash leaves the old file
+// or the new one and never half of either.
+func replaceFile(path, text string, mode os.FileMode) (err error) {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".herdsman-config-*")
 	if err != nil {
 		return err
