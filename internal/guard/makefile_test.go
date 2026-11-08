@@ -66,6 +66,55 @@ func TestCheckSDKTSPassesWithoutTests(t *testing.T) {
 	}
 }
 
+const aggregateManifest = "| a | `a` | Go | `make check-a` | x |\n| b | `b` | Go | `make check-b` | x |\n| c | `c` | Go | `make check-c` | x |\n"
+
+// aggregateMakefile is the real Makefile plus three stand-in module targets, so
+// the test runs the real check recipe without running the real modules.
+func aggregateMakefile(t *testing.T, recipeB string) string {
+	t.Helper()
+	return readRepoFile(t, "Makefile") + "\ncheck-a:\n\t@echo ran-a\ncheck-b:\n\t@" + recipeB + "\ncheck-c:\n\t@echo ran-c\n"
+}
+
+func TestCheckRunsEveryModuleAndFailsWhenOneFails(t *testing.T) {
+	out, err := runMakeTarget(t, "check", map[string]string{
+		"Makefile":   aggregateMakefile(t, "exit 1"),
+		"MODULES.md": aggregateManifest,
+	})
+	if err == nil {
+		t.Fatalf("check passed with a failing module:\n%s", out)
+	}
+	for _, want := range []string{"ran-a", "ran-c", "failed: check-b"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("check output has no %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestCheckPassesWhenEveryModulePasses(t *testing.T) {
+	out, err := runMakeTarget(t, "check", map[string]string{
+		"Makefile":   aggregateMakefile(t, "echo ran-b"),
+		"MODULES.md": aggregateManifest,
+	})
+	if err != nil {
+		t.Fatalf("check failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{"ran-a", "ran-b", "ran-c", "all modules passed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("check output has no %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestCheckFailsOnAnEmptyManifest(t *testing.T) {
+	out, err := runMakeTarget(t, "check", map[string]string{"MODULES.md": "no rows\n"})
+	if err == nil {
+		t.Fatalf("check passed with no modules:\n%s", out)
+	}
+	if !strings.Contains(out, "no modules found") {
+		t.Fatalf("check failed for another reason:\n%s", out)
+	}
+}
+
 func TestGoModuleCheckNamesMisformattedFiles(t *testing.T) {
 	out, err := runMakeTarget(t, "check-sdk", map[string]string{"sdk/bad.go": "package   bad\n"})
 	if err == nil {
