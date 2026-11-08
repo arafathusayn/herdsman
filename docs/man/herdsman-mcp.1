@@ -15,6 +15,8 @@ The [policy] deny list of the configuration refuses tools in the same three
 forms, and --deny adds to it. The configuration is read on every call; while it
 cannot be read, every tool is refused.
 
+Calls that act for a party identify it by HERDR_PANE_ID and HERDSMAN_NAME.
+
 Exit codes:
   0  the client closed the connection
   1  serving failed

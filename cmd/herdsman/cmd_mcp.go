@@ -31,6 +31,8 @@ The [policy] deny list of the configuration refuses tools in the same three
 forms, and --deny adds to it. The configuration is read on every call; while it
 cannot be read, every tool is refused.
 
+Calls that act for a party identify it by HERDR_PANE_ID and HERDSMAN_NAME.
+
 Exit codes:
   0  the client closed the connection
   1  serving failed
@@ -58,6 +60,13 @@ func mcpCaller(socket string) mcp.Caller {
 			return nil, err
 		}
 		req.Header.Set("Content-Type", rpc.ContentTypeProto)
+		req.Header.Set(mcp.HeaderVersion, daemonVersion())
+		if pane := os.Getenv("HERDR_PANE_ID"); pane != "" {
+			req.Header.Set(mcp.HeaderPane, pane)
+		}
+		if name := os.Getenv("HERDSMAN_NAME"); name != "" {
+			req.Header.Set(mcp.HeaderName, name)
+		}
 		res, err := hc.Do(req)
 		if err != nil {
 			return nil, err

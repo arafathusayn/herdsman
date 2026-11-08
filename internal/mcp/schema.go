@@ -17,13 +17,12 @@ type schemaBuilder struct {
 
 // inputSchema is the JSON Schema of a request message, in the proto field
 // names. Unknown properties are refused, as the server's own decoding refuses
-// them. withDryRun adds the argument for a method whose request lacks it, so
-// the tool list does not change when the method learns to plan.
-func inputSchema(msg protoreflect.MessageDescriptor, withDryRun bool) map[string]any {
+// them. dry_run is left out unless the method answers it with a plan.
+func inputSchema(msg protoreflect.MessageDescriptor, plans bool) map[string]any {
 	b := &schemaBuilder{defs: map[string]any{}}
 	schema := b.object(msg)
-	if withDryRun {
-		schema["properties"].(map[string]any)[dryRunField] = map[string]any{"type": "boolean"}
+	if !plans {
+		delete(schema["properties"].(map[string]any), dryRunField)
 	}
 	if len(b.defs) > 0 {
 		schema["$defs"] = b.defs

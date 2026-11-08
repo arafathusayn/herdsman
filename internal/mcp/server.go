@@ -31,6 +31,13 @@ const (
 // than queued, so the reader is always free to take a cancellation.
 const maxInFlight = 8
 
+// The headers by which the daemon knows who is calling.
+const (
+	HeaderVersion = "Herdsman-Version"
+	HeaderPane    = "Herdsman-Pane"
+	HeaderName    = "Herdsman-Name"
+)
+
 // Caller sends one request, as binary protobuf, to a procedure path of the
 // daemon and returns the binary response.
 type Caller func(ctx context.Context, procedure string, request []byte) ([]byte, error)
@@ -71,6 +78,15 @@ func (s *Server) Tools() []Tool {
 	out := make([]Tool, len(s.tools))
 	for i, t := range s.tools {
 		out[i] = t.Tool
+	}
+	return out
+}
+
+// Procedures are the RPC paths the tools call.
+func (s *Server) Procedures() []string {
+	out := make([]string, len(s.tools))
+	for i, t := range s.tools {
+		out[i] = t.procedure
 	}
 	return out
 }

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
@@ -31,8 +33,9 @@ import (
 
 var update = flag.Bool("update", false, "rewrite testdata/tools.golden")
 
-// widgetProto is a service with one method of every shape the server tells
-// apart, so these tests do not depend on what the daemon implements today.
+// widgetProto has the shapes no real method has yet: a core Plan in a response,
+// a streaming method, an idempotency option. Everything else is tested on the
+// real contracts.
 const widgetProto = `
 name: "widget.proto"
 package: "herdsman.widget.v1"
@@ -219,6 +222,25 @@ func (f *fake) calls() int {
 
 func noDeny() ([]string, error) { return nil, nil }
 
+// The real tools these tests call, one of each kind.
+const (
+	readTool   = "daemon_message_status"
+	actTool    = "daemon_message_send"
+	planTool   = "daemon_route_up"
+	readMethod = "herdsman.daemon.v1.MessageService/Status"
+)
+
+func realServer(t *testing.T, f *fake, deny func() ([]string, error)) *session {
+	t.Helper()
+	s, err := NewServer(Files(), Options{Call: f.call, Deny: deny, Version: "1.2.3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := start(t, s)
+	c.initialize()
+	return c
+}
+
 func widgetServer(t *testing.T, f *fake, deny func() ([]string, error)) (*session, protoreflect.FileDescriptor) {
 	t.Helper()
 	file := parseFile(t, widgetProto)
@@ -283,7 +305,7 @@ func TestToolsComeFromTheDescriptors(t *testing.T) {
 		names = append(names, tool.Name)
 		_, hasDry := tool.InputSchema["properties"].(map[string]any)["dry_run"]
 		mutating := tool.Name != "widget_get"
-		if hasDry != mutating || tool.Annotations.ReadOnly == mutating || tool.Annotations.Destructive != mutating {
+		if hasDry != (tool.Name == "widget_make") || strings.Contains(tool.Description, "dry_run") != hasDry || tool.Annotations.ReadOnly == mutating || tool.Annotations.Destructive != mutating {
 			t.Errorf("%s: dry_run %v, annotations %+v", tool.Name, hasDry, tool.Annotations)
 		}
 		if !strings.Contains(tool.Description, "herdsman.widget.v1.WidgetService/") {
@@ -292,6 +314,17 @@ func TestToolsComeFromTheDescriptors(t *testing.T) {
 	}
 	if want := []string{"widget_get", "widget_make", "widget_old_thing"}; !reflect.DeepEqual(names, want) {
 		t.Fatalf("names %v, want %v (a streaming method has no tool)", names, want)
+	}
+}
+
+func TestProceduresFollowTheTools(t *testing.T) {
+	s, err := NewServer(Files(), Options{Call: (&fake{}).call, Deny: noDeny})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s.Procedures()
+	if len(got) != len(s.Tools()) || !slices.Contains(got, rpc.Path("herdsman.daemon.v1.RouteService", "Up")) {
+		t.Fatalf("%v", got)
 	}
 }
 
@@ -325,22 +358,111 @@ service: { name: "SourceService" method: { name: "Search" input_type: ".herdsman
 
 // Agents must not be able to approve themselves or stop the daemon.
 func TestPeopleOnlyMethodsHaveNoTool(t *testing.T) {
-	var methods, names strings.Builder
-	for _, name := range []string{"Shutdown", "Enroll", "ApprovePair", "RetirePair", "RevokeCredential", "ResetEvents"} {
-		fmt.Fprintf(&methods, `method: { name: %q input_type: ".herdsman.daemon.v1.R" output_type: ".herdsman.daemon.v1.R" }`, name)
-		names.WriteString(name)
-	}
-	file := parseFile(t, `name: "a.proto" package: "herdsman.daemon.v1" syntax: "proto3"
-message_type: { name: "R" }
-service: { name: "MessageService" `+methods.String()+`
- method: { name: "Send" input_type: ".herdsman.daemon.v1.R" output_type: ".herdsman.daemon.v1.R" } }`)
-	s, err := NewServer([]protoreflect.FileDescriptor{file}, Options{Call: (&fake{}).call, Deny: noDeny})
+	s, err := NewServer(Files(), Options{Call: (&fake{}).call, Deny: noDeny})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tools := s.Tools()
-	if len(tools) != 1 || tools[0].Name != "daemon_message_send" {
-		t.Fatalf("tools %+v", tools)
+	service := daemonv1.File_herdsman_daemon_v1_message_proto.Services().ByName("MessageService")
+	names := map[string]bool{}
+	for _, tool := range s.Tools() {
+		names[tool.Name] = true
+	}
+	for _, name := range []protoreflect.Name{"Shutdown", "Enroll", "ApprovePair", "RetirePair", "RevokeCredential", "ResetEvents"} {
+		if service.Methods().ByName(name) == nil {
+			t.Errorf("%s is no longer in the contract", name)
+		}
+		if names["daemon_message_"+snake(string(name))] {
+			t.Errorf("%s has a tool", name)
+		}
+	}
+	if !names[actTool] {
+		t.Fatalf("no %s among %v", actTool, names)
+	}
+}
+
+// A tool offers dry_run only when the daemon answers it with a plan.
+func TestOnlyToolsThatPlanAdvertiseDryRun(t *testing.T) {
+	s, err := NewServer(Files(), Options{Call: (&fake{}).call, Deny: noDeny})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var planning []string
+	for _, tool := range s.Tools() {
+		_, hasDry := tool.InputSchema["properties"].(map[string]any)[dryRunField]
+		if hasDry {
+			planning = append(planning, tool.Name)
+		}
+		if strings.Contains(tool.Description, dryRunField) != hasDry {
+			t.Errorf("%s: dry_run in the schema %v, description %q", tool.Name, hasDry, tool.Description)
+		}
+	}
+	if want := []string{planTool}; !reflect.DeepEqual(planning, want) {
+		t.Fatalf("tools offering dry_run %v, want %v", planning, want)
+	}
+}
+
+func upReply(t *testing.T, start *daemonv1.RouteStart) func(string, []byte) ([]byte, error) {
+	t.Helper()
+	data := mustMarshal(t, &daemonv1.UpResponse{Start: start})
+	return func(string, []byte) ([]byte, error) { return data, nil }
+}
+
+func TestRouteUpDryRunReturnsTheDaemonsPlan(t *testing.T) {
+	f := &fake{}
+	c := realServer(t, f, noDeny)
+	f.reply = upReply(t, &daemonv1.RouteStart{State: "planned", Plan: "run the adjutant"})
+	got := c.tool(planTool, `{"repo":"/r","dry_run":true}`)
+	if got.IsError {
+		t.Fatalf("%+v", got)
+	}
+	plan, ok := got.Structured["plan"].(map[string]any)
+	if !ok || plan["state"] != "planned" || plan["plan"] != "run the adjutant" {
+		t.Fatalf("%+v", got.Structured)
+	}
+	sent := &daemonv1.UpRequest{}
+	if err := proto.Unmarshal(f.body[0], sent); err != nil {
+		t.Fatal(err)
+	}
+	if !sent.GetDryRun() || f.paths[0] != rpc.Path("herdsman.daemon.v1.RouteService", "Up") {
+		t.Fatalf("%s %+v", f.paths[0], sent)
+	}
+}
+
+func TestRouteUpAnswerWithoutPlanTextIsAnError(t *testing.T) {
+	for name, start := range map[string]*daemonv1.RouteStart{"no start": nil, "no text": {State: "planned"}} {
+		t.Run(name, func(t *testing.T) {
+			f := &fake{}
+			c := realServer(t, f, noDeny)
+			f.reply = upReply(t, start)
+			wantCode(t, c.tool(planTool, `{"dry_run":true}`), codePlanMissing)
+		})
+	}
+}
+
+// The daemon starts a route only for a person at a terminal, so the tool never
+// asks it to.
+func TestRouteUpOnlyPlans(t *testing.T) {
+	for name, args := range map[string]string{"no dry_run": `{"repo":"/r"}`, "false": `{"dry_run":false}`} {
+		t.Run(name, func(t *testing.T) {
+			f := &fake{}
+			c := realServer(t, f, noDeny)
+			wantCode(t, c.tool(planTool, args), codePlanOnly)
+			if f.calls() != 0 {
+				t.Fatalf("the daemon was called: %v", f.paths)
+			}
+		})
+	}
+}
+
+func TestPlanOnlyToolIsNotMarkedDestructive(t *testing.T) {
+	s, err := NewServer(Files(), Options{Call: (&fake{}).call, Deny: noDeny})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range s.Tools() {
+		if tool.Name == planTool && (!tool.Annotations.ReadOnlyHint || tool.Annotations.DestructiveHint) {
+			t.Fatalf("%+v", tool.Annotations)
+		}
 	}
 }
 
@@ -451,12 +573,20 @@ message_type: { name: "Node"
 
 func TestSchemaHasNoDefsWithoutNestedMessages(t *testing.T) {
 	file := parseFile(t, widgetProto)
-	got := inputSchema(message(t, file, "OldRequest"), true)
+	got := inputSchema(message(t, file, "MakeRequest"), true)
 	if _, ok := got["$defs"]; ok {
 		t.Fatalf("unexpected $defs: %#v", got)
 	}
 	if got["properties"].(map[string]any)["dry_run"].(map[string]any)["type"] != "boolean" {
 		t.Fatalf("no dry_run: %#v", got)
+	}
+}
+
+func TestSchemaHidesDryRunWithoutAPlan(t *testing.T) {
+	file := parseFile(t, widgetProto)
+	got := inputSchema(message(t, file, "MakeRequest"), false)
+	if _, ok := got["properties"].(map[string]any)["dry_run"]; ok {
+		t.Fatalf("dry_run offered: %#v", got)
 	}
 }
 
@@ -657,8 +787,8 @@ func TestDryRunAnswerWithoutAPlanIsAnError(t *testing.T) {
 // never leave this process.
 func TestDryRunNeverReachesAMethodThatCannotPlan(t *testing.T) {
 	f := &fake{}
-	c, _ := widgetServer(t, f, noDeny)
-	wantCode(t, c.tool("widget_old_thing", `{"id":"x","dry_run":true}`), codeDryRunUnsupported)
+	c := realServer(t, f, noDeny)
+	wantCode(t, c.tool(actTool, `{"dry_run":true}`), codeDryRunUnsupported)
 	if f.calls() != 0 {
 		t.Fatalf("the daemon was called: %v", f.paths)
 	}
@@ -668,12 +798,17 @@ func TestHalfADryRunContractCannotPlan(t *testing.T) {
 	file := parseFile(t, `name: "h.proto" package: "herdsman.h.v1" syntax: "proto3"
 message_type: { name: "Yes" field: { name: "dry_run" number: 1 type: TYPE_BOOL label: LABEL_OPTIONAL json_name: "dryRun" } }
 message_type: { name: "Odd" field: { name: "dry_run" number: 1 type: TYPE_STRING label: LABEL_OPTIONAL json_name: "dryRun" } }
+message_type: { name: "Num" field: { name: "plan" number: 1 type: TYPE_INT32 label: LABEL_OPTIONAL json_name: "plan" } }
+message_type: { name: "Many" field: { name: "items" number: 1 type: TYPE_MESSAGE label: LABEL_REPEATED type_name: ".herdsman.h.v1.Num" json_name: "items" } }
+message_type: { name: "One" field: { name: "item" number: 1 type: TYPE_MESSAGE label: LABEL_OPTIONAL type_name: ".herdsman.h.v1.Num" json_name: "item" } }
 service: { name: "HService"
  method: { name: "NoPlan" input_type: ".herdsman.h.v1.Yes" output_type: ".herdsman.h.v1.Yes" }
- method: { name: "NotBool" input_type: ".herdsman.h.v1.Odd" output_type: ".herdsman.h.v1.Yes" } }`)
+ method: { name: "NotBool" input_type: ".herdsman.h.v1.Odd" output_type: ".herdsman.h.v1.Yes" }
+ method: { name: "ListOfThem" input_type: ".herdsman.h.v1.Yes" output_type: ".herdsman.h.v1.Many" }
+ method: { name: "PlanNotText" input_type: ".herdsman.h.v1.Yes" output_type: ".herdsman.h.v1.One" } }`)
 	methods := file.Services().Get(0).Methods()
 	for i := range methods.Len() {
-		if dry, plan := planFields(methods.Get(i)); dry != nil || plan != nil {
+		if dry, plan, text := planFields(methods.Get(i)); dry != nil || plan != nil || text != nil {
 			t.Errorf("%s can plan", methods.Get(i).Name())
 		}
 	}
@@ -707,8 +842,8 @@ func mustMarshal(t *testing.T, m proto.Message) []byte {
 
 func TestDryRunFalseStillActs(t *testing.T) {
 	f := &fake{}
-	c, _ := widgetServer(t, f, noDeny)
-	if got := c.tool("widget_old_thing", `{"id":"x","dry_run":false}`); got.IsError {
+	c := realServer(t, f, noDeny)
+	if got := c.tool(actTool, `{"dry_run":false}`); got.IsError {
 		t.Fatalf("%+v", got)
 	}
 	if f.calls() != 1 {
@@ -718,14 +853,14 @@ func TestDryRunFalseStillActs(t *testing.T) {
 
 func TestInvalidArgumentsNeverReachTheDaemon(t *testing.T) {
 	f := &fake{}
-	c, _ := widgetServer(t, f, noDeny)
+	c := realServer(t, f, noDeny)
 	for name, tool := range map[string][2]string{
-		"unknown field":      {"widget_get", `{"nope":1}`},
-		"wrong type":         {"widget_get", `{"id":7}`},
-		"not an object":      {"widget_get", `[1]`},
-		"dry_run read-only":  {"widget_get", `{"dry_run":true}`},
-		"dry_run not a bool": {"widget_old_thing", `{"dry_run":"yes"}`},
-		"camel spelling":     {"widget_old_thing", `{"dryRun":true}`},
+		"unknown field":      {readTool, `{"nope":1}`},
+		"wrong type":         {readTool, `{"route":7}`},
+		"not an object":      {readTool, `[1]`},
+		"dry_run read-only":  {readTool, `{"dry_run":true}`},
+		"dry_run not a bool": {actTool, `{"dry_run":"yes"}`},
+		"camel spelling":     {actTool, `{"dryRun":true}`},
 	} {
 		t.Run(name, func(t *testing.T) { wantCode(t, c.tool(tool[0], tool[1]), codeInvalidArgument) })
 	}
@@ -736,29 +871,29 @@ func TestInvalidArgumentsNeverReachTheDaemon(t *testing.T) {
 
 func TestMissingArgumentsMeanAnEmptyRequest(t *testing.T) {
 	f := &fake{}
-	c, _ := widgetServer(t, f, noDeny)
-	r := c.call(4, "tools/call", `{"name":"widget_get"}`)
+	c := realServer(t, f, noDeny)
+	r := c.call(4, "tools/call", `{"name":"`+readTool+`"}`)
 	if r.Error != nil || !strings.Contains(string(r.Result), `"structuredContent":{}`) {
 		t.Fatalf("%s %+v", r.Result, r.Error)
 	}
-	if got := c.tool("widget_get", `null`); got.IsError {
+	if got := c.tool(readTool, `null`); got.IsError {
 		t.Fatalf("%+v", got)
 	}
 }
 
 func TestDenyApplies(t *testing.T) {
 	cases := map[string][]string{
-		"tool name":  {"widget_make"},
-		"glob":       {"widget_*"},
-		"procedure":  {"herdsman.widget.v1.WidgetService/Make"},
-		"among more": {"git push", "widget_make"},
+		"tool name":  {planTool},
+		"glob":       {"daemon_*"},
+		"procedure":  {"herdsman.daemon.v1.RouteService/Up"},
+		"among more": {"git push", planTool},
 	}
 	for name, deny := range cases {
 		t.Run(name, func(t *testing.T) {
 			f := &fake{}
-			c, _ := widgetServer(t, f, func() ([]string, error) { return deny, nil })
-			wantCode(t, c.tool("widget_make", `{"id":"x"}`), codeDenied)
-			wantCode(t, c.tool("widget_make", `{"dry_run":true}`), codeDenied)
+			c := realServer(t, f, func() ([]string, error) { return deny, nil })
+			wantCode(t, c.tool(planTool, `{}`), codeDenied)
+			wantCode(t, c.tool(planTool, `{"dry_run":true}`), codeDenied)
 			if f.calls() != 0 {
 				t.Fatalf("the daemon was called: %v", f.paths)
 			}
@@ -768,8 +903,8 @@ func TestDenyApplies(t *testing.T) {
 
 func TestDenyLeavesOtherToolsAlone(t *testing.T) {
 	f := &fake{}
-	c, _ := widgetServer(t, f, func() ([]string, error) { return []string{"widget_make", "git push"}, nil })
-	if got := c.tool("widget_get", `{"id":"x"}`); got.IsError {
+	c := realServer(t, f, func() ([]string, error) { return []string{planTool, "git push"}, nil })
+	if got := c.tool(readTool, `{}`); got.IsError {
 		t.Fatalf("%+v", got)
 	}
 }
@@ -777,30 +912,30 @@ func TestDenyLeavesOtherToolsAlone(t *testing.T) {
 func TestPolicyIsReadOnEveryCall(t *testing.T) {
 	f := &fake{}
 	var denied atomic.Bool
-	c, _ := widgetServer(t, f, func() ([]string, error) {
+	c := realServer(t, f, func() ([]string, error) {
 		if denied.Load() {
-			return []string{"widget_get"}, nil
+			return []string{readMethod}, nil
 		}
 		return nil, nil
 	})
-	if got := c.tool("widget_get", `{}`); got.IsError {
+	if got := c.tool(readTool, `{}`); got.IsError {
 		t.Fatalf("%+v", got)
 	}
 	denied.Store(true)
-	wantCode(t, c.tool("widget_get", `{}`), codeDenied)
+	wantCode(t, c.tool(readTool, `{}`), codeDenied)
 }
 
 func TestUnreadablePolicyRefusesEverything(t *testing.T) {
 	cases := map[string]func() ([]string, error){
 		"load error":      func() ([]string, error) { return nil, errors.New("disk") },
 		"no loader":       nil,
-		"malformed entry": func() ([]string, error) { return []string{"widget["}, nil },
+		"malformed entry": func() ([]string, error) { return []string{"daemon["}, nil },
 	}
 	for name, deny := range cases {
 		t.Run(name, func(t *testing.T) {
 			f := &fake{}
-			c, _ := widgetServer(t, f, deny)
-			wantCode(t, c.tool("widget_get", `{}`), codePolicyUnavailable)
+			c := realServer(t, f, deny)
+			wantCode(t, c.tool(readTool, `{}`), codePolicyUnavailable)
 			if f.calls() != 0 {
 				t.Fatalf("the daemon was called: %v", f.paths)
 			}
@@ -810,15 +945,15 @@ func TestUnreadablePolicyRefusesEverything(t *testing.T) {
 
 func TestDaemonFailuresBecomeToolErrors(t *testing.T) {
 	f := &fake{}
-	c, _ := widgetServer(t, f, noDeny)
+	c := realServer(t, f, noDeny)
 	f.reply = func(string, []byte) ([]byte, error) { return nil, rpc.Errorf(rpc.InvalidArgument, "bad id") }
-	got := c.tool("widget_get", `{}`)
+	got := c.tool(readTool, `{}`)
 	wantCode(t, got, string(rpc.InvalidArgument))
 	if got.Structured["message"] != "bad id" || !strings.Contains(got.Content[0].Text, "bad id") {
 		t.Fatalf("%+v", got)
 	}
 	f.reply = func(string, []byte) ([]byte, error) { return nil, fmt.Errorf("wrapped: %w", errors.New("no socket")) }
-	got = c.tool("widget_get", `{}`)
+	got = c.tool(readTool, `{}`)
 	if !got.IsError || !strings.Contains(got.Content[0].Text, "no socket") {
 		t.Fatalf("%+v", got)
 	}
@@ -826,9 +961,9 @@ func TestDaemonFailuresBecomeToolErrors(t *testing.T) {
 
 func TestUndecodableReplyIsAnError(t *testing.T) {
 	f := &fake{}
-	c, _ := widgetServer(t, f, noDeny)
+	c := realServer(t, f, noDeny)
 	f.reply = func(string, []byte) ([]byte, error) { return []byte{0xff}, nil }
-	wantCode(t, c.tool("widget_get", `{}`), codeBadReply)
+	wantCode(t, c.tool(readTool, `{}`), codeBadReply)
 }
 
 func TestSuccessCarriesTheResponse(t *testing.T) {

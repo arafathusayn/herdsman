@@ -130,6 +130,39 @@ func TestMCPCallsTheDaemonOverItsSocket(t *testing.T) {
 	}
 }
 
+// The daemon knows a party by these headers, as it does for `herdsman message`.
+func TestMCPSendsThePartysIdentity(t *testing.T) {
+	var got http.Header
+	socket := serveSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Type", rpc.ContentTypeProto)
+	}))
+	t.Setenv("HERDR_PANE_ID", "w1:p2")
+	t.Setenv("HERDSMAN_NAME", "orchestrator")
+	if _, errOut, code := runUntilReply(t, mcpLines, "--socket", socket); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if got.Get(mcp.HeaderPane) != "w1:p2" || got.Get(mcp.HeaderName) != "orchestrator" || got.Get(mcp.HeaderVersion) != daemonVersion() {
+		t.Fatalf("headers %v", got)
+	}
+}
+
+func TestMCPOutsideAPaneSendsNoIdentity(t *testing.T) {
+	var got http.Header
+	socket := serveSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Type", rpc.ContentTypeProto)
+	}))
+	t.Setenv("HERDR_PANE_ID", "")
+	t.Setenv("HERDSMAN_NAME", "")
+	if _, errOut, code := runUntilReply(t, mcpLines, "--socket", socket); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if got.Values(mcp.HeaderPane) != nil || got.Values(mcp.HeaderName) != nil {
+		t.Fatalf("headers %v", got)
+	}
+}
+
 func TestMCPReportsTheDaemonsFailure(t *testing.T) {
 	socket := serveSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

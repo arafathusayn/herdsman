@@ -30,6 +30,7 @@ const (
 	codeDenied            = "policy_denied"
 	codePolicyUnavailable = "policy_unavailable"
 	codeDryRunUnsupported = "dry_run_unsupported"
+	codePlanOnly          = "plan_only"
 	codePlanMissing       = "plan_missing"
 	codeBadReply          = "bad_reply"
 )
@@ -39,13 +40,27 @@ var toolNamePattern = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 // readOnlyMethods names the methods known to change nothing, until their protos
 // say so with idempotency_level. A method on neither list counts as mutating.
 var readOnlyMethods = map[protoreflect.FullName]bool{
-	"herdsman.daemon.v1.MessageService.Status":   true,
-	"herdsman.daemon.v1.LedgerService.Resources": true,
-	"herdsman.daemon.v1.LedgerService.Plan":      true,
-	"herdsman.suggest.v1.SuggestService.Search":  true,
-	"herdsman.suggest.v1.SuggestService.Get":     true,
-	"herdsman.suggest.v1.SuggestService.Plan":    true,
-	"herdsman.suggest.v1.SuggestService.Sources": true,
+	"herdsman.daemon.v1.MessageService.Hello":          true,
+	"herdsman.daemon.v1.MessageService.Health":         true,
+	"herdsman.daemon.v1.MessageService.ListRoutes":     true,
+	"herdsman.daemon.v1.MessageService.Status":         true,
+	"herdsman.daemon.v1.MessageService.GetSetup":       true,
+	"herdsman.daemon.v1.MessageService.DaemonStatus":   true,
+	"herdsman.daemon.v1.MessageService.ListOperations": true,
+	"herdsman.daemon.v1.MessageService.GetOperation":   true,
+	"herdsman.daemon.v1.RouteService.Get":              true,
+	"herdsman.daemon.v1.RouteService.List":             true,
+	"herdsman.suggest.v1.SuggestService.Search":        true,
+	"herdsman.suggest.v1.SuggestService.Get":           true,
+	"herdsman.suggest.v1.SuggestService.Plan":          true,
+	"herdsman.suggest.v1.SuggestService.Sources":       true,
+}
+
+// planOnlyMethods answer dry runs only. The daemon starts a route for a person
+// at a terminal and refuses a caller under a coding agent, so a tool that asked
+// it to could only ever fail.
+var planOnlyMethods = map[protoreflect.FullName]bool{
+	"herdsman.daemon.v1.RouteService.Up": true,
 }
 
 // peopleOnlyMethods get no tool. An agent holding this server runs as the same
@@ -60,11 +75,11 @@ var peopleOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.ResetEvents":      true,
 }
 
-// Files are the contracts served as tools.
+// Files are the contracts served as tools: only those the daemon serves.
 func Files() []protoreflect.FileDescriptor {
 	return []protoreflect.FileDescriptor{
-		daemonv1.File_herdsman_daemon_v1_ledger_proto,
 		daemonv1.File_herdsman_daemon_v1_message_proto,
+		daemonv1.File_herdsman_daemon_v1_route_proto,
 		suggestv1.File_herdsman_suggest_v1_suggest_proto,
 	}
 }
@@ -90,9 +105,13 @@ type tool struct {
 	method    protoreflect.MethodDescriptor
 	procedure string
 	mutating  bool
+	// planOnly refuses any call that is not a dry run.
+	planOnly bool
 	// dryRun and plan are nil unless the method can answer with a plan.
 	dryRun protoreflect.FieldDescriptor
 	plan   protoreflect.FieldDescriptor
+	// planText is set when the plan is a message carrying its text.
+	planText protoreflect.FieldDescriptor
 }
 
 // snake turns a descriptor name into lower snake case, keeping an initialism as
@@ -136,22 +155,38 @@ func isMutating(method protoreflect.MethodDescriptor) bool {
 	return options.GetIdempotencyLevel() != descriptorpb.MethodOptions_NO_SIDE_EFFECTS && !readOnlyMethods[method.FullName()]
 }
 
-// planFields finds the request's dry_run and the response's Plan. Both or
-// neither: a method with only one of them cannot answer a dry run.
-func planFields(method protoreflect.MethodDescriptor) (dryRun, plan protoreflect.FieldDescriptor) {
+// singularMessage holds one message, not a list or a map of them.
+func singularMessage(field protoreflect.FieldDescriptor) bool {
+	return field.Kind() == protoreflect.MessageKind && !field.IsList() && !field.IsMap()
+}
+
+// planFields finds the request's dry_run and where the response carries the
+// plan: a core Plan, or a message with its plan as text. Both or neither: a
+// method with only one of them cannot answer a dry run.
+func planFields(method protoreflect.MethodDescriptor) (dryRun, plan, planText protoreflect.FieldDescriptor) {
 	field := method.Input().Fields().ByName(dryRunField)
 	if field == nil || field.Kind() != protoreflect.BoolKind || field.IsList() {
-		return nil, nil
+		return nil, nil, nil
 	}
 	planName := (&corev1.Plan{}).ProtoReflect().Descriptor().FullName()
 	output := method.Output().Fields()
 	for i := range output.Len() {
 		candidate := output.Get(i)
-		if candidate.Kind() == protoreflect.MessageKind && !candidate.IsList() && !candidate.IsMap() && candidate.Message().FullName() == planName {
-			return field, candidate
+		if singularMessage(candidate) && candidate.Message().FullName() == planName {
+			return field, candidate, nil
 		}
 	}
-	return nil, nil
+	for i := range output.Len() {
+		candidate := output.Get(i)
+		if !singularMessage(candidate) {
+			continue
+		}
+		text := candidate.Message().Fields().ByName("plan")
+		if text != nil && text.Kind() == protoreflect.StringKind && !text.IsList() {
+			return field, candidate, text
+		}
+	}
+	return nil, nil, nil
 }
 
 func newTool(method protoreflect.MethodDescriptor) (*tool, error) {
@@ -168,14 +203,23 @@ func newTool(method protoreflect.MethodDescriptor) (*tool, error) {
 	}
 	description := "Calls " + string(service.FullName()) + "/" + string(method.Name()) + "."
 	if mutating {
-		t.dryRun, t.plan = planFields(method)
-		description += " Changes state; with dry_run it returns the plan and acts on nothing."
+		t.dryRun, t.plan, t.planText = planFields(method)
+		t.planOnly = planOnlyMethods[method.FullName()]
+		switch {
+		case t.planOnly:
+			description += " Only plans: dry_run must be true, and the plan is returned with nothing done."
+		case t.dryRun != nil:
+			description += " Changes state; with dry_run it returns the plan and acts on nothing."
+		default:
+			description += " Changes state."
+		}
 	}
+	acts := mutating && !t.planOnly
 	t.Tool = Tool{
 		Name:        name,
 		Description: description,
-		InputSchema: inputSchema(method.Input(), mutating),
-		Annotations: Annotations{ReadOnlyHint: !mutating, DestructiveHint: mutating},
+		InputSchema: inputSchema(method.Input(), t.dryRun != nil),
+		Annotations: Annotations{ReadOnlyHint: !acts, DestructiveHint: acts},
 	}
 	return t, nil
 }
@@ -326,7 +370,10 @@ func (s *Server) callTool(ctx context.Context, t *tool, arguments json.RawMessag
 	}
 	if request.unsupported {
 		// The daemon would ignore the unknown field and act.
-		return failure(codeDryRunUnsupported, "tool "+t.Name+" cannot plan yet; nothing was done")
+		return failure(codeDryRunUnsupported, "tool "+t.Name+" cannot plan; nothing was done")
+	}
+	if t.planOnly && !request.dryRun {
+		return failure(codePlanOnly, "tool "+t.Name+" only plans: call it with dry_run true; a person starts a route from a terminal")
 	}
 	answer, err := s.options.Call(ctx, t.procedure, request.body)
 	if err != nil {
@@ -343,7 +390,7 @@ func (s *Server) callTool(ctx context.Context, t *tool, arguments json.RawMessag
 func encodeResponse(t *tool, response *dynamicpb.Message, dryRun bool) toolResult {
 	var body proto.Message = response
 	if dryRun {
-		if !response.Has(t.plan) {
+		if !response.Has(t.plan) || (t.planText != nil && !response.Get(t.plan).Message().Has(t.planText)) {
 			return failure(codePlanMissing, "the daemon answered a dry run of "+t.Name+" without a plan")
 		}
 		body = response.Get(t.plan).Message().Interface()
