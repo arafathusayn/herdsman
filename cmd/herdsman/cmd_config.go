@@ -22,6 +22,7 @@ const configUsage = `usage: herdsman config get <key> [-c <path>]
        herdsman config schema --format jsonschema|descriptor
        herdsman config approvals list
        herdsman config approvals clear [<project>]
+       herdsman config shell install|uninstall [bash|zsh|fish] [--json]
 `
 
 const configHelp = configUsage + `
@@ -33,6 +34,9 @@ show prints the file in use and then one "key = value (source)" line each.
 A warning goes to stderr; --strict makes it an error. An unknown key in the
 policy or launch section always stops the command.
 
+shell adds or removes the wrapper that lets herdsman go change the shell's
+folder, with static completions. The shell defaults to $SHELL.
+
 exit codes:
   0  done
   1  the configuration is invalid, or the file cannot be read or written
@@ -40,7 +44,7 @@ exit codes:
 `
 
 func init() {
-	register(command{name: "config", summary: "Read and change the herdsman configuration.", help: configHelp, run: runConfig})
+	register(command{name: "config", summary: "Read and change the configuration; install the shell integration.", help: configHelp, run: runConfig})
 }
 
 // configArgs is a config command line; flags may come in any position.
@@ -94,6 +98,9 @@ func runConfig(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, configUsage)
 		return 2
 	}
+	if args[0] == "shell" {
+		return runConfigShell(args, stdout, stderr)
+	}
 	verb, ok := configVerbs[args[0]]
 	parsed, err := parseConfigArgs(args[1:])
 	if !ok || err != nil || len(parsed.words) < verb.minWords || len(parsed.words) > verb.maxWords {
@@ -101,7 +108,7 @@ func runConfig(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if err := verb.run(parsed, stdout, stderr); err != nil {
-		var usage usageError
+		var usage configUsageError
 		if errors.As(err, &usage) {
 			fmt.Fprintf(stderr, "herdsman config %s: %v\n%s", args[0], err, configUsage)
 			return 2
@@ -112,10 +119,10 @@ func runConfig(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// usageError is a command line that cannot be acted on.
-type usageError string
+// configUsageError is a command line that cannot be acted on.
+type configUsageError string
 
-func (e usageError) Error() string { return string(e) }
+func (e configUsageError) Error() string { return string(e) }
 
 // repoRoot walks up from the working folder to the nearest repository.
 func repoRoot() string {
@@ -222,7 +229,7 @@ func configShow(a *configArgs, stdout, stderr io.Writer) error {
 
 func configExport(a *configArgs, stdout, _ io.Writer) error {
 	if a.format == "" {
-		return usageError("--format is required")
+		return configUsageError("--format is required")
 	}
 	path, err := a.target()
 	if err != nil {
@@ -280,7 +287,7 @@ func configSchema(a *configArgs, stdout, _ io.Writer) error {
 	case "descriptor":
 		data, err = config.DescriptorSet()
 	default:
-		return usageError("--format must be jsonschema or descriptor")
+		return configUsageError("--format must be jsonschema or descriptor")
 	}
 	if err != nil {
 		return err
@@ -297,7 +304,7 @@ func configApprovals(a *configArgs, stdout, _ io.Writer) error {
 	switch a.words[0] {
 	case "list":
 		if len(a.words) != 1 {
-			return usageError("list takes no project")
+			return configUsageError("list takes no project")
 		}
 		held, err := store.List()
 		if err != nil {
@@ -326,6 +333,6 @@ func configApprovals(a *configArgs, stdout, _ io.Writer) error {
 		fmt.Fprintf(stdout, "removed %d\n", removed)
 		return nil
 	default:
-		return usageError("approvals takes list or clear")
+		return configUsageError("approvals takes list or clear")
 	}
 }
