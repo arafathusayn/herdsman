@@ -187,7 +187,10 @@ type UpRequest struct {
 	Caller   *UpCaller      `protobuf:"bytes,15,opt,name=caller,proto3" json:"caller,omitempty"`
 	Kinds    []string       `protobuf:"bytes,16,rep,name=kinds,proto3" json:"kinds,omitempty"`
 	// YYYY-MM-DD of the first start; names the route folder.
-	Date          string `protobuf:"bytes,17,opt,name=date,proto3" json:"date,omitempty"`
+	Date string `protobuf:"bytes,17,opt,name=date,proto3" json:"date,omitempty"`
+	// Where each secret is stored, as NAME=service/account separated by commas.
+	// References only: a value never crosses this call.
+	SecretRefs    string `protobuf:"bytes,18,opt,name=secret_refs,json=secretRefs,proto3" json:"secret_refs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -337,6 +340,13 @@ func (x *UpRequest) GetKinds() []string {
 func (x *UpRequest) GetDate() string {
 	if x != nil {
 		return x.Date
+	}
+	return ""
+}
+
+func (x *UpRequest) GetSecretRefs() string {
+	if x != nil {
+		return x.SecretRefs
 	}
 	return ""
 }
@@ -832,7 +842,7 @@ const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"\x12confirmed_checksum\x18\x06 \x01(\tR\x11confirmedChecksum\";\n" +
 	"\vStepVerdict\x12\x12\n" +
 	"\x04step\x18\x01 \x01(\x05R\x04step\x12\x18\n" +
-	"\averdict\x18\x02 \x01(\tR\averdict\"\xf0\x04\n" +
+	"\averdict\x18\x02 \x01(\tR\averdict\"\x91\x05\n" +
 	"\tUpRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
 	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x16\n" +
@@ -854,7 +864,9 @@ const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"\bverdicts\x18\x0e \x03(\v2\x1f.herdsman.daemon.v1.StepVerdictR\bverdicts\x124\n" +
 	"\x06caller\x18\x0f \x01(\v2\x1c.herdsman.daemon.v1.UpCallerR\x06caller\x12\x14\n" +
 	"\x05kinds\x18\x10 \x03(\tR\x05kinds\x12\x12\n" +
-	"\x04date\x18\x11 \x01(\tR\x04date\"y\n" +
+	"\x04date\x18\x11 \x01(\tR\x04date\x12\x1f\n" +
+	"\vsecret_refs\x18\x12 \x01(\tR\n" +
+	"secretRefs\"y\n" +
 	"\tRouteStep\x12\x18\n" +
 	"\aordinal\x18\x01 \x01(\x05R\aordinal\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x10\n" +

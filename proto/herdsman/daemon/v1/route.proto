@@ -59,6 +59,9 @@ message UpRequest {
   repeated string kinds = 16;
   // YYYY-MM-DD of the first start; names the route folder.
   string date = 17;
+  // Where each secret is stored, as NAME=service/account separated by commas.
+  // References only: a value never crosses this call.
+  string secret_refs = 18;
 }
 
 // RouteStep is one journaled step of a route's start.
