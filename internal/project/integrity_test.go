@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
+	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/project"
 )
 
@@ -261,11 +262,11 @@ func TestFailedWriteRestoresEarlierFiles(t *testing.T) {
 func TestFailedCommitUndoesTheFiles(t *testing.T) {
 	s, db := openStore(t)
 	p := mustProject(t, s, "orchard")
-	broken := project.New(failingCommit{db})
+	broken := project.New(db, ops.NewEngine(db, ops.Options{Effects: project.Effects(failingCommit{db})}))
 
 	created := folder(t)
 	_, err := broken.Bind(p.ID, created)
-	wantErr(t, err, errCommit)
+	wantCommitError(t, err)
 	if _, err := os.Stat(filepath.Join(created, configName)); !os.IsNotExist(err) {
 		t.Errorf("a file created for the failed bind stayed: %v", err)
 	}
@@ -276,18 +277,25 @@ func TestFailedCommitUndoesTheFiles(t *testing.T) {
 	}
 	text := readConfig(t, bound)
 	_, err = broken.Unbind(bound)
-	wantErr(t, err, errCommit)
+	wantCommitError(t, err)
 	if got := readConfig(t, bound); got != text {
 		t.Errorf("after unbind:\n%s", got)
 	}
 	_, err = broken.UpdateProject(p.ID, project.ProjectPatch{Name: ptr("grove")})
-	wantErr(t, err, errCommit)
+	wantCommitError(t, err)
 	if got := readConfig(t, bound); got != text {
 		t.Errorf("after rename:\n%s", got)
 	}
-	wantErr(t, broken.DeleteProject(p.ID, false), errCommit)
+	wantCommitError(t, broken.DeleteProject(p.ID, false))
 	if got := readConfig(t, bound); got != text {
 		t.Errorf("after delete:\n%s", got)
+	}
+}
+
+func wantCommitError(t *testing.T, err error) {
+	t.Helper()
+	if err == nil || !strings.Contains(err.Error(), errCommit.Error()) {
+		t.Errorf("error %v, want the failed commit", err)
 	}
 }
 

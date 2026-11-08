@@ -9,11 +9,12 @@ import (
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
+	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/project"
 )
 
-// openStore gives a Store on a fresh account database. The tables come from
-// the numbered migration when one has been added, and from schema.sql before.
+// openStore gives a Store on a fresh account database, whose tables come from
+// the numbered migrations alone.
 func openStore(t *testing.T) (*project.Store, store.Conn) {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "s")
@@ -25,22 +26,12 @@ func openStore(t *testing.T) (*project.Store, store.Conn) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	present := false
-	if err := db.Query("SELECT 1 FROM sqlite_schema WHERE name = 'projects'", nil, func(store.Row) error { present = true; return nil }); err != nil {
-		t.Fatal(err)
-	}
-	if !present {
-		raw, err := os.ReadFile("schema.sql")
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, stmt := range strings.Split(string(raw), "\n\n") {
-			if _, err := db.Exec(stmt); err != nil {
-				t.Fatalf("%s: %v", stmt, err)
-			}
-		}
-	}
-	return project.New(db), db
+	return project.New(db, engine(db, nil)), db
+}
+
+// engine is an operation engine that knows the records' effects.
+func engine(db store.Conn, fault func(string)) *ops.Engine {
+	return ops.NewEngine(db, ops.Options{Effects: project.Effects(db), Fault: fault})
 }
 
 func repo(name string) project.Repo {

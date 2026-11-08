@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
+	"github.com/arafathusayn/herdsman/internal/ops"
 )
 
 // openStatuses is the SQL list of task statuses that still count as work.
@@ -14,11 +15,13 @@ const openStatuses = "('todo','doing','review')"
 // Store reads and writes the records on one account-database connection. Like
 // the connection it holds, it is used by one goroutine at a time.
 type Store struct {
-	db store.Conn
+	db     store.Conn
+	engine *ops.Engine
 }
 
-// New returns a Store on db, whose schema already holds the records' tables.
-func New(db store.Conn) *Store { return &Store{db: db} }
+// New returns a Store on the account database. Changes that reach a folder's
+// config run on engine, which is built with Effects(db).
+func New(db store.Conn, engine *ops.Engine) *Store { return &Store{db: db, engine: engine} }
 
 func nowMillis() int64 { return time.Now().UnixMilli() }
 

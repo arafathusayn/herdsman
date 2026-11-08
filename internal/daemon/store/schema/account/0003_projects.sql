@@ -75,3 +75,10 @@ CREATE TABLE task_links (
   PRIMARY KEY (task_id, repo, kind, target),
   FOREIGN KEY (task_id, repo) REFERENCES task_repos(task_id, repo)
 ) STRICT;
+
+-- One row per operation whose record changes have committed, written in the
+-- same transaction, so a restart can tell whether they happened.
+CREATE TABLE project_commits (
+  op_id TEXT PRIMARY KEY,
+  created INTEGER NOT NULL
+) STRICT;

@@ -39,7 +39,7 @@ type fileEdit struct {
 
 // fileEdits collects a transaction's file changes. They are planned while the
 // transaction reads, so a config that cannot be edited stops it before any file
-// has changed, and applied last.
+// has changed.
 type fileEdits struct {
 	list []*fileEdit
 }
@@ -60,23 +60,16 @@ func (e *fileEdits) add(path, before string, existed bool, after string) error {
 	if info, err := os.Stat(edit.path); err == nil {
 		edit.mode = info.Mode().Perm()
 	}
-	e.list = append(e.list, edit)
-	return nil
-}
-
-func (e *fileEdits) apply() error {
-	for _, edit := range e.list {
-		var err error
-		if edit.remove {
-			err = os.Remove(edit.path)
-		} else {
-			err = replaceFile(edit.path, edit.after, edit.mode)
+	for _, other := range e.list {
+		if other.path != edit.path {
+			continue
 		}
-		if err != nil {
-			return err
+		if other.after != edit.after {
+			return fmt.Errorf("%w: %s is the config of two folders with different content", ErrConflict, edit.path)
 		}
-		edit.applied = true
+		return nil
 	}
+	e.list = append(e.list, edit)
 	return nil
 }
 
@@ -94,23 +87,6 @@ func (e *fileEdits) undo() error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// txFiles runs fn in a transaction, applies the file edits it planned as the
-// transaction's last work, and undoes them if an edit or the commit fails. A
-// crash between the edits and the commit is not covered here.
-func (s *Store) txFiles(fn func(store.Conn, *fileEdits) error) error {
-	var files fileEdits
-	err := s.db.Tx(func(c store.Conn) error {
-		if err := fn(c, &files); err != nil {
-			return err
-		}
-		return files.apply()
-	})
-	if err != nil {
-		return errors.Join(err, files.undo())
-	}
-	return nil
 }
 
 // Bind records folder under the project and writes the project's identity to
