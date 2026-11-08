@@ -24,9 +24,13 @@ import (
 	"github.com/arafathusayn/herdsman/sdk/internal/ws"
 )
 
-// defaultMinCases is below the suite's count without sections 12 and 13, and
-// far above what a run that stopped early would report.
-const defaultMinCases = 250
+// selectedCases is how many cases the pinned suite (25.10.1) selects without
+// sections 12 and 13: 16, 11, 7, 10, 20, 145, 37, 54 and 1 in sections 1 to 7,
+// 9 and 10. It is exact because the suite writes a partial report and exits
+// normally when a connection fails. A new image pin must recount it.
+const selectedCases = 301
+
+const defaultAgent = "herdsman"
 
 var (
 	exit             = os.Exit
@@ -65,17 +69,18 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return serve(ctx, *addr, out)
 	case "client":
 		base := flags.String("url", "", "the suite's ws:// URL")
-		agent := flags.String("agent", "herdsman", "agent name in the report")
+		agent := flags.String("agent", defaultAgent, "agent name in the report")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
 		return runCases(ctx, *base, *agent, out)
 	case "verify":
-		minCases := flags.Int("min", defaultMinCases, "fewest cases a passing report holds")
+		agent := flags.String("agent", defaultAgent, "agent the report must judge")
+		cases := flags.Int("cases", selectedCases, "exact number of cases a passing report holds")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		return verify(flags.Arg(0), *minCases, out)
+		return verify(flags.Arg(0), *agent, *cases, out)
 	}
 	return fmt.Errorf("unknown command %q", args[0])
 }
@@ -158,7 +163,7 @@ type caseResult struct {
 	BehaviorClose string `json:"behaviorClose"`
 }
 
-func verify(path string, minCases int, out io.Writer) error {
+func verify(path, agent string, want int, out io.Writer) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -167,25 +172,28 @@ func verify(path string, minCases int, out io.Writer) error {
 	if err := json.Unmarshal(data, &report); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	total := 0
+	cases, ok := report[agent]
+	if !ok {
+		return fmt.Errorf("%s: no results for agent %q", path, agent)
+	}
 	var failed []string
-	for agent, cases := range report {
-		for id, result := range cases {
-			total++
-			behaviorOK := slices.Contains([]string{"OK", "NON-STRATEGIC", "INFORMATIONAL"}, result.Behavior)
-			closeOK := slices.Contains([]string{"OK", "INFORMATIONAL"}, result.BehaviorClose)
-			if !behaviorOK || !closeOK {
-				failed = append(failed, fmt.Sprintf("%s %s: %s/%s", agent, id, result.Behavior, result.BehaviorClose))
-			}
+	for id, result := range cases {
+		// The suite's own outcome names. NON-STRICT is conformant behavior
+		// that fails later than the fastest possible, as 6.4.3 and 6.4.4 record
+		// for UTF-8 checked per frame.
+		behaviorOK := slices.Contains([]string{"OK", "NON-STRICT", "INFORMATIONAL"}, result.Behavior)
+		closeOK := slices.Contains([]string{"OK", "INFORMATIONAL"}, result.BehaviorClose)
+		if !behaviorOK || !closeOK {
+			failed = append(failed, fmt.Sprintf("%s %s: %s/%s", agent, id, result.Behavior, result.BehaviorClose))
 		}
 	}
 	if len(failed) > 0 {
 		slices.Sort(failed)
 		return fmt.Errorf("%d cases failed:\n%s", len(failed), strings.Join(failed, "\n"))
 	}
-	if total < minCases {
-		return fmt.Errorf("report holds %d cases, want at least %d", total, minCases)
+	if len(cases) != want {
+		return fmt.Errorf("report holds %d cases for agent %q, want exactly %d", len(cases), agent, want)
 	}
-	fmt.Fprintf(out, "%d cases passed\n", total)
+	fmt.Fprintf(out, "%d cases passed\n", len(cases))
 	return nil
 }

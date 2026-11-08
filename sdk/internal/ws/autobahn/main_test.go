@@ -27,7 +27,20 @@ type result struct {
 
 func writeReport(t *testing.T, cases map[string]result) string {
 	t.Helper()
-	data, err := json.Marshal(map[string]map[string]result{"herdsman": cases})
+	return writeAgentReport(t, "herdsman", cases)
+}
+
+func passingCases(n int) map[string]result {
+	cases := make(map[string]result, n)
+	for i := range n {
+		cases[fmt.Sprintf("1.1.%d", i)] = result{"OK", "OK"}
+	}
+	return cases
+}
+
+func writeAgentReport(t *testing.T, agent string, cases map[string]result) string {
+	t.Helper()
+	data, err := json.Marshal(map[string]map[string]result{agent: cases})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,11 +54,11 @@ func writeReport(t *testing.T, cases map[string]result) string {
 func TestVerifyPassesAcceptableOutcomes(t *testing.T) {
 	path := writeReport(t, map[string]result{
 		"1.1.1": {"OK", "OK"},
-		"6.4.1": {"NON-STRATEGIC", "OK"},
+		"6.4.3": {"NON-STRICT", "OK"},
 		"7.1.6": {"INFORMATIONAL", "INFORMATIONAL"},
 	})
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"verify", "-min", "3", path}, &out); err != nil {
+	if err := run(context.Background(), []string{"verify", "-cases", "3", path}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "3 cases passed") {
@@ -55,13 +68,17 @@ func TestVerifyPassesAcceptableOutcomes(t *testing.T) {
 
 func TestVerifyFailsOnABadCase(t *testing.T) {
 	for name, r := range map[string]result{
-		"behavior": {"FAILED", "OK"},
-		"close":    {"OK", "FAILED"},
-		"unknown":  {"UNIMPLEMENTED", "OK"},
+		"behavior":      {"FAILED", "OK"},
+		"close":         {"OK", "FAILED"},
+		"unimplemented": {"UNIMPLEMENTED", "OK"},
+		"wrong code":    {"WRONG CODE", "OK"},
+		"unclean close": {"OK", "UNCLEAN"},
+		"not a verdict": {"NON-STRATEGIC", "OK"},
+		"non-strict close is not a close verdict": {"OK", "NON-STRICT"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := writeReport(t, map[string]result{"2.1": r})
-			err := run(context.Background(), []string{"verify", "-min", "1", path}, io.Discard)
+			err := run(context.Background(), []string{"verify", "-cases", "1", path}, io.Discard)
 			if err == nil || !strings.Contains(err.Error(), "2.1") {
 				t.Fatalf("verify = %v, want a failure naming the case", err)
 			}
@@ -69,11 +86,27 @@ func TestVerifyFailsOnABadCase(t *testing.T) {
 	}
 }
 
-// An empty or truncated run must not read as a pass.
-func TestVerifyFailsOnTooFewCases(t *testing.T) {
-	path := writeReport(t, map[string]result{"1.1.1": {"OK", "OK"}})
-	if err := run(context.Background(), []string{"verify", path}, io.Discard); err == nil {
-		t.Fatal("one case must not satisfy the default minimum")
+func TestVerifyDemandsEverySelectedCase(t *testing.T) {
+	if err := run(context.Background(), []string{"verify", writeReport(t, passingCases(301))}, io.Discard); err != nil {
+		t.Fatalf("the full selection must pass: %v", err)
+	}
+	// The suite writes a partial report and stops normally when a connection
+	// fails, so a short report is a real outcome, and must not read as a pass.
+	for _, n := range []int{0, 250, 300, 302} {
+		if err := run(context.Background(), []string{"verify", writeReport(t, passingCases(n))}, io.Discard); err == nil {
+			t.Fatalf("%d cases must not satisfy a selection of 301", n)
+		}
+	}
+}
+
+func TestVerifyJudgesOnlyTheIntendedAgent(t *testing.T) {
+	other := writeAgentReport(t, "someone-else", passingCases(301))
+	err := run(context.Background(), []string{"verify", other}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "herdsman") {
+		t.Fatalf("verify = %v, want a failure naming the missing agent", err)
+	}
+	if err := run(context.Background(), []string{"verify", "-agent", "someone-else", other}, io.Discard); err != nil {
+		t.Fatalf("verify -agent = %v", err)
 	}
 }
 
@@ -281,7 +314,7 @@ func TestMainReportsFailureThroughExit(t *testing.T) {
 
 	code = -1
 	path := writeReport(t, map[string]result{"1.1.1": {"OK", "OK"}})
-	os.Args = []string{"autobahn", "verify", "-min", "1", path}
+	os.Args = []string{"autobahn", "verify", "-cases", "1", path}
 	main()
 	if code != -1 {
 		t.Fatalf("exit called with %d on success", code)
