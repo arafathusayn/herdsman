@@ -285,3 +285,16 @@ func TestExecRecipeRefusesWhatItCannotDo(t *testing.T) {
 		t.Fatal("a home path with no home must be refused")
 	}
 }
+
+func TestExpandHomeLeavesAPlainPathAlone(t *testing.T) {
+	if got, err := expandHome("/a/b"); err != nil || got != "/a/b" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestExpandHomeReportsAMissingHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	if _, err := expandHome("~/x"); err == nil {
+		t.Fatal("a path under a missing home must fail")
+	}
+}
