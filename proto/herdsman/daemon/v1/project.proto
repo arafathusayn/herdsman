@@ -176,6 +176,8 @@ message ProjectServiceLogRequest {
   int64 since = 2;
   // Only this task's events, when set.
   string task = 3;
+  // Render the response's text as JSON instead of a list for people.
+  bool json = 4;
 }
 
 message ProjectServiceLogResponse {
@@ -183,6 +185,7 @@ message ProjectServiceLogResponse {
   repeated ContextEvent events = 1;
   // The events nothing follows yet, over the whole history.
   repeated string heads = 2;
-  // The events as a list for people, grouped by UTC date.
+  // The events as a list for people, grouped by UTC date, or as JSON when the
+  // request asked for it.
   string text = 3;
 }

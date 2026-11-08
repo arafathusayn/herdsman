@@ -1276,7 +1276,9 @@ type ProjectServiceLogRequest struct {
 	// Milliseconds since the Unix epoch; 0 reads from the start.
 	Since int64 `protobuf:"varint,2,opt,name=since,proto3" json:"since,omitempty"`
 	// Only this task's events, when set.
-	Task          string `protobuf:"bytes,3,opt,name=task,proto3" json:"task,omitempty"`
+	Task string `protobuf:"bytes,3,opt,name=task,proto3" json:"task,omitempty"`
+	// Render the response's text as JSON instead of a list for people.
+	Json          bool `protobuf:"varint,4,opt,name=json,proto3" json:"json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1332,13 +1334,21 @@ func (x *ProjectServiceLogRequest) GetTask() string {
 	return ""
 }
 
+func (x *ProjectServiceLogRequest) GetJson() bool {
+	if x != nil {
+		return x.Json
+	}
+	return false
+}
+
 type ProjectServiceLogResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Parents before children, then by time.
 	Events []*ContextEvent `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
 	// The events nothing follows yet, over the whole history.
 	Heads []string `protobuf:"bytes,2,rep,name=heads,proto3" json:"heads,omitempty"`
-	// The events as a list for people, grouped by UTC date.
+	// The events as a list for people, grouped by UTC date, or as JSON when the
+	// request asked for it.
 	Text          string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1482,11 +1492,12 @@ const file_herdsman_daemon_v1_project_proto_rawDesc = "" +
 	"\aparents\x18\x05 \x03(\tR\aparents\x12\x12\n" +
 	"\x04body\x18\x06 \x01(\tR\x04body\"[\n" +
 	"!ProjectServiceContextNoteResponse\x126\n" +
-	"\x05event\x18\x01 \x01(\v2 .herdsman.daemon.v1.ContextEventR\x05event\"u\n" +
+	"\x05event\x18\x01 \x01(\v2 .herdsman.daemon.v1.ContextEventR\x05event\"\x89\x01\n" +
 	"\x18ProjectServiceLogRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x14\n" +
 	"\x05since\x18\x02 \x01(\x03R\x05since\x12\x12\n" +
-	"\x04task\x18\x03 \x01(\tR\x04task\"\x7f\n" +
+	"\x04task\x18\x03 \x01(\tR\x04task\x12\x12\n" +
+	"\x04json\x18\x04 \x01(\bR\x04json\"\x7f\n" +
 	"\x19ProjectServiceLogResponse\x128\n" +
 	"\x06events\x18\x01 \x03(\v2 .herdsman.daemon.v1.ContextEventR\x06events\x12\x14\n" +
 	"\x05heads\x18\x02 \x03(\tR\x05heads\x12\x12\n" +

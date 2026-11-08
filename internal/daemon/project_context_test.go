@@ -141,6 +141,17 @@ func TestProjectLogGoldenOverTheSDK(t *testing.T) {
 	if log.GetText() != string(want) {
 		t.Fatalf("text:\n%s", log.GetText())
 	}
+	wantJSON, err := os.ReadFile("../context/testdata/forked.log.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	asJSON, err := sdk.Project.Log(ctx, &daemonv1.ProjectServiceLogRequest{Scope: scope, Json: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asJSON.GetText() != string(wantJSON) {
+		t.Fatalf("json:\n%s", asJSON.GetText())
+	}
 	last := log.GetEvents()[len(log.GetEvents())-1]
 	if last.GetCommits()["core"] != "abc1234" || last.GetExtra()["reviewer"] != "kim" || len(last.GetParents()) != 2 {
 		t.Fatalf("event %+v", last)

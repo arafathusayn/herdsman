@@ -110,7 +110,12 @@ func (*projectContextService) Log(_ context.Context, req *daemonv1.ProjectServic
 		return nil, contextFailure(err)
 	}
 	var text bytes.Buffer
-	_ = chronology.WriteText(&text) // a bytes.Buffer does not fail
+	// A bytes.Buffer does not fail, and a chronology always encodes.
+	if req.GetJson() {
+		_ = chronology.WriteJSON(&text)
+	} else {
+		_ = chronology.WriteText(&text)
+	}
 	res := &daemonv1.ProjectServiceLogResponse{Heads: chronology.Heads, Text: text.String()}
 	for _, event := range chronology.Events {
 		res.Events = append(res.Events, contextEvent(event))
