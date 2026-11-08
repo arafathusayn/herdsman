@@ -86,7 +86,11 @@ func hasStops(plans []json.RawMessage, includeAssociated bool) bool {
 }
 
 func confirmTeardown(stdin io.Reader, stdout io.Writer) (bool, error) {
-	fmt.Fprint(stdout, "stop these? [y/N] ")
+	return confirmQuestion(stdin, stdout, "stop these? [y/N] ")
+}
+
+func confirmQuestion(stdin io.Reader, stdout io.Writer, question string) (bool, error) {
+	fmt.Fprint(stdout, question)
 	line, err := bufio.NewReader(stdin).ReadString('\n')
 	if err != nil && err != io.EOF {
 		return false, err
