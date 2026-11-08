@@ -63,6 +63,8 @@ type Config struct {
 	Sink ops.Sink
 	// OpsFault is called at the operation engine's step boundaries.
 	OpsFault func(point string)
+	// Retention bounds the snapshots; the zero value is the defaults.
+	Retention ops.Retention
 }
 
 // Daemon is one running daemon.

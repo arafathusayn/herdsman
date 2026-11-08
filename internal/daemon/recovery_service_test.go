@@ -2,17 +2,25 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/snapshot"
+	"github.com/arafathusayn/herdsman/sdk/client"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
 func recoveryRoot(t *testing.T) string {
@@ -24,17 +32,36 @@ func recoveryRoot(t *testing.T) string {
 	return root
 }
 
-func TestExportThroughTheDaemonImportsIntoAnEmptyState(t *testing.T) {
-	root := recoveryRoot(t)
-	c, stop := serving(t, root, false)
-	defer stop()
-	dest := filepath.Join(t.TempDir(), "export")
-	var op ops.Operation
-	if _, err := c.Do(context.Background(), "POST", "/v1/export", ExportRequest{Dest: dest}, &op); err != nil {
+func dialOps(t *testing.T, root string) daemonv1.OpsService {
+	t.Helper()
+	sdk, err := client.Dial(client.Options{Socket: SocketPath(root)})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if op.State != ops.OpDone {
-		t.Fatalf("export ended %s: %s", op.State, op.Reason)
+	t.Cleanup(sdk.Close)
+	return sdk.Ops
+}
+
+func wantCode(t *testing.T, err error, code rpc.Code) *rpc.Error {
+	t.Helper()
+	var failure *rpc.Error
+	if !errors.As(err, &failure) || failure.Code != code {
+		t.Fatalf("err = %v, want code %v", err, code)
+	}
+	return failure
+}
+
+func TestExportThroughTheSDKImportsIntoAnEmptyState(t *testing.T) {
+	root := recoveryRoot(t)
+	_, stop := serving(t, root, false)
+	defer stop()
+	dest := filepath.Join(t.TempDir(), "export")
+	res, err := dialOps(t, root).Export(context.Background(), &daemonv1.ExportRequest{Dest: dest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.GetOperationId() == "" || res.GetDest() != dest {
+		t.Fatalf("%v", res)
 	}
 	state := filepath.Join(t.TempDir(), "imported")
 	if err := ops.Import(context.Background(), dest, state); err != nil {
@@ -46,63 +73,81 @@ func TestExportThroughTheDaemonImportsIntoAnEmptyState(t *testing.T) {
 }
 
 func TestUndoOfAnUnknownSnapshotIsNotFound(t *testing.T) {
-	c, stop := serving(t, recoveryRoot(t), false)
+	root := recoveryRoot(t)
+	_, stop := serving(t, root, false)
 	defer stop()
-	var res ops.UndoResult
-	_, err := c.Do(context.Background(), "POST", "/v1/undo", ops.UndoRequest{Snapshot: "nope"}, &res)
-	var e *APIError
-	if !errors.As(err, &e) || e.Code != "not_found" {
-		t.Fatalf("err = %v", err)
-	}
+	_, err := dialOps(t, root).Undo(context.Background(), &daemonv1.UndoRequest{Snapshot: "nope"})
+	wantCode(t, err, rpc.NotFound)
 }
 
 func TestExportOverAnExistingFolderIsRefused(t *testing.T) {
-	c, stop := serving(t, recoveryRoot(t), false)
+	root := recoveryRoot(t)
+	_, stop := serving(t, root, false)
 	defer stop()
-	var op ops.Operation
-	_, err := c.Do(context.Background(), "POST", "/v1/export", ExportRequest{Dest: t.TempDir()}, &op)
-	var e *APIError
-	if !errors.As(err, &e) || e.Code != "failed_precondition" {
-		t.Fatalf("err = %v", err)
-	}
+	_, err := dialOps(t, root).Export(context.Background(), &daemonv1.ExportRequest{Dest: t.TempDir()})
+	wantCode(t, err, rpc.FailedPrecondition)
 }
 
-func TestInspectRefusesUndoAndExport(t *testing.T) {
-	c, stop := serving(t, recoveryRoot(t), true)
+func TestInspectRefusesEveryRecoveryChange(t *testing.T) {
+	root := recoveryRoot(t)
+	_, stop := serving(t, root, true)
 	defer stop()
+	sdk := dialOps(t, root)
 	dest := filepath.Join(t.TempDir(), "export")
-	var op ops.Operation
-	_, err := c.Do(context.Background(), "POST", "/v1/export", ExportRequest{Dest: dest}, &op)
-	var e *APIError
-	if !errors.As(err, &e) || !strings.Contains(e.Message, "inspect mode") {
-		t.Fatalf("err = %v", err)
+	_, err := sdk.Export(context.Background(), &daemonv1.ExportRequest{Dest: dest})
+	if f := wantCode(t, err, rpc.FailedPrecondition); !strings.Contains(f.Message, "inspect mode") {
+		t.Fatal(f)
 	}
 	if _, serr := os.Stat(dest); !os.IsNotExist(serr) {
 		t.Fatalf("inspect exported: %v", serr)
 	}
+	_, err = sdk.Undo(context.Background(), &daemonv1.UndoRequest{Snapshot: "x"})
+	wantCode(t, err, rpc.FailedPrecondition)
+	_, err = sdk.Import(context.Background(), &daemonv1.ImportRequest{Source: "/x", StateDir: "/y"})
+	wantCode(t, err, rpc.FailedPrecondition)
+	if _, err := sdk.Records(context.Background(), &daemonv1.RecordsRequest{}); err != nil {
+		t.Fatalf("inspect serves reads: %v", err)
+	}
 }
 
-func TestRecoveryCallImportsInThisProcess(t *testing.T) {
+func TestImportOverTheSDK(t *testing.T) {
 	root := recoveryRoot(t)
-	c, stop := serving(t, root, false)
+	_, stop := serving(t, root, false)
+	defer stop()
+	sdk := dialOps(t, root)
 	dest := filepath.Join(t.TempDir(), "export")
-	var op ops.Operation
-	if _, err := c.Do(context.Background(), "POST", "/v1/export", ExportRequest{Dest: dest}, &op); err != nil {
+	if _, err := sdk.Export(context.Background(), &daemonv1.ExportRequest{Dest: dest}); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(t.TempDir(), "imported")
+	res, err := sdk.Import(context.Background(), &daemonv1.ImportRequest{Source: dest, StateDir: state})
+	if err != nil || res.GetStateDir() != state {
+		t.Fatalf("%v %v", res, err)
+	}
+	for _, bad := range []string{"", root, filepath.Join(root, "inner")} {
+		_, err := sdk.Import(context.Background(), &daemonv1.ImportRequest{Source: dest, StateDir: bad})
+		wantCode(t, err, rpc.InvalidArgument)
+	}
+}
+
+func TestImportAccountFillsTheNamedStateAndTheDefault(t *testing.T) {
+	root := recoveryRoot(t)
+	_, stop := serving(t, root, false)
+	dest := filepath.Join(t.TempDir(), "export")
+	if _, err := dialOps(t, root).Export(context.Background(), &daemonv1.ExportRequest{Dest: dest}); err != nil {
 		t.Fatal(err)
 	}
 	stop()
 	state := filepath.Join(t.TempDir(), "imported")
-	raw, _ := json.Marshal(ImportRequest{Source: dest, StateDir: state})
-	out, err := RecoveryCaller("test")(context.Background(), "Import", raw)
-	if err != nil {
-		t.Fatal(err)
+	got, err := ImportAccount(context.Background(), dest, state)
+	if err != nil || got != state {
+		t.Fatalf("%q %v", got, err)
 	}
-	var got ImportResponse
-	if err := json.Unmarshal(out, &got); err != nil || got.StateDir != state {
-		t.Fatalf("%s %v", out, err)
-	}
-	if _, err := RecoveryCaller("test")(context.Background(), "Nope", raw); err == nil {
-		t.Fatal("an unknown method was accepted")
+	fallback := filepath.Join(t.TempDir(), "fallback")
+	t.Setenv("HERDSMAN_STATE_DIR", fallback)
+	got, err = ImportAccount(context.Background(), dest, "")
+	if err != nil || got != fallback {
+		t.Fatalf("%q %v", got, err)
 	}
 }
 
@@ -114,8 +159,7 @@ func TestImportRelocatesARouteCreatedThroughTheDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	dest := filepath.Join(t.TempDir(), "export")
-	var op ops.Operation
-	if _, err := c.Do(context.Background(), "POST", "/v1/export", ExportRequest{Dest: dest}, &op); err != nil {
+	if _, err := dialOps(t, root).Export(context.Background(), &daemonv1.ExportRequest{Dest: dest}); err != nil {
 		t.Fatal(err)
 	}
 	stop()
@@ -146,8 +190,7 @@ func TestExportHoldsBackRouteChangesUntilItEnds(t *testing.T) {
 	c := h.client()
 	done := make(chan error, 1)
 	go func() {
-		var op ops.Operation
-		_, err := c.Do(context.Background(), "POST", "/v1/export", ExportRequest{Dest: filepath.Join(t.TempDir(), "export")}, &op)
+		_, err := dialOps(t, h.ph).Export(context.Background(), &daemonv1.ExportRequest{Dest: filepath.Join(t.TempDir(), "export")})
 		done <- err
 	}()
 	<-entered
@@ -188,13 +231,14 @@ func git(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func TestUndoThroughTheDaemonRestoresARealSnapshot(t *testing.T) {
-	h := newHarness(t)
+// linkedTree is a worktree on feat/x holding an ignored .env.
+func linkedTree(t *testing.T) (repo, tree string) {
+	t.Helper()
 	base, err := filepath.EvalSymlinks(shortDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo, tree := filepath.Join(base, "repo"), filepath.Join(base, "tree")
+	repo, tree = filepath.Join(base, "repo"), filepath.Join(base, "tree")
 	if err := os.Mkdir(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -207,23 +251,129 @@ func TestUndoThroughTheDaemonRestoresARealSnapshot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tree, ".gitignore"), []byte(".env\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return repo, tree
+}
+
+func TestUndoThroughTheSDKRestoresARealSnapshot(t *testing.T) {
+	h := newHarness(t)
+	repo, tree := linkedTree(t)
 	op, err := h.d.recovery.Snapshot(context.Background(), ops.SnapshotRequest{Task: "t1", Worktree: tree})
 	if err != nil {
 		t.Fatal(err)
 	}
 	git(t, repo, "worktree", "remove", "--force", tree)
 	git(t, repo, "branch", "-D", "feat/x")
-	target := filepath.Join(base, "restored")
-	var res ops.UndoResult
-	if _, err := h.client().Do(context.Background(), "POST", "/v1/undo", ops.UndoRequest{Snapshot: op.ID, Target: target}, &res); err != nil {
+	res, err := dialOps(t, h.ph).Undo(context.Background(), &daemonv1.UndoRequest{Snapshot: op.ID})
+	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile(filepath.Join(target, ".env"))
+	if res.GetTarget() != tree || !res.GetOriginal() || res.GetOperationId() == "" {
+		t.Fatalf("%v", res)
+	}
+	got, err := os.ReadFile(filepath.Join(tree, ".env"))
 	if err != nil || string(got) != "SECRET=1\n" {
 		t.Fatalf("%q %v", got, err)
 	}
-	if head := git(t, target, "symbolic-ref", "HEAD"); head != "refs/heads/feat/x" {
+	if head := git(t, tree, "symbolic-ref", "HEAD"); head != "refs/heads/feat/x" {
 		t.Fatalf("HEAD = %s", head)
+	}
+}
+
+// TestExportGateThroughTheSDK is the export gate read only through the
+// client: what the barrier saw equals what the imported daemon serves.
+func TestExportGateThroughTheSDK(t *testing.T) {
+	h := newHarness(t)
+	h.stop()
+	var clock atomic.Int64
+	clock.Store(time.Now().Unix())
+	h.cfg.Now = func() time.Time { return time.Unix(clock.Add(1), 0) }
+	h.cfg.Retention = ops.Retention{Undo: 40 * time.Second}
+	var mu sync.Mutex
+	var seen *daemonv1.RecordsResponse
+	h.cfg.OpsFault = func(p string) {
+		if p != "export:barrier" {
+			return
+		}
+		got, err := dialOps(t, h.ph).Records(context.Background(), &daemonv1.RecordsRequest{})
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		mu.Lock()
+		seen = got
+		mu.Unlock()
+	}
+	h.start()
+	_, tree := linkedTree(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	var made, swept atomic.Int64
+	go func() {
+		defer wg.Done()
+		for i := 0; ctx.Err() == nil; i++ {
+			if _, err := h.d.recovery.Snapshot(ctx, ops.SnapshotRequest{Task: "t" + strconv.Itoa(i), Worktree: tree}); err != nil {
+				if ctx.Err() == nil {
+					t.Errorf("snapshot: %v", err)
+				}
+				return
+			}
+			made.Add(1)
+			clock.Add(10)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for ctx.Err() == nil {
+			pruned, err := h.d.recovery.Sweep(ctx)
+			if err != nil {
+				if ctx.Err() == nil {
+					t.Errorf("sweep: %v", err)
+				}
+				return
+			}
+			swept.Add(int64(len(pruned)))
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+	source := dialOps(t, h.ph)
+	for i := 0; i < 3; i++ {
+		time.Sleep(80 * time.Millisecond)
+		dest := filepath.Join(t.TempDir(), "export")
+		if _, err := source.Export(context.Background(), &daemonv1.ExportRequest{Dest: dest}); err != nil {
+			t.Fatalf("export %d: %v", i, err)
+		}
+		mu.Lock()
+		want := seen
+		mu.Unlock()
+		state := filepath.Join(shortDir(t), "s")
+		if err := ops.Import(context.Background(), dest, state); err != nil {
+			t.Fatalf("import %d: %v", i, err)
+		}
+		_, stopImported := serving(t, state, false)
+		got, err := dialOps(t, state).Records(context.Background(), &daemonv1.RecordsRequest{})
+		if err != nil {
+			stopImported()
+			t.Fatal(err)
+		}
+		if !proto.Equal(got, want) {
+			stopImported()
+			t.Fatalf("export %d: the imported daemon serves %d records and %d snapshots, the barrier saw %d and %d",
+				i, len(got.GetRecords()), len(got.GetSnapshots()), len(want.GetRecords()), len(want.GetSnapshots()))
+		}
+		for _, s := range got.GetSnapshots() {
+			if _, err := snapshot.Verify(context.Background(), filepath.Join(state, "snapshots", s.GetId())); err != nil {
+				stopImported()
+				t.Fatalf("export %d: snapshot %s: %v", i, s.GetId(), err)
+			}
+		}
+		stopImported()
+	}
+	cancel()
+	wg.Wait()
+	if made.Load() == 0 || swept.Load() == 0 {
+		t.Fatalf("the loops did no work: %d made, %d pruned", made.Load(), swept.Load())
 	}
 }
 

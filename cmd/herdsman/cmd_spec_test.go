@@ -95,6 +95,7 @@ func TestSpecProtoPrintsEverySource(t *testing.T) {
 	for _, want := range []string{
 		"// file: herdsman/core/v1/core.proto\n",
 		"// file: herdsman/daemon/v1/message.proto\n",
+		"// file: herdsman/daemon/v1/ops.proto\n",
 		"package herdsman.core.v1;",
 		"service MessageService",
 	} {

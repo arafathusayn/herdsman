@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -17,6 +17,10 @@ exit codes:
   1  refused or failed
   2  bad usage
 `
+
+// importCall rebuilds an account in this process: the state directory it fills
+// has no daemon yet, so no service can do it.
+var importCall func(ctx context.Context, source, state string) (string, error)
 
 func init() {
 	register(command{name: "import", summary: "Rebuild an account from an export.", help: importHelp, run: runImport})
@@ -36,19 +40,10 @@ func runImport(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	data, err := callRecovery("Import", struct {
-		Source   string `json:"source"`
-		StateDir string `json:"state_dir,omitempty"`
-	}{source, *state})
+	imported, err := importCall(context.Background(), source, *state)
 	if err != nil {
 		return fail(stderr, err)
 	}
-	var result struct {
-		StateDir string `json:"state_dir"`
-	}
-	if err := json.Unmarshal(data, &result); err != nil {
-		return fail(stderr, err)
-	}
-	fmt.Fprintln(stdout, "imported into", result.StateDir)
+	fmt.Fprintln(stdout, "imported into", imported)
 	return 0
 }

@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+
+	"github.com/arafathusayn/herdsman/sdk/client"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 const undoHelp = `usage: herdsman undo <snapshot> [--to <path>] [--json]
@@ -19,26 +22,13 @@ exit codes:
   2  bad usage
 `
 
-// recoveryCall serves undo, export and import. It takes a method name and a
-// JSON request, so these files need no server package.
-var recoveryCall func(ctx context.Context, method string, request []byte) ([]byte, error)
-
-func callRecovery(method string, request any) ([]byte, error) {
-	data, err := json.Marshal(request)
+// dialOps reaches the daemon through the SDK; tests replace it.
+var dialOps = func() (daemonv1.OpsService, func(), error) {
+	sdk, err := client.Dial(client.Options{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return recoveryCall(context.Background(), method, data)
-}
-
-type undoRequest struct {
-	Snapshot string `json:"snapshot"`
-	Target   string `json:"target,omitempty"`
-}
-
-type undoResult struct {
-	Target   string `json:"target"`
-	Original bool   `json:"original"`
+	return sdk.Ops, sdk.Close, nil
 }
 
 func init() {
@@ -56,18 +46,27 @@ func runUndo(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(positional) != 1 {
 		return usageError(stderr, "undo takes one snapshot")
 	}
-	data, err := callRecovery("Undo", undoRequest{Snapshot: positional[0], Target: *to})
+	service, closeService, err := dialOps()
+	if err != nil {
+		return fail(stderr, err)
+	}
+	defer closeService()
+	result, err := service.Undo(context.Background(), &daemonv1.UndoRequest{Snapshot: positional[0], Target: *to})
 	if err != nil {
 		return fail(stderr, err)
 	}
 	if *asJSON {
+		data, err := json.Marshal(struct {
+			Operation string `json:"operation"`
+			Target    string `json:"target"`
+			Original  bool   `json:"original"`
+		}{result.GetOperationId(), result.GetTarget(), result.GetOriginal()})
+		if err != nil {
+			return fail(stderr, err)
+		}
 		fmt.Fprintln(stdout, string(data))
 		return 0
 	}
-	var result undoResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return fail(stderr, err)
-	}
-	fmt.Fprintln(stdout, "restored to", result.Target)
+	fmt.Fprintln(stdout, "restored to", result.GetTarget())
 	return 0
 }

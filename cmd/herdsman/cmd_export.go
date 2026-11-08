@@ -1,10 +1,12 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"io"
 	"path/filepath"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 const exportHelp = `usage: herdsman export <destination>
@@ -36,18 +38,15 @@ func runExport(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	data, err := callRecovery("Export", struct {
-		Dest string `json:"dest"`
-	}{dest})
+	service, closeService, err := dialOps()
 	if err != nil {
 		return fail(stderr, err)
 	}
-	var op struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(data, &op); err != nil {
+	defer closeService()
+	result, err := service.Export(context.Background(), &daemonv1.ExportRequest{Dest: dest})
+	if err != nil {
 		return fail(stderr, err)
 	}
-	fmt.Fprintf(stdout, "exported to %s (operation %s)\n", dest, op.ID)
+	fmt.Fprintf(stdout, "exported to %s (operation %s)\n", dest, result.GetOperationId())
 	return 0
 }

@@ -7,75 +7,93 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
-type recordedCall struct {
-	method  string
-	request map[string]any
+// fakeOps answers as the daemon would and records what it was asked.
+type fakeOps struct {
+	daemonv1.OpsService
+	undo   *daemonv1.UndoRequest
+	export *daemonv1.ExportRequest
+	fail   error
 }
 
-func fakeRecovery(t *testing.T, reply string, fail error) *[]recordedCall {
+func (f *fakeOps) Undo(_ context.Context, q *daemonv1.UndoRequest) (*daemonv1.UndoResponse, error) {
+	f.undo = q
+	return &daemonv1.UndoResponse{OperationId: "OP1", Target: "/x/tree", Original: true}, f.fail
+}
+
+func (f *fakeOps) Export(_ context.Context, q *daemonv1.ExportRequest) (*daemonv1.ExportResponse, error) {
+	f.export = q
+	return &daemonv1.ExportResponse{OperationId: "OP2", Dest: q.GetDest()}, f.fail
+}
+
+func withFakeOps(t *testing.T, fail error) *fakeOps {
 	t.Helper()
-	calls := &[]recordedCall{}
-	saved := recoveryCall
-	recoveryCall = func(_ context.Context, method string, request []byte) ([]byte, error) {
-		var body map[string]any
-		if err := json.Unmarshal(request, &body); err != nil {
-			t.Fatal(err)
-		}
-		*calls = append(*calls, recordedCall{method, body})
-		return []byte(reply), fail
+	fake := &fakeOps{fail: fail}
+	saved := dialOps
+	dialOps = func() (daemonv1.OpsService, func(), error) { return fake, func() {}, nil }
+	t.Cleanup(func() { dialOps = saved })
+	return fake
+}
+
+func withFakeImport(t *testing.T, fail error) *[2]string {
+	t.Helper()
+	got := &[2]string{}
+	saved := importCall
+	importCall = func(_ context.Context, source, state string) (string, error) {
+		got[0], got[1] = source, state
+		return "/x/state", fail
 	}
-	t.Cleanup(func() { recoveryCall = saved })
-	return calls
+	t.Cleanup(func() { importCall = saved })
+	return got
 }
 
 func TestUndoVerb(t *testing.T) {
-	calls := fakeRecovery(t, `{"target":"/x/tree","original":true}`, nil)
+	fake := withFakeOps(t, nil)
 	out, errOut, code := call(t, "undo", "OP1", "--to", "/x/tree")
 	if code != 0 || !strings.Contains(out, "/x/tree") {
 		t.Fatalf("%d %q %q", code, out, errOut)
 	}
-	got := (*calls)[0]
-	if got.method != "Undo" || got.request["snapshot"] != "OP1" || got.request["target"] != "/x/tree" {
-		t.Fatalf("%+v", got)
+	if fake.undo.GetSnapshot() != "OP1" || fake.undo.GetTarget() != "/x/tree" {
+		t.Fatalf("%v", fake.undo)
 	}
 	out, _, code = call(t, "undo", "OP1", "--json")
-	if code != 0 || !json.Valid([]byte(out)) {
+	var parsed map[string]any
+	if code != 0 || json.Unmarshal([]byte(out), &parsed) != nil || parsed["target"] != "/x/tree" {
 		t.Fatalf("%d %q", code, out)
 	}
 }
 
 func TestExportVerbMakesTheDestinationAbsolute(t *testing.T) {
-	calls := fakeRecovery(t, `{"id":"OP2","state":"done"}`, nil)
-	dir := t.TempDir()
-	t.Chdir(dir)
+	fake := withFakeOps(t, nil)
+	t.Chdir(t.TempDir())
 	out, errOut, code := call(t, "export", "backup")
 	if code != 0 || !strings.Contains(out, "OP2") {
 		t.Fatalf("%d %q %q", code, out, errOut)
 	}
-	dest, _ := (*calls)[0].request["dest"].(string)
-	if !filepath.IsAbs(dest) || filepath.Base(dest) != "backup" {
+	if dest := fake.export.GetDest(); !filepath.IsAbs(dest) || filepath.Base(dest) != "backup" {
 		t.Fatalf("dest = %q", dest)
 	}
 }
 
 func TestImportVerb(t *testing.T) {
-	calls := fakeRecovery(t, `{"state_dir":"/x/state"}`, nil)
+	got := withFakeImport(t, nil)
 	t.Chdir(t.TempDir())
 	out, errOut, code := call(t, "import", "backup", "--state-dir", "/x/state")
 	if code != 0 || !strings.Contains(out, "/x/state") {
 		t.Fatalf("%d %q %q", code, out, errOut)
 	}
-	got := (*calls)[0]
-	source, _ := got.request["source"].(string)
-	if got.method != "Import" || !filepath.IsAbs(source) || got.request["state_dir"] != "/x/state" {
-		t.Fatalf("%+v", got)
+	if !filepath.IsAbs(got[0]) || got[1] != "/x/state" {
+		t.Fatalf("%v", got)
 	}
 }
 
 func TestRecoveryVerbsReportUsageAndFailure(t *testing.T) {
-	fakeRecovery(t, ``, errors.New("the cap is full"))
+	failure := errors.New("the cap is full")
+	withFakeOps(t, failure)
+	withFakeImport(t, failure)
 	for _, args := range [][]string{{"undo"}, {"export"}, {"import"}, {"undo", "a", "b"}, {"export", "--nope", "x"}} {
 		if _, _, code := call(t, args...); code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
@@ -86,5 +104,16 @@ func TestRecoveryVerbsReportUsageAndFailure(t *testing.T) {
 		if code != 1 || !strings.Contains(errOut, "the cap is full") {
 			t.Errorf("%v: exit %d, %q", args, code, errOut)
 		}
+	}
+}
+
+func TestVerbsReachTheDaemonThroughTheSDK(t *testing.T) {
+	t.Setenv("HERDSMAN_STATE_DIR", t.TempDir())
+	// No daemon is listening: the call reaches the socket and fails there.
+	if _, errOut, code := call(t, "undo", "a"); code != 1 || errOut == "" {
+		t.Fatalf("%d %q", code, errOut)
+	}
+	if _, errOut, code := call(t, "export", "/x"); code != 1 || errOut == "" {
+		t.Fatalf("%d %q", code, errOut)
 	}
 }

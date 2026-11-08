@@ -47,7 +47,7 @@ var cgoProbe func(stdout io.Writer) error
 // client exists.
 func init() {
 	worktreeCall = daemon.WorktreeCall
-	recoveryCall = daemon.RecoveryCaller(daemonVersion())
+	importCall = daemon.ImportAccount
 }
 
 // The suggest verbs have no client yet either. A recipe runs through its own

@@ -30,14 +30,18 @@ type Options struct {
 // Client holds one service client per daemon service.
 type Client struct {
 	Message daemonv1.MessageService
+	Ops     daemonv1.OpsService
 
 	http *http.Client
 }
 
-// SocketPath is the daemon's socket: under HERDSMAN_PRIVATE_HOME when it is
-// set, otherwise under ~/.herdsman-private.
+// SocketPath is the daemon's socket: under HERDSMAN_STATE_DIR when it is set,
+// then HERDSMAN_PRIVATE_HOME, otherwise under ~/.herdsman-private.
 func SocketPath(getenv func(string) string) (string, error) {
-	home := getenv("HERDSMAN_PRIVATE_HOME")
+	home := getenv("HERDSMAN_STATE_DIR")
+	if home == "" {
+		home = getenv("HERDSMAN_PRIVATE_HOME")
+	}
 	if home == "" {
 		user, err := os.UserHomeDir()
 		if err != nil {
@@ -73,7 +77,7 @@ func Dial(options Options) (*Client, error) {
 		DisableCompression: true,
 	}
 	hc := &http.Client{Transport: &rpc.Transport{Base: transport, Header: options.Header}}
-	return &Client{Message: daemonv1.NewMessageServiceClient(hc, base), http: &http.Client{Transport: transport}}, nil
+	return &Client{Message: daemonv1.NewMessageServiceClient(hc, base), Ops: daemonv1.NewOpsServiceClient(hc, base), http: &http.Client{Transport: transport}}, nil
 }
 
 // Close frees the client's idle connections.

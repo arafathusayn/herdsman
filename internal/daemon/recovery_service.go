@@ -2,15 +2,16 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/statedir"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
 // sweepEvery is how often expired snapshots are pruned.
@@ -23,7 +24,7 @@ const mutationPoll = 10 * time.Millisecond
 // holds them back, and one that waited on the gate while holding a journal
 // wait would deadlock with the export.
 var journaledRequests = map[string]bool{
-	"POST /v1/undo": true, "POST /v1/export": true, "POST /v1/shutdown": true,
+	"POST /v1/shutdown":                         true,
 	"POST /v1/ops/{id}/steps/{ordinal}/resolve": true,
 }
 
@@ -52,22 +53,6 @@ func (d *Daemon) quiesce() func() {
 	return d.exportGate.Unlock
 }
 
-// ExportRequest is POST /v1/export.
-type ExportRequest struct {
-	Dest string `json:"dest"`
-}
-
-// ImportRequest asks for an account to be rebuilt from an export.
-type ImportRequest struct {
-	Source   string `json:"source"`
-	StateDir string `json:"state_dir,omitempty"`
-}
-
-// ImportResponse says where the account now lives.
-type ImportResponse struct {
-	StateDir string `json:"state_dir"`
-}
-
 // recoveryContext outlives the request: a client that goes away must not stop
 // an undo or an export halfway.
 func (d *Daemon) recoveryContext() (context.Context, *APIError) {
@@ -86,38 +71,91 @@ func recoveryError(err error) *APIError {
 	return Errf("failed_precondition", "%v", err)
 }
 
-func (d *Daemon) undo(w http.ResponseWriter, r *http.Request) *APIError {
-	var q ops.UndoRequest
-	if e := decode(r, &q); e != nil {
-		return e
+// opsService is the daemon's OpsService.
+type opsService struct{ d *Daemon }
+
+// admit refuses a change in inspect mode and gives the change a context that
+// outlives the call.
+func (s *opsService) admit(ctx context.Context) (context.Context, error) {
+	if s.d.cfg.Inspect {
+		return nil, rpcFailure(ctx, Errf("failed_precondition", "this daemon runs in inspect mode and changes nothing"))
 	}
-	ctx, e := d.recoveryContext()
+	run, e := s.d.recoveryContext()
 	if e != nil {
-		return e
+		return nil, rpcFailure(ctx, e)
 	}
-	res, err := d.recovery.Undo(ctx, q)
-	if err != nil {
-		return recoveryError(err)
-	}
-	writeJSON(w, 200, res)
-	return nil
+	return run, nil
 }
 
-func (d *Daemon) export(w http.ResponseWriter, r *http.Request) *APIError {
-	var q ExportRequest
-	if e := decode(r, &q); e != nil {
-		return e
-	}
-	ctx, e := d.recoveryContext()
-	if e != nil {
-		return e
-	}
-	op, err := d.recovery.Export(ctx, q.Dest)
+// Undo restores a snapshot.
+func (s *opsService) Undo(ctx context.Context, q *daemonv1.UndoRequest) (*daemonv1.UndoResponse, error) {
+	run, err := s.admit(ctx)
 	if err != nil {
-		return recoveryError(err)
+		return nil, err
 	}
-	writeJSON(w, 200, op)
-	return nil
+	res, err := s.d.recovery.Undo(run, ops.UndoRequest{Snapshot: q.GetSnapshot(), Target: q.GetTarget()})
+	if err != nil {
+		return nil, rpcFailure(ctx, recoveryError(err))
+	}
+	return &daemonv1.UndoResponse{OperationId: res.Op.ID, Target: res.Target, Original: res.Original}, nil
+}
+
+// Export copies the account to a new folder.
+func (s *opsService) Export(ctx context.Context, q *daemonv1.ExportRequest) (*daemonv1.ExportResponse, error) {
+	run, err := s.admit(ctx)
+	if err != nil {
+		return nil, err
+	}
+	op, err := s.d.recovery.Export(run, q.GetDest())
+	if err != nil {
+		return nil, rpcFailure(ctx, recoveryError(err))
+	}
+	return &daemonv1.ExportResponse{OperationId: op.ID, Dest: q.GetDest()}, nil
+}
+
+// Import rebuilds an account in another state directory: this daemon's own
+// is in use by this daemon.
+func (s *opsService) Import(ctx context.Context, q *daemonv1.ImportRequest) (*daemonv1.ImportResponse, error) {
+	run, err := s.admit(ctx)
+	if err != nil {
+		return nil, err
+	}
+	target := q.GetStateDir()
+	if target == "" {
+		return nil, rpc.Errorf(rpc.InvalidArgument, "the request names no state directory")
+	}
+	if rel, err := filepath.Rel(s.d.cfg.PrivateHome, target); err == nil && filepath.IsLocal(rel) {
+		return nil, rpc.Errorf(rpc.InvalidArgument, "%s is inside this daemon's own state directory", target)
+	}
+	if err := ops.Import(run, q.GetSource(), target); err != nil {
+		return nil, rpcFailure(ctx, recoveryError(err))
+	}
+	return &daemonv1.ImportResponse{StateDir: target}, nil
+}
+
+// Records lists the account's records and snapshots.
+func (s *opsService) Records(ctx context.Context, _ *daemonv1.RecordsRequest) (*daemonv1.RecordsResponse, error) {
+	var recs []store.Record
+	err := s.d.ops.Read(func(c store.Conn) error {
+		var err error
+		recs, err = store.AccountRecords(c)
+		return err
+	})
+	if err != nil {
+		return nil, rpcFailure(ctx, Errf("internal", "records: %v", err))
+	}
+	list, err := s.d.recovery.Snapshots()
+	if err != nil {
+		return nil, rpcFailure(ctx, Errf("internal", "snapshots: %v", err))
+	}
+	res := &daemonv1.RecordsResponse{Digest: store.Digest(recs)}
+	for _, r := range recs {
+		res.Records = append(res.Records, &daemonv1.AccountRecord{Kind: r.Kind, Id: r.ID, Fields: r.Fields})
+	}
+	for _, snap := range list {
+		res.Snapshots = append(res.Snapshots, &daemonv1.SnapshotInfo{Id: snap.ID, Task: snap.Task, Size: snap.Size, Created: snap.Created})
+	}
+	return res, nil
 }
 
 // sweep prunes expired snapshots; a failure waits for the next round.
@@ -144,60 +182,19 @@ func (d *Daemon) sweepLater(ctx context.Context) {
 	})
 }
 
-// RecoveryCaller serves the undo, export and import verbs: the first two
-// through the running daemon, which owns the journal, and import in this
-// process, because its state directory must not have a daemon yet.
-func RecoveryCaller(version string) func(context.Context, string, []byte) ([]byte, error) {
-	return func(ctx context.Context, method string, request []byte) ([]byte, error) {
-		switch method {
-		case "Undo":
-			var q ops.UndoRequest
-			if err := json.Unmarshal(request, &q); err != nil {
-				return nil, err
-			}
-			var res ops.UndoResult
-			return forward(ctx, version, "/v1/undo", q, &res)
-		case "Export":
-			var q ExportRequest
-			if err := json.Unmarshal(request, &q); err != nil {
-				return nil, err
-			}
-			var op ops.Operation
-			return forward(ctx, version, "/v1/export", q, &op)
-		case "Import":
-			return importAccount(ctx, request)
-		}
-		return nil, fmt.Errorf("recovery service: no method %q", method)
-	}
-}
-
-func forward(ctx context.Context, version, path string, in, out any) ([]byte, error) {
-	dir, err := statedir.Resolve("", os.Getenv)
-	if err != nil {
-		return nil, err
-	}
-	c := NewClient(SocketPath(dir.Root), version)
-	defer c.Close()
-	if _, err := c.Do(ctx, "POST", path, in, out); err != nil {
-		return nil, err
-	}
-	return json.Marshal(out)
-}
-
-func importAccount(ctx context.Context, request []byte) ([]byte, error) {
-	var q ImportRequest
-	if err := json.Unmarshal(request, &q); err != nil {
-		return nil, err
-	}
-	if q.StateDir == "" {
+// ImportAccount rebuilds an account in this process, for `herdsman import`:
+// its state directory must not have a daemon yet, so nothing can serve it.
+// An empty state means the one this account would use.
+func ImportAccount(ctx context.Context, source, state string) (string, error) {
+	if state == "" {
 		dir, err := statedir.Resolve("", os.Getenv)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
-		q.StateDir = dir.Root
+		state = dir.Root
 	}
-	if err := ops.Import(ctx, q.Source, q.StateDir); err != nil {
-		return nil, err
+	if err := ops.Import(ctx, source, state); err != nil {
+		return "", err
 	}
-	return json.Marshal(ImportResponse{StateDir: q.StateDir})
+	return state, nil
 }

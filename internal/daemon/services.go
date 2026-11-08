@@ -8,7 +8,12 @@ import (
 // rpcProcedures lists every RPC method the daemon serves.
 func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	message := &messageService{d: d}
+	recovery := &opsService{d: d}
 	return []rpc.Procedure{
 		rpc.Unary(daemonv1.MessageServiceName, "Status", message.Status),
+		rpc.Unary(daemonv1.OpsServiceName, "Undo", recovery.Undo),
+		rpc.Unary(daemonv1.OpsServiceName, "Export", recovery.Export),
+		rpc.Unary(daemonv1.OpsServiceName, "Import", recovery.Import),
+		rpc.Unary(daemonv1.OpsServiceName, "Records", recovery.Records),
 	}
 }
