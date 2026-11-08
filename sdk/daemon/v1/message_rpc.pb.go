@@ -65,6 +65,14 @@ type MessageService interface {
 	Unhold(context.Context, *UnholdRequest) (*UnholdResponse, error)
 	// Authority reports whether relayed messages carry authority.
 	Authority(context.Context, *AuthorityRequest) (*AuthorityResponse, error)
+	// DaemonStatus reports the state directory and what it holds.
+	DaemonStatus(context.Context, *DaemonStatusRequest) (*DaemonStatusResponse, error)
+	// ListOperations lists the operation journal.
+	ListOperations(context.Context, *ListOperationsRequest) (*ListOperationsResponse, error)
+	// GetOperation reads one operation.
+	GetOperation(context.Context, *GetOperationRequest) (*GetOperationResponse, error)
+	// ResolveOperation records what happened to a step whose outcome is unknown.
+	ResolveOperation(context.Context, *ResolveOperationRequest) (*ResolveOperationResponse, error)
 	// Wait returns the calling party's next events after a cursor, or none when
 	// wait_ms passes first.
 	Wait(context.Context, *WaitRequest) (*WaitResponse, error)
@@ -96,6 +104,10 @@ func NewMessageServiceHandler(impl MessageService) http.Handler {
 		rpc.Unary(MessageServiceName, "Hold", impl.Hold),
 		rpc.Unary(MessageServiceName, "Unhold", impl.Unhold),
 		rpc.Unary(MessageServiceName, "Authority", impl.Authority),
+		rpc.Unary(MessageServiceName, "DaemonStatus", impl.DaemonStatus),
+		rpc.Unary(MessageServiceName, "ListOperations", impl.ListOperations),
+		rpc.Unary(MessageServiceName, "GetOperation", impl.GetOperation),
+		rpc.Unary(MessageServiceName, "ResolveOperation", impl.ResolveOperation),
 		rpc.Unary(MessageServiceName, "Wait", impl.Wait),
 	)
 }
@@ -281,6 +293,38 @@ func (c *messageServiceClient) Unhold(ctx context.Context, req *UnholdRequest) (
 func (c *messageServiceClient) Authority(ctx context.Context, req *AuthorityRequest) (*AuthorityResponse, error) {
 	res := new(AuthorityResponse)
 	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Authority", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) DaemonStatus(ctx context.Context, req *DaemonStatusRequest) (*DaemonStatusResponse, error) {
+	res := new(DaemonStatusResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/DaemonStatus", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) ListOperations(ctx context.Context, req *ListOperationsRequest) (*ListOperationsResponse, error) {
+	res := new(ListOperationsResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/ListOperations", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) GetOperation(ctx context.Context, req *GetOperationRequest) (*GetOperationResponse, error) {
+	res := new(GetOperationResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/GetOperation", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) ResolveOperation(ctx context.Context, req *ResolveOperationRequest) (*ResolveOperationResponse, error) {
+	res := new(ResolveOperationResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/ResolveOperation", req, res); err != nil {
 		return nil, err
 	}
 	return res, nil

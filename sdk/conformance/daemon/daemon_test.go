@@ -186,6 +186,15 @@ func scenarios(name string) []scenario {
 		{"Hold", unary[daemonv1.HoldRequest, daemonv1.HoldResponse]("Hold", &daemonv1.HoldRequest{Route: route(name), Target: "t", Reason: "r"}, nil), connect.CodeUnauthenticated},
 		{"Unhold", unary[daemonv1.UnholdRequest, daemonv1.UnholdResponse]("Unhold", &daemonv1.UnholdRequest{Route: route(name), Target: "t"}, nil), connect.CodeUnauthenticated},
 		{"Authority", unary[daemonv1.AuthorityRequest, daemonv1.AuthorityResponse]("Authority", &daemonv1.AuthorityRequest{Route: route(missing)}, nil), connect.CodeNotFound},
+		{"DaemonStatus", unary("DaemonStatus", &daemonv1.DaemonStatusRequest{}, func(r *daemonv1.DaemonStatusResponse) error {
+			if r.GetStateDir() == "" || r.GetDigest() == "" {
+				return fmt.Errorf("status %v", r)
+			}
+			return versioned(r)
+		}), okay},
+		{"ListOperations", unary("ListOperations", &daemonv1.ListOperationsRequest{}, versioned[*daemonv1.ListOperationsResponse]), okay},
+		{"GetOperation", unary[daemonv1.GetOperationRequest, daemonv1.GetOperationResponse]("GetOperation", &daemonv1.GetOperationRequest{Id: "missing"}, nil), connect.CodeNotFound},
+		{"ResolveOperation", unary[daemonv1.ResolveOperationRequest, daemonv1.ResolveOperationResponse]("ResolveOperation", &daemonv1.ResolveOperationRequest{Id: "missing", Decision: "nonsense"}, nil), connect.CodeInvalidArgument},
 		{"Wait", unary[daemonv1.WaitRequest, daemonv1.WaitResponse]("Wait", &daemonv1.WaitRequest{Route: route(name)}, nil), connect.CodeUnauthenticated},
 		{"RemoveRoute", unary("RemoveRoute", &daemonv1.RemoveRouteRequest{Route: route(name)}, func(r *daemonv1.RemoveRouteResponse) error {
 			if !r.GetRemoved() || !r.GetInboxKept() {
@@ -252,7 +261,7 @@ func TestOnlyTheRPCPathIsServed(t *testing.T) {
 	hc := httpClient(t, startDaemon(t))
 	for _, target := range []string{
 		"GET /", "GET /v1/hello", "GET /v1/health", "POST /v1/shutdown", "GET /v1/routes", "POST /v1/routes",
-		"GET /v1/events", "GET /v1/routes/r/status", "GET /v1/routes/r/events", "POST /v1/routes/r/messages",
+		"GET /v1/events", "GET /v1/status", "GET /v1/ops", "POST /v1/ops/x/steps/0/resolve", "GET /v1/routes/r/status", "GET /v1/routes/r/events", "POST /v1/routes/r/messages",
 		"GET /api/health", "GET /rpc", "GET /metrics",
 	} {
 		method, path, _ := strings.Cut(target, " ")

@@ -34,7 +34,11 @@ func (d *Daemon) rpcHandler() http.Handler {
 	mux := rpc.NewMux(d.rpcProcedures()...)
 	return http.MaxBytesHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if path.Base(r.URL.Path) != "Hello" {
-			if e := CheckVersion(r.Header, d.cfg.Version); e != nil {
+			e := CheckVersion(r.Header, d.cfg.Version)
+			if e == nil {
+				e = d.refuseInInspect(r)
+			}
+			if e != nil {
 				rpc.WriteError(w, rpcFailure(r.Context(), e))
 				return
 			}
@@ -288,6 +292,47 @@ func (s *messageService) Authority(ctx context.Context, req *daemonv1.AuthorityR
 		return nil, rpcFailure(ctx, e)
 	}
 	return &daemonv1.AuthorityResponse{Version: s.contract(), Authority: out.Authority, Reasons: out.Reasons}, nil
+}
+
+func (s *messageService) DaemonStatus(ctx context.Context, _ *daemonv1.DaemonStatusRequest) (*daemonv1.DaemonStatusResponse, error) {
+	st, err := s.d.collectStatus()
+	if err != nil {
+		return nil, rpcFailure(ctx, Errf("internal", "status: %v", err))
+	}
+	return &daemonv1.DaemonStatusResponse{Version: s.contract(), StateDir: st.StateDir, Inspect: st.Inspect,
+		SchemaCurrent: int32(st.Schema.Current), SchemaExpected: int32(st.Schema.Expected),
+		RouteCount: int32(st.Counts.Routes), TaskCount: int32(st.Counts.Tasks), MessageCount: int32(st.Counts.Messages), Digest: st.Digest}, nil
+}
+
+func (s *messageService) ListOperations(ctx context.Context, _ *daemonv1.ListOperationsRequest) (*daemonv1.ListOperationsResponse, error) {
+	list, e := s.d.listOps()
+	if e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
+	res := &daemonv1.ListOperationsResponse{Version: s.contract()}
+	for _, op := range list {
+		b, _ := encode(op)
+		res.OperationsJson = append(res.OperationsJson, string(b))
+	}
+	return res, nil
+}
+
+func (s *messageService) GetOperation(ctx context.Context, req *daemonv1.GetOperationRequest) (*daemonv1.GetOperationResponse, error) {
+	op, e := s.d.getOp(req.GetId())
+	if e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
+	b, _ := encode(op)
+	return &daemonv1.GetOperationResponse{Version: s.contract(), OperationJson: string(b)}, nil
+}
+
+func (s *messageService) ResolveOperation(ctx context.Context, req *daemonv1.ResolveOperationRequest) (*daemonv1.ResolveOperationResponse, error) {
+	op, e := s.d.resolveOp(req.GetId(), int(req.GetStep()), ResolveRequest{Decision: req.GetDecision()})
+	if e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
+	b, _ := encode(op)
+	return &daemonv1.ResolveOperationResponse{Version: s.contract(), OperationJson: string(b)}, nil
 }
 
 // Bounds of one Wait reply and of how long one call may wait.

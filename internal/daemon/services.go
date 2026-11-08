@@ -32,6 +32,10 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(name, "Hold", m.Hold),
 		rpc.Unary(name, "Unhold", m.Unhold),
 		rpc.Unary(name, "Authority", m.Authority),
+		rpc.Unary(name, "DaemonStatus", m.DaemonStatus),
+		rpc.Unary(name, "ListOperations", m.ListOperations),
+		rpc.Unary(name, "GetOperation", m.GetOperation),
+		rpc.Unary(name, "ResolveOperation", m.ResolveOperation),
 		rpc.Unary(name, "Wait", m.Wait),
 	}
 }

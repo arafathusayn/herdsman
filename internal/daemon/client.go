@@ -8,9 +8,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/sdk/client"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
@@ -523,6 +525,74 @@ func (c *Client) Authority(ctx context.Context, route string) (AuthorityResult, 
 		return AuthorityResult{}, err
 	}
 	return AuthorityResult{Authority: res.GetAuthority(), Reasons: res.GetReasons()}, nil
+}
+
+// DaemonStatus reads the state directory and what it holds.
+func (c *Client) DaemonStatus(ctx context.Context) (StatusDetail, error) {
+	res, err := call(ctx, c, func(s daemonv1.MessageService) (*daemonv1.DaemonStatusResponse, error) {
+		return s.DaemonStatus(ctx, &daemonv1.DaemonStatusRequest{})
+	})
+	if err != nil {
+		return StatusDetail{}, err
+	}
+	return StatusDetail{StateDir: res.GetStateDir(), Inspect: res.GetInspect(),
+		Schema: SchemaStatus{Current: int(res.GetSchemaCurrent()), Expected: int(res.GetSchemaExpected())},
+		Counts: StatusCounts{Routes: int(res.GetRouteCount()), Tasks: int(res.GetTaskCount()), Messages: int(res.GetMessageCount())},
+		Digest: res.GetDigest()}, nil
+}
+
+// operationFrom reads one operation's JSON.
+func operationFrom(text string) (*ops.Operation, error) {
+	var op ops.Operation
+	if err := json.Unmarshal([]byte(text), &op); err != nil {
+		return nil, fmt.Errorf("unreadable answer: %w", err)
+	}
+	return &op, nil
+}
+
+// ListOperations lists the operation journal.
+func (c *Client) ListOperations(ctx context.Context) (OpsList, error) {
+	res, err := call(ctx, c, func(s daemonv1.MessageService) (*daemonv1.ListOperationsResponse, error) {
+		return s.ListOperations(ctx, &daemonv1.ListOperationsRequest{})
+	})
+	if err != nil {
+		return OpsList{}, err
+	}
+	out := OpsList{Operations: []*ops.Operation{}}
+	for _, text := range res.GetOperationsJson() {
+		op, err := operationFrom(text)
+		if err != nil {
+			return OpsList{}, err
+		}
+		out.Operations = append(out.Operations, op)
+	}
+	return out, nil
+}
+
+// GetOperation reads one operation.
+func (c *Client) GetOperation(ctx context.Context, id string) (*ops.Operation, error) {
+	res, err := call(ctx, c, func(s daemonv1.MessageService) (*daemonv1.GetOperationResponse, error) {
+		return s.GetOperation(ctx, &daemonv1.GetOperationRequest{Id: id})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return operationFrom(res.GetOperationJson())
+}
+
+// ResolveOperation records what happened to a step, named as the user typed it.
+func (c *Client) ResolveOperation(ctx context.Context, id, step string, q ResolveRequest) (*ops.Operation, error) {
+	n, perr := strconv.ParseInt(step, 10, 32)
+	if perr != nil {
+		return nil, Errf("bad_request", "step must be a number, got %q", step)
+	}
+	res, err := call(ctx, c, func(s daemonv1.MessageService) (*daemonv1.ResolveOperationResponse, error) {
+		return s.ResolveOperation(ctx, &daemonv1.ResolveOperationRequest{Id: id, Step: int32(n), Decision: q.Decision})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return operationFrom(res.GetOperationJson())
 }
 
 // statusFromProto is a route status as the commands print it. A repeated field

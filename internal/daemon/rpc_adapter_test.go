@@ -31,6 +31,14 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) (int,
 		case method == "POST" && path == "/v1/routes":
 			status = 201
 			return take(c.CreateRoute(ctx, in.(CreateRequest)))
+		case method == "GET" && path == "/v1/status":
+			return take(c.DaemonStatus(ctx))
+		case method == "GET" && path == "/v1/ops":
+			return take(c.ListOperations(ctx))
+		case method == "GET" && parts[0] == "ops":
+			return take(c.GetOperation(ctx, parts[1]))
+		case method == "POST" && parts[0] == "ops":
+			return take(c.ResolveOperation(ctx, parts[1], parts[3], in.(ResolveRequest)))
 		case parts[0] != "routes" || len(parts) < 2:
 			panic("no test route for " + method + " " + path)
 		}

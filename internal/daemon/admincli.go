@@ -239,8 +239,8 @@ func RunDaemon(a *AdminEnv, args []string) int {
 			return a.fail(err)
 		}
 		l, _ := ReadAccountLock(lockHome)
-		var detail StatusDetail
-		if _, err := c.Do(ctx, "GET", "/v1/status", nil, &detail); err != nil {
+		detail, err := c.DaemonStatus(ctx)
+		if err != nil {
 			return a.fail(err)
 		}
 		if a.JSON {

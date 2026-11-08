@@ -471,3 +471,106 @@ func TestOnlyTheSDKBuildsTheGeneratedClient(t *testing.T) {
 		}
 	}
 }
+
+// TestInspectServesOnlyReads holds the list of methods an inspect daemon serves:
+// it reads every method from the service, so a new one is refused by default.
+func TestInspectServesOnlyReads(t *testing.T) {
+	reads := map[string]bool{"Hello": true, "Health": true, "DaemonStatus": true, "ListOperations": true, "GetOperation": true,
+		"ListRoutes": true, "Status": true, "GetSetup": true, "Authority": true, "Wait": true}
+	methods := (&daemonv1.StatusRequest{}).ProtoReflect().Descriptor().ParentFile().Services().ByName("MessageService").Methods()
+	inspect, normal := &Daemon{cfg: Config{Inspect: true}}, &Daemon{}
+	for i := range methods.Len() {
+		name := string(methods.Get(i).Name())
+		r, _ := http.NewRequest("POST", rpc.Path(daemonv1.MessageServiceName, name), nil)
+		e := inspect.refuseInInspect(r)
+		if reads[name] != (e == nil) {
+			t.Errorf("%s: inspect answer %v", name, e)
+		}
+		if e != nil && (e.Code != "failed_precondition" || !strings.Contains(e.Message, "/"+name)) {
+			t.Errorf("%s: %+v", name, e)
+		}
+		if e := normal.refuseInInspect(r); e != nil {
+			t.Errorf("%s: refused outside inspect mode: %v", name, e)
+		}
+	}
+}
+
+// TestInspectRefusalIsVersionCheckedFirst: the refusal reaches a client by its
+// own code, and a client of another version is told that first.
+func TestInspectRefusalIsVersionCheckedFirst(t *testing.T) {
+	h := newHarness(t)
+	h.d.cfg.Inspect = true
+	if _, err := h.client().CreateRoute(context.Background(), CreateRequest{Repo: "r", Route: "x"}); code(err) != "failed_precondition" {
+		t.Fatalf("error %v", err)
+	}
+	if _, err := h.client().ListRoutes(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	old := NewClient(h.client().Socket, "0.1.0")
+	defer old.Close()
+	resp := postRPC(t, old, "CreateRoute", "{}", map[string]string{HeaderVersion: "0.1.0"})
+	if resp.StatusCode != 400 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+}
+
+func TestResolveOperationRefusesABadStep(t *testing.T) {
+	c := &Client{}
+	for _, step := range []string{"x", "99999999999"} {
+		if _, err := c.ResolveOperation(context.Background(), "id", step, ResolveRequest{Decision: "done"}); code(err) != "bad_request" {
+			t.Errorf("%s: %v", step, err)
+		}
+	}
+}
+
+// TestOperationAnswersAreChecked: an operation that does not parse is reported,
+// and a daemon that refuses is passed on.
+func TestOperationAnswersAreChecked(t *testing.T) {
+	if _, err := operationFrom("not json"); err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("error %v", err)
+	}
+	ph := fakeDaemon(t, func(m *http.ServeMux) {
+		m.Handle(rpc.Path(daemonv1.MessageServiceName, "ListOperations"), rpc.NewMux(rpc.Unary(daemonv1.MessageServiceName, "ListOperations",
+			func(context.Context, *daemonv1.ListOperationsRequest) (*daemonv1.ListOperationsResponse, error) {
+				return &daemonv1.ListOperationsResponse{OperationsJson: []string{"not json"}}, nil
+			})))
+	})
+	c := NewClient(SocketPath(ph), testVersion)
+	defer c.Close()
+	ctx := context.Background()
+	if _, err := c.ListOperations(ctx); err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("list: %v", err)
+	}
+	h := newHarness(t)
+	live := h.client()
+	if _, err := live.GetOperation(ctx, "missing"); code(err) != "not_found" {
+		t.Fatalf("get: %v", err)
+	}
+	if _, err := live.ResolveOperation(ctx, "missing", "0", ResolveRequest{Decision: "done"}); code(err) != "not_found" {
+		t.Fatalf("resolve: %v", err)
+	}
+	if err := func() error { h.stop(); _, err := NewClient(live.Socket, testVersion).DaemonStatus(ctx); return err }(); !IsDown(err) {
+		t.Fatalf("status: %v", err)
+	}
+	if _, err := NewClient(live.Socket, testVersion).ListOperations(ctx); !IsDown(err) {
+		t.Fatalf("down list: %v", err)
+	}
+}
+
+func TestStatusAndOperationsReportTheirFailures(t *testing.T) {
+	h := newHarness(t)
+	c := h.client()
+	ctx := context.Background()
+	if err := os.WriteFile(filepath.Join(h.ph, "daemon", "routes.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DaemonStatus(ctx); code(err) != "internal" {
+		t.Fatalf("status: %v", err)
+	}
+	if err := h.d.acctDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ListOperations(ctx); code(err) != "internal" {
+		t.Fatalf("list: %v", err)
+	}
+}
