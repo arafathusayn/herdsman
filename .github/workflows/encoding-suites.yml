@@ -1,0 +1,65 @@
+name: encoding-suites
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - sdk/internal/encoding/**
+      - .github/workflows/encoding-suites.yml
+  pull_request:
+    paths:
+      - sdk/internal/encoding/**
+      - .github/workflows/encoding-suites.yml
+  schedule:
+    # Nightly, for the fixed-time fuzz runs.
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  official-suites:
+    # The suites are test data read by the module's own tests, so no tool from
+    # them is built and the SDK module keeps its empty dependency list.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: toml-lang/toml-test
+          ref: 369cc3ae275fd76b6e21780ebf87609e5b2a951a # v1.6.0
+          path: .suites/toml-test
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: yaml/yaml-test-suite
+          ref: 6e6c296ae9c9d2d5c4134b4b64d01b29ac19ff6f # data-2022-01-17
+          path: .suites/yaml-test-suite
+      - name: Run the official suites
+        working-directory: sdk
+        env:
+          HERDSMAN_TOML_TEST_DIR: ${{ github.workspace }}/.suites/toml-test/tests
+          HERDSMAN_YAML_TEST_DIR: ${{ github.workspace }}/.suites/yaml-test-suite
+        run: go test -count=1 -v -run 'TestOfficialSuite$' ./internal/encoding/toml ./internal/encoding/yaml
+
+  fuzz:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { package: ./internal/encoding/toml, name: FuzzDecode }
+          - { package: ./internal/encoding/toml, name: FuzzEdit }
+          - { package: ./internal/encoding/yaml, name: FuzzDecode }
+          - { package: ./internal/encoding/frontmatter, name: FuzzParse }
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Fuzz for a fixed time
+        working-directory: sdk
+        run: go test -run '^$' -fuzz '^${{ matrix.target.name }}$' -fuzztime 5m ${{ matrix.target.package }}
