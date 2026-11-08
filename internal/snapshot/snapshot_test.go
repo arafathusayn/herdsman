@@ -349,24 +349,31 @@ func TestRebuildableIsListedOnce(t *testing.T) {
 	}
 }
 
-func TestUntrackedRebuildableIsExcludedTrackedIsKept(t *testing.T) {
+func TestUntrackedRebuildableIsCapturedTrackedIsKept(t *testing.T) {
 	root := newRepo(t)
+	writeT(t, root, ".gitignore", "build/*.o\n", 0o644)
 	writeT(t, root, "build/tracked.sh", "keep\n", 0o644)
 	runGitT(t, root, "add", "-A")
 	runGitT(t, root, "commit", "-qm", "x")
-	writeT(t, root, "build/untracked.o", "drop\n", 0o644)
-	dest := filepath.Join(t.TempDir(), "s")
-	opts := testOptions(root, dest, "t", "o")
+	writeT(t, root, "build/untracked.txt", "work\n", 0o644)
+	writeT(t, root, "docs/build/notes.md", "notes\n", 0o644)
+	writeT(t, root, "build/ignored.o", "drop\n", 0o644)
+	opts := testOptions(root, filepath.Join(t.TempDir(), "s"), "t", "o")
 	opts.Rebuildable = []string{"build"}
 	m, err := Take(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !captured(m, "build/tracked.sh") {
-		t.Error("tracked file under a rebuildable name must be captured")
+	for _, keep := range []string{"build/tracked.sh", "build/untracked.txt", "docs/build/notes.md"} {
+		if !captured(m, keep) {
+			t.Errorf("%s must be captured", keep)
+		}
 	}
-	if captured(m, "build/untracked.o") || excludedReason(m, "build") != ReasonRebuildable {
-		t.Errorf("untracked rebuildable: %+v", m.Excluded)
+	if captured(m, "build/ignored.o") || excludedReason(m, "build") != ReasonRebuildable {
+		t.Errorf("an ignored match must be excluded: %+v", m.Excluded)
+	}
+	if excludedReason(m, "docs/build") != "" {
+		t.Errorf("an untracked path must not be excluded: %+v", m.Excluded)
 	}
 }
 
@@ -1049,12 +1056,16 @@ func TestPathJSONKeepsInvalidUTF8(t *testing.T) {
 
 func TestCQuote(t *testing.T) {
 	cases := map[string]string{
-		"plain":   "plain",
-		"new\nl":  `"new\nl"`,
-		`q"t`:     `"q\"t"`,
-		`back\sl`: `"back\\sl"`,
-		`"lead`:   `"\"lead"`,
-		"sp ace":  "sp ace",
+		"plain":       "plain",
+		"new\nl":      `"new\012l"`,
+		"cr\r":        `"cr\015"`,
+		"t\tb":        `"t\011b"`,
+		"d\x7f":       `"d\177"`,
+		`q"t`:         `"q\"t"`,
+		`back\sl`:     `"back\\sl"`,
+		`"lead`:       `"\"lead"`,
+		"sp ace":      "sp ace",
+		"caf\xc3\xa9": "caf\xc3\xa9",
 	}
 	for in, want := range cases {
 		if got := cQuote(in); got != want {
@@ -1921,5 +1932,176 @@ func TestRestoreStopsWhenTheArchiveCannotBeUnpacked(t *testing.T) {
 	}
 	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("target left behind: %v", err)
+	}
+}
+
+func restoreAndCompare(t *testing.T, root string) {
+	t.Helper()
+	want := readTree(t, root)
+	dest, _ := takeT(t, root, "t", "o")
+	target := filepath.Join(t.TempDir(), "r")
+	if err := Restore(context.Background(), dest, target); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	compareTrees(t, want, readTree(t, target))
+}
+
+func TestCarriageReturnNames(t *testing.T) {
+	t.Run("pair", func(t *testing.T) {
+		root := newRepo(t)
+		writeT(t, root, "x\r", "the CR file\n", 0o644)
+		writeT(t, root, "x", "a different file\n", 0o644)
+		restoreAndCompare(t, root)
+	})
+	t.Run("Icon alone", func(t *testing.T) {
+		root := newRepo(t)
+		writeT(t, root, "Icon\r", "folder icon\n", 0o644)
+		restoreAndCompare(t, root)
+	})
+}
+
+func TestEveryControlCharacterInNames(t *testing.T) {
+	root := newRepo(t)
+	writeT(t, root, ".gitignore", "ignored*\n", 0o644)
+	add := func(name string) { writeT(t, root, name, "content of "+name+"\n", 0o644) }
+	for c := 1; c < 128; c++ {
+		if c >= 0x20 && c != 0x7f {
+			continue
+		}
+		ch := string(rune(c))
+		add(fmt.Sprintf("mid%d%send", c, ch))
+		add(fmt.Sprintf("tail%d%s", c, ch))
+		add(fmt.Sprintf("%slead%d", ch, c))
+		add(fmt.Sprintf("ignored%d%s", c, ch))
+	}
+	for _, name := range []string{" lead space", "trail space ", `back\slash`, `"quoted"`, `tail\`, "dir\r/inner\n"} {
+		add(name)
+	}
+	restoreAndCompare(t, root)
+}
+
+func TestTrackedPathUnderSymlinkParentIsDeleted(t *testing.T) {
+	for shape, ignore := range map[string]string{"untracked link": "", "ignored link": "d\n"} {
+		t.Run(shape, func(t *testing.T) {
+			outside := t.TempDir()
+			writeT(t, outside, "f", "OUTSIDE SECRET\n", 0o644)
+			writeT(t, outside, "deep/g", "OUTSIDE SECRET\n", 0o644)
+			root := newRepo(t)
+			writeT(t, root, "d/f", "inside\n", 0o644)
+			writeT(t, root, "d/deep/g", "inside\n", 0o644)
+			runGitT(t, root, "add", "-A")
+			runGitT(t, root, "commit", "-qm", "x")
+			if ignore != "" {
+				writeT(t, root, ".gitignore", ignore, 0o644)
+			}
+			if err := os.RemoveAll(filepath.Join(root, "d")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, filepath.Join(root, "d")); err != nil {
+				t.Fatal(err)
+			}
+			dest, m := takeT(t, root, "t", "o")
+			if captured(m, "d/f") || captured(m, "d/deep/g") {
+				t.Fatalf("read through the symlink: %+v", m.Files)
+			}
+			if !captured(m, "d") {
+				t.Fatalf("the link itself must be captured: %+v", m.Files)
+			}
+			target := filepath.Join(t.TempDir(), "r")
+			if err := Restore(context.Background(), dest, target); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := os.Readlink(filepath.Join(target, "d")); err != nil || got != outside {
+				t.Fatalf("link = %q %v", got, err)
+			}
+			if got := runGitT(t, target, "ls-tree", "-r", "--name-only", m.WorkingTree); strings.Contains(got, "d/") {
+				t.Fatalf("working tree holds %q", got)
+			}
+		})
+	}
+}
+
+func TestUnreadableParentOfTrackedPathStopsTake(t *testing.T) {
+	root := newRepo(t)
+	writeT(t, root, "a/b/c/f", "x\n", 0o644)
+	runGitT(t, root, "add", "-A")
+	runGitT(t, root, "commit", "-qm", "x")
+	unreadable(t, filepath.Join(root, "a"))
+	if _, err := Take(context.Background(), testOptions(root, filepath.Join(t.TempDir(), "s"), "t", "o")); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestNestedGitFoldersAreListed(t *testing.T) {
+	root := newRepo(t)
+	writeT(t, root, "broken/.git/data", "only copy\n", 0o644)
+	writeT(t, root, "broken/kept.txt", "kept\n", 0o644)
+	if err := os.MkdirAll(filepath.Join(root, "hollow", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeT(t, root, "hollow/kept.txt", "kept\n", 0o644)
+	dest, m := takeT(t, root, "t", "o")
+	for _, p := range []string{"broken/.git", "hollow/.git"} {
+		if excludedReason(m, p) != ReasonNestedRepository {
+			t.Errorf("%s: %+v", p, m.Excluded)
+		}
+	}
+	for _, p := range []string{"broken/kept.txt", "hollow/kept.txt"} {
+		if !captured(m, p) {
+			t.Errorf("%s not captured: %+v", p, m.Files)
+		}
+	}
+	if err := Restore(context.Background(), dest, filepath.Join(t.TempDir(), "r")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A case-sensitive system lists such a path as an ordinary file.
+func TestGitNamedComponentIsOpaqueInAnyCase(t *testing.T) {
+	c := &capture{ctx: context.Background(), root: t.TempDir(), excluded: map[string]Exclusion{}, opaque: map[string]bool{}}
+	if err := c.addOther("a/.GIT/x", nil, &c.tree, recordForTree); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.excluded["a/.GIT"]; got.Reason != ReasonNestedRepository || !c.opaque["a/.GIT"] {
+		t.Fatalf("excluded = %+v", c.excluded)
+	}
+}
+
+// git will not store these names in a tree. A refusal removes nothing, which
+// is the safe answer for a capture that authorizes deletion.
+func TestNamesGitRefusesStopTake(t *testing.T) {
+	for _, name := range []string{"git~1", ".git ", `a\.git\b`} {
+		t.Run(name, func(t *testing.T) {
+			root := newRepo(t)
+			writeT(t, root, name, "x\n", 0o644)
+			dest := filepath.Join(t.TempDir(), "s")
+			if _, err := Take(context.Background(), testOptions(root, dest, "t", "o")); err == nil {
+				t.Fatal("expected a refusal")
+			}
+			if _, err := os.Lstat(dest); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("dest left behind: %v", err)
+			}
+		})
+	}
+}
+
+func TestIgnoredFileWithoutReadPermissionStopsTake(t *testing.T) {
+	root := dirtyRepo(t)
+	secret := filepath.Join(root, "data.db")
+	if err := os.Chmod(secret, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(secret, 0o644) })
+	dest := filepath.Join(t.TempDir(), "s")
+	if _, err := Take(context.Background(), testOptions(root, dest, "t", "o")); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Lstat(dest); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("dest left behind: %v", err)
+	}
+	cmd := exec.Command("git", "rev-parse", "-q", "--verify", "refs/herdsman/snapshot/t/o")
+	cmd.Dir = root
+	if cmd.Run() == nil {
+		t.Error("snapshot ref left behind")
 	}
 }

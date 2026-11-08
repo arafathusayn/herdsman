@@ -106,13 +106,29 @@ func splitNUL(raw []byte) []string {
 	return strings.Split(text, "\x00")
 }
 
-// cQuote quotes a path for git's line-based --stdin-paths input, which
-// otherwise cannot carry a newline or a leading quote.
+// cQuote quotes a path for git's line-based --stdin-paths input, whose reader
+// ends a line at a newline and strips a carriage return before it. Every
+// control character is quoted so no name depends on such line handling.
 func cQuote(p string) string {
-	if !strings.ContainsAny(p, "\"\\\n") {
+	var out strings.Builder
+	quoted := false
+	for i := 0; i < len(p); i++ {
+		switch c := p[i]; {
+		case c == '"' || c == '\\':
+			out.WriteByte('\\')
+			out.WriteByte(c)
+			quoted = true
+		case c < 0x20 || c == 0x7f:
+			fmt.Fprintf(&out, `\%03o`, c)
+			quoted = true
+		default:
+			out.WriteByte(c)
+		}
+	}
+	if !quoted {
 		return p
 	}
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`).Replace(p) + `"`
+	return `"` + out.String() + `"`
 }
 
 // createBundle writes the complete bundle: every ref and object, no basis.

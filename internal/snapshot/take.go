@@ -22,8 +22,9 @@ type Options struct {
 	Dest string
 	// Task and Op name refs/herdsman/snapshot/<task>/<op>.
 	Task, Op string
-	// Rebuildable lists the patterns whose matches may be left out. Nil means
-	// none: only the caller's configuration grants that authority.
+	// Rebuildable lists the patterns whose ignored matches may be left out.
+	// Nil means none: only the caller's configuration grants that authority.
+	// Tracked and untracked, non-ignored files are always captured.
 	Rebuildable []string
 	// FileCap is the largest file captured, 0 meaning DefaultFileCap.
 	FileCap int64
@@ -142,7 +143,7 @@ func Take(ctx context.Context, opts Options) (m *Manifest, err error) {
 	if err := osMkdir(work, 0o700); err != nil {
 		return nil, err
 	}
-	c := &capture{ctx: ctx, root: root, opts: opts, excluded: map[string]Exclusion{}, opaque: map[string]bool{}}
+	c := &capture{ctx: ctx, root: root, opts: opts, excluded: map[string]Exclusion{}, opaque: map[string]bool{}, realDirs: map[string]bool{}}
 	stagedIndex := filepath.Join(work, "index.staged")
 	if err := c.copyIndex(stagedIndex); err != nil {
 		return nil, err
@@ -214,7 +215,8 @@ type capture struct {
 	submodules []Submodule
 	gitlinks   []string // "oid\tpath", ready for --index-info
 	excluded   map[string]Exclusion
-	opaque     map[string]bool // folders git owns as a unit; the walk skips them
+	opaque     map[string]bool // folders held or dropped as a unit; the walk skips them
+	realDirs   map[string]bool // memo of parentIsReal
 }
 
 // copyIndex works on a copy so the capture cannot touch the user's index. A
@@ -259,12 +261,12 @@ func (c *capture) scan() error {
 		return err
 	}
 	for _, rel := range untracked {
-		if err := c.addOther(rel, &c.tree, recordForTree); err != nil {
+		if err := c.addOther(rel, nil, &c.tree, recordForTree); err != nil {
 			return err
 		}
 	}
 	for _, rel := range ignored {
-		if err := c.addOther(rel, &c.preserved, recordFor); err != nil {
+		if err := c.addOther(rel, c.opts.Rebuildable, &c.preserved, recordFor); err != nil {
 			return err
 		}
 	}
@@ -332,6 +334,13 @@ func capturable(info fs.FileInfo) bool {
 // addTracked keeps a tracked file whatever its name: a rebuildable pattern
 // never drops content git is tracking. A deleted file simply has no entry.
 func (c *capture) addTracked(rel string) error {
+	real, err := c.parentIsReal(path.Dir(rel))
+	if err != nil {
+		return err
+	}
+	if !real {
+		return nil
+	}
 	info, err := osLstat(filepath.Join(c.root, rel))
 	if gone(err) {
 		return nil
@@ -345,17 +354,64 @@ func (c *capture) addTracked(rel string) error {
 	return nil
 }
 
-// addOther files an untracked or ignored path. `ls-files` ends a nested
-// repository's name in a slash and never descends into it.
-func (c *capture) addOther(entry string, into *[]FileRecord, record func(string, fs.FileInfo) FileRecord) error {
+// parentIsReal reports whether dir is a real folder all the way up. A tracked
+// path under a symlink or a file no longer exists in the worktree: following
+// the link would capture data from outside it.
+func (c *capture) parentIsReal(dir string) (bool, error) {
+	if dir == "." {
+		return true, nil
+	}
+	if known, seen := c.realDirs[dir]; seen {
+		return known, nil
+	}
+	real, err := c.parentIsReal(path.Dir(dir))
+	if err != nil {
+		return false, err
+	}
+	if real {
+		info, err := osLstat(filepath.Join(c.root, dir))
+		if err != nil && !gone(err) {
+			return false, err
+		}
+		real = err == nil && info.IsDir()
+	}
+	c.realDirs[dir] = real
+	return real, nil
+}
+
+// gitFolderPrefix finds a path component git reserves, in any letter case. A
+// case-sensitive system can list one as an ordinary path.
+func gitFolderPrefix(rel string) (string, bool) {
+	parts := strings.Split(rel, "/")
+	for i, part := range parts {
+		if strings.EqualFold(part, ".git") {
+			return strings.Join(parts[:i+1], "/"), true
+		}
+	}
+	return "", false
+}
+
+func (c *capture) markNested(rel string) {
+	c.opaque[rel] = true
+	c.excluded[rel] = Exclusion{Path: Path(rel), Reason: ReasonNestedRepository}
+}
+
+// addOther files an untracked or ignored path, leaving out what patterns
+// match. `ls-files` ends a nested repository's name in a slash and never
+// descends into it.
+func (c *capture) addOther(entry string, patterns []string, into *[]FileRecord, record func(string, fs.FileInfo) FileRecord) error {
 	rel := strings.TrimSuffix(entry, "/")
-	if prefix, pattern, ok := matchRebuildable(c.opts.Rebuildable, rel); ok {
+	if prefix, reserved := gitFolderPrefix(rel); reserved {
+		c.markNested(prefix)
+		return nil
+	}
+	if prefix, pattern, ok := matchRebuildable(patterns, rel); ok {
+		c.opaque[prefix] = true
 		c.excluded[prefix] = Exclusion{Path: Path(prefix), Reason: ReasonRebuildable, Pattern: pattern}
 		return nil
 	}
 	if strings.HasSuffix(entry, "/") {
-		c.opaque[rel] = true
-		c.excluded[rel] = Exclusion{Path: Path(rel), Reason: ReasonNestedRepository}
+		c.markNested(rel)
 		return nil
 	}
 	info, err := osLstat(filepath.Join(c.root, rel))
@@ -408,8 +464,11 @@ func (c *capture) walk(rel string) error {
 	}
 	for _, entry := range entries {
 		child := path.Join(rel, entry.Name())
-		_, _, rebuildable := matchRebuildable(c.opts.Rebuildable, child)
-		if child == ".git" || c.opaque[child] || rebuildable {
+		if child == ".git" || c.opaque[child] {
+			continue
+		}
+		if strings.EqualFold(entry.Name(), ".git") {
+			c.markNested(child)
 			continue
 		}
 		switch {
