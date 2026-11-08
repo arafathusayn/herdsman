@@ -47,13 +47,13 @@ A new upstream is a decision. Record it in `docs/adr/`, add it to `dependencyBud
 
 ## Releases
 
-A pushed `v*` tag runs `.github/workflows/release.yml`. It builds the tag twice from empty caches and compares `checksums.txt`; a difference stops the run before anything is published. A third run publishes, and the provenance attestation covers its checksums.
+A pushed `v*` tag runs `.github/workflows/release.yml`. `.github/scripts/release-tag.sh` builds the tag twice from empty caches and compares `checksums.txt`; a difference stops the run before anything is public. The second build's files are then attested and uploaded unchanged, and the Homebrew cask is pushed last. Nothing is built after the comparison.
 
 What a release carries:
 
 - `checksums.txt`, for every archive and the SBOM.
 - `checksums.txt.sig`, one line: the scheme, the id of the key, the signature. `herdsman update` checks it against the keys in `internal/update/release_keys.txt`, then the archive against the checksums, and only then replaces the binary.
-- `herdsman_<version>.spdx.json`, written by `internal/update/releasetool`: every `VENDOR.md` under `vendor/` and `third_party/`, the SQLite inside the driver, each submodule and the Go standard library. A folder named `conformance` holds test-only code and is left out.
+- `herdsman_<version>.spdx.json`, written by `internal/update/releasetool`: every `VENDOR.md` under `vendor/` and `third_party/`, the SQLite inside the driver, each submodule, the Go standard library, and the musl and compiler runtime that zig links into the linux binaries. A folder named `conformance` holds test-only code and is left out.
 - A provenance attestation; check it with `gh attestation verify <file> --repo arafathusayn/herdsman`.
 
 ### The signing key

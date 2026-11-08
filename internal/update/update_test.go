@@ -258,6 +258,30 @@ func TestReplaceLeavesOldBinaryOnFailedSmoke(t *testing.T) {
 	}
 }
 
+func TestReplaceKeepsTheOldNameOnFailedRename(t *testing.T) {
+	exe := exeFile(t)
+	// During the check the target becomes a folder with content: rename fails.
+	smoke := func(context.Context, string) (string, error) {
+		if err := os.Remove(exe); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(exe, "inner"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return "herdsman 1.2.0 (x)", nil
+	}
+	if err := Replace(context.Background(), exe, []byte("new"), "1.2.0", smoke); err == nil {
+		t.Fatal("a failed rename was reported as success")
+	}
+	onlyEntry(t, filepath.Dir(exe))
+}
+
+func TestSyncDirIgnoresAMissingFolder(t *testing.T) {
+	if err := syncDir(filepath.Join(t.TempDir(), "gone")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReplaceRefusesPackageManagerInstall(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "Caskroom", "herdsman", "1.0.0")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

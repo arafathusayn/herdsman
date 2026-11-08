@@ -149,7 +149,7 @@ func keygen(args []string, _ func(string) string, out io.Writer) int {
 }
 
 func sbom(args []string, _ func(string) string, out io.Writer) int {
-	v, ok := flags("sbom", args, out, "root", "version", "created", "out")
+	v, ok := flags("sbom", args, out, "root", "version", "created", "zig-version", "out")
 	if !ok {
 		return 2
 	}
@@ -157,6 +157,7 @@ func sbom(args []string, _ func(string) string, out io.Writer) int {
 	if err != nil {
 		return fail(out, "sbom", err)
 	}
+	components = append(components, update.StaticLinkComponents(*v["zig-version"])...)
 	components = append(components, update.ToolchainComponent())
 	doc, err := update.SPDX("herdsman", *v["version"], *v["created"], components)
 	if err != nil {

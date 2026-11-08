@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -46,6 +48,13 @@ func manPage(title, summary, body string, seeAlso []string) string {
 	return b.String()
 }
 
+// builtinPages are the commands main.go dispatches without the command table.
+var builtinPages = map[string]string{
+	"web":     "serve the web app that operates every agent",
+	"version": "print the version",
+	"help":    "print the help",
+}
+
 // manPages renders docs/man from the command table: one page for the program
 // and one for each command, so the pages cannot say other than --help does.
 func manPages() map[string]string {
@@ -56,12 +65,24 @@ func manPages() map[string]string {
 	sort.Strings(names)
 	var usageText bytes.Buffer
 	printUsage(&usageText)
-	refs := make([]string, len(names))
-	for i, n := range names {
+	all := slices.Clone(names)
+	for n := range builtinPages {
+		all = append(all, n)
+	}
+	sort.Strings(all)
+	refs := make([]string, len(all))
+	for i, n := range all {
 		refs[i] = "herdsman-" + n
 	}
 	pages := map[string]string{
 		"herdsman.1": manPage("herdsman", "run a team of coding agents inside herdr", usageText.String(), refs),
+	}
+	for n, summary := range builtinPages {
+		body := summary + "\n"
+		if n == "web" {
+			body = usage
+		}
+		pages["herdsman-"+n+".1"] = manPage("herdsman-"+n, summary, body, []string{"herdsman"})
 	}
 	for _, n := range names {
 		c := commands[n]
@@ -123,9 +144,30 @@ func TestManPagesAreCurrent(t *testing.T) {
 	}
 }
 
+// The commands main.go dispatches itself are read from its source, so a new
+// one without a page fails here rather than matching a list kept beside it.
+func TestManPagesCoverBuiltinCommands(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, after, _ := bytes.Cut(src, []byte("func run(args"))
+	dispatch, _, _ := bytes.Cut(after, []byte("\n}\n"))
+	found := 0
+	for _, m := range regexp.MustCompile(`(?m)^\s*case "([a-z]+)"`).FindAllSubmatch(dispatch, -1) {
+		found++
+		if _, ok := manPages()["herdsman-"+string(m[1])+".1"]; !ok {
+			t.Errorf("the built-in command %s has no page", m[1])
+		}
+	}
+	if found < 3 {
+		t.Fatalf("found %d built-ins: the search is wrong", found)
+	}
+}
+
 func TestManPagesCoverTheProgramAndEveryCommand(t *testing.T) {
 	pages := manPages()
-	if len(pages) != len(commands)+1 {
+	if len(pages) != len(commands)+len(builtinPages)+1 {
 		t.Fatalf("%d pages for %d commands", len(pages), len(commands))
 	}
 	if !strings.Contains(pages["herdsman-update.1"], "exit codes") {

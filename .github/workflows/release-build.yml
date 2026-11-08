@@ -48,14 +48,14 @@ jobs:
           go run ./internal/update/releasetool keygen --seed-out "$RUNNER_TEMP/seed" --public-out "$RUNNER_TEMP/public"
           echo "::add-mask::$(cat "$RUNNER_TEMP/seed")"
           echo "HERDSMAN_RELEASE_SIGNING_KEY=$(cat "$RUNNER_TEMP/seed")" >> "$GITHUB_ENV"
-      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
-        with:
-          distribution: goreleaser
-          version: v2.19.0
-          args: release --snapshot --clean --skip=publish,homebrew
+      - name: Build all targets twice and compare checksums
+        run: .github/scripts/release-tag.sh build --snapshot
         env:
+          GORELEASER: .tools/bin/goreleaser
           HERDSMAN_BUILD_TAGS: cgoprobe
           HERDSMAN_ALLOW_UNTRUSTED_KEY: "1"
+          # Only so that the cask renders; nothing is pushed from this job.
+          HOMEBREW_TAP_SSH_KEY: not-a-key
       - name: The checksums verify and the SBOM is written
         run: |
           set -eu

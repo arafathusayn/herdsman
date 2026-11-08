@@ -37,24 +37,20 @@ jobs:
       - uses: mlugg/setup-zig@v2.2.1
         with:
           version: 0.17.0
-      # Each build starts from an empty cache and leaves publishing and signing
-      # out, so nothing reaches anyone unless both agree.
+      # Nothing is public until both builds agree, and the files that were
+      # compared are the ones attested and uploaded.
       - name: Build the tag twice and compare checksums
-        run: |
-          set -eu
-          for run in first second; do
-            GOCACHE="$RUNNER_TEMP/cache-$run" .tools/bin/goreleaser release --clean --skip=publish,sign,homebrew
-            cp dist/checksums.txt "$RUNNER_TEMP/checksums-$run.txt"
-          done
-          cmp "$RUNNER_TEMP/checksums-first.txt" "$RUNNER_TEMP/checksums-second.txt"
-      - name: Publish
-        run: .tools/bin/goreleaser release --clean
+        run: .github/scripts/release-tag.sh build
         env:
+          GORELEASER: .tools/bin/goreleaser
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
           HERDSMAN_RELEASE_SIGNING_KEY: ${{ secrets.HERDSMAN_RELEASE_SIGNING_KEY }}
-      - name: The published build matches the compared ones
-        run: cmp "$RUNNER_TEMP/checksums-first.txt" dist/checksums.txt
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-checksums: dist/checksums.txt
+      - name: Publish the compared files
+        run: .github/scripts/release-tag.sh publish "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}

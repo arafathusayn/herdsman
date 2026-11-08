@@ -280,6 +280,16 @@ func SPDX(product, version, created string, components []Component) ([]byte, err
 	return append(data, '\n'), nil
 }
 
+// StaticLinkComponents are the C runtime parts zig links into the static linux
+// binaries. Zig bundles them, so zig's version is what pins them.
+func StaticLinkComponents(zig string) []Component {
+	version := "bundled with zig " + zig
+	return []Component{
+		{Name: "musl", Upstream: "https://musl.libc.org", Version: version, License: "MIT"},
+		{Name: "zig-compiler-rt", Upstream: "https://ziglang.org", Version: version, License: "MIT"},
+	}
+}
+
 // ToolchainComponent is the Go standard library linked into every binary, at
 // the version of the toolchain running this tool.
 func ToolchainComponent() Component {

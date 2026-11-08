@@ -126,7 +126,7 @@ func TestSBOM(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := filepath.Join(t.TempDir(), "sbom.json")
-	if msg, code := call(t, nil, "sbom", "--root", root, "--version", "1.0.0", "--created", "2026-01-02T03:04:05Z", "--out", out); code != 0 {
+	if msg, code := call(t, nil, "sbom", "--root", root, "--version", "1.0.0", "--created", "2026-01-02T03:04:05Z", "--zig-version", "0.17.0", "--out", out); code != 0 {
 		t.Fatalf("sbom: %s", msg)
 	}
 	data, err := os.ReadFile(out)
@@ -142,10 +142,15 @@ func TestSBOM(t *testing.T) {
 			t.Errorf("%s is missing", c.Name)
 		}
 	}
-	if _, code := call(t, nil, "sbom", "--root", t.TempDir()+"/gone/.gitmodules/x", "--version", "1.0.0", "--created", "bad", "--out", out); code != 1 {
+	for _, name := range []string{"musl", "zig-compiler-rt", "go-stdlib"} {
+		if !bytes.Contains(data, []byte(`"`+name+`"`)) {
+			t.Errorf("%s is missing", name)
+		}
+	}
+	if _, code := call(t, nil, "sbom", "--root", t.TempDir()+"/gone/.gitmodules/x", "--version", "1.0.0", "--created", "bad", "--zig-version", "0.17.0", "--out", out); code != 1 {
 		t.Errorf("bad time: code %d", code)
 	}
-	if _, code := call(t, nil, "sbom", "--root", root, "--version", "1.0.0", "--created", "2026-01-02T03:04:05Z", "--out", filepath.Join(t.TempDir(), "no/dir/x")); code != 1 {
+	if _, code := call(t, nil, "sbom", "--root", root, "--version", "1.0.0", "--created", "2026-01-02T03:04:05Z", "--zig-version", "0.17.0", "--out", filepath.Join(t.TempDir(), "no/dir/x")); code != 1 {
 		t.Errorf("unwritable: code %d", code)
 	}
 }

@@ -110,10 +110,18 @@ sboms:
     documents:
       - "{{ .ProjectName }}_{{ .Version }}.spdx.json"
     cmd: go
+    # GoReleaser clears the environment of this command.
+    env:
+      - GOFLAGS=-mod=vendor
+      - GOPROXY=off
+      - GOCACHE={{ envOrDefault "GOCACHE" "" }}
     args:
       - run
       - ../internal/update/releasetool
       - sbom
+      - --zig-version
+      # The zig of release.yml: the linux binaries link its musl statically.
+      - 0.17.0
       - --root
       - ..
       - --version
