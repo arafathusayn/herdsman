@@ -1,0 +1,50 @@
+name: bench
+
+on:
+  pull_request:
+    paths:
+      - internal/wtree/**
+      - internal/cow/**
+      - internal/ledger/**
+      - bench/worktrees/**
+      - .github/workflows/bench.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The gate. It only reads the committed results, so a busy runner cannot
+  # fail it; the measuring happens on a quiet machine with `make bench`.
+  bench-results:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # The pull request's own commit, with the history the check walks.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Results are current and hold no lost case
+        run: make bench-results
+
+  # For information only: shared runners are too noisy to judge a win on.
+  bench:
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Install wt
+        run: make tools-wt
+      - name: Measure
+        run: make bench BENCH_ARGS="--out ${{ runner.temp }}/bench"
+      - name: Summary
+        if: always()
+        run: cat "${{ runner.temp }}"/bench/*.md >> "$GITHUB_STEP_SUMMARY"
