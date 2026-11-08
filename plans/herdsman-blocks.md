@@ -1,7 +1,7 @@
 # herdsman-blocks: article and design spec
 
 > Historical renderer spec. The app now uses Reactre TSX and signals; the
-> renderer described here lives in `bench/herdsman-cases/legacy` for the
+> renderer described here lives in `bench/web/herdsman-ui-cases/legacy` for the
 > existing benchmark baselines. See [`web/README.md`](../web/README.md).
 
 A living document. It explains why herdsman-blocks exists and specifies its behavior precisely enough to rebuild it without reading its source. It holds no code; every procedure is written as numbered steps. Update it in the same change as any behavior change, and add a line to the change log at the end.
@@ -337,7 +337,7 @@ A child hole accepts text (a string or number), nothing (null, undefined or fals
 1. A view made with `svg` has its elements in the SVG namespace. Its descriptions go into child holes inside SVG content: an HTML view's `<svg>` element or another SVG view.
 2. Mounting, patching, child holes and keyed lists work the same as for HTML views; no step depends on the namespace.
 3. In SVG content `class` is an attribute hole, written with the attribute rules (null, undefined and false remove it).
-4. A headless Chrome check (`bench/herdsman-cases/check-svg.ts`) runs this against the browser's own parser: an `svg` root is an SVG element while the same markup through `html` is not, SVG list items render with a non-zero box and keep their nodes across a reorder, the latest handler runs with the SVG element as `this`, assigning a class name on an SVG element throws, a class marker on one fails at compile time, and typed property and event holes work on a real input.
+4. A headless Chrome check (`bench/web/herdsman-ui-cases/check-svg.ts`) runs this against the browser's own parser: an `svg` root is an SVG element while the same markup through `html` is not, SVG list items render with a non-zero box and keep their nodes across a reorder, the latest handler runs with the SVG element as `this`, assigning a class name on an SVG element throws, a class marker on one fails at compile time, and typed property and event holes work on a real input.
 
 #### render(container, description)
 
@@ -423,7 +423,7 @@ The tag function captures its interpolations as a constant tuple type and maps e
 The types erase completely, and the markers stay constant functions evaluated once per template literal:
 
 1. Nothing new runs per render: the event marker shares the property hole's runtime kind, so the view's per-template shape, mounting, patching, child holes and list reconciliation are unchanged. The only new runtime work is in compiling (once per template): choosing the SVG wrapper, the namespace test for `class`, and the event-position comparison.
-2. Proof, 2026-10-27: the declarative benchmark app (`bench/herdsman-cases/apps/herdsman-blocks-declarative`) and the lower-layer app were bundled before and after with syntax and whitespace minification but names kept, and split into statements. The only differing statements were the marker functions (the event marker replacing the property marker the apps had used for handlers, and the marker-name list for error messages), the template constructor's SVG parse and position check, the attribute walk's namespace test for `class`, and the call sites' marker names. Every statement of mounting, patching, child holes, the trampoline and list reconciliation was identical. The fully minified declarative bundle grew from 18,308 to 18,624 bytes (7,561 to 7,725 gzipped), all of it in those once-per-template parts.
+2. Proof, 2026-10-27: the declarative benchmark app (`bench/web/herdsman-ui-cases/apps/herdsman-blocks-declarative`) and the lower-layer app were bundled before and after with syntax and whitespace minification but names kept, and split into statements. The only differing statements were the marker functions (the event marker replacing the property marker the apps had used for handlers, and the marker-name list for error messages), the template constructor's SVG parse and position check, the attribute walk's namespace test for `class`, and the call sites' marker names. Every statement of mounting, patching, child holes, the trampoline and list reconciliation was identical. The fully minified declarative bundle grew from 18,308 to 18,624 bytes (7,561 to 7,725 gzipped), all of it in those once-per-template parts.
 3. The benchmark runner's DOM gate passed for both apps after the change.
 
 #### Compiler settings

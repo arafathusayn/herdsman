@@ -75,7 +75,7 @@ tests and app regressions. `make web-e2e` also builds and checks the app in
 headless Chrome, including typing, keyboard navigation, polling, preview
 sandboxing, terminal input, route creation and the docs controls.
 
-The retired renderer is preserved only under `bench/herdsman-cases/legacy`
+The retired renderer is preserved only under `bench/web/herdsman-ui-cases/legacy`
 for the existing benchmark baselines. Its strict type checks and unit/property
 tests still run in `make web-check`; production app code does not import it.
 

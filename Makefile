@@ -44,9 +44,9 @@ web-check:
 	cd web && bun fmt --check
 	cd web && bun check --no-pretty --typeRoots "$(BUN_GLOBAL)"
 	cd web && bun check --no-pretty -p tsconfig.strict.json --typeRoots "$(BUN_GLOBAL)"
-	cd web && bun check --no-pretty -p ../bench/herdsman-cases/legacy/tsconfig.json --typeRoots "$(BUN_GLOBAL)"
+	cd web && bun check --no-pretty -p ../bench/web/herdsman-ui-cases/legacy/tsconfig.json --typeRoots "$(BUN_GLOBAL)"
 	cd web && bun test
-	cd web && bun test ../bench/herdsman-cases/legacy
+	cd web && bun test ../bench/web/herdsman-ui-cases/legacy
 
 ## web-e2e: the built app and its forms in headless Chrome (CHROME=path picks
 ## the browser)
