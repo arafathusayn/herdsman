@@ -97,7 +97,7 @@ guard-report:
 
 # go-module-check runs format, vet, staticcheck and tests from a module's root.
 define go-module-check
-	@cd $(1) && test -z "$$(gofmt -l .)" || { (cd $(1) && gofmt -l .); echo "run gofmt -w $(1)"; exit 1; }
+	@cd $(1) && test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w $(1)"; exit 1; }
 	cd $(1) && go vet ./...
 	cd $(1) && go run $(STATICCHECK) ./...
 	cd $(1) && go test -race -count=1 ./...
@@ -113,7 +113,7 @@ check-conformance:
 
 ## check-sdk-ts: the TypeScript SDK; passes while the module has no test files
 check-sdk-ts:
-	@if [ -n "$$(find sdk/ts -name '*.test.ts' 2>/dev/null)" ]; then \
+	@if [ -n "$$(find sdk/ts -type f ! -path '*/node_modules/*' \( -name '*.test.*' -o -name '*_test.*' -o -name '*.spec.*' -o -name '*_spec.*' \) 2>/dev/null)" ]; then \
 		cd sdk/ts && bun test; \
 	else \
 		echo "sdk/ts: no test files yet"; \
