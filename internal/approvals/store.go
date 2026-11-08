@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 
 	"github.com/arafathusayn/herdsman/sdk/config"
 )
@@ -60,44 +61,71 @@ func (s *Store) Approved(project, template string) (bool, error) {
 
 // Approve records a template. Approving it twice changes nothing.
 func (s *Store) Approve(project, template string) error {
-	approvals, err := s.List()
-	if err != nil {
-		return err
-	}
-	if slices.Contains(approvals[project], template) {
-		return nil
-	}
-	approvals[project] = append(approvals[project], template)
-	return s.write(approvals)
+	return s.locked(func() error {
+		approvals, err := s.List()
+		if err != nil {
+			return err
+		}
+		if slices.Contains(approvals[project], template) {
+			return nil
+		}
+		approvals[project] = append(approvals[project], template)
+		return s.write(approvals)
+	})
 }
 
 // Clear removes one project's approvals, or every approval when project is
 // empty, and returns how many templates were removed.
 func (s *Store) Clear(project string) (int, error) {
-	approvals, err := s.List()
-	if err != nil {
-		return 0, err
-	}
 	removed := 0
-	for name, templates := range approvals {
-		if project == "" || project == name {
-			removed += len(templates)
-			delete(approvals, name)
+	err := s.locked(func() error {
+		approvals, err := s.List()
+		if err != nil {
+			return err
+		}
+		for name, templates := range approvals {
+			if project == "" || project == name {
+				removed += len(templates)
+				delete(approvals, name)
+			}
+		}
+		if removed == 0 {
+			return nil
+		}
+		return s.write(approvals)
+	})
+	return removed, err
+}
+
+// locked runs change while holding the store's lock, so that a whole
+// read-modify-write is one step across goroutines and processes. The lock is
+// on a separate file because the store itself is replaced by rename. The
+// kernel drops it if the process dies.
+func (s *Store) locked(change func() error) error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	for {
+		err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX)
+		if !errors.Is(err, syscall.EINTR) {
+			break
 		}
 	}
-	if removed == 0 {
-		return 0, nil
+	if err != nil {
+		return fmt.Errorf("lock %s: %w", s.path, err)
 	}
-	return removed, s.write(approvals)
+	return change()
 }
 
 // write replaces the file whole, readable only by its owner.
 func (s *Store) write(approvals map[string][]string) error {
 	data, err := config.EncodeApprovals(approvals)
 	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
 	}
 	temp, err := os.CreateTemp(filepath.Dir(s.path), ".approvals-*")
