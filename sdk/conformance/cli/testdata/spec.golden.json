@@ -85,6 +85,16 @@
             {
               "name": "pane"
             }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "OK <orchestrator-name> <pane>"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, a bad setting, or a refusal (the reason on stderr)"
+            }
           ]
         }
       ]
@@ -95,11 +105,6 @@
       "help": "usage: herdsman commit [--squash <target>] [--dry-run] [-m <message>] [--type <type>] [--scope <scope>] [--json]\n\nStages the current worktree by its [commit] stage policy and commits. The\nmessage is written by the configured generator, from the staged diff, and must\nbe a Conventional Commits message. When no generator can answer, the command\nwrites a plain one from the branch and the file names and says so; an answer\nthat is still invalid after one retry stops the commit.\n\n--squash folds every commit since the branch left <target> into this one.\n--dry-run shows the request, which program gets it and its answer; nothing changes.\n\nexit codes:\n  0  committed, or the dry run printed\n  1  nothing to commit, an invalid message, or git refused\n  2  bad usage\n",
       "usage": [
         "herdsman commit [--squash <target>] [--dry-run] [-m <message>] [--type <type>] [--scope <scope>] [--json]"
-      ],
-      "positionals": [
-        {
-          "name": "message"
-        }
       ],
       "flags": [
         {
@@ -119,6 +124,11 @@
         {
           "name": "--type",
           "valueName": "type"
+        },
+        {
+          "name": "-m",
+          "short": "-m",
+          "valueName": "message"
         }
       ],
       "exitCodes": [
@@ -138,14 +148,47 @@
     },
     {
       "name": "config",
-      "summary": "Install the shell integration.",
-      "help": "usage: herdsman config shell install|uninstall [bash|zsh|fish] [--json]\n\nAdds or removes the wrapper that lets herdsman go change the shell's folder,\nwith static completions. The shell defaults to $SHELL.\n\nexit codes:\n  0  done\n  1  the startup file could not be changed, or the shell is not supported\n  2  bad usage\n",
+      "summary": "Read and change the configuration; install the shell integration.",
+      "help": "usage: herdsman config get <key> [-c <path>]\n       herdsman config set <key> <value> [-c <path>]\n       herdsman config unset <key> [-c <path>]\n       herdsman config show [--strict] [-c <path>]\n       herdsman config export --format toml|yaml|json|bin [-c <path>]\n       herdsman config update [-c <path>]\n       herdsman config init [--format toml|yaml|json|bin] [-c <path>]\n       herdsman config schema --format jsonschema|descriptor\n       herdsman config approvals list\n       herdsman config approvals clear [<project>]\n       herdsman config shell install|uninstall [bash|zsh|fish] [--json]\n\nKeys are dotted paths such as merge.strategy; a kebab-case spelling is the same\nkey. -c names a file; otherwise HERDSMAN_CONFIG, then the repository's parent\nfolder, then the repository root.\n\nshow prints the file in use and then one \"key = value (source)\" line each.\nA warning goes to stderr; --strict makes it an error. An unknown key in the\npolicy or launch section always stops the command.\n\nshell adds or removes the wrapper that lets herdsman go change the shell's\nfolder, with static completions. The shell defaults to $SHELL.\n\nexit codes:\n  0  done\n  1  the configuration is invalid, or the file cannot be read or written\n  2  usage error\n",
       "usage": [
+        "herdsman config get <key> [-c <path>]",
+        "herdsman config set <key> <value> [-c <path>]",
+        "herdsman config unset <key> [-c <path>]",
+        "herdsman config show [--strict] [-c <path>]",
+        "herdsman config export --format toml|yaml|json|bin [-c <path>]",
+        "herdsman config update [-c <path>]",
+        "herdsman config init [--format toml|yaml|json|bin] [-c <path>]",
+        "herdsman config schema --format jsonschema|descriptor",
+        "herdsman config approvals list",
+        "herdsman config approvals clear [<project>]",
         "herdsman config shell install|uninstall [bash|zsh|fish] [--json]"
+      ],
+      "positionals": [
+        {
+          "name": "key"
+        },
+        {
+          "name": "value"
+        },
+        {
+          "name": "project"
+        }
       ],
       "flags": [
         {
+          "name": "--format",
+          "valueName": "jsonschema|descriptor"
+        },
+        {
           "name": "--json"
+        },
+        {
+          "name": "--strict"
+        },
+        {
+          "name": "-c",
+          "short": "-c",
+          "valueName": "path"
         }
       ],
       "exitCodes": [
@@ -155,7 +198,43 @@
         },
         {
           "code": "1",
-          "meaning": "the startup file could not be changed, or the shell is not supported"
+          "meaning": "the configuration is invalid, or the file cannot be read or written"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error"
+        }
+      ]
+    },
+    {
+      "name": "cost",
+      "summary": "Report measured tokens and cost per task, project or route.",
+      "help": "usage: herdsman cost [--project|--task|--route] [--json]\n\nReports what harnesses measured: tokens and cost per task, or per project or\nroute with the flag. Only usage a harness reported is counted, so a harness\nthat reports nothing adds nothing here.\n\nexit codes:\n  0  reported, including when nothing has been measured yet\n  1  the usage log could not be read\n  2  bad usage\n",
+      "usage": [
+        "herdsman cost [--project|--task|--route] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--project"
+        },
+        {
+          "name": "--route"
+        },
+        {
+          "name": "--task"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "reported, including when nothing has been measured yet"
+        },
+        {
+          "code": "1",
+          "meaning": "the usage log could not be read"
         },
         {
           "code": "2",
@@ -304,6 +383,10 @@
       ]
     },
     {
+      "name": "help",
+      "summary": "Print the commands."
+    },
+    {
       "name": "hook",
       "summary": "Show, approve or run a worktree hook.",
       "help": "usage: herdsman hook <type> [--dry-run] [--approve] [--from <task>] [--json]\n       herdsman hook show [<type>]\n\nRuns one hook point for the current worktree, or for --from's. --dry-run prints\nthe expanded commands, --approve accepts exactly these templates, and show\nlists what is configured.\n\nexit codes:\n  0  done\n  1  the hook failed or is not approved\n  2  bad usage\n",
@@ -359,7 +442,8 @@
           "name": "--all"
         },
         {
-          "name": "--format"
+          "name": "--format",
+          "valueName": "text|json|claude-code"
         },
         {
           "name": "--full"
@@ -915,6 +999,46 @@
       ]
     },
     {
+      "name": "resource",
+      "summary": "Record a resource a task created: resource add.",
+      "help": "usage: herdsman resource add --kind <kind> --id <id> [--task <task>] [--execution <id>]\n\nRecords that the current execution created a resource, which is what lets\nteardown stop it. A process is recorded with its start time and command line.\nRun it from the worktree, or name the task.\n\nexit codes:\n  0  recorded\n  1  it could not be recorded (the message says why)\n  2  bad usage\n",
+      "usage": [
+        "herdsman resource add --kind <kind> --id <id> [--task <task>] [--execution <id>]"
+      ],
+      "flags": [
+        {
+          "name": "--execution",
+          "valueName": "id"
+        },
+        {
+          "name": "--id",
+          "valueName": "id"
+        },
+        {
+          "name": "--kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--task",
+          "valueName": "task"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "recorded"
+        },
+        {
+          "code": "1",
+          "meaning": "it could not be recorded (the message says why)"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
       "name": "review",
       "summary": "Prepare a reviewer: herdsman review start --worktree <path> --head <commit>."
     },
@@ -1196,6 +1320,59 @@
       ]
     },
     {
+      "name": "teardown",
+      "summary": "Stop what a task runs, keeping what it holds.",
+      "help": "usage: herdsman teardown [<task>|<selector>] [--route <folder>|--all] [-y]\n                         [--grace <seconds>] [--include associated] [--json]\n\nStops what a task runs and keeps everything it holds: it prints what it would do, asks,\nthen signals only what the task exclusively owns, checking each one again just\nbefore its signal. Nothing is removed.\n\nexit codes:\n  0  everything approved was stopped\n  1  a plan stopped because the machine changed, or a stop failed\n  2  bad usage, or no terminal to ask on and no -y\n",
+      "usage": [
+        "herdsman teardown [<task>|<selector>] [--route <folder>|--all] [-y]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        },
+        {
+          "name": "selector"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--all"
+        },
+        {
+          "name": "--grace",
+          "valueName": "seconds"
+        },
+        {
+          "name": "--include"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--route",
+          "valueName": "folder"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "everything approved was stopped"
+        },
+        {
+          "code": "1",
+          "meaning": "a plan stopped because the machine changed, or a stop failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage, or no terminal to ask on and no -y"
+        }
+      ]
+    },
+    {
       "name": "transcript-audit",
       "summary": "Audit a Claude or Codex transcript for writes: transcript-audit claude|codex <transcript> <session-id> [root/ ...].",
       "help": "usage: herdsman transcript-audit claude|codex <transcript> <session-id> [allowed-write-root/ ...]\n\nAudits a transcript for writes: GAP, FLAG and AUDIT lines. --json prints\neach line as an Event object. AUDIT_GRANT_FILE names the exact command\nlines an administrative grant permits.\n\nexit codes:\n  0  clean\n  1  flagged calls: report each to the human and stop work\n  2  a gap: the transcript could not be audited\n",
@@ -1229,6 +1406,44 @@
           "meaning": "a gap: the transcript could not be audited"
         }
       ]
+    },
+    {
+      "name": "update",
+      "summary": "Install the latest signed release over this binary.",
+      "help": "usage: herdsman update [--check] [--version <version>] [--allow-downgrade]\n\nInstalls the latest release over this binary. The release's checksum list must\ncarry a signature from a key this binary trusts, and the archive must match\nthat list, before anything is replaced; the new binary must also run and report\nits version. A binary installed by a package manager is left to that manager.\n\n  --check            Say whether a newer release exists; change nothing.\n  --version <v>      Install this version instead of the latest.\n  --allow-downgrade  Allow a version older than this binary.\n\nexit codes:\n  0  the binary is current, was updated, or --check answered\n  1  the release was refused or could not be fetched; the binary is unchanged\n  2  usage error\n",
+      "usage": [
+        "herdsman update [--check] [--version <version>] [--allow-downgrade]"
+      ],
+      "flags": [
+        {
+          "name": "--allow-downgrade"
+        },
+        {
+          "name": "--check"
+        },
+        {
+          "name": "--version",
+          "valueName": "v"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "the binary is current, was updated, or --check answered"
+        },
+        {
+          "code": "1",
+          "meaning": "the release was refused or could not be fetched; the binary is unchanged"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error"
+        }
+      ]
+    },
+    {
+      "name": "version",
+      "summary": "Print the version, commit and platform."
     },
     {
       "name": "wait",
@@ -1334,6 +1549,10 @@
           ]
         }
       ]
+    },
+    {
+      "name": "web",
+      "summary": "Serve the web app and print its URL, with a one-run token, and a QR code."
     }
   ]
 }

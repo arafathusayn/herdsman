@@ -6,6 +6,7 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/pluginpb"
 )
@@ -200,5 +201,32 @@ func TestGenerateRefusesStreamingMethods(t *testing.T) {
 func TestGenerateRefusesUnknownWellKnownTypes(t *testing.T) {
 	if _, err := wellKnown("google.protobuf.FileOptions"); err == nil {
 		t.Fatal("no error")
+	}
+}
+
+func TestWellKnownTypesUseTheirJSONForm(t *testing.T) {
+	for name, want := range map[string]string{
+		"Any":         `{ "@type": string; [key: string]: unknown }`,
+		"Timestamp":   "string",
+		"Duration":    "string",
+		"FieldMask":   "string",
+		"Struct":      "Record<string, unknown>",
+		"Value":       "unknown",
+		"ListValue":   "unknown[]",
+		"Empty":       "Record<string, never>",
+		"BoolValue":   "boolean | null",
+		"Int32Value":  "number | null",
+		"UInt32Value": "number | null",
+		"FloatValue":  floatType + " | null",
+		"DoubleValue": floatType + " | null",
+		"Int64Value":  "string | null",
+		"UInt64Value": "string | null",
+		"StringValue": "string | null",
+		"BytesValue":  "string | null",
+	} {
+		got, err := wellKnown(protoreflect.FullName("google.protobuf." + name))
+		if err != nil || got != want {
+			t.Errorf("%s: %q, %v, want %q", name, got, err, want)
+		}
 	}
 }

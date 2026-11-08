@@ -142,6 +142,31 @@ describe("openStream", () => {
     expect(socket.closed).toEqual([1008]);
   });
 
+  test("overlapping reads are answered in the order they were made", async () => {
+    const { socket, stream } = start();
+    socket.open();
+    const first = stream.next();
+    const second = stream.next();
+    socket.frame('{"n":1}');
+    socket.frame('{"n":2}');
+    expect((await first).value).toEqual({ n: 1 });
+    expect((await second).value).toEqual({ n: 2 });
+  });
+
+  test("the end of the stream releases every waiting reader", async () => {
+    const closed = start();
+    closed.socket.open();
+    const reads = [closed.stream.next(), closed.stream.next()];
+    closed.stream.close();
+    for (const read of reads) expect((await read).done).toBe(true);
+
+    const failed = start();
+    failed.socket.open();
+    const failing = [failed.stream.next(), failed.stream.next()];
+    failed.socket.end(1006, "gone");
+    for (const read of failing) expect((await failure(read)).code).toBe("unavailable");
+  });
+
   test("close ends a waiting reader and sends nothing after it", async () => {
     const { socket, stream } = start();
     socket.open();

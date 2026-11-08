@@ -49,7 +49,8 @@ export function openStream<Out, In>(options: StreamOptions): FrameStream<Out, In
 
   const frames: In[] = [];
   const unsent: string[] = [];
-  let reader: Pending<In> | undefined;
+  // Reads that came before their frames, oldest first.
+  const readers: Pending<In>[] = [];
   let opened = false;
   let ended = false;
   let failure: HerdsmanError | undefined;
@@ -63,9 +64,7 @@ export function openStream<Out, In>(options: StreamOptions): FrameStream<Out, In
     failure = error;
     options.signal?.removeEventListener("abort", onAbort);
     if (closeCode !== undefined) socket.close(closeCode);
-    if (reader !== undefined) {
-      const waiting = reader;
-      reader = undefined;
+    for (const waiting of readers.splice(0)) {
       if (error === undefined) waiting.resolve(finished);
       else waiting.reject(error);
     }
@@ -93,9 +92,8 @@ export function openStream<Out, In>(options: StreamOptions): FrameStream<Out, In
       finish(new HerdsmanError("internal", "the server sent a frame that is not JSON text"), CLOSE_INVALID_DATA);
       return;
     }
-    if (reader !== undefined) {
-      const waiting = reader;
-      reader = undefined;
+    const waiting = readers.shift();
+    if (waiting !== undefined) {
       waiting.resolve({ done: false, value: frame });
       return;
     }
@@ -130,7 +128,7 @@ export function openStream<Out, In>(options: StreamOptions): FrameStream<Out, In
       if (frame !== undefined) return Promise.resolve({ done: false, value: frame });
       if (ended) return failure === undefined ? Promise.resolve(finished) : Promise.reject(failure);
       return new Promise((resolve, reject) => {
-        reader = { resolve, reject };
+        readers.push({ resolve, reject });
       });
     },
     return() {

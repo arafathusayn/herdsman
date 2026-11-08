@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"testing"
 )
@@ -57,5 +60,76 @@ func TestCommandSpecWithoutHelpKeepsTheSummary(t *testing.T) {
 	got := commandSpec(command{name: "bare", summary: "Only this."})
 	if got.GetHelp() != "" || len(got.GetUsage()) != 0 || len(got.GetFlags()) != 0 {
 		t.Fatalf("spec %v", got)
+	}
+}
+
+func TestCommandSpecReadsShortFlagsAndChoices(t *testing.T) {
+	got := specFromHelp("demo", "usage: herdsman demo [-m <message>] [--format text|json-lines] [-v]\n\nThen pipe it to jq -r for scripts.\n\nExit codes:\n  0  done\n")
+	if len(got.GetPositionals()) != 0 {
+		t.Errorf("positionals %v", got.GetPositionals())
+	}
+	flags := got.GetFlags()
+	if len(flags) != 3 {
+		t.Fatalf("flags %v", flags)
+	}
+	if flags[0].GetName() != "--format" || flags[0].GetValueName() != "text|json-lines" {
+		t.Errorf("choice flag %v", flags[0])
+	}
+	if flags[1].GetName() != "-m" || flags[1].GetShort() != "-m" || flags[1].GetValueName() != "message" {
+		t.Errorf("short flag with a value %v", flags[1])
+	}
+	if flags[2].GetName() != "-v" || flags[2].GetShort() != "-v" || flags[2].GetValueName() != "" {
+		t.Errorf("short switch %v", flags[2])
+	}
+	if len(got.GetExitCodes()) != 1 || got.GetExitCodes()[0].GetMeaning() != "done" {
+		t.Errorf("capitalized table %v", got.GetExitCodes())
+	}
+}
+
+func TestSpecCLIListsEveryExecutableCommand(t *testing.T) {
+	var out bytes.Buffer
+	if err := writeSpecCLI(&out); err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Commands []struct {
+			Name    string `json:"name"`
+			Summary string `json:"summary"`
+		} `json:"commands"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]int{}
+	for _, c := range document.Commands {
+		listed[c.Name]++
+		if c.Summary == "" {
+			t.Errorf("%s has no summary", c.Name)
+		}
+	}
+	want := []string{"help", "version", "web"}
+	for name := range commands {
+		want = append(want, name)
+	}
+	for _, name := range want {
+		if listed[name] != 1 {
+			t.Errorf("%s is listed %d times", name, listed[name])
+		}
+	}
+	// The dispatcher answers these before it looks at the registered commands.
+	for _, name := range []string{"help", "version"} {
+		if err := run([]string{name}, io.Discard, io.Discard); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+type brokenWriter struct{}
+
+func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("broken") }
+
+func TestWriteSpecCLIReportsAWriteFailure(t *testing.T) {
+	if err := writeSpecCLI(brokenWriter{}); err == nil {
+		t.Fatal("no error")
 	}
 }
