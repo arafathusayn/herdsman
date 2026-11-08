@@ -36,6 +36,9 @@ export GOPROXY := off
 # The pinned Go tools, installed by tools-go.
 TOOLS_BIN ?= $(CURDIR)/.tools/bin
 
+# Where make docs keeps the spec output it renders; ignored by git.
+DOCS_INPUTS := $(CURDIR)/.tools/docs
+
 # Where proto-check regenerates the SDK to compare it; ignored by git, and
 # overwritten on each run. Contracts only grow, so no file there goes stale.
 PROTO_CHECK_DIR := $(CURDIR)/.tools/proto-check
@@ -45,7 +48,7 @@ define need-tool
 	@test -x $(TOOLS_BIN)/$(1) || { echo "$(1) is not installed: run make tools-go"; exit 1; }
 endef
 
-.PHONY: acceptance proto proto-check proto-plugin tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
+.PHONY: docs acceptance proto proto-check proto-plugin tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
 
 all: check build
 
@@ -62,6 +65,16 @@ tools-go:
 	@for tool in $(STATICCHECK) $(GOVULNCHECK) $(GORELEASER) $(BUF); do \
 		env -u GOFLAGS GOWORK=off GOPROXY=$(DEPS_GOPROXY) GOBIN=$(TOOLS_BIN) go install $$tool || exit 1; \
 	done
+
+## docs: the generated reference pages, from what the binary says about itself
+docs:
+	@mkdir -p $(DOCS_INPUTS)
+	CGO_ENABLED=1 go build -trimpath -o $(DOCS_INPUTS)/herdsman ./cmd/herdsman
+	$(DOCS_INPUTS)/herdsman spec cli > $(DOCS_INPUTS)/cli.json
+	$(DOCS_INPUTS)/herdsman spec descriptor > $(DOCS_INPUTS)/descriptor.bin
+	$(DOCS_INPUTS)/herdsman spec proto > $(DOCS_INPUTS)/contracts.proto
+	go run ./cmd/herdsman-docs --cli $(DOCS_INPUTS)/cli.json --descriptor $(DOCS_INPUTS)/descriptor.bin --proto $(DOCS_INPUTS)/contracts.proto --out docs
+	HERDSMAN_WRITE_MAN=1 go test -count=1 ./cmd/herdsman -run TestManPagesAreCurrent
 
 ## web: build the web app into internal/web/dist for go:embed
 web:
