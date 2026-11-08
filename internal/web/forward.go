@@ -42,7 +42,7 @@ func newForward(dial func(ctx context.Context, network, addr string) (net.Conn, 
 // otherwise forge.
 func browserOnly(name string) bool {
 	switch name = strings.ToLower(name); name {
-	case "authorization", "cookie", "origin", "referer":
+	case "authorization", "cookie", "origin", "referer", "sec-websocket-protocol":
 		return true
 	default:
 		return strings.HasPrefix(name, "herdsman-") || strings.HasPrefix(name, "x-herdsman-")

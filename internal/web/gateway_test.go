@@ -226,6 +226,29 @@ func TestGatewayAttachesTheSessionAndDropsClientCredentials(t *testing.T) {
 	}
 }
 
+// A unary call may present its session the way a stream does; the secret must
+// stop at the gateway either way.
+func TestGatewayKeepsASubprotocolSecretFromTheDaemon(t *testing.T) {
+	daemon := startFakeDaemon(t)
+	g := startGateway(t, daemon.socket, nil)
+	header := map[string]string{"Sec-WebSocket-Protocol": "herdsman.json, " + sessionProtocol + g.device}
+	status, _, body := send(t, http.DefaultClient, g.url, gatewayCall{path: statusPath, contentType: rpc.ContentTypeJSON, body: []byte(`{"route":{"value":"r"}}`), header: header})
+	if status != http.StatusOK {
+		t.Fatalf("status %d: %s", status, body)
+	}
+	seen, _ := daemon.seen()
+	if got := seen.Get(HeaderSession); got != sessionID(g.device) {
+		t.Fatalf("session %q", got)
+	}
+	for name, values := range seen {
+		for _, value := range values {
+			if strings.Contains(value, g.device) {
+				t.Fatalf("%s carries the device secret", name)
+			}
+		}
+	}
+}
+
 func TestGatewayRefusesACallWithoutASession(t *testing.T) {
 	daemon := startFakeDaemon(t)
 	g := startGateway(t, daemon.socket, nil)
