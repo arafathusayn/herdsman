@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// DefaultRebuildable returns the patterns the roadmap names as ecosystem
-// defaults. Take applies only the patterns its caller passes, because a
+// DefaultRebuildable returns the build and dependency folder names of common
+// language ecosystems. Take applies only the patterns its caller passes, because a
 // pattern is the authority to lose what it matches.
 func DefaultRebuildable() []string {
 	return []string{"node_modules", "target", "dist", "build", ".next", ".turbo", ".venv", "__pycache__", ".cache"}
