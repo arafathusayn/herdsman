@@ -1,0 +1,18 @@
+# a lighthouse log, written in the subset
+keeper:
+  badge: "L-19"
+lamps:
+  north: paraffin wick
+  south: { spare: "two mantles" }
+tides:
+- ebb
+- depth: 1
+  marks: [gull, 'reef', {buoy: ~}]
+weather: |
+  squall
+    from the west
+remarks: >-
+  calm
+  by dusk
+supplies: lamp oil
+  and rope
