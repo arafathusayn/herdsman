@@ -1,0 +1,1029 @@
+[
+  {
+    "name": "daemon_message_ack",
+    "description": "Calls herdsman.daemon.v1.MessageService/Ack. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.MessageId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/$defs/herdsman.core.v1.MessageId"
+        },
+        "record": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_adopt_route",
+    "description": "Calls herdsman.daemon.v1.MessageService/AdoptRoute. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "confirm_pair_sha256": {
+          "type": "string"
+        },
+        "inbox": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_authority",
+    "description": "Calls herdsman.daemon.v1.MessageService/Authority. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_claim",
+    "description": "Calls herdsman.daemon.v1.MessageService/Claim. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "extend_key": {
+          "type": "string"
+        },
+        "read_key": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "token": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_create_route",
+    "description": "Calls herdsman.daemon.v1.MessageService/CreateRoute. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "herdr_socket": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_daemon_status",
+    "description": "Calls herdsman.daemon.v1.MessageService/DaemonStatus.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_get_operation",
+    "description": "Calls herdsman.daemon.v1.MessageService/GetOperation.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_get_setup",
+    "description": "Calls herdsman.daemon.v1.MessageService/GetSetup.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_health",
+    "description": "Calls herdsman.daemon.v1.MessageService/Health.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_hello",
+    "description": "Calls herdsman.daemon.v1.MessageService/Hello.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_hold",
+    "description": "Calls herdsman.daemon.v1.MessageService/Hold. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_list_operations",
+    "description": "Calls herdsman.daemon.v1.MessageService/ListOperations.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_list_routes",
+    "description": "Calls herdsman.daemon.v1.MessageService/ListRoutes.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_put_setup",
+    "description": "Calls herdsman.daemon.v1.MessageService/PutSetup. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Probe": {
+          "additionalProperties": false,
+          "properties": {
+            "identity_json": {
+              "type": "string"
+            },
+            "inbox_write_denied": {
+              "type": "boolean"
+            },
+            "recorded_by": {
+              "type": "string"
+            },
+            "socket_connect_denied": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "binary": {
+          "type": "string"
+        },
+        "boundary_json": {
+          "type": "string"
+        },
+        "policy_verified": {
+          "type": "boolean"
+        },
+        "probes": {
+          "items": {
+            "$ref": "#/$defs/herdsman.daemon.v1.Probe"
+          },
+          "type": "array"
+        },
+        "resume_targets_json": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "watch_targets_json": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_release",
+    "description": "Calls herdsman.daemon.v1.MessageService/Release. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_remove_route",
+    "description": "Calls herdsman.daemon.v1.MessageService/RemoveRoute. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_resolve_operation",
+    "description": "Calls herdsman.daemon.v1.MessageService/ResolveOperation. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "step": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_send",
+    "description": "Calls herdsman.daemon.v1.MessageService/Send. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "reply_to": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_status",
+    "description": "Calls herdsman.daemon.v1.MessageService/Status.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_unhold",
+    "description": "Calls herdsman.daemon.v1.MessageService/Unhold. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_wait",
+    "description": "Calls herdsman.daemon.v1.MessageService/Wait. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "wait_ms": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_route_get",
+    "description": "Calls herdsman.daemon.v1.RouteService/Get.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_route_list",
+    "description": "Calls herdsman.daemon.v1.RouteService/List.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_route_up",
+    "description": "Calls herdsman.daemon.v1.RouteService/Up. Only plans: dry_run must be true, and the plan is returned with nothing done.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.StepVerdict": {
+          "additionalProperties": false,
+          "properties": {
+            "step": {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            },
+            "verdict": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.UpCaller": {
+          "additionalProperties": false,
+          "properties": {
+            "confirmed_checksum": {
+              "type": "string"
+            },
+            "harness_ancestor": {
+              "type": "string"
+            },
+            "pane": {
+              "type": "string"
+            },
+            "pid": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "started": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "tty": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "adjutant_command": {
+          "type": "string"
+        },
+        "adjutant_kind": {
+          "type": "string"
+        },
+        "caller": {
+          "$ref": "#/$defs/herdsman.daemon.v1.UpCaller"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "continue": {
+          "type": "boolean"
+        },
+        "date": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "herdr_socket": {
+          "type": "string"
+        },
+        "kinds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "no_adjutant": {
+          "type": "boolean"
+        },
+        "orchestrator_command": {
+          "type": "string"
+        },
+        "orchestrator_kind": {
+          "type": "string"
+        },
+        "pair_manual": {
+          "type": "boolean"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "verdicts": {
+          "items": {
+            "$ref": "#/$defs/herdsman.daemon.v1.StepVerdict"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_add",
+    "description": "Calls herdsman.suggest.v1.SuggestService/Add. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "dir": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "project": {
+          "type": "boolean"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_get",
+    "description": "Calls herdsman.suggest.v1.SuggestService/Get.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_plan",
+    "description": "Calls herdsman.suggest.v1.SuggestService/Plan.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_search",
+    "description": "Calls herdsman.suggest.v1.SuggestService/Search.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "for": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_source_add",
+    "description": "Calls herdsman.suggest.v1.SuggestService/SourceAdd. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_source_pin",
+    "description": "Calls herdsman.suggest.v1.SuggestService/SourcePin. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_source_preview",
+    "description": "Calls herdsman.suggest.v1.SuggestService/SourcePreview. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_source_remove",
+    "description": "Calls herdsman.suggest.v1.SuggestService/SourceRemove. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_sources",
+    "description": "Calls herdsman.suggest.v1.SuggestService/Sources.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  }
+]
