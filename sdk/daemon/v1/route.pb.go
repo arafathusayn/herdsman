@@ -839,8 +839,8 @@ type RouteControl struct {
 	Control string `protobuf:"bytes,4,opt,name=control,proto3" json:"control,omitempty"`
 	// What the verb runs, as text.
 	Plan string `protobuf:"bytes,5,opt,name=plan,proto3" json:"plan,omitempty"`
-	// The archive folder of a delete; empty for the other verbs.
-	Archive       string `protobuf:"bytes,6,opt,name=archive,proto3" json:"archive,omitempty"`
+	// The snapshot folder of a delete; empty for the other verbs.
+	Snapshot      string `protobuf:"bytes,6,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -910,18 +910,20 @@ func (x *RouteControl) GetPlan() string {
 	return ""
 }
 
-func (x *RouteControl) GetArchive() string {
+func (x *RouteControl) GetSnapshot() string {
 	if x != nil {
-		return x.Archive
+		return x.Snapshot
 	}
 	return ""
 }
 
 type RouteServicePauseRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
-	Repo          string                 `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
-	DryRun        bool                   `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Route  *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Repo   string                 `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
+	DryRun bool                   `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	// Also stop the route's task processes.
+	Teardown      bool `protobuf:"varint,4,opt,name=teardown,proto3" json:"teardown,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -973,6 +975,13 @@ func (x *RouteServicePauseRequest) GetRepo() string {
 func (x *RouteServicePauseRequest) GetDryRun() bool {
 	if x != nil {
 		return x.DryRun
+	}
+	return false
+}
+
+func (x *RouteServicePauseRequest) GetTeardown() bool {
+	if x != nil {
+		return x.Teardown
 	}
 	return false
 }
@@ -1149,7 +1158,9 @@ type RouteServiceStopRequest struct {
 	Repo   string                 `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
 	DryRun bool                   `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	// How long agents get to write a report; zero means the default.
-	GraceSeconds  int32 `protobuf:"varint,4,opt,name=grace_seconds,json=graceSeconds,proto3" json:"grace_seconds,omitempty"`
+	GraceSeconds int32 `protobuf:"varint,4,opt,name=grace_seconds,json=graceSeconds,proto3" json:"grace_seconds,omitempty"`
+	// Also stop the route's task processes.
+	Teardown      bool `protobuf:"varint,5,opt,name=teardown,proto3" json:"teardown,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1212,6 +1223,13 @@ func (x *RouteServiceStopRequest) GetGraceSeconds() int32 {
 	return 0
 }
 
+func (x *RouteServiceStopRequest) GetTeardown() bool {
+	if x != nil {
+		return x.Teardown
+	}
+	return false
+}
+
 type RouteServiceStopResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Result        *RouteControl          `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
@@ -1263,9 +1281,11 @@ type RouteServiceDeleteRequest struct {
 	DryRun bool                   `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	// Stop running agents first instead of refusing.
 	Force bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
-	// Archive the route folder but leave it in place.
-	KeepFolder    bool  `protobuf:"varint,5,opt,name=keep_folder,json=keepFolder,proto3" json:"keep_folder,omitempty"`
-	GraceSeconds  int32 `protobuf:"varint,6,opt,name=grace_seconds,json=graceSeconds,proto3" json:"grace_seconds,omitempty"`
+	// Snapshot the route folder but leave it in place.
+	KeepFolder   bool  `protobuf:"varint,5,opt,name=keep_folder,json=keepFolder,proto3" json:"keep_folder,omitempty"`
+	GraceSeconds int32 `protobuf:"varint,6,opt,name=grace_seconds,json=graceSeconds,proto3" json:"grace_seconds,omitempty"`
+	// Leave the route's tasks and their worktrees alone.
+	KeepWorktrees bool `protobuf:"varint,7,opt,name=keep_worktrees,json=keepWorktrees,proto3" json:"keep_worktrees,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1340,6 +1360,13 @@ func (x *RouteServiceDeleteRequest) GetGraceSeconds() int32 {
 		return x.GraceSeconds
 	}
 	return 0
+}
+
+func (x *RouteServiceDeleteRequest) GetKeepWorktrees() bool {
+	if x != nil {
+		return x.KeepWorktrees
+	}
+	return false
 }
 
 type RouteServiceDeleteResponse struct {
@@ -1458,18 +1485,19 @@ const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"\x05start\x18\x01 \x01(\v2\x1e.herdsman.daemon.v1.RouteStartR\x05start\"\x19\n" +
 	"\x17RouteServiceListRequest\"R\n" +
 	"\x18RouteServiceListResponse\x126\n" +
-	"\x06starts\x18\x01 \x03(\v2\x1e.herdsman.daemon.v1.RouteStartR\x06starts\"\xa2\x01\n" +
+	"\x06starts\x18\x01 \x03(\v2\x1e.herdsman.daemon.v1.RouteStartR\x06starts\"\xa4\x01\n" +
 	"\fRouteControl\x12\x1c\n" +
 	"\toperation\x18\x01 \x01(\tR\toperation\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x18\n" +
 	"\acontrol\x18\x04 \x01(\tR\acontrol\x12\x12\n" +
-	"\x04plan\x18\x05 \x01(\tR\x04plan\x12\x18\n" +
-	"\aarchive\x18\x06 \x01(\tR\aarchive\"x\n" +
+	"\x04plan\x18\x05 \x01(\tR\x04plan\x12\x1a\n" +
+	"\bsnapshot\x18\x06 \x01(\tR\bsnapshot\"\x94\x01\n" +
 	"\x18RouteServicePauseRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
 	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x17\n" +
-	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"U\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\x12\x1a\n" +
+	"\bteardown\x18\x04 \x01(\bR\bteardown\"U\n" +
 	"\x19RouteServicePauseResponse\x128\n" +
 	"\x06result\x18\x01 \x01(\v2 .herdsman.daemon.v1.RouteControlR\x06result\"\xc3\x01\n" +
 	"\x19RouteServiceResumeRequest\x12/\n" +
@@ -1479,14 +1507,15 @@ const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"\x04note\x18\x04 \x01(\tR\x04note\x124\n" +
 	"\x06caller\x18\x05 \x01(\v2\x1c.herdsman.daemon.v1.UpCallerR\x06caller\"V\n" +
 	"\x1aRouteServiceResumeResponse\x128\n" +
-	"\x06result\x18\x01 \x01(\v2 .herdsman.daemon.v1.RouteControlR\x06result\"\x9c\x01\n" +
+	"\x06result\x18\x01 \x01(\v2 .herdsman.daemon.v1.RouteControlR\x06result\"\xb8\x01\n" +
 	"\x17RouteServiceStopRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
 	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x17\n" +
 	"\adry_run\x18\x03 \x01(\bR\x06dryRun\x12#\n" +
-	"\rgrace_seconds\x18\x04 \x01(\x05R\fgraceSeconds\"T\n" +
+	"\rgrace_seconds\x18\x04 \x01(\x05R\fgraceSeconds\x12\x1a\n" +
+	"\bteardown\x18\x05 \x01(\bR\bteardown\"T\n" +
 	"\x18RouteServiceStopResponse\x128\n" +
-	"\x06result\x18\x01 \x01(\v2 .herdsman.daemon.v1.RouteControlR\x06result\"\xd5\x01\n" +
+	"\x06result\x18\x01 \x01(\v2 .herdsman.daemon.v1.RouteControlR\x06result\"\xfc\x01\n" +
 	"\x19RouteServiceDeleteRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
 	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x17\n" +
@@ -1494,7 +1523,8 @@ const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"\x05force\x18\x04 \x01(\bR\x05force\x12\x1f\n" +
 	"\vkeep_folder\x18\x05 \x01(\bR\n" +
 	"keepFolder\x12#\n" +
-	"\rgrace_seconds\x18\x06 \x01(\x05R\fgraceSeconds\"V\n" +
+	"\rgrace_seconds\x18\x06 \x01(\x05R\fgraceSeconds\x12%\n" +
+	"\x0ekeep_worktrees\x18\a \x01(\bR\rkeepWorktrees\"V\n" +
 	"\x1aRouteServiceDeleteResponse\x128\n" +
 	"\x06result\x18\x01 \x01(\v2 .herdsman.daemon.v1.RouteControlR\x06result2\xb1\x05\n" +
 	"\fRouteService\x12C\n" +

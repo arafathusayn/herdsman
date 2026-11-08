@@ -18,19 +18,21 @@ import (
 
 // controlCall is one lifecycle verb as the wire asks for it.
 type controlCall struct {
-	verb       route.Verb
-	name, repo string
-	dryRun     bool
-	note       string
-	grace      time.Duration
-	force      bool
-	keepFolder bool
-	caller     *daemonv1.UpCaller
+	verb          route.Verb
+	name, repo    string
+	dryRun        bool
+	note          string
+	grace         time.Duration
+	force         bool
+	keepFolder    bool
+	keepWorktrees bool
+	teardown      bool
+	caller        *daemonv1.UpCaller
 }
 
 // Pause interrupts a route's agents and holds its channel.
 func (s *routeService) Pause(ctx context.Context, req *daemonv1.RouteServicePauseRequest) (*daemonv1.RouteServicePauseResponse, error) {
-	res, err := s.control(ctx, controlCall{verb: route.VerbPause, name: req.GetRoute().GetValue(), repo: req.GetRepo(), dryRun: req.GetDryRun()})
+	res, err := s.control(ctx, controlCall{verb: route.VerbPause, name: req.GetRoute().GetValue(), repo: req.GetRepo(), dryRun: req.GetDryRun(), teardown: req.GetTeardown()})
 	if err != nil {
 		return nil, err
 	}
@@ -48,24 +50,24 @@ func (s *routeService) Resume(ctx context.Context, req *daemonv1.RouteServiceRes
 
 // Stop ends a route's sessions and keeps its work.
 func (s *routeService) Stop(ctx context.Context, req *daemonv1.RouteServiceStopRequest) (*daemonv1.RouteServiceStopResponse, error) {
-	res, err := s.control(ctx, controlCall{verb: route.VerbStop, name: req.GetRoute().GetValue(), repo: req.GetRepo(), dryRun: req.GetDryRun(), grace: time.Duration(req.GetGraceSeconds()) * time.Second})
+	res, err := s.control(ctx, controlCall{verb: route.VerbStop, name: req.GetRoute().GetValue(), repo: req.GetRepo(), dryRun: req.GetDryRun(), teardown: req.GetTeardown(), grace: time.Duration(req.GetGraceSeconds()) * time.Second})
 	if err != nil {
 		return nil, err
 	}
 	return &daemonv1.RouteServiceStopResponse{Result: res}, nil
 }
 
-// Delete archives a route and removes it.
+// Delete removes a route, once a verified snapshot covers it.
 func (s *routeService) Delete(ctx context.Context, req *daemonv1.RouteServiceDeleteRequest) (*daemonv1.RouteServiceDeleteResponse, error) {
-	res, err := s.control(ctx, controlCall{verb: route.VerbDelete, name: req.GetRoute().GetValue(), repo: req.GetRepo(), dryRun: req.GetDryRun(), force: req.GetForce(), keepFolder: req.GetKeepFolder(), grace: time.Duration(req.GetGraceSeconds()) * time.Second})
+	res, err := s.control(ctx, controlCall{verb: route.VerbDelete, name: req.GetRoute().GetValue(), repo: req.GetRepo(), dryRun: req.GetDryRun(), force: req.GetForce(), keepFolder: req.GetKeepFolder(), keepWorktrees: req.GetKeepWorktrees(), grace: time.Duration(req.GetGraceSeconds()) * time.Second})
 	if err != nil {
 		return nil, err
 	}
 	return &daemonv1.RouteServiceDeleteResponse{Result: res}, nil
 }
 
-// controlOps returns one route's verbs, oldest first.
-func (s *routeService) controlOps(repo, name string) ([]*ops.Operation, error) {
+// controlOps returns the verbs of one start of a route, oldest first.
+func (s *routeService) controlOps(repo, name, startID string) ([]*ops.Operation, error) {
 	all, err := s.d.ops.List()
 	if err != nil && !errors.Is(err, ops.ErrNotFound) {
 		return nil, rpc.Errorf(rpc.Internal, "operations: %v", err)
@@ -76,7 +78,7 @@ func (s *routeService) controlOps(repo, name string) ([]*ops.Operation, error) {
 			continue
 		}
 		verb := strings.TrimPrefix(op.Kind, "route.")
-		if strings.HasPrefix(op.Key, verb+":"+repo+":"+name+"#") {
+		if strings.HasPrefix(op.Key, route.ControlKeyPrefix(verb, repo, name, startID)) {
 			out = append(out, op)
 		}
 	}
@@ -92,12 +94,27 @@ func generationOf(op *ops.Operation) int {
 }
 
 // controlState is a route's lifecycle state.
-func (s *routeService) controlState(repo, name string) (string, error) {
-	verbs, err := s.controlOps(repo, name)
+func (s *routeService) controlState(repo, name, startID string) (string, error) {
+	verbs, err := s.controlOps(repo, name, startID)
 	if err != nil {
 		return "", err
 	}
 	return route.ControlState(verbs), nil
+}
+
+// deletable refuses a delete this daemon could not undo, before anything runs
+// and even for a dry run, whose plan would otherwise promise it.
+func (s *routeService) deletable(call controlCall) error {
+	if call.verb != route.VerbDelete {
+		return nil
+	}
+	if s.d.cfg.Recovery == nil {
+		return rpc.Errorf(rpc.FailedPrecondition, "%s", route.ErrNoRecovery.Error())
+	}
+	if s.d.cfg.RouteDown == nil && !call.keepWorktrees {
+		return rpc.Errorf(rpc.FailedPrecondition, "this build cannot run down on the route's tasks; pass keep-worktrees to leave them")
+	}
+	return nil
 }
 
 func inFlight(op *ops.Operation) bool {
@@ -139,11 +156,14 @@ func (s *routeService) control(ctx context.Context, call controlCall) (*daemonv1
 	if start.State == ops.OpRunning {
 		return nil, rpc.Errorf(rpc.FailedPrecondition, "the route is still starting; wait for up to finish")
 	}
-	verbs, err := s.controlOps(call.repo, call.name)
+	verbs, err := s.controlOps(call.repo, call.name, start.ID)
 	if err != nil {
 		return nil, err
 	}
 	state := route.ControlState(verbs)
+	if err := s.deletable(call); err != nil {
+		return nil, err
+	}
 	if n := len(verbs); n > 0 && inFlight(verbs[n-1]) {
 		return s.finishInFlight(ctx, call, verbs[n-1], state)
 	}
@@ -156,13 +176,13 @@ func (s *routeService) control(ctx context.Context, call controlCall) (*daemonv1
 	}
 	plan, err := route.PlanControl(ctx, route.ControlRequest{
 		Verb: call.verb, Start: start, Generation: len(verbs) + 1, From: state, Note: call.note,
-		Grace: call.grace, Force: call.force, KeepFolder: call.keepFolder, Date: s.d.cfg.Now().Format("2006-01-02"),
+		Grace: call.grace, Force: call.force, KeepFolder: call.keepFolder, KeepWorktrees: call.keepWorktrees, Teardown: call.teardown, Date: s.d.cfg.Now().Format("2006-01-02"),
 	})
 	if err != nil {
 		return nil, rpc.Errorf(rpc.Internal, "plan the %s: %v", call.verb, err)
 	}
 	if call.dryRun {
-		return &daemonv1.RouteControl{State: "planned", Control: state, Plan: plan.Text, Archive: plan.Archive}, nil
+		return &daemonv1.RouteControl{State: "planned", Control: state, Plan: plan.Text, Snapshot: plan.Snapshot}, nil
 	}
 	if err := s.admit(ctx, call, start, state); err != nil {
 		return nil, err
@@ -212,7 +232,7 @@ func (s *routeService) finishInFlight(ctx context.Context, call controlCall, op 
 		return nil, rpc.Errorf(rpc.FailedPrecondition, "operation %s (%s) has not finished: %s", op.ID, op.Kind, op.Reason)
 	}
 	if call.dryRun {
-		return &daemonv1.RouteControl{Operation: op.ID, State: string(op.State), Reason: op.Reason, Control: state, Plan: op.Plan, Archive: route.ArchiveOf(op)}, nil
+		return &daemonv1.RouteControl{Operation: op.ID, State: string(op.State), Reason: op.Reason, Control: state, Plan: op.Plan, Snapshot: route.SnapshotOf(op)}, nil
 	}
 	if call.verb == route.VerbResume {
 		if err := s.attestResume(ctx, call); err != nil {
@@ -245,9 +265,42 @@ func (s *routeService) driveControl(ctx context.Context, call controlCall, op *o
 }
 
 func (s *routeService) controlResult(call controlCall, op *ops.Operation) (*daemonv1.RouteControl, error) {
-	state, err := s.controlState(call.repo, call.name)
+	verbs, err := s.controlOps(call.repo, call.name, startOfVerb(op))
 	if err != nil {
 		return nil, err
 	}
-	return &daemonv1.RouteControl{Operation: op.ID, State: string(op.State), Reason: op.Reason, Control: state, Plan: op.Plan, Archive: route.ArchiveOf(op)}, nil
+	state := route.ControlState(verbs)
+	return &daemonv1.RouteControl{Operation: op.ID, State: string(op.State), Reason: op.Reason, Control: state, Plan: op.Plan, Snapshot: route.SnapshotOf(op)}, nil
+}
+
+// startOfVerb reads the start a verb acts on from its key.
+func startOfVerb(op *ops.Operation) string {
+	key := op.Key[strings.LastIndex(op.Key, "@")+1:]
+	return key[:strings.LastIndex(key, "#")]
+}
+
+// teardownRoute stops the task processes of a route folder through the
+// worktree service. The command showed its plan and was confirmed, so what the
+// service plans is approved.
+func teardownRoute(s *WorktreeService) func(context.Context, string, string) error {
+	return func(ctx context.Context, repo, folder string) error {
+		plans, err := s.TeardownPlan(ctx, WorktreeTeardownPlanRequest{Dir: repo, Route: folder})
+		if err != nil {
+			return err
+		}
+		if len(plans.Plans) == 0 {
+			return nil
+		}
+		done, err := s.Teardown(ctx, WorktreeTeardownRequest{Dir: repo, Plans: plans.Plans})
+		if err != nil {
+			return err
+		}
+		var failed []error
+		for _, report := range done.Reports {
+			if report.Error != "" {
+				failed = append(failed, fmt.Errorf("%s: %s", report.Task, report.Error))
+			}
+		}
+		return errors.Join(failed...)
+	}
 }

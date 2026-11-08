@@ -35,19 +35,17 @@ func TestALeftPendingPairIsReportedAndTheRouteCanBeDeleted(t *testing.T) {
 	if !strings.Contains(status, "<-- PAIR PENDING") {
 		t.Fatalf("status does not report the pair:\n%s", status)
 	}
-	if out, err := m.verb("delete", "harbor", "-y"); err == nil || !strings.Contains(out, "agents still run") {
-		t.Fatalf("delete with agents running: %v\n%s", err, out)
+	// Undo is not in this build, so delete refuses before it stops anything.
+	if out, err := m.verb("delete", "harbor", "--force", "--grace", "1", "-y"); err == nil || !strings.Contains(out, "recovery") {
+		t.Fatalf("delete with no recovery: %v\n%s", err, out)
 	}
-	deleted := m.must("delete", "harbor", "--force", "--grace", "1", "-y")
-	if !strings.Contains(deleted, "is deleted") || !strings.Contains(deleted, "archive: ") {
-		t.Fatalf("%s", deleted)
+	after := m.must("status", "--route", "harbor")
+	if !strings.Contains(after, "route harbor: running") {
+		t.Fatalf("a refused delete changed the route:\n%s", after)
 	}
-	archive := deleted[strings.Index(deleted, "archive: ")+len("archive: "):]
-	if _, err := os.Stat(strings.TrimSpace(archive)); err != nil {
+	folder := strings.TrimSpace(after[strings.Index(after, "folder: ")+len("folder: ") : strings.Index(after, "\nreason")])
+	if _, err := os.Stat(folder); err != nil {
 		t.Fatal(err)
-	}
-	if again := m.must("delete", "harbor", "-y"); !strings.Contains(again, "already deleted") {
-		t.Fatalf("%s", again)
 	}
 }
 

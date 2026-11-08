@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/sdk/client"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
@@ -127,6 +129,12 @@ func TestLatestStartIsTheNewest(t *testing.T) {
 	if starts[len(starts)-1].ID != "03C" || starts[0].ID != "01A" {
 		t.Fatalf("%v %v %v", starts[0].ID, starts[1].ID, starts[2].ID)
 	}
+	// Started in the same millisecond, an earlier start can hold the larger id.
+	starts = []*ops.Operation{{ID: "09Z", Key: "up:r:n"}, {ID: "01A", Key: "up:r:n#2"}}
+	sortStarts(starts)
+	if starts[1].ID != "01A" {
+		t.Fatalf("the numbered start is not the newest: %v", starts[1].ID)
+	}
 }
 
 func TestGetNamesAnUnknownRoute(t *testing.T) {
@@ -225,10 +233,76 @@ func TestEachVerbRepeatedChangesNothing(t *testing.T) {
 	}
 }
 
+// fakeRecovery stands in for the recovery pipeline; the snapshot's verification
+// itself is proven in package route with real snapshots.
+type fakeRecovery struct{}
+
+func (fakeRecovery) Capture(_ context.Context, q route.SnapshotRequest) error {
+	return os.MkdirAll(q.Dest, 0o700)
+}
+
+func (fakeRecovery) Verify(_ context.Context, dest string, _ []route.SnapshotTarget) error {
+	_, err := os.Stat(dest)
+	return err
+}
+
+// withRecovery restarts the daemon with a recovery backend and a down step.
+func withRecovery(t *testing.T, h *harness) *client.Client {
+	t.Helper()
+	h.stop()
+	h.cfg.Recovery = fakeRecovery{}
+	h.cfg.RouteDown = func(context.Context, string, string) error { return nil }
+	h.start()
+	return routeClient(t, h)
+}
+
+func TestDeleteRefusesWithoutRecoveryAndTouchesNothing(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	repo, world := upNoAdjutant(t, h, c)
+	ctx := context.Background()
+	id := &corev1.RouteId{Value: "harbor"}
+	for _, q := range []*daemonv1.RouteServiceDeleteRequest{
+		{Route: id, Repo: repo, Force: true, DryRun: true},
+		{Route: id, Repo: repo, Force: true},
+		{Route: id, Repo: repo, Force: true, KeepWorktrees: true},
+	} {
+		if _, err := c.Route.Delete(ctx, q); codeOf(err) != rpc.FailedPrecondition || !strings.Contains(err.Error(), "recovery") {
+			t.Fatalf("got %v", err)
+		}
+	}
+	if world.PaneByLabel("orchestrator") == "" {
+		t.Fatal("a refused delete stopped the agents")
+	}
+	res, err := c.Route.Get(ctx, &daemonv1.RouteServiceGetRequest{Route: id, Repo: repo})
+	if err != nil || res.GetStart().GetControl() != "running" {
+		t.Fatalf("%v %v", res, err)
+	}
+	if _, err := os.Stat(res.GetStart().GetFolder()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeleteNeedsDownUnlessWorktreesAreKept(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	repo, _ := upNoAdjutant(t, h, c)
+	h.stop()
+	h.cfg.Recovery = fakeRecovery{}
+	h.start()
+	c = routeClient(t, h)
+	id := &corev1.RouteId{Value: "harbor"}
+	_, err := c.Route.Delete(context.Background(), &daemonv1.RouteServiceDeleteRequest{Route: id, Repo: repo, Force: true})
+	if codeOf(err) != rpc.FailedPrecondition || !strings.Contains(err.Error(), "down") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestDeleteRefusesWhileAgentsRunAndForceStopsThem(t *testing.T) {
 	h := newHarness(t)
 	c := routeClient(t, h)
 	repo, _ := upNoAdjutant(t, h, c)
+	c = withRecovery(t, h)
 	ctx := context.Background()
 	id := &corev1.RouteId{Value: "harbor"}
 	_, err := c.Route.Delete(ctx, &daemonv1.RouteServiceDeleteRequest{Route: id, Repo: repo})
@@ -240,18 +314,15 @@ func TestDeleteRefusesWhileAgentsRunAndForceStopsThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	folder := list.GetStart().GetFolder()
-	if _, err := os.Stat(folder); err != nil {
-		t.Fatal(err)
-	}
 	dry, err := c.Route.Delete(ctx, &daemonv1.RouteServiceDeleteRequest{Route: id, Repo: repo, Force: true, DryRun: true})
-	if err != nil || dry.GetResult().GetState() != "planned" || !strings.Contains(dry.GetResult().GetPlan(), "archive") {
+	if err != nil || dry.GetResult().GetState() != "planned" || !strings.Contains(dry.GetResult().GetPlan(), "snapshot") {
 		t.Fatalf("%v %v", dry, err)
 	}
 	if _, err := os.Stat(folder); err != nil {
 		t.Fatalf("a dry run touched the folder: %v", err)
 	}
 	res, err := c.Route.Delete(ctx, &daemonv1.RouteServiceDeleteRequest{Route: id, Repo: repo, Force: true})
-	if err != nil || res.GetResult().GetState() != "done" || res.GetResult().GetControl() != "deleted" || res.GetResult().GetArchive() == "" {
+	if err != nil || res.GetResult().GetState() != "done" || res.GetResult().GetControl() != "deleted" || res.GetResult().GetSnapshot() == "" {
 		t.Fatalf("%v %v", res, err)
 	}
 	if _, err := os.Stat(folder); !errors.Is(err, os.ErrNotExist) {
@@ -262,34 +333,121 @@ func TestDeleteRefusesWhileAgentsRunAndForceStopsThem(t *testing.T) {
 	}
 }
 
-func TestUpRefusesAPausedRouteAndStartsAfreshAfterDelete(t *testing.T) {
+func waitStart(t *testing.T, c *client.Client, id *corev1.RouteId, repo string) *daemonv1.RouteStart {
+	t.Helper()
+	for range 500 {
+		got, err := c.Route.Get(context.Background(), &daemonv1.RouteServiceGetRequest{Route: id, Repo: repo})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.GetStart().GetState() != "running" {
+			return got.GetStart()
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("up did not finish")
+	return nil
+}
+
+func TestAFreshStartAfterDeleteIsRunningAndControllable(t *testing.T) {
 	h := newHarness(t)
 	c := routeClient(t, h)
 	repo, _ := upNoAdjutant(t, h, c)
+	c = withRecovery(t, h)
 	ctx := context.Background()
 	id := &corev1.RouteId{Value: "harbor"}
-	if _, err := c.Route.Pause(ctx, &daemonv1.RouteServicePauseRequest{Route: id, Repo: repo}); err != nil {
-		t.Fatal(err)
-	}
 	q := upRequest(repo)
 	q.DryRun, q.NoAdjutant, q.AdjutantCommand = false, true, ""
 	q.Caller = &daemonv1.UpCaller{Pid: int64(os.Getpid())}
+	if _, err := c.Route.Pause(ctx, &daemonv1.RouteServicePauseRequest{Route: id, Repo: repo}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := c.Route.Up(ctx, q); codeOf(err) != rpc.FailedPrecondition {
 		t.Fatalf("up on a paused route: %v", err)
 	}
 	if _, err := c.Route.Delete(ctx, &daemonv1.RouteServiceDeleteRequest{Route: id, Repo: repo, Force: true}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := c.Route.Up(ctx, q)
-	if err != nil {
+	if _, err := c.Route.Up(ctx, q); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(res.GetStart().GetState(), "running") && res.GetStart().GetState() != "done" {
-		t.Fatalf("%+v", res.GetStart())
+	got := waitStart(t, c, id, repo)
+	if got.GetState() != "done" || got.GetControl() != "running" {
+		t.Fatalf("%+v", got)
+	}
+	res, err := c.Route.Pause(ctx, &daemonv1.RouteServicePauseRequest{Route: id, Repo: repo})
+	if err != nil || res.GetResult().GetControl() != "paused" {
+		t.Fatalf("%v %v", res, err)
 	}
 	list, err := c.Route.List(ctx, &daemonv1.RouteServiceListRequest{})
 	if err != nil || len(list.GetStarts()) != 2 {
 		t.Fatalf("%d starts, %v", len(list.GetStarts()), err)
+	}
+}
+
+func TestResumeOfAStoppedRouteThroughTheService(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	repo, world := upNoAdjutant(t, h, c)
+	ctx := context.Background()
+	id := &corev1.RouteId{Value: "harbor"}
+	if _, err := c.Route.Stop(ctx, &daemonv1.RouteServiceStopRequest{Route: id, Repo: repo, GraceSeconds: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Route.Resume(ctx, &daemonv1.RouteServiceResumeRequest{Route: id, Repo: repo, Caller: &daemonv1.UpCaller{Pid: int64(os.Getpid()) + 1}}); codeOf(err) != rpc.PermissionDenied {
+		t.Fatalf("forged caller: %v", err)
+	}
+	res, err := c.Route.Resume(ctx, &daemonv1.RouteServiceResumeRequest{Route: id, Repo: repo, Note: "go on", Caller: &daemonv1.UpCaller{Pid: int64(os.Getpid())}})
+	if err != nil || res.GetResult().GetState() != "done" || res.GetResult().GetControl() != "running" {
+		t.Fatalf("%v %v", res, err)
+	}
+	if world.PaneByLabel("orchestrator") == "" {
+		t.Fatal("the orchestrator did not come back")
+	}
+}
+
+func TestPauseRefusesATeardownItCannotRun(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	repo, _ := upNoAdjutant(t, h, c)
+	h.stop()
+	h.cfg.RouteTeardown = func(context.Context, string, string) error { return errors.New("a stop hook failed") }
+	h.start()
+	c = routeClient(t, h)
+	id := &corev1.RouteId{Value: "harbor"}
+	res, err := c.Route.Pause(context.Background(), &daemonv1.RouteServicePauseRequest{Route: id, Repo: repo, Teardown: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.GetResult().GetState() == "done" || !strings.Contains(res.GetResult().GetReason(), "a stop hook failed") {
+		t.Fatalf("%+v", res.GetResult())
+	}
+	// The halted verb holds the route: only the same verb may pick it up.
+	ctx := context.Background()
+	if _, err := c.Route.Stop(ctx, &daemonv1.RouteServiceStopRequest{Route: id, Repo: repo}); codeOf(err) != rpc.FailedPrecondition {
+		t.Fatalf("another verb: %v", err)
+	}
+	dry, err := c.Route.Pause(ctx, &daemonv1.RouteServicePauseRequest{Route: id, Repo: repo, DryRun: true})
+	if err != nil || dry.GetResult().GetOperation() != res.GetResult().GetOperation() {
+		t.Fatalf("%v %v", dry, err)
+	}
+	again, err := c.Route.Pause(ctx, &daemonv1.RouteServicePauseRequest{Route: id, Repo: repo})
+	if err != nil || again.GetResult().GetOperation() != res.GetResult().GetOperation() || again.GetResult().GetState() == "done" {
+		t.Fatalf("%v %v", again, err)
+	}
+}
+
+func TestRouteTeardownOnARepositoryWithNoTasks(t *testing.T) {
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	s := &WorktreeService{}
+	if err := teardownRoute(s)(context.Background(), repo, filepath.Join(repo, ".herdsman", "x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := teardownRoute(s)(context.Background(), filepath.Join(repo, "missing"), "x"); err == nil {
+		t.Fatal("a missing repository was accepted")
 	}
 }
 

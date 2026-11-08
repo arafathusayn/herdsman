@@ -23,20 +23,20 @@ func init() {
 	}})
 }
 
-const pauseUsage = "usage: herdsman pause <route> [-y] [--dry-run]\n"
+const pauseUsage = "usage: herdsman pause <route> [--teardown] [-y] [--dry-run]\n"
 
 const pauseHelp = pauseUsage + `
 Sends each agent the interrupt key, stops the checkpointer's prompts and holds
 the message channel. The interrupt is best effort: an agent acts on it at its
 next turn boundary. <route> is a route name, a route folder, or @ for the route
-of the current folder.
+of the current folder. --teardown also stops the route's task processes.
 `
 
 // controlFlags are the flags the lifecycle verbs share or add.
 type controlFlags struct {
-	yes, dryRun, force, keepFolder bool
-	note                           string
-	grace                          int
+	yes, dryRun, force, keepFolder, keepWorktrees, teardown bool
+	note                                                    string
+	grace                                                   int
 }
 
 // controlVerb is one lifecycle command.
@@ -46,8 +46,12 @@ type controlVerb struct {
 	call        func(context.Context, *client.Client, *corev1.RouteId, string, bool, controlFlags) (*daemonv1.RouteControl, error)
 }
 
-var pauseVerb = controlVerb{name: "pause", usage: pauseUsage, call: func(ctx context.Context, sdk *client.Client, id *corev1.RouteId, repo string, dry bool, _ controlFlags) (*daemonv1.RouteControl, error) {
-	res, err := sdk.Route.Pause(ctx, &daemonv1.RouteServicePauseRequest{Route: id, Repo: repo, DryRun: dry})
+func teardownFlag(fs *flag.FlagSet, f *controlFlags) {
+	fs.BoolVar(&f.teardown, "teardown", false, "also stop the route's task processes")
+}
+
+var pauseVerb = controlVerb{name: "pause", usage: pauseUsage, flags: teardownFlag, call: func(ctx context.Context, sdk *client.Client, id *corev1.RouteId, repo string, dry bool, f controlFlags) (*daemonv1.RouteControl, error) {
+	res, err := sdk.Route.Pause(ctx, &daemonv1.RouteServicePauseRequest{Route: id, Repo: repo, DryRun: dry, Teardown: f.teardown})
 	return res.GetResult(), err
 }}
 
@@ -201,8 +205,8 @@ func runControl(v controlVerb, args []string, stdout, stderr io.Writer) int {
 	switch res.GetState() {
 	case "done":
 		fmt.Fprintf(stdout, "route %s is %s\n", id.GetValue(), res.GetControl())
-		if res.GetArchive() != "" {
-			fmt.Fprintf(stdout, "archive: %s\n", res.GetArchive())
+		if res.GetSnapshot() != "" {
+			fmt.Fprintf(stdout, "snapshot: %s\n", res.GetSnapshot())
 		}
 		return 0
 	case "unchanged":

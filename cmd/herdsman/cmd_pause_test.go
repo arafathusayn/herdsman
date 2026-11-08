@@ -52,6 +52,15 @@ func TestParseControlTakesTheRouteBeforeOrAfterFlags(t *testing.T) {
 	if !ok || name != "harbor" || f.note != "go on" {
 		t.Fatalf("%q %+v %v", name, f, ok)
 	}
+	name, f, ok = parseControl(deleteVerb, []string{"harbor", "--keep-worktrees"}, &stderr)
+	if !ok || !f.keepWorktrees {
+		t.Fatalf("%q %+v %v", name, f, ok)
+	}
+	for _, v := range []controlVerb{pauseVerb, stopVerb} {
+		if _, f, ok = parseControl(v, []string{"harbor", "--teardown"}, &stderr); !ok || !f.teardown {
+			t.Fatalf("%s: %+v %v", v.name, f, ok)
+		}
+	}
 	if _, _, ok = parseControl(pauseVerb, nil, &stderr); ok {
 		t.Fatal("no route was accepted")
 	}

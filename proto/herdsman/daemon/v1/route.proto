@@ -20,7 +20,7 @@ service RouteService {
   rpc Resume(RouteServiceResumeRequest) returns (RouteServiceResumeResponse);
   // Stop ends a route's sessions and keeps its work on disk.
   rpc Stop(RouteServiceStopRequest) returns (RouteServiceStopResponse);
-  // Delete archives a route and removes it, once the archive is verified.
+  // Delete removes a route, once a verified snapshot covers all it removes.
   rpc Delete(RouteServiceDeleteRequest) returns (RouteServiceDeleteResponse);
 }
 
@@ -133,14 +133,16 @@ message RouteControl {
   string control = 4;
   // What the verb runs, as text.
   string plan = 5;
-  // The archive folder of a delete; empty for the other verbs.
-  string archive = 6;
+  // The snapshot folder of a delete; empty for the other verbs.
+  string snapshot = 6;
 }
 
 message RouteServicePauseRequest {
   herdsman.core.v1.RouteId route = 1;
   string repo = 2;
   bool dry_run = 3;
+  // Also stop the route's task processes.
+  bool teardown = 4;
 }
 
 message RouteServicePauseResponse {
@@ -167,6 +169,8 @@ message RouteServiceStopRequest {
   bool dry_run = 3;
   // How long agents get to write a report; zero means the default.
   int32 grace_seconds = 4;
+  // Also stop the route's task processes.
+  bool teardown = 5;
 }
 
 message RouteServiceStopResponse {
@@ -179,9 +183,11 @@ message RouteServiceDeleteRequest {
   bool dry_run = 3;
   // Stop running agents first instead of refusing.
   bool force = 4;
-  // Archive the route folder but leave it in place.
+  // Snapshot the route folder but leave it in place.
   bool keep_folder = 5;
   int32 grace_seconds = 6;
+  // Leave the route's tasks and their worktrees alone.
+  bool keep_worktrees = 7;
 }
 
 message RouteServiceDeleteResponse {

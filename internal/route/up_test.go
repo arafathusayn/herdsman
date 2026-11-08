@@ -25,19 +25,22 @@ type crash struct{}
 // rig is one fake machine: a repository, a private home, a fake herdr and a
 // journal that outlives the engines a test makes to stand for restarts.
 type rig struct {
-	t       *testing.T
-	repo    string
-	private string
-	db      string
-	srv     *herdrtest.Server
-	fix     *herdrtest.Fixture
-	world   *herdrtest.World
-	callers *route.Callers
-	crashOn string
-	onFault func(string)
-	poll    func()
-	exe     string
-	policy  string
+	t              *testing.T
+	repo           string
+	private        string
+	db             string
+	srv            *herdrtest.Server
+	fix            *herdrtest.Fixture
+	world          *herdrtest.World
+	callers        *route.Callers
+	crashOn        string
+	onFault        func(string)
+	recovery       route.Recovery
+	down, teardown func(context.Context, string, string) error
+	downs          int
+	poll           func()
+	exe            string
+	policy         string
 }
 
 func newRig(t *testing.T) *rig {
@@ -89,7 +92,7 @@ func (r *rig) engine() (*ops.Engine, func()) {
 		if r.poll != nil {
 			r.poll()
 		}
-	}, AgentTimeout: 5 * time.Second}
+	}, AgentTimeout: 5 * time.Second, Recovery: r.recovery, Down: r.down, Teardown: r.teardown}
 	e := ops.NewEngine(db, ops.Options{Effects: route.Effects(deps), Fault: func(point string) {
 		if r.onFault != nil {
 			r.onFault(point)

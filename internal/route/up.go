@@ -450,6 +450,12 @@ type Deps struct {
 	Poll func()
 	// AgentTimeout bounds one agent start.
 	AgentTimeout time.Duration
+	// Recovery makes a delete undoable; without it a delete refuses.
+	Recovery Recovery
+	// Down frees a route's tasks and worktrees, given the repo and route folder.
+	Down func(ctx context.Context, repo, folder string) error
+	// Teardown stops a route's task processes, given the repo and route folder.
+	Teardown func(ctx context.Context, repo, folder string) error
 }
 
 type effect struct {

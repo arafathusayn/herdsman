@@ -1,17 +1,12 @@
 package route
 
 import (
-	"archive/tar"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -57,14 +52,6 @@ const StatusNotReached = "not reached"
 // DefaultGrace is how long stop waits for agents to write their reports.
 const DefaultGrace = 2 * time.Minute
 
-// ArchiveFolderName and ArchiveInboxName are the tar files of an archive;
-// archiveIndexName lists them with their checksums.
-const (
-	ArchiveFolderName = "route-folder.tar"
-	ArchiveInboxName  = "inbox.tar"
-	archiveIndexName  = "resources.json"
-)
-
 const (
 	effectInterrupt = "route.interrupt"
 	effectQuiet     = "route.checkpointer-stop"
@@ -75,8 +62,9 @@ const (
 	effectClosePane = "route.close-pane"
 	effectRetire    = "route.retire"
 	effectContinue  = "route.continue"
-	effectArchive   = "route.archive"
-	effectCloseWS   = "route.close-workspace"
+	effectSnapshot  = "route.snapshot"
+	effectDown      = "route.down"
+	effectTeardown  = "route.teardown"
 	effectRemove    = "route.remove"
 )
 
@@ -87,8 +75,9 @@ type controlData struct {
 	Agents     []string `json:"agents,omitempty"`
 	GraceMS    int64    `json:"grace_ms,omitempty"`
 	Note       string   `json:"note,omitempty"`
-	Archive    string   `json:"archive,omitempty"`
-	Target     string   `json:"target,omitempty"`
+	Snapshot   string   `json:"snapshot,omitempty"`
+	Captures   []string `json:"captures,omitempty"`
+	Targets    []string `json:"targets,omitempty"`
 }
 
 // KindOf returns the operation kind of a verb.
@@ -96,6 +85,12 @@ func KindOf(v Verb) string { return "route." + string(v) }
 
 // RouteLock names the lock that keeps a route's verbs apart.
 func RouteLock(repo, name string) string { return "route:" + repo + ":" + name }
+
+// ControlKeyPrefix starts the idempotency key of a verb. It names the start the
+// verb acts on, because a route's lifecycle begins anew with each start.
+func ControlKeyPrefix(verb, repo, name, startID string) string {
+	return verb + ":" + repo + ":" + name + "@" + startID + "#"
+}
 
 // IsControlKind reports whether an operation kind is a lifecycle verb.
 func IsControlKind(kind string) bool {
@@ -142,15 +137,19 @@ type ControlRequest struct {
 	Grace      time.Duration
 	Force      bool
 	KeepFolder bool
-	// Date names the archive, YYYY-MM-DD.
+	// KeepWorktrees leaves the route's tasks and their worktrees alone.
+	KeepWorktrees bool
+	// Teardown also stops the route's task processes, on a pause or stop.
+	Teardown bool
+	// Date names the snapshot, YYYY-MM-DD.
 	Date string
 }
 
 // ControlPlan is a verb's journal entry and what to print.
 type ControlPlan struct {
-	Spec    ops.Spec
-	Text    string
-	Archive string
+	Spec     ops.Spec
+	Text     string
+	Snapshot string
 }
 
 // agentRoles are the coordinator pane labels, in start order.
@@ -193,16 +192,16 @@ func PlanControl(ctx context.Context, q ControlRequest) (*ControlPlan, error) {
 		if q.Force {
 			b.stop()
 		}
-		root, err := archiveRoot(ctx, first.Repo)
+		root, err := snapshotRoot(ctx, first.Repo)
 		if err != nil {
 			return nil, err
 		}
-		plan.Archive = filepath.Join(root, fmt.Sprintf("%s-%s-%d", first.Route, q.Date, q.Generation))
-		b.remove(plan.Archive)
+		plan.Snapshot = filepath.Join(root, fmt.Sprintf("%s-%s-%d", first.Route, q.Date, q.Generation))
+		b.remove(plan.Snapshot)
 	default:
 		return nil, fmt.Errorf("unknown verb %q", q.Verb)
 	}
-	key := fmt.Sprintf("%s:%s:%s#%d", q.Verb, first.Repo, first.Route, q.Generation)
+	key := ControlKeyPrefix(string(q.Verb), first.Repo, first.Route, q.Start.ID) + strconv.Itoa(q.Generation)
 	var text strings.Builder
 	fmt.Fprintf(&text, "%s route %s\n", q.Verb, first.Route)
 	for _, st := range b.steps {
@@ -262,6 +261,9 @@ func (b *controlBuilder) pause() {
 			b.add("hold the channel for "+name, effectHold, "hold:"+name, b.with(func(d *stepData) { d.Name = name }))
 		}
 	}
+	if b.q.Teardown {
+		b.add("tear down the route's task processes", effectTeardown, "teardown", b.base)
+	}
 	b.add("record the pause", effectRecord, "record", b.base)
 }
 
@@ -276,6 +278,9 @@ func (b *controlBuilder) stop() {
 	}
 	if b.base.Inbox != "" {
 		b.add("retire the pair", effectRetire, "retire", b.base)
+	}
+	if b.q.Teardown {
+		b.add("tear down the route's task processes", effectTeardown, "teardown", b.base)
 	}
 	b.add("record the stop", effectRecord, "record:stop", b.with(func(d *stepData) {
 		d.Control = b.control()
@@ -325,21 +330,26 @@ func (b *controlBuilder) resume() error {
 	return nil
 }
 
-func (b *controlBuilder) remove(archive string) {
-	withArchive := func(target string) stepData {
+func (b *controlBuilder) remove(dest string) {
+	captures := []string{b.base.Folder}
+	if b.base.Inbox != "" {
+		captures = append(captures, b.base.Inbox)
+	}
+	targets := append([]string{}, captures...)
+	if b.q.KeepFolder {
+		targets = targets[1:]
+	}
+	data := func() stepData {
 		return b.with(func(d *stepData) {
 			d.Control = b.control()
-			d.Control.Archive, d.Control.Target = archive, target
+			d.Control.Snapshot, d.Control.Captures, d.Control.Targets = dest, captures, targets
 		})
 	}
-	b.add("archive the route and verify the archive", effectArchive, "archive", withArchive(""))
-	b.add("close the workspace", effectCloseWS, "close-workspace", withArchive(""))
-	if b.base.Inbox != "" {
-		b.add("remove the private inbox", effectRemove, "remove:inbox", withArchive(b.base.Inbox))
+	b.add("take and verify the route's snapshot", effectSnapshot, "snapshot", data())
+	if !b.q.KeepWorktrees {
+		b.add("free the route's tasks", effectDown, "down", data())
 	}
-	if !b.q.KeepFolder {
-		b.add("remove the route folder", effectRemove, "remove:folder", withArchive(b.base.Folder))
-	}
+	b.add("verify the snapshot again, close the workspace and remove the route", effectRemove, "remove", data())
 }
 
 func controlEffects(deps Deps) map[string]ops.Effect {
@@ -353,8 +363,9 @@ func controlEffects(deps Deps) map[string]ops.Effect {
 		effectClosePane: effect{deps, applyClosePane, probeClosePane},
 		effectRetire:    effect{deps, applyRetire, probeRetire},
 		effectContinue:  effect{deps, applyContinue, probeSent},
-		effectArchive:   effect{deps, applyArchive, probeArchive},
-		effectCloseWS:   effect{deps, applyCloseWorkspace, probeCloseWorkspace},
+		effectSnapshot:  effect{deps, applySnapshot, probeSnapshot},
+		effectDown:      effect{deps, applyDown, probeUnknown},
+		effectTeardown:  effect{deps, applyTeardown, probeUnknown},
 		effectRemove:    effect{deps, applyRemove, probeRemove},
 	}
 }
@@ -653,369 +664,6 @@ func applyContinue(ctx context.Context, _ Deps, c *herdr.Client, d stepData) err
 	return writeFileNew(sentStamp(d), nil)
 }
 
-// archiveRoot is the folder archives live in, in the common git folder so that
-// every worktree of the repository finds them.
-func archiveRoot(ctx context.Context, repo string) (string, error) {
-	gitPath := filepath.Join(repo, ".git")
-	if st, err := os.Stat(gitPath); err == nil && st.IsDir() {
-		return filepath.Join(gitPath, "herdsman", "archive", "routes"), nil
-	}
-	out, err := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
-	if err != nil {
-		return "", fmt.Errorf("find the common git folder: %w", err)
-	}
-	return filepath.Join(strings.TrimSpace(string(out)), "herdsman", "archive", "routes"), nil
-}
-
-// archivedTree is one archived folder; the JSON names are the ones a snapshot's
-// scratch list uses, so that a restore reads either.
-type archivedTree struct {
-	Path    string `json:"path"`
-	Archive string `json:"archive"`
-	SHA256  string `json:"sha256"`
-}
-
-type archiveIndex struct {
-	Scratch []archivedTree `json:"scratch"`
-	Route   string         `json:"route"`
-}
-
-func readIndex(dir string) (*archiveIndex, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, archiveIndexName))
-	if err != nil {
-		return nil, err
-	}
-	var idx archiveIndex
-	if err := json.Unmarshal(raw, &idx); err != nil {
-		return nil, err
-	}
-	if len(idx.Scratch) == 0 {
-		return nil, errors.New("the archive lists nothing")
-	}
-	return &idx, nil
-}
-
-func hashFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// treeEntry says what a path holds: a file's mode and checksum, a link's
-// target, or a folder's mode.
-func treeListing(root string) (map[string]string, error) {
-	out := map[string]string{}
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil || rel == "." {
-			return err
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		switch {
-		case info.Mode().IsRegular():
-			sum, err := hashFile(path)
-			if err != nil {
-				return err
-			}
-			out[rel] = fmt.Sprintf("file %o %s", info.Mode().Perm(), sum)
-		case info.Mode()&fs.ModeSymlink != 0:
-			target, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			out[rel] = "link " + target
-		case info.IsDir():
-			out[rel] = fmt.Sprintf("dir %o", info.Mode().Perm())
-		}
-		return nil // sockets and pipes are live endpoints, not data
-	})
-	return out, err
-}
-
-func tarListingOf(file string) (map[string]string, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	out := map[string]string{}
-	tr := tar.NewReader(f)
-	for {
-		h, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			return out, nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		if !filepath.IsLocal(h.Name) {
-			return nil, fmt.Errorf("the archive holds an unsafe path %q", h.Name)
-		}
-		name := strings.TrimSuffix(h.Name, "/")
-		perm := fs.FileMode(h.Mode).Perm()
-		switch h.Typeflag {
-		case tar.TypeReg:
-			sum := sha256.New()
-			if _, err := io.Copy(sum, tr); err != nil {
-				return nil, err
-			}
-			out[name] = fmt.Sprintf("file %o %s", perm, hex.EncodeToString(sum.Sum(nil)))
-		case tar.TypeSymlink:
-			out[name] = "link " + h.Linkname
-		case tar.TypeDir:
-			out[name] = fmt.Sprintf("dir %o", perm)
-		default:
-			return nil, fmt.Errorf("the archive holds an entry of type %c", h.Typeflag)
-		}
-	}
-}
-
-func writeTar(file, root string) (err error) {
-	f, err := os.OpenFile(file, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-	}()
-	tw := tar.NewWriter(f)
-	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil || rel == "." {
-			return err
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		mode := info.Mode()
-		if !mode.IsRegular() && !mode.IsDir() && mode&fs.ModeSymlink == 0 {
-			return nil
-		}
-		link := ""
-		if mode&fs.ModeSymlink != 0 {
-			if link, err = os.Readlink(path); err != nil {
-				return err
-			}
-		}
-		h, err := tar.FileInfoHeader(info, link)
-		if err != nil {
-			return err
-		}
-		h.Name = filepath.ToSlash(rel)
-		if mode.IsDir() {
-			h.Name += "/"
-		}
-		h.Uname, h.Gname = "", ""
-		if err := tw.WriteHeader(h); err != nil {
-			return err
-		}
-		if !mode.IsRegular() {
-			return nil
-		}
-		src, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer src.Close()
-		_, err = io.Copy(tw, src)
-		return err
-	})
-	if walkErr != nil {
-		return walkErr
-	}
-	if err := tw.Close(); err != nil {
-		return err
-	}
-	return f.Sync()
-}
-
-// VerifyArchive proves an archive whole: every listed tar has the recorded
-// checksum, reads to its end, and matches its source wherever the source is
-// still there.
-func VerifyArchive(dir string) error {
-	idx, err := readIndex(dir)
-	if err != nil {
-		return fmt.Errorf("the archive's index: %w", err)
-	}
-	for _, tree := range idx.Scratch {
-		if !filepath.IsLocal(tree.Archive) {
-			return fmt.Errorf("the archive names an unsafe file %q", tree.Archive)
-		}
-		file := filepath.Join(dir, tree.Archive)
-		sum, err := hashFile(file)
-		if err != nil {
-			return err
-		}
-		if sum != tree.SHA256 {
-			return fmt.Errorf("%s: checksum %s, the archive recorded %s", tree.Archive, sum, tree.SHA256)
-		}
-		packed, err := tarListingOf(file)
-		if err != nil {
-			return fmt.Errorf("%s: %w", tree.Archive, err)
-		}
-		if _, err := os.Lstat(tree.Path); errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		live, err := treeListing(tree.Path)
-		if err != nil {
-			return err
-		}
-		if len(live) != len(packed) {
-			return fmt.Errorf("%s: %d entries, the folder has %d; something is still writing", tree.Archive, len(packed), len(live))
-		}
-		for name, want := range live {
-			if packed[name] != want {
-				return fmt.Errorf("%s: %s differs from the folder; something is still writing", tree.Archive, name)
-			}
-		}
-	}
-	return nil
-}
-
-// applyArchive builds the archive in a staging folder, verifies it there and
-// publishes it by rename, so a folder at the archive's path is always whole.
-func applyArchive(_ context.Context, _ Deps, _ *herdr.Client, d stepData) error {
-	dest := d.Control.Archive
-	if _, err := os.Stat(dest); err == nil {
-		return VerifyArchive(dest)
-	}
-	staging := dest + ".staging"
-	if err := os.RemoveAll(staging); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(staging, 0o700); err != nil {
-		return err
-	}
-	if err := os.Chmod(staging, 0o700); err != nil {
-		return err
-	}
-	idx := archiveIndex{Route: d.Route}
-	trees := []struct{ source, name string }{{d.Folder, ArchiveFolderName}}
-	if d.Inbox != "" {
-		trees = append(trees, struct{ source, name string }{d.Inbox, ArchiveInboxName})
-	}
-	for _, tree := range trees {
-		if _, err := os.Stat(tree.source); errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		file := filepath.Join(staging, tree.name)
-		if err := writeTar(file, tree.source); err != nil {
-			return fmt.Errorf("archive %s: %w", tree.source, err)
-		}
-		sum, err := hashFile(file)
-		if err != nil {
-			return err
-		}
-		idx.Scratch = append(idx.Scratch, archivedTree{Path: tree.source, Archive: tree.name, SHA256: sum})
-	}
-	raw, err := json.MarshalIndent(idx, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(staging, archiveIndexName), raw, 0o600); err != nil {
-		return err
-	}
-	if err := VerifyArchive(staging); err != nil {
-		return err
-	}
-	return os.Rename(staging, dest)
-}
-
-func probeArchive(_ context.Context, _ Deps, _ *herdr.Client, d stepData) (ops.Verdict, string, error) {
-	if _, err := os.Stat(d.Control.Archive); errors.Is(err, fs.ErrNotExist) {
-		return ops.Absent, "", nil
-	}
-	if err := VerifyArchive(d.Control.Archive); err != nil {
-		return ops.Absent, "", nil
-	}
-	return ops.Matches, "", nil
-}
-
-func applyCloseWorkspace(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
-	if err := VerifyArchive(d.Control.Archive); err != nil {
-		return fmt.Errorf("no verified archive: %w", err)
-	}
-	snapshot, err := c.Snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	id := workspaceID(snapshot, d.Workspace)
-	if id == "" {
-		return nil
-	}
-	if err := c.Call(ctx, "workspace.close", map[string]any{"workspace_id": id}, nil); err != nil && !isNotFound(err) {
-		return err
-	}
-	return nil
-}
-
-func probeCloseWorkspace(ctx context.Context, _ Deps, c *herdr.Client, d stepData) (ops.Verdict, string, error) {
-	if err := VerifyArchive(d.Control.Archive); err != nil {
-		return ops.Absent, "", nil // nothing was closed: the archive check runs first
-	}
-	snapshot, err := c.Snapshot(ctx)
-	if err != nil {
-		return ops.Unknown, "", err
-	}
-	if workspaceID(snapshot, d.Workspace) == "" {
-		return ops.Matches, "", nil
-	}
-	return ops.Absent, "", nil
-}
-
-// routeOwns reports whether a path is one of the two a route's start made.
-func routeOwns(d stepData, target string) bool {
-	switch target {
-	case "":
-		return false
-	case d.Inbox:
-		return true
-	case d.Folder:
-		return filepath.Dir(d.Folder) == filepath.Join(d.Repo, ".herdsman") && strings.HasPrefix(filepath.Base(d.Folder), d.Route+"-")
-	}
-	return false
-}
-
-func applyRemove(_ context.Context, _ Deps, _ *herdr.Client, d stepData) error {
-	target := d.Control.Target
-	if !routeOwns(d, target) {
-		return fmt.Errorf("refusing to remove %s: the route did not create it", target)
-	}
-	if err := VerifyArchive(d.Control.Archive); err != nil {
-		return fmt.Errorf("no verified archive: %w", err)
-	}
-	return os.RemoveAll(target)
-}
-
-func probeRemove(_ context.Context, _ Deps, _ *herdr.Client, d stepData) (ops.Verdict, string, error) {
-	if !routeOwns(d, d.Control.Target) {
-		return ops.Absent, "", nil
-	}
-	if _, err := os.Lstat(d.Control.Target); errors.Is(err, fs.ErrNotExist) {
-		return ops.Matches, "", nil
-	}
-	return ops.Absent, "", nil
-}
-
 // RepoOf returns the repository of a journaled start.
 func RepoOf(op *ops.Operation) string {
 	if len(op.Steps) == 0 {
@@ -1026,19 +674,6 @@ func RepoOf(op *ops.Operation) string {
 		return ""
 	}
 	return d.Repo
-}
-
-// ArchiveOf returns the archive folder a delete operation writes.
-func ArchiveOf(op *ops.Operation) string {
-	for _, st := range op.Steps {
-		if st.Effect != effectArchive {
-			continue
-		}
-		if d, err := decode(st); err == nil && d.Control != nil {
-			return d.Control.Archive
-		}
-	}
-	return ""
 }
 
 // RunningAgents names the route's agents herdr still knows, in start order.

@@ -16,17 +16,21 @@ func init() {
 	}})
 }
 
-const stopUsage = "usage: herdsman stop <route> [--grace <seconds>] [-y] [--dry-run]\n"
+const stopUsage = "usage: herdsman stop <route> [--grace <seconds>] [--teardown] [-y] [--dry-run]\n"
 
 const stopHelp = stopUsage + `
 Asks each agent for its report, waits up to --grace seconds (default 120), then
 closes the agent and service panes and retires the pair. Worktrees, branches,
 the route folder and the inbox stay. A stopped route can be resumed.
+--teardown also stops the route's task processes.
 `
 
-var stopVerb = controlVerb{name: "stop", usage: stopUsage, flags: graceFlag,
+var stopVerb = controlVerb{name: "stop", usage: stopUsage, flags: func(fs *flag.FlagSet, f *controlFlags) {
+	graceFlag(fs, f)
+	teardownFlag(fs, f)
+},
 	call: func(ctx context.Context, sdk *client.Client, id *corev1.RouteId, repo string, dry bool, f controlFlags) (*daemonv1.RouteControl, error) {
-		res, err := sdk.Route.Stop(ctx, &daemonv1.RouteServiceStopRequest{Route: id, Repo: repo, DryRun: dry, GraceSeconds: int32(f.grace)})
+		res, err := sdk.Route.Stop(ctx, &daemonv1.RouteServiceStopRequest{Route: id, Repo: repo, DryRun: dry, GraceSeconds: int32(f.grace), Teardown: f.teardown})
 		return res.GetResult(), err
 	}}
 
