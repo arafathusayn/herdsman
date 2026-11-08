@@ -53,6 +53,32 @@ describe("checkBoundary", () => {
     ]);
   });
 
+  test.each([
+    ["../api", "without its extension"],
+    ["../api.js", "under another extension"],
+    ["../pages/../api", "through another folder"],
+  ])("rejects an import of the old client as %s (%s)", (specifier) => {
+    expect(
+      problems({ "api.ts": "export const x = 1;", "pages/p.ts": `import { x } from "${specifier}"; export { x };` }),
+    ).toEqual([`pages/p.ts: imports the legacy client ${specifier}`]);
+  });
+
+  test("rejects a re-export of the old client", () => {
+    expect(problems({ "api.ts": "export const x = 1;", "pages/p.ts": `export { x } from "../api";` })).toEqual([
+      "pages/p.ts: imports the legacy client ../api",
+    ]);
+  });
+
+  test("does not mistake a file that only ends in api for the old client", () => {
+    expect(
+      problems({
+        "api.ts": "export const x = 1;",
+        "my-api.ts": "export const y = 1;",
+        "p.ts": `import { y } from "./my-api"; export { y };`,
+      }),
+    ).toEqual([]);
+  });
+
   test("rejects a planted import of React in a JSX file", () => {
     expect(problems({ "a.tsx": `import React from "react"; export const a = <p>{React}</p>;` })).toEqual([
       "a.tsx: imports react outside @herdsman/sdk",

@@ -48,10 +48,18 @@ function sources(root: string): string[] {
     .sort();
 }
 
+/** A resolved path as a module: what the bundler treats as the same file. */
+function moduleOf(path: string): string {
+  return path
+    .replace(/\?.*$/, "")
+    .replace(/\.[cm]?[jt]sx?$/, "")
+    .replace(/\/index$/, "");
+}
+
 function importProblem(root: string, file: string, specifier: string): string | null {
   if (specifier.startsWith(".")) {
     if (/(^|\/)sdk\/ts\//.test(specifier)) return `reaches into the SDK by path: ${specifier}`;
-    return resolve(root, dirname(file), specifier) === join(root, "api.ts")
+    return moduleOf(resolve(root, dirname(file), specifier)) === join(root, "api")
       ? `imports the legacy client ${specifier}`
       : null;
   }
