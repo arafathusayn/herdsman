@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -69,11 +70,18 @@ func postRPC(t *testing.T, c *Client, method, body string, header map[string]str
 	for k, v := range header {
 		req.Header.Set(k, v)
 	}
-	resp, err := c.hc.Do(req)
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "unix", c.Socket)
+	}}
+	resp, err := transport.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { resp.Body.Close() })
+	t.Cleanup(func() {
+		resp.Body.Close()
+		transport.CloseIdleConnections()
+	})
 	return resp
 }
 

@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -16,17 +15,11 @@ import (
 
 // Fix round 1 (review daemon-impl-1): the reviewer's probes as tests.
 
-type roundTrip func(*http.Request) (*http.Response, error)
-
-func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
-
 // TestHelloWaitHonorsContext (F1): a caller waiting on another caller's
 // hello gives up at its own deadline.
 func TestHelloWaitHonorsContext(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
-	c := NewClient("unused", testVersion)
-	defer c.Close()
-	c.hc.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
+	ph := fakeSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		select {
 		case <-entered:
 		default:
@@ -34,9 +27,11 @@ func TestHelloWaitHonorsContext(t *testing.T) {
 		}
 		<-release
 		body, _ := proto.Marshal(&daemonv1.HelloResponse{DaemonVersion: testVersion})
-		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {rpc.ContentTypeProto}}, Request: r,
-			Body: io.NopCloser(bytes.NewReader(body))}, nil
-	})
+		w.Header().Set("Content-Type", rpc.ContentTypeProto)
+		_, _ = w.Write(body)
+	}))
+	c := NewClient(SocketPath(ph), testVersion)
+	defer c.Close()
 	first := make(chan error, 1)
 	go func() { first <- c.Check(context.Background()) }()
 	<-entered

@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
+	"github.com/arafathusayn/herdsman/sdk/client"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
@@ -27,7 +27,7 @@ type Client struct {
 	Name       string
 	Credential string
 
-	hc *http.Client
+	sdk *client.Client
 	// mu guards checked and inflight: concurrent first requests share one
 	// hello, and none holds mu across the network.
 	mu       sync.Mutex
@@ -42,23 +42,18 @@ func (e *DownError) Error() string { return "the herdsman daemon does not answer
 
 // NewClient makes a client of the daemon at socket.
 func NewClient(socket, version string) *Client {
-	tr := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", socket)
-		},
-		MaxIdleConns:       2,
-		IdleConnTimeout:    30 * time.Second,
-		DisableCompression: true,
-	}
-	return &Client{Socket: socket, Version: version, hc: &http.Client{Transport: tr}}
+	c := &Client{Socket: socket, Version: version}
+	// Dial can only fail while it looks for a socket, and this one is named.
+	c.sdk, _ = client.Dial(client.Options{Socket: socket, CallHeader: c.identity})
+	return c
 }
 
 // Close frees the client's idle connections.
-func (c *Client) Close() { c.hc.CloseIdleConnections() }
+func (c *Client) Close() { c.sdk.Close() }
 
-// service is the generated client with this client's identity on every call.
-func (c *Client) service() daemonv1.MessageService {
+// identity is the headers of one call: this client's version and, as they stand
+// at the call, its party's pane, name and credential.
+func (c *Client) identity(context.Context) http.Header {
 	header := http.Header{}
 	header.Set(HeaderVersion, c.Version)
 	if c.Pane != "" {
@@ -70,8 +65,11 @@ func (c *Client) service() daemonv1.MessageService {
 	if c.Credential != "" {
 		header.Set("Authorization", "Bearer "+c.Credential)
 	}
-	return daemonv1.NewMessageServiceClient(&http.Client{Transport: &rpc.Transport{Base: c.hc.Transport, Header: header}}, "http://herdsman")
+	return header
 }
+
+// service is the SDK's client of the daemon's MessageService.
+func (c *Client) service() daemonv1.MessageService { return c.sdk.Message }
 
 // Hello asks the daemon its version; it always answers (5.6).
 func (c *Client) Hello(ctx context.Context) (Hello, error) {

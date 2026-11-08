@@ -43,9 +43,8 @@ func fakeDaemon(t *testing.T, routes func(m *http.ServeMux)) string {
 	return ph
 }
 
-// fakeDaemonWithout is a daemon of an older build: its socket answers every
-// path with a JSON 404, as the routes before RPC did.
-func fakeDaemonWithout(t *testing.T) string {
+// fakeSocket serves handler on a private home's daemon socket.
+func fakeSocket(t *testing.T, handler http.Handler) string {
 	t.Helper()
 	ph := filepath.Join(shortDir(t), "p")
 	if err := os.MkdirAll(filepath.Join(ph, "run"), 0o700); err != nil {
@@ -55,14 +54,21 @@ func fakeDaemonWithout(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(404)
-		_, _ = w.Write([]byte(`{"error":{"code":"not_found","message":"no such request","retryable":false}}`))
-	})}
+	srv := &http.Server{Handler: handler}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 	return ph
+}
+
+// fakeDaemonWithout is a daemon of an older build: its socket answers every
+// path with a JSON 404, as the routes before RPC did.
+func fakeDaemonWithout(t *testing.T) string {
+	t.Helper()
+	return fakeSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(404)
+		_, _ = w.Write([]byte(`{"error":{"code":"not_found","message":"no such request","retryable":false}}`))
+	}))
 }
 
 // fakePath is one method's path, for a fake daemon's mux.

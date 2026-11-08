@@ -25,6 +25,25 @@ type Options struct {
 	Getenv func(string) string
 	// Header is sent with every call.
 	Header http.Header
+	// CallHeader, when set, is asked for headers on every call, with that
+	// call's context. It suits an identity that can change between calls. Its
+	// names replace the same names in Header.
+	CallHeader func(context.Context) http.Header
+}
+
+// callHeaders adds a call's own headers on the way to the socket.
+type callHeaders struct {
+	next   http.RoundTripper
+	header func(context.Context) http.Header
+}
+
+// RoundTrip implements http.RoundTripper.
+func (t *callHeaders) RoundTrip(req *http.Request) (*http.Response, error) {
+	out := req.Clone(req.Context())
+	for name, values := range t.header(req.Context()) {
+		out.Header[http.CanonicalHeaderKey(name)] = values
+	}
+	return t.next.RoundTrip(out)
 }
 
 // Client holds one service client per daemon service.
@@ -72,7 +91,11 @@ func Dial(options Options) (*Client, error) {
 		IdleConnTimeout:    30 * time.Second,
 		DisableCompression: true,
 	}
-	hc := &http.Client{Transport: &rpc.Transport{Base: transport, Header: options.Header}}
+	var next http.RoundTripper = transport
+	if options.CallHeader != nil {
+		next = &callHeaders{next: transport, header: options.CallHeader}
+	}
+	hc := &http.Client{Transport: &rpc.Transport{Base: next, Header: options.Header}}
 	return &Client{Message: daemonv1.NewMessageServiceClient(hc, base), http: &http.Client{Transport: transport}}, nil
 }
 

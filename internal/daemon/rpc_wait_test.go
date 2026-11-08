@@ -426,3 +426,48 @@ func TestWaitTextLines(t *testing.T) {
 		}
 	}
 }
+
+// TestClientSendsItsIdentityAsItStandsAtTheCall: a client's party can be set
+// after the client is made, and each call carries what is set by then.
+func TestClientSendsItsIdentityAsItStandsAtTheCall(t *testing.T) {
+	seen := make(chan http.Header, 2)
+	ph := fakeSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen <- r.Header.Clone()
+		w.Header().Set("Content-Type", rpc.ContentTypeProto)
+	}))
+	c := NewClient(SocketPath(ph), testVersion)
+	defer c.Close()
+	if _, err := c.Hello(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if h := <-seen; h.Get(HeaderVersion) != testVersion || h.Get(HeaderPane) != "" || h.Get(HeaderName) != "" || h.Get("Authorization") != "" {
+		t.Fatalf("no party: %v", h)
+	}
+	c.Pane, c.Name, c.Credential = "p1", "adj", "secret"
+	if _, err := c.Hello(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if h := <-seen; h.Get(HeaderPane) != "p1" || h.Get(HeaderName) != "adj" || h.Get("Authorization") != "Bearer secret" {
+		t.Fatalf("party: %v", h)
+	}
+}
+
+// TestOnlyTheSDKBuildsTheGeneratedClient: production code reaches the daemon
+// through sdk/client alone.
+func TestOnlyTheSDKBuildsTheGeneratedClient(t *testing.T) {
+	for _, root := range []string{"..", "../../cmd"} {
+		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+			if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			b, err := os.ReadFile(path)
+			if err == nil && strings.Contains(string(b), "NewMessageServiceClient") {
+				t.Errorf("%s builds the generated client itself", path)
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}

@@ -135,3 +135,86 @@ func TestDialReadsTheProcessEnvironment(t *testing.T) {
 	}
 	c.Close()
 }
+
+// statusOK answers any Status call.
+func statusOK(context.Context, *daemonv1.StatusRequest) (*daemonv1.StatusResponse, error) {
+	return &daemonv1.StatusResponse{Status: "ok"}, nil
+}
+
+type callKey struct{}
+
+func TestCallHeaderIsAskedOnEveryCall(t *testing.T) {
+	var seen http.Header
+	socket := serveSocket(t, statusOK, &seen)
+	party := "first"
+	c, err := Dial(Options{Socket: socket, CallHeader: func(context.Context) http.Header {
+		return http.Header{"X-Party": {party}}
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for _, want := range []string{"first", "second"} {
+		party = want
+		if _, err := c.Message.Status(context.Background(), &daemonv1.StatusRequest{}); err != nil {
+			t.Fatal(err)
+		}
+		if seen.Get("X-Party") != want || seen.Get(rpc.HeaderProtocolVersion) != "1" {
+			t.Fatalf("want %s, headers %v", want, seen)
+		}
+	}
+}
+
+func TestCallHeaderReadsTheCallsContext(t *testing.T) {
+	var seen http.Header
+	socket := serveSocket(t, statusOK, &seen)
+	c, err := Dial(Options{Socket: socket, CallHeader: func(ctx context.Context) http.Header {
+		return http.Header{"X-Call": {ctx.Value(callKey{}).(string)}}
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx := context.WithValue(context.Background(), callKey{}, "this-call")
+	if _, err := c.Message.Status(ctx, &daemonv1.StatusRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if seen.Get("X-Call") != "this-call" {
+		t.Fatalf("headers %v", seen)
+	}
+}
+
+func TestCallHeaderOverridesTheFixedHeaderByName(t *testing.T) {
+	var seen http.Header
+	socket := serveSocket(t, statusOK, &seen)
+	c, err := Dial(Options{Socket: socket,
+		Header: http.Header{"X-Party": {"fixed"}, "X-Kept": {"kept"}},
+		CallHeader: func(context.Context) http.Header {
+			header := http.Header{}
+			header["x-party"] = []string{"per-call"}
+			return header
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := c.Message.Status(context.Background(), &daemonv1.StatusRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := seen.Values("X-Party"); len(got) != 1 || got[0] != "per-call" || seen.Get("X-Kept") != "kept" {
+		t.Fatalf("headers %v", seen)
+	}
+}
+
+func TestCallHeaderMayAddNothing(t *testing.T) {
+	var seen http.Header
+	socket := serveSocket(t, statusOK, &seen)
+	c, err := Dial(Options{Socket: socket, CallHeader: func(context.Context) http.Header { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := c.Message.Status(context.Background(), &daemonv1.StatusRequest{}); err != nil {
+		t.Fatal(err)
+	}
+}
