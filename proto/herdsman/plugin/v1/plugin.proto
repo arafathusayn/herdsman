@@ -1,0 +1,212 @@
+syntax = "proto3";
+
+// The experimental contract between herdsman and a plugin process. It may
+// change between minor releases; ManifestService and the handshake line carry
+// the protocol major that says which revision a plugin speaks.
+package herdsman.plugin.v1;
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/plugin/v1;pluginv1";
+
+// ExtensionPoint names one service a plugin may implement.
+enum ExtensionPoint {
+  EXTENSION_POINT_UNSPECIFIED = 0;
+  EXTENSION_POINT_CONFIG_CODEC = 1;
+  EXTENSION_POINT_RESOURCE_DETECTOR = 2;
+  EXTENSION_POINT_LANDING_BACKEND = 3;
+  EXTENSION_POINT_MESSAGE_GENERATOR = 4;
+  EXTENSION_POINT_LIST_COLUMN = 5;
+}
+
+// Manifest says what a plugin is. Its checksum is printed on the handshake
+// line, so the host can tell that the answer belongs to the process it started.
+message Manifest {
+  string name = 1;
+  string version = 2;
+  uint32 protocol_major = 3;
+  repeated ExtensionPoint extension_points = 4;
+  string description = 5;
+  // config_descriptor is a serialized FileDescriptorSet holding the message
+  // that types the plugin's own settings; empty when it has none.
+  bytes config_descriptor = 6;
+  // config_message is the full name of that message.
+  string config_message = 7;
+  // file_extensions lists what a config codec reads, without the dot.
+  repeated string file_extensions = 8;
+}
+
+// ManifestService is served by every plugin.
+service ManifestService {
+  // GetManifest returns the manifest the handshake line's checksum covers.
+  rpc GetManifest(GetManifestRequest) returns (GetManifestResponse);
+}
+
+message GetManifestRequest {}
+
+message GetManifestResponse {
+  Manifest manifest = 1;
+}
+
+// ConfigCodecService adds a config language. Trees cross the wire as JSON.
+service ConfigCodecService {
+  // Decode turns a source file into its JSON tree.
+  rpc Decode(DecodeRequest) returns (DecodeResponse);
+  // Encode turns a JSON tree into a source file.
+  rpc Encode(EncodeRequest) returns (EncodeResponse);
+  // Set changes one key and keeps the rest of the file as written. A plugin
+  // without it answers Unimplemented.
+  rpc Set(SetRequest) returns (SetResponse);
+}
+
+message DecodeRequest {
+  bytes source = 1;
+  // path is the file's name, for messages.
+  string path = 2;
+}
+
+message DecodeResponse {
+  bytes json = 1;
+}
+
+message EncodeRequest {
+  bytes json = 1;
+}
+
+message EncodeResponse {
+  bytes source = 1;
+}
+
+message SetRequest {
+  bytes source = 1;
+  // key is the dotted path of the value.
+  string key = 2;
+  bytes json_value = 3;
+}
+
+message SetResponse {
+  bytes source = 1;
+}
+
+// ResourceDetectorService finds what a task runs.
+service ResourceDetectorService {
+  // Detect lists the resources found in one worktree.
+  rpc Detect(DetectRequest) returns (DetectResponse);
+}
+
+message DetectRequest {
+  string worktree = 1;
+  string task = 2;
+}
+
+message DetectedResource {
+  string kind = 1;
+  string id = 2;
+  string description = 3;
+}
+
+message DetectResponse {
+  repeated DetectedResource resources = 1;
+}
+
+// LandingBackendService lands changes on one hosting service.
+service LandingBackendService {
+  // Open returns the open pull request for the head and base, creating it if
+  // there is none.
+  rpc Open(OpenRequest) returns (OpenResponse);
+  // Merge requests one merge, pinned to a full commit id.
+  rpc Merge(MergeRequest) returns (MergeResponse);
+  // Status reads a pull request and the checks on its head.
+  rpc Status(StatusRequest) returns (StatusResponse);
+}
+
+message OpenRequest {
+  string head = 1;
+  string base = 2;
+  string title = 3;
+  string body = 4;
+  bool draft = 5;
+}
+
+message OpenResponse {
+  int64 number = 1;
+  string url = 2;
+  string head_ref = 3;
+  string head_sha = 4;
+  string base_ref = 5;
+  bool draft = 6;
+}
+
+message MergeRequest {
+  int64 number = 1;
+  string head = 2;
+  string base = 3;
+  // method is squash, merge or rebase.
+  string method = 4;
+  string title = 5;
+  string message = 6;
+}
+
+message MergeResponse {
+  // state is the backend's reading of the merge, in its own lower-case words.
+  string state = 1;
+  string commit = 2;
+  string reason = 3;
+}
+
+message StatusRequest {
+  int64 number = 1;
+}
+
+message Check {
+  string name = 1;
+  // state is passed, pending or failed.
+  string state = 2;
+}
+
+message StatusResponse {
+  int64 number = 1;
+  // state is open, closed or merged.
+  string state = 2;
+  bool draft = 3;
+  string head_ref = 4;
+  string head_sha = 5;
+  string base_ref = 6;
+  string merge_commit = 7;
+  repeated Check checks = 8;
+}
+
+// MessageGeneratorService writes short texts from a change.
+service MessageGeneratorService {
+  // Generate returns the text of the asked kind.
+  rpc Generate(GenerateRequest) returns (GenerateResponse);
+}
+
+message GenerateRequest {
+  // kind is commit, branch or summary.
+  string kind = 1;
+  string prompt = 2;
+}
+
+message GenerateResponse {
+  string text = 1;
+}
+
+// ListColumnService adds a column to the worktree list.
+service ListColumnService {
+  // Compute returns one value per row, in the rows' order.
+  rpc Compute(ComputeRequest) returns (ComputeResponse);
+}
+
+message ColumnRow {
+  string task = 1;
+  string branch = 2;
+  string path = 3;
+}
+
+message ComputeRequest {
+  repeated ColumnRow rows = 1;
+}
+
+message ComputeResponse {
+  string header = 1;
+  repeated string values = 2;
+}
