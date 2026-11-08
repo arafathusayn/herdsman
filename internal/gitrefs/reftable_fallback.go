@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -23,7 +24,13 @@ var repositoryEnv = []string{
 
 func (r *Reader) runGit(ctx context.Context, args ...string) (string, error) {
 	// --git-dir, not -C: discovery could answer from a repository around gitDir.
-	cmd := exec.CommandContext(ctx, "git", append([]string{"--git-dir=" + r.gitDir}, args...)...)
+	// An explicit git directory makes git assume a working tree, though, so a
+	// bare layout whose config leaves core.bare to discovery has to say so.
+	global := []string{"--git-dir=" + r.gitDir}
+	if r.currentState().bareUnset && filepath.Base(r.commonDir) != ".git" {
+		global = append(global, "-c", "core.bare=true")
+	}
+	cmd := exec.CommandContext(ctx, "git", append(global, args...)...)
 	cmd.Dir = r.gitDir
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
 		name, _, _ := strings.Cut(entry, "=")

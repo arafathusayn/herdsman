@@ -70,6 +70,7 @@ type repoState struct {
 	packed       *packedCache
 	configReason string
 	readReason   atomic.Pointer[string]
+	bareUnset    bool // The config file parses and does not set core.bare.
 }
 
 func (s *repoState) reason() string {
@@ -122,7 +123,7 @@ func (r *Reader) currentState() *repoState {
 	if same {
 		return known
 	}
-	next := &repoState{info: info}
+	next := &repoState{info: info, bareUnset: err == nil && coreBareUnset(data)}
 	if err != nil {
 		next.configReason = fmt.Sprintf("gitrefs: cannot read config: %v", err)
 	} else if config, err := parseRepoConfig(data); err != nil {
@@ -250,14 +251,17 @@ func (r *Reader) readLinkedHeads(state *repoState) ([]Head, error) {
 		if err != nil || len(data) == 0 {
 			continue
 		}
-		dotGit := trimGitSpace(string(data))
-		if dotGit == "" {
+		// As git reads this file: trim the right end only, and take /.git off
+		// the text as written, before making it absolute.
+		text := strings.TrimRight(string(data), gitSpace)
+		if text == "" {
 			return nil, fmt.Errorf("gitrefs: blank gitdir in %s", gitDir)
 		}
-		if !filepath.IsAbs(dotGit) {
-			dotGit = filepath.Join(gitDir, dotGit)
+		path := strings.TrimSuffix(text, "/.git")
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(gitDir, path)
 		}
-		head, err := r.readHead(state, gitDir, strings.TrimSuffix(dotGit, "/.git"))
+		head, err := r.readHead(state, gitDir, path)
 		if err != nil {
 			return nil, err
 		}
@@ -267,8 +271,9 @@ func (r *Reader) readLinkedHeads(state *repoState) ([]Head, error) {
 	return heads, nil
 }
 
-// readHead reports a worktree with no HEAD file as detached at nothing, which
-// is what git lists for a registered entry in that state.
+// readHead reports a linked worktree with no HEAD file as detached at nothing,
+// which is what git lists for a registered entry in that state. A main entry
+// with no HEAD is not a repository to git, so that is an error and git answers.
 func (r *Reader) readHead(state *repoState, gitDir, path string) (Head, error) {
 	final, object, result, err := r.storeFor(state, gitDir).resolve("HEAD")
 	switch {
@@ -276,6 +281,8 @@ func (r *Reader) readHead(state *repoState, gitDir, path string) (Head, error) {
 		return Head{}, err
 	case result == refBroken:
 		return Head{}, fmt.Errorf("gitrefs: broken HEAD in %s", gitDir)
+	case result == refAbsent && final == "HEAD" && gitDir == r.commonDir:
+		return Head{}, fmt.Errorf("gitrefs: no HEAD in %s", gitDir)
 	case result == refAbsent && final == "HEAD":
 		return Head{Path: path, State: HeadDetached}, nil
 	case result == refAbsent:
@@ -343,6 +350,15 @@ func parseRepoConfig(data string) (repoConfig, error) {
 		}
 	}
 	return config, nil
+}
+
+func coreBareUnset(data string) bool {
+	settings, err := scanConfig(data)
+	if err != nil {
+		return false
+	}
+	_, set := settings["core.bare"]
+	return !set
 }
 
 // scanConfig returns the last value of each key in [core] and [extensions].

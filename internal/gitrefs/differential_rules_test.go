@@ -242,3 +242,46 @@ func TestLinkedEntries(t *testing.T) {
 		})
 	}
 }
+
+// Round 2: git decides a bare repository with core.bare unset by how it found
+// the directory, so the fallback must give it the same layout.
+func TestFallbackWithCoreBareUnset(t *testing.T) {
+	t.Run("bare layout", func(t *testing.T) {
+		dir := filepath.Join(tempDir(t), "b")
+		runGit(t, filepath.Dir(dir), "init", "-q", "--bare", "-b", "main", dir)
+		runGit(t, dir, "config", "--unset", "core.bare")
+		assertSameAnswer(t, dir, openRepo(t, dir))
+	})
+	t.Run("non-bare layout", func(t *testing.T) {
+		dir := newRepo(t, "sha1")
+		runGit(t, dir, "config", "--unset", "core.bare")
+		assertSameAnswer(t, dir, openRepo(t, dir))
+	})
+}
+
+func TestMainEntryWithNoHeadIsGitsToAnswer(t *testing.T) {
+	dir := newRepo(t, "sha1")
+	reader := openRepo(t, dir)
+	if err := os.Remove(filepath.Join(dir, ".git/HEAD")); err != nil {
+		t.Fatal(err)
+	}
+	assertSameHeads(t, dir, reader)
+}
+
+func TestLinkedGitdirTextIsReadAsGitReadsIt(t *testing.T) {
+	const up = "../../../../"
+	for name, content := range map[string]string{
+		"bare .git":          ".git\n",
+		"relative, trailing": up + "linked/.git/\n",
+		"leading space":      " " + up + "linked/.git\n",
+		"relative":           up + "linked/.git\n",
+		"tab tail":           up + "linked/.git\t\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := newRepo(t, "sha1")
+			runGit(t, dir, "worktree", "add", "-q", "--detach", filepath.Join(filepath.Dir(dir), "linked"))
+			writeFile(t, filepath.Join(dir, ".git/worktrees/linked/gitdir"), content)
+			assertSameHeads(t, dir, openRepo(t, dir))
+		})
+	}
+}
