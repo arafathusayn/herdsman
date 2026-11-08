@@ -14,7 +14,13 @@ GORELEASER        := github.com/goreleaser/goreleaser/v2@v2.19.0
 BUN_GLOBAL  := $(or $(BUN_INSTALL),$(HOME)/.bun)/install/global/node_modules
 WEB_DIST    := internal/web/dist
 
-.PHONY: all tools web pages web-check web-e2e web-fmt build check test lint vuln release-check clean
+# The test file names bun test runs. check-sdk-ts passes only when none exists.
+BUN_TEST_NAMES := $(foreach kind,.test _test .spec _spec,$(foreach ext,js jsx ts tsx mjs mts cjs cts,-o -name '*$(kind).$(ext)'))
+
+# One target per module, in the order MODULES.md lists them.
+MODULE_CHECKS := $(shell sed -n 's/^|.*| `make \(check-[a-z-]*\)` |.*/\1/p' MODULES.md)
+
+.PHONY: all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint vuln release-check clean
 
 all: check build
 
@@ -72,8 +78,52 @@ lint:
 vuln:
 	go run $(GOVULNCHECK) ./...
 
-## check: everything CI runs
-check: web-check web lint test vuln
+## check: every module in MODULES.md, one after another; every module runs, and
+## the target fails when any failed
+check:
+	@test -n "$(MODULE_CHECKS)" || { echo "no modules found in MODULES.md"; exit 1; }
+	@failed=""; \
+	for target in $(MODULE_CHECKS); do \
+		echo "==> $$target"; \
+		$(MAKE) --no-print-directory $$target || failed="$$failed $$target"; \
+	done; \
+	if [ -n "$$failed" ]; then echo "failed:$$failed"; exit 1; fi; \
+	echo "all modules passed"
+
+## check-root: the root module, with the web app built for go:embed
+check-root: web lint test guard-report vuln
+
+## guard-report: the import guard with -v, so every allowlisted file it skipped
+## shows in each run
+guard-report:
+	go test -count=1 -v -run '^TestImportGuard$$' ./internal/guard
+
+# go-module-check runs format, vet, staticcheck and tests from a module's root.
+define go-module-check
+	@cd $(1) && test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w $(1)"; exit 1; }
+	cd $(1) && go vet ./...
+	cd $(1) && go run $(STATICCHECK) ./...
+	cd $(1) && go test -race -count=1 ./...
+endef
+
+## check-sdk: the SDK module
+check-sdk:
+	$(call go-module-check,sdk)
+
+## check-conformance: the conformance module
+check-conformance:
+	$(call go-module-check,sdk/conformance)
+
+## check-sdk-ts: the TypeScript SDK; passes while the module has no test files
+check-sdk-ts:
+	@if [ -n "$$(find sdk/ts -type f ! -path '*/node_modules/*' \( -false $(BUN_TEST_NAMES) \) 2>/dev/null)" ]; then \
+		cd sdk/ts && bun test; \
+	else \
+		echo "sdk/ts: no test files yet"; \
+	fi
+
+## check-web: format check, type check and tests of the web app
+check-web: web-check
 
 ## release-check: validate the goreleaser config
 release-check:

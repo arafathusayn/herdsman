@@ -9,3 +9,7 @@ require (
 	golang.org/x/sys v0.49.0
 	rsc.io/qr v0.2.0
 )
+
+require github.com/arafathusayn/herdsman/sdk v0.0.0
+
+replace github.com/arafathusayn/herdsman/sdk => ./sdk
