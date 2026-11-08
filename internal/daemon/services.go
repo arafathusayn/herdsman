@@ -3,12 +3,14 @@ package daemon
 import (
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
+	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
 )
 
 // rpcProcedures lists every RPC method the daemon serves.
 func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	m := &messageService{d: d}
 	routes := &routeService{d: d}
+	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
 	name := daemonv1.MessageServiceName
 	return []rpc.Procedure{
 		rpc.Unary(name, "Hello", m.Hello),
@@ -41,5 +43,14 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(daemonv1.RouteServiceName, "Up", routes.Up),
 		rpc.Unary(daemonv1.RouteServiceName, "Get", routes.Get),
 		rpc.Unary(daemonv1.RouteServiceName, "List", routes.List),
+		rpc.Unary(suggestv1.SuggestServiceName, "Search", suggestions.Search),
+		rpc.Unary(suggestv1.SuggestServiceName, "Get", suggestions.Get),
+		rpc.Unary(suggestv1.SuggestServiceName, "Add", suggestions.Add),
+		rpc.Unary(suggestv1.SuggestServiceName, "Plan", suggestions.Plan),
+		rpc.Unary(suggestv1.SuggestServiceName, "Sources", suggestions.Sources),
+		rpc.Unary(suggestv1.SuggestServiceName, "SourceAdd", suggestions.SourceAdd),
+		rpc.Unary(suggestv1.SuggestServiceName, "SourceRemove", suggestions.SourceRemove),
+		rpc.Unary(suggestv1.SuggestServiceName, "SourcePreview", suggestions.SourcePreview),
+		rpc.Unary(suggestv1.SuggestServiceName, "SourcePin", suggestions.SourcePin),
 	}
 }

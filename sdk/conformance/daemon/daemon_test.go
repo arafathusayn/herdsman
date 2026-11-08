@@ -91,11 +91,11 @@ func httpClient(t *testing.T, socket string) *http.Client {
 	return &http.Client{Transport: transport}
 }
 
-// call is one method called the stock way; it returns the wire code, or "" on
+// methodCall is one method called the stock way; it returns the wire code, or "" on
 // success.
-type call func(ctx context.Context, hc *http.Client, options []connect.ClientOption) (connect.Code, error)
+type methodCall func(ctx context.Context, hc *http.Client, options []connect.ClientOption) (connect.Code, error)
 
-func unary[Req, Res any](method string, req *Req, check func(*Res) error) call {
+func unary[Req, Res any](method string, req *Req, check func(*Res) error) methodCall {
 	return func(ctx context.Context, hc *http.Client, options []connect.ClientOption) (connect.Code, error) {
 		res, err := connect.NewClient[Req, Res](hc, procedure(method), options...).CallUnary(ctx, connect.NewRequest(req))
 		if err != nil {
@@ -135,7 +135,7 @@ const (
 // scenario is one method's call and the outcome a daemon with no parties gives.
 type scenario struct {
 	method string
-	call   call
+	call   methodCall
 	want   connect.Code
 }
 

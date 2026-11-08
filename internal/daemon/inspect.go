@@ -81,7 +81,7 @@ func (d *Daemon) startInspect(rf RoutesFile) error {
 var inspectReads = map[string]bool{
 	"Hello": true, "Health": true, "DaemonStatus": true, "ListOperations": true, "GetOperation": true,
 	"ListRoutes": true, "Status": true, "GetSetup": true, "Authority": true, "Wait": true,
-	"Get": true, "List": true,
+	"Get": true, "List": true, "Search": true, "Plan": true, "Sources": true,
 }
 
 // refuseInInspect answers every call that could change something.

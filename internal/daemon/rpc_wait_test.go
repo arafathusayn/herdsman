@@ -13,6 +13,7 @@ import (
 
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
+	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
 )
 
 // partyContext is a service call's context carrying a party's identity.
@@ -500,6 +501,21 @@ func TestInspectServesRouteReads(t *testing.T) {
 	inspect := &Daemon{cfg: Config{Inspect: true}}
 	for name, served := range map[string]bool{"Get": true, "List": true, "Up": false} {
 		r, _ := http.NewRequest("POST", rpc.Path(daemonv1.RouteServiceName, name), nil)
+		if e := inspect.refuseInInspect(r); served != (e == nil) {
+			t.Errorf("%s: inspect answer %v", name, e)
+		}
+	}
+}
+
+// TestInspectServesSuggestReads: the catalog can be read in inspect mode, and
+// every method that writes is refused.
+func TestInspectServesSuggestReads(t *testing.T) {
+	inspect := &Daemon{cfg: Config{Inspect: true}}
+	for name, served := range map[string]bool{
+		"Search": true, "Get": true, "Plan": true, "Sources": true,
+		"Add": false, "SourceAdd": false, "SourceRemove": false, "SourcePreview": false, "SourcePin": false,
+	} {
+		r, _ := http.NewRequest("POST", rpc.Path(suggestv1.SuggestServiceName, name), nil)
 		if e := inspect.refuseInInspect(r); served != (e == nil) {
 			t.Errorf("%s: inspect answer %v", name, e)
 		}

@@ -60,3 +60,65 @@ message MessageHeader {
   string state = 7;
   bool acknowledged = 8;
 }
+
+// ProjectId names a project.
+message ProjectId {
+  string value = 1;
+}
+
+// TaskId names a task.
+message TaskId {
+  string value = 1;
+}
+
+// ProjectRepo is one repository of a project.
+message ProjectRepo {
+  string name = 1;
+  // Absolute. The name defaults to the last path element.
+  string path = 2;
+  string default_branch = 3;
+  string remote = 4;
+}
+
+// Project is a project record with what hangs off it.
+message Project {
+  ProjectId id = 1;
+  string name = 2;
+  string description = 3;
+  // "active" or "archived".
+  string state = 4;
+  repeated string folders = 5;
+  repeated ProjectRepo repos = 6;
+  int32 open_tasks = 7;
+  // Milliseconds since the Unix epoch.
+  int64 created = 8;
+  int64 updated = 9;
+}
+
+// TaskLink attaches a pull request, an issue or a URL to a task's repository.
+message TaskLink {
+  string repo = 1;
+  // "pr", "issue" or "url".
+  string kind = 2;
+  string target = 3;
+}
+
+// Task is a task record. Its project is fixed at creation.
+message Task {
+  TaskId id = 1;
+  ProjectId project = 2;
+  // Unique within the project; the id the worktree verbs take.
+  string slug = 3;
+  string title = 4;
+  string body = 5;
+  // "todo", "doing", "review", "done" or "archived".
+  string status = 6;
+  // Empty when the task runs in no route.
+  RouteId route = 7;
+  repeated string repos = 8;
+  repeated string labels = 9;
+  repeated TaskLink links = 10;
+  // Milliseconds since the Unix epoch.
+  int64 created = 11;
+  int64 updated = 12;
+}
