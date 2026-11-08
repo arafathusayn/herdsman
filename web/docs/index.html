@@ -851,12 +851,12 @@ herdsman daemon pair approve &lt;route&gt; &lt;sha256&gt;</code></pre>
               publishes the route. A refusal before <code>state/adopting.json</code> exists (for example a bad inbox
               path, a held lock, a write in flight, a pair that does not match <code>--confirm</code>, or a failed
               import) releases the locks and leaves the route unadopted and the inbox's records unchanged. Once that
-              file exists, an error such as <code>adopt_busy</code> means the adoption is pending: the inbox has changed
-              and the locks stay held, so do not restart the file-mode services. Resolve the reported problem and run
-              <code>route adopt</code> again with the same route and <code>--confirm</code>; the daemon also retries a
-              pending adoption when it starts and on its scheduler. <code>route remove</code>,
-              <code>route reset-events</code> and <code>route list</code> do the rest. Route names are unique across the
-              daemon and compared without case.
+              file exists, an error such as <code>adopt_busy</code> means the adoption is pending: the inbox has
+              changed, and after <code>adopt_busy</code> the locks stay held, so do not restart the file-mode services.
+              Resolve the reported problem and run <code>route adopt</code> again with the same route and
+              <code>--confirm</code>; the daemon also retries a pending adoption when it starts and on its scheduler.
+              <code>route remove</code>, <code>route reset-events</code> and <code>route list</code> do the rest. Route
+              names are unique across the daemon and compared without case.
             </li>
             <li>
               <b>Setup and pairing.</b> <code>setup</code> records a route's setup proof and
