@@ -229,14 +229,14 @@ func TestUpBringsTheWholeRouteUp(t *testing.T) {
 
 func TestPlanHasNoSideEffect(t *testing.T) {
 	r := newRig(t)
-	p := r.plan(r.request("claude doctor && claude", "codex"))
+	p := r.plan(r.request("true && claude", "codex"))
 	if len(r.srv.Requests()) != 0 {
 		t.Fatalf("a plan called herdr: %v", r.srv.Requests())
 	}
 	if _, err := os.Stat(p.Folder); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a plan made the folder: %v", err)
 	}
-	for _, want := range []string{"claude doctor", p.Folder, p.Inbox, "orchestrator"} {
+	for _, want := range []string{"true && claude", p.Folder, p.Inbox, "orchestrator"} {
 		if !strings.Contains(p.Text, want) {
 			t.Fatalf("plan text misses %q:\n%s", want, p.Text)
 		}
@@ -329,7 +329,7 @@ func (r *rig) withProbe(req route.UpRequest, probe string) *route.UpPlan {
 }
 
 func TestUncertainPreludeWithPaneGoneIsNeitherRerunNorMarkedDone(t *testing.T) {
-	r, p, _ := preludeRig(t, "claude doctor && claude", false)
+	r, p, _ := preludeRig(t, "true && claude", false)
 	e, done := r.engine()
 	crashDrive(t, e, p.Spec)
 	done()
@@ -379,7 +379,7 @@ func TestUncertainPreludeWithPaneGoneIsNeitherRerunNorMarkedDone(t *testing.T) {
 }
 
 func TestRerunVerdictRunsTheStepOnceMore(t *testing.T) {
-	r, p, effect := preludeRig(t, "claude doctor && claude", false)
+	r, p, effect := preludeRig(t, "true && claude", false)
 	e, done := r.engine()
 	crashDrive(t, e, p.Spec)
 	done()
@@ -416,7 +416,7 @@ func TestRerunVerdictRunsTheStepOnceMore(t *testing.T) {
 }
 
 func TestProbeSettlesAnUncertainStep(t *testing.T) {
-	r, p, _ := preludeRig(t, "claude doctor && claude", true)
+	r, p, _ := preludeRig(t, "true && claude", true)
 	e, done := r.engine()
 	crashDrive(t, e, p.Spec)
 	done()
@@ -457,7 +457,7 @@ func TestFailedPreludeStopsWithItsStatus(t *testing.T) {
 
 func TestOnceStepRefusesARerun(t *testing.T) {
 	r := newRig(t)
-	req := r.request("claude doctor && claude", "codex")
+	req := r.request("true && claude", "codex")
 	req.AdjutantOnce = true
 	p := r.plan(req)
 	e, done := r.engine()
@@ -637,15 +637,15 @@ func TestSecondUpOnTheSameRouteStartsNothing(t *testing.T) {
 // TestACrashAfterAnyStepsEffectNeverRepeatsIt kills the run right after each
 // step's effect, before the journal records it, and finishes it on restart.
 func TestACrashAfterAnyStepsEffectNeverRepeatsIt(t *testing.T) {
-	steps := len(newRig(t).plan(newRig(t).request("claude doctor && claude", "codex")).Spec.Steps)
+	steps := len(newRig(t).plan(newRig(t).request("true && claude", "codex")).Spec.Steps)
 	for ordinal := range steps {
 		t.Run(strconv.Itoa(ordinal), func(t *testing.T) {
 			r := newRig(t)
-			p := r.plan(r.request("claude doctor && claude", "codex"))
+			p := r.plan(r.request("true && claude", "codex"))
 			r.attest(p.Key)
 			var updates int
 			r.world.OnInput(func(_, text string) bool {
-				if strings.Contains(text, "'doctor'") {
+				if strings.Contains(text, "'true'") {
 					updates++
 				}
 				return true
@@ -730,7 +730,7 @@ func TestABriefThatLooksLikeASkillCommandIsStillSent(t *testing.T) {
 }
 
 func TestPlanOfAJournaledStartResumesWithoutTheOriginalFlags(t *testing.T) {
-	r, p, _ := preludeRig(t, "claude doctor && claude", false)
+	r, p, _ := preludeRig(t, "true && claude", false)
 	e, done := r.engine()
 	crashDrive(t, e, p.Spec)
 	done()

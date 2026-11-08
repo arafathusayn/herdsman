@@ -68,6 +68,11 @@ func setup(t *testing.T) *machine {
 	if err := os.WriteFile(filepath.Join(tools, "herdr"), []byte(fake), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// doctor stops up when gh is installed and not logged in. The test must not
+	// depend on the host's gh, so a gh that reports a login comes first on PATH.
+	if err := os.WriteFile(filepath.Join(tools, "gh"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	git, err := exec.LookPath("git")
 	if err != nil {
 		t.Fatal(err)
