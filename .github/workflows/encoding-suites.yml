@@ -23,16 +23,16 @@ jobs:
     # them is built and the SDK module keeps its empty dependency list.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: toml-lang/toml-test
           ref: 369cc3ae275fd76b6e21780ebf87609e5b2a951a # v1.6.0
           path: .suites/toml-test
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: yaml/yaml-test-suite
           ref: 6e6c296ae9c9d2d5c4134b4b64d01b29ac19ff6f # data-2022-01-17
@@ -56,8 +56,8 @@ jobs:
           - { package: ./internal/encoding/yaml, name: FuzzDecode }
           - { package: ./internal/encoding/frontmatter, name: FuzzParse }
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - name: Fuzz for a fixed time

@@ -10,7 +10,10 @@ require (
 	rsc.io/qr v0.2.0
 )
 
-require github.com/arafathusayn/herdsman/sdk v0.0.0
+require (
+	github.com/arafathusayn/herdsman/sdk v0.0.0
+	google.golang.org/protobuf v1.36.12
+)
 
 replace github.com/arafathusayn/herdsman/sdk => ./sdk
 

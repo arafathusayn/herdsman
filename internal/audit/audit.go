@@ -372,13 +372,17 @@ const (
 	b = `(^|[;&|({[:space:]])`
 	e = `([[:space:]]|$|[;&|)])`
 	n = `[^;&|]*`
+
+	sysDir = `(/usr/local/bin|/opt/homebrew/bin|/usr/bin|/usr/sbin|/bin|/sbin)`
 )
 
 var (
-	gitRE    = regexp.MustCompilePOSIX(b + `git[[:space:]](` + n + `[[:space:]])?(commit|push)` + e)
-	ghAPIRE  = regexp.MustCompilePOSIX(b + `gh[[:space:]]+api[[:space:]](` + n + `[[:space:]])?((-X|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|(-f|-F|--field|--raw-field|--input)([[:space:]=]|$)|-[fF][^[:space:]])`)
-	ghWRE    = regexp.MustCompilePOSIX(b + `gh[[:space:]](` + n + `[[:space:]])?(create|edit|merge|close|reopen|comment|review|delete|ready|rerun|cancel|set|fork|upload|lock|transfer|develop)` + e)
-	curlRE   = regexp.MustCompilePOSIX(b + `(curl|wget)[[:space:]](` + n + `[[:space:]])?((-X|--request|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|(-d|--data[a-z-]*|-F|--form|-T|--upload-file|--post-data|--post-file)([[:space:]=]|$)|-[dFT][^[:space:]])`)
+	gitRE   = regexp.MustCompilePOSIX(b + `git[[:space:]](` + n + `[[:space:]])?(commit|push)` + e)
+	ghAPIRE = regexp.MustCompilePOSIX(b + `gh[[:space:]]+api[[:space:]](` + n + `[[:space:]])?((-X|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|(-f|-F|--field|--raw-field|--input)([[:space:]=]|$)|-[fF][^[:space:]])`)
+	ghWRE   = regexp.MustCompilePOSIX(b + `gh[[:space:]](` + n + `[[:space:]])?(create|edit|merge|close|reopen|comment|review|delete|ready|rerun|cancel|set|fork|upload|lock|transfer|develop)` + e)
+	// A short-option cluster counts when it holds a data, form or upload
+	// option, or ends in -X with a write method.
+	curlRE   = regexp.MustCompilePOSIX(b + `(curl|wget)[[:space:]](` + n + `[[:space:]])?(-[a-zA-Z]*X[[:space:]=]*(POST|PATCH|PUT|DELETE)|(--request|--method)[[:space:]=]*(POST|PATCH|PUT|DELETE)|(--data[a-z-]*|--json|--form[a-z-]*|--upload-file|--post-data|--post-file)([[:space:]=]|$)|-[a-zA-Z]*[dFT])`)
 	awkRunRE = regexp.MustCompilePOSIX(b + `(awk|gawk|mawk|nawk)[[:space:]]`)
 	awkFxRE  = regexp.MustCompilePOSIX(`system[[:space:]]*[(]|getline|print[^;}]*[>|]`)
 	writeRE  = regexp.MustCompilePOSIX(b + `(cp|mv|rm|mkdir|rmdir|touch|ln|chmod|chown|tee|install|rsync|truncate|dd|patch|unzip|tar)[[:space:]]`)
@@ -386,11 +390,20 @@ var (
 	runRE    = regexp.MustCompilePOSIX(b + `(npm|npx|pnpm|pnpx|yarn|bun|bunx|deno|node|pip|pip3|uv|uvx|poetry|cargo|go|make|gradle|gradlew|mvn|pytest|jest|vitest|tox|rspec|bundle|composer|mix|dotnet|xcodebuild)` + e)
 	testsRE  = regexp.MustCompilePOSIX(b + `([^[:space:]]*/)?[A-Za-z0-9_.-]*tests?[.](sh|py)` + e)
 	svcRE    = regexp.MustCompilePOSIX(b + `(docker|docker-compose|podman|nerdctl|colima|kubectl|helm|systemctl|launchctl|service|terraform|pulumi|wrangler|railway|vercel|flyctl|brew[[:space:]]+services)` + e)
-	redirRE  = regexp.MustCompilePOSIX(`>>?[[:space:]]*([^[:space:];&|()\\]+)`)
-	mcpWrite = regexp.MustCompile(`(send|create|update|delete|post|comment|write|add|edit|merge|upload|remove|move|schedule|react|approve|publish|set_|_set|assign|archive|attach|start|stop)`)
-	mcpRead  = regexp.MustCompile(`_(get|list|read|search|query|fetch|view|find|describe|show|count|lookup|retrieve|status|info)_`)
-	segSplit = regexp.MustCompile("[$][(]|[;&|(){}`]")
-	leadSep  = regexp.MustCompile(`^[;&|({[:space:]]*`)
+	redirRE  = regexp.MustCompilePOSIX(`>(>|[|]|&)?[[:space:]]*([^[:space:];&|()\\]+)`)
+	// A program started from a system command folder is classified by its
+	// name; any other path that starts a program is a script run.
+	sysPrefix = regexp.MustCompile(`(?m)(^|[;&|({[:space:]])` + sysDir + `/`)
+	sysProg   = regexp.MustCompile(`^` + sysDir + `/([^/]+)$`)
+	// Single-quoted text with spaces or shell punctuation runs nothing in
+	// the shell (an awk program, a pattern), so it never starts a segment.
+	// A quoted single word, such as a script path, stays, and so does any
+	// quoted text where a command starts (maskQuotedText).
+	quotedText = regexp.MustCompile(`'[^' \n]*[ {};|&()][^'\n]*'`)
+	mcpWrite   = regexp.MustCompile(`(send|create|update|delete|post|comment|write|add|edit|merge|upload|remove|move|schedule|react|approve|publish|set_|_set|assign|archive|attach|start|stop)`)
+	mcpRead    = regexp.MustCompile(`_(get|list|read|search|query|fetch|view|find|describe|show|count|lookup|retrieve|status|info)_`)
+	segSplit   = regexp.MustCompile("[$][(]|[;&|(){}`]")
+	leadSep    = regexp.MustCompile(`^[;&|({[:space:]]*`)
 )
 
 type auditor struct {
@@ -409,22 +422,23 @@ func program(match string) string {
 func (a auditor) shellClass(cmd string) string {
 	var m string
 	class := ""
+	norm := normalized(cmd)
 	switch {
-	case gitRE.MatchString(cmd):
-		class, m = "git-write", gitRE.FindString(cmd)
-	case ghAPIRE.MatchString(cmd):
-		class, m = "outward-write", ghAPIRE.FindString(cmd)
-	case ghWRE.MatchString(cmd):
-		class, m = "outward-write", ghWRE.FindString(cmd)
-	case curlRE.MatchString(cmd):
-		class, m = "outward-write", curlRE.FindString(cmd)
-	case runRE.MatchString(cmd):
-		class, m = "test-or-package", runRE.FindString(cmd)
-	case testsRE.MatchString(cmd):
-		class, m = "test-or-package", testsRE.FindString(cmd)
-	case svcRE.MatchString(cmd):
-		class, m = "service-or-container", svcRE.FindString(cmd)
-	case awkRunRE.MatchString(cmd) && awkFxRE.MatchString(cmd):
+	case gitRE.MatchString(norm):
+		class, m = "git-write", gitRE.FindString(norm)
+	case ghAPIRE.MatchString(norm):
+		class, m = "outward-write", ghAPIRE.FindString(norm)
+	case ghWRE.MatchString(norm):
+		class, m = "outward-write", ghWRE.FindString(norm)
+	case curlRE.MatchString(norm):
+		class, m = "outward-write", curlRE.FindString(norm)
+	case runRE.MatchString(norm):
+		class, m = "test-or-package", runRE.FindString(norm)
+	case testsRE.MatchString(norm):
+		class, m = "test-or-package", testsRE.FindString(norm)
+	case svcRE.MatchString(norm):
+		class, m = "service-or-container", svcRE.FindString(norm)
+	case awkRunRE.MatchString(norm) && awkFxRE.MatchString(norm):
 		return "script-run awk"
 	default:
 		if w := a.shellWrite(cmd); w != "" {
@@ -437,6 +451,10 @@ func (a auditor) shellClass(cmd string) string {
 
 func stripQuotes(s string) string { return strings.NewReplacer(`"`, "", "'", "").Replace(s) }
 
+// normalized is the command as the classes read it: quotes never hide a
+// program name, and a system command folder never hides one either.
+func normalized(cmd string) string { return sysPrefix.ReplaceAllString(stripQuotes(cmd), "$1") }
+
 // shellWrite returns "project-write <target>" for a redirect outside the
 // allowed roots or a file mutation, or "".
 func (a auditor) shellWrite(cmd string) string {
@@ -446,20 +464,27 @@ func (a auditor) shellWrite(cmd string) string {
 		if loc == nil {
 			break
 		}
-		t := rest[loc[2]:loc[3]]
+		copies := loc[2] >= 0 && rest[loc[2]:loc[3]] == "&"
+		t := rest[loc[4]:loc[5]]
 		matched := rest[loc[0]:loc[1]]
 		rest = rest[strings.Index(rest, matched)+len(matched):]
-		if strings.HasPrefix(t, "&") || t == "/dev/null" || t == "/dev/stdout" || t == "/dev/stderr" || t == "/dev/tty" {
+		// A >& followed by a descriptor number or - copies a stream; any
+		// other target is a file.
+		if copies && (t == "-" || (len(t) <= 2 && digits(t))) {
+			continue
+		}
+		if t == "/dev/null" || t == "/dev/stdout" || t == "/dev/stderr" || t == "/dev/tty" {
 			continue
 		}
 		if !a.inRoot(t) {
 			return "project-write .../" + base(t)
 		}
 	}
-	if m := writeRE.FindString(cmd); m != "" {
+	norm := normalized(cmd)
+	if m := writeRE.FindString(norm); m != "" {
 		return "project-write " + program(m)
 	}
-	if m := sedIRE.FindString(cmd); m != "" {
+	if m := sedIRE.FindString(norm); m != "" {
 		return "project-write " + program(m)
 	}
 	return ""
@@ -536,12 +561,40 @@ var wrappers = []string{"env", "exec", "nohup", "time", "command", "builtin", "s
 
 var interpreters = regexp.MustCompile(`^(bash|sh|zsh|dash|ksh|fish|python|python2|python3|python3\..*|perl|ruby|node|deno|bun|php|lua|osascript|tclsh|awk|gawk|mawk)$`)
 
+// maskQuotedText replaces quoted argument text. Text at the start of a
+// command stays: there a quoted path with a space still runs a program.
+func maskQuotedText(cmd string) string {
+	var out strings.Builder
+	last := 0
+	for _, loc := range quotedText.FindAllStringIndex(cmd, -1) {
+		if startsCommand(cmd[:loc[0]]) {
+			continue
+		}
+		out.WriteString(cmd[last:loc[0]] + "Q")
+		last = loc[1]
+	}
+	out.WriteString(cmd[last:])
+	return out.String()
+}
+
+// startsCommand reports whether the text after before is a command word:
+// only wrappers and variable assignments precede it in its segment.
+func startsCommand(before string) bool {
+	parts := segSplit.Split(before, -1)
+	for _, w := range strings.Fields(parts[len(parts)-1]) {
+		if !slices.Contains(wrappers, w) && !strings.Contains(w, "=") {
+			return false
+		}
+	}
+	return true
+}
+
 // scriptRun returns "script-run <program>" for the first script or
 // interpreter run that is not allowed, or "". Command text cannot show what
 // a script does, so every script or interpreter run is not clean unless it
 // is a channel command of the herdsman binary.
 func (a auditor) scriptRun(cmd string) string {
-	for _, seg := range strings.Split(segSplit.ReplaceAllString(cmd, "\n"), "\n") {
+	for _, seg := range strings.Split(segSplit.ReplaceAllString(maskQuotedText(cmd), "\n"), "\n") {
 		words := strings.Fields(stripQuotes(seg))
 		i, wrapped := 0, ""
 	walk:
@@ -566,25 +619,29 @@ func (a auditor) scriptRun(cmd string) string {
 		if i >= len(words) {
 			continue
 		}
-		first := words[i]
-		name := base(first)
+		prog := words[i]
+		if m := sysProg.FindStringSubmatch(prog); m != nil {
+			prog = m[2]
+		}
+		name := base(prog)
 		joined := " " + strings.Join(words, " ") + " "
 		switch {
-		case interpreters.MatchString(name):
-			if (name == "awk" || name == "gawk" || name == "mawk") && !strings.Contains(joined, " -f ") {
-				continue
-			}
-			return "script-run " + name
-		case name == "eval" || name == "source" || name == "." || name == "xargs":
-			return "script-run " + first
-		case strings.HasSuffix(name, ".sh") || strings.HasSuffix(name, ".py") || strings.HasSuffix(name, ".pl") ||
-			strings.HasSuffix(name, ".rb") || strings.HasSuffix(name, ".js"):
-			return "script-run " + name
 		case name == "herdsman":
+			// Before the path rule: the installed binary runs by its path.
 			if channelCommand(words[i:]) {
 				continue
 			}
 			return "script-run herdsman"
+		case interpreters.MatchString(prog):
+			if (prog == "awk" || prog == "gawk" || prog == "mawk") && !strings.Contains(joined, " -f ") {
+				continue
+			}
+			return "script-run " + prog
+		case prog == "eval" || prog == "source" || prog == "." || prog == "xargs":
+			return "script-run " + prog
+		case strings.Contains(prog, "/") || strings.HasSuffix(prog, ".sh") || strings.HasSuffix(prog, ".py") ||
+			strings.HasSuffix(prog, ".pl") || strings.HasSuffix(prog, ".rb") || strings.HasSuffix(prog, ".js"):
+			return "script-run " + name
 		}
 	}
 	return ""

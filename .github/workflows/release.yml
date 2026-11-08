@@ -16,11 +16,11 @@ jobs:
     # cross-compiles the linux ones (.goreleaser.yaml).
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: true
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - uses: oven-sh/setup-bun@v2

@@ -8,17 +8,27 @@ option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
 // LedgerService reports what a task runs and records what it owns.
 service LedgerService {
   // Resources lists a task's records and the live plan built from them.
-  rpc Resources(LedgerRequest) returns (ResourcesResponse);
+  rpc Resources(ResourcesRequest) returns (ResourcesResponse);
   // Plan builds the teardown plan for a task without acting on it.
-  rpc Plan(LedgerRequest) returns (TeardownPlan);
+  rpc Plan(PlanRequest) returns (PlanResponse);
   // AddResource records authority over a resource for one execution.
   rpc AddResource(AddResourceRequest) returns (AddResourceResponse);
 }
 
-message LedgerRequest {
+message ResourcesRequest {
   // common_dir is the repository's common git directory.
   string common_dir = 1;
   string task = 2;
+}
+
+message PlanRequest {
+  // common_dir is the repository's common git directory.
+  string common_dir = 1;
+  string task = 2;
+}
+
+message PlanResponse {
+  TeardownPlan plan = 1;
 }
 
 message ResourceRecord {

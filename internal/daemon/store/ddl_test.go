@@ -21,14 +21,15 @@ func tables(t *testing.T, c Conn) map[string]string {
 	return got
 }
 
-// TestSchemaV1Tables: version 1 of each kind has exactly the tables of
-// design sections 1.3 and 1.4, every one STRICT.
+// TestSchemaV1Tables: the newest schema of each kind has exactly these
+// tables (version 1's, plus the operation journal in the account database),
+// every one STRICT.
 func TestSchemaV1Tables(t *testing.T) {
 	want := map[Kind][]string{
 		KindRoute: {"acks", "alerts", "approvals", "cards", "claim_keys", "claims", "credentials", "events",
 			"holds", "import_log", "launches", "messages", "meta", "notices", "parties", "questions",
 			"resume_intents", "send_keys", "setup_proof", "targets", "terminals"},
-		KindAccount: {"activity", "adoptions", "meta", "routes"},
+		KindAccount: {"activity", "adoptions", "meta", "operation_locks", "operation_steps", "operations", "outbox", "routes"},
 	}
 	for kind, names := range want {
 		c := openKind(t, kind)

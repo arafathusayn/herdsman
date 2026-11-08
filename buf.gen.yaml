@@ -1,0 +1,5 @@
+version: v2
+plugins:
+  - local: protoc-gen-herdsman-go
+    out: sdk
+    opt: module=github.com/arafathusayn/herdsman/sdk

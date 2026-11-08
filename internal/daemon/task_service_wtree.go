@@ -153,6 +153,10 @@ func (s *WorktreeService) Call(ctx context.Context, method string, request []byt
 		return dispatch(ctx, request, s.Go)
 	case "Hook":
 		return dispatch(ctx, request, s.Hook)
+	case "Commit":
+		return dispatch(ctx, request, s.Commit)
+	case "Diff":
+		return dispatch(ctx, request, s.Diff)
 	case "TeardownPlan":
 		return dispatch(ctx, request, s.TeardownPlan)
 	case "Teardown":

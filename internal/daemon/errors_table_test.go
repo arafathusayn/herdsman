@@ -23,7 +23,7 @@ var designErrors = map[string]errorSpec{
 	"claim_held": {409, false, 2}, "no_claim": {409, false, 2}, "unacked_work": {409, false, 2},
 	"terminal_conflict": {409, false, 2}, "key_conflict": {409, false, 2}, "key_window_full": {503, true, 75},
 	"ack_too_large": {413, false, 2}, "question_exists": {409, false, 2}, "question_limit": {409, false, 2},
-	"adopt_busy": {409, true, 75}, "busy": {503, true, 75}, "route_unowned": {503, true, 75}, "internal": {500, true, 1},
+	"adopt_busy": {409, true, 75}, "busy": {503, true, 75}, "failed_precondition": {412, false, 2}, "route_unowned": {503, true, 75}, "internal": {500, true, 1},
 	"route_exists": {409, false, 2}, "adopt_locked": {409, true, 2},
 	"herdr_unreachable": {503, true, 75}, "identity_unavailable": {503, true, 75},
 	"name_retired": {409, false, 2}, "role_taken": {409, false, 2}, "unknown_name": {404, false, 2},

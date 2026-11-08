@@ -53,6 +53,7 @@ var errorTable = map[string]errorSpec{
 	"question_limit":       {409, false, 2},
 	"adopt_busy":           {409, true, 75},
 	"busy":                 {503, true, 75},
+	"failed_precondition":  {412, false, 2},
 	"route_unowned":        {503, true, 75},
 	"internal":             {500, true, 1},
 	"route_exists":         {409, false, 2},
