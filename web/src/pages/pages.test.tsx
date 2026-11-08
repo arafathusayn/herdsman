@@ -12,7 +12,7 @@ g["history"] ??= { pushState: () => {}, replaceState: () => {} };
 g["requestAnimationFrame"] ??= () => 0;
 
 const { pageById, pages } = await import("./index.tsx");
-const { launchRequest } = await import("./new-route/new-route.tsx");
+const { launchCommand, launchRequest } = await import("./new-route/new-route.tsx");
 
 beforeEach(installFakeDocument);
 
@@ -306,54 +306,107 @@ test("launchRequest trims and leaves out the adjutant when there is none", () =>
   });
 });
 
-test("new route previews before it can start, and an edit asks for a new preview", async () => {
-  const calls = daemon({
-    "daemon.v1.RouteService/Up": { start: { route: { value: "r" }, state: "planned", plan: "step one", folder: "/f" } },
+/** A daemon whose RouteService.Up replies only when the test says so. */
+function heldUp() {
+  const held: { body: Record<string, unknown>; reply: (status: number, body: unknown) => void }[] = [];
+  bindHost({ url: "http://host", device: "d" }, (_url, init) => {
+    return new Promise((resolve) => {
+      held.push({
+        body: JSON.parse(String(init.body)) as Record<string, unknown>,
+        reply: (status, body) => resolve(Response.json(body, { status })),
+      });
+    });
   });
-  const root = await render("new-route");
-  const start = () => all(root, "button").find((button) => text(button) === "Start route")!;
-  const disabled = (element: FakeElement) => (element as unknown as { disabled: boolean }).disabled;
-  expect(disabled(start())).toBe(true);
-  const inputs = all(root, "input").filter((input) => input.getAttribute("type") !== "checkbox");
-  ["r", "/x", "orch", "adj"].forEach((value, i) => fill(inputs[i]!, value));
+  return held;
+}
+const planned = (plan: string) => ({ start: { route: { value: "r" }, state: "planned", plan, folder: "/f" } });
+function launchInputs(root: FakeElement): FakeElement[] {
+  return all(root, "input").filter((input) => input.getAttribute("type") !== "checkbox");
+}
+async function fillAndPreview(root: FakeElement): Promise<void> {
+  ["r", "/x", "orch", "adj"].forEach((value, i) => fill(launchInputs(root)[i]!, value));
   dispatch(all(root, "form")[0]!, "submit");
   await settle();
+}
+
+test("new route shows the preview, and an edit takes it away", async () => {
+  const calls = daemon({ "daemon.v1.RouteService/Up": planned("step one") });
+  const root = await render("new-route");
+  await fillAndPreview(root);
   expect(calls[0]?.body).toMatchObject({ route: { value: "r" }, dryRun: true });
   expect(text(root)).toContain("step one");
-  expect(disabled(start())).toBe(false);
-
-  fill(inputs[0]!, "changed");
+  fill(launchInputs(root)[0]!, "changed");
   await settle();
   expect(text(root)).not.toContain("step one");
-  expect(disabled(start())).toBe(true);
 });
 
-test("new route starts after a preview and reports a refusal", async () => {
-  const replies: Record<string, Reply> = {
-    "daemon.v1.RouteService/Up": { start: { route: { value: "r" }, state: "planned", plan: "p" } },
-  };
-  const calls = daemon(replies);
+test("new route never shows a preview that an edit overtook", async () => {
+  const held = heldUp();
   const root = await render("new-route");
-  const inputs = all(root, "input").filter((input) => input.getAttribute("type") !== "checkbox");
-  ["r", "/x", "orch", "adj"].forEach((value, i) => fill(inputs[i]!, value));
+  await fillAndPreview(root);
+  fill(launchInputs(root)[0]!, "changed");
+  held[0]!.reply(200, planned("old plan"));
+  await settle();
+  expect(text(root)).not.toContain("old plan");
+  expect(text(root)).not.toContain("herdsman up");
+});
+
+test("new route drops the failure of a preview that an edit overtook", async () => {
+  const held = heldUp();
+  const root = await render("new-route");
+  await fillAndPreview(root);
+  fill(launchInputs(root)[0]!, "changed");
+  held[0]!.reply(400, { code: "invalid_argument", message: "old problem" });
+  await settle();
+  expect(text(root)).not.toContain("old problem");
+});
+
+test("new route can preview again while an overtaken preview is still out", async () => {
+  const held = heldUp();
+  const root = await render("new-route");
+  await fillAndPreview(root);
+  fill(launchInputs(root)[0]!, "changed");
   dispatch(all(root, "form")[0]!, "submit");
   await settle();
-  replies["daemon.v1.RouteService/Up"] = { start: { route: { value: "r" }, state: "running", reason: "on its way" } };
-  dispatch(
-    all(root, "button").find((button) => text(button) === "Start route")!,
-    "click",
-  );
+  expect(held.length).toBe(2);
+  held[1]!.reply(200, planned("new plan"));
   await settle();
-  expect(calls.at(-1)?.body).toMatchObject({ dryRun: false });
-  expect(text(root)).toContain("r: running");
+  held[0]!.reply(200, planned("old plan"));
+  await settle();
+  expect(text(root)).toContain("new plan");
+  expect(text(root)).not.toContain("old plan");
+});
 
-  replies["daemon.v1.RouteService/Up"] = { status: 403, body: { code: "permission_denied", message: "no pair" } };
-  dispatch(
-    all(root, "button").find((button) => text(button) === "Start route")!,
-    "click",
+test("new route shows a refused preview", async () => {
+  daemon({ "daemon.v1.RouteService/Up": { status: 400, body: { code: "invalid_argument", message: "bad route" } } });
+  const root = await render("new-route");
+  await fillAndPreview(root);
+  expect(text(root)).toContain("bad route");
+});
+
+test("new route never asks the daemon for a real start, and says where to start one", async () => {
+  const calls = daemon({ "daemon.v1.RouteService/Up": planned("p") });
+  const root = await render("new-route");
+  await fillAndPreview(root);
+  expect(all(root, "button").map(text)).toEqual(["Preview"]);
+  expect(calls.every((call) => (call.body as { dryRun?: boolean }).dryRun === true)).toBe(true);
+  expect(text(root)).toContain("A browser cannot start a route");
+  expect(text(root)).toContain("cd /x && herdsman up r -p '' -a adj -o orch");
+});
+
+test("launchCommand quotes what the shell would read", () => {
+  const fields = {
+    route: "r",
+    repo: "/my repo",
+    prompt: "it's $HOME",
+    adjutant: "claude --x",
+    orchestrator: "codex",
+    noAdjutant: false,
+  };
+  expect(launchCommand(fields)).toBe("cd '/my repo' && herdsman up r -p 'it'\\''s $HOME' -a 'claude --x' -o codex");
+  expect(launchCommand({ ...fields, noAdjutant: true })).toBe(
+    "cd '/my repo' && herdsman up r -p 'it'\\''s $HOME' --no-adjutant -o codex",
   );
-  await settle();
-  expect(text(root)).toContain("no pair");
 });
 
 test("new route can run without an adjutant", async () => {

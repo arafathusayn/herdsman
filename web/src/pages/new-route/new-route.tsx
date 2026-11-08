@@ -4,15 +4,28 @@ import { Show, signal } from "@reactre/core";
 import { explain, services } from "../../sdk/index.ts";
 import { fieldValue, PageFrame } from "../load.tsx";
 
-/** The start request for what the form holds. */
-export function launchRequest(fields: {
+export interface LaunchFields {
   route: string;
   repo: string;
   prompt: string;
   adjutant: string;
   orchestrator: string;
   noAdjutant: boolean;
-}): UpRequest {
+}
+
+function shellWord(word: string): string {
+  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+}
+
+/** The terminal command that starts what the form holds. */
+export function launchCommand(fields: LaunchFields): string {
+  const adjutant = fields.noAdjutant ? "--no-adjutant" : `-a ${shellWord(fields.adjutant.trim())}`;
+  const up = `herdsman up ${shellWord(fields.route.trim())} -p ${shellWord(fields.prompt)}`;
+  return `cd ${shellWord(fields.repo.trim())} && ${up} ${adjutant} -o ${shellWord(fields.orchestrator.trim())}`;
+}
+
+/** The start request for what the form holds. */
+export function launchRequest(fields: LaunchFields): UpRequest {
   return {
     route: { value: fields.route.trim() },
     repo: fields.repo.trim(),
@@ -30,48 +43,54 @@ export function NewRoutePage() {
   const [orchestrator, setOrchestrator] = signal("");
   const [noAdjutant, setNoAdjutant] = signal(false);
   const [plan, setPlan] = signal<RouteStart | null>(null);
-  const [started, setStarted] = signal<RouteStart | null>(null);
   const [problem, setProblem] = signal("");
   const [busy, setBusy] = signal(false);
 
-  // A plan answers for the fields as they were: any edit asks for a new one.
+  // Each edit or preview makes the replies still on their way out of date.
+  let revision = 0;
+  const invalidate = () => {
+    revision++;
+    setPlan(null);
+    setProblem("");
+    setBusy(false);
+  };
   const edit = (set: (value: string) => void) => (event: Event) => {
     set(fieldValue(event));
-    setPlan(null);
-    setStarted(null);
+    invalidate();
   };
-  const request = () =>
-    launchRequest({
-      route: route(),
-      repo: repo(),
-      prompt: prompt(),
-      adjutant: adjutant(),
-      orchestrator: orchestrator(),
-      noAdjutant: noAdjutant(),
-    });
+  const fields = (): LaunchFields => ({
+    route: route(),
+    repo: repo(),
+    prompt: prompt(),
+    adjutant: adjutant(),
+    orchestrator: orchestrator(),
+    noAdjutant: noAdjutant(),
+  });
   const ready = () =>
     !!route().trim() && !!repo().trim() && !!orchestrator().trim() && (noAdjutant() || !!adjutant().trim());
 
-  const send = async (dryRun: boolean) => {
-    setProblem("");
+  const preview = async () => {
+    invalidate();
+    const mine = revision;
     setBusy(true);
     try {
-      const reply = await services().routes.up({ ...request(), dryRun });
-      if (dryRun) setPlan(() => reply.start ?? null);
-      else setStarted(() => reply.start ?? null);
+      const reply = await services().routes.up({ ...launchRequest(fields()), dryRun: true });
+      if (mine !== revision) return;
+      setPlan(() => reply.start ?? null);
     } catch (error) {
+      if (mine !== revision) return;
       setProblem(explain(error));
     }
     setBusy(false);
   };
 
   return (
-    <PageFrame title="New route" lead="Preview what a route will do, then start it.">
+    <PageFrame title="New route" lead="Preview what a route will do, then start it from a terminal.">
       <form
         class="page-form"
         onSubmit={(event) => {
           event.preventDefault();
-          void send(true);
+          void preview();
         }}
       >
         <label class="field">
@@ -92,8 +111,7 @@ export function NewRoutePage() {
             checked={noAdjutant()}
             onChange={(event) => {
               setNoAdjutant((event.currentTarget as HTMLInputElement).checked);
-              setPlan(null);
-              setStarted(null);
+              invalidate();
             }}
           />
           Run without an adjutant
@@ -111,9 +129,6 @@ export function NewRoutePage() {
         <button class="btn" type="submit" disabled={!ready() || busy()}>
           Preview
         </button>
-        <button class="btn primary" type="button" disabled={!plan() || busy()} onClick={() => void send(false)}>
-          Start route
-        </button>
         <Show when={problem()}>
           <p class="page-error" role="alert">
             {problem()}
@@ -126,15 +141,14 @@ export function NewRoutePage() {
             <h2 class="page-h2">Plan</h2>
             <p class="page-sub">{current().folder}</p>
             <pre class="page-pre">{current().plan}</pre>
+            <p class="page-note" role="status">
+              <strong>A browser cannot start a route: the daemon confirms who asks from the calling process.</strong>
+              <span>
+                {"Run it in a terminal: "}
+                <code>{launchCommand(fields())}</code>
+              </span>
+            </p>
           </div>
-        )}
-      </Show>
-      <Show when={started()}>
-        {(current) => (
-          <p class="page-note" role="status">
-            <strong>{`${current().route?.value ?? ""}: ${current().state ?? ""}`}</strong>
-            <span>{current().reason}</span>
-          </p>
         )}
       </Show>
     </PageFrame>
