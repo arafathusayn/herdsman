@@ -5,7 +5,7 @@ import (
 	"io"
 )
 
-const projectHelp = `usage: herdsman project context init|check|note ...
+const projectHelp = `usage: herdsman project context init|check|note|log ...
        herdsman project log [--since <date>] [--task <task>] [--json]
 
 Work on the context repo of the project bound to this folder.

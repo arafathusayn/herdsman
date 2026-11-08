@@ -175,6 +175,34 @@ func TestProjectLogGolden(t *testing.T) {
 	}
 }
 
+// `project context log` is the same command as `project log`.
+func TestProjectContextLogSpelling(t *testing.T) {
+	testdata := contextTestdata(t)
+	root := contextFolderUnderDaemon(t)
+	if err := os.CopyFS(root, os.DirFS(filepath.Join(testdata, "forked"))); err != nil {
+		t.Fatal(err)
+	}
+	for _, golden := range []struct {
+		file string
+		args []string
+	}{
+		{"forked.log.txt", []string{"log"}},
+		{"forked.log.json", []string{"log", "--json"}},
+	} {
+		want, err := os.ReadFile(filepath.Join(testdata, golden.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, errOut, code := projectContext(golden.args...)
+		if code != 0 || out != string(want) {
+			t.Errorf("%s: exit %d, stderr %q, stdout:\n%s", golden.file, code, errOut, out)
+		}
+	}
+	if out, _, code := projectContext("--help"); code != 0 || !strings.Contains(out, "project context log") {
+		t.Errorf("--help: exit %d, %q", code, out)
+	}
+}
+
 func TestProjectLogUsage(t *testing.T) {
 	for _, args := range [][]string{{"--since", "yesterday"}, {"--nope"}, {"extra"}} {
 		if out, errOut, code := projectLog(args...); code != 2 || out != "" || errOut == "" {

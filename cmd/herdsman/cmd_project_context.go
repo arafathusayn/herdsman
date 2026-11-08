@@ -17,6 +17,7 @@ import (
 const projectContextHelp = `usage: herdsman project context init
        herdsman project context check
        herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>
+       herdsman project context log [--since <date>] [--task <task>] [--json]
 
 Run inside a folder bound to a project.
 
@@ -24,6 +25,7 @@ init lays out the context repo and prints its folder.
 check validates the history and prints each problem.
 note adds a note to the history and prints its id. Without --parent it joins
 every open branch of the history.
+log prints the history; it is the same command as herdsman project log.
 
 exit codes:
   0  done; for check, the history is sound
@@ -80,6 +82,8 @@ func runProjectContext(args []string, _ io.Reader, stdout, stderr io.Writer) int
 		return runContextPlain(verb, rest, stdout, stderr)
 	case "note":
 		return runContextNote(rest, stdout, stderr)
+	case "log":
+		return runProjectLog(rest, nil, stdout, stderr)
 	}
 	fmt.Fprintf(stderr, "project context: unknown verb %q\n", verb)
 	return 2
