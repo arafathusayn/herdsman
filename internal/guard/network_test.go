@@ -569,8 +569,12 @@ func makeFakes(t *testing.T) string {
 	t.Helper()
 	bin := t.TempDir()
 	log := filepath.Join(bin, "calls.log")
-	for _, name := range []string{"go", "staticcheck", "govulncheck", "goreleaser"} {
+	for _, name := range []string{"go", "staticcheck", "govulncheck", "goreleaser", "buf"} {
 		script := "#!/bin/bash\necho \"" + name + "|$GOFLAGS|$GOPROXY|$GOWORK|$*\" >>\"" + log + "\"\n"
+		if name == "buf" {
+			// proto-check compares what generate wrote under -o.
+			script += "if [ \"$1\" = generate ]; then mkdir -p \"$3/sdk\"; fi\n"
+		}
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}

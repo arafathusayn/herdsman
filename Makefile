@@ -152,9 +152,10 @@ define go-module-check
 	cd $(1) && go test -race -count=1 ./...
 endef
 
-## check-sdk: the SDK module, with its generated code proven current
-check-sdk: proto-check
+## check-sdk: the SDK module, then its generated code proven current
+check-sdk:
 	$(call go-module-check,sdk)
+	@$(MAKE) --no-print-directory proto-check
 
 ## check-conformance: the conformance module
 check-conformance:
