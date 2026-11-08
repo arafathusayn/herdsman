@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,44 +15,66 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
 func TestHelloAndVersionRefusal(t *testing.T) {
 	h := newHarness(t)
 	c := h.client()
 	hello, err := c.Hello(context.Background())
-	if err != nil || hello.DaemonVersion != testVersion || hello.Protocol != Protocol {
+	if err != nil || hello.DaemonVersion != testVersion {
 		t.Fatalf("hello %+v %v", hello, err)
 	}
 	cases := []struct {
-		version, protocol string
-		code, update      string
-		status            int
+		version      string
+		code, update string
+		status       int
 	}{
-		{"", "", "version_missing", "client", 400},
-		{"x.y", "1", "version_malformed", "client", 400},
-		{"0.9.0", "1", "version_mismatch", "client", 426},
-		{"2.0.0", "1", "version_mismatch", "daemon", 426},
-		{testVersion, "9", "version_mismatch", "daemon", 426},
-		{"devel+abcdef0", "1", "version_mismatch", "client", 426},
+		{"x.y", "version_malformed", "client", 400},
+		{"0.9.0", "version_mismatch", "client", 400},
+		{"2.0.0", "version_mismatch", "daemon", 400},
+		{"devel+abcdef0", "version_mismatch", "client", 400},
 	}
 	for _, k := range cases {
-		req, _ := http.NewRequest("GET", "http://herdsman/v1/health", nil)
-		if k.version != "" {
-			req.Header.Set(HeaderVersion, k.version)
-			req.Header.Set(HeaderProtocol, k.protocol)
-		}
-		resp, err := c.hc.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var eb errorBody
-		_ = json.NewDecoder(resp.Body).Decode(&eb)
+		resp := postRPC(t, c, "Health", "{}", map[string]string{HeaderVersion: k.version})
+		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if resp.StatusCode != k.status || eb.Error == nil || eb.Error.Code != k.code || eb.Error.Update != k.update {
-			t.Fatalf("%s/%s: %d %+v", k.version, k.protocol, resp.StatusCode, eb.Error)
+		failure := rpc.ParseError(resp.StatusCode, body)
+		var detail corev1.Error
+		var refusal daemonv1.VersionRefusal
+		if resp.StatusCode != k.status || !failure.Detail(&detail) || detail.GetCode() != k.code || !failure.Detail(&refusal) || refusal.GetUpdate() != k.update {
+			t.Fatalf("%s: %d %s", k.version, resp.StatusCode, body)
 		}
 	}
+	// A caller that declares no version is not a herdsman build; a stock client
+	// is let in, and Hello needs no version from anyone.
+	if resp := postRPC(t, c, "Health", "{}", nil); resp.StatusCode != 200 {
+		t.Fatalf("no version: %d", resp.StatusCode)
+	}
+	if resp := postRPC(t, c, "Hello", "{}", map[string]string{HeaderVersion: "0.9.0"}); resp.StatusCode != 200 {
+		t.Fatalf("hello from an older client: %d", resp.StatusCode)
+	}
+}
+
+// postRPC sends one raw JSON call, the way a client with no SDK does.
+func postRPC(t *testing.T, c *Client, method, body string, header map[string]string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest("POST", "http://herdsman"+rpc.Path(daemonv1.MessageServiceName, method), strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", rpc.ContentTypeJSON)
+	for k, v := range header {
+		req.Header.Set(k, v)
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
 }
 
 func TestHelloReportsDefaultCredential(t *testing.T) {
@@ -130,7 +153,7 @@ func TestRouteList(t *testing.T) {
 func TestRouteRemoveKeepsInbox(t *testing.T) {
 	h := newHarness(t)
 	_, orch, dir := h.route("r")
-	ev, err := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
+	ev, err := orch.c.Events(context.Background(), "r", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -704,7 +727,7 @@ func TestCorruptHoldRefused(t *testing.T) {
 }
 
 // waitFrame reads frames until one of type typ.
-func waitFrame(t testing.TB, ev *EventReader, typ string) SSEFrame {
+func waitFrame(t testing.TB, ev *EventReader, typ string) WaitFrame {
 	t.Helper()
 	for {
 		f, err := ev.Next()
@@ -720,12 +743,12 @@ func waitFrame(t testing.TB, ev *EventReader, typ string) SSEFrame {
 func TestEventShapes(t *testing.T) {
 	h := newHarness(t)
 	adj, orch, _ := h.route("r")
-	evO, err := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
+	evO, err := orch.c.Events(context.Background(), "r", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer evO.Close()
-	evA, err := adj.c.Events(context.Background(), "/v1/routes/r/events", "")
+	evA, err := adj.c.Events(context.Background(), "r", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -768,12 +791,12 @@ func jsonNum(v any) string {
 func TestResumeAfterCursor(t *testing.T) {
 	h := newHarness(t)
 	adj, orch, _ := h.route("r")
-	ev, _ := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
+	ev, _ := orch.c.Events(context.Background(), "r", "")
 	snap := waitFrame(t, ev, "snapshot")
 	ev.Close()
 	m1 := adj.send(t, "r", orch.name, "one")
 	m2 := adj.send(t, "r", orch.name, "two")
-	ev, err := orch.c.Events(context.Background(), "/v1/routes/r/events", snap.ID)
+	ev, err := orch.c.Events(context.Background(), "r", snap.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -784,7 +807,7 @@ func TestResumeAfterCursor(t *testing.T) {
 		t.Fatalf("%s %s", f1.Data, f2.Data)
 	}
 	// From the first message's cursor, only the second is replayed.
-	ev2, _ := orch.c.Events(context.Background(), "/v1/routes/r/events", f1.ID)
+	ev2, _ := orch.c.Events(context.Background(), "r", f1.ID)
 	defer ev2.Close()
 	if f := waitFrame(t, ev2, "message"); f.ID != f2.ID {
 		t.Fatalf("replayed %s, want %s", f.ID, f2.ID)
@@ -792,7 +815,7 @@ func TestResumeAfterCursor(t *testing.T) {
 	// After a restart, the replay comes from the journal files.
 	h.restart()
 	orch.c = h.partyClient(filepath.Join(h.ph, "repo-r"), orch)
-	ev3, err := orch.c.Events(context.Background(), "/v1/routes/r/events", snap.ID)
+	ev3, err := orch.c.Events(context.Background(), "r", snap.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -805,7 +828,7 @@ func TestResumeAfterCursor(t *testing.T) {
 func TestResetOnEpoch(t *testing.T) {
 	h := newHarness(t)
 	_, orch, _ := h.route("r")
-	ev, _ := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
+	ev, _ := orch.c.Events(context.Background(), "r", "")
 	snap := waitFrame(t, ev, "snapshot")
 	var res struct{ Epoch string }
 	h.do("POST", "/v1/routes/r/reset-events", ResetRequest{ConfirmRoute: "r"}, &res)
@@ -819,7 +842,7 @@ func TestResetOnEpoch(t *testing.T) {
 	}
 	ev.Close()
 	// A stream with the old cursor gets reset then snapshot first.
-	ev2, _ := orch.c.Events(context.Background(), "/v1/routes/r/events", snap.ID)
+	ev2, _ := orch.c.Events(context.Background(), "r", snap.ID)
 	defer ev2.Close()
 	if f, _ := ev2.Next(); f.Event != "reset" {
 		t.Fatalf("first %+v", f)
@@ -838,13 +861,13 @@ func TestResetOnExpiredCursor(t *testing.T) {
 	t.Cleanup(func() { journalRotate = old })
 	h := newHarness(t)
 	adj, orch, _ := h.route("r")
-	ev, _ := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
+	ev, _ := orch.c.Events(context.Background(), "r", "")
 	snap := waitFrame(t, ev, "snapshot")
 	ev.Close()
 	for range 40 {
 		adj.send(t, "r", orch.name, "x")
 	}
-	ev2, _ := orch.c.Events(context.Background(), "/v1/routes/r/events", snap.ID)
+	ev2, _ := orch.c.Events(context.Background(), "r", snap.ID)
 	defer ev2.Close()
 	f, _ := ev2.Next()
 	if f.Event != "reset" || !strings.Contains(string(f.Data), "cursor_expired") {
@@ -867,7 +890,7 @@ func TestSnapshotStreamHandoff(t *testing.T) {
 		done <- ids
 	}()
 	time.Sleep(time.Millisecond)
-	ev, err := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
+	ev, err := orch.c.Events(context.Background(), "r", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -893,52 +916,6 @@ func TestSnapshotStreamHandoff(t *testing.T) {
 	}
 }
 
-func TestViewReconnectMultipleRoutes(t *testing.T) {
-	h := newHarness(t)
-	_, _, _ = h.route("a")
-	_, _, _ = h.route("b")
-	view := h.client()
-	ev, err := view.Events(context.Background(), "/v1/events", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	reg := waitFrame(t, ev, "registry")
-	var r Event
-	_ = json.Unmarshal(reg.Data, &r)
-	if len(r.Routes) != 2 || r.Routes[0].Route != "a" {
-		t.Fatalf("registry %s", reg.Data)
-	}
-	got := map[string]bool{}
-	for range 2 {
-		f := waitFrame(t, ev, "snapshot")
-		var s Event
-		_ = json.Unmarshal(f.Data, &s)
-		got[s.Route] = true
-		if s.Unread != nil {
-			t.Fatal("the view's snapshot carries unread ids")
-		}
-	}
-	if !got["a"] || !got["b"] {
-		t.Fatalf("%v", got)
-	}
-	// A route created while the view is connected sends its snapshot.
-	h.do("POST", "/v1/routes", CreateRequest{Repo: "repo", Route: "c"}, nil)
-	f := waitFrame(t, ev, "snapshot")
-	if !strings.Contains(string(f.Data), `"route":"c"`) {
-		t.Fatalf("%s", f.Data)
-	}
-	ev.Close()
-	// After a reconnect, the registry omits a removed route.
-	h.do("DELETE", "/v1/routes/a", nil, nil)
-	ev2, _ := view.Events(context.Background(), "/v1/events", "")
-	defer ev2.Close()
-	reg = waitFrame(t, ev2, "registry")
-	_ = json.Unmarshal(reg.Data, &r)
-	if len(r.Routes) != 2 || r.Routes[0].Route != "b" {
-		t.Fatalf("registry after removal %s", reg.Data)
-	}
-}
-
 func TestHealthDegradesOneRoute(t *testing.T) {
 	h := newHarness(t)
 	_, _, _ = h.route("a")
@@ -960,19 +937,14 @@ func TestHealthDegradesOneRoute(t *testing.T) {
 
 func TestBodyBound(t *testing.T) {
 	h := newHarness(t)
-	big := map[string]string{"repo": strings.Repeat("x", maxBody), "route": "r"}
+	big := CreateRequest{Repo: strings.Repeat("x", maxBody), Route: "r"}
 	if _, err := h.client().Do(context.Background(), "POST", "/v1/routes", big, nil); code(err) != "bad_request" {
 		t.Fatalf("big body: %v", err)
 	}
-	dup := []byte(`{"repo":"a","repo":"b","route":"r"}`)
-	req, _ := http.NewRequest("POST", "http://herdsman/v1/routes", bytes.NewReader(dup))
-	req.Header.Set(HeaderVersion, testVersion)
-	req.Header.Set(HeaderProtocol, "1")
-	resp, err := h.client().hc.Do(req)
-	if err != nil || resp.StatusCode != 400 {
-		t.Fatalf("duplicate key: %v %v", resp, err)
+	dup := `{"repo":"a","repo":"b","route":{"value":"r"}}`
+	if resp := postRPC(t, h.client(), "CreateRoute", dup, nil); resp.StatusCode != 400 {
+		t.Fatalf("duplicate key: %d", resp.StatusCode)
 	}
-	resp.Body.Close()
 }
 
 func TestSingletonPerUser(t *testing.T) {
@@ -1010,10 +982,20 @@ func TestDiscoveryOtherPrivateHome(t *testing.T) {
 func TestShutdownDrains(t *testing.T) {
 	h := newHarness(t)
 	_, orch, _ := h.route("r")
-	ev, _ := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
+	ev, _ := orch.c.Events(context.Background(), "r", "")
 	waitFrame(t, ev, "snapshot")
+	got := make(chan WaitFrame, 1)
+	go func() { got <- waitFrame(t, ev, "shutdown") }()
+	// The event reaches a call that is open, so wait for the call to attach.
+	rt, _ := h.d.route("r")
+	for i := 0; subCount(rt) == 0; i++ {
+		if i == 500 {
+			t.Fatal("the call never attached")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	h.do("POST", "/v1/shutdown", ShutdownRequest{Reason: "stop"}, nil)
-	f := waitFrame(t, ev, "shutdown")
+	f := <-got
 	if !strings.Contains(string(f.Data), "stop") {
 		t.Fatalf("%s", f.Data)
 	}

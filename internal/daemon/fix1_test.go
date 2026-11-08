@@ -1,12 +1,17 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
+	"google.golang.org/protobuf/proto"
 )
 
 // Fix round 1 (review daemon-impl-1): the reviewer's probes as tests.
@@ -28,8 +33,9 @@ func TestHelloWaitHonorsContext(t *testing.T) {
 			close(entered)
 		}
 		<-release
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Request: r,
-			Body: io.NopCloser(strings.NewReader(`{"daemon_version":"` + testVersion + `","protocol":1,"min_protocol":1}`))}, nil
+		body, _ := proto.Marshal(&daemonv1.HelloResponse{DaemonVersion: testVersion})
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {rpc.ContentTypeProto}}, Request: r,
+			Body: io.NopCloser(bytes.NewReader(body))}, nil
 	})
 	first := make(chan error, 1)
 	go func() { first <- c.Check(context.Background()) }()

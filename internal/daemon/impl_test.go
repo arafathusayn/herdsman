@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -62,8 +61,8 @@ func TestSetupBoundsRules(t *testing.T) {
 // Item 1 (review a-2 P1s on server.go and stream.go).
 
 // frames reads a stream's frames into a channel until it ends.
-func frames(ev *EventReader) <-chan SSEFrame {
-	ch := make(chan SSEFrame, 256)
+func frames(ev *EventReader) <-chan WaitFrame {
+	ch := make(chan WaitFrame, 256)
 	go func() {
 		defer close(ch)
 		for {
@@ -78,7 +77,7 @@ func frames(ev *EventReader) <-chan SSEFrame {
 }
 
 // nextFrame is the next frame of type typ, or a failure after 5 s.
-func nextFrame(t testing.TB, ch <-chan SSEFrame, typ string) Event {
+func nextFrame(t testing.TB, ch <-chan WaitFrame, typ string) Event {
 	t.Helper()
 	deadline := time.After(5 * time.Second)
 	for {
@@ -108,62 +107,30 @@ func subCount(rt *Route) int {
 	return <-n
 }
 
-// TestViewListedRouteRemovedBeforeAttach: a route removed after the view
-// listed it but before the view attached to it still reaches the view as
-// route_removed.
-func TestViewListedRouteRemovedBeforeAttach(t *testing.T) {
-	h := newHarness(t)
-	_, _, _ = h.route("a")
-	_, _, _ = h.route("b")
-	var once sync.Once
-	h.d.cfg.Crash = func(point string) {
-		if point == "view.listed" {
-			once.Do(func() { h.do("DELETE", "/v1/routes/a", nil, nil) })
-		}
-	}
-	ev, err := h.client().Events(context.Background(), "/v1/events", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ev.Close()
-	ch := frames(ev)
-	if reg := nextFrame(t, ch, "registry"); len(reg.Routes) != 2 {
-		t.Fatalf("registry %+v", reg.Routes)
-	}
-	if rm := nextFrame(t, ch, "route_removed"); rm.Route != "a" {
-		t.Fatalf("route_removed for %q", rm.Route)
-	}
-}
-
-// TestViewCloseDetachesDegradedRoute: a closed view (or party) stream
-// leaves no subscriber behind, even on a route that refuses operations.
-func TestViewCloseDetachesDegradedRoute(t *testing.T) {
+// TestCloseDetachesDegradedRoute: a closed party call leaves no subscriber
+// behind, even on a route that refuses operations.
+func TestCloseDetachesDegradedRoute(t *testing.T) {
 	h := newHarness(t)
 	_, orch, _ := h.route("a")
 	rt, _ := h.d.route("a")
-	view, err := h.client().Events(context.Background(), "/v1/events", "")
+	party, err := orch.c.Events(context.Background(), "a", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	vch := frames(view)
-	nextFrame(t, vch, "snapshot")
-	party, err := orch.c.Events(context.Background(), "/v1/routes/a/events", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	pch := frames(party)
-	nextFrame(t, pch, "snapshot")
-	if n := subCount(rt); n != 2 {
-		t.Fatalf("%d streams attached, want 2", n)
+	nextFrame(t, frames(party), "snapshot")
+	for i := 0; subCount(rt) != 1; i++ {
+		if i == 500 {
+			t.Fatalf("%d calls attached, want 1", subCount(rt))
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	for range 3 {
 		_ = rt.do(context.Background(), func() *APIError { panic("boom") })
 	}
-	view.Close()
 	party.Close()
 	for i := 0; subCount(rt) != 0; i++ {
 		if i == 500 {
-			t.Fatalf("%d closed streams stay attached to the degraded route", subCount(rt))
+			t.Fatalf("%d closed calls stay attached to the degraded route", subCount(rt))
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -338,7 +305,7 @@ func TestSchedulerPublishesProofHealth(t *testing.T) {
 	h.cfg.HeartbeatEvery = 20 * time.Millisecond
 	h.start()
 	_, orch, _ := h.route("r")
-	ev, err := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
+	ev, err := orch.c.Events(context.Background(), "r", "")
 	if err != nil {
 		t.Fatal(err)
 	}
