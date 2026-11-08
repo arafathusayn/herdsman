@@ -37,6 +37,9 @@ func (o *Options) check(ctx context.Context) error {
 	if o.Dest == "" || o.FileCap < 0 {
 		return fmt.Errorf("snapshot: invalid options: dest %q, file cap %d", o.Dest, o.FileCap)
 	}
+	if err := absPaths(&o.Dest); err != nil {
+		return err
+	}
 	if err := checkRebuildable(o.Rebuildable); err != nil {
 		return err
 	}
@@ -59,7 +62,34 @@ func makeFolder(dest string) error {
 		}
 		return err
 	}
-	return os.Chmod(dest, 0o700)
+	if err := osChmod(dest, 0o700); err != nil {
+		return errors.Join(err, os.Remove(dest))
+	}
+	return nil
+}
+
+// firstExisting returns the nearest folder at or above p that exists: the
+// one whose entries change when the folders below it are created.
+func firstExisting(p string) string {
+	for p != filepath.Dir(p) {
+		if _, err := osLstat(p); err == nil {
+			return p
+		}
+		p = filepath.Dir(p)
+	}
+	return p
+}
+
+// syncParents flushes the entry of dest and of each folder made above it.
+func syncParents(dest, existing string) error {
+	for dir := filepath.Dir(dest); ; dir = filepath.Dir(dir) {
+		if err := syncPath(dir); err != nil {
+			return err
+		}
+		if dir == existing {
+			return nil
+		}
+	}
 }
 
 // Take captures the worktree into opts.Dest and verifies the result. On any
@@ -69,7 +99,7 @@ func Take(ctx context.Context, opts Options) (m *Manifest, err error) {
 		return nil, err
 	}
 	started := time.Now()
-	root, err := gitText(ctx, opts.Worktree, "rev-parse", "--show-toplevel")
+	root, err := gitPath(ctx, opts.Worktree, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +107,7 @@ func Take(ctx context.Context, opts Options) (m *Manifest, err error) {
 	if err != nil {
 		return nil, err
 	}
+	existing := firstExisting(filepath.Dir(opts.Dest))
 	if err := makeFolder(opts.Dest); err != nil {
 		return nil, err
 	}
@@ -84,9 +115,10 @@ func Take(ctx context.Context, opts Options) (m *Manifest, err error) {
 	refMade := false
 	defer func() {
 		if err != nil {
-			os.RemoveAll(opts.Dest)
+			err = errors.Join(err, osRemoveAll(opts.Dest))
 			if refMade {
-				runGit(context.WithoutCancel(ctx), root, nil, nil, "update-ref", "-d", ref)
+				_, refErr := runGit(context.WithoutCancel(ctx), root, nil, nil, "update-ref", "-d", ref)
+				err = errors.Join(err, refErr)
 			}
 		}
 	}()
@@ -107,7 +139,7 @@ func Take(ctx context.Context, opts Options) (m *Manifest, err error) {
 	}
 
 	work := filepath.Join(opts.Dest, workDirName)
-	if err := os.Mkdir(work, 0o700); err != nil {
+	if err := osMkdir(work, 0o700); err != nil {
 		return nil, err
 	}
 	c := &capture{ctx: ctx, root: root, opts: opts, excluded: map[string]Exclusion{}, opaque: map[string]bool{}}
@@ -136,7 +168,7 @@ func Take(ctx context.Context, opts Options) (m *Manifest, err error) {
 	if err := createBundle(ctx, root, bundleFile, ref); err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(bundleFile, 0o600); err != nil {
+	if err := osChmod(bundleFile, 0o600); err != nil {
 		return nil, err
 	}
 	c.finish(m)
@@ -149,11 +181,21 @@ func Take(ctx context.Context, opts Options) (m *Manifest, err error) {
 	if m.Preserved, err = artifactFor(preservedFile, PreservedName); err != nil {
 		return nil, err
 	}
-	if err := os.RemoveAll(work); err != nil {
+	if err := osRemoveAll(work); err != nil {
 		return nil, err
+	}
+	// Completion is published only once the data it describes is on disk: a
+	// caller may delete the worktree as soon as Take returns.
+	for _, file := range []string{bundleFile, preservedFile} {
+		if err := syncPath(file); err != nil {
+			return nil, err
+		}
 	}
 	m.FinishedAt = time.Now().UTC()
 	if err := writeManifest(opts.Dest, m); err != nil {
+		return nil, err
+	}
+	if err := syncParents(opts.Dest, existing); err != nil {
 		return nil, err
 	}
 	if _, err := Verify(ctx, opts.Dest); err != nil {
@@ -178,7 +220,7 @@ type capture struct {
 // copyIndex works on a copy so the capture cannot touch the user's index. A
 // new repository has no index file, which git reads as empty.
 func (c *capture) copyIndex(dst string) error {
-	indexPath, err := gitText(c.ctx, c.root, "rev-parse", "--git-path", "index")
+	indexPath, err := gitPath(c.ctx, c.root, "rev-parse", "--git-path", "index")
 	if err != nil {
 		return err
 	}
@@ -268,7 +310,7 @@ func (c *capture) addSubmodule(rel, indexCommit string) error {
 	c.gitlinks = append(c.gitlinks, indexCommit+"\t"+rel)
 	sub := Submodule{Path: Path(rel), IndexCommit: indexCommit}
 	full := filepath.Join(c.root, rel)
-	if _, err := os.Lstat(filepath.Join(full, ".git")); err == nil {
+	if _, err := osLstat(filepath.Join(full, ".git")); err == nil {
 		head, err := gitText(c.ctx, full, "rev-parse", "HEAD")
 		if err != nil {
 			return err
@@ -290,7 +332,7 @@ func capturable(info fs.FileInfo) bool {
 // addTracked keeps a tracked file whatever its name: a rebuildable pattern
 // never drops content git is tracking. A deleted file simply has no entry.
 func (c *capture) addTracked(rel string) error {
-	info, err := os.Lstat(filepath.Join(c.root, rel))
+	info, err := osLstat(filepath.Join(c.root, rel))
 	if gone(err) {
 		return nil
 	}
@@ -316,7 +358,7 @@ func (c *capture) addOther(entry string, into *[]FileRecord, record func(string,
 		c.excluded[rel] = Exclusion{Path: Path(rel), Reason: ReasonNestedRepository}
 		return nil
 	}
-	info, err := os.Lstat(filepath.Join(c.root, rel))
+	info, err := osLstat(filepath.Join(c.root, rel))
 	if err != nil {
 		return err
 	}
@@ -357,7 +399,7 @@ func (c *capture) walk(rel string) error {
 		return err
 	}
 	if len(entries) == 0 && rel != "" {
-		info, err := os.Lstat(filepath.Join(c.root, rel))
+		info, err := osLstat(filepath.Join(c.root, rel))
 		if err != nil {
 			return err
 		}
@@ -398,7 +440,7 @@ func (c *capture) buildWorkingTree(index string) (string, error) {
 			regular = append(regular, f)
 			continue
 		}
-		target, err := os.Readlink(filepath.Join(c.root, string(f.Path)))
+		target, err := osReadlink(filepath.Join(c.root, string(f.Path)))
 		if err != nil {
 			return "", err
 		}

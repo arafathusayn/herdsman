@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -40,15 +39,15 @@ func Restore(ctx context.Context, dir, target string) error {
 	if err := populate(ctx, dir, tmp, m); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp, fs.FileMode(m.WorktreeMode&permMask)); err != nil {
+	if err := osChmod(tmp, fs.FileMode(m.WorktreeMode&permMask)); err != nil {
 		return err
 	}
 	// Rmdir, not Remove: an empty folder may be replaced, a file never. Some
 	// systems refuse to rename over even an empty folder.
-	if err := syscall.Rmdir(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := osRmdir(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	return os.Rename(tmp, target)
+	return osRename(tmp, target)
 }
 
 func targetFree(target string) error {
@@ -82,7 +81,7 @@ func populate(ctx context.Context, dir, tmp string, m *Manifest) error {
 	if err := setHead(ctx, tmp, m); err != nil {
 		return err
 	}
-	root, err := os.OpenRoot(tmp)
+	root, err := osOpenRoot(tmp)
 	if err != nil {
 		return err
 	}

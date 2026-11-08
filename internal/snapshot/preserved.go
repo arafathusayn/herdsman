@@ -82,7 +82,7 @@ func addPreserved(w *tar.Writer, root string, rec FileRecord) error {
 	if err := w.WriteHeader(hdr); err != nil {
 		return err
 	}
-	in, err := os.Open(full)
+	in, err := osOpen(full)
 	if err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func checkPreserved(file string, m *Manifest) error {
 		return err
 	}
 	defer in.Close()
-	links, seen := map[string]bool{}, map[string]bool{}
+	seen := map[string]bool{}
 	r := tar.NewReader(in)
 	for {
 		hdr, err := r.Next()
@@ -129,7 +129,7 @@ func checkPreserved(file string, m *Manifest) error {
 		if err != nil {
 			return err
 		}
-		if err := checkEntry(hdr, want, links, seen); err != nil {
+		if err := checkEntry(hdr, want, seen); err != nil {
 			return err
 		}
 	}
@@ -139,7 +139,7 @@ func checkPreserved(file string, m *Manifest) error {
 	return nil
 }
 
-func checkEntry(hdr *tar.Header, want map[string]uint32, links, seen map[string]bool) error {
+func checkEntry(hdr *tar.Header, want map[string]uint32, seen map[string]bool) error {
 	if err := safeRel(hdr.Name); err != nil {
 		return err
 	}
@@ -151,17 +151,46 @@ func checkEntry(hdr *tar.Header, want map[string]uint32, links, seen map[string]
 	if seen[name] {
 		return fmt.Errorf("entry %q appears twice", name)
 	}
-	for dir := path.Dir(name); dir != "."; dir = path.Dir(dir) {
-		if links[dir] {
-			return fmt.Errorf("%w: entry %q goes through symlink %q", ErrUnsafePath, name, dir)
-		}
-	}
 	if listed, ok := want[name]; !ok || listed != mode {
 		return fmt.Errorf("entry %q (mode %o) does not match the manifest", name, mode)
 	}
 	seen[name] = true
-	if hdr.Typeflag == tar.TypeSymlink {
-		links[name] = true
+	return nil
+}
+
+// checkLayout proves the tree and the archive can be restored together: no
+// path is stored twice, and no path lies beneath another stored path, which
+// is either a file, a symlink that would carry the write elsewhere, or a
+// folder the restore creates as a leaf. Take never produces either. Its paths
+// were already proved safe, so walking up from each one ends at ".".
+func checkLayout(m *Manifest, gitlinks []string) error {
+	occupied := map[string]bool{}
+	claim := func(name string) error {
+		if occupied[name] {
+			return fmt.Errorf("%w: %q is stored twice", ErrUnsafePath, name)
+		}
+		occupied[name] = true
+		return nil
+	}
+	for _, f := range m.Files {
+		if err := claim(string(f.Path)); err != nil {
+			return err
+		}
+	}
+	for _, link := range gitlinks {
+		if err := safeRel(link); err != nil {
+			return err
+		}
+		if err := claim(link); err != nil {
+			return err
+		}
+	}
+	for name := range occupied {
+		for dir := path.Dir(name); dir != "."; dir = path.Dir(dir) {
+			if occupied[dir] {
+				return fmt.Errorf("%w: %q goes through %q", ErrUnsafePath, name, dir)
+			}
+		}
 	}
 	return nil
 }
@@ -169,7 +198,7 @@ func checkEntry(hdr *tar.Header, want map[string]uint32, links, seen map[string]
 // unpackPreserved writes the archive through root. It runs after the tree
 // files are on disk, so unpackEntry's check also covers their symlinks.
 func unpackPreserved(root *os.Root, file string) error {
-	in, err := os.Open(file)
+	in, err := osOpen(file)
 	if err != nil {
 		return err
 	}
@@ -210,8 +239,9 @@ func unpackEntry(root *os.Root, hdr *tar.Header, r io.Reader) error {
 	return root.Chmod(name, perm)
 }
 
-// prepareParents refuses a path under a symlink, whichever source made the
-// link, then creates the missing folders.
+// prepareParents refuses a path under a symlink on the real filesystem, then
+// creates the missing folders. Verification has checked the layout by name;
+// this also holds where a case-insensitive filesystem merges two names.
 func prepareParents(root *os.Root, name string) error {
 	if err := safeRel(name); err != nil {
 		return err

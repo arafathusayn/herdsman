@@ -932,7 +932,7 @@ func TestHostileTarCannotEscape(t *testing.T) {
 }
 
 // The tree holds a symlink out of the folder and the tar writes through it:
-// each source alone looks valid, so only the restore-time check can catch it.
+// each source alone looks valid, so verification must check them combined.
 func TestTreeSymlinkCannotCarryATarWrite(t *testing.T) {
 	outsideBase := t.TempDir()
 	root := newRepo(t)
@@ -941,11 +941,12 @@ func TestTreeSymlinkCannotCarryATarWrite(t *testing.T) {
 	}
 	dest, _ := takeT(t, root, "t", "o")
 	writeHostileTar(t, dest, []tarEntry{{name: "lnk/pwned", body: "x", flag: tar.TypeReg, mode: 0o644}})
-	if _, err := Verify(context.Background(), dest); err != nil {
-		t.Fatalf("this forgery is expected to pass verification: %v", err)
+	_, err := Verify(context.Background(), dest)
+	if artifactOf(t, err) != PreservedName || !errors.Is(err, ErrUnsafePath) || !strings.Contains(err.Error(), "lnk/pwned") {
+		t.Fatalf("verify: %v", err)
 	}
 	target := filepath.Join(t.TempDir(), "r")
-	err := Restore(context.Background(), dest, target)
+	err = Restore(context.Background(), dest, target)
 	if !errors.Is(err, ErrUnsafePath) || !strings.Contains(err.Error(), "lnk/pwned") {
 		t.Fatalf("err = %v", err)
 	}
@@ -1130,7 +1131,7 @@ func TestTakeStopsOnEveryGitFailureAndCleansUp(t *testing.T) {
 	patterns := []string{
 		"--show-object-format", "--git-path index", "ls-files -z -s", "ls-files -z --others --exclude-standard",
 		"--others --ignored", "init -q --bare", "hash-object --no-filters", "hash-object -w --stdin", "write-tree", "update-index",
-		"mktree", "commit-tree", "update-ref refs/herdsman", "bundle create", "bundle verify", "fetch", "ls-tree -r",
+		"mktree", "commit-tree", "update-ref refs/herdsman", "bundle create", "bundle verify", "fetch", "ls-tree -r", "cat-file -e",
 	}
 	for _, pattern := range patterns {
 		t.Run(pattern, func(t *testing.T) {
@@ -1505,5 +1506,420 @@ func TestUnmergedSubmoduleLineStopsScan(t *testing.T) {
 	unreadable(t, c.root)
 	if err := c.scanTracked([]string{"100644 aa 0\tf"}); !errors.Is(err, fs.ErrPermission) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWhitespaceInRepositoryPathIsKept(t *testing.T) {
+	base := t.TempDir()
+	plain, spaced := filepath.Join(base, "repo"), filepath.Join(base, "repo ")
+	for _, root := range []string{plain, spaced} {
+		if err := os.Mkdir(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		runGitT(t, root, "init", "-q")
+	}
+	writeT(t, plain, "wrong", "wrong\n", 0o644)
+	writeT(t, spaced, "right", "right\n", 0o644)
+	_, m := takeT(t, spaced, "t", "o")
+	if !strings.HasSuffix(m.Worktree, "repo ") {
+		t.Fatalf("worktree = %q", m.Worktree)
+	}
+	if !captured(m, "right") || captured(m, "wrong") {
+		t.Fatalf("captured the wrong repository: %+v", m.Files)
+	}
+}
+
+func TestReplacementObjectsAreIgnored(t *testing.T) {
+	root := newRepo(t)
+	writeT(t, root, "f", "original\n", 0o644)
+	runGitT(t, root, "add", "-A")
+	runGitT(t, root, "commit", "-qm", "x")
+	original := strings.TrimSpace(runGitT(t, root, "rev-parse", "HEAD:f"))
+	writeT(t, root, "evil-source", "replaced\n", 0o644)
+	replacement := strings.TrimSpace(runGitT(t, root, "hash-object", "-w", "evil-source"))
+	if err := os.Remove(filepath.Join(root, "evil-source")); err != nil {
+		t.Fatal(err)
+	}
+	runGitT(t, root, "replace", original, replacement)
+	dest, _ := takeT(t, root, "t", "o")
+	target := filepath.Join(t.TempDir(), "r")
+	if err := Restore(context.Background(), dest, target); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(target, "f"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "original\n" {
+		t.Fatalf("restored %q", got)
+	}
+}
+
+func TestVerifyResolvesRecordedHead(t *testing.T) {
+	root := newRepo(t)
+	writeT(t, root, "f", "x\n", 0o644)
+	runGitT(t, root, "add", "-A")
+	runGitT(t, root, "commit", "-qm", "x")
+	for name, pick := range map[string]func(*Manifest) string{
+		"absent": func(m *Manifest) string { return strings.Repeat("0", len(m.Head)) },
+		"a tree": func(m *Manifest) string { return m.StagedTree },
+	} {
+		t.Run(name, func(t *testing.T) {
+			runGitT(t, root, "update-ref", "-d", "refs/herdsman/snapshot/h/o")
+			dest, _ := takeT(t, root, "h", "o")
+			rewriteManifest(t, dest, func(m *Manifest) { m.Head = pick(m) })
+			if _, err := Verify(context.Background(), dest); artifactOf(t, err) != BundleName {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestVerifyRejectsConflictingLayouts(t *testing.T) {
+	reg := func(name string) tarEntry { return tarEntry{name: name, body: "x", flag: tar.TypeReg, mode: 0o644} }
+	cases := map[string][]tarEntry{
+		"same path as a tree file":  {reg("f")},
+		"beneath a tree file":       {reg("f/under")},
+		"folder above a tree file":  {{name: "d/", flag: tar.TypeDir, mode: 0o755}},
+		"beneath an archive file":   {reg("a"), reg("a/b")},
+		"beneath an archive folder": {{name: "e/", flag: tar.TypeDir, mode: 0o755}, reg("e/b")},
+	}
+	root := newRepo(t)
+	writeT(t, root, "f", "x\n", 0o644)
+	writeT(t, root, "d/inner", "y\n", 0o644)
+	i := 0
+	for name, entries := range cases {
+		t.Run(name, func(t *testing.T) {
+			i++
+			dest, _ := takeT(t, root, "layout", fmt.Sprintf("o%d", i))
+			writeHostileTar(t, dest, entries)
+			if _, err := Verify(context.Background(), dest); artifactOf(t, err) != PreservedName {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func swap[T any](t *testing.T, target *T, value T) {
+	t.Helper()
+	old := *target
+	*target = value
+	t.Cleanup(func() { *target = old })
+}
+
+var errPlanted = errors.New("planted failure")
+
+func failChmod(t *testing.T, match string) {
+	swap(t, &osChmod, func(name string, mode fs.FileMode) error {
+		if strings.Contains(name, match) {
+			return errPlanted
+		}
+		return os.Chmod(name, mode)
+	})
+}
+
+func failSync(t *testing.T, match string) {
+	swap(t, &syncPath, func(name string) error {
+		if strings.HasSuffix(name, match) {
+			return errPlanted
+		}
+		return syncToDisk(name)
+	})
+}
+
+func failRemoveAll(t *testing.T, match string) {
+	swap(t, &osRemoveAll, func(name string) error {
+		if strings.HasSuffix(name, match) {
+			return errPlanted
+		}
+		return os.RemoveAll(name)
+	})
+}
+
+func failOpen(t *testing.T, match string) {
+	swap(t, &osOpen, func(name string) (*os.File, error) {
+		if strings.HasSuffix(name, match) {
+			return nil, errPlanted
+		}
+		return os.Open(name)
+	})
+}
+
+func TestTakeStopsOnEveryPlantedFailureAndCleansUp(t *testing.T) {
+	cases := map[string]func(*testing.T){
+		"chmod folder":   func(t *testing.T) { failChmod(t, "deep/snap") },
+		"chmod bundle":   func(t *testing.T) { failChmod(t, BundleName) },
+		"sync bundle":    func(t *testing.T) { failSync(t, BundleName) },
+		"sync preserved": func(t *testing.T) { failSync(t, PreservedName) },
+		"sync manifest":  func(t *testing.T) { failSync(t, ManifestName+".tmp") },
+		"sync folder":    func(t *testing.T) { failSync(t, "deep/snap") },
+		"sync parent":    func(t *testing.T) { failSync(t, "created/deep") },
+		"sync ancestor":  func(t *testing.T) { failSync(t, "created") },
+		"remove work":    func(t *testing.T) { failRemoveAll(t, workDirName) },
+		"sum bundle":     func(t *testing.T) { failOpen(t, BundleName) },
+		"sum preserved":  func(t *testing.T) { failOpen(t, PreservedName) },
+		"read ignored":   func(t *testing.T) { failOpen(t, "data.db") },
+		"make work": func(t *testing.T) {
+			swap(t, &osMkdir, func(string, fs.FileMode) error { return errPlanted })
+		},
+		"publish": func(t *testing.T) {
+			swap(t, &osRename, func(string, string) error { return errPlanted })
+		},
+		"read link": func(t *testing.T) {
+			swap(t, &osReadlink, func(string) (string, error) { return "", errPlanted })
+		},
+		"resolve dest": func(t *testing.T) {
+			swap(t, &osAbs, func(string) (string, error) { return "", errPlanted })
+		},
+		"inspect empty folder": func(t *testing.T) {
+			swap(t, &osLstat, func(name string) (fs.FileInfo, error) {
+				if strings.HasSuffix(name, "emptydir") {
+					return nil, errPlanted
+				}
+				return os.Lstat(name)
+			})
+		},
+	}
+	for name, install := range cases {
+		t.Run(name, func(t *testing.T) {
+			root := dirtyRepo(t)
+			base := t.TempDir()
+			dest := filepath.Join(base, "created", "deep", "snap")
+			install(t)
+			_, err := Take(context.Background(), testOptions(root, dest, "t", "o"))
+			if !errors.Is(err, errPlanted) {
+				t.Fatalf("err = %v", err)
+			}
+			if _, statErr := os.Lstat(dest); !errors.Is(statErr, fs.ErrNotExist) {
+				t.Errorf("dest left behind: %v", statErr)
+			}
+			cmd := exec.Command("git", "rev-parse", "-q", "--verify", "refs/herdsman/snapshot/t/o")
+			cmd.Dir = root
+			if cmd.Run() == nil {
+				t.Error("snapshot ref left behind")
+			}
+		})
+	}
+}
+
+func TestTakeReportsCleanupFailures(t *testing.T) {
+	t.Run("folder", func(t *testing.T) {
+		root := dirtyRepo(t)
+		failChmod(t, BundleName)
+		swap(t, &osRemoveAll, func(string) error { return errors.New("cleanup failed") })
+		_, err := Take(context.Background(), testOptions(root, filepath.Join(t.TempDir(), "snap"), "t", "o"))
+		if !errors.Is(err, errPlanted) || !strings.Contains(err.Error(), "cleanup failed") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("ref", func(t *testing.T) {
+		root := dirtyRepo(t)
+		failChmod(t, BundleName)
+		failGit(t, "update-ref -d")
+		_, err := Take(context.Background(), testOptions(root, filepath.Join(t.TempDir(), "snap"), "t", "o"))
+		if !errors.Is(err, errPlanted) || !strings.Contains(err.Error(), "update-ref -d") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+}
+
+// The data must be durable before the manifest claims it is complete.
+func TestPublicationOrder(t *testing.T) {
+	root := dirtyRepo(t)
+	base := t.TempDir()
+	dest := filepath.Join(base, "created", "deep", "snap")
+	var events []string
+	swap(t, &syncPath, func(name string) error {
+		events = append(events, "sync "+strings.TrimPrefix(name, base))
+		return syncToDisk(name)
+	})
+	swap(t, &osRename, func(from, to string) error {
+		events = append(events, "rename "+filepath.Base(to))
+		return os.Rename(from, to)
+	})
+	if _, err := Take(context.Background(), testOptions(root, dest, "t", "o")); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"sync /created/deep/snap/" + BundleName,
+		"sync /created/deep/snap/" + PreservedName,
+		"sync /created/deep/snap/" + ManifestName + ".tmp",
+		"rename " + ManifestName,
+		"sync /created/deep/snap",
+		"sync /created/deep",
+		"sync /created",
+		"sync ",
+	}
+	if strings.Join(events, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("events:\n%s", strings.Join(events, "\n"))
+	}
+}
+
+func TestRestoreStopsOnEveryPlantedFailure(t *testing.T) {
+	root := newRepo(t)
+	writeT(t, root, "f", "x\n", 0o644)
+	dest, _ := takeT(t, root, "t", "o")
+	cases := map[string]func(*testing.T){
+		"open root": func(t *testing.T) {
+			swap(t, &osOpenRoot, func(string) (*os.Root, error) { return nil, errPlanted })
+		},
+		"chmod": func(t *testing.T) { failChmod(t, ".herdsman-restore") },
+		"rmdir": func(t *testing.T) {
+			swap(t, &osRmdir, func(string) error { return errPlanted })
+		},
+		"rename": func(t *testing.T) {
+			swap(t, &osRename, func(string, string) error { return errPlanted })
+		},
+		"resolve": func(t *testing.T) {
+			swap(t, &osAbs, func(string) (string, error) { return "", errPlanted })
+		},
+	}
+	for name, install := range cases {
+		t.Run(name, func(t *testing.T) {
+			parent := t.TempDir()
+			target := filepath.Join(parent, "r")
+			install(t)
+			if err := Restore(context.Background(), dest, target); !errors.Is(err, errPlanted) {
+				t.Fatalf("err = %v", err)
+			}
+			entries, err := os.ReadDir(parent)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("left behind: %v %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestVerifyPlantedFailures(t *testing.T) {
+	root := newRepo(t)
+	writeT(t, root, "f", "x\n", 0o644)
+	dest, _ := takeT(t, root, "t", "o")
+	t.Run("resolve", func(t *testing.T) {
+		swap(t, &osAbs, func(string) (string, error) { return "", errPlanted })
+		if _, err := Verify(context.Background(), dest); artifactOf(t, err) != ManifestName {
+			t.Fatal(err)
+		}
+	})
+	t.Run("stat", func(t *testing.T) {
+		swap(t, &osStat, func(string) (fs.FileInfo, error) { return nil, errPlanted })
+		if _, err := Verify(context.Background(), dest); artifactOf(t, err) != FolderArtifact {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestFirstExistingAndSyncToDisk(t *testing.T) {
+	if got := firstExisting("/herdsman-absent-folder/x"); got != "/" {
+		t.Fatalf("got %q", got)
+	}
+	if err := syncToDisk(filepath.Join(t.TempDir(), "absent")); err == nil {
+		t.Fatal("missing path")
+	}
+}
+
+func TestCheckLayoutDirect(t *testing.T) {
+	m := &Manifest{Files: []FileRecord{{Path: "f", Source: SourceTree}}}
+	for _, links := range [][]string{{"../x"}, {"f"}} {
+		if err := checkLayout(m, links); !errors.Is(err, ErrUnsafePath) {
+			t.Errorf("%v: %v", links, err)
+		}
+	}
+	if err := checkLayout(m, []string{"sub"}); err != nil {
+		t.Error(err)
+	}
+}
+
+// Verification checks names; this holds for what only the filesystem knows.
+func TestPrepareParentsRefusesRealSymlinks(t *testing.T) {
+	root, dir := openRoot(t)
+	if err := os.Symlink(t.TempDir(), filepath.Join(dir, "lnk")); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareParents(root, "lnk/pwned"); !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("err = %v", err)
+	}
+	long := strings.Repeat("n", 300) + "/f"
+	if err := prepareParents(root, long); err == nil || errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAddPreservedRejectsUnencodableHeader(t *testing.T) {
+	dir := t.TempDir()
+	rec := FileRecord{Path: "a\x00b", Mode: 0o100644}
+	if err := writePreserved(dir, filepath.Join(dir, "out"), []FileRecord{rec}); err == nil {
+		t.Fatal("expected an error")
+	}
+}
+
+func TestWriteWorkingTreeStopsOnOccupiedGitlink(t *testing.T) {
+	repo := newRepo(t)
+	info := "160000 " + strings.Repeat("a", 40) + "\tsub\n"
+	env := filepath.Join(t.TempDir(), "index")
+	cmd := exec.Command("git", "update-index", "--add", "--index-info")
+	cmd.Dir, cmd.Stdin = repo, strings.NewReader(info)
+	cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+env)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	write := exec.Command("git", "write-tree")
+	write.Dir, write.Env = repo, append(os.Environ(), "GIT_INDEX_FILE="+env)
+	tree, err := write.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, dir := openRoot(t)
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeWorkingTree(context.Background(), root, repo, strings.TrimSpace(string(tree))); err == nil {
+		t.Fatal("expected an error")
+	}
+}
+
+func TestUnpackStopsOnOccupiedPath(t *testing.T) {
+	root, rootDir := openRoot(t)
+	writeT(t, rootDir, "taken", "mine", 0o644)
+	var buf bytes.Buffer
+	w := tar.NewWriter(&buf)
+	if err := w.WriteHeader(&tar.Header{Name: "taken", Typeflag: tar.TypeReg, Mode: 0o644, Size: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	writeT(t, dir, "a.tar", buf.String(), 0o600)
+	if err := unpackPreserved(root, filepath.Join(dir, "a.tar")); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("err = %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(rootDir, "taken")); string(got) != "mine" {
+		t.Fatal("existing file changed")
+	}
+}
+
+// Verification reads the archive once; the unpack is the next open.
+func TestRestoreStopsWhenTheArchiveCannotBeUnpacked(t *testing.T) {
+	root := newRepo(t)
+	writeT(t, root, "f", "x\n", 0o644)
+	dest, _ := takeT(t, root, "t", "o")
+	opens := 0
+	swap(t, &osOpen, func(name string) (*os.File, error) {
+		if strings.HasSuffix(name, PreservedName) {
+			if opens++; opens == 2 {
+				return nil, errPlanted
+			}
+		}
+		return os.Open(name)
+	})
+	target := filepath.Join(t.TempDir(), "r")
+	if err := Restore(context.Background(), dest, target); !errors.Is(err, errPlanted) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("target left behind: %v", err)
 	}
 }

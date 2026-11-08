@@ -5,15 +5,44 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // gitBinary is a variable so tests can plant a failing git.
 var gitBinary = "git"
+
+// These operating-system calls are variables so tests can make each failure
+// happen: this code authorizes deletion, so every failure path is exercised.
+var (
+	osAbs       = filepath.Abs
+	osChmod     = os.Chmod
+	osLstat     = os.Lstat
+	osMkdir     = os.Mkdir
+	osOpen      = os.Open
+	osOpenRoot  = os.OpenRoot
+	osReadlink  = os.Readlink
+	osRemoveAll = os.RemoveAll
+	osRename    = os.Rename
+	osRmdir     = syscall.Rmdir
+	osStat      = os.Stat
+	syncPath    = syncToDisk
+)
+
+// syncToDisk flushes a file or a folder's entries to stable storage.
+func syncToDisk(name string) error {
+	f, err := os.Open(name)
+	if err != nil {
+		return err
+	}
+	return errors.Join(f.Sync(), f.Close())
+}
 
 // repoEnvVars locate a repository. A hook or a parent git process may set
 // them, and they would point these commands at the wrong one.
@@ -37,7 +66,8 @@ func gitEnviron(extra []string) []string {
 }
 
 func gitCommand(ctx context.Context, dir string, extraEnv []string, args ...string) *exec.Cmd {
-	full := append([]string{"-c", "core.fsmonitor=false"}, args...)
+	// A replacement ref would make git read different bytes than were stored.
+	full := append([]string{"--no-replace-objects", "-c", "core.fsmonitor=false"}, args...)
 	cmd := exec.CommandContext(ctx, gitBinary, full...)
 	cmd.Dir = dir
 	cmd.Env = gitEnviron(extraEnv)
@@ -58,6 +88,13 @@ func runGit(ctx context.Context, dir string, extraEnv []string, stdin []byte, ar
 func gitText(ctx context.Context, dir string, args ...string) (string, error) {
 	out, err := runGit(ctx, dir, nil, nil, args...)
 	return strings.TrimSpace(string(out)), err
+}
+
+// gitPath returns a path result. A path may end in whitespace, so only git's
+// own line terminator is removed.
+func gitPath(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := runGit(ctx, dir, nil, nil, args...)
+	return strings.TrimSuffix(string(out), "\n"), err
 }
 
 // splitNUL parses `-z` output, whose records each end in NUL.
@@ -88,7 +125,7 @@ func createBundle(ctx context.Context, root, file, snapshotRef string) error {
 
 // checksum returns the SHA-256 and size of a file.
 func checksum(file string) (string, int64, error) {
-	f, err := os.Open(file)
+	f, err := osOpen(file)
 	if err != nil {
 		return "", 0, err
 	}

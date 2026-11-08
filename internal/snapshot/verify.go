@@ -32,7 +32,7 @@ var objectID = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 // absPaths resolves each path now: git runs in other folders later.
 func absPaths(paths ...*string) error {
 	for _, p := range paths {
-		resolved, err := filepath.Abs(*p)
+		resolved, err := osAbs(*p)
 		if err != nil {
 			return err
 		}
@@ -43,8 +43,9 @@ func absPaths(paths ...*string) error {
 
 // Verify proves a snapshot is whole and restorable: the folder is private,
 // each checksum holds, every bundle object is re-read in a scratch repository,
-// both trees match the manifest, and the archive holds exactly what is listed
-// with no entry that could leave a restore folder.
+// the recorded HEAD and both trees match the manifest, and the archive holds
+// exactly what is listed, restorable together with the tree and with no entry
+// that could leave a restore folder.
 func Verify(ctx context.Context, dir string) (*Manifest, error) {
 	if err := absPaths(&dir); err != nil {
 		return nil, failure(ManifestName, err)
@@ -56,14 +57,15 @@ func Verify(ctx context.Context, dir string) (*Manifest, error) {
 	if err := checkManifest(ctx, m); err != nil {
 		return nil, failure(ManifestName, err)
 	}
-	info, err := os.Stat(dir)
+	info, err := osStat(dir)
 	if err != nil {
 		return nil, failure(FolderArtifact, err)
 	}
 	if info.Mode().Perm() != 0o700 {
 		return nil, failure(FolderArtifact, fmt.Errorf("mode is %o, want 700", info.Mode().Perm()))
 	}
-	if err := verifyBundle(ctx, filepath.Join(dir, BundleName), m); err != nil {
+	gitlinks, err := verifyBundle(ctx, filepath.Join(dir, BundleName), m)
+	if err != nil {
 		return nil, failure(BundleName, err)
 	}
 	preserved := filepath.Join(dir, PreservedName)
@@ -71,6 +73,9 @@ func Verify(ctx context.Context, dir string) (*Manifest, error) {
 		return nil, failure(PreservedName, err)
 	}
 	if err := checkPreserved(preserved, m); err != nil {
+		return nil, failure(PreservedName, err)
+	}
+	if err := checkLayout(m, gitlinks); err != nil {
 		return nil, failure(PreservedName, err)
 	}
 	return m, nil
@@ -124,24 +129,25 @@ func checkSum(file string, want Artifact) error {
 }
 
 // verifyBundle fetches into a scratch repository because `git bundle verify`
-// reads only the header and prerequisites; a fetch hashes every object.
-func verifyBundle(ctx context.Context, file string, m *Manifest) error {
+// reads only the header and prerequisites; a fetch hashes every object. It
+// returns the working tree's gitlink paths.
+func verifyBundle(ctx context.Context, file string, m *Manifest) ([]string, error) {
 	if err := checkSum(file, m.Bundle); err != nil {
-		return err
+		return nil, err
 	}
 	scratch, err := os.MkdirTemp("", "herdsman-verify-*")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer os.RemoveAll(scratch)
 	if _, err := runGit(ctx, scratch, nil, nil, "init", "-q", "--bare", "--template=", "--object-format="+m.ObjectFormat); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := runGit(ctx, scratch, nil, nil, "bundle", "verify", "-q", file); err != nil {
-		return err
+		return nil, err
 	}
 	if err := fetchBundle(ctx, scratch, file); err != nil {
-		return err
+		return nil, err
 	}
 	return checkTrees(ctx, scratch, m)
 }
@@ -169,26 +175,33 @@ func listTree(ctx context.Context, repo string, args ...string) ([]treeRow, erro
 	return rows, nil
 }
 
-func checkTrees(ctx context.Context, repo string, m *Manifest) error {
+func checkTrees(ctx context.Context, repo string, m *Manifest) ([]string, error) {
+	if m.Head != "" {
+		if _, err := runGit(ctx, repo, nil, nil, "cat-file", "-e", m.Head+"^{commit}"); err != nil {
+			return nil, err
+		}
+	}
 	top, err := listTree(ctx, repo, "-z", m.SnapshotCommit)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	found := map[string]string{}
 	for _, row := range top {
 		found[row.path] = row.oid
 	}
 	if found["staged"] != m.StagedTree || found["working"] != m.WorkingTree {
-		return fmt.Errorf("snapshot commit holds trees %v, manifest says staged %s, working %s", found, m.StagedTree, m.WorkingTree)
+		return nil, fmt.Errorf("snapshot commit holds trees %v, manifest says staged %s, working %s", found, m.StagedTree, m.WorkingTree)
 	}
 	rows, err := listTree(ctx, repo, "-r", "-z", m.WorkingTree)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	return compareWorking(rows, m)
 }
 
-func compareWorking(rows []treeRow, m *Manifest) error {
+// compareWorking returns the gitlink paths, which the manifest's file list
+// does not hold.
+func compareWorking(rows []treeRow, m *Manifest) ([]string, error) {
 	want := map[string]uint32{}
 	for _, f := range m.Files {
 		if f.Source == SourceTree {
@@ -196,19 +209,21 @@ func compareWorking(rows []treeRow, m *Manifest) error {
 		}
 	}
 	blobs := 0
+	var gitlinks []string
 	for _, row := range rows {
 		if row.kind != "blob" {
+			gitlinks = append(gitlinks, row.path)
 			continue
 		}
 		blobs++
 		// ls-tree prints valid octal, so the parse cannot fail.
 		mode, _ := strconv.ParseUint(row.mode, 8, 32)
 		if listed, ok := want[row.path]; !ok || uint64(listed) != mode {
-			return fmt.Errorf("working tree entry %q (mode %s) does not match the manifest", row.path, row.mode)
+			return nil, fmt.Errorf("working tree entry %q (mode %s) does not match the manifest", row.path, row.mode)
 		}
 	}
 	if blobs != len(want) {
-		return fmt.Errorf("working tree holds %d files, manifest lists %d", blobs, len(want))
+		return nil, fmt.Errorf("working tree holds %d files, manifest lists %d", blobs, len(want))
 	}
-	return nil
+	return gitlinks, nil
 }

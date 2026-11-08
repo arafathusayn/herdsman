@@ -156,7 +156,8 @@ func marshalManifest(m *Manifest) ([]byte, error) {
 }
 
 // writeManifest publishes the manifest by rename, so its presence means the
-// data files beside it were complete when it was written.
+// data files beside it were complete when it was written. The caller syncs
+// those files first; the manifest and the folder entry are synced here.
 func writeManifest(dir string, m *Manifest) error {
 	raw, err := marshalManifest(m)
 	if err != nil {
@@ -166,7 +167,13 @@ func writeManifest(dir string, m *Manifest) error {
 	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(dir, ManifestName))
+	if err := syncPath(tmp); err != nil {
+		return err
+	}
+	if err := osRename(tmp, filepath.Join(dir, ManifestName)); err != nil {
+		return err
+	}
+	return syncPath(dir)
 }
 
 // ReadManifest loads a snapshot's manifest and refuses a format of another
