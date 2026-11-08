@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -248,5 +249,48 @@ func TestConfigUsageErrors(t *testing.T) {
 		if code, _, _ := configCmd(t, args...); code != 2 {
 			t.Fatalf("%v: %d", args, code)
 		}
+	}
+}
+
+// gitRepo makes a repository with a remote and moves the test into it.
+func gitRepo(t *testing.T, remote string) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", remote}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	t.Chdir(root)
+	return root
+}
+
+func userConfig(t *testing.T, text string) {
+	t.Helper()
+	dir := config.UserDir(os.Environ())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, filepath.Join(dir, "config.toml"), text)
+}
+
+func TestConfigAppliesTheRepositorysOverrides(t *testing.T) {
+	configHome(t)
+	gitRepo(t, "git@github.com:acme/app.git")
+	userConfig(t, "[branch]\nname = \"general\"\n[projects.\"github.com/acme/app\".branch]\nname = \"special\"\n")
+	code, out, errText := configCmd(t, "get", "branch.name")
+	if code != 0 || strings.TrimSpace(out) != `"special"` && strings.TrimSpace(out) != "special" {
+		t.Fatalf("code %d, out %q, err %s", code, out, errText)
+	}
+}
+
+func TestConfigIgnoresAnotherRepositorysOverrides(t *testing.T) {
+	configHome(t)
+	gitRepo(t, "git@github.com:acme/other.git")
+	userConfig(t, "[branch]\nname = \"general\"\n[projects.\"github.com/acme/app\".branch]\nname = \"special\"\n")
+	if code, out, errText := configCmd(t, "get", "branch.name"); code != 0 || !strings.Contains(out, "general") {
+		t.Fatalf("code %d, out %q, err %s", code, out, errText)
 	}
 }

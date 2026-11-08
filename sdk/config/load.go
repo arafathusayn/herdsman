@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -225,24 +226,31 @@ func checkLayer(layer *tree.Node) error {
 	return nil
 }
 
+// parseVersion reads a SemVer core; ok is false for anything else.
+func parseVersion(text string) (numbers [3]int, ok bool) {
+	parts := strings.Split(text, ".")
+	if len(parts) != 3 {
+		return numbers, false
+	}
+	for i, part := range parts {
+		number, err := strconv.Atoi(part)
+		if err != nil || number < 0 {
+			return numbers, false
+		}
+		numbers[i] = number
+	}
+	return numbers, true
+}
+
 func checkSchemaVersion(node *tree.Node) error {
 	if node.Kind != tree.String {
 		return fmt.Errorf("schema.version: expected a string, found %s", node.Kind)
 	}
-	parts := strings.Split(node.Str, ".")
-	if len(parts) != 3 {
+	numbers, ok := parseVersion(node.Str)
+	if !ok {
 		return fmt.Errorf("schema.version: %q is not SemVer", node.Str)
 	}
-	numbers := [3]int{}
-	for i, part := range parts {
-		number, err := strconv.Atoi(part)
-		if err != nil || number < 0 {
-			return fmt.Errorf("schema.version: %q is not SemVer", node.Str)
-		}
-		numbers[i] = number
-	}
-	known, _, _ := strings.Cut(SchemaVersion, ".")
-	if major, _ := strconv.Atoi(known); numbers[0] > major {
+	if known, _ := parseVersion(SchemaVersion); numbers[0] > known[0] {
 		return fmt.Errorf("schema.version: the file needs %s, this binary knows %s; upgrade herdsman", node.Str, SchemaVersion)
 	}
 	return nil
@@ -543,6 +551,11 @@ func SetFile(path, key, value string) error {
 		if err != nil {
 			return err
 		}
+		if current, ok := root.Lookup(written...); ok && current.Kind == tree.Table {
+			if _, err := doc.UnsetTable(written); err != nil {
+				return err
+			}
+		}
 		if err := doc.Set(written, node); err != nil {
 			return err
 		}
@@ -581,7 +594,12 @@ func UnsetFile(path, key string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if _, err := doc.Unset(written); err != nil {
+		if current, _ := root.Lookup(written...); current.Kind == tree.Table {
+			_, err = doc.UnsetTable(written)
+		} else {
+			_, err = doc.Unset(written)
+		}
+		if err != nil {
 			return false, err
 		}
 		out = doc.Encode()
@@ -642,15 +660,33 @@ func encodeMessage(msg *configv1.Config, format string) ([]byte, error) {
 	}
 }
 
-// UpdateFile rewrites a file's keys to their canonical spelling, keeping a
-// TOML file's comments and any key it does not recognize.
+// schemaOutdated reports a supported version below the one this build writes.
+func schemaOutdated(root *tree.Node) bool {
+	node, ok := root.Lookup("schema", "version")
+	if !ok || node.Kind != tree.String {
+		return false
+	}
+	found, valid := parseVersion(node.Str)
+	known, _ := parseVersion(SchemaVersion)
+	return valid && slices.Compare(found[:], known[:]) < 0
+}
+
+// UpdateFile rewrites a file to the current contract: canonical key spellings
+// and the schema version this build writes. Comments survive in the formats
+// that have them, and a key it does not recognize stays. Two spellings of one
+// key are refused, since keeping either would lose the other.
 func UpdateFile(path string) error {
 	format, data, root, err := readForEdit(path)
 	if err != nil {
 		return err
 	}
+	if _, err := normalize(root, configDescriptor(), "", false, &report{}); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
 	pending := renames(root, configDescriptor(), nil, nil)
-	if len(pending) == 0 {
+	schemaPath := []string{"schema", "version"}
+	outdated := schemaOutdated(root)
+	if len(pending) == 0 && !outdated {
 		return nil
 	}
 	var out []byte
@@ -676,12 +712,22 @@ func UpdateFile(path string) error {
 				return err
 			}
 		}
+		if outdated {
+			if err := doc.Set(schemaPath, tree.NewString(SchemaVersion)); err != nil {
+				return err
+			}
+		}
 		out = doc.Encode()
 	} else {
 		for _, item := range pending {
 			parent, _ := root.Lookup(item.from[:len(item.from)-1]...)
 			parent.Delete(item.from[len(item.from)-1])
 			if err := setPath(root, item.to, item.value); err != nil {
+				return err
+			}
+		}
+		if outdated {
+			if err := setPath(root, schemaPath, tree.NewString(SchemaVersion)); err != nil {
 				return err
 			}
 		}

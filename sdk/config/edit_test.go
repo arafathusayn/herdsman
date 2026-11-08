@@ -483,3 +483,97 @@ func TestSetKeepsFileMode(t *testing.T) {
 		t.Fatalf("mode %v", info.Mode().Perm())
 	}
 }
+
+func TestUpdateRenamesDottedTablePrefixes(t *testing.T) {
+	path := configFile(t, "# top\n[hooks]\npost-start.warm = \"echo warm\" # why\npost-start.cold = \"echo cold\"\n")
+	if err := UpdateFile(path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "# top\n[hooks]\npost_start.warm = \"echo warm\" # why\npost_start.cold = \"echo cold\"\n"
+	if string(data) != want {
+		t.Fatalf("file:\n%s", data)
+	}
+}
+
+func TestUpdateRefusesTwoSpellingsOfOneKey(t *testing.T) {
+	for name, tc := range map[string]struct{ file, text string }{
+		"json": {"c.json", `{"hooks":{"pre-merge":"a","pre_merge":"b"}}`},
+		"toml": {"c.toml", "[hooks]\npre-merge = \"a\"\npre_merge = \"b\"\n"},
+		"yaml": {"c.yaml", "hooks:\n  pre-merge: a\n  pre_merge: b\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeFile(t, filepath.Join(t.TempDir(), tc.file), tc.text)
+			if err := UpdateFile(path); err == nil || !strings.Contains(err.Error(), "twice") {
+				t.Fatalf("err = %v", err)
+			}
+			if data, _ := os.ReadFile(path); string(data) != tc.text {
+				t.Fatalf("file changed:\n%s", data)
+			}
+		})
+	}
+}
+
+func TestUpdateRaisesAnOlderSchemaVersion(t *testing.T) {
+	for name, tc := range map[string]struct{ file, text, want string }{
+		"toml comments": {"c.toml", "# keep\n[schema]\nversion = \"0.9.0\" # beside\n", "# keep\n[schema]\nversion = \"1.0.0\" # beside\n"},
+		"json":          {"c.json", `{"schema":{"version":"0.9.0"}}`, "{\n  \"schema\": {\n    \"version\": \"1.0.0\"\n  }\n}\n"},
+		"with rename":   {"d.toml", "[schema]\nversion = \"0.9.0\"\n[hooks]\npre-merge = \"a\"\n", "[schema]\nversion = \"1.0.0\"\n[hooks]\npre_merge = \"a\"\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeFile(t, filepath.Join(t.TempDir(), tc.file), tc.text)
+			if err := UpdateFile(path); err != nil {
+				t.Fatal(err)
+			}
+			if data, _ := os.ReadFile(path); string(data) != tc.want {
+				t.Fatalf("file:\n%s", data)
+			}
+		})
+	}
+}
+
+func TestUpdateLeavesACurrentOrAbsentVersionAlone(t *testing.T) {
+	for _, text := range []string{"[schema]\nversion = \"1.0.0\"\n", "[branch]\nname = \"x\"\n"} {
+		path := configFile(t, text)
+		if err := UpdateFile(path); err != nil {
+			t.Fatal(err)
+		}
+		if data, _ := os.ReadFile(path); string(data) != text {
+			t.Fatalf("file:\n%s", data)
+		}
+	}
+}
+
+func TestNamedHookCanBeReplacedAndRemovedInTOML(t *testing.T) {
+	const text = "[hooks.post-start]\nbuild = \"make\"\n\n[merge]\nland = \"pr\"\n"
+	t.Run("set", func(t *testing.T) {
+		path := configFile(t, text)
+		if err := SetFile(path, "hooks.post_start", "make other"); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Config.GetHooks().GetPostStart().GetCommand() != "make other" || got.Config.GetMerge() == nil {
+			t.Fatalf("config: %v", got.Config)
+		}
+	})
+	t.Run("unset", func(t *testing.T) {
+		path := configFile(t, text)
+		removed, err := UnsetFile(path, "hooks.post_start")
+		if err != nil || !removed {
+			t.Fatalf("removed %v, err %v", removed, err)
+		}
+		got, err := ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Config.GetHooks().GetPostStart() != nil || got.Config.GetMerge() == nil {
+			t.Fatalf("config: %v", got.Config)
+		}
+	})
+}

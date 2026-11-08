@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/approvals"
 	"github.com/arafathusayn/herdsman/sdk/config"
@@ -142,8 +144,26 @@ func repoRoot() string {
 	}
 }
 
+// repositoryKey names the repository at root in the user file, from its
+// origin remote. A repository with no remote has no overrides.
+func repositoryKey(root string) string {
+	if root == "" {
+		return ""
+	}
+	cmd := exec.Command("git", "-C", root, "remote", "get-url", "origin")
+	cmd.Env = slices.DeleteFunc(os.Environ(), func(pair string) bool {
+		return strings.HasPrefix(pair, "GIT_DIR=") || strings.HasPrefix(pair, "GIT_WORK_TREE=")
+	})
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return config.RepositoryKey(string(out))
+}
+
 func (a *configArgs) options() config.Options {
-	return config.Options{ConfigPath: a.path, RepoRoot: repoRoot(), Strict: a.strict}
+	root := repoRoot()
+	return config.Options{ConfigPath: a.path, RepoRoot: root, ProjectKey: repositoryKey(root), Strict: a.strict}
 }
 
 func (a *configArgs) load(stderr io.Writer) (*config.Result, error) {
