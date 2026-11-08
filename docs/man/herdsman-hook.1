@@ -1,0 +1,19 @@
+.TH HERDSMAN-HOOK 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-hook \- Show, approve or run a worktree hook.
+.SH DESCRIPTION
+.nf
+usage: herdsman hook <type> [--dry-run] [--approve] [--from <task>] [--json]
+       herdsman hook show [<type>]
+
+Runs one hook point for the current worktree, or for --from's. --dry-run prints
+the expanded commands, --approve accepts exactly these templates, and show
+lists what is configured.
+
+exit codes:
+  0  done
+  1  the hook failed or is not approved
+  2  bad usage
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

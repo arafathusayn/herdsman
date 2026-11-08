@@ -1,0 +1,17 @@
+# herdsman hook
+
+Show, approve or run a worktree hook.
+
+```text
+usage: herdsman hook <type> [--dry-run] [--approve] [--from <task>] [--json]
+       herdsman hook show [<type>]
+
+Runs one hook point for the current worktree, or for --from's. --dry-run prints
+the expanded commands, --approve accepts exactly these templates, and show
+lists what is configured.
+
+exit codes:
+  0  done
+  1  the hook failed or is not approved
+  2  bad usage
+```

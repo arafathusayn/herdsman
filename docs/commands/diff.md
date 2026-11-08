@@ -1,0 +1,20 @@
+# herdsman diff
+
+Show a worktree's changes.
+
+```text
+usage: herdsman diff [<task>] [--working|--committed|--remote] [--json] [-- <git diff args>]
+
+Prints git's diff for a worktree, the current one when no task is named. With
+no mode it is everything since the branch left the default branch, whether
+committed, in the index, edited or new. Reading it stages nothing.
+
+  --working    staged, unstaged and untracked changes against the last commit
+  --committed  commits since the branch left the default branch
+  --remote     commits the upstream does not have yet
+
+exit codes:
+  0  printed
+  1  no such worktree, git refused, or --exit-code found differences
+  2  bad usage
+```

@@ -1,0 +1,2 @@
+# Public keys trusted for release signatures, one "ed25519:<base64>" per line.
+# See "The signing key" in MAINTAINING.md.

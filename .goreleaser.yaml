@@ -29,6 +29,8 @@ builds:
     binary: herdsman
     env:
       - CGO_ENABLED=1
+    # A fixed time for the file, so that the archives can match byte for byte.
+    mod_timestamp: "{{ .CommitTimestamp }}"
     flags:
       - -trimpath
     tags:
@@ -69,12 +71,82 @@ archives:
   - id: herdsman
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # Fixed times and owners: without them the archive holds the checkout's,
+    # and two builds of one tag have different checksums.
+    builds_info:
+      mtime: "{{ .CommitDate }}"
+      owner: root
+      group: root
     files:
-      - LICENSE
-      - README.md
+      - src: LICENSE
+        info:
+          mtime: "{{ .CommitDate }}"
+          owner: root
+          group: root
+          mode: 0o644
+      - src: README.md
+        info:
+          mtime: "{{ .CommitDate }}"
+          owner: root
+          group: root
+          mode: 0o644
+      - src: docs/man/*.1
+        info:
+          mtime: "{{ .CommitDate }}"
+          owner: root
+          group: root
+          mode: 0o644
 
 checksum:
   name_template: checksums.txt
+
+# One document for the release: every upstream the binaries carry, from each
+# VENDOR.md, the SQLite inside the driver, and the web app's submodule. Code
+# that only tests use (a conformance folder) stays out, by rule; see
+# internal/update/sbom.go. The commit date keeps two builds identical.
+sboms:
+  - id: herdsman
+    artifacts: any
+    documents:
+      - "{{ .ProjectName }}_{{ .Version }}.spdx.json"
+    cmd: go
+    # GoReleaser clears the environment of this command.
+    env:
+      - GOFLAGS=-mod=vendor
+      - GOPROXY=off
+      - GOCACHE={{ envOrDefault "GOCACHE" "" }}
+    args:
+      - run
+      - ../internal/update/releasetool
+      - sbom
+      - --zig-version
+      # The zig of release.yml: the linux binaries link its musl statically.
+      - 0.17.0
+      - --root
+      - ..
+      - --version
+      - "{{ .Version }}"
+      - --created
+      - "{{ .CommitDate }}"
+      - --out
+      - "$document"
+
+# herdsman update trusts this signature. The private key comes from the
+# environment, and the tool stops when the key is absent or when the binaries
+# do not trust it, so an unsigned release cannot be published.
+signs:
+  - id: checksums
+    artifacts: checksum
+    signature: "${artifact}.sig"
+    cmd: go
+    args:
+      - run
+      - ./internal/update/releasetool
+      - sign
+      - --in
+      - "${artifact}"
+      - --out
+      - "${signature}"
 
 homebrew_casks:
   - name: herdsman
@@ -90,6 +162,9 @@ homebrew_casks:
     description: Run a whole team of coding agents from one conversation, and from the browser.
     license: GPL-3.0-only
     binaries: [herdsman]
+    # The pages for each command are in the archive beside this one.
+    manpages:
+      - docs/man/herdsman.1
     hooks:
       post:
         # The binary is not notarized; let macOS run it without the quarantine prompt.
