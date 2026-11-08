@@ -1,0 +1,13 @@
+{
+  "name": "@herdsman/sdk",
+  "version": "0.0.0-dev",
+  "description": "Typed client for the herdsman daemon's RPC services.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": ["dist", "src"],
+  "exports": {
+    ".": { "types": "./src/client.ts", "default": "./dist/client.js" },
+    "./*": { "types": "./src/generated/*.ts", "default": "./dist/generated/*.js" }
+  }
+}

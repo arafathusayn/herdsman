@@ -90,12 +90,301 @@
       ]
     },
     {
+      "name": "commit",
+      "summary": "Commit a worktree with a Conventional Commits message.",
+      "help": "usage: herdsman commit [--squash <target>] [--dry-run] [-m <message>] [--type <type>] [--scope <scope>] [--json]\n\nStages the current worktree by its [commit] stage policy and commits. The\nmessage is written by the configured generator, from the staged diff, and must\nbe a Conventional Commits message. When no generator can answer, the command\nwrites a plain one from the branch and the file names and says so; an answer\nthat is still invalid after one retry stops the commit.\n\n--squash folds every commit since the branch left <target> into this one.\n--dry-run shows the request, which program gets it and its answer; nothing changes.\n\nexit codes:\n  0  committed, or the dry run printed\n  1  nothing to commit, an invalid message, or git refused\n  2  bad usage\n",
+      "usage": [
+        "herdsman commit [--squash <target>] [--dry-run] [-m <message>] [--type <type>] [--scope <scope>] [--json]"
+      ],
+      "positionals": [
+        {
+          "name": "message"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--scope",
+          "valueName": "scope"
+        },
+        {
+          "name": "--squash",
+          "valueName": "target"
+        },
+        {
+          "name": "--type",
+          "valueName": "type"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "committed, or the dry run printed"
+        },
+        {
+          "code": "1",
+          "meaning": "nothing to commit, an invalid message, or git refused"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "config",
+      "summary": "Install the shell integration.",
+      "help": "usage: herdsman config shell install|uninstall [bash|zsh|fish] [--json]\n\nAdds or removes the wrapper that lets herdsman go change the shell's folder,\nwith static completions. The shell defaults to $SHELL.\n\nexit codes:\n  0  done\n  1  the startup file could not be changed, or the shell is not supported\n  2  bad usage\n",
+      "usage": [
+        "herdsman config shell install|uninstall [bash|zsh|fish] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the startup file could not be changed, or the shell is not supported"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
       "name": "daemon",
       "summary": "The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential."
     },
     {
+      "name": "diff",
+      "summary": "Show a worktree's changes.",
+      "help": "usage: herdsman diff [<task>] [--working|--committed|--remote] [--json] [-- <git diff args>]\n\nPrints git's diff for a worktree, the current one when no task is named. With\nno mode it is everything since the branch left the default branch, whether\ncommitted, in the index, edited or new. Reading it stages nothing.\n\n  --working    staged, unstaged and untracked changes against the last commit\n  --committed  commits since the branch left the default branch\n  --remote     commits the upstream does not have yet\n\nexit codes:\n  0  printed\n  1  no such worktree, git refused, or --exit-code found differences\n  2  bad usage\n",
+      "usage": [
+        "herdsman diff [<task>] [--working|--committed|--remote] [--json] [-- <git diff args>]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        },
+        {
+          "name": "git diff args"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--committed"
+        },
+        {
+          "name": "--exit-code"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--remote"
+        },
+        {
+          "name": "--working"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "printed"
+        },
+        {
+          "code": "1",
+          "meaning": "no such worktree, git refused, or --exit-code found differences"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
       "name": "doctor",
       "summary": "Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load."
+    },
+    {
+      "name": "each",
+      "summary": "Run a command in every worktree.",
+      "help": "usage: herdsman each [--json] -- <command> [<arg>...]\n\nRuns a command in each worktree of the repository in turn; a failure in one\ndoes not stop the rest. The command is run as given, without a shell; use\nsh -c '...' for one. It sees HERDSMAN_TASK, HERDSMAN_BRANCH and\nHERDSMAN_WORKTREE_PATH, and reads nothing from standard input.\n\nThe command's output goes to standard output. The heading before each run and\nthe summary go to standard error, so the output can be piped. With --json the\ncommand's output moves to standard error too and standard output holds only the\nresults.\n\nexit codes:\n  0  the command succeeded everywhere\n  1  it failed somewhere, or the worktrees could not be listed\n  2  bad usage\n",
+      "usage": [
+        "herdsman each [--json] -- <command> [<arg>...]"
+      ],
+      "positionals": [
+        {
+          "name": "command"
+        },
+        {
+          "name": "arg"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "the command succeeded everywhere"
+        },
+        {
+          "code": "1",
+          "meaning": "it failed somewhere, or the worktrees could not be listed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "go",
+      "summary": "Enter a worktree.",
+      "help": "usage: herdsman go [<task>|<branch>|<path>|^|@|-|pr:<n>|<url>] [--no-cd] [--focus] [--json]\n\nFinds a worktree, making one for a pull request, and enters it when the shell\nwrapper is installed (herdsman config shell install). With no argument it prints\nthe table and, on a terminal, reads a selector.\n\nexit codes:\n  0  found\n  1  nothing matched, or the switch hook failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman go [<task>|<branch>|<path>|^|@|-|pr:<n>|<url>] [--no-cd] [--focus] [--json]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        },
+        {
+          "name": "branch"
+        },
+        {
+          "name": "path"
+        },
+        {
+          "name": "n"
+        },
+        {
+          "name": "url"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--focus"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--no-cd"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "found"
+        },
+        {
+          "code": "1",
+          "meaning": "nothing matched, or the switch hook failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "hook",
+      "summary": "Show, approve or run a worktree hook.",
+      "help": "usage: herdsman hook <type> [--dry-run] [--approve] [--from <task>] [--json]\n       herdsman hook show [<type>]\n\nRuns one hook point for the current worktree, or for --from's. --dry-run prints\nthe expanded commands, --approve accepts exactly these templates, and show\nlists what is configured.\n\nexit codes:\n  0  done\n  1  the hook failed or is not approved\n  2  bad usage\n",
+      "usage": [
+        "herdsman hook <type> [--dry-run] [--approve] [--from <task>] [--json]",
+        "herdsman hook show [<type>]"
+      ],
+      "positionals": [
+        {
+          "name": "type"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--approve"
+        },
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--from",
+          "valueName": "task"
+        },
+        {
+          "name": "--json"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the hook failed or is not approved"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "ls",
+      "summary": "List the repository's worktrees.",
+      "help": "usage: herdsman ls [--full] [--all] [--json]\n       herdsman ls --statusline [--format text|json|claude-code]\n\nPrints one row per worktree of the repository. --all adds branches without a\ntree, --full adds the commit and path. The JSON form is for scripts:\n\n  herdsman ls --json | jq -r '.rows[] | select(.status != \"\") | .task'\n\nexit codes:\n  0  printed\n  1  the table could not be read\n  2  bad usage\n",
+      "usage": [
+        "herdsman ls [--full] [--all] [--json]",
+        "herdsman ls --statusline [--format text|json|claude-code]"
+      ],
+      "flags": [
+        {
+          "name": "--all"
+        },
+        {
+          "name": "--format"
+        },
+        {
+          "name": "--full"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--statusline"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "printed"
+        },
+        {
+          "code": "1",
+          "meaning": "the table could not be read"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
     },
     {
       "name": "message",
@@ -493,6 +782,139 @@
       "summary": "Probe each installed harness: its version, models, efforts and default effort as it reports them."
     },
     {
+      "name": "new",
+      "summary": "Make a task's branch and worktree.",
+      "help": "usage: herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]\n                    [--clobber] [--agent <command>] [--json] [-- <prompt>]\n\nMakes the task's branch and worktree from the fetched base, then runs its hooks\nand setup.\n\nexit codes:\n  0  the worktree is ready\n  1  it could not be made, or a hook or the setup failed (the message says which)\n  2  bad usage\n",
+      "usage": [
+        "herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        },
+        {
+          "name": "n"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--agent",
+          "valueName": "command"
+        },
+        {
+          "name": "--base",
+          "valueName": "ref"
+        },
+        {
+          "name": "--clobber"
+        },
+        {
+          "name": "--from"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--no-setup"
+        },
+        {
+          "name": "--type",
+          "valueName": "type"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "the worktree is ready"
+        },
+        {
+          "code": "1",
+          "meaning": "it could not be made, or a hook or the setup failed (the message says which)"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "recommend",
+      "summary": "The same as suggest.",
+      "help": "usage: herdsman suggest [<query>...] [--kind tip|mcp|skill|plugin|mod|repo]\n                        [--for <harness>] [--tag <tag>] [--json]\n       herdsman suggest show <id> [--json]\n       herdsman suggest add --title <text> --tag <tag>... --body-file <path> [--id <id>]\n                        [--kind <kind>] [--url <url>] [--repo <url>] [--project] [--json]\n       herdsman suggest apply <id> [--run] [--json]\n       herdsman suggest source add <url> [--ref <commit|tag>] [--json]\n       herdsman suggest source list [--json]\n       herdsman suggest source remove <url>\n       herdsman suggest source update <url> [--ref <commit|tag>] [--yes] [--json]\n\nSearches the catalog, ranked for this machine and project. apply prints a\nrecipe; --run executes it, on a terminal only, after approving its checksum.\nsource update shows the changes before it moves the pin.\n\nexit codes:\n  0  done\n  1  the entry or source was not found, or a recipe was refused or failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman suggest [<query>...] [--kind tip|mcp|skill|plugin|mod|repo]"
+      ],
+      "positionals": [
+        {
+          "name": "query"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--body-file",
+          "valueName": "path"
+        },
+        {
+          "name": "--for",
+          "valueName": "harness"
+        },
+        {
+          "name": "--id",
+          "valueName": "id"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--project"
+        },
+        {
+          "name": "--ref",
+          "valueName": "commit|tag"
+        },
+        {
+          "name": "--repo",
+          "valueName": "url"
+        },
+        {
+          "name": "--run"
+        },
+        {
+          "name": "--tag",
+          "valueName": "tag"
+        },
+        {
+          "name": "--title",
+          "valueName": "text"
+        },
+        {
+          "name": "--url",
+          "valueName": "url"
+        },
+        {
+          "name": "--yes"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the entry or source was not found, or a recipe was refused or failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
       "name": "review",
       "summary": "Prepare a reviewer: herdsman review start --worktree <path> --head <commit>."
     },
@@ -693,6 +1115,83 @@
         {
           "code": "2",
           "meaning": "usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid LIMIT_MIN"
+        }
+      ]
+    },
+    {
+      "name": "suggest",
+      "summary": "Search the catalog of tips and tools.",
+      "help": "usage: herdsman suggest [<query>...] [--kind tip|mcp|skill|plugin|mod|repo]\n                        [--for <harness>] [--tag <tag>] [--json]\n       herdsman suggest show <id> [--json]\n       herdsman suggest add --title <text> --tag <tag>... --body-file <path> [--id <id>]\n                        [--kind <kind>] [--url <url>] [--repo <url>] [--project] [--json]\n       herdsman suggest apply <id> [--run] [--json]\n       herdsman suggest source add <url> [--ref <commit|tag>] [--json]\n       herdsman suggest source list [--json]\n       herdsman suggest source remove <url>\n       herdsman suggest source update <url> [--ref <commit|tag>] [--yes] [--json]\n\nSearches the catalog, ranked for this machine and project. apply prints a\nrecipe; --run executes it, on a terminal only, after approving its checksum.\nsource update shows the changes before it moves the pin.\n\nexit codes:\n  0  done\n  1  the entry or source was not found, or a recipe was refused or failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman suggest [<query>...] [--kind tip|mcp|skill|plugin|mod|repo]"
+      ],
+      "positionals": [
+        {
+          "name": "query"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--body-file",
+          "valueName": "path"
+        },
+        {
+          "name": "--for",
+          "valueName": "harness"
+        },
+        {
+          "name": "--id",
+          "valueName": "id"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--project"
+        },
+        {
+          "name": "--ref",
+          "valueName": "commit|tag"
+        },
+        {
+          "name": "--repo",
+          "valueName": "url"
+        },
+        {
+          "name": "--run"
+        },
+        {
+          "name": "--tag",
+          "valueName": "tag"
+        },
+        {
+          "name": "--title",
+          "valueName": "text"
+        },
+        {
+          "name": "--url",
+          "valueName": "url"
+        },
+        {
+          "name": "--yes"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the entry or source was not found, or a recipe was refused or failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
         }
       ]
     },
