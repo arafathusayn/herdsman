@@ -130,6 +130,9 @@ func (s *messageService) ResetEvents(ctx context.Context, req *daemonv1.ResetEve
 // Status serves the route status: a call that names a pane must be that pane's
 // party.
 func (s *messageService) Status(ctx context.Context, req *daemonv1.StatusRequest) (*daemonv1.StatusResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err // the route's actor could still answer a call already over
+	}
 	name := req.GetRoute().GetValue()
 	if name == "" {
 		return nil, rpc.Errorf(rpc.InvalidArgument, "the request names no route")
