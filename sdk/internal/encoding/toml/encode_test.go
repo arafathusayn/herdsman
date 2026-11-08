@@ -202,6 +202,9 @@ func TestSet(t *testing.T) {
 		{"nested inline edit keeps a sibling's comment", "h = { a = { x = [1, # keep\n 2], y = 1 } }\n", []string{"h", "a", "y"}, tree.NewInt(2), "h = { a = { x = [1, # keep\n 2], y = 2 } }\n"},
 		{"inline edit of a dotted key", "h = { a.b = 1, a.c = 2 }\n", []string{"h", "a", "c"}, tree.NewInt(3), "h = { a.b = 1, a.c = 3 }\n"},
 		{"inline add beside a dotted key", "h = { a.b = 1 }\n", []string{"h", "a", "c"}, tree.NewInt(3), "h = { a.b = 1, a.c = 3 }\n"},
+		{"dotted prefix replaced", "h = { a.b = 1, keep = 2 }\n", []string{"h", "a"}, tree.NewInt(9), "h = { a = 9, keep = 2 }\n"},
+		{"dotted prefix replaces its whole group", "h = { a.b = 1, keep = [3, # note\n 4], a.c = 2 }\n", []string{"h", "a"}, tree.NewInt(9), "h = { a = 9, keep = [3, # note\n 4] }\n"},
+		{"nested dotted prefix replaced", "h = { x.a.b = 1, x.c = 2 }\n", []string{"h", "x", "a"}, tree.NewInt(9), "h = { x.a = 9, x.c = 2 }\n"},
 		{"table value goes inline", "", []string{"h"}, func() *tree.Node {
 			v := tree.NewTable()
 			v.Set("dev", tree.NewString("x"))
@@ -245,7 +248,6 @@ func TestSetRefusesAndLeavesTheDocumentAlone(t *testing.T) {
 		{"not encodable", "a = 1\n", []string{"a"}, tree.NewNull()},
 		{"inline value not encodable", "a = {}\n", []string{"a", "b"}, tree.NewNull()},
 		{"two levels under a scalar in an inline table", "a = {b = {c = 1}}\n", []string{"a", "b", "c", "d", "e"}, tree.NewInt(1)},
-		{"a dotted table inside an inline table", "a = {b.c = 1}\n", []string{"a", "b"}, tree.NewInt(1)},
 		{"too deep once inside an inline table", "a = {}\n", []string{"a", "b"}, nestedArrays(maxDepth - 1)},
 		{"dotted insert into an implicit table", "[a.b.c]\n[a]\n", []string{"a", "b", "z"}, tree.NewInt(1)},
 	}
@@ -278,6 +280,13 @@ func TestUnset(t *testing.T) {
 		{"nested inline entry", "h = {a = {x = 1, y = 2}}\n", []string{"h", "a", "x"}, true, "h = {a = {y = 2}}\n"},
 		{"missing path under an inline table creates nothing", "h = {a = 1} # outside\n", []string{"h", "missing", "key"}, false, "h = {a = 1} # outside\n"},
 		{"missing path under a nested inline table creates nothing", "h = {a = {}}\n", []string{"h", "a", "b", "c"}, false, "h = {a = {}}\n"},
+		{"last dotted child keeps its table", "h = { a.b = 1, keep = 2 } # outside\n", []string{"h", "a", "b"}, true, "h = { a = {}, keep = 2 } # outside\n"},
+		{"last nested child keeps its table", "h = { a = { b = 1 }, keep = 2 }\n", []string{"h", "a", "b"}, true, "h = { a = {  }, keep = 2 }\n"},
+		{"dotted child with a sibling", "h = { a.b = 1, a.c = 2 }\n", []string{"h", "a", "b"}, true, "h = { a.c = 2 }\n"},
+		{"deep dotted child keeps only its own table", "h = { a.b.c = 1, a.d = 2 }\n", []string{"h", "a", "b", "c"}, true, "h = { a.b = {}, a.d = 2 }\n"},
+		{"dotted prefix removed", "h = { a.b = 1, keep = 2 }\n", []string{"h", "a"}, true, "h = { keep = 2 }\n"},
+		{"dotted prefix removes its whole group", "h = { a.b = 1, keep = [3, # note\n 4], a.c = 2 }\n", []string{"h", "a"}, true, "h = { keep = [3, # note\n 4] }\n"},
+		{"nested dotted prefix keeps its parent", "h = { x.a.b = 1 }\n", []string{"h", "x", "a"}, true, "h = { x = {} }\n"},
 		{"missing key", "a = 1\n", []string{"b"}, false, "a = 1\n"},
 		{"missing key inside an inline table", "h = {a = 1}\n", []string{"h", "z"}, false, "h = {a = 1}\n"},
 	}
@@ -336,21 +345,31 @@ func TestReviewedInlineEdits(t *testing.T) {
 	}
 }
 
+func TestUnsetOfALastDottedChildKeepsTheTable(t *testing.T) {
+	doc := parseDoc(t, "h = { a.b = 1, keep = 2 }\n")
+	if removed, err := doc.Unset([]string{"h", "a", "b"}); err != nil || !removed {
+		t.Fatalf("Unset = %v, %v", removed, err)
+	}
+	a, ok := doc.Tree().Lookup("h", "a")
+	if !ok || a.Kind != tree.Table || a.Len() != 0 {
+		t.Fatalf("h.a = %+v, %v; want an empty table", a, ok)
+	}
+}
+
 func TestUnsetRefuses(t *testing.T) {
 	for name, c := range map[string]struct {
 		src  string
 		path []string
 	}{
-		"empty path":             {"a = 1\n", nil},
-		"invalid utf-8 key":      {"a = 1\n", []string{"\xff"}},
-		"invalid utf-8 section":  {"a = 1\n", []string{"\xff", "k"}},
-		"invalid utf-8 last":     {"[x]\n", []string{"x", "\xff"}},
-		"invalid utf-8 inline":   {"h = {a = 1}\n", []string{"h", "\xff"}},
-		"a section":              {"[a]\nb = 1\n", []string{"a"}},
-		"array of tables":        {"[[a]]\nb = 1\n", []string{"a", "b"}},
-		"under a scalar":         {"a = 1\n", []string{"a", "b"}},
-		"dotted table in inline": {"a = {b.c = 1}\n", []string{"a", "b"}},
-		"scalar under inline":    {"a = {b = 1}\n", []string{"a", "b", "c"}},
+		"empty path":            {"a = 1\n", nil},
+		"invalid utf-8 key":     {"a = 1\n", []string{"\xff"}},
+		"invalid utf-8 section": {"a = 1\n", []string{"\xff", "k"}},
+		"invalid utf-8 last":    {"[x]\n", []string{"x", "\xff"}},
+		"invalid utf-8 inline":  {"h = {a = 1}\n", []string{"h", "\xff"}},
+		"a section":             {"[a]\nb = 1\n", []string{"a"}},
+		"array of tables":       {"[[a]]\nb = 1\n", []string{"a", "b"}},
+		"under a scalar":        {"a = 1\n", []string{"a", "b"}},
+		"scalar under inline":   {"a = {b = 1}\n", []string{"a", "b", "c"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			doc := parseDoc(t, c.src)

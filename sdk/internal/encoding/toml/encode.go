@@ -301,33 +301,82 @@ func notATable(path []string) error {
 // nil newValue removes the field. It reports whether the text changed.
 func spliceInline(text string, rest []string, newValue *string) (string, bool, error) {
 	entries := scanInline(text)
-	for i, e := range entries {
-		switch {
-		case slices.Equal(e.parts, rest):
-			if newValue == nil {
-				return removeEntry(text, entries, i), true, nil
-			}
-			return text[:e.valueStart] + *newValue + text[e.valueEnd:], true, nil
-		case hasPathPrefix(rest, e.parts):
+	for _, e := range entries {
+		if hasPathPrefix(rest, e.parts) && !slices.Equal(rest, e.parts) {
 			value := text[e.valueStart:e.valueEnd]
 			if value[0] != '{' {
 				return "", false, notATable(e.parts)
 			}
 			inner, changed, err := spliceInline(value, rest[len(e.parts):], newValue)
 			return text[:e.valueStart] + inner + text[e.valueEnd:], changed, err
-		case hasPathPrefix(e.parts, rest):
-			return "", false, fmt.Errorf("toml: %q is a table, not a key", strings.Join(rest, "."))
 		}
 	}
-	if newValue == nil {
+	under := slices.IndexFunc(entries, func(e inlineEntry) bool { return hasPathPrefix(e.parts, rest) })
+	switch {
+	case under < 0 && newValue == nil:
 		return text, false, nil
+	case under < 0:
+		return addEntry(text, entries, keyText(rest)+" = "+*newValue), true, nil
+	case newValue == nil:
+		return removeField(text, rest), true, nil
+	case slices.Equal(entries[under].parts, rest):
+		e := entries[under]
+		return text[:e.valueStart] + *newValue + text[e.valueEnd:], true, nil
 	}
-	field := keyText(rest) + " = " + *newValue
+	return replaceField(text, rest, keyText(rest)+" = "+*newValue), true, nil
+}
+
+func addEntry(text string, entries []inlineEntry, field string) string {
 	if len(entries) == 0 {
-		return text[:1] + field + text[1:], true, nil
+		return text[:1] + field + text[1:]
 	}
 	end := entries[len(entries)-1].valueEnd
-	return text[:end] + ", " + field + text[end:], true, nil
+	return text[:end] + ", " + field + text[end:]
+}
+
+// collapseField removes every entry that spells a part of the field at rest
+// except the first, since `a.b` and `a.c` together are one field `a`. It
+// returns the shortened text, its entries and the index of the survivor.
+func collapseField(text string, rest []string) (string, []inlineEntry, int) {
+	for {
+		entries := scanInline(text)
+		first, last := -1, -1
+		for i, e := range entries {
+			if hasPathPrefix(e.parts, rest) {
+				if first < 0 {
+					first = i
+				}
+				last = i
+			}
+		}
+		if first == last {
+			return text, entries, first
+		}
+		text = removeEntry(text, entries, last)
+	}
+}
+
+// replaceField puts one entry in the place of the whole field at rest.
+func replaceField(text string, rest []string, entry string) string {
+	text, entries, i := collapseField(text, rest)
+	return text[:entries[i].start] + entry + text[entries[i].valueEnd:]
+}
+
+// removeField removes the field at rest. A dotted key also defines the tables
+// on its way, and those are distinct keys that outlive their last child.
+func removeField(text string, rest []string) string {
+	text, entries, i := collapseField(text, rest)
+	parent := rest[:len(rest)-1]
+	if len(parent) > 0 {
+		shared := false
+		for j, e := range entries {
+			shared = shared || (j != i && hasPathPrefix(e.parts, parent))
+		}
+		if !shared {
+			return text[:entries[i].start] + keyText(parent) + " = {}" + text[entries[i].valueEnd:]
+		}
+	}
+	return removeEntry(text, entries, i)
 }
 
 // removeEntry cuts one entry and the comma that goes with it.
