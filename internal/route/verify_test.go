@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -39,33 +40,73 @@ func notesRoute(t *testing.T, dir, layout string, rows int) string {
 	return file
 }
 
+// wholeBlocksDue is how many whole blocks the refresh after prev hashes. The
+// checks rotate through the blocks and the last one is nearly empty, so a
+// refresh that reaches it does about half the hashing of any other.
+func wholeBlocksDue(prev *Tail) int {
+	blocks, whole := len(prev.sums)+1, 0
+	for k := range min(verifyChunks, blocks) {
+		if (prev.next+k)%blocks < len(prev.sums) {
+			whole++
+		}
+	}
+	return whole
+}
+
+// refreshRun is a route file being refreshed and the least CPU one full
+// refresh of it took.
+type refreshRun struct {
+	dir, file string
+	tail      *Tail
+	least     time.Duration
+}
+
+func newRefreshRun(t *testing.T, layout string, rows int) *refreshRun {
+	t.Helper()
+	dir := t.TempDir()
+	file := notesRoute(t, dir, layout, rows)
+	tail, err := LoadBounded(dir, 100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &refreshRun{dir: dir, file: file, tail: tail, least: time.Hour}
+}
+
+// sample appends, refreshes and keeps the CPU time when the refresh hashed
+// whole blocks only. Collecting first keeps the runtime's background work
+// for earlier garbage out of the measurement.
+func (r *refreshRun) sample(t *testing.T) {
+	t.Helper()
+	appendTo(t, r.file, "note\n")
+	whole := wholeBlocksDue(r.tail)
+	runtime.GC()
+	start := cpuNow()
+	tail, err := LoadBounded(r.dir, 100, r.tail)
+	used := cpuNow() - start
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.tail = tail
+	if whole == verifyChunks {
+		r.least = min(r.least, used)
+	}
+}
+
 // A24: a refresh after an append costs the same CPU whatever the size of
-// the other sections: 8 MiB and 32 MiB of Notes, in both layouts.
+// the other sections: 8 MiB and 32 MiB of Notes, in both layouts. Load only
+// adds CPU time, so each side keeps its least over many refreshes, and the
+// two sides alternate so a busy spell reaches both. A read of the whole file
+// costs over three times as much at 32 MiB as at 8 MiB, well past the limit.
 func TestRefreshCostDoesNotGrowWithNotes(t *testing.T) {
 	for _, layout := range []string{"nonfinal", "repeated"} {
-		cost := map[int]time.Duration{}
-		for _, rows := range []int{8 << 10, 32 << 10} {
-			dir := t.TempDir()
-			file := notesRoute(t, dir, layout, rows)
-			tail, err := LoadBounded(dir, 100, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			best := time.Hour
-			for range 7 {
-				appendTo(t, file, "note\n")
-				start := cpuNow()
-				tail, err = LoadBounded(dir, 100, tail)
-				best = min(best, cpuNow()-start)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			cost[rows] = best
+		small, large := newRefreshRun(t, layout, 8<<10), newRefreshRun(t, layout, 32<<10)
+		for range 32 {
+			small.sample(t)
+			large.sample(t)
 		}
-		t.Logf("%s: refresh CPU %v at 8 MiB, %v at 32 MiB of Notes", layout, cost[8<<10], cost[32<<10])
-		if cost[32<<10] > 2*cost[8<<10]+time.Millisecond {
-			t.Errorf("%s: refresh CPU grows with the Notes: %v at 8 MiB, %v at 32 MiB", layout, cost[8<<10], cost[32<<10])
+		t.Logf("%s: refresh CPU %v at 8 MiB, %v at 32 MiB of Notes", layout, small.least, large.least)
+		if large.least > 2*small.least {
+			t.Errorf("%s: refresh CPU grows with the Notes: %v at 8 MiB, %v at 32 MiB", layout, small.least, large.least)
 		}
 	}
 }
