@@ -58,7 +58,10 @@ type Reader struct {
 	gitDir    string
 	commonDir string
 	linked    bool
-	state     atomic.Pointer[repoState]
+	// openedOnGitDir is true only when Open was given the git directory itself,
+	// so neither a linked entry nor a .git file led to it.
+	openedOnGitDir bool
+	state          atomic.Pointer[repoState]
 }
 
 // repoState is what one version of the config file says about the repository.
@@ -108,6 +111,7 @@ func Open(path string) (*Reader, error) {
 	}
 	commonDir := findCommonDir(gitDir)
 	r := &Reader{gitDir: gitDir, commonDir: commonDir, linked: gitDir != commonDir}
+	r.openedOnGitDir = gitDir == resolved && !r.linked
 	r.currentState()
 	return r, nil
 }

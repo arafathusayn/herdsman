@@ -285,3 +285,39 @@ func TestLinkedGitdirTextIsReadAsGitReadsIt(t *testing.T) {
 		})
 	}
 }
+
+// Round 3: only a reader opened on the git directory itself may declare it
+// bare; from a checkout, git answers with what it finds there.
+func TestFallbackDeclaresBareOnlyWhenOpenedOnTheGitDirectory(t *testing.T) {
+	t.Run("linked checkout of a bare repository", func(t *testing.T) {
+		src := newRepo(t, "sha1")
+		root := filepath.Dir(src)
+		bare := filepath.Join(root, "bare.git")
+		runGit(t, src, "clone", "-q", "--bare", src, bare)
+		linked := filepath.Join(root, "linked")
+		runGit(t, bare, "worktree", "add", "-q", "--detach", linked)
+		runGit(t, bare, "config", "--unset", "core.bare")
+		assertSameAnswer(t, linked, openRepo(t, linked))
+		assertSameAnswer(t, bare, openRepo(t, bare))
+	})
+	separate := func(t *testing.T) (tree, meta string) {
+		root := tempDir(t)
+		tree, meta = filepath.Join(root, "tree"), filepath.Join(root, "sep.git")
+		runGit(t, root, "init", "-q", "-b", "main", "--separate-git-dir="+meta, tree)
+		runGit(t, tree, "config", "--unset", "core.bare")
+		return tree, meta
+	}
+	t.Run("separate git directory from its working tree", func(t *testing.T) {
+		tree, _ := separate(t)
+		assertSameAnswer(t, tree, openRepo(t, tree))
+	})
+	t.Run("separate git directory from itself", func(t *testing.T) {
+		_, meta := separate(t)
+		reader := openRepo(t, meta)
+		assertSameAnswer(t, meta, reader)
+		heads, err := reader.Heads(context.Background())
+		if err != nil || heads[0].State != HeadBare {
+			t.Fatalf("heads = %+v, %v; want bare", heads, err)
+		}
+	})
+}
