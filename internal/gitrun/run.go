@@ -64,6 +64,7 @@ func (e *ExitError) Error() string {
 type Runner struct {
 	Tracer Tracer
 	Git    string // Program to run; empty means "git".
+	Index  string // Index file to use in place of the repository's; empty means its own.
 }
 
 // Run executes git in the repository at dir, which must be absolute. A
@@ -81,6 +82,9 @@ func (r *Runner) Run(ctx context.Context, dir string, args ...string) (Result, e
 	}
 	cmd := exec.CommandContext(ctx, program, append([]string{"-C", dir}, args...)...)
 	cmd.Env = scrub(os.Environ())
+	if r.Index != "" {
+		cmd.Env = append(cmd.Env, "GIT_INDEX_FILE="+r.Index)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
