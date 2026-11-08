@@ -116,7 +116,8 @@ func (c *cappedBuffer) String() string {
 	return strings.TrimSpace(c.buf.String())
 }
 
-func (h Host) environment() []string {
+// Environment is what a plugin started by this host receives.
+func (h Host) Environment() []string {
 	var env []string
 	for _, name := range inheritedEnv {
 		if value, ok := os.LookupEnv(name); ok {
@@ -134,7 +135,7 @@ func (h Host) Start(ctx context.Context, path string) (*Process, error) {
 		timeout = defaultTimeout
 	}
 	cmd := exec.Command(path)
-	cmd.Env = h.environment()
+	cmd.Env = h.Environment()
 	var stderr cappedBuffer
 	cmd.Stderr = &stderr
 	stdin, err := cmd.StdinPipe()
