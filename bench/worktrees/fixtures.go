@@ -170,6 +170,10 @@ func buildRepository(root string, g fixtureGit, worktrees, ignoredMB int) (strin
 	if err := writeFile(filepath.Join(repo, ".gitignore"), "node_modules/\n", 0o644); err != nil {
 		return "", err
 	}
+	// The lock file is what makes new treat node_modules as a shared cache.
+	if err := g.commit(repo, "bun.lock", "", "add the lock file"); err != nil {
+		return "", err
+	}
 	if err := g.commit(repo, "shared.txt", "base\n", "first commit"); err != nil {
 		return "", err
 	}
@@ -229,5 +233,9 @@ func BuildFixtures(root string, small, large, ignoredMB int) (*Fixtures, error) 
 	if err != nil {
 		return nil, err
 	}
-	return f, writeFile(filepath.Join(f.Bin, "gh"), fakeGHScript(sha), 0o755)
+	if err := writeFile(filepath.Join(f.Bin, "gh"), fakeGHScript(sha), 0o755); err != nil {
+		return nil, err
+	}
+	// new installs what the lock file names; the measured work is the cache.
+	return f, writeFile(filepath.Join(f.Bin, "bun"), "#!/bin/sh\nexit 0\n", 0o755)
 }

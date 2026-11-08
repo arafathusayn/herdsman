@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/ledger"
+	"github.com/arafathusayn/herdsman/internal/wtree"
 )
 
 func testFixtures(t *testing.T) *Fixtures {
@@ -389,6 +391,24 @@ func verbCount(log [][]string, verb string) int {
 		}
 	}
 	return count
+}
+
+func TestFixtureMakesNewShareTheIgnoredTree(t *testing.T) {
+	f := testFixtures(t)
+	plan, err := wtree.Detect(f.Repo20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(plan.Share, "node_modules") {
+		t.Fatalf("got %+v", plan)
+	}
+	// The install the lock file implies must not reach for the network.
+	if _, err := execStep(toolEnv(f), Step{Dir: f.Repo20, Argv: []string{"bun", "install", "--frozen-lockfile"}}); err != nil {
+		t.Fatal(err)
+	}
+	if out, _ := exec.Command(filepath.Join(f.Bin, "bun"), "--version").CombinedOutput(); len(out) != 0 {
+		t.Fatalf("the stand-in must do nothing: %s", out)
+	}
 }
 
 func TestToolsDoNotInheritTheCheckWrappersCoreLimit(t *testing.T) {
