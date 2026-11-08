@@ -20,10 +20,14 @@ func decodeBin(data []byte, rep *report) (*tree.Node, error) {
 	if err := proto.Unmarshal(data, msg); err != nil {
 		return nil, err
 	}
-	for _, path := range unknownFields(msg.ProtoReflect(), "") {
-		if err := rep.unknownWire(path); err != nil {
-			return nil, err
+	var failure error
+	walkUnknown(msg.ProtoReflect(), "", false, func(path string, safety bool) {
+		if err := rep.unknownWire(path, safety); err != nil && failure == nil {
+			failure = err
 		}
+	})
+	if failure != nil {
+		return nil, failure
 	}
 	return messageTree(msg.ProtoReflect()), nil
 }
@@ -60,12 +64,19 @@ func isSingularMessage(fd protoreflect.FieldDescriptor) bool {
 // unknownFields names every field in msg that this build does not define.
 func unknownFields(msg protoreflect.Message, prefix string) []string {
 	var out []string
+	walkUnknown(msg, prefix, false, func(path string, _ bool) { out = append(out, path) })
+	return out
+}
+
+// walkUnknown visits every undefined field, saying whether it lies inside a
+// safety section.
+func walkUnknown(msg protoreflect.Message, prefix string, safety bool, visit func(path string, safety bool)) {
 	for raw := []byte(msg.GetUnknown()); len(raw) > 0; {
 		number, _, length := protowire.ConsumeField(raw)
 		if length < 0 {
 			break
 		}
-		out = append(out, joinKey(prefix, fmt.Sprintf("#%d", number)))
+		visit(joinKey(prefix, fmt.Sprintf("#%d", number)), safety)
 		raw = raw[length:]
 	}
 	fields := msg.Descriptor().Fields()
@@ -80,17 +91,16 @@ func unknownFields(msg protoreflect.Message, prefix string) []string {
 		case isMessageMap(fd):
 			for _, key := range sortedMapKeys(value.Map()) {
 				held := value.Map().Get(protoreflect.ValueOfString(key).MapKey())
-				out = append(out, unknownFields(held.Message(), joinKey(path, key))...)
+				walkUnknown(held.Message(), joinKey(path, key), safety, visit)
 			}
 		case isMessageList(fd):
 			for j := range value.List().Len() {
-				out = append(out, unknownFields(value.List().Get(j).Message(), fmt.Sprintf("%s[%d]", path, j))...)
+				walkUnknown(value.List().Get(j).Message(), fmt.Sprintf("%s[%d]", path, j), safety, visit)
 			}
 		case isSingularMessage(fd):
-			out = append(out, unknownFields(value.Message(), path)...)
+			walkUnknown(value.Message(), path, safety || isSafetySection(fd), visit)
 		}
 	}
-	return out
 }
 
 // carryUnknown copies the fields this build does not define from one message

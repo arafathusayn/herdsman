@@ -122,6 +122,11 @@ func Load(opts Options) (*Result, error) {
 	if err := applyFlags(merged, opts.Flags, md, sources); err != nil {
 		return nil, err
 	}
+	if node, ok := merged.Lookup("schema", "version"); ok {
+		if err := checkSchemaVersion(node); err != nil {
+			return nil, err
+		}
+	}
 	msg := &configv1.Config{}
 	if err := bindMessage(merged, msg.ProtoReflect(), ""); err != nil {
 		return nil, err
@@ -189,7 +194,7 @@ func decodeLayer(format string, data []byte, rep *report) (*tree.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	layer, err := normalize(root, configDescriptor(), "", rep)
+	layer, err := normalize(root, configDescriptor(), "", false, rep)
 	if err != nil {
 		return nil, err
 	}
@@ -354,10 +359,10 @@ func applyEnvironment(merged *tree.Node, environ []string, md protoreflect.Messa
 		if !ok || !prefixed || !strings.Contains(rest, "__") {
 			continue
 		}
-		key := strings.ToLower(strings.ReplaceAll(rest, "__", "."))
-		resolved, err := resolveKey(key, md)
+		parts := strings.Split(rest, "__")
+		resolved, err := resolveParts(rest, parts, md, envFieldName)
 		if err != nil {
-			if rep.strict {
+			if rep.strict || inSafetySection(parts, md, envFieldName) {
 				return fmt.Errorf("%s: %w", name, err)
 			}
 			rep.warnings = append(rep.warnings, Warning{Key: name})
@@ -475,7 +480,7 @@ func encodeFile(format string, root *tree.Node, original []byte) ([]byte, error)
 		return encodeText(format, root)
 	}
 	msg := &configv1.Config{}
-	layer, err := normalize(root, configDescriptor(), "", &report{})
+	layer, err := normalize(root, configDescriptor(), "", false, &report{})
 	if err != nil {
 		return nil, err
 	}

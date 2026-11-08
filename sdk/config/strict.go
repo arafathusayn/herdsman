@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"strings"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -32,6 +31,12 @@ type StrictError struct {
 
 func (e *StrictError) Error() string { return e.Warning.String() }
 
+// isSafetySection reports a field whose whole subtree is strict, wherever the
+// section sits: at the top of a file or inside one repository's overrides.
+func isSafetySection(fd protoreflect.FieldDescriptor) bool {
+	return isSingularMessage(fd) && strictSections[string(fd.Name())]
+}
+
 // report collects what normalization finds. strict turns every unknown key
 // into an error, as the strict sections always do.
 type report struct {
@@ -39,19 +44,18 @@ type report struct {
 	warnings []Warning
 }
 
-func (r *report) unknown(path, key string, md protoreflect.MessageDescriptor) error {
-	return r.add(Warning{Key: path, Suggestion: suggest(key, md)})
+func (r *report) unknown(path, key string, md protoreflect.MessageDescriptor, safety bool) error {
+	return r.add(Warning{Key: path, Suggestion: suggest(key, md)}, safety)
 }
 
 // unknownWire reports a binary field this build does not define; it has a
 // number and no name, so nothing can be suggested.
-func (r *report) unknownWire(path string) error {
-	return r.add(Warning{Key: path})
+func (r *report) unknownWire(path string, safety bool) error {
+	return r.add(Warning{Key: path}, safety)
 }
 
-func (r *report) add(warning Warning) error {
-	section, _, _ := strings.Cut(warning.Key, ".")
-	if r.strict || strictSections[section] {
+func (r *report) add(warning Warning, safety bool) error {
+	if r.strict || safety {
 		return &StrictError{Warning: warning}
 	}
 	r.warnings = append(r.warnings, warning)

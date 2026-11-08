@@ -23,7 +23,7 @@ func joinKey(prefix, key string) string {
 // normalize copies a decoded table into canonical field names, reporting keys
 // the message does not have. Map keys and hook names are the user's own text
 // and pass through unchanged.
-func normalize(in *tree.Node, md protoreflect.MessageDescriptor, prefix string, rep *report) (*tree.Node, error) {
+func normalize(in *tree.Node, md protoreflect.MessageDescriptor, prefix string, safety bool, rep *report) (*tree.Node, error) {
 	if in.Kind != tree.Table {
 		return nil, fmt.Errorf("%s: expected a table, found %s", displayKey(prefix), in.Kind)
 	}
@@ -34,7 +34,7 @@ func normalize(in *tree.Node, md protoreflect.MessageDescriptor, prefix string, 
 		path := joinKey(prefix, name)
 		fd := md.Fields().ByName(protoreflect.Name(name))
 		if fd == nil {
-			if err := rep.unknown(joinKey(prefix, key), key, md); err != nil {
+			if err := rep.unknown(joinKey(prefix, key), key, md, safety); err != nil {
 				return nil, err
 			}
 			continue
@@ -42,7 +42,7 @@ func normalize(in *tree.Node, md protoreflect.MessageDescriptor, prefix string, 
 		if _, dup := out.Get(name); dup {
 			return nil, fmt.Errorf("%s: written twice under different spellings", path)
 		}
-		converted, err := normalizeField(value, fd, path, rep)
+		converted, err := normalizeField(value, fd, path, safety || isSafetySection(fd), rep)
 		if err != nil {
 			return nil, err
 		}
@@ -51,7 +51,7 @@ func normalize(in *tree.Node, md protoreflect.MessageDescriptor, prefix string, 
 	return out, nil
 }
 
-func normalizeField(value *tree.Node, fd protoreflect.FieldDescriptor, path string, rep *report) (*tree.Node, error) {
+func normalizeField(value *tree.Node, fd protoreflect.FieldDescriptor, path string, safety bool, rep *report) (*tree.Node, error) {
 	switch {
 	case fd.IsMap():
 		if value.Kind != tree.Table {
@@ -63,7 +63,7 @@ func normalizeField(value *tree.Node, fd protoreflect.FieldDescriptor, path stri
 		out := tree.NewTable()
 		for _, key := range value.Keys() {
 			item, _ := value.Get(key)
-			converted, err := normalize(item, fd.MapValue().Message(), joinKey(path, key), rep)
+			converted, err := normalize(item, fd.MapValue().Message(), joinKey(path, key), safety, rep)
 			if err != nil {
 				return nil, err
 			}
@@ -76,7 +76,7 @@ func normalizeField(value *tree.Node, fd protoreflect.FieldDescriptor, path stri
 		}
 		out := tree.NewArray()
 		for i, item := range value.Items {
-			converted, err := normalize(item, fd.Message(), fmt.Sprintf("%s[%d]", path, i), rep)
+			converted, err := normalize(item, fd.Message(), fmt.Sprintf("%s[%d]", path, i), safety, rep)
 			if err != nil {
 				return nil, err
 			}
@@ -84,7 +84,7 @@ func normalizeField(value *tree.Node, fd protoreflect.FieldDescriptor, path stri
 		}
 		return out, nil
 	case fd.Kind() == protoreflect.MessageKind && string(fd.Message().FullName()) != hookSpecName:
-		return normalize(value, fd.Message(), path, rep)
+		return normalize(value, fd.Message(), path, safety, rep)
 	default:
 		return value, nil
 	}
