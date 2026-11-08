@@ -11,6 +11,24 @@ import (
 	"time"
 )
 
+// tempFile is the part of a file that publishing an event uses.
+type tempFile interface {
+	Name() string
+	Write([]byte) (int, error)
+	Chmod(os.FileMode) error
+	Sync() error
+	Close() error
+}
+
+// The system calls Append depends on, replaced by the tests that prove what
+// happens when one fails.
+var (
+	flock      = syscall.Flock
+	createTemp = func(dir, pattern string) (tempFile, error) { return os.CreateTemp(dir, pattern) }
+	linkFile   = os.Link
+	openDir    = os.Open
+)
+
 // Input is what a caller says about a new event.
 type Input struct {
 	Kind    string
@@ -25,8 +43,9 @@ type Input struct {
 }
 
 // Append adds one event. Its id sorts after every event of the same actor,
-// even one from a clock ahead of this one, and its time is the id's time, so
-// an actor's ids and times cannot disagree.
+// even one from a clock ahead of this one. Its time is the id's time, or the
+// actor's latest recorded time when that is later, so an actor's ids and times
+// cannot disagree.
 func Append(folder string, in Input) (Event, error) {
 	if err := validate(in); err != nil {
 		return Event{}, err
@@ -48,9 +67,13 @@ func Append(folder string, in Input) (Event, error) {
 		parents = in.Parents
 	}
 	floor := ""
+	var floorAt time.Time
 	for _, e := range events {
 		if e.Actor == in.Actor && e.ID > floor {
 			floor = e.ID
+		}
+		if e.Actor == in.Actor && e.At.After(floorAt) {
+			floorAt = e.At
 		}
 		// Found parents are crossed off, so what is left at the end is absent.
 		if i := slices.Index(in.Parents, e.ID); i >= 0 {
@@ -65,8 +88,12 @@ func Append(folder string, in Input) (Event, error) {
 		now = time.Now()
 	}
 	id := nextULID(floor, now)
+	at := ulidTime(id).Truncate(time.Second)
+	if at.Before(floorAt) {
+		at = floorAt
+	}
 	e := Event{
-		ID: id, Kind: in.Kind, At: ulidTime(id).Truncate(time.Second), Actor: in.Actor, Task: in.Task,
+		ID: id, Kind: in.Kind, At: at, Actor: in.Actor, Task: in.Task,
 		Repos: in.Repos, Parents: parents, Commits: in.Commits, Extra: in.Extra, Body: in.Body,
 	}
 	if e.Body != "" && !strings.HasSuffix(e.Body, "\n") {
@@ -116,7 +143,7 @@ func lockEvents(folder string) (func(), error) {
 		return nil, fmt.Errorf("%w: %s", ErrNotContextRepo, folder)
 	}
 	for {
-		err = syscall.Flock(int(dir.Fd()), syscall.LOCK_EX)
+		err = flock(int(dir.Fd()), syscall.LOCK_EX)
 		if !errors.Is(err, syscall.EINTR) {
 			break
 		}
@@ -132,7 +159,7 @@ func lockEvents(folder string) (func(), error) {
 // hard link, unlike a rename, cannot replace an existing event. A temporary
 // left by a crash starts with a dot, which readers skip.
 func writeEvent(dir, name string, data []byte) error {
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	tmp, err := createTemp(dir, ".tmp-*")
 	if err != nil {
 		return err
 	}
@@ -146,12 +173,12 @@ func writeEvent(dir, name string, data []byte) error {
 	}
 	err = errors.Join(err, tmp.Close())
 	if err == nil {
-		err = os.Link(tmp.Name(), filepath.Join(dir, name))
+		err = linkFile(tmp.Name(), filepath.Join(dir, name))
 	}
 	if err != nil {
 		return err
 	}
-	parent, err := os.Open(dir)
+	parent, err := openDir(dir)
 	if err != nil {
 		return err
 	}

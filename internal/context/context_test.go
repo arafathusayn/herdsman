@@ -546,7 +546,8 @@ func TestULID(t *testing.T) {
 	if got <= id || !ulidTime(got).Equal(at) {
 		t.Errorf("an earlier clock: %s after %s", got, id)
 	}
-	if got := successor("0000000000" + strings.Repeat("Z", 16)); got != "0000000001"+strings.Repeat("0", 16) {
+	full := "0000000000" + strings.Repeat("Z", 16)
+	if got := advance(full); got <= full || got[:ulidTimeLen] != "0000000001" {
 		t.Errorf("the random part did not carry into the time: %s", got)
 	}
 }
