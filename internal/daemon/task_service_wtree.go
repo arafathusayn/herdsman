@@ -430,6 +430,9 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 		return resp, err
 	}
 	defer r.close()
+	if err := refuseLinkedWorktree(filepath.Dir(r.common)); err != nil {
+		return resp, err
+	}
 	kind := req.Type
 	if kind == "" {
 		kind = "feat"

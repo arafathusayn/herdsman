@@ -15,3 +15,5 @@ The latest release. herdsman runs on macOS and Linux.
 `docs/threat-model.md` lists the inputs herdsman reads and how each is handled. Third-party code is pinned in this repository; `MAINTAINING.md` describes how an upstream fix lands.
 
 Secrets are read from the system keychain once, when a process starts. `HERDSMAN_SECRETS` lists references only, as `NAME=service/account` separated by commas. Every verb except `doctor` and `daemon` refuses to run if one cannot be read, and removes the values from what it prints and from any pane text it reads. `herdsman web` also removes them from its logs, from every response and header, and from what it writes to a route log. `herdsman doctor` reports which restrictions are in force on the machine.
+
+With `[policy] profile = "restricted"`, `herdsman up` gives each coordinator its own clone and a Codex sandbox limited to that clone and the route's folders, refuses other harnesses and flags that would change the sandbox, and requires `--pair manual`. `herdsman new` and the web refuse to start work under this profile.

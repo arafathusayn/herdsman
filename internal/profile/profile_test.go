@@ -383,3 +383,39 @@ func TestProtectedPathThroughAFileIsRefused(t *testing.T) {
 		t.Fatal("accepted")
 	}
 }
+
+func TestCheckHarnessArgs(t *testing.T) {
+	for _, bad := range [][]string{
+		{"--dangerously-bypass-approvals-and-sandbox"}, {"--yolo"},
+		{"--sandbox", "danger-full-access"}, {"--sandbox=danger-full-access"}, {"-s", "read-only"}, {"-sdanger-full-access"},
+		{"--add-dir", "/etc"}, {"--add-dir=/etc"}, {"--cd", "/"}, {"--cd=/"}, {"-C", "/"}, {"-C/"},
+		{"-c", "sandbox_mode=danger-full-access"}, {"--config", "sandbox_workspace_write.writable_roots=[]"},
+		{"--config=sandbox_mode=x"}, {"-csandbox_mode=x"}, {"-c", " sandbox_permissions=[]"},
+		{"-c", "cd=/"}, {"-c"},
+	} {
+		if err := CheckHarnessArgs(restricted, bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	for _, good := range [][]string{{"--model", "gpt"}, {"-c", "model=\"x\""}, {"--config=model=x"}, nil} {
+		if err := CheckHarnessArgs(restricted, good); err != nil {
+			t.Errorf("%q: %v", good, err)
+		}
+	}
+	if err := CheckHarnessArgs(policy.Policy{}, []string{"--yolo"}); err != nil {
+		t.Errorf("trusted-local: %v", err)
+	}
+}
+
+func TestResolveRootsAddsGrantsForAnyRole(t *testing.T) {
+	dir := tempDir(t)
+	task, folder := filepath.Join(dir, "task"), filepath.Join(dir, "route")
+	mkdirs(t, task, folder)
+	got, err := ResolveRoots(RootRequest{Policy: restricted, Role: RoleImplementer, TaskRoot: task, Grants: []string{folder}})
+	if err != nil || !slices.Equal(got.Extra, []string{folder}) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if _, err := ResolveRoots(RootRequest{Policy: restricted, Role: RoleImplementer, TaskRoot: task, Grants: []string{"rel"}}); err == nil {
+		t.Fatal("a relative grant was accepted")
+	}
+}

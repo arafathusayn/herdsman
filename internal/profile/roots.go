@@ -26,6 +26,8 @@ type RootRequest struct {
 	Policy   policy.Policy
 	Role     Role
 	TaskRoot string
+	// Grants are folders the agent's own work needs, given to any role.
+	Grants []string
 	// Protected names paths no root may hold or sit inside, such as the
 	// configuration that decides what the agent is allowed.
 	Protected []string
@@ -53,10 +55,11 @@ func ResolveRoots(req RootRequest) (Roots, error) {
 		return Roots{}, err
 	}
 	out := Roots{Primary: primary}
-	if req.Role != RoleIntegrator || req.Policy.NoRoots {
-		return out, nil
+	named := req.Grants
+	if req.Role == RoleIntegrator && !req.Policy.NoRoots {
+		named = append(slices.Clone(named), req.Policy.Roots...)
 	}
-	for _, root := range req.Policy.Roots {
+	for _, root := range named {
 		real, err := resolveRoot(root, protected)
 		if err != nil {
 			return Roots{}, err

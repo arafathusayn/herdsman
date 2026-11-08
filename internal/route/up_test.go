@@ -17,6 +17,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/route/routechan"
+	"github.com/arafathusayn/herdsman/internal/secrets"
 	"github.com/arafathusayn/herdsman/internal/sys"
 )
 
@@ -37,6 +38,8 @@ type rig struct {
 	poll    func()
 	exe     string
 	policy  string
+	// keychain replaces the system keychain when set.
+	keychain secrets.Keychain
 }
 
 func newRig(t *testing.T) *rig {
@@ -88,7 +91,7 @@ func (r *rig) engine() (*ops.Engine, func()) {
 		if r.poll != nil {
 			r.poll()
 		}
-	}, AgentTimeout: 5 * time.Second}
+	}, AgentTimeout: 5 * time.Second, Keychain: r.keychain}
 	e := ops.NewEngine(db, ops.Options{Effects: route.Effects(deps), Fault: func(point string) {
 		if point == r.crashOn {
 			r.crashOn = ""

@@ -74,3 +74,43 @@ func gitFolder(out []string, root string) []string {
 	}
 	return out
 }
+
+// CheckHarnessArgs refuses arguments that would change or lift the sandbox,
+// which the harness would honour over the configuration given before them.
+func CheckHarnessArgs(p policy.Policy, args []string) error {
+	if p.EffectiveProfile() != policy.ProfileRestricted {
+		return nil
+	}
+	refuse := func(arg string) error {
+		return fmt.Errorf("profile restricted sets the sandbox itself, so %q is refused", arg)
+	}
+	for i, arg := range args {
+		name, value, joined := strings.Cut(arg, "=")
+		switch {
+		case arg == "--dangerously-bypass-approvals-and-sandbox", arg == "--yolo",
+			name == "--sandbox", name == "--add-dir", name == "--cd",
+			strings.HasPrefix(arg, "-s"), strings.HasPrefix(arg, "-C"):
+			return refuse(arg)
+		case arg == "-c" || arg == "--config":
+			if i+1 == len(args) || sandboxKey(args[i+1]) {
+				return refuse(arg)
+			}
+		case name == "--config" && joined:
+			if sandboxKey(value) {
+				return refuse(arg)
+			}
+		case strings.HasPrefix(arg, "-c") && !strings.HasPrefix(arg, "--"):
+			if sandboxKey(arg[2:]) {
+				return refuse(arg)
+			}
+		}
+	}
+	return nil
+}
+
+func sandboxKey(setting string) bool {
+	key, _, _ := strings.Cut(setting, "=")
+	key = strings.TrimSpace(key)
+	return strings.HasPrefix(key, "sandbox") || strings.HasPrefix(key, "permissions") ||
+		key == "default_permissions" || key == "cd" || key == "cwd"
+}
