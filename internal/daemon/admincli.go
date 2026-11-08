@@ -20,7 +20,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
-	"github.com/arafathusayn/herdsman/internal/routedb"
+	"github.com/arafathusayn/herdsman/internal/statedir"
 )
 
 // AdminEnv is one run of `herdsman daemon ...`.
@@ -39,11 +39,14 @@ type AdminEnv struct {
 	Supervisor *Supervisor
 	// Signals ends `daemon run` (nil: SIGINT and SIGTERM).
 	Signals <-chan os.Signal
+	// Inspect is `daemon run --inspect`.
+	Inspect bool
 }
 
 // DaemonHelp is `herdsman daemon --help`.
 const DaemonHelp = `usage: herdsman daemon [--json] [--private-home <folder>] <command> [args]
-  run                                   the daemon itself (the supervisor starts it)
+  run [--inspect]                       the daemon itself (the supervisor starts it); --inspect migrates and serves reads, with no effect at all
+  ops list | show <id> | resolve <id> <step> done|rerun   the journaled operations
   install | uninstall                   write and start, or stop and remove, the LaunchAgent or systemd user unit
   start | stop | restart                through the supervisor; stop stays stopped until start
   status                                health of every route and Herdr link
@@ -54,7 +57,7 @@ const DaemonHelp = `usage: herdsman daemon [--json] [--private-home <folder>] <c
   pair approve <route> <sha256> [--interaction <ask reference> [--asked-by <adjutant>]] [--credential <name>=identity|file|keychain]...
   pair retire <route> <name> <sha256>
   credential revoke <route> <name>
-The private home is --private-home, else HERDSMAN_PRIVATE_HOME, else ~/.herdsman-private.
+The private home is --private-home, else HERDSMAN_STATE_DIR, else HERDSMAN_PRIVATE_HOME, else ~/.herdsman-private.
 
 exit codes:
   0   done
@@ -148,10 +151,11 @@ func RunDaemon(a *AdminEnv, args []string) int {
 	if len(rest) == 0 {
 		return a.usage("name a command")
 	}
-	ph, err := routedb.PrivateHome(option, a.env)
+	dir, err := statedir.Resolve(option, a.env)
 	if err != nil {
 		return a.fail(err)
 	}
+	ph := dir.Root
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return a.fail(err)
@@ -173,11 +177,22 @@ func RunDaemon(a *AdminEnv, args []string) int {
 		}
 	}
 	switch cmd {
-	case "run":
-		if len(rest) != 0 {
-			return a.usage("run takes no arguments")
+	case "install", "uninstall", "start", "stop", "restart":
+		// The supervisor's unit is the account's only one; a daemon on an
+		// overridden state directory must never replace it.
+		if dir.Overridden {
+			return a.usage(cmd + " manages the account's supervised daemon; unset " + statedir.Env + " or run this one with `daemon run`")
 		}
-		return a.run(ph, sup.Home)
+	}
+	lockHome := dir.LockHome(sup.Home)
+	switch cmd {
+	case "run":
+		inspect := len(rest) == 1 && rest[0] == "--inspect"
+		if len(rest) != 0 && !inspect {
+			return a.usage("run takes only --inspect")
+		}
+		a.Inspect = inspect
+		return a.run(ph, lockHome)
 	case "install":
 		v, err := sup.Install()
 		if err != nil {
@@ -223,10 +238,19 @@ func RunDaemon(a *AdminEnv, args []string) int {
 			}
 			return a.fail(err)
 		}
-		l, _ := ReadAccountLock(sup.Home)
+		l, _ := ReadAccountLock(lockHome)
+		var detail StatusDetail
+		if _, err := c.Do(ctx, "GET", "/v1/status", nil, &detail); err != nil {
+			return a.fail(err)
+		}
 		if a.JSON {
-			a.out(map[string]any{"status": h.Status, "routes": h.Routes, "herdr": h.Herdr, "daemon": l}, "")
+			a.out(map[string]any{"status": h.Status, "routes": h.Routes, "herdr": h.Herdr, "daemon": l,
+				"state_dir": detail.StateDir, "supervisor_file": sup.UnitPath(), "inspect": detail.Inspect,
+				"schema": detail.Schema, "counts": detail.Counts, "digest": detail.Digest}, "")
 		} else {
+			if detail.Inspect {
+				fmt.Fprintln(a.Stdout, "inspect mode: reads only, no effects")
+			}
 			fmt.Fprintf(a.Stdout, "daemon %s version %s pid %d socket %s\n", h.Status, l.Version, l.PID, l.Socket)
 			for _, r := range h.Routes {
 				fmt.Fprintf(a.Stdout, "route %s %s %s\n", r.Route, r.Status, strings.Join(r.Flags, ","))
@@ -239,6 +263,8 @@ func RunDaemon(a *AdminEnv, args []string) int {
 			return 1
 		}
 		return 0
+	case "ops":
+		return a.opsCmd(ctx, c, rest)
 	case "route":
 		return a.route(ctx, c, rest)
 	case "setup":
@@ -272,7 +298,7 @@ func (a *AdminEnv) run(ph, home string) int {
 	// the bounded log (9.3): a KeepAlive restart loop cannot grow it.
 	a.Stderr = lg
 	logf := func(s string) { lg.Line(time.Now().Format(time.RFC3339) + " " + s) }
-	d := New(Config{PrivateHome: ph, Home: home, Version: a.Version, Executable: a.Executable, HerdrSocket: herdrDefaultSocket(), Log: logf})
+	d := New(Config{PrivateHome: ph, Home: home, Version: a.Version, Executable: a.Executable, HerdrSocket: herdrDefaultSocket(), Log: logf, Inspect: a.Inspect})
 	if err := d.Start(); err != nil {
 		return a.fail(err)
 	}

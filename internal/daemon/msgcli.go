@@ -19,6 +19,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/routedb"
 	"github.com/arafathusayn/herdsman/internal/settings"
+	"github.com/arafathusayn/herdsman/internal/statedir"
 )
 
 // MessageEnv is one run of a `herdsman message` command on the daemon
@@ -122,7 +123,9 @@ func OtherHome(getenv func(string) string) string {
 		home, _ = os.UserHomeDir()
 	}
 	ph, err := routedb.PrivateHome("", getenv)
-	if home == "" || err != nil {
+	if home == "" || err != nil || getenv(statedir.Env) != "" {
+		// A daemon on an overridden state directory has its own lock, so
+		// the account's regular daemon is never "the other one" for it.
 		return ""
 	}
 	held, err := accountLockState(home)
