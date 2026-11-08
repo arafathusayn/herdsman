@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package herdsman.daemon.v1;
+
+import "herdsman/core/v1/core.proto";
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
+
+// RouteService starts routes and reports on them.
+service RouteService {
+  // Up starts a route, or picks up the start already journaled for it.
+  rpc Up(UpRequest) returns (UpResponse);
+  // Get reports one route's start.
+  rpc Get(RouteServiceGetRequest) returns (RouteServiceGetResponse);
+  // List reports every route start the daemon has journaled.
+  rpc List(RouteServiceListRequest) returns (RouteServiceListResponse);
+}
+
+// UpCaller is what the process asking for the start says about itself. The
+// daemon must be able to confirm every field; it reads the rest from the
+// connection's peer.
+message UpCaller {
+  string pane = 1;
+  int64 pid = 2;
+  // Seconds since the epoch; zero when unknown.
+  int64 started = 3;
+  string tty = 4;
+  // A coding agent found among the caller's ancestors; empty when none.
+  string harness_ancestor = 5;
+  // The pair checksum a person confirmed on the terminal.
+  string confirmed_checksum = 6;
+}
+
+// StepVerdict is a person's answer about one halted prelude step.
+message StepVerdict {
+  int32 step = 1;
+  // "done" or "rerun".
+  string verdict = 2;
+}
+
+message UpRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string repo = 2;
+  string prompt = 3;
+  string adjutant_command = 4;
+  string orchestrator_command = 5;
+  string adjutant_kind = 6;
+  string orchestrator_kind = 7;
+  bool no_adjutant = 8;
+  string config_path = 9;
+  string herdr_socket = 10;
+  bool pair_manual = 11;
+  // Only plan: nothing is journaled and nothing runs.
+  bool dry_run = 12;
+  // Pick up a halted start with these verdicts.
+  bool continue = 13;
+  repeated StepVerdict verdicts = 14;
+  UpCaller caller = 15;
+  repeated string kinds = 16;
+  // YYYY-MM-DD of the first start; names the route folder.
+  string date = 17;
+}
+
+// RouteStep is one journaled step of a route's start.
+message RouteStep {
+  int32 ordinal = 1;
+  string name = 2;
+  string key = 3;
+  string state = 4;
+  string detail = 5;
+}
+
+// PairStatus is the state of the route's pair.
+message PairStatus {
+  string checksum = 1;
+  bool approved = 2;
+  // A file holding the record of who approved the pair; empty before.
+  string record = 3;
+}
+
+// RouteStart is a route's start as the journal has it.
+message RouteStart {
+  string operation = 1;
+  herdsman.core.v1.RouteId route = 2;
+  string state = 3;
+  string reason = 4;
+  string folder = 5;
+  string inbox = 6;
+  string workspace = 7;
+  repeated RouteStep steps = 8;
+  PairStatus pair = 9;
+  // What the start runs, as text, the commands verbatim.
+  string plan = 10;
+}
+
+message UpResponse {
+  RouteStart start = 1;
+}
+
+message RouteServiceGetRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string repo = 2;
+}
+
+message RouteServiceGetResponse {
+  RouteStart start = 1;
+}
+
+message RouteServiceListRequest {}
+
+message RouteServiceListResponse {
+  repeated RouteStart starts = 1;
+}

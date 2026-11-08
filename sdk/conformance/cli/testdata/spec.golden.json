@@ -1408,6 +1408,75 @@
       ]
     },
     {
+      "name": "up",
+      "summary": "Start a route: workspace, private inbox, both coordinators, the pair and the first brief.",
+      "help": "usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]\n                   [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]\n                   [--pair auto|manual] [--web] [--no-attach] [--dry-run]\n       herdsman up [<route>] --continue [--step <n>=done|rerun]...\n\n-a and -o are the commands that launch each coordinator's harness, typed as you\nwould type them: \"claude doctor && claude --model opus\".\n--dry-run prints the whole plan and starts nothing.\n--web also starts the web app on the route.\n--pair manual asks on the terminal before the pair is approved.\nA second up on the same route picks up where the first stopped.\n",
+      "usage": [
+        "herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]"
+      ],
+      "positionals": [
+        {
+          "name": "route"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--adjutant-kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--continue"
+        },
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--model"
+        },
+        {
+          "name": "--no-adjutant"
+        },
+        {
+          "name": "--no-attach"
+        },
+        {
+          "name": "--orchestrator-kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--pair",
+          "valueName": "auto|manual"
+        },
+        {
+          "name": "--step",
+          "valueName": "n"
+        },
+        {
+          "name": "--web"
+        },
+        {
+          "name": "-a",
+          "short": "-a",
+          "valueName": "command"
+        },
+        {
+          "name": "-c",
+          "short": "-c",
+          "valueName": "config"
+        },
+        {
+          "name": "-o",
+          "short": "-o",
+          "valueName": "command"
+        },
+        {
+          "name": "-p",
+          "short": "-p",
+          "valueName": "prompt"
+        }
+      ]
+    },
+    {
       "name": "update",
       "summary": "Install the latest signed release over this binary.",
       "help": "usage: herdsman update [--check] [--version <version>] [--allow-downgrade]\n\nInstalls the latest release over this binary. The release's checksum list must\ncarry a signature from a key this binary trusts, and the archive must match\nthat list, before anything is replaced; the new binary must also run and report\nits version. A binary installed by a package manager is left to that manager.\n\n  --check            Say whether a newer release exists; change nothing.\n  --version <v>      Install this version instead of the latest.\n  --allow-downgrade  Allow a version older than this binary.\n\nexit codes:\n  0  the binary is current, was updated, or --check answered\n  1  the release was refused or could not be fetched; the binary is unchanged\n  2  usage error\n",
