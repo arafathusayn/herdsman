@@ -21,15 +21,21 @@ import (
 
 const (
 	defaultTimeout = 10 * time.Second
+	// defaultCallTimeout leaves room for a generator that runs a model.
+	defaultCallTimeout = 2 * time.Minute
 	// maxHandshake bounds the first line: a path and a checksum fit easily.
 	maxHandshake = 8 << 10
 	// maxStderr bounds what is kept of a plugin's complaint.
 	maxStderr = 4 << 10
 	stopWait  = 2 * time.Second
+	// pipeWait bounds how long a process's end waits for pipes that one of its
+	// descendants still holds.
+	pipeWait = 500 * time.Millisecond
 )
 
-// inheritedEnv is all a plugin receives from the host's environment, so that
-// nothing leading to the daemon's socket reaches it.
+// inheritedEnv is all a plugin receives from the host's environment. This keeps
+// the daemon's settings out of its environment, and is no sandbox: a plugin runs
+// with the user's rights and can open whatever the user can.
 var inheritedEnv = []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "USER"}
 
 // HandshakeError says why a plugin could not be started. The caller reports it
@@ -49,6 +55,8 @@ type Host struct {
 	Env []string
 	// Timeout bounds the handshake; zero means ten seconds.
 	Timeout time.Duration
+	// CallTimeout bounds each call to the plugin; zero means two minutes.
+	CallTimeout time.Duration
 }
 
 // Clients holds one client per service of a plugin. A client of an extension
@@ -62,7 +70,7 @@ type Clients struct {
 	ListColumn       pluginv1.ListColumnService
 }
 
-func newClients(socket string) Clients {
+func newClients(socket string, callTimeout time.Duration) Clients {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var dialer net.Dialer
@@ -70,7 +78,9 @@ func newClients(socket string) Clients {
 		},
 		DisableCompression: true,
 	}
-	hc := &http.Client{Transport: &rpc.Transport{Base: transport}}
+	// A plugin that completes its handshake and then stops answering must not
+	// hold its caller forever.
+	hc := &http.Client{Transport: &rpc.Transport{Base: transport}, Timeout: callTimeout}
 	const base = "http://plugin"
 	return Clients{
 		Manifest:         pluginv1.NewManifestServiceClient(hc, base),
@@ -87,7 +97,10 @@ type Process struct {
 	Clients
 	Manifest *pluginv1.Manifest
 	Socket   string
+	// AfterClose, when set, runs once after the plugin has ended.
+	AfterClose func()
 
+	closeOnce   sync.Once
 	cmd         *exec.Cmd
 	stdin       io.Closer
 	done        chan struct{}
@@ -138,6 +151,8 @@ func (h Host) Start(ctx context.Context, path string) (*Process, error) {
 	cmd.Env = h.Environment()
 	var stderr cappedBuffer
 	cmd.Stderr = &stderr
+	cmd.WaitDelay = pipeWait
+	ownGroup(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, &HandshakeError{path, "start: " + err.Error()}
@@ -187,7 +202,11 @@ func (h Host) Start(ctx context.Context, path string) (*Process, error) {
 	if handshake.Major != ProtocolMajor {
 		return fail(fmt.Sprintf("speaks protocol major %d; this host speaks %d", handshake.Major, ProtocolMajor))
 	}
-	clients := newClients(handshake.Socket)
+	callTimeout := h.CallTimeout
+	if callTimeout <= 0 {
+		callTimeout = defaultCallTimeout
+	}
+	clients := newClients(handshake.Socket, callTimeout)
 	response, err := clients.Manifest.GetManifest(waitCtx, &pluginv1.GetManifestRequest{})
 	if err != nil {
 		return fail("read the manifest: " + err.Error())
@@ -232,22 +251,29 @@ func readHandshake(stdout io.Reader, lines chan<- readResult, p *Process) {
 	_, _ = io.Copy(io.Discard, reader)
 }
 
-// kill does not wait for stdout: a child of the plugin may hold it open.
+// kill ends the plugin and its descendants. It does not wait for stdout, which
+// a descendant may hold; WaitDelay bounds the wait for the pipes.
 func (p *Process) kill() {
 	_ = p.stdin.Close()
 	p.releaseWait()
-	_ = p.cmd.Process.Kill()
+	killGroup(p.cmd)
 	<-p.done
 }
 
-// Close asks the plugin to stop by closing its stdin, and kills it if it does
-// not. It can be called more than once.
+// Close asks the plugin to stop by closing its stdin, kills it if it does not,
+// and ends anything it left behind. It can be called more than once.
 func (p *Process) Close() error {
 	_ = p.stdin.Close()
 	select {
 	case <-p.done:
+		killGroup(p.cmd)
 	case <-time.After(stopWait):
 		p.kill()
 	}
+	p.closeOnce.Do(func() {
+		if p.AfterClose != nil {
+			p.AfterClose()
+		}
+	})
 	return nil
 }

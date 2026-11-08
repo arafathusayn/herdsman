@@ -8,8 +8,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -31,6 +34,14 @@ func (testCodec) Encode(_ context.Context, r *pluginv1.EncodeRequest) (*pluginv1
 }
 func (testCodec) Set(context.Context, *pluginv1.SetRequest) (*pluginv1.SetResponse, error) {
 	return nil, rpc.Errorf(rpc.Unimplemented, "no set")
+}
+
+// blockingCodec answers Decode only when its caller gives up.
+type blockingCodec struct{ testCodec }
+
+func (blockingCodec) Decode(ctx context.Context, _ *pluginv1.DecodeRequest) (*pluginv1.DecodeResponse, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
 
 type testDetector struct{}
@@ -108,6 +119,19 @@ func runHelper(mode string) {
 	case "nosocket":
 		fmt.Printf("herdsman-plugin/1 %s %s\n", filepath.Join(os.TempDir(), "absent-plugin.sock"), checksum)
 		io.Copy(io.Discard, os.Stdin)
+	case "descendant":
+		spawnDescendant()
+		fmt.Println("not a handshake")
+		io.Copy(io.Discard, os.Stdin)
+	case "servedescendant":
+		spawnDescendant()
+		if err := Serve(context.Background(), codecManifest(), Extensions{ConfigCodec: testCodec{}}); err != nil {
+			os.Exit(1)
+		}
+	case "blocked":
+		if err := Serve(context.Background(), codecManifest(), Extensions{ConfigCodec: blockingCodec{}}); err != nil {
+			os.Exit(1)
+		}
 	case "longline":
 		fmt.Println(strings.Repeat("x", 3*maxHandshake))
 		io.Copy(io.Discard, os.Stdin)
@@ -139,6 +163,19 @@ func serveWithLine(dir, checksum string) {
 	go io.Copy(io.Discard, r)
 	io.Copy(io.Discard, os.Stdin)
 	_ = dir
+}
+
+// spawnDescendant leaves a child holding this process's stderr and records its
+// pid.
+func spawnDescendant() {
+	child := exec.Command("sleep", "12")
+	child.Stderr = os.Stderr
+	if child.Start() != nil {
+		os.Exit(8)
+	}
+	if os.WriteFile(os.Getenv("PLUGIN_PIDFILE"), []byte(strconv.Itoa(child.Process.Pid)), 0o600) != nil {
+		os.Exit(8)
+	}
 }
 
 // serveStubborn completes the handshake and then ignores its stdin closing.
@@ -378,7 +415,7 @@ func TestServeMountsEveryExtensionPoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clients := newClients(parsed.Socket)
+	clients := newClients(parsed.Socket, time.Minute)
 	ctx := context.Background()
 	got, err := clients.Manifest.GetManifest(ctx, &pluginv1.GetManifestRequest{})
 	if err != nil || got.GetManifest().GetName() != "sample" {
@@ -481,3 +518,78 @@ func TestServeReportsItsSetupFailures(t *testing.T) {
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("closed") }
+
+// wantDescendantGone waits for the recorded process to end.
+func wantDescendantGone(t *testing.T, pidFile string) {
+	t.Helper()
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if syscall.Kill(pid, 0) != nil {
+			return
+		}
+	}
+	_ = syscall.Kill(pid, syscall.SIGKILL)
+	t.Fatalf("descendant %d outlived the plugin", pid)
+}
+
+func TestAFailedHandshakeIsNotHeldUpByADescendant(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	start := time.Now()
+	_, err := startHelper(t, "descendant", Host{Env: []string{"PLUGIN_PIDFILE=" + pidFile}})
+	wantHandshakeError(t, err, "handshake line")
+	if elapsed := time.Since(start); elapsed > 8*time.Second {
+		t.Fatalf("the host waited %s for a descendant", elapsed)
+	}
+	wantDescendantGone(t, pidFile)
+}
+
+func TestCloseIsNotHeldUpByADescendant(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	p, err := startHelper(t, "servedescendant", Host{Env: []string{"PLUGIN_PIDFILE=" + pidFile}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 8*time.Second {
+		t.Fatalf("Close waited %s for a descendant", elapsed)
+	}
+	wantDescendantGone(t, pidFile)
+}
+
+func TestACallToASilentPluginEnds(t *testing.T) {
+	p, err := startHelper(t, "blocked", Host{CallTimeout: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if _, err := p.ConfigCodec.Decode(context.Background(), &pluginv1.DecodeRequest{}); err == nil {
+		t.Fatal("no error")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("the call took %s", elapsed)
+	}
+}
+
+func TestAfterCloseRunsOnce(t *testing.T) {
+	p, err := startHelper(t, "serve", Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := 0
+	p.AfterClose = func() { runs++ }
+	p.Close()
+	p.Close()
+	if runs != 1 {
+		t.Fatalf("%d runs", runs)
+	}
+}
