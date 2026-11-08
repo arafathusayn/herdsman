@@ -1,0 +1,136 @@
+[
+ {
+  "Id": "c1",
+  "Name": "/api-db-1",
+  "Created": "2026-11-08T12:01:00.123456789Z",
+  "State": {
+   "Status": "running"
+  },
+  "Config": {
+   "Labels": {
+    "com.docker.compose.project": "api",
+    "com.docker.compose.project.working_dir": "/work/wt/api"
+   }
+  },
+  "Mounts": [
+   {
+    "Type": "volume",
+    "Name": "api_data",
+    "Source": "/var/lib/docker/volumes/api_data/_data"
+   }
+  ]
+ },
+ {
+  "Id": "c2",
+  "Name": "/bound",
+  "Created": "2026-11-08T12:02:00Z",
+  "State": {
+   "Status": "running"
+  },
+  "Config": {
+   "Labels": {}
+  },
+  "Mounts": [
+   {
+    "Type": "bind",
+    "Source": "/work/wt/api/data"
+   }
+  ]
+ },
+ {
+  "Id": "c3",
+  "Name": "/api-job-1",
+  "Created": "2026-11-08T12:03:00Z",
+  "State": {
+   "Status": "exited"
+  },
+  "Config": {
+   "Labels": {
+    "com.docker.compose.project": "api",
+    "com.docker.compose.project.working_dir": "/work/wt/api"
+   }
+  },
+  "Mounts": []
+ },
+ {
+  "Id": "c4",
+  "Name": "/both",
+  "Created": "2026-11-08T12:04:00Z",
+  "State": {
+   "Status": "running"
+  },
+  "Config": {
+   "Labels": {}
+  },
+  "Mounts": [
+   {
+    "Type": "bind",
+    "Source": "/work/wt/api/x"
+   },
+   {
+    "Type": "bind",
+    "Source": "/work/wt/web/y"
+   }
+  ]
+ },
+ {
+  "Id": "c5",
+  "Name": "/web-only",
+  "Created": "2026-11-08T12:05:00Z",
+  "State": {
+   "Status": "running"
+  },
+  "Config": {
+   "Labels": {
+    "herdsman.exec": "01JEXECWEB"
+   }
+  },
+  "Mounts": []
+ },
+ {
+  "Id": "c6",
+  "Name": "/api-old-1",
+  "Created": "2026-11-08T09:00:00Z",
+  "State": {
+   "Status": "running"
+  },
+  "Config": {
+   "Labels": {
+    "com.docker.compose.project": "api",
+    "com.docker.compose.project.working_dir": "/work/wt/api"
+   }
+  },
+  "Mounts": []
+ },
+ {
+  "Id": "c7",
+  "Name": "/labeled",
+  "Created": "2026-11-08T12:06:00Z",
+  "State": {
+   "Status": "running"
+  },
+  "Config": {
+   "Labels": {
+    "herdsman.exec": "01JEXECAPI",
+    "note": "a,com.docker.compose.project=web"
+   }
+  },
+  "Mounts": []
+ },
+ {
+  "Id": "c8",
+  "Name": "/elsewhere",
+  "Created": "2026-11-08T12:07:00Z",
+  "State": {
+   "Status": "running"
+  },
+  "Config": {
+   "Labels": {
+    "herdsman.exec": "01JEXECOLD",
+    "com.docker.compose.project": "api",
+    "com.docker.compose.project.working_dir": "/work/wt/api"
+   }
+  },
+  "Mounts": []
+ }
+]

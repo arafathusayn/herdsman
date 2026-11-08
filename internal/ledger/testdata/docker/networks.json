@@ -1,0 +1,16 @@
+[
+ {
+  "Name": "api_default",
+  "Id": "n1",
+  "Created": "2026-11-08T12:00:59.123456Z",
+  "Labels": {
+   "com.docker.compose.project": "api"
+  }
+ },
+ {
+  "Name": "bridge",
+  "Id": "n2",
+  "Created": "2026-01-01T00:00:00Z",
+  "Labels": {}
+ }
+]

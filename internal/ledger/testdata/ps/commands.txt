@@ -1,0 +1,13 @@
+  100 -zsh
+  101 claude --resume abc
+  110 node server.js --port=4100
+  111 node worker.js
+  120 sleep 999
+  130 nvim main.go
+  140 make dev
+  150 node other.js
+  160 python3 -m http.server 4101
+  170 postgres -D /data
+  180 psql
+  190 curl localhost:4100
+  200 unrelated
