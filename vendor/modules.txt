@@ -1,4 +1,8 @@
 ## workspace
+# connectrpc.com/connect v1.21.1
+## explicit; go 1.26.0
+connectrpc.com/connect
+connectrpc.com/connect/internal/gen/connectext/grpc/status/v1
 # github.com/arafathusayn/herdsman/sdk v0.0.0 => ./sdk
 ## explicit; go 1.26.0
 # github.com/mattn/go-sqlite3 v1.14.52 => ./third_party/go-sqlite3

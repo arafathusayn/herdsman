@@ -33,6 +33,7 @@ func (u upstream) vendorFile() string {
 // dependencyBudget names each outside project the repository carries a copy
 // of. A new entry is a decision, not a side effect of a build.
 var dependencyBudget = []upstream{
+	{module: "connectrpc.com/connect"},
 	{module: "github.com/mattn/go-sqlite3", copyDir: "third_party/go-sqlite3"},
 	{module: "golang.org/x/sys"},
 	{module: "google.golang.org/protobuf"},

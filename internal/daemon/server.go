@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
 // Request bounds (9.1, 9.3).
@@ -72,6 +73,7 @@ func (d *Daemon) handler() http.Handler {
 	h("GET /v1/events", d.viewEvents)
 	h("GET /v1/routes/{route}/authority", d.authority)
 	h("POST /v1/routes/{route}/credentials/{name}/revoke", d.revokeCredential)
+	mux.Handle(rpc.BasePath, d.rpcHandler())
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, Errf("not_found", "no such request: %s %s", r.Method, r.URL.Path))
 	})
