@@ -1,0 +1,334 @@
+syntax = "proto3";
+
+// The herdsman configuration file. Every text format and the binary form are
+// encodings of the Config message, so a field added here is a key everywhere.
+package herdsman.config.v1;
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/config/v1;configv1";
+
+// Config is the whole file. It has sections only, never a bare setting.
+message Config {
+  // Short command names, each expanding to a herdsman command line.
+  map<string, string> aliases = 1;
+  Branch branch = 2;
+  Commit commit = 3;
+  Hooks hooks = 4;
+  Launch launch = 5;
+  List list = 6;
+  Merge merge = 7;
+  Policy policy = 8;
+  Project project = 9;
+  // Overrides for one repository, keyed by its host and path. Each value has
+  // the shape of this message. A value may not hold projects or aliases.
+  map<string, Config> projects = 10;
+  Schema schema = 11;
+  Setup setup = 12;
+  Suggest suggest = 13;
+  Teardown teardown = 14;
+  Worktree worktree = 15;
+}
+
+// Schema says which version of this contract a file was written against.
+message Schema {
+  // SemVer without a leading "v". A higher major than the binary's is refused.
+  optional string version = 1;
+}
+
+// Branch controls how task branches are named.
+message Branch {
+  // A template for the branch name.
+  optional string name = 1;
+  // The change types a branch name may start with.
+  repeated string types = 2;
+}
+
+// Commit controls commits the worktree layer makes.
+message Commit {
+  // Names the message style the generator and the checks expect.
+  optional string convention = 1;
+  CommitGeneration generation = 2;
+  StagePolicy stage = 3;
+}
+
+// CommitGeneration controls generated commit messages and branch summaries.
+message CommitGeneration {
+  // "auto", or a program reading a prompt on stdin and printing the message.
+  optional string command = 1;
+  optional bool enabled = 2;
+  // Whether branch listings show a generated one-line summary.
+  optional bool summary = 3;
+  // Added to the end of the prompt.
+  optional string template_append = 4;
+}
+
+// StagePolicy says what a commit takes from the working tree.
+enum StagePolicy {
+  STAGE_POLICY_UNSPECIFIED = 0;
+  STAGE_POLICY_ALL = 1;
+  STAGE_POLICY_TRACKED = 2;
+  STAGE_POLICY_INDEX = 3;
+}
+
+// Hooks holds one optional hook for each point in a task's life.
+message Hooks {
+  HookSpec post_clean = 1;
+  HookSpec post_commit = 2;
+  HookSpec post_merge = 3;
+  HookSpec post_start = 4;
+  HookSpec post_switch = 5;
+  HookSpec post_teardown = 6;
+  HookSpec pre_clean = 7;
+  HookSpec pre_commit = 8;
+  HookSpec pre_merge = 9;
+  HookSpec pre_start = 10;
+  HookSpec pre_switch = 11;
+  HookSpec pre_teardown = 12;
+}
+
+// HookSpec is written as a string, a table of named commands, or an array.
+message HookSpec {
+  oneof form {
+    string command = 1;
+    NamedCommands named = 2;
+    Pipeline pipeline = 3;
+  }
+}
+
+// NamedCommands run at the same time, each under its own name.
+message NamedCommands {
+  map<string, string> commands = 1;
+}
+
+// Pipeline runs its stages in order and stops at the first that fails.
+message Pipeline {
+  repeated PipelineStage stages = 1;
+}
+
+// PipelineStage is one command, or a set of commands run at the same time.
+message PipelineStage {
+  oneof form {
+    string command = 1;
+    NamedCommands named = 2;
+  }
+}
+
+// Launch is the structured form of how an agent is started. Unknown keys in
+// this section are errors.
+message Launch {
+  // The agent executable and its arguments.
+  repeated string command = 1;
+  optional string cwd = 2;
+  map<string, string> env = 3;
+  repeated LaunchStep prelude = 4;
+  // Go duration text, such as "90s".
+  optional string prelude_timeout = 5;
+}
+
+// LaunchStep is one command that runs before the agent starts.
+message LaunchStep {
+  repeated string argv = 1;
+  map<string, string> env = 2;
+  optional bool once = 3;
+  repeated string probe = 4;
+  RetryPolicy retry = 5;
+}
+
+// RetryPolicy says whether a step that may have run can run again.
+enum RetryPolicy {
+  RETRY_POLICY_UNSPECIFIED = 0;
+  RETRY_POLICY_NEVER = 1;
+  RETRY_POLICY_IDEMPOTENT = 2;
+}
+
+// List controls the task listing.
+message List {
+  // Extra columns, by name, each a template.
+  map<string, string> columns = 1;
+}
+
+// Merge controls how a task lands.
+message Merge {
+  optional bool clean = 1;
+  LandMode land = 2;
+  MergeStrategy strategy = 3;
+  optional bool verify = 4;
+}
+
+// MergeStrategy is the shape of the landed history.
+enum MergeStrategy {
+  MERGE_STRATEGY_UNSPECIFIED = 0;
+  MERGE_STRATEGY_MERGE = 1;
+  MERGE_STRATEGY_REBASE = 2;
+  MERGE_STRATEGY_SQUASH = 3;
+}
+
+// LandMode says where a landing goes.
+enum LandMode {
+  LAND_MODE_UNSPECIFIED = 0;
+  LAND_MODE_LOCAL = 1;
+  LAND_MODE_PR = 2;
+  LAND_MODE_PUSH = 3;
+}
+
+// Policy holds safety limits. Unknown keys in this section are errors.
+message Policy {
+  PolicyBudget budget = 1;
+  // Commands that hooks and automations may not run.
+  repeated string deny = 2;
+  optional string landing = 3;
+  optional int32 max_agents = 4;
+  optional string profile = 5;
+  // Branch patterns that verbs must not move or delete.
+  repeated string protected = 6;
+  // Folders an integrator may reach under the restricted profile.
+  repeated string roots = 7;
+  repeated string required_checks = 8;
+  optional string review = 9;
+}
+
+// PolicyBudget limits one task or route.
+message PolicyBudget {
+  optional string cost = 1;
+  optional string machine = 2;
+  optional int64 tokens = 3;
+  optional string wall = 4;
+}
+
+// Project binds a folder to one herdsman project.
+message Project {
+  // Whether this folder is the project's context repository.
+  optional bool context = 1;
+  optional string id = 2;
+  optional string name = 3;
+}
+
+// Setup prepares a new worktree.
+message Setup {
+  // Ignored files copied into the worktree; none unless listed.
+  repeated string env = 1;
+  optional string install = 2;
+  // How many ports each task reserves.
+  optional int32 ports = 3;
+  // Folders cloned copy-on-write from the main tree.
+  repeated string share = 4;
+}
+
+// Suggest controls the suggestion catalogs.
+message Suggest {
+  // Remote catalogs, each pinned to a commit.
+  repeated string sources = 1;
+}
+
+// Teardown controls how a task's processes and data stop.
+message Teardown {
+  optional string containers = 1;
+  // Seconds between the polite signal and the forced one.
+  optional int32 grace = 2;
+  VolumePolicy volumes = 3;
+}
+
+// VolumePolicy says when a task's volumes are removed.
+enum VolumePolicy {
+  VOLUME_POLICY_UNSPECIFIED = 0;
+  VOLUME_POLICY_NEVER = 1;
+  VOLUME_POLICY_ON_CLEAN = 2;
+  VOLUME_POLICY_ON_TEARDOWN = 3;
+}
+
+// Worktree controls where task worktrees live.
+message Worktree {
+  // A template for the worktree's folder.
+  optional string path = 1;
+}
+
+// ConfigService reads and changes one project's configuration.
+service ConfigService {
+  rpc Export(ExportRequest) returns (ExportResponse);
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Set(SetRequest) returns (SetResponse);
+  rpc Show(ShowRequest) returns (ShowResponse);
+  rpc Unset(UnsetRequest) returns (UnsetResponse);
+  rpc Validate(ValidateRequest) returns (ValidateResponse);
+}
+
+// Target says which file a request acts on. Empty fields mean discovery.
+message Target {
+  // A file named by the caller; it wins over discovery.
+  string config_path = 1;
+  // The repository whose project file is wanted.
+  string repo_root = 2;
+}
+
+message ExportRequest {
+  Target target = 1;
+  // One of toml, json, yaml or bin.
+  string format = 2;
+}
+
+message ExportResponse {
+  bytes data = 1;
+}
+
+message GetRequest {
+  Target target = 1;
+  // A dotted key.
+  string key = 2;
+}
+
+message GetResponse {
+  // The value as text; a list or table is its JSON form.
+  string value = 1;
+  string source = 2;
+}
+
+message SetRequest {
+  Target target = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message SetResponse {
+  // The file that changed.
+  string path = 1;
+}
+
+message ShowRequest {
+  Target target = 1;
+  // Turns every warning into an error.
+  bool strict = 2;
+}
+
+message ShowResponse {
+  // The file discovery chose, empty when there is none.
+  string project_path = 1;
+  repeated ShownValue values = 2;
+  repeated string warnings = 3;
+}
+
+// ShownValue is one effective setting and where it came from.
+message ShownValue {
+  string key = 1;
+  string value = 2;
+  // One of default, user, project, env or flag.
+  string source = 3;
+}
+
+message UnsetRequest {
+  Target target = 1;
+  string key = 2;
+}
+
+message UnsetResponse {
+  string path = 1;
+  // False when the file did not hold the key.
+  bool removed = 2;
+}
+
+message ValidateRequest {
+  Target target = 1;
+  bool strict = 2;
+}
+
+message ValidateResponse {
+  repeated string warnings = 1;
+}

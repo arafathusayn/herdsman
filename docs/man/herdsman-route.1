@@ -1,0 +1,42 @@
+.TH HERDSMAN-ROUTE 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-route \- Check a route folder (route check) or append a run-state line (route log).
+.SH DESCRIPTION
+.nf
+usage: herdsman route check <route folder> [plan|launch|close]
+       herdsman route log <path to 00-route.md> "<text>"
+
+route check prints an "ok" or "MISSING" line per item of the route at a stage
+(plan by default); route log appends a dated run-state line.
+
+exit codes:
+  0  nothing is missing, or the line was written
+  1  something is missing, or the line could not be written
+  2  usage error
+
+route check:
+usage: herdsman route check <route folder> [plan|launch|close]
+       herdsman route log <path to 00-route.md> "<text>"
+
+route check prints an "ok" or "MISSING" line per item of the route at a stage
+(plan by default); route log appends a dated run-state line.
+
+exit codes:
+  0  nothing is missing, or the line was written
+  1  something is missing, or the line could not be written
+  2  usage error
+
+route log:
+usage: herdsman route check <route folder> [plan|launch|close]
+       herdsman route log <path to 00-route.md> "<text>"
+
+route check prints an "ok" or "MISSING" line per item of the route at a stage
+(plan by default); route log appends a dated run-state line.
+
+exit codes:
+  0  nothing is missing, or the line was written
+  1  something is missing, or the line could not be written
+  2  usage error
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

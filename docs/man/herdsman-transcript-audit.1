@@ -1,0 +1,18 @@
+.TH HERDSMAN-TRANSCRIPT-AUDIT 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-transcript-audit \- Audit a Claude or Codex transcript for writes: transcript-audit claude|codex <transcript> <session-id> [root/ ...].
+.SH DESCRIPTION
+.nf
+usage: herdsman transcript-audit claude|codex <transcript> <session-id> [allowed-write-root/ ...]
+
+Audits a transcript for writes: GAP, FLAG and AUDIT lines. --json prints
+each line as an Event object. AUDIT_GRANT_FILE names the exact command
+lines an administrative grant permits.
+
+exit codes:
+  0  clean
+  1  flagged calls: report each to the human and stop work
+  2  a gap: the transcript could not be audited
+.fi
+.SH SEE ALSO
+.BR herdsman (1)
