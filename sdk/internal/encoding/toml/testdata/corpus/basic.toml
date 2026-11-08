@@ -1,0 +1,15 @@
+# comment
+title = "x" # tail
+a.b."c d" = 1
+list = [1, 2.5, "s", [true], {k = 1979-05-27T07:32:00Z}]
+s = """
+multi\
+  line"""
+l = '''raw'''
+[t]
+when = 07:32:00
+[[aot]]
+n = 0x10
+[aot.sub]
+f = inf
+[[aot]]

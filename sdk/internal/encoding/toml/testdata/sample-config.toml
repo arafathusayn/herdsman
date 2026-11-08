@@ -1,0 +1,34 @@
+# Orchard weather station: a sample used only by the codec tests.
+# Odd spacing and every comment here have to come back unchanged.
+
+title = "North field"   # shown on the little display
+elevation.metres = 412
+elevation.datum  = 'EGM96'
+
+[radio]
+channel   = 0x2A        # hexadecimal stays hexadecimal
+callsign  = "ORCH-7"
+beacon_at = 05:45:00    # local time, no zone
+
+[radio.backup]
+# silent unless the mast loses power
+enabled = false
+gain    = 1.5e0
+
+[sensors]
+soil = { depth_cm = 30, kind = "capacitive" }   # one probe per row
+wind = [
+  "cup",    # the old mast
+  "sonic",  # installed last spring
+]
+
+[[crate]]
+fruit = "quince"
+picked = 2031-09-14
+note = """
+bruised along
+one side"""
+
+[[crate]]   # second load of the day
+fruit = "medlar"
+picked = 2031-10-02T16:20:00+02:00
