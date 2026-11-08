@@ -14,19 +14,49 @@ GORELEASER        := github.com/goreleaser/goreleaser/v2@v2.19.0
 BUN_GLOBAL  := $(or $(BUN_INSTALL),$(HOME)/.bun)/install/global/node_modules
 WEB_DIST    := internal/web/dist
 
-# The test file names bun test runs. check-sdk-ts passes only when none exists.
+# The test file names bun test runs. check-sdk-ts passes without running Bun
+# only when no such file exists.
 BUN_TEST_NAMES := $(foreach kind,.test _test .spec _spec,$(foreach ext,js jsx ts tsx mjs mts cjs cts,-o -name '*$(kind).$(ext)'))
 
 # One target per module, in the order MODULES.md lists them.
 MODULE_CHECKS := $(shell sed -n 's/^|.*| `make \(check-[a-z-]*\)` |.*/\1/p' MODULES.md)
 
-.PHONY: all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint vuln release-check clean
+# The Go module directories, from the same manifest.
+GO_MODULES := $(shell sed -n 's/^|[^|]*| `\([^`]*\)` | Go |.*/\1/p' MODULES.md)
+
+# The module proxy of the maintenance mode, the only mode that uses one.
+DEPS_GOPROXY ?= https://proxy.golang.org,direct
+
+# The repository mode, for every target and whatever the caller's environment.
+# The maintenance targets (tools-go, vendor, deps-verify) leave it explicitly.
+export GOFLAGS := -mod=vendor
+export GOPROXY := off
+
+# The pinned Go tools, installed by tools-go.
+TOOLS_BIN ?= $(CURDIR)/.tools/bin
+
+# need-tool stops with the step to run when a pinned tool is not installed.
+define need-tool
+	@test -x $(TOOLS_BIN)/$(1) || { echo "$(1) is not installed: run make tools-go"; exit 1; }
+endef
+
+.PHONY: tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
 
 all: check build
 
-## tools: install bun-types globally (outside the repo) for `bun check`
-tools:
+## tools: every pinned tool
+tools: tools-bun tools-go
+
+## tools-bun: install bun-types globally (outside the repo) for `bun check`
+tools-bun:
 	bun add -g bun-types@$(BUN_TYPES_VERSION)
+
+## tools-go: install the pinned Go tools into .tools/bin (maintenance mode; uses
+## the network)
+tools-go:
+	@for tool in $(STATICCHECK) $(GOVULNCHECK) $(GORELEASER); do \
+		env -u GOFLAGS GOWORK=off GOPROXY=$(DEPS_GOPROXY) GOBIN=$(TOOLS_BIN) go install $$tool || exit 1; \
+	done
 
 ## web: build the web app into internal/web/dist for go:embed
 web:
@@ -68,15 +98,25 @@ build: web
 test:
 	go test -race -count=1 ./...
 
-## lint: gofmt, go vet and staticcheck
-lint:
-	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w ."; exit 1; }
-	go vet ./...
-	go run $(STATICCHECK) ./...
+## lint-fmt: gofmt on the repository's own files; pinned copies stay as upstream
+## wrote them, or their sums would no longer match
+lint-fmt:
+	@bad="$$(find . -name '*.go' -not -path './vendor/*' -not -path './third_party/*' -exec gofmt -l {} +)"; \
+	test -z "$$bad" || { echo "$$bad"; echo "run gofmt -w on the files above"; exit 1; }
 
-## vuln: known vulnerabilities in the code paths herdsman uses
+## lint: gofmt, go vet and staticcheck
+lint: lint-fmt
+	$(call need-tool,staticcheck)
+	go vet ./...
+	$(TOOLS_BIN)/staticcheck ./...
+
+## vuln: known vulnerabilities, the one online step of the checks: the code paths
+## herdsman uses, then OSV on every pin, because a local replace hides a module
+## from govulncheck
 vuln:
-	go run $(GOVULNCHECK) ./...
+	$(call need-tool,govulncheck)
+	$(TOOLS_BIN)/govulncheck ./...
+	bash .github/scripts/vendor-advisories.sh .
 
 ## check: every module in MODULES.md, one after another; every module runs, and
 ## the target fails when any failed
@@ -93,16 +133,17 @@ check:
 ## check-root: the root module, with the web app built for go:embed
 check-root: web lint test guard-report vuln
 
-## guard-report: the import guard with -v, so every allowlisted file it skipped
-## shows in each run
+## guard-report: the import guard, the dependency budget and the offline
+## compile, with -v, so every allowlisted file and upstream shows in each run
 guard-report:
-	go test -count=1 -v -run '^TestImportGuard$$' ./internal/guard
+	go test -count=1 -v -run '^(TestImportGuard|TestDependencyBudget|TestNoNetworkBuildFromEveryModuleRoot)$$' ./internal/guard
 
 # go-module-check runs format, vet, staticcheck and tests from a module's root.
 define go-module-check
 	@cd $(1) && test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w $(1)"; exit 1; }
+	$(call need-tool,staticcheck)
 	cd $(1) && go vet ./...
-	cd $(1) && go run $(STATICCHECK) ./...
+	cd $(1) && $(TOOLS_BIN)/staticcheck ./...
 	cd $(1) && go test -race -count=1 ./...
 endef
 
@@ -125,9 +166,30 @@ check-sdk-ts:
 ## check-web: format check, type check and tests of the web app
 check-web: web-check
 
+## vendor: rewrite vendor/ from the workspace (maintenance mode), then restore
+## the VENDOR.md files the tool clears
+vendor:
+	env -u GOFLAGS GOPROXY=$(DEPS_GOPROXY) go work vendor
+	@find third_party/vendored -name VENDOR.md | while read -r file; do \
+		cp "$$file" "vendor/$${file#third_party/vendored/}" || exit 1; \
+	done
+
+## deps-verify: every module tidy, and a fresh re-vendor changes nothing that
+## is committed (maintenance mode; uses the network)
+deps-verify:
+	@test -n "$(GO_MODULES)" || { echo "no Go modules found in MODULES.md"; exit 1; }
+	@for dir in $(GO_MODULES); do \
+		echo "==> go mod tidy -diff in $$dir"; \
+		(cd $$dir && env -u GOFLAGS GOPROXY=$(DEPS_GOPROXY) go mod tidy -diff) || exit 1; \
+	done
+	@$(MAKE) --no-print-directory vendor
+	@changed="$$(git status --porcelain -- vendor go.work.sum go.sum sdk/go.sum sdk/conformance/go.sum)"; \
+	test -z "$$changed" || { echo "$$changed"; echo "the committed tree differs from a re-vendor: run make vendor and commit"; exit 1; }
+
 ## release-check: validate the goreleaser config
 release-check:
-	go run $(GORELEASER) check
+	$(call need-tool,goreleaser)
+	$(TOOLS_BIN)/goreleaser check
 
 clean:
 	find $(WEB_DIST) -type f ! -name .gitkeep -delete

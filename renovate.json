@@ -1,0 +1,13 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "enabledManagers": ["custom.regex"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The upstream pin in every VENDOR.md, which a local replace hides from Dependabot",
+      "managerFilePatterns": ["/(^|/)VENDOR\\.md$/"],
+      "matchStrings": ["- Module: (?<depName>\\S+)\\n- Upstream: \\S+\\n- Version: (?<currentValue>\\S+)"],
+      "datasourceTemplate": "go"
+    }
+  ]
+}

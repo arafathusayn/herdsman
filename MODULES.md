@@ -6,7 +6,7 @@ Go's `./...` stops at a module boundary, so each Go module is checked from its o
 
 | Module | Path | Kind | Check | What the check runs |
 | --- | --- | --- | --- | --- |
-| root | `.` | Go | `make check-root` | The web app build for `go:embed`, `gofmt`, `go vet`, `staticcheck`, tests with the race detector, the import guard report, `govulncheck` |
+| root | `.` | Go | `make check-root` | The web app build for `go:embed`, `gofmt`, `go vet`, `staticcheck`, tests with the race detector, the import guard report, `govulncheck` and the OSV query of every pin |
 | sdk | `sdk` | Go | `make check-sdk` | `gofmt`, `go vet`, `staticcheck`, tests with the race detector |
 | conformance | `sdk/conformance` | Go | `make check-conformance` | `gofmt`, `go vet`, `staticcheck`, tests with the race detector |
 | sdk-ts | `sdk/ts` | Bun | `make check-sdk-ts` | `bun test` once the module has test files; passes while it is empty |

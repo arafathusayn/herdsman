@@ -1,0 +1,24 @@
+name: vuln
+
+# Known vulnerabilities, daily: govulncheck on the code paths herdsman uses, and
+# OSV on every version a VENDOR.md pins, reachable from the code or not.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  advisories:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Pinned Go tools
+        run: make tools-go
+      - name: Check
+        run: make vuln
