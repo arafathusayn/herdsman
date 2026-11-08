@@ -18,7 +18,7 @@ Repository: <absolute path of the checkout> (remote `origin` = GitHub <org>/<rep
 1. Fetch first with the credential helper (the sandbox has no terminal for a password prompt):
    `git -C <repo> -c credential.helper= -c credential.helper='!f() { echo username=<gh account>; echo password=$(gh auth token --user <gh account>); }; f' fetch origin`
    The local base branch may be behind; always branch from `origin/<base>`.
-2. Worktree (if the route uses worktrees): `git -C <repo> worktree add <worktree path> -b <branch> origin/<base>`. Work only inside your worktree.
+2. Worktree (if the route uses worktrees): `git -C <repo> worktree add <worktree path> -b <branch> origin/<base>`, or, when the route's binary has the verb, `herdsman new <task> --base <base>` run from inside `<repo>` ([`git-and-github.md`](git-and-github.md), Worktrees). Work only inside your worktree.
 3. Install dependencies (`bun install` or the project's command). If the default cache path is not writable, set TMPDIR and the package manager's cache directory to a path under /private/tmp.
 4. Test database: <host:port, user, auth>. Create your own database `<prefix>_<task>_test`, run suites with `TEST_DATABASE_URL=... <test command>` inside the package, drop it when you finish. Never touch another database.
 

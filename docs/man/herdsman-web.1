@@ -1,0 +1,27 @@
+.TH HERDSMAN-WEB 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-web \- serve the web app that operates every agent
+.SH DESCRIPTION
+.nf
+herdsman: run a team of coding agents inside herdr.
+
+Usage:
+  herdsman web [--port 7878] [--host <ip>] [--allow-host <name>]... [--inbox <folder>]
+               [--client <url>|none] [--public-url <https url>] [--session <name>]
+               [--route <folder>]... [--open] [--no-qr]
+  herdsman <command> [args]   (the commands below)
+  herdsman version
+  herdsman help
+
+Commands:
+  web      Serve the web app and print its URL, with a one-run token, and a QR code.
+           It listens on 127.0.0.1 unless --host names one other address,
+           such as a LAN or Tailscale IP, to open it from a phone. The app is
+           also hosted at https://herdsman.arafat.ai (--client) and reaches this
+           server across origins; every browser still pairs with a code
+           printed here. A phone can use the hosted app only through HTTPS:
+           with --public-url (for example the address of tailscale serve),
+           the QR code opens the hosted app.
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

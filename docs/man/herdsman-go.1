@@ -1,0 +1,18 @@
+.TH HERDSMAN-GO 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-go \- Enter a worktree.
+.SH DESCRIPTION
+.nf
+usage: herdsman go [<task>|<branch>|<path>|^|@|-|pr:<n>|<url>] [--no-cd] [--focus] [--json]
+
+Finds a worktree, making one for a pull request, and enters it when the shell
+wrapper is installed (herdsman config shell install). With no argument it prints
+the table and, on a terminal, reads a selector.
+
+exit codes:
+  0  found
+  1  nothing matched, or the switch hook failed
+  2  bad usage
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

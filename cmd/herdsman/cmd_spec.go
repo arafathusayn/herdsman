@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	contracts "github.com/arafathusayn/herdsman/proto"
+	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
@@ -73,7 +74,7 @@ func writeSpecProto(w io.Writer) error {
 func writeSpecDescriptor(w io.Writer) error {
 	set := &descriptorpb.FileDescriptorSet{}
 	seen := map[string]bool{}
-	for _, file := range []protoreflect.FileDescriptor{corev1.File_herdsman_core_v1_core_proto, daemonv1.File_herdsman_daemon_v1_ledger_proto, daemonv1.File_herdsman_daemon_v1_message_proto, daemonv1.File_herdsman_daemon_v1_route_proto, suggestv1.File_herdsman_suggest_v1_suggest_proto} {
+	for _, file := range []protoreflect.FileDescriptor{configv1.File_herdsman_config_v1_config_proto, corev1.File_herdsman_core_v1_core_proto, daemonv1.File_herdsman_daemon_v1_ledger_proto, daemonv1.File_herdsman_daemon_v1_message_proto, daemonv1.File_herdsman_daemon_v1_route_proto, suggestv1.File_herdsman_suggest_v1_suggest_proto} {
 		appendFile(set, seen, file)
 	}
 	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(set)
