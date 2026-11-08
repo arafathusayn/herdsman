@@ -231,6 +231,10 @@ func TestSetRefusesAndLeavesTheDocumentAlone(t *testing.T) {
 		value     *tree.Node
 	}{
 		{"empty path", "a = 1\n", nil, tree.NewInt(1)},
+		{"invalid utf-8 key", "a = 1\n", []string{"\xff"}, tree.NewInt(1)},
+		{"invalid utf-8 section", "a = 1\n", []string{"\xff", "k"}, tree.NewInt(1)},
+		{"invalid utf-8 key under a section", "[x]\n", []string{"x", "\xff"}, tree.NewInt(1)},
+		{"invalid utf-8 key in an inline table", "h = {}\n", []string{"h", "\xff"}, tree.NewInt(1)},
 		{"a section", "[a]\nb = 1\n", []string{"a"}, tree.NewInt(1)},
 		{"a dotted prefix", "a.b = 1\n", []string{"a"}, tree.NewInt(1)},
 		{"under a scalar", "a = 1\n", []string{"a", "b"}, tree.NewInt(1)},
@@ -305,12 +309,43 @@ func TestUnsetOfAMissingPathLeavesTheTreeAlone(t *testing.T) {
 	}
 }
 
+// TestReviewedInlineEdits pins the reported inputs: an edit changes only its
+// own span, and removing something absent changes nothing.
+func TestReviewedInlineEdits(t *testing.T) {
+	doc := parseDoc(t, "a = {b = 0xFF, c = [ # note\n 1 ]}\n")
+	if err := doc.Set([]string{"a", "d"}, tree.NewInt(1)); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(doc.Encode()), "a = {b = 0xFF, c = [ # note\n 1 ], d = 1}\n"; got != want {
+		t.Fatalf("Encode() = %q, want %q", got, want)
+	}
+	for _, c := range []struct {
+		src  string
+		path []string
+	}{
+		{"h = {a = 1}\n", []string{"h", "b", "c"}},
+		{"h = {a = 1}\n", []string{"h", "b", "c", "d"}},
+		{"h = { a = 1 } # c\n", []string{"h", "z"}},
+		{"h = {a.b = 1, a.c = 2}\n", []string{"h", "z"}},
+	} {
+		doc := parseDoc(t, c.src)
+		removed, err := doc.Unset(c.path)
+		if err != nil || removed || string(doc.Encode()) != c.src {
+			t.Errorf("Unset(%v) on %q = %v, %v, document %q", c.path, c.src, removed, err, doc.Encode())
+		}
+	}
+}
+
 func TestUnsetRefuses(t *testing.T) {
 	for name, c := range map[string]struct {
 		src  string
 		path []string
 	}{
 		"empty path":             {"a = 1\n", nil},
+		"invalid utf-8 key":      {"a = 1\n", []string{"\xff"}},
+		"invalid utf-8 section":  {"a = 1\n", []string{"\xff", "k"}},
+		"invalid utf-8 last":     {"[x]\n", []string{"x", "\xff"}},
+		"invalid utf-8 inline":   {"h = {a = 1}\n", []string{"h", "\xff"}},
 		"a section":              {"[a]\nb = 1\n", []string{"a"}},
 		"array of tables":        {"[[a]]\nb = 1\n", []string{"a", "b"}},
 		"under a scalar":         {"a = 1\n", []string{"a", "b"}},

@@ -361,13 +361,27 @@ func (d *Document) editInline(index int, path []string, newValue *string) (bool,
 	return true, nil
 }
 
+// checkPath refuses a path that no TOML key can spell. A path comes from the
+// caller, so this is an error and not one of the writer's internal panics.
+func checkPath(path []string) error {
+	if len(path) == 0 {
+		return &EncodeError{"an empty path names no key"}
+	}
+	for _, key := range path {
+		if !utf8.ValidString(key) {
+			return &EncodeError{fmt.Sprintf("key %q is not valid UTF-8", key)}
+		}
+	}
+	return nil
+}
+
 // Set writes value at path, keeping every other byte of the document. An
 // existing key keeps its place and its comment; a new key goes after the last
 // key of its section; a missing section is added at the end. value must not
 // be nil.
 func (d *Document) Set(path []string, value *tree.Node) error {
-	if len(path) == 0 {
-		return &EncodeError{"an empty path names no key"}
+	if err := checkPath(path); err != nil {
+		return err
 	}
 	text, err := inlineText(value)
 	if err != nil {
@@ -496,8 +510,8 @@ func (d *Document) appendSection(path []string, text, nl string) error {
 // Unset removes the key at path and reports whether it was there. The
 // comments around it stay.
 func (d *Document) Unset(path []string) (bool, error) {
-	if len(path) == 0 {
-		return false, &EncodeError{"an empty path names no key"}
+	if err := checkPath(path); err != nil {
+		return false, err
 	}
 	index, err := d.keyStatement(path)
 	if err != nil {
