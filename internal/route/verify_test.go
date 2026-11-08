@@ -95,8 +95,10 @@ func (r *refreshRun) sample(t *testing.T) {
 // A24: a refresh after an append costs the same CPU whatever the size of
 // the other sections: 8 MiB and 32 MiB of Notes, in both layouts. Load only
 // adds CPU time, so each side keeps its least over many refreshes, and the
-// two sides alternate so a busy spell reaches both. A read of the whole file
-// costs over three times as much at 32 MiB as at 8 MiB, well past the limit.
+// two sides alternate so a busy spell reaches both. The limit is 1.5: as
+// measured on macOS, the 32 MiB side costs 0.94 to 1.05 times the 8 MiB side,
+// and about 1.8 to 2.0 times when each refresh also reads the whole file
+// through its buffer. The refresh's fixed block checks dilute that growth.
 func TestRefreshCostDoesNotGrowWithNotes(t *testing.T) {
 	for _, layout := range []string{"nonfinal", "repeated"} {
 		small, large := newRefreshRun(t, layout, 8<<10), newRefreshRun(t, layout, 32<<10)
@@ -105,7 +107,7 @@ func TestRefreshCostDoesNotGrowWithNotes(t *testing.T) {
 			large.sample(t)
 		}
 		t.Logf("%s: refresh CPU %v at 8 MiB, %v at 32 MiB of Notes", layout, small.least, large.least)
-		if large.least > 2*small.least {
+		if 2*large.least > 3*small.least {
 			t.Errorf("%s: refresh CPU grows with the Notes: %v at 8 MiB, %v at 32 MiB", layout, small.least, large.least)
 		}
 	}
