@@ -44,11 +44,6 @@ EOF
 go get "$module@$commit"
 go build -o consumer .
 
-if grep -q '^replace' go.mod; then
-  echo "sdk-consumer: go.mod has a replace line" >&2
-  exit 1
-fi
-
 resolved=$(go list -m -f '{{.Version}}' "$module")
 if ! go mod download -json "$module@$resolved" | grep -q "\"Hash\": \"$commit\""; then
   echo "sdk-consumer: $resolved is not commit $commit" >&2

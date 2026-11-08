@@ -128,6 +128,39 @@ func TestConsumerScriptBuildsAgainstTheCommit(t *testing.T) {
 	}
 }
 
+func TestConsumerScriptFailsOnAnEmptyVersion(t *testing.T) {
+	commit, env := consumerRepo(t, "package version\n\nconst Version = \"\"\n")
+	out, err := runConsumerScript(t, commit, env)
+	if err == nil {
+		t.Fatalf("script passed with an empty version:\n%s", out)
+	}
+	if !strings.Contains(out, "printed no version") {
+		t.Fatalf("script failed for another reason:\n%s", out)
+	}
+}
+
+// A go wrapper reports another commit for the download, as a resolver that
+// landed on the wrong revision would.
+func TestConsumerScriptFailsWhenTheResolvedCommitDiffers(t *testing.T) {
+	commit, env := consumerRepo(t, readRepoFile(t, "sdk/version/version.go"))
+	realGo, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	writeFile(t, filepath.Join(bin, "go"), "#!/bin/sh\nif [ \"$1\" = mod ] && [ \"$2\" = download ]; then\n  echo '{\"Origin\": {\"Hash\": \"other\"}}'\n  exit 0\nfi\nexec \""+realGo+"\" \"$@\"\n")
+	if err := os.Chmod(filepath.Join(bin, "go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runConsumerScript(t, commit, append(env, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH")))
+	if err == nil {
+		t.Fatalf("script passed with a different commit:\n%s", out)
+	}
+	if !strings.Contains(out, "is not commit") {
+		t.Fatalf("script failed for another reason:\n%s", out)
+	}
+}
+
 func TestConsumerScriptFailsWhenTheSDKDoesNotCompile(t *testing.T) {
 	commit, env := consumerRepo(t, "package version\n\nconst Other = \"x\"\n")
 	out, err := runConsumerScript(t, commit, env)
