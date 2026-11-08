@@ -465,6 +465,8 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if req.Agent != "" {
 		resp.Launch += " && " + req.Agent
 		resp.Warnings = append(resp.Warnings, "the agent was not started; run the launch line")
+	} else if req.Prompt != "" {
+		resp.Warnings = append(resp.Warnings, "the prompt was ignored: no agent was named")
 	}
 	if err := r.state.PutWorktree(ctx, wtree.Worktree{Task: req.Task, Branch: branch, Path: path, CreatedAt: time.Now()}); err != nil {
 		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
@@ -690,7 +692,8 @@ func (s *WorktreeService) repoName(ctx context.Context, r *repository) (string, 
 	if s.Repo != "" {
 		return s.Repo, nil
 	}
-	out, err := r.git.Run(ctx, r.main, "remote", "get-url", "origin")
+	// The stored address: get-url would apply the user's insteadOf rewrites.
+	out, err := r.git.Run(ctx, r.main, "config", "--get", "remote.origin.url")
 	if err != nil {
 		return "", errors.New("this repository has no origin to ask about pull requests")
 	}

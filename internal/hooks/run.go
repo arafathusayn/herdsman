@@ -49,6 +49,9 @@ func (r *Runner) runFolder(hook string) (string, error) {
 // step with a failure ends the run. The result is written even on failure.
 func (r *Runner) Run(ctx context.Context, hook string, plan Plan) (Result, error) {
 	result := Result{Hook: hook, Task: r.Env.Task, OK: true}
+	if len(plan) == 0 {
+		return result, nil
+	}
 	folder, err := r.runFolder(hook)
 	if err != nil {
 		return result, err
@@ -123,12 +126,15 @@ func (r *Runner) runOne(ctx context.Context, hook string, command Planned, logPa
 // commands outlive this process. Steps keep their order and a failed step ends
 // the run, as in Run; the logs are the only record.
 func (r *Runner) Start(hook string, plan Plan) ([]string, error) {
+	if len(plan) == 0 {
+		return nil, nil
+	}
 	folder, err := r.runFolder(hook)
 	if err != nil {
 		return nil, err
 	}
 	var script strings.Builder
-	var logs []string
+	logs := make([]string, 0, len(plan))
 	for index, step := range plan {
 		script.WriteString("failed=0\n")
 		for i, command := range step {
@@ -147,7 +153,9 @@ func (r *Runner) Start(hook string, plan Plan) ([]string, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("hooks: start %s: %w", hook, err)
 	}
-	return logs, cmd.Process.Release()
+	// Waiting reaps the process when this runs inside a long-lived server.
+	go func() { _ = cmd.Wait() }()
+	return logs, nil
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

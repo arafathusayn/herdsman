@@ -1,14 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/arafathusayn/herdsman/internal/shell"
 )
 
-const configHelp = `usage: herdsman config shell install|uninstall [bash|zsh|fish]
+const configHelp = `usage: herdsman config shell install|uninstall [bash|zsh|fish] [--json]
 
 Adds or removes the wrapper that lets herdsman go change the shell's folder,
 with static completions. The shell defaults to $SHELL.
@@ -23,7 +25,18 @@ func init() {
 	register(command{name: "config", summary: "Install the shell integration.", help: configHelp, run: runConfig})
 }
 
+func printJSON(stdout, stderr io.Writer, value any) int {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	fmt.Fprintln(stdout, string(data))
+	return 0
+}
+
 func runConfig(args []string, _ io.Reader, stdout, stderr io.Writer) int {
+	asJSON := slices.Contains(args, "--json")
+	args = slices.DeleteFunc(slices.Clone(args), func(arg string) bool { return arg == "--json" })
 	if len(args) < 2 || len(args) > 3 || args[0] != "shell" || (args[1] != "install" && args[1] != "uninstall") {
 		return usageError(stderr, "usage: herdsman config shell install|uninstall [bash|zsh|fish]")
 	}
@@ -44,12 +57,18 @@ func runConfig(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		if err != nil {
 			return fail(stderr, err)
 		}
+		if asJSON {
+			return printJSON(stdout, stderr, map[string]any{"shell": name, "path": path})
+		}
 		fmt.Fprintf(stdout, "installed in %s; open a new shell to use it\n", path)
 		return 0
 	}
 	removed, err := shell.Uninstall(name, env)
 	if err != nil {
 		return fail(stderr, err)
+	}
+	if asJSON {
+		return printJSON(stdout, stderr, map[string]any{"shell": name, "removed": removed})
 	}
 	if removed {
 		fmt.Fprintf(stdout, "removed the %s integration\n", name)
