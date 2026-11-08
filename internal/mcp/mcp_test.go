@@ -1051,3 +1051,38 @@ func TestTooManyCallsAreRefused(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 }
+
+// An export holds the account's channel secrets and an import installs approved
+// pairs, so neither is an agent's to call. Undo acts, and stays under the deny
+// list; Records only reads.
+func TestOpsTools(t *testing.T) {
+	s, err := NewServer(Files(), Options{Call: (&fake{}).call, Deny: noDeny})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := map[string]Tool{}
+	for _, tool := range s.Tools() {
+		tools[tool.Name] = tool
+	}
+	for _, name := range []string{"daemon_ops_export", "daemon_ops_import"} {
+		if _, ok := tools[name]; ok {
+			t.Errorf("%s has a tool", name)
+		}
+	}
+	undo, ok := tools["daemon_ops_undo"]
+	if !ok || undo.Annotations.ReadOnlyHint || !undo.Annotations.DestructiveHint {
+		t.Errorf("undo: %v %+v", ok, undo.Annotations)
+	}
+	records, ok := tools["daemon_ops_records"]
+	if !ok || !records.Annotations.ReadOnlyHint || records.Annotations.DestructiveHint {
+		t.Errorf("records: %v %+v", ok, records.Annotations)
+	}
+	for _, deny := range []string{"daemon_ops_undo", "daemon_ops_*", "herdsman.daemon.v1.OpsService/Undo"} {
+		f := &fake{}
+		c := realServer(t, f, func() ([]string, error) { return []string{deny}, nil })
+		wantCode(t, c.tool("daemon_ops_undo", `{"snapshot":"s"}`), codeDenied)
+		if f.calls() != 0 {
+			t.Fatalf("%s: the daemon was called: %v", deny, f.paths)
+		}
+	}
+}
