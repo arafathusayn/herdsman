@@ -1,0 +1,24 @@
+name: sdk-consumer
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  external-consumer:
+    # A throwaway module outside the checkout requires the SDK at the commit
+    # under test and builds with the repository's settings out of reach.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Build the consumer
+        # On a pull request github.sha is a merge commit Go cannot fetch by id;
+        # the head commit is the one that was pushed.
+        run: .github/scripts/sdk-consumer.sh "${{ github.event.pull_request.head.sha || github.sha }}"
