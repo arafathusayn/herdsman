@@ -57,7 +57,9 @@ type Config struct {
 	Token string
 	// Redactor removes known secrets from every response; nil removes none.
 	Redactor *secrets.Redactor
-	Port     int
+	// RefuseAgentStart, when set, is why this server may not start agents.
+	RefuseAgentStart string
+	Port             int
 	// Hosts names the non-loopback address bound with --host and the names
 	// given with --allow-host (a proxy's domain); requests for any other
 	// Host are refused.
@@ -101,6 +103,9 @@ func NewServer(c *herdr.Client, hub *Hub, q *Queue, cfg Config) *Server {
 	}
 	if cfg.OnRotate == nil {
 		cfg.OnRotate = func(string) {}
+	}
+	if q != nil {
+		q.redactor, q.refuseStart = cfg.Redactor, cfg.RefuseAgentStart
 	}
 	return &Server{
 		hub: hub, queue: q, client: c, cfg: cfg, devices: newDevices(cfg.Token), assets: sub,

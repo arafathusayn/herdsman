@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/secrets"
 )
@@ -14,32 +15,59 @@ func (s *Server) redact(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rw := &redactingWriter{ResponseWriter: w, stream: s.cfg.Redactor.Writer(w)}
-		defer rw.stream.Close()
+		rw := &redactingWriter{ResponseWriter: w, redactor: s.cfg.Redactor}
+		defer rw.finish()
 		next.ServeHTTP(rw, r)
 	})
 }
 
-// redactingWriter sends the body through a redacting stream. Redaction changes
-// the length, so a length set by the handler is dropped.
+// redactingWriter sends the headers and the body through redaction.
 type redactingWriter struct {
 	http.ResponseWriter
-	stream *secrets.Writer
+	redactor *secrets.Redactor
+	stream   *secrets.Writer
+}
+
+// commit prepares the response once, before anything can be sent: headers are
+// cleaned, a length that redaction would falsify is dropped, and the body's
+// format picks how it is matched.
+func (w *redactingWriter) commit() {
+	if w.stream != nil {
+		return
+	}
+	h := w.Header()
+	h.Del("Content-Length")
+	for _, values := range h {
+		for i, v := range values {
+			values[i] = w.redactor.String(v)
+		}
+	}
+	r := w.redactor
+	if t := h.Get("Content-Type"); strings.Contains(t, "json") || strings.Contains(t, "event-stream") {
+		r = r.JSON()
+	}
+	w.stream = r.Writer(w.ResponseWriter)
+}
+
+func (w *redactingWriter) finish() {
+	w.commit()
+	_ = w.stream.Close()
 }
 
 func (w *redactingWriter) WriteHeader(code int) {
-	w.Header().Del("Content-Length")
+	w.commit()
 	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *redactingWriter) Write(b []byte) (int, error) {
-	w.Header().Del("Content-Length")
+	w.commit()
 	return w.stream.Write(b)
 }
 
 // Flush sends what the stream has released. The end of the data that could
 // still become a secret stays held.
 func (w *redactingWriter) Flush() {
+	w.commit()
 	_ = http.NewResponseController(w.ResponseWriter).Flush()
 }
 
