@@ -111,15 +111,31 @@ func parseRC(text string) (int, error) {
 	return rc, nil
 }
 
-// ClearMarkers removes step n's markers and its probe's, before the step runs
-// again; a stale .rc would otherwise read as this run's status. It removes
-// each .rc before its .start, so a crash here leaves the uncertain state and
-// never a status without a start.
+// ClearMarkers removes step n's markers and its probe's. Call it only on
+// ActionRun, when the step is about to run again; a stale .rc would otherwise
+// read as this run's status. On ActionProbe use ClearProbeMarkers, since this
+// function removes the .start that is the only evidence the step may have run.
+// Each .rc goes before its .start, so a crash here leaves the uncertain state
+// and never a status without a start.
 func ClearMarkers(stepsDir string, n int) error {
 	if err := checkStepNumber(n); err != nil {
 		return err
 	}
-	for _, id := range []string{strconv.Itoa(n), probeID(n)} {
+	return clearMarkers(stepsDir, strconv.Itoa(n), probeID(n))
+}
+
+// ClearProbeMarkers removes only the old result of step n's probe, before the
+// probe runs again. The step's own markers stay, so a crash after this call
+// still reads as uncertain and can never run a never or once step twice.
+func ClearProbeMarkers(stepsDir string, n int) error {
+	if err := checkStepNumber(n); err != nil {
+		return err
+	}
+	return clearMarkers(stepsDir, probeID(n))
+}
+
+func clearMarkers(stepsDir string, ids ...string) error {
+	for _, id := range ids {
 		for _, suffix := range []string{rcSuffix, startSuffix} {
 			err := os.Remove(filepath.Join(stepsDir, id+suffix))
 			if err != nil && !errors.Is(err, fs.ErrNotExist) {

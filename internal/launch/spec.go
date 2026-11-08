@@ -4,7 +4,8 @@
 // leaves behind, and the decision a resume takes from those markers.
 //
 // The package only computes and reads. It starts no process and writes
-// nothing except the removal of stale markers in ClearMarkers.
+// nothing except the removal of stale markers in ClearMarkers and
+// ClearProbeMarkers.
 package launch
 
 import (
@@ -186,18 +187,15 @@ func checkText(s string) error {
 	return nil
 }
 
-// String renders the command as a shell would be given it.
+// String renders the command for a shell. Every word is quoted, the program
+// too: functions and builtins still resolve, aliases do not.
 func (c Command) String() string {
 	words := make([]string, 0, len(c.Env)+len(c.Argv))
 	for _, e := range c.Env {
 		words = append(words, e.Name+"="+quote(e.Value))
 	}
-	for i, word := range c.Argv {
-		if i == 0 {
-			words = append(words, quoteProgram(word))
-		} else {
-			words = append(words, quote(word))
-		}
+	for _, word := range c.Argv {
+		words = append(words, quote(word))
 	}
 	return strings.Join(words, " ")
 }

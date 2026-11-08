@@ -436,6 +436,82 @@ func TestWrapperNoShellInjection(t *testing.T) {
 	}
 }
 
+// aliasSetup holds the lines a user's shell configuration could have run
+// before the wrapper line reaches it.
+func aliasSetup(shell string) string {
+	lines := []string{`PATH="$PWD:$PATH"`, "alias prog=true", "alias printf=false"}
+	switch shell {
+	case "bash":
+		lines = append(lines, "shopt -s expand_aliases")
+	case "zsh":
+		lines = append(lines, `alias -g H='| cat'`, "setopt magic_equal_subst")
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func TestWrapperAliasesCannotChangeTheLine(t *testing.T) {
+	for shell, args := range availableShells(t) {
+		t.Run(shell, func(t *testing.T) {
+			root := t.TempDir()
+			argvRecorder(t, root)
+			out := filepath.Join(root, "out")
+			line, err := Wrap(root, 1, Step{Command: cmdOf("prog", "H", "--x==ls")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			script := aliasSetup(shell) + "export OUT='" + out + "'\n" + line
+			printed := runInShell(t, shell, args, root, script)
+			if printed != "herdsman-step 1 rc=3\n" {
+				t.Errorf("printed %q", printed)
+			}
+			data, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := "\nH\n--x==ls\n"; string(data) != want {
+				t.Errorf("arguments %q, want %q", data, want)
+			}
+			marker, err := ReadMarker(root, 1)
+			if err != nil || marker != (Marker{State: MarkerFinished, RC: 3}) {
+				t.Errorf("marker %+v, %v", marker, err)
+			}
+		})
+	}
+}
+
+func TestWrapperWritesMarkersUnderNoclobber(t *testing.T) {
+	setup := map[string]string{"sh": "set -o noclobber\n", "bash": "set -o noclobber\n", "zsh": "setopt noclobber\n"}
+	for shell, args := range availableShells(t) {
+		t.Run(shell, func(t *testing.T) {
+			root := t.TempDir()
+			step := Step{Command: cmdOf("false"), Probe: &Command{Argv: []string{"true"}}}
+			for _, name := range []string{"1.start", "1.rc", "1.probe.start", "1.probe.rc"} {
+				writeFile(t, filepath.Join(root, name), "7")
+			}
+			line, err := Wrap(root, 1, step)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if printed := runInShell(t, shell, args, root, setup[shell]+line); printed != "herdsman-step 1 rc=1\n" {
+				t.Errorf("step printed %q", printed)
+			}
+			if m, err := ReadMarker(root, 1); err != nil || m != (Marker{State: MarkerFinished, RC: 1}) {
+				t.Errorf("step marker %+v, %v", m, err)
+			}
+			probe, err := WrapProbe(root, 1, step)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if printed := runInShell(t, shell, args, root, setup[shell]+probe); printed != "herdsman-step 1.probe rc=0\n" {
+				t.Errorf("probe printed %q", printed)
+			}
+			if m, err := ReadProbeMarker(root, 1); err != nil || m != (Marker{State: MarkerFinished}) {
+				t.Errorf("probe marker %+v, %v", m, err)
+			}
+		})
+	}
+}
+
 func TestWrapProbeMarkersAreSeparate(t *testing.T) {
 	root := t.TempDir()
 	step := Step{Command: cmdOf("false"), Probe: &Command{Argv: []string{"true"}}}
@@ -607,6 +683,68 @@ func TestClearMarkersRemovesRCBeforeStart(t *testing.T) {
 	}
 }
 
+func TestClearProbeMarkersKeepsStepEvidence(t *testing.T) {
+	probe := &Command{Argv: []string{"seeded"}}
+	for name, step := range map[string]Step{
+		"never": {Command: cmdOf("seed"), Probe: probe},
+		"once":  {Command: cmdOf("seed"), Once: true, Probe: probe},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, marker := range []string{"1.start", "1.probe.start", "1.probe.rc"} {
+				writeFile(t, filepath.Join(dir, marker), "1")
+			}
+			if got := Decide(step, 1, false, Marker{State: MarkerUncertain}); got.Action != ActionProbe {
+				t.Fatalf("first decision %+v", got)
+			}
+			if err := ClearProbeMarkers(dir, 1); err != nil {
+				t.Fatal(err)
+			}
+			marker, err := ReadMarker(dir, 1)
+			if err != nil || marker.State != MarkerUncertain {
+				t.Fatalf("step marker after the clear: %+v, %v", marker, err)
+			}
+			if got := Decide(step, 1, false, marker); got.Action != ActionProbe {
+				t.Fatalf("a crash after the clear decides %+v", got)
+			}
+			probeMarker, err := ReadProbeMarker(dir, 1)
+			if err != nil || probeMarker.State != MarkerNotStarted {
+				t.Fatalf("probe marker after the clear: %+v, %v", probeMarker, err)
+			}
+		})
+	}
+	t.Run("the step's status stays", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "2.start"), "")
+		writeFile(t, filepath.Join(dir, "2.rc"), "4")
+		if err := ClearProbeMarkers(dir, 2); err != nil {
+			t.Fatal(err)
+		}
+		if m, err := ReadMarker(dir, 2); err != nil || m != (Marker{State: MarkerFinished, RC: 4}) {
+			t.Fatalf("marker %+v, %v", m, err)
+		}
+	})
+	t.Run("step 0", func(t *testing.T) {
+		if err := ClearProbeMarkers(t.TempDir(), 0); err == nil {
+			t.Error("accepted")
+		}
+	})
+	t.Run("rc goes before start", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "1.probe.rc"), "0")
+		if err := os.Mkdir(filepath.Join(dir, "1.probe.start"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(dir, "1.probe.start", "pin"), "")
+		if err := ClearProbeMarkers(dir, 1); err == nil {
+			t.Fatal("undeletable start reported no error")
+		}
+		if _, err := os.Lstat(filepath.Join(dir, "1.probe.rc")); !os.IsNotExist(err) {
+			t.Errorf("rc still present: %v", err)
+		}
+	})
+}
+
 func TestDecideMarkerStates(t *testing.T) {
 	never := Step{Command: cmdOf("db", "migrate")}
 	once := Step{Command: cmdOf("db", "migrate"), Once: true}
@@ -657,7 +795,7 @@ func TestDecideMarkerStates(t *testing.T) {
 	}
 	t.Run("a stop names the step and its command", func(t *testing.T) {
 		got := Decide(never, 5, false, uncertain)
-		if !strings.Contains(got.Reason, "step 5") || !strings.Contains(got.Reason, "db migrate") {
+		if !strings.Contains(got.Reason, "step 5") || !strings.Contains(got.Reason, "'db' 'migrate'") {
 			t.Errorf("reason %q", got.Reason)
 		}
 	})
@@ -724,15 +862,15 @@ func TestPlan(t *testing.T) {
 	}
 	want := `cwd: /work/tree
 prelude timeout: 2m0s
-step 1: claude update
+step 1: 'claude' 'update'
   retry: never
-  probe: claude --version
-  submit: printf '' > /route/.steps/op-1/1.start && claude update; rc=$?; printf %s $rc > /route/.steps/op-1/1.rc; printf 'herdsman-step %s rc=%s\n' 1 $rc
-step 2: K='a b' npm ci
+  probe: 'claude' '--version'
+  submit: 'printf' '' >| '/route/.steps/op-1/1.start' && 'claude' 'update'; rc=$?; 'printf' '%s' "$rc" >| '/route/.steps/op-1/1.rc'; 'printf' 'herdsman-step %s rc=%s\n' '1' "$rc"
+step 2: K='a b' 'npm' 'ci'
   retry: idempotent
-  submit: printf '' > /route/.steps/op-1/2.start && K='a b' npm ci; rc=$?; printf %s $rc > /route/.steps/op-1/2.rc; printf 'herdsman-step %s rc=%s\n' 2 $rc
-env: A=1
-agent: codex --x 'y z'
+  submit: 'printf' '' >| '/route/.steps/op-1/2.start' && K='a b' 'npm' 'ci'; rc=$?; 'printf' '%s' "$rc" >| '/route/.steps/op-1/2.rc'; 'printf' 'herdsman-step %s rc=%s\n' '2' "$rc"
+env: A='1'
+agent: 'codex' '--x' 'y z'
 `
 	if got := plan.String(); got != want {
 		t.Fatalf("plan:\n%s\nwant:\n%s", got, want)
@@ -744,7 +882,7 @@ agent: codex --x 'y z'
 			t.Fatal(err)
 		}
 		got := plan.String()
-		for _, want := range []string{"prelude timeout: 10m0s\n", "  retry: never (once)\n", "agent: a\n"} {
+		for _, want := range []string{"prelude timeout: 10m0s\n", "  retry: never (once)\n", "agent: 'a'\n"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("missing %q in:\n%s", want, got)
 			}

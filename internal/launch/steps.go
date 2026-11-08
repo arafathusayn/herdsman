@@ -10,7 +10,8 @@ const (
 	ActionSkip Action = "skip"
 	// ActionRun submits the step, after ClearMarkers.
 	ActionRun Action = "run"
-	// ActionProbe submits the step's probe, after clearing its old result.
+	// ActionProbe submits the step's probe, after ClearProbeMarkers. Never
+	// ClearMarkers here: it would erase the evidence that the step may have run.
 	ActionProbe Action = "probe"
 	// ActionDone records the step done without running it.
 	ActionDone Action = "done"
