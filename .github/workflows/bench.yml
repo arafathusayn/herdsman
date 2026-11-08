@@ -55,4 +55,4 @@ jobs:
         run: make bench BENCH_ARGS="--out ${{ runner.temp }}/bench"
       - name: Summary
         if: always()
-        run: cat "${{ runner.temp }}"/bench/*.md >> "$GITHUB_STEP_SUMMARY"
+        run: cat "${{ runner.temp }}"/bench/*.md | tee -a "$GITHUB_STEP_SUMMARY"
