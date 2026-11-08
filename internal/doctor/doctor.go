@@ -36,11 +36,13 @@ const (
 // Check is one line of the report, `<level> <check> <detail>`.
 //
 // JSON fields: level ("ok", "warn" or "fail"), check (herdr, gh,
-// gh-account, binary, inbox, sandbox, load or enforcement) and detail (free text).
+// gh-account, binary, inbox, sandbox, load, enforcement or deprecated), detail
+// (free text) and, on a deprecated line that names one thing, deprecation.
 type Check struct {
-	Level  string `json:"level"`
-	Name   string `json:"check"`
-	Detail string `json:"detail"`
+	Level       string       `json:"level"`
+	Name        string       `json:"check"`
+	Detail      string       `json:"detail"`
+	Deprecation *Deprecation `json:"deprecation,omitempty"`
 }
 
 // Failed says whether any check failed.
@@ -82,6 +84,10 @@ type Probes struct {
 	Profile func() (string, error)
 	// GOOS names the platform the enforcement report describes.
 	GOOS string
+	// ConfigKeys lists the configuration keys set by anything but a default.
+	ConfigKeys func() ([]string, error)
+	// ShellRC returns a shell's startup file and its text.
+	ShellRC func(name string) (path, text string, err error)
 }
 
 // Default returns the real probes.
@@ -97,6 +103,7 @@ func Default() Probes {
 		ReadMemory: readMemory, Renice: renice,
 		ReadLoad: machine.ReadLoad, FreePercent: machine.FreePercent, CPUs: machine.CPUs,
 		TempDir: review.TempRoot(), GOOS: runtime.GOOS,
+		ConfigKeys: configKeysInUse, ShellRC: readShellRC,
 	}
 }
 
@@ -181,7 +188,7 @@ func Run(ctx context.Context, p Probes) ([]Check, error) {
 		return nil, err
 	}
 	var cs []Check
-	add := func(level, name, detail string) { cs = append(cs, Check{level, name, detail}) }
+	add := func(level, name, detail string) { cs = append(cs, Check{Level: level, Name: name, Detail: detail}) }
 	checkHerdr(ctx, p, add)
 	checkGh(ctx, p, add)
 	checkGitHub(ctx, p, add)
@@ -192,6 +199,7 @@ func Run(ctx context.Context, p Probes) ([]Check, error) {
 	checkSandbox(p, add)
 	checkLoad(p, lim, add)
 	checkEnforcement(p, add)
+	cs = append(cs, checkDeprecations(p, deprecated)...)
 	return cs, nil
 }
 
