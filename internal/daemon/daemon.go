@@ -86,6 +86,7 @@ type Daemon struct {
 	stateLock *os.File
 	acctDB    store.Conn
 	ops       *ops.Engine
+	recovery  *ops.Recovery
 	opsCancel context.CancelFunc
 	opsCtx    context.Context
 	bg        sync.WaitGroup

@@ -51,6 +51,8 @@ func (d *Daemon) handler() http.Handler {
 	h("GET /v1/ops", d.listOps)
 	h("GET /v1/ops/{id}", d.getOp)
 	h("POST /v1/ops/{id}/steps/{ordinal}/resolve", d.resolveOp)
+	h("POST /v1/undo", d.undo)
+	h("POST /v1/export", d.export)
 	h("POST /v1/shutdown", d.shutdown)
 	h("GET /v1/routes", d.listRoutes)
 	h("POST /v1/routes", d.createRoute)

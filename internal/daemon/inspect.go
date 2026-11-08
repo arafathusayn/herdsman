@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,7 +32,11 @@ func (d *Daemon) openOps() error {
 	}
 	d.mu.Lock()
 	d.acctDB = c
-	d.ops = ops.NewEngine(c, ops.Options{Effects: d.cfg.Effects, Checks: d.cfg.Checks, Now: d.cfg.Now})
+	d.recovery = ops.NewRecovery(ops.RecoveryOptions{StateDir: d.cfg.PrivateHome})
+	effects := d.recovery.Effects()
+	maps.Copy(effects, d.cfg.Effects)
+	d.ops = ops.NewEngine(c, ops.Options{Effects: effects, Checks: d.cfg.Checks, Now: d.cfg.Now})
+	d.recovery.Attach(d.ops)
 	d.mu.Unlock()
 	return nil
 }
@@ -101,6 +106,8 @@ func (d *Daemon) startOpsRecovery(ctx context.Context) {
 			d.logf("operations: %v", err)
 		}
 		d.deliverOutbox(cctx)
+		d.sweep(cctx)
+		d.sweepLater(cctx)
 	}()
 }
 
