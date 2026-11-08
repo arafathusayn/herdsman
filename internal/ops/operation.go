@@ -157,6 +157,8 @@ type Engine struct {
 	db      store.Conn
 	opt     Options
 	driving map[string]bool
+	// draining counts exports waiting for the account lock; e.mu guards it.
+	draining int
 }
 
 // NewEngine makes an engine on the account database's writer.
@@ -257,7 +259,7 @@ func (e *Engine) Submit(ctx context.Context, s Spec) (*Operation, error) {
 				return err
 			}
 		}
-		if err := checkLocks(c, s.Locks); err != nil {
+		if err := checkLocks(c, s.Locks, e.draining > 0); err != nil {
 			return err
 		}
 		id = newULID(e.opt.Now())
