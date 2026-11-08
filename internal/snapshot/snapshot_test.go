@@ -1177,9 +1177,18 @@ func TestTakeRefusesUnmergedIndex(t *testing.T) {
 	runGitT(t, root, "checkout", "-q", "feature/work")
 	writeT(t, root, "c", "mine\n", 0o644)
 	runGitT(t, root, "commit", "-qam", "mine")
+	// The merge must stop on the conflict, so it runs with an identity: without
+	// one, git refuses before it touches the index on a system with no user name.
 	cmd := exec.Command("git", "merge", "other")
 	cmd.Dir = root
-	_ = cmd.Run()
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("the merge must conflict: %s", out)
+	}
+	if got := runGitT(t, root, "ls-files", "-u"); got == "" {
+		t.Fatal("the index must hold unmerged paths")
+	}
 	_, err := Take(context.Background(), testOptions(root, filepath.Join(t.TempDir(), "s"), "t", "o"))
 	if !errors.Is(err, ErrUnmerged) || !strings.Contains(err.Error(), "c") {
 		t.Fatalf("err = %v", err)
