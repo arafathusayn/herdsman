@@ -25,6 +25,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/daemon"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/secrets"
 	"github.com/arafathusayn/herdsman/internal/suggest"
 	"github.com/arafathusayn/herdsman/internal/termqr"
 	"github.com/arafathusayn/herdsman/internal/web"
@@ -189,6 +190,21 @@ type multi []string
 func (m *multi) String() string     { return fmt.Sprint(*m) }
 func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
 
+// webSecrets reads the listed secrets once, at start, and sends the logs through
+// redaction. The server refuses to start without them: running without the
+// list would show the very values it exists to hide.
+func webSecrets(getenv func(string) string, k secrets.Keychain, stderr io.Writer) (*secrets.Redactor, io.Writer, error) {
+	set, err := secrets.FromEnv(getenv, k)
+	if err != nil {
+		return nil, nil, err
+	}
+	r := set.Redactor()
+	if r.Active() {
+		log.SetOutput(r.PerCall(stderr))
+	}
+	return r, r.PerCall(stderr), nil
+}
+
 func runWeb(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("web", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -280,11 +296,15 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	hub := web.NewHub(client, pong, routes)
 	queue := web.NewQueue(client, hub)
 	token := web.NewToken()
+	redactor, errorLog, err := webSecrets(os.Getenv, secrets.System(), stderr)
+	if err != nil {
+		return err
+	}
 	hostport := net.JoinHostPort(*host, strconv.Itoa(actual))
 	qr := !*noQR && isTerminal(stdout)
 	srv := &http.Server{
 		Handler: web.NewServer(client, hub, queue, web.Config{
-			Token: token, Port: actual, Hosts: hosts, Inbox: *inbox, Executable: runningBinary(),
+			Token: token, Redactor: redactor, Port: actual, Hosts: hosts, Inbox: *inbox, Executable: runningBinary(),
 			Choices:      webChoices(),
 			GitHub:       webGitHub,
 			ActivityFile: afk.DefaultWebFile(),
@@ -295,7 +315,7 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 			},
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		ErrorLog:          log.New(stderr, "", log.LstdFlags),
+		ErrorLog:          log.New(errorLog, "", log.LstdFlags),
 	}
 	go hub.Run(ctx)
 	go queue.Run(ctx)

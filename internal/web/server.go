@@ -28,6 +28,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
+	"github.com/arafathusayn/herdsman/internal/secrets"
 )
 
 //go:embed all:dist
@@ -54,7 +55,9 @@ type Server struct {
 type Config struct {
 	// Token lets a browser ask to pair; it never grants access by itself.
 	Token string
-	Port  int
+	// Redactor removes known secrets from every response; nil removes none.
+	Redactor *secrets.Redactor
+	Port     int
 	// Hosts names the non-loopback address bound with --host and the names
 	// given with --allow-host (a proxy's domain); requests for any other
 	// Host are refused.
@@ -146,7 +149,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/messages", s.auth(http.HandlerFunc(s.messages)))
 	mux.Handle("GET /api/messages/{box}/{id}", s.auth(http.HandlerFunc(s.messageBody)))
 	mux.HandleFunc("GET /", s.static)
-	return s.guard(mux)
+	return s.redact(s.guard(mux))
 }
 
 // guard rejects requests whose Host is not a name this server answers to
@@ -384,6 +387,7 @@ func (s *Server) pane(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
+	read.Text = s.cfg.Redactor.String(read.Text)
 	sum := sha256.Sum256([]byte(read.Text))
 	etag := `"` + hex.EncodeToString(sum[:8]) + `"`
 	w.Header().Set("ETag", etag)
