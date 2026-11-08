@@ -9,20 +9,27 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/mcp"
 	"github.com/arafathusayn/herdsman/sdk/client"
+	"github.com/arafathusayn/herdsman/sdk/config"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-const mcpHelp = `usage: herdsman mcp [--socket <path>] [--deny <tool>]...
+const mcpHelp = `usage: herdsman mcp [--socket <path>] [--config <file>] [--deny <tool>]...
 
 Serves the daemon's services as MCP tools on stdin and stdout.
 
   --socket  the daemon's socket (default: found as other commands find it)
+  --config  the configuration file (default: found as other commands find it)
   --deny    refuse a tool: a name, a name pattern, or service/method (repeatable)
+
+The [policy] deny list of the configuration refuses tools in the same three
+forms, and --deny adds to it. The configuration is read on every call; while it
+cannot be read, every tool is refused.
 
 Exit codes:
   0  the client closed the connection
@@ -60,11 +67,25 @@ func mcpCaller(socket string) mcp.Caller {
 	}
 }
 
+// mcpDeny is the deny list in force: the effective configuration's, read anew
+// for each call so that a limit added while the server runs holds at once,
+// plus the command line's.
+func mcpDeny(configPath string, flags []string) func() ([]string, error) {
+	return func() ([]string, error) {
+		result, err := config.Load(config.Options{ConfigPath: configPath, RepoRoot: repoRoot()})
+		if err != nil {
+			return nil, err
+		}
+		return append(slices.Clone(flags), result.Config.GetPolicy().GetDeny()...), nil
+	}
+}
+
 func runMCPCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, mcpHelp) }
 	socket := fs.String("socket", "", "the daemon's socket")
+	configPath := fs.String("config", "", "the configuration file")
 	var deny multi
 	fs.Var(&deny, "deny", "refuse a tool (repeatable)")
 	if err := fs.Parse(args); err != nil {
@@ -85,7 +106,7 @@ func runMCPCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 	}
 	options := mcp.Options{
 		Call:    mcpCaller(path),
-		Deny:    func() ([]string, error) { return deny, nil },
+		Deny:    mcpDeny(*configPath, deny),
 		Version: version,
 	}
 	if err := serveMCP(mcp.Files(), options, stdin, stdout); err != nil {

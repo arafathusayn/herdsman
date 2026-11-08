@@ -4,15 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/mcp"
+	"github.com/arafathusayn/herdsman/sdk/config"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -48,6 +51,22 @@ func serveSocket(t *testing.T, h http.Handler) string {
 // runUntilReply feeds the lines with the input held open until the tool has
 // answered: end of input cancels whatever is still running.
 func runUntilReply(t *testing.T, lines string, args ...string) (string, string, int) {
+	t.Helper()
+	isolateConfig(t)
+	return runInPlace(t, lines, args...)
+}
+
+// isolateConfig keeps this machine's own configuration out of a test.
+func isolateConfig(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HERDSMAN_CONFIG", "")
+	t.Chdir(t.TempDir())
+}
+
+// runInPlace is runUntilReply for a test that arranged its own configuration.
+func runInPlace(t *testing.T, lines string, args ...string) (string, string, int) {
 	t.Helper()
 	read, write, err := os.Pipe()
 	if err != nil {
@@ -201,6 +220,157 @@ service: { name: "XService" method: { name: "A" input_type: ".other.v1.R" output
 	if err := serveMCP([]protoreflect.FileDescriptor{file}, options, strings.NewReader(""), io.Discard); err == nil {
 		t.Fatal("serveMCP accepted a service outside the herdsman packages")
 	}
+}
+
+// configFile writes a configuration and returns its path.
+func configFile(t *testing.T, text string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "herdsman.config.toml")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestMCPAppliesTheConfiguredDeny(t *testing.T) {
+	for name, entry := range map[string]string{
+		"tool name": "daemon_message_status",
+		"pattern":   "daemon_*",
+		"procedure": "herdsman.daemon.v1.MessageService/Status",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls atomic.Int32
+			socket := serveSocket(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+			path := configFile(t, "[policy]\ndeny = [\""+entry+"\"]\n")
+			out, _, code := runUntilReply(t, mcpLines, "--socket", socket, "--config", path)
+			if code != 0 || !strings.Contains(out, "policy_denied") {
+				t.Fatalf("exit %d: %s", code, out)
+			}
+			if calls.Load() != 0 {
+				t.Fatal("a denied tool reached the daemon")
+			}
+		})
+	}
+}
+
+func TestMCPFindsTheProjectsConfiguration(t *testing.T) {
+	isolateConfig(t)
+	repo, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "herdsman.config.toml"), []byte("[policy]\ndeny = [\"daemon_*\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _, code := runInPlace(t, mcpLines, "--socket", "/nonexistent")
+	if code != 0 || !strings.Contains(out, "policy_denied") {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+}
+
+// A project file may add to the user's deny list but never take from it.
+func TestMCPProjectCannotLiftTheUsersDeny(t *testing.T) {
+	isolateConfig(t)
+	user := config.UserDir(os.Environ())
+	if err := os.MkdirAll(user, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(user, "config.toml"), []byte("[policy]\ndeny = [\"daemon_*\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := configFile(t, "[policy]\ndeny = [\"suggest_*\"]\n")
+	out, _, code := runInPlace(t, mcpLines, "--socket", "/nonexistent", "--config", path)
+	if code != 0 || !strings.Contains(out, "policy_denied") {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+}
+
+func TestMCPFlagsAddToTheConfiguredDeny(t *testing.T) {
+	path := configFile(t, "[policy]\ndeny = [\"suggest_*\"]\n")
+	out, _, code := runUntilReply(t, mcpLines, "--socket", "/nonexistent", "--config", path, "--deny", "daemon_*")
+	if code != 0 || !strings.Contains(out, "policy_denied") {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+}
+
+func TestMCPUnreadableConfigurationRefusesTools(t *testing.T) {
+	for name, text := range map[string]string{
+		"not toml":        "[policy\n",
+		"misspelled key":  "[policy]\ndenny = [\"x\"]\n",
+		"malformed entry": "[policy]\ndeny = [\"daemon[\"]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, _, code := runUntilReply(t, mcpLines, "--socket", "/nonexistent", "--config", configFile(t, text))
+			if code != 0 || !strings.Contains(out, "policy_unavailable") {
+				t.Fatalf("exit %d: %s", code, out)
+			}
+		})
+	}
+}
+
+// The configuration is read for each call, so a limit added while the server
+// runs holds at once, and one that stops being readable refuses.
+func TestMCPConfigurationIsReadOnEveryCall(t *testing.T) {
+	isolateConfig(t)
+	path := configFile(t, "[policy]\ndeny = [\"suggest_*\"]\n")
+	socket := serveSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", rpc.ContentTypeProto)
+	}))
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer read.Close()
+	call := func(id int) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"daemon_message_status"}}`+"\n", id)
+	}
+	steps := map[string]func(){
+		`"id":2`: func() {
+			os.WriteFile(path, []byte("[policy]\ndeny = [\"daemon_*\"]\n"), 0o600)
+			write.WriteString(call(3))
+		},
+		`"id":3`: func() {
+			os.Remove(path)
+			write.WriteString(call(4))
+		},
+		`"id":4`: func() { write.Close() },
+	}
+	out := &stepWriter{steps: steps}
+	if _, err := write.WriteString(mcpLines); err != nil {
+		t.Fatal(err)
+	}
+	if code := runMCPCommand([]string{"--socket", socket, "--config", path}, read, out, io.Discard); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("lines %q", lines)
+	}
+	if strings.Contains(lines[1], "isError") {
+		t.Fatalf("the first call was allowed by the file: %s", lines[1])
+	}
+	if !strings.Contains(lines[2], "policy_denied") || !strings.Contains(lines[3], "policy_unavailable") {
+		t.Fatalf("after the edits: %s / %s", lines[2], lines[3])
+	}
+}
+
+// stepWriter runs one step after the reply it waits for has been kept.
+type stepWriter struct {
+	bytes.Buffer
+	steps map[string]func()
+}
+
+func (w *stepWriter) Write(p []byte) (int, error) {
+	n, err := w.Buffer.Write(p)
+	for want, step := range w.steps {
+		if strings.Contains(string(p), want) {
+			step()
+		}
+	}
+	return n, err
 }
 
 func TestMCPHelp(t *testing.T) {

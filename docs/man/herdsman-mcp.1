@@ -1,0 +1,24 @@
+.TH HERDSMAN-MCP 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-mcp \- Serve the daemon's services as MCP tools over stdio.
+.SH DESCRIPTION
+.nf
+usage: herdsman mcp [--socket <path>] [--config <file>] [--deny <tool>]...
+
+Serves the daemon's services as MCP tools on stdin and stdout.
+
+  --socket  the daemon's socket (default: found as other commands find it)
+  --config  the configuration file (default: found as other commands find it)
+  --deny    refuse a tool: a name, a name pattern, or service/method (repeatable)
+
+The [policy] deny list of the configuration refuses tools in the same three
+forms, and --deny adds to it. The configuration is read on every call; while it
+cannot be read, every tool is refused.
+
+Exit codes:
+  0  the client closed the connection
+  1  serving failed
+  2  bad usage
+.fi
+.SH SEE ALSO
+.BR herdsman (1)
