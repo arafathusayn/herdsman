@@ -34,6 +34,7 @@ type rig struct {
 	world   *herdrtest.World
 	callers *route.Callers
 	crashOn string
+	onFault func(string)
 	poll    func()
 	exe     string
 	policy  string
@@ -90,6 +91,9 @@ func (r *rig) engine() (*ops.Engine, func()) {
 		}
 	}, AgentTimeout: 5 * time.Second}
 	e := ops.NewEngine(db, ops.Options{Effects: route.Effects(deps), Fault: func(point string) {
+		if r.onFault != nil {
+			r.onFault(point)
+		}
 		if point == r.crashOn {
 			r.crashOn = ""
 			panic(crash{})

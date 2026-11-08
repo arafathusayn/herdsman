@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -115,6 +116,8 @@ type stepData struct {
 	Op string `json:"-"`
 	// Tag says which delivery a prompt step is, for its record.
 	Tag string `json:"tag,omitempty"`
+	// Control is set on the steps of a pause, resume, stop or delete.
+	Control *controlData `json:"control,omitempty"`
 }
 
 // UpKey is the idempotency key of a route's start.
@@ -491,7 +494,8 @@ func Effects(deps Deps) map[string]ops.Effect {
 	if deps.Callers == nil {
 		deps.Callers = NewCallers()
 	}
-	return map[string]ops.Effect{
+	effects := controlEffects(deps)
+	maps.Copy(effects, map[string]ops.Effect{
 		effectFolder:    effect{deps, applyFolder, probeFolder},
 		effectInbox:     effect{deps, applyInbox, probeInbox},
 		effectWorkspace: effect{deps, applyWorkspace, probeWorkspace},
@@ -505,7 +509,8 @@ func Effects(deps Deps) map[string]ops.Effect {
 		effectService:   effect{deps, applyService, probeService},
 		effectHandshake: effect{deps, applyHandshake, probeHandshake},
 		effectBrief:     effect{deps, applyPrompt, probeSent},
-	}
+	})
+	return effects
 }
 
 func applyPrelude(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
