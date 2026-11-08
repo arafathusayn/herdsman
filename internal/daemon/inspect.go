@@ -32,7 +32,7 @@ func (d *Daemon) openOps() error {
 	}
 	d.mu.Lock()
 	d.acctDB = c
-	d.ops = ops.NewEngine(c, ops.Options{Effects: d.cfg.Effects, Checks: d.cfg.Checks, Now: d.cfg.Now})
+	d.ops = ops.NewEngine(c, ops.Options{Effects: d.operationEffects(), Checks: d.cfg.Checks, Now: d.cfg.Now})
 	d.mu.Unlock()
 	return nil
 }
@@ -81,6 +81,7 @@ func (d *Daemon) startInspect(rf RoutesFile) error {
 var inspectReads = map[string]bool{
 	"Hello": true, "Health": true, "DaemonStatus": true, "ListOperations": true, "GetOperation": true,
 	"ListRoutes": true, "Status": true, "GetSetup": true, "Authority": true, "Wait": true,
+	"Get": true, "List": true,
 }
 
 // refuseInInspect answers every call that could change something.

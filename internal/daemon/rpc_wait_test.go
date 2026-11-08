@@ -495,6 +495,17 @@ func TestInspectServesOnlyReads(t *testing.T) {
 	}
 }
 
+// TestInspectServesRouteReads: a route can be read in inspect mode, and not started.
+func TestInspectServesRouteReads(t *testing.T) {
+	inspect := &Daemon{cfg: Config{Inspect: true}}
+	for name, served := range map[string]bool{"Get": true, "List": true, "Up": false} {
+		r, _ := http.NewRequest("POST", rpc.Path(daemonv1.RouteServiceName, name), nil)
+		if e := inspect.refuseInInspect(r); served != (e == nil) {
+			t.Errorf("%s: inspect answer %v", name, e)
+		}
+	}
+}
+
 // TestInspectRefusalIsVersionCheckedFirst: the refusal reaches a client by its
 // own code, and a client of another version is told that first.
 func TestInspectRefusalIsVersionCheckedFirst(t *testing.T) {

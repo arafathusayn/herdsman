@@ -8,6 +8,7 @@ import (
 // rpcProcedures lists every RPC method the daemon serves.
 func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	m := &messageService{d: d}
+	routes := &routeService{d: d}
 	name := daemonv1.MessageServiceName
 	return []rpc.Procedure{
 		rpc.Unary(name, "Hello", m.Hello),
@@ -37,5 +38,8 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(name, "GetOperation", m.GetOperation),
 		rpc.Unary(name, "ResolveOperation", m.ResolveOperation),
 		rpc.Unary(name, "Wait", m.Wait),
+		rpc.Unary(daemonv1.RouteServiceName, "Up", routes.Up),
+		rpc.Unary(daemonv1.RouteServiceName, "Get", routes.Get),
+		rpc.Unary(daemonv1.RouteServiceName, "List", routes.List),
 	}
 }
