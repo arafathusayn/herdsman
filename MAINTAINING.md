@@ -45,6 +45,38 @@ A new upstream is a decision. Record it in `docs/adr/`, add it to `dependencyBud
 
 `.github/workflows/vuln.yml` runs daily. A failure says which module is affected and by which advisory; re-vendor a fixed release with the steps above.
 
+## Releases
+
+A pushed `v*` tag runs `.github/workflows/release.yml`. `.github/scripts/release-tag.sh` builds the tag twice from empty caches and compares `checksums.txt`; a difference stops the run before anything is public. The second build's files are then attested and uploaded unchanged, and the Homebrew cask is pushed last. Nothing is built after the comparison.
+
+What a release carries:
+
+- `checksums.txt`, for every archive and the SBOM.
+- `checksums.txt.sig`, one line: the scheme, the id of the key, the signature. `herdsman update` checks it against the keys in `internal/update/release_keys.txt`, then the archive against the checksums, and only then replaces the binary.
+- `herdsman_<version>.spdx.json`, written by `internal/update/releasetool`: every `VENDOR.md` under `vendor/` and `third_party/`, the SQLite inside the driver, each submodule, the Go standard library, and the musl and compiler runtime that zig links into the linux binaries. A folder named `conformance` holds test-only code and is left out.
+- A provenance attestation; check it with `gh attestation verify <file> --repo arafathusayn/herdsman`.
+
+### The signing key
+
+The private key is the repository secret `HERDSMAN_RELEASE_SIGNING_KEY`, and it exists nowhere else. The public half is committed, one `ed25519:<base64>` line per key. The release stops when the secret is absent or when its public half is not in that file, so no release can ship that its own binaries would refuse.
+
+To make or replace a key, on a machine you trust:
+
+1. `go run ./internal/update/releasetool keygen --seed-out <file> --public-out <file>`.
+2. Add the public line to `internal/update/release_keys.txt`, keeping any old line, and merge that.
+3. Store the seed as the secret, then destroy the file.
+4. Once every supported binary trusts the new key, remove the old line.
+
+If a key leaks, remove its line at once and publish a release signed by a new key. Binaries that still trust only the old key must be replaced by hand; say so in the advisory.
+
+### Man pages
+
+`docs/man/` is generated from the command table. `TestManPagesAreCurrent` fails when a command's help changes without it; regenerate with `HERDSMAN_WRITE_MAN=1 go test ./cmd/herdsman -run TestManPagesAreCurrent`.
+
+### Fuzzing
+
+`.github/workflows/fuzz.yml` runs every native fuzz target each night, starting from the corpus under each package's `testdata/fuzz/`. A failure uploads the input that broke it: fix the bug and commit the input with the fix, so the corpus only grows. For a long session, run `.github/scripts/fuzz-nightly.sh <time per target> . sdk`.
+
 ## The yearly routine
 
 Once a year, open an issue from the "Yearly routine" template. Its checklist should take an afternoon: replace the release keys, reread `docs/threat-model.md`, move to a newer Go toolchain, refresh every upstream copy, leave the fuzz targets going for a long session, and repeat the benchmarks.

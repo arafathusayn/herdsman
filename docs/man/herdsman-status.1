@@ -1,0 +1,18 @@
+.TH HERDSMAN-STATUS 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-status \- Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.
+.SH DESCRIPTION
+.nf
+usage: herdsman status
+
+Prints a health snapshot of every agent in HERDSMAN_STATUS_SPECS
+("name:pane:tree ...") and of the machine. LIMIT_MIN (30) flags a
+background job running that many minutes or more.
+
+exit codes:
+  0  the snapshot was printed
+  2  usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid
+     LIMIT_MIN
+.fi
+.SH SEE ALSO
+.BR herdsman (1)
