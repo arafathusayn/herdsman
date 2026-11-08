@@ -498,18 +498,20 @@ func TestInspectServesOnlyReads(t *testing.T) {
 // TestInspectRefusalIsVersionCheckedFirst: the refusal reaches a client by its
 // own code, and a client of another version is told that first.
 func TestInspectRefusalIsVersionCheckedFirst(t *testing.T) {
-	h := newHarness(t)
-	h.d.cfg.Inspect = true
-	if _, err := h.client().CreateRoute(context.Background(), CreateRequest{Repo: "r", Route: "x"}); code(err) != "failed_precondition" {
-		t.Fatalf("error %v", err)
-	}
-	if _, err := h.client().ListRoutes(context.Background()); err != nil {
+	root := filepath.Join(shortDir(t), "p")
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	old := NewClient(h.client().Socket, "0.1.0")
-	defer old.Close()
-	resp := postRPC(t, old, "CreateRoute", "{}", map[string]string{HeaderVersion: "0.1.0"})
-	if resp.StatusCode != 400 {
+	c, stop := serving(t, root, true)
+	defer stop()
+	ctx := context.Background()
+	if _, err := c.CreateRoute(ctx, CreateRequest{Repo: "r", Route: "x"}); code(err) != "failed_precondition" {
+		t.Fatalf("error %v", err)
+	}
+	if _, err := c.ListRoutes(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if resp := postRPC(t, c, "CreateRoute", "{}", map[string]string{HeaderVersion: "0.1.0"}); resp.StatusCode != 400 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
 }
@@ -567,9 +569,7 @@ func TestStatusAndOperationsReportTheirFailures(t *testing.T) {
 	if _, err := c.DaemonStatus(ctx); code(err) != "internal" {
 		t.Fatalf("status: %v", err)
 	}
-	if err := h.d.acctDB.Close(); err != nil {
-		t.Fatal(err)
-	}
+	h.d.closeOps()
 	if _, err := c.ListOperations(ctx); code(err) != "internal" {
 		t.Fatalf("list: %v", err)
 	}
