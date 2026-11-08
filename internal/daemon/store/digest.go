@@ -69,9 +69,11 @@ func RouteRecord(name, inbox, repo, herdrSocket string, created int64) Record {
 // RouteRecords reads the messages of a route database.
 func RouteRecords(route string, c Conn) ([]Record, error) {
 	var recs []Record
-	err := c.Query("SELECT id, sender, recipient, kind, COALESCE(reply_to, 0), envelope, body_sha256, origin FROM messages ORDER BY id", nil, func(r Row) error {
+	err := c.Query("SELECT id, sender, recipient, kind, COALESCE(reply_to, 0), envelope, body, origin FROM messages ORDER BY id", nil, func(r Row) error {
+		// The body itself is hashed: the stored hash would hide a changed body.
+		sum := sha256.Sum256(r.Bytes(6))
 		recs = append(recs, Record{Kind: RecordMessage, ID: fmt.Sprintf("%s/m%012d", route, r.Int64(0)),
-			Fields: []string{r.Text(1), r.Text(2), r.Text(3), strconv.FormatInt(r.Int64(4), 10), r.Text(5), r.Text(6), r.Text(7)}})
+			Fields: []string{r.Text(1), r.Text(2), r.Text(3), strconv.FormatInt(r.Int64(4), 10), r.Text(5), hex.EncodeToString(sum[:]), r.Text(7)}})
 		return nil
 	})
 	if err != nil {

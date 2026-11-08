@@ -357,6 +357,29 @@ func waitFor(t *testing.T, p string) {
 	}
 }
 
+func TestOneStateDirectoryHasOneDaemon(t *testing.T) {
+	base := shortDir(t)
+	root := filepath.Join(base, "s")
+	home := filepath.Join(base, "h")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	first := New(Config{PrivateHome: root, Home: home, Version: testVersion, Log: func(string) {}})
+	if err := first.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer first.Stop("stop")
+	// The same folder selected through the override has another account lock.
+	second := New(Config{PrivateHome: root, Home: root, Version: testVersion, Log: func(string) {}})
+	var running *ErrRunning
+	if err := second.Start(); !errors.As(err, &running) || running.Holder.PID != os.Getpid() {
+		t.Fatalf("second daemon on one state directory: %v", err)
+	}
+	if _, err := os.Lstat(SocketPath(root)); err != nil {
+		t.Fatalf("the first daemon's socket: %v", err)
+	}
+}
+
 func TestOverriddenStateDirRefusesTheSupervisor(t *testing.T) {
 	for _, cmd := range []string{"install", "uninstall", "start", "stop", "restart"} {
 		code, _ := runCLI(t, map[string]string{"HERDSMAN_STATE_DIR": "/tmp/x"}, nil, cmd)

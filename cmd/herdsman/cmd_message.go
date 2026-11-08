@@ -109,7 +109,7 @@ func messageSubHelp() map[string]string {
 func runMessage(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if route, rest, asJSON, ok := daemonPath(args, os.Getenv); ok {
 		return daemon.RunMessage(&daemon.MessageEnv{Getenv: os.Getenv, Stdout: stdout, Stderr: stderr,
-			Version: daemonVersion(), JSON: asJSON, Route: route}, rest)
+			Version: daemonVersion(), JSON: asJSON, Route: route, StatusRPC: daemon.StatusOverRPC}, rest)
 	}
 	e := &message.Env{Getenv: os.Getenv, Stdout: stdout, Stderr: stderr, Client: herdrClient(), Executable: executable()}
 	// As the scripts' traps: an interrupted command frees its locks and
