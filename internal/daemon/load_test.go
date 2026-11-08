@@ -300,9 +300,9 @@ func settleAt(n int) int {
 }
 
 // TestGoroutineAccounting asserts the goroutine formula of 9.1 for the
-// Phase A daemon: a base of 3 (Serve, the scheduler and the listener),
-// plus 1 per route (its actor), plus 1 per open connection and 1 more per
-// open stream; none per message. The card watcher, goal resume and alert
+// Phase A daemon: a base of 4 (Serve, the scheduler, the listener and the
+// account database's connection opener), plus 1 per route (its actor), plus
+// 1 per open connection and 1 more per open stream; none per message. The card watcher, goal resume and alert
 // sender are Phase B.
 func TestGoroutineAccounting(t *testing.T) {
 	h := newHarness(t)
@@ -310,8 +310,8 @@ func TestGoroutineAccounting(t *testing.T) {
 	h.cfg.Log = func(string) {}
 	g0 := settle(0)
 	h.start()
-	if g := settleAt(g0 + 3); g != g0+3 {
-		t.Fatalf("base: %d goroutines over %d, want 3", g-g0, g0)
+	if g := settleAt(g0 + 4); g != g0+4 {
+		t.Fatalf("base: %d goroutines over %d, want 4", g-g0, g0)
 	}
 	var parties []*party
 	for _, n := range []string{"a", "b", "c"} {
@@ -324,9 +324,9 @@ func TestGoroutineAccounting(t *testing.T) {
 	for _, p := range parties {
 		p.c.Close()
 	}
-	base := g0 + 3 + 3
+	base := g0 + 4 + 3
 	if g := settleAt(base); g != base {
-		t.Fatalf("3 routes: %d goroutines over the base, want 3", g-(g0+3))
+		t.Fatalf("3 routes: %d goroutines over the base, want 3", g-(g0+4))
 	}
 	// Each open stream holds its connection's goroutine, its writer and
 	// the client side's reader and writer of the connection.

@@ -1,0 +1,5 @@
+<id> running sentinel-file 0/1
+<id> running sentinel-signal 0/1
+--
+<id> running sentinel-signal 0/1
+  0 intended signal child key=pid-key retry=idempotent
