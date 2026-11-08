@@ -1,0 +1,18 @@
+# a config in the subset
+schema:
+  version: "1.0.0"
+hooks:
+  pre-merge: bun test
+  post-start: { dev: "make start-all" }
+list:
+- a
+- b: 1
+  c: [x, 'y', {z: ~}]
+text: |
+  kept
+    lines
+folded: >-
+  one
+  two
+plain: multi
+  line

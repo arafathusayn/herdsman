@@ -1,0 +1,118 @@
+# Cases of the official yaml-test-suite that the plain subset leaves out.
+# One case id per line, then the reason. The suite test fails if a listed case
+# starts passing, so this list cannot go stale.
+26DV anchors
+27NA directives
+2AUY tags
+2JQS empty keys
+2LFX directives
+2SXE anchors
+2XXW tags
+33X3 tags
+35KP tags
+3GZX anchors
+3R3P anchors
+4FJ6 flow collections as keys
+52DL tags
+565N tags
+57H4 tags
+5TYM directives
+5WE3 complex keys
+6BFJ anchors
+6CK3 directives
+6JWB tags
+6KGN anchors
+6LVF directives
+6M2F complex keys
+6PBE complex keys
+6WLZ tags
+6XDY multiple documents
+6ZKB multiple documents
+735Y tags
+74H7 tags
+7BMT anchors
+7BUB anchors
+7FWL tags
+7W2P complex keys
+7Z25 multiple documents
+8MK2 tags
+8XYN anchors
+9DXL multiple documents
+9KAX anchors
+9MMW flow collections as keys
+9WXW tags
+A2M4 complex keys
+BEC7 directives
+BU8L anchors
+C4HZ directives
+CC74 directives
+CFD4 empty keys
+CN3R anchors
+CT4Q complex keys
+CUP7 tags
+DFF7 complex keys
+DK95/07 directives
+E76Z anchors
+EHF6 tags
+F2C7 anchors
+FH7J tags
+FRK4 complex keys
+FTA2 anchors
+GH63 complex keys
+HMQ5 tags
+J7PZ tags
+JHB9 multiple documents
+JS2J anchors
+JTV5 complex keys
+KK5P complex keys
+KSS4 multiple documents
+L383 multiple documents
+L94M complex keys
+LE5A tags
+LX3P flow collections as keys
+M2N8/00 complex keys
+M2N8/01 complex keys
+M5C3 tags
+M5DY complex keys
+M7A3 multiple documents
+MUS6/02 directives
+MUS6/03 directives
+MUS6/04 directives
+MUS6/05 directives
+MUS6/06 directives
+NHX8 empty keys
+NKF9 empty keys
+P76L directives
+PUW8 multiple documents
+PW8X anchors
+Q9WF flow collections as keys
+RR7F complex keys
+RTP8 directives
+RZP5 complex keys
+RZT7 multiple documents
+S3PD empty keys
+S4JQ tags
+S9E8 complex keys
+SBG9 flow collections as keys
+SKE5 anchors
+SM9W/01 empty keys
+U3C3 directives
+U3XV anchors
+U9NS multiple documents
+UGM3 tags
+UKK6/00 empty keys
+UKK6/02 tags
+UT92 multiple documents
+V55R anchors
+V9D5 complex keys
+W4TN directives
+W5VH anchors
+WZ62 tags
+X38W anchors
+X8DW complex keys
+XW4D complex keys
+Y2GN anchors
+Z67P tags
+Z9M4 directives
+ZH7C anchors
+ZWK4 complex keys
