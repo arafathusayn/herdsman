@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/afk"
+	"github.com/arafathusayn/herdsman/internal/daemon"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/termqr"
@@ -40,6 +41,10 @@ var (
 // cgoProbe runs for the hidden --cgo-probe argument; only a build with the
 // cgoprobe tag sets it (cgoprobe.go).
 var cgoProbe func(stdout io.Writer) error
+
+// The worktree verbs run their service in this process until the generated
+// client exists.
+func init() { worktreeCall = daemon.WorktreeCall }
 
 const usage = `herdsman: run a team of coding agents inside herdr.
 
