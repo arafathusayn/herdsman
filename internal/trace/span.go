@@ -7,13 +7,17 @@
 package trace
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -37,8 +41,9 @@ const (
 
 // Files inside a route folder.
 const (
-	spansFile = "spans.jsonl"
-	traceDir  = "trace"
+	spansFile   = "spans.jsonl"
+	routeIDFile = "route-id"
+	traceDir    = "trace"
 )
 
 // Schema names the version of a document.
@@ -128,11 +133,11 @@ func digest(parts ...string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// finish sorts the spans and gives each an id derived from its content, so
-// exporting the same route twice produces the same ids. A collector can then
-// drop the repeat. usage is the route's measured usage; nil sums the spans.
-func finish(name string, spans []Span, skipped int, usage *measured) Trace {
-	traceID := digest("trace", name)[:32]
+// finish sorts the spans and derives each id from the route's identity and the
+// span's content, so exporting the same route twice produces the same ids and a
+// collector can drop the repeat. usage is the route's measured usage; nil sums
+// the spans.
+func finish(traceID, name string, spans []Span, skipped int, usage *measured) Trace {
 	result := Trace{Schema: Schema{Version: SchemaVersion}, Route: name, TraceID: traceID, Spans: []Span{}, Skipped: skipped}
 	if len(spans) == 0 {
 		return result
@@ -164,26 +169,84 @@ func (s Span) end() time.Time {
 func rootSpan(name string, spans []Span, usage *measured) Span {
 	first, last := spans[0].Start, spans[0].end()
 	var total measured
-	var reported bool
 	for _, span := range spans {
 		if span.end().After(last) {
 			last = span.end()
 		}
-		if span.Tokens != nil {
-			total.tokens += *span.Tokens
-			reported = true
-		}
-		if span.CostMicros != nil {
-			total.costMicros += *span.CostMicros
-			reported = true
-		}
+		addMeasure(&total.tokens, span.Tokens)
+		addMeasure(&total.costMicros, span.CostMicros)
 	}
 	root := Span{Kind: KindRoute, Name: name, Start: first, DurationMS: float64(last.Sub(first)) / float64(time.Millisecond)}
 	if usage != nil {
-		total, reported = *usage, true
+		total = *usage
 	}
-	if reported {
-		root.Tokens, root.CostMicros = &total.tokens, &total.costMicros
-	}
+	root.Tokens, root.CostMicros = total.tokens, total.costMicros
 	return root
+}
+
+// addMeasure adds a reported value; a total nothing reported stays nil.
+func addMeasure(total **int64, value *int64) {
+	if value == nil {
+		return
+	}
+	if *total == nil {
+		*total = new(int64)
+	}
+	**total += *value
+}
+
+var routeIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// routeIdentity is the trace id of a route. A route's name is not unique, so
+// the first trace of a route stores a random id inside it, which also keeps
+// the id when the folder moves. A route that cannot be written falls back to a
+// digest of its path: stable there, and distinct from other routes.
+func routeIdentity(route string) (string, error) {
+	path := filepath.Join(route, traceDir, routeIDFile)
+	id, err := readRouteID(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return createRouteID(route, path)
+	}
+	return id, err
+}
+
+func readRouteID(path string) (string, error) {
+	handle, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return "", err
+	}
+	defer handle.Close()
+	data, err := io.ReadAll(io.LimitReader(handle, 64))
+	id := strings.TrimSpace(string(data))
+	if err != nil || !routeIDPattern.MatchString(id) {
+		return "", fmt.Errorf("trace: %s does not hold a route id", path)
+	}
+	return id, nil
+}
+
+// createRouteID publishes the id by a hard link, which fails when another
+// process got there first and never exposes a half-written file.
+func createRouteID(route, path string) (string, error) {
+	fallback := digest("path", route)[:32]
+	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
+		return fallback, nil
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".route-id-*")
+	if err != nil {
+		return fallback, nil
+	}
+	defer os.Remove(temporary.Name())
+	id := digest("route", rand.Text())[:32]
+	_, writeErr := temporary.WriteString(id + "\n")
+	if errors.Join(writeErr, temporary.Close()) != nil {
+		return fallback, nil
+	}
+	err = os.Link(temporary.Name(), path)
+	if errors.Is(err, fs.ErrExist) {
+		return readRouteID(path)
+	}
+	if err != nil {
+		return fallback, nil
+	}
+	return id, nil
 }

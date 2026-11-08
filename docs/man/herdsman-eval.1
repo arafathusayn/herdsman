@@ -11,8 +11,8 @@ usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <ro
 Experimental: the flag is required and the format can change between minor
 releases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per
 arm: counts, and 95% confidence intervals of pass rate, duration and cost, with
-an A/A control of two groups of the same arm. A suite without a control is
-refused. Only ranges are reported, never a single value.
+an A/A control of two groups of the same arm. Every arm needs its own control;
+a suite with an arm that has none is refused. Only ranges are reported, never a single value.
 
 Each --findings route adds its reviewer findings, counted by outcome. --rank
 never ranks: it reports why not, and exits 3.
@@ -32,8 +32,8 @@ usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <ro
 Experimental: the flag is required and the format can change between minor
 releases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per
 arm: counts, and 95% confidence intervals of pass rate, duration and cost, with
-an A/A control of two groups of the same arm. A suite without a control is
-refused. Only ranges are reported, never a single value.
+an A/A control of two groups of the same arm. Every arm needs its own control;
+a suite with an arm that has none is refused. Only ranges are reported, never a single value.
 
 Each --findings route adds its reviewer findings, counted by outcome. --rank
 never ranks: it reports why not, and exits 3.

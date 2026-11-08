@@ -3,11 +3,11 @@
     "version": "1.0.0"
   },
   "route": "fixture-route",
-  "trace_id": "29c5623d92253cbf0671816e791b891d",
+  "trace_id": "0123456789abcdef0123456789abcdef",
   "spans": [
     {
-      "trace_id": "29c5623d92253cbf0671816e791b891d",
-      "span_id": "403af0e4083ce85a",
+      "trace_id": "0123456789abcdef0123456789abcdef",
+      "span_id": "5d1853f32b38335b",
       "kind": "route",
       "name": "fixture-route",
       "start": "2026-11-08T10:00:00Z",
@@ -16,9 +16,9 @@
       "cost_micros": 15000
     },
     {
-      "trace_id": "29c5623d92253cbf0671816e791b891d",
-      "span_id": "081461a08af7e483",
-      "parent_id": "403af0e4083ce85a",
+      "trace_id": "0123456789abcdef0123456789abcdef",
+      "span_id": "dee17c09ef253518",
+      "parent_id": "5d1853f32b38335b",
       "kind": "hook",
       "name": "post-start/deps",
       "task": "impl",
@@ -28,9 +28,9 @@
       "start_approximate": true
     },
     {
-      "trace_id": "29c5623d92253cbf0671816e791b891d",
-      "span_id": "a65fc417de5f6c61",
-      "parent_id": "403af0e4083ce85a",
+      "trace_id": "0123456789abcdef0123456789abcdef",
+      "span_id": "ccc8a880d648d03e",
+      "parent_id": "5d1853f32b38335b",
       "kind": "turn",
       "name": "implementer",
       "task": "impl",
@@ -40,9 +40,9 @@
       "cost_micros": 12000
     },
     {
-      "trace_id": "29c5623d92253cbf0671816e791b891d",
-      "span_id": "2cfe27ffe46b0754",
-      "parent_id": "403af0e4083ce85a",
+      "trace_id": "0123456789abcdef0123456789abcdef",
+      "span_id": "56df3a62d428b75f",
+      "parent_id": "5d1853f32b38335b",
       "kind": "command",
       "name": "git fetch",
       "start": "2026-11-08T10:00:01Z",
@@ -51,9 +51,9 @@
       "args": "-c [redacted] fetch [redacted]"
     },
     {
-      "trace_id": "29c5623d92253cbf0671816e791b891d",
-      "span_id": "fdc4be815ab8e3b1",
-      "parent_id": "403af0e4083ce85a",
+      "trace_id": "0123456789abcdef0123456789abcdef",
+      "span_id": "f8bb8bb2221cdfe0",
+      "parent_id": "5d1853f32b38335b",
       "kind": "command",
       "name": "git status",
       "start": "2026-11-08T10:00:02Z",
@@ -62,9 +62,9 @@
       "args": "status --porcelain"
     },
     {
-      "trace_id": "29c5623d92253cbf0671816e791b891d",
-      "span_id": "b544f4b1775c74de",
-      "parent_id": "403af0e4083ce85a",
+      "trace_id": "0123456789abcdef0123456789abcdef",
+      "span_id": "53507f3cd5f2f88d",
+      "parent_id": "5d1853f32b38335b",
       "kind": "check",
       "name": "make check",
       "task": "impl",
@@ -73,9 +73,9 @@
       "exit": 0
     },
     {
-      "trace_id": "29c5623d92253cbf0671816e791b891d",
-      "span_id": "ec1b697595f9eb67",
-      "parent_id": "403af0e4083ce85a",
+      "trace_id": "0123456789abcdef0123456789abcdef",
+      "span_id": "326b4ff18d58a54e",
+      "parent_id": "5d1853f32b38335b",
       "kind": "review",
       "name": "reviewer",
       "task": "impl",

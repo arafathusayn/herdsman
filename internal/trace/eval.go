@@ -23,7 +23,7 @@ const (
 )
 
 // ErrNoControl refuses a report that has no noise measurement to read it by.
-var ErrNoControl = errors.New("every compared arm needs an A/A control of at least two runs on each side, and at least one arm of ordinary runs")
+var ErrNoControl = errors.New("every reported arm needs its own A/A control of at least two runs on each side, and a suite needs at least one arm of ordinary runs")
 
 // Run is one recorded run of a suite's task.
 type Run struct {
@@ -126,9 +126,10 @@ func optional(interval Interval, ok bool) *Interval {
 	return &interval
 }
 
-// Evaluate reports every arm with its intervals and the A/A control of each
-// arm that has one. Arms are listed by name: nothing here orders them by
-// result. It fails with ErrNoControl when the runs carry no complete control.
+// Evaluate reports every arm with its intervals and its own A/A control. Arms
+// are listed by name: nothing here orders them by result. It fails with
+// ErrNoControl when any reported arm lacks a complete control, because another
+// arm's control says nothing about this arm's noise.
 func Evaluate(suite string, runs []Run, skipped int) (Report, error) {
 	arms := map[string]*group{}
 	controls := map[string]map[string]*group{}
@@ -145,8 +146,13 @@ func Evaluate(suite string, runs []Run, skipped int) (Report, error) {
 		}
 		controls[run.Arm][run.Control].add(run)
 	}
-	if len(arms) == 0 || len(controls) == 0 {
+	if len(arms) == 0 {
 		return Report{}, ErrNoControl
+	}
+	for _, name := range sortedKeys(arms) {
+		if controls[name] == nil {
+			return Report{}, fmt.Errorf("%w: arm %q has none", ErrNoControl, name)
+		}
 	}
 	report := Report{
 		Schema: Schema{Version: EvalVersion}, Experimental: "eval/" + EvalVersion, Suite: suite,

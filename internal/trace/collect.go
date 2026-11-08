@@ -36,9 +36,10 @@ type Sources struct {
 	UsageFile string
 }
 
+// measured is usage; a measure nothing reported is nil.
 type measured struct {
-	tokens     int64
-	costMicros int64
+	tokens     *int64
+	costMicros *int64
 }
 
 // Collect reads every source. A line that cannot be read is counted in
@@ -74,7 +75,13 @@ func Collect(sources Sources) (Trace, error) {
 	if err != nil {
 		return Trace{}, err
 	}
-	return finish(name, collected.spans, collected.skipped, usage), nil
+	traceID := ""
+	if len(collected.spans) > 0 {
+		if traceID, err = routeIdentity(route); err != nil {
+			return Trace{}, fmt.Errorf("trace: route identity: %w", err)
+		}
+	}
+	return finish(traceID, name, collected.spans, collected.skipped, usage), nil
 }
 
 type collection struct {
@@ -217,16 +224,16 @@ func (c *collection) usage(path, route string) (*measured, error) {
 	skipped, err := eachLine(path, func(line []byte) bool {
 		var record struct {
 			Route      string `json:"route"`
-			Tokens     int64  `json:"tokens"`
-			CostMicros int64  `json:"cost_micros"`
+			Tokens     *int64 `json:"tokens"`
+			CostMicros *int64 `json:"cost_micros"`
 		}
-		if json.Unmarshal(line, &record) != nil || record.Tokens < 0 || record.CostMicros < 0 {
+		if json.Unmarshal(line, &record) != nil || negative(record.Tokens) || negative(record.CostMicros) {
 			return false
 		}
 		if record.Route == route {
-			total.tokens += record.Tokens
-			total.costMicros += record.CostMicros
-			found = true
+			addMeasure(&total.tokens, record.Tokens)
+			addMeasure(&total.costMicros, record.CostMicros)
+			found = found || record.Tokens != nil || record.CostMicros != nil
 		}
 		return true
 	})
@@ -236,6 +243,8 @@ func (c *collection) usage(path, route string) (*measured, error) {
 	}
 	return &total, nil
 }
+
+func negative(value *int64) bool { return value != nil && *value < 0 }
 
 // gitName is the span name of a git call: git and its subcommand, past the
 // global options.

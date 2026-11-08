@@ -252,6 +252,173 @@ func TestRootSumsSpansWithoutUsage(t *testing.T) {
 	}
 }
 
+func recordSame(t *testing.T, route string) Trace {
+	t.Helper()
+	span := Span{Kind: KindTurn, Name: "same", Start: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), DurationMS: 1}
+	if err := Append(route, span); err != nil {
+		t.Fatal(err)
+	}
+	tr, err := Collect(Sources{Route: route})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tr
+}
+
+func TestRoutesWithTheSameNameHaveTheirOwnIdentity(t *testing.T) {
+	first := filepath.Join(t.TempDir(), "route")
+	second := filepath.Join(t.TempDir(), "route")
+	for _, dir := range []string{first, second} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, b := recordSame(t, first), recordSame(t, second)
+	if a.TraceID == b.TraceID || a.Spans[0].SpanID == b.Spans[0].SpanID || a.Spans[1].SpanID == b.Spans[1].SpanID {
+		t.Fatalf("independent routes share ids: %+v %+v", a, b)
+	}
+	if len(a.TraceID) != 32 {
+		t.Fatalf("trace id %q", a.TraceID)
+	}
+}
+
+func TestRouteIdentitySurvivesAMove(t *testing.T) {
+	parent := t.TempDir()
+	before := filepath.Join(parent, "before")
+	if err := os.Mkdir(before, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	first := recordSame(t, before)
+	after := filepath.Join(parent, "after")
+	if err := os.Rename(before, after); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := Collect(Sources{Route: after})
+	if err != nil || moved.TraceID != first.TraceID {
+		t.Fatalf("%v: %q then %q", err, first.TraceID, moved.TraceID)
+	}
+}
+
+func TestEmptyRouteGetsNoIdentityFile(t *testing.T) {
+	route := t.TempDir()
+	if _, err := Collect(Sources{Route: route}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(route, traceDir, routeIDFile)); !os.IsNotExist(err) {
+		t.Fatalf("reading an empty route wrote to it: %v", err)
+	}
+}
+
+func TestLosingTheRaceToCreateAnIdentityKeepsTheWinner(t *testing.T) {
+	route := t.TempDir()
+	path := filepath.Join(route, traceDir, routeIDFile)
+	winner := "abcdefabcdefabcdefabcdefabcdefab"
+	writeFile(t, path, winner+"\n")
+	got, err := createRouteID(route, path)
+	if err != nil || got != winner {
+		t.Fatalf("%q %v", got, err)
+	}
+	blocked := t.TempDir()
+	writeFile(t, filepath.Join(blocked, traceDir), "a file where the folder goes")
+	got, err = createRouteID(blocked, filepath.Join(blocked, traceDir, routeIDFile))
+	if err != nil || len(got) != 32 {
+		t.Fatalf("no folder falls back: %q %v", got, err)
+	}
+}
+
+func TestUnwritableTraceFolderFallsBack(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes every folder")
+	}
+	route := t.TempDir()
+	dir := filepath.Join(route, traceDir)
+	if err := os.Mkdir(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	got, err := createRouteID(route, filepath.Join(dir, routeIDFile))
+	if err != nil || got != digest("path", route)[:32] {
+		t.Fatalf("%q %v", got, err)
+	}
+}
+
+func TestDamagedRouteIdentityIsAnError(t *testing.T) {
+	route := t.TempDir()
+	writeFile(t, filepath.Join(route, traceDir, routeIDFile), "short")
+	writeFile(t, filepath.Join(route, traceDir, spansFile), `{"kind":"turn","name":"n","start":"2026-01-01T00:00:00Z","duration_ms":1}`+"\n")
+	if _, err := Collect(Sources{Route: route}); err == nil {
+		t.Fatal("a damaged identity file was accepted")
+	}
+}
+
+func TestLinkedRouteIdentityIsRefused(t *testing.T) {
+	route := t.TempDir()
+	writeFile(t, filepath.Join(route, traceDir, spansFile), `{"kind":"turn","name":"n","start":"2026-01-01T00:00:00Z","duration_ms":1}`+"\n")
+	target := filepath.Join(t.TempDir(), "id")
+	writeFile(t, target, "0123456789abcdef0123456789abcdef\n")
+	if err := os.Symlink(target, filepath.Join(route, traceDir, routeIDFile)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Collect(Sources{Route: route}); err == nil {
+		t.Fatal("a linked identity file was accepted")
+	}
+}
+
+func TestReadOnlyRouteFallsBackToItsPath(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes every folder")
+	}
+	parent := t.TempDir()
+	var ids []string
+	for _, name := range []string{"one", "two"} {
+		route := filepath.Join(parent, name, "route")
+		writeFile(t, filepath.Join(route, logsDir, CommandsFile), `{"time":"2026-01-01T00:00:00Z","args":["status"],"exit":0,"duration_ms":1}`+"\n")
+		if err := os.Chmod(route, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(route, 0o700) })
+		for range 2 {
+			tr, err := Collect(Sources{Route: route})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, tr.TraceID)
+		}
+	}
+	if ids[0] != ids[1] || ids[2] != ids[3] || ids[0] == ids[2] || len(ids[0]) != 32 {
+		t.Fatalf("ids %v", ids)
+	}
+}
+
+func TestRootLeavesAnUnreportedMeasureUnset(t *testing.T) {
+	route := t.TempDir()
+	tokens := int64(4)
+	if err := Append(route, Span{Kind: KindTurn, Name: "n", Start: time.Unix(1, 0), DurationMS: 1, Tokens: &tokens}); err != nil {
+		t.Fatal(err)
+	}
+	tr, err := Collect(Sources{Route: route})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root := tr.Spans[0]; root.Tokens == nil || *root.Tokens != 4 || root.CostMicros != nil {
+		t.Fatalf("root %+v", root)
+	}
+	costOnly := t.TempDir()
+	cost := int64(9)
+	if err := Append(costOnly, Span{Kind: KindTurn, Name: "n", Start: time.Unix(1, 0), DurationMS: 1, CostMicros: &cost}); err != nil {
+		t.Fatal(err)
+	}
+	usage := filepath.Join(t.TempDir(), "usage.jsonl")
+	writeFile(t, usage, `{"route":"`+filepath.Base(costOnly)+`","cost_micros":7}`+"\n")
+	tr, err = Collect(Sources{Route: costOnly, UsageFile: usage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root := tr.Spans[0]; root.Tokens != nil || root.CostMicros == nil || *root.CostMicros != 7 {
+		t.Fatalf("usage root %+v", root)
+	}
+}
+
 func TestAppendRefusesBadSpans(t *testing.T) {
 	route := t.TempDir()
 	good := Span{Kind: KindCheck, Name: "n", Start: time.Now(), DurationMS: 1}
@@ -606,6 +773,8 @@ func controlled() []string {
 		run("sol", "", true, 20, ""), run("sol", "", true, 22, ""),
 		run("opus", "a", true, 10, "1"), run("opus", "a", true, 11, "2"),
 		run("opus", "b", true, 10, "1"), run("opus", "b", false, 11, "2"),
+		run("sol", "a", true, 20, ""), run("sol", "a", true, 21, ""),
+		run("sol", "b", true, 20, ""), run("sol", "b", true, 21, ""),
 	}
 }
 
@@ -631,7 +800,7 @@ func TestEvalReportsCountsAndIntervalsWithControl(t *testing.T) {
 	if report.Arms[1].CostMicros != nil || report.Arms[1].CostRuns != 0 {
 		t.Fatalf("a harness that reports no cost has no cost interval: %+v", report.Arms[1])
 	}
-	if len(report.Controls) != 1 {
+	if len(report.Controls) != 2 {
 		t.Fatalf("%+v", report.Controls)
 	}
 	aa := report.Controls[0]
@@ -648,10 +817,11 @@ func TestEvalReportsCountsAndIntervalsWithControl(t *testing.T) {
 
 func TestEvalNeedsAControl(t *testing.T) {
 	cases := map[string][]string{
-		"none":     {run("a", "", true, 1, ""), run("a", "", true, 2, "")},
-		"one side": {run("a", "", true, 1, ""), run("a", "a", true, 1, ""), run("a", "a", true, 2, "")},
-		"too few":  {run("a", "", true, 1, ""), run("a", "a", true, 1, ""), run("a", "b", true, 2, "")},
-		"no arm":   {run("a", "a", true, 1, ""), run("a", "a", true, 2, ""), run("a", "b", true, 1, ""), run("a", "b", true, 2, "")},
+		"none":                  {run("a", "", true, 1, ""), run("a", "", true, 2, "")},
+		"one side":              {run("a", "", true, 1, ""), run("a", "a", true, 1, ""), run("a", "a", true, 2, "")},
+		"too few":               {run("a", "", true, 1, ""), run("a", "a", true, 1, ""), run("a", "b", true, 2, "")},
+		"another arm's control": {run("treated", "", true, 1, ""), run("treated", "", true, 2, ""), run("other", "", true, 1, ""), run("other", "a", true, 1, ""), run("other", "a", true, 2, ""), run("other", "b", true, 1, ""), run("other", "b", true, 2, "")},
+		"no arm":                {run("a", "a", true, 1, ""), run("a", "a", true, 2, ""), run("a", "b", true, 1, ""), run("a", "b", true, 2, "")},
 	}
 	for name, lines := range cases {
 		runs, _, err := LoadRuns(suiteOf(t, lines...))

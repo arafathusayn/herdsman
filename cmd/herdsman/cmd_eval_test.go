@@ -158,7 +158,7 @@ func TestEvalSaysWhatItCouldNotUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTraceFile(t, file, string(body)+"garbage\n"+`{"task":"t","arm":"solo","pass":true,"duration_ms":1}`+"\n")
+	writeTraceFile(t, file, string(body)+"garbage\n"+`{"task":"t","arm":"solo","pass":true,"duration_ms":1}`+"\n"+`{"task":"t","arm":"solo","control":"a","pass":true,"duration_ms":1}`+"\n"+`{"task":"t","arm":"solo","control":"a","pass":true,"duration_ms":2}`+"\n"+`{"task":"t","arm":"solo","control":"b","pass":true,"duration_ms":1}`+"\n"+`{"task":"t","arm":"solo","control":"b","pass":true,"duration_ms":2}`+"\n")
 	code, out, errOut := runEvalArgs(evalFlag, suite)
 	if code != 0 || !strings.Contains(errOut, "skipped 1") || !strings.Contains(out, "too few runs") {
 		t.Fatalf("%d %q %q", code, out, errOut)
