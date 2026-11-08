@@ -6,7 +6,8 @@
 //	complete <request-id> <outcome>                                   record the outcome after the effect
 //
 // Private state under <inbox>/approvals: interactions/<ref>.json (the
-// adjutant's recorded ask-tool answers), cancels/<request-id>.json,
+// adjutant's recorded ask-tool answers; this gate trusts them and does not
+// prove them against the transcript), cancels/<request-id>.json,
 // consumed/<request-id>.json and action.lock. Exit 0: CONSUME or
 // completed; 1: refused, a new go is needed; 2: error or busy lock; 3:
 // HUMAN boundary; 4: DUPLICATE, the recorded outcome stands; 5: RECONCILE, a

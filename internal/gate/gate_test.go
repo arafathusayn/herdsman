@@ -22,15 +22,16 @@ import (
 // The AG, Y1, Y2, GX1 and Z1e cases of the old shell message suite.
 
 type rig struct {
-	t     *testing.T
-	c     *inboxtest.Case
-	srv   *herdrtest.Server
-	fx    *herdrtest.Fixture
-	hc    *herdr.Client
-	apr   string
-	draft string
-	mu    sync.Mutex
-	now   time.Time
+	beforeWrite func(string) // passed to each gate the rig runs
+	t           *testing.T
+	c           *inboxtest.Case
+	srv         *herdrtest.Server
+	fx          *herdrtest.Fixture
+	hc          *herdr.Client
+	apr         string
+	draft       string
+	mu          sync.Mutex
+	now         time.Time
 }
 
 func newRig(t *testing.T) *rig {
@@ -95,7 +96,7 @@ func (r *rig) gate(args ...string) (string, int) {
 	o := r.c.Options(false)
 	o.Now = r.clock
 	o.Sleep = func(time.Duration) {}
-	g := &Gate{Options: o, Client: r.hc, Stdout: &out, Stderr: &out}
+	g := &Gate{Options: o, Client: r.hc, Stdout: &out, Stderr: &out, beforeWrite: r.beforeWrite}
 	code := g.Run(context.Background(), args)
 	return strings.ReplaceAll(out.String(), "\n", " ") + fmt.Sprintf("rc=%d", code), code
 }
@@ -315,7 +316,23 @@ func TestGateRefusesAStaleProof(t *testing.T) {
 // Y2: an admission writer that runs during the authority check waits for
 // the input lock, so a consumption never follows an exposure record.
 func TestGateBoundaryUnderTheInputLock(t *testing.T) {
+	checkBoundaryUnderTheInputLock(t, newRig(t))
+}
+
+// Y2 with a slow consumption record (e93bcc1): a gate that freed the input
+// lock before the record would let the admission writer in first.
+func TestGateRecordsTheConsumptionBeforeFreeingTheLock(t *testing.T) {
 	r := newRig(t)
+	r.beforeWrite = func(target string) {
+		if strings.HasSuffix(target, filepath.Join("consumed", "y7.json")) {
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+	checkBoundaryUnderTheInputLock(t, r)
+}
+
+func checkBoundaryUnderTheInputLock(t *testing.T, r *rig) {
+	t.Helper()
 	r.gojson("y7", 600, nil)
 	lock := filepath.Join(r.c.Dir, inbox.MutationLock)
 	result := make(chan string, 1)
@@ -363,7 +380,9 @@ func TestGateBoundaryUnderTheInputLock(t *testing.T) {
 func TestGateGoExpiresDuringTheAuthorityCheck(t *testing.T) {
 	r := newRig(t)
 	r.gojson("x1", 2, nil)
+	lists := 0
 	r.srv.Handle("agent.list", func(map[string]any) (any, string) {
+		lists++
 		r.advance(3 * time.Second)
 		return map[string]any{"type": "agent_list", "agents": []any{herdrtest.Agent("sender-pane", "sender-session"), herdrtest.Agent("receiver-pane", "receiver-session")}}, ""
 	})
@@ -371,6 +390,11 @@ func TestGateGoExpiresDuringTheAuthorityCheck(t *testing.T) {
 	if exists(r.consumed("x1")) {
 		t.Error("GX1b and nothing is consumed")
 	}
+	if lists == 0 {
+		t.Error("GX1c the refusal came after the authority check")
+	}
+	r.gojson("x2", 30, nil)
+	match(t, "GX1d a go that outlives the same slow check is consumed", `^CONSUME x2.*rc=0`, r.consume("x2"))
 }
 
 func TestSetFieldsAndJQRaw(t *testing.T) {
