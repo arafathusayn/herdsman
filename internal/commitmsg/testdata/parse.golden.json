@@ -1,0 +1,173 @@
+[
+  {
+    "input": "feat: add login",
+    "message": {
+      "type": "feat",
+      "subject": "add login"
+    }
+  },
+  {
+    "input": "fix(api): close the socket\n",
+    "message": {
+      "type": "fix",
+      "scope": "api",
+      "subject": "close the socket"
+    }
+  },
+  {
+    "input": "refactor(store/sql)!: drop the old table",
+    "message": {
+      "type": "refactor",
+      "scope": "store/sql",
+      "bang": true,
+      "breaking": true,
+      "subject": "drop the old table"
+    }
+  },
+  {
+    "input": "docs(a.b_c-d): explain the flag\n\nThe flag surprised people.",
+    "message": {
+      "type": "docs",
+      "scope": "a.b_c-d",
+      "subject": "explain the flag",
+      "body": "The flag surprised people."
+    }
+  },
+  {
+    "input": "chore: bump\n\nFirst paragraph.\n\nSecond paragraph.\n\nRefs #12\nReviewed-by: someone",
+    "message": {
+      "type": "chore",
+      "subject": "bump",
+      "body": "First paragraph.\n\nSecond paragraph.",
+      "footers": [
+        {
+          "token": "Refs",
+          "value": "#12"
+        },
+        {
+          "token": "Reviewed-by",
+          "value": "someone"
+        }
+      ]
+    }
+  },
+  {
+    "input": "ci: only footers\n\nBREAKING CHANGE: the job is gone",
+    "message": {
+      "type": "ci",
+      "breaking": true,
+      "subject": "only footers",
+      "footers": [
+        {
+          "token": "BREAKING CHANGE",
+          "value": "the job is gone"
+        }
+      ]
+    }
+  },
+  {
+    "input": "build: other spelling\n\nBREAKING-CHANGE: the target moved",
+    "message": {
+      "type": "build",
+      "breaking": true,
+      "subject": "other spelling",
+      "footers": [
+        {
+          "token": "BREAKING-CHANGE",
+          "value": "the target moved"
+        }
+      ]
+    }
+  },
+  {
+    "input": "perf: keep prose\n\nthis is not: a footer list\nbecause of this line",
+    "message": {
+      "type": "perf",
+      "subject": "keep prose",
+      "body": "this is not: a footer list\nbecause of this line"
+    }
+  },
+  {
+    "input": "test: empty token line\n\n: value",
+    "message": {
+      "type": "test",
+      "subject": "empty token line",
+      "body": ": value"
+    }
+  },
+  {
+    "input": "test: bare token\n\nToken:",
+    "message": {
+      "type": "test",
+      "subject": "bare token",
+      "body": "Token:"
+    }
+  },
+  {
+    "input": "feat: é accented start",
+    "message": {
+      "type": "feat",
+      "subject": "é accented start"
+    }
+  },
+  {
+    "input": "Feat: capital type",
+    "error": "not a conventional commit message: type \"Feat\" is not one of build, chore, ci, docs, feat, fix, perf, refactor, test"
+  },
+  {
+    "input": "feat add login",
+    "error": "not a conventional commit message: the header has no \": \" after the type"
+  },
+  {
+    "input": "feat:no space",
+    "error": "not a conventional commit message: the header has no \": \" after the type"
+  },
+  {
+    "input": "wip: not a type",
+    "error": "not a conventional commit message: type \"wip\" is not one of build, chore, ci, docs, feat, fix, perf, refactor, test"
+  },
+  {
+    "input": "feat(): empty scope",
+    "error": "not a conventional commit message: scope \"\" is empty or has characters outside a-z 0-9 - _ . /"
+  },
+  {
+    "input": "feat(API): upper scope",
+    "error": "not a conventional commit message: scope \"API\" is empty or has characters outside a-z 0-9 - _ . /"
+  },
+  {
+    "input": "feat(api: not closed",
+    "error": "not a conventional commit message: the scope is not closed"
+  },
+  {
+    "input": "feat: ",
+    "error": "not a conventional commit message: the subject is empty or has space around it"
+  },
+  {
+    "input": "feat:  leading space",
+    "error": "not a conventional commit message: the subject is empty or has space around it"
+  },
+  {
+    "input": "feat: Capital subject",
+    "error": "not a conventional commit message: the subject starts with a capital letter"
+  },
+  {
+    "input": "feat: ends with a period.",
+    "error": "not a conventional commit message: the subject ends with a period"
+  },
+  {
+    "input": "feat: tab\tinside",
+    "error": "not a conventional commit message: the subject has a control character"
+  },
+  {
+    "input": "feat: carriage\r\n",
+    "error": "not a conventional commit message: carriage return in the message"
+  },
+  {
+    "input": "feat: no blank line\nbody",
+    "error": "not a conventional commit message: the line after the header must be blank"
+  },
+  {
+    "input": "feat: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "error": "not a conventional commit message: the header is longer than 100 characters"
+  }
+]
