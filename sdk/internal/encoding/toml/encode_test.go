@@ -12,7 +12,7 @@ import (
 func TestEncodeTreeOutput(t *testing.T) {
 	src := `b = 1
 "key with space" = "line\nbreak"
-list = [1, "two", {x = 1.5}]
+list = [1, "two", {x = 1.5, y = 2}]
 tables = [{y = 2}, {y = 3}]
 [nested.deep]
 when = 2020-01-02
@@ -30,7 +30,7 @@ v = true
 	}
 	want := `b = 1
 "key with space" = "line\nbreak"
-list = [1, "two", {x = 1.5}]
+list = [1, "two", {x = 1.5, y = 2}]
 
 [[tables]]
 y = 2
@@ -194,9 +194,14 @@ func TestSet(t *testing.T) {
 		{"keeps crlf", "[x]\r\na = 1\r\n", []string{"x", "b"}, tree.NewInt(1), "[x]\r\na = 1\r\nb = 1\r\n"},
 		{"quotes odd keys", "", []string{"a b", "c.d"}, tree.NewInt(1), "[\"a b\"]\n\"c.d\" = 1\n"},
 		{"empty key is quoted", "", []string{""}, tree.NewInt(1), "\"\" = 1\n"},
-		{"inside an inline table", "h = { a = 1 } # c\n", []string{"h", "b"}, tree.NewInt(2), "h = {a = 1, b = 2} # c\n"},
-		{"deep inside an inline table", "h = { a = { x = 1 } }\n", []string{"h", "a", "x"}, tree.NewInt(2), "h = {a = {x = 2}}\n"},
-		{"creates tables inside an inline table", "h = {}\n", []string{"h", "a", "b"}, tree.NewInt(2), "h = {a = {b = 2}}\n"},
+		{"inside an inline table", "h = { a = 1 } # c\n", []string{"h", "b"}, tree.NewInt(2), "h = { a = 1, b = 2 } # c\n"},
+		{"deep inside an inline table", "h = { a = { x = 1 } }\n", []string{"h", "a", "x"}, tree.NewInt(2), "h = { a = { x = 2 } }\n"},
+		{"creates tables inside an inline table", "h = {}\n", []string{"h", "a", "b"}, tree.NewInt(2), "h = {a.b = 2}\n"},
+		{"inline edit keeps a sibling's comment", "h = { a = [1, # keep\n  2], b = 3 } # outside\n", []string{"h", "b"}, tree.NewInt(4), "h = { a = [1, # keep\n  2], b = 4 } # outside\n"},
+		{"inline add keeps a sibling's comment", "h = { a = [1, # keep\n  2] }\n", []string{"h", "b"}, tree.NewInt(4), "h = { a = [1, # keep\n  2], b = 4 }\n"},
+		{"nested inline edit keeps a sibling's comment", "h = { a = { x = [1, # keep\n 2], y = 1 } }\n", []string{"h", "a", "y"}, tree.NewInt(2), "h = { a = { x = [1, # keep\n 2], y = 2 } }\n"},
+		{"inline edit of a dotted key", "h = { a.b = 1, a.c = 2 }\n", []string{"h", "a", "c"}, tree.NewInt(3), "h = { a.b = 1, a.c = 3 }\n"},
+		{"inline add beside a dotted key", "h = { a.b = 1 }\n", []string{"h", "a", "c"}, tree.NewInt(3), "h = { a.b = 1, a.c = 3 }\n"},
 		{"table value goes inline", "", []string{"h"}, func() *tree.Node {
 			v := tree.NewTable()
 			v.Set("dev", tree.NewString("x"))
@@ -236,6 +241,7 @@ func TestSetRefusesAndLeavesTheDocumentAlone(t *testing.T) {
 		{"not encodable", "a = 1\n", []string{"a"}, tree.NewNull()},
 		{"inline value not encodable", "a = {}\n", []string{"a", "b"}, tree.NewNull()},
 		{"two levels under a scalar in an inline table", "a = {b = {c = 1}}\n", []string{"a", "b", "c", "d", "e"}, tree.NewInt(1)},
+		{"a dotted table inside an inline table", "a = {b.c = 1}\n", []string{"a", "b"}, tree.NewInt(1)},
 		{"too deep once inside an inline table", "a = {}\n", []string{"a", "b"}, nestedArrays(maxDepth - 1)},
 		{"dotted insert into an implicit table", "[a.b.c]\n[a]\n", []string{"a", "b", "z"}, tree.NewInt(1)},
 	}
@@ -262,6 +268,12 @@ func TestUnset(t *testing.T) {
 		{"removes the line and keeps comments", "# a\na = 1 # gone\n# b\nb = 2\n", []string{"a"}, true, "# a\n# b\nb = 2\n"},
 		{"in a section", "[x]\na = 1\nb = 2\n", []string{"x", "a"}, true, "[x]\nb = 2\n"},
 		{"inside an inline table", "h = {a = 1, b = 2} # c\n", []string{"h", "a"}, true, "h = {b = 2} # c\n"},
+		{"first inline entry keeps a sibling's comment", "h = { a = 1, b = [2, # keep\n 3], c = 4 }\n", []string{"h", "a"}, true, "h = { b = [2, # keep\n 3], c = 4 }\n"},
+		{"last inline entry keeps a sibling's comment", "h = { b = [2, # keep\n 3], c = 4 }\n", []string{"h", "c"}, true, "h = { b = [2, # keep\n 3] }\n"},
+		{"only inline entry", "h = {a = 1}\n", []string{"h", "a"}, true, "h = {}\n"},
+		{"nested inline entry", "h = {a = {x = 1, y = 2}}\n", []string{"h", "a", "x"}, true, "h = {a = {y = 2}}\n"},
+		{"missing path under an inline table creates nothing", "h = {a = 1} # outside\n", []string{"h", "missing", "key"}, false, "h = {a = 1} # outside\n"},
+		{"missing path under a nested inline table creates nothing", "h = {a = {}}\n", []string{"h", "a", "b", "c"}, false, "h = {a = {}}\n"},
 		{"missing key", "a = 1\n", []string{"b"}, false, "a = 1\n"},
 		{"missing key inside an inline table", "h = {a = 1}\n", []string{"h", "z"}, false, "h = {a = 1}\n"},
 	}
@@ -282,16 +294,28 @@ func TestUnset(t *testing.T) {
 	}
 }
 
+func TestUnsetOfAMissingPathLeavesTheTreeAlone(t *testing.T) {
+	doc := parseDoc(t, "h = {a = 1}\n")
+	removed, err := doc.Unset([]string{"h", "missing", "key"})
+	if err != nil || removed {
+		t.Fatalf("Unset = %v, %v", removed, err)
+	}
+	if h, _ := doc.Tree().Lookup("h"); h.Len() != 1 {
+		t.Fatalf("the tree gained keys: %v", h.Keys())
+	}
+}
+
 func TestUnsetRefuses(t *testing.T) {
 	for name, c := range map[string]struct {
 		src  string
 		path []string
 	}{
-		"empty path":          {"a = 1\n", nil},
-		"a section":           {"[a]\nb = 1\n", []string{"a"}},
-		"array of tables":     {"[[a]]\nb = 1\n", []string{"a", "b"}},
-		"under a scalar":      {"a = 1\n", []string{"a", "b"}},
-		"scalar under inline": {"a = {b = 1}\n", []string{"a", "b", "c"}},
+		"empty path":             {"a = 1\n", nil},
+		"a section":              {"[a]\nb = 1\n", []string{"a"}},
+		"array of tables":        {"[[a]]\nb = 1\n", []string{"a", "b"}},
+		"under a scalar":         {"a = 1\n", []string{"a", "b"}},
+		"dotted table in inline": {"a = {b.c = 1}\n", []string{"a", "b"}},
+		"scalar under inline":    {"a = {b = 1}\n", []string{"a", "b", "c"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			doc := parseDoc(t, c.src)

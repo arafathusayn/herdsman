@@ -260,36 +260,105 @@ func (d *Document) keyStatement(path []string) (int, error) {
 	return -1, nil
 }
 
-// editInline applies edit to the inline table held by the statement at index
-// and rewrites the statement's value.
-func (d *Document) editInline(index int, path []string, edit func(table *tree.Node, key string)) error {
+// inlineEntry locates one key/value of an inline table in its source text.
+type inlineEntry struct {
+	parts                       []string
+	start, valueStart, valueEnd int
+}
+
+// scanInline finds the entries of an inline table whose text already parsed.
+func scanInline(text string) []inlineEntry {
+	p := &parser{scanner: scanner{src: text, pos: 1}, meta: map[*tree.Node]*nodeMeta{}}
+	var entries []inlineEntry
+	for {
+		p.skipSpace()
+		if p.peek() == '}' {
+			return entries
+		}
+		e := inlineEntry{start: p.pos}
+		e.parts = p.key()
+		p.skipSpace()
+		p.pos++ // the equals sign
+		p.skipSpace()
+		e.valueStart = p.pos
+		p.value(1)
+		e.valueEnd = p.pos
+		entries = append(entries, e)
+		p.skipSpace()
+		if p.peek() == '}' {
+			return entries
+		}
+		p.pos++ // the comma
+	}
+}
+
+func notATable(path []string) error {
+	return fmt.Errorf("toml: %q is not a table", strings.Join(path, "."))
+}
+
+// spliceInline rewrites only the span of the field at rest inside an inline
+// table's text, so that its siblings keep their bytes, comments included. A
+// nil newValue removes the field. It reports whether the text changed.
+func spliceInline(text string, rest []string, newValue *string) (string, bool, error) {
+	entries := scanInline(text)
+	for i, e := range entries {
+		switch {
+		case slices.Equal(e.parts, rest):
+			if newValue == nil {
+				return removeEntry(text, entries, i), true, nil
+			}
+			return text[:e.valueStart] + *newValue + text[e.valueEnd:], true, nil
+		case hasPathPrefix(rest, e.parts):
+			value := text[e.valueStart:e.valueEnd]
+			if value[0] != '{' {
+				return "", false, notATable(e.parts)
+			}
+			inner, changed, err := spliceInline(value, rest[len(e.parts):], newValue)
+			return text[:e.valueStart] + inner + text[e.valueEnd:], changed, err
+		case hasPathPrefix(e.parts, rest):
+			return "", false, fmt.Errorf("toml: %q is a table, not a key", strings.Join(rest, "."))
+		}
+	}
+	if newValue == nil {
+		return text, false, nil
+	}
+	field := keyText(rest) + " = " + *newValue
+	if len(entries) == 0 {
+		return text[:1] + field + text[1:], true, nil
+	}
+	end := entries[len(entries)-1].valueEnd
+	return text[:end] + ", " + field + text[end:], true, nil
+}
+
+// removeEntry cuts one entry and the comma that goes with it.
+func removeEntry(text string, entries []inlineEntry, i int) string {
+	e := entries[i]
+	switch {
+	case len(entries) == 1:
+		return text[:e.start] + text[e.valueEnd:]
+	case i < len(entries)-1:
+		return text[:e.start] + text[entries[i+1].start:]
+	}
+	return text[:entries[i-1].valueEnd] + text[e.valueEnd:]
+}
+
+// editInline changes one field inside the inline table held by the statement
+// at index. Nothing is committed when the field is absent and newValue is nil.
+func (d *Document) editInline(index int, path []string, newValue *string) (bool, error) {
 	st := d.stmts[index]
-	fresh, _ := Parse(d.Encode()) // the document's own bytes always parse
-	top, _ := fresh.root.Lookup(st.path...)
-	table := top
-	rest := path[len(st.path):]
-	for _, key := range rest[:len(rest)-1] {
-		if table.Kind != tree.Table {
-			return fmt.Errorf("toml: %q is not a table", key)
-		}
-		next, ok := table.Get(key)
-		if !ok {
-			next = tree.NewTable()
-			table.Set(key, next)
-		}
-		table = next
+	if st.value[0] != '{' {
+		return false, notATable(st.path)
 	}
-	if table.Kind != tree.Table {
-		return fmt.Errorf("toml: %q is not a table", strings.Join(path[:len(path)-1], "."))
-	}
-	edit(table, rest[len(rest)-1])
-	text, err := inlineText(top)
-	if err != nil {
-		return err
+	text, changed, err := spliceInline(st.value, path[len(st.path):], newValue)
+	if err != nil || !changed {
+		return false, err
 	}
 	stmts := slices.Clone(d.stmts)
 	stmts[index].value = text
-	return d.commit(stmts)
+	if err := d.commit(stmts); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Set writes value at path, keeping every other byte of the document. An
@@ -310,9 +379,8 @@ func (d *Document) Set(path []string, value *tree.Node) error {
 	}
 	if index >= 0 {
 		if len(d.stmts[index].path) < len(path) {
-			return d.editInline(index, path, func(table *tree.Node, key string) {
-				table.Set(key, value)
-			})
+			_, err := d.editInline(index, path, &text)
+			return err
 		}
 		stmts := slices.Clone(d.stmts)
 		stmts[index].value = text
@@ -437,11 +505,7 @@ func (d *Document) Unset(path []string) (bool, error) {
 	}
 	if index >= 0 {
 		if len(d.stmts[index].path) < len(path) {
-			removed := false
-			err := d.editInline(index, path, func(table *tree.Node, key string) {
-				removed = table.Delete(key)
-			})
-			return removed && err == nil, err
+			return d.editInline(index, path, nil)
 		}
 		return true, d.commit(slices.Delete(slices.Clone(d.stmts), index, index+1))
 	}
