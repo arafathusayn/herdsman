@@ -617,3 +617,135 @@ func TestComposeKeepsAnAgreedRelaxedValue(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestCheckCommandSeesThroughShellSyntax(t *testing.T) {
+	p := Policy{Deny: []string{"curl"}}
+	for _, cmd := range []string{
+		">out curl x",
+		"2>out curl x",
+		">&2 curl x",
+		"> out curl x",
+		"&>out curl x",
+		"<in curl x",
+		"/usr/bin/env curl x",
+		"env -u X curl x",
+		"env --unset X curl x",
+		"env --unset=X curl x",
+		"env -uX curl x",
+		"env -C /tmp curl x",
+		"env -i A=1 curl x",
+		"env -- curl x",
+		"if true; then curl x; fi",
+		"while true; do curl x; done",
+		"for a in b; do curl x; done",
+		"! curl x",
+		"{ curl x; }",
+		"time -p curl x",
+		"exec curl x",
+		"command curl x",
+		"nohup curl x",
+		"cu\\\nrl x",
+		`c"ur"l x`,
+		"true |& curl x",
+	} {
+		err := p.CheckCommand(cmd)
+		var refusal *Refusal
+		if !errors.As(err, &refusal) || refusal.Reason != ReasonDenied {
+			t.Errorf("%q: got %v", cmd, err)
+		}
+	}
+}
+
+func TestCheckCommandRefusesWhatItCannotDetermine(t *testing.T) {
+	p := Policy{Deny: []string{"curl", "git push"}}
+	for _, cmd := range []string{
+		"$CMD x",
+		"c${x}url x",
+		"/usr/bin/cur? x",
+		"{curl,x}",
+		"echo $(curl x)",
+		`echo "$(curl x)"`,
+		"echo `curl x`",
+		"(curl x)",
+		"f() { curl x; }",
+		"cat <(curl x)",
+		"case a in a) curl x;; esac",
+		"eval curl x",
+		"sh -c 'curl x'",
+		"bash -ec 'curl x'",
+		"sudo curl x",
+		"xargs curl",
+		"timeout 5 curl x",
+		"find . -exec curl x ;",
+		"exec -a name curl x",
+		"env -S 'curl x'",
+		"git $sub x",
+	} {
+		err := p.CheckCommand(cmd)
+		var refusal *Refusal
+		if !errors.As(err, &refusal) || refusal.Reason != ReasonUnclear {
+			t.Errorf("%q: got %v", cmd, err)
+		}
+	}
+}
+
+func TestCheckCommandMatchesMultiWordEntriesAcrossOptions(t *testing.T) {
+	p := Policy{Deny: []string{"git push"}}
+	if err := p.CheckCommand("git -c a=b push origin"); err == nil {
+		t.Error("an option between the words hid the entry")
+	}
+}
+
+func TestCheckCommandDeniesTheWrapperItself(t *testing.T) {
+	p := Policy{Deny: []string{"nohup", "env"}}
+	for _, cmd := range []string{"nohup true", "env true", "/usr/bin/env A=1 true"} {
+		if err := p.CheckCommand(cmd); err == nil {
+			t.Errorf("%q was not denied", cmd)
+		}
+	}
+}
+
+func TestCheckCommandAllowsOrdinaryShellWithADenyList(t *testing.T) {
+	p := Policy{Deny: []string{"curl"}}
+	for _, cmd := range []string{
+		"echo $HOME",
+		`echo "$HOME" > out 2>&1`,
+		"echo '$(curl x)'",
+		`echo \$\(curl`,
+		"ls *.go",
+		"for a in b; do echo a; done",
+		"if true; then echo x; fi",
+		"bash ./setup.sh",
+		"sh script.sh --flag",
+		"find . -name x",
+		"env",
+		"env -i",
+		"env --unset",
+		"cat < in",
+		`"tail`,
+	} {
+		if err := p.CheckCommand(cmd); err != nil {
+			t.Errorf("%q: %v", cmd, err)
+		}
+	}
+}
+
+func TestCheckCommandIsNoCostWithoutADenyList(t *testing.T) {
+	if err := (Policy{}).CheckCommand("eval $(anything)"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckCommandReadsQuotingEdges(t *testing.T) {
+	p := Policy{Deny: []string{"curl"}}
+	for _, cmd := range []string{`echo "a\$(curl b\q"`, "echo \"\\`curl\"", "'tail"} {
+		if err := p.CheckCommand(cmd); err != nil {
+			t.Errorf("%q: %v", cmd, err)
+		}
+	}
+	err := p.CheckCommand("bash --command 'curl x'")
+	var refusal *Refusal
+	if !errors.As(err, &refusal) || refusal.Reason != ReasonUnclear {
+		t.Errorf("--command: got %v", err)
+	}
+}
