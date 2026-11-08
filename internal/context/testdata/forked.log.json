@@ -1,0 +1,63 @@
+{
+  "events": [
+    {
+      "id": "01KB1A00000000000000000001",
+      "kind": "task.created",
+      "at": "2026-03-02T08:00:00Z",
+      "actor": "maintainer",
+      "task": "ledger-sync",
+      "parents": [],
+      "body": "Opened the sync work.\n"
+    },
+    {
+      "id": "01KB1C00000000000000000003",
+      "kind": "task.started",
+      "at": "2026-03-02T08:05:00Z",
+      "actor": "route-south",
+      "task": "invoice-fix",
+      "repos": [
+        "billing",
+        "core"
+      ],
+      "parents": [
+        "01KB1A00000000000000000001"
+      ],
+      "body": "Began on invoices.\n"
+    },
+    {
+      "id": "01KB1B00000000000000000002",
+      "kind": "task.started",
+      "at": "2026-03-02T08:10:00Z",
+      "actor": "route-north",
+      "task": "ledger-sync",
+      "repos": [
+        "core"
+      ],
+      "parents": [
+        "01KB1A00000000000000000001"
+      ],
+      "body": "Picked up the ledger.\n"
+    },
+    {
+      "id": "01KB1D00000000000000000004",
+      "kind": "merge.landed",
+      "at": "2026-03-03T10:30:00Z",
+      "actor": "maintainer",
+      "parents": [
+        "01KB1B00000000000000000002",
+        "01KB1C00000000000000000003"
+      ],
+      "commits": {
+        "billing": "def5678",
+        "core": "abc1234"
+      },
+      "extra": {
+        "reviewer": "kim"
+      },
+      "body": "Both streams are in.\nSecond line.\n"
+    }
+  ],
+  "heads": [
+    "01KB1D00000000000000000004"
+  ]
+}
