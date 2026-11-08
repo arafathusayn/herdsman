@@ -40,7 +40,7 @@ define need-tool
 	@test -x $(TOOLS_BIN)/$(1) || { echo "$(1) is not installed: run make tools-go"; exit 1; }
 endef
 
-.PHONY: tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
+.PHONY: acceptance tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
 
 all: check build
 
@@ -117,6 +117,11 @@ vuln:
 	$(call need-tool,govulncheck)
 	$(TOOLS_BIN)/govulncheck ./...
 	bash .github/scripts/vendor-advisories.sh .
+
+## acceptance: the real-platform gates; each needs what acceptance/requirements.md
+## lists and skips only with a named reason
+acceptance:
+	go test -p 1 -tags acceptance -count=1 -v ./acceptance/...
 
 ## check: every module in MODULES.md, one after another; every module runs, and
 ## the target fails when any failed

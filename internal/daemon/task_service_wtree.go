@@ -153,6 +153,14 @@ func (s *WorktreeService) Call(ctx context.Context, method string, request []byt
 		return dispatch(ctx, request, s.Go)
 	case "Hook":
 		return dispatch(ctx, request, s.Hook)
+	case "TeardownPlan":
+		return dispatch(ctx, request, s.TeardownPlan)
+	case "Teardown":
+		return dispatch(ctx, request, s.Teardown)
+	case "ResourceAdd":
+		return dispatch(ctx, request, s.ResourceAdd)
+	case "LedgerHealth":
+		return dispatch(ctx, request, s.LedgerHealth)
 	}
 	return nil, fmt.Errorf("worktree service: no method %q", method)
 }
