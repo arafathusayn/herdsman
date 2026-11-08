@@ -48,8 +48,15 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 	if err != nil {
 		return nil, err
 	}
+	state, err := s.controlState(q.Repo, q.Route)
+	if err != nil {
+		return nil, err
+	}
+	if state == route.ControlPaused || state == route.ControlStopped {
+		return nil, rpc.Errorf(rpc.FailedPrecondition, "the route is %s; bring it back with: herdsman resume %s", state, q.Route)
+	}
 	var latest *ops.Operation
-	if len(starts) > 0 {
+	if len(starts) > 0 && state != route.ControlDeleted {
 		latest = starts[len(starts)-1]
 		q.Date = route.DateOf(latest)
 	}
@@ -61,6 +68,9 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 		}
 	} else if plan, err = route.PlanUp(q); err != nil {
 		return nil, rpc.Errorf(rpc.InvalidArgument, "%s", err.Error())
+	}
+	if state == route.ControlDeleted {
+		plan.Spec.Key = fmt.Sprintf("%s#%d", plan.Key, len(starts)+1)
 	}
 	if req.GetDryRun() {
 		return &daemonv1.UpResponse{Start: &daemonv1.RouteStart{
@@ -271,7 +281,11 @@ func (s *routeService) Get(_ context.Context, req *daemonv1.RouteServiceGetReque
 	if len(starts) == 0 {
 		return nil, rpc.Errorf(rpc.NotFound, "no start is journaled for route %s", name)
 	}
-	return &daemonv1.RouteServiceGetResponse{Start: startOf(starts[len(starts)-1])}, nil
+	start := startOf(starts[len(starts)-1])
+	if start.Control, err = s.controlState(req.GetRepo(), name); err != nil {
+		return nil, err
+	}
+	return &daemonv1.RouteServiceGetResponse{Start: start}, nil
 }
 
 // List reports every journaled start.
@@ -283,7 +297,11 @@ func (s *routeService) List(context.Context, *daemonv1.RouteServiceListRequest) 
 	out := &daemonv1.RouteServiceListResponse{}
 	for _, op := range all {
 		if op.Kind == route.OperationKind {
-			out.Starts = append(out.Starts, startOf(op))
+			start := startOf(op)
+			if start.Control, err = s.controlState(route.RepoOf(op), start.GetRoute().GetValue()); err != nil {
+				return nil, err
+			}
+			out.Starts = append(out.Starts, start)
 		}
 	}
 	return out, nil
