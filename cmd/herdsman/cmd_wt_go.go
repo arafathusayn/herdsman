@@ -75,10 +75,14 @@ func writeDirective(path string) error {
 }
 
 func runGo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if code, opened := openGoForm(&args, stdin, stdout, stderr); opened {
+		return code
+	}
 	fs := verbFlags("go", stderr)
 	noCD := fs.Bool("no-cd", false, "print the path and stay here")
 	focus := fs.Bool("focus", false, "also focus the worktree's herdr pane")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	addFormFlags(fs)
 	positional, _, err := parseVerb(fs, args)
 	if err != nil {
 		return 2

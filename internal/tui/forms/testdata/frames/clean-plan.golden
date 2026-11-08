@@ -1,0 +1,4 @@
+␛[1mFree a task␛[0m
+
+PLAN clean beta --keep-branch --force
+␛[2mEnter runs  Shift-Tab goes back  Esc cancels␛[0m
