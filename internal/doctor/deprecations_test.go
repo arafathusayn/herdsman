@@ -169,6 +169,39 @@ func TestUnterminatedWrapperAsksForAHandFix(t *testing.T) {
 	}
 }
 
+// The installer replaces only the first block, so more than one block needs
+// cleaning by hand, whichever order the current and the old one are in.
+func TestSeveralWrapperBlocksAskForAHandFix(t *testing.T) {
+	current := block(t, "zsh")
+	old := strings.Replace(current, "command herdsman", "herdsman-old", 1)
+	for name, text := range map[string]string{
+		"current then old": current + "\n" + old,
+		"old then current": old + "\n" + current,
+		"two current":      current + "\n" + current,
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := quiet()
+			p.ShellRC = rcOf("zsh", text)
+			c := oneCheck(t, checkDeprecations(p, nil))
+			if c.Level != Warn || c.Deprecation == nil || c.Deprecation.Kind != KindWrapper {
+				t.Fatalf("%+v", c)
+			}
+			if !strings.Contains(c.Deprecation.Fix, "by hand") || !strings.Contains(c.Detail, "2 blocks") {
+				t.Errorf("%+v", c)
+			}
+		})
+	}
+}
+
+func TestCurrentBlockThenUnterminatedAsksForAHandFix(t *testing.T) {
+	p := quiet()
+	p.ShellRC = rcOf("bash", block(t, "bash")+"\n"+wrapperStart+"\nold\n")
+	c := oneCheck(t, checkDeprecations(p, nil))
+	if c.Level != Warn || c.Deprecation != nil || !strings.Contains(c.Detail, "no end marker") {
+		t.Errorf("%+v", c)
+	}
+}
+
 func TestUnreadableStartupFileIsWarned(t *testing.T) {
 	p := quiet()
 	p.ShellRC = func(name string) (string, string, error) {

@@ -105,18 +105,40 @@ func checkWrapper(p Probes, name string) []Check {
 	if err != nil {
 		return []Check{{Level: Warn, Name: "deprecated", Detail: fmt.Sprintf("cannot read the %s startup file %s: %v", name, path, err)}}
 	}
-	start := strings.Index(text, wrapperStart)
-	if start < 0 {
-		return nil
-	}
-	if !strings.Contains(text[start:], wrapperEnd) {
+	blocks, terminated := wrapperBlocks(text)
+	if !terminated {
 		return []Check{{Level: Warn, Name: "deprecated", Detail: fmt.Sprintf("%s: the shell integration has no end marker; fix it by hand", path)}}
 	}
-	if strings.Contains(text, wrapperBlock(name)) {
+	install := "herdsman config shell install " + name
+	d := Deprecation{Kind: KindWrapper, Name: name, Replacement: "the wrapper of this binary", Fix: install}
+	where := " in " + path
+	switch {
+	case len(blocks) == 0 || len(blocks) == 1 && blocks[0] == wrapperBlock(name):
 		return nil
+	case len(blocks) > 1:
+		// The installer replaces only the first block, so it cannot repair this.
+		d.Fix = "remove every block but one by hand, then run " + install
+		where = fmt.Sprintf(" in %s (%d blocks)", path, len(blocks))
 	}
-	d := Deprecation{Kind: KindWrapper, Name: name, Replacement: "the wrapper of this binary", Fix: "herdsman config shell install " + name}
-	return []Check{{Level: Warn, Name: "deprecated", Detail: describe(d, " in "+path), Deprecation: &d}}
+	return []Check{{Level: Warn, Name: "deprecated", Detail: describe(d, where), Deprecation: &d}}
+}
+
+// wrapperBlocks returns each marked block in text, markers included. It
+// reports false when the last start marker has no end marker after it.
+func wrapperBlocks(text string) (blocks []string, terminated bool) {
+	for {
+		start := strings.Index(text, wrapperStart)
+		if start < 0 {
+			return blocks, true
+		}
+		length := strings.Index(text[start:], wrapperEnd)
+		if length < 0 {
+			return blocks, false
+		}
+		end := start + length + len(wrapperEnd)
+		blocks = append(blocks, text[start:end])
+		text = text[end:]
+	}
 }
 
 // wrapperBlock is the block this binary installs for a shell in shell.Shells,
