@@ -396,7 +396,7 @@ func TestOnlyToolsThatPlanAdvertiseDryRun(t *testing.T) {
 			t.Errorf("%s: dry_run in the schema %v, description %q", tool.Name, hasDry, tool.Description)
 		}
 	}
-	if want := []string{planTool}; !reflect.DeepEqual(planning, want) {
+	if want := []string{"daemon_route_delete", "daemon_route_pause", "daemon_route_resume", "daemon_route_stop", planTool}; !reflect.DeepEqual(planning, want) {
 		t.Fatalf("tools offering dry_run %v, want %v", planning, want)
 	}
 }
@@ -405,6 +405,26 @@ func upReply(t *testing.T, start *daemonv1.RouteStart) func(string, []byte) ([]b
 	t.Helper()
 	data := mustMarshal(t, &daemonv1.UpResponse{Start: start})
 	return func(string, []byte) ([]byte, error) { return data, nil }
+}
+
+// A route's lifecycle verbs ask a person on a terminal, so a tool may show
+// their plans and may not run them.
+func TestRouteLifecycleToolsOnlyPlan(t *testing.T) {
+	names := []string{"daemon_route_pause", "daemon_route_resume", "daemon_route_stop", "daemon_route_delete"}
+	s, err := NewServer(Files(), Options{Call: (&fake{}).call, Deny: noDeny})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range s.Tools() {
+		if slices.Contains(names, tool.Name) && (!tool.Annotations.ReadOnlyHint || tool.Annotations.DestructiveHint) {
+			t.Errorf("%s: %+v", tool.Name, tool.Annotations)
+		}
+	}
+	c := realServer(t, &fake{}, noDeny)
+	for _, name := range names {
+		wantCode(t, c.tool(name, `{"repo":"/r"}`), codePlanOnly)
+		wantCode(t, c.tool(name, `{"repo":"/r","dry_run":false}`), codePlanOnly)
+	}
 }
 
 func TestRouteUpDryRunReturnsTheDaemonsPlan(t *testing.T) {
