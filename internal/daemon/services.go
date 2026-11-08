@@ -10,6 +10,7 @@ import (
 func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	m := &messageService{d: d}
 	routes := &routeService{d: d}
+	projectContext := &projectContextService{}
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
 	name := daemonv1.MessageServiceName
 	return []rpc.Procedure{
@@ -52,5 +53,9 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(suggestv1.SuggestServiceName, "SourceRemove", suggestions.SourceRemove),
 		rpc.Unary(suggestv1.SuggestServiceName, "SourcePreview", suggestions.SourcePreview),
 		rpc.Unary(suggestv1.SuggestServiceName, "SourcePin", suggestions.SourcePin),
+		rpc.Unary(daemonv1.ProjectServiceName, "ContextInit", projectContext.ContextInit),
+		rpc.Unary(daemonv1.ProjectServiceName, "ContextCheck", projectContext.ContextCheck),
+		rpc.Unary(daemonv1.ProjectServiceName, "ContextNote", projectContext.ContextNote),
+		rpc.Unary(daemonv1.ProjectServiceName, "Log", projectContext.Log),
 	}
 }
