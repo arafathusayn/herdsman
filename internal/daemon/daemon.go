@@ -83,6 +83,7 @@ type Daemon struct {
 	done      chan struct{}
 	stopOnce  sync.Once
 
+	stateLock *os.File
 	acctDB    store.Conn
 	ops       *ops.Engine
 	opsCancel context.CancelFunc
@@ -197,23 +198,53 @@ func accountLockState(home string) (bool, error) {
 
 // takeAccountLock takes the per-account singleton (3.6).
 func (d *Daemon) takeAccountLock() error {
-	p := AccountLockPath(d.cfg.Home)
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := d.takeLockFile(AccountLockPath(d.cfg.Home), func() AccountLock {
+		l, _ := ReadAccountLock(d.cfg.Home)
+		return l
+	})
 	if err != nil {
 		return err
 	}
+	d.acct = f
+	// The account lock's place depends on how the folder was selected, so
+	// a second lock inside the folder holds one daemon per state directory.
+	state := filepath.Join(d.cfg.PrivateHome, stateLockName)
+	f, err = d.takeLockFile(state, func() AccountLock {
+		var l AccountLock
+		if b, err := readSmall(state, 4096); err == nil {
+			_ = strictDecode(b, &l)
+		}
+		return l
+	})
+	if err != nil {
+		_ = d.acct.Close()
+		d.acct = nil
+		return err
+	}
+	d.stateLock = f
+	return nil
+}
+
+// stateLockName is the lock file inside a state directory.
+const stateLockName = ".herdsman-state.lock"
+
+// takeLockFile locks p exclusively and records this daemon in it; holder
+// names the daemon that has it already.
+func (d *Daemon) takeLockFile(p string, holder func() AccountLock) (*os.File, error) {
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
-		l, _ := ReadAccountLock(d.cfg.Home)
-		return &ErrRunning{Holder: l}
+		return nil, &ErrRunning{Holder: holder()}
 	}
 	b, _ := encode(AccountLock{PID: os.Getpid(), Version: d.cfg.Version, Start: d.now().Unix(), PrivateHome: d.cfg.PrivateHome, Socket: SocketPath(d.cfg.PrivateHome)})
 	if err := f.Truncate(0); err == nil {
 		_, _ = f.WriteAt(append(b, '\n'), 0)
 		_ = f.Sync()
 	}
-	d.acct = f
-	return nil
+	return f, nil
 }
 
 // RouteEntry is one route of routes.json (5.7).
@@ -365,6 +396,13 @@ func (d *Daemon) listen() error {
 	return nil
 }
 
+func (d *Daemon) closeStateLock() {
+	if d.stateLock != nil {
+		_ = d.stateLock.Close()
+		d.stateLock = nil
+	}
+}
+
 // unwindStart frees what a failed Start took. The retained inbox locks
 // stay, as on any stop, for the next start to take back.
 func (d *Daemon) unwindStart() {
@@ -383,6 +421,7 @@ func (d *Daemon) unwindStart() {
 		d.ln = nil
 	}
 	d.closeOps()
+	d.closeStateLock()
 	if d.acct != nil {
 		_ = d.acct.Close()
 		d.acct = nil
@@ -446,6 +485,7 @@ func (d *Daemon) Stop(reason string) {
 		}
 		_ = os.Remove(SocketPath(d.cfg.PrivateHome))
 		d.closeOps()
+		d.closeStateLock()
 		if d.acct != nil {
 			_ = d.acct.Close()
 		}

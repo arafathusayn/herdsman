@@ -355,6 +355,22 @@ func TestFixtureCheckCatchesAnUnlistedChange(t *testing.T) {
 	}
 }
 
+func TestDigestSeesAChangedBody(t *testing.T) {
+	p := loadFixture(t, 1, KindRoute)
+	before := fixtureDigest(t, p, KindRoute)
+	c, err := openDriver(p, Writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustExec(t, c, "UPDATE messages SET body = X'00' WHERE id = 1")
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if fixtureDigest(t, p, KindRoute) == before {
+		t.Fatal("a changed body left the digest unchanged")
+	}
+}
+
 func TestDigestCanonical(t *testing.T) {
 	a := []Record{{Kind: "route", ID: "b", Fields: []string{"1"}}, {Kind: "route", ID: "a", Fields: []string{"2"}}}
 	b := []Record{a[1], a[0]}

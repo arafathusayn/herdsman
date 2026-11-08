@@ -116,8 +116,14 @@ func (e *Engine) Resolve(id string, ordinal int, d Decision) error {
 		if ordinal < 0 || ordinal >= len(op.Steps) {
 			return fmt.Errorf("ops: operation %s has no step %d", id, ordinal)
 		}
+		for _, earlier := range op.Steps[:ordinal] {
+			if earlier.State != StepDone {
+				return fmt.Errorf("ops: step %d of %s comes first", earlier.Ordinal, id)
+			}
+		}
 		st := op.Steps[ordinal]
-		if st.State != StepIntended && st.State != StepConflict {
+		// A pending step is here when this binary lacked its effect.
+		if st.State != StepIntended && st.State != StepConflict && st.State != StepPending {
 			return fmt.Errorf("ops: step %d of %s is %s", ordinal, id, st.State)
 		}
 		now := e.now()

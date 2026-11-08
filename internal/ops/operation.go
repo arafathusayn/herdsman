@@ -153,6 +153,7 @@ type Options struct {
 // Engine runs operations over one writer connection, which it serializes.
 type Engine struct {
 	mu      sync.Mutex
+	deliver sync.Mutex // one outbox pass at a time, so order holds
 	db      store.Conn
 	opt     Options
 	driving map[string]bool
@@ -377,7 +378,7 @@ func (e *Engine) afterFailure(ctx context.Context, op *Operation, st Step, aerr 
 	switch {
 	case v == Matches:
 		return true, e.markDone(op.ID, st)
-	case v == Absent || (v == Unknown && st.Retry == RetryIdempotent):
+	case v == Absent:
 		if err := e.setStep(op.ID, st.Ordinal, StepIntended, StepPending, aerr.Error()); err != nil {
 			return false, err
 		}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -244,6 +245,111 @@ func TestApplyFailureUsesTheProbe(t *testing.T) {
 		if held, _ := e.HeldLocks(); (c.want == ops.OpConflict) != (len(held) == 1) {
 			t.Fatalf("verdict %v locks %v", c.verdict, held)
 		}
+	}
+}
+
+func TestApplyFailureWithAnUnknownOutcomeStaysRecoverable(t *testing.T) {
+	fx := &scripted{verdict: ops.Unknown, applyEr: errors.New("boom")}
+	e, _ := openEngine(t, ops.Options{Effects: map[string]ops.Effect{"fx": fx}})
+	ctx := context.Background()
+	s := oneStep(ops.RetryIdempotent)
+	s.Steps[0].Events = []ops.Event{{Topic: "a", Payload: "1"}}
+	op, err := e.Submit(ctx, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := e.Drive(ctx, op.ID)
+	if got == nil || got.State != ops.OpStopped || got.Steps[0].State != ops.StepIntended {
+		t.Fatalf("%+v", got)
+	}
+	if held, _ := e.HeldLocks(); len(held) != 1 {
+		t.Fatalf("locks %v", held)
+	}
+	if err := e.Resolve(op.ID, 0, ops.ResolveDone); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := e.Undelivered(); n != 1 {
+		t.Fatalf("events queued: %d", n)
+	}
+}
+
+func TestStoppedPendingStepCanBeResolved(t *testing.T) {
+	for _, c := range []struct {
+		d       ops.Decision
+		applied int
+	}{{ops.ResolveDone, 0}, {ops.ResolveRerun, 1}} {
+		fx := &scripted{}
+		e, _ := openEngine(t, ops.Options{Effects: map[string]ops.Effect{"fx": fx}})
+		ctx := context.Background()
+		s := oneStep(ops.RetryNever)
+		s.Steps = append(s.Steps, ops.StepSpec{Name: "s2", Effect: "fx", Key: "agent-b", Spec: "{}"})
+		op, err := e.Submit(ctx, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lacking := ops.NewEngine(ops.EngineConnForTest(e), ops.Options{})
+		if got, _ := lacking.Drive(ctx, op.ID); got == nil || got.State != ops.OpStopped || got.Steps[0].State != ops.StepPending {
+			t.Fatalf("%+v", got)
+		}
+		if err := e.Resolve(op.ID, 1, c.d); err == nil {
+			t.Fatal("a later step was resolved before the stopped one")
+		}
+		if err := e.Resolve(op.ID, 0, c.d); err != nil {
+			t.Fatal(err)
+		}
+		got, err := e.Drive(ctx, op.ID)
+		if err != nil || got.State != ops.OpDone || fx.applied != c.applied+1 {
+			t.Fatalf("%+v applied %d err %v", got, fx.applied, err)
+		}
+	}
+}
+
+// blockingSink counts how many deliveries overlap.
+type blockingSink struct {
+	mu       sync.Mutex
+	now, max int
+	keys     []string
+}
+
+func (b *blockingSink) Deliver(_ context.Context, ev ops.OutboxEvent) error {
+	b.mu.Lock()
+	b.now++
+	b.max = max(b.max, b.now)
+	b.keys = append(b.keys, ev.Key)
+	b.mu.Unlock()
+	time.Sleep(5 * time.Millisecond)
+	b.mu.Lock()
+	b.now--
+	b.mu.Unlock()
+	return nil
+}
+
+func TestOutboxPassesDoNotOverlap(t *testing.T) {
+	e, _ := openEngine(t, ops.Options{Effects: map[string]ops.Effect{"fx": &scripted{}}})
+	ctx := context.Background()
+	s := oneStep(ops.RetryNever)
+	s.Steps[0].Events = []ops.Event{{Topic: "a", Payload: "1"}, {Topic: "b", Payload: "2"}, {Topic: "c", Payload: "3"}}
+	op, err := e.Submit(ctx, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Drive(ctx, op.ID); err != nil {
+		t.Fatal(err)
+	}
+	sink := &blockingSink{}
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := e.DeliverOutbox(ctx, sink); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if sink.max != 1 || len(sink.keys) != 3 {
+		t.Fatalf("overlap %d, delivered %v", sink.max, sink.keys)
 	}
 }
 
