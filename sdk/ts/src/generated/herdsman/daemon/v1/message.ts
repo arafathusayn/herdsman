@@ -3,6 +3,193 @@
 
 import type * as herdsman_core_v1_core from "../../core/v1/core";
 
+export interface DaemonStatusRequest {
+}
+
+export interface DaemonStatusResponse {
+  version?: herdsman_core_v1_core.Version;
+  stateDir?: string;
+  inspect?: boolean;
+  schemaCurrent?: number;
+  schemaExpected?: number;
+  routeCount?: number;
+  taskCount?: number;
+  messageCount?: number;
+  digest?: string;
+}
+
+export interface ListOperationsRequest {
+}
+
+export interface ListOperationsResponse {
+  version?: herdsman_core_v1_core.Version;
+  /**
+   * Each entry is one operation as JSON.
+   */
+  operationsJson?: string[];
+}
+
+export interface GetOperationRequest {
+  id?: string;
+}
+
+export interface GetOperationResponse {
+  version?: herdsman_core_v1_core.Version;
+  /**
+   * The operation as JSON.
+   */
+  operationJson?: string;
+}
+
+export interface ResolveOperationRequest {
+  id?: string;
+  step?: number;
+  /**
+   * "done" or "rerun".
+   */
+  decision?: string;
+}
+
+export interface ResolveOperationResponse {
+  version?: herdsman_core_v1_core.Version;
+  /**
+   * The operation as JSON.
+   */
+  operationJson?: string;
+}
+
+export interface HelloRequest {
+}
+
+export interface HelloResponse {
+  version?: herdsman_core_v1_core.Version;
+  daemonVersion?: string;
+  features?: string[];
+  credentialOptions?: string[];
+  defaultCredential?: string;
+}
+
+/**
+ * VersionRefusal is a failure's extra detail when a version check refused the
+ * call.
+ */
+export interface VersionRefusal {
+  /**
+   * The side to update: "client" or "daemon".
+   */
+  update?: string;
+}
+
+export interface HealthRequest {
+}
+
+export interface HealthResponse {
+  version?: herdsman_core_v1_core.Version;
+  status?: string;
+  routes?: RouteHealth[];
+  herdr?: HerdrHealth[];
+}
+
+/**
+ * RouteHealth is one route's health.
+ */
+export interface RouteHealth {
+  route?: herdsman_core_v1_core.RouteId;
+  status?: string;
+  flags?: string[];
+  reason?: string;
+}
+
+/**
+ * HerdrHealth is one Herdr link's health.
+ */
+export interface HerdrHealth {
+  socket?: string;
+  status?: string;
+}
+
+export interface ShutdownRequest {
+  /**
+   * "stop" or "restart".
+   */
+  reason?: string;
+}
+
+export interface ShutdownResponse {
+  version?: herdsman_core_v1_core.Version;
+}
+
+export interface ListRoutesRequest {
+}
+
+export interface ListRoutesResponse {
+  version?: herdsman_core_v1_core.Version;
+  routes?: RouteInfo[];
+}
+
+/**
+ * RouteInfo is one registered route.
+ */
+export interface RouteInfo {
+  route?: herdsman_core_v1_core.RouteId;
+  inbox?: string;
+  owner?: string;
+  epoch?: string;
+  lastSeq?: string;
+  status?: string;
+}
+
+export interface CreateRouteRequest {
+  repo?: string;
+  route?: herdsman_core_v1_core.RouteId;
+  herdrSocket?: string;
+}
+
+export interface CreateRouteResponse {
+  version?: herdsman_core_v1_core.Version;
+  route?: herdsman_core_v1_core.RouteId;
+  inbox?: string;
+  epoch?: string;
+}
+
+export interface AdoptRouteRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  inbox?: string;
+  confirmPairSha256?: string;
+}
+
+export interface AdoptRouteResponse {
+  version?: herdsman_core_v1_core.Version;
+  route?: herdsman_core_v1_core.RouteId;
+  epoch?: string;
+  lastMessageId?: string;
+  legacyProof?: boolean;
+}
+
+export interface RemoveRouteRequest {
+  route?: herdsman_core_v1_core.RouteId;
+}
+
+export interface RemoveRouteResponse {
+  version?: herdsman_core_v1_core.Version;
+  removed?: boolean;
+  inboxKept?: boolean;
+}
+
+export interface ResetEventsRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  /**
+   * Must repeat the route's name.
+   */
+  confirmRoute?: string;
+}
+
+export interface ResetEventsResponse {
+  version?: herdsman_core_v1_core.Version;
+  epoch?: string;
+  checkpointSeq?: string;
+}
+
 export interface StatusRequest {
   route?: herdsman_core_v1_core.RouteId;
 }
@@ -85,6 +272,265 @@ export interface HoldInfo {
   owners?: string[];
 }
 
+export interface GetSetupRequest {
+  route?: herdsman_core_v1_core.RouteId;
+}
+
+export interface GetSetupResponse {
+  version?: herdsman_core_v1_core.Version;
+  inventory?: InventoryAgent[];
+  /**
+   * The current proof as JSON; empty when there is none.
+   */
+  proofJson?: string;
+}
+
+/**
+ * InventoryAgent is one live agent on the route's Herdr server.
+ */
+export interface InventoryAgent {
+  pane?: string;
+  /**
+   * The agent session as JSON.
+   */
+  sessionJson?: string;
+  agent?: string;
+}
+
+/**
+ * Probe is one negative probe the human reports at setup.
+ */
+export interface Probe {
+  /**
+   * The probed identity as JSON.
+   */
+  identityJson?: string;
+  inboxWriteDenied?: boolean;
+  socketConnectDenied?: boolean;
+  recordedBy?: string;
+}
+
+export interface PutSetupRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  rules?: string[];
+  binary?: string;
+  policyVerified?: boolean;
+  boundaryJson?: string;
+  watchTargetsJson?: string;
+  resumeTargetsJson?: string;
+  probes?: Probe[];
+}
+
+export interface PutSetupResponse {
+  version?: herdsman_core_v1_core.Version;
+  proofSha256?: string;
+}
+
+export interface EnrollRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  name?: string;
+  role?: string;
+}
+
+export interface EnrollResponse {
+  version?: herdsman_core_v1_core.Version;
+  pendingSha256?: string;
+}
+
+export interface ApprovePairRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  sha256?: string;
+  interaction?: string;
+  askedBy?: string;
+  credentials?: Record<string, string>;
+}
+
+export interface ApprovePairResponse {
+  version?: herdsman_core_v1_core.Version;
+  approved?: boolean;
+  credentials?: ApprovedCredential[];
+  revoked?: string[];
+}
+
+/**
+ * ApprovedCredential is one party's credential option.
+ */
+export interface ApprovedCredential {
+  name?: string;
+  option?: string;
+}
+
+export interface RetirePairRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  name?: string;
+  sha256?: string;
+}
+
+export interface RetirePairResponse {
+  version?: herdsman_core_v1_core.Version;
+  retired?: string;
+  revoked?: boolean;
+}
+
+export interface RevokeCredentialRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  name?: string;
+}
+
+export interface RevokeCredentialResponse {
+  version?: herdsman_core_v1_core.Version;
+  revoked?: boolean;
+}
+
+export interface SendRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  to?: string;
+  kind?: string;
+  body?: string;
+  replyTo?: string;
+  /**
+   * Makes a retry of the same send harmless.
+   */
+  key?: string;
+}
+
+export interface SendResponse {
+  version?: herdsman_core_v1_core.Version;
+  id?: herdsman_core_v1_core.MessageId;
+  seq?: string;
+  duplicate?: boolean;
+}
+
+export interface ClaimRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  readKey?: string;
+  token?: string;
+  extendKey?: string;
+}
+
+export interface ClaimResponse {
+  version?: herdsman_core_v1_core.Version;
+  claim?: string;
+  manifest?: ManifestEntry[];
+  pendingNew?: number;
+  quarantine?: number;
+}
+
+/**
+ * ManifestEntry is one claimed message's envelope and path, never its body.
+ */
+export interface ManifestEntry {
+  id?: herdsman_core_v1_core.MessageId;
+  from?: string;
+  to?: string;
+  kind?: string;
+  time?: string;
+  replyTo?: string;
+  path?: string;
+}
+
+export interface AckRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  claim?: string;
+  id?: herdsman_core_v1_core.MessageId;
+  record?: string;
+}
+
+export interface AckResponse {
+  version?: herdsman_core_v1_core.Version;
+  id?: herdsman_core_v1_core.MessageId;
+  seq?: string;
+  already?: boolean;
+}
+
+export interface ReleaseRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  claim?: string;
+}
+
+export interface ReleaseResponse {
+  version?: herdsman_core_v1_core.Version;
+  released?: boolean;
+}
+
+export interface HoldRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  target?: string;
+  reason?: string;
+}
+
+export interface HoldResponse {
+  version?: herdsman_core_v1_core.Version;
+  holds?: Record<string, HoldOwner>;
+}
+
+export interface UnholdRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  target?: string;
+}
+
+export interface UnholdResponse {
+  version?: herdsman_core_v1_core.Version;
+  holds?: Record<string, HoldOwner>;
+}
+
+/**
+ * HoldOwner is one owner's hold on a target.
+ */
+export interface HoldOwner {
+  reason?: string;
+  time?: string;
+}
+
+export interface AuthorityRequest {
+  route?: herdsman_core_v1_core.RouteId;
+}
+
+export interface AuthorityResponse {
+  version?: herdsman_core_v1_core.Version;
+  /**
+   * "RELAY" or "HUMAN".
+   */
+  authority?: string;
+  reasons?: string[];
+}
+
+export interface WaitRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  /**
+   * "<epoch>-<seq>" from an earlier reply; empty starts with a snapshot.
+   */
+  cursor?: string;
+  /**
+   * How long to wait for an event; zero answers at once.
+   */
+  waitMs?: number;
+}
+
+export interface WaitResponse {
+  version?: herdsman_core_v1_core.Version;
+  frames?: EventFrame[];
+  /**
+   * Where to resume when frames is empty.
+   */
+  nextCursor?: string;
+}
+
+/**
+ * EventFrame is one event for a party.
+ */
+export interface EventFrame {
+  /**
+   * The cursor after this event; empty for an event that has none.
+   */
+  cursor?: string;
+  type?: string;
+  /**
+   * The event as JSON.
+   */
+  payload?: string;
+}
+
 /**
  * MessageService is a route's message channel.
  */
@@ -92,11 +538,195 @@ export const MessageService = {
   typeName: "herdsman.daemon.v1.MessageService",
   methods: {
     /**
+     * Hello reports the daemon's build and what it offers. It is the one method
+     * a client of any version may call.
+     */
+    hello: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Hello",
+      signature: undefined as unknown as (request: HelloRequest) => HelloResponse,
+    },
+    /**
+     * Health reports every route and every Herdr link.
+     */
+    health: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Health",
+      signature: undefined as unknown as (request: HealthRequest) => HealthResponse,
+    },
+    /**
+     * Shutdown asks the daemon to stop.
+     */
+    shutdown: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Shutdown",
+      signature: undefined as unknown as (request: ShutdownRequest) => ShutdownResponse,
+    },
+    /**
+     * ListRoutes lists the registered routes.
+     */
+    listRoutes: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/ListRoutes",
+      signature: undefined as unknown as (request: ListRoutesRequest) => ListRoutesResponse,
+    },
+    /**
+     * CreateRoute registers a new route with a new inbox.
+     */
+    createRoute: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/CreateRoute",
+      signature: undefined as unknown as (request: CreateRouteRequest) => CreateRouteResponse,
+    },
+    /**
+     * AdoptRoute moves an existing file inbox under the daemon.
+     */
+    adoptRoute: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/AdoptRoute",
+      signature: undefined as unknown as (request: AdoptRouteRequest) => AdoptRouteResponse,
+    },
+    /**
+     * RemoveRoute forgets a route and keeps its inbox.
+     */
+    removeRoute: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/RemoveRoute",
+      signature: undefined as unknown as (request: RemoveRouteRequest) => RemoveRouteResponse,
+    },
+    /**
+     * ResetEvents starts a new event epoch for a route.
+     */
+    resetEvents: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/ResetEvents",
+      signature: undefined as unknown as (request: ResetEventsRequest) => ResetEventsResponse,
+    },
+    /**
      * Status reports the channel of one route.
      */
     status: {
       path: "/rpc/herdsman.daemon.v1.MessageService/Status",
       signature: undefined as unknown as (request: StatusRequest) => StatusResponse,
+    },
+    /**
+     * GetSetup lists a route's live agents and its current proof.
+     */
+    getSetup: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/GetSetup",
+      signature: undefined as unknown as (request: GetSetupRequest) => GetSetupResponse,
+    },
+    /**
+     * PutSetup records the human's setup proof.
+     */
+    putSetup: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/PutSetup",
+      signature: undefined as unknown as (request: PutSetupRequest) => PutSetupResponse,
+    },
+    /**
+     * Enroll proposes the calling pane as a party of the route.
+     */
+    enroll: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Enroll",
+      signature: undefined as unknown as (request: EnrollRequest) => EnrollResponse,
+    },
+    /**
+     * ApprovePair approves the pending registry by its checksum.
+     */
+    approvePair: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/ApprovePair",
+      signature: undefined as unknown as (request: ApprovePairRequest) => ApprovePairResponse,
+    },
+    /**
+     * RetirePair retires a party and revokes its credential.
+     */
+    retirePair: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/RetirePair",
+      signature: undefined as unknown as (request: RetirePairRequest) => RetirePairResponse,
+    },
+    /**
+     * RevokeCredential revokes one party's credential.
+     */
+    revokeCredential: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/RevokeCredential",
+      signature: undefined as unknown as (request: RevokeCredentialRequest) => RevokeCredentialResponse,
+    },
+    /**
+     * Send queues a message from the calling party.
+     */
+    send: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Send",
+      signature: undefined as unknown as (request: SendRequest) => SendResponse,
+    },
+    /**
+     * Claim reads ready messages, or extends the active claim.
+     */
+    claim: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Claim",
+      signature: undefined as unknown as (request: ClaimRequest) => ClaimResponse,
+    },
+    /**
+     * Ack acknowledges one claimed message.
+     */
+    ack: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Ack",
+      signature: undefined as unknown as (request: AckRequest) => AckResponse,
+    },
+    /**
+     * Release gives back a fully acknowledged claim.
+     */
+    release: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Release",
+      signature: undefined as unknown as (request: ReleaseRequest) => ReleaseResponse,
+    },
+    /**
+     * Hold places the calling party's hold on a target.
+     */
+    hold: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Hold",
+      signature: undefined as unknown as (request: HoldRequest) => HoldResponse,
+    },
+    /**
+     * Unhold removes the calling party's hold from a target.
+     */
+    unhold: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Unhold",
+      signature: undefined as unknown as (request: UnholdRequest) => UnholdResponse,
+    },
+    /**
+     * Authority reports whether relayed messages carry authority.
+     */
+    authority: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Authority",
+      signature: undefined as unknown as (request: AuthorityRequest) => AuthorityResponse,
+    },
+    /**
+     * DaemonStatus reports the state directory and what it holds.
+     */
+    daemonStatus: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/DaemonStatus",
+      signature: undefined as unknown as (request: DaemonStatusRequest) => DaemonStatusResponse,
+    },
+    /**
+     * ListOperations lists the operation journal.
+     */
+    listOperations: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/ListOperations",
+      signature: undefined as unknown as (request: ListOperationsRequest) => ListOperationsResponse,
+    },
+    /**
+     * GetOperation reads one operation.
+     */
+    getOperation: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/GetOperation",
+      signature: undefined as unknown as (request: GetOperationRequest) => GetOperationResponse,
+    },
+    /**
+     * ResolveOperation records what happened to a step whose outcome is unknown.
+     */
+    resolveOperation: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/ResolveOperation",
+      signature: undefined as unknown as (request: ResolveOperationRequest) => ResolveOperationResponse,
+    },
+    /**
+     * Wait returns the calling party's next events after a cursor, or none when
+     * wait_ms passes first.
+     */
+    wait: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/Wait",
+      signature: undefined as unknown as (request: WaitRequest) => WaitResponse,
     },
   },
 } as const;

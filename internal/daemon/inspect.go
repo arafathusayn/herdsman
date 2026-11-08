@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -75,9 +76,17 @@ func (d *Daemon) startInspect(rf RoutesFile) error {
 	return nil
 }
 
-// refuseInInspect answers every request that could change something.
+// inspectReads are the methods an inspect daemon serves: every other method
+// could change something, and a new one is refused until it is listed here.
+var inspectReads = map[string]bool{
+	"Hello": true, "Health": true, "DaemonStatus": true, "ListOperations": true, "GetOperation": true,
+	"ListRoutes": true, "Status": true, "GetSetup": true, "Authority": true, "Wait": true,
+	"Get": true, "List": true, "Search": true, "Plan": true, "Sources": true,
+}
+
+// refuseInInspect answers every call that could change something.
 func (d *Daemon) refuseInInspect(r *http.Request) *APIError {
-	if !d.cfg.Inspect || r.Method == http.MethodGet || r.Method == http.MethodHead {
+	if !d.cfg.Inspect || inspectReads[path.Base(r.URL.Path)] {
 		return nil
 	}
 	return Errf("failed_precondition", "this daemon runs in inspect mode and changes nothing; %s %s was refused", r.Method, r.URL.Path)
@@ -126,22 +135,13 @@ type StatusCounts struct {
 	Messages int `json:"messages"`
 }
 
-// StatusDetail is GET /v1/status.
+// StatusDetail is the state directory and what it holds.
 type StatusDetail struct {
 	StateDir string       `json:"state_dir"`
 	Inspect  bool         `json:"inspect"`
 	Schema   SchemaStatus `json:"schema"`
 	Counts   StatusCounts `json:"counts"`
 	Digest   string       `json:"digest"`
-}
-
-func (d *Daemon) statusDetail(w http.ResponseWriter, _ *http.Request) *APIError {
-	st, err := d.collectStatus()
-	if err != nil {
-		return Errf("internal", "status: %v", err)
-	}
-	writeJSON(w, 200, st)
-	return nil
 }
 
 func (d *Daemon) collectStatus() (StatusDetail, error) {

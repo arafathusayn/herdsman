@@ -1,0 +1,4 @@
+{"schema":"1.0.0","kind":"turn","name":"implementer","task":"impl","start":"2026-11-08T10:00:00Z","duration_ms":5000,"tokens":900,"cost_micros":12000}
+{"schema":"1.0.0","kind":"check","name":"make check","task":"impl","start":"2026-11-08T10:00:03Z","duration_ms":800,"exit":0}
+{"schema":"1.0.0","kind":"review","name":"reviewer","task":"impl","start":"2026-11-08T10:00:04Z","duration_ms":700}
+{"schema":"1.0.0","kind":"nonsense","name":"x","start":"2026-11-08T10:00:04Z","duration_ms":1}

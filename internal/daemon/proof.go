@@ -44,7 +44,7 @@ type SetupV2 struct {
 	Probes         []Probe         `json:"probes"`
 }
 
-// SetupRequest is PUT /v1/routes/{route}/setup: the human's confirmed
+// SetupRequest is the setup proof to record: the human's confirmed
 // fields. The daemon computes every checksum itself.
 type SetupRequest struct {
 	Rules          []string        `json:"rules"`

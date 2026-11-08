@@ -19,16 +19,16 @@ import (
 	"strings"
 )
 
-// Protocol is the wire format's number; it only describes the format in
-// diagnostics. Compatibility is version equality (5.6).
+// Protocol is the stored and event format's number; it only describes the
+// format in diagnostics. Compatibility is version equality (5.6).
 const Protocol = 1
 
-// The version headers every request carries (5.1, 5.6).
+// The headers a herdsman client sends: its version and, for a party, who is
+// calling (5.1, 5.6).
 const (
-	HeaderVersion  = "Herdsman-Version"
-	HeaderProtocol = "Herdsman-Protocol"
-	HeaderPane     = "Herdsman-Pane"
-	HeaderName     = "Herdsman-Name"
+	HeaderVersion = "Herdsman-Version"
+	HeaderPane    = "Herdsman-Pane"
+	HeaderName    = "Herdsman-Name"
 )
 
 var versionRe = regexp.MustCompile(`^(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?|devel\+[0-9a-f]{7,40})$`)
@@ -146,12 +146,13 @@ func versionErr(code, update, msg string) *APIError {
 	return e
 }
 
-// CheckVersion checks a request's version headers against the daemon's
-// version (5.6). nil means the request may go on.
-func CheckVersion(h http.Header, daemonVersion string, protocol int) *APIError {
-	vs, ps := h.Values(HeaderVersion), h.Values(HeaderProtocol)
-	if len(vs) == 0 || len(ps) == 0 {
-		return versionErr("version_missing", "client", fmt.Sprintf("This client sent no herdsman version; it is older than the daemon (%s) or not herdsman. Update the client to herdsman %s.", daemonVersion, daemonVersion))
+// CheckVersion checks a request's version header against the daemon's version
+// (5.6). nil means the request may go on, and a request with no header is not
+// a herdsman build, so there is nothing to compare.
+func CheckVersion(h http.Header, daemonVersion string) *APIError {
+	vs := h.Values(HeaderVersion)
+	if len(vs) == 0 {
+		return nil
 	}
 	malformed := func(v string) *APIError {
 		v = strings.Map(func(r rune) rune {
@@ -162,28 +163,21 @@ func CheckVersion(h http.Header, daemonVersion string, protocol int) *APIError {
 		}, clip(v, 40))
 		return versionErr("version_malformed", "client", fmt.Sprintf("This client sent an invalid herdsman version (%q). Update the client to herdsman %s.", v, daemonVersion))
 	}
-	if len(vs) > 1 || len(ps) > 1 {
+	if len(vs) > 1 {
 		return malformed(strings.Join(vs, ","))
 	}
 	cv, err := ParseVersion(vs[0])
 	if err != nil {
 		return malformed(vs[0])
 	}
-	cp, err := strconv.Atoi(ps[0])
-	if err != nil || cp < 0 || strconv.Itoa(cp) != ps[0] {
-		return malformed(vs[0])
-	}
 	dv, _ := ParseVersion(daemonVersion)
-	return compare(cv, cp, dv, protocol)
+	return compare(cv, dv)
 }
 
-// compare is the version table of 5.6 for a client version cv with
-// protocol cp against a daemon dv with protocol dp.
-func compare(cv Version, cp int, dv Version, dp int) *APIError {
+// compare is the version table of 5.6 for a client version cv against a
+// daemon dv.
+func compare(cv, dv Version) *APIError {
 	if cv.Raw == dv.Raw {
-		if cp != dp {
-			return versionErr("version_mismatch", "daemon", fmt.Sprintf("herdsman %s reports protocol %d but the daemon reports %d; reinstall herdsman and run herdsman daemon restart.", cv.Raw, cp, dp))
-		}
 		return nil
 	}
 	if compareVersions(cv, dv) < 0 {
@@ -192,13 +186,10 @@ func compare(cv Version, cp int, dv Version, dp int) *APIError {
 	return versionErr("version_mismatch", "daemon", fmt.Sprintf("The herdsman daemon (%s) is older than this client (%s). Restart it to load the installed binary: herdsman daemon restart.", dv.Raw, cv.Raw))
 }
 
-// Hello is the answer of GET /v1/hello.
+// Hello is the daemon's answer to a client's first call.
 type Hello struct {
 	// DaemonVersion is the daemon's build version (5.6).
 	DaemonVersion string `json:"daemon_version"`
-	// Protocol is the wire format's number; MinProtocol the oldest it reads.
-	Protocol    int `json:"protocol"`
-	MinProtocol int `json:"min_protocol"`
 	// Features lists optional abilities, such as "keychain".
 	Features []string `json:"features"`
 	// CredentialOptions are the per-party credential options this daemon
@@ -210,7 +201,7 @@ type Hello struct {
 
 // ClientCheck is the client's check of a daemon's hello (5.6): the same
 // table as the daemon's, seen from the client.
-func ClientCheck(clientVersion string, protocol int, h Hello) *APIError {
+func ClientCheck(clientVersion string, h Hello) *APIError {
 	dv, err := ParseVersion(h.DaemonVersion)
 	if err != nil {
 		return versionErr("version_malformed", "daemon", fmt.Sprintf("The herdsman daemon sent an invalid version (%q). Restart it: herdsman daemon restart.", clip(h.DaemonVersion, 40)))
@@ -219,7 +210,7 @@ func ClientCheck(clientVersion string, protocol int, h Hello) *APIError {
 	if err != nil {
 		return versionErr("version_malformed", "client", fmt.Sprintf("This client has an invalid herdsman version (%q); reinstall herdsman.", clip(clientVersion, 40)))
 	}
-	return compare(cv, protocol, dv, h.Protocol)
+	return compare(cv, dv)
 }
 
 var commitRe = regexp.MustCompile(`^[0-9a-f]{7,40}$`)

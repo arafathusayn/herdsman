@@ -176,7 +176,7 @@ func mustEncode(v any) []byte {
 	return b
 }
 
-// ApproveRequest is POST /v1/routes/{route}/pair/approve.
+// ApproveRequest approves the pending registry by its checksum.
 type ApproveRequest struct {
 	SHA256      string `json:"sha256"`
 	Interaction string `json:"interaction,omitempty"`
@@ -549,7 +549,7 @@ func (r *Route) loadCredentials() {
 	r.d.indexCredentials(r.name, r.creds)
 }
 
-// HoldRequest is PUT /v1/routes/{route}/holds/{name}.
+// HoldRequest is the reason for a hold.
 type HoldRequest struct {
 	Reason string `json:"reason"`
 }

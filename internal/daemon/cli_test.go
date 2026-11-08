@@ -235,7 +235,7 @@ func TestWaitNoLostWake(t *testing.T) {
 // mustCursor is the party's current snapshot cursor.
 func mustCursor(t testing.TB, h *harness, p *party) string {
 	t.Helper()
-	ev, err := p.c.Events(t.Context(), "/v1/routes/r/events", "")
+	ev, err := p.c.Events(t.Context(), "r", "")
 	if err != nil {
 		t.Fatal(err)
 	}

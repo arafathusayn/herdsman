@@ -1,0 +1,2 @@
+{"schema":"1.0.0","project":"p","task":"impl","route":"fixture-route","tokens":1000,"cost_micros":15000}
+{"schema":"1.0.0","project":"p","task":"z","route":"other","tokens":7,"cost_micros":7}

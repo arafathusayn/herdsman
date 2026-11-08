@@ -1,0 +1,14 @@
+␛[1mStop a task␛[0m
+
+Task
+  > alpha
+    beta
+    --all
+
+Seconds before a forced stop
+  
+
+Also stop what is only associated
+    Yes   [ No ]
+
+␛[2mEnter submits  Tab moves  Esc cancels␛[0m

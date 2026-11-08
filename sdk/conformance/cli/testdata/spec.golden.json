@@ -333,6 +333,167 @@
       ]
     },
     {
+      "name": "eval",
+      "summary": "Report a suite's runs with intervals and an A/A control (experimental).",
+      "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
+      "usage": [
+        "herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]",
+        "herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>"
+      ],
+      "positionals": [
+        {
+          "name": "route folder"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--experimental-eval",
+          "valueName": "suite folder"
+        },
+        {
+          "name": "--file",
+          "valueName": "path"
+        },
+        {
+          "name": "--findings",
+          "valueName": "route folder"
+        },
+        {
+          "name": "--head",
+          "valueName": "commit"
+        },
+        {
+          "name": "--id",
+          "valueName": "id"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--line",
+          "valueName": "n"
+        },
+        {
+          "name": "--rank"
+        },
+        {
+          "name": "--reviewer",
+          "valueName": "name"
+        },
+        {
+          "name": "--severity",
+          "valueName": "level"
+        },
+        {
+          "name": "--task",
+          "valueName": "task"
+        },
+        {
+          "name": "--title",
+          "valueName": "text"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "reported or recorded"
+        },
+        {
+          "code": "1",
+          "meaning": "a file could not be read or written, or the suite has no A/A control"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage, or the experimental flag is missing"
+        },
+        {
+          "code": "3",
+          "meaning": "a ranking was asked for and refused"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "finding",
+          "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
+          "usage": [
+            "herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]",
+            "herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>"
+          ],
+          "positionals": [
+            {
+              "name": "route folder"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--experimental-eval",
+              "valueName": "suite folder"
+            },
+            {
+              "name": "--file",
+              "valueName": "path"
+            },
+            {
+              "name": "--findings",
+              "valueName": "route folder"
+            },
+            {
+              "name": "--head",
+              "valueName": "commit"
+            },
+            {
+              "name": "--id",
+              "valueName": "id"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--line",
+              "valueName": "n"
+            },
+            {
+              "name": "--rank"
+            },
+            {
+              "name": "--reviewer",
+              "valueName": "name"
+            },
+            {
+              "name": "--severity",
+              "valueName": "level"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            },
+            {
+              "name": "--title",
+              "valueName": "text"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "reported or recorded"
+            },
+            {
+              "code": "1",
+              "meaning": "a file could not be read or written, or the suite has no A/A control"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage, or the experimental flag is missing"
+            },
+            {
+              "code": "3",
+              "meaning": "a ranking was asked for and refused"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "go",
       "summary": "Enter a worktree.",
       "help": "usage: herdsman go [<task>|<branch>|<path>|^|@|-|pr:<n>|<url>] [--no-cd] [--focus] [--json]\n\nFinds a worktree, making one for a pull request, and enters it when the shell\nwrapper is installed (herdsman config shell install). With no argument it prints\nthe table and, on a terminal, reads a selector.\n\nexit codes:\n  0  found\n  1  nothing matched, or the switch hook failed\n  2  bad usage\n",
@@ -1369,6 +1530,153 @@
         {
           "code": "2",
           "meaning": "bad usage, or no terminal to ask on and no -y"
+        }
+      ]
+    },
+    {
+      "name": "trace",
+      "summary": "Show or export one route's spans as OpenTelemetry.",
+      "help": "usage: herdsman trace <route folder> [--json | --otlp <endpoint>] [--hook-logs <folder>]...\n       herdsman trace add <route folder> --kind <kind> --name <name> [--task <task>]\n                          [--start <RFC 3339>] [--duration-ms <n>] [--exit <n>]\n                          [--tokens <n>] [--cost-micros <n>]\n\nShows one route as spans: git commands, hooks, checks, reviews and agent\nturns, each with its timing and whatever exit or usage was reported. --json\nprints them; --otlp posts them to an OpenTelemetry collector over HTTP (plain\nhttp only to this machine). Each --hook-logs folder adds every hook run in it,\nsince a hook result does not name its route. Secrets are kept out: git\narguments are redacted and hook command text is left out.\n\ntrace add records a span (check, turn, review, hook or command) in the route.\nWithout --start the span ends now.\n\nexit codes:\n  0  reported or recorded, including when the route has no spans\n  1  the route or a log could not be read, or the export failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman trace <route folder> [--json | --otlp <endpoint>] [--hook-logs <folder>]...",
+        "herdsman trace add <route folder> --kind <kind> --name <name> [--task <task>]"
+      ],
+      "positionals": [
+        {
+          "name": "route folder"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--cost-micros",
+          "valueName": "n"
+        },
+        {
+          "name": "--duration-ms",
+          "valueName": "n"
+        },
+        {
+          "name": "--exit",
+          "valueName": "n"
+        },
+        {
+          "name": "--hook-logs",
+          "valueName": "folder"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--name",
+          "valueName": "name"
+        },
+        {
+          "name": "--otlp",
+          "valueName": "endpoint"
+        },
+        {
+          "name": "--start",
+          "valueName": "RFC 3339"
+        },
+        {
+          "name": "--task",
+          "valueName": "task"
+        },
+        {
+          "name": "--tokens",
+          "valueName": "n"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "reported or recorded, including when the route has no spans"
+        },
+        {
+          "code": "1",
+          "meaning": "the route or a log could not be read, or the export failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "add",
+          "help": "usage: herdsman trace <route folder> [--json | --otlp <endpoint>] [--hook-logs <folder>]...\n       herdsman trace add <route folder> --kind <kind> --name <name> [--task <task>]\n                          [--start <RFC 3339>] [--duration-ms <n>] [--exit <n>]\n                          [--tokens <n>] [--cost-micros <n>]\n\nShows one route as spans: git commands, hooks, checks, reviews and agent\nturns, each with its timing and whatever exit or usage was reported. --json\nprints them; --otlp posts them to an OpenTelemetry collector over HTTP (plain\nhttp only to this machine). Each --hook-logs folder adds every hook run in it,\nsince a hook result does not name its route. Secrets are kept out: git\narguments are redacted and hook command text is left out.\n\ntrace add records a span (check, turn, review, hook or command) in the route.\nWithout --start the span ends now.\n\nexit codes:\n  0  reported or recorded, including when the route has no spans\n  1  the route or a log could not be read, or the export failed\n  2  bad usage\n",
+          "usage": [
+            "herdsman trace <route folder> [--json | --otlp <endpoint>] [--hook-logs <folder>]...",
+            "herdsman trace add <route folder> --kind <kind> --name <name> [--task <task>]"
+          ],
+          "positionals": [
+            {
+              "name": "route folder"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--cost-micros",
+              "valueName": "n"
+            },
+            {
+              "name": "--duration-ms",
+              "valueName": "n"
+            },
+            {
+              "name": "--exit",
+              "valueName": "n"
+            },
+            {
+              "name": "--hook-logs",
+              "valueName": "folder"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--kind",
+              "valueName": "kind"
+            },
+            {
+              "name": "--name",
+              "valueName": "name"
+            },
+            {
+              "name": "--otlp",
+              "valueName": "endpoint"
+            },
+            {
+              "name": "--start",
+              "valueName": "RFC 3339"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            },
+            {
+              "name": "--tokens",
+              "valueName": "n"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "reported or recorded, including when the route has no spans"
+            },
+            {
+              "code": "1",
+              "meaning": "the route or a log could not be read, or the export failed"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
         }
       ]
     },
