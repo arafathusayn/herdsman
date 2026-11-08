@@ -35,6 +35,8 @@ func enqueue(c store.Conn, id string, st Step, now int64) error {
 // DeliverOutbox hands every undelivered event to sink, stopping at the first
 // failure so that order holds.
 func (e *Engine) DeliverOutbox(ctx context.Context, sink Sink) error {
+	e.deliver.Lock()
+	defer e.deliver.Unlock()
 	var evs []OutboxEvent
 	err := e.Read(func(c store.Conn) error {
 		return c.Query("SELECT seq, key, op_id, topic, payload FROM outbox WHERE delivered IS NULL ORDER BY seq", nil, func(r store.Row) error {
