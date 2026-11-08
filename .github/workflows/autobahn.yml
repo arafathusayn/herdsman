@@ -1,0 +1,52 @@
+name: autobahn
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - sdk/internal/ws/**
+      - .github/workflows/autobahn.yml
+  pull_request:
+    paths:
+      - sdk/internal/ws/**
+      - .github/workflows/autobahn.yml
+
+permissions:
+  contents: read
+
+env:
+  # 25.10.1, pinned by digest so a retagged image cannot change the verdict.
+  AUTOBAHN_IMAGE: crossbario/autobahn-testsuite@sha256:519915fb568b04c9383f70a1c405ae3ff44ab9e35835b085239c258b6fac3074
+
+jobs:
+  conformance:
+    # Runs every case but the permessage-deflate sections (12 and 13): the
+    # framing has no extensions. The driver's verify step fails the job on any
+    # failed case and on a run that covers too few of them.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Build the driver
+        run: go -C sdk build -o "$RUNNER_TEMP/autobahn" ./internal/ws/autobahn
+      - name: Server role
+        run: |
+          mkdir -p "$RUNNER_TEMP/reports"
+          "$RUNNER_TEMP/autobahn" server -addr 127.0.0.1:9001 &
+          docker run --rm --network host \
+            -v "$PWD/sdk/internal/ws/testdata/autobahn:/config:ro" \
+            -v "$RUNNER_TEMP/reports:/reports" \
+            "$AUTOBAHN_IMAGE" wstest -m fuzzingclient -s /config/fuzzingclient.json
+          "$RUNNER_TEMP/autobahn" verify "$RUNNER_TEMP/reports/server/index.json"
+      - name: Client role
+        run: |
+          docker run -d --name fuzzingserver --network host \
+            -v "$PWD/sdk/internal/ws/testdata/autobahn:/config:ro" \
+            -v "$RUNNER_TEMP/reports:/reports" \
+            "$AUTOBAHN_IMAGE" wstest -m fuzzingserver -s /config/fuzzingserver.json
+          timeout 60 bash -c 'until (exec 3<>/dev/tcp/127.0.0.1/9002) 2>/dev/null; do sleep 1; done'
+          "$RUNNER_TEMP/autobahn" client -url ws://127.0.0.1:9002 -agent herdsman
+          "$RUNNER_TEMP/autobahn" verify "$RUNNER_TEMP/reports/client/index.json"
