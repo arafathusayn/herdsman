@@ -37,6 +37,8 @@ type MessageEnv struct {
 	Keychain Keychain
 	// AttemptTimeout bounds one attempt of a keyed request (0: 10 s).
 	AttemptTimeout time.Duration
+	// StatusRPC reads the status over RPC (nil: the 0.x route).
+	StatusRPC func(ctx context.Context, c *Client, route string, out *RouteStatus) error
 }
 
 // MessageHelp is the daemon path's grammar and exit codes.
@@ -422,7 +424,12 @@ const retryWindow = 60 * time.Second
 func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir string) int {
 	cctx, cancel := context.WithTimeout(ctx, time.Second)
 	var out RouteStatus
-	_, err := c.Do(cctx, "GET", base+"/status", nil, &out)
+	var err error
+	if e.StatusRPC != nil {
+		err = e.StatusRPC(cctx, c, route, &out)
+	} else {
+		_, err = c.Do(cctx, "GET", base+"/status", nil, &out)
+	}
 	cancel()
 	code := 0
 	if err != nil {
