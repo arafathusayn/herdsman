@@ -1,0 +1,21 @@
+␛[1mStop and free a task␛[0m
+
+Task
+  > alpha
+    beta
+    --merged
+    --all
+
+Seconds before a forced stop
+  
+
+Keep the branch
+    Yes   [ No ]
+
+Also stop what is only associated
+    Yes   [ No ]
+
+Go on with unsaved work (asks once more)
+    Yes   [ No ]
+
+␛[2mEnter submits  Tab moves  Esc cancels␛[0m

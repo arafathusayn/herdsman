@@ -1,0 +1,4 @@
+␛[1mStop a task␛[0m
+
+PLAN teardown alpha --grace 5 --include associated
+␛[2mEnter runs  Shift-Tab goes back  Esc cancels␛[0m

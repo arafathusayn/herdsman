@@ -71,21 +71,18 @@ func TestCheckVersionRows(t *testing.T) {
 		text   string
 		status int
 	}{
-		{"same", hdr(HeaderVersion, dv, HeaderProtocol, "1"), "", "", "", 0},
-		{"missing", hdr(HeaderProtocol, "1"), "version_missing", "client", "This client sent no herdsman version; it is older than the daemon (1.2.0) or not herdsman. Update the client to herdsman 1.2.0.", 400},
-		{"missing protocol", hdr(HeaderVersion, dv), "version_missing", "client", "This client sent no herdsman version", 400},
-		{"malformed", hdr(HeaderVersion, "nope", HeaderProtocol, "1"), "version_malformed", "client", `This client sent an invalid herdsman version ("nope"). Update the client to herdsman 1.2.0.`, 400},
-		{"malformed long", hdr(HeaderVersion, strings.Repeat("x", 80), HeaderProtocol, "1"), "version_malformed", "client", `("` + strings.Repeat("x", 40) + `")`, 400},
-		{"repeated", hdr(HeaderVersion, dv, HeaderVersion, dv, HeaderProtocol, "1"), "version_malformed", "client", "invalid herdsman version", 400},
-		{"bad protocol", hdr(HeaderVersion, dv, HeaderProtocol, "one"), "version_malformed", "client", "invalid herdsman version", 400},
-		{"client older", hdr(HeaderVersion, "1.1.9", HeaderProtocol, "1"), "version_mismatch", "client", "herdsman 1.1.9 is older than the daemon (1.2.0). Update this client: install herdsman 1.2.0 on PATH, then run the command again.", 426},
-		{"client older same protocol devel", hdr(HeaderVersion, "devel+abcdef0", HeaderProtocol, "1"), "version_mismatch", "client", "herdsman devel+abcdef0 is older than the daemon", 426},
-		{"daemon older", hdr(HeaderVersion, "1.3.0", HeaderProtocol, "1"), "version_mismatch", "daemon", "The herdsman daemon (1.2.0) is older than this client (1.3.0). Restart it to load the installed binary: herdsman daemon restart.", 426},
-		{"protocol differs", hdr(HeaderVersion, dv, HeaderProtocol, "7"), "version_mismatch", "daemon", "herdsman 1.2.0 reports protocol 7 but the daemon reports 1; reinstall herdsman and run herdsman daemon restart.", 426},
+		{"same", hdr(HeaderVersion, dv), "", "", "", 0},
+		{"none declared", http.Header{}, "", "", "", 0},
+		{"malformed", hdr(HeaderVersion, "nope"), "version_malformed", "client", `This client sent an invalid herdsman version ("nope"). Update the client to herdsman 1.2.0.`, 400},
+		{"malformed long", hdr(HeaderVersion, strings.Repeat("x", 80)), "version_malformed", "client", `("` + strings.Repeat("x", 40) + `")`, 400},
+		{"repeated", hdr(HeaderVersion, dv, HeaderVersion, dv), "version_malformed", "client", "invalid herdsman version", 400},
+		{"client older", hdr(HeaderVersion, "1.1.9"), "version_mismatch", "client", "herdsman 1.1.9 is older than the daemon (1.2.0). Update this client: install herdsman 1.2.0 on PATH, then run the command again.", 426},
+		{"client older same protocol devel", hdr(HeaderVersion, "devel+abcdef0"), "version_mismatch", "client", "herdsman devel+abcdef0 is older than the daemon", 426},
+		{"daemon older", hdr(HeaderVersion, "1.3.0"), "version_mismatch", "daemon", "The herdsman daemon (1.2.0) is older than this client (1.3.0). Restart it to load the installed binary: herdsman daemon restart.", 426},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := CheckVersion(c.h, dv, 1)
+			err := CheckVersion(c.h, dv)
 			if c.code == "" {
 				if err != nil {
 					t.Fatalf("got %v, want none", err)
@@ -101,7 +98,7 @@ func TestCheckVersionRows(t *testing.T) {
 		})
 	}
 	// Two development builds of different commits differ, in both directions.
-	if e := CheckVersion(hdr(HeaderVersion, "devel+abcdef1", HeaderProtocol, "1"), "devel+abcdef0", 1); e == nil || e.Code != "version_mismatch" {
+	if e := CheckVersion(hdr(HeaderVersion, "devel+abcdef1"), "devel+abcdef0"); e == nil || e.Code != "version_mismatch" {
 		t.Fatalf("devel builds: %v", e)
 	}
 }
@@ -109,22 +106,18 @@ func TestCheckVersionRows(t *testing.T) {
 // TestClientVersionCheck is the client's side of 5.6: the same table,
 // read from the daemon's hello.
 func TestClientVersionCheck(t *testing.T) {
-	if err := ClientCheck("1.0.0", 1, Hello{DaemonVersion: "1.0.0", Protocol: 1}); err != nil {
+	if err := ClientCheck("1.0.0", Hello{DaemonVersion: "1.0.0"}); err != nil {
 		t.Fatal(err)
 	}
-	e := ClientCheck("1.0.0", 1, Hello{DaemonVersion: "0.9.0", Protocol: 1})
+	e := ClientCheck("1.0.0", Hello{DaemonVersion: "0.9.0"})
 	if e == nil || e.Update != "daemon" || !strings.Contains(e.Message, "The herdsman daemon (0.9.0) is older than this client (1.0.0)") {
 		t.Fatalf("older daemon: %+v", e)
 	}
-	e = ClientCheck("1.0.0", 1, Hello{DaemonVersion: "1.1.0", Protocol: 1})
+	e = ClientCheck("1.0.0", Hello{DaemonVersion: "1.1.0"})
 	if e == nil || e.Update != "client" || !strings.Contains(e.Message, "herdsman 1.0.0 is older than the daemon (1.1.0)") {
 		t.Fatalf("newer daemon: %+v", e)
 	}
-	e = ClientCheck("1.0.0", 1, Hello{DaemonVersion: "1.0.0", Protocol: 2})
-	if e == nil || e.Update != "daemon" {
-		t.Fatalf("protocol: %+v", e)
-	}
-	e = ClientCheck("1.0.0", 1, Hello{DaemonVersion: "garbage", Protocol: 1})
+	e = ClientCheck("1.0.0", Hello{DaemonVersion: "garbage"})
 	if e == nil || e.Code != "version_malformed" {
 		t.Fatalf("garbage: %+v", e)
 	}
@@ -148,8 +141,8 @@ func FuzzVersionHeader(f *testing.F) {
 	for _, s := range []string{"1.0.0", "devel+abcdef0", "", "1.0.0-rc.1", "x", "1.0.0-", "devel+", "99999999999999999999.0.0"} {
 		f.Add(s, "1")
 	}
-	f.Fuzz(func(t *testing.T, v, p string) {
-		e := CheckVersion(hdr(HeaderVersion, v, HeaderProtocol, p), "1.0.0", 1)
+	f.Fuzz(func(t *testing.T, v, _ string) {
+		e := CheckVersion(hdr(HeaderVersion, v), "1.0.0")
 		if e != nil && (e.Code == "" || e.Status == 0 || e.Message == "" || strings.ContainsAny(e.Message, "\n\r")) {
 			t.Fatalf("bad refusal %+v", e)
 		}
@@ -169,10 +162,10 @@ func TestExactVersionSpellings(t *testing.T) {
 		if _, err := ParseVersion(v); err != nil {
 			continue // refused as malformed: also not accepted
 		}
-		if e := CheckVersion(hdr(HeaderVersion, v, HeaderProtocol, "1"), "1.2.0", 1); e == nil || e.Code != "version_mismatch" {
+		if e := CheckVersion(hdr(HeaderVersion, v), "1.2.0"); e == nil || e.Code != "version_mismatch" {
 			t.Fatalf("daemon accepted %q for 1.2.0: %v", v, e)
 		}
-		if e := ClientCheck(v, 1, Hello{DaemonVersion: "1.2.0", Protocol: 1, MinProtocol: 1}); e == nil || e.Code != "version_mismatch" {
+		if e := ClientCheck(v, Hello{DaemonVersion: "1.2.0"}); e == nil || e.Code != "version_mismatch" {
 			t.Fatalf("client accepted daemon 1.2.0 for %q: %v", v, e)
 		}
 	}

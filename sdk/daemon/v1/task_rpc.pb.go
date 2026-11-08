@@ -8,7 +8,7 @@ import (
 	context "context"
 	json "encoding/json"
 	fmt "fmt"
-	protojson "google.golang.org/protobuf/encoding/protojson"
+	rpc "github.com/arafathusayn/herdsman/sdk/rpc"
 	proto "google.golang.org/protobuf/proto"
 	io "io"
 	http "net/http"
@@ -34,46 +34,17 @@ type TaskService interface {
 	Link(context.Context, *TaskServiceLinkRequest) (*TaskServiceLinkResponse, error)
 }
 
-// NewTaskServiceHandler serves impl over HTTP. Mount it at the server's root.
+// NewTaskServiceHandler serves impl over HTTP with the full binding. Mount it
+// at the server's root or at rpc.BasePath.
 func NewTaskServiceHandler(impl TaskService) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.TaskService/Create", func(w http.ResponseWriter, r *http.Request) {
-		req := new(TaskServiceCreateRequest)
-		serveTaskService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Create(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.TaskService/Get", func(w http.ResponseWriter, r *http.Request) {
-		req := new(TaskServiceGetRequest)
-		serveTaskService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Get(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.TaskService/List", func(w http.ResponseWriter, r *http.Request) {
-		req := new(TaskServiceListRequest)
-		serveTaskService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.List(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.TaskService/Update", func(w http.ResponseWriter, r *http.Request) {
-		req := new(TaskServiceUpdateRequest)
-		serveTaskService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Update(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.TaskService/Delete", func(w http.ResponseWriter, r *http.Request) {
-		req := new(TaskServiceDeleteRequest)
-		serveTaskService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Delete(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.TaskService/Link", func(w http.ResponseWriter, r *http.Request) {
-		req := new(TaskServiceLinkRequest)
-		serveTaskService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Link(ctx, req)
-		})
-	})
-	return mux
+	return rpc.NewMux(
+		rpc.Unary(TaskServiceName, "Create", impl.Create),
+		rpc.Unary(TaskServiceName, "Get", impl.Get),
+		rpc.Unary(TaskServiceName, "List", impl.List),
+		rpc.Unary(TaskServiceName, "Update", impl.Update),
+		rpc.Unary(TaskServiceName, "Delete", impl.Delete),
+		rpc.Unary(TaskServiceName, "Link", impl.Link),
+	)
 }
 
 type taskServiceClient struct {
@@ -136,56 +107,6 @@ func (c *taskServiceClient) Link(ctx context.Context, req *TaskServiceLinkReques
 
 // taskServiceMaxBody bounds a request or response body.
 const taskServiceMaxBody = 4 << 20
-
-func serveTaskService(w http.ResponseWriter, r *http.Request, req proto.Message, call func(context.Context) (proto.Message, error)) {
-	fail := func(status int, code, message string) {
-		body, _ := json.Marshal(map[string]string{"code": code, "message": message})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = w.Write(body)
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		fail(http.StatusMethodNotAllowed, "unimplemented", "only POST is served")
-		return
-	}
-	contentType := r.Header.Get("Content-Type")
-	if contentType != "application/json" && contentType != "application/proto" {
-		fail(http.StatusUnsupportedMediaType, "unimplemented", "unsupported content type")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, taskServiceMaxBody))
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot read the request body")
-		return
-	}
-	if contentType == "application/json" {
-		err = (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, req)
-	} else {
-		err = proto.Unmarshal(body, req)
-	}
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot decode the request body")
-		return
-	}
-	res, err := call(r.Context())
-	if err != nil {
-		fail(http.StatusInternalServerError, "unknown", err.Error())
-		return
-	}
-	var out []byte
-	if contentType == "application/json" {
-		out, err = protojson.Marshal(res)
-	} else {
-		out, err = proto.Marshal(res)
-	}
-	if err != nil {
-		fail(http.StatusInternalServerError, "internal", "cannot encode the response")
-		return
-	}
-	w.Header().Set("Content-Type", contentType)
-	_, _ = w.Write(out)
-}
 
 func callTaskService(ctx context.Context, hc *http.Client, url string, req, res proto.Message) error {
 	body, err := proto.Marshal(req)

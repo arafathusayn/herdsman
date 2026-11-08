@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,13 +14,14 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 // streamQueue bounds one stream's queue (9.3): a stream that falls 64
 // events behind is closed and resumes from the journal by its cursor.
 const streamQueue = 64
 
-// frame is one SSE frame queued for a stream: a stored record's event, or
+// frame is one event queued for a party: a stored record's event, or
 // a derived event (reset, snapshot, registry, route_removed, shutdown).
 type frame struct {
 	rec   *Record
@@ -293,7 +292,7 @@ type StatusReport struct {
 	Holds    []HoldInfo    `json:"holds"`
 }
 
-// RouteStatus is GET /v1/routes/{route}/status and message status --json
+// RouteStatus is a route's Status call and message status --json
 // (5.5): the daemon object, the route's status, every message's headers
 // (never a body) and the pending alerts' payloads.
 type RouteStatus struct {
@@ -454,9 +453,9 @@ func holdInfos(dir string) []HoldInfo {
 	return out
 }
 
-// writeFrame writes one SSE frame: id (stored events, and the cursor of a
-// reset or snapshot), event and one data line.
-func writeFrame(w io.Writer, route string, f frame) error {
+// eventFrame is one queued event as a Wait reply carries it: the cursor of a
+// stored event, a reset or a snapshot, its type and its JSON.
+func eventFrame(route string, f frame) *daemonv1.EventFrame {
 	var ev Event
 	if f.rec != nil {
 		ev = *f.rec.Event
@@ -465,16 +464,12 @@ func writeFrame(w io.Writer, route string, f frame) error {
 		ev = *f.ev
 	}
 	ev.V = Protocol
-	data, err := encode(ev)
-	if err != nil {
-		return err
-	}
-	bw := bufio.NewWriterSize(w, 512)
+	data, _ := encode(ev)
+	out := &daemonv1.EventFrame{Type: ev.Type, Payload: string(data)}
 	if ev.Epoch != "" && (f.rec != nil || ev.Type == "snapshot" || ev.Type == "reset") {
-		fmt.Fprintf(bw, "id: %s-%d\n", ev.Epoch, ev.Seq)
+		out.Cursor = ev.Epoch + "-" + strconv.FormatInt(ev.Seq, 10)
 	}
-	fmt.Fprintf(bw, "event: %s\ndata: %s\n\n", ev.Type, data)
-	return bw.Flush()
+	return out
 }
 
 // hasPeer reports a name among the approved peers.

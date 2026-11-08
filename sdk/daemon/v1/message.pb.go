@@ -24,6 +24,1578 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type DaemonStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DaemonStatusRequest) Reset() {
+	*x = DaemonStatusRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DaemonStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DaemonStatusRequest) ProtoMessage() {}
+
+func (x *DaemonStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DaemonStatusRequest.ProtoReflect.Descriptor instead.
+func (*DaemonStatusRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{0}
+}
+
+type DaemonStatusResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Version        *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	StateDir       string                 `protobuf:"bytes,2,opt,name=state_dir,json=stateDir,proto3" json:"state_dir,omitempty"`
+	Inspect        bool                   `protobuf:"varint,3,opt,name=inspect,proto3" json:"inspect,omitempty"`
+	SchemaCurrent  int32                  `protobuf:"varint,4,opt,name=schema_current,json=schemaCurrent,proto3" json:"schema_current,omitempty"`
+	SchemaExpected int32                  `protobuf:"varint,5,opt,name=schema_expected,json=schemaExpected,proto3" json:"schema_expected,omitempty"`
+	RouteCount     int32                  `protobuf:"varint,6,opt,name=route_count,json=routeCount,proto3" json:"route_count,omitempty"`
+	TaskCount      int32                  `protobuf:"varint,7,opt,name=task_count,json=taskCount,proto3" json:"task_count,omitempty"`
+	MessageCount   int32                  `protobuf:"varint,8,opt,name=message_count,json=messageCount,proto3" json:"message_count,omitempty"`
+	Digest         string                 `protobuf:"bytes,9,opt,name=digest,proto3" json:"digest,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *DaemonStatusResponse) Reset() {
+	*x = DaemonStatusResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DaemonStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DaemonStatusResponse) ProtoMessage() {}
+
+func (x *DaemonStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DaemonStatusResponse.ProtoReflect.Descriptor instead.
+func (*DaemonStatusResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *DaemonStatusResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *DaemonStatusResponse) GetStateDir() string {
+	if x != nil {
+		return x.StateDir
+	}
+	return ""
+}
+
+func (x *DaemonStatusResponse) GetInspect() bool {
+	if x != nil {
+		return x.Inspect
+	}
+	return false
+}
+
+func (x *DaemonStatusResponse) GetSchemaCurrent() int32 {
+	if x != nil {
+		return x.SchemaCurrent
+	}
+	return 0
+}
+
+func (x *DaemonStatusResponse) GetSchemaExpected() int32 {
+	if x != nil {
+		return x.SchemaExpected
+	}
+	return 0
+}
+
+func (x *DaemonStatusResponse) GetRouteCount() int32 {
+	if x != nil {
+		return x.RouteCount
+	}
+	return 0
+}
+
+func (x *DaemonStatusResponse) GetTaskCount() int32 {
+	if x != nil {
+		return x.TaskCount
+	}
+	return 0
+}
+
+func (x *DaemonStatusResponse) GetMessageCount() int32 {
+	if x != nil {
+		return x.MessageCount
+	}
+	return 0
+}
+
+func (x *DaemonStatusResponse) GetDigest() string {
+	if x != nil {
+		return x.Digest
+	}
+	return ""
+}
+
+type ListOperationsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListOperationsRequest) Reset() {
+	*x = ListOperationsRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListOperationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListOperationsRequest) ProtoMessage() {}
+
+func (x *ListOperationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListOperationsRequest.ProtoReflect.Descriptor instead.
+func (*ListOperationsRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{2}
+}
+
+type ListOperationsResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	// Each entry is one operation as JSON.
+	OperationsJson []string `protobuf:"bytes,2,rep,name=operations_json,json=operationsJson,proto3" json:"operations_json,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListOperationsResponse) Reset() {
+	*x = ListOperationsResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListOperationsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListOperationsResponse) ProtoMessage() {}
+
+func (x *ListOperationsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListOperationsResponse.ProtoReflect.Descriptor instead.
+func (*ListOperationsResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListOperationsResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *ListOperationsResponse) GetOperationsJson() []string {
+	if x != nil {
+		return x.OperationsJson
+	}
+	return nil
+}
+
+type GetOperationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetOperationRequest) Reset() {
+	*x = GetOperationRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOperationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOperationRequest) ProtoMessage() {}
+
+func (x *GetOperationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOperationRequest.ProtoReflect.Descriptor instead.
+func (*GetOperationRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetOperationRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type GetOperationResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	// The operation as JSON.
+	OperationJson string `protobuf:"bytes,2,opt,name=operation_json,json=operationJson,proto3" json:"operation_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetOperationResponse) Reset() {
+	*x = GetOperationResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOperationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOperationResponse) ProtoMessage() {}
+
+func (x *GetOperationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOperationResponse.ProtoReflect.Descriptor instead.
+func (*GetOperationResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GetOperationResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *GetOperationResponse) GetOperationJson() string {
+	if x != nil {
+		return x.OperationJson
+	}
+	return ""
+}
+
+type ResolveOperationRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Step  int32                  `protobuf:"varint,2,opt,name=step,proto3" json:"step,omitempty"`
+	// "done" or "rerun".
+	Decision      string `protobuf:"bytes,3,opt,name=decision,proto3" json:"decision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveOperationRequest) Reset() {
+	*x = ResolveOperationRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveOperationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveOperationRequest) ProtoMessage() {}
+
+func (x *ResolveOperationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveOperationRequest.ProtoReflect.Descriptor instead.
+func (*ResolveOperationRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ResolveOperationRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ResolveOperationRequest) GetStep() int32 {
+	if x != nil {
+		return x.Step
+	}
+	return 0
+}
+
+func (x *ResolveOperationRequest) GetDecision() string {
+	if x != nil {
+		return x.Decision
+	}
+	return ""
+}
+
+type ResolveOperationResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	// The operation as JSON.
+	OperationJson string `protobuf:"bytes,2,opt,name=operation_json,json=operationJson,proto3" json:"operation_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveOperationResponse) Reset() {
+	*x = ResolveOperationResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveOperationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveOperationResponse) ProtoMessage() {}
+
+func (x *ResolveOperationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveOperationResponse.ProtoReflect.Descriptor instead.
+func (*ResolveOperationResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ResolveOperationResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *ResolveOperationResponse) GetOperationJson() string {
+	if x != nil {
+		return x.OperationJson
+	}
+	return ""
+}
+
+type HelloRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HelloRequest) Reset() {
+	*x = HelloRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HelloRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HelloRequest) ProtoMessage() {}
+
+func (x *HelloRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HelloRequest.ProtoReflect.Descriptor instead.
+func (*HelloRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{8}
+}
+
+type HelloResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Version           *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	DaemonVersion     string                 `protobuf:"bytes,2,opt,name=daemon_version,json=daemonVersion,proto3" json:"daemon_version,omitempty"`
+	Features          []string               `protobuf:"bytes,3,rep,name=features,proto3" json:"features,omitempty"`
+	CredentialOptions []string               `protobuf:"bytes,4,rep,name=credential_options,json=credentialOptions,proto3" json:"credential_options,omitempty"`
+	DefaultCredential string                 `protobuf:"bytes,5,opt,name=default_credential,json=defaultCredential,proto3" json:"default_credential,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *HelloResponse) Reset() {
+	*x = HelloResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HelloResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HelloResponse) ProtoMessage() {}
+
+func (x *HelloResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HelloResponse.ProtoReflect.Descriptor instead.
+func (*HelloResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *HelloResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *HelloResponse) GetDaemonVersion() string {
+	if x != nil {
+		return x.DaemonVersion
+	}
+	return ""
+}
+
+func (x *HelloResponse) GetFeatures() []string {
+	if x != nil {
+		return x.Features
+	}
+	return nil
+}
+
+func (x *HelloResponse) GetCredentialOptions() []string {
+	if x != nil {
+		return x.CredentialOptions
+	}
+	return nil
+}
+
+func (x *HelloResponse) GetDefaultCredential() string {
+	if x != nil {
+		return x.DefaultCredential
+	}
+	return ""
+}
+
+// VersionRefusal is a failure's extra detail when a version check refused the
+// call.
+type VersionRefusal struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The side to update: "client" or "daemon".
+	Update        string `protobuf:"bytes,1,opt,name=update,proto3" json:"update,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VersionRefusal) Reset() {
+	*x = VersionRefusal{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VersionRefusal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VersionRefusal) ProtoMessage() {}
+
+func (x *VersionRefusal) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VersionRefusal.ProtoReflect.Descriptor instead.
+func (*VersionRefusal) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *VersionRefusal) GetUpdate() string {
+	if x != nil {
+		return x.Update
+	}
+	return ""
+}
+
+type HealthRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HealthRequest) Reset() {
+	*x = HealthRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HealthRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HealthRequest) ProtoMessage() {}
+
+func (x *HealthRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
+func (*HealthRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{11}
+}
+
+type HealthResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Routes        []*RouteHealth         `protobuf:"bytes,3,rep,name=routes,proto3" json:"routes,omitempty"`
+	Herdr         []*HerdrHealth         `protobuf:"bytes,4,rep,name=herdr,proto3" json:"herdr,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HealthResponse) Reset() {
+	*x = HealthResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HealthResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HealthResponse) ProtoMessage() {}
+
+func (x *HealthResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
+func (*HealthResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *HealthResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *HealthResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *HealthResponse) GetRoutes() []*RouteHealth {
+	if x != nil {
+		return x.Routes
+	}
+	return nil
+}
+
+func (x *HealthResponse) GetHerdr() []*HerdrHealth {
+	if x != nil {
+		return x.Herdr
+	}
+	return nil
+}
+
+// RouteHealth is one route's health.
+type RouteHealth struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Flags         []string               `protobuf:"bytes,3,rep,name=flags,proto3" json:"flags,omitempty"`
+	Reason        string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteHealth) Reset() {
+	*x = RouteHealth{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteHealth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteHealth) ProtoMessage() {}
+
+func (x *RouteHealth) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteHealth.ProtoReflect.Descriptor instead.
+func (*RouteHealth) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RouteHealth) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *RouteHealth) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *RouteHealth) GetFlags() []string {
+	if x != nil {
+		return x.Flags
+	}
+	return nil
+}
+
+func (x *RouteHealth) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+// HerdrHealth is one Herdr link's health.
+type HerdrHealth struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Socket        string                 `protobuf:"bytes,1,opt,name=socket,proto3" json:"socket,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HerdrHealth) Reset() {
+	*x = HerdrHealth{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HerdrHealth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HerdrHealth) ProtoMessage() {}
+
+func (x *HerdrHealth) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HerdrHealth.ProtoReflect.Descriptor instead.
+func (*HerdrHealth) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *HerdrHealth) GetSocket() string {
+	if x != nil {
+		return x.Socket
+	}
+	return ""
+}
+
+func (x *HerdrHealth) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type ShutdownRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "stop" or "restart".
+	Reason        string `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShutdownRequest) Reset() {
+	*x = ShutdownRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShutdownRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShutdownRequest) ProtoMessage() {}
+
+func (x *ShutdownRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShutdownRequest.ProtoReflect.Descriptor instead.
+func (*ShutdownRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ShutdownRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type ShutdownResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShutdownResponse) Reset() {
+	*x = ShutdownResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShutdownResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShutdownResponse) ProtoMessage() {}
+
+func (x *ShutdownResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShutdownResponse.ProtoReflect.Descriptor instead.
+func (*ShutdownResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ShutdownResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+type ListRoutesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRoutesRequest) Reset() {
+	*x = ListRoutesRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRoutesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRoutesRequest) ProtoMessage() {}
+
+func (x *ListRoutesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRoutesRequest.ProtoReflect.Descriptor instead.
+func (*ListRoutesRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{17}
+}
+
+type ListRoutesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Routes        []*RouteInfo           `protobuf:"bytes,2,rep,name=routes,proto3" json:"routes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRoutesResponse) Reset() {
+	*x = ListRoutesResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRoutesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRoutesResponse) ProtoMessage() {}
+
+func (x *ListRoutesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRoutesResponse.ProtoReflect.Descriptor instead.
+func (*ListRoutesResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ListRoutesResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *ListRoutesResponse) GetRoutes() []*RouteInfo {
+	if x != nil {
+		return x.Routes
+	}
+	return nil
+}
+
+// RouteInfo is one registered route.
+type RouteInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Inbox         string                 `protobuf:"bytes,2,opt,name=inbox,proto3" json:"inbox,omitempty"`
+	Owner         string                 `protobuf:"bytes,3,opt,name=owner,proto3" json:"owner,omitempty"`
+	Epoch         string                 `protobuf:"bytes,4,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	LastSeq       int64                  `protobuf:"varint,5,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
+	Status        string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteInfo) Reset() {
+	*x = RouteInfo{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteInfo) ProtoMessage() {}
+
+func (x *RouteInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteInfo.ProtoReflect.Descriptor instead.
+func (*RouteInfo) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *RouteInfo) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *RouteInfo) GetInbox() string {
+	if x != nil {
+		return x.Inbox
+	}
+	return ""
+}
+
+func (x *RouteInfo) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *RouteInfo) GetEpoch() string {
+	if x != nil {
+		return x.Epoch
+	}
+	return ""
+}
+
+func (x *RouteInfo) GetLastSeq() int64 {
+	if x != nil {
+		return x.LastSeq
+	}
+	return 0
+}
+
+func (x *RouteInfo) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type CreateRouteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Repo          string                 `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
+	Route         *v1.RouteId            `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
+	HerdrSocket   string                 `protobuf:"bytes,3,opt,name=herdr_socket,json=herdrSocket,proto3" json:"herdr_socket,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateRouteRequest) Reset() {
+	*x = CreateRouteRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateRouteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateRouteRequest) ProtoMessage() {}
+
+func (x *CreateRouteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateRouteRequest.ProtoReflect.Descriptor instead.
+func (*CreateRouteRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *CreateRouteRequest) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *CreateRouteRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *CreateRouteRequest) GetHerdrSocket() string {
+	if x != nil {
+		return x.HerdrSocket
+	}
+	return ""
+}
+
+type CreateRouteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Route         *v1.RouteId            `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
+	Inbox         string                 `protobuf:"bytes,3,opt,name=inbox,proto3" json:"inbox,omitempty"`
+	Epoch         string                 `protobuf:"bytes,4,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateRouteResponse) Reset() {
+	*x = CreateRouteResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateRouteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateRouteResponse) ProtoMessage() {}
+
+func (x *CreateRouteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateRouteResponse.ProtoReflect.Descriptor instead.
+func (*CreateRouteResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *CreateRouteResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *CreateRouteResponse) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *CreateRouteResponse) GetInbox() string {
+	if x != nil {
+		return x.Inbox
+	}
+	return ""
+}
+
+func (x *CreateRouteResponse) GetEpoch() string {
+	if x != nil {
+		return x.Epoch
+	}
+	return ""
+}
+
+type AdoptRouteRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Route             *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Inbox             string                 `protobuf:"bytes,2,opt,name=inbox,proto3" json:"inbox,omitempty"`
+	ConfirmPairSha256 string                 `protobuf:"bytes,3,opt,name=confirm_pair_sha256,json=confirmPairSha256,proto3" json:"confirm_pair_sha256,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *AdoptRouteRequest) Reset() {
+	*x = AdoptRouteRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdoptRouteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdoptRouteRequest) ProtoMessage() {}
+
+func (x *AdoptRouteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdoptRouteRequest.ProtoReflect.Descriptor instead.
+func (*AdoptRouteRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *AdoptRouteRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *AdoptRouteRequest) GetInbox() string {
+	if x != nil {
+		return x.Inbox
+	}
+	return ""
+}
+
+func (x *AdoptRouteRequest) GetConfirmPairSha256() string {
+	if x != nil {
+		return x.ConfirmPairSha256
+	}
+	return ""
+}
+
+type AdoptRouteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Route         *v1.RouteId            `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
+	Epoch         string                 `protobuf:"bytes,3,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	LastMessageId string                 `protobuf:"bytes,4,opt,name=last_message_id,json=lastMessageId,proto3" json:"last_message_id,omitempty"`
+	LegacyProof   bool                   `protobuf:"varint,5,opt,name=legacy_proof,json=legacyProof,proto3" json:"legacy_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AdoptRouteResponse) Reset() {
+	*x = AdoptRouteResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdoptRouteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdoptRouteResponse) ProtoMessage() {}
+
+func (x *AdoptRouteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdoptRouteResponse.ProtoReflect.Descriptor instead.
+func (*AdoptRouteResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *AdoptRouteResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *AdoptRouteResponse) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *AdoptRouteResponse) GetEpoch() string {
+	if x != nil {
+		return x.Epoch
+	}
+	return ""
+}
+
+func (x *AdoptRouteResponse) GetLastMessageId() string {
+	if x != nil {
+		return x.LastMessageId
+	}
+	return ""
+}
+
+func (x *AdoptRouteResponse) GetLegacyProof() bool {
+	if x != nil {
+		return x.LegacyProof
+	}
+	return false
+}
+
+type RemoveRouteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveRouteRequest) Reset() {
+	*x = RemoveRouteRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveRouteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveRouteRequest) ProtoMessage() {}
+
+func (x *RemoveRouteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveRouteRequest.ProtoReflect.Descriptor instead.
+func (*RemoveRouteRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *RemoveRouteRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+type RemoveRouteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Removed       bool                   `protobuf:"varint,2,opt,name=removed,proto3" json:"removed,omitempty"`
+	InboxKept     bool                   `protobuf:"varint,3,opt,name=inbox_kept,json=inboxKept,proto3" json:"inbox_kept,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveRouteResponse) Reset() {
+	*x = RemoveRouteResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveRouteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveRouteResponse) ProtoMessage() {}
+
+func (x *RemoveRouteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveRouteResponse.ProtoReflect.Descriptor instead.
+func (*RemoveRouteResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *RemoveRouteResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *RemoveRouteResponse) GetRemoved() bool {
+	if x != nil {
+		return x.Removed
+	}
+	return false
+}
+
+func (x *RemoveRouteResponse) GetInboxKept() bool {
+	if x != nil {
+		return x.InboxKept
+	}
+	return false
+}
+
+type ResetEventsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Route *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	// Must repeat the route's name.
+	ConfirmRoute  string `protobuf:"bytes,2,opt,name=confirm_route,json=confirmRoute,proto3" json:"confirm_route,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResetEventsRequest) Reset() {
+	*x = ResetEventsRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResetEventsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResetEventsRequest) ProtoMessage() {}
+
+func (x *ResetEventsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResetEventsRequest.ProtoReflect.Descriptor instead.
+func (*ResetEventsRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ResetEventsRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *ResetEventsRequest) GetConfirmRoute() string {
+	if x != nil {
+		return x.ConfirmRoute
+	}
+	return ""
+}
+
+type ResetEventsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Epoch         string                 `protobuf:"bytes,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	CheckpointSeq int64                  `protobuf:"varint,3,opt,name=checkpoint_seq,json=checkpointSeq,proto3" json:"checkpoint_seq,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResetEventsResponse) Reset() {
+	*x = ResetEventsResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResetEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResetEventsResponse) ProtoMessage() {}
+
+func (x *ResetEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResetEventsResponse.ProtoReflect.Descriptor instead.
+func (*ResetEventsResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ResetEventsResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *ResetEventsResponse) GetEpoch() string {
+	if x != nil {
+		return x.Epoch
+	}
+	return ""
+}
+
+func (x *ResetEventsResponse) GetCheckpointSeq() int64 {
+	if x != nil {
+		return x.CheckpointSeq
+	}
+	return 0
+}
+
 type StatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
@@ -33,7 +1605,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[0]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -45,7 +1617,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[0]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,7 +1630,7 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{0}
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *StatusRequest) GetRoute() *v1.RouteId {
@@ -91,7 +1663,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[1]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -103,7 +1675,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[1]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -116,7 +1688,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{1}
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *StatusResponse) GetVersion() *v1.Version {
@@ -231,7 +1803,7 @@ type DaemonState struct {
 
 func (x *DaemonState) Reset() {
 	*x = DaemonState{}
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[2]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -243,7 +1815,7 @@ func (x *DaemonState) String() string {
 func (*DaemonState) ProtoMessage() {}
 
 func (x *DaemonState) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[2]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -256,7 +1828,7 @@ func (x *DaemonState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DaemonState.ProtoReflect.Descriptor instead.
 func (*DaemonState) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{2}
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *DaemonState) GetState() string {
@@ -291,7 +1863,7 @@ type RegistryState struct {
 
 func (x *RegistryState) Reset() {
 	*x = RegistryState{}
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[3]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -303,7 +1875,7 @@ func (x *RegistryState) String() string {
 func (*RegistryState) ProtoMessage() {}
 
 func (x *RegistryState) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[3]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -316,7 +1888,7 @@ func (x *RegistryState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegistryState.ProtoReflect.Descriptor instead.
 func (*RegistryState) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{3}
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *RegistryState) GetState() string {
@@ -346,7 +1918,7 @@ type PeerInfo struct {
 
 func (x *PeerInfo) Reset() {
 	*x = PeerInfo{}
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[4]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -358,7 +1930,7 @@ func (x *PeerInfo) String() string {
 func (*PeerInfo) ProtoMessage() {}
 
 func (x *PeerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[4]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -371,7 +1943,7 @@ func (x *PeerInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerInfo.ProtoReflect.Descriptor instead.
 func (*PeerInfo) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{4}
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *PeerInfo) GetName() string {
@@ -420,7 +1992,7 @@ type BoxCount struct {
 
 func (x *BoxCount) Reset() {
 	*x = BoxCount{}
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[5]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -432,7 +2004,7 @@ func (x *BoxCount) String() string {
 func (*BoxCount) ProtoMessage() {}
 
 func (x *BoxCount) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[5]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -445,7 +2017,7 @@ func (x *BoxCount) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoxCount.ProtoReflect.Descriptor instead.
 func (*BoxCount) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{5}
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *BoxCount) GetName() string {
@@ -515,7 +2087,7 @@ type HoldInfo struct {
 
 func (x *HoldInfo) Reset() {
 	*x = HoldInfo{}
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[6]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -527,7 +2099,7 @@ func (x *HoldInfo) String() string {
 func (*HoldInfo) ProtoMessage() {}
 
 func (x *HoldInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[6]
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -540,7 +2112,7 @@ func (x *HoldInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HoldInfo.ProtoReflect.Descriptor instead.
 func (*HoldInfo) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{6}
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *HoldInfo) GetTarget() string {
@@ -557,11 +2129,2223 @@ func (x *HoldInfo) GetOwners() []string {
 	return nil
 }
 
+type GetSetupRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSetupRequest) Reset() {
+	*x = GetSetupRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSetupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSetupRequest) ProtoMessage() {}
+
+func (x *GetSetupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSetupRequest.ProtoReflect.Descriptor instead.
+func (*GetSetupRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *GetSetupRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+type GetSetupResponse struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Version   *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Inventory []*InventoryAgent      `protobuf:"bytes,2,rep,name=inventory,proto3" json:"inventory,omitempty"`
+	// The current proof as JSON; empty when there is none.
+	ProofJson     string `protobuf:"bytes,3,opt,name=proof_json,json=proofJson,proto3" json:"proof_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSetupResponse) Reset() {
+	*x = GetSetupResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSetupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSetupResponse) ProtoMessage() {}
+
+func (x *GetSetupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSetupResponse.ProtoReflect.Descriptor instead.
+func (*GetSetupResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *GetSetupResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *GetSetupResponse) GetInventory() []*InventoryAgent {
+	if x != nil {
+		return x.Inventory
+	}
+	return nil
+}
+
+func (x *GetSetupResponse) GetProofJson() string {
+	if x != nil {
+		return x.ProofJson
+	}
+	return ""
+}
+
+// InventoryAgent is one live agent on the route's Herdr server.
+type InventoryAgent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Pane  string                 `protobuf:"bytes,1,opt,name=pane,proto3" json:"pane,omitempty"`
+	// The agent session as JSON.
+	SessionJson   string `protobuf:"bytes,2,opt,name=session_json,json=sessionJson,proto3" json:"session_json,omitempty"`
+	Agent         string `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryAgent) Reset() {
+	*x = InventoryAgent{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryAgent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryAgent) ProtoMessage() {}
+
+func (x *InventoryAgent) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryAgent.ProtoReflect.Descriptor instead.
+func (*InventoryAgent) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *InventoryAgent) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
+func (x *InventoryAgent) GetSessionJson() string {
+	if x != nil {
+		return x.SessionJson
+	}
+	return ""
+}
+
+func (x *InventoryAgent) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+// Probe is one negative probe the human reports at setup.
+type Probe struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The probed identity as JSON.
+	IdentityJson        string `protobuf:"bytes,1,opt,name=identity_json,json=identityJson,proto3" json:"identity_json,omitempty"`
+	InboxWriteDenied    bool   `protobuf:"varint,2,opt,name=inbox_write_denied,json=inboxWriteDenied,proto3" json:"inbox_write_denied,omitempty"`
+	SocketConnectDenied bool   `protobuf:"varint,3,opt,name=socket_connect_denied,json=socketConnectDenied,proto3" json:"socket_connect_denied,omitempty"`
+	RecordedBy          string `protobuf:"bytes,4,opt,name=recorded_by,json=recordedBy,proto3" json:"recorded_by,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *Probe) Reset() {
+	*x = Probe{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Probe) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Probe) ProtoMessage() {}
+
+func (x *Probe) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Probe.ProtoReflect.Descriptor instead.
+func (*Probe) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *Probe) GetIdentityJson() string {
+	if x != nil {
+		return x.IdentityJson
+	}
+	return ""
+}
+
+func (x *Probe) GetInboxWriteDenied() bool {
+	if x != nil {
+		return x.InboxWriteDenied
+	}
+	return false
+}
+
+func (x *Probe) GetSocketConnectDenied() bool {
+	if x != nil {
+		return x.SocketConnectDenied
+	}
+	return false
+}
+
+func (x *Probe) GetRecordedBy() string {
+	if x != nil {
+		return x.RecordedBy
+	}
+	return ""
+}
+
+type PutSetupRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Route             *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Rules             []string               `protobuf:"bytes,2,rep,name=rules,proto3" json:"rules,omitempty"`
+	Binary            string                 `protobuf:"bytes,3,opt,name=binary,proto3" json:"binary,omitempty"`
+	PolicyVerified    bool                   `protobuf:"varint,4,opt,name=policy_verified,json=policyVerified,proto3" json:"policy_verified,omitempty"`
+	BoundaryJson      string                 `protobuf:"bytes,5,opt,name=boundary_json,json=boundaryJson,proto3" json:"boundary_json,omitempty"`
+	WatchTargetsJson  string                 `protobuf:"bytes,6,opt,name=watch_targets_json,json=watchTargetsJson,proto3" json:"watch_targets_json,omitempty"`
+	ResumeTargetsJson string                 `protobuf:"bytes,7,opt,name=resume_targets_json,json=resumeTargetsJson,proto3" json:"resume_targets_json,omitempty"`
+	Probes            []*Probe               `protobuf:"bytes,8,rep,name=probes,proto3" json:"probes,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *PutSetupRequest) Reset() {
+	*x = PutSetupRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PutSetupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PutSetupRequest) ProtoMessage() {}
+
+func (x *PutSetupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PutSetupRequest.ProtoReflect.Descriptor instead.
+func (*PutSetupRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *PutSetupRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *PutSetupRequest) GetRules() []string {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
+func (x *PutSetupRequest) GetBinary() string {
+	if x != nil {
+		return x.Binary
+	}
+	return ""
+}
+
+func (x *PutSetupRequest) GetPolicyVerified() bool {
+	if x != nil {
+		return x.PolicyVerified
+	}
+	return false
+}
+
+func (x *PutSetupRequest) GetBoundaryJson() string {
+	if x != nil {
+		return x.BoundaryJson
+	}
+	return ""
+}
+
+func (x *PutSetupRequest) GetWatchTargetsJson() string {
+	if x != nil {
+		return x.WatchTargetsJson
+	}
+	return ""
+}
+
+func (x *PutSetupRequest) GetResumeTargetsJson() string {
+	if x != nil {
+		return x.ResumeTargetsJson
+	}
+	return ""
+}
+
+func (x *PutSetupRequest) GetProbes() []*Probe {
+	if x != nil {
+		return x.Probes
+	}
+	return nil
+}
+
+type PutSetupResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	ProofSha256   string                 `protobuf:"bytes,2,opt,name=proof_sha256,json=proofSha256,proto3" json:"proof_sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PutSetupResponse) Reset() {
+	*x = PutSetupResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PutSetupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PutSetupResponse) ProtoMessage() {}
+
+func (x *PutSetupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PutSetupResponse.ProtoReflect.Descriptor instead.
+func (*PutSetupResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *PutSetupResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *PutSetupResponse) GetProofSha256() string {
+	if x != nil {
+		return x.ProofSha256
+	}
+	return ""
+}
+
+type EnrollRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Role          string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnrollRequest) Reset() {
+	*x = EnrollRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnrollRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnrollRequest) ProtoMessage() {}
+
+func (x *EnrollRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnrollRequest.ProtoReflect.Descriptor instead.
+func (*EnrollRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *EnrollRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *EnrollRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *EnrollRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+type EnrollResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	PendingSha256 string                 `protobuf:"bytes,2,opt,name=pending_sha256,json=pendingSha256,proto3" json:"pending_sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnrollResponse) Reset() {
+	*x = EnrollResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnrollResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnrollResponse) ProtoMessage() {}
+
+func (x *EnrollResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnrollResponse.ProtoReflect.Descriptor instead.
+func (*EnrollResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *EnrollResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *EnrollResponse) GetPendingSha256() string {
+	if x != nil {
+		return x.PendingSha256
+	}
+	return ""
+}
+
+type ApprovePairRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Sha256        string                 `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	Interaction   string                 `protobuf:"bytes,3,opt,name=interaction,proto3" json:"interaction,omitempty"`
+	AskedBy       string                 `protobuf:"bytes,4,opt,name=asked_by,json=askedBy,proto3" json:"asked_by,omitempty"`
+	Credentials   map[string]string      `protobuf:"bytes,5,rep,name=credentials,proto3" json:"credentials,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApprovePairRequest) Reset() {
+	*x = ApprovePairRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApprovePairRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApprovePairRequest) ProtoMessage() {}
+
+func (x *ApprovePairRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApprovePairRequest.ProtoReflect.Descriptor instead.
+func (*ApprovePairRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ApprovePairRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *ApprovePairRequest) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *ApprovePairRequest) GetInteraction() string {
+	if x != nil {
+		return x.Interaction
+	}
+	return ""
+}
+
+func (x *ApprovePairRequest) GetAskedBy() string {
+	if x != nil {
+		return x.AskedBy
+	}
+	return ""
+}
+
+func (x *ApprovePairRequest) GetCredentials() map[string]string {
+	if x != nil {
+		return x.Credentials
+	}
+	return nil
+}
+
+type ApprovePairResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Approved      bool                   `protobuf:"varint,2,opt,name=approved,proto3" json:"approved,omitempty"`
+	Credentials   []*ApprovedCredential  `protobuf:"bytes,3,rep,name=credentials,proto3" json:"credentials,omitempty"`
+	Revoked       []string               `protobuf:"bytes,4,rep,name=revoked,proto3" json:"revoked,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApprovePairResponse) Reset() {
+	*x = ApprovePairResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApprovePairResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApprovePairResponse) ProtoMessage() {}
+
+func (x *ApprovePairResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApprovePairResponse.ProtoReflect.Descriptor instead.
+func (*ApprovePairResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *ApprovePairResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *ApprovePairResponse) GetApproved() bool {
+	if x != nil {
+		return x.Approved
+	}
+	return false
+}
+
+func (x *ApprovePairResponse) GetCredentials() []*ApprovedCredential {
+	if x != nil {
+		return x.Credentials
+	}
+	return nil
+}
+
+func (x *ApprovePairResponse) GetRevoked() []string {
+	if x != nil {
+		return x.Revoked
+	}
+	return nil
+}
+
+// ApprovedCredential is one party's credential option.
+type ApprovedCredential struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Option        string                 `protobuf:"bytes,2,opt,name=option,proto3" json:"option,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApprovedCredential) Reset() {
+	*x = ApprovedCredential{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApprovedCredential) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApprovedCredential) ProtoMessage() {}
+
+func (x *ApprovedCredential) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApprovedCredential.ProtoReflect.Descriptor instead.
+func (*ApprovedCredential) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *ApprovedCredential) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ApprovedCredential) GetOption() string {
+	if x != nil {
+		return x.Option
+	}
+	return ""
+}
+
+type RetirePairRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Sha256        string                 `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RetirePairRequest) Reset() {
+	*x = RetirePairRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetirePairRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetirePairRequest) ProtoMessage() {}
+
+func (x *RetirePairRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetirePairRequest.ProtoReflect.Descriptor instead.
+func (*RetirePairRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *RetirePairRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *RetirePairRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *RetirePairRequest) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+type RetirePairResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Retired       string                 `protobuf:"bytes,2,opt,name=retired,proto3" json:"retired,omitempty"`
+	Revoked       bool                   `protobuf:"varint,3,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RetirePairResponse) Reset() {
+	*x = RetirePairResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetirePairResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetirePairResponse) ProtoMessage() {}
+
+func (x *RetirePairResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetirePairResponse.ProtoReflect.Descriptor instead.
+func (*RetirePairResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *RetirePairResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *RetirePairResponse) GetRetired() string {
+	if x != nil {
+		return x.Retired
+	}
+	return ""
+}
+
+func (x *RetirePairResponse) GetRevoked() bool {
+	if x != nil {
+		return x.Revoked
+	}
+	return false
+}
+
+type RevokeCredentialRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeCredentialRequest) Reset() {
+	*x = RevokeCredentialRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeCredentialRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeCredentialRequest) ProtoMessage() {}
+
+func (x *RevokeCredentialRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeCredentialRequest.ProtoReflect.Descriptor instead.
+func (*RevokeCredentialRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *RevokeCredentialRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *RevokeCredentialRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type RevokeCredentialResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Revoked       bool                   `protobuf:"varint,2,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeCredentialResponse) Reset() {
+	*x = RevokeCredentialResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeCredentialResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeCredentialResponse) ProtoMessage() {}
+
+func (x *RevokeCredentialResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeCredentialResponse.ProtoReflect.Descriptor instead.
+func (*RevokeCredentialResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *RevokeCredentialResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *RevokeCredentialResponse) GetRevoked() bool {
+	if x != nil {
+		return x.Revoked
+	}
+	return false
+}
+
+type SendRequest struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Route   *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	To      string                 `protobuf:"bytes,2,opt,name=to,proto3" json:"to,omitempty"`
+	Kind    string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
+	Body    string                 `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
+	ReplyTo string                 `protobuf:"bytes,5,opt,name=reply_to,json=replyTo,proto3" json:"reply_to,omitempty"`
+	// Makes a retry of the same send harmless.
+	Key           string `protobuf:"bytes,6,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendRequest) Reset() {
+	*x = SendRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendRequest) ProtoMessage() {}
+
+func (x *SendRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendRequest.ProtoReflect.Descriptor instead.
+func (*SendRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *SendRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *SendRequest) GetTo() string {
+	if x != nil {
+		return x.To
+	}
+	return ""
+}
+
+func (x *SendRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *SendRequest) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+func (x *SendRequest) GetReplyTo() string {
+	if x != nil {
+		return x.ReplyTo
+	}
+	return ""
+}
+
+func (x *SendRequest) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+type SendResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Id            *v1.MessageId          `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Seq           int64                  `protobuf:"varint,3,opt,name=seq,proto3" json:"seq,omitempty"`
+	Duplicate     bool                   `protobuf:"varint,4,opt,name=duplicate,proto3" json:"duplicate,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendResponse) Reset() {
+	*x = SendResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendResponse) ProtoMessage() {}
+
+func (x *SendResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendResponse.ProtoReflect.Descriptor instead.
+func (*SendResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *SendResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *SendResponse) GetId() *v1.MessageId {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+func (x *SendResponse) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *SendResponse) GetDuplicate() bool {
+	if x != nil {
+		return x.Duplicate
+	}
+	return false
+}
+
+type ClaimRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	ReadKey       string                 `protobuf:"bytes,2,opt,name=read_key,json=readKey,proto3" json:"read_key,omitempty"`
+	Token         string                 `protobuf:"bytes,3,opt,name=token,proto3" json:"token,omitempty"`
+	ExtendKey     string                 `protobuf:"bytes,4,opt,name=extend_key,json=extendKey,proto3" json:"extend_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClaimRequest) Reset() {
+	*x = ClaimRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaimRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaimRequest) ProtoMessage() {}
+
+func (x *ClaimRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaimRequest.ProtoReflect.Descriptor instead.
+func (*ClaimRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *ClaimRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *ClaimRequest) GetReadKey() string {
+	if x != nil {
+		return x.ReadKey
+	}
+	return ""
+}
+
+func (x *ClaimRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *ClaimRequest) GetExtendKey() string {
+	if x != nil {
+		return x.ExtendKey
+	}
+	return ""
+}
+
+type ClaimResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Claim         string                 `protobuf:"bytes,2,opt,name=claim,proto3" json:"claim,omitempty"`
+	Manifest      []*ManifestEntry       `protobuf:"bytes,3,rep,name=manifest,proto3" json:"manifest,omitempty"`
+	PendingNew    int32                  `protobuf:"varint,4,opt,name=pending_new,json=pendingNew,proto3" json:"pending_new,omitempty"`
+	Quarantine    int32                  `protobuf:"varint,5,opt,name=quarantine,proto3" json:"quarantine,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClaimResponse) Reset() {
+	*x = ClaimResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaimResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaimResponse) ProtoMessage() {}
+
+func (x *ClaimResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaimResponse.ProtoReflect.Descriptor instead.
+func (*ClaimResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *ClaimResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *ClaimResponse) GetClaim() string {
+	if x != nil {
+		return x.Claim
+	}
+	return ""
+}
+
+func (x *ClaimResponse) GetManifest() []*ManifestEntry {
+	if x != nil {
+		return x.Manifest
+	}
+	return nil
+}
+
+func (x *ClaimResponse) GetPendingNew() int32 {
+	if x != nil {
+		return x.PendingNew
+	}
+	return 0
+}
+
+func (x *ClaimResponse) GetQuarantine() int32 {
+	if x != nil {
+		return x.Quarantine
+	}
+	return 0
+}
+
+// ManifestEntry is one claimed message's envelope and path, never its body.
+type ManifestEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            *v1.MessageId          `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	From          string                 `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
+	To            string                 `protobuf:"bytes,3,opt,name=to,proto3" json:"to,omitempty"`
+	Kind          string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	Time          int64                  `protobuf:"varint,5,opt,name=time,proto3" json:"time,omitempty"`
+	ReplyTo       string                 `protobuf:"bytes,6,opt,name=reply_to,json=replyTo,proto3" json:"reply_to,omitempty"`
+	Path          string                 `protobuf:"bytes,7,opt,name=path,proto3" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ManifestEntry) Reset() {
+	*x = ManifestEntry{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ManifestEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ManifestEntry) ProtoMessage() {}
+
+func (x *ManifestEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ManifestEntry.ProtoReflect.Descriptor instead.
+func (*ManifestEntry) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *ManifestEntry) GetId() *v1.MessageId {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+func (x *ManifestEntry) GetFrom() string {
+	if x != nil {
+		return x.From
+	}
+	return ""
+}
+
+func (x *ManifestEntry) GetTo() string {
+	if x != nil {
+		return x.To
+	}
+	return ""
+}
+
+func (x *ManifestEntry) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *ManifestEntry) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+func (x *ManifestEntry) GetReplyTo() string {
+	if x != nil {
+		return x.ReplyTo
+	}
+	return ""
+}
+
+func (x *ManifestEntry) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type AckRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Claim         string                 `protobuf:"bytes,2,opt,name=claim,proto3" json:"claim,omitempty"`
+	Id            *v1.MessageId          `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
+	Record        string                 `protobuf:"bytes,4,opt,name=record,proto3" json:"record,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AckRequest) Reset() {
+	*x = AckRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AckRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AckRequest) ProtoMessage() {}
+
+func (x *AckRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AckRequest.ProtoReflect.Descriptor instead.
+func (*AckRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *AckRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *AckRequest) GetClaim() string {
+	if x != nil {
+		return x.Claim
+	}
+	return ""
+}
+
+func (x *AckRequest) GetId() *v1.MessageId {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+func (x *AckRequest) GetRecord() string {
+	if x != nil {
+		return x.Record
+	}
+	return ""
+}
+
+type AckResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Id            *v1.MessageId          `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Seq           int64                  `protobuf:"varint,3,opt,name=seq,proto3" json:"seq,omitempty"`
+	Already       bool                   `protobuf:"varint,4,opt,name=already,proto3" json:"already,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AckResponse) Reset() {
+	*x = AckResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AckResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AckResponse) ProtoMessage() {}
+
+func (x *AckResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AckResponse.ProtoReflect.Descriptor instead.
+func (*AckResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *AckResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *AckResponse) GetId() *v1.MessageId {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+func (x *AckResponse) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *AckResponse) GetAlready() bool {
+	if x != nil {
+		return x.Already
+	}
+	return false
+}
+
+type ReleaseRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Claim         string                 `protobuf:"bytes,2,opt,name=claim,proto3" json:"claim,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseRequest) Reset() {
+	*x = ReleaseRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseRequest) ProtoMessage() {}
+
+func (x *ReleaseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseRequest.ProtoReflect.Descriptor instead.
+func (*ReleaseRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *ReleaseRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *ReleaseRequest) GetClaim() string {
+	if x != nil {
+		return x.Claim
+	}
+	return ""
+}
+
+type ReleaseResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Released      bool                   `protobuf:"varint,2,opt,name=released,proto3" json:"released,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseResponse) Reset() {
+	*x = ReleaseResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseResponse) ProtoMessage() {}
+
+func (x *ReleaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseResponse.ProtoReflect.Descriptor instead.
+func (*ReleaseResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *ReleaseResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *ReleaseResponse) GetReleased() bool {
+	if x != nil {
+		return x.Released
+	}
+	return false
+}
+
+type HoldRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	Reason        string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HoldRequest) Reset() {
+	*x = HoldRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HoldRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HoldRequest) ProtoMessage() {}
+
+func (x *HoldRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HoldRequest.ProtoReflect.Descriptor instead.
+func (*HoldRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{59}
+}
+
+func (x *HoldRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *HoldRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *HoldRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type HoldResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Holds         map[string]*HoldOwner  `protobuf:"bytes,2,rep,name=holds,proto3" json:"holds,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HoldResponse) Reset() {
+	*x = HoldResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HoldResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HoldResponse) ProtoMessage() {}
+
+func (x *HoldResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HoldResponse.ProtoReflect.Descriptor instead.
+func (*HoldResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *HoldResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *HoldResponse) GetHolds() map[string]*HoldOwner {
+	if x != nil {
+		return x.Holds
+	}
+	return nil
+}
+
+type UnholdRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnholdRequest) Reset() {
+	*x = UnholdRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnholdRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnholdRequest) ProtoMessage() {}
+
+func (x *UnholdRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnholdRequest.ProtoReflect.Descriptor instead.
+func (*UnholdRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{61}
+}
+
+func (x *UnholdRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *UnholdRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+type UnholdResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Holds         map[string]*HoldOwner  `protobuf:"bytes,2,rep,name=holds,proto3" json:"holds,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnholdResponse) Reset() {
+	*x = UnholdResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[62]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnholdResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnholdResponse) ProtoMessage() {}
+
+func (x *UnholdResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[62]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnholdResponse.ProtoReflect.Descriptor instead.
+func (*UnholdResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{62}
+}
+
+func (x *UnholdResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *UnholdResponse) GetHolds() map[string]*HoldOwner {
+	if x != nil {
+		return x.Holds
+	}
+	return nil
+}
+
+// HoldOwner is one owner's hold on a target.
+type HoldOwner struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	Time          int64                  `protobuf:"varint,2,opt,name=time,proto3" json:"time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HoldOwner) Reset() {
+	*x = HoldOwner{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HoldOwner) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HoldOwner) ProtoMessage() {}
+
+func (x *HoldOwner) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HoldOwner.ProtoReflect.Descriptor instead.
+func (*HoldOwner) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{63}
+}
+
+func (x *HoldOwner) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *HoldOwner) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+type AuthorityRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthorityRequest) Reset() {
+	*x = AuthorityRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[64]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorityRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorityRequest) ProtoMessage() {}
+
+func (x *AuthorityRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[64]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorityRequest.ProtoReflect.Descriptor instead.
+func (*AuthorityRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{64}
+}
+
+func (x *AuthorityRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+type AuthorityResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	// "RELAY" or "HUMAN".
+	Authority     string   `protobuf:"bytes,2,opt,name=authority,proto3" json:"authority,omitempty"`
+	Reasons       []string `protobuf:"bytes,3,rep,name=reasons,proto3" json:"reasons,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthorityResponse) Reset() {
+	*x = AuthorityResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorityResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorityResponse) ProtoMessage() {}
+
+func (x *AuthorityResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorityResponse.ProtoReflect.Descriptor instead.
+func (*AuthorityResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{65}
+}
+
+func (x *AuthorityResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *AuthorityResponse) GetAuthority() string {
+	if x != nil {
+		return x.Authority
+	}
+	return ""
+}
+
+func (x *AuthorityResponse) GetReasons() []string {
+	if x != nil {
+		return x.Reasons
+	}
+	return nil
+}
+
+type WaitRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Route *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	// "<epoch>-<seq>" from an earlier reply; empty starts with a snapshot.
+	Cursor string `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	// How long to wait for an event; zero answers at once.
+	WaitMs        int32 `protobuf:"varint,3,opt,name=wait_ms,json=waitMs,proto3" json:"wait_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitRequest) Reset() {
+	*x = WaitRequest{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[66]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitRequest) ProtoMessage() {}
+
+func (x *WaitRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[66]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitRequest.ProtoReflect.Descriptor instead.
+func (*WaitRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{66}
+}
+
+func (x *WaitRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *WaitRequest) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
+func (x *WaitRequest) GetWaitMs() int32 {
+	if x != nil {
+		return x.WaitMs
+	}
+	return 0
+}
+
+type WaitResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Frames  []*EventFrame          `protobuf:"bytes,2,rep,name=frames,proto3" json:"frames,omitempty"`
+	// Where to resume when frames is empty.
+	NextCursor    string `protobuf:"bytes,3,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitResponse) Reset() {
+	*x = WaitResponse{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[67]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitResponse) ProtoMessage() {}
+
+func (x *WaitResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[67]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitResponse.ProtoReflect.Descriptor instead.
+func (*WaitResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{67}
+}
+
+func (x *WaitResponse) GetVersion() *v1.Version {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *WaitResponse) GetFrames() []*EventFrame {
+	if x != nil {
+		return x.Frames
+	}
+	return nil
+}
+
+func (x *WaitResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
+}
+
+// EventFrame is one event for a party.
+type EventFrame struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The cursor after this event; empty for an event that has none.
+	Cursor string `protobuf:"bytes,1,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	Type   string `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	// The event as JSON.
+	Payload       string `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EventFrame) Reset() {
+	*x = EventFrame{}
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[68]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EventFrame) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EventFrame) ProtoMessage() {}
+
+func (x *EventFrame) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_message_proto_msgTypes[68]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EventFrame.ProtoReflect.Descriptor instead.
+func (*EventFrame) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_message_proto_rawDescGZIP(), []int{68}
+}
+
+func (x *EventFrame) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
+func (x *EventFrame) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *EventFrame) GetPayload() string {
+	if x != nil {
+		return x.Payload
+	}
+	return ""
+}
+
 var File_herdsman_daemon_v1_message_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_message_proto_rawDesc = "" +
 	"\n" +
-	" herdsman/daemon/v1/message.proto\x12\x12herdsman.daemon.v1\x1a\x1bherdsman/core/v1/core.proto\"@\n" +
+	" herdsman/daemon/v1/message.proto\x12\x12herdsman.daemon.v1\x1a\x1bherdsman/core/v1/core.proto\"\x15\n" +
+	"\x13DaemonStatusRequest\"\xcf\x02\n" +
+	"\x14DaemonStatusResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x1b\n" +
+	"\tstate_dir\x18\x02 \x01(\tR\bstateDir\x12\x18\n" +
+	"\ainspect\x18\x03 \x01(\bR\ainspect\x12%\n" +
+	"\x0eschema_current\x18\x04 \x01(\x05R\rschemaCurrent\x12'\n" +
+	"\x0fschema_expected\x18\x05 \x01(\x05R\x0eschemaExpected\x12\x1f\n" +
+	"\vroute_count\x18\x06 \x01(\x05R\n" +
+	"routeCount\x12\x1d\n" +
+	"\n" +
+	"task_count\x18\a \x01(\x05R\ttaskCount\x12#\n" +
+	"\rmessage_count\x18\b \x01(\x05R\fmessageCount\x12\x16\n" +
+	"\x06digest\x18\t \x01(\tR\x06digest\"\x17\n" +
+	"\x15ListOperationsRequest\"v\n" +
+	"\x16ListOperationsResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12'\n" +
+	"\x0foperations_json\x18\x02 \x03(\tR\x0eoperationsJson\"%\n" +
+	"\x13GetOperationRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"r\n" +
+	"\x14GetOperationResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12%\n" +
+	"\x0eoperation_json\x18\x02 \x01(\tR\roperationJson\"Y\n" +
+	"\x17ResolveOperationRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04step\x18\x02 \x01(\x05R\x04step\x12\x1a\n" +
+	"\bdecision\x18\x03 \x01(\tR\bdecision\"v\n" +
+	"\x18ResolveOperationResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12%\n" +
+	"\x0eoperation_json\x18\x02 \x01(\tR\roperationJson\"\x0e\n" +
+	"\fHelloRequest\"\xe5\x01\n" +
+	"\rHelloResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12%\n" +
+	"\x0edaemon_version\x18\x02 \x01(\tR\rdaemonVersion\x12\x1a\n" +
+	"\bfeatures\x18\x03 \x03(\tR\bfeatures\x12-\n" +
+	"\x12credential_options\x18\x04 \x03(\tR\x11credentialOptions\x12-\n" +
+	"\x12default_credential\x18\x05 \x01(\tR\x11defaultCredential\"(\n" +
+	"\x0eVersionRefusal\x12\x16\n" +
+	"\x06update\x18\x01 \x01(\tR\x06update\"\x0f\n" +
+	"\rHealthRequest\"\xcd\x01\n" +
+	"\x0eHealthResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x127\n" +
+	"\x06routes\x18\x03 \x03(\v2\x1f.herdsman.daemon.v1.RouteHealthR\x06routes\x125\n" +
+	"\x05herdr\x18\x04 \x03(\v2\x1f.herdsman.daemon.v1.HerdrHealthR\x05herdr\"\x84\x01\n" +
+	"\vRouteHealth\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x14\n" +
+	"\x05flags\x18\x03 \x03(\tR\x05flags\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"=\n" +
+	"\vHerdrHealth\x12\x16\n" +
+	"\x06socket\x18\x01 \x01(\tR\x06socket\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\")\n" +
+	"\x0fShutdownRequest\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"G\n" +
+	"\x10ShutdownResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\"\x13\n" +
+	"\x11ListRoutesRequest\"\x80\x01\n" +
+	"\x12ListRoutesResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x125\n" +
+	"\x06routes\x18\x02 \x03(\v2\x1d.herdsman.daemon.v1.RouteInfoR\x06routes\"\xb1\x01\n" +
+	"\tRouteInfo\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
+	"\x05inbox\x18\x02 \x01(\tR\x05inbox\x12\x14\n" +
+	"\x05owner\x18\x03 \x01(\tR\x05owner\x12\x14\n" +
+	"\x05epoch\x18\x04 \x01(\tR\x05epoch\x12\x19\n" +
+	"\blast_seq\x18\x05 \x01(\x03R\alastSeq\x12\x16\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\"|\n" +
+	"\x12CreateRouteRequest\x12\x12\n" +
+	"\x04repo\x18\x01 \x01(\tR\x04repo\x12/\n" +
+	"\x05route\x18\x02 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12!\n" +
+	"\fherdr_socket\x18\x03 \x01(\tR\vherdrSocket\"\xa7\x01\n" +
+	"\x13CreateRouteResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12/\n" +
+	"\x05route\x18\x02 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
+	"\x05inbox\x18\x03 \x01(\tR\x05inbox\x12\x14\n" +
+	"\x05epoch\x18\x04 \x01(\tR\x05epoch\"\x8a\x01\n" +
+	"\x11AdoptRouteRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
+	"\x05inbox\x18\x02 \x01(\tR\x05inbox\x12.\n" +
+	"\x13confirm_pair_sha256\x18\x03 \x01(\tR\x11confirmPairSha256\"\xdb\x01\n" +
+	"\x12AdoptRouteResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12/\n" +
+	"\x05route\x18\x02 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
+	"\x05epoch\x18\x03 \x01(\tR\x05epoch\x12&\n" +
+	"\x0flast_message_id\x18\x04 \x01(\tR\rlastMessageId\x12!\n" +
+	"\flegacy_proof\x18\x05 \x01(\bR\vlegacyProof\"E\n" +
+	"\x12RemoveRouteRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\"\x83\x01\n" +
+	"\x13RemoveRouteResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x18\n" +
+	"\aremoved\x18\x02 \x01(\bR\aremoved\x12\x1d\n" +
+	"\n" +
+	"inbox_kept\x18\x03 \x01(\bR\tinboxKept\"j\n" +
+	"\x12ResetEventsRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12#\n" +
+	"\rconfirm_route\x18\x02 \x01(\tR\fconfirmRoute\"\x87\x01\n" +
+	"\x13ResetEventsResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x14\n" +
+	"\x05epoch\x18\x02 \x01(\tR\x05epoch\x12%\n" +
+	"\x0echeckpoint_seq\x18\x03 \x01(\x03R\rcheckpointSeq\"@\n" +
 	"\rStatusRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\"\xd4\x04\n" +
 	"\x0eStatusResponse\x123\n" +
@@ -606,9 +4390,201 @@ const file_herdsman_daemon_v1_message_proto_rawDesc = "" +
 	"\x06orphan\x18\b \x01(\bR\x06orphan\":\n" +
 	"\bHoldInfo\x12\x16\n" +
 	"\x06target\x18\x01 \x01(\tR\x06target\x12\x16\n" +
-	"\x06owners\x18\x02 \x03(\tR\x06owners2a\n" +
-	"\x0eMessageService\x12O\n" +
-	"\x06Status\x12!.herdsman.daemon.v1.StatusRequest\x1a\".herdsman.daemon.v1.StatusResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
+	"\x06owners\x18\x02 \x03(\tR\x06owners\"B\n" +
+	"\x0fGetSetupRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\"\xa8\x01\n" +
+	"\x10GetSetupResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12@\n" +
+	"\tinventory\x18\x02 \x03(\v2\".herdsman.daemon.v1.InventoryAgentR\tinventory\x12\x1d\n" +
+	"\n" +
+	"proof_json\x18\x03 \x01(\tR\tproofJson\"]\n" +
+	"\x0eInventoryAgent\x12\x12\n" +
+	"\x04pane\x18\x01 \x01(\tR\x04pane\x12!\n" +
+	"\fsession_json\x18\x02 \x01(\tR\vsessionJson\x12\x14\n" +
+	"\x05agent\x18\x03 \x01(\tR\x05agent\"\xaf\x01\n" +
+	"\x05Probe\x12#\n" +
+	"\ridentity_json\x18\x01 \x01(\tR\fidentityJson\x12,\n" +
+	"\x12inbox_write_denied\x18\x02 \x01(\bR\x10inboxWriteDenied\x122\n" +
+	"\x15socket_connect_denied\x18\x03 \x01(\bR\x13socketConnectDenied\x12\x1f\n" +
+	"\vrecorded_by\x18\x04 \x01(\tR\n" +
+	"recordedBy\"\xcf\x02\n" +
+	"\x0fPutSetupRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
+	"\x05rules\x18\x02 \x03(\tR\x05rules\x12\x16\n" +
+	"\x06binary\x18\x03 \x01(\tR\x06binary\x12'\n" +
+	"\x0fpolicy_verified\x18\x04 \x01(\bR\x0epolicyVerified\x12#\n" +
+	"\rboundary_json\x18\x05 \x01(\tR\fboundaryJson\x12,\n" +
+	"\x12watch_targets_json\x18\x06 \x01(\tR\x10watchTargetsJson\x12.\n" +
+	"\x13resume_targets_json\x18\a \x01(\tR\x11resumeTargetsJson\x121\n" +
+	"\x06probes\x18\b \x03(\v2\x19.herdsman.daemon.v1.ProbeR\x06probes\"j\n" +
+	"\x10PutSetupResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12!\n" +
+	"\fproof_sha256\x18\x02 \x01(\tR\vproofSha256\"h\n" +
+	"\rEnrollRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04role\x18\x03 \x01(\tR\x04role\"l\n" +
+	"\x0eEnrollResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12%\n" +
+	"\x0epending_sha256\x18\x02 \x01(\tR\rpendingSha256\"\xb5\x02\n" +
+	"\x12ApprovePairRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x16\n" +
+	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12 \n" +
+	"\vinteraction\x18\x03 \x01(\tR\vinteraction\x12\x19\n" +
+	"\basked_by\x18\x04 \x01(\tR\aaskedBy\x12Y\n" +
+	"\vcredentials\x18\x05 \x03(\v27.herdsman.daemon.v1.ApprovePairRequest.CredentialsEntryR\vcredentials\x1a>\n" +
+	"\x10CredentialsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xca\x01\n" +
+	"\x13ApprovePairResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x1a\n" +
+	"\bapproved\x18\x02 \x01(\bR\bapproved\x12H\n" +
+	"\vcredentials\x18\x03 \x03(\v2&.herdsman.daemon.v1.ApprovedCredentialR\vcredentials\x12\x18\n" +
+	"\arevoked\x18\x04 \x03(\tR\arevoked\"@\n" +
+	"\x12ApprovedCredential\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
+	"\x06option\x18\x02 \x01(\tR\x06option\"p\n" +
+	"\x11RetirePairRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"}\n" +
+	"\x12RetirePairResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x18\n" +
+	"\aretired\x18\x02 \x01(\tR\aretired\x12\x18\n" +
+	"\arevoked\x18\x03 \x01(\bR\arevoked\"^\n" +
+	"\x17RevokeCredentialRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"i\n" +
+	"\x18RevokeCredentialResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x18\n" +
+	"\arevoked\x18\x02 \x01(\bR\arevoked\"\xa3\x01\n" +
+	"\vSendRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x0e\n" +
+	"\x02to\x18\x02 \x01(\tR\x02to\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04body\x18\x04 \x01(\tR\x04body\x12\x19\n" +
+	"\breply_to\x18\x05 \x01(\tR\areplyTo\x12\x10\n" +
+	"\x03key\x18\x06 \x01(\tR\x03key\"\xa0\x01\n" +
+	"\fSendResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12+\n" +
+	"\x02id\x18\x02 \x01(\v2\x1b.herdsman.core.v1.MessageIdR\x02id\x12\x10\n" +
+	"\x03seq\x18\x03 \x01(\x03R\x03seq\x12\x1c\n" +
+	"\tduplicate\x18\x04 \x01(\bR\tduplicate\"\x8f\x01\n" +
+	"\fClaimRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x19\n" +
+	"\bread_key\x18\x02 \x01(\tR\areadKey\x12\x14\n" +
+	"\x05token\x18\x03 \x01(\tR\x05token\x12\x1d\n" +
+	"\n" +
+	"extend_key\x18\x04 \x01(\tR\textendKey\"\xda\x01\n" +
+	"\rClaimResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x14\n" +
+	"\x05claim\x18\x02 \x01(\tR\x05claim\x12=\n" +
+	"\bmanifest\x18\x03 \x03(\v2!.herdsman.daemon.v1.ManifestEntryR\bmanifest\x12\x1f\n" +
+	"\vpending_new\x18\x04 \x01(\x05R\n" +
+	"pendingNew\x12\x1e\n" +
+	"\n" +
+	"quarantine\x18\x05 \x01(\x05R\n" +
+	"quarantine\"\xb7\x01\n" +
+	"\rManifestEntry\x12+\n" +
+	"\x02id\x18\x01 \x01(\v2\x1b.herdsman.core.v1.MessageIdR\x02id\x12\x12\n" +
+	"\x04from\x18\x02 \x01(\tR\x04from\x12\x0e\n" +
+	"\x02to\x18\x03 \x01(\tR\x02to\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04time\x18\x05 \x01(\x03R\x04time\x12\x19\n" +
+	"\breply_to\x18\x06 \x01(\tR\areplyTo\x12\x12\n" +
+	"\x04path\x18\a \x01(\tR\x04path\"\x98\x01\n" +
+	"\n" +
+	"AckRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
+	"\x05claim\x18\x02 \x01(\tR\x05claim\x12+\n" +
+	"\x02id\x18\x03 \x01(\v2\x1b.herdsman.core.v1.MessageIdR\x02id\x12\x16\n" +
+	"\x06record\x18\x04 \x01(\tR\x06record\"\x9b\x01\n" +
+	"\vAckResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12+\n" +
+	"\x02id\x18\x02 \x01(\v2\x1b.herdsman.core.v1.MessageIdR\x02id\x12\x10\n" +
+	"\x03seq\x18\x03 \x01(\x03R\x03seq\x12\x18\n" +
+	"\aalready\x18\x04 \x01(\bR\aalready\"W\n" +
+	"\x0eReleaseRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
+	"\x05claim\x18\x02 \x01(\tR\x05claim\"b\n" +
+	"\x0fReleaseResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x1a\n" +
+	"\breleased\x18\x02 \x01(\bR\breleased\"n\n" +
+	"\vHoldRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\"\xdf\x01\n" +
+	"\fHoldResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12A\n" +
+	"\x05holds\x18\x02 \x03(\v2+.herdsman.daemon.v1.HoldResponse.HoldsEntryR\x05holds\x1aW\n" +
+	"\n" +
+	"HoldsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x123\n" +
+	"\x05value\x18\x02 \x01(\v2\x1d.herdsman.daemon.v1.HoldOwnerR\x05value:\x028\x01\"X\n" +
+	"\rUnholdRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\"\xe3\x01\n" +
+	"\x0eUnholdResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12C\n" +
+	"\x05holds\x18\x02 \x03(\v2-.herdsman.daemon.v1.UnholdResponse.HoldsEntryR\x05holds\x1aW\n" +
+	"\n" +
+	"HoldsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x123\n" +
+	"\x05value\x18\x02 \x01(\v2\x1d.herdsman.daemon.v1.HoldOwnerR\x05value:\x028\x01\"7\n" +
+	"\tHoldOwner\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x12\n" +
+	"\x04time\x18\x02 \x01(\x03R\x04time\"C\n" +
+	"\x10AuthorityRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\"\x80\x01\n" +
+	"\x11AuthorityResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x1c\n" +
+	"\tauthority\x18\x02 \x01(\tR\tauthority\x12\x18\n" +
+	"\areasons\x18\x03 \x03(\tR\areasons\"o\n" +
+	"\vWaitRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x16\n" +
+	"\x06cursor\x18\x02 \x01(\tR\x06cursor\x12\x17\n" +
+	"\await_ms\x18\x03 \x01(\x05R\x06waitMs\"\x9c\x01\n" +
+	"\fWaitResponse\x123\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x126\n" +
+	"\x06frames\x18\x02 \x03(\v2\x1e.herdsman.daemon.v1.EventFrameR\x06frames\x12\x1f\n" +
+	"\vnext_cursor\x18\x03 \x01(\tR\n" +
+	"nextCursor\"R\n" +
+	"\n" +
+	"EventFrame\x12\x16\n" +
+	"\x06cursor\x18\x01 \x01(\tR\x06cursor\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x18\n" +
+	"\apayload\x18\x03 \x01(\tR\apayload2\xf0\x12\n" +
+	"\x0eMessageService\x12L\n" +
+	"\x05Hello\x12 .herdsman.daemon.v1.HelloRequest\x1a!.herdsman.daemon.v1.HelloResponse\x12O\n" +
+	"\x06Health\x12!.herdsman.daemon.v1.HealthRequest\x1a\".herdsman.daemon.v1.HealthResponse\x12U\n" +
+	"\bShutdown\x12#.herdsman.daemon.v1.ShutdownRequest\x1a$.herdsman.daemon.v1.ShutdownResponse\x12[\n" +
+	"\n" +
+	"ListRoutes\x12%.herdsman.daemon.v1.ListRoutesRequest\x1a&.herdsman.daemon.v1.ListRoutesResponse\x12^\n" +
+	"\vCreateRoute\x12&.herdsman.daemon.v1.CreateRouteRequest\x1a'.herdsman.daemon.v1.CreateRouteResponse\x12[\n" +
+	"\n" +
+	"AdoptRoute\x12%.herdsman.daemon.v1.AdoptRouteRequest\x1a&.herdsman.daemon.v1.AdoptRouteResponse\x12^\n" +
+	"\vRemoveRoute\x12&.herdsman.daemon.v1.RemoveRouteRequest\x1a'.herdsman.daemon.v1.RemoveRouteResponse\x12^\n" +
+	"\vResetEvents\x12&.herdsman.daemon.v1.ResetEventsRequest\x1a'.herdsman.daemon.v1.ResetEventsResponse\x12O\n" +
+	"\x06Status\x12!.herdsman.daemon.v1.StatusRequest\x1a\".herdsman.daemon.v1.StatusResponse\x12U\n" +
+	"\bGetSetup\x12#.herdsman.daemon.v1.GetSetupRequest\x1a$.herdsman.daemon.v1.GetSetupResponse\x12U\n" +
+	"\bPutSetup\x12#.herdsman.daemon.v1.PutSetupRequest\x1a$.herdsman.daemon.v1.PutSetupResponse\x12O\n" +
+	"\x06Enroll\x12!.herdsman.daemon.v1.EnrollRequest\x1a\".herdsman.daemon.v1.EnrollResponse\x12^\n" +
+	"\vApprovePair\x12&.herdsman.daemon.v1.ApprovePairRequest\x1a'.herdsman.daemon.v1.ApprovePairResponse\x12[\n" +
+	"\n" +
+	"RetirePair\x12%.herdsman.daemon.v1.RetirePairRequest\x1a&.herdsman.daemon.v1.RetirePairResponse\x12m\n" +
+	"\x10RevokeCredential\x12+.herdsman.daemon.v1.RevokeCredentialRequest\x1a,.herdsman.daemon.v1.RevokeCredentialResponse\x12I\n" +
+	"\x04Send\x12\x1f.herdsman.daemon.v1.SendRequest\x1a .herdsman.daemon.v1.SendResponse\x12L\n" +
+	"\x05Claim\x12 .herdsman.daemon.v1.ClaimRequest\x1a!.herdsman.daemon.v1.ClaimResponse\x12F\n" +
+	"\x03Ack\x12\x1e.herdsman.daemon.v1.AckRequest\x1a\x1f.herdsman.daemon.v1.AckResponse\x12R\n" +
+	"\aRelease\x12\".herdsman.daemon.v1.ReleaseRequest\x1a#.herdsman.daemon.v1.ReleaseResponse\x12I\n" +
+	"\x04Hold\x12\x1f.herdsman.daemon.v1.HoldRequest\x1a .herdsman.daemon.v1.HoldResponse\x12O\n" +
+	"\x06Unhold\x12!.herdsman.daemon.v1.UnholdRequest\x1a\".herdsman.daemon.v1.UnholdResponse\x12X\n" +
+	"\tAuthority\x12$.herdsman.daemon.v1.AuthorityRequest\x1a%.herdsman.daemon.v1.AuthorityResponse\x12a\n" +
+	"\fDaemonStatus\x12'.herdsman.daemon.v1.DaemonStatusRequest\x1a(.herdsman.daemon.v1.DaemonStatusResponse\x12g\n" +
+	"\x0eListOperations\x12).herdsman.daemon.v1.ListOperationsRequest\x1a*.herdsman.daemon.v1.ListOperationsResponse\x12a\n" +
+	"\fGetOperation\x12'.herdsman.daemon.v1.GetOperationRequest\x1a(.herdsman.daemon.v1.GetOperationResponse\x12m\n" +
+	"\x10ResolveOperation\x12+.herdsman.daemon.v1.ResolveOperationRequest\x1a,.herdsman.daemon.v1.ResolveOperationResponse\x12I\n" +
+	"\x04Wait\x12\x1f.herdsman.daemon.v1.WaitRequest\x1a .herdsman.daemon.v1.WaitResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
 
 var (
 	file_herdsman_daemon_v1_message_proto_rawDescOnce sync.Once
@@ -622,36 +4598,219 @@ func file_herdsman_daemon_v1_message_proto_rawDescGZIP() []byte {
 	return file_herdsman_daemon_v1_message_proto_rawDescData
 }
 
-var file_herdsman_daemon_v1_message_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_herdsman_daemon_v1_message_proto_msgTypes = make([]protoimpl.MessageInfo, 72)
 var file_herdsman_daemon_v1_message_proto_goTypes = []any{
-	(*StatusRequest)(nil),    // 0: herdsman.daemon.v1.StatusRequest
-	(*StatusResponse)(nil),   // 1: herdsman.daemon.v1.StatusResponse
-	(*DaemonState)(nil),      // 2: herdsman.daemon.v1.DaemonState
-	(*RegistryState)(nil),    // 3: herdsman.daemon.v1.RegistryState
-	(*PeerInfo)(nil),         // 4: herdsman.daemon.v1.PeerInfo
-	(*BoxCount)(nil),         // 5: herdsman.daemon.v1.BoxCount
-	(*HoldInfo)(nil),         // 6: herdsman.daemon.v1.HoldInfo
-	(*v1.RouteId)(nil),       // 7: herdsman.core.v1.RouteId
-	(*v1.Version)(nil),       // 8: herdsman.core.v1.Version
-	(*v1.MessageHeader)(nil), // 9: herdsman.core.v1.MessageHeader
+	(*DaemonStatusRequest)(nil),      // 0: herdsman.daemon.v1.DaemonStatusRequest
+	(*DaemonStatusResponse)(nil),     // 1: herdsman.daemon.v1.DaemonStatusResponse
+	(*ListOperationsRequest)(nil),    // 2: herdsman.daemon.v1.ListOperationsRequest
+	(*ListOperationsResponse)(nil),   // 3: herdsman.daemon.v1.ListOperationsResponse
+	(*GetOperationRequest)(nil),      // 4: herdsman.daemon.v1.GetOperationRequest
+	(*GetOperationResponse)(nil),     // 5: herdsman.daemon.v1.GetOperationResponse
+	(*ResolveOperationRequest)(nil),  // 6: herdsman.daemon.v1.ResolveOperationRequest
+	(*ResolveOperationResponse)(nil), // 7: herdsman.daemon.v1.ResolveOperationResponse
+	(*HelloRequest)(nil),             // 8: herdsman.daemon.v1.HelloRequest
+	(*HelloResponse)(nil),            // 9: herdsman.daemon.v1.HelloResponse
+	(*VersionRefusal)(nil),           // 10: herdsman.daemon.v1.VersionRefusal
+	(*HealthRequest)(nil),            // 11: herdsman.daemon.v1.HealthRequest
+	(*HealthResponse)(nil),           // 12: herdsman.daemon.v1.HealthResponse
+	(*RouteHealth)(nil),              // 13: herdsman.daemon.v1.RouteHealth
+	(*HerdrHealth)(nil),              // 14: herdsman.daemon.v1.HerdrHealth
+	(*ShutdownRequest)(nil),          // 15: herdsman.daemon.v1.ShutdownRequest
+	(*ShutdownResponse)(nil),         // 16: herdsman.daemon.v1.ShutdownResponse
+	(*ListRoutesRequest)(nil),        // 17: herdsman.daemon.v1.ListRoutesRequest
+	(*ListRoutesResponse)(nil),       // 18: herdsman.daemon.v1.ListRoutesResponse
+	(*RouteInfo)(nil),                // 19: herdsman.daemon.v1.RouteInfo
+	(*CreateRouteRequest)(nil),       // 20: herdsman.daemon.v1.CreateRouteRequest
+	(*CreateRouteResponse)(nil),      // 21: herdsman.daemon.v1.CreateRouteResponse
+	(*AdoptRouteRequest)(nil),        // 22: herdsman.daemon.v1.AdoptRouteRequest
+	(*AdoptRouteResponse)(nil),       // 23: herdsman.daemon.v1.AdoptRouteResponse
+	(*RemoveRouteRequest)(nil),       // 24: herdsman.daemon.v1.RemoveRouteRequest
+	(*RemoveRouteResponse)(nil),      // 25: herdsman.daemon.v1.RemoveRouteResponse
+	(*ResetEventsRequest)(nil),       // 26: herdsman.daemon.v1.ResetEventsRequest
+	(*ResetEventsResponse)(nil),      // 27: herdsman.daemon.v1.ResetEventsResponse
+	(*StatusRequest)(nil),            // 28: herdsman.daemon.v1.StatusRequest
+	(*StatusResponse)(nil),           // 29: herdsman.daemon.v1.StatusResponse
+	(*DaemonState)(nil),              // 30: herdsman.daemon.v1.DaemonState
+	(*RegistryState)(nil),            // 31: herdsman.daemon.v1.RegistryState
+	(*PeerInfo)(nil),                 // 32: herdsman.daemon.v1.PeerInfo
+	(*BoxCount)(nil),                 // 33: herdsman.daemon.v1.BoxCount
+	(*HoldInfo)(nil),                 // 34: herdsman.daemon.v1.HoldInfo
+	(*GetSetupRequest)(nil),          // 35: herdsman.daemon.v1.GetSetupRequest
+	(*GetSetupResponse)(nil),         // 36: herdsman.daemon.v1.GetSetupResponse
+	(*InventoryAgent)(nil),           // 37: herdsman.daemon.v1.InventoryAgent
+	(*Probe)(nil),                    // 38: herdsman.daemon.v1.Probe
+	(*PutSetupRequest)(nil),          // 39: herdsman.daemon.v1.PutSetupRequest
+	(*PutSetupResponse)(nil),         // 40: herdsman.daemon.v1.PutSetupResponse
+	(*EnrollRequest)(nil),            // 41: herdsman.daemon.v1.EnrollRequest
+	(*EnrollResponse)(nil),           // 42: herdsman.daemon.v1.EnrollResponse
+	(*ApprovePairRequest)(nil),       // 43: herdsman.daemon.v1.ApprovePairRequest
+	(*ApprovePairResponse)(nil),      // 44: herdsman.daemon.v1.ApprovePairResponse
+	(*ApprovedCredential)(nil),       // 45: herdsman.daemon.v1.ApprovedCredential
+	(*RetirePairRequest)(nil),        // 46: herdsman.daemon.v1.RetirePairRequest
+	(*RetirePairResponse)(nil),       // 47: herdsman.daemon.v1.RetirePairResponse
+	(*RevokeCredentialRequest)(nil),  // 48: herdsman.daemon.v1.RevokeCredentialRequest
+	(*RevokeCredentialResponse)(nil), // 49: herdsman.daemon.v1.RevokeCredentialResponse
+	(*SendRequest)(nil),              // 50: herdsman.daemon.v1.SendRequest
+	(*SendResponse)(nil),             // 51: herdsman.daemon.v1.SendResponse
+	(*ClaimRequest)(nil),             // 52: herdsman.daemon.v1.ClaimRequest
+	(*ClaimResponse)(nil),            // 53: herdsman.daemon.v1.ClaimResponse
+	(*ManifestEntry)(nil),            // 54: herdsman.daemon.v1.ManifestEntry
+	(*AckRequest)(nil),               // 55: herdsman.daemon.v1.AckRequest
+	(*AckResponse)(nil),              // 56: herdsman.daemon.v1.AckResponse
+	(*ReleaseRequest)(nil),           // 57: herdsman.daemon.v1.ReleaseRequest
+	(*ReleaseResponse)(nil),          // 58: herdsman.daemon.v1.ReleaseResponse
+	(*HoldRequest)(nil),              // 59: herdsman.daemon.v1.HoldRequest
+	(*HoldResponse)(nil),             // 60: herdsman.daemon.v1.HoldResponse
+	(*UnholdRequest)(nil),            // 61: herdsman.daemon.v1.UnholdRequest
+	(*UnholdResponse)(nil),           // 62: herdsman.daemon.v1.UnholdResponse
+	(*HoldOwner)(nil),                // 63: herdsman.daemon.v1.HoldOwner
+	(*AuthorityRequest)(nil),         // 64: herdsman.daemon.v1.AuthorityRequest
+	(*AuthorityResponse)(nil),        // 65: herdsman.daemon.v1.AuthorityResponse
+	(*WaitRequest)(nil),              // 66: herdsman.daemon.v1.WaitRequest
+	(*WaitResponse)(nil),             // 67: herdsman.daemon.v1.WaitResponse
+	(*EventFrame)(nil),               // 68: herdsman.daemon.v1.EventFrame
+	nil,                              // 69: herdsman.daemon.v1.ApprovePairRequest.CredentialsEntry
+	nil,                              // 70: herdsman.daemon.v1.HoldResponse.HoldsEntry
+	nil,                              // 71: herdsman.daemon.v1.UnholdResponse.HoldsEntry
+	(*v1.Version)(nil),               // 72: herdsman.core.v1.Version
+	(*v1.RouteId)(nil),               // 73: herdsman.core.v1.RouteId
+	(*v1.MessageHeader)(nil),         // 74: herdsman.core.v1.MessageHeader
+	(*v1.MessageId)(nil),             // 75: herdsman.core.v1.MessageId
 }
 var file_herdsman_daemon_v1_message_proto_depIdxs = []int32{
-	7,  // 0: herdsman.daemon.v1.StatusRequest.route:type_name -> herdsman.core.v1.RouteId
-	8,  // 1: herdsman.daemon.v1.StatusResponse.version:type_name -> herdsman.core.v1.Version
-	2,  // 2: herdsman.daemon.v1.StatusResponse.daemon:type_name -> herdsman.daemon.v1.DaemonState
-	7,  // 3: herdsman.daemon.v1.StatusResponse.route:type_name -> herdsman.core.v1.RouteId
-	3,  // 4: herdsman.daemon.v1.StatusResponse.registry:type_name -> herdsman.daemon.v1.RegistryState
-	4,  // 5: herdsman.daemon.v1.StatusResponse.peers:type_name -> herdsman.daemon.v1.PeerInfo
-	5,  // 6: herdsman.daemon.v1.StatusResponse.boxes:type_name -> herdsman.daemon.v1.BoxCount
-	6,  // 7: herdsman.daemon.v1.StatusResponse.holds:type_name -> herdsman.daemon.v1.HoldInfo
-	9,  // 8: herdsman.daemon.v1.StatusResponse.messages:type_name -> herdsman.core.v1.MessageHeader
-	0,  // 9: herdsman.daemon.v1.MessageService.Status:input_type -> herdsman.daemon.v1.StatusRequest
-	1,  // 10: herdsman.daemon.v1.MessageService.Status:output_type -> herdsman.daemon.v1.StatusResponse
-	10, // [10:11] is the sub-list for method output_type
-	9,  // [9:10] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	72,  // 0: herdsman.daemon.v1.DaemonStatusResponse.version:type_name -> herdsman.core.v1.Version
+	72,  // 1: herdsman.daemon.v1.ListOperationsResponse.version:type_name -> herdsman.core.v1.Version
+	72,  // 2: herdsman.daemon.v1.GetOperationResponse.version:type_name -> herdsman.core.v1.Version
+	72,  // 3: herdsman.daemon.v1.ResolveOperationResponse.version:type_name -> herdsman.core.v1.Version
+	72,  // 4: herdsman.daemon.v1.HelloResponse.version:type_name -> herdsman.core.v1.Version
+	72,  // 5: herdsman.daemon.v1.HealthResponse.version:type_name -> herdsman.core.v1.Version
+	13,  // 6: herdsman.daemon.v1.HealthResponse.routes:type_name -> herdsman.daemon.v1.RouteHealth
+	14,  // 7: herdsman.daemon.v1.HealthResponse.herdr:type_name -> herdsman.daemon.v1.HerdrHealth
+	73,  // 8: herdsman.daemon.v1.RouteHealth.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 9: herdsman.daemon.v1.ShutdownResponse.version:type_name -> herdsman.core.v1.Version
+	72,  // 10: herdsman.daemon.v1.ListRoutesResponse.version:type_name -> herdsman.core.v1.Version
+	19,  // 11: herdsman.daemon.v1.ListRoutesResponse.routes:type_name -> herdsman.daemon.v1.RouteInfo
+	73,  // 12: herdsman.daemon.v1.RouteInfo.route:type_name -> herdsman.core.v1.RouteId
+	73,  // 13: herdsman.daemon.v1.CreateRouteRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 14: herdsman.daemon.v1.CreateRouteResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 15: herdsman.daemon.v1.CreateRouteResponse.route:type_name -> herdsman.core.v1.RouteId
+	73,  // 16: herdsman.daemon.v1.AdoptRouteRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 17: herdsman.daemon.v1.AdoptRouteResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 18: herdsman.daemon.v1.AdoptRouteResponse.route:type_name -> herdsman.core.v1.RouteId
+	73,  // 19: herdsman.daemon.v1.RemoveRouteRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 20: herdsman.daemon.v1.RemoveRouteResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 21: herdsman.daemon.v1.ResetEventsRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 22: herdsman.daemon.v1.ResetEventsResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 23: herdsman.daemon.v1.StatusRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 24: herdsman.daemon.v1.StatusResponse.version:type_name -> herdsman.core.v1.Version
+	30,  // 25: herdsman.daemon.v1.StatusResponse.daemon:type_name -> herdsman.daemon.v1.DaemonState
+	73,  // 26: herdsman.daemon.v1.StatusResponse.route:type_name -> herdsman.core.v1.RouteId
+	31,  // 27: herdsman.daemon.v1.StatusResponse.registry:type_name -> herdsman.daemon.v1.RegistryState
+	32,  // 28: herdsman.daemon.v1.StatusResponse.peers:type_name -> herdsman.daemon.v1.PeerInfo
+	33,  // 29: herdsman.daemon.v1.StatusResponse.boxes:type_name -> herdsman.daemon.v1.BoxCount
+	34,  // 30: herdsman.daemon.v1.StatusResponse.holds:type_name -> herdsman.daemon.v1.HoldInfo
+	74,  // 31: herdsman.daemon.v1.StatusResponse.messages:type_name -> herdsman.core.v1.MessageHeader
+	73,  // 32: herdsman.daemon.v1.GetSetupRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 33: herdsman.daemon.v1.GetSetupResponse.version:type_name -> herdsman.core.v1.Version
+	37,  // 34: herdsman.daemon.v1.GetSetupResponse.inventory:type_name -> herdsman.daemon.v1.InventoryAgent
+	73,  // 35: herdsman.daemon.v1.PutSetupRequest.route:type_name -> herdsman.core.v1.RouteId
+	38,  // 36: herdsman.daemon.v1.PutSetupRequest.probes:type_name -> herdsman.daemon.v1.Probe
+	72,  // 37: herdsman.daemon.v1.PutSetupResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 38: herdsman.daemon.v1.EnrollRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 39: herdsman.daemon.v1.EnrollResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 40: herdsman.daemon.v1.ApprovePairRequest.route:type_name -> herdsman.core.v1.RouteId
+	69,  // 41: herdsman.daemon.v1.ApprovePairRequest.credentials:type_name -> herdsman.daemon.v1.ApprovePairRequest.CredentialsEntry
+	72,  // 42: herdsman.daemon.v1.ApprovePairResponse.version:type_name -> herdsman.core.v1.Version
+	45,  // 43: herdsman.daemon.v1.ApprovePairResponse.credentials:type_name -> herdsman.daemon.v1.ApprovedCredential
+	73,  // 44: herdsman.daemon.v1.RetirePairRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 45: herdsman.daemon.v1.RetirePairResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 46: herdsman.daemon.v1.RevokeCredentialRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 47: herdsman.daemon.v1.RevokeCredentialResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 48: herdsman.daemon.v1.SendRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 49: herdsman.daemon.v1.SendResponse.version:type_name -> herdsman.core.v1.Version
+	75,  // 50: herdsman.daemon.v1.SendResponse.id:type_name -> herdsman.core.v1.MessageId
+	73,  // 51: herdsman.daemon.v1.ClaimRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 52: herdsman.daemon.v1.ClaimResponse.version:type_name -> herdsman.core.v1.Version
+	54,  // 53: herdsman.daemon.v1.ClaimResponse.manifest:type_name -> herdsman.daemon.v1.ManifestEntry
+	75,  // 54: herdsman.daemon.v1.ManifestEntry.id:type_name -> herdsman.core.v1.MessageId
+	73,  // 55: herdsman.daemon.v1.AckRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 56: herdsman.daemon.v1.AckRequest.id:type_name -> herdsman.core.v1.MessageId
+	72,  // 57: herdsman.daemon.v1.AckResponse.version:type_name -> herdsman.core.v1.Version
+	75,  // 58: herdsman.daemon.v1.AckResponse.id:type_name -> herdsman.core.v1.MessageId
+	73,  // 59: herdsman.daemon.v1.ReleaseRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 60: herdsman.daemon.v1.ReleaseResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 61: herdsman.daemon.v1.HoldRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 62: herdsman.daemon.v1.HoldResponse.version:type_name -> herdsman.core.v1.Version
+	70,  // 63: herdsman.daemon.v1.HoldResponse.holds:type_name -> herdsman.daemon.v1.HoldResponse.HoldsEntry
+	73,  // 64: herdsman.daemon.v1.UnholdRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 65: herdsman.daemon.v1.UnholdResponse.version:type_name -> herdsman.core.v1.Version
+	71,  // 66: herdsman.daemon.v1.UnholdResponse.holds:type_name -> herdsman.daemon.v1.UnholdResponse.HoldsEntry
+	73,  // 67: herdsman.daemon.v1.AuthorityRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 68: herdsman.daemon.v1.AuthorityResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 69: herdsman.daemon.v1.WaitRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 70: herdsman.daemon.v1.WaitResponse.version:type_name -> herdsman.core.v1.Version
+	68,  // 71: herdsman.daemon.v1.WaitResponse.frames:type_name -> herdsman.daemon.v1.EventFrame
+	63,  // 72: herdsman.daemon.v1.HoldResponse.HoldsEntry.value:type_name -> herdsman.daemon.v1.HoldOwner
+	63,  // 73: herdsman.daemon.v1.UnholdResponse.HoldsEntry.value:type_name -> herdsman.daemon.v1.HoldOwner
+	8,   // 74: herdsman.daemon.v1.MessageService.Hello:input_type -> herdsman.daemon.v1.HelloRequest
+	11,  // 75: herdsman.daemon.v1.MessageService.Health:input_type -> herdsman.daemon.v1.HealthRequest
+	15,  // 76: herdsman.daemon.v1.MessageService.Shutdown:input_type -> herdsman.daemon.v1.ShutdownRequest
+	17,  // 77: herdsman.daemon.v1.MessageService.ListRoutes:input_type -> herdsman.daemon.v1.ListRoutesRequest
+	20,  // 78: herdsman.daemon.v1.MessageService.CreateRoute:input_type -> herdsman.daemon.v1.CreateRouteRequest
+	22,  // 79: herdsman.daemon.v1.MessageService.AdoptRoute:input_type -> herdsman.daemon.v1.AdoptRouteRequest
+	24,  // 80: herdsman.daemon.v1.MessageService.RemoveRoute:input_type -> herdsman.daemon.v1.RemoveRouteRequest
+	26,  // 81: herdsman.daemon.v1.MessageService.ResetEvents:input_type -> herdsman.daemon.v1.ResetEventsRequest
+	28,  // 82: herdsman.daemon.v1.MessageService.Status:input_type -> herdsman.daemon.v1.StatusRequest
+	35,  // 83: herdsman.daemon.v1.MessageService.GetSetup:input_type -> herdsman.daemon.v1.GetSetupRequest
+	39,  // 84: herdsman.daemon.v1.MessageService.PutSetup:input_type -> herdsman.daemon.v1.PutSetupRequest
+	41,  // 85: herdsman.daemon.v1.MessageService.Enroll:input_type -> herdsman.daemon.v1.EnrollRequest
+	43,  // 86: herdsman.daemon.v1.MessageService.ApprovePair:input_type -> herdsman.daemon.v1.ApprovePairRequest
+	46,  // 87: herdsman.daemon.v1.MessageService.RetirePair:input_type -> herdsman.daemon.v1.RetirePairRequest
+	48,  // 88: herdsman.daemon.v1.MessageService.RevokeCredential:input_type -> herdsman.daemon.v1.RevokeCredentialRequest
+	50,  // 89: herdsman.daemon.v1.MessageService.Send:input_type -> herdsman.daemon.v1.SendRequest
+	52,  // 90: herdsman.daemon.v1.MessageService.Claim:input_type -> herdsman.daemon.v1.ClaimRequest
+	55,  // 91: herdsman.daemon.v1.MessageService.Ack:input_type -> herdsman.daemon.v1.AckRequest
+	57,  // 92: herdsman.daemon.v1.MessageService.Release:input_type -> herdsman.daemon.v1.ReleaseRequest
+	59,  // 93: herdsman.daemon.v1.MessageService.Hold:input_type -> herdsman.daemon.v1.HoldRequest
+	61,  // 94: herdsman.daemon.v1.MessageService.Unhold:input_type -> herdsman.daemon.v1.UnholdRequest
+	64,  // 95: herdsman.daemon.v1.MessageService.Authority:input_type -> herdsman.daemon.v1.AuthorityRequest
+	0,   // 96: herdsman.daemon.v1.MessageService.DaemonStatus:input_type -> herdsman.daemon.v1.DaemonStatusRequest
+	2,   // 97: herdsman.daemon.v1.MessageService.ListOperations:input_type -> herdsman.daemon.v1.ListOperationsRequest
+	4,   // 98: herdsman.daemon.v1.MessageService.GetOperation:input_type -> herdsman.daemon.v1.GetOperationRequest
+	6,   // 99: herdsman.daemon.v1.MessageService.ResolveOperation:input_type -> herdsman.daemon.v1.ResolveOperationRequest
+	66,  // 100: herdsman.daemon.v1.MessageService.Wait:input_type -> herdsman.daemon.v1.WaitRequest
+	9,   // 101: herdsman.daemon.v1.MessageService.Hello:output_type -> herdsman.daemon.v1.HelloResponse
+	12,  // 102: herdsman.daemon.v1.MessageService.Health:output_type -> herdsman.daemon.v1.HealthResponse
+	16,  // 103: herdsman.daemon.v1.MessageService.Shutdown:output_type -> herdsman.daemon.v1.ShutdownResponse
+	18,  // 104: herdsman.daemon.v1.MessageService.ListRoutes:output_type -> herdsman.daemon.v1.ListRoutesResponse
+	21,  // 105: herdsman.daemon.v1.MessageService.CreateRoute:output_type -> herdsman.daemon.v1.CreateRouteResponse
+	23,  // 106: herdsman.daemon.v1.MessageService.AdoptRoute:output_type -> herdsman.daemon.v1.AdoptRouteResponse
+	25,  // 107: herdsman.daemon.v1.MessageService.RemoveRoute:output_type -> herdsman.daemon.v1.RemoveRouteResponse
+	27,  // 108: herdsman.daemon.v1.MessageService.ResetEvents:output_type -> herdsman.daemon.v1.ResetEventsResponse
+	29,  // 109: herdsman.daemon.v1.MessageService.Status:output_type -> herdsman.daemon.v1.StatusResponse
+	36,  // 110: herdsman.daemon.v1.MessageService.GetSetup:output_type -> herdsman.daemon.v1.GetSetupResponse
+	40,  // 111: herdsman.daemon.v1.MessageService.PutSetup:output_type -> herdsman.daemon.v1.PutSetupResponse
+	42,  // 112: herdsman.daemon.v1.MessageService.Enroll:output_type -> herdsman.daemon.v1.EnrollResponse
+	44,  // 113: herdsman.daemon.v1.MessageService.ApprovePair:output_type -> herdsman.daemon.v1.ApprovePairResponse
+	47,  // 114: herdsman.daemon.v1.MessageService.RetirePair:output_type -> herdsman.daemon.v1.RetirePairResponse
+	49,  // 115: herdsman.daemon.v1.MessageService.RevokeCredential:output_type -> herdsman.daemon.v1.RevokeCredentialResponse
+	51,  // 116: herdsman.daemon.v1.MessageService.Send:output_type -> herdsman.daemon.v1.SendResponse
+	53,  // 117: herdsman.daemon.v1.MessageService.Claim:output_type -> herdsman.daemon.v1.ClaimResponse
+	56,  // 118: herdsman.daemon.v1.MessageService.Ack:output_type -> herdsman.daemon.v1.AckResponse
+	58,  // 119: herdsman.daemon.v1.MessageService.Release:output_type -> herdsman.daemon.v1.ReleaseResponse
+	60,  // 120: herdsman.daemon.v1.MessageService.Hold:output_type -> herdsman.daemon.v1.HoldResponse
+	62,  // 121: herdsman.daemon.v1.MessageService.Unhold:output_type -> herdsman.daemon.v1.UnholdResponse
+	65,  // 122: herdsman.daemon.v1.MessageService.Authority:output_type -> herdsman.daemon.v1.AuthorityResponse
+	1,   // 123: herdsman.daemon.v1.MessageService.DaemonStatus:output_type -> herdsman.daemon.v1.DaemonStatusResponse
+	3,   // 124: herdsman.daemon.v1.MessageService.ListOperations:output_type -> herdsman.daemon.v1.ListOperationsResponse
+	5,   // 125: herdsman.daemon.v1.MessageService.GetOperation:output_type -> herdsman.daemon.v1.GetOperationResponse
+	7,   // 126: herdsman.daemon.v1.MessageService.ResolveOperation:output_type -> herdsman.daemon.v1.ResolveOperationResponse
+	67,  // 127: herdsman.daemon.v1.MessageService.Wait:output_type -> herdsman.daemon.v1.WaitResponse
+	101, // [101:128] is the sub-list for method output_type
+	74,  // [74:101] is the sub-list for method input_type
+	74,  // [74:74] is the sub-list for extension type_name
+	74,  // [74:74] is the sub-list for extension extendee
+	0,   // [0:74] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_message_proto_init() }
@@ -659,14 +4818,14 @@ func file_herdsman_daemon_v1_message_proto_init() {
 	if File_herdsman_daemon_v1_message_proto != nil {
 		return
 	}
-	file_herdsman_daemon_v1_message_proto_msgTypes[2].OneofWrappers = []any{}
+	file_herdsman_daemon_v1_message_proto_msgTypes[30].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herdsman_daemon_v1_message_proto_rawDesc), len(file_herdsman_daemon_v1_message_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   72,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

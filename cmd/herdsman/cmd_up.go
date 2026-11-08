@@ -101,6 +101,7 @@ func parseUp(args []string, stderr io.Writer) (upFlags, bool) {
 	fs.BoolVar(&f.dryRun, "dry-run", false, "print what would run and stop")
 	fs.BoolVar(&f.resume, "continue", false, "pick up a halted start")
 	fs.BoolVar(&f.noTUI, "no-tui", false, "never open the form")
+	fs.Bool("plain", false, "ask with line prompts")
 	fs.Var(stepFlag{&f.steps}, "step", "a verdict on a halted prelude step")
 	if err := fs.Parse(args); err != nil {
 		return f, false
@@ -133,7 +134,10 @@ func parseUp(args []string, stderr io.Writer) (upFlags, bool) {
 	return f, true
 }
 
-func runUp(args []string, _ io.Reader, stdout, stderr io.Writer) int {
+func runUp(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if code, opened := openUpForm(&args, stdin, stdout, stderr); opened {
+		return code
+	}
 	f, ok := parseUp(args, stderr)
 	if !ok {
 		return 2

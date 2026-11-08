@@ -8,7 +8,7 @@ import (
 	context "context"
 	json "encoding/json"
 	fmt "fmt"
-	protojson "google.golang.org/protobuf/encoding/protojson"
+	rpc "github.com/arafathusayn/herdsman/sdk/rpc"
 	proto "google.golang.org/protobuf/proto"
 	io "io"
 	http "net/http"
@@ -41,64 +41,20 @@ type SuggestService interface {
 	SourcePin(context.Context, *SourcePinRequest) (*SourcePinResponse, error)
 }
 
-// NewSuggestServiceHandler serves impl over HTTP. Mount it at the server's root.
+// NewSuggestServiceHandler serves impl over HTTP with the full binding. Mount it
+// at the server's root or at rpc.BasePath.
 func NewSuggestServiceHandler(impl SuggestService) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc/herdsman.suggest.v1.SuggestService/Search", func(w http.ResponseWriter, r *http.Request) {
-		req := new(SearchRequest)
-		serveSuggestService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Search(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.suggest.v1.SuggestService/Get", func(w http.ResponseWriter, r *http.Request) {
-		req := new(GetRequest)
-		serveSuggestService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Get(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.suggest.v1.SuggestService/Add", func(w http.ResponseWriter, r *http.Request) {
-		req := new(AddRequest)
-		serveSuggestService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Add(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.suggest.v1.SuggestService/Plan", func(w http.ResponseWriter, r *http.Request) {
-		req := new(PlanRequest)
-		serveSuggestService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Plan(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.suggest.v1.SuggestService/Sources", func(w http.ResponseWriter, r *http.Request) {
-		req := new(SourcesRequest)
-		serveSuggestService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Sources(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.suggest.v1.SuggestService/SourceAdd", func(w http.ResponseWriter, r *http.Request) {
-		req := new(SourceAddRequest)
-		serveSuggestService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.SourceAdd(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.suggest.v1.SuggestService/SourceRemove", func(w http.ResponseWriter, r *http.Request) {
-		req := new(SourceRemoveRequest)
-		serveSuggestService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.SourceRemove(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.suggest.v1.SuggestService/SourcePreview", func(w http.ResponseWriter, r *http.Request) {
-		req := new(SourcePreviewRequest)
-		serveSuggestService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.SourcePreview(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.suggest.v1.SuggestService/SourcePin", func(w http.ResponseWriter, r *http.Request) {
-		req := new(SourcePinRequest)
-		serveSuggestService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.SourcePin(ctx, req)
-		})
-	})
-	return mux
+	return rpc.NewMux(
+		rpc.Unary(SuggestServiceName, "Search", impl.Search),
+		rpc.Unary(SuggestServiceName, "Get", impl.Get),
+		rpc.Unary(SuggestServiceName, "Add", impl.Add),
+		rpc.Unary(SuggestServiceName, "Plan", impl.Plan),
+		rpc.Unary(SuggestServiceName, "Sources", impl.Sources),
+		rpc.Unary(SuggestServiceName, "SourceAdd", impl.SourceAdd),
+		rpc.Unary(SuggestServiceName, "SourceRemove", impl.SourceRemove),
+		rpc.Unary(SuggestServiceName, "SourcePreview", impl.SourcePreview),
+		rpc.Unary(SuggestServiceName, "SourcePin", impl.SourcePin),
+	)
 }
 
 type suggestServiceClient struct {
@@ -185,56 +141,6 @@ func (c *suggestServiceClient) SourcePin(ctx context.Context, req *SourcePinRequ
 
 // suggestServiceMaxBody bounds a request or response body.
 const suggestServiceMaxBody = 4 << 20
-
-func serveSuggestService(w http.ResponseWriter, r *http.Request, req proto.Message, call func(context.Context) (proto.Message, error)) {
-	fail := func(status int, code, message string) {
-		body, _ := json.Marshal(map[string]string{"code": code, "message": message})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = w.Write(body)
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		fail(http.StatusMethodNotAllowed, "unimplemented", "only POST is served")
-		return
-	}
-	contentType := r.Header.Get("Content-Type")
-	if contentType != "application/json" && contentType != "application/proto" {
-		fail(http.StatusUnsupportedMediaType, "unimplemented", "unsupported content type")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, suggestServiceMaxBody))
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot read the request body")
-		return
-	}
-	if contentType == "application/json" {
-		err = (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, req)
-	} else {
-		err = proto.Unmarshal(body, req)
-	}
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot decode the request body")
-		return
-	}
-	res, err := call(r.Context())
-	if err != nil {
-		fail(http.StatusInternalServerError, "unknown", err.Error())
-		return
-	}
-	var out []byte
-	if contentType == "application/json" {
-		out, err = protojson.Marshal(res)
-	} else {
-		out, err = proto.Marshal(res)
-	}
-	if err != nil {
-		fail(http.StatusInternalServerError, "internal", "cannot encode the response")
-		return
-	}
-	w.Header().Set("Content-Type", contentType)
-	_, _ = w.Write(out)
-}
 
 func callSuggestService(ctx context.Context, hc *http.Client, url string, req, res proto.Message) error {
 	body, err := proto.Marshal(req)

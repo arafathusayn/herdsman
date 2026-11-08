@@ -7,30 +7,31 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
+	"google.golang.org/protobuf/proto"
 )
 
 // Fix round 1 (review daemon-impl-1): the reviewer's probes as tests.
-
-type roundTrip func(*http.Request) (*http.Response, error)
-
-func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // TestHelloWaitHonorsContext (F1): a caller waiting on another caller's
 // hello gives up at its own deadline.
 func TestHelloWaitHonorsContext(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
-	c := NewClient("unused", testVersion)
-	defer c.Close()
-	c.hc.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
+	ph := fakeSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		select {
 		case <-entered:
 		default:
 			close(entered)
 		}
 		<-release
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Request: r,
-			Body: io.NopCloser(strings.NewReader(`{"daemon_version":"` + testVersion + `","protocol":1,"min_protocol":1}`))}, nil
-	})
+		body, _ := proto.Marshal(&daemonv1.HelloResponse{DaemonVersion: testVersion})
+		w.Header().Set("Content-Type", rpc.ContentTypeProto)
+		_, _ = w.Write(body)
+	}))
+	c := NewClient(SocketPath(ph), testVersion)
+	defer c.Close()
 	first := make(chan error, 1)
 	go func() { first <- c.Check(context.Background()) }()
 	<-entered

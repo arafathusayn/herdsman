@@ -1,0 +1,5 @@
+␛[1mNew task␛[0m
+
+Runs:
+  herdsman task create "Fix it" --project site --repo web --repo api --body "one\ntwo" --label bug --label p1
+␛[2mEnter runs  Shift-Tab goes back  Esc cancels␛[0m

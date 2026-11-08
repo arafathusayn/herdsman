@@ -1,0 +1,4 @@
+␛[1mStop and free a task␛[0m
+
+PLAN down --merged --keep-branch
+␛[2mEnter runs  Shift-Tab goes back  Esc cancels␛[0m
