@@ -29,7 +29,7 @@ func TestSchemaV1Tables(t *testing.T) {
 		KindRoute: {"acks", "alerts", "approvals", "cards", "claim_keys", "claims", "credentials", "events",
 			"holds", "import_log", "launches", "messages", "meta", "notices", "parties", "questions",
 			"resume_intents", "send_keys", "setup_proof", "targets", "terminals"},
-		KindAccount: {"activity", "adoptions", "meta", "operation_locks", "operation_steps", "operations", "outbox", "routes"},
+		KindAccount: {"activity", "adoptions", "meta", "operation_locks", "operation_steps", "operations", "outbox", "routes", "snapshots"},
 	}
 	for kind, names := range want {
 		c := openKind(t, kind)
