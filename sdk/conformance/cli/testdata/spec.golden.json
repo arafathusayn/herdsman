@@ -1,0 +1,2053 @@
+{
+  "contract": "0.0.0-dev",
+  "commands": [
+    {
+      "name": "afk",
+      "summary": "Print how long the user has been away: machine idle time or the newest message, whichever is newer."
+    },
+    {
+      "name": "approval-gate",
+      "summary": "Bind a relayed go before its effect: approval-gate consume ... | complete <request-id> <outcome>.",
+      "help": "usage: herdsman approval-gate consume <go-file> <action> <target> <revision> <draft-file|->\n       herdsman approval-gate complete <request-id> <outcome>\n\nBinds a relayed go to one effect: consume checks the go and records the\nrequest (CONSUME, DUPLICATE, RECONCILE or REFUSED lines); complete records\nits outcome (COMPLETED). --json prints each line as an Event object.\n\nsettings: HERDSMAN_INBOX (the inbox folder) is required. HERDSMAN_PREFLIGHT\nnames the setup proof, <inbox>/setup.json, which must name this herdsman\nbinary with its checksum. HEALTH_AFTER (1 to 86400) and LOCK_WAIT (1 to 60) are\nstrict settings. Herdr is reached through HERDR_SOCKET_PATH.\n\nexit codes:\n  0  consumed or completed; act once\n  1  refused: the go does not bind this effect\n  2  usage error, HERDSMAN_INBOX is not set, an invalid setting, or the\n     inbox cannot be used\n  3  a human must repeat the setup: the proof is missing, stale, or does\n     not name this herdsman binary (an old proof that lists scripts too)\n  4  a duplicate: the request already has an outcome\n  5  reconcile: consumed without an outcome; inspect external state first\n",
+      "usage": [
+        "herdsman approval-gate consume <go-file> <action> <target> <revision> <draft-file|->",
+        "herdsman approval-gate complete <request-id> <outcome>"
+      ],
+      "positionals": [
+        {
+          "name": "go-file"
+        },
+        {
+          "name": "action"
+        },
+        {
+          "name": "target"
+        },
+        {
+          "name": "revision"
+        },
+        {
+          "name": "draft-file|-"
+        },
+        {
+          "name": "request-id"
+        },
+        {
+          "name": "outcome"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "consumed or completed; act once"
+        },
+        {
+          "code": "1",
+          "meaning": "refused: the go does not bind this effect"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error, HERDSMAN_INBOX is not set, an invalid setting, or the inbox cannot be used"
+        },
+        {
+          "code": "3",
+          "meaning": "a human must repeat the setup: the proof is missing, stale, or does not name this herdsman binary (an old proof that lists scripts too)"
+        },
+        {
+          "code": "4",
+          "meaning": "a duplicate: the request already has an outcome"
+        },
+        {
+          "code": "5",
+          "meaning": "reconcile: consumed without an outcome; inspect external state first"
+        }
+      ]
+    },
+    {
+      "name": "checkpointer",
+      "summary": "Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.",
+      "subcommands": [
+        {
+          "name": "guard",
+          "help": "usage: herdsman checkpointer guard <orchestrator-name> <pane>\n\nA read-only check, right before each input in adjutant mode: the approved\nregistry names <pane> as <orchestrator-name>, and its live session still\nmatches. Settings (environment): HERDSMAN_INBOX (required),\nHERDSMAN_PREFLIGHT.\n\nExit codes:\n  0  OK <orchestrator-name> <pane>\n  2  usage, a bad setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman checkpointer guard <orchestrator-name> <pane>"
+          ],
+          "positionals": [
+            {
+              "name": "orchestrator-name"
+            },
+            {
+              "name": "pane"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "OK <orchestrator-name> <pane>"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, a bad setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "commit",
+      "summary": "Commit a worktree with a Conventional Commits message.",
+      "help": "usage: herdsman commit [--squash <target>] [--dry-run] [-m <message>] [--type <type>] [--scope <scope>] [--json]\n\nStages the current worktree by its [commit] stage policy and commits. The\nmessage is written by the configured generator, from the staged diff, and must\nbe a Conventional Commits message. When no generator can answer, the command\nwrites a plain one from the branch and the file names and says so; an answer\nthat is still invalid after one retry stops the commit.\n\n--squash folds every commit since the branch left <target> into this one.\n--dry-run shows the request, which program gets it and its answer; nothing changes.\n\nexit codes:\n  0  committed, or the dry run printed\n  1  nothing to commit, an invalid message, or git refused\n  2  bad usage\n",
+      "usage": [
+        "herdsman commit [--squash <target>] [--dry-run] [-m <message>] [--type <type>] [--scope <scope>] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--scope",
+          "valueName": "scope"
+        },
+        {
+          "name": "--squash",
+          "valueName": "target"
+        },
+        {
+          "name": "--type",
+          "valueName": "type"
+        },
+        {
+          "name": "-m",
+          "short": "-m",
+          "valueName": "message"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "committed, or the dry run printed"
+        },
+        {
+          "code": "1",
+          "meaning": "nothing to commit, an invalid message, or git refused"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "config",
+      "summary": "Read and change the configuration; install the shell integration.",
+      "help": "usage: herdsman config get <key> [-c <path>]\n       herdsman config set <key> <value> [-c <path>]\n       herdsman config unset <key> [-c <path>]\n       herdsman config show [--strict] [-c <path>]\n       herdsman config export --format toml|yaml|json|bin [-c <path>]\n       herdsman config update [-c <path>]\n       herdsman config init [--format toml|yaml|json|bin] [-c <path>]\n       herdsman config schema --format jsonschema|descriptor\n       herdsman config approvals list\n       herdsman config approvals clear [<project>]\n       herdsman config shell install|uninstall [bash|zsh|fish] [--json]\n\nKeys are dotted paths such as merge.strategy; a kebab-case spelling is the same\nkey. -c names a file; otherwise HERDSMAN_CONFIG, then the repository's parent\nfolder, then the repository root.\n\nshow prints the file in use and then one \"key = value (source)\" line each.\nA warning goes to stderr; --strict makes it an error. An unknown key in the\npolicy or launch section always stops the command.\n\nshell adds or removes the wrapper that lets herdsman go change the shell's\nfolder, with static completions. The shell defaults to $SHELL.\n\nexit codes:\n  0  done\n  1  the configuration is invalid, or the file cannot be read or written\n  2  usage error\n",
+      "usage": [
+        "herdsman config get <key> [-c <path>]",
+        "herdsman config set <key> <value> [-c <path>]",
+        "herdsman config unset <key> [-c <path>]",
+        "herdsman config show [--strict] [-c <path>]",
+        "herdsman config export --format toml|yaml|json|bin [-c <path>]",
+        "herdsman config update [-c <path>]",
+        "herdsman config init [--format toml|yaml|json|bin] [-c <path>]",
+        "herdsman config schema --format jsonschema|descriptor",
+        "herdsman config approvals list",
+        "herdsman config approvals clear [<project>]",
+        "herdsman config shell install|uninstall [bash|zsh|fish] [--json]"
+      ],
+      "positionals": [
+        {
+          "name": "key"
+        },
+        {
+          "name": "value"
+        },
+        {
+          "name": "project"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--format",
+          "valueName": "jsonschema|descriptor"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--strict"
+        },
+        {
+          "name": "-c",
+          "short": "-c",
+          "valueName": "path"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the configuration is invalid, or the file cannot be read or written"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error"
+        }
+      ]
+    },
+    {
+      "name": "cost",
+      "summary": "Report measured tokens and cost per task, project or route.",
+      "help": "usage: herdsman cost [--project|--task|--route] [--json]\n\nReports what harnesses measured: tokens and cost per task, or per project or\nroute with the flag. Only usage a harness reported is counted, so a harness\nthat reports nothing adds nothing here.\n\nexit codes:\n  0  reported, including when nothing has been measured yet\n  1  the usage log could not be read\n  2  bad usage\n",
+      "usage": [
+        "herdsman cost [--project|--task|--route] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--project"
+        },
+        {
+          "name": "--route"
+        },
+        {
+          "name": "--task"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "reported, including when nothing has been measured yet"
+        },
+        {
+          "code": "1",
+          "meaning": "the usage log could not be read"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "daemon",
+      "summary": "The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential."
+    },
+    {
+      "name": "diff",
+      "summary": "Show a worktree's changes.",
+      "help": "usage: herdsman diff [<task>] [--working|--committed|--remote] [--json] [-- <git diff args>]\n\nPrints git's diff for a worktree, the current one when no task is named. With\nno mode it is everything since the branch left the default branch, whether\ncommitted, in the index, edited or new. Reading it stages nothing.\n\n  --working    staged, unstaged and untracked changes against the last commit\n  --committed  commits since the branch left the default branch\n  --remote     commits the upstream does not have yet\n\nexit codes:\n  0  printed\n  1  no such worktree, git refused, or --exit-code found differences\n  2  bad usage\n",
+      "usage": [
+        "herdsman diff [<task>] [--working|--committed|--remote] [--json] [-- <git diff args>]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        },
+        {
+          "name": "git diff args"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--committed"
+        },
+        {
+          "name": "--exit-code"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--remote"
+        },
+        {
+          "name": "--working"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "printed"
+        },
+        {
+          "code": "1",
+          "meaning": "no such worktree, git refused, or --exit-code found differences"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "doctor",
+      "summary": "Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load."
+    },
+    {
+      "name": "each",
+      "summary": "Run a command in every worktree.",
+      "help": "usage: herdsman each [--json] -- <command> [<arg>...]\n\nRuns a command in each worktree of the repository in turn; a failure in one\ndoes not stop the rest. The command is run as given, without a shell; use\nsh -c '...' for one. It sees HERDSMAN_TASK, HERDSMAN_BRANCH and\nHERDSMAN_WORKTREE_PATH, and reads nothing from standard input.\n\nThe command's output goes to standard output. The heading before each run and\nthe summary go to standard error, so the output can be piped. With --json the\ncommand's output moves to standard error too and standard output holds only the\nresults.\n\nexit codes:\n  0  the command succeeded everywhere\n  1  it failed somewhere, or the worktrees could not be listed\n  2  bad usage\n",
+      "usage": [
+        "herdsman each [--json] -- <command> [<arg>...]"
+      ],
+      "positionals": [
+        {
+          "name": "command"
+        },
+        {
+          "name": "arg"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "the command succeeded everywhere"
+        },
+        {
+          "code": "1",
+          "meaning": "it failed somewhere, or the worktrees could not be listed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "eval",
+      "summary": "Report a suite's runs with intervals and an A/A control (experimental).",
+      "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
+      "usage": [
+        "herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]",
+        "herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>"
+      ],
+      "positionals": [
+        {
+          "name": "route folder"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--experimental-eval",
+          "valueName": "suite folder"
+        },
+        {
+          "name": "--file",
+          "valueName": "path"
+        },
+        {
+          "name": "--findings",
+          "valueName": "route folder"
+        },
+        {
+          "name": "--head",
+          "valueName": "commit"
+        },
+        {
+          "name": "--id",
+          "valueName": "id"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--line",
+          "valueName": "n"
+        },
+        {
+          "name": "--rank"
+        },
+        {
+          "name": "--reviewer",
+          "valueName": "name"
+        },
+        {
+          "name": "--severity",
+          "valueName": "level"
+        },
+        {
+          "name": "--task",
+          "valueName": "task"
+        },
+        {
+          "name": "--title",
+          "valueName": "text"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "reported or recorded"
+        },
+        {
+          "code": "1",
+          "meaning": "a file could not be read or written, or the suite has no A/A control"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage, or the experimental flag is missing"
+        },
+        {
+          "code": "3",
+          "meaning": "a ranking was asked for and refused"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "finding",
+          "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
+          "usage": [
+            "herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]",
+            "herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>"
+          ],
+          "positionals": [
+            {
+              "name": "route folder"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--experimental-eval",
+              "valueName": "suite folder"
+            },
+            {
+              "name": "--file",
+              "valueName": "path"
+            },
+            {
+              "name": "--findings",
+              "valueName": "route folder"
+            },
+            {
+              "name": "--head",
+              "valueName": "commit"
+            },
+            {
+              "name": "--id",
+              "valueName": "id"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--line",
+              "valueName": "n"
+            },
+            {
+              "name": "--rank"
+            },
+            {
+              "name": "--reviewer",
+              "valueName": "name"
+            },
+            {
+              "name": "--severity",
+              "valueName": "level"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            },
+            {
+              "name": "--title",
+              "valueName": "text"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "reported or recorded"
+            },
+            {
+              "code": "1",
+              "meaning": "a file could not be read or written, or the suite has no A/A control"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage, or the experimental flag is missing"
+            },
+            {
+              "code": "3",
+              "meaning": "a ranking was asked for and refused"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "go",
+      "summary": "Enter a worktree.",
+      "help": "usage: herdsman go [<task>|<branch>|<path>|^|@|-|pr:<n>|<url>] [--no-cd] [--focus] [--json]\n\nFinds a worktree, making one for a pull request, and enters it when the shell\nwrapper is installed (herdsman config shell install). With no argument it prints\nthe table and, on a terminal, reads a selector.\n\nexit codes:\n  0  found\n  1  nothing matched, or the switch hook failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman go [<task>|<branch>|<path>|^|@|-|pr:<n>|<url>] [--no-cd] [--focus] [--json]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        },
+        {
+          "name": "branch"
+        },
+        {
+          "name": "path"
+        },
+        {
+          "name": "n"
+        },
+        {
+          "name": "url"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--focus"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--no-cd"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "found"
+        },
+        {
+          "code": "1",
+          "meaning": "nothing matched, or the switch hook failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "help",
+      "summary": "Print the commands."
+    },
+    {
+      "name": "hook",
+      "summary": "Show, approve or run a worktree hook.",
+      "help": "usage: herdsman hook <type> [--dry-run] [--approve] [--from <task>] [--json]\n       herdsman hook show [<type>]\n\nRuns one hook point for the current worktree, or for --from's. --dry-run prints\nthe expanded commands, --approve accepts exactly these templates, and show\nlists what is configured.\n\nexit codes:\n  0  done\n  1  the hook failed or is not approved\n  2  bad usage\n",
+      "usage": [
+        "herdsman hook <type> [--dry-run] [--approve] [--from <task>] [--json]",
+        "herdsman hook show [<type>]"
+      ],
+      "positionals": [
+        {
+          "name": "type"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--approve"
+        },
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--from",
+          "valueName": "task"
+        },
+        {
+          "name": "--json"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the hook failed or is not approved"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "ls",
+      "summary": "List the repository's worktrees.",
+      "help": "usage: herdsman ls [--full] [--all] [--json]\n       herdsman ls --statusline [--format text|json|claude-code]\n\nPrints one row per worktree of the repository. --all adds branches without a\ntree, --full adds the commit and path. The JSON form is for scripts:\n\n  herdsman ls --json | jq -r '.rows[] | select(.status != \"\") | .task'\n\nexit codes:\n  0  printed\n  1  the table could not be read\n  2  bad usage\n",
+      "usage": [
+        "herdsman ls [--full] [--all] [--json]",
+        "herdsman ls --statusline [--format text|json|claude-code]"
+      ],
+      "flags": [
+        {
+          "name": "--all"
+        },
+        {
+          "name": "--format",
+          "valueName": "text|json|claude-code"
+        },
+        {
+          "name": "--full"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--statusline"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "printed"
+        },
+        {
+          "code": "1",
+          "meaning": "the table could not be read"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "message",
+      "summary": "The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.",
+      "subcommands": [
+        {
+          "name": "ack",
+          "help": "usage: herdsman message [--json] ack <claim> <id> <record>\n  acknowledge a claimed message after durable intake\n\nsettings: HERDSMAN_NAME and HERDSMAN_INBOX are required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] ack <claim> <id> <record>"
+          ],
+          "positionals": [
+            {
+              "name": "claim"
+            },
+            {
+              "name": "id"
+            },
+            {
+              "name": "record"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        },
+        {
+          "name": "authority",
+          "help": "usage: herdsman message [--json] authority\n  RELAY or HUMAN (--json: {\"type\":\"authority\",\"status\":\"relay|human\",\"text\"})\n\nsettings: HERDSMAN_INBOX is required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done (RELAY)\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n  3  HUMAN\n",
+          "usage": [
+            "herdsman message [--json] authority"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done (RELAY)"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            },
+            {
+              "code": "3",
+              "meaning": "HUMAN"
+            }
+          ]
+        },
+        {
+          "name": "card-watch",
+          "help": "usage: herdsman message [--json] card-watch [--json]\n  INTERVAL=5 RUN_FOR=0 (it prints no event lines; alerts go to herdr)\n\nsettings: HERDSMAN_INBOX is required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] card-watch [--json]"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        },
+        {
+          "name": "courier",
+          "help": "usage: herdsman message [--json] courier\n  SWEEP=60 ALERT_AFTER=600 RUN_FOR=0\n\nsettings: HERDSMAN_INBOX is required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] courier"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        },
+        {
+          "name": "hold",
+          "help": "usage: herdsman message [--json] hold <name> <reason> | unhold <name>\n\nsettings: HERDSMAN_NAME and HERDSMAN_INBOX are required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] hold <name> <reason> | unhold <name>"
+          ],
+          "positionals": [
+            {
+              "name": "name"
+            },
+            {
+              "name": "reason"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        },
+        {
+          "name": "leak-gate",
+          "help": "usage: herdsman message [--json] leak-gate <file> [heading...]\n  LEAK_ALLOW_FILE LEAK_PATTERN\n\nsettings: LEAK_PATTERN (an added pattern) and LEAK_ALLOW_FILE (exact lines allowed) are optional; no inbox is needed.\n\nexit codes:\n  0  done (clean)\n  1  a leak or a missing section\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] leak-gate <file> [heading...]"
+          ],
+          "positionals": [
+            {
+              "name": "file"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done (clean)"
+            },
+            {
+              "code": "1",
+              "meaning": "a leak or a missing section"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        },
+        {
+          "name": "read",
+          "help": "usage: herdsman message [--json] read [claim]\n  claim ready messages; print manifests, never bodies\n\nsettings: HERDSMAN_NAME and HERDSMAN_INBOX are required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] read [claim]"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        },
+        {
+          "name": "register",
+          "help": "usage: herdsman message [--json] register propose <name> adjutant|orchestrator | approve <checksum> | retire <name> <checksum>\n\nsettings: HERDSMAN_INBOX is required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] register propose <name> adjutant|orchestrator | approve <checksum> | retire <name> <checksum>"
+          ],
+          "positionals": [
+            {
+              "name": "name"
+            },
+            {
+              "name": "checksum"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        },
+        {
+          "name": "release",
+          "help": "usage: herdsman message [--json] release <claim>\n  release a fully acknowledged claim\n\nsettings: HERDSMAN_NAME and HERDSMAN_INBOX are required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] release <claim>"
+          ],
+          "positionals": [
+            {
+              "name": "claim"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        },
+        {
+          "name": "resume-goal",
+          "help": "usage: herdsman message [--json] resume-goal <name>\n  RESUME_TARGET_SUM (--json: {\"type\":\"resume\",\"status\":\"held|noop|sent\",\"text\"})\n\nsettings: HERDSMAN_INBOX is required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done (NOOP or SENT)\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n  3  HELD\n",
+          "usage": [
+            "herdsman message [--json] resume-goal <name>"
+          ],
+          "positionals": [
+            {
+              "name": "name"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done (NOOP or SENT)"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            },
+            {
+              "code": "3",
+              "meaning": "HELD"
+            }
+          ]
+        },
+        {
+          "name": "send",
+          "help": "usage: herdsman message [--json] send <to> <file> <kind> [reply]\n\nsettings: HERDSMAN_NAME and HERDSMAN_INBOX are required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] send <to> <file> <kind> [reply]"
+          ],
+          "positionals": [
+            {
+              "name": "to"
+            },
+            {
+              "name": "file"
+            },
+            {
+              "name": "kind"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        },
+        {
+          "name": "status",
+          "help": "usage: herdsman message [--json] status\n  channel metadata, read-only (--json: one object)\n\nsettings: HERDSMAN_NAME and HERDSMAN_INBOX are required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] status"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        },
+        {
+          "name": "unhold",
+          "help": "usage: herdsman message [--json] hold <name> <reason> | unhold <name>\n\nsettings: HERDSMAN_NAME and HERDSMAN_INBOX are required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] hold <name> <reason> | unhold <name>"
+          ],
+          "positionals": [
+            {
+              "name": "name"
+            },
+            {
+              "name": "reason"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        },
+        {
+          "name": "wait",
+          "help": "usage: herdsman message [--json] wait\n  wait for a message or a health change (--json: one event object)\n\nsettings: HERDSMAN_NAME and HERDSMAN_INBOX are required.\nSWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are\ndurations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each\ncommand's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line\nnaming it, exit 2, before anything runs.\n\nexit codes:\n  0  done (a message or TICK)\n  1  HEALTH\n  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)\n",
+          "usage": [
+            "herdsman message [--json] wait"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done (a message or TICK)"
+            },
+            {
+              "code": "1",
+              "meaning": "HEALTH"
+            },
+            {
+              "code": "2",
+              "meaning": "usage, an invalid or missing setting, or a refusal (the reason on stderr)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "models",
+      "summary": "Probe each installed harness: its version, models, efforts and default effort as it reports them."
+    },
+    {
+      "name": "new",
+      "summary": "Make a task's branch and worktree.",
+      "help": "usage: herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]\n                    [--clobber] [--agent <command>] [--json] [-- <prompt>]\n\nMakes the task's branch and worktree from the fetched base, then runs its hooks\nand setup.\n\nexit codes:\n  0  the worktree is ready\n  1  it could not be made, or a hook or the setup failed (the message says which)\n  2  bad usage\n",
+      "usage": [
+        "herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        },
+        {
+          "name": "n"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--agent",
+          "valueName": "command"
+        },
+        {
+          "name": "--base",
+          "valueName": "ref"
+        },
+        {
+          "name": "--clobber"
+        },
+        {
+          "name": "--from"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--no-setup"
+        },
+        {
+          "name": "--type",
+          "valueName": "type"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "the worktree is ready"
+        },
+        {
+          "code": "1",
+          "meaning": "it could not be made, or a hook or the setup failed (the message says which)"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "project",
+      "summary": "Work on a project's context repo: project context init|check|note, project log.",
+      "help": "usage: herdsman project context init|check|note ...\n       herdsman project log [--since <date>] [--task <task>] [--json]\n\nWork on the context repo of the project bound to this folder.\n\nexit codes:\n  0  done\n  1  check found problems, the daemon refused, or it is not running\n  2  bad usage\n",
+      "usage": [
+        "herdsman project context init|check|note ...",
+        "herdsman project log [--since <date>] [--task <task>] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--since",
+          "valueName": "date"
+        },
+        {
+          "name": "--task",
+          "valueName": "task"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "check found problems, the daemon refused, or it is not running"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "context",
+          "help": "usage: herdsman project context init\n       herdsman project context check\n       herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>\n\nRun inside a folder bound to a project.\n\ninit lays out the context repo and prints its folder.\ncheck validates the history and prints each problem.\nnote adds a note to the history and prints its id. Without --parent it joins\nevery open branch of the history.\n\nexit codes:\n  0  done; for check, the history is sound\n  1  check found problems, the daemon refused, or it is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman project context init",
+            "herdsman project context check",
+            "herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>"
+          ],
+          "positionals": [
+            {
+              "name": "text"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--actor",
+              "valueName": "who"
+            },
+            {
+              "name": "--parent",
+              "valueName": "id"
+            },
+            {
+              "name": "--repo",
+              "valueName": "repo"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done; for check, the history is sound"
+            },
+            {
+              "code": "1",
+              "meaning": "check found problems, the daemon refused, or it is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "log",
+          "help": "usage: herdsman project log [--since <date>] [--task <task>] [--json]\n\nPrint the history of the project bound to this folder, parents before\nchildren, then by time. --since takes YYYY-MM-DD (UTC) or an RFC 3339 time.\n\nexit codes:\n  0  printed\n  1  the daemon refused, or it is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman project log [--since <date>] [--task <task>] [--json]"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--since",
+              "valueName": "date"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "printed"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused, or it is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "recommend",
+      "summary": "The same as suggest.",
+      "help": "usage: herdsman suggest [<query>...] [--kind tip|mcp|skill|plugin|mod|repo]\n                        [--for <harness>] [--tag <tag>] [--json]\n       herdsman suggest show <id> [--json]\n       herdsman suggest add --title <text> --tag <tag>... --body-file <path> [--id <id>]\n                        [--kind <kind>] [--url <url>] [--repo <url>] [--project] [--json]\n       herdsman suggest apply <id> [--run] [--json]\n       herdsman suggest source add <url> [--ref <commit|tag>] [--json]\n       herdsman suggest source list [--json]\n       herdsman suggest source remove <url>\n       herdsman suggest source update <url> [--ref <commit|tag>] [--yes] [--json]\n\nSearches the catalog, ranked for this machine and project. apply prints a\nrecipe; --run executes it, on a terminal only, after approving its checksum.\nsource update shows the changes before it moves the pin.\n\nexit codes:\n  0  done\n  1  the entry or source was not found, or a recipe was refused or failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman suggest [<query>...] [--kind tip|mcp|skill|plugin|mod|repo]"
+      ],
+      "positionals": [
+        {
+          "name": "query"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--body-file",
+          "valueName": "path"
+        },
+        {
+          "name": "--for",
+          "valueName": "harness"
+        },
+        {
+          "name": "--id",
+          "valueName": "id"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--project"
+        },
+        {
+          "name": "--ref",
+          "valueName": "commit|tag"
+        },
+        {
+          "name": "--repo",
+          "valueName": "url"
+        },
+        {
+          "name": "--run"
+        },
+        {
+          "name": "--tag",
+          "valueName": "tag"
+        },
+        {
+          "name": "--title",
+          "valueName": "text"
+        },
+        {
+          "name": "--url",
+          "valueName": "url"
+        },
+        {
+          "name": "--yes"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the entry or source was not found, or a recipe was refused or failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "resource",
+      "summary": "Record a resource a task created: resource add.",
+      "help": "usage: herdsman resource add --kind <kind> --id <id> [--task <task>] [--execution <id>]\n\nRecords that the current execution created a resource, which is what lets\nteardown stop it. A process is recorded with its start time and command line.\nRun it from the worktree, or name the task.\n\nexit codes:\n  0  recorded\n  1  it could not be recorded (the message says why)\n  2  bad usage\n",
+      "usage": [
+        "herdsman resource add --kind <kind> --id <id> [--task <task>] [--execution <id>]"
+      ],
+      "flags": [
+        {
+          "name": "--execution",
+          "valueName": "id"
+        },
+        {
+          "name": "--id",
+          "valueName": "id"
+        },
+        {
+          "name": "--kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--task",
+          "valueName": "task"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "recorded"
+        },
+        {
+          "code": "1",
+          "meaning": "it could not be recorded (the message says why)"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "review",
+      "summary": "Prepare a reviewer: herdsman review start --worktree <path> --head <commit>."
+    },
+    {
+      "name": "route",
+      "summary": "Check a route folder (route check) or append a run-state line (route log).",
+      "help": "usage: herdsman route check <route folder> [plan|launch|close]\n       herdsman route log <path to 00-route.md> \"<text>\"\n\nroute check prints an \"ok\" or \"MISSING\" line per item of the route at a stage\n(plan by default); route log appends a dated run-state line.\n\nexit codes:\n  0  nothing is missing, or the line was written\n  1  something is missing, or the line could not be written\n  2  usage error\n",
+      "usage": [
+        "herdsman route check <route folder> [plan|launch|close]",
+        "herdsman route log <path to 00-route.md> \"<text>\""
+      ],
+      "positionals": [
+        {
+          "name": "route folder"
+        },
+        {
+          "name": "path to 00-route.md"
+        },
+        {
+          "name": "text"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "nothing is missing, or the line was written"
+        },
+        {
+          "code": "1",
+          "meaning": "something is missing, or the line could not be written"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "check",
+          "help": "usage: herdsman route check <route folder> [plan|launch|close]\n       herdsman route log <path to 00-route.md> \"<text>\"\n\nroute check prints an \"ok\" or \"MISSING\" line per item of the route at a stage\n(plan by default); route log appends a dated run-state line.\n\nexit codes:\n  0  nothing is missing, or the line was written\n  1  something is missing, or the line could not be written\n  2  usage error\n",
+          "usage": [
+            "herdsman route check <route folder> [plan|launch|close]",
+            "herdsman route log <path to 00-route.md> \"<text>\""
+          ],
+          "positionals": [
+            {
+              "name": "route folder"
+            },
+            {
+              "name": "path to 00-route.md"
+            },
+            {
+              "name": "text"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "nothing is missing, or the line was written"
+            },
+            {
+              "code": "1",
+              "meaning": "something is missing, or the line could not be written"
+            },
+            {
+              "code": "2",
+              "meaning": "usage error"
+            }
+          ]
+        },
+        {
+          "name": "log",
+          "help": "usage: herdsman route check <route folder> [plan|launch|close]\n       herdsman route log <path to 00-route.md> \"<text>\"\n\nroute check prints an \"ok\" or \"MISSING\" line per item of the route at a stage\n(plan by default); route log appends a dated run-state line.\n\nexit codes:\n  0  nothing is missing, or the line was written\n  1  something is missing, or the line could not be written\n  2  usage error\n",
+          "usage": [
+            "herdsman route check <route folder> [plan|launch|close]",
+            "herdsman route log <path to 00-route.md> \"<text>\""
+          ],
+          "positionals": [
+            {
+              "name": "route folder"
+            },
+            {
+              "name": "path to 00-route.md"
+            },
+            {
+              "name": "text"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "nothing is missing, or the line was written"
+            },
+            {
+              "code": "1",
+              "meaning": "something is missing, or the line could not be written"
+            },
+            {
+              "code": "2",
+              "meaning": "usage error"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "run-check",
+      "summary": "Run one heavy check at a time on this machine, behind a load gate (--publish <hours>: the load reading).",
+      "help": "usage: herdsman run-check <command> [args]\n       herdsman run-check --publish <hours>\n\nRuns one heavy check at a time on this machine, under a shared lock, behind\na load gate, at a lower priority. --publish writes the machine's load\nreading every HERDSMAN_PUBLISH_EVERY for <hours> (or\nHERDSMAN_PUBLISH_SECONDS), at most a day.\n\nsettings: HERDSMAN_LOCK, HERDSMAN_READING, HERDSMAN_LOCK_WAIT (5400),\nHERDSMAN_GATE_WAIT (600), HERDSMAN_GATE_POLL (15), HERDSMAN_MIN_FREE (10),\nHERDSMAN_NICE (10), HERDSMAN_LOAD_LIMIT (the core count), HERDSMAN_PROBES,\nHERDSMAN_PUBLISH_EVERY (15), HERDSMAN_PUBLISH_SECONDS. Durations are seconds\nor a number with s, m, h or d.\n\nexit codes:\n  N   the check's own exit code\n  2   an invalid setting or hour count; nothing ran\n  64  usage error\n  69  the lock file cannot be opened or locked\n  70  the start marker cannot be written\n  73  the publisher cannot write its reading (--publish)\n  75  the load gate gave up, or no lock came within HERDSMAN_LOCK_WAIT\n  126 the command cannot be started\n  127 the command was not found\n",
+      "usage": [
+        "herdsman run-check <command> [args]",
+        "herdsman run-check --publish <hours>"
+      ],
+      "positionals": [
+        {
+          "name": "command"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--publish",
+          "valueName": "hours"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "N",
+          "meaning": "the check's own exit code"
+        },
+        {
+          "code": "2",
+          "meaning": "an invalid setting or hour count; nothing ran"
+        },
+        {
+          "code": "64",
+          "meaning": "usage error"
+        },
+        {
+          "code": "69",
+          "meaning": "the lock file cannot be opened or locked"
+        },
+        {
+          "code": "70",
+          "meaning": "the start marker cannot be written"
+        },
+        {
+          "code": "73",
+          "meaning": "the publisher cannot write its reading (--publish)"
+        },
+        {
+          "code": "75",
+          "meaning": "the load gate gave up, or no lock came within HERDSMAN_LOCK_WAIT"
+        },
+        {
+          "code": "126",
+          "meaning": "the command cannot be started"
+        },
+        {
+          "code": "127",
+          "meaning": "the command was not found"
+        }
+      ]
+    },
+    {
+      "name": "spec",
+      "summary": "Print the SDK contracts: spec cli|proto|descriptor.",
+      "help": "usage: herdsman spec cli|proto|descriptor\n\ncli prints every command, flag and exit code as JSON.\nproto prints every contract source, each after a \"// file: <path>\" line.\ndescriptor prints the contracts' serialized FileDescriptorSet, with every\nimport before the file that needs it.\n\nexit codes:\n  0  the contracts were printed\n  1  the contracts could not be read or written\n  2  usage error\n",
+      "usage": [
+        "herdsman spec cli|proto|descriptor"
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "the contracts were printed"
+        },
+        {
+          "code": "1",
+          "meaning": "the contracts could not be read or written"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error"
+        }
+      ]
+    },
+    {
+      "name": "status",
+      "summary": "Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.",
+      "help": "usage: herdsman status\n\nPrints a health snapshot of every agent in HERDSMAN_STATUS_SPECS\n(\"name:pane:tree ...\") and of the machine. LIMIT_MIN (30) flags a\nbackground job running that many minutes or more.\n\nexit codes:\n  0  the snapshot was printed\n  2  usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid\n     LIMIT_MIN\n",
+      "usage": [
+        "herdsman status"
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "the snapshot was printed"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid LIMIT_MIN"
+        }
+      ]
+    },
+    {
+      "name": "suggest",
+      "summary": "Search the catalog of tips and tools.",
+      "help": "usage: herdsman suggest [<query>...] [--kind tip|mcp|skill|plugin|mod|repo]\n                        [--for <harness>] [--tag <tag>] [--json]\n       herdsman suggest show <id> [--json]\n       herdsman suggest add --title <text> --tag <tag>... --body-file <path> [--id <id>]\n                        [--kind <kind>] [--url <url>] [--repo <url>] [--project] [--json]\n       herdsman suggest apply <id> [--run] [--json]\n       herdsman suggest source add <url> [--ref <commit|tag>] [--json]\n       herdsman suggest source list [--json]\n       herdsman suggest source remove <url>\n       herdsman suggest source update <url> [--ref <commit|tag>] [--yes] [--json]\n\nSearches the catalog, ranked for this machine and project. apply prints a\nrecipe; --run executes it, on a terminal only, after approving its checksum.\nsource update shows the changes before it moves the pin.\n\nexit codes:\n  0  done\n  1  the entry or source was not found, or a recipe was refused or failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman suggest [<query>...] [--kind tip|mcp|skill|plugin|mod|repo]"
+      ],
+      "positionals": [
+        {
+          "name": "query"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--body-file",
+          "valueName": "path"
+        },
+        {
+          "name": "--for",
+          "valueName": "harness"
+        },
+        {
+          "name": "--id",
+          "valueName": "id"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--project"
+        },
+        {
+          "name": "--ref",
+          "valueName": "commit|tag"
+        },
+        {
+          "name": "--repo",
+          "valueName": "url"
+        },
+        {
+          "name": "--run"
+        },
+        {
+          "name": "--tag",
+          "valueName": "tag"
+        },
+        {
+          "name": "--title",
+          "valueName": "text"
+        },
+        {
+          "name": "--url",
+          "valueName": "url"
+        },
+        {
+          "name": "--yes"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the entry or source was not found, or a recipe was refused or failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "teardown",
+      "summary": "Stop what a task runs, keeping what it holds.",
+      "help": "usage: herdsman teardown [<task>|<selector>] [--route <folder>|--all] [-y]\n                         [--grace <seconds>] [--include associated] [--json]\n\nStops what a task runs and keeps everything it holds: it prints what it would do, asks,\nthen signals only what the task exclusively owns, checking each one again just\nbefore its signal. Nothing is removed.\n\nexit codes:\n  0  everything approved was stopped\n  1  a plan stopped because the machine changed, or a stop failed\n  2  bad usage, or no terminal to ask on and no -y\n",
+      "usage": [
+        "herdsman teardown [<task>|<selector>] [--route <folder>|--all] [-y]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        },
+        {
+          "name": "selector"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--all"
+        },
+        {
+          "name": "--grace",
+          "valueName": "seconds"
+        },
+        {
+          "name": "--include"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--route",
+          "valueName": "folder"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "everything approved was stopped"
+        },
+        {
+          "code": "1",
+          "meaning": "a plan stopped because the machine changed, or a stop failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage, or no terminal to ask on and no -y"
+        }
+      ]
+    },
+    {
+      "name": "trace",
+      "summary": "Show or export one route's spans as OpenTelemetry.",
+      "help": "usage: herdsman trace <route folder> [--json | --otlp <endpoint>] [--hook-logs <folder>]...\n       herdsman trace add <route folder> --kind <kind> --name <name> [--task <task>]\n                          [--start <RFC 3339>] [--duration-ms <n>] [--exit <n>]\n                          [--tokens <n>] [--cost-micros <n>]\n\nShows one route as spans: git commands, hooks, checks, reviews and agent\nturns, each with its timing and whatever exit or usage was reported. --json\nprints them; --otlp posts them to an OpenTelemetry collector over HTTP (plain\nhttp only to this machine). Each --hook-logs folder adds every hook run in it,\nsince a hook result does not name its route. Secrets are kept out: git\narguments are redacted and hook command text is left out.\n\ntrace add records a span (check, turn, review, hook or command) in the route.\nWithout --start the span ends now.\n\nexit codes:\n  0  reported or recorded, including when the route has no spans\n  1  the route or a log could not be read, or the export failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman trace <route folder> [--json | --otlp <endpoint>] [--hook-logs <folder>]...",
+        "herdsman trace add <route folder> --kind <kind> --name <name> [--task <task>]"
+      ],
+      "positionals": [
+        {
+          "name": "route folder"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--cost-micros",
+          "valueName": "n"
+        },
+        {
+          "name": "--duration-ms",
+          "valueName": "n"
+        },
+        {
+          "name": "--exit",
+          "valueName": "n"
+        },
+        {
+          "name": "--hook-logs",
+          "valueName": "folder"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--name",
+          "valueName": "name"
+        },
+        {
+          "name": "--otlp",
+          "valueName": "endpoint"
+        },
+        {
+          "name": "--start",
+          "valueName": "RFC 3339"
+        },
+        {
+          "name": "--task",
+          "valueName": "task"
+        },
+        {
+          "name": "--tokens",
+          "valueName": "n"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "reported or recorded, including when the route has no spans"
+        },
+        {
+          "code": "1",
+          "meaning": "the route or a log could not be read, or the export failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "add",
+          "help": "usage: herdsman trace <route folder> [--json | --otlp <endpoint>] [--hook-logs <folder>]...\n       herdsman trace add <route folder> --kind <kind> --name <name> [--task <task>]\n                          [--start <RFC 3339>] [--duration-ms <n>] [--exit <n>]\n                          [--tokens <n>] [--cost-micros <n>]\n\nShows one route as spans: git commands, hooks, checks, reviews and agent\nturns, each with its timing and whatever exit or usage was reported. --json\nprints them; --otlp posts them to an OpenTelemetry collector over HTTP (plain\nhttp only to this machine). Each --hook-logs folder adds every hook run in it,\nsince a hook result does not name its route. Secrets are kept out: git\narguments are redacted and hook command text is left out.\n\ntrace add records a span (check, turn, review, hook or command) in the route.\nWithout --start the span ends now.\n\nexit codes:\n  0  reported or recorded, including when the route has no spans\n  1  the route or a log could not be read, or the export failed\n  2  bad usage\n",
+          "usage": [
+            "herdsman trace <route folder> [--json | --otlp <endpoint>] [--hook-logs <folder>]...",
+            "herdsman trace add <route folder> --kind <kind> --name <name> [--task <task>]"
+          ],
+          "positionals": [
+            {
+              "name": "route folder"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--cost-micros",
+              "valueName": "n"
+            },
+            {
+              "name": "--duration-ms",
+              "valueName": "n"
+            },
+            {
+              "name": "--exit",
+              "valueName": "n"
+            },
+            {
+              "name": "--hook-logs",
+              "valueName": "folder"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--kind",
+              "valueName": "kind"
+            },
+            {
+              "name": "--name",
+              "valueName": "name"
+            },
+            {
+              "name": "--otlp",
+              "valueName": "endpoint"
+            },
+            {
+              "name": "--start",
+              "valueName": "RFC 3339"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            },
+            {
+              "name": "--tokens",
+              "valueName": "n"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "reported or recorded, including when the route has no spans"
+            },
+            {
+              "code": "1",
+              "meaning": "the route or a log could not be read, or the export failed"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "transcript-audit",
+      "summary": "Audit a Claude or Codex transcript for writes: transcript-audit claude|codex <transcript> <session-id> [root/ ...].",
+      "help": "usage: herdsman transcript-audit claude|codex <transcript> <session-id> [allowed-write-root/ ...]\n\nAudits a transcript for writes: GAP, FLAG and AUDIT lines. --json prints\neach line as an Event object. AUDIT_GRANT_FILE names the exact command\nlines an administrative grant permits.\n\nexit codes:\n  0  clean\n  1  flagged calls: report each to the human and stop work\n  2  a gap: the transcript could not be audited\n",
+      "usage": [
+        "herdsman transcript-audit claude|codex <transcript> <session-id> [allowed-write-root/ ...]"
+      ],
+      "positionals": [
+        {
+          "name": "transcript"
+        },
+        {
+          "name": "session-id"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "clean"
+        },
+        {
+          "code": "1",
+          "meaning": "flagged calls: report each to the human and stop work"
+        },
+        {
+          "code": "2",
+          "meaning": "a gap: the transcript could not be audited"
+        }
+      ]
+    },
+    {
+      "name": "up",
+      "summary": "Start a route: workspace, private inbox, both coordinators, the pair and the first brief.",
+      "help": "usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]\n                   [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]\n                   [--pair auto|manual] [--web] [--no-attach] [--dry-run]\n       herdsman up [<route>] --continue [--step <n>=done|rerun]...\n\n-a and -o are the commands that launch each coordinator's harness, typed as you\nwould type them: \"claude doctor && claude --model opus\".\n--dry-run prints the whole plan and starts nothing.\n--web also starts the web app on the route.\n--pair manual asks on the terminal before the pair is approved.\nA second up on the same route picks up where the first stopped.\n",
+      "usage": [
+        "herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]"
+      ],
+      "positionals": [
+        {
+          "name": "route"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--adjutant-kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--continue"
+        },
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--model"
+        },
+        {
+          "name": "--no-adjutant"
+        },
+        {
+          "name": "--no-attach"
+        },
+        {
+          "name": "--orchestrator-kind",
+          "valueName": "kind"
+        },
+        {
+          "name": "--pair",
+          "valueName": "auto|manual"
+        },
+        {
+          "name": "--step",
+          "valueName": "n"
+        },
+        {
+          "name": "--web"
+        },
+        {
+          "name": "-a",
+          "short": "-a",
+          "valueName": "command"
+        },
+        {
+          "name": "-c",
+          "short": "-c",
+          "valueName": "config"
+        },
+        {
+          "name": "-o",
+          "short": "-o",
+          "valueName": "command"
+        },
+        {
+          "name": "-p",
+          "short": "-p",
+          "valueName": "prompt"
+        }
+      ]
+    },
+    {
+      "name": "update",
+      "summary": "Install the latest signed release over this binary.",
+      "help": "usage: herdsman update [--check] [--version <version>] [--allow-downgrade]\n\nInstalls the latest release over this binary. The release's checksum list must\ncarry a signature from a key this binary trusts, and the archive must match\nthat list, before anything is replaced; the new binary must also run and report\nits version. A binary installed by a package manager is left to that manager.\n\n  --check            Say whether a newer release exists; change nothing.\n  --version <v>      Install this version instead of the latest.\n  --allow-downgrade  Allow a version older than this binary.\n\nexit codes:\n  0  the binary is current, was updated, or --check answered\n  1  the release was refused or could not be fetched; the binary is unchanged\n  2  usage error\n",
+      "usage": [
+        "herdsman update [--check] [--version <version>] [--allow-downgrade]"
+      ],
+      "flags": [
+        {
+          "name": "--allow-downgrade"
+        },
+        {
+          "name": "--check"
+        },
+        {
+          "name": "--version",
+          "valueName": "v"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "the binary is current, was updated, or --check answered"
+        },
+        {
+          "code": "1",
+          "meaning": "the release was refused or could not be fetched; the binary is unchanged"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error"
+        }
+      ]
+    },
+    {
+      "name": "version",
+      "summary": "Print the version, commit and platform."
+    },
+    {
+      "name": "wait",
+      "summary": "Wait for the next event of the loop (a report, a review, a blocked or stalled agent, a health flag), or TICK.",
+      "help": "usage: herdsman wait\n\nPolls every POLL (60) and returns after the first pass with events\n(REPORT, REPORT-UPDATED, REVIEW, BLOCKED, GOAL-DONE-NO-REPORT, STALL,\nOVERDUE, HEALTH), or after DEADLINE (1500) with a TICK line.\nHERDSMAN_HEALTH_EVERY (300) paces the health check; HERDSMAN_DUE_<name> is\na due time in Unix seconds. Durations are seconds or a number with s, m, h\nor d, at most a day.\n\nexit codes:\n  0  events or a TICK were printed\n  2  usage error, or an invalid setting; nothing ran\n",
+      "usage": [
+        "herdsman wait"
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "events or a TICK were printed"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error, or an invalid setting; nothing ran"
+        }
+      ]
+    },
+    {
+      "name": "watch",
+      "summary": "Watch implementers, the reviewer or pull requests: herdsman watch implementers|reviewer|prs.",
+      "help": "usage: herdsman watch implementers|reviewer|prs\n\nimplementers and reviewer print events until interrupted; prs returns on\nthe first pull request change, or after HERDSMAN_PR_DEADLINE (1500) with a\nTICK line, polling every HERDSMAN_PR_INTERVAL (120).\n\nexit codes:\n  0  a change or a TICK was printed, or the watcher was stopped\n  1  no gh token, or a pull request could not be read three polls in a\n     row\n  2  usage error, or a missing or invalid setting; nothing ran\n",
+      "usage": [
+        "herdsman watch implementers|reviewer|prs"
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "a change or a TICK was printed, or the watcher was stopped"
+        },
+        {
+          "code": "1",
+          "meaning": "no gh token, or a pull request could not be read three polls in a row"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error, or a missing or invalid setting; nothing ran"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "implementers",
+          "help": "usage: herdsman watch implementers|reviewer|prs\n\nimplementers and reviewer print events until interrupted; prs returns on\nthe first pull request change, or after HERDSMAN_PR_DEADLINE (1500) with a\nTICK line, polling every HERDSMAN_PR_INTERVAL (120).\n\nexit codes:\n  0  a change or a TICK was printed, or the watcher was stopped\n  1  no gh token, or a pull request could not be read three polls in a\n     row\n  2  usage error, or a missing or invalid setting; nothing ran\n",
+          "usage": [
+            "herdsman watch implementers|reviewer|prs"
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "a change or a TICK was printed, or the watcher was stopped"
+            },
+            {
+              "code": "1",
+              "meaning": "no gh token, or a pull request could not be read three polls in a row"
+            },
+            {
+              "code": "2",
+              "meaning": "usage error, or a missing or invalid setting; nothing ran"
+            }
+          ]
+        },
+        {
+          "name": "prs",
+          "help": "usage: herdsman watch implementers|reviewer|prs\n\nimplementers and reviewer print events until interrupted; prs returns on\nthe first pull request change, or after HERDSMAN_PR_DEADLINE (1500) with a\nTICK line, polling every HERDSMAN_PR_INTERVAL (120).\n\nexit codes:\n  0  a change or a TICK was printed, or the watcher was stopped\n  1  no gh token, or a pull request could not be read three polls in a\n     row\n  2  usage error, or a missing or invalid setting; nothing ran\n",
+          "usage": [
+            "herdsman watch implementers|reviewer|prs"
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "a change or a TICK was printed, or the watcher was stopped"
+            },
+            {
+              "code": "1",
+              "meaning": "no gh token, or a pull request could not be read three polls in a row"
+            },
+            {
+              "code": "2",
+              "meaning": "usage error, or a missing or invalid setting; nothing ran"
+            }
+          ]
+        },
+        {
+          "name": "reviewer",
+          "help": "usage: herdsman watch implementers|reviewer|prs\n\nimplementers and reviewer print events until interrupted; prs returns on\nthe first pull request change, or after HERDSMAN_PR_DEADLINE (1500) with a\nTICK line, polling every HERDSMAN_PR_INTERVAL (120).\n\nexit codes:\n  0  a change or a TICK was printed, or the watcher was stopped\n  1  no gh token, or a pull request could not be read three polls in a\n     row\n  2  usage error, or a missing or invalid setting; nothing ran\n",
+          "usage": [
+            "herdsman watch implementers|reviewer|prs"
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "a change or a TICK was printed, or the watcher was stopped"
+            },
+            {
+              "code": "1",
+              "meaning": "no gh token, or a pull request could not be read three polls in a row"
+            },
+            {
+              "code": "2",
+              "meaning": "usage error, or a missing or invalid setting; nothing ran"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "web",
+      "summary": "Serve the web app and print its URL, with a one-run token, and a QR code."
+    }
+  ]
+}
