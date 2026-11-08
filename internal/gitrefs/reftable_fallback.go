@@ -22,7 +22,9 @@ var repositoryEnv = []string{
 }
 
 func (r *Reader) runGit(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.gitDir}, args...)...)
+	// --git-dir, not -C: discovery could answer from a repository around gitDir.
+	cmd := exec.CommandContext(ctx, "git", append([]string{"--git-dir=" + r.gitDir}, args...)...)
+	cmd.Dir = r.gitDir
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
 		name, _, _ := strings.Cut(entry, "=")
 		return slices.Contains(repositoryEnv, name)

@@ -41,21 +41,21 @@ type refStore struct {
 	packed    *packedCache
 }
 
-func (r *Reader) storeFor(gitDir string) refStore {
-	return refStore{gitDir: gitDir, commonDir: r.commonDir, hexLen: r.hexLen, packed: r.packed}
+func (r *Reader) storeFor(state *repoState, gitDir string) refStore {
+	return refStore{gitDir: gitDir, commonDir: r.commonDir, hexLen: state.hexLen, packed: state.packed}
 }
 
 // readRefs reads loose refs before packed-refs, and that order is what makes
 // it safe against a running pack-refs: git writes the new packed-refs before
 // it removes a loose file, so a ref missing from the loose walk is in any
 // packed-refs read afterwards.
-func (r *Reader) readRefs() ([]Ref, error) {
-	store := r.storeFor(r.gitDir)
-	loose, err := r.scanLoose()
+func (r *Reader) readRefs(state *repoState) ([]Ref, error) {
+	store := r.storeFor(state, r.gitDir)
+	loose, err := r.scanLoose(state.hexLen)
 	if err != nil {
 		return nil, err
 	}
-	packed, err := r.packed.current()
+	packed, err := state.packed.current()
 	if err != nil {
 		return nil, err
 	}
@@ -89,16 +89,16 @@ func (r *Reader) readRefs() ([]Ref, error) {
 	return refs, nil
 }
 
-func (r *Reader) scanLoose() (map[string]looseValue, error) {
+func (r *Reader) scanLoose(hexLen int) (map[string]looseValue, error) {
 	found := map[string]looseValue{}
-	if err := walkLoose(r.commonDir, "refs", r.hexLen, r.linked, found); err != nil {
+	if err := walkLoose(r.commonDir, "refs", hexLen, r.linked, found); err != nil {
 		return nil, err
 	}
 	if !r.linked {
 		return found, nil
 	}
 	for _, root := range perWorktreeRoots {
-		if err := walkLoose(r.gitDir, root, r.hexLen, false, found); err != nil {
+		if err := walkLoose(r.gitDir, root, hexLen, false, found); err != nil {
 			return nil, err
 		}
 	}
@@ -106,7 +106,9 @@ func (r *Reader) scanLoose() (map[string]looseValue, error) {
 }
 
 // walkLoose follows git's rules for a refs directory: dot files and *.lock are
-// not refs, and a file that vanishes mid-walk has been packed or deleted.
+// not refs, and a file that vanishes mid-walk has been packed or deleted. With
+// skipPerWorktree the private folders are left out; a plain file with one of
+// those names is an ordinary shared ref.
 func walkLoose(root, dir string, hexLen int, skipPerWorktree bool, found map[string]looseValue) error {
 	entries, err := os.ReadDir(filepath.Join(root, dir))
 	if isAbsent(err) {
@@ -118,10 +120,13 @@ func walkLoose(root, dir string, hexLen int, skipPerWorktree bool, found map[str
 	for _, entry := range entries {
 		base := entry.Name()
 		name := dir + "/" + base
-		if base[0] == '.' || strings.HasSuffix(base, ".lock") || (skipPerWorktree && slices.Contains(perWorktreeRoots, name)) {
+		if base[0] == '.' || strings.HasSuffix(base, ".lock") {
 			continue
 		}
 		if entry.IsDir() {
+			if skipPerWorktree && slices.Contains(perWorktreeRoots, name) {
+				continue
+			}
 			if err := walkLoose(root, name, hexLen, skipPerWorktree, found); err != nil {
 				return err
 			}
@@ -157,14 +162,15 @@ func isAbsent(err error) bool {
 }
 
 func parseLoose(data []byte, hexLen int) looseValue {
-	content := strings.TrimRight(string(data), " \t\n\v\f\r")
+	content := strings.TrimRight(string(data), gitSpace)
 	if target, ok := strings.CutPrefix(content, "ref:"); ok {
-		return looseValue{symref: strings.TrimLeft(target, " \t\n\v\f\r")}
+		target = strings.TrimLeft(target, gitSpace)
+		return looseValue{symref: target, broken: target == ""}
 	}
 	if len(content) < hexLen || !isObjectID(content[:hexLen]) {
 		return looseValue{broken: true}
 	}
-	if len(content) > hexLen && !strings.ContainsRune(" \t\n\v\f\r", rune(content[hexLen])) {
+	if len(content) > hexLen && strings.IndexByte(gitSpace, content[hexLen]) < 0 {
 		return looseValue{broken: true}
 	}
 	return looseValue{object: strings.ToLower(content[:hexLen])}
@@ -173,15 +179,17 @@ func parseLoose(data []byte, hexLen int) looseValue {
 // isObjectID reports hex that names an object. The null id does not: git
 // treats it as repository corruption.
 func isObjectID(hex string) bool {
-	null := true
-	for i := range len(hex) {
-		c := hex[i]
+	return isHex(hex) && strings.Trim(hex, "0") != ""
+}
+
+func isHex(value string) bool {
+	for i := range len(value) {
+		c := value[i]
 		if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F') {
 			return false
 		}
-		null = null && c == '0'
 	}
-	return !null
+	return true
 }
 
 // resolve follows name to a final ref. It returns the last name reached, which
@@ -225,6 +233,9 @@ func (s refStore) readLoose(name string) (looseValue, bool, error) {
 	data, err := readNoFollow(path)
 	if isAbsent(err) {
 		return looseValue{}, false, nil
+	}
+	if errors.Is(err, syscall.ELOOP) {
+		return looseValue{}, false, fmt.Errorf("gitrefs: %s is a symlink", name)
 	}
 	if err != nil {
 		return looseValue{}, false, err

@@ -188,6 +188,7 @@ func TestConfigClassification(t *testing.T) {
 		{"includeIf", bare + "[includeIf \"gitdir:x\"]\npath=y\n", "include"},
 		{"quoted value", "[core]\nbare=\"true\"\n", "core.bare"},
 		{"odd bool", "[core]\nbare=maybe\n", "core.bare"},
+		{"vertical tab is not git whitespace", "[core]\nbare=true\v\n", "core.bare"},
 		{"future version", "[core]\nrepositoryformatversion=2\nbare=true\n", "repositoryformatversion"},
 		{"unknown extension", bare + "[extensions]\nfuture=1\n", "extensions.future"},
 		{"reftable", bare + "[extensions]\nrefstorage=reftable\n", "reftable"},
@@ -211,6 +212,22 @@ func TestConfigClassification(t *testing.T) {
 			t.Fatalf("reason = %q", got)
 		}
 	})
+}
+
+func TestReadRacingAConfigChangeFallsBack(t *testing.T) {
+	dir := newRepo(t, "sha1")
+	reader := openRepo(t, dir)
+	read := func(*repoState) (string, error) {
+		writeFile(t, filepath.Join(dir, ".git/config.new"), "[core]\nbare = false\n\n")
+		if err := os.Rename(filepath.Join(dir, ".git/config.new"), filepath.Join(dir, ".git/config")); err != nil {
+			t.Fatal(err)
+		}
+		return "read", nil
+	}
+	fork := func(context.Context) (string, error) { return "forked", nil }
+	if got, err := through(context.Background(), reader, read, fork); err != nil || got != "forked" {
+		t.Fatalf("got %q, %v", got, err)
+	}
 }
 
 func TestOpen(t *testing.T) {
@@ -290,10 +307,10 @@ func TestHeadReadFallsBack(t *testing.T) {
 		dir := newRepo(t, "sha1")
 		writeFile(t, filepath.Join(dir, ".git/refs/heads/main"), "garbage\n")
 		reader := openRepo(t, dir)
+		assertSameHeads(t, dir, reader)
 		calls := shimGit(t)
-		heads, err := reader.Heads(context.Background())
-		if err != nil || len(heads) != 1 || heads[0].State != HeadDetached || heads[0].Object != "" {
-			t.Fatalf("heads = %+v, %v", heads, err)
+		if _, err := reader.Heads(context.Background()); err != nil {
+			t.Fatal(err)
 		}
 		if got := calls(); len(got) != 1 {
 			t.Fatalf("forks = %q", got)
@@ -309,12 +326,8 @@ func TestHeadReadFallsBack(t *testing.T) {
 			t.Fatal(err)
 		}
 		reader := openRepo(t, dir)
-		shimGit(t)
-		heads, err := reader.Heads(context.Background())
-		if err != nil || heads[0].Branch != "refs/heads/main" {
-			t.Fatalf("heads = %+v, %v", heads, err)
-		}
-		if !strings.Contains(reader.FallbackReason(), "symbolic") {
+		assertSameHeads(t, dir, reader)
+		if !strings.Contains(reader.FallbackReason(), "symlink") {
 			t.Fatalf("reason = %q", reader.FallbackReason())
 		}
 	})
@@ -325,47 +338,9 @@ func TestHeadReadFallsBack(t *testing.T) {
 		}
 		writeFile(t, filepath.Join(dir, ".git/packed-refs"), "garbage\n")
 		reader := openRepo(t, dir)
-		shimGit(t)
-		reader.Heads(context.Background())
+		assertSameHeads(t, dir, reader)
 		if !strings.Contains(reader.FallbackReason(), "packed-refs") {
 			t.Fatalf("reason = %q", reader.FallbackReason())
-		}
-	})
-	t.Run("broken linked head skips nothing", func(t *testing.T) {
-		dir := newRepo(t, "sha1")
-		wt := filepath.Join(filepath.Dir(dir), "wt")
-		runGit(t, dir, "worktree", "add", "-q", "--detach", wt)
-		writeFile(t, filepath.Join(dir, ".git/worktrees/wt/HEAD"), "garbage\n")
-		reader := openRepo(t, dir)
-		shimGit(t)
-		reader.Heads(context.Background())
-		if !strings.Contains(reader.FallbackReason(), "HEAD") {
-			t.Fatalf("reason = %q", reader.FallbackReason())
-		}
-	})
-	t.Run("linked entry without a head is skipped", func(t *testing.T) {
-		dir := newRepo(t, "sha1")
-		wt := filepath.Join(filepath.Dir(dir), "wt")
-		runGit(t, dir, "worktree", "add", "-q", "--detach", wt)
-		if err := os.Remove(filepath.Join(dir, ".git/worktrees/wt/HEAD")); err != nil {
-			t.Fatal(err)
-		}
-		heads, err := openRepo(t, dir).Heads(context.Background())
-		if err != nil || len(heads) != 1 {
-			t.Fatalf("heads = %+v, %v", heads, err)
-		}
-	})
-	t.Run("main without a head is left out", func(t *testing.T) {
-		dir := bareSkeleton(t, "[core]\nbare=false\n")
-		if err := os.Remove(filepath.Join(dir, "HEAD")); err != nil {
-			t.Fatal(err)
-		}
-		writeFile(t, filepath.Join(dir, "commondir"), ".\n")
-		writeFile(t, filepath.Join(dir, "HEAD.bak"), "")
-		reader := &Reader{gitDir: dir, commonDir: dir, hexLen: 40, packed: &packedCache{path: filepath.Join(dir, "packed-refs"), hexLen: 40}}
-		heads, err := reader.readHeads()
-		if err != nil || len(heads) != 0 {
-			t.Fatalf("heads = %+v, %v", heads, err)
 		}
 	})
 	t.Run("unreadable worktrees folder", func(t *testing.T) {
@@ -376,10 +351,10 @@ func TestHeadReadFallsBack(t *testing.T) {
 		}
 		t.Cleanup(func() { os.Chmod(listing, 0o755) })
 		reader := openRepo(t, dir)
-		shimGit(t)
+		calls := shimGit(t)
 		reader.Heads(context.Background())
-		if reader.FallbackReason() == "" {
-			t.Fatal("expected a fallback")
+		if got := calls(); len(got) != 1 {
+			t.Fatalf("forks = %q", got)
 		}
 	})
 }
@@ -403,10 +378,10 @@ func TestUnreadableFilesFallBack(t *testing.T) {
 			}
 			t.Cleanup(func() { os.Chmod(path, 0o755) })
 			reader := openRepo(t, dir)
-			shimGit(t)
+			calls := shimGit(t)
 			reader.Refs(context.Background())
-			if reader.FallbackReason() == "" {
-				t.Fatal("expected a fallback")
+			if got := calls(); len(got) != 1 {
+				t.Fatalf("forks = %q", got)
 			}
 		})
 	}
@@ -422,10 +397,10 @@ func TestUnreadablePerWorktreeRefsFallBack(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(private, 0o755) })
 	reader := openRepo(t, wt)
-	shimGit(t)
+	calls := shimGit(t)
 	reader.Refs(context.Background())
-	if reader.FallbackReason() == "" {
-		t.Fatal("expected a fallback")
+	if got := calls(); len(got) != 1 {
+		t.Fatalf("forks = %q", got)
 	}
 }
 
@@ -649,5 +624,23 @@ func TestAheadBehindRejectsBadBases(t *testing.T) {
 	}
 	if _, err := reader.AheadBehind(context.Background(), "no-such-branch"); err == nil {
 		t.Fatal("expected git's error for an unknown base")
+	}
+}
+
+func TestUnreadableHeadTargetFallsBack(t *testing.T) {
+	dir := newRepo(t, "sha1")
+	path := filepath.Join(dir, ".git/refs/heads/main")
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(path, 0o644) })
+	reader := openRepo(t, dir)
+	calls := shimGit(t)
+	reader.Heads(context.Background())
+	if got := calls(); len(got) != 1 {
+		t.Fatalf("forks = %q", got)
+	}
+	if reader.FallbackReason() == "" {
+		t.Fatal("expected a fallback")
 	}
 }

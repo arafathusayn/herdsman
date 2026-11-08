@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -57,11 +58,39 @@ type Reader struct {
 	gitDir    string
 	commonDir string
 	linked    bool
-	hexLen    int
-	bare      bool
-	packed    *packedCache
-	fallback  atomic.Pointer[string]
+	state     atomic.Pointer[repoState]
 }
+
+// repoState is what one version of the config file says about the repository.
+// A new config file, such as after git refs migrate, makes a new state.
+type repoState struct {
+	info         fs.FileInfo
+	hexLen       int
+	bare         bool
+	packed       *packedCache
+	configReason string
+	readReason   atomic.Pointer[string]
+}
+
+func (s *repoState) reason() string {
+	if s.configReason != "" {
+		return s.configReason
+	}
+	if reason := s.readReason.Load(); reason != nil {
+		return *reason
+	}
+	return ""
+}
+
+// note keeps the cause of a failed read for the life of this state.
+func (s *repoState) note(cause error) {
+	reason := cause.Error()
+	s.readReason.Store(&reason)
+}
+
+const gitSpace = " \t\r\n"
+
+func trimGitSpace(value string) string { return strings.Trim(value, gitSpace) }
 
 // Open returns a Reader for a working tree root or a git directory.
 func Open(path string) (*Reader, error) {
@@ -78,14 +107,51 @@ func Open(path string) (*Reader, error) {
 	}
 	commonDir := findCommonDir(gitDir)
 	r := &Reader{gitDir: gitDir, commonDir: commonDir, linked: gitDir != commonDir}
-	config, err := loadRepoConfig(filepath.Join(commonDir, "config"))
-	if err != nil {
-		r.fallBack(err)
-		return r, nil
-	}
-	r.hexLen, r.bare = config.hexLen, config.bare
-	r.packed = &packedCache{path: filepath.Join(commonDir, "packed-refs"), hexLen: config.hexLen}
+	r.currentState()
 	return r, nil
+}
+
+// currentState returns the state for the config file as it is now.
+func (r *Reader) currentState() *repoState {
+	known := r.state.Load()
+	var knownInfo fs.FileInfo
+	if known != nil {
+		knownInfo = known.info
+	}
+	data, info, same, err := readIfChanged(filepath.Join(r.commonDir, "config"), knownInfo)
+	if same {
+		return known
+	}
+	next := &repoState{info: info}
+	if err != nil {
+		next.configReason = fmt.Sprintf("gitrefs: cannot read config: %v", err)
+	} else if config, err := parseRepoConfig(data); err != nil {
+		next.configReason = err.Error()
+	} else {
+		next.hexLen, next.bare = config.hexLen, config.bare
+		next.packed = &packedCache{path: filepath.Join(r.commonDir, "packed-refs"), hexLen: config.hexLen}
+	}
+	r.state.Store(next)
+	return next
+}
+
+// through answers from read while the repository is one the reader handles,
+// and from one git process otherwise. The config is checked again after the
+// read, because a storage migration during it can leave a read of the old
+// files empty but error-free.
+func through[T any](ctx context.Context, r *Reader, read func(*repoState) (T, error), fork func(context.Context) (T, error)) (T, error) {
+	state := r.currentState()
+	if state.reason() == "" {
+		value, err := read(state)
+		if err == nil && r.currentState() != state {
+			err = errors.New("gitrefs: config changed during the read")
+		}
+		if err == nil {
+			return value, nil
+		}
+		state.note(err)
+	}
+	return fork(ctx)
 }
 
 func findGitDir(path string) (string, bool) {
@@ -102,7 +168,7 @@ func findGitDir(path string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	gitDir := joinFrom(path, strings.TrimSpace(target))
+	gitDir := joinFrom(path, trimGitSpace(target))
 	return gitDir, isGitDir(gitDir)
 }
 
@@ -111,7 +177,7 @@ func findCommonDir(gitDir string) string {
 	if err != nil {
 		return gitDir
 	}
-	return joinFrom(gitDir, strings.TrimSpace(string(data)))
+	return joinFrom(gitDir, trimGitSpace(string(data)))
 }
 
 func isGitDir(path string) bool {
@@ -132,67 +198,43 @@ func joinFrom(base, path string) string {
 }
 
 // FallbackReason is empty while the reader reads the repository directly, and
-// otherwise says why it now answers through git.
+// otherwise says why it answers through git.
 func (r *Reader) FallbackReason() string {
-	if reason := r.fallback.Load(); reason != nil {
-		return *reason
-	}
-	return ""
-}
-
-func (r *Reader) fallBack(cause error) {
-	reason := cause.Error()
-	r.fallback.Store(&reason)
+	return r.currentState().reason()
 }
 
 // Refs lists every ref in byte order of name, with the content git
 // for-each-ref shows from this worktree. Broken refs are left out.
 func (r *Reader) Refs(ctx context.Context) ([]Ref, error) {
-	if r.FallbackReason() == "" {
-		refs, err := r.readRefs()
-		if err == nil {
-			return refs, nil
-		}
-		r.fallBack(err)
-	}
-	return r.forkRefs(ctx)
+	return through(ctx, r, r.readRefs, r.forkRefs)
 }
 
 // Heads lists the repository's worktrees, the main one first and the linked
 // ones by path, as git worktree list does.
 func (r *Reader) Heads(ctx context.Context) ([]Head, error) {
-	if r.FallbackReason() == "" {
-		heads, err := r.readHeads()
-		if err == nil {
-			return heads, nil
-		}
-		r.fallBack(err)
-	}
-	return r.forkHeads(ctx)
+	return through(ctx, r, r.readHeads, r.forkHeads)
 }
 
-func (r *Reader) readHeads() ([]Head, error) {
+func (r *Reader) readHeads(state *repoState) ([]Head, error) {
 	var heads []Head
 	mainPath := strings.TrimSuffix(r.commonDir, "/.git")
-	if r.bare {
+	if state.bare {
 		heads = append(heads, Head{Path: mainPath, State: HeadBare})
 	} else {
-		head, ok, err := r.readHead(r.commonDir, mainPath)
+		head, err := r.readHead(state, r.commonDir, mainPath)
 		if err != nil {
 			return nil, err
 		}
-		if ok {
-			heads = append(heads, head)
-		}
+		heads = append(heads, head)
 	}
-	linked, err := r.readLinkedHeads()
+	linked, err := r.readLinkedHeads(state)
 	if err != nil {
 		return nil, err
 	}
 	return append(heads, linked...), nil
 }
 
-func (r *Reader) readLinkedHeads() ([]Head, error) {
+func (r *Reader) readLinkedHeads(state *repoState) ([]Head, error) {
 	root := filepath.Join(r.commonDir, "worktrees")
 	entries, err := os.ReadDir(root)
 	if isAbsent(err) {
@@ -205,53 +247,49 @@ func (r *Reader) readLinkedHeads() ([]Head, error) {
 	for _, entry := range entries {
 		gitDir := filepath.Join(root, entry.Name())
 		data, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
-		if err != nil {
+		if err != nil || len(data) == 0 {
 			continue
 		}
-		dotGit := joinFrom(gitDir, strings.TrimSpace(string(data)))
-		head, ok, err := r.readHead(gitDir, filepath.Dir(dotGit))
+		dotGit := trimGitSpace(string(data))
+		if dotGit == "" {
+			return nil, fmt.Errorf("gitrefs: blank gitdir in %s", gitDir)
+		}
+		if !filepath.IsAbs(dotGit) {
+			dotGit = filepath.Join(gitDir, dotGit)
+		}
+		head, err := r.readHead(state, gitDir, strings.TrimSuffix(dotGit, "/.git"))
 		if err != nil {
 			return nil, err
 		}
-		if ok {
-			heads = append(heads, head)
-		}
+		heads = append(heads, head)
 	}
 	slices.SortFunc(heads, func(a, b Head) int { return strings.Compare(a.Path, b.Path) })
 	return heads, nil
 }
 
-// readHead reports false when the worktree has no HEAD file, which is a
-// worktree being removed.
-func (r *Reader) readHead(gitDir, path string) (Head, bool, error) {
-	final, object, result, err := r.storeFor(gitDir).resolve("HEAD")
+// readHead reports a worktree with no HEAD file as detached at nothing, which
+// is what git lists for a registered entry in that state.
+func (r *Reader) readHead(state *repoState, gitDir, path string) (Head, error) {
+	final, object, result, err := r.storeFor(state, gitDir).resolve("HEAD")
 	switch {
 	case err != nil:
-		return Head{}, false, err
+		return Head{}, err
 	case result == refBroken:
-		return Head{}, false, fmt.Errorf("gitrefs: broken HEAD in %s", gitDir)
+		return Head{}, fmt.Errorf("gitrefs: broken HEAD in %s", gitDir)
 	case result == refAbsent && final == "HEAD":
-		return Head{}, false, nil
+		return Head{Path: path, State: HeadDetached}, nil
 	case result == refAbsent:
-		return Head{Path: path, State: HeadUnborn, Branch: final}, true, nil
+		return Head{Path: path, State: HeadUnborn, Branch: final}, nil
 	case final == "HEAD":
-		return Head{Path: path, State: HeadDetached, Object: object}, true, nil
+		return Head{Path: path, State: HeadDetached, Object: object}, nil
 	}
-	return Head{Path: path, State: HeadAttached, Branch: final, Object: object}, true, nil
+	return Head{Path: path, State: HeadAttached, Branch: final, Object: object}, nil
 }
 
 // repoConfig is what the reader needs from the repository's config file.
 type repoConfig struct {
 	hexLen int
 	bare   bool
-}
-
-func loadRepoConfig(path string) (repoConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return repoConfig{}, fmt.Errorf("gitrefs: cannot read config: %w", err)
-	}
-	return parseRepoConfig(string(data))
 }
 
 // parseRepoConfig accepts only what it fully understands. git itself reads the
@@ -283,20 +321,25 @@ func parseRepoConfig(data string) (repoConfig, error) {
 			continue
 		}
 		switch name {
-		case "noop", "preciousobjects", "partialclone", "relativeworktrees":
+		case "noop", "preciousobjects", "partialclone":
+			continue
+		case "relativeworktrees":
 		case "refstorage":
 			if value != "files" {
 				return repoConfig{}, fmt.Errorf("gitrefs: ref storage is %s", value)
 			}
 		case "objectformat":
-			if version != "1" || (value != "sha1" && value != "sha256") {
-				return repoConfig{}, fmt.Errorf("gitrefs: objectformat %q at version %q", value, version)
+			if value != "sha1" && value != "sha256" {
+				return repoConfig{}, fmt.Errorf("gitrefs: objectformat is %q", value)
 			}
 			if value == "sha256" {
 				config.hexLen = 64
 			}
 		default:
 			return repoConfig{}, fmt.Errorf("gitrefs: unknown %s", key)
+		}
+		if version != "1" {
+			return repoConfig{}, fmt.Errorf("gitrefs: %s needs repositoryformatversion 1", key)
 		}
 	}
 	return config, nil
@@ -307,7 +350,7 @@ func scanConfig(data string) (map[string]string, error) {
 	settings := map[string]string{}
 	section := ""
 	for raw := range strings.SplitSeq(data, "\n") {
-		line := strings.TrimSpace(raw)
+		line := trimGitSpace(raw)
 		if strings.HasSuffix(line, "\\") {
 			return nil, errors.New("gitrefs: config line continuation")
 		}
@@ -316,11 +359,11 @@ func scanConfig(data string) (map[string]string, error) {
 			if end < 0 {
 				return nil, errors.New("gitrefs: config section is not closed")
 			}
-			section = strings.ToLower(strings.TrimSpace(line[1:end]))
+			section = strings.ToLower(trimGitSpace(line[1:end]))
 			if strings.HasPrefix(section, "include") {
 				return nil, errors.New("gitrefs: config uses include")
 			}
-			line = strings.TrimSpace(line[end+1:])
+			line = trimGitSpace(line[end+1:])
 		}
 		if line == "" || line[0] == '#' || line[0] == ';' || (section != "core" && section != "extensions") {
 			continue
@@ -329,7 +372,7 @@ func scanConfig(data string) (map[string]string, error) {
 		if !hasValue {
 			value = "true"
 		}
-		settings[section+"."+strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(value)
+		settings[section+"."+strings.ToLower(trimGitSpace(key))] = trimGitSpace(value)
 	}
 	return settings, nil
 }
