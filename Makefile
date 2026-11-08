@@ -10,6 +10,7 @@ BUN_TYPES_VERSION := 1.4.4
 STATICCHECK       := honnef.co/go/tools/cmd/staticcheck@v0.8.2
 GOVULNCHECK       := golang.org/x/vuln/cmd/govulncheck@v1.9.0
 GORELEASER        := github.com/goreleaser/goreleaser/v2@v2.19.0
+BUF               := github.com/bufbuild/buf/cmd/buf@v1.75.0
 
 BUN_GLOBAL  := $(or $(BUN_INSTALL),$(HOME)/.bun)/install/global/node_modules
 WEB_DIST    := internal/web/dist
@@ -35,12 +36,16 @@ export GOPROXY := off
 # The pinned Go tools, installed by tools-go.
 TOOLS_BIN ?= $(CURDIR)/.tools/bin
 
+# Where proto-check regenerates the SDK to compare it; ignored by git, and
+# overwritten on each run. Contracts only grow, so no file there goes stale.
+PROTO_CHECK_DIR := $(CURDIR)/.tools/proto-check
+
 # need-tool stops with the step to run when a pinned tool is not installed.
 define need-tool
 	@test -x $(TOOLS_BIN)/$(1) || { echo "$(1) is not installed: run make tools-go"; exit 1; }
 endef
 
-.PHONY: tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
+.PHONY: proto proto-check proto-plugin tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
 
 all: check build
 
@@ -54,7 +59,7 @@ tools-bun:
 ## tools-go: install the pinned Go tools into .tools/bin (maintenance mode; uses
 ## the network)
 tools-go:
-	@for tool in $(STATICCHECK) $(GOVULNCHECK) $(GORELEASER); do \
+	@for tool in $(STATICCHECK) $(GOVULNCHECK) $(GORELEASER) $(BUF); do \
 		env -u GOFLAGS GOWORK=off GOPROXY=$(DEPS_GOPROXY) GOBIN=$(TOOLS_BIN) go install $$tool || exit 1; \
 	done
 
@@ -147,9 +152,10 @@ define go-module-check
 	cd $(1) && go test -race -count=1 ./...
 endef
 
-## check-sdk: the SDK module
+## check-sdk: the SDK module, then its generated code proven current
 check-sdk:
 	$(call go-module-check,sdk)
+	@$(MAKE) --no-print-directory proto-check
 
 ## check-conformance: the conformance module
 check-conformance:
@@ -185,6 +191,32 @@ deps-verify:
 	@$(MAKE) --no-print-directory vendor
 	@changed="$$(git status --porcelain -- vendor go.work.sum go.sum sdk/go.sum sdk/conformance/go.sum)"; \
 	test -z "$$changed" || { echo "$$changed"; echo "the committed tree differs from a re-vendor: run make vendor and commit"; exit 1; }
+
+## proto-plugin: build the code generator from the vendored sources
+proto-plugin:
+	go build -o $(TOOLS_BIN)/protoc-gen-herdsman-go ./cmd/protoc-gen-herdsman-go
+
+## proto: regenerate the SDK's Go code and the descriptor golden
+proto: proto-plugin
+	$(call need-tool,buf)
+	PATH="$(TOOLS_BIN):$$PATH" $(TOOLS_BIN)/buf generate
+	go run ./cmd/herdsman spec descriptor > sdk/testdata/descriptor.golden.new
+	mv sdk/testdata/descriptor.golden.new sdk/testdata/descriptor.golden
+
+## proto-check: lint, no breaking change, and generated code that matches the
+## contracts; the descriptor golden is compared by the cmd/herdsman tests
+proto-check: proto-plugin
+	$(call need-tool,buf)
+	$(TOOLS_BIN)/buf lint
+	$(TOOLS_BIN)/buf breaking --against proto/baseline.binpb
+	@mkdir -p $(PROTO_CHECK_DIR)
+	@PATH="$(TOOLS_BIN):$$PATH" $(TOOLS_BIN)/buf generate -o $(PROTO_CHECK_DIR)
+	@cd $(PROTO_CHECK_DIR)/sdk && find . -name '*.pb.go' | sort > $(PROTO_CHECK_DIR)/fresh
+	@cd sdk && find . -name '*.pb.go' | sort > $(PROTO_CHECK_DIR)/committed
+	@diff $(PROTO_CHECK_DIR)/fresh $(PROTO_CHECK_DIR)/committed || { echo "generated files differ: run make proto"; exit 1; }
+	@while read -r file; do \
+		cmp "$(PROTO_CHECK_DIR)/sdk/$$file" "sdk/$$file" || { echo "$$file is stale: run make proto"; exit 1; }; \
+	done < $(PROTO_CHECK_DIR)/fresh
 
 ## release-check: validate the goreleaser config
 release-check:

@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+// Services of the herdsman daemon.
+package herdsman.daemon.v1;
+
+import "herdsman/core/v1/core.proto";
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
+
+// MessageService is a route's message channel.
+service MessageService {
+  // Status reports the channel of one route.
+  rpc Status(StatusRequest) returns (StatusResponse);
+}
+
+message StatusRequest {
+  herdsman.core.v1.RouteId route = 1;
+}
+
+message StatusResponse {
+  herdsman.core.v1.Version version = 1;
+  DaemonState daemon = 2;
+  herdsman.core.v1.RouteId route = 3;
+  string inbox = 4;
+  string epoch = 5;
+  int64 last_seq = 6;
+  string status = 7;
+  repeated string flags = 8;
+  RegistryState registry = 9;
+  repeated PeerInfo peers = 10;
+  repeated BoxCount boxes = 11;
+  repeated HoldInfo holds = 12;
+  repeated herdsman.core.v1.MessageHeader messages = 13;
+  // Each entry is one pending alert's JSON payload, unchanged.
+  repeated string alerts = 14;
+}
+
+// DaemonState is the daemon as a status reader sees it.
+message DaemonState {
+  // "up" or "down".
+  string state = 1;
+  string version = 2;
+  // Seconds since the last heartbeat; unset when unknown.
+  optional int64 heartbeat_age = 3;
+}
+
+// RegistryState is the state of a route's peer registry.
+message RegistryState {
+  string state = 1;
+  string pending_sha256 = 2;
+}
+
+// PeerInfo is one approved peer.
+message PeerInfo {
+  string name = 1;
+  string role = 2;
+  string pane = 3;
+  string session = 4;
+}
+
+// BoxCount is one mailbox's counts.
+message BoxCount {
+  string name = 1;
+  int32 new = 2;
+  int32 ready = 3;
+  int32 cur = 4;
+  int32 unacked = 5;
+  int32 quarantine = 6;
+  bool claim = 7;
+  // True for a mailbox of no approved peer.
+  bool orphan = 8;
+}
+
+// HoldInfo is one held target and who holds it.
+message HoldInfo {
+  string target = 1;
+  repeated string owners = 2;
+}
