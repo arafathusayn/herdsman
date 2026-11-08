@@ -1,7 +1,8 @@
 name: release
 
-# A pushed v* tag builds the binaries, publishes the GitHub release and
-# writes the Homebrew cask to arafathusayn/homebrew-tap (through a deploy key).
+# A pushed v* tag builds the release twice and stops unless the checksums
+# match, then publishes the signed GitHub release, writes the Homebrew cask to
+# arafathusayn/homebrew-tap (through a deploy key) and attests the provenance.
 
 on:
   push:
@@ -9,6 +10,9 @@ on:
 
 permissions:
   contents: write
+  # Provenance: the keyless identity of this run, and the attestation store.
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -33,11 +37,24 @@ jobs:
       - uses: mlugg/setup-zig@v2.2.1
         with:
           version: 0.17.0
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: v2.19.0
-          args: release --clean
+      # Each build starts from an empty cache and leaves publishing and signing
+      # out, so nothing reaches anyone unless both agree.
+      - name: Build the tag twice and compare checksums
+        run: |
+          set -eu
+          for run in first second; do
+            GOCACHE="$RUNNER_TEMP/cache-$run" .tools/bin/goreleaser release --clean --skip=publish,sign,homebrew
+            cp dist/checksums.txt "$RUNNER_TEMP/checksums-$run.txt"
+          done
+          cmp "$RUNNER_TEMP/checksums-first.txt" "$RUNNER_TEMP/checksums-second.txt"
+      - name: Publish
+        run: .tools/bin/goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
+          HERDSMAN_RELEASE_SIGNING_KEY: ${{ secrets.HERDSMAN_RELEASE_SIGNING_KEY }}
+      - name: The published build matches the compared ones
+        run: cmp "$RUNNER_TEMP/checksums-first.txt" dist/checksums.txt
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/checksums.txt
