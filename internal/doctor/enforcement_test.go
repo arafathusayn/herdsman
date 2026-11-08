@@ -2,7 +2,9 @@ package doctor
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -118,5 +120,31 @@ func TestEnforcementSecretReferences(t *testing.T) {
 	}
 	if got := level(t, run(t, p), secrets.ToolName); got != Fail {
 		t.Errorf("level = %s", got)
+	}
+}
+
+func TestEnforcementRefusesAnUnknownProfile(t *testing.T) {
+	cs := run(t, withPolicy(fakes(t, nil), "open"))
+	if got := level(t, cs, `unknown profile "open"`); got != Fail || !Failed(cs) {
+		t.Errorf("level = %s", got)
+	}
+}
+
+func TestConfiguredProfileReadsTheProjectFile(t *testing.T) {
+	repo := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := os.WriteFile(filepath.Join(repo, "herdsman.config.toml"), []byte("[schema]\nversion = \"1.0.0\"\n[policy]\nprofile = \"restricted\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ConfiguredProfile(repo)()
+	if err != nil || got != "restricted" {
+		t.Fatalf("%q %v", got, err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "herdsman.config.toml"), []byte("[broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ConfiguredProfile(repo)(); err == nil {
+		t.Fatal("a broken file was accepted")
 	}
 }

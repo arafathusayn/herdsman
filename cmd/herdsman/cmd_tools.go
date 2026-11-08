@@ -32,7 +32,13 @@ Exit codes:
 `
 
 // doctorProbes are the doctor's probes; tests replace them.
-var doctorProbes = doctor.Default
+var doctorProbes = configuredDoctorProbes
+
+func configuredDoctorProbes() doctor.Probes {
+	p := doctor.Default()
+	p.Profile = doctor.ConfiguredProfile(repoRoot())
+	return p
+}
 
 // doctorReport is doctor's --json output.
 //

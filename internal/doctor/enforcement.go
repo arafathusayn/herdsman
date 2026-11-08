@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/arafathusayn/herdsman/internal/secrets"
+	"github.com/arafathusayn/herdsman/sdk/config"
 )
 
 // The profile and harness this report names. They are spelled here because
@@ -26,6 +27,10 @@ func checkEnforcement(p Probes, add adder) {
 	active, err := p.Profile()
 	if err != nil {
 		add(Fail, "enforcement", "policy unreadable: "+err.Error())
+		return
+	}
+	if active != "" && active != profileRestricted && active != profileTrustedLocal {
+		add(Fail, "enforcement", fmt.Sprintf("unknown profile %q: nothing can enforce it", active))
 		return
 	}
 	if active != profileRestricted {
@@ -52,6 +57,18 @@ func requireTool(p Probes, add adder, tool, promise string) {
 		return
 	}
 	add(OK, "enforcement", tool+": "+promise)
+}
+
+// ConfiguredProfile reads the profile from the configuration of repoRoot, ""
+// when no file sets one.
+func ConfiguredProfile(repoRoot string) func() (string, error) {
+	return func() (string, error) {
+		result, err := config.Load(config.Options{RepoRoot: repoRoot})
+		if err != nil {
+			return "", err
+		}
+		return result.Config.GetPolicy().GetProfile(), nil
+	}
 }
 
 // checkSecretRefs validates the reference list without reading any value, so
