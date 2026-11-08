@@ -34,30 +34,95 @@ type shellCommand struct {
 }
 
 // render expands a template so that values never become command text. Each
-// variable expands to a quoted reference to an environment variable holding
-// the value. The shell then treats the value as data in any quoting context the
-// template author chose: a reference is expanded once and never re-read as code.
+// variable first expands to a marker; placeReferences then swaps the marker for
+// a reference to an environment variable that holds the value.
 func render(rule Rule, ev Event) (shellCommand, error) {
 	values := maps.Clone(ev.Values)
 	if values == nil {
 		values = map[string]string{}
 	}
 	values["hook_type"], values["hook_name"] = ev.Kind, ev.Kind
-	references := make(map[string]string, len(values))
+	markers := make(map[string]string, len(values))
 	env := []string{"HERDSMAN_EVENT=" + ev.Kind}
 	for name, value := range values {
 		if !valueName.MatchString(name) {
 			continue
 		}
-		variable := "HERDSMAN_EVENT_" + strings.ToUpper(name)
-		references[name] = `"$` + variable + `"`
-		env = append(env, variable+"="+value)
+		markers[name] = markerStart + name + markerEnd
+		env = append(env, "HERDSMAN_EVENT_"+strings.ToUpper(name)+"="+value)
 	}
-	text, err := wtree.Render("automation "+rule.Event, rule.Body, wtree.Vars{Values: references})
+	text, err := wtree.Render("automation "+rule.Event, rule.Body, wtree.Vars{Values: markers})
+	if err == nil {
+		text, err = placeReferences(text)
+	}
 	if err != nil {
 		return shellCommand{}, fmt.Errorf("automations: %s: %w", rule.Event, err)
 	}
 	return shellCommand{text: text, env: env}, nil
+}
+
+const (
+	markerStart = "\x01"
+	markerEnd   = "\x02"
+)
+
+// A marker in one of these may be read twice by a shell, or not as a reference
+// at all, and a scan of the text cannot follow them.
+var unprovable = []string{"$(", "`", "<<"}
+
+// placeReferences writes each marker in the form that keeps its value one
+// piece of data where it stands: quoted outside quotes, plain inside double
+// quotes. Anywhere else it refuses. Inside single quotes a reference would stay
+// text, and closing the quotes would hand the value to any inner shell as code.
+func placeReferences(text string) (string, error) {
+	if !strings.Contains(text, markerStart) {
+		return text, nil
+	}
+	refuse := func(name string) (string, error) {
+		return "", fmt.Errorf(`variable %s cannot be used here: write it outside quotes or in double quotes, or read "$HERDSMAN_EVENT_%s"`, name, strings.ToUpper(name))
+	}
+	var out strings.Builder
+	single, double := false, false
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if c == markerStart[0] {
+			size := strings.IndexByte(text[i:], markerEnd[0])
+			name := text[i+1 : i+size]
+			if single || containsAny(text, unprovable) {
+				return refuse(name)
+			}
+			if double {
+				out.WriteString("${HERDSMAN_EVENT_" + strings.ToUpper(name) + "}")
+			} else {
+				out.WriteString(`"${HERDSMAN_EVENT_` + strings.ToUpper(name) + `}"`)
+			}
+			i += size
+			continue
+		}
+		out.WriteByte(c)
+		switch {
+		case c == '\\' && !single && i+1 < len(text):
+			if text[i+1] == markerStart[0] {
+				return refuse(text[i+2 : i+1+strings.IndexByte(text[i+1:], markerEnd[0])])
+			}
+			i++
+			out.WriteByte(text[i])
+		case c == '\'' && !double:
+			single = !single
+		case c == '"' && !single:
+			double = !double
+		}
+	}
+	return out.String(), nil
+}
+
+func containsAny(text string, parts []string) bool {
+	for _, part := range parts {
+		if strings.Contains(text, part) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) timeout(rule Rule) time.Duration {

@@ -247,7 +247,6 @@ func TestEventValuesCannotBecomeCommands(t *testing.T) {
 	for name, tmpl := range map[string]string{
 		"bare":          `printf %s {{ task }} > out`,
 		"double quoted": `printf %s "{{ task }}" > out`,
-		"single quoted": `printf %s '{{ task }}' > out`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			rule := shellRule("task.done", tmpl)
@@ -659,5 +658,94 @@ func TestALogThatCannotBeWrittenIsSaid(t *testing.T) {
 	}
 	if !strings.Contains(r.stderr.String(), "automations log") {
 		t.Fatal(r.stderr.String())
+	}
+}
+
+func TestEveryAcceptedFormKeepsTheValueAsOneArgument(t *testing.T) {
+	for name, tmpl := range map[string]string{
+		"bare":          `printf '<%s>' {{ task }} > out`,
+		"double quoted": `printf '<%s>' "{{ task }}" > out`,
+		"inside words":  `printf '<%s>' "a {{ task }} b" > out`,
+		"glued":         `printf '<%s>' x{{ task }}y > out`,
+	} {
+		for _, value := range []string{"two  words", "*", `say "hi" $(touch pwned) \\`} {
+			t.Run(name+"/"+value, func(t *testing.T) {
+				rule := shellRule("task.done", tmpl)
+				r := newRig(t, rule)
+				r.approve(t, rule)
+				for _, file := range []string{"file-a", "file-b"} {
+					if err := os.WriteFile(filepath.Join(r.dir, file), nil, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				ev := event("task.done", "k1")
+				ev.Values["task"] = value
+				if got := one(t, r.engine.Fire(context.Background(), ev)); got.Status != StatusRan {
+					t.Fatalf("%+v", got)
+				}
+				want := "<" + value + ">"
+				switch name {
+				case "inside words":
+					want = "<a " + value + " b>"
+				case "glued":
+					want = "<x" + value + "y>"
+				}
+				if data, _ := os.ReadFile(filepath.Join(r.dir, "out")); string(data) != want {
+					t.Fatalf("got %q, want %q", data, want)
+				}
+				if _, err := os.Stat(filepath.Join(r.dir, "pwned")); err == nil {
+					t.Fatal("a value ran as a command")
+				}
+			})
+		}
+	}
+}
+
+func TestContextsThatCannotHoldAValueAreRefused(t *testing.T) {
+	for name, tmpl := range map[string]string{
+		"single quoted": `touch ran; printf %s '{{ task }}'`,
+		"nested shell":  `touch ran; sh -c 'echo {{ task }}'`,
+		"substitution":  `touch ran; echo "$(echo {{ task }})"`,
+		"backticks":     "touch ran; echo `echo {{ task }}`",
+		"heredoc":       "touch ran; cat <<EOF\n{{ task }}\nEOF",
+		"after escape":  `touch ran; echo \{{ task }}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rule := shellRule("task.done", tmpl)
+			r := newRig(t, rule)
+			r.approve(t, rule)
+			if got := one(t, r.engine.Fire(context.Background(), event("task.done", "k1"))); got.Status != StatusError || !strings.Contains(got.Error, "task") {
+				t.Fatalf("%+v", got)
+			}
+			if _, err := os.Stat(filepath.Join(r.dir, "ran")); err == nil {
+				t.Fatal("a refused template ran")
+			}
+		})
+	}
+}
+
+func TestShellSyntaxWithoutAVariableIsLeftAlone(t *testing.T) {
+	rule := shellRule("task.done", `echo "$(echo 'a b')" \" > out`)
+	r := newRig(t, rule)
+	r.approve(t, rule)
+	if got := one(t, r.engine.Fire(context.Background(), event("task.done", "k1"))); got.Status != StatusRan {
+		t.Fatalf("%+v", got)
+	}
+	if data, _ := os.ReadFile(filepath.Join(r.dir, "out")); string(data) != "a b \"\n" {
+		t.Fatalf("%q", data)
+	}
+}
+
+func TestEscapesAndQuotesAreTrackedAroundAVariable(t *testing.T) {
+	rule := shellRule("task.done", `printf '<%s>' "a\"b" 'it' \' {{ task }} "\"{{ task }}" > out`)
+	r := newRig(t, rule)
+	r.approve(t, rule)
+	ev := event("task.done", "k1")
+	ev.Values["task"] = "x y"
+	if got := one(t, r.engine.Fire(context.Background(), ev)); got.Status != StatusRan {
+		t.Fatalf("%+v", got)
+	}
+	if data, _ := os.ReadFile(filepath.Join(r.dir, "out")); string(data) != `<a"b><it><'><x y><"x y>` {
+		t.Fatalf("%q", data)
 	}
 }
