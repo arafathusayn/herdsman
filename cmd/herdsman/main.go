@@ -51,6 +51,7 @@ func init() { worktreeCall = daemon.WorktreeCall }
 // function because the service must never be able to run one.
 func init() {
 	suggestCall = daemon.SuggestCall
+	suggestIsTerminal = daemon.IsTerminal
 	suggestRun = func(ctx context.Context, dir, id string, in io.Reader, out, errOut io.Writer, isTerminal bool) error {
 		return daemon.SuggestRun(ctx, dir, id, suggest.Terminal{In: in, Out: out, Err: errOut, IsTerminal: isTerminal})
 	}

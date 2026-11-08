@@ -48,9 +48,9 @@ func runSuggest(t *testing.T, stdin string, args ...string) (string, string, int
 
 func withTerminal(t *testing.T, value bool) {
 	t.Helper()
-	previous := stdinIsTerminal
-	stdinIsTerminal = func(any) bool { return value }
-	t.Cleanup(func() { stdinIsTerminal = previous })
+	previous := suggestIsTerminal
+	suggestIsTerminal = func(any) bool { return value }
+	t.Cleanup(func() { suggestIsTerminal = previous })
 }
 
 func TestApplyRunRefusesWithoutATerminal(t *testing.T) {
@@ -332,5 +332,35 @@ func TestShowPrintsTheLinks(t *testing.T) {
 	out, _, code := runSuggest(t, "", "show", "linked")
 	if code != 0 || !strings.Contains(out, "link: https://example.com/page") {
 		t.Fatalf("code = %d, out = %s", code, out)
+	}
+}
+
+func TestApplyRunRefusesACharacterDeviceThatIsNoTerminal(t *testing.T) {
+	dir := suggestHome(t)
+	writeInstallable(t)
+	made := filepath.Join(dir, "made.txt")
+
+	previous := suggestIsTerminal
+	suggestIsTerminal = func(any) bool { return true }
+	_, errOut, code := runSuggest(t, "yes\n", "apply", "installable", "--run")
+	suggestIsTerminal = previous
+	if code != 0 {
+		t.Fatalf("approving: code = %d, stderr = %s", code, errOut)
+	}
+	if err := os.Remove(made); err != nil {
+		t.Fatal(err)
+	}
+
+	zero, err := os.Open("/dev/zero")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zero.Close()
+	var out, stderr bytes.Buffer
+	if code := commands["suggest"].run([]string{"apply", "installable", "--run"}, zero, &out, &stderr); code != 1 || !strings.Contains(stderr.String(), "terminal") {
+		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
+	}
+	if _, err := os.Stat(made); err == nil {
+		t.Fatal("an approved recipe ran from a device that is not a terminal")
 	}
 }

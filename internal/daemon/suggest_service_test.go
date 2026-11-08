@@ -182,6 +182,8 @@ func TestAddRefusesBadInput(t *testing.T) {
 		"no tag":         {Kind: "tip", Title: "t", Body: "b"},
 		"bad kind":       {Kind: "nope", Title: "t", Tags: []string{"one"}, Body: "b"},
 		"bad id":         {ID: "../up", Kind: "tip", Title: "t", Tags: []string{"one"}, Body: "b"},
+		"commented id":   {ID: "safe #/../../escaped", Kind: "tip", Title: "t", Tags: []string{"one"}, Body: "b"},
+		"commented kind": {Kind: "tip # x", Title: "t", Tags: []string{"one"}, Body: "b"},
 	} {
 		if _, err := s.Add(context.Background(), request); err == nil {
 			t.Errorf("%s: must be refused", name)
@@ -190,6 +192,12 @@ func TestAddRefusesBadInput(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Join(s.ConfigDir, "herdsman", "suggest"))
 	if len(entries) != 0 {
 		t.Fatalf("refused entries left files: %v", entries)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(s.ConfigDir, "*", "*.md")); len(matches) != 0 {
+		t.Fatalf("an id escaped the catalog folder: %v", matches)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(s.ConfigDir, "*.md")); len(matches) != 0 {
+		t.Fatalf("an id escaped the catalog folder: %v", matches)
 	}
 }
 

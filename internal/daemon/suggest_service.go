@@ -336,9 +336,9 @@ func renderEntry(e suggest.Entry) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
-// Add writes a new entry to the user's catalog or the project's. The written
-// text is parsed back and validated first, so a file that the catalog would
-// refuse never lands.
+// Add writes a new entry to the user's catalog or the project's. The id's
+// pattern keeps the file inside the folder, and the text is parsed back first,
+// so a file that the catalog would refuse never lands.
 func (s *SuggestService) Add(_ context.Context, r SuggestAddRequest) (SuggestAddResponse, error) {
 	folder := filepath.Join(s.configDir(), "suggest")
 	if r.Project {
@@ -353,15 +353,16 @@ func (s *SuggestService) Add(_ context.Context, r SuggestAddRequest) (SuggestAdd
 		id = slug(r.Title)
 	}
 	entry := suggest.Entry{ID: id, Kind: suggest.Kind(r.Kind), Title: r.Title, Tags: r.Tags, URL: r.URL, Repo: r.Repo, Since: userEntrySince, Body: strings.TrimSpace(r.Body)}
+	// The values as given are what names the file, so they are what must pass:
+	// a value can read as valid once parsed, with the rest of it a comment.
+	if err := suggest.Validate(entry); err != nil {
+		return SuggestAddResponse{}, err
+	}
 	data, err := renderEntry(entry)
 	if err != nil {
 		return SuggestAddResponse{}, err
 	}
-	parsed, err := suggest.ParseEntry(data)
-	if err != nil {
-		return SuggestAddResponse{}, err
-	}
-	if err := suggest.Validate(parsed); err != nil {
+	if _, err := suggest.ParseEntry(data); err != nil {
 		return SuggestAddResponse{}, err
 	}
 	if err := os.MkdirAll(folder, 0o755); err != nil {

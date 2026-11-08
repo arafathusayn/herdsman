@@ -17,6 +17,8 @@ import (
 var (
 	suggestCall func(ctx context.Context, method string, request []byte) ([]byte, error)
 	suggestRun  func(ctx context.Context, dir, id string, in io.Reader, out, errOut io.Writer, isTerminal bool) error
+	// suggestIsTerminal must ask the kernel: a recipe depends on the answer.
+	suggestIsTerminal func(stdin any) bool
 )
 
 // maxBodyFile bounds what add reads; the catalog refuses a smaller entry anyway.
@@ -305,7 +307,7 @@ func runSuggestApply(args []string, stdin io.Reader, stdout, stderr io.Writer) i
 		return fail(stderr, err)
 	}
 	if *runIt {
-		if err := suggestRun(context.Background(), dir, positional[0], stdin, stdout, stderr, stdinIsTerminal(stdin)); err != nil {
+		if err := suggestRun(context.Background(), dir, positional[0], stdin, stdout, stderr, suggestIsTerminal(stdin)); err != nil {
 			return fail(stderr, err)
 		}
 		return 0
@@ -461,7 +463,7 @@ func updateSuggestSource(url, ref string, yes, asJSON bool, stdin io.Reader, std
 }
 
 func confirmPinMove(commit string, stdin io.Reader, stdout io.Writer, asJSON bool) bool {
-	if asJSON || !stdinIsTerminal(stdin) {
+	if asJSON || !suggestIsTerminal(stdin) {
 		return false
 	}
 	fmt.Fprintf(stdout, "Move the pin to %s? Type yes: ", commit)
