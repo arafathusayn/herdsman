@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -35,7 +36,7 @@ const (
 // Check is one line of the report, `<level> <check> <detail>`.
 //
 // JSON fields: level ("ok", "warn" or "fail"), check (herdr, gh,
-// gh-account, binary, inbox, sandbox or load) and detail (free text).
+// gh-account, binary, inbox, sandbox, load or enforcement) and detail (free text).
 type Check struct {
 	Level  string `json:"level"`
 	Name   string `json:"check"`
@@ -76,6 +77,11 @@ type Probes struct {
 	CPUs        func() int
 	// TempDir is the root of the caches a sandboxed harness can use.
 	TempDir string
+	// Profile names the policy profile in force, "" meaning the default; nil
+	// when this build has no way to read it.
+	Profile func() (string, error)
+	// GOOS names the platform the enforcement report describes.
+	GOOS string
 }
 
 // Default returns the real probes.
@@ -90,7 +96,7 @@ func Default() Probes {
 		Executable: os.Executable, GoCache: goCache, WriteDir: writeDir,
 		ReadMemory: readMemory, Renice: renice,
 		ReadLoad: machine.ReadLoad, FreePercent: machine.FreePercent, CPUs: machine.CPUs,
-		TempDir: review.TempRoot(),
+		TempDir: review.TempRoot(), GOOS: runtime.GOOS,
 	}
 }
 
@@ -185,6 +191,7 @@ func Run(ctx context.Context, p Probes) ([]Check, error) {
 	}
 	checkSandbox(p, add)
 	checkLoad(p, lim, add)
+	checkEnforcement(p, add)
 	return cs, nil
 }
 

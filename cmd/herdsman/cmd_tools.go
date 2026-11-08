@@ -21,7 +21,7 @@ func init() {
 const doctorUsage = `usage: herdsman doctor [--json]
 
 Prints one line per check, "ok|warn|fail <check> <detail>": herdr, gh,
-binary, inbox (when HERDSMAN_INBOX is set), sandbox and load
+binary, inbox (when HERDSMAN_INBOX is set), sandbox, load and enforcement
 (HERDSMAN_LOAD_LIMIT, default the core count; HERDSMAN_MIN_FREE, default 10).
 --json prints one object {"ok": bool, "checks": [{"level","check","detail"}]}.
 
