@@ -1,0 +1,24 @@
+.TH HERDSMAN-EACH 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-each \- Run a command in every worktree.
+.SH DESCRIPTION
+.nf
+usage: herdsman each [--json] -- <command> [<arg>...]
+
+Runs a command in each worktree of the repository in turn; a failure in one
+does not stop the rest. The command is run as given, without a shell; use
+sh -c '...' for one. It sees HERDSMAN_TASK, HERDSMAN_BRANCH and
+HERDSMAN_WORKTREE_PATH, and reads nothing from standard input.
+
+The command's output goes to standard output. The heading before each run and
+the summary go to standard error, so the output can be piped. With --json the
+command's output moves to standard error too and standard output holds only the
+results.
+
+exit codes:
+  0  the command succeeded everywhere
+  1  it failed somewhere, or the worktrees could not be listed
+  2  bad usage
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

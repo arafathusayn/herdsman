@@ -1,0 +1,58 @@
+.TH HERDSMAN-WATCH 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-watch \- Watch implementers, the reviewer or pull requests: herdsman watch implementers|reviewer|prs.
+.SH DESCRIPTION
+.nf
+usage: herdsman watch implementers|reviewer|prs
+
+implementers and reviewer print events until interrupted; prs returns on
+the first pull request change, or after HERDSMAN_PR_DEADLINE (1500) with a
+TICK line, polling every HERDSMAN_PR_INTERVAL (120).
+
+exit codes:
+  0  a change or a TICK was printed, or the watcher was stopped
+  1  no gh token, or a pull request could not be read three polls in a
+     row
+  2  usage error, or a missing or invalid setting; nothing ran
+
+watch implementers:
+usage: herdsman watch implementers|reviewer|prs
+
+implementers and reviewer print events until interrupted; prs returns on
+the first pull request change, or after HERDSMAN_PR_DEADLINE (1500) with a
+TICK line, polling every HERDSMAN_PR_INTERVAL (120).
+
+exit codes:
+  0  a change or a TICK was printed, or the watcher was stopped
+  1  no gh token, or a pull request could not be read three polls in a
+     row
+  2  usage error, or a missing or invalid setting; nothing ran
+
+watch prs:
+usage: herdsman watch implementers|reviewer|prs
+
+implementers and reviewer print events until interrupted; prs returns on
+the first pull request change, or after HERDSMAN_PR_DEADLINE (1500) with a
+TICK line, polling every HERDSMAN_PR_INTERVAL (120).
+
+exit codes:
+  0  a change or a TICK was printed, or the watcher was stopped
+  1  no gh token, or a pull request could not be read three polls in a
+     row
+  2  usage error, or a missing or invalid setting; nothing ran
+
+watch reviewer:
+usage: herdsman watch implementers|reviewer|prs
+
+implementers and reviewer print events until interrupted; prs returns on
+the first pull request change, or after HERDSMAN_PR_DEADLINE (1500) with a
+TICK line, polling every HERDSMAN_PR_INTERVAL (120).
+
+exit codes:
+  0  a change or a TICK was printed, or the watcher was stopped
+  1  no gh token, or a pull request could not be read three polls in a
+     row
+  2  usage error, or a missing or invalid setting; nothing ran
+.fi
+.SH SEE ALSO
+.BR herdsman (1)
