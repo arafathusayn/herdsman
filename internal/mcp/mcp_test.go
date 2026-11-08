@@ -328,6 +328,21 @@ func TestProceduresFollowTheTools(t *testing.T) {
 	}
 }
 
+func TestEventWaitIsAReadOnlyTool(t *testing.T) {
+	s, err := NewServer(Files(), Options{Call: (&fake{}).call, Deny: noDeny})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(s.Procedures(), rpc.Path("herdsman.daemon.v1.EventService", "Wait")) {
+		t.Fatal("no tool for the event long poll")
+	}
+	for _, tool := range s.Tools() {
+		if tool.Name == "daemon_event_wait" && (!tool.Annotations.ReadOnlyHint || tool.Annotations.DestructiveHint) {
+			t.Fatalf("annotations %+v", tool.Annotations)
+		}
+	}
+}
+
 func TestSnakeCase(t *testing.T) {
 	for in, want := range map[string]string{
 		"AddResource": "add_resource", "Get": "get", "GetURL": "get_url", "URLParts": "url_parts", "V1Thing": "v1_thing",
