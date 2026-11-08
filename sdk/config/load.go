@@ -1,0 +1,656 @@
+// Package config loads the herdsman configuration: it finds the files, decodes
+// any of the four formats into one generic tree, layers them, and binds the
+// result to the generated message through its descriptor.
+package config
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+
+	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
+	"github.com/arafathusayn/herdsman/sdk/internal/encoding/toml"
+	"github.com/arafathusayn/herdsman/sdk/internal/encoding/tree"
+	"google.golang.org/protobuf/reflect/protoreflect"
+)
+
+const envConfigPath = "HERDSMAN_CONFIG"
+
+// projectFormats are the extensions a discovered project file can have.
+var projectFormats = []string{"toml", "json", "yaml", "yml", "bin"}
+
+// userFormats are the extensions of the user file, which is always text.
+var userFormats = []string{"toml", "json", "yaml"}
+
+// Options says where to look. The zero value reads the real machine.
+type Options struct {
+	// ConfigPath is a file named by the caller, the strongest choice.
+	ConfigPath string
+	// RepoRoot enables discovery next to and inside a repository.
+	RepoRoot string
+	// UserDir holds the user file; empty means the standard folder.
+	UserDir string
+	// ProjectKey selects the user file's overrides for one repository.
+	ProjectKey string
+	// Flags are command-line values by dotted key.
+	Flags map[string]string
+	// Environ replaces the process environment when not nil.
+	Environ []string
+	// Strict turns every warning into an error.
+	Strict bool
+}
+
+// Result is a loaded configuration.
+type Result struct {
+	Config *configv1.Config
+	// Sources maps each dotted key to where its value came from.
+	Sources map[string]string
+	// Warnings lists unknown keys, in the order they were found.
+	Warnings []Warning
+	// ProjectPath is the project file used, or empty.
+	ProjectPath string
+	// UserPath is the user file used, or empty.
+	UserPath string
+
+	tree *tree.Node
+}
+
+// Get returns the effective value of a dotted key as text.
+func (r *Result) Get(key string) (string, error) {
+	resolved, err := resolveKey(key, configDescriptor())
+	if err != nil {
+		return "", err
+	}
+	node, ok := r.tree.Lookup(resolved.segments...)
+	if !ok {
+		return "", fmt.Errorf("%s: not set", key)
+	}
+	return renderNode(node), nil
+}
+
+func configDescriptor() protoreflect.MessageDescriptor {
+	return (&configv1.Config{}).ProtoReflect().Descriptor()
+}
+
+// Load layers defaults, the user file, the project file, the environment and
+// flags, weakest first.
+func Load(opts Options) (*Result, error) {
+	environ := opts.Environ
+	if environ == nil {
+		environ = os.Environ()
+	}
+	md := configDescriptor()
+	rep := &report{strict: opts.Strict}
+	sources := map[string]string{}
+	merged := tree.NewTable()
+	merge(merged, messageTree(Defaults().ProtoReflect()), "", SourceDefault, sources)
+	result := &Result{Sources: sources}
+
+	userPath, err := findUserFile(opts, environ)
+	if err != nil {
+		return nil, err
+	}
+	if userPath != "" {
+		layer, err := readLayer(userPath, rep)
+		if err != nil {
+			return nil, err
+		}
+		result.UserPath = userPath
+		applyUserLayer(merged, layer, opts.ProjectKey, sources)
+	}
+	projectPath, err := findProjectFile(opts, environ)
+	if err != nil {
+		return nil, err
+	}
+	if projectPath != "" {
+		layer, err := readLayer(projectPath, rep)
+		if err != nil {
+			return nil, err
+		}
+		result.ProjectPath = projectPath
+		merge(merged, layer, "", SourceProject, sources)
+	}
+	if err := applyEnvironment(merged, environ, md, rep, sources); err != nil {
+		return nil, err
+	}
+	if err := applyFlags(merged, opts.Flags, md, sources); err != nil {
+		return nil, err
+	}
+	msg := &configv1.Config{}
+	if err := bindMessage(merged, msg.ProtoReflect(), ""); err != nil {
+		return nil, err
+	}
+	result.Config, result.tree, result.Warnings = msg, merged, rep.warnings
+	return result, nil
+}
+
+// applyUserLayer lays down the general settings, then the chosen repository's
+// overrides. The overrides table itself is not a setting of the result.
+func applyUserLayer(merged, layer *tree.Node, projectKey string, sources map[string]string) {
+	projects, _ := layer.Get("projects")
+	general := clone(layer)
+	general.Delete("projects")
+	merge(merged, general, "", SourceUser, sources)
+	if projects == nil || projectKey == "" {
+		return
+	}
+	if override, ok := projects.Get(projectKey); ok {
+		merge(merged, override, "", SourceUser, sources)
+	}
+}
+
+// ReadFile reads one file on its own, with no defaults and no other layer.
+func ReadFile(path string) (*Result, error) {
+	rep := &report{}
+	layer, err := readLayer(path, rep)
+	if err != nil {
+		return nil, err
+	}
+	msg := &configv1.Config{}
+	if err := bindMessage(layer, msg.ProtoReflect(), ""); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	sources := map[string]string{}
+	recordSources(layer, "", SourceProject, sources)
+	return &Result{Config: msg, tree: layer, Sources: sources, Warnings: rep.warnings, ProjectPath: path}, nil
+}
+
+// readLayer decodes a file into a checked, canonical tree.
+func readLayer(path string, rep *report) (*tree.Node, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	format, err := formatOf(path)
+	if err != nil {
+		return nil, err
+	}
+	layer, err := decodeLayer(format, data, rep)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return layer, nil
+}
+
+func decodeLayer(format string, data []byte, rep *report) (*tree.Node, error) {
+	var root *tree.Node
+	var err error
+	if format == FormatBin {
+		root, err = decodeBin(data)
+	} else {
+		root, err = decodeText(format, data)
+	}
+	if err != nil {
+		return nil, err
+	}
+	layer, err := normalize(root, configDescriptor(), "", rep)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkLayer(layer); err != nil {
+		return nil, err
+	}
+	return layer, nil
+}
+
+func checkLayer(layer *tree.Node) error {
+	if node, ok := layer.Lookup("schema", "version"); ok {
+		if err := checkSchemaVersion(node); err != nil {
+			return err
+		}
+	}
+	projects, ok := layer.Get("projects")
+	if !ok {
+		return nil
+	}
+	for _, name := range projects.Keys() {
+		override, _ := projects.Get(name)
+		for _, forbidden := range []string{"projects", "aliases"} {
+			if _, found := override.Get(forbidden); found {
+				return fmt.Errorf("projects.%s: %s cannot be overridden per repository", name, forbidden)
+			}
+		}
+	}
+	return nil
+}
+
+func checkSchemaVersion(node *tree.Node) error {
+	if node.Kind != tree.String {
+		return fmt.Errorf("schema.version: expected a string, found %s", node.Kind)
+	}
+	parts := strings.Split(node.Str, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("schema.version: %q is not SemVer", node.Str)
+	}
+	numbers := [3]int{}
+	for i, part := range parts {
+		number, err := strconv.Atoi(part)
+		if err != nil || number < 0 {
+			return fmt.Errorf("schema.version: %q is not SemVer", node.Str)
+		}
+		numbers[i] = number
+	}
+	known, _, _ := strings.Cut(SchemaVersion, ".")
+	if major, _ := strconv.Atoi(known); numbers[0] > major {
+		return fmt.Errorf("schema.version: the file needs %s, this binary knows %s; upgrade herdsman", node.Str, SchemaVersion)
+	}
+	return nil
+}
+
+func lookupEnv(environ []string, name string) string {
+	for _, pair := range environ {
+		if key, value, ok := strings.Cut(pair, "="); ok && key == name {
+			return value
+		}
+	}
+	return ""
+}
+
+// UserDir is the folder of the user file for an environment. It follows
+// os.UserConfigDir, computed from environ so that a caller can supply one.
+func UserDir(environ []string) string {
+	home := lookupEnv(environ, "HOME")
+	if runtime.GOOS == "darwin" {
+		if home == "" {
+			return ""
+		}
+		return filepath.Join(home, "Library", "Application Support", "herdsman")
+	}
+	if base := lookupEnv(environ, "XDG_CONFIG_HOME"); base != "" {
+		return filepath.Join(base, "herdsman")
+	}
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".config", "herdsman")
+}
+
+func userDir(opts Options, environ []string) string {
+	if opts.UserDir != "" {
+		return opts.UserDir
+	}
+	return UserDir(environ)
+}
+
+func findUserFile(opts Options, environ []string) (string, error) {
+	dir := userDir(opts, environ)
+	if dir == "" {
+		return "", nil
+	}
+	return findOne(dir, "config", userFormats)
+}
+
+// ProjectFile returns the project file discovery chooses, or "" when there
+// is none.
+func ProjectFile(opts Options) (string, error) {
+	environ := opts.Environ
+	if environ == nil {
+		environ = os.Environ()
+	}
+	return findProjectFile(opts, environ)
+}
+
+func findProjectFile(opts Options, environ []string) (string, error) {
+	named := opts.ConfigPath
+	if named == "" {
+		named = lookupEnv(environ, envConfigPath)
+	}
+	if named != "" {
+		abs, err := filepath.Abs(named)
+		if err != nil {
+			return "", err
+		}
+		if _, err := os.Stat(abs); err != nil {
+			return "", err
+		}
+		return abs, nil
+	}
+	if opts.RepoRoot == "" {
+		return "", nil
+	}
+	for _, dir := range []string{filepath.Dir(filepath.Clean(opts.RepoRoot)), opts.RepoRoot} {
+		found, err := findOne(dir, "herdsman.config", projectFormats)
+		if err != nil || found != "" {
+			return found, err
+		}
+	}
+	return "", nil
+}
+
+// findOne returns the file of that stem in dir. Two of them is an error,
+// because neither could be said to win.
+func findOne(dir, stem string, formats []string) (string, error) {
+	var found []string
+	for _, format := range formats {
+		path := filepath.Join(dir, stem+"."+format)
+		if _, err := os.Stat(path); err == nil {
+			found = append(found, path)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+	}
+	switch len(found) {
+	case 0:
+		return "", nil
+	case 1:
+		return found[0], nil
+	default:
+		return "", fmt.Errorf("two configuration files side by side, keep one: %s", strings.Join(found, " and "))
+	}
+}
+
+// applyEnvironment reads HERDSMAN_<SECTION>__<KEY> variables. Other
+// HERDSMAN_ variables have no double underscore and are not settings.
+func applyEnvironment(merged *tree.Node, environ []string, md protoreflect.MessageDescriptor, rep *report, sources map[string]string) error {
+	for _, pair := range environ {
+		name, value, ok := strings.Cut(pair, "=")
+		rest, prefixed := strings.CutPrefix(name, "HERDSMAN_")
+		if !ok || !prefixed || !strings.Contains(rest, "__") {
+			continue
+		}
+		key := strings.ToLower(strings.ReplaceAll(rest, "__", "."))
+		resolved, err := resolveKey(key, md)
+		if err != nil {
+			if rep.strict {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+			rep.warnings = append(rep.warnings, Warning{Key: name})
+			continue
+		}
+		if err := applyText(merged, resolved, value, SourceEnv, sources); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func applyFlags(merged *tree.Node, flags map[string]string, md protoreflect.MessageDescriptor, sources map[string]string) error {
+	for key, value := range flags {
+		resolved, err := resolveKey(key, md)
+		if err != nil {
+			return err
+		}
+		if err := applyText(merged, resolved, value, SourceFlag, sources); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyText(merged *tree.Node, resolved *resolved, value, source string, sources map[string]string) error {
+	node, err := textNode(resolved, value)
+	if err != nil {
+		return err
+	}
+	layer := tree.NewTable()
+	if err := setPath(layer, resolved.segments, node); err != nil {
+		return err
+	}
+	merge(merged, layer, "", source, sources)
+	return nil
+}
+
+// writeAtomic replaces a file so that a reader never sees half of it.
+func writeAtomic(path string, data []byte) error {
+	temp, err := os.CreateTemp(filepath.Dir(path), ".herdsman-config-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temp.Name())
+	if info, err := os.Stat(path); err == nil {
+		if err := temp.Chmod(info.Mode().Perm()); err != nil {
+			temp.Close()
+			return err
+		}
+	}
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temp.Name(), path)
+}
+
+// writtenPath finds the spelling a key already has in a file, so that an edit
+// changes it where it is instead of adding a second spelling.
+func writtenPath(root *tree.Node, segments []string) []string {
+	out := make([]string, 0, len(segments))
+	node := root
+	for _, segment := range segments {
+		chosen := segment
+		if node != nil {
+			for _, key := range node.Keys() {
+				if canonicalKey(key) == canonicalKey(segment) {
+					chosen = key
+					break
+				}
+			}
+			node, _ = node.Get(chosen)
+		}
+		out = append(out, chosen)
+	}
+	return out
+}
+
+// checkEdit proves an edited file still loads before it is written.
+func checkEdit(format string, data []byte) error {
+	layer, err := decodeLayer(format, data, &report{})
+	if err != nil {
+		return err
+	}
+	return bindMessage(layer, (&configv1.Config{}).ProtoReflect(), "")
+}
+
+// encodeFile writes a whole tree in a file's format.
+func encodeFile(format string, root *tree.Node) ([]byte, error) {
+	if format != FormatBin {
+		return encodeText(format, root)
+	}
+	msg := &configv1.Config{}
+	layer, err := normalize(root, configDescriptor(), "", &report{})
+	if err != nil {
+		return nil, err
+	}
+	if err := bindMessage(layer, msg.ProtoReflect(), ""); err != nil {
+		return nil, err
+	}
+	return encodeBin(msg)
+}
+
+func decodeRaw(format string, data []byte) (*tree.Node, error) {
+	if format == FormatBin {
+		return decodeBin(data)
+	}
+	return decodeText(format, data)
+}
+
+func readForEdit(path string) (string, []byte, *tree.Node, error) {
+	format, err := formatOf(path)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	root, err := decodeRaw(format, data)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return format, data, root, nil
+}
+
+// SetFile writes one value into a file, keeping a TOML file's comments. The
+// file is not touched unless the result is valid.
+func SetFile(path, key, value string) error {
+	resolved, err := resolveKey(key, configDescriptor())
+	if err != nil {
+		return err
+	}
+	node, err := textNode(resolved, value)
+	if err != nil {
+		return err
+	}
+	format, data, root, err := readForEdit(path)
+	if err != nil {
+		return err
+	}
+	written := writtenPath(root, resolved.segments)
+	var out []byte
+	if format == FormatTOML {
+		doc, err := toml.Parse(data)
+		if err != nil {
+			return err
+		}
+		if err := doc.Set(written, node); err != nil {
+			return err
+		}
+		out = doc.Encode()
+	} else {
+		if err := setPath(root, written, node); err != nil {
+			return err
+		}
+		if out, err = encodeFile(format, root); err != nil {
+			return err
+		}
+	}
+	if err := checkEdit(format, out); err != nil {
+		return err
+	}
+	return writeAtomic(path, out)
+}
+
+// UnsetFile removes one key from a file and reports whether it was there.
+func UnsetFile(path, key string) (bool, error) {
+	resolved, err := resolveKey(key, configDescriptor())
+	if err != nil {
+		return false, err
+	}
+	format, data, root, err := readForEdit(path)
+	if err != nil {
+		return false, err
+	}
+	written := writtenPath(root, resolved.segments)
+	if _, ok := root.Lookup(written...); !ok {
+		return false, nil
+	}
+	var out []byte
+	if format == FormatTOML {
+		doc, err := toml.Parse(data)
+		if err != nil {
+			return false, err
+		}
+		if _, err := doc.Unset(written); err != nil {
+			return false, err
+		}
+		out = doc.Encode()
+	} else {
+		parent, _ := root.Lookup(written[:len(written)-1]...)
+		parent.Delete(written[len(written)-1])
+		if out, err = encodeFile(format, root); err != nil {
+			return false, err
+		}
+	}
+	if err := checkEdit(format, out); err != nil {
+		return false, err
+	}
+	return true, writeAtomic(path, out)
+}
+
+// ExportFile converts a file to another format. Keys the message does not
+// define have no place in the message, so they are not carried over.
+func ExportFile(path, format string) ([]byte, error) {
+	result, err := ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return encodeMessage(result.Config, format)
+}
+
+func encodeMessage(msg *configv1.Config, format string) ([]byte, error) {
+	switch format {
+	case FormatBin:
+		return encodeBin(msg)
+	case FormatTOML, FormatYAML, FormatJSON:
+		return encodeText(format, messageTree(msg.ProtoReflect()))
+	default:
+		return nil, fmt.Errorf("unknown format %q; use toml, yaml, json or bin", format)
+	}
+}
+
+// UpdateFile rewrites a file's keys to their canonical spelling, keeping a
+// TOML file's comments and any key it does not recognize.
+func UpdateFile(path string) error {
+	format, data, root, err := readForEdit(path)
+	if err != nil {
+		return err
+	}
+	pending := renames(root, configDescriptor(), nil, nil)
+	if len(pending) == 0 {
+		return nil
+	}
+	var out []byte
+	if format == FormatTOML {
+		doc, err := toml.Parse(data)
+		if err != nil {
+			return err
+		}
+		for _, item := range pending {
+			if item.value.Kind == tree.Table {
+				moved, err := doc.RenameTable(item.from, item.to)
+				if err != nil {
+					return err
+				}
+				if moved {
+					continue
+				}
+			}
+			if _, err := doc.Unset(item.from); err != nil {
+				return err
+			}
+			if err := doc.Set(item.to, item.value); err != nil {
+				return err
+			}
+		}
+		out = doc.Encode()
+	} else {
+		for _, item := range pending {
+			parent, _ := root.Lookup(item.from[:len(item.from)-1]...)
+			parent.Delete(item.from[len(item.from)-1])
+			if err := setPath(root, item.to, item.value); err != nil {
+				return err
+			}
+		}
+		if out, err = encodeFile(format, root); err != nil {
+			return err
+		}
+	}
+	if err := checkEdit(format, out); err != nil {
+		return err
+	}
+	return writeAtomic(path, out)
+}
+
+// InitFile writes the defaults to a new file. It never replaces one.
+func InitFile(path, format string) error {
+	data, err := encodeMessage(Defaults(), format)
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		return err
+	}
+	return file.Close()
+}
