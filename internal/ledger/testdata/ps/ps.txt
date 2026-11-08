@@ -1,0 +1,13 @@
+  100     1   100 Sun Nov  8 12:00:05 2026 -zsh HOME=/srv/dev API_TOKEN=do-not-keep HERDSMAN_EXEC=01JEXECAPI
+  101   100   100 Sun Nov  8 12:00:06 2026 claude --resume abc HOME=/srv/dev HERDSMAN_EXEC=01JEXECAPI
+  110   100   110 Sun Nov  8 12:00:10 2026 node server.js --port=4100 PORT=4100 API_TOKEN=do-not-keep SSH_CONNECTION=10.0.0.1 50000 10.0.0.2 22 HERDSMAN_EXEC=01JEXECAPI HERDSMAN_TASK=api
+  111   110   110 Sun Nov  8 12:00:11 2026 node worker.js HERDSMAN_EXEC=01JEXECAPI
+  120     1   120 Sun Nov  8 12:00:20 2026 sleep 999 HERDSMAN_EXEC=01JEXECAPI
+  130     1   130 Sun Nov  8 12:10:00 2026 nvim main.go HOME=/srv/dev
+  140     1   140 Sun Nov  8 11:00:00 2026 make dev HOME=/srv/dev
+  150     1   150 Sun Nov  8 12:00:30 2026 node other.js HERDSMAN_EXEC=01JEXECWEB
+  160     1   160 Sun Nov  8 12:00:40 2026 python3 -m http.server 4101 HOME=/srv/dev
+  170     1   170 Sun Nov  8 12:00:50 2026 postgres -D /data HOME=/srv/dev
+  180     1   180 Sun Nov  8 12:00:55 2026 psql HOME=/srv/dev
+  190     1   190 Sun Nov  8 12:00:56 2026 curl localhost:4100 HOME=/srv/dev
+  200     1   200 Sun Nov  8 12:00:57 2026 unrelated HOME=/srv/dev

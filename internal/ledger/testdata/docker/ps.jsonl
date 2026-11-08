@@ -1,0 +1,2 @@
+{"ID":"c1","Names":"api-db-1","State":"running","Labels":"com.docker.compose.project=api,com.docker.compose.project.working_dir=/work/wt/api","Mounts":"api_data","CreatedAt":"2026-11-08 12:01:00 +0000 UTC","Unknown":"tolerated"}
+{"ID":"c2","Names":"bound","State":"running","Labels":"","Mounts":"/work/wt/api/data,cache","CreatedAt":"2026-11-08 12:02:00 +0000 UTC"}

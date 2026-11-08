@@ -1,0 +1,512 @@
+{
+  "schema": {
+    "version": "1.0.0"
+  },
+  "task": "api",
+  "execution": "01JEXECAPI",
+  "worktree": "/work/wt/api",
+  "lines": [
+    {
+      "kind": "process",
+      "id": "100",
+      "identity": "process:100@2026-11-08T12:00:05Z",
+      "level": "associated",
+      "class": "compensatable",
+      "action": "exclude",
+      "signals": [
+        "cwd-under-worktree",
+        "exec-env"
+      ],
+      "role": "pane-shell",
+      "parent": 1,
+      "group": 100,
+      "restart": {
+        "command": "-zsh",
+        "folder": "/work/wt/api",
+        "env": [
+          "HERDSMAN_EXEC=01JEXECAPI"
+        ]
+      }
+    },
+    {
+      "kind": "process",
+      "id": "101",
+      "identity": "process:101@2026-11-08T12:00:06Z",
+      "level": "associated",
+      "class": "compensatable",
+      "action": "exclude",
+      "signals": [
+        "cwd-under-worktree",
+        "exec-env"
+      ],
+      "role": "agent",
+      "parent": 100,
+      "group": 100,
+      "restart": {
+        "command": "claude --resume abc",
+        "folder": "/work/wt/api",
+        "env": [
+          "HERDSMAN_EXEC=01JEXECAPI"
+        ]
+      }
+    },
+    {
+      "kind": "process",
+      "id": "110",
+      "identity": "process:110@2026-11-08T12:00:10Z",
+      "level": "exclusive",
+      "class": "compensatable",
+      "action": "stop",
+      "signals": [
+        "cwd-under-worktree",
+        "exec-env",
+        "record"
+      ],
+      "parent": 100,
+      "group": 110,
+      "restart": {
+        "command": "node server.js --port=4100",
+        "folder": "/work/wt/api/server",
+        "env": [
+          "HERDSMAN_EXEC=01JEXECAPI",
+          "HERDSMAN_TASK=api"
+        ],
+        "cut": true
+      }
+    },
+    {
+      "kind": "process",
+      "id": "111",
+      "identity": "process:111@2026-11-08T12:00:11Z",
+      "level": "exclusive",
+      "class": "compensatable",
+      "action": "stop",
+      "signals": [
+        "cwd-under-worktree",
+        "exec-env",
+        "record"
+      ],
+      "parent": 110,
+      "group": 110,
+      "restart": {
+        "command": "node worker.js",
+        "folder": "/work/wt/api",
+        "env": [
+          "HERDSMAN_EXEC=01JEXECAPI"
+        ]
+      }
+    },
+    {
+      "kind": "process",
+      "id": "120",
+      "identity": "process:120@2026-11-08T12:00:20Z",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "exec-env"
+      ],
+      "shared_with": [
+        "unproven-command"
+      ],
+      "parent": 1,
+      "group": 120,
+      "restart": {
+        "command": "sleep 999",
+        "folder": "/tmp",
+        "env": [
+          "HERDSMAN_EXEC=01JEXECAPI"
+        ]
+      }
+    },
+    {
+      "kind": "process",
+      "id": "130",
+      "identity": "process:130@2026-11-08T12:10:00Z",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "cwd-under-worktree"
+      ],
+      "shared_with": [
+        "unproven-command"
+      ],
+      "parent": 1,
+      "group": 130,
+      "restart": {
+        "command": "nvim main.go",
+        "folder": "/work/wt/api"
+      }
+    },
+    {
+      "kind": "process",
+      "id": "140",
+      "identity": "process:140@2026-11-08T11:00:00Z",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "cwd-under-worktree"
+      ],
+      "shared_with": [
+        "older-than-execution",
+        "unproven-command"
+      ],
+      "parent": 1,
+      "group": 140,
+      "restart": {
+        "command": "make dev",
+        "folder": "/work/wt/api"
+      }
+    },
+    {
+      "kind": "process",
+      "id": "150",
+      "identity": "process:150@2026-11-08T12:00:30Z",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "cwd-under-worktree"
+      ],
+      "shared_with": [
+        "execution:01JEXECWEB",
+        "task:web",
+        "unproven-command"
+      ],
+      "parent": 1,
+      "group": 150,
+      "restart": {
+        "command": "node other.js",
+        "folder": "/work/wt/api",
+        "env": [
+          "HERDSMAN_EXEC=01JEXECWEB"
+        ]
+      }
+    },
+    {
+      "kind": "process",
+      "id": "170",
+      "identity": "process:170@2026-11-08T12:00:50Z",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "record"
+      ],
+      "shared_with": [
+        "pid:180"
+      ],
+      "parent": 1,
+      "group": 170,
+      "restart": {
+        "command": "postgres -D /data",
+        "folder": "/data"
+      }
+    },
+    {
+      "kind": "process",
+      "id": "9999",
+      "identity": "process:9999",
+      "level": "unknown",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "cwd-under-worktree"
+      ]
+    },
+    {
+      "kind": "port",
+      "id": "4100/110",
+      "identity": "process:110@2026-11-08T12:00:10Z",
+      "level": "exclusive",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "candidate-listener",
+        "port-block"
+      ]
+    },
+    {
+      "kind": "port",
+      "id": "4101/160",
+      "identity": "process:160@2026-11-08T12:00:40Z",
+      "level": "associated",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "port-block"
+      ]
+    },
+    {
+      "kind": "port",
+      "id": "4102/8888",
+      "identity": "process:8888",
+      "level": "unknown",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "port-block"
+      ]
+    },
+    {
+      "kind": "port",
+      "id": "4201/150",
+      "identity": "process:150@2026-11-08T12:00:30Z",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "candidate-listener"
+      ],
+      "shared_with": [
+        "execution:01JEXECWEB",
+        "task:web",
+        "unproven-command"
+      ]
+    },
+    {
+      "kind": "port",
+      "id": "5432/170",
+      "identity": "process:170@2026-11-08T12:00:50Z",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "candidate-listener"
+      ],
+      "shared_with": [
+        "pid:180"
+      ]
+    },
+    {
+      "kind": "container",
+      "id": "c1",
+      "identity": "container:c1",
+      "level": "exclusive",
+      "class": "compensatable",
+      "action": "stop",
+      "signals": [
+        "compose-project",
+        "compose-working-dir",
+        "record"
+      ],
+      "name": "api-db-1",
+      "state": "running"
+    },
+    {
+      "kind": "container",
+      "id": "c2",
+      "identity": "container:c2",
+      "level": "associated",
+      "class": "compensatable",
+      "action": "ask",
+      "signals": [
+        "bind-mount"
+      ],
+      "name": "bound",
+      "state": "running"
+    },
+    {
+      "kind": "container",
+      "id": "c3",
+      "identity": "container:c3",
+      "level": "exclusive",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "compose-project",
+        "compose-working-dir",
+        "record"
+      ],
+      "name": "api-job-1",
+      "state": "exited"
+    },
+    {
+      "kind": "container",
+      "id": "c4",
+      "identity": "container:c4",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "bind-mount"
+      ],
+      "shared_with": [
+        "task:web"
+      ],
+      "name": "both",
+      "state": "running"
+    },
+    {
+      "kind": "container",
+      "id": "c6",
+      "identity": "container:c6",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "compose-project",
+        "compose-working-dir",
+        "record"
+      ],
+      "shared_with": [
+        "older-than-execution"
+      ],
+      "name": "api-old-1",
+      "state": "running"
+    },
+    {
+      "kind": "container",
+      "id": "c7",
+      "identity": "container:c7",
+      "level": "associated",
+      "class": "compensatable",
+      "action": "ask",
+      "signals": [
+        "exec-label"
+      ],
+      "name": "labeled",
+      "state": "running"
+    },
+    {
+      "kind": "container",
+      "id": "c8",
+      "identity": "container:c8",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "compose-project",
+        "compose-working-dir",
+        "record"
+      ],
+      "shared_with": [
+        "execution:01JEXECOLD"
+      ],
+      "name": "elsewhere",
+      "state": "running"
+    },
+    {
+      "kind": "volume",
+      "id": "api_cache",
+      "identity": "volume:api_cache@2026-11-08T12:01:30Z",
+      "level": "exclusive",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "compose-project",
+        "record"
+      ]
+    },
+    {
+      "kind": "volume",
+      "id": "api_data",
+      "identity": "volume:api_data@2026-11-08T12:01:00Z",
+      "level": "exclusive",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "compose-project",
+        "record"
+      ]
+    },
+    {
+      "kind": "network",
+      "id": "api_default",
+      "identity": "network:api_default@2026-11-08T12:00:59Z",
+      "level": "exclusive",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "compose-project",
+        "record"
+      ]
+    },
+    {
+      "kind": "scratch",
+      "id": "/shared/cache",
+      "identity": "scratch:/shared/cache",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "config-var"
+      ],
+      "shared_with": [
+        "task:web"
+      ]
+    },
+    {
+      "kind": "scratch",
+      "id": "/tmp/herdsman/api",
+      "identity": "scratch:/tmp/herdsman/api",
+      "level": "unknown",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "config-var"
+      ]
+    },
+    {
+      "kind": "scratch",
+      "id": "/tmp/herdsman/recorded",
+      "identity": "scratch:/tmp/herdsman/recorded",
+      "level": "exclusive",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "record"
+      ]
+    },
+    {
+      "kind": "database",
+      "id": "api_dev",
+      "identity": "database:api_dev",
+      "level": "exclusive",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "config-var",
+        "record"
+      ]
+    },
+    {
+      "kind": "database",
+      "id": "shared_db",
+      "identity": "database:shared_db",
+      "level": "shared",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "config-var"
+      ],
+      "shared_with": [
+        "task:web"
+      ]
+    },
+    {
+      "kind": "record",
+      "id": "process:120",
+      "identity": "process:120@2026-11-08T12:59:59Z",
+      "level": "unknown",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "record-unmatched"
+      ]
+    },
+    {
+      "kind": "record",
+      "id": "process:4242",
+      "identity": "process:4242@2026-11-08T12:00:01Z",
+      "level": "unknown",
+      "class": "compensatable",
+      "action": "report",
+      "signals": [
+        "record-unmatched"
+      ]
+    }
+  ]
+}
