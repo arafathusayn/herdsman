@@ -124,7 +124,6 @@ func (g fixtureGit) branchStates(repo string) error {
 	type edit struct{ branch, start, file, body string }
 	for _, e := range []edit{
 		{branchBehind, first, "", ""},
-		{branchAhead, "main", "ahead.txt", "ahead\n"},
 		{branchDiverged, first, "diverged.txt", "diverged\n"},
 		{branchConflicting, first, "shared.txt", "conflict\n"},
 		{branchIntegrated, "main", "integrated.txt", "integrated\n"},
@@ -140,9 +139,17 @@ func (g fixtureGit) branchStates(repo string) error {
 			}
 		}
 	}
-	return g.script(repo,
+	if err := g.script(repo,
 		[]string{"checkout", "-q", "main"},
-		[]string{"merge", "-q", "--no-ff", "-m", "land integrated", branchIntegrated})
+		[]string{"merge", "-q", "--no-ff", "-m", "land integrated", branchIntegrated},
+		// Last, from the final main: any later move of main would make it diverged.
+		[]string{"checkout", "-q", "-b", branchAhead, "main"}); err != nil {
+		return err
+	}
+	if err := g.commit(repo, "ahead.txt", "ahead\n", "work on "+branchAhead); err != nil {
+		return err
+	}
+	return g.script(repo, []string{"checkout", "-q", "main"})
 }
 
 // buildRepository creates a repository with the state branches, its origin,

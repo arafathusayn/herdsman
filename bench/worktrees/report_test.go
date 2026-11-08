@@ -27,9 +27,15 @@ func TestMeanIntervalNeedsTwoSamples(t *testing.T) {
 	}
 }
 
-func TestStudentTFallsBackForLargeSamples(t *testing.T) {
-	if got := studentT(1000); got != 1.96 {
-		t.Fatalf("got %v", got)
+func TestStudentTNeverNarrowsTheInterval(t *testing.T) {
+	if got := studentT(30); got != 2.042 {
+		t.Fatalf("the table's last exact value, got %v", got)
+	}
+	// The default 20 rounds pool 40 samples: 39 degrees of freedom.
+	for df, exact := range map[int]float64{31: 2.039513, 39: 2.022691, 40: 2.021075, 59: 2.000995, 60: 2.000298, 119: 1.980100, 120: 1.979930, 1000: 1.962339} {
+		if got := studentT(df); got < exact {
+			t.Errorf("t(%d) is %v, got %v", df, exact, got)
+		}
 	}
 }
 
@@ -63,7 +69,8 @@ func TestJudgeBudget(t *testing.T) {
 func completeResults(commit string) Results {
 	r := Results{
 		Schema: SchemaVersion, Date: "2026-11-08T10:00:00Z", Commit: commit,
-		Machine: "test machine", Git: "2.50", Go: "go1.27", Wt: "v0.81.0", Rounds: 20,
+		Machine: "test machine", Git: "2.50", Go: "go1.27", Wt: "v0.81.0", Load: "1.0 1.0 1.0",
+		Rounds: gateRounds, Small: gateSmall, Large: gateLarge, IgnoredMB: gateIgnoredMB,
 	}
 	for _, id := range requiredVersus {
 		r.Cases = append(r.Cases, CaseResult{ID: id, Kind: KindVersus, Verdict: VerdictWin,
@@ -71,7 +78,7 @@ func completeResults(commit string) Results {
 	}
 	for _, id := range requiredBudgets {
 		r.Cases = append(r.Cases, CaseResult{ID: id, Kind: KindBudget, Verdict: VerdictWithin,
-			Herdsman: &Interval{1, 2}, AA: &Interval{-0.1, 0.1}, BudgetMS: 200})
+			Herdsman: &Interval{1, 2}, AA: &Interval{-0.1, 0.1}, BudgetMS: requiredBudgetMS[id]})
 	}
 	return r
 }
@@ -249,6 +256,62 @@ func TestCheckFailsOnOverBudgetAndUnavailable(t *testing.T) {
 		r := completeResults(gitIn(t, repo, "rev-parse", "HEAD"))
 		r.Cases[len(r.Cases)-1].Verdict = verdict
 		wantCheckError(t, Check(repo, writeResults(t, r)), verdict)
+	}
+}
+
+func TestCheckRejectsResultsTheEvidenceDoesNotSupport(t *testing.T) {
+	nan := math.NaN()
+	first := func(r *Results) *CaseResult { return &r.Cases[0] }
+	last := func(r *Results) *CaseResult { return &r.Cases[len(r.Cases)-1] }
+	for name, change := range map[string]func(*Results){
+		"slower but labelled win":  func(r *Results) { first(r).Herdsman, first(r).Wt = &Interval{50, 60}, &Interval{1, 2} },
+		"win inside the noise":     func(r *Results) { first(r).AA = &Interval{-5, 5} },
+		"no herdsman interval":     func(r *Results) { first(r).Herdsman = nil },
+		"no wt interval":           func(r *Results) { first(r).Wt = nil },
+		"no A/A interval":          func(r *Results) { first(r).AA = nil },
+		"inverted interval":        func(r *Results) { first(r).Herdsman = &Interval{2, 1} },
+		"NaN interval":             func(r *Results) { first(r).Wt = &Interval{nan, nan} },
+		"infinite interval":        func(r *Results) { first(r).Wt = &Interval{1, math.Inf(1)} },
+		"wrong kind":               func(r *Results) { first(r).Kind = KindBudget },
+		"unknown kind":             func(r *Results) { first(r).Kind = "later" },
+		"budget raised":            func(r *Results) { last(r).BudgetMS = 999999 },
+		"over but labelled within": func(r *Results) { last(r).Herdsman = &Interval{5000, 6000} },
+		"budget without interval":  func(r *Results) { last(r).Herdsman = nil },
+		"budget without A/A":       func(r *Results) { last(r).AA = nil },
+		"no schema":                func(r *Results) { r.Schema = "" },
+		"no machine":               func(r *Results) { r.Machine = "" },
+		"no git":                   func(r *Results) { r.Git = "" },
+		"no go":                    func(r *Results) { r.Go = "" },
+		"no wt version":            func(r *Results) { r.Wt = "" },
+		"no load":                  func(r *Results) { r.Load = "" },
+		"no date":                  func(r *Results) { r.Date = "" },
+		"too few rounds":           func(r *Results) { r.Rounds = 0 },
+		"small fixture shrunk":     func(r *Results) { r.Small = 8 },
+		"large fixture shrunk":     func(r *Results) { r.Large = 9 },
+		"ignored tree shrunk":      func(r *Results) { r.IgnoredMB = 32 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo := gitRepo(t)
+			r := completeResults(gitIn(t, repo, "rev-parse", "HEAD"))
+			change(&r)
+			if err := Check(repo, writeResults(t, r)); err == nil {
+				t.Fatal("want an error")
+			}
+		})
+	}
+}
+
+func TestFixtureSizesRoundTrip(t *testing.T) {
+	got, err := ParseResults(completeResults("abc").Render())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Small != gateSmall || got.Large != gateLarge || got.IgnoredMB != gateIgnoredMB {
+		t.Fatalf("got %+v", got)
+	}
+	bad := strings.Replace(completeResults("abc").Render(), "ignored_mb: 2048", "ignored_mb: x", 1)
+	if _, err := ParseResults(bad); err == nil {
+		t.Fatal("want an error for a bad size")
 	}
 }
 

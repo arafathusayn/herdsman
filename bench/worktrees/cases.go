@@ -31,6 +31,16 @@ var requiredVersus = []string{
 
 var requiredBudgets = []string{CaseLedgerScan, CaseTeardown}
 
+// The workload a results file must have measured to count for the gate.
+const (
+	gateRounds    = 20
+	gateSmall     = 20
+	gateLarge     = 50
+	gateIgnoredMB = 2048
+)
+
+var requiredBudgetMS = map[string]float64{CaseLedgerScan: ledgerBudgetMS, CaseTeardown: teardownBudgetMS}
+
 // Step is one timed command. Accept lists exit codes besides zero that still
 // count as success, and Must is text its output has to contain.
 type Step struct {
@@ -62,6 +72,7 @@ type Case struct {
 	Steps    func(Sample) []Step
 	Before   func(Sample) error
 	After    func(Sample) error
+	Cleanup  func(Sample) error
 }
 
 // Bench holds what the cases share.
@@ -147,18 +158,21 @@ func (b *Bench) newCase() Case {
 			return []Step{{Dir: repo, Argv: []string{b.Tools.Herdsman, "new", name(s), "--base", "main"}}}
 		},
 		After: func(s Sample) error {
-			path, branch, err := b.worktreeOf(repo, name(s))
+			path, _, err := b.worktreeOf(repo, name(s))
 			if err != nil {
 				return err
 			}
-			_, missing := os.Stat(filepath.Join(path, "node_modules", cacheMarker))
-			if err := b.Fixtures.git.script(repo, []string{"worktree", "remove", "--force", path}, []string{"branch", "-q", "-D", branch}); err != nil {
-				return err
-			}
-			if missing != nil {
+			if _, err := os.Stat(filepath.Join(path, "node_modules", cacheMarker)); err != nil {
 				return errors.New("the new worktree did not receive the ignored tree")
 			}
 			return nil
+		},
+		Cleanup: func(s Sample) error {
+			path, branch, err := b.worktreeOf(repo, name(s))
+			if err != nil {
+				return nil // The timed command failed before it created one.
+			}
+			return b.Fixtures.git.script(repo, []string{"worktree", "remove", "--force", path}, []string{"branch", "-q", "-D", branch})
 		},
 	}
 }
@@ -185,7 +199,11 @@ func (b *Bench) ledgerCase() Case {
 
 func (b *Bench) teardownCase() Case {
 	repo := b.Fixtures.Repo20
-	servers := map[string]chan error{}
+	type server struct {
+		pid  int
+		done chan struct{}
+	}
+	servers := map[string]server{}
 	return Case{
 		ID: CaseTeardown, Kind: KindBudget, BudgetMS: teardownBudgetMS,
 		Before: func(s Sample) error {
@@ -193,16 +211,15 @@ func (b *Bench) teardownCase() Case {
 			if err != nil {
 				return err
 			}
-			server := exec.Command("sleep", "600")
-			server.Dir = path
-			server.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-			if err := server.Start(); err != nil {
+			cmd := exec.Command("sleep", "600")
+			cmd.Dir = path
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			if err := cmd.Start(); err != nil {
 				return err
 			}
-			done := make(chan error, 1)
-			go func() { done <- server.Wait() }()
-			servers[s.Tag] = done
-			pids[s.Tag] = server.Process.Pid
+			done := make(chan struct{})
+			go func() { _ = cmd.Wait(); close(done) }()
+			servers[s.Tag] = server{pid: cmd.Process.Pid, done: done}
 			return nil
 		},
 		Steps: func(Sample) []Step {
@@ -210,19 +227,24 @@ func (b *Bench) teardownCase() Case {
 		},
 		After: func(s Sample) error {
 			select {
-			case <-servers[s.Tag]:
+			case <-servers[s.Tag].done:
 				return nil
 			default:
-				_ = syscall.Kill(pids[s.Tag], syscall.SIGKILL)
-				<-servers[s.Tag]
 				return errors.New("the dev server was still running after teardown")
 			}
 		},
+		Cleanup: func(s Sample) error {
+			running := servers[s.Tag]
+			select {
+			case <-running.done:
+			default:
+				_ = syscall.Kill(running.pid, syscall.SIGKILL)
+				<-running.done
+			}
+			return nil
+		},
 	}
 }
-
-// pids holds each teardown sample's dev server. The cases run one at a time.
-var pids = map[string]int{}
 
 // Cases lists the benchmarks of the commands that ship today.
 func (b *Bench) Cases() []Case {

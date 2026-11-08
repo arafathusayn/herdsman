@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testFixtures(t *testing.T) *Fixtures {
@@ -33,8 +35,8 @@ func TestFixturesHoldEveryIntegrationState(t *testing.T) {
 		}
 		return strings.Join(strings.Fields(out), " ")
 	}
-	if got := counts(branchAhead); got != "1 1" && !strings.HasSuffix(got, " 1") {
-		t.Errorf("ahead: %s", got)
+	if got := counts(branchAhead); !strings.HasPrefix(got, "0 ") || strings.HasSuffix(got, " 0") {
+		t.Errorf("ahead must be ahead only: %s", got)
 	}
 	if got := counts(branchBehind); strings.HasPrefix(got, "0 ") || !strings.HasSuffix(got, " 0") {
 		t.Errorf("behind: %s", got)
@@ -294,6 +296,9 @@ func TestNewCaseChecksTheIgnoredTreeArrived(t *testing.T) {
 		if !copied && (err == nil || !strings.Contains(err.Error(), "ignored tree")) {
 			t.Fatalf("got %v", err)
 		}
+		if err := c.Cleanup(s); err != nil {
+			t.Fatal(err)
+		}
 		if _, statErr := os.Stat(path); statErr == nil {
 			t.Fatal("the sample's worktree must be removed either way")
 		}
@@ -308,5 +313,99 @@ func TestNewCaseTimesTheCopyForWt(t *testing.T) {
 	}
 	if got := len(c.Steps(Sample{Tag: "x"})); got != 1 {
 		t.Fatalf("got %d", got)
+	}
+}
+
+func TestNewCaseCleanupToleratesAWorktreeNeverCreated(t *testing.T) {
+	b := &Bench{Fixtures: testFixtures(t), Tools: Tools{Herdsman: "h", Wt: "w"}}
+	if err := findCase(t, b, "new-shared-cache").Cleanup(Sample{Tag: "absent"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCleanupRunsOnEveryExitAfterPreparation(t *testing.T) {
+	boom := errors.New("boom")
+	for name, tc := range map[string]struct {
+		before, step, after error
+		cleaned             bool
+	}{
+		"success":        {cleaned: true},
+		"failed command": {step: boom, cleaned: true},
+		"failed check":   {after: boom, cleaned: true},
+		"failed prepare": {before: boom},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cleaned := false
+			c := Case{
+				Steps:   func(Sample) []Step { return []Step{{}} },
+				Before:  func(Sample) error { return tc.before },
+				After:   func(Sample) error { return tc.after },
+				Cleanup: func(Sample) error { cleaned = true; return nil },
+			}
+			b := &Bench{run: func(Step) (string, error) { return "", tc.step }}
+			_, err := b.measureWith()(slotFirst, c, 0)
+			if (tc.before != nil || tc.step != nil || tc.after != nil) != (err != nil) {
+				t.Fatalf("got %v", err)
+			}
+			if cleaned != tc.cleaned {
+				t.Fatalf("cleaned = %v", cleaned)
+			}
+		})
+	}
+}
+
+func TestACleanupFailureFailsTheSample(t *testing.T) {
+	c := Case{Steps: func(Sample) []Step { return nil }, Cleanup: func(Sample) error { return errors.New("left behind") }}
+	b := &Bench{run: func(Step) (string, error) { return "", nil }}
+	if _, err := b.measureWith()(slotFirst, c, 0); err == nil || !strings.Contains(err.Error(), "left behind") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestTeardownCleanupStopsTheServerAfterAFailedCommand(t *testing.T) {
+	b := &Bench{Fixtures: testFixtures(t), Tools: Tools{Herdsman: "h", Wt: "w"}}
+	c := findCase(t, b, CaseTeardown)
+	s := Sample{Tag: "x"}
+	if err := c.Before(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.After(s); err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("got %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- c.Cleanup(s) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("cleanup did not stop the server")
+	}
+	if err := c.Cleanup(s); err != nil {
+		t.Fatalf("a second cleanup must be harmless: %v", err)
+	}
+}
+
+func TestRunCommandWritesTheFileAndFailsOnUnavailableCases(t *testing.T) {
+	repo := gitRepo(t)
+	tool := standInTools(t, strings.TrimSpace(pinnedWt))
+	out := t.TempDir()
+	var log bytes.Buffer
+	args := []string{"run", "--herdsman", tool, "--wt", tool, "--repo", repo, "--out", out, "--rounds", "2", "--ignored-mb", "1", "--small", "8", "--large", "9"}
+	if got := dispatch(args, &log); got != 1 {
+		t.Fatalf("got %d: %s", got, log.String())
+	}
+	files, err := filepath.Glob(filepath.Join(out, "*.md"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("%v %v: %s", files, err, log.String())
+	}
+}
+
+func TestRunCommandReportsAnUnusableCheckout(t *testing.T) {
+	tool := standInTools(t, strings.TrimSpace(pinnedWt))
+	var log bytes.Buffer
+	if got := dispatch([]string{"run", "--herdsman", tool, "--wt", tool, "--repo", t.TempDir(), "--out", t.TempDir()}, &log); got != 1 {
+		t.Fatalf("got %d: %s", got, log.String())
 	}
 }

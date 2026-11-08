@@ -69,20 +69,23 @@ func firstLine(out []byte) string {
 
 // measureWith times the steps of a sample and nothing around them.
 func (b *Bench) measureWith() measureFunc {
-	return func(slot string, c Case, round int) (time.Duration, error) {
+	return func(slot string, c Case, round int) (total time.Duration, err error) {
 		s := Sample{Tag: fmt.Sprintf("%s-%d", slot, round), Wt: slot == slotWt}
 		if c.Before != nil {
 			if err := c.Before(s); err != nil {
 				return 0, fmt.Errorf("prepare: %w", err)
 			}
 		}
-		var total time.Duration
+		if c.Cleanup != nil {
+			// Whatever happens below, the next sample starts from a clean machine.
+			defer func() { err = errors.Join(err, c.Cleanup(s)) }()
+		}
 		for _, step := range c.Steps(s) {
 			start := time.Now()
-			_, err := b.run(step)
+			_, runErr := b.run(step)
 			total += time.Since(start)
-			if err != nil {
-				return 0, err
+			if runErr != nil {
+				return 0, runErr
 			}
 		}
 		if c.After != nil {
@@ -170,7 +173,7 @@ func Run(o Options, stderr io.Writer) (Results, error) {
 	results := Results{
 		Schema: SchemaVersion, Date: time.Now().UTC().Format(time.RFC3339), Commit: commit,
 		Machine: machineName(), Git: strings.TrimPrefix(gitVersion, "git version "), Go: runtime.Version(),
-		Wt: wt, Load: load, Rounds: o.Rounds,
+		Wt: wt, Load: load, Rounds: o.Rounds, Small: o.Small, Large: o.Large, IgnoredMB: o.IgnoredMB,
 	}
 	for _, c := range b.Cases() {
 		rounds := o.Rounds
@@ -195,10 +198,10 @@ func runCommand(args []string, stderr io.Writer) int {
 	fs.StringVar(&o.Wt, "wt", "", "the wt binary")
 	fs.StringVar(&o.Repo, "repo", ".", "the source checkout")
 	fs.StringVar(&o.Out, "out", "bench/worktrees/results", "where the results file goes")
-	fs.IntVar(&o.Rounds, "rounds", 20, "samples per slot")
-	fs.IntVar(&o.IgnoredMB, "ignored-mb", 2048, "size of the ignored tree")
-	fs.IntVar(&o.Small, "small", 20, "worktrees in the small repository")
-	fs.IntVar(&o.Large, "large", 50, "worktrees in the large repository")
+	fs.IntVar(&o.Rounds, "rounds", gateRounds, "samples per slot")
+	fs.IntVar(&o.IgnoredMB, "ignored-mb", gateIgnoredMB, "size of the ignored tree")
+	fs.IntVar(&o.Small, "small", gateSmall, "worktrees in the small repository")
+	fs.IntVar(&o.Large, "large", gateLarge, "worktrees in the large repository")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
