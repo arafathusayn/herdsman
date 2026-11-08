@@ -31,7 +31,7 @@ func (d *Daemon) openOps() error {
 	}
 	d.mu.Lock()
 	d.acctDB = c
-	d.ops = ops.NewEngine(c, ops.Options{Effects: d.cfg.Effects, Checks: d.cfg.Checks, Now: d.cfg.Now})
+	d.ops = ops.NewEngine(c, ops.Options{Effects: d.operationEffects(), Checks: d.cfg.Checks, Now: d.cfg.Now})
 	d.mu.Unlock()
 	return nil
 }
