@@ -1,0 +1,14 @@
+.TH HERDSMAN-DELETE 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-delete \- Archive a route, verify the archive, then remove the route.
+.SH DESCRIPTION
+.nf
+usage: herdsman delete <route> [--force] [--keep-folder] [--grace <seconds>] [-y] [--dry-run]
+
+Refuses while an agent of the route runs, unless --force, which stops the route
+first. The route folder and private inbox are archived under the repository's
+common git folder and the archive is verified; nothing is removed without a
+verified archive. --keep-folder archives the route folder and leaves it in place.
+.fi
+.SH SEE ALSO
+.BR herdsman (1)
