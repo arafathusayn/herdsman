@@ -47,8 +47,9 @@ var serverPackages = []string{
 	"internal/web",
 }
 
-// serverPackagesPin must equal the length of serverPackages, so every change to
-// the list touches this line too: raise it when the list grows, never lower it.
+// serverPackagesPin holds the number of entries in serverPackages, not their
+// names: raise it when the list grows, never lower it. A same-size swap shows
+// only in the diff of the list.
 const serverPackagesPin = 18
 
 // wiringFiles run the daemon in-process, so they stay allowed.
@@ -65,9 +66,9 @@ var unmovedVerbFiles = []string{
 	"cmd/herdsman/cmd_route.go",
 }
 
-// unmovedVerbFilesPin must equal the length of unmovedVerbFiles, so every change
-// to the list touches this line too: lower it when the list shrinks, never raise
-// it.
+// unmovedVerbFilesPin holds the number of entries in unmovedVerbFiles, not their
+// names: lower it when the list shrinks, never raise it. A same-size swap shows
+// only in the diff of the list.
 const unmovedVerbFilesPin = 2
 
 // xSysModule may be imported only by the packages in xSysImporters.

@@ -14,6 +14,9 @@ GORELEASER        := github.com/goreleaser/goreleaser/v2@v2.19.0
 BUN_GLOBAL  := $(or $(BUN_INSTALL),$(HOME)/.bun)/install/global/node_modules
 WEB_DIST    := internal/web/dist
 
+# The test file names bun test runs. check-sdk-ts passes only when none exists.
+BUN_TEST_NAMES := $(foreach kind,.test _test .spec _spec,$(foreach ext,js jsx ts tsx mjs mts cjs cts,-o -name '*$(kind).$(ext)'))
+
 # One target per module, in the order MODULES.md lists them.
 MODULE_CHECKS := $(shell sed -n 's/^|.*| `make \(check-[a-z-]*\)` |.*/\1/p' MODULES.md)
 
@@ -113,7 +116,7 @@ check-conformance:
 
 ## check-sdk-ts: the TypeScript SDK; passes while the module has no test files
 check-sdk-ts:
-	@if [ -n "$$(find sdk/ts -type f ! -path '*/node_modules/*' \( -name '*.test.*' -o -name '*_test.*' -o -name '*.spec.*' -o -name '*_spec.*' \) 2>/dev/null)" ]; then \
+	@if [ -n "$$(find sdk/ts -type f ! -path '*/node_modules/*' \( -false $(BUN_TEST_NAMES) \) 2>/dev/null)" ]; then \
 		cd sdk/ts && bun test; \
 	else \
 		echo "sdk/ts: no test files yet"; \

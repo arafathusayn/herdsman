@@ -33,7 +33,7 @@ const failingBunTest = "import { expect, test } from \"bun:test\";\n\ntest(\"pla
 
 // Every file name bun test discovers must reach bun, or a failing suite passes.
 func TestCheckSDKTSRunsEveryBunTestName(t *testing.T) {
-	for _, name := range []string{"a.test.ts", "a_test.ts", "a.spec.ts", "a_spec.ts"} {
+	for _, name := range []string{"a.test.ts", "a_test.ts", "a.spec.ts", "a_spec.ts", "a.test.tsx", "a.spec.mts", "a.test.mjs", "a_spec.js"} {
 		t.Run(name, func(t *testing.T) {
 			out, err := runMakeTarget(t, "check-sdk-ts", map[string]string{"sdk/ts/" + name: failingBunTest})
 			if err == nil {
@@ -51,6 +51,8 @@ func TestCheckSDKTSPassesWithoutTests(t *testing.T) {
 		"no directory": nil,
 		"source only":  {"sdk/ts/index.ts": "export const x = 1;\n"},
 		"dependency":   {"sdk/ts/node_modules/dep/a.test.ts": failingBunTest},
+		"declaration":  {"sdk/ts/a.test.d.ts": "export {};\n"},
+		"json":         {"sdk/ts/a.test.json": "{}\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			out, err := runMakeTarget(t, "check-sdk-ts", files)
