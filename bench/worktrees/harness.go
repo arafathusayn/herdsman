@@ -34,7 +34,9 @@ type Options struct {
 }
 
 func toolEnv(f *Fixtures) []string {
-	env := f.git.env()
+	// The check wrapper's core limit binds only the Go tool, so it would bias
+	// the comparison with wt.
+	env := slices.DeleteFunc(f.git.env(), func(entry string) bool { return strings.HasPrefix(entry, "GOMAXPROCS=") })
 	for i, entry := range env {
 		if value, ok := strings.CutPrefix(entry, "PATH="); ok {
 			env[i] = "PATH=" + f.Bin + string(os.PathListSeparator) + value

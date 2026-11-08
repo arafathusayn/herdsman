@@ -18,14 +18,13 @@ const (
 	branchIntegrated  = "state-integrated"
 	branchConflicting = "state-conflicting"
 	branchRequest     = "pr-topic"
-	branchTeardown    = "teardown-target"
 
 	requestNumber = 7
 	remoteName    = "acme/repo"
 	cacheMarker   = "pkg-0000/blob-0000"
 )
 
-var fixedBranches = []string{branchAhead, branchBehind, branchDiverged, branchIntegrated, branchConflicting, branchRequest, branchTeardown}
+var fixedBranches = []string{branchAhead, branchBehind, branchDiverged, branchIntegrated, branchConflicting, branchRequest}
 
 // fixtureGit runs git in a sandbox with its own identity and no user config.
 type fixtureGit struct {
@@ -128,7 +127,6 @@ func (g fixtureGit) branchStates(repo string) error {
 		{branchConflicting, first, "shared.txt", "conflict\n"},
 		{branchIntegrated, "main", "integrated.txt", "integrated\n"},
 		{branchRequest, "main", "topic.txt", "topic\n"},
-		{branchTeardown, "main", "", ""},
 	} {
 		if err := g.script(repo, []string{"checkout", "-q", "-b", e.branch, e.start}); err != nil {
 			return err

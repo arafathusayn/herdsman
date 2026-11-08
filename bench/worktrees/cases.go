@@ -9,7 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/arafathusayn/herdsman/internal/ledger"
 	"github.com/arafathusayn/herdsman/internal/wtree"
 )
 
@@ -17,6 +19,9 @@ import (
 const (
 	CaseLedgerScan = "ledger-scan"
 	CaseTeardown   = "teardown"
+
+	// teardownTask is the task both budget cases work on.
+	teardownTask = "teardown-target"
 
 	ledgerBudgetMS = 200
 	teardownGrace  = 1
@@ -189,12 +194,27 @@ func (b *Bench) goCase(id, selector string) Case {
 
 func (b *Bench) ledgerCase() Case {
 	repo := b.Fixtures.Repo20
-	return Case{ID: CaseLedgerScan, Kind: KindBudget, BudgetMS: ledgerBudgetMS, Steps: func(Sample) []Step {
-		// Without -y and without a terminal the verb scans, prints the plan and
-		// exits 2. The verb's own usage error also exits 2, so the plan's key
-		// is required: a binary without the verb cannot pass as a fast scan.
-		return []Step{{Dir: repo, Argv: []string{b.Tools.Herdsman, "teardown", branchTeardown, "--json"}, Accept: []int{2}, Must: `"lines"`}}
-	}}
+	return Case{
+		ID: CaseLedgerScan, Kind: KindBudget, BudgetMS: ledgerBudgetMS,
+		Before: func(Sample) error { return b.ensureTask(repo) },
+		Steps: func(Sample) []Step {
+			// With nothing to stop the verb scans the machine, prints the plan and
+			// exits 0. The plan's key is required, so that output from anything
+			// else cannot pass as a fast scan.
+			return []Step{{Dir: repo, Argv: []string{b.Tools.Herdsman, "teardown", teardownTask, "--json"}, Must: `"lines"`}}
+		},
+	}
+}
+
+// ensureTask makes the budget cases' task with the verb, since teardown knows
+// only tasks that new recorded. It is made here, after the list cases have
+// wiped the state and so that they count exactly the fixture's worktrees.
+func (b *Bench) ensureTask(repo string) error {
+	if _, _, err := b.worktreeOf(repo, teardownTask); err == nil {
+		return nil
+	}
+	_, err := b.run(Step{Dir: repo, Argv: []string{b.Tools.Herdsman, "new", teardownTask, "--base", "main", "--no-setup"}})
+	return err
 }
 
 func (b *Bench) teardownCase() Case {
@@ -207,10 +227,16 @@ func (b *Bench) teardownCase() Case {
 	return Case{
 		ID: CaseTeardown, Kind: KindBudget, BudgetMS: teardownBudgetMS,
 		Before: func(s Sample) error {
-			path, _, err := b.worktreeOf(repo, branchTeardown)
+			if err := b.ensureTask(repo); err != nil {
+				return err
+			}
+			path, _, err := b.worktreeOf(repo, teardownTask)
 			if err != nil {
 				return err
 			}
+			// Minted before the server starts: a process older than its execution
+			// counts as shared, and teardown would leave it running.
+			execution := ledger.NewExecution(time.Now())
 			cmd := exec.Command("sleep", "600")
 			cmd.Dir = path
 			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -219,11 +245,19 @@ func (b *Bench) teardownCase() Case {
 			}
 			done := make(chan struct{})
 			go func() { _ = cmd.Wait(); close(done) }()
-			servers[s.Tag] = server{pid: cmd.Process.Pid, done: done}
-			return nil
+			pid := cmd.Process.Pid
+			servers[s.Tag] = server{pid: pid, done: done}
+			// Only a recorded process is the task's own to stop.
+			_, err = b.run(Step{Dir: repo, Argv: []string{b.Tools.Herdsman, "resource", "add",
+				"--task", teardownTask, "--execution", execution, "--kind", ledger.KindProcess, "--id", strconv.Itoa(pid)}})
+			if err != nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+				<-done
+			}
+			return err
 		},
 		Steps: func(Sample) []Step {
-			return []Step{{Dir: repo, Argv: []string{b.Tools.Herdsman, "teardown", branchTeardown, "-y", "--grace", strconv.Itoa(teardownGrace)}}}
+			return []Step{{Dir: repo, Argv: []string{b.Tools.Herdsman, "teardown", teardownTask, "-y", "--grace", strconv.Itoa(teardownGrace)}}}
 		},
 		After: func(s Sample) error {
 			select {

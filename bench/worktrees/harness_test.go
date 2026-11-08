@@ -8,9 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/arafathusayn/herdsman/internal/ledger"
 )
 
 func testFixtures(t *testing.T) *Fixtures {
@@ -155,7 +158,7 @@ func findCase(t *testing.T, b *Bench, id string) Case {
 const standIn = `#!/bin/sh
 case "$*" in
   --version) echo "wt %s" ;;
-  *teardown*--json*) echo '{"lines":[]}'; exit 2 ;;
+  *teardown*--json*) echo '{"lines":[]}' ;;
 esac
 exit 0
 `
@@ -362,8 +365,102 @@ func TestACleanupFailureFailsTheSample(t *testing.T) {
 	}
 }
 
+// taskBench answers `new` the way the verb does: it makes the task's worktree.
+func taskBench(t *testing.T, log *[][]string) *Bench {
+	t.Helper()
+	f := testFixtures(t)
+	b := &Bench{Fixtures: f, Tools: Tools{Herdsman: "h", Wt: "w"}}
+	b.run = func(s Step) (string, error) {
+		*log = append(*log, s.Argv)
+		if len(s.Argv) > 2 && s.Argv[1] == "new" {
+			path := filepath.Join(f.Root, "made."+s.Argv[2])
+			return "", f.git.script(s.Dir, []string{"worktree", "add", "-q", "-b", "feat/" + s.Argv[2], path, "main"})
+		}
+		return "", nil
+	}
+	return b
+}
+
+func verbCount(log [][]string, verb string) int {
+	count := 0
+	for _, argv := range log {
+		if len(argv) > 1 && argv[1] == verb {
+			count++
+		}
+	}
+	return count
+}
+
+func TestToolsDoNotInheritTheCheckWrappersCoreLimit(t *testing.T) {
+	t.Setenv("GOMAXPROCS", "1")
+	f := &Fixtures{Bin: "/bin-dir", git: fixtureGit{home: "/home-dir"}}
+	for _, entry := range toolEnv(f) {
+		if strings.HasPrefix(entry, "GOMAXPROCS=") {
+			t.Fatalf("a limit only the Go tool obeys biases the comparison: %s", entry)
+		}
+	}
+}
+
+func TestBudgetCasesRunOnATaskTheVerbCreated(t *testing.T) {
+	var log [][]string
+	b := taskBench(t, &log)
+	if slices.Contains(fixedBranches, teardownTask) {
+		t.Fatal("the teardown task must not be a plain git worktree: only new records a task")
+	}
+	scan := findCase(t, b, CaseLedgerScan)
+	for range 2 {
+		if err := scan.Before(Sample{Tag: "x"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if verbCount(log, "new") != 1 {
+		t.Fatalf("the task is made once: %v", log)
+	}
+	step := scan.Steps(Sample{})[0]
+	if len(step.Accept) != 0 || step.Must != `"lines"` {
+		t.Fatalf("with nothing to stop the scan exits 0 and prints its plan: %+v", step)
+	}
+}
+
+func TestTeardownRecordsItsServerUnderAFreshExecution(t *testing.T) {
+	var log [][]string
+	b := taskBench(t, &log)
+	c := findCase(t, b, CaseTeardown)
+	var seen []string
+	for _, tag := range []string{"a", "b"} {
+		s := Sample{Tag: tag}
+		before := time.Now().Add(-time.Second)
+		if err := c.Before(s); err != nil {
+			t.Fatal(err)
+		}
+		last := log[len(log)-1]
+		flags := map[string]string{}
+		for i := 3; i+1 < len(last); i += 2 {
+			flags[last[i]] = last[i+1]
+		}
+		if last[1] != "resource" || last[2] != "add" || flags["--kind"] != ledger.KindProcess || flags["--task"] != teardownTask {
+			t.Fatalf("got %v", last)
+		}
+		if _, err := strconv.Atoi(flags["--id"]); err != nil {
+			t.Fatalf("the record names the server's pid: %v", last)
+		}
+		minted := ledger.ExecutionTime(flags["--execution"])
+		if minted.Before(before) || minted.After(time.Now()) {
+			t.Fatalf("the execution must be newer than the last and older than the server: %v", last)
+		}
+		seen = append(seen, flags["--execution"])
+		if err := c.Cleanup(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if seen[0] == seen[1] {
+		t.Fatal("each sample needs its own execution")
+	}
+}
+
 func TestTeardownCleanupStopsTheServerAfterAFailedCommand(t *testing.T) {
-	b := &Bench{Fixtures: testFixtures(t), Tools: Tools{Herdsman: "h", Wt: "w"}}
+	var log [][]string
+	b := taskBench(t, &log)
 	c := findCase(t, b, CaseTeardown)
 	s := Sample{Tag: "x"}
 	if err := c.Before(s); err != nil {
