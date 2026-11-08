@@ -345,7 +345,7 @@ type eventConn struct {
 func (s *eventService) stream(w http.ResponseWriter, r *http.Request) {
 	release, err := s.admit(eventSlotKey)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusTooManyRequests)
+		rpc.WriteError(w, err)
 		return
 	}
 	defer release()
@@ -535,6 +535,22 @@ func (c *eventConn) advance(sub *eventSubscription, next eventPosition) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	sub.position = next
+}
+
+// admitEvents takes a daemon stream slot for a stream or a long poll.
+func (d *Daemon) admitEvents(key string) (func(), error) {
+	release, e := d.streamSlot(key)
+	if e != nil {
+		return nil, rpcFailure(context.Background(), e)
+	}
+	return release, nil
+}
+
+// closeEvents ends the feeds while their routes still answer, then every
+// stream and long poll.
+func (d *Daemon) closeEvents() {
+	d.view.close()
+	d.hub.close()
 }
 
 // registryView publishes what the daemon's routes do: the membership on one

@@ -1,5 +1,3 @@
-//go:build eventservice
-
 package daemon
 
 import (
