@@ -216,6 +216,7 @@ test("a route change drops the open artifact and the workspace filter", () => {
   const view: View = {
     route: "ra~1",
     tab: "artifacts",
+    page: "",
     file: "",
     source: "",
     diffFile: "",
@@ -237,6 +238,7 @@ test("moving a route-name link to its id keeps the open artifact", () => {
   const view: View = {
     route: "auth",
     tab: "artifacts",
+    page: "",
     file: "",
     source: "",
     diffFile: "",
@@ -253,4 +255,21 @@ test("moving a route-name link to its id keeps the open artifact", () => {
   });
   expect(canonicalRoute([c], { ...view, route: "auth~ccc333" })).toBeNull();
   expect(canonicalRoute([c], { ...view, route: "gone" })).toBeNull();
+});
+
+test("opening a route leaves a page, and other navigation keeps it", () => {
+  const view: View = {
+    page: "tasks",
+    route: "",
+    tab: "team",
+    file: "",
+    source: "",
+    diffFile: "",
+    artifact: "",
+    pane: "",
+    ws: "",
+  };
+  expect(nextView(view, { pane: "p1" }).page).toBe("tasks");
+  expect(nextView(view, { route: "auth" }).page).toBe("");
+  expect(nextView(view, { route: "auth", page: "cost" }).page).toBe("cost");
 });
