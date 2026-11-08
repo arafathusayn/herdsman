@@ -1,0 +1,87 @@
+{
+  "schema": {
+    "version": "1.0.0"
+  },
+  "route": "fixture-route",
+  "trace_id": "29c5623d92253cbf0671816e791b891d",
+  "spans": [
+    {
+      "trace_id": "29c5623d92253cbf0671816e791b891d",
+      "span_id": "403af0e4083ce85a",
+      "kind": "route",
+      "name": "fixture-route",
+      "start": "2026-11-08T10:00:00Z",
+      "duration_ms": 5000,
+      "tokens": 1000,
+      "cost_micros": 15000
+    },
+    {
+      "trace_id": "29c5623d92253cbf0671816e791b891d",
+      "span_id": "081461a08af7e483",
+      "parent_id": "403af0e4083ce85a",
+      "kind": "hook",
+      "name": "post-start/deps",
+      "task": "impl",
+      "start": "2026-11-08T10:00:00Z",
+      "duration_ms": 40,
+      "exit": 0,
+      "start_approximate": true
+    },
+    {
+      "trace_id": "29c5623d92253cbf0671816e791b891d",
+      "span_id": "a65fc417de5f6c61",
+      "parent_id": "403af0e4083ce85a",
+      "kind": "turn",
+      "name": "implementer",
+      "task": "impl",
+      "start": "2026-11-08T10:00:00Z",
+      "duration_ms": 5000,
+      "tokens": 900,
+      "cost_micros": 12000
+    },
+    {
+      "trace_id": "29c5623d92253cbf0671816e791b891d",
+      "span_id": "2cfe27ffe46b0754",
+      "parent_id": "403af0e4083ce85a",
+      "kind": "command",
+      "name": "git fetch",
+      "start": "2026-11-08T10:00:01Z",
+      "duration_ms": 120.5,
+      "exit": 0,
+      "args": "-c [redacted] fetch [redacted]"
+    },
+    {
+      "trace_id": "29c5623d92253cbf0671816e791b891d",
+      "span_id": "fdc4be815ab8e3b1",
+      "parent_id": "403af0e4083ce85a",
+      "kind": "command",
+      "name": "git status",
+      "start": "2026-11-08T10:00:02Z",
+      "duration_ms": 3,
+      "exit": 128,
+      "args": "status --porcelain"
+    },
+    {
+      "trace_id": "29c5623d92253cbf0671816e791b891d",
+      "span_id": "b544f4b1775c74de",
+      "parent_id": "403af0e4083ce85a",
+      "kind": "check",
+      "name": "make check",
+      "task": "impl",
+      "start": "2026-11-08T10:00:03Z",
+      "duration_ms": 800,
+      "exit": 0
+    },
+    {
+      "trace_id": "29c5623d92253cbf0671816e791b891d",
+      "span_id": "ec1b697595f9eb67",
+      "parent_id": "403af0e4083ce85a",
+      "kind": "review",
+      "name": "reviewer",
+      "task": "impl",
+      "start": "2026-11-08T10:00:04Z",
+      "duration_ms": 700
+    }
+  ],
+  "skipped": 2
+}
