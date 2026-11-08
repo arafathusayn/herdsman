@@ -426,6 +426,9 @@ func (s *SuggestService) pins() ([]suggest.Pin, error) {
 	return pins, nil
 }
 
+// writeSuggestPins is replaced only by the test of a failed write.
+var writeSuggestPins = io.WriteString
+
 func (s *SuggestService) storePins(pins []suggest.Pin) error {
 	path := s.sourcesPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -440,7 +443,7 @@ func (s *SuggestService) storePins(pins []suggest.Pin) error {
 		return err
 	}
 	defer os.Remove(temp.Name())
-	_, err = io.WriteString(temp, b.String())
+	_, err = writeSuggestPins(temp, b.String())
 	if closeErr := temp.Close(); err == nil {
 		err = closeErr
 	}
@@ -622,7 +625,20 @@ func (s *SuggestService) installed() suggest.Installed {
 
 // suggestRPC serves the catalog on the daemon's RPC surface. It translates
 // messages and failures and holds no behaviour of its own.
-type suggestRPC struct{ s *SuggestService }
+type suggestRPC struct {
+	s       *SuggestService
+	inspect bool // A daemon in inspect mode changes nothing.
+}
+
+// refuseInInspect guards every method that writes, the cache included. The
+// daemon's own guard covers its 0.x routes and not this surface, where every
+// call is a POST, so each writing method asks here and reads stay served.
+func (r *suggestRPC) refuseInInspect(method string) error {
+	if !r.inspect {
+		return nil
+	}
+	return rpc.Errorf(rpc.FailedPrecondition, "this daemon runs in inspect mode and changes nothing; %s was refused", method)
+}
 
 var _ suggestv1.SuggestService = (*suggestRPC)(nil)
 
@@ -713,6 +729,9 @@ func (r *suggestRPC) Get(ctx context.Context, req *suggestv1.GetRequest) (*sugge
 
 // Add records a new entry.
 func (r *suggestRPC) Add(ctx context.Context, req *suggestv1.AddRequest) (*suggestv1.AddResponse, error) {
+	if err := r.refuseInInspect("Add"); err != nil {
+		return nil, err
+	}
 	added, err := r.s.Add(ctx, SuggestAddRequest{Dir: req.GetDir(), Project: req.GetProject(), ID: req.GetId(), Kind: req.GetKind(), Title: req.GetTitle(), Tags: req.GetTags(), URL: req.GetUrl(), Repo: req.GetRepo(), Body: req.GetBody()})
 	if err != nil {
 		return nil, suggestFailure(ctx, err)
@@ -751,6 +770,9 @@ func (r *suggestRPC) Sources(ctx context.Context, _ *suggestv1.SourcesRequest) (
 
 // SourceAdd pins a new remote catalog.
 func (r *suggestRPC) SourceAdd(ctx context.Context, req *suggestv1.SourceAddRequest) (*suggestv1.SourceAddResponse, error) {
+	if err := r.refuseInInspect("SourceAdd"); err != nil {
+		return nil, err
+	}
 	added, err := r.s.SourceAdd(ctx, SuggestSourceAddRequest{URL: req.GetUrl(), Ref: req.GetRef()})
 	if err != nil {
 		return nil, suggestFailure(ctx, err)
@@ -760,6 +782,9 @@ func (r *suggestRPC) SourceAdd(ctx context.Context, req *suggestv1.SourceAddRequ
 
 // SourceRemove forgets a remote catalog.
 func (r *suggestRPC) SourceRemove(ctx context.Context, req *suggestv1.SourceRemoveRequest) (*suggestv1.SourceRemoveResponse, error) {
+	if err := r.refuseInInspect("SourceRemove"); err != nil {
+		return nil, err
+	}
 	removed, err := r.s.SourceRemove(ctx, SuggestSourceRemoveRequest{URL: req.GetUrl()})
 	if err != nil {
 		return nil, suggestFailure(ctx, err)
@@ -769,6 +794,9 @@ func (r *suggestRPC) SourceRemove(ctx context.Context, req *suggestv1.SourceRemo
 
 // SourcePreview serves what moving a pin would change.
 func (r *suggestRPC) SourcePreview(ctx context.Context, req *suggestv1.SourcePreviewRequest) (*suggestv1.SourcePreviewResponse, error) {
+	if err := r.refuseInInspect("SourcePreview"); err != nil {
+		return nil, err
+	}
 	update, err := r.s.SourcePreview(ctx, SuggestSourcePreviewRequest{URL: req.GetUrl(), Ref: req.GetRef()})
 	if err != nil {
 		return nil, suggestFailure(ctx, err)
@@ -782,6 +810,9 @@ func (r *suggestRPC) SourcePreview(ctx context.Context, req *suggestv1.SourcePre
 
 // SourcePin moves a pin to a commit the caller has already shown.
 func (r *suggestRPC) SourcePin(ctx context.Context, req *suggestv1.SourcePinRequest) (*suggestv1.SourcePinResponse, error) {
+	if err := r.refuseInInspect("SourcePin"); err != nil {
+		return nil, err
+	}
 	moved, err := r.s.SourcePin(ctx, SuggestSourcePinRequest{URL: req.GetUrl(), From: req.GetFrom(), To: req.GetTo()})
 	if err != nil {
 		return nil, suggestFailure(ctx, err)

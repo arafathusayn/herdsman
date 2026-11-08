@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -798,5 +800,113 @@ func TestASkillFolderWithoutGitStillCountsAsInstalled(t *testing.T) {
 	found := s.installed()
 	if !slices.Equal(found.IDs, []string{"by-hand"}) || len(found.Repos) != 0 {
 		t.Fatalf("installed = %+v", found)
+	}
+}
+
+// inspectSuggestClient serves the catalog the way the daemon does, with every
+// folder inside root.
+func inspectSuggestClient(t *testing.T, root string, inspect bool) suggestv1.SuggestService {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	server := httptest.NewServer((&Daemon{cfg: Config{Inspect: inspect}}).rpcHandler())
+	t.Cleanup(server.Close)
+	return suggestv1.NewSuggestServiceClient(server.Client(), server.URL)
+}
+
+func TestInspectRefusesEverySuggestChangeAndWritesNothing(t *testing.T) {
+	root := t.TempDir()
+	client := inspectSuggestClient(t, root, true)
+	ctx := context.Background()
+	url, commit := catalogRepo(t)
+	first := commit("inspect-one")
+	changes := map[string]func() error{
+		"Add": func() error {
+			_, err := client.Add(ctx, &suggestv1.AddRequest{Id: "inspect-probe", Kind: "tip", Title: "T", Tags: []string{"t"}, Body: "b"})
+			return err
+		},
+		"SourceAdd": func() error {
+			_, err := client.SourceAdd(ctx, &suggestv1.SourceAddRequest{Url: url})
+			return err
+		},
+		"SourceRemove": func() error {
+			_, err := client.SourceRemove(ctx, &suggestv1.SourceRemoveRequest{Url: url})
+			return err
+		},
+		"SourcePreview": func() error {
+			_, err := client.SourcePreview(ctx, &suggestv1.SourcePreviewRequest{Url: url})
+			return err
+		},
+		"SourcePin": func() error {
+			_, err := client.SourcePin(ctx, &suggestv1.SourcePinRequest{Url: url, From: first, To: first})
+			return err
+		},
+	}
+	for name, change := range changes {
+		t.Run(name, func(t *testing.T) {
+			// The generated client has its own error type; its text leads with the code.
+			if err := change(); err == nil || !strings.HasPrefix(err.Error(), string(rpc.FailedPrecondition)+": ") {
+				t.Fatalf("error = %v, want %v", err, rpc.FailedPrecondition)
+			}
+		})
+	}
+	if _, err := client.Search(ctx, &suggestv1.SearchRequest{}); err != nil {
+		t.Fatalf("a read must still be served: %v", err)
+	}
+	if _, err := client.Sources(ctx, &suggestv1.SourcesRequest{}); err != nil {
+		t.Fatalf("a read must still be served: %v", err)
+	}
+	if _, err := client.Plan(ctx, &suggestv1.PlanRequest{Id: "herdsman-skill"}); err != nil {
+		t.Fatalf("a read must still be served: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "config")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("inspect mode wrote configuration: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "cache")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("inspect mode wrote the cache: %v", err)
+	}
+}
+
+func TestANormalDaemonStillTakesSuggestChanges(t *testing.T) {
+	client := inspectSuggestClient(t, t.TempDir(), false)
+	added, err := client.Add(context.Background(), &suggestv1.AddRequest{Id: "kept", Kind: "tip", Title: "T", Tags: []string{"t"}, Body: "b"})
+	if err != nil || added.GetId() != "kept" {
+		t.Fatalf("add = %v, %v", added, err)
+	}
+}
+
+func TestAddRefusesAnEntryTooLargeToReadBack(t *testing.T) {
+	s := newSuggestService(t)
+	huge := strings.Repeat("x", suggest.MaxEntryBytes+1)
+	_, err := s.Add(context.Background(), SuggestAddRequest{ID: "huge", Kind: "tip", Title: "T", Tags: []string{"t"}, Body: huge})
+	var refusal *suggestRefusal
+	if !errors.As(err, &refusal) || refusal.code != rpc.InvalidArgument {
+		t.Fatalf("error = %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(s.ConfigDir, "herdsman", "suggest", "huge.md")); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("the entry landed: %v", statErr)
+	}
+}
+
+func TestStorePinsReportsAFailedWriteAndLeavesTheFile(t *testing.T) {
+	s := newSuggestService(t)
+	if err := s.storePins([]suggest.Pin{}); err != nil {
+		t.Fatal(err)
+	}
+	previous := writeSuggestPins
+	writeSuggestPins = func(io.Writer, string) (int, error) { return 0, errors.New("disk full") }
+	t.Cleanup(func() { writeSuggestPins = previous })
+	if err := s.storePins(nil); err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("error = %v", err)
+	}
+	names, err := os.ReadDir(filepath.Dir(s.sourcesPath()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		if strings.HasPrefix(name.Name(), ".suggest-sources-") {
+			t.Fatalf("a temporary file stayed behind: %s", name.Name())
+		}
 	}
 }

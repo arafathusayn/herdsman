@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -362,5 +364,95 @@ func TestApplyRunRefusesACharacterDeviceThatIsNoTerminal(t *testing.T) {
 	}
 	if _, err := os.Stat(made); err == nil {
 		t.Fatal("an approved recipe ran from a device that is not a terminal")
+	}
+}
+
+// withSuggestCall replaces the service behind the verbs.
+func withSuggestCall(t *testing.T, call func(method string) ([]byte, error)) {
+	t.Helper()
+	previous := suggestCall
+	suggestCall = func(_ context.Context, method string, _ []byte) ([]byte, error) { return call(method) }
+	t.Cleanup(func() { suggestCall = previous })
+}
+
+func TestCallSuggestReportsWhatItCannotEncodeOrDecode(t *testing.T) {
+	if _, err := callSuggest("Search", make(chan int), nil); err == nil {
+		t.Fatal("a request that cannot be encoded must fail")
+	}
+	withSuggestCall(t, func(string) ([]byte, error) { return []byte("not json"), nil })
+	var result struct{}
+	if _, err := callSuggest("Search", struct{}{}, &result); err == nil {
+		t.Fatal("an answer that cannot be decoded must fail")
+	}
+}
+
+func TestSuggestSourceNamesARemoteByCommit(t *testing.T) {
+	got := suggestSource{Kind: "remote", Name: "https://example.com/a", Commit: "abc"}.String()
+	if got != "remote https://example.com/a@abc" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSuggestVerbsRefuseUnknownFlags(t *testing.T) {
+	suggestHome(t)
+	for _, args := range [][]string{{"--nope"}, {"show", "--nope"}, {"add", "--nope"}, {"apply", "--nope"}, {"source", "list", "--nope"}} {
+		if _, _, code := runSuggest(t, "", args...); code != 2 {
+			t.Errorf("%v: code = %d, want 2", args, code)
+		}
+	}
+}
+
+func TestSuggestVerbsReportAWorkingFolderThatIsGone(t *testing.T) {
+	dir := suggestHome(t)
+	body := filepath.Join(filepath.Dir(dir), "body.md")
+	if err := os.WriteFile(body, []byte("Body.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"anything"}, {"show", "x"}, {"add", "--title", "T", "--tag", "t", "--body-file", body}, {"apply", "x"}} {
+		if _, _, code := runSuggest(t, "", args...); code != 1 {
+			t.Errorf("%v: code = %d, want 1", args, code)
+		}
+	}
+}
+
+func TestSuggestVerbsReportARefusedCall(t *testing.T) {
+	suggestHome(t)
+	withSuggestCall(t, func(string) ([]byte, error) { return nil, errors.New("refused") })
+	for _, args := range [][]string{{"anything"}, {"source", "list"}} {
+		if _, errOut, code := runSuggest(t, "", args...); code != 1 || !strings.Contains(errOut, "refused") {
+			t.Errorf("%v: code = %d, stderr = %s", args, code, errOut)
+		}
+	}
+}
+
+func TestApplyShowsAnApprovedRecipe(t *testing.T) {
+	suggestHome(t)
+	withSuggestCall(t, func(string) ([]byte, error) { return []byte(`{"recipe":{"id":"x"},"approved":true}`), nil })
+	if out, _, code := runSuggest(t, "", "apply", "x"); code != 0 || !strings.Contains(out, "(approved)") {
+		t.Fatalf("code = %d, out = %s", code, out)
+	}
+}
+
+func TestSourceAddPrintsJSON(t *testing.T) {
+	suggestHome(t)
+	withSuggestCall(t, func(string) ([]byte, error) { return []byte(`{"pin":{}}`), nil })
+	if out, _, code := runSuggest(t, "", "source", "add", "https://example.com/a", "--json"); code != 0 || strings.TrimSpace(out) != `{"pin":{}}` {
+		t.Fatalf("code = %d, out = %s", code, out)
+	}
+}
+
+func TestSourceUpdateReportsARefusedMove(t *testing.T) {
+	suggestHome(t)
+	withSuggestCall(t, func(method string) ([]byte, error) {
+		if method == "SourcePin" {
+			return nil, errors.New("moved meanwhile")
+		}
+		return []byte(`{"from":{"commit":"a"},"to":{"commit":"b"}}`), nil
+	})
+	if _, errOut, code := runSuggest(t, "", "source", "update", "https://example.com/a", "--yes"); code != 1 || !strings.Contains(errOut, "moved meanwhile") {
+		t.Fatalf("code = %d, stderr = %s", code, errOut)
 	}
 }

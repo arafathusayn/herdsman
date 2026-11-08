@@ -9,7 +9,7 @@ import (
 // rpcProcedures lists every RPC method the daemon serves.
 func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	message := &messageService{d: d}
-	suggestions := &suggestRPC{s: &SuggestService{}}
+	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
 	return []rpc.Procedure{
 		rpc.Unary(daemonv1.MessageServiceName, "Status", message.Status),
 		rpc.Unary(suggestv1.SuggestServiceName, "Search", suggestions.Search),
