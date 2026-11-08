@@ -34,6 +34,16 @@ var (
 	refPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 )
 
+// BadSourceError is a source address, ref or commit that fails the rules before
+// git is asked anything: the request is wrong, and retrying cannot help.
+type BadSourceError struct{ Reason string }
+
+func (e *BadSourceError) Error() string { return e.Reason }
+
+func badSource(format string, args ...any) error {
+	return &BadSourceError{Reason: fmt.Sprintf(format, args...)}
+}
+
 // Pin is a remote catalog fixed to one full commit id. An abbreviated id or a
 // branch name is not a pin: it could come to mean other content.
 type Pin struct {
@@ -48,7 +58,7 @@ func (p Pin) String() string { return p.URL + "@" + p.Commit }
 func ParsePin(s string) (Pin, error) {
 	i := strings.LastIndex(s, "@")
 	if i < 0 {
-		return Pin{}, fmt.Errorf("%q is not pinned: want <url>@<full commit id>", s)
+		return Pin{}, badSource("%q is not pinned: want <url>@<full commit id>", s)
 	}
 	pin := Pin{URL: s[:i], Commit: s[i+1:]}
 	if err := pin.validate(); err != nil {
@@ -62,10 +72,10 @@ func ParsePin(s string) (Pin, error) {
 // revision that can come to mean other content, such as FETCH_HEAD.
 func (p Pin) validate() error {
 	if !commitPattern.MatchString(p.Commit) {
-		return fmt.Errorf("%q is not pinned: want a full commit id", p.Commit)
+		return badSource("%q is not pinned: want a full commit id", p.Commit)
 	}
 	if !validRepoURL(p.URL, true) {
-		return fmt.Errorf("%q is not an https, ssh, git@ or file address", p.URL)
+		return badSource("%q is not an https, ssh, git@ or file address", p.URL)
 	}
 	return nil
 }
@@ -154,13 +164,13 @@ func (r *Remote) Fetch(ctx context.Context, url, ref string) (Pin, error) {
 
 func (r *Remote) fetch(ctx context.Context, url, ref string) (Pin, []file, []Problem, error) {
 	if !validRepoURL(url, true) {
-		return Pin{}, nil, nil, fmt.Errorf("%q is not an https, ssh, git@ or file address", url)
+		return Pin{}, nil, nil, badSource("%q is not an https, ssh, git@ or file address", url)
 	}
 	if ref == "" {
 		ref = "HEAD"
 	}
 	if !refPattern.MatchString(ref) || strings.Contains(ref, "..") {
-		return Pin{}, nil, nil, fmt.Errorf("%q is not a commit, tag or branch name", ref)
+		return Pin{}, nil, nil, badSource("%q is not a commit, tag or branch name", ref)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
