@@ -31,6 +31,7 @@ type Options struct {
 type Client struct {
 	Message daemonv1.MessageService
 	Ops     daemonv1.OpsService
+	Route   daemonv1.RouteService
 
 	http *http.Client
 }
@@ -77,7 +78,7 @@ func Dial(options Options) (*Client, error) {
 		DisableCompression: true,
 	}
 	hc := &http.Client{Transport: &rpc.Transport{Base: transport, Header: options.Header}}
-	return &Client{Message: daemonv1.NewMessageServiceClient(hc, base), Ops: daemonv1.NewOpsServiceClient(hc, base), http: &http.Client{Transport: transport}}, nil
+	return &Client{Message: daemonv1.NewMessageServiceClient(hc, base), Ops: daemonv1.NewOpsServiceClient(hc, base), Route: daemonv1.NewRouteServiceClient(hc, base), http: &http.Client{Transport: transport}}, nil
 }
 
 // Close frees the client's idle connections.

@@ -34,7 +34,7 @@ func (d *Daemon) openOps() error {
 	d.acctDB = c
 	d.recovery = ops.NewRecovery(ops.RecoveryOptions{StateDir: d.cfg.PrivateHome, Retention: d.cfg.Retention, Quiesce: d.quiesce})
 	effects := d.recovery.Effects()
-	maps.Copy(effects, d.cfg.Effects)
+	maps.Copy(effects, d.operationEffects())
 	d.ops = ops.NewEngine(c, ops.Options{Effects: effects, Checks: d.cfg.Checks, Now: d.cfg.Now, Fault: d.cfg.OpsFault})
 	d.recovery.Attach(d.ops)
 	d.mu.Unlock()
