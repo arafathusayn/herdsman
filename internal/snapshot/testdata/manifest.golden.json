@@ -1,0 +1,66 @@
+{
+  "schema": "1.0.0",
+  "task": "task",
+  "op": "op",
+  "started_at": "2026-11-08T12:00:00Z",
+  "finished_at": "2026-11-08T12:00:01Z",
+  "worktree": "/repo",
+  "worktree_mode": 493,
+  "object_format": "sha1",
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "branch": "refs/heads/main",
+  "snapshot_ref": "refs/herdsman/snapshot/task/op",
+  "snapshot_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "staged_tree": "cccccccccccccccccccccccccccccccccccccccc",
+  "working_tree": "dddddddddddddddddddddddddddddddddddddddd",
+  "bundle": {
+    "name": "bundle.git",
+    "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "size": 10
+  },
+  "preserved": {
+    "name": "preserved.tar",
+    "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "size": 20
+  },
+  "file_cap": 1073741824,
+  "rebuildable": [
+    "node_modules"
+  ],
+  "files": [
+    {
+      "path": ".env",
+      "mode": 33152,
+      "size": 3,
+      "mtime_ns": 1,
+      "source": "preserved"
+    },
+    {
+      "path": "a",
+      "mode": 33188,
+      "perm": 420,
+      "size": 2,
+      "mtime_ns": 2,
+      "source": "tree"
+    }
+  ],
+  "submodules": [
+    {
+      "path": "sub",
+      "index_commit": "1111111111111111111111111111111111111111",
+      "head": "2222222222222222222222222222222222222222"
+    }
+  ],
+  "excluded": [
+    {
+      "path": "huge",
+      "reason": "over_file_cap",
+      "size": 99
+    },
+    {
+      "path": "node_modules",
+      "reason": "rebuildable",
+      "pattern": "node_modules"
+    }
+  ]
+}
