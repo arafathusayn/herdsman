@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/url"
 	"slices"
-	"strings"
 	"sync"
 )
 
@@ -27,6 +26,7 @@ const truncatedMin = 4
 type Redactor struct {
 	needles [][]byte
 	longest int
+	json    *Redactor
 }
 
 // NewRedactor prepares the secrets in the forms text commonly carries them.
@@ -44,14 +44,39 @@ func NewRedactor(secrets ...string) *Redactor {
 			}
 		}
 	}
+	r.json = &Redactor{}
+	for _, n := range r.needles {
+		if json.Valid([]byte(`"` + string(n) + `"`)) {
+			r.json.needles = append(r.json.needles, n)
+			r.json.longest = max(r.json.longest, len(n))
+		}
+	}
 	return r
 }
 
-// flatten drops line ends: a terminal may break a value anywhere, so they
-// carry no meaning for matching.
-func flatten(s string) []byte {
-	return []byte(strings.NewReplacer("\r", "", "\n", "").Replace(s))
+// JSON is a redactor for text known to be JSON. A secret's raw form may hold a
+// quote, which in JSON text could only be a delimiter, so forms that cannot
+// occur inside a JSON string are left out.
+func (r *Redactor) JSON() *Redactor {
+	if r == nil {
+		return nil
+	}
+	return r.json
 }
+
+// flatten drops control characters: a terminal may break a value anywhere and
+// a program may interleave them, so they carry no meaning for matching.
+func flatten(s string) []byte {
+	out := make([]byte, 0, len(s))
+	for i := range len(s) {
+		if !isControl(s[i]) {
+			out = append(out, s[i])
+		}
+	}
+	return out
+}
+
+func isControl(c byte) bool { return c < 0x20 || c == 0x7f }
 
 func forms(s string) []string {
 	var html, plain bytes.Buffer
@@ -61,13 +86,19 @@ func forms(s string) []string {
 	_ = e.Encode(s)
 	return []string{
 		s,
-		string(bytes.Trim(bytes.TrimSpace(html.Bytes()), `"`)),
-		string(bytes.Trim(bytes.TrimSpace(plain.Bytes()), `"`)),
+		unquote(html.Bytes()),
+		unquote(plain.Bytes()),
 		url.QueryEscape(s),
 		url.PathEscape(s),
 		base64.StdEncoding.EncodeToString([]byte(s)),
 		base64.URLEncoding.EncodeToString([]byte(s)),
 	}
+}
+
+// unquote removes the encoder's newline and exactly its two enclosing quotes;
+// any quote next to them belongs to the value.
+func unquote(encoded []byte) string {
+	return string(encoded[1 : len(bytes.TrimSuffix(encoded, []byte("\n")))-1])
 }
 
 // Active says whether there is anything to replace.
@@ -110,10 +141,8 @@ type view struct {
 func scan(b []byte) view {
 	v := view{text: make([]byte, 0, len(b)), origin: make([]int, 0, len(b)), pending: -1}
 	for i := 0; i < len(b); {
-		switch c := b[i]; c {
-		case '\r', '\n':
-			i++
-		case 0x1b:
+		switch c := b[i]; {
+		case c == 0x1b:
 			n := escapeLen(b[i:])
 			if n == 0 {
 				if len(b)-i < escapeLimit && v.pending < 0 {
@@ -122,6 +151,8 @@ func scan(b []byte) view {
 				n = 1
 			}
 			i += n
+		case isControl(c):
+			i++
 		default:
 			v.text = append(v.text, c)
 			v.origin = append(v.origin, i)
@@ -149,7 +180,7 @@ func escapeLen(b []byte) int {
 			}
 		}
 		return 0
-	case ']':
+	case ']', 'P', 'X', '^', '_':
 		for i := 2; i < limit; i++ {
 			if b[i] == 0x07 {
 				return i + 1
@@ -160,7 +191,17 @@ func escapeLen(b []byte) int {
 		}
 		return 0
 	}
-	return 2
+	// Any number of intermediate bytes, then one final byte, as in ESC ( B.
+	for i := 1; i < limit; i++ {
+		switch c := b[i]; {
+		case c >= 0x20 && c <= 0x2f:
+		case c >= 0x30 && c <= 0x7e:
+			return i + 1
+		default:
+			return 1
+		}
+	}
+	return 0
 }
 
 // spans finds every secret, both through the view and in the raw bytes, which

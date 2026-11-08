@@ -323,7 +323,7 @@ func TestPerCall(t *testing.T) {
 func TestEscapeForms(t *testing.T) {
 	r := NewRedactor(value)
 	cut := 6
-	for _, esc := range []string{"\x1b]8;;\x1b\\", "\x1b(", "\x1b]0;t\x07"} {
+	for _, esc := range []string{"\x1b]8;;\x1b\\", "\x1bM", "\x1b]0;t\x07"} {
 		in := value[:cut] + esc + value[cut:]
 		if got := r.String(in); strings.Contains(strip(got), value) || !strings.Contains(got, Marker) {
 			t.Errorf("%q gave %q", esc, got)
@@ -350,5 +350,60 @@ func TestWriterCloseAfterUnfinishedEscapeHidesTheStart(t *testing.T) {
 	_ = w.Close()
 	if strings.Contains(buf.String(), value[:8]) {
 		t.Fatalf("got %q", buf.String())
+	}
+}
+
+func TestEscapesWithIntermediateBytesAndControls(t *testing.T) {
+	r := NewRedactor(value)
+	for _, sep := range []string{"\x1b(B", "\x1b%G", "\x1b#8", "\x1bPq\x1b\\", "\x1b_x\x07", "\x0f", "\x00"} {
+		in := "a " + value[:6] + sep + value[6:] + " z"
+		if got := r.String(in); got != "a "+Marker+" z" {
+			t.Errorf("%q gave %q", sep, got)
+		}
+		for i := 0; i <= len(in); i++ {
+			var buf bytes.Buffer
+			w := r.Writer(&buf)
+			_, _ = w.Write([]byte(in[:i]))
+			_, _ = w.Write([]byte(in[i:]))
+			_ = w.Close()
+			if got := buf.String(); got != "a "+Marker+" z" {
+				t.Fatalf("%q split %d gave %q", sep, i, got)
+			}
+		}
+	}
+	for _, unfinished := range []string{"\x1b(", "\x1bP", "\x1b_abc", "\x1bPq\x1b"} {
+		if escapeLen([]byte(unfinished)) != 0 {
+			t.Errorf("%q measured as finished", unfinished)
+		}
+	}
+	if escapeLen([]byte("\x1b(\x01")) != 1 {
+		t.Error("a malformed escape must give back everything after ESC")
+	}
+}
+
+func TestQuotedSecretsKeepJSONValid(t *testing.T) {
+	for _, secret := range []string{`secret"`, `"secret"`, `"secret`, `back\`, `\lead`, `a"b\`} {
+		b, _ := json.Marshal(map[string]string{"token": secret, "other": "kept"})
+		got := NewRedactor(secret).String(string(b))
+		var decoded map[string]string
+		if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+			t.Errorf("%q: %v in %s", secret, err, got)
+			continue
+		}
+		if decoded["token"] != Marker || decoded["other"] != "kept" {
+			t.Errorf("%q: decoded %v", secret, decoded)
+		}
+	}
+}
+
+func TestJSONFormDoesNotEatADelimiter(t *testing.T) {
+	r := NewRedactor(`secret"`)
+	body := `{"a":"secret","b":1}`
+	if got := r.JSON().String(body); got != body {
+		t.Fatalf("got %s", got)
+	}
+	var nilRedactor *Redactor
+	if nilRedactor.JSON() != nil {
+		t.Fatal("nil must stay nil")
 	}
 }
