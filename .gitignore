@@ -5,6 +5,7 @@
 # goreleaser output and local builds
 /dist/
 /bin/
+/sdk/ts/dist/
 
 # The pinned Go tools, installed by make tools-go.
 /.tools/

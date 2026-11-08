@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+// The command line as data, for completions, documentation and other CLIs.
+package herdsman.cli.v1;
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/cli/v1;cliv1";
+
+// CliSpec is everything `herdsman spec cli` prints.
+message CliSpec {
+  // SemVer of this document's contract, without a leading "v".
+  string contract = 1;
+  // Every top-level command, sorted by name.
+  repeated CommandSpec commands = 2;
+}
+
+// CommandSpec describes one command or subcommand.
+message CommandSpec {
+  string name = 1;
+  // One line for lists; empty on a subcommand, which has only its help.
+  string summary = 2;
+  // The exact text of `--help`; empty when the command has none of its own.
+  string help = 3;
+  // Each invocation form, without the "usage:" prefix.
+  repeated string usage = 4;
+  repeated PositionalSpec positionals = 5;
+  // Sorted by name.
+  repeated FlagSpec flags = 6;
+  // In the order the help lists them.
+  repeated ExitCodeSpec exit_codes = 7;
+  // Sorted by name.
+  repeated CommandSpec subcommands = 8;
+  // Full name of the message `--json` prints; empty until the command declares one.
+  string json_document = 9;
+}
+
+// PositionalSpec is one argument named in a usage form.
+message PositionalSpec {
+  string name = 1;
+}
+
+// FlagSpec is one option of a command.
+message FlagSpec {
+  // With its leading dashes.
+  string name = 1;
+  // With its leading dash; empty when there is no short form.
+  string short = 2;
+  // The name of its value; empty for a switch.
+  string value_name = 3;
+  // Empty when the command declares no default.
+  string default_value = 4;
+}
+
+// ExitCodeSpec is one row of a command's exit-code table.
+message ExitCodeSpec {
+  // A number, or "N" for a code passed through from another program.
+  string code = 1;
+  string meaning = 2;
+}
