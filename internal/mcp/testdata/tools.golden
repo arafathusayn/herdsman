@@ -1,0 +1,342 @@
+[
+  {
+    "name": "daemon_ledger_add_resource",
+    "description": "Calls herdsman.daemon.v1.LedgerService/AddResource. Changes state; with dry_run it returns the plan and acts on nothing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "adopted": {
+          "type": "boolean"
+        },
+        "common_dir": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "execution": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "task": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_ledger_plan",
+    "description": "Calls herdsman.daemon.v1.LedgerService/Plan.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "common_dir": {
+          "type": "string"
+        },
+        "task": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_ledger_resources",
+    "description": "Calls herdsman.daemon.v1.LedgerService/Resources.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "common_dir": {
+          "type": "string"
+        },
+        "task": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_message_status",
+    "description": "Calls herdsman.daemon.v1.MessageService/Status.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_add",
+    "description": "Calls herdsman.suggest.v1.SuggestService/Add. Changes state; with dry_run it returns the plan and acts on nothing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "dir": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "project": {
+          "type": "boolean"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_get",
+    "description": "Calls herdsman.suggest.v1.SuggestService/Get.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_plan",
+    "description": "Calls herdsman.suggest.v1.SuggestService/Plan.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_search",
+    "description": "Calls herdsman.suggest.v1.SuggestService/Search.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "for": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_source_add",
+    "description": "Calls herdsman.suggest.v1.SuggestService/SourceAdd. Changes state; with dry_run it returns the plan and acts on nothing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_source_pin",
+    "description": "Calls herdsman.suggest.v1.SuggestService/SourcePin. Changes state; with dry_run it returns the plan and acts on nothing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_source_preview",
+    "description": "Calls herdsman.suggest.v1.SuggestService/SourcePreview. Changes state; with dry_run it returns the plan and acts on nothing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_source_remove",
+    "description": "Calls herdsman.suggest.v1.SuggestService/SourceRemove. Changes state; with dry_run it returns the plan and acts on nothing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "suggest_sources",
+    "description": "Calls herdsman.suggest.v1.SuggestService/Sources.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  }
+]
