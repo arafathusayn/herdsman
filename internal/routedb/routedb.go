@@ -18,6 +18,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/routename"
+	"github.com/arafathusayn/herdsman/internal/statedir"
 )
 
 // Contract is the owner.json contract of a daemon-owned inbox whose data
@@ -160,17 +161,11 @@ func InboxRoute(privateHome, dir string) (string, error) {
 // PrivateHome resolves the private home: the option, then
 // HERDSMAN_PRIVATE_HOME, then ~/.herdsman-private (3.6 discovery).
 func PrivateHome(option string, getenv func(string) string) (string, error) {
-	if option != "" {
-		return option, nil
-	}
-	if v := getenv("HERDSMAN_PRIVATE_HOME"); v != "" {
-		return v, nil
-	}
-	home, err := os.UserHomeDir()
+	d, err := statedir.Resolve(option, getenv)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".herdsman-private"), nil
+	return d.Root, nil
 }
 
 // Status is what the readers show of a route: its epoch and last
