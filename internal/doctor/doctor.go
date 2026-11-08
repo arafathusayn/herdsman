@@ -35,11 +35,13 @@ const (
 // Check is one line of the report, `<level> <check> <detail>`.
 //
 // JSON fields: level ("ok", "warn" or "fail"), check (herdr, gh,
-// gh-account, binary, inbox, sandbox or load) and detail (free text).
+// gh-account, binary, inbox, sandbox, load or deprecated), detail (free text)
+// and, on a deprecated line that names one thing, deprecation.
 type Check struct {
-	Level  string `json:"level"`
-	Name   string `json:"check"`
-	Detail string `json:"detail"`
+	Level       string       `json:"level"`
+	Name        string       `json:"check"`
+	Detail      string       `json:"detail"`
+	Deprecation *Deprecation `json:"deprecation,omitempty"`
 }
 
 // Failed says whether any check failed.
@@ -76,6 +78,10 @@ type Probes struct {
 	CPUs        func() int
 	// TempDir is the root of the caches a sandboxed harness can use.
 	TempDir string
+	// ConfigKeys lists the configuration keys set by anything but a default.
+	ConfigKeys func() ([]string, error)
+	// ShellRC returns a shell's startup file and its text.
+	ShellRC func(name string) (path, text string, err error)
 }
 
 // Default returns the real probes.
@@ -90,7 +96,8 @@ func Default() Probes {
 		Executable: os.Executable, GoCache: goCache, WriteDir: writeDir,
 		ReadMemory: readMemory, Renice: renice,
 		ReadLoad: machine.ReadLoad, FreePercent: machine.FreePercent, CPUs: machine.CPUs,
-		TempDir: review.TempRoot(),
+		TempDir:    review.TempRoot(),
+		ConfigKeys: configKeysInUse, ShellRC: readShellRC,
 	}
 }
 
@@ -175,7 +182,7 @@ func Run(ctx context.Context, p Probes) ([]Check, error) {
 		return nil, err
 	}
 	var cs []Check
-	add := func(level, name, detail string) { cs = append(cs, Check{level, name, detail}) }
+	add := func(level, name, detail string) { cs = append(cs, Check{Level: level, Name: name, Detail: detail}) }
 	checkHerdr(ctx, p, add)
 	checkGh(ctx, p, add)
 	checkGitHub(ctx, p, add)
@@ -185,6 +192,7 @@ func Run(ctx context.Context, p Probes) ([]Check, error) {
 	}
 	checkSandbox(p, add)
 	checkLoad(p, lim, add)
+	cs = append(cs, checkDeprecations(p, deprecated)...)
 	return cs, nil
 }
 

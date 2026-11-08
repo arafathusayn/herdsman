@@ -209,7 +209,7 @@ Besides `web`, the `herdsman` command holds the tools the skill runs, in one Go 
 | `approval-gate consume\|complete` | Binds a relayed go to one effect before it runs (`consume`), and records its outcome (`complete`). |
 | `transcript-audit claude\|codex` | Audits a Claude or Codex transcript for writes outside the allowed roots: `GAP`, `FLAG` and `AUDIT` lines. |
 | `run-check` | Runs one heavy check at a time on this machine, under a shared lock, behind a load gate, at a lower priority. `--publish <hours>` writes the machine's load reading for the gate. |
-| `doctor` | Checks that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load. |
+| `doctor` | Checks that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load. Also lists anything deprecated that is in use, with its replacement. |
 | `models [last\|save]` | Probes each installed harness for its version, models, efforts and default effort as it reports them; `last` and `save` keep your last pick for each role. |
 | `afk` | How long you have been away: the machine's idle time or your newest message, whichever is newer. |
 | `review start` | Prepares a clean, detached worktree at a commit for a reviewer, with its own build caches. |
