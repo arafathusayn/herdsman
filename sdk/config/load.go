@@ -16,6 +16,7 @@ import (
 	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	"github.com/arafathusayn/herdsman/sdk/internal/encoding/toml"
 	"github.com/arafathusayn/herdsman/sdk/internal/encoding/tree"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -181,7 +182,7 @@ func decodeLayer(format string, data []byte, rep *report) (*tree.Node, error) {
 	var root *tree.Node
 	var err error
 	if format == FormatBin {
-		root, err = decodeBin(data)
+		root, err = decodeBin(data, rep)
 	} else {
 		root, err = decodeText(format, data)
 	}
@@ -419,22 +420,41 @@ func writeAtomic(path string, data []byte) error {
 }
 
 // writtenPath finds the spelling a key already has in a file, so that an edit
-// changes it where it is instead of adding a second spelling.
-func writtenPath(root *tree.Node, segments []string) []string {
+// changes it where it is instead of adding a second spelling. Only field names
+// have other spellings: a map key or a hook's own name is matched exactly.
+func writtenPath(root *tree.Node, segments []string, md protoreflect.MessageDescriptor) []string {
 	out := make([]string, 0, len(segments))
 	node := root
+	literal := false
 	for _, segment := range segments {
 		chosen := segment
-		if node != nil {
+		if node != nil && !literal {
 			for _, key := range node.Keys() {
-				if canonicalKey(key) == canonicalKey(segment) {
+				if canonicalKey(key) == segment {
 					chosen = key
 					break
 				}
 			}
+		}
+		if node != nil {
 			node, _ = node.Get(chosen)
 		}
 		out = append(out, chosen)
+		if literal {
+			literal = false
+			continue
+		}
+		fd := md.Fields().ByName(protoreflect.Name(segment))
+		switch {
+		case isMessageMap(fd):
+			literal, md = true, fd.MapValue().Message()
+		case fd.IsMap():
+			literal = true
+		case isSingularMessage(fd) && string(fd.Message().FullName()) == hookSpecName:
+			literal = true
+		case isSingularMessage(fd):
+			md = fd.Message()
+		}
 	}
 	return out
 }
@@ -448,8 +468,9 @@ func checkEdit(format string, data []byte) error {
 	return bindMessage(layer, (&configv1.Config{}).ProtoReflect(), "")
 }
 
-// encodeFile writes a whole tree in a file's format.
-func encodeFile(format string, root *tree.Node) ([]byte, error) {
+// encodeFile writes a whole tree in a file's format. For the binary form,
+// original is the file being replaced, whose unknown fields are carried over.
+func encodeFile(format string, root *tree.Node, original []byte) ([]byte, error) {
 	if format != FormatBin {
 		return encodeText(format, root)
 	}
@@ -458,15 +479,23 @@ func encodeFile(format string, root *tree.Node) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := refuseEmptyLists(layer, configDescriptor(), ""); err != nil {
+		return nil, err
+	}
 	if err := bindMessage(layer, msg.ProtoReflect(), ""); err != nil {
 		return nil, err
 	}
+	prior := &configv1.Config{}
+	if err := proto.Unmarshal(original, prior); err != nil {
+		return nil, err
+	}
+	carryUnknown(prior.ProtoReflect(), msg.ProtoReflect())
 	return encodeBin(msg)
 }
 
 func decodeRaw(format string, data []byte) (*tree.Node, error) {
 	if format == FormatBin {
-		return decodeBin(data)
+		return decodeBin(data, &report{})
 	}
 	return decodeText(format, data)
 }
@@ -502,7 +531,7 @@ func SetFile(path, key, value string) error {
 	if err != nil {
 		return err
 	}
-	written := writtenPath(root, resolved.segments)
+	written := writtenPath(root, resolved.segments, configDescriptor())
 	var out []byte
 	if format == FormatTOML {
 		doc, err := toml.Parse(data)
@@ -517,7 +546,7 @@ func SetFile(path, key, value string) error {
 		if err := setPath(root, written, node); err != nil {
 			return err
 		}
-		if out, err = encodeFile(format, root); err != nil {
+		if out, err = encodeFile(format, root, data); err != nil {
 			return err
 		}
 	}
@@ -537,7 +566,7 @@ func UnsetFile(path, key string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	written := writtenPath(root, resolved.segments)
+	written := writtenPath(root, resolved.segments, configDescriptor())
 	if _, ok := root.Lookup(written...); !ok {
 		return false, nil
 	}
@@ -554,7 +583,7 @@ func UnsetFile(path, key string) (bool, error) {
 	} else {
 		parent, _ := root.Lookup(written[:len(written)-1]...)
 		parent.Delete(written[len(written)-1])
-		if out, err = encodeFile(format, root); err != nil {
+		if out, err = encodeFile(format, root, data); err != nil {
 			return false, err
 		}
 	}
@@ -565,13 +594,36 @@ func UnsetFile(path, key string) (bool, error) {
 }
 
 // ExportFile converts a file to another format. Keys the message does not
-// define have no place in the message, so they are not carried over.
+// define are dropped with a warning when the file is read. A conversion the
+// target format cannot hold exactly is refused rather than made lossy.
 func ExportFile(path, format string) ([]byte, error) {
 	result, err := ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return encodeMessage(result.Config, format)
+	source, err := formatOf(path)
+	if err != nil {
+		return nil, err
+	}
+	var original []byte
+	if source == FormatBin {
+		if original, err = os.ReadFile(path); err != nil {
+			return nil, err
+		}
+	}
+	switch format {
+	case FormatBin:
+		return encodeFile(FormatBin, result.tree, original)
+	case FormatTOML, FormatYAML, FormatJSON:
+		if source == FormatBin {
+			if err := refuseUnknownInText(original); err != nil {
+				return nil, err
+			}
+		}
+		return encodeText(format, result.tree)
+	default:
+		return nil, fmt.Errorf("unknown format %q; use toml, yaml, json or bin", format)
+	}
 }
 
 func encodeMessage(msg *configv1.Config, format string) ([]byte, error) {
@@ -628,7 +680,7 @@ func UpdateFile(path string) error {
 				return err
 			}
 		}
-		if out, err = encodeFile(format, root); err != nil {
+		if out, err = encodeFile(format, root, data); err != nil {
 			return err
 		}
 	}

@@ -240,7 +240,7 @@ func TestDecoderEdges(t *testing.T) {
 	if _, err := decodeText(FormatYAML, []byte("a: [\n")); err == nil {
 		t.Fatal("broken yaml accepted")
 	}
-	if _, err := decodeBin([]byte{0xff}); err == nil {
+	if _, err := decodeBin([]byte{0xff}, &report{}); err == nil {
 		t.Fatal("broken binary accepted")
 	}
 }

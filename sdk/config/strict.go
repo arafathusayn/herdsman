@@ -40,8 +40,17 @@ type report struct {
 }
 
 func (r *report) unknown(path, key string, md protoreflect.MessageDescriptor) error {
-	warning := Warning{Key: path, Suggestion: suggest(key, md)}
-	section, _, _ := strings.Cut(path, ".")
+	return r.add(Warning{Key: path, Suggestion: suggest(key, md)})
+}
+
+// unknownWire reports a binary field this build does not define; it has a
+// number and no name, so nothing can be suggested.
+func (r *report) unknownWire(path string) error {
+	return r.add(Warning{Key: path})
+}
+
+func (r *report) add(warning Warning) error {
+	section, _, _ := strings.Cut(warning.Key, ".")
 	if r.strict || strictSections[section] {
 		return &StrictError{Warning: warning}
 	}
