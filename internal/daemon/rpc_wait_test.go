@@ -404,3 +404,25 @@ func TestWaitReplaysAFinishedRange(t *testing.T) {
 		t.Fatalf("%v", res)
 	}
 }
+
+// TestWaitTextLines pins the lines the skill reads: callers parse the first
+// word.
+func TestWaitTextLines(t *testing.T) {
+	cases := []struct {
+		ev   Event
+		want string
+	}{
+		{Event{Type: "message", ID: "m1", From: "adj", Kind: "brief"}, "MESSAGE me m1 from adj kind brief cursor c: run herdsman message read"},
+		{Event{Type: "receipt", ID: "m1", By: "orch"}, "RECEIPT m1 by orch cursor c"},
+		{Event{Type: "notice", ID: "m1", State: "quarantined"}, "NOTICE m1 quarantined cursor c: inspect herdsman message status"},
+		{Event{Type: "health", Flags: []string{"a", "b"}}, "HEALTH a,b cursor c"},
+		{Event{Type: "health"}, "HEALTH ok cursor c"},
+		{Event{Type: "pair", State: "pending"}, "PAIR pending cursor c"},
+		{Event{Type: "question"}, "QUESTION cursor c"},
+	}
+	for _, c := range cases {
+		if got := eventLine("me", "c", c.ev); got != c.want {
+			t.Errorf("got %q, want %q", got, c.want)
+		}
+	}
+}
