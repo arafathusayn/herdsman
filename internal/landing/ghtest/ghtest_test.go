@@ -86,9 +86,7 @@ func TestAuthToken(t *testing.T) {
 	if out, _, code := gh(t, f, "", "auth", "token"); code != 0 || out != "fake-token\n" {
 		t.Errorf("%d %q", code, out)
 	}
-	f.mu.Lock()
-	f.Token = ""
-	f.mu.Unlock()
+	f.Configure(func() { f.Token = "" })
 	if _, _, code := gh(t, f, "", "auth", "token"); code != 1 {
 		t.Errorf("exit = %d", code)
 	}
@@ -174,7 +172,7 @@ func TestMergeRequestStates(t *testing.T) {
 
 func TestAcceptedRequestLifecycle(t *testing.T) {
 	f := newFake(t)
-	f.Ticks = 1
+	f.Configure(func() { f.Ticks = 1 })
 	out := merge(t, f, `{"sha":"aa","merge_method":"squash","merge_action":"direct_merge"}`)
 	if !strings.Contains(out, " 202 ") {
 		t.Fatalf("%q", out)
@@ -210,12 +208,12 @@ func TestPendingRequestEndsFailed(t *testing.T) {
 	}{
 		{"head moved", func(f *Fake) { f.PushHead(1, "bb") }, "head commit changed"},
 		{"closed", func(f *Fake) { f.Close(1) }, "pull request is closed"},
-		{"configured", func(f *Fake) { f.FailMerge = "nope" }, "nope"},
+		{"configured", func(f *Fake) { f.Configure(func() { f.FailMerge = "nope" }) }, "nope"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
-			f.Hold = true
+			f.Configure(func() { f.Hold = true })
 			merge(t, f, `{"sha":"aa"}`)
 			tt.prepare(f)
 			f.Release()

@@ -133,8 +133,7 @@ type mergeRequest struct {
 	bypassed bool
 }
 
-// Fake is the service's state. Set its exported fields before the first call;
-// after that use the methods, which lock.
+// Fake is the service's state. Change its exported fields through Configure.
 type Fake struct {
 	Repo       string
 	Rulesets   map[string][]map[string]any // by branch, as the rules API answers
@@ -214,6 +213,14 @@ func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''
 
 // Bin is the path of the fake `gh` executable.
 func (f *Fake) Bin() string { return f.bin }
+
+// Configure changes the exported fields under the fake's lock. Requests arrive
+// on other goroutines, so a test sets them through this.
+func (f *Fake) Configure(change func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	change()
+}
 
 // AddPR adds a pull request. An empty State means open.
 func (f *Fake) AddPR(pr PR) {

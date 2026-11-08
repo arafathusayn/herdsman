@@ -32,7 +32,7 @@ func setup(t *testing.T) (*ghtest.Fake, *Backend) {
 	t.Helper()
 	f := ghtest.New(t, repo)
 	f.AddPR(ghtest.PR{Number: 7, HeadRef: "feat/x", HeadSHA: head, BaseRef: "main", MergeableState: "clean"})
-	b, err := New(repo, Options{Bin: f.Bin(), CallTimeout: 10 * time.Second, PollInterval: time.Millisecond, PollTimeout: 300 * time.Millisecond})
+	b, err := New(repo, Options{Bin: f.Bin(), CallTimeout: 30 * time.Second, PollInterval: time.Millisecond, PollTimeout: time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestMergeOmitsEmptyTitleAndMessage(t *testing.T) {
 
 func TestMergeWaitsThroughPending(t *testing.T) {
 	f, b := setup(t)
-	f.Ticks = 5
+	f.Configure(func() { f.Ticks = 5 })
 	wantState(t, merge(t, b), landing.MergeMerged)
 	wantMergeCounts(t, f, 1, 1)
 }
@@ -145,7 +145,7 @@ func TestMergeHeadMovesAfterThePreRead(t *testing.T) {
 
 func TestMergeHeadMovesWhileAccepted(t *testing.T) {
 	f, b := setup(t)
-	f.Hold = true
+	f.Configure(func() { f.Hold = true })
 	f.Inject(ghtest.Fault{Method: "GET", Path: "/merge-async/", Apply: true, Before: func() { f.PushHead(7, moved); f.Release() }})
 	wantState(t, merge(t, b), landing.MergeHeadMoved)
 	wantMergeCounts(t, f, 1, 0)
@@ -160,6 +160,7 @@ func TestMergeLostResponseAfterTheServiceActed(t *testing.T) {
 
 func TestMergeLostResponseAfterNothingHappened(t *testing.T) {
 	f, b := setup(t)
+	b.opt.PollTimeout = 300 * time.Millisecond
 	f.Inject(ghtest.Fault{Method: "PUT", Path: mergePath, Lost: true})
 	wantState(t, merge(t, b), landing.MergeUnknown)
 	wantMergeCounts(t, f, 1, 0)
@@ -169,7 +170,7 @@ func TestMergeSlowBodyKilledAtTheTimeout(t *testing.T) {
 	f := ghtest.New(t, repo)
 	f.AddPR(ghtest.PR{Number: 7, HeadRef: "feat/x", HeadSHA: head, BaseRef: "main"})
 	f.Inject(ghtest.Fault{Method: "PUT", Path: mergePath, Apply: true, Hang: true})
-	b, err := New(repo, Options{Bin: f.Bin(), CallTimeout: time.Second, PollInterval: time.Millisecond, PollTimeout: 2 * time.Second})
+	b, err := New(repo, Options{Bin: f.Bin(), CallTimeout: 3 * time.Second, PollInterval: time.Millisecond, PollTimeout: time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +227,7 @@ func TestMergeRefused(t *testing.T) {
 
 func TestMergeAdoptsAMatchingPendingRequest(t *testing.T) {
 	f, b := setup(t)
-	f.Hold = true
+	f.Configure(func() { f.Hold = true })
 	f.Pending(7, "other-uuid", head, "squash", "direct_merge", false)
 	f.Inject(ghtest.Fault{Method: "PUT", Path: mergePath, Apply: true, Before: f.Release})
 	res := merge(t, b)
@@ -250,7 +251,7 @@ func TestMergeRefusesAnotherPendingRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f, b := setup(t)
-			f.Hold = true
+			f.Configure(func() { f.Hold = true })
 			f.Pending(7, "other-uuid", tt.head, tt.method, tt.action, tt.bypass)
 			wantState(t, merge(t, b), landing.MergeConflict)
 			wantMergeCounts(t, f, 1, 0)
@@ -274,7 +275,7 @@ func TestMergeAlreadyEnqueuedIsAConflict(t *testing.T) {
 
 func TestMergeFailedInTheBackground(t *testing.T) {
 	f, b := setup(t)
-	f.FailMerge = "required checks failed"
+	f.Configure(func() { f.FailMerge = "required checks failed" })
 	res := merge(t, b)
 	wantState(t, res, landing.MergeFailed)
 	if res.Reason != "required checks failed" {
@@ -295,7 +296,8 @@ func TestMergeSurvivesAFailedPoll(t *testing.T) {
 
 func TestMergePendingAtTheDeadlineThenReconciled(t *testing.T) {
 	f, b := setup(t)
-	f.Hold = true
+	b.opt.PollTimeout = 300 * time.Millisecond
+	f.Configure(func() { f.Hold = true })
 	res := merge(t, b)
 	wantState(t, res, landing.MergePending)
 	if res.UUID == "" {
@@ -312,16 +314,20 @@ func TestMergePendingAtTheDeadlineThenReconciled(t *testing.T) {
 
 func TestMergeCancelledWhileWaiting(t *testing.T) {
 	f, b := setup(t)
-	f.Hold = true
+	f.Configure(func() { f.Hold = true })
 	b.opt.PollInterval = time.Hour
 	b.opt.PollTimeout = time.Hour
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	f.Inject(ghtest.Fault{Method: "GET", Path: "/merge-async/", Apply: true, Before: cancel})
 	res, err := b.Merge(ctx, request())
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantState(t, res, landing.MergePending)
+	wantState(t, res, landing.MergeUnknown)
+	if res.UUID == "" {
+		t.Error("the uuid was dropped")
+	}
 	wantMergeCounts(t, f, 1, 0)
 }
 
@@ -452,9 +458,9 @@ func TestRules(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f, b := setup(t)
-			f.Rulesets["feat/base"] = tt.rulesets
+			f.Configure(func() { f.Rulesets["feat/base"] = tt.rulesets })
 			if tt.protection != nil {
-				f.Protection["feat/base"] = *tt.protection
+				f.Configure(func() { f.Protection["feat/base"] = *tt.protection })
 			}
 			got, err := b.Rules(context.Background(), "feat/base")
 			if err != nil {
@@ -494,7 +500,7 @@ func TestRulesPartialReadIsAnError(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f, b := setup(t)
-			f.Rulesets["main"] = append(filler(100), strict(false))
+			f.Configure(func() { f.Rulesets["main"] = append(filler(100), strict(false)) })
 			f.Inject(fault)
 			if got, err := b.Rules(context.Background(), "main"); err == nil {
 				t.Fatalf("no error, got %+v", got)
@@ -507,7 +513,7 @@ func TestRulesStopsAtThePageLimit(t *testing.T) {
 	f, b := setup(t)
 	defer func(n int) { maxPages = n }(maxPages)
 	maxPages = 2
-	f.Rulesets["main"] = filler(250)
+	f.Configure(func() { f.Rulesets["main"] = filler(250) })
 	if _, err := b.Rules(context.Background(), "main"); err == nil {
 		t.Fatal("no error")
 	}
@@ -546,8 +552,10 @@ func TestStatusReadsEveryCheck(t *testing.T) {
 	}
 	runs = append(runs, run("neutral", "completed", "neutral"), run("skipped", "completed", "skipped"),
 		run("queued", "in_progress", ""), run("broken", "completed", "failure"))
-	f.CheckRuns[head] = runs
-	f.Statuses[head] = []map[string]any{statusEntry("ci/a", "success"), statusEntry("ci/b", "pending"), statusEntry("ci/c", "error")}
+	f.Configure(func() { f.CheckRuns[head] = runs })
+	f.Configure(func() {
+		f.Statuses[head] = []map[string]any{statusEntry("ci/a", "success"), statusEntry("ci/b", "pending"), statusEntry("ci/c", "error")}
+	})
 	got, err := b.Status(context.Background(), 7)
 	if err != nil {
 		t.Fatal(err)
@@ -593,10 +601,11 @@ func TestStatusPartialReadIsAnError(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f, b := setup(t)
-			f.CheckRuns[head] = make([]map[string]any, 150)
-			for i := range f.CheckRuns[head] {
-				f.CheckRuns[head][i] = run("j", "completed", "success")
+			runs := make([]map[string]any, 150)
+			for i := range runs {
+				runs[i] = run("j", "completed", "success")
 			}
+			f.Configure(func() { f.CheckRuns[head] = runs })
 			f.Inject(fault)
 			if got, err := b.Status(context.Background(), 7); err == nil {
 				t.Fatalf("no error, got %+v", got)
@@ -774,7 +783,7 @@ func TestAccountTokenIsFetchedOnceAndSent(t *testing.T) {
 
 func TestMissingAccountTokenSendsNothing(t *testing.T) {
 	f := ghtest.New(t, repo)
-	f.Token = ""
+	f.Configure(func() { f.Token = "" })
 	b, err := New(repo, Options{Bin: f.Bin(), Account: "bot"})
 	if err != nil {
 		t.Fatal(err)
