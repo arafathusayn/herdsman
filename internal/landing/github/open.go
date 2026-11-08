@@ -242,8 +242,13 @@ func (b *Backend) accountToken(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("github: no token for %s: %s", b.opt.Account, failure(err, stderr, ""))
 	}
-	b.token = strings.TrimSpace(string(out))
-	return b.token, nil
+	token := strings.TrimSpace(string(out))
+	if token == "" {
+		// An empty token would run the call as whichever account gh has active.
+		return "", fmt.Errorf("github: gh printed no token for %s", b.opt.Account)
+	}
+	b.token = token
+	return token, nil
 }
 
 func (b *Backend) run(ctx context.Context, token string, stdin []byte, args ...string) ([]byte, string, error) {

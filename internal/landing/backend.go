@@ -3,7 +3,12 @@
 // contract a landing may accept is the pipeline's decision.
 package landing
 
-import "context"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+)
 
 // Contract says which commit herdsman's evidence covers once a change lands.
 type Contract string
@@ -24,8 +29,9 @@ const (
 	// MergePending means an accepted request has not finished; poll with Reconcile.
 	MergePending MergeState = "pending"
 	// MergeUnknown means the request's outcome could not be read and the pull
-	// request is still open at the pinned head. Never send the merge again; call
-	// Reconcile until another state appears.
+	// request is still open at the pinned head. The request may never have reached
+	// the service, so this state can last forever. Never send the merge again: use
+	// Settle, which ends in MergeNeedsPerson.
 	MergeUnknown MergeState = "unknown"
 	// MergeHeadMoved means the pull request's head is not the pinned commit, and it did not merge.
 	MergeHeadMoved MergeState = "head_moved"
@@ -35,6 +41,9 @@ const (
 	// another pending request, a queue entry, or a merge at a different head. A
 	// person decides.
 	MergeConflict MergeState = "conflict"
+	// MergeNeedsPerson means a bounded Settle found no final state. The merge must
+	// not be sent again; a person looks at the pull request, the head and the uuid.
+	MergeNeedsPerson MergeState = "needs_person"
 )
 
 // OpenRequest asks for a pull request from Head into Base.
@@ -56,10 +65,12 @@ type PullRequest struct {
 	Draft   bool
 }
 
-// MergeRequest asks for one merge, pinned to the full commit id in Head.
+// MergeRequest asks for one merge, pinned to the full commit id in Head, into
+// Base, the branch whose rules were read. A pull request on another base is not merged.
 type MergeRequest struct {
 	Number  int
 	Head    string
+	Base    string
 	Method  string // squash, merge or rebase
 	Title   string
 	Message string
@@ -72,10 +83,12 @@ type MergeRef struct {
 	UUID   string
 }
 
-// MergeResult is one reading of a merge. Commit is set only for MergeMerged.
+// MergeResult is one reading of a merge. Commit is set only for MergeMerged, and
+// Head only for MergeNeedsPerson.
 type MergeResult struct {
 	State  MergeState
 	Commit string
+	Head   string
 	UUID   string
 	Reason string
 }
@@ -126,13 +139,53 @@ type Rules struct {
 type Backend interface {
 	// Open returns the open pull request for the head and base, creating it if there is none.
 	Open(ctx context.Context, req OpenRequest) (PullRequest, error)
-	// Merge requests one merge. An error means no request was sent; every outcome
-	// after sending is a MergeResult.
+	// Merge requests one merge. An error, including a context done before sending,
+	// means no request was sent; every outcome after sending is a MergeResult.
 	Merge(ctx context.Context, req MergeRequest) (MergeResult, error)
-	// Reconcile reads where a merge ended, and never sends one. An error means ref is invalid.
+	// Reconcile takes one reading of where a merge ended, and never sends one. An
+	// error means ref is invalid. Use Settle to repeat it within a bound.
 	Reconcile(ctx context.Context, ref MergeRef) (MergeResult, error)
 	// Status reads a pull request and every check on its head; a partial read is an error.
 	Status(ctx context.Context, number int) (Status, error)
 	// Rules reads the base branch's rules; a partial read is an error.
 	Rules(ctx context.Context, base string) (Rules, error)
+}
+
+// SettleLimit bounds Settle: at most Attempts readings, Interval apart.
+type SettleLimit struct {
+	Attempts int
+	Interval time.Duration
+}
+
+// Settle is the exit from MergePending and MergeUnknown. It reads the merge
+// until a final state appears, and after limit.Attempts readings it stops with
+// MergeNeedsPerson, naming the head and the uuid. It never sends a merge. An
+// error means the limit or ref is invalid, or ctx ended; then the result is the
+// last reading.
+func Settle(ctx context.Context, b Backend, ref MergeRef, limit SettleLimit) (MergeResult, error) {
+	if limit.Attempts < 1 {
+		return MergeResult{}, errors.New("landing: settle needs at least one attempt")
+	}
+	var last MergeResult
+	for attempt := range limit.Attempts {
+		if attempt > 0 {
+			select {
+			case <-time.After(limit.Interval):
+			case <-ctx.Done():
+				return last, ctx.Err()
+			}
+		}
+		var err error
+		if last, err = b.Reconcile(ctx, ref); err != nil {
+			return MergeResult{}, err
+		}
+		if last.State != MergePending && last.State != MergeUnknown {
+			return last, nil
+		}
+	}
+	return MergeResult{
+		State: MergeNeedsPerson, Head: ref.Head, UUID: ref.UUID,
+		Reason: fmt.Sprintf("pull request %d at head %s (request uuid %q) has no final state after %d readings, last %s: %s; do not send the merge again",
+			ref.Number, ref.Head, ref.UUID, limit.Attempts, last.State, last.Reason),
+	}, nil
 }

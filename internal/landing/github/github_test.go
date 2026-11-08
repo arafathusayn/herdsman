@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,7 +41,7 @@ func setup(t *testing.T) (*ghtest.Fake, *Backend) {
 }
 
 func request() landing.MergeRequest {
-	return landing.MergeRequest{Number: 7, Head: head, Method: "squash", Title: "feat: x (#7)", Message: "body"}
+	return landing.MergeRequest{Number: 7, Head: head, Base: "main", Method: "squash", Title: "feat: x (#7)", Message: "body"}
 }
 
 func merge(t *testing.T, b *Backend) landing.MergeResult {
@@ -134,6 +135,50 @@ func TestMergeBeforeSending(t *testing.T) {
 			wantMergeCounts(t, f, 0, before)
 		})
 	}
+}
+
+func TestMergeRefusesAnotherBaseBeforeSending(t *testing.T) {
+	for name, prepare := range map[string]func(*ghtest.Fake){
+		"open":   func(*ghtest.Fake) {},
+		"merged": func(f *ghtest.Fake) { f.MergeNow(7) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, b := setup(t)
+			f.AddPR(ghtest.PR{Number: 7, HeadRef: "feat/x", HeadSHA: head, BaseRef: "release"})
+			prepare(f)
+			before := f.Merges(7)
+			res := merge(t, b)
+			wantState(t, res, landing.MergeConflict)
+			if !strings.Contains(res.Reason, "release") {
+				t.Errorf("reason = %q", res.Reason)
+			}
+			wantMergeCounts(t, f, 0, before)
+		})
+	}
+}
+
+// doneAfterSignal never closes Done, so a run in progress is not killed; only a
+// check of Err sees it. That reaches the moment between the pre-read and the PUT.
+type doneAfterSignal struct {
+	context.Context
+	done atomic.Bool
+}
+
+func (c *doneAfterSignal) Err() error {
+	if c.done.Load() {
+		return context.Canceled
+	}
+	return nil
+}
+
+func TestMergeContextDoneBeforeSendingIsAnError(t *testing.T) {
+	f, b := setup(t)
+	ctx := &doneAfterSignal{Context: context.Background()}
+	f.Inject(ghtest.Fault{Method: "GET", Path: "/pulls/7", Apply: true, Before: func() { ctx.done.Store(true) }})
+	if res, err := b.Merge(ctx, request()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("res %+v, err %v", res, err)
+	}
+	wantMergeCounts(t, f, 0, 0)
 }
 
 func TestMergeHeadMovesAfterThePreRead(t *testing.T) {
@@ -357,6 +402,7 @@ func TestMergeRejectsAnInvalidRequest(t *testing.T) {
 		"bad method": func(r *landing.MergeRequest) { r.Method = "fast" },
 		"upper head": func(r *landing.MergeRequest) { r.Head = strings.Repeat("A", 40) },
 		"empty head": func(r *landing.MergeRequest) { r.Head = "" },
+		"no base":    func(r *landing.MergeRequest) { r.Base = "" },
 		"no method":  func(r *landing.MergeRequest) { r.Method = "" },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -417,6 +463,77 @@ func TestReconcile(t *testing.T) {
 	}
 }
 
+var settleLimit = landing.SettleLimit{Attempts: 3, Interval: time.Millisecond}
+
+func TestSettleStopsForAPersonWithoutResending(t *testing.T) {
+	f, b := setup(t)
+	f.Inject(ghtest.Fault{Method: "PUT", Path: mergePath, Lost: true})
+	b.opt.PollTimeout = time.Millisecond
+	first := merge(t, b)
+	wantState(t, first, landing.MergeUnknown)
+	res, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head}, settleLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantState(t, res, landing.MergeNeedsPerson)
+	if res.Head != head || !strings.Contains(res.Reason, head) {
+		t.Errorf("got %+v", res)
+	}
+	wantMergeCounts(t, f, 1, 0)
+}
+
+func TestSettleKeepsTheUUIDForAPerson(t *testing.T) {
+	f, b := setup(t)
+	f.Configure(func() { f.Hold = true })
+	b.opt.PollTimeout = time.Millisecond
+	first := merge(t, b)
+	res, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head, UUID: first.UUID}, settleLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantState(t, res, landing.MergeNeedsPerson)
+	if res.UUID == "" || res.UUID != first.UUID || !strings.Contains(res.Reason, first.UUID) {
+		t.Errorf("got %+v, want uuid %q", res, first.UUID)
+	}
+	wantMergeCounts(t, f, 1, 0)
+}
+
+func TestSettleReturnsAFinalState(t *testing.T) {
+	f, b := setup(t)
+	f.Configure(func() { f.Hold = true })
+	b.opt.PollTimeout = time.Millisecond
+	first := merge(t, b)
+	f.Release()
+	res, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head, UUID: first.UUID}, settleLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantState(t, res, landing.MergeMerged)
+	wantMergeCounts(t, f, 1, 1)
+}
+
+func TestSettleStopsWhenTheContextEnds(t *testing.T) {
+	f, b := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	res, err := landing.Settle(ctx, b, landing.MergeRef{Number: 7, Head: head}, landing.SettleLimit{Attempts: 2, Interval: time.Hour})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	wantState(t, res, landing.MergeUnknown)
+	wantMergeCounts(t, f, 0, 0)
+}
+
+func TestSettleRejectsABadLimitOrRef(t *testing.T) {
+	_, b := setup(t)
+	if _, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head}, landing.SettleLimit{}); err == nil {
+		t.Error("no attempts accepted")
+	}
+	if _, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: "abc"}, settleLimit); err == nil {
+		t.Error("bad ref accepted")
+	}
+}
+
 func TestReconcileRejectsAnInvalidRef(t *testing.T) {
 	_, b := setup(t)
 	if _, err := b.Reconcile(context.Background(), landing.MergeRef{Number: 7, Head: "abc"}); err == nil {
@@ -424,8 +541,19 @@ func TestReconcileRejectsAnInvalidRef(t *testing.T) {
 	}
 }
 
+// strict is the shape GitHub answers for a required-checks rule.
 func strict(on bool) map[string]any {
-	return map[string]any{"type": "required_status_checks", "parameters": map[string]any{"strict_required_status_checks_policy": on}}
+	return map[string]any{"type": "required_status_checks", "parameters": map[string]any{
+		"strict_required_status_checks_policy": on,
+		"do_not_enforce_on_create":             false,
+		"required_status_checks":               []map[string]any{{"context": "test", "integration_id": 15368}},
+	}}
+}
+
+func strictWithChecks(checks any) map[string]any {
+	return map[string]any{"type": "required_status_checks", "parameters": map[string]any{
+		"strict_required_status_checks_policy": true, "required_status_checks": checks,
+	}}
 }
 
 var queueRule = map[string]any{"type": "merge_queue", "parameters": map[string]any{"merge_method": "SQUASH"}}
@@ -471,6 +599,68 @@ func TestRules(t *testing.T) {
 			}
 			if got.Contract == landing.ContractDelegated && got.Reason == "" {
 				t.Error("delegated without a reason")
+			}
+		})
+	}
+}
+
+func TestRulesStrictWithoutAnEffectiveCheckIsNotExact(t *testing.T) {
+	yes := true
+	for name, rule := range map[string]map[string]any{
+		"empty list":    strictWithChecks([]map[string]any{}),
+		"no list":       strictWithChecks(nil),
+		"blank context": strictWithChecks([]map[string]any{{"context": ""}}),
+	} {
+		t.Run(name+"/no protection", func(t *testing.T) {
+			f, b := setup(t)
+			f.Configure(func() { f.Rulesets["main"] = []map[string]any{rule} })
+			got, err := b.Rules(context.Background(), "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Contract != landing.ContractDelegated || got.UpToDate {
+				t.Errorf("got %+v", got)
+			}
+			if f.Count("GET", "/protection/") != 1 {
+				t.Error("branch protection was not consulted")
+			}
+		})
+		t.Run(name+"/protection strict", func(t *testing.T) {
+			f, b := setup(t)
+			f.Configure(func() {
+				f.Rulesets["main"] = []map[string]any{rule}
+				f.Protection["main"] = yes
+			})
+			got, err := b.Rules(context.Background(), "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Contract != landing.ContractExact {
+				t.Errorf("got %+v", got)
+			}
+		})
+	}
+}
+
+func TestRulesProtectionStrictNeedsACheck(t *testing.T) {
+	for name, tt := range map[string]struct {
+		body string
+		want landing.Contract
+	}{
+		"no checks":    {`{"strict":true,"contexts":[],"checks":[]}`, landing.ContractDelegated},
+		"contexts":     {`{"strict":true,"contexts":["test"],"checks":[]}`, landing.ContractExact},
+		"checks":       {`{"strict":true,"contexts":[],"checks":[{"context":"test"}]}`, landing.ContractExact},
+		"blank checks": {`{"strict":true,"contexts":[""],"checks":[{"context":""}]}`, landing.ContractDelegated},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, b := setup(t)
+			f.Inject(ghtest.Fault{Path: "/protection/", Status: 200, Body: tt.body})
+			got, err := b.Rules(context.Background(), "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Contract != tt.want {
+				t.Errorf("got %+v, want %s", got, tt.want)
 			}
 		})
 	}
@@ -793,6 +983,24 @@ func TestMissingAccountTokenSendsNothing(t *testing.T) {
 	}
 	if f.Count("PUT", mergePath) != 0 {
 		t.Error("merge sent")
+	}
+}
+
+func TestBlankAccountTokenSendsNothing(t *testing.T) {
+	f := ghtest.New(t, repo)
+	f.AddPR(ghtest.PR{Number: 7, HeadRef: "feat/x", HeadSHA: head, BaseRef: "main"})
+	f.Configure(func() { f.Token = "   " })
+	b, err := New(repo, Options{Bin: f.Bin(), Account: "bot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Merge(context.Background(), request()); err == nil {
+		t.Fatal("no error")
+	}
+	for _, c := range f.Calls() {
+		if c.Args[0] == "api" {
+			t.Errorf("ran as the ambient account: %v", c.Args)
+		}
 	}
 }
 

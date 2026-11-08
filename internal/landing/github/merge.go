@@ -48,6 +48,9 @@ func (b *Backend) Merge(ctx context.Context, req landing.MergeRequest) (landing.
 	if err := validateRef(req.Number, req.Head); err != nil {
 		return landing.MergeResult{}, err
 	}
+	if req.Base == "" {
+		return landing.MergeResult{}, errors.New("github: merge needs a base branch")
+	}
 	if req.Method != "squash" && req.Method != "merge" && req.Method != "rebase" {
 		return landing.MergeResult{}, fmt.Errorf("github: invalid merge method %q", req.Method)
 	}
@@ -55,8 +58,14 @@ func (b *Backend) Merge(ctx context.Context, req landing.MergeRequest) (landing.
 	if err != nil {
 		return landing.MergeResult{}, err
 	}
+	if pr.Base.Ref != req.Base {
+		return landing.MergeResult{State: landing.MergeConflict, Reason: fmt.Sprintf("the pull request targets %s, not %s", pr.Base.Ref, req.Base)}, nil
+	}
 	if res, final := classify(pr, req.Head); final {
 		return res, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return landing.MergeResult{}, err
 	}
 
 	payload := map[string]any{"merge_method": req.Method, "merge_action": directMerge, "sha": req.Head}

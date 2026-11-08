@@ -10,10 +10,26 @@ import (
 	"github.com/arafathusayn/herdsman/internal/landing"
 )
 
+type requiredCheck struct {
+	Context string `json:"context"`
+}
+
+// anyCheck says whether a list names a check. GitHub ignores the up-to-date
+// setting when no check is required, so strict alone proves nothing.
+func anyCheck(checks []requiredCheck) bool {
+	for _, c := range checks {
+		if c.Context != "" {
+			return true
+		}
+	}
+	return false
+}
+
 type rule struct {
 	Type       string `json:"type"`
 	Parameters struct {
-		Strict bool `json:"strict_required_status_checks_policy"`
+		Strict bool            `json:"strict_required_status_checks_policy"`
+		Checks []requiredCheck `json:"required_status_checks"`
 	} `json:"parameters"`
 }
 
@@ -43,7 +59,7 @@ func (b *Backend) Rules(ctx context.Context, base string) (landing.Rules, error)
 	var res landing.Rules
 	for _, r := range rules {
 		res.MergeQueue = res.MergeQueue || r.Type == "merge_queue"
-		res.UpToDate = res.UpToDate || (r.Type == "required_status_checks" && r.Parameters.Strict)
+		res.UpToDate = res.UpToDate || (r.Type == "required_status_checks" && r.Parameters.Strict && anyCheck(r.Parameters.Checks))
 	}
 	if res.MergeQueue {
 		res.Contract, res.Reason = landing.ContractDelegated, "the base branch uses a merge queue"
@@ -58,12 +74,17 @@ func (b *Backend) Rules(ctx context.Context, base string) (landing.Rules, error)
 	switch r.status {
 	case 200:
 		var protection struct {
-			Strict *bool `json:"strict"`
+			Strict   *bool           `json:"strict"`
+			Contexts []string        `json:"contexts"`
+			Checks   []requiredCheck `json:"checks"`
 		}
 		if err := json.Unmarshal(r.body, &protection); err != nil || protection.Strict == nil {
 			return landing.Rules{}, fmt.Errorf("github: branch protection of %s is unreadable", base)
 		}
-		if *protection.Strict {
+		for _, name := range protection.Contexts {
+			protection.Checks = append(protection.Checks, requiredCheck{Context: name})
+		}
+		if *protection.Strict && anyCheck(protection.Checks) {
 			res.Contract, res.UpToDate = landing.ContractExact, true
 			return res, nil
 		}
@@ -75,6 +96,6 @@ func (b *Backend) Rules(ctx context.Context, base string) (landing.Rules, error)
 	default:
 		return landing.Rules{}, fmt.Errorf("github: branch protection of %s: %s", base, r.reason)
 	}
-	res.Contract, res.Reason = landing.ContractDelegated, "the base branch does not require being up to date"
+	res.Contract, res.Reason = landing.ContractDelegated, "the base branch does not require being up to date on a required check"
 	return res, nil
 }
