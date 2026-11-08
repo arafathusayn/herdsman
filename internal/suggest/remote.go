@@ -47,13 +47,27 @@ func (p Pin) String() string { return p.URL + "@" + p.Commit }
 // ParsePin reads the `<url>@<commit>` form.
 func ParsePin(s string) (Pin, error) {
 	i := strings.LastIndex(s, "@")
-	if i < 0 || !commitPattern.MatchString(s[i+1:]) {
+	if i < 0 {
 		return Pin{}, fmt.Errorf("%q is not pinned: want <url>@<full commit id>", s)
 	}
-	if !validRepoURL(s[:i], true) {
-		return Pin{}, fmt.Errorf("%q is not an https, ssh, git@ or file address", s[:i])
+	pin := Pin{URL: s[:i], Commit: s[i+1:]}
+	if err := pin.validate(); err != nil {
+		return Pin{}, err
 	}
-	return Pin{URL: s[:i], Commit: s[i+1:]}, nil
+	return pin, nil
+}
+
+// validate holds the rule at every boundary a Pin crosses: Pin is an exported
+// struct, so a value need not have come from ParsePin. Git must never see a
+// revision that can come to mean other content, such as FETCH_HEAD.
+func (p Pin) validate() error {
+	if !commitPattern.MatchString(p.Commit) {
+		return fmt.Errorf("%q is not pinned: want a full commit id", p.Commit)
+	}
+	if !validRepoURL(p.URL, true) {
+		return fmt.Errorf("%q is not an https, ssh, git@ or file address", p.URL)
+	}
+	return nil
 }
 
 // Runner runs git with the given standard input and returns its output.
@@ -195,9 +209,35 @@ func (r *Remote) ensureRepo(ctx context.Context, url string) error {
 	if _, err := os.Stat(filepath.Join(r.repoDir(url), "HEAD")); err == nil {
 		return nil
 	}
-	// An empty template: the cache holds no hooks at all.
-	_, err := r.Git(ctx, nil, "init", "--quiet", "--bare", "--template=", r.repoDir(url))
+	format, err := r.objectFormat(ctx, url)
+	if err != nil {
+		return err
+	}
+	// An empty template: the cache holds no hooks at all. The format is always
+	// named, so the user's own default cannot mismatch the remote.
+	_, err = r.Git(ctx, nil, "init", "--quiet", "--bare", "--template=", "--object-format="+format, r.repoDir(url))
 	return err
+}
+
+// objectFormat reads the remote's hash length from its refs. It runs from the
+// cache folder so that no config of the process's working directory, which may
+// be an untrusted checkout, applies to the connection.
+func (r *Remote) objectFormat(ctx context.Context, url string) (string, error) {
+	out, err := r.Git(ctx, nil, "-C", r.CacheDir, "ls-remote", url)
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return "", fmt.Errorf("%s has no refs to fetch", url)
+	}
+	switch {
+	case !commitPattern.MatchString(fields[0]):
+		return "", fmt.Errorf("cannot tell the object format of %s from %q", url, fields[0])
+	case len(fields[0]) == 64:
+		return "sha256", nil
+	}
+	return "sha1", nil
 }
 
 // Source reads a pinned catalog from the cache only. A pin that is not cached
@@ -210,6 +250,9 @@ func (r *Remote) Source(ctx context.Context, pin Pin) Source {
 // readCommit lists the catalog folder of a commit and reads its entries in one
 // batch.
 func (r *Remote) readCommit(ctx context.Context, pin Pin) ([]file, []Problem, error) {
+	if err := pin.validate(); err != nil {
+		return nil, nil, err
+	}
 	ref := SourceRef{Kind: SourceRemote, Name: pin.URL, Commit: pin.Commit}
 	dir := r.gitDir(pin.URL)
 	tree, err := r.Git(ctx, nil, dir, "ls-tree", "-z", "-l", pin.Commit+":"+RemoteFolder)
@@ -333,6 +376,9 @@ type Update struct {
 
 // PreviewUpdate fetches ref and returns the entry diff from the pin to it.
 func (r *Remote) PreviewUpdate(ctx context.Context, from Pin, ref string) (Update, error) {
+	if err := from.validate(); err != nil {
+		return Update{}, err
+	}
 	to, newFiles, newProblems, err := r.fetch(ctx, from.URL, ref)
 	if err != nil {
 		return Update{}, err

@@ -503,10 +503,15 @@ func isolateGit(t *testing.T) {
 
 func newGitFixture(t *testing.T) *gitFixture {
 	t.Helper()
+	return newGitFixtureFormat(t, "sha1")
+}
+
+func newGitFixtureFormat(t *testing.T, format string) *gitFixture {
+	t.Helper()
 	isolateGit(t)
 	g := &gitFixture{t: t, dir: t.TempDir()}
 	g.url = "file://" + g.dir
-	g.git("init", "--quiet", "--initial-branch=main")
+	g.git("init", "--quiet", "--initial-branch=main", "--object-format="+format)
 	g.git("config", "uploadpack.allowAnySHA1InWant", "true")
 	return g
 }
@@ -764,10 +769,99 @@ func TestDiffLinesBoundsHostileInput(t *testing.T) {
 
 func TestNormalizeRepoMatchesEveryForm(t *testing.T) {
 	want := normalizeRepo("https://github.com/Acme/Cat")
-	for _, u := range []string{"git@github.com:acme/cat.git", "ssh://git@github.com/acme/cat/", "https://github.com/acme/cat.git"} {
+	for _, u := range []string{"git@github.com:acme/cat.git", "ssh://git@github.com/acme/cat/", "https://github.com/acme/cat.git", "https://GitHub.com/ACME/CAT.GIT"} {
 		if got := normalizeRepo(u); got != want {
 			t.Errorf("%q: %q want %q", u, got, want)
 		}
+	}
+	generic := normalizeRepo("https://git.example/team/Tool")
+	for _, u := range []string{"git@git.example:team/Tool.git", "ssh://git@GIT.example/team/Tool/"} {
+		if got := normalizeRepo(u); got != generic {
+			t.Errorf("%q: %q want %q", u, got, generic)
+		}
+	}
+	if got := normalizeRepo("https://git.example/team/tool"); got == generic {
+		t.Errorf("path case folded on a generic host: %q", got)
+	}
+	if got := normalizeRepo("LocalName"); got != "localname" {
+		t.Errorf("a bare host: %q", got)
+	}
+}
+
+func TestRankKeepsARepositoryThatDiffersOnlyInCaseOnAGenericHost(t *testing.T) {
+	entry := func(repo string) []Entry { return []Entry{{ID: "tool", Repo: repo}} }
+	installed := Machine{Installed: Installed{Repos: []string{"https://git.example/team/tool"}}}
+	if r := Rank(entry("https://git.example/team/Tool"), installed, Query{}); len(r.Excluded) != 0 || len(r.Items) != 1 {
+		t.Fatalf("excluded a different repository: %+v", r)
+	}
+	if r := Rank(entry("https://git.example/team/tool.git"), installed, Query{}); len(r.Excluded) != 1 {
+		t.Fatalf("kept the installed repository: %+v", r)
+	}
+	github := Machine{Installed: Installed{Repos: []string{"https://github.com/team/tool"}}}
+	if r := Rank(entry("https://github.com/team/Tool"), github, Query{}); len(r.Excluded) != 1 {
+		t.Fatalf("kept the installed repository: %+v", r)
+	}
+}
+
+func TestPinBoundariesRefuseMovableRevisionsBeforeGitRuns(t *testing.T) {
+	r := NewRemote(t.TempDir())
+	r.Git = func(_ context.Context, _ []byte, args ...string) ([]byte, error) {
+		t.Fatalf("git ran: %v", args)
+		return nil, nil
+	}
+	ctx := context.Background()
+	url, full := "https://example.com/a", strings.Repeat("a", 40)
+	for _, pin := range []Pin{
+		{url, "FETCH_HEAD"}, {url, "HEAD"}, {url, "main"}, {url, "abc1234"}, {url, ""},
+		{url, strings.Repeat("a", 39)}, {url, strings.Repeat("A", 40)}, {url, full + "^{tree}"},
+		{"ext::sh -c x", full}, {"", full},
+	} {
+		cat := Load(r.Source(ctx, pin))
+		if len(cat.Problems) != 1 || len(cat.Entries) != 0 {
+			t.Errorf("Source accepted %+v: %+v", pin, cat)
+		}
+		if _, err := r.PreviewUpdate(ctx, pin, ""); err == nil {
+			t.Errorf("PreviewUpdate accepted %+v", pin)
+		}
+	}
+}
+
+func TestPinnedReadsAndUpdatesWorkInEveryObjectFormat(t *testing.T) {
+	for format, size := range map[string]int{"sha1": 40, "sha256": 64} {
+		t.Run(format, func(t *testing.T) {
+			g := newGitFixtureFormat(t, format)
+			// The user's default must not decide the cache's format.
+			other := map[string]string{"sha1": "sha256", "sha256": "sha1"}[format]
+			t.Setenv("GIT_DEFAULT_HASH", other)
+			first := g.write(map[string]string{"one.md": entryText("one", "First")})
+			if len(first) != size {
+				t.Fatalf("fixture commit %q", first)
+			}
+			r := NewRemote(t.TempDir())
+			ctx := context.Background()
+			pin, err := r.Fetch(ctx, g.url, "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pin.Commit != first {
+				t.Fatalf("pin %s want %s", pin.Commit, first)
+			}
+			if _, err := r.Fetch(ctx, g.url, first); err != nil {
+				t.Fatalf("by full id: %v", err)
+			}
+			second := g.write(map[string]string{"one.md": entryText("one", "Second")})
+			up, err := r.PreviewUpdate(ctx, pin, "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if up.To.Commit != second || len(up.Changes) != 1 || !strings.Contains(up.Changes[0].Diff, "+ title: Second\n") {
+				t.Fatalf("%+v", up)
+			}
+			cat := Load(r.Source(ctx, pin))
+			if len(cat.Problems) != 0 || len(cat.Entries) != 1 || cat.Entries[0].Title != "First" {
+				t.Fatalf("%+v", cat)
+			}
+		})
 	}
 }
 
@@ -794,13 +888,16 @@ func fail(args []string) ([]byte, error) { return nil, errors.New("boom " + args
 func TestFetchReportsEveryGitFailure(t *testing.T) {
 	sha := strings.Repeat("a", 40)
 	other := strings.Repeat("b", 40)
-	good := map[string]func([]string) ([]byte, error){"init": ok(""), "fetch": ok(""), "rev-parse": ok(sha + "\n"), "update-ref": ok(""), "ls-tree": ok(""), "cat-file": ok("")}
+	good := map[string]func([]string) ([]byte, error){"ls-remote": ok(sha + "\tHEAD\n"), "init": ok(""), "fetch": ok(""), "rev-parse": ok(sha + "\n"), "update-ref": ok(""), "ls-tree": ok(""), "cat-file": ok("")}
 	for name, c := range map[string]struct {
 		key  string
 		f    func([]string) ([]byte, error)
 		ref  string
 		want string
 	}{
+		"ls-remote":  {"ls-remote", fail, "", "boom"},
+		"no refs":    {"ls-remote", ok(""), "", "no refs"},
+		"odd hash":   {"ls-remote", ok("zz\tHEAD\n"), "", "object format"},
 		"init":       {"init", fail, "", "boom"},
 		"fetch":      {"fetch", fail, "", "boom"},
 		"rev-parse":  {"rev-parse", fail, "", "boom"},
@@ -834,7 +931,7 @@ func TestPreviewUpdateReportsFailures(t *testing.T) {
 	sha := strings.Repeat("a", 40)
 	pin := Pin{URL: "https://example.com/a", Commit: sha}
 	r := NewRemote(t.TempDir())
-	stubGit(t, r, map[string]func([]string) ([]byte, error){"init": fail})
+	stubGit(t, r, map[string]func([]string) ([]byte, error){"ls-remote": ok(sha + "\tHEAD\n"), "init": fail})
 	if _, err := r.PreviewUpdate(context.Background(), pin, ""); err == nil {
 		t.Error("fetch failure hidden")
 	}
@@ -842,7 +939,7 @@ func TestPreviewUpdateReportsFailures(t *testing.T) {
 	r = NewRemote(t.TempDir())
 	calls := 0
 	stubGit(t, r, map[string]func([]string) ([]byte, error){
-		"init": ok(""), "fetch": ok(""), "rev-parse": ok(strings.Repeat("b", 40) + "\n"), "update-ref": ok(""),
+		"ls-remote": ok(sha + "\tHEAD\n"), "init": ok(""), "fetch": ok(""), "rev-parse": ok(strings.Repeat("b", 40) + "\n"), "update-ref": ok(""),
 		"ls-tree": func(args []string) ([]byte, error) {
 			calls++
 			if strings.HasPrefix(args[len(args)-1], sha) {

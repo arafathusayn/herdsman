@@ -243,13 +243,26 @@ func uniqueLower(values []string) []string {
 	return slices.Compact(out)
 }
 
-// normalizeRepo makes the forms of one repository address compare equal.
+// caseInsensitiveHosts are the hosts known to treat repository paths without
+// regard to case. Anywhere else two spellings may be two repositories, and a
+// false "installed" would hide a suggestion.
+var caseInsensitiveHosts = []string{"github.com"}
+
+// normalizeRepo makes the forms of one repository address compare equal. The
+// host is always folded; the path only on a host in caseInsensitiveHosts.
 func normalizeRepo(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.TrimSpace(s)
 	for _, prefix := range []string{"https://", "ssh://", "git@"} {
 		s = strings.TrimPrefix(s, prefix)
 	}
-	s = strings.TrimRight(s, "/")
-	s = strings.TrimSuffix(s, ".git")
-	return strings.Replace(s, ":", "/", 1)
+	i := strings.IndexAny(s, "/:")
+	if i < 0 {
+		return strings.ToLower(s)
+	}
+	host, path := strings.ToLower(s[:i]), s[i+1:]
+	if slices.Contains(caseInsensitiveHosts, host) {
+		path = strings.ToLower(path)
+	}
+	path = strings.TrimSuffix(strings.TrimRight(path, "/"), ".git")
+	return host + "/" + path
 }

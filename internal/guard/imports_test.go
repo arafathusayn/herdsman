@@ -45,12 +45,13 @@ var serverPackages = []string{
 	"internal/context",
 	"internal/automations",
 	"internal/web",
+	"internal/suggest",
 }
 
 // serverPackagesPin holds the number of entries in serverPackages, not their
 // names: raise it when the list grows, never lower it. A same-size swap shows
 // only in the diff of the list.
-const serverPackagesPin = 18
+const serverPackagesPin = 19
 
 // wiringFiles run the daemon in-process, so they stay allowed.
 var wiringFiles = []string{
@@ -329,6 +330,28 @@ func TestGuardRejectsSDKImportingRootModule(t *testing.T) {
 	}
 	if want := []string{"sdk/inner/inner.go", "sdk/uses/uses.go"}; !slices.Equal(result.passed, want) {
 		t.Fatalf("passed %v, want %v", result.passed, want)
+	}
+}
+
+// The fixture has no go.mod, so it resolves the real package and is judged by
+// the real server list.
+func TestGuardRejectsClientImportingSuggest(t *testing.T) {
+	servers := make([]string, 0, len(serverPackages))
+	for _, pkg := range serverPackages {
+		servers = append(servers, rootModule+"/"+pkg)
+	}
+	result, err := analyze(guardConfig{
+		root:    filepath.Join("testdata", "suggestclient"),
+		module:  rootModule,
+		env:     os.Environ(),
+		servers: servers,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []violation{{file: "cmd/herdsman/cmd_suggest.go", server: rootModule + "/internal/suggest"}}
+	if !slices.Equal(result.violations, want) {
+		t.Fatalf("violations %v, want %v", result.violations, want)
 	}
 }
 
