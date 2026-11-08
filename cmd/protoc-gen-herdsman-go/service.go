@@ -9,15 +9,15 @@ import (
 
 // The packages the generated services use.
 const (
-	contextPkg   = protogen.GoImportPath("context")
-	bytesPkg     = protogen.GoImportPath("bytes")
-	fmtPkg       = protogen.GoImportPath("fmt")
-	ioPkg        = protogen.GoImportPath("io")
-	jsonPkg      = protogen.GoImportPath("encoding/json")
-	httpPkg      = protogen.GoImportPath("net/http")
-	stringsPkg   = protogen.GoImportPath("strings")
-	protoPkg     = protogen.GoImportPath("google.golang.org/protobuf/proto")
-	protojsonPkg = protogen.GoImportPath("google.golang.org/protobuf/encoding/protojson")
+	contextPkg = protogen.GoImportPath("context")
+	bytesPkg   = protogen.GoImportPath("bytes")
+	fmtPkg     = protogen.GoImportPath("fmt")
+	ioPkg      = protogen.GoImportPath("io")
+	jsonPkg    = protogen.GoImportPath("encoding/json")
+	httpPkg    = protogen.GoImportPath("net/http")
+	stringsPkg = protogen.GoImportPath("strings")
+	protoPkg   = protogen.GoImportPath("google.golang.org/protobuf/proto")
+	rpcPkg     = protogen.GoImportPath("github.com/arafathusayn/herdsman/sdk/rpc")
 )
 
 // procedure is the HTTP path of one method.
@@ -71,18 +71,14 @@ func generateInterface(g *protogen.GeneratedFile, service *protogen.Service, met
 
 func generateHandler(g *protogen.GeneratedFile, service *protogen.Service, methods []*protogen.Method) {
 	name := service.GoName
-	g.P("// New", name, "Handler serves impl over HTTP. Mount it at the server's root.")
+	g.P("// New", name, "Handler serves impl over HTTP with the full binding. Mount it")
+	g.P("// at the server's root or at ", rpcPkg.Ident("BasePath"), ".")
 	g.P("func New", name, "Handler(impl ", name, ") ", httpPkg.Ident("Handler"), " {")
-	g.P("mux := ", httpPkg.Ident("NewServeMux"), "()")
+	g.P("return ", rpcPkg.Ident("NewMux"), "(")
 	for _, method := range methods {
-		g.P(`mux.HandleFunc("`, procedure(service, method), `", func(w `, httpPkg.Ident("ResponseWriter"), ", r *", httpPkg.Ident("Request"), ") {")
-		g.P("req := new(", method.Input.GoIdent, ")")
-		g.P("serve", name, "(w, r, req, func(ctx ", contextPkg.Ident("Context"), ") (", protoPkg.Ident("Message"), ", error) {")
-		g.P("return impl.", method.GoName, "(ctx, req)")
-		g.P("})")
-		g.P("})")
+		g.P(rpcPkg.Ident("Unary"), "(", name, `Name, "`, method.Desc.Name(), `", impl.`, method.GoName, "),")
 	}
-	g.P("return mux")
+	g.P(")")
 	g.P("}")
 	g.P()
 }
@@ -112,63 +108,12 @@ func generateClient(g *protogen.GeneratedFile, service *protogen.Service, method
 	}
 }
 
-// generateBinding writes the service's two helpers, which carry one call over
-// HTTP in either encoding.
+// generateBinding writes the helper that carries one client call over HTTP.
 func generateBinding(g *protogen.GeneratedFile, service *protogen.Service) {
 	name := service.GoName
 	limit := lowerFirst(name) + "MaxBody"
 	g.P("// ", limit, " bounds a request or response body.")
 	g.P("const ", limit, " = 4 << 20")
-	g.P()
-	g.P("func serve", name, "(w ", httpPkg.Ident("ResponseWriter"), ", r *", httpPkg.Ident("Request"), ", req ", protoPkg.Ident("Message"), ", call func(", contextPkg.Ident("Context"), ") (", protoPkg.Ident("Message"), ", error)) {")
-	g.P("fail := func(status int, code, message string) {")
-	g.P("body, _ := ", jsonPkg.Ident("Marshal"), `(map[string]string{"code": code, "message": message})`)
-	g.P(`w.Header().Set("Content-Type", "application/json")`)
-	g.P("w.WriteHeader(status)")
-	g.P("_, _ = w.Write(body)")
-	g.P("}")
-	g.P("if r.Method != ", httpPkg.Ident("MethodPost"), " {")
-	g.P(`w.Header().Set("Allow", "POST")`)
-	g.P("fail(", httpPkg.Ident("StatusMethodNotAllowed"), `, "unimplemented", "only POST is served")`)
-	g.P("return")
-	g.P("}")
-	g.P(`contentType := r.Header.Get("Content-Type")`)
-	g.P(`if contentType != "application/json" && contentType != "application/proto" {`)
-	g.P("fail(", httpPkg.Ident("StatusUnsupportedMediaType"), `, "unimplemented", "unsupported content type")`)
-	g.P("return")
-	g.P("}")
-	g.P("body, err := ", ioPkg.Ident("ReadAll"), "(", httpPkg.Ident("MaxBytesReader"), "(w, r.Body, ", limit, "))")
-	g.P("if err != nil {")
-	g.P("fail(", httpPkg.Ident("StatusBadRequest"), `, "invalid_argument", "cannot read the request body")`)
-	g.P("return")
-	g.P("}")
-	g.P(`if contentType == "application/json" {`)
-	g.P("err = (", protojsonPkg.Ident("UnmarshalOptions"), "{DiscardUnknown: true}).Unmarshal(body, req)")
-	g.P("} else {")
-	g.P("err = ", protoPkg.Ident("Unmarshal"), "(body, req)")
-	g.P("}")
-	g.P("if err != nil {")
-	g.P("fail(", httpPkg.Ident("StatusBadRequest"), `, "invalid_argument", "cannot decode the request body")`)
-	g.P("return")
-	g.P("}")
-	g.P("res, err := call(r.Context())")
-	g.P("if err != nil {")
-	g.P("fail(", httpPkg.Ident("StatusInternalServerError"), `, "unknown", err.Error())`)
-	g.P("return")
-	g.P("}")
-	g.P("var out []byte")
-	g.P(`if contentType == "application/json" {`)
-	g.P("out, err = ", protojsonPkg.Ident("Marshal"), "(res)")
-	g.P("} else {")
-	g.P("out, err = ", protoPkg.Ident("Marshal"), "(res)")
-	g.P("}")
-	g.P("if err != nil {")
-	g.P("fail(", httpPkg.Ident("StatusInternalServerError"), `, "internal", "cannot encode the response")`)
-	g.P("return")
-	g.P("}")
-	g.P(`w.Header().Set("Content-Type", contentType)`)
-	g.P("_, _ = w.Write(out)")
-	g.P("}")
 	g.P()
 	g.P("func call", name, "(ctx ", contextPkg.Ident("Context"), ", hc *", httpPkg.Ident("Client"), ", url string, req, res ", protoPkg.Ident("Message"), ") error {")
 	g.P("body, err := ", protoPkg.Ident("Marshal"), "(req)")

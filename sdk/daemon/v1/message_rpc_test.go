@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -111,7 +112,7 @@ func TestHandlerRejectsBadRequests(t *testing.T) {
 		{"content type", "text/plain", []byte("x"), http.StatusUnsupportedMediaType, `"unimplemented"`},
 		{"bad json", "application/json", []byte("{"), http.StatusBadRequest, `"invalid_argument"`},
 		{"bad proto", "application/proto", []byte{0xff}, http.StatusBadRequest, `"invalid_argument"`},
-		{"too large", "application/proto", make([]byte, messageServiceMaxBody+1), http.StatusBadRequest, `"invalid_argument"`},
+		{"too large", "application/proto", make([]byte, messageServiceMaxBody+1), http.StatusTooManyRequests, `"resource_exhausted"`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -176,4 +177,67 @@ func TestClientReportsTransportAndRequestFailures(t *testing.T) {
 	if _, err := bad.Status(context.Background(), request()); err == nil {
 		t.Fatal("no error from an invalid URL")
 	}
+}
+
+// TestHandlerServesTheBinding holds the generated factory to the same wire rules
+// as the daemon's own mux.
+func TestHandlerServesTheBinding(t *testing.T) {
+	const json = "application/json"
+	body := []byte(`{"route":{"value":"alpha"}}`)
+	t.Run("a typed failure keeps its code and status", func(t *testing.T) {
+		server := newServer(t, &fakeService{err: rpc.Errorf(rpc.InvalidArgument, "no route")})
+		res, data := post(t, server.URL+statusPath, json, body)
+		if res.StatusCode != http.StatusBadRequest || !strings.Contains(data, `"invalid_argument"`) {
+			t.Fatalf("%d %s", res.StatusCode, data)
+		}
+	})
+	t.Run("the timeout header reaches the service", func(t *testing.T) {
+		deadline := make(chan bool, 1)
+		server := newServer(t, &contextService{see: func(ctx context.Context) {
+			_, ok := ctx.Deadline()
+			deadline <- ok
+		}})
+		req, err := http.NewRequest(http.MethodPost, server.URL+statusPath, bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", json)
+		req.Header.Set(rpc.HeaderTimeout, "5000")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if !<-deadline {
+			t.Fatal("the service saw no deadline")
+		}
+	})
+	t.Run("a wrong protocol version is refused", func(t *testing.T) {
+		server := newServer(t, &fakeService{})
+		req, err := http.NewRequest(http.MethodPost, server.URL+statusPath, bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", json)
+		req.Header.Set(rpc.HeaderProtocolVersion, "9")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status %d", res.StatusCode)
+		}
+	})
+}
+
+// contextService shows each Status call's context to a test.
+type contextService struct {
+	MessageService
+	see func(context.Context)
+}
+
+func (s *contextService) Status(ctx context.Context, _ *StatusRequest) (*StatusResponse, error) {
+	s.see(ctx)
+	return &StatusResponse{}, nil
 }

@@ -8,7 +8,7 @@ import (
 	context "context"
 	json "encoding/json"
 	fmt "fmt"
-	protojson "google.golang.org/protobuf/encoding/protojson"
+	rpc "github.com/arafathusayn/herdsman/sdk/rpc"
 	proto "google.golang.org/protobuf/proto"
 	io "io"
 	http "net/http"
@@ -70,148 +70,34 @@ type MessageService interface {
 	Wait(context.Context, *WaitRequest) (*WaitResponse, error)
 }
 
-// NewMessageServiceHandler serves impl over HTTP. Mount it at the server's root.
+// NewMessageServiceHandler serves impl over HTTP with the full binding. Mount it
+// at the server's root or at rpc.BasePath.
 func NewMessageServiceHandler(impl MessageService) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Hello", func(w http.ResponseWriter, r *http.Request) {
-		req := new(HelloRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Hello(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Health", func(w http.ResponseWriter, r *http.Request) {
-		req := new(HealthRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Health(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Shutdown", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ShutdownRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Shutdown(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/ListRoutes", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ListRoutesRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.ListRoutes(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/CreateRoute", func(w http.ResponseWriter, r *http.Request) {
-		req := new(CreateRouteRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.CreateRoute(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/AdoptRoute", func(w http.ResponseWriter, r *http.Request) {
-		req := new(AdoptRouteRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.AdoptRoute(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/RemoveRoute", func(w http.ResponseWriter, r *http.Request) {
-		req := new(RemoveRouteRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.RemoveRoute(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/ResetEvents", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ResetEventsRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.ResetEvents(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Status", func(w http.ResponseWriter, r *http.Request) {
-		req := new(StatusRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Status(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/GetSetup", func(w http.ResponseWriter, r *http.Request) {
-		req := new(GetSetupRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.GetSetup(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/PutSetup", func(w http.ResponseWriter, r *http.Request) {
-		req := new(PutSetupRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.PutSetup(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Enroll", func(w http.ResponseWriter, r *http.Request) {
-		req := new(EnrollRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Enroll(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/ApprovePair", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ApprovePairRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.ApprovePair(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/RetirePair", func(w http.ResponseWriter, r *http.Request) {
-		req := new(RetirePairRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.RetirePair(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/RevokeCredential", func(w http.ResponseWriter, r *http.Request) {
-		req := new(RevokeCredentialRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.RevokeCredential(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Send", func(w http.ResponseWriter, r *http.Request) {
-		req := new(SendRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Send(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Claim", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ClaimRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Claim(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Ack", func(w http.ResponseWriter, r *http.Request) {
-		req := new(AckRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Ack(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Release", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ReleaseRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Release(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Hold", func(w http.ResponseWriter, r *http.Request) {
-		req := new(HoldRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Hold(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Unhold", func(w http.ResponseWriter, r *http.Request) {
-		req := new(UnholdRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Unhold(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Authority", func(w http.ResponseWriter, r *http.Request) {
-		req := new(AuthorityRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Authority(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Wait", func(w http.ResponseWriter, r *http.Request) {
-		req := new(WaitRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Wait(ctx, req)
-		})
-	})
-	return mux
+	return rpc.NewMux(
+		rpc.Unary(MessageServiceName, "Hello", impl.Hello),
+		rpc.Unary(MessageServiceName, "Health", impl.Health),
+		rpc.Unary(MessageServiceName, "Shutdown", impl.Shutdown),
+		rpc.Unary(MessageServiceName, "ListRoutes", impl.ListRoutes),
+		rpc.Unary(MessageServiceName, "CreateRoute", impl.CreateRoute),
+		rpc.Unary(MessageServiceName, "AdoptRoute", impl.AdoptRoute),
+		rpc.Unary(MessageServiceName, "RemoveRoute", impl.RemoveRoute),
+		rpc.Unary(MessageServiceName, "ResetEvents", impl.ResetEvents),
+		rpc.Unary(MessageServiceName, "Status", impl.Status),
+		rpc.Unary(MessageServiceName, "GetSetup", impl.GetSetup),
+		rpc.Unary(MessageServiceName, "PutSetup", impl.PutSetup),
+		rpc.Unary(MessageServiceName, "Enroll", impl.Enroll),
+		rpc.Unary(MessageServiceName, "ApprovePair", impl.ApprovePair),
+		rpc.Unary(MessageServiceName, "RetirePair", impl.RetirePair),
+		rpc.Unary(MessageServiceName, "RevokeCredential", impl.RevokeCredential),
+		rpc.Unary(MessageServiceName, "Send", impl.Send),
+		rpc.Unary(MessageServiceName, "Claim", impl.Claim),
+		rpc.Unary(MessageServiceName, "Ack", impl.Ack),
+		rpc.Unary(MessageServiceName, "Release", impl.Release),
+		rpc.Unary(MessageServiceName, "Hold", impl.Hold),
+		rpc.Unary(MessageServiceName, "Unhold", impl.Unhold),
+		rpc.Unary(MessageServiceName, "Authority", impl.Authority),
+		rpc.Unary(MessageServiceName, "Wait", impl.Wait),
+	)
 }
 
 type messageServiceClient struct {
@@ -410,56 +296,6 @@ func (c *messageServiceClient) Wait(ctx context.Context, req *WaitRequest) (*Wai
 
 // messageServiceMaxBody bounds a request or response body.
 const messageServiceMaxBody = 4 << 20
-
-func serveMessageService(w http.ResponseWriter, r *http.Request, req proto.Message, call func(context.Context) (proto.Message, error)) {
-	fail := func(status int, code, message string) {
-		body, _ := json.Marshal(map[string]string{"code": code, "message": message})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = w.Write(body)
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		fail(http.StatusMethodNotAllowed, "unimplemented", "only POST is served")
-		return
-	}
-	contentType := r.Header.Get("Content-Type")
-	if contentType != "application/json" && contentType != "application/proto" {
-		fail(http.StatusUnsupportedMediaType, "unimplemented", "unsupported content type")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, messageServiceMaxBody))
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot read the request body")
-		return
-	}
-	if contentType == "application/json" {
-		err = (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, req)
-	} else {
-		err = proto.Unmarshal(body, req)
-	}
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot decode the request body")
-		return
-	}
-	res, err := call(r.Context())
-	if err != nil {
-		fail(http.StatusInternalServerError, "unknown", err.Error())
-		return
-	}
-	var out []byte
-	if contentType == "application/json" {
-		out, err = protojson.Marshal(res)
-	} else {
-		out, err = proto.Marshal(res)
-	}
-	if err != nil {
-		fail(http.StatusInternalServerError, "internal", "cannot encode the response")
-		return
-	}
-	w.Header().Set("Content-Type", contentType)
-	_, _ = w.Write(out)
-}
 
 func callMessageService(ctx context.Context, hc *http.Client, url string, req, res proto.Message) error {
 	body, err := proto.Marshal(req)
