@@ -632,6 +632,42 @@
       ]
     },
     {
+      "name": "mcp",
+      "summary": "Serve the daemon's services as MCP tools over stdio.",
+      "help": "usage: herdsman mcp [--socket <path>] [--config <file>] [--deny <tool>]...\n\nServes the daemon's services as MCP tools on stdin and stdout.\n\n  --socket  the daemon's socket (default: found as other commands find it)\n  --config  the configuration file (default: found as other commands find it)\n  --deny    refuse a tool: a name, a name pattern, or service/method (repeatable)\n\nThe [policy] deny list of the configuration refuses tools in the same three\nforms, and --deny adds to it. The configuration is read on every call; while it\ncannot be read, every tool is refused.\n\nCalls that act for a party identify it by HERDR_PANE_ID and HERDSMAN_NAME.\n\nExit codes:\n  0  the client closed the connection\n  1  serving failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman mcp [--socket <path>] [--config <file>] [--deny <tool>]..."
+      ],
+      "flags": [
+        {
+          "name": "--config",
+          "valueName": "file"
+        },
+        {
+          "name": "--deny",
+          "valueName": "tool"
+        },
+        {
+          "name": "--socket",
+          "valueName": "path"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "the client closed the connection"
+        },
+        {
+          "code": "1",
+          "meaning": "serving failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
       "name": "message",
       "summary": "The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.",
       "subcommands": [
