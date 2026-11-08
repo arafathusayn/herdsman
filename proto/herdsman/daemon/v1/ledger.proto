@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+// Services of the herdsman daemon.
+package herdsman.daemon.v1;
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
+
+// LedgerService reports what a task runs and records what it owns.
+service LedgerService {
+  // Resources lists a task's records and the live plan built from them.
+  rpc Resources(ResourcesRequest) returns (ResourcesResponse);
+  // Plan builds the teardown plan for a task without acting on it.
+  rpc Plan(PlanRequest) returns (PlanResponse);
+  // AddResource records authority over a resource for one execution.
+  rpc AddResource(AddResourceRequest) returns (AddResourceResponse);
+}
+
+message ResourcesRequest {
+  // common_dir is the repository's common git directory.
+  string common_dir = 1;
+  string task = 2;
+}
+
+message PlanRequest {
+  // common_dir is the repository's common git directory.
+  string common_dir = 1;
+  string task = 2;
+}
+
+message PlanResponse {
+  TeardownPlan plan = 1;
+}
+
+message ResourceRecord {
+  string task = 1;
+  string execution = 2;
+  string kind = 3;
+  string id = 4;
+  // start is the RFC 3339 process start or resource creation time.
+  string start = 5;
+  string command = 6;
+  bool adopted = 7;
+}
+
+// ResourceLine is one line of a plan document; readers ignore what they do
+// not know.
+message ResourceLine {
+  string kind = 1;
+  string id = 2;
+  string identity = 3;
+  string level = 4;
+  string class = 5;
+  string action = 6;
+  repeated string signals = 7;
+  repeated string shared_with = 8;
+  string role = 9;
+}
+
+message TeardownPlan {
+  string schema_version = 1;
+  string task = 2;
+  string execution = 3;
+  string worktree = 4;
+  repeated ResourceLine lines = 5;
+}
+
+message ResourcesResponse {
+  repeated ResourceRecord records = 1;
+  TeardownPlan plan = 2;
+}
+
+message AddResourceRequest {
+  string common_dir = 1;
+  string task = 2;
+  // execution is empty to use the task's newest execution.
+  string execution = 3;
+  string kind = 4;
+  string id = 5;
+  bool adopted = 6;
+  string source = 7;
+}
+
+message AddResourceResponse {
+  ResourceRecord record = 1;
+}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"runtime/debug"
 	"syscall"
 
+	"github.com/arafathusayn/herdsman/internal/status"
 	"github.com/arafathusayn/herdsman/internal/watch"
 )
 
@@ -20,7 +22,38 @@ func init() {
 }
 
 func watchDeps(stdout, stderr io.Writer) watch.Deps {
-	return watch.Deps{Client: herdrClient(), Now: now, Stdout: stdout, Stderr: stderr, Status: statusSnapshot, Gh: watch.RunGh(stderr), GhStream: watch.RunGhStream(stderr)}
+	return watch.Deps{Client: herdrClient(), Now: now, Stdout: stdout, Stderr: stderr, Status: statusWithLedger, Gh: watch.RunGh(stderr), GhStream: watch.RunGhStream(stderr)}
+}
+
+// statusWithLedger adds to the waiter's health check a flag for each agent
+// that reports done while its task still runs something it owns. A failed
+// read adds no flag: this check only tells, and the status check still runs.
+func statusWithLedger(ctx context.Context, w io.Writer, specs string) {
+	statusSnapshot(ctx, w, specs)
+	client := herdrClient()
+	for _, spec := range status.ParseSpecs(specs) {
+		if spec.Tree == "" {
+			continue
+		}
+		agent, err := client.AgentGet(ctx, spec.Name)
+		if err != nil || string(agent.Status) != "done" {
+			continue
+		}
+		raw, err := callWorktree("LedgerHealth", map[string]string{"dir": spec.Tree})
+		if err != nil {
+			continue
+		}
+		var health struct {
+			Running []struct {
+				Kind string `json:"kind"`
+				ID   string `json:"id"`
+			} `json:"running"`
+		}
+		if json.Unmarshal(raw, &health) != nil || len(health.Running) == 0 {
+			continue
+		}
+		fmt.Fprintf(w, "== %s (ledger)\n   <-- OWNED RESOURCES OUTLIVE DONE: %s %s and %d in all\n", spec.Name, health.Running[0].Kind, health.Running[0].ID, len(health.Running))
+	}
 }
 
 func signalContext() (context.Context, context.CancelFunc) {

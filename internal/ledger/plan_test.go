@@ -570,13 +570,16 @@ func signalCalls(t *testing.T, name string, src any) []string {
 	return found
 }
 
-func TestPackageSendsNoSignals(t *testing.T) {
+// actingFiles are the only files that run a command or send a signal.
+var actingFiles = []string{"signal.go", "live_process.go", "live_container.go"}
+
+func TestOnlyTheActingFilesTouchTheMachine(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil || len(files) == 0 {
 		t.Fatalf("files = %v, err = %v", files, err)
 	}
 	for _, file := range files {
-		if strings.HasSuffix(file, "_test.go") {
+		if strings.HasSuffix(file, "_test.go") || slices.Contains(actingFiles, file) {
 			continue
 		}
 		if found := signalCalls(t, file, nil); len(found) > 0 {

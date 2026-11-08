@@ -1,7 +1,8 @@
-// Package ledger decides from evidence what a teardown may act on. It reads
-// the output of lsof, ps and docker (or podman) into a Snapshot and builds the
-// plan document from it. It only reads: no function here sends a signal or
-// starts a process, and the live collection belongs to the teardown stage.
+// Package ledger decides from evidence what a teardown may act on, and carries
+// it out. It reads the output of lsof, ps and docker (or podman) into a
+// Snapshot and builds a plan document from it, and everything else in the
+// package is pure over a Snapshot. Only signal.go signals a process and only
+// the live_ files run a command.
 package ledger
 
 import (
