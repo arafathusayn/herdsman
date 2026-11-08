@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package herdsman.suggest.v1;
 
+option go_package = "github.com/arafathusayn/herdsman/sdk/suggest/v1;suggestv1";
+
 // Suggestion is one catalog entry. The same fields are the front matter of an
 // entry file.
 message Suggestion {
