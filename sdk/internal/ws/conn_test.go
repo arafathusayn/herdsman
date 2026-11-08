@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -338,14 +339,106 @@ func TestPingWriteFailureEndsTheRead(t *testing.T) {
 	}
 }
 
-func TestPingAfterLocalCloseIsNotAnError(t *testing.T) {
-	s := newScript(concat(frame(true, OpPing, nil), frame(true, OpClose, closePayload(1000, ""))))
+// RFC 6455 section 5.5.2: a Ping is answered unless a Close was already
+// received, and sending a Close does not count as receiving one.
+func TestPingBeforeThePeersCloseIsAnsweredAfterLocalClose(t *testing.T) {
+	s := newScript(concat(frame(true, OpPing, []byte("p")), frame(true, OpClose, closePayload(1000, ""))))
 	c := testConn(s, false, Options{CloseTimeout: time.Millisecond})
 	if err := c.Close(CloseNormal, "done"); err != nil {
 		t.Fatalf("Close = %v", err)
 	}
-	if out, want := s.written(), plain(true, OpClose, closePayload(CloseNormal, "done")); !bytes.Equal(out, want) {
-		t.Fatalf("wire = %x, want only the close frame %x", out, want)
+	want := concat(plain(true, OpClose, closePayload(CloseNormal, "done")), plain(true, OpPong, []byte("p")))
+	if out := s.written(); !bytes.Equal(out, want) {
+		t.Fatalf("wire = %x, want the close frame then the pong %x", out, want)
+	}
+}
+
+func TestOnlyPongsFollowALocalClose(t *testing.T) {
+	s := newScript(frame(true, OpClose, nil))
+	c := testConn(s, false, Options{CloseTimeout: time.Millisecond})
+	if err := c.Close(CloseNormal, ""); err != nil {
+		t.Fatalf("Close = %v", err)
+	}
+	if err := c.WriteMessage(OpText, []byte("x")); !errors.Is(err, ErrClosed) {
+		t.Fatalf("WriteMessage after Close = %v, want ErrClosed", err)
+	}
+	if err := c.Ping(nil); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Ping after Close = %v, want ErrClosed", err)
+	}
+}
+
+// deadlineConn holds the first SetWriteDeadline call open, the moment a writer
+// is between deciding on a deadline and applying it.
+type deadlineConn struct {
+	*scriptConn
+	entered, release chan struct{}
+	calls            atomic.Int32
+	mu               sync.Mutex
+	applied          []time.Time
+}
+
+func (d *deadlineConn) SetWriteDeadline(t time.Time) error {
+	// Only the first call waits; a later one must be free to overtake it.
+	if d.calls.Add(1) == 1 {
+		close(d.entered)
+		<-d.release
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.applied = append(d.applied, t)
+	return nil
+}
+
+func TestWriterCannotExtendTheCloseDeadline(t *testing.T) {
+	d := &deadlineConn{scriptConn: newScript(nil), entered: make(chan struct{}), release: make(chan struct{})}
+	c := testConn(d, false, Options{WriteTimeout: time.Hour, CloseTimeout: time.Millisecond})
+
+	var wg sync.WaitGroup
+	wg.Go(func() { c.WriteMessage(OpBinary, []byte("x")) })
+	<-d.entered
+	wg.Go(func() { c.Close(CloseNormal, "") })
+	time.Sleep(20 * time.Millisecond)
+	close(d.release)
+	wg.Wait()
+
+	last := d.applied[len(d.applied)-1]
+	if time.Until(last) > time.Minute {
+		t.Fatalf("the last write deadline is the writer's, %v away", time.Until(last))
+	}
+}
+
+func TestCloseInterruptsABlockedWrite(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	c := testConn(a, false, Options{WriteTimeout: time.Hour, CloseTimeout: 20 * time.Millisecond})
+
+	written := make(chan error, 1)
+	go func() { written <- c.WriteMessage(OpBinary, []byte("nobody reads this")) }()
+	time.Sleep(20 * time.Millisecond)
+
+	closed := make(chan struct{})
+	go func() {
+		c.Close(CloseNormal, "")
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close stayed blocked behind a stalled writer")
+	}
+	if err := <-written; err == nil {
+		t.Fatal("the stalled write should have failed")
+	}
+}
+
+func TestCloseDeadlineIsSetOnce(t *testing.T) {
+	d := &deadlineConn{scriptConn: newScript(nil), entered: make(chan struct{}), release: make(chan struct{})}
+	close(d.release)
+	c := testConn(d, false, Options{CloseTimeout: time.Millisecond})
+	c.beginClosing()
+	c.beginClosing()
+	if len(d.applied) != 1 {
+		t.Fatalf("deadline set %d times, want once", len(d.applied))
 	}
 }
 

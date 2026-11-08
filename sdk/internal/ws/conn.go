@@ -10,7 +10,6 @@ import (
 	"io"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -79,8 +78,13 @@ type Conn struct {
 	client      bool
 	opts        Options
 	subprotocol string
-	closing     atomic.Bool
 	stop        sync.Once
+
+	// deadlineMu orders write-deadline updates against the start of closing.
+	// It is separate from wmu because Close must be able to shorten the
+	// deadline while a stalled writer holds wmu.
+	deadlineMu sync.Mutex
+	closing    bool
 
 	// rmu guards the read side.
 	rmu  sync.Mutex
@@ -228,7 +232,7 @@ func (c *Conn) handleControl(h header) error {
 	}
 	switch h.op {
 	case OpPing:
-		if err := c.writeFrame(OpPong, payload); err != nil && !errors.Is(err, ErrClosed) {
+		if err := c.writeFrame(OpPong, payload); err != nil {
 			return err
 		}
 	case OpPong:
@@ -281,10 +285,25 @@ func (c *Conn) finishRead(err error) error {
 	return err
 }
 
-// beginClosing bounds every remaining write by the close timeout.
+// beginClosing bounds every remaining write, including one already blocked, by
+// a single close deadline.
 func (c *Conn) beginClosing() {
-	c.closing.Store(true)
+	c.deadlineMu.Lock()
+	defer c.deadlineMu.Unlock()
+	if c.closing {
+		return
+	}
+	c.closing = true
 	c.conn.SetWriteDeadline(time.Now().Add(c.opts.CloseTimeout))
+}
+
+// extendWriteDeadline starts a frame's write timeout, unless closing began.
+func (c *Conn) extendWriteDeadline() {
+	c.deadlineMu.Lock()
+	defer c.deadlineMu.Unlock()
+	if !c.closing {
+		c.conn.SetWriteDeadline(time.Now().Add(c.opts.WriteTimeout))
+	}
 }
 
 // shutdown half-closes, then waits a bounded time and byte count for the peer
@@ -327,15 +346,15 @@ func (c *Conn) writeFrame(op Opcode, payload []byte) error {
 	if c.werr != nil {
 		return c.werr
 	}
-	if c.closeSent {
+	// Only a Pong may follow a Close: the reader sends one solely for a Ping
+	// that arrived before the peer's Close, and RFC 6455 section 5.5.2 requires it.
+	if c.closeSent && op != OpPong {
 		return ErrClosed
 	}
 	if op == OpClose {
 		c.closeSent = true
 	}
-	if !c.closing.Load() {
-		c.conn.SetWriteDeadline(time.Now().Add(c.opts.WriteTimeout))
-	}
+	c.extendWriteDeadline()
 	// bufio.Writer keeps its first error, so only Flush needs checking. A
 	// failed write leaves a partial frame on the wire, hence the sticky werr.
 	var key [4]byte
