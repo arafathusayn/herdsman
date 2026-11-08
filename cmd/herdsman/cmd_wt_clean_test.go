@@ -9,7 +9,7 @@ import (
 
 const safeCleanPlan = `{"plans":[{"task":"a","branch":"feat/a","branch_action":"delete"}]}`
 
-func withTerminal(t *testing.T, value bool) {
+func withCleanTerminal(t *testing.T, value bool) {
 	t.Helper()
 	old := stdinIsTerminal
 	t.Cleanup(func() { stdinIsTerminal = old })
@@ -50,7 +50,7 @@ func TestCleanRefusals(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			calls := stubWorktree(t, map[string]string{"CleanPlan": c.plan})
-			withTerminal(t, c.terminal)
+			withCleanTerminal(t, c.terminal)
 			code, _, errText := runVerb(runClean, c.args...)
 			if code != c.code || !strings.Contains(errText, c.want) || len(*calls) != 1 {
 				t.Fatalf("%d %q %+v", code, errText, *calls)
@@ -92,7 +92,7 @@ func TestCleanNothingToDoAndServiceErrors(t *testing.T) {
 }
 
 func TestCleanAsksOnATerminal(t *testing.T) {
-	withTerminal(t, true)
+	withCleanTerminal(t, true)
 	calls := stubWorktree(t, map[string]string{"CleanPlan": safeCleanPlan, "Clean": `{"reports":[{"task":"a","warnings":["w"],"kept":["volume v"],"unmatched_names":["z"]}]}`})
 	var out, errText strings.Builder
 	if code := runClean([]string{"a"}, strings.NewReader("n\n"), &out, &errText); code != 0 || len(*calls) != 1 || !strings.Contains(out.String(), "nothing was removed") {
@@ -213,7 +213,7 @@ func TestDownUsageAndErrors(t *testing.T) {
 }
 
 func TestDownAsksOnce(t *testing.T) {
-	withTerminal(t, true)
+	withCleanTerminal(t, true)
 	calls := stubWorktree(t, map[string]string{"CleanPlan": safeCleanPlan, "TeardownPlan": `{"plans":[{"task":"a","lines":[]}]}`})
 	var out, errText strings.Builder
 	if code := runDown([]string{"a"}, strings.NewReader("n\n"), &out, &errText); code != 0 || strings.Count(out.String(), "[y/N]") != 1 {
@@ -289,7 +289,7 @@ func TestCleanCarriesThePlansPullRequestHeads(t *testing.T) {
 }
 
 func TestCleanShowsNamedPathsBeforeAsking(t *testing.T) {
-	withTerminal(t, true)
+	withCleanTerminal(t, true)
 	stubWorktree(t, map[string]string{"CleanPlan": safeCleanPlan})
 	var out, errText strings.Builder
 	if code := runClean([]string{"a", "--force-irreversible", "big.bin"}, strings.NewReader("n\n"), &out, &errText); code != 0 {
