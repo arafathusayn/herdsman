@@ -40,6 +40,7 @@ type rigOptions struct {
 	now       func() time.Time
 	fault     func(string)
 	extra     map[string]ops.Effect
+	quiesce   func() func()
 }
 
 func newRig(t *testing.T, o rigOptions) *rig {
@@ -60,7 +61,7 @@ func openRig(t *testing.T, state string, o rigOptions) *rig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	rec := ops.NewRecovery(ops.RecoveryOptions{StateDir: state, Retention: o.retention, Volumes: o.volumes})
+	rec := ops.NewRecovery(ops.RecoveryOptions{StateDir: state, Retention: o.retention, Volumes: o.volumes, Quiesce: o.quiesce})
 	effects := rec.Effects()
 	for k, v := range o.extra {
 		effects[k] = v
@@ -1309,5 +1310,191 @@ func TestLockedErrorNamesTheHolder(t *testing.T) {
 	err := (&ops.LockedError{Lock: "a", Holder: "b"}).Error()
 	if !strings.Contains(err, "a") || !strings.Contains(err, "b") {
 		t.Fatal(err)
+	}
+}
+
+// --- staging, identity and ownership ---
+
+func TestImportKeepsAnUnrelatedFolderBesideTheState(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	dest := filepath.Join(t.TempDir(), "export")
+	if _, err := r.rec.Export(context.Background(), dest); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(t.TempDir(), "imported")
+	keep := state + ".import-tmp/keep.txt"
+	write(t, keep, "precious")
+	if err := ops.Import(context.Background(), dest, state); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, keep); got != "precious" {
+		t.Fatalf("keep.txt = %q", got)
+	}
+}
+
+func TestScratchKeepsAnUnrelatedFolderBesideIt(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	repo, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	removeWorktree(t, repo, tree)
+	archive := tarOf(t, map[string]string{"note": "mine"})
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	keep := scratch + ".herdsman-undo-tmp/keep.txt"
+	write(t, keep, "precious")
+	addResources(t, snapshotRecord(t, r, id).Dir, ops.Resources{
+		Scratch: []ops.ScratchArchive{{Path: scratch, Archive: "s.tar", SHA256: sum(archive)}},
+	}, map[string][]byte{"s.tar": archive})
+	if _, err := r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id}); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, keep); got != "precious" {
+		t.Fatalf("keep.txt = %q", got)
+	}
+}
+
+func TestImportRefusesASnapshotIDThatLeavesTheFolder(t *testing.T) {
+	for _, id := range []string{"../../payload", "..", ".", "a/b", ""} {
+		t.Run(id, func(t *testing.T) {
+			r := newRig(t, rigOptions{})
+			parent := t.TempDir()
+			dest := filepath.Join(parent, "export")
+			if _, err := r.rec.Export(context.Background(), dest); err != nil {
+				t.Fatal(err)
+			}
+			raw := read(t, filepath.Join(dest, ops.ExportManifestName))
+			quoted, _ := json.Marshal([]string{id})
+			write(t, filepath.Join(dest, ops.ExportManifestName), strings.Replace(raw, `"snapshots": []`, `"snapshots": `+string(quoted), 1))
+			write(t, filepath.Join(parent, "payload", "keep.txt"), "outside")
+			stateParent := t.TempDir()
+			if err := ops.Import(context.Background(), dest, filepath.Join(stateParent, "state")); err == nil || !strings.Contains(err.Error(), "snapshot id") {
+				t.Fatalf("err = %v", err)
+			}
+			if entries, _ := os.ReadDir(stateParent); len(entries) != 0 {
+				t.Fatalf("written outside staging: %v", entries)
+			}
+		})
+	}
+}
+
+func TestUndoDoesNotTakeAnUnrelatedTreeAtTheSameHeadForItsOwn(t *testing.T) {
+	armed := false
+	var repo, tree string
+	r := newRig(t, rigOptions{fault: func(p string) {
+		if armed && p == "step:0:intended" {
+			armed = false
+			git(t, filepath.Dir(tree), "clone", "-q", repo, tree)
+			git(t, tree, "checkout", "-q", "--detach", "HEAD")
+			write(t, filepath.Join(tree, "occupant.txt"), "someone else's work")
+		}
+	}})
+	repo, tree = dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	removeWorktree(t, repo, tree)
+	armed = true
+	_, err := r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id})
+	var opErr *ops.OperationError
+	if !errors.As(err, &opErr) || opErr.Op.State != ops.OpConflict {
+		t.Fatalf("err = %v", err)
+	}
+	if got := read(t, filepath.Join(tree, "occupant.txt")); got != "someone else's work" {
+		t.Fatalf("occupant = %q", got)
+	}
+}
+
+func TestAConflictedExportCanResolveItsOwnBarrier(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "export")
+	r := newRig(t, rigOptions{extra: map[string]ops.Effect{"fx": &scripted{}}, fault: func(p string) {
+		if p == "export:barrier" {
+			write(t, filepath.Join(dest, "occupant.txt"), "keep")
+		}
+	}})
+	_, err := r.rec.Export(context.Background(), dest)
+	var opErr *ops.OperationError
+	if !errors.As(err, &opErr) || opErr.Op.State != ops.OpConflict {
+		t.Fatalf("err = %v", err)
+	}
+	// Everyone else still waits for it.
+	_, serr := r.eng.Submit(context.Background(), ops.Spec{Kind: "k", Plan: "p", Steps: []ops.StepSpec{{Name: "s", Effect: "fx", Key: "k1", Spec: "{}"}}})
+	var locked *ops.LockedError
+	if !errors.As(serr, &locked) {
+		t.Fatalf("a submit during the conflict: %v", serr)
+	}
+	if err := r.eng.Resolve(opErr.Op.ID, 0, ops.ResolveDone); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+}
+
+func TestImportRebasesAccountPathsOntoTheNewState(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	inbox := filepath.Join(r.state, "repo-r1")
+	outside := "/srv/elsewhere/inbox"
+	for route, dir := range map[string]string{"r1": inbox, "r2": outside} {
+		if _, err := r.db.Exec("INSERT INTO routes(route, inbox, repo, herdr_socket, db_path, created, state, open_gen, reserved_message_id, reserved_seq) VALUES (?,?,?,?,?,?,'active','g',0,0)",
+			route, dir, "repo", "", filepath.Join(dir, "route.db"), 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, _ := json.Marshal(map[string]any{"version": 1, "routes": map[string]any{
+		"r1": map[string]any{"inbox": inbox, "repo": "repo", "herdr_socket": "", "created": 1},
+		"r2": map[string]any{"inbox": outside, "repo": "repo", "herdr_socket": "", "created": 1},
+	}})
+	if err := os.WriteFile(filepath.Join(r.state, "daemon", "routes.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "export")
+	if _, err := r.rec.Export(context.Background(), dest); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(t.TempDir(), "imported")
+	if err := ops.Import(context.Background(), dest, state); err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Routes map[string]struct {
+			Inbox string `json:"inbox"`
+		} `json:"routes"`
+	}
+	if err := json.Unmarshal([]byte(read(t, filepath.Join(state, "daemon", "routes.json"))), &file); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := file.Routes["r1"].Inbox, filepath.Join(state, "repo-r1"); got != want {
+		t.Errorf("registry inbox = %s, want %s", got, want)
+	}
+	if got := file.Routes["r2"].Inbox; got != outside {
+		t.Errorf("outside inbox moved to %s", got)
+	}
+	m := openRig(t, state, rigOptions{})
+	rows, paths := map[string]string{}, map[string]string{}
+	if err := m.db.Query("SELECT route, inbox, db_path FROM routes", nil, func(row store.Row) error {
+		rows[row.Text(0)], paths[row.Text(0)] = row.Text(1), row.Text(2)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rows["r1"] != filepath.Join(state, "repo-r1") || rows["r2"] != outside {
+		t.Errorf("table inboxes = %v", rows)
+	}
+	if paths["r1"] != filepath.Join(state, "repo-r1", "route.db") || paths["r2"] != filepath.Join(outside, "route.db") {
+		t.Errorf("table database paths = %v", paths)
+	}
+}
+
+func TestExportHoldsTheQuiesceGateForTheCopy(t *testing.T) {
+	var held atomic.Bool
+	var sawHeld atomic.Bool
+	state := filepath.Join(t.TempDir(), "state")
+	r := openRig(t, state, rigOptions{quiesce: func() func() {
+		held.Store(true)
+		return func() { held.Store(false) }
+	}, fault: func(p string) {
+		if p == "export:staged" {
+			sawHeld.Store(held.Load())
+		}
+	}})
+	if _, err := r.rec.Export(context.Background(), filepath.Join(t.TempDir(), "export")); err != nil {
+		t.Fatal(err)
+	}
+	if !sawHeld.Load() || held.Load() {
+		t.Fatalf("held during the copy: %v; released after: %v", sawHeld.Load(), !held.Load())
 	}
 }

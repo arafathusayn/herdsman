@@ -67,6 +67,11 @@ type RecoveryOptions struct {
 	Retention Retention
 	// Volumes is the container runtime; nil refuses a snapshot with volumes.
 	Volumes VolumeStore
+	// Quiesce stops every writer the journal does not cover and returns the
+	// call that lets them go. Export holds it for the whole copy. A writer
+	// held back by it must not be waiting on a journal lock, or the two wait
+	// for each other.
+	Quiesce func() (release func())
 }
 
 // Recovery is undo, retention, export and import over one engine.

@@ -41,6 +41,22 @@ func (d *Daemon) handler() http.Handler {
 				writeError(w, e)
 				return
 			}
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && !journaledRequests[pattern] {
+				// The server notices a client leaving only once the body
+				// has been read, and this request may wait a long time.
+				body, err := io.ReadAll(io.LimitReader(r.Body, maxBody+1))
+				if err != nil {
+					writeError(w, Errf("bad_request", "body: %v", err))
+					return
+				}
+				r.Body = io.NopCloser(bytes.NewReader(body))
+				release, e := d.enterMutation(r.Context())
+				if e != nil {
+					writeError(w, e)
+					return
+				}
+				defer release()
+			}
 			if e := fn(w, r); e != nil {
 				writeError(w, e)
 			}

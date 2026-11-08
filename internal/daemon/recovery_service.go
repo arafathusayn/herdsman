@@ -14,7 +14,43 @@ import (
 )
 
 // sweepEvery is how often expired snapshots are pruned.
-const sweepEvery = time.Hour
+var sweepEvery = time.Hour
+
+// mutationPoll is how often a mutating request retries the export gate.
+const mutationPoll = 10 * time.Millisecond
+
+// journaledRequests take no export gate: the journal's account lock already
+// holds them back, and one that waited on the gate while holding a journal
+// wait would deadlock with the export.
+var journaledRequests = map[string]bool{
+	"POST /v1/undo": true, "POST /v1/export": true, "POST /v1/shutdown": true,
+	"POST /v1/ops/{id}/steps/{ordinal}/resolve": true,
+}
+
+// enterMutation admits a request that changes route or registry state, or
+// gives up with the caller. A waiting export takes the gate ahead of new
+// requests.
+func (d *Daemon) enterMutation(ctx context.Context) (func(), *APIError) {
+	gaveUp := Errf("busy", "an export is running and this request gave up waiting; retry")
+	for !d.exportGate.TryRLock() {
+		select {
+		case <-ctx.Done():
+			return nil, gaveUp
+		case <-time.After(mutationPoll):
+		}
+	}
+	if ctx.Err() != nil {
+		d.exportGate.RUnlock()
+		return nil, gaveUp
+	}
+	return d.exportGate.RUnlock, nil
+}
+
+// quiesce holds back every writer outside the journal for an export.
+func (d *Daemon) quiesce() func() {
+	d.exportGate.Lock()
+	return d.exportGate.Unlock
+}
 
 // ExportRequest is POST /v1/export.
 type ExportRequest struct {

@@ -24,6 +24,10 @@ const ResourcesName = "resources.json"
 // ErrNoVolumeRuntime means a snapshot holds volumes and nothing can import them.
 var ErrNoVolumeRuntime = errors.New("the snapshot holds volumes and no container runtime is configured")
 
+// undoMarkerName is a file in the restored tree's git folder naming the
+// operation that published it: a matching head alone could be anyone's tree.
+const undoMarkerName = "herdsman-undo"
+
 // ScratchArchive is one scratch folder, as a tar in the snapshot folder.
 type ScratchArchive struct {
 	Path    string `json:"path"`
@@ -251,6 +255,13 @@ func (fx undoEffect) Apply(ctx context.Context, st Step) error {
 			return err
 		}
 	}
+	gitDir, err := runGit(ctx, staging, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, undoMarkerName), []byte(st.OpID+"\n"), 0o600); err != nil {
+		return err
+	}
 	fx.r.eng.fault("undo:staged")
 	if err := os.Remove(spec.Target); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -362,11 +373,14 @@ func restoreScratch(archive, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".herdsman-undo-tmp"
-	if err := os.RemoveAll(tmp); err != nil {
+	// A private folder of this attempt: a fixed name beside path could be
+	// someone else's, and this code removes what it staged.
+	stage, err := os.MkdirTemp(filepath.Dir(path), ".herdsman-undo-*")
+	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
+	defer os.RemoveAll(stage)
+	tmp := filepath.Join(stage, "content")
 	if err := unpackTar(archive, tmp); err != nil {
 		return err
 	}
@@ -506,9 +520,17 @@ func (fx undoEffect) Probe(ctx context.Context, st Step) (Verdict, string, error
 	if free {
 		return Absent, spec.Target + " is free", nil
 	}
-	head, err := runGit(ctx, spec.Target, "rev-parse", "HEAD")
-	if err != nil || head != m.Head {
-		return Different, fmt.Sprintf("%s holds another tree (head %q)", spec.Target, head), nil
+	gitDir, err := runGit(ctx, spec.Target, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return Different, spec.Target + " holds another tree (not a repository)", nil
+	}
+	mark, err := os.ReadFile(filepath.Join(gitDir, undoMarkerName))
+	if err != nil || strings.TrimSpace(string(mark)) != st.OpID {
+		return Different, spec.Target + " holds another tree (not published by this operation)", nil
+	}
+	staged, err := runGit(ctx, spec.Target, "write-tree")
+	if err != nil || staged != m.StagedTree {
+		return Different, fmt.Sprintf("%s holds index tree %q, the snapshot recorded %s", spec.Target, staged, m.StagedTree), nil
 	}
 	return Matches, "the tree is restored", nil
 }

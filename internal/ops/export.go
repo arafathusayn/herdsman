@@ -33,6 +33,7 @@ type exportManifest struct {
 	Created   int64    `json:"created"`
 	Op        string   `json:"op"`
 	Digest    string   `json:"digest"`
+	StateRoot string   `json:"state_root"`
 	Snapshots []string `json:"snapshots"`
 }
 
@@ -66,6 +67,9 @@ func stagingPath(dest, op string) string { return dest + ".tmp-" + op }
 // left, then builds the export beside the destination.
 func (fx exportEffect) Apply(ctx context.Context, st Step) error {
 	dest := st.Spec
+	if quiesce := fx.r.opt.Quiesce; quiesce != nil {
+		defer quiesce()()
+	}
 	fx.r.eng.fault("export:barrier")
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return err
@@ -114,7 +118,7 @@ func (fx exportEffect) build(ctx context.Context, op, tmp string) error {
 		}
 		ids = append(ids, s.ID)
 	}
-	raw, err := json.MarshalIndent(exportManifest{Schema: exportSchema, Created: r.eng.now(), Op: op, Digest: digest, Snapshots: ids}, "", "  ")
+	raw, err := json.MarshalIndent(exportManifest{Schema: exportSchema, Created: r.eng.now(), Op: op, Digest: digest, StateRoot: r.opt.StateDir, Snapshots: ids}, "", "  ")
 	if err != nil {
 		return err
 	}

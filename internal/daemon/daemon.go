@@ -61,6 +61,8 @@ type Config struct {
 	Checks  map[string]ops.Check
 	// Sink receives the operations' outbox (nil: events wait in the store).
 	Sink ops.Sink
+	// OpsFault is called at the operation engine's step boundaries.
+	OpsFault func(point string)
 }
 
 // Daemon is one running daemon.
@@ -87,9 +89,11 @@ type Daemon struct {
 	acctDB    store.Conn
 	ops       *ops.Engine
 	recovery  *ops.Recovery
-	opsCancel context.CancelFunc
-	opsCtx    context.Context
-	bg        sync.WaitGroup
+	// exportGate keeps route and registry writers out of an export's copy.
+	exportGate sync.RWMutex
+	opsCancel  context.CancelFunc
+	opsCtx     context.Context
+	bg         sync.WaitGroup
 }
 
 type credRef struct{ route, name string }
@@ -616,8 +620,12 @@ func (d *Daemon) scheduler(ctx context.Context) {
 			go d.Stop("upgrade")
 			return
 		}
-		d.retryHeld()
-		d.checkHealth(ctx)
+		// An export is copying the routes: this tick's work waits for the next.
+		if d.exportGate.TryRLock() {
+			d.retryHeld()
+			d.checkHealth(ctx)
+			d.exportGate.RUnlock()
+		}
 		t.Reset(d.cfg.HeartbeatEvery)
 	}
 }

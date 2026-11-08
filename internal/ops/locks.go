@@ -37,12 +37,12 @@ func (e *LockedError) Error() string {
 const barrierWaiter = "(an export is waiting)"
 
 // checkBarrier refuses work while the account lock is held, or requested.
-func checkBarrier(c store.Conn, draining bool) error {
+func checkBarrier(c store.Conn, draining bool, self string) error {
 	var holder string
 	if err := c.Query("SELECT op_id FROM operation_locks WHERE name = ?", []any{AccountLock}, func(r store.Row) error { holder = r.Text(0); return nil }); err != nil {
 		return err
 	}
-	if holder != "" {
+	if holder != "" && holder != self {
 		return &LockedError{Lock: AccountLock, Holder: holder}
 	}
 	if draining {
@@ -67,7 +67,7 @@ func checkNoneRunning(c store.Conn) error {
 
 func checkLocks(c store.Conn, locks []string, draining bool) error {
 	wantsBarrier := slices.Contains(locks, AccountLock)
-	if err := checkBarrier(c, draining && !wantsBarrier); err != nil {
+	if err := checkBarrier(c, draining && !wantsBarrier, ""); err != nil {
 		return err
 	}
 	if wantsBarrier {

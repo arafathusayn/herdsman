@@ -106,7 +106,7 @@ const (
 // Resolve records a person's decision and puts the operation back to running.
 func (e *Engine) Resolve(id string, ordinal int, d Decision) error {
 	return e.tx(func(c store.Conn) error {
-		if err := checkBarrier(c, false); err != nil {
+		if err := checkBarrier(c, false, id); err != nil {
 			return err
 		}
 		op, err := loadOperation(c, id)
