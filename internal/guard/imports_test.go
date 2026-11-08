@@ -58,6 +58,7 @@ const serverPackagesPin = 20
 var wiringFiles = []string{
 	"cmd/herdsman/main.go",
 	"cmd/herdsman/cmd_daemon.go",
+	"cmd/herdsman/cmd_web.go",
 }
 
 // unmovedVerbFiles have not moved onto the SDK yet. The list may only shrink:
