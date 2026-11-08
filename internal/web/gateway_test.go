@@ -284,6 +284,17 @@ func TestGatewayIsLocalhostOnly(t *testing.T) {
 	}
 }
 
+func TestGatewayAnswersToTheLocalhostName(t *testing.T) {
+	daemon := startFakeDaemon(t)
+	g := startGateway(t, daemon.socket, nil)
+	h := bearerHeader(g.device)
+	h["Host"] = "localhost"
+	status, _, body := send(t, http.DefaultClient, g.url, gatewayCall{path: statusPath, contentType: rpc.ContentTypeJSON, body: []byte(`{"route":{"value":"r"}}`), header: h})
+	if status != http.StatusOK {
+		t.Fatalf("status %d: %s", status, body)
+	}
+}
+
 func TestListenBindsOnlyTheNamedLoopback(t *testing.T) {
 	ln, _, err := Listen("127.0.0.1", 0)
 	if err != nil {
@@ -340,12 +351,9 @@ func TestGatewayIsAbsentWithoutADaemonSocket(t *testing.T) {
 }
 
 func TestGatewayNeverTunnelsAnUpgrade(t *testing.T) {
-	if streamProxy != nil {
-		t.Skip("this build carries the stream proxy")
-	}
 	daemon := startFakeDaemon(t)
 	g := startGateway(t, daemon.socket, nil)
-	req, err := http.NewRequest(http.MethodGet, g.url+"/rpc/herdsman.daemon.v1.EventService/Stream", nil)
+	req, err := http.NewRequest(http.MethodGet, g.url+statusPath, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,8 +445,10 @@ func TestSessionSecretOfARequest(t *testing.T) {
 	}
 }
 
-// The stock client suite, pointed at the gateway through a socket whose only
-// addition is what a paired browser on this machine would send.
+// The stock client suite, pointed at the gateway through a socket that adds
+// what a paired browser on this machine would send. Outside the RPC path the
+// server is the web app rather than the daemon, so those paths answer as a
+// daemon's would: not found.
 func TestGatewayPassesDaemonConformance(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the daemon")
@@ -452,6 +462,10 @@ func TestGatewayPassesDaemonConformance(t *testing.T) {
 	}
 	handler := g.srv.Handler()
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, rpc.BasePath) {
+			http.NotFound(w, r)
+			return
+		}
 		r.Host = "127.0.0.1"
 		r.Header.Set("Authorization", "Bearer "+g.device)
 		loopback := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 7878}

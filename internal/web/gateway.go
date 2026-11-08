@@ -69,7 +69,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// A reverse proxy would tunnel an upgrade straight past the stream's rules.
 	if r.Header.Get("Upgrade") != "" {
-		writeFailure(w, rpc.Unimplemented, "this build has no event stream")
+		writeFailure(w, rpc.Unimplemented, "this path cannot be upgraded")
 		return
 	}
 	if r.URL.Path != waitPath {
