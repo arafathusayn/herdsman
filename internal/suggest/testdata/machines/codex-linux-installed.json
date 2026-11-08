@@ -1,0 +1,12 @@
+{
+  "machine": {
+    "platform": "linux",
+    "harnesses": ["CODEX", "codex"],
+    "ecosystems": ["python"],
+    "labels": [],
+    "recent_events": [],
+    "installed": { "ids": ["general-a"], "repos": ["git@github.com:Example/skills"] }
+  },
+  "want": ["codex-only 30", "general-b 0", "go-tests 0", "linux-only 0"],
+  "excluded": ["claude-only harness-mismatch", "general-a installed", "skill-repo installed"]
+}

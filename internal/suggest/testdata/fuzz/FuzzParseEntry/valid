@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("---\nid: a\nkind: tip\ntitle: \"x\"\ntags: [a, 'b']\nsince: 1.0.0\n---\nbody\n")

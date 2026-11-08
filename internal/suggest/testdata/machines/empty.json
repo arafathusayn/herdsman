@@ -1,0 +1,5 @@
+{
+  "machine": {},
+  "want": ["claude-only 0", "codex-only 0", "general-a 0", "general-b 0", "go-tests 0", "linux-only 0", "skill-repo 0"],
+  "excluded": []
+}
