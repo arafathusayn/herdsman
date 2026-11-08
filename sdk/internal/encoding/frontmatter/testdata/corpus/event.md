@@ -1,8 +1,10 @@
 ---
-id: s42
-kind: harvest.logged       # or harvest.planned
-at: 2031-04-17T06:30:00Z
-crew: [ines, tomas]
-crates: { apples: 12, pears: 7 }
+ship: Kestrel
+tonnage: 340
+ports:
+  - Bergen
+  - Cork
+cargo:
+  wool: true
 ---
-Twelve crates reached the cold room before noon.
+Fair wind past the headland, and the hold stayed dry.

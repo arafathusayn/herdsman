@@ -89,9 +89,9 @@ func TestDecode(t *testing.T) {
 		{"tab after space indent", "a:\n \tb\n", table("a", str("b"))},
 		{"spaces-only last line", "a: |\n  x\n   ", table("a", str("x\n \n"))},
 		{"escaped break before blank line", "\"a\\\n\n  b\"", str("a\nb")},
-		{"front matter event", "id: s42\nat: 2031-04-17T06:30:00Z\ncrew: [ines, tomas]\ncrates: { apples: 12, pears: 7 }\n",
-			table("id", str("s42"), "at", str("2031-04-17T06:30:00Z"), "crew", tree.NewArray(str("ines"), str("tomas")),
-				"crates", table("apples", tree.NewInt(12), "pears", tree.NewInt(7)))},
+		{"front matter block", "ship: Kestrel\ntonnage: 340\nports:\n  - Bergen\n  - Cork\ncargo:\n  wool: true\n",
+			table("ship", str("Kestrel"), "tonnage", tree.NewInt(340), "ports", tree.NewArray(str("Bergen"), str("Cork")),
+				"cargo", table("wool", tree.NewBool(true)))},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
