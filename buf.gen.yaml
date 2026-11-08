@@ -3,3 +3,5 @@ plugins:
   - local: protoc-gen-herdsman-go
     out: sdk
     opt: module=github.com/arafathusayn/herdsman/sdk
+  - local: protoc-gen-herdsman-ts
+    out: sdk/ts/src/generated
