@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/arafathusayn/herdsman/internal/commitmsg"
 	"github.com/arafathusayn/herdsman/internal/gitrun"
@@ -31,6 +32,9 @@ const (
 )
 
 const subjectsForStyle = "-20"
+
+// restoreTimeout bounds putting a branch back after a refused squash.
+const restoreTimeout = 30 * time.Second
 
 // WorktreeCommitRequest asks for one commit in the worktree around Dir.
 type WorktreeCommitRequest struct {
@@ -362,13 +366,28 @@ func record(ctx context.Context, git *gitrun.Runner, path, head, base string, sq
 	}
 	if _, err := git.Run(ctx, path, "commit", "-q", "-m", message); err != nil {
 		if squash {
-			if _, restoreErr := git.Run(ctx, path, "reset", "-q", "--soft", head); restoreErr != nil {
+			if restoreErr := restoreBranch(ctx, git, path, head); restoreErr != nil {
 				return "", errors.Join(err, restoreErr)
 			}
 		}
 		return "", err
 	}
 	return headCommit(ctx, git, path), nil
+}
+
+// restoreBranch moves the branch back to head and checks that it arrived. It
+// outlives the caller's context: a cancelled commit must not strand the branch.
+func restoreBranch(ctx context.Context, git *gitrun.Runner, path, head string) error {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
+	defer cancel()
+	_, err := git.Run(cleanup, path, "reset", "-q", "--soft", head)
+	if err == nil && headCommit(cleanup, git, path) != head {
+		err = errors.New("the branch did not move")
+	}
+	if err != nil {
+		return fmt.Errorf("the branch was left behind its commits; recover with `git reset --soft %s`: %w", head, err)
+	}
+	return nil
 }
 
 // diffBase finds the commit a task's branch started from: the merge base with
