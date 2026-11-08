@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package herdsman.daemon.v1;
+
+import "herdsman/core/v1/core.proto";
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
+
+// ProjectService keeps the project records and their folder bindings.
+service ProjectService {
+  // Create stores a project and registers its repositories.
+  rpc Create(ProjectServiceCreateRequest) returns (ProjectServiceCreateResponse);
+  // Get returns one project.
+  rpc Get(ProjectServiceGetRequest) returns (ProjectServiceGetResponse);
+  // List returns the projects by name.
+  rpc List(ProjectServiceListRequest) returns (ProjectServiceListResponse);
+  // Update changes a project's fields and repositories.
+  rpc Update(ProjectServiceUpdateRequest) returns (ProjectServiceUpdateResponse);
+  // Delete removes a project, or archives it when forced.
+  rpc Delete(ProjectServiceDeleteRequest) returns (ProjectServiceDeleteResponse);
+  // Bind ties a folder to a project.
+  rpc Bind(ProjectServiceBindRequest) returns (ProjectServiceBindResponse);
+  // Unbind releases a folder.
+  rpc Unbind(ProjectServiceUnbindRequest) returns (ProjectServiceUnbindResponse);
+}
+
+// Scope is where a caller stands when a reference needs resolving.
+message Scope {
+  // A project name, an id, or "@" for the current one. Empty when not given.
+  string project = 1;
+  // The caller's absolute working folder.
+  string folder = 2;
+  // The route the caller runs in, when any.
+  herdsman.core.v1.RouteId route = 3;
+}
+
+message ProjectServiceCreateRequest {
+  string name = 1;
+  string description = 2;
+  repeated herdsman.core.v1.ProjectRepo repos = 3;
+  // An absolute folder to bind right away; empty for none.
+  string folder = 4;
+}
+
+message ProjectServiceCreateResponse {
+  herdsman.core.v1.Project project = 1;
+}
+
+message ProjectServiceGetRequest {
+  Scope scope = 1;
+}
+
+message ProjectServiceGetResponse {
+  herdsman.core.v1.Project project = 1;
+}
+
+message ProjectServiceListRequest {
+  bool include_archived = 1;
+}
+
+message ProjectServiceListResponse {
+  repeated herdsman.core.v1.Project projects = 1;
+}
+
+message ProjectServiceUpdateRequest {
+  Scope scope = 1;
+  optional string name = 2;
+  optional string description = 3;
+  repeated herdsman.core.v1.ProjectRepo add_repos = 4;
+  repeated string remove_repos = 5;
+}
+
+message ProjectServiceUpdateResponse {
+  herdsman.core.v1.Project project = 1;
+}
+
+message ProjectServiceDeleteRequest {
+  Scope scope = 1;
+  bool force = 2;
+}
+
+message ProjectServiceDeleteResponse {}
+
+message ProjectServiceBindRequest {
+  Scope scope = 1;
+  // The absolute folder to bind.
+  string folder = 2;
+}
+
+message ProjectServiceBindResponse {
+  herdsman.core.v1.Project project = 1;
+}
+
+message ProjectServiceUnbindRequest {
+  // The absolute folder to release.
+  string folder = 1;
+}
+
+message ProjectServiceUnbindResponse {
+  herdsman.core.v1.Project project = 1;
+}

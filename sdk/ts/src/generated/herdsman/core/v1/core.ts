@@ -80,3 +80,93 @@ export interface MessageHeader {
   state?: string;
   acknowledged?: boolean;
 }
+
+/**
+ * ProjectId names a project.
+ */
+export interface ProjectId {
+  value?: string;
+}
+
+/**
+ * TaskId names a task.
+ */
+export interface TaskId {
+  value?: string;
+}
+
+/**
+ * ProjectRepo is one repository of a project.
+ */
+export interface ProjectRepo {
+  name?: string;
+  /**
+   * Absolute. The name defaults to the last path element.
+   */
+  path?: string;
+  defaultBranch?: string;
+  remote?: string;
+}
+
+/**
+ * Project is a project record with what hangs off it.
+ */
+export interface Project {
+  id?: ProjectId;
+  name?: string;
+  description?: string;
+  /**
+   * "active" or "archived".
+   */
+  state?: string;
+  folders?: string[];
+  repos?: ProjectRepo[];
+  openTasks?: number;
+  /**
+   * Milliseconds since the Unix epoch.
+   */
+  created?: string;
+  updated?: string;
+}
+
+/**
+ * TaskLink attaches a pull request, an issue or a URL to a task's repository.
+ */
+export interface TaskLink {
+  repo?: string;
+  /**
+   * "pr", "issue" or "url".
+   */
+  kind?: string;
+  target?: string;
+}
+
+/**
+ * Task is a task record. Its project is fixed at creation.
+ */
+export interface Task {
+  id?: TaskId;
+  project?: ProjectId;
+  /**
+   * Unique within the project; the id the worktree verbs take.
+   */
+  slug?: string;
+  title?: string;
+  body?: string;
+  /**
+   * "todo", "doing", "review", "done" or "archived".
+   */
+  status?: string;
+  /**
+   * Empty when the task runs in no route.
+   */
+  route?: RouteId;
+  repos?: string[];
+  labels?: string[];
+  links?: TaskLink[];
+  /**
+   * Milliseconds since the Unix epoch.
+   */
+  created?: string;
+  updated?: string;
+}
