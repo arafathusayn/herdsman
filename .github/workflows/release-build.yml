@@ -6,7 +6,8 @@ name: release-build
 # OS and architecture, linux ones statically linked, darwin ones with macOS 13
 # as their minimum, and the probe must open
 # a database in the darwin/arm64 binary here and the linux/amd64 one on
-# Linux.
+# Linux. The build runs the signing and SBOM steps too, with a key made for
+# this run and thrown away, and checks what they wrote.
 
 on:
   pull_request:
@@ -15,6 +16,7 @@ on:
       - .github/workflows/release.yml
       - .github/workflows/release-build.yml
       - cmd/herdsman/cgoprobe.go
+      - internal/update/**
       - go.mod
       - go.sum
 
@@ -40,13 +42,26 @@ jobs:
       - uses: mlugg/setup-zig@v2.2.1
         with:
           version: 0.17.0
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: v2.19.0
-          args: build --snapshot --clean
+      - name: A signing key for this run only
+        run: |
+          set -eu
+          go run ./internal/update/releasetool keygen --seed-out "$RUNNER_TEMP/seed" --public-out "$RUNNER_TEMP/public"
+          echo "::add-mask::$(cat "$RUNNER_TEMP/seed")"
+          echo "HERDSMAN_RELEASE_SIGNING_KEY=$(cat "$RUNNER_TEMP/seed")" >> "$GITHUB_ENV"
+      - name: Build all targets twice and compare checksums
+        run: .github/scripts/release-tag.sh build --snapshot
         env:
+          GORELEASER: .tools/bin/goreleaser
           HERDSMAN_BUILD_TAGS: cgoprobe
+          HERDSMAN_ALLOW_UNTRUSTED_KEY: "1"
+          # Only so that the cask renders; nothing is pushed from this job.
+          HOMEBREW_TAP_SSH_KEY: not-a-key
+      - name: The checksums verify and the SBOM is written
+        run: |
+          set -eu
+          go run ./internal/update/releasetool verify --in dist/checksums.txt --sig dist/checksums.txt.sig --keys "$RUNNER_TEMP/public"
+          grep -q 'spdx.json' dist/checksums.txt
+          grep -q '"SPDX-2.3"' dist/*.spdx.json
       - name: Each binary is its target
         run: |
           set -eu

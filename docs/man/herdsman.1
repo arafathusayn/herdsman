@@ -1,0 +1,85 @@
+.TH HERDSMAN 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman \- run a team of coding agents inside herdr
+.SH DESCRIPTION
+.nf
+herdsman: run a team of coding agents inside herdr.
+
+Usage:
+  herdsman web [--port 7878] [--host <ip>] [--allow-host <name>]... [--inbox <folder>]
+               [--client <url>|none] [--public-url <https url>] [--session <name>]
+               [--route <folder>]... [--open] [--no-qr]
+  herdsman <command> [args]   (the commands below)
+  herdsman version
+  herdsman help
+
+Commands:
+  web      Serve the web app and print its URL, with a one-run token, and a QR code.
+           It listens on 127.0.0.1 unless --host names one other address,
+           such as a LAN or Tailscale IP, to open it from a phone. The app is
+           also hosted at https://herdsman.arafat.ai (--client) and reaches this
+           server across origins; every browser still pairs with a code
+           printed here. A phone can use the hosted app only through HTTPS:
+           with --public-url (for example the address of tailscale serve),
+           the QR code opens the hosted app.
+  afk      Print how long the user has been away: machine idle time or the newest message, whichever is newer.
+  approval-gate Bind a relayed go before its effect: approval-gate consume ... | complete <request-id> <outcome>.
+  checkpointer Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.
+  commit   Commit a worktree with a Conventional Commits message.
+  config   Install the shell integration.
+  cost     Report measured tokens and cost per task, project or route.
+  daemon   The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential.
+  diff     Show a worktree's changes.
+  doctor   Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.
+  each     Run a command in every worktree.
+  go       Enter a worktree.
+  hook     Show, approve or run a worktree hook.
+  ls       List the repository's worktrees.
+  message  The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.
+  models   Probe each installed harness: its version, models, efforts and default effort as it reports them.
+  new      Make a task's branch and worktree.
+  recommend The same as suggest.
+  review   Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.
+  route    Check a route folder (route check) or append a run-state line (route log).
+  run-check Run one heavy check at a time on this machine, behind a load gate (--publish <hours>: the load reading).
+  spec     Print the SDK contracts: spec proto|descriptor.
+  status   Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.
+  suggest  Search the catalog of tips and tools.
+  transcript-audit Audit a Claude or Codex transcript for writes: transcript-audit claude|codex <transcript> <session-id> [root/ ...].
+  update   Install the latest signed release over this binary.
+  wait     Wait for the next event of the loop (a report, a review, a blocked or stalled agent, a health flag), or TICK.
+  watch    Watch implementers, the reviewer or pull requests: herdsman watch implementers|reviewer|prs.
+  version  Print the version.
+  help     Print this help.
+.fi
+.SH SEE ALSO
+.BR herdsman-afk (1),
+.BR herdsman-approval-gate (1),
+.BR herdsman-checkpointer (1),
+.BR herdsman-commit (1),
+.BR herdsman-config (1),
+.BR herdsman-cost (1),
+.BR herdsman-daemon (1),
+.BR herdsman-diff (1),
+.BR herdsman-doctor (1),
+.BR herdsman-each (1),
+.BR herdsman-go (1),
+.BR herdsman-help (1),
+.BR herdsman-hook (1),
+.BR herdsman-ls (1),
+.BR herdsman-message (1),
+.BR herdsman-models (1),
+.BR herdsman-new (1),
+.BR herdsman-recommend (1),
+.BR herdsman-review (1),
+.BR herdsman-route (1),
+.BR herdsman-run-check (1),
+.BR herdsman-spec (1),
+.BR herdsman-status (1),
+.BR herdsman-suggest (1),
+.BR herdsman-transcript-audit (1),
+.BR herdsman-update (1),
+.BR herdsman-version (1),
+.BR herdsman-wait (1),
+.BR herdsman-watch (1),
+.BR herdsman-web (1)
