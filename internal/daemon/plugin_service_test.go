@@ -284,3 +284,75 @@ func TestNewPluginServiceHasTheBuiltins(t *testing.T) {
 		t.Fatalf("%v %v", s, err)
 	}
 }
+
+// breakDiscovery makes every search for plugins fail.
+func breakDiscovery(t *testing.T, s *PluginService) {
+	t.Helper()
+	os.MkdirAll(filepath.Dir(s.Host.PluginsDir()), 0o700)
+	if err := os.WriteFile(s.Host.PluginsDir(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDiscoveryFailuresAreReported(t *testing.T) {
+	s := newPluginService(t)
+	breakDiscovery(t, s)
+	ctx := context.Background()
+	_, err := s.List(ctx, &daemonv1.PluginServiceListRequest{})
+	wantCode(t, err, rpc.Internal)
+	_, err = s.Describe(ctx, &daemonv1.PluginServiceDescribeRequest{Name: "x"})
+	wantCode(t, err, rpc.Internal)
+	_, err = s.Install(ctx, &daemonv1.PluginServiceInstallRequest{Source: "x"})
+	wantCode(t, err, rpc.Internal)
+	if err := s.Approve(ctx, "x", strings.NewReader(""), &strings.Builder{}, true); err == nil {
+		t.Error("approve")
+	}
+	if err := s.Run(ctx, "x", strings.NewReader(""), &strings.Builder{}, &strings.Builder{}); err == nil {
+		t.Error("run")
+	}
+}
+
+func TestACorruptApprovalFileIsReported(t *testing.T) {
+	s := newPluginService(t)
+	os.MkdirAll(s.Host.SearchPath, 0o755)
+	os.WriteFile(filepath.Join(s.Host.SearchPath, "herdsman-plugin-tool"), []byte("#!/bin/sh\n"), 0o755)
+	os.MkdirAll(s.Host.ConfigDir, 0o700)
+	os.WriteFile(s.Host.Approvals().Path, []byte("{"), 0o600)
+	_, err := s.List(context.Background(), &daemonv1.PluginServiceListRequest{})
+	wantCode(t, err, rpc.Internal)
+}
+
+func TestInstallReportsAnUnwritableFolder(t *testing.T) {
+	s := newPluginService(t)
+	blocker := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(blocker, nil, 0o600)
+	s.Host.ConfigDir = filepath.Join(blocker, "sub")
+	source := filepath.Join(t.TempDir(), "herdsman-plugin-tool")
+	os.WriteFile(source, []byte("#!/bin/sh\n"), 0o755)
+	_, err := s.Install(context.Background(), &daemonv1.PluginServiceInstallRequest{Source: source})
+	wantCode(t, err, rpc.Internal)
+}
+
+func TestRunExecutesOnlyApprovedBytes(t *testing.T) {
+	s := newPluginService(t)
+	ctx := context.Background()
+	marker := filepath.Join(t.TempDir(), "ran")
+	os.MkdirAll(s.Host.SearchPath, 0o755)
+	path := filepath.Join(s.Host.SearchPath, "herdsman-plugin-tool")
+	os.WriteFile(path, []byte("#!/bin/sh\necho approved\n"), 0o755)
+	approve(t, s, "tool")
+	var out strings.Builder
+	if err := s.Run(ctx, "tool", strings.NewReader(""), &out, &strings.Builder{}); err != nil || !strings.Contains(out.String(), "approved") {
+		t.Fatalf("%q %v", out.String(), err)
+	}
+	os.WriteFile(path, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o755)
+	if err := s.Run(ctx, "tool", strings.NewReader(""), &out, &strings.Builder{}); !errors.Is(err, plugin.ErrNotApproved) {
+		t.Fatalf("%v", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("the replacement ran")
+	}
+	if err := s.Run(ctx, "json", strings.NewReader(""), &out, &strings.Builder{}); err == nil || !strings.Contains(err.Error(), "built in") {
+		t.Fatalf("%v", err)
+	}
+}

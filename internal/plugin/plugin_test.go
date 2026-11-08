@@ -23,6 +23,20 @@ const timeoutForTests = 5 * time.Second
 
 // A shell plugin can fail a handshake; only real Go plugins can pass one, and
 // those are proved in the daemon and conformance tests.
+func TestMain(m *testing.M) {
+	if os.Getenv(helperEnv) != "" {
+		manifest := &pluginv1.Manifest{Name: "helper", Version: "1.0.0", ExtensionPoints: []pluginv1.ExtensionPoint{pluginv1.ExtensionPoint_EXTENSION_POINT_LIST_COLUMN}}
+		if err := sdkplugin.Serve(context.Background(), manifest, sdkplugin.Extensions{ListColumn: branchColumn{}}); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+	os.Exit(m.Run())
+}
+
+// helperEnv makes this test binary act as a plugin named helper.
+const helperEnv = "HERDSMAN_INTERNAL_PLUGIN_HELPER"
+
 func writeExecutable(t *testing.T, path, script string) string {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -480,5 +494,149 @@ func TestDefaultGeneratorIsTheCommitMessageGenerator(t *testing.T) {
 	generate := defaultGenerate(&commitmsg.Generator{Command: "true"})
 	if _, err := generate(context.Background(), "prompt"); err == nil {
 		t.Fatal("an empty answer was parsed")
+	}
+}
+
+func TestASwappedExecutableDoesNotRunOnAnOldApproval(t *testing.T) {
+	h := newHost(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	path := writeExecutable(t, filepath.Join(h.SearchPath, "herdsman-plugin-x"), "exit 0")
+	found, ok, err := h.Find("x")
+	if err != nil || !ok {
+		t.Fatalf("%v %v", ok, err)
+	}
+	if err := h.Approvals().Approve("x", found.Checksum); err != nil {
+		t.Fatal(err)
+	}
+	writeExecutable(t, path, "touch "+marker)
+	if _, err := h.Start(context.Background(), found); !errors.Is(err, ErrNotApproved) {
+		t.Fatalf("%v", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the replacement ran: %v", err)
+	}
+}
+
+// installHelper puts a copy of this test binary on the search path, approved.
+func installHelper(t *testing.T, h *Host) Found {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(h.SearchPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.SearchPath, "herdsman-plugin-helper"), data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h.Env = []string{helperEnv + "=1"}
+	found, ok, err := h.Find("helper")
+	if err != nil || !ok {
+		t.Fatalf("%v %v", ok, err)
+	}
+	if err := h.Approvals().Approve("helper", found.Checksum); err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+func TestLoadStartsAnApprovedPluginAndCloseEndsIt(t *testing.T) {
+	h := newHost(t)
+	installHelper(t, h)
+	registry := NewRegistry()
+	if err := h.Load(context.Background(), registry); err != nil {
+		t.Fatal(err)
+	}
+	if len(registry.Skipped()) != 0 {
+		t.Fatalf("%v", registry.Skipped())
+	}
+	column := registry.Column("helper")
+	if column == nil {
+		t.Fatal("not registered")
+	}
+	got, err := column.Compute(context.Background(), &pluginv1.ComputeRequest{Rows: []*pluginv1.ColumnRow{{Branch: "b"}}})
+	if err != nil || got.GetValues()[0] != "b" {
+		t.Fatalf("%v %v", got, err)
+	}
+	registry.Close()
+	if _, err := column.Compute(context.Background(), &pluginv1.ComputeRequest{}); err == nil {
+		t.Fatal("the plugin still answers")
+	}
+	leftovers, _ := os.ReadDir(filepath.Join(h.ConfigDir, "plugin-snapshots"))
+	if len(leftovers) != 0 {
+		t.Fatalf("snapshots remain: %v", leftovers)
+	}
+}
+
+func TestFindReportsAbsenceAndFailure(t *testing.T) {
+	h := newHost(t)
+	if _, ok, err := h.Find("absent"); ok || err != nil {
+		t.Fatalf("%v %v", ok, err)
+	}
+	os.MkdirAll(filepath.Dir(h.PluginsDir()), 0o700)
+	os.WriteFile(h.PluginsDir(), nil, 0o600)
+	if _, _, err := h.Find("x"); err == nil {
+		t.Fatal("no error")
+	}
+}
+
+func TestSnapshotReportsAnUnusableFolder(t *testing.T) {
+	h := newHost(t)
+	path := writeExecutable(t, filepath.Join(h.SearchPath, "herdsman-plugin-x"), "exit 0")
+	blocker := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(blocker, nil, 0o600)
+	h.ConfigDir = filepath.Join(blocker, "sub")
+	if _, _, err := h.Snapshot(Found{Name: "x", Path: path}); err == nil {
+		t.Fatal("no error")
+	}
+}
+
+func TestSnapshotReportsACorruptApprovalFile(t *testing.T) {
+	h := newHost(t)
+	path := writeExecutable(t, filepath.Join(h.SearchPath, "herdsman-plugin-x"), "exit 0")
+	os.MkdirAll(h.ConfigDir, 0o700)
+	os.WriteFile(h.Approvals().Path, []byte("{"), 0o600)
+	if _, _, err := h.Snapshot(Found{Name: "x", Path: path}); err == nil || errors.Is(err, ErrNotApproved) {
+		t.Fatalf("%v", err)
+	}
+	if leftovers, _ := os.ReadDir(filepath.Join(h.ConfigDir, "plugin-snapshots")); len(leftovers) != 0 {
+		t.Fatalf("%v", leftovers)
+	}
+}
+
+func TestAFailedStartNamesTheOriginalFileAndLeavesNoSnapshot(t *testing.T) {
+	h := newHost(t)
+	path := writeExecutable(t, filepath.Join(h.SearchPath, "herdsman-plugin-x"), "echo nope")
+	found, _, _ := h.Find("x")
+	h.Approvals().Approve("x", found.Checksum)
+	_, err := h.Start(context.Background(), found)
+	if err == nil || !strings.Contains(err.Error(), path) {
+		t.Fatalf("%v", err)
+	}
+	if leftovers, _ := os.ReadDir(filepath.Join(h.ConfigDir, "plugin-snapshots")); len(leftovers) != 0 {
+		t.Fatalf("%v", leftovers)
+	}
+}
+
+func TestAddBuiltinsReportsEachNameAlreadyTaken(t *testing.T) {
+	for name, taken := range map[string]func(*Registry) error{
+		"codec":     func(r *Registry) error { return r.AddCodec(jsonBuiltin, fakeCodec{}) },
+		"detector":  func(r *Registry) error { return r.AddDetector(processBuiltin, fakeDetector{}) },
+		"generator": func(r *Registry) error { return r.AddGenerator(commitBuiltin, fakeGenerator{}) },
+		"column":    func(r *Registry) error { return r.AddColumn(branchBuiltin, fakeColumn{}) },
+		"backend":   func(r *Registry) error { return r.AddBackend(githubBuiltin, fakeBackend{}) },
+	} {
+		r := NewRegistry()
+		if err := taken(r); err != nil {
+			t.Fatal(err)
+		}
+		if err := AddBuiltins(r, BuiltinOptions{Backend: stubBackend{}}); err == nil {
+			t.Errorf("%s: no error", name)
+		}
 	}
 }

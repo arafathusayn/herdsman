@@ -27,9 +27,12 @@ func wirePlugins(t *testing.T) *daemon.PluginService {
 		t.Fatal(err)
 	}
 	service := &daemon.PluginService{Registry: registry, Host: &plugin.Host{ConfigDir: filepath.Join(dir, "c"), SearchPath: filepath.Join(dir, "bin"), Timeout: 30 * time.Second}}
-	oldService, oldApprove, oldTerminal := pluginService, pluginApprove, pluginIsTerminal
-	t.Cleanup(func() { pluginService, pluginApprove, pluginIsTerminal = oldService, oldApprove, oldTerminal })
+	oldService, oldApprove, oldTerminal, oldExec := pluginService, pluginApprove, pluginIsTerminal, pluginExec
+	t.Cleanup(func() {
+		pluginService, pluginApprove, pluginIsTerminal, pluginExec = oldService, oldApprove, oldTerminal, oldExec
+	})
 	pluginService = service
+	pluginExec = service.Run
 	pluginApprove = func(ctx context.Context, name string, in io.Reader, out io.Writer, isTerminal bool) error {
 		return service.Approve(ctx, name, in, out, isTerminal)
 	}
@@ -196,4 +199,13 @@ type failingVerify struct{ *daemon.PluginService }
 
 func (f *failingVerify) Verify(context.Context, *daemonv1.PluginServiceVerifyRequest) (*daemonv1.PluginServiceVerifyResponse, error) {
 	return &daemonv1.PluginServiceVerifyResponse{Checks: []*daemonv1.VerifyCheck{{Name: "scenario", Detail: "why"}}}, nil
+}
+
+func TestPluginListReportsAFailure(t *testing.T) {
+	service := wirePlugins(t)
+	os.MkdirAll(filepath.Dir(service.Host.PluginsDir()), 0o700)
+	os.WriteFile(service.Host.PluginsDir(), nil, 0o600)
+	if code, _, errOut := pluginCommand("", "list"); code != 1 || errOut == "" {
+		t.Fatalf("%d %s", code, errOut)
+	}
 }

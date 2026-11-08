@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/arafathusayn/herdsman/internal/plugin"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
@@ -16,6 +18,9 @@ import (
 	pluginv1 "github.com/arafathusayn/herdsman/sdk/plugin/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
+
+// pluginRunPipeWait bounds the wait for pipes a plugin's descendant still holds.
+const pluginRunPipeWait = time.Second
 
 // PluginService manages installed plugins. Approve is deliberately not one of
 // its RPC methods: a caller of the socket must never be able to accept a plugin.
@@ -262,6 +267,31 @@ func (s *PluginService) Verify(ctx context.Context, r *daemonv1.PluginServiceVer
 		response.Passed = response.Passed && check.Passed
 	}
 	return response, nil
+}
+
+// Run starts a plugin in the foreground from a snapshot of its approved bytes.
+// Only the command line reaches it.
+func (s *PluginService) Run(ctx context.Context, name string, in io.Reader, out, errOut io.Writer) error {
+	found, ok, err := s.Host.Find(name)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if _, _, builtin := s.Registry.Builtin(name); builtin {
+			return fmt.Errorf("%s is built in and has no process", name)
+		}
+		return fmt.Errorf("no plugin named %q", name)
+	}
+	path, cleanup, err := s.Host.Snapshot(found)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	cmd := exec.CommandContext(ctx, path)
+	cmd.Env = sdkplugin.Host{Env: s.Host.Env}.Environment()
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
+	cmd.WaitDelay = pluginRunPipeWait
+	return cmd.Run()
 }
 
 // Approve accepts a plugin's current checksum after asking the person at the

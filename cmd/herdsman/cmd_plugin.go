@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -16,12 +15,14 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// main.go sets these three. pluginApprove is separate from the service because
-// no service method may accept a plugin; pluginIsTerminal must ask the kernel.
+// main.go sets these four. pluginApprove and pluginExec are separate from the
+// service because no service method may accept or run a plugin for a caller;
+// pluginIsTerminal must ask the kernel.
 var (
 	pluginService    daemonv1.PluginService
 	pluginApprove    func(ctx context.Context, name string, in io.Reader, out io.Writer, isTerminal bool) error
 	pluginIsTerminal func(stdin any) bool
+	pluginExec       func(ctx context.Context, name string, in io.Reader, out, errOut io.Writer) error
 )
 
 const pluginHelp = `usage: herdsman plugin --experimental-plugins <verb> [args] [--json]
@@ -233,30 +234,11 @@ func pluginVerify(ctx context.Context, name string, asJSON bool, stdout, stderr 
 	return code
 }
 
-// pluginRun starts an approved plugin with the terminal attached, so its
-// handshake line lands on stdout for whoever is developing it.
+// pluginRun starts a plugin with the terminal attached, so its handshake line
+// lands on stdout for whoever is developing it.
 func pluginRun(ctx context.Context, name string, stdin io.Reader, stdout, stderr io.Writer) int {
-	response, err := pluginService.List(ctx, &daemonv1.PluginServiceListRequest{})
-	if err != nil {
+	if err := pluginExec(ctx, name, stdin, stdout, stderr); err != nil {
 		return fail(stderr, err)
 	}
-	for _, status := range response.GetPlugins() {
-		if status.GetName() != name {
-			continue
-		}
-		if status.GetPath() == "" {
-			return fail(stderr, fmt.Errorf("%s is built in and has no process", name))
-		}
-		if !status.GetApproved() {
-			return fail(stderr, fmt.Errorf("%s is not approved: run herdsman plugin --experimental-plugins install %s on a terminal", name, name))
-		}
-		cmd := exec.CommandContext(ctx, status.GetPath())
-		cmd.Env = plugin.Host{}.Environment()
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
-		if err := cmd.Run(); err != nil {
-			return fail(stderr, err)
-		}
-		return 0
-	}
-	return fail(stderr, fmt.Errorf("no plugin named %q", name))
+	return 0
 }
