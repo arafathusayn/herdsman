@@ -1,10 +1,11 @@
 .TH HERDSMAN-SPEC 1 "" "herdsman" "herdsman manual"
 .SH NAME
-herdsman-spec \- Print the SDK contracts: spec proto|descriptor.
+herdsman-spec \- Print the SDK contracts: spec cli|proto|descriptor.
 .SH DESCRIPTION
 .nf
-usage: herdsman spec proto|descriptor
+usage: herdsman spec cli|proto|descriptor
 
+cli prints every command, flag and exit code as JSON.
 proto prints every contract source, each after a "// file: <path>" line.
 descriptor prints the contracts' serialized FileDescriptorSet, with every
 import before the file that needs it.
