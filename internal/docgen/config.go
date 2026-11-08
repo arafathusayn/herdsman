@@ -122,10 +122,19 @@ func (r *configRenderer) section(fd protoreflect.FieldDescriptor, path string, d
 	if fd.IsMap() && fd.MapValue().Kind() == protoreflect.MessageKind {
 		heading += ".<key>"
 	}
-	fmt.Fprintf(&r.page, "\n%s [%s]\n", strings.Repeat("#", min(depth, 6)), heading)
+	// A repeated message is an array of tables in the file; the loader refuses
+	// the single-table form, and people copy these headings.
+	format := "\n%s [%s]\n"
+	if fd.IsList() {
+		format = "\n%s [[%s]]\n"
+	}
+	fmt.Fprintf(&r.page, format, strings.Repeat("#", min(depth, 6)), heading)
 	message := sectionMessage(fd)
 	if text := r.describe(fd); text != "" {
 		fmt.Fprintf(&r.page, "\n%s\n", text)
+	}
+	if fd.IsList() {
+		r.page.WriteString("\nWrite this array table once per entry, in order.\n")
 	}
 	if message == nil {
 		fmt.Fprintf(&r.page, "\nType: %s.\n", fieldType(fd))

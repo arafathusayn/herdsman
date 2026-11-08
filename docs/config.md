@@ -69,9 +69,11 @@ Launch is the structured form of how an agent is started. Unknown keys in this s
 | `env` | table of string |  |
 | `prelude_timeout` | string | Go duration text, such as "90s". |
 
-### [launch.prelude]
+### [[launch.prelude]]
 
 LaunchStep is one command that runs before the agent starts.
+
+Write this array table once per entry, in order.
 
 | Key | Type | Description |
 | --- | --- | --- |

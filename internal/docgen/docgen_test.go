@@ -150,10 +150,15 @@ func TestConfigPageCoversTheContract(t *testing.T) {
 		"### [commit.generation]\n",
 		"## [projects.<key>]\n",
 		"| `post_clean` | string, table or array |",
+		"### [[launch.prelude]]\n",
+		"Write this array table once per entry, in order.",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("page lacks %q", want)
 		}
+	}
+	if strings.Contains(page, " [launch.prelude]\n") {
+		t.Error("a repeated message is headed as a single table, which the loader rejects")
 	}
 	if n := strings.Count(page, "[projects.<key>"); n != 1 {
 		t.Errorf("the recursive section appears %d times, want 1", n)
