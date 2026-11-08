@@ -46,6 +46,10 @@ const (
 	lagEpochChanged  = "epoch_changed"
 )
 
+// journalUnreadable is the reason on the reset a feed publishes when it cannot
+// read the history it owes.
+const journalUnreadable = "journal_unreadable"
+
 // eventHub holds a bounded history per topic. Publishing never waits for a
 // reader: readers chase the history and the hub's memory does not depend on
 // how many there are or how slow they are.
@@ -652,34 +656,64 @@ func (f *routeFeed) run() {
 	for {
 		s := newSubscriber(f.rt.name, "")
 		var first []frame
-		attached := false
+		var refused *APIError
+		ran := false
 		f.rt.always(func() {
-			var e *APIError
-			first, e = f.rt.subscribe(s, cursor)
-			attached = e == nil
+			first, refused = f.rt.subscribe(s, cursor)
+			ran = true
 		})
-		if !attached {
+		if !ran {
 			return
 		}
-		f.setCurrent(s)
-		for _, item := range first {
-			cursor = f.publish(item, cursor)
-		}
-		for s.replay != nil {
-			rec, err := s.replay.next()
-			if err != nil || rec == nil {
-				break
+		lost := refused != nil
+		if !lost {
+			f.setCurrent(s)
+			for _, item := range first {
+				cursor = f.publish(item, cursor)
 			}
-			cursor = f.publish(frame{rec: rec, route: f.rt.name}, cursor)
+			lost = !f.replay(s, &cursor)
 		}
-		stopped := f.pump(s, &cursor)
+		stopped := !lost && f.pump(s, &cursor)
 		s.close()
 		f.rt.detach(s)
 		s.replay.close()
-		if stopped {
+		if stopped || (lost && !f.resync()) {
 			return
 		}
+		if lost {
+			cursor = ""
+		}
 	}
+}
+
+// replay publishes the stored events a subscription owes, reporting whether
+// all of them could be read.
+func (f *routeFeed) replay(s *subscriber, cursor *string) bool {
+	for s.replay != nil {
+		rec, err := s.replay.next()
+		if err != nil {
+			f.rt.d.logf("route %s: event feed: journal read: %v", f.rt.name, err)
+			return false
+		}
+		if rec == nil {
+			return true
+		}
+		*cursor = f.publish(frame{rec: rec, route: f.rt.name}, *cursor)
+	}
+	return true
+}
+
+// resync tells readers that events are missing, so that they re-read the
+// route's state; the feed then continues from a snapshot, which needs no
+// journal. It reports false when the route has stopped.
+func (f *routeFeed) resync() bool {
+	var reset *Event
+	f.rt.always(func() { reset = f.rt.resetEvent(journalUnreadable) })
+	if reset == nil {
+		return false
+	}
+	f.publish(frame{ev: reset}, "")
+	return true
 }
 
 // pump publishes the live queue until it closes or the feed stops, reporting

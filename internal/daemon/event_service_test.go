@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -799,6 +800,76 @@ func TestRouteFeedReplaysFromTheJournalWhenTheRingIsPast(t *testing.T) {
 		}
 		return false
 	})
+}
+
+// routeTopicTypes is a route topic's retained events by type, oldest first.
+func routeTopicTypes(s *eventServer, route string) []string {
+	got := s.hub.read(events.RouteTopic(route), eventPosition{}, 64, 1<<20, 0, 0)
+	types := make([]string, 0, len(got.events))
+	for _, e := range got.events {
+		types = append(types, e.GetType())
+	}
+	return types
+}
+
+// A feed that cannot read the history it owes says so and starts over from a
+// snapshot; it never goes on to publish what came after the gap.
+func TestAnUnreadableJournalIsAnnouncedBeforeLaterEvents(t *testing.T) {
+	cases := map[string]func(t *testing.T, dir string){
+		"read fails midway": func(t *testing.T, dir string) {
+			if err := os.WriteFile(filepath.Join(dir, journalCurrent), []byte(strings.Repeat("x", 8192)+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"open fails": func(t *testing.T, dir string) {
+			if err := os.Chmod(filepath.Join(dir, journalCurrent), 0); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, damage := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			adj, orch, _ := h.route("r")
+			adj.send(t, "r", orch.name, "older than the ring")
+			rt := h.d.routes["r"]
+			var epoch, dir string
+			rt.always(func() { epoch, dir, rt.ring = rt.epoch, rt.j.dir, nil })
+			damage(t, dir)
+
+			s := newEventServer(t, nil)
+			feed := &routeFeed{hub: s.hub, rt: rt, stop: make(chan struct{}), done: make(chan struct{}), resume: events.FormatCursor(epoch, 0)}
+			go feed.run()
+			defer feed.halt()
+
+			eventually(t, func() bool { return len(routeTopicTypes(s, "r")) >= 2 })
+			if got := routeTopicTypes(s, "r"); got[0] != "reset" || got[1] != "snapshot" {
+				t.Fatalf("events %v", got)
+			}
+			first := s.hub.read(events.RouteTopic("r"), eventPosition{}, 1, 1<<20, 0, 0).events[0]
+			if !strings.Contains(string(first.GetPayload()), journalUnreadable) {
+				t.Fatalf("reset %s", first.GetPayload())
+			}
+			adj.send(t, "r", orch.name, "after the gap")
+			eventually(t, func() bool { return slices.Contains(routeTopicTypes(s, "r"), "message") })
+		})
+	}
+}
+
+func TestAFeedOnAStoppedRouteDoesNotAnnounceALoss(t *testing.T) {
+	h := newHarness(t)
+	h.route("r")
+	rt := h.d.routes["r"]
+	s := newEventServer(t, nil)
+	h.d.view.close()
+	feed := &routeFeed{hub: s.hub, rt: rt, stop: make(chan struct{}), done: make(chan struct{})}
+	rt.stop()
+	if feed.resync() {
+		t.Fatal("announced a loss on a stopped route")
+	}
+	if got := routeTopicTypes(s, "r"); len(got) != 0 {
+		t.Fatalf("events %v", got)
+	}
 }
 
 // A write that fails ends the connection, whichever frame it was.
