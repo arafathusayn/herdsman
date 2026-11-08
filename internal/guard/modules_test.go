@@ -48,7 +48,7 @@ func TestManifestListsEveryModule(t *testing.T) {
 		if !strings.Contains(makefile, "\n"+target+":") {
 			t.Errorf("Makefile has no %s target", target)
 		}
-		if !strings.Contains(workflow, "make "+target) {
+		if !workflowRuns(workflow, target) {
 			t.Errorf("tests.yml has no job running make %s", target)
 		}
 	}
@@ -62,6 +62,26 @@ func TestManifestListsEveryModule(t *testing.T) {
 		if !slices.Contains(strings.Fields(work), use) {
 			t.Errorf("go.work does not use %s", use)
 		}
+	}
+}
+
+// workflowRuns reports whether a step runs exactly the given make target.
+func workflowRuns(workflow, target string) bool {
+	for line := range strings.Lines(workflow) {
+		if strings.TrimSpace(line) == "run: make "+target {
+			return true
+		}
+	}
+	return false
+}
+
+func TestWorkflowRunsMatchesTheWholeTarget(t *testing.T) {
+	workflow := "    steps:\n      - name: Check\n        run: make check-sdk-ts\n"
+	if workflowRuns(workflow, "check-sdk") {
+		t.Error("check-sdk matched a job that runs check-sdk-ts")
+	}
+	if !workflowRuns(workflow, "check-sdk-ts") {
+		t.Error("check-sdk-ts did not match its own job")
 	}
 }
 

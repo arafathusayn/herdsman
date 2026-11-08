@@ -47,9 +47,9 @@ var serverPackages = []string{
 	"internal/web",
 }
 
-// serverPackagesFloor makes shrinking serverPackages a visible change: raise it
-// when the list grows, never lower it.
-const serverPackagesFloor = 18
+// serverPackagesPin must equal the length of serverPackages, so every change to
+// the list touches this line too: raise it when the list grows, never lower it.
+const serverPackagesPin = 18
 
 // wiringFiles run the daemon in-process, so they stay allowed.
 var wiringFiles = []string{
@@ -65,9 +65,10 @@ var unmovedVerbFiles = []string{
 	"cmd/herdsman/cmd_route.go",
 }
 
-// unmovedVerbFilesCeiling makes growing unmovedVerbFiles a visible change: lower
-// it when the list shrinks, never raise it.
-const unmovedVerbFilesCeiling = 2
+// unmovedVerbFilesPin must equal the length of unmovedVerbFiles, so every change
+// to the list touches this line too: lower it when the list shrinks, never raise
+// it.
+const unmovedVerbFilesPin = 2
 
 // xSysModule may be imported only by the packages in xSysImporters.
 const xSysModule = "golang.org/x/sys"
@@ -78,15 +79,18 @@ var xSysImporters = []string{"internal/sys", "internal/daemon", "internal/inbox"
 // the fixtures differ only in these values.
 type guardConfig struct {
 	root      string
+	module    string
 	env       []string
 	servers   []string
 	allowlist []string
 }
 
-// violation is a checked file whose import closure holds a server package.
+// violation is a checked file that breaks the boundary: its import closure holds
+// a server package, or it is an SDK file importing the root module directly.
 type violation struct {
-	file   string
-	server string
+	file       string
+	server     string
+	rootImport string
 }
 
 // skippedFile is an allowlisted file; reachesServer says whether it would have
@@ -221,7 +225,10 @@ func analyze(cfg guardConfig) (guardResult, error) {
 				break
 			}
 		}
+		rootImport := sdkRootImport(cfg.module, file, imports)
 		switch {
+		case rootImport != "":
+			result.violations = append(result.violations, violation{file: file, rootImport: rootImport})
 		case slices.Contains(cfg.allowlist, file):
 			result.skipped = append(result.skipped, skippedFile{file: file, reachesServer: server != ""})
 		case server != "":
@@ -233,11 +240,30 @@ func analyze(cfg guardConfig) (guardResult, error) {
 	return result, nil
 }
 
+// sdkRootImport returns the first import of an sdk/ file that belongs to the
+// root module rather than the SDK, or "" when there is none or the file is not
+// under sdk/. Workspace mode would resolve such an import silently.
+func sdkRootImport(module, file string, imports []string) string {
+	if !strings.HasPrefix(file, "sdk/") {
+		return ""
+	}
+	sdk := module + "/sdk"
+	for _, imported := range imports {
+		inRoot := imported == module || strings.HasPrefix(imported, module+"/")
+		inSDK := imported == sdk || strings.HasPrefix(imported, sdk+"/")
+		if inRoot && !inSDK {
+			return imported
+		}
+	}
+	return ""
+}
+
 // fixtureConfig points the guard at one fixture module, whose server/ package
 // stands in for the server list.
 func fixtureConfig(name string, allowlist ...string) guardConfig {
 	return guardConfig{
 		root:      filepath.Join("testdata", name),
+		module:    "example.com/" + name,
 		env:       append(os.Environ(), "GOWORK=off", "GOFLAGS=", "GOPROXY=off"),
 		servers:   []string{"example.com/" + name + "/server"},
 		allowlist: allowlist,
@@ -286,6 +312,41 @@ func TestGuardMixedFixtureChecksEachFile(t *testing.T) {
 	}
 	if want := []string{"cmd/herdsman/cmd_wiring.go"}; !slices.Equal(result.skippedNames(), want) {
 		t.Fatalf("skipped %v, want %v", result.skippedNames(), want)
+	}
+}
+
+// Workspace mode resolves a root import from sdk/ with no go.mod line, so the
+// guard is what keeps the SDK independent of the root module.
+func TestGuardRejectsSDKImportingRootModule(t *testing.T) {
+	result, err := analyze(fixtureConfig("sdkleak"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []violation{{file: "sdk/leak/leak.go", rootImport: "example.com/sdkleak/internal/helper"}}
+	if !slices.Equal(result.violations, want) {
+		t.Fatalf("violations %v, want %v", result.violations, want)
+	}
+	if want := []string{"sdk/inner/inner.go", "sdk/uses/uses.go"}; !slices.Equal(result.passed, want) {
+		t.Fatalf("passed %v, want %v", result.passed, want)
+	}
+}
+
+func TestListSizesMustMatchTheirPins(t *testing.T) {
+	cases := []struct {
+		name                               string
+		servers, serverPin, verbs, verbPin int
+		want                               int
+	}{
+		{"both match", 18, 18, 2, 2, 0},
+		{"server list shrank", 17, 18, 2, 2, 1},
+		{"server list grew without its pin", 19, 18, 2, 2, 1},
+		{"verb list grew", 18, 18, 3, 2, 1},
+		{"verb list shrank without its pin", 18, 18, 1, 2, 1},
+	}
+	for _, c := range cases {
+		if got := listSizeProblems(c.servers, c.serverPin, c.verbs, c.verbPin); len(got) != c.want {
+			t.Errorf("%s: problems %v, want %d", c.name, got, c.want)
+		}
 	}
 }
 
@@ -358,15 +419,24 @@ func TestFileImportsReportsParseError(t *testing.T) {
 	}
 }
 
+// listSizeProblems compares each list's length with its pin.
+func listSizeProblems(servers, serverPin, verbs, verbPin int) []string {
+	var problems []string
+	if servers != serverPin {
+		problems = append(problems, fmt.Sprintf("serverPackages has %d entries, pinned at %d", servers, serverPin))
+	}
+	if verbs != verbPin {
+		problems = append(problems, fmt.Sprintf("unmovedVerbFiles has %d entries, pinned at %d", verbs, verbPin))
+	}
+	return problems
+}
+
 // TestImportGuard is the rule on the repository itself. It logs every
 // allowlisted file it skipped; check-root runs it with -v so the list is
 // visible in each run.
 func TestImportGuard(t *testing.T) {
-	if len(serverPackages) < serverPackagesFloor {
-		t.Errorf("serverPackages has %d entries, below the floor of %d: the list may only grow", len(serverPackages), serverPackagesFloor)
-	}
-	if len(unmovedVerbFiles) > unmovedVerbFilesCeiling {
-		t.Errorf("unmovedVerbFiles has %d entries, above the ceiling of %d: the list may only shrink", len(unmovedVerbFiles), unmovedVerbFilesCeiling)
+	for _, problem := range listSizeProblems(len(serverPackages), serverPackagesPin, len(unmovedVerbFiles), unmovedVerbFilesPin) {
+		t.Error(problem)
 	}
 	servers := make([]string, 0, len(serverPackages))
 	for _, pkg := range serverPackages {
@@ -374,6 +444,7 @@ func TestImportGuard(t *testing.T) {
 	}
 	result, err := analyze(guardConfig{
 		root:      repoRoot,
+		module:    rootModule,
 		env:       os.Environ(),
 		servers:   servers,
 		allowlist: slices.Concat(wiringFiles, unmovedVerbFiles),
@@ -382,6 +453,10 @@ func TestImportGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, v := range result.violations {
+		if v.rootImport != "" {
+			t.Errorf("%s imports %s: the SDK must not depend on the root module", v.file, v.rootImport)
+			continue
+		}
 		t.Errorf("%s reaches server package %s: use the SDK, or a local presentation package", v.file, v.server)
 	}
 	for _, s := range result.skipped {
@@ -407,7 +482,11 @@ func xSysViolations(root string, allowed []string) ([]string, error) {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "web", "vendor", "third_party", "testdata", "node_modules":
+			case ".git", "testdata", "node_modules":
+				return filepath.SkipDir
+			}
+			// Only the top-level trees: internal/web is ordinary Go.
+			if filepath.Dir(p) == filepath.Clean(root) && slices.Contains([]string{"web", "vendor", "third_party"}, d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -450,14 +529,17 @@ func TestXSysRuleCatchesAPlantedImport(t *testing.T) {
 	source := "package p\n\nimport _ \"golang.org/x/sys/unix\"\n"
 	writeFile(t, filepath.Join(root, "internal", "daemon", "ok.go"), source)
 	writeFile(t, filepath.Join(root, "internal", "other", "bad.go"), source)
+	writeFile(t, filepath.Join(root, "internal", "web", "bad.go"), source)
 	writeFile(t, filepath.Join(root, "web", "vendor", "skipped.go"), source)
+	writeFile(t, filepath.Join(root, "vendor", "skipped.go"), source)
+	writeFile(t, filepath.Join(root, "third_party", "skipped.go"), source)
 	writeFile(t, filepath.Join(root, "internal", "other", "clean.go"), "package p\n\nimport _ \"fmt\"\n")
 	writeFile(t, filepath.Join(root, "internal", "other", "notes.txt"), "not go\n")
 	bad, err := xSysViolations(root, xSysImporters)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"internal/other/bad.go"}; !slices.Equal(bad, want) {
+	if want := []string{"internal/other/bad.go", "internal/web/bad.go"}; !slices.Equal(bad, want) {
 		t.Fatalf("violations %v, want %v", bad, want)
 	}
 }
