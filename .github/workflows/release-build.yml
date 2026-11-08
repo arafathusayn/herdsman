@@ -25,11 +25,11 @@ jobs:
   build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: true
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - uses: oven-sh/setup-bun@v2
@@ -68,7 +68,7 @@ jobs:
       - name: Probe on macOS
         run: |
           dist/herdsman_darwin_arm64*/herdsman --cgo-probe | grep '^cgo probe: sqlite '
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: herdsman-linux-amd64
           path: dist/herdsman_linux_amd64_v1/herdsman
@@ -78,7 +78,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: herdsman-linux-amd64
       - name: Probe on Linux

@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+// Types shared by every herdsman contract. This package defines no services.
+package herdsman.core.v1;
+
+import "google/protobuf/any.proto";
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/core/v1;corev1";
+
+// RouteId names a route.
+message RouteId {
+  string value = 1;
+}
+
+// MessageId names one message of a route's channel.
+message MessageId {
+  string value = 1;
+}
+
+// Version says which contract produced a reply.
+message Version {
+  // SemVer of the contract, without a leading "v".
+  string contract = 1;
+  // The build of the program that answered.
+  string build = 2;
+}
+
+// Error is the one failure shape of every RPC.
+message Error {
+  // Stable and machine-readable; callers branch on this, never on message.
+  string code = 1;
+  // For people; the wording may change.
+  string message = 2;
+  repeated google.protobuf.Any details = 3;
+}
+
+// Plan is what a mutating call would do, returned before it acts.
+message Plan {
+  repeated PlanStep steps = 1;
+}
+
+// PlanStep is one action of a Plan.
+message PlanStep {
+  string action = 1;
+  string target = 2;
+  string description = 3;
+  // True when the action cannot be undone.
+  bool irreversible = 4;
+}
+
+// MessageHeader is a queued message's envelope, never its body.
+message MessageHeader {
+  string box = 1;
+  MessageId id = 2;
+  string from = 3;
+  string to = 4;
+  string kind = 5;
+  MessageId reply_to = 6;
+  // The state folder that holds the message.
+  string state = 7;
+  bool acknowledged = 8;
+}

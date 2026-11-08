@@ -36,12 +36,20 @@ func (d *Daemon) handler() http.Handler {
 				writeError(w, e)
 				return
 			}
+			if e := d.refuseInInspect(r); e != nil {
+				writeError(w, e)
+				return
+			}
 			if e := fn(w, r); e != nil {
 				writeError(w, e)
 			}
 		})
 	}
 	h("GET /v1/health", d.health)
+	h("GET /v1/status", d.statusDetail)
+	h("GET /v1/ops", d.listOps)
+	h("GET /v1/ops/{id}", d.getOp)
+	h("POST /v1/ops/{id}/steps/{ordinal}/resolve", d.resolveOp)
 	h("POST /v1/shutdown", d.shutdown)
 	h("GET /v1/routes", d.listRoutes)
 	h("POST /v1/routes", d.createRoute)
@@ -178,8 +186,11 @@ func (d *Daemon) healthBody(ctx context.Context) Health {
 	}
 	for n, why := range d.held {
 		status := "unowned"
-		if why == "adopting" {
+		switch why {
+		case "adopting":
 			status = "adopting"
+		case heldInspect:
+			status = heldInspect
 		}
 		h.Routes = append(h.Routes, RouteHealth{Route: n, Status: status, Flags: []string{}, Reason: why})
 	}
@@ -211,6 +222,10 @@ func (d *Daemon) healthBody(ctx context.Context) Health {
 		}
 	}
 	down := map[string]bool{}
+	if d.cfg.Inspect {
+		// A health probe would reach another process.
+		sockets = nil
+	}
 	for s := range sockets {
 		st := "ok"
 		cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -235,7 +250,7 @@ func (d *Daemon) healthBody(ctx context.Context) Health {
 	}
 	sort.Slice(h.Herdr, func(i, j int) bool { return h.Herdr[i].Socket < h.Herdr[j].Socket })
 	for _, r := range h.Routes {
-		if r.Status != "ok" {
+		if r.Status != "ok" && r.Status != heldInspect {
 			h.Status = "degraded"
 		}
 	}

@@ -1,0 +1,206 @@
+syntax = "proto3";
+
+package herdsman.suggest.v1;
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/suggest/v1;suggestv1";
+
+// Suggestion is one catalog entry. The same fields are the front matter of an
+// entry file.
+message Suggestion {
+  string id = 1;
+  string kind = 2;
+  string title = 3;
+  repeated string tags = 4;
+  string url = 5;
+  string repo = 6;
+  AppliesTo applies_to = 7;
+  Install install = 8;
+  string since = 9;
+  string body = 10;
+  SourceRef source = 11;
+}
+
+// AppliesTo limits an entry to some machines. An empty list means any.
+message AppliesTo {
+  repeated string harnesses = 1;
+  repeated string ecosystems = 2;
+  repeated string platforms = 3;
+}
+
+// Install holds exactly one recipe and the files it changes.
+message Install {
+  string command = 1;
+  string mcp = 2;
+  string skill_repo = 3;
+  repeated string touches = 4;
+}
+
+// SourceRef names where an entry came from.
+message SourceRef {
+  string kind = 1;
+  string name = 2;
+  string commit = 3;
+}
+
+// Pin is a remote catalog fixed to one full commit id.
+message Pin {
+  string url = 1;
+  string commit = 2;
+}
+
+// Reason explains points given, or why an entry was left out.
+message Reason {
+  string code = 1;
+  string value = 2;
+  int32 points = 3;
+}
+
+// Scored is a ranked entry; its score is the sum of its reasons' points.
+message Scored {
+  Suggestion entry = 1;
+  int32 score = 2;
+  repeated Reason reasons = 3;
+}
+
+// Excluded is an entry that cannot apply to this machine.
+message Excluded {
+  string id = 1;
+  Reason reason = 2;
+}
+
+// Problem is a file or source that could not be read.
+message Problem {
+  SourceRef source = 1;
+  string file = 2;
+  string error = 3;
+}
+
+// Recipe is what applying an entry would do, with the checksum an approval is
+// recorded against.
+message Recipe {
+  string id = 1;
+  string title = 2;
+  SourceRef source = 3;
+  string kind = 4;
+  string text = 5;
+  repeated string touches = 6;
+  string checksum = 7;
+}
+
+// Change is one entry a pin move would add, remove or change.
+message Change {
+  string id = 1;
+  string action = 2;
+  string diff = 3;
+}
+
+message SearchRequest {
+  string dir = 1;
+  string text = 2;
+  string kind = 3;
+  string for = 4;
+  string tag = 5;
+}
+
+message SearchResponse {
+  string dir = 1;
+  repeated Scored items = 2;
+  repeated Excluded excluded = 3;
+  repeated Problem problems = 4;
+}
+
+message GetRequest {
+  string dir = 1;
+  string id = 2;
+}
+
+message GetResponse {
+  Suggestion entry = 1;
+}
+
+message AddRequest {
+  string dir = 1;
+  bool project = 2;
+  string id = 3;
+  string kind = 4;
+  string title = 5;
+  repeated string tags = 6;
+  string url = 7;
+  string repo = 8;
+  string body = 9;
+}
+
+message AddResponse {
+  string id = 1;
+  string path = 2;
+}
+
+message PlanRequest {
+  string dir = 1;
+  string id = 2;
+}
+
+message PlanResponse {
+  Recipe recipe = 1;
+  bool approved = 2;
+}
+
+message SourcesRequest {}
+
+message SourcesResponse {
+  repeated Pin sources = 1;
+}
+
+message SourceAddRequest {
+  string url = 1;
+  string ref = 2;
+}
+
+message SourceAddResponse {
+  Pin pin = 1;
+}
+
+message SourceRemoveRequest {
+  string url = 1;
+}
+
+message SourceRemoveResponse {
+  string url = 1;
+}
+
+message SourcePreviewRequest {
+  string url = 1;
+  string ref = 2;
+}
+
+message SourcePreviewResponse {
+  Pin from = 1;
+  Pin to = 2;
+  repeated Change changes = 3;
+  repeated Problem problems = 4;
+}
+
+message SourcePinRequest {
+  string url = 1;
+  string from = 2;
+  string to = 3;
+}
+
+message SourcePinResponse {
+  Pin pin = 1;
+}
+
+// SuggestService reads and records the catalog. It deliberately has no method
+// that runs a recipe: installing needs a person at a terminal, in the command
+// line's own process.
+service SuggestService {
+  rpc Search(SearchRequest) returns (SearchResponse);
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Add(AddRequest) returns (AddResponse);
+  rpc Plan(PlanRequest) returns (PlanResponse);
+  rpc Sources(SourcesRequest) returns (SourcesResponse);
+  rpc SourceAdd(SourceAddRequest) returns (SourceAddResponse);
+  rpc SourceRemove(SourceRemoveRequest) returns (SourceRemoveResponse);
+  rpc SourcePreview(SourcePreviewRequest) returns (SourcePreviewResponse);
+  rpc SourcePin(SourcePinRequest) returns (SourcePinResponse);
+}

@@ -22,8 +22,10 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/afk"
+	"github.com/arafathusayn/herdsman/internal/daemon"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/suggest"
 	"github.com/arafathusayn/herdsman/internal/termqr"
 	"github.com/arafathusayn/herdsman/internal/web"
 )
@@ -40,6 +42,20 @@ var (
 // cgoProbe runs for the hidden --cgo-probe argument; only a build with the
 // cgoprobe tag sets it (cgoprobe.go).
 var cgoProbe func(stdout io.Writer) error
+
+// The worktree verbs run their service in this process until the generated
+// client exists.
+func init() { worktreeCall = daemon.WorktreeCall }
+
+// The suggest verbs have no client yet either. A recipe runs through its own
+// function because the service must never be able to run one.
+func init() {
+	suggestCall = daemon.SuggestCall
+	suggestIsTerminal = daemon.IsTerminal
+	suggestRun = func(ctx context.Context, dir, id string, in io.Reader, out, errOut io.Writer, isTerminal bool) error {
+		return daemon.SuggestRun(ctx, dir, id, suggest.Terminal{In: in, Out: out, Err: errOut, IsTerminal: isTerminal})
+	}
+}
 
 const usage = `herdsman: run a team of coding agents inside herdr.
 

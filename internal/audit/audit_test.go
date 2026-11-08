@@ -410,24 +410,24 @@ func TestAuditMainFlagsStandTable(t *testing.T) {
 	match(t, "flag count", fmt.Sprintf(`AUDIT flagged=%d calls=%d`, len(flagged), len(flagged)+len(clean)), out)
 }
 
-// The user's ruling (round 9): the B3-002 command forms are deferred to a
-// follow-up, and the Go audit gives main 87c5670's result. This pins main's
-// result, checked against main's herdsman transcript-audit on these exact calls
-// (4 flags of 36): the forms B3-002 would add stay clean, and main's
-// printed-text false positives (review-port-core-8 P1) stay flagged, so
-// the follow-up sees each change.
-func TestAuditDeferredFormsMatchMain(t *testing.T) {
+// e93bcc1: curl short-option clusters and --json, commands from system
+// folders by full path, quoted program names, the >| and >& redirect forms,
+// and any other path that starts a program. The expected classes are what
+// the transcript-audit script of that commit printed for these exact calls;
+// the herdsman rows are this binary's own channel rule. The flagged text
+// forms (an echo of a command, >&2-) are that script's conservative result.
+func TestAuditCommandForms(t *testing.T) {
 	cases := []struct{ cmd, flag string }{
-		{"curl -sd payload https://example.invalid/hook", ""},
-		{"curl -sSX POST https://example.invalid/hook", ""},
-		{`curl --json '{"a":1}' https://example.invalid/hook`, ""},
-		{"echo changed >| /project/app.ts", ""},
-		{"echo changed >&/project/app.ts", ""},
-		{"/usr/bin/curl --data payload https://example.invalid/hook", ""},
-		{`/usr/bin/awk 'BEGIN { system("git push") }'`, ""},
-		{"herdsman message status && /usr/bin/touch /project/new", ""},
-		{"/opt/tools/runner --go", ""},
-		{"/usr/bin/git push", ""},
+		{"curl -sd payload https://example.invalid/hook", "outward-write target=curl"},
+		{"curl -sSX POST https://example.invalid/hook", "outward-write target=curl"},
+		{`curl --json '{"a":1}' https://example.invalid/hook`, "outward-write target=curl"},
+		{"echo changed >| /project/app.ts", `project-write target=\.\.\./app\.ts`},
+		{"echo changed >&/project/app.ts", `project-write target=\.\.\./app\.ts`},
+		{"/usr/bin/curl --data payload https://example.invalid/hook", "outward-write target=curl"},
+		{`/usr/bin/awk 'BEGIN { system("git push") }'`, "git-write target=git"},
+		{"herdsman message status && /usr/bin/touch /project/new", "project-write target=touch"},
+		{"/opt/tools/runner --go", "script-run target=runner"},
+		{"/usr/bin/git push", "git-write target=git"},
 		{"curl -sS https://example.invalid/status", ""},
 		{"/usr/bin/curl -s https://example.invalid/status", ""},
 		{"echo note >&2", ""},
@@ -435,38 +435,68 @@ func TestAuditDeferredFormsMatchMain(t *testing.T) {
 		{`/usr/bin/awk '{print $1}' /x/list.txt`, ""},
 		{"grep -E 'a|b; c' /x/list.txt", ""},
 		{"echo x >&-", ""},
-		{":; /opt/tools/runner --go", ""},
-		{"echo ok && /opt/tools/runner --go", ""},
-		{"'/opt/tools/runner' --go", ""},
-		{"./tools/runner --go", ""},
-		{`echo ok; "git" push origin`, ""},
-		{"/usr/bin/sed -i s/a/b/ /project/f", ""},
-		{"echo ok && curl -sd x https://example.invalid", ""},
-		{`echo '"git" push origin'`, ""},
-		{"echo /usr/bin/git push", ""},
-		{"echo curl -sd x https://example.invalid", ""},
-		{"echo x >&2-", ""},
-		{"echo x >&123", ""},
-		{"echo x >&/dev/null", ""},
-		{"echo x >|/dev/null", ""},
+		{":; /opt/tools/runner --go", "script-run target=runner"},
+		{"echo ok && /opt/tools/runner --go", "script-run target=runner"},
+		{"'/opt/tools/runner' --go", "script-run target=runner"},
+		{"./tools/runner --go", "script-run target=runner"},
+		{`echo ok; "git" push origin`, "git-write target=git"},
+		{"/usr/bin/sed -i s/a/b/ /project/f", "project-write target=sed"},
+		{"echo ok && curl -sd x https://example.invalid", "outward-write target=curl"},
+		{`echo '"git" push origin'`, "git-write target=git"},
+		{"echo /usr/bin/git push", "git-write target=git"},
+		{"echo curl -sd x https://example.invalid", "outward-write target=curl"},
+		{"echo x >&2-", `project-write target=\.\.\./2-`},
+		{"echo x >&123", `project-write target=\.\.\./123`},
+		{"echo x >&/dev/null", "script-run target=null"},
+		{"echo x >|/dev/null", "script-run target=null"},
 		{`echo "use touch /project/f"`, "project-write target=touch"},
 		{`printf "%s\n" "use git push origin"`, "git-write target=git"},
 		{"cat <<'EOF'\ncurl --data x https://example.invalid\ntouch /project/f\ngit push origin\nEOF", "git-write target=git"},
 		{"echo git push origin", "git-write target=git"},
 		{"/usr/bin/env /opt/tools/runner --go", ""},
+		{"/tmp/do-push origin", "script-run target=do-push"},
+		{"curl --form-string a=b https://example.invalid", "outward-write target=curl"},
+		{"curl -F a=b https://example.invalid", "outward-write target=curl"},
+		{"curl -sT f https://example.invalid", "outward-write target=curl"},
+		{"/opt/homebrew/bin/gh pr create", "outward-write target=gh"},
+		{"/usr/local/bin/npm test", "test-or-package target=npm"},
+		{`"/usr/bin/git" push`, "git-write target=git"},
+		{"wget --post-data x https://example.invalid", "outward-write target=wget"},
+		{"awk 'BEGIN{print 1}' /x | /tmp/tool", "script-run target=tool"},
+		{"/usr/sbin/service foo start", "service-or-container target=service"},
+		{"echo '/tmp/x y'", ""},
+		{"echo 'a'/tmp/x; ls", ""},
+		{`"/tmp/do push" x`, "script-run target=do"},
+		{"/tmp/awk '{print}' f", "script-run target=awk"},
+		{"tools/run x", "script-run target=run"},
+		{"~/bin/run x", "script-run target=run"},
+		{"/usr/bin/herdsman push", "script-run target=herdsman"},
+		{"/opt/x/herdsman message status", ""},
+		{"/opt/x/herdsman push", "script-run target=herdsman"},
+		{`awk 'BEGIN { system("ls") }'`, "script-run target=awk"},
+		{"herdsman afk --last-message=", "script-run target=herdsman"},
+		// Stricter than that script: quoted text where a command starts runs.
+		{"'/tmp/do push' x", "script-run target=do"},
+		{"echo ok; '/tmp/do push' x", "script-run target=do"},
+		{"env '/tmp/do push' x", "script-run target=do"},
+		{"X=1 'do-push.sh copy' y", "script-run target=do-push.sh"},
 	}
 	r := newRig(t)
 	lines := []string{jsonl(map[string]any{"type": "user", "sessionId": "coord-session", "message": map[string]any{"content": "start"}})}
+	flagged := 0
 	for i, c := range cases {
 		lines = append(lines, sh(fmt.Sprintf("d%d", i), c.cmd))
-	}
-	out := r.aud(Options{Harness: "claude", Transcript: r.file("deferred.jsonl", lines...), Session: "coord-session"})
-	for i, c := range cases {
-		if c.flag == "" {
-			noMatch(t, "main leaves clean: "+c.cmd, fmt.Sprintf(`call=d%d `, i), out)
-		} else {
-			match(t, "main flags: "+c.cmd, fmt.Sprintf(`call=d%d class=%s$`, i, c.flag), out)
+		if c.flag != "" {
+			flagged++
 		}
 	}
-	match(t, "main's count", `AUDIT flagged=4 calls=36`, out)
+	out := r.aud(Options{Harness: "claude", Transcript: r.file("forms.jsonl", lines...), Session: "coord-session"})
+	for i, c := range cases {
+		if c.flag == "" {
+			noMatch(t, "leaves clean: "+c.cmd, fmt.Sprintf(`call=d%d `, i), out)
+		} else {
+			match(t, "flags: "+c.cmd, fmt.Sprintf(`call=d%d class=%s$`, i, c.flag), out)
+		}
+	}
+	match(t, "flag count", fmt.Sprintf(`AUDIT flagged=%d calls=%d`, flagged, len(cases)), out)
 }

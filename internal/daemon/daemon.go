@@ -15,7 +15,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/routename"
 )
 
@@ -51,6 +53,14 @@ type Config struct {
 	Procs func() ([]Proc, error)
 	// DrainWait bounds the adoption drain (default 60 s).
 	DrainWait time.Duration
+	// Inspect opens and migrates the state directory and serves reads only:
+	// no route starts, nothing is reconciled, retried, signalled or delivered.
+	Inspect bool
+	// Effects and Checks are the operation engine's registered step kinds.
+	Effects map[string]ops.Effect
+	Checks  map[string]ops.Check
+	// Sink receives the operations' outbox (nil: events wait in the store).
+	Sink ops.Sink
 }
 
 // Daemon is one running daemon.
@@ -72,6 +82,12 @@ type Daemon struct {
 	srv       *http.Server
 	done      chan struct{}
 	stopOnce  sync.Once
+
+	acctDB    store.Conn
+	ops       *ops.Engine
+	opsCancel context.CancelFunc
+	opsCtx    context.Context
+	bg        sync.WaitGroup
 }
 
 type credRef struct{ route, name string }
@@ -301,12 +317,21 @@ func (d *Daemon) Start() (err error) {
 	if err := writeDurable(filepath.Join(d.daemonDir(), "daemon.json"), append(b, '\n'), 0o600); err != nil {
 		return err
 	}
-	d.touchHeartbeat()
-	d.resumeAdoptions()
+	if err := d.openOps(); err != nil {
+		return err
+	}
 	rf, err := ReadRoutes(d.cfg.PrivateHome)
 	if err != nil {
 		return err
 	}
+	if d.cfg.Inspect {
+		if err := d.startInspect(rf); err != nil {
+			return err
+		}
+		return d.listen()
+	}
+	d.touchHeartbeat()
+	d.resumeAdoptions()
 	names := make([]string, 0, len(rf.Routes))
 	for n := range rf.Routes {
 		names = append(names, n)
@@ -320,6 +345,11 @@ func (d *Daemon) Start() (err error) {
 			d.openRoute(n, rf.Routes[n])
 		}
 	}
+	return d.listen()
+}
+
+// listen opens the daemon's socket.
+func (d *Daemon) listen() error {
 	sock := SocketPath(d.cfg.PrivateHome)
 	_ = os.Remove(sock) // stale: this process holds the account lock
 	ln, err := net.Listen("unix", sock)
@@ -352,6 +382,7 @@ func (d *Daemon) unwindStart() {
 		_ = d.ln.Close()
 		d.ln = nil
 	}
+	d.closeOps()
 	if d.acct != nil {
 		_ = d.acct.Close()
 		d.acct = nil
@@ -360,7 +391,10 @@ func (d *Daemon) unwindStart() {
 
 // Serve answers requests until Stop; it runs the scheduler too.
 func (d *Daemon) Serve(ctx context.Context) error {
-	go d.scheduler(ctx)
+	if !d.cfg.Inspect {
+		go d.scheduler(ctx)
+		d.startOpsRecovery(ctx)
+	}
 	errc := make(chan error, 1)
 	go func() { errc <- d.srv.Serve(d.ln) }()
 	select {
@@ -411,6 +445,7 @@ func (d *Daemon) Stop(reason string) {
 			cancel()
 		}
 		_ = os.Remove(SocketPath(d.cfg.PrivateHome))
+		d.closeOps()
 		if d.acct != nil {
 			_ = d.acct.Close()
 		}
