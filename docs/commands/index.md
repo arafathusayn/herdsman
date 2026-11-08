@@ -23,6 +23,7 @@ Generated from `herdsman spec cli`.
 - [`message`](message.md): The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.
 - [`models`](models.md): Probe each installed harness: its version, models, efforts and default effort as it reports them.
 - [`new`](new.md): Make a task's branch and worktree.
+- [`plugin`](plugin.md): Manage plugins (experimental).
 - [`recommend`](recommend.md): The same as suggest.
 - [`resource`](resource.md): Record a resource a task created: resource add.
 - [`review`](review.md): Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.
