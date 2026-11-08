@@ -493,7 +493,9 @@ type RouteStart struct {
 	Steps     []*RouteStep           `protobuf:"bytes,8,rep,name=steps,proto3" json:"steps,omitempty"`
 	Pair      *PairStatus            `protobuf:"bytes,9,opt,name=pair,proto3" json:"pair,omitempty"`
 	// What the start runs, as text, the commands verbatim.
-	Plan          string `protobuf:"bytes,10,opt,name=plan,proto3" json:"plan,omitempty"`
+	Plan string `protobuf:"bytes,10,opt,name=plan,proto3" json:"plan,omitempty"`
+	// "running", "paused", "stopped" or "deleted", from the last finished control.
+	Control       string `protobuf:"bytes,11,opt,name=control,proto3" json:"control,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -594,6 +596,13 @@ func (x *RouteStart) GetPair() *PairStatus {
 func (x *RouteStart) GetPlan() string {
 	if x != nil {
 		return x.Plan
+	}
+	return ""
+}
+
+func (x *RouteStart) GetControl() string {
+	if x != nil {
+		return x.Control
 	}
 	return ""
 }
@@ -818,6 +827,565 @@ func (x *RouteServiceListResponse) GetStarts() []*RouteStart {
 	return nil
 }
 
+// RouteControl is the outcome of one lifecycle verb.
+type RouteControl struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The journaled operation; empty for a dry run or when nothing had to change.
+	Operation string `protobuf:"bytes,1,opt,name=operation,proto3" json:"operation,omitempty"`
+	// The operation's state, "planned" for a dry run, "unchanged" for a repeat.
+	State  string `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	Reason string `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	// The route's lifecycle state after the call.
+	Control string `protobuf:"bytes,4,opt,name=control,proto3" json:"control,omitempty"`
+	// What the verb runs, as text.
+	Plan string `protobuf:"bytes,5,opt,name=plan,proto3" json:"plan,omitempty"`
+	// The archive folder of a delete; empty for the other verbs.
+	Archive       string `protobuf:"bytes,6,opt,name=archive,proto3" json:"archive,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteControl) Reset() {
+	*x = RouteControl{}
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteControl) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteControl) ProtoMessage() {}
+
+func (x *RouteControl) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteControl.ProtoReflect.Descriptor instead.
+func (*RouteControl) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_route_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RouteControl) GetOperation() string {
+	if x != nil {
+		return x.Operation
+	}
+	return ""
+}
+
+func (x *RouteControl) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *RouteControl) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *RouteControl) GetControl() string {
+	if x != nil {
+		return x.Control
+	}
+	return ""
+}
+
+func (x *RouteControl) GetPlan() string {
+	if x != nil {
+		return x.Plan
+	}
+	return ""
+}
+
+func (x *RouteControl) GetArchive() string {
+	if x != nil {
+		return x.Archive
+	}
+	return ""
+}
+
+type RouteServicePauseRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Repo          string                 `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
+	DryRun        bool                   `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteServicePauseRequest) Reset() {
+	*x = RouteServicePauseRequest{}
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteServicePauseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteServicePauseRequest) ProtoMessage() {}
+
+func (x *RouteServicePauseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteServicePauseRequest.ProtoReflect.Descriptor instead.
+func (*RouteServicePauseRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_route_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RouteServicePauseRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *RouteServicePauseRequest) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *RouteServicePauseRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
+type RouteServicePauseResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Result        *RouteControl          `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteServicePauseResponse) Reset() {
+	*x = RouteServicePauseResponse{}
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteServicePauseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteServicePauseResponse) ProtoMessage() {}
+
+func (x *RouteServicePauseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteServicePauseResponse.ProtoReflect.Descriptor instead.
+func (*RouteServicePauseResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_route_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RouteServicePauseResponse) GetResult() *RouteControl {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+type RouteServiceResumeRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Route  *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Repo   string                 `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
+	DryRun bool                   `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	// Added to every agent's continue prompt.
+	Note string `protobuf:"bytes,4,opt,name=note,proto3" json:"note,omitempty"`
+	// Who asks; a stopped route's pair is attested again.
+	Caller        *UpCaller `protobuf:"bytes,5,opt,name=caller,proto3" json:"caller,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteServiceResumeRequest) Reset() {
+	*x = RouteServiceResumeRequest{}
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteServiceResumeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteServiceResumeRequest) ProtoMessage() {}
+
+func (x *RouteServiceResumeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteServiceResumeRequest.ProtoReflect.Descriptor instead.
+func (*RouteServiceResumeRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_route_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *RouteServiceResumeRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *RouteServiceResumeRequest) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *RouteServiceResumeRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
+func (x *RouteServiceResumeRequest) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+func (x *RouteServiceResumeRequest) GetCaller() *UpCaller {
+	if x != nil {
+		return x.Caller
+	}
+	return nil
+}
+
+type RouteServiceResumeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Result        *RouteControl          `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteServiceResumeResponse) Reset() {
+	*x = RouteServiceResumeResponse{}
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteServiceResumeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteServiceResumeResponse) ProtoMessage() {}
+
+func (x *RouteServiceResumeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteServiceResumeResponse.ProtoReflect.Descriptor instead.
+func (*RouteServiceResumeResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_route_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *RouteServiceResumeResponse) GetResult() *RouteControl {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+type RouteServiceStopRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Route  *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Repo   string                 `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
+	DryRun bool                   `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	// How long agents get to write a report; zero means the default.
+	GraceSeconds  int32 `protobuf:"varint,4,opt,name=grace_seconds,json=graceSeconds,proto3" json:"grace_seconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteServiceStopRequest) Reset() {
+	*x = RouteServiceStopRequest{}
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteServiceStopRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteServiceStopRequest) ProtoMessage() {}
+
+func (x *RouteServiceStopRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteServiceStopRequest.ProtoReflect.Descriptor instead.
+func (*RouteServiceStopRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_route_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *RouteServiceStopRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *RouteServiceStopRequest) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *RouteServiceStopRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
+func (x *RouteServiceStopRequest) GetGraceSeconds() int32 {
+	if x != nil {
+		return x.GraceSeconds
+	}
+	return 0
+}
+
+type RouteServiceStopResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Result        *RouteControl          `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteServiceStopResponse) Reset() {
+	*x = RouteServiceStopResponse{}
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteServiceStopResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteServiceStopResponse) ProtoMessage() {}
+
+func (x *RouteServiceStopResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteServiceStopResponse.ProtoReflect.Descriptor instead.
+func (*RouteServiceStopResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_route_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *RouteServiceStopResponse) GetResult() *RouteControl {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+type RouteServiceDeleteRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Route  *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Repo   string                 `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
+	DryRun bool                   `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	// Stop running agents first instead of refusing.
+	Force bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
+	// Archive the route folder but leave it in place.
+	KeepFolder    bool  `protobuf:"varint,5,opt,name=keep_folder,json=keepFolder,proto3" json:"keep_folder,omitempty"`
+	GraceSeconds  int32 `protobuf:"varint,6,opt,name=grace_seconds,json=graceSeconds,proto3" json:"grace_seconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteServiceDeleteRequest) Reset() {
+	*x = RouteServiceDeleteRequest{}
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteServiceDeleteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteServiceDeleteRequest) ProtoMessage() {}
+
+func (x *RouteServiceDeleteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteServiceDeleteRequest.ProtoReflect.Descriptor instead.
+func (*RouteServiceDeleteRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_route_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *RouteServiceDeleteRequest) GetRoute() *v1.RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *RouteServiceDeleteRequest) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *RouteServiceDeleteRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
+func (x *RouteServiceDeleteRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
+func (x *RouteServiceDeleteRequest) GetKeepFolder() bool {
+	if x != nil {
+		return x.KeepFolder
+	}
+	return false
+}
+
+func (x *RouteServiceDeleteRequest) GetGraceSeconds() int32 {
+	if x != nil {
+		return x.GraceSeconds
+	}
+	return 0
+}
+
+type RouteServiceDeleteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Result        *RouteControl          `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteServiceDeleteResponse) Reset() {
+	*x = RouteServiceDeleteResponse{}
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteServiceDeleteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteServiceDeleteResponse) ProtoMessage() {}
+
+func (x *RouteServiceDeleteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_route_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteServiceDeleteResponse.ProtoReflect.Descriptor instead.
+func (*RouteServiceDeleteResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_route_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *RouteServiceDeleteResponse) GetResult() *RouteControl {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
 var File_herdsman_daemon_v1_route_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
@@ -865,7 +1433,7 @@ const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"PairStatus\x12\x1a\n" +
 	"\bchecksum\x18\x01 \x01(\tR\bchecksum\x12\x1a\n" +
 	"\bapproved\x18\x02 \x01(\bR\bapproved\x12\x16\n" +
-	"\x06record\x18\x03 \x01(\tR\x06record\"\xd2\x02\n" +
+	"\x06record\x18\x03 \x01(\tR\x06record\"\xec\x02\n" +
 	"\n" +
 	"RouteStart\x12\x1c\n" +
 	"\toperation\x18\x01 \x01(\tR\toperation\x12/\n" +
@@ -878,7 +1446,8 @@ const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"\x05steps\x18\b \x03(\v2\x1d.herdsman.daemon.v1.RouteStepR\x05steps\x122\n" +
 	"\x04pair\x18\t \x01(\v2\x1e.herdsman.daemon.v1.PairStatusR\x04pair\x12\x12\n" +
 	"\x04plan\x18\n" +
-	" \x01(\tR\x04plan\"B\n" +
+	" \x01(\tR\x04plan\x12\x18\n" +
+	"\acontrol\x18\v \x01(\tR\acontrol\"B\n" +
 	"\n" +
 	"UpResponse\x124\n" +
 	"\x05start\x18\x01 \x01(\v2\x1e.herdsman.daemon.v1.RouteStartR\x05start\"]\n" +
@@ -889,11 +1458,53 @@ const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"\x05start\x18\x01 \x01(\v2\x1e.herdsman.daemon.v1.RouteStartR\x05start\"\x19\n" +
 	"\x17RouteServiceListRequest\"R\n" +
 	"\x18RouteServiceListResponse\x126\n" +
-	"\x06starts\x18\x01 \x03(\v2\x1e.herdsman.daemon.v1.RouteStartR\x06starts2\x96\x02\n" +
+	"\x06starts\x18\x01 \x03(\v2\x1e.herdsman.daemon.v1.RouteStartR\x06starts\"\xa2\x01\n" +
+	"\fRouteControl\x12\x1c\n" +
+	"\toperation\x18\x01 \x01(\tR\toperation\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x18\n" +
+	"\acontrol\x18\x04 \x01(\tR\acontrol\x12\x12\n" +
+	"\x04plan\x18\x05 \x01(\tR\x04plan\x12\x18\n" +
+	"\aarchive\x18\x06 \x01(\tR\aarchive\"x\n" +
+	"\x18RouteServicePauseRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
+	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"U\n" +
+	"\x19RouteServicePauseResponse\x128\n" +
+	"\x06result\x18\x01 \x01(\v2 .herdsman.daemon.v1.RouteControlR\x06result\"\xc3\x01\n" +
+	"\x19RouteServiceResumeRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
+	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\x12\x12\n" +
+	"\x04note\x18\x04 \x01(\tR\x04note\x124\n" +
+	"\x06caller\x18\x05 \x01(\v2\x1c.herdsman.daemon.v1.UpCallerR\x06caller\"V\n" +
+	"\x1aRouteServiceResumeResponse\x128\n" +
+	"\x06result\x18\x01 \x01(\v2 .herdsman.daemon.v1.RouteControlR\x06result\"\x9c\x01\n" +
+	"\x17RouteServiceStopRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
+	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\x12#\n" +
+	"\rgrace_seconds\x18\x04 \x01(\x05R\fgraceSeconds\"T\n" +
+	"\x18RouteServiceStopResponse\x128\n" +
+	"\x06result\x18\x01 \x01(\v2 .herdsman.daemon.v1.RouteControlR\x06result\"\xd5\x01\n" +
+	"\x19RouteServiceDeleteRequest\x12/\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
+	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\x12\x14\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\x12\x1f\n" +
+	"\vkeep_folder\x18\x05 \x01(\bR\n" +
+	"keepFolder\x12#\n" +
+	"\rgrace_seconds\x18\x06 \x01(\x05R\fgraceSeconds\"V\n" +
+	"\x1aRouteServiceDeleteResponse\x128\n" +
+	"\x06result\x18\x01 \x01(\v2 .herdsman.daemon.v1.RouteControlR\x06result2\xb1\x05\n" +
 	"\fRouteService\x12C\n" +
 	"\x02Up\x12\x1d.herdsman.daemon.v1.UpRequest\x1a\x1e.herdsman.daemon.v1.UpResponse\x12^\n" +
 	"\x03Get\x12*.herdsman.daemon.v1.RouteServiceGetRequest\x1a+.herdsman.daemon.v1.RouteServiceGetResponse\x12a\n" +
-	"\x04List\x12+.herdsman.daemon.v1.RouteServiceListRequest\x1a,.herdsman.daemon.v1.RouteServiceListResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
+	"\x04List\x12+.herdsman.daemon.v1.RouteServiceListRequest\x1a,.herdsman.daemon.v1.RouteServiceListResponse\x12d\n" +
+	"\x05Pause\x12,.herdsman.daemon.v1.RouteServicePauseRequest\x1a-.herdsman.daemon.v1.RouteServicePauseResponse\x12g\n" +
+	"\x06Resume\x12-.herdsman.daemon.v1.RouteServiceResumeRequest\x1a..herdsman.daemon.v1.RouteServiceResumeResponse\x12a\n" +
+	"\x04Stop\x12+.herdsman.daemon.v1.RouteServiceStopRequest\x1a,.herdsman.daemon.v1.RouteServiceStopResponse\x12g\n" +
+	"\x06Delete\x12-.herdsman.daemon.v1.RouteServiceDeleteRequest\x1a..herdsman.daemon.v1.RouteServiceDeleteResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
 
 var (
 	file_herdsman_daemon_v1_route_proto_rawDescOnce sync.Once
@@ -907,43 +1518,69 @@ func file_herdsman_daemon_v1_route_proto_rawDescGZIP() []byte {
 	return file_herdsman_daemon_v1_route_proto_rawDescData
 }
 
-var file_herdsman_daemon_v1_route_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_herdsman_daemon_v1_route_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_herdsman_daemon_v1_route_proto_goTypes = []any{
-	(*UpCaller)(nil),                 // 0: herdsman.daemon.v1.UpCaller
-	(*StepVerdict)(nil),              // 1: herdsman.daemon.v1.StepVerdict
-	(*UpRequest)(nil),                // 2: herdsman.daemon.v1.UpRequest
-	(*RouteStep)(nil),                // 3: herdsman.daemon.v1.RouteStep
-	(*PairStatus)(nil),               // 4: herdsman.daemon.v1.PairStatus
-	(*RouteStart)(nil),               // 5: herdsman.daemon.v1.RouteStart
-	(*UpResponse)(nil),               // 6: herdsman.daemon.v1.UpResponse
-	(*RouteServiceGetRequest)(nil),   // 7: herdsman.daemon.v1.RouteServiceGetRequest
-	(*RouteServiceGetResponse)(nil),  // 8: herdsman.daemon.v1.RouteServiceGetResponse
-	(*RouteServiceListRequest)(nil),  // 9: herdsman.daemon.v1.RouteServiceListRequest
-	(*RouteServiceListResponse)(nil), // 10: herdsman.daemon.v1.RouteServiceListResponse
-	(*v1.RouteId)(nil),               // 11: herdsman.core.v1.RouteId
+	(*UpCaller)(nil),                   // 0: herdsman.daemon.v1.UpCaller
+	(*StepVerdict)(nil),                // 1: herdsman.daemon.v1.StepVerdict
+	(*UpRequest)(nil),                  // 2: herdsman.daemon.v1.UpRequest
+	(*RouteStep)(nil),                  // 3: herdsman.daemon.v1.RouteStep
+	(*PairStatus)(nil),                 // 4: herdsman.daemon.v1.PairStatus
+	(*RouteStart)(nil),                 // 5: herdsman.daemon.v1.RouteStart
+	(*UpResponse)(nil),                 // 6: herdsman.daemon.v1.UpResponse
+	(*RouteServiceGetRequest)(nil),     // 7: herdsman.daemon.v1.RouteServiceGetRequest
+	(*RouteServiceGetResponse)(nil),    // 8: herdsman.daemon.v1.RouteServiceGetResponse
+	(*RouteServiceListRequest)(nil),    // 9: herdsman.daemon.v1.RouteServiceListRequest
+	(*RouteServiceListResponse)(nil),   // 10: herdsman.daemon.v1.RouteServiceListResponse
+	(*RouteControl)(nil),               // 11: herdsman.daemon.v1.RouteControl
+	(*RouteServicePauseRequest)(nil),   // 12: herdsman.daemon.v1.RouteServicePauseRequest
+	(*RouteServicePauseResponse)(nil),  // 13: herdsman.daemon.v1.RouteServicePauseResponse
+	(*RouteServiceResumeRequest)(nil),  // 14: herdsman.daemon.v1.RouteServiceResumeRequest
+	(*RouteServiceResumeResponse)(nil), // 15: herdsman.daemon.v1.RouteServiceResumeResponse
+	(*RouteServiceStopRequest)(nil),    // 16: herdsman.daemon.v1.RouteServiceStopRequest
+	(*RouteServiceStopResponse)(nil),   // 17: herdsman.daemon.v1.RouteServiceStopResponse
+	(*RouteServiceDeleteRequest)(nil),  // 18: herdsman.daemon.v1.RouteServiceDeleteRequest
+	(*RouteServiceDeleteResponse)(nil), // 19: herdsman.daemon.v1.RouteServiceDeleteResponse
+	(*v1.RouteId)(nil),                 // 20: herdsman.core.v1.RouteId
 }
 var file_herdsman_daemon_v1_route_proto_depIdxs = []int32{
-	11, // 0: herdsman.daemon.v1.UpRequest.route:type_name -> herdsman.core.v1.RouteId
+	20, // 0: herdsman.daemon.v1.UpRequest.route:type_name -> herdsman.core.v1.RouteId
 	1,  // 1: herdsman.daemon.v1.UpRequest.verdicts:type_name -> herdsman.daemon.v1.StepVerdict
 	0,  // 2: herdsman.daemon.v1.UpRequest.caller:type_name -> herdsman.daemon.v1.UpCaller
-	11, // 3: herdsman.daemon.v1.RouteStart.route:type_name -> herdsman.core.v1.RouteId
+	20, // 3: herdsman.daemon.v1.RouteStart.route:type_name -> herdsman.core.v1.RouteId
 	3,  // 4: herdsman.daemon.v1.RouteStart.steps:type_name -> herdsman.daemon.v1.RouteStep
 	4,  // 5: herdsman.daemon.v1.RouteStart.pair:type_name -> herdsman.daemon.v1.PairStatus
 	5,  // 6: herdsman.daemon.v1.UpResponse.start:type_name -> herdsman.daemon.v1.RouteStart
-	11, // 7: herdsman.daemon.v1.RouteServiceGetRequest.route:type_name -> herdsman.core.v1.RouteId
+	20, // 7: herdsman.daemon.v1.RouteServiceGetRequest.route:type_name -> herdsman.core.v1.RouteId
 	5,  // 8: herdsman.daemon.v1.RouteServiceGetResponse.start:type_name -> herdsman.daemon.v1.RouteStart
 	5,  // 9: herdsman.daemon.v1.RouteServiceListResponse.starts:type_name -> herdsman.daemon.v1.RouteStart
-	2,  // 10: herdsman.daemon.v1.RouteService.Up:input_type -> herdsman.daemon.v1.UpRequest
-	7,  // 11: herdsman.daemon.v1.RouteService.Get:input_type -> herdsman.daemon.v1.RouteServiceGetRequest
-	9,  // 12: herdsman.daemon.v1.RouteService.List:input_type -> herdsman.daemon.v1.RouteServiceListRequest
-	6,  // 13: herdsman.daemon.v1.RouteService.Up:output_type -> herdsman.daemon.v1.UpResponse
-	8,  // 14: herdsman.daemon.v1.RouteService.Get:output_type -> herdsman.daemon.v1.RouteServiceGetResponse
-	10, // 15: herdsman.daemon.v1.RouteService.List:output_type -> herdsman.daemon.v1.RouteServiceListResponse
-	13, // [13:16] is the sub-list for method output_type
-	10, // [10:13] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	20, // 10: herdsman.daemon.v1.RouteServicePauseRequest.route:type_name -> herdsman.core.v1.RouteId
+	11, // 11: herdsman.daemon.v1.RouteServicePauseResponse.result:type_name -> herdsman.daemon.v1.RouteControl
+	20, // 12: herdsman.daemon.v1.RouteServiceResumeRequest.route:type_name -> herdsman.core.v1.RouteId
+	0,  // 13: herdsman.daemon.v1.RouteServiceResumeRequest.caller:type_name -> herdsman.daemon.v1.UpCaller
+	11, // 14: herdsman.daemon.v1.RouteServiceResumeResponse.result:type_name -> herdsman.daemon.v1.RouteControl
+	20, // 15: herdsman.daemon.v1.RouteServiceStopRequest.route:type_name -> herdsman.core.v1.RouteId
+	11, // 16: herdsman.daemon.v1.RouteServiceStopResponse.result:type_name -> herdsman.daemon.v1.RouteControl
+	20, // 17: herdsman.daemon.v1.RouteServiceDeleteRequest.route:type_name -> herdsman.core.v1.RouteId
+	11, // 18: herdsman.daemon.v1.RouteServiceDeleteResponse.result:type_name -> herdsman.daemon.v1.RouteControl
+	2,  // 19: herdsman.daemon.v1.RouteService.Up:input_type -> herdsman.daemon.v1.UpRequest
+	7,  // 20: herdsman.daemon.v1.RouteService.Get:input_type -> herdsman.daemon.v1.RouteServiceGetRequest
+	9,  // 21: herdsman.daemon.v1.RouteService.List:input_type -> herdsman.daemon.v1.RouteServiceListRequest
+	12, // 22: herdsman.daemon.v1.RouteService.Pause:input_type -> herdsman.daemon.v1.RouteServicePauseRequest
+	14, // 23: herdsman.daemon.v1.RouteService.Resume:input_type -> herdsman.daemon.v1.RouteServiceResumeRequest
+	16, // 24: herdsman.daemon.v1.RouteService.Stop:input_type -> herdsman.daemon.v1.RouteServiceStopRequest
+	18, // 25: herdsman.daemon.v1.RouteService.Delete:input_type -> herdsman.daemon.v1.RouteServiceDeleteRequest
+	6,  // 26: herdsman.daemon.v1.RouteService.Up:output_type -> herdsman.daemon.v1.UpResponse
+	8,  // 27: herdsman.daemon.v1.RouteService.Get:output_type -> herdsman.daemon.v1.RouteServiceGetResponse
+	10, // 28: herdsman.daemon.v1.RouteService.List:output_type -> herdsman.daemon.v1.RouteServiceListResponse
+	13, // 29: herdsman.daemon.v1.RouteService.Pause:output_type -> herdsman.daemon.v1.RouteServicePauseResponse
+	15, // 30: herdsman.daemon.v1.RouteService.Resume:output_type -> herdsman.daemon.v1.RouteServiceResumeResponse
+	17, // 31: herdsman.daemon.v1.RouteService.Stop:output_type -> herdsman.daemon.v1.RouteServiceStopResponse
+	19, // 32: herdsman.daemon.v1.RouteService.Delete:output_type -> herdsman.daemon.v1.RouteServiceDeleteResponse
+	26, // [26:33] is the sub-list for method output_type
+	19, // [19:26] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_route_proto_init() }
@@ -957,7 +1594,7 @@ func file_herdsman_daemon_v1_route_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herdsman_daemon_v1_route_proto_rawDesc), len(file_herdsman_daemon_v1_route_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
