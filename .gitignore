@@ -6,5 +6,8 @@
 /dist/
 /bin/
 
+# The pinned Go tools, installed by make tools-go.
+/.tools/
+
 # setup-zig restores this cache before GoReleaser checks for a clean tree.
 /.zig-cache/

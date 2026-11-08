@@ -1,0 +1,16 @@
+## workspace
+# github.com/arafathusayn/herdsman/sdk v0.0.0 => ./sdk
+## explicit; go 1.26.0
+# github.com/mattn/go-sqlite3 v1.14.52 => ./third_party/go-sqlite3
+## explicit; go 1.21
+github.com/mattn/go-sqlite3
+# golang.org/x/sys v0.49.0
+## explicit; go 1.26.0
+golang.org/x/sys/unix
+# rsc.io/qr v0.2.0 => ./third_party/qr
+## explicit
+rsc.io/qr
+rsc.io/qr/coding
+rsc.io/qr/gf256
+# github.com/mattn/go-sqlite3 => ./third_party/go-sqlite3
+# rsc.io/qr => ./third_party/qr

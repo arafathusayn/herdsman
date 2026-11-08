@@ -5,9 +5,14 @@ version: 2
 
 project_name: herdsman
 
+# Repository mode: vendored code only, with the module proxy switched off.
+# See MAINTAINING.md, Build modes.
+env:
+  - GOFLAGS=-mod=vendor
+  - GOPROXY=off
+
 before:
   hooks:
-    - go mod tidy
     - make web
 
 builds:

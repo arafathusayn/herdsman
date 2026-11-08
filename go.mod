@@ -13,3 +13,7 @@ require (
 require github.com/arafathusayn/herdsman/sdk v0.0.0
 
 replace github.com/arafathusayn/herdsman/sdk => ./sdk
+
+replace github.com/mattn/go-sqlite3 => ./third_party/go-sqlite3
+
+replace rsc.io/qr => ./third_party/qr

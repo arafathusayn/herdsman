@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # A version bump here is a signal: the change lands through the re-vendor
+  # steps in MAINTAINING.md, so that the copies and their VENDOR.md move with it.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: daily
+  - package-ecosystem: gomod
+    directory: /sdk
+    schedule:
+      interval: daily
+  - package-ecosystem: gomod
+    directory: /sdk/conformance
+    schedule:
+      interval: daily
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
