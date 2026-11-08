@@ -17,7 +17,9 @@ import (
 
 const statusPath = "/rpc/herdsman.daemon.v1.MessageService/Status"
 
+// fakeService answers Status; any other method is left to the nil interface.
 type fakeService struct {
+	MessageService
 	got *StatusRequest
 	err error
 }

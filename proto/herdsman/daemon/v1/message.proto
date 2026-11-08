@@ -9,8 +9,169 @@ option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
 
 // MessageService is a route's message channel.
 service MessageService {
+  // Hello reports the daemon's build and what it offers. It is the one method
+  // a client of any version may call.
+  rpc Hello(HelloRequest) returns (HelloResponse);
+  // Health reports every route and every Herdr link.
+  rpc Health(HealthRequest) returns (HealthResponse);
+  // Shutdown asks the daemon to stop.
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+  // ListRoutes lists the registered routes.
+  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
+  // CreateRoute registers a new route with a new inbox.
+  rpc CreateRoute(CreateRouteRequest) returns (CreateRouteResponse);
+  // AdoptRoute moves an existing file inbox under the daemon.
+  rpc AdoptRoute(AdoptRouteRequest) returns (AdoptRouteResponse);
+  // RemoveRoute forgets a route and keeps its inbox.
+  rpc RemoveRoute(RemoveRouteRequest) returns (RemoveRouteResponse);
+  // ResetEvents starts a new event epoch for a route.
+  rpc ResetEvents(ResetEventsRequest) returns (ResetEventsResponse);
   // Status reports the channel of one route.
   rpc Status(StatusRequest) returns (StatusResponse);
+  // GetSetup lists a route's live agents and its current proof.
+  rpc GetSetup(GetSetupRequest) returns (GetSetupResponse);
+  // PutSetup records the human's setup proof.
+  rpc PutSetup(PutSetupRequest) returns (PutSetupResponse);
+  // Enroll proposes the calling pane as a party of the route.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+  // ApprovePair approves the pending registry by its checksum.
+  rpc ApprovePair(ApprovePairRequest) returns (ApprovePairResponse);
+  // RetirePair retires a party and revokes its credential.
+  rpc RetirePair(RetirePairRequest) returns (RetirePairResponse);
+  // RevokeCredential revokes one party's credential.
+  rpc RevokeCredential(RevokeCredentialRequest) returns (RevokeCredentialResponse);
+  // Send queues a message from the calling party.
+  rpc Send(SendRequest) returns (SendResponse);
+  // Claim reads ready messages, or extends the active claim.
+  rpc Claim(ClaimRequest) returns (ClaimResponse);
+  // Ack acknowledges one claimed message.
+  rpc Ack(AckRequest) returns (AckResponse);
+  // Release gives back a fully acknowledged claim.
+  rpc Release(ReleaseRequest) returns (ReleaseResponse);
+  // Hold places the calling party's hold on a target.
+  rpc Hold(HoldRequest) returns (HoldResponse);
+  // Unhold removes the calling party's hold from a target.
+  rpc Unhold(UnholdRequest) returns (UnholdResponse);
+  // Authority reports whether relayed messages carry authority.
+  rpc Authority(AuthorityRequest) returns (AuthorityResponse);
+  // Wait returns the calling party's next events after a cursor, or none when
+  // wait_ms passes first.
+  rpc Wait(WaitRequest) returns (WaitResponse);
+}
+
+message HelloRequest {}
+
+message HelloResponse {
+  herdsman.core.v1.Version version = 1;
+  string daemon_version = 2;
+  repeated string features = 3;
+  repeated string credential_options = 4;
+  string default_credential = 5;
+}
+
+// VersionRefusal is a failure's extra detail when a version check refused the
+// call.
+message VersionRefusal {
+  // The side to update: "client" or "daemon".
+  string update = 1;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  herdsman.core.v1.Version version = 1;
+  string status = 2;
+  repeated RouteHealth routes = 3;
+  repeated HerdrHealth herdr = 4;
+}
+
+// RouteHealth is one route's health.
+message RouteHealth {
+  herdsman.core.v1.RouteId route = 1;
+  string status = 2;
+  repeated string flags = 3;
+  string reason = 4;
+}
+
+// HerdrHealth is one Herdr link's health.
+message HerdrHealth {
+  string socket = 1;
+  string status = 2;
+}
+
+message ShutdownRequest {
+  // "stop" or "restart".
+  string reason = 1;
+}
+
+message ShutdownResponse {
+  herdsman.core.v1.Version version = 1;
+}
+
+message ListRoutesRequest {}
+
+message ListRoutesResponse {
+  herdsman.core.v1.Version version = 1;
+  repeated RouteInfo routes = 2;
+}
+
+// RouteInfo is one registered route.
+message RouteInfo {
+  herdsman.core.v1.RouteId route = 1;
+  string inbox = 2;
+  string owner = 3;
+  string epoch = 4;
+  int64 last_seq = 5;
+  string status = 6;
+}
+
+message CreateRouteRequest {
+  string repo = 1;
+  herdsman.core.v1.RouteId route = 2;
+  string herdr_socket = 3;
+}
+
+message CreateRouteResponse {
+  herdsman.core.v1.Version version = 1;
+  herdsman.core.v1.RouteId route = 2;
+  string inbox = 3;
+  string epoch = 4;
+}
+
+message AdoptRouteRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string inbox = 2;
+  string confirm_pair_sha256 = 3;
+}
+
+message AdoptRouteResponse {
+  herdsman.core.v1.Version version = 1;
+  herdsman.core.v1.RouteId route = 2;
+  string epoch = 3;
+  string last_message_id = 4;
+  bool legacy_proof = 5;
+}
+
+message RemoveRouteRequest {
+  herdsman.core.v1.RouteId route = 1;
+}
+
+message RemoveRouteResponse {
+  herdsman.core.v1.Version version = 1;
+  bool removed = 2;
+  bool inbox_kept = 3;
+}
+
+message ResetEventsRequest {
+  herdsman.core.v1.RouteId route = 1;
+  // Must repeat the route's name.
+  string confirm_route = 2;
+}
+
+message ResetEventsResponse {
+  herdsman.core.v1.Version version = 1;
+  string epoch = 2;
+  int64 checkpoint_seq = 3;
 }
 
 message StatusRequest {
@@ -75,4 +236,231 @@ message BoxCount {
 message HoldInfo {
   string target = 1;
   repeated string owners = 2;
+}
+
+message GetSetupRequest {
+  herdsman.core.v1.RouteId route = 1;
+}
+
+message GetSetupResponse {
+  herdsman.core.v1.Version version = 1;
+  repeated InventoryAgent inventory = 2;
+  // The current proof as JSON; empty when there is none.
+  string proof_json = 3;
+}
+
+// InventoryAgent is one live agent on the route's Herdr server.
+message InventoryAgent {
+  string pane = 1;
+  // The agent session as JSON.
+  string session_json = 2;
+  string agent = 3;
+}
+
+// Probe is one negative probe the human reports at setup.
+message Probe {
+  // The probed identity as JSON.
+  string identity_json = 1;
+  bool inbox_write_denied = 2;
+  bool socket_connect_denied = 3;
+  string recorded_by = 4;
+}
+
+message PutSetupRequest {
+  herdsman.core.v1.RouteId route = 1;
+  repeated string rules = 2;
+  string binary = 3;
+  bool policy_verified = 4;
+  string boundary_json = 5;
+  string watch_targets_json = 6;
+  string resume_targets_json = 7;
+  repeated Probe probes = 8;
+}
+
+message PutSetupResponse {
+  herdsman.core.v1.Version version = 1;
+  string proof_sha256 = 2;
+}
+
+message EnrollRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string name = 2;
+  string role = 3;
+}
+
+message EnrollResponse {
+  herdsman.core.v1.Version version = 1;
+  string pending_sha256 = 2;
+}
+
+message ApprovePairRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string sha256 = 2;
+  string interaction = 3;
+  string asked_by = 4;
+  map<string, string> credentials = 5;
+}
+
+message ApprovePairResponse {
+  herdsman.core.v1.Version version = 1;
+  bool approved = 2;
+  repeated ApprovedCredential credentials = 3;
+  repeated string revoked = 4;
+}
+
+// ApprovedCredential is one party's credential option.
+message ApprovedCredential {
+  string name = 1;
+  string option = 2;
+}
+
+message RetirePairRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string name = 2;
+  string sha256 = 3;
+}
+
+message RetirePairResponse {
+  herdsman.core.v1.Version version = 1;
+  string retired = 2;
+  bool revoked = 3;
+}
+
+message RevokeCredentialRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string name = 2;
+}
+
+message RevokeCredentialResponse {
+  herdsman.core.v1.Version version = 1;
+  bool revoked = 2;
+}
+
+message SendRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string to = 2;
+  string kind = 3;
+  string body = 4;
+  string reply_to = 5;
+  // Makes a retry of the same send harmless.
+  string key = 6;
+}
+
+message SendResponse {
+  herdsman.core.v1.Version version = 1;
+  herdsman.core.v1.MessageId id = 2;
+  int64 seq = 3;
+  bool duplicate = 4;
+}
+
+message ClaimRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string read_key = 2;
+  string token = 3;
+  string extend_key = 4;
+}
+
+message ClaimResponse {
+  herdsman.core.v1.Version version = 1;
+  string claim = 2;
+  repeated ManifestEntry manifest = 3;
+  int32 pending_new = 4;
+  int32 quarantine = 5;
+}
+
+// ManifestEntry is one claimed message's envelope and path, never its body.
+message ManifestEntry {
+  herdsman.core.v1.MessageId id = 1;
+  string from = 2;
+  string to = 3;
+  string kind = 4;
+  int64 time = 5;
+  string reply_to = 6;
+  string path = 7;
+}
+
+message AckRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string claim = 2;
+  herdsman.core.v1.MessageId id = 3;
+  string record = 4;
+}
+
+message AckResponse {
+  herdsman.core.v1.Version version = 1;
+  herdsman.core.v1.MessageId id = 2;
+  int64 seq = 3;
+  bool already = 4;
+}
+
+message ReleaseRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string claim = 2;
+}
+
+message ReleaseResponse {
+  herdsman.core.v1.Version version = 1;
+  bool released = 2;
+}
+
+message HoldRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string target = 2;
+  string reason = 3;
+}
+
+message HoldResponse {
+  herdsman.core.v1.Version version = 1;
+  map<string, HoldOwner> holds = 2;
+}
+
+message UnholdRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string target = 2;
+}
+
+message UnholdResponse {
+  herdsman.core.v1.Version version = 1;
+  map<string, HoldOwner> holds = 2;
+}
+
+// HoldOwner is one owner's hold on a target.
+message HoldOwner {
+  string reason = 1;
+  int64 time = 2;
+}
+
+message AuthorityRequest {
+  herdsman.core.v1.RouteId route = 1;
+}
+
+message AuthorityResponse {
+  herdsman.core.v1.Version version = 1;
+  // "RELAY" or "HUMAN".
+  string authority = 2;
+  repeated string reasons = 3;
+}
+
+message WaitRequest {
+  herdsman.core.v1.RouteId route = 1;
+  // "<epoch>-<seq>" from an earlier reply; empty starts with a snapshot.
+  string cursor = 2;
+  // How long to wait for an event; zero answers at once.
+  int32 wait_ms = 3;
+}
+
+message WaitResponse {
+  herdsman.core.v1.Version version = 1;
+  repeated EventFrame frames = 2;
+  // Where to resume when frames is empty.
+  string next_cursor = 3;
+}
+
+// EventFrame is one event for a party.
+message EventFrame {
+  // The cursor after this event; empty for an event that has none.
+  string cursor = 1;
+  string type = 2;
+  // The event as JSON.
+  string payload = 3;
 }

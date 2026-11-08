@@ -381,3 +381,11 @@ func TestTimeoutHeaderBounds(t *testing.T) {
 		t.Errorf("clamp: %s", got)
 	}
 }
+
+func TestWriteErrorAnswersWithTheCodesStatus(t *testing.T) {
+	rec := httptest.NewRecorder()
+	WriteError(rec, Errorf(Unavailable, "busy"))
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"unavailable"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+}
