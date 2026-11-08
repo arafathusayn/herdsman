@@ -78,6 +78,8 @@ func TestGenerateWritesMessagesAndService(t *testing.T) {
 	for _, want := range []string{
 		"type DemoService interface",
 		"func NewDemoServiceHandler(impl DemoService) http.Handler",
+		"rpc.NewMux(",
+		`rpc.Unary(DemoServiceName, "Ping", impl.Ping)`,
 		"func NewDemoServiceClient(hc *http.Client, base string) DemoService",
 		`"/rpc/demo.v1.DemoService/Ping"`,
 		`DemoServiceName = "demo.v1.DemoService"`,

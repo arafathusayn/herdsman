@@ -8,7 +8,7 @@ import (
 	context "context"
 	json "encoding/json"
 	fmt "fmt"
-	protojson "google.golang.org/protobuf/encoding/protojson"
+	rpc "github.com/arafathusayn/herdsman/sdk/rpc"
 	proto "google.golang.org/protobuf/proto"
 	io "io"
 	http "net/http"
@@ -28,28 +28,14 @@ type LedgerService interface {
 	AddResource(context.Context, *AddResourceRequest) (*AddResourceResponse, error)
 }
 
-// NewLedgerServiceHandler serves impl over HTTP. Mount it at the server's root.
+// NewLedgerServiceHandler serves impl over HTTP with the full binding. Mount it
+// at the server's root or at rpc.BasePath.
 func NewLedgerServiceHandler(impl LedgerService) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.LedgerService/Resources", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ResourcesRequest)
-		serveLedgerService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Resources(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.LedgerService/Plan", func(w http.ResponseWriter, r *http.Request) {
-		req := new(PlanRequest)
-		serveLedgerService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Plan(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.LedgerService/AddResource", func(w http.ResponseWriter, r *http.Request) {
-		req := new(AddResourceRequest)
-		serveLedgerService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.AddResource(ctx, req)
-		})
-	})
-	return mux
+	return rpc.NewMux(
+		rpc.Unary(LedgerServiceName, "Resources", impl.Resources),
+		rpc.Unary(LedgerServiceName, "Plan", impl.Plan),
+		rpc.Unary(LedgerServiceName, "AddResource", impl.AddResource),
+	)
 }
 
 type ledgerServiceClient struct {
@@ -88,56 +74,6 @@ func (c *ledgerServiceClient) AddResource(ctx context.Context, req *AddResourceR
 
 // ledgerServiceMaxBody bounds a request or response body.
 const ledgerServiceMaxBody = 4 << 20
-
-func serveLedgerService(w http.ResponseWriter, r *http.Request, req proto.Message, call func(context.Context) (proto.Message, error)) {
-	fail := func(status int, code, message string) {
-		body, _ := json.Marshal(map[string]string{"code": code, "message": message})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = w.Write(body)
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		fail(http.StatusMethodNotAllowed, "unimplemented", "only POST is served")
-		return
-	}
-	contentType := r.Header.Get("Content-Type")
-	if contentType != "application/json" && contentType != "application/proto" {
-		fail(http.StatusUnsupportedMediaType, "unimplemented", "unsupported content type")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, ledgerServiceMaxBody))
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot read the request body")
-		return
-	}
-	if contentType == "application/json" {
-		err = (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, req)
-	} else {
-		err = proto.Unmarshal(body, req)
-	}
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot decode the request body")
-		return
-	}
-	res, err := call(r.Context())
-	if err != nil {
-		fail(http.StatusInternalServerError, "unknown", err.Error())
-		return
-	}
-	var out []byte
-	if contentType == "application/json" {
-		out, err = protojson.Marshal(res)
-	} else {
-		out, err = proto.Marshal(res)
-	}
-	if err != nil {
-		fail(http.StatusInternalServerError, "internal", "cannot encode the response")
-		return
-	}
-	w.Header().Set("Content-Type", contentType)
-	_, _ = w.Write(out)
-}
 
 func callLedgerService(ctx context.Context, hc *http.Client, url string, req, res proto.Message) error {
 	body, err := proto.Marshal(req)

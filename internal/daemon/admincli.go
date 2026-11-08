@@ -230,8 +230,8 @@ func RunDaemon(a *AdminEnv, args []string) int {
 		a.out(map[string]any{"restarted": true, "version": v}, "restarted herdsman "+v)
 		return 0
 	case "status":
-		var h Health
-		if _, err := c.Do(ctx, "GET", "/v1/health", nil, &h); err != nil {
+		h, err := c.Health(ctx)
+		if err != nil {
 			if IsDown(err) {
 				a.out(map[string]any{"status": "down"}, "daemon down")
 				return 1
@@ -239,8 +239,8 @@ func RunDaemon(a *AdminEnv, args []string) int {
 			return a.fail(err)
 		}
 		l, _ := ReadAccountLock(lockHome)
-		var detail StatusDetail
-		if _, err := c.Do(ctx, "GET", "/v1/status", nil, &detail); err != nil {
+		detail, err := c.DaemonStatus(ctx)
+		if err != nil {
 			return a.fail(err)
 		}
 		if a.JSON {
@@ -275,7 +275,7 @@ func RunDaemon(a *AdminEnv, args []string) int {
 		if len(rest) != 3 || rest[0] != "revoke" {
 			return a.usage("credential revoke <route> <name>")
 		}
-		if _, err := c.Do(ctx, "POST", "/v1/routes/"+rest[1]+"/credentials/"+rest[2]+"/revoke", nil, nil); err != nil {
+		if err := c.RevokeCredential(ctx, rest[1], rest[2]); err != nil {
 			return a.fail(err)
 		}
 		a.out(map[string]bool{"revoked": true}, "revoked "+rest[2])
@@ -343,8 +343,8 @@ func (a *AdminEnv) route(ctx context.Context, c *Client, args []string) int {
 		if fs.Parse(args[1:]) != nil || fs.NArg() != 0 || *repo == "" || *route == "" {
 			return a.usage("route create --repo <repo> --route <route> [--herdr-socket <path>]")
 		}
-		var res CreateResult
-		if _, err := c.Do(ctx, "POST", "/v1/routes", CreateRequest{Repo: *repo, Route: *route, HerdrSocket: *sock}, &res); err != nil {
+		res, err := c.CreateRoute(ctx, CreateRequest{Repo: *repo, Route: *route, HerdrSocket: *sock})
+		if err != nil {
 			return a.fail(err)
 		}
 		a.out(res, "Inbox: "+res.Inbox+" (per route)")
@@ -358,8 +358,8 @@ func (a *AdminEnv) route(ctx context.Context, c *Client, args []string) int {
 		if fs.Parse(args[1:]) != nil || fs.NArg() != 0 || *dir == "" || *route == "" || *confirm == "" {
 			return a.usage("route adopt --inbox <path> --route <route> --confirm <sha256>")
 		}
-		var res AdoptResult
-		if _, err := c.Do(ctx, "POST", "/v1/routes/"+*route+"/adopt", AdoptRequest{Inbox: *dir, ConfirmPairSHA256: *confirm}, &res); err != nil {
+		res, err := c.AdoptRoute(ctx, *route, AdoptRequest{Inbox: *dir, ConfirmPairSHA256: *confirm})
+		if err != nil {
 			return a.fail(err)
 		}
 		a.out(res, "adopted "+res.Route+" epoch "+res.Epoch)
@@ -368,7 +368,7 @@ func (a *AdminEnv) route(ctx context.Context, c *Client, args []string) int {
 		if len(args) != 2 {
 			return a.usage("route remove <route>")
 		}
-		if _, err := c.Do(ctx, "DELETE", "/v1/routes/"+args[1], nil, nil); err != nil {
+		if err := c.RemoveRoute(ctx, args[1]); err != nil {
 			return a.fail(err)
 		}
 		a.out(map[string]bool{"removed": true, "inbox_kept": true}, "removed "+args[1]+"; inbox kept")
@@ -377,27 +377,25 @@ func (a *AdminEnv) route(ctx context.Context, c *Client, args []string) int {
 		if len(args) != 2 {
 			return a.usage("route reset-events <route>")
 		}
-		var res map[string]any
-		if _, err := c.Do(ctx, "POST", "/v1/routes/"+args[1]+"/reset-events", ResetRequest{ConfirmRoute: args[1]}, &res); err != nil {
+		res, err := c.ResetEvents(ctx, args[1], ResetRequest{ConfirmRoute: args[1]})
+		if err != nil {
 			return a.fail(err)
 		}
-		a.out(res, fmt.Sprintf("new epoch %v", res["epoch"]))
+		a.out(res, "new epoch "+res.Epoch)
 		return 0
 	case "list":
 		if len(args) != 1 {
 			return a.usage("route list")
 		}
-		var res struct {
-			Routes []RouteInfo `json:"routes"`
-		}
-		if _, err := c.Do(ctx, "GET", "/v1/routes", nil, &res); err != nil {
+		routes, err := c.ListRoutes(ctx)
+		if err != nil {
 			return a.fail(err)
 		}
 		if a.JSON {
-			a.out(res, "")
+			a.out(map[string][]RouteInfo{"routes": routes}, "")
 			return 0
 		}
-		for _, r := range res.Routes {
+		for _, r := range routes {
 			fmt.Fprintf(a.Stdout, "%s %s epoch %s last_seq %d %s\n", r.Route, r.Status, r.Epoch, r.LastSeq, r.Inbox)
 		}
 		return 0
@@ -466,8 +464,8 @@ func (a *AdminEnv) setup(ctx context.Context, c *Client, args []string) int {
 		fmt.Fprintln(a.Stderr, "herdsman daemon setup: needs an attended terminal (stdin and stdout a TTY); only the human records the setup proof")
 		return 2
 	}
-	var inv SetupInventory
-	if _, err := c.Do(ctx, "GET", "/v1/routes/"+route+"/setup", nil, &inv); err != nil {
+	inv, err := c.GetSetup(ctx, route)
+	if err != nil {
 		return a.fail(err)
 	}
 	fmt.Fprintln(a.Stdout, "Live agents on the route's Herdr server:")
@@ -501,8 +499,8 @@ func (a *AdminEnv) setup(ctx context.Context, c *Client, args []string) int {
 	}
 	q.PolicyVerified = verified
 	q.Boundary, _ = json.Marshal(boundary)
-	var res SetupResult
-	if _, err := c.Do(ctx, "PUT", "/v1/routes/"+route+"/setup", q, &res); err != nil {
+	res, err := c.PutSetup(ctx, route, q)
+	if err != nil {
 		return a.fail(err)
 	}
 	a.out(res, "setup recorded; proof "+res.ProofSHA256)
@@ -540,8 +538,8 @@ func (a *AdminEnv) pair(ctx context.Context, c *Client, args []string) int {
 			}
 			q.Credentials[n] = o
 		}
-		var res ApproveResult
-		if _, err := c.Do(ctx, "POST", "/v1/routes/"+route+"/pair/approve", q, &res); err != nil {
+		res, err := c.ApprovePair(ctx, route, q)
+		if err != nil {
 			return a.fail(err)
 		}
 		var parts []string
@@ -554,7 +552,7 @@ func (a *AdminEnv) pair(ctx context.Context, c *Client, args []string) int {
 		if len(args) != 4 {
 			return a.usage("pair retire <route> <name> <sha256>")
 		}
-		if _, err := c.Do(ctx, "POST", "/v1/routes/"+args[1]+"/pair/retire", RetireRequest{Name: args[2], SHA256: args[3]}, nil); err != nil {
+		if err := c.RetirePair(ctx, args[1], RetireRequest{Name: args[2], SHA256: args[3]}); err != nil {
 			return a.fail(err)
 		}
 		a.out(map[string]any{"retired": args[2], "revoked": true}, "retired "+args[2]+"; credential revoked")

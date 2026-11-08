@@ -77,7 +77,6 @@ type Daemon struct {
 	routes    map[string]*Route
 	held      map[string]string // route to why it is not served
 	credIndex map[string]credRef
-	views     map[*subscriber]struct{}
 	streams   map[string]int // per party key, "view", "all"
 	sem       chan struct{}
 	upgrading bool
@@ -132,7 +131,7 @@ func New(cfg Config) *Daemon {
 		cfg.DrainWait = 60 * time.Second
 	}
 	return &Daemon{callers: route.NewCallers(), cfg: cfg, routes: map[string]*Route{}, held: map[string]string{}, credIndex: map[string]credRef{},
-		views: map[*subscriber]struct{}{}, streams: map[string]int{}, sem: make(chan struct{}, 32), done: make(chan struct{})}
+		streams: map[string]int{}, sem: make(chan struct{}, 32), done: make(chan struct{})}
 }
 
 func (d *Daemon) now() time.Time                    { return d.cfg.Now() }
@@ -464,7 +463,7 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	}
 }
 
-// Stop drains: shutdown frames on every stream, the routes stop, the
+// Stop drains: a shutdown event to every waiting call, the routes stop, the
 // socket closes, the account lock is freed.
 func (d *Daemon) Stop(reason string) {
 	d.stopOnce.Do(func() {
@@ -473,10 +472,6 @@ func (d *Daemon) Stop(reason string) {
 		routes := make([]*Route, 0, len(d.routes))
 		for _, r := range d.routes {
 			routes = append(routes, r)
-		}
-		for s := range d.views {
-			s.push(frame{ev: &Event{Type: "shutdown", Time: d.now().Unix(), Reason: reason}})
-			s.close()
 		}
 		d.mu.Unlock()
 		for _, r := range routes {
@@ -528,14 +523,7 @@ func (d *Daemon) openRoute(name string, e RouteEntry) {
 	d.mu.Lock()
 	delete(d.held, name)
 	d.routes[name] = r
-	views := make([]*subscriber, 0, len(d.views))
-	for s := range d.views {
-		views = append(views, s)
-	}
 	d.mu.Unlock()
-	for _, s := range views {
-		d.attachView(r, s)
-	}
 }
 
 // route returns a served route.

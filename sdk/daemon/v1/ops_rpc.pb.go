@@ -8,7 +8,7 @@ import (
 	context "context"
 	json "encoding/json"
 	fmt "fmt"
-	protojson "google.golang.org/protobuf/encoding/protojson"
+	rpc "github.com/arafathusayn/herdsman/sdk/rpc"
 	proto "google.golang.org/protobuf/proto"
 	io "io"
 	http "net/http"
@@ -32,34 +32,15 @@ type OpsService interface {
 	Records(context.Context, *RecordsRequest) (*RecordsResponse, error)
 }
 
-// NewOpsServiceHandler serves impl over HTTP. Mount it at the server's root.
+// NewOpsServiceHandler serves impl over HTTP with the full binding. Mount it
+// at the server's root or at rpc.BasePath.
 func NewOpsServiceHandler(impl OpsService) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.OpsService/Undo", func(w http.ResponseWriter, r *http.Request) {
-		req := new(UndoRequest)
-		serveOpsService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Undo(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.OpsService/Export", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ExportRequest)
-		serveOpsService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Export(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.OpsService/Import", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ImportRequest)
-		serveOpsService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Import(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.OpsService/Records", func(w http.ResponseWriter, r *http.Request) {
-		req := new(RecordsRequest)
-		serveOpsService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Records(ctx, req)
-		})
-	})
-	return mux
+	return rpc.NewMux(
+		rpc.Unary(OpsServiceName, "Undo", impl.Undo),
+		rpc.Unary(OpsServiceName, "Export", impl.Export),
+		rpc.Unary(OpsServiceName, "Import", impl.Import),
+		rpc.Unary(OpsServiceName, "Records", impl.Records),
+	)
 }
 
 type opsServiceClient struct {
@@ -106,56 +87,6 @@ func (c *opsServiceClient) Records(ctx context.Context, req *RecordsRequest) (*R
 
 // opsServiceMaxBody bounds a request or response body.
 const opsServiceMaxBody = 4 << 20
-
-func serveOpsService(w http.ResponseWriter, r *http.Request, req proto.Message, call func(context.Context) (proto.Message, error)) {
-	fail := func(status int, code, message string) {
-		body, _ := json.Marshal(map[string]string{"code": code, "message": message})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = w.Write(body)
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		fail(http.StatusMethodNotAllowed, "unimplemented", "only POST is served")
-		return
-	}
-	contentType := r.Header.Get("Content-Type")
-	if contentType != "application/json" && contentType != "application/proto" {
-		fail(http.StatusUnsupportedMediaType, "unimplemented", "unsupported content type")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, opsServiceMaxBody))
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot read the request body")
-		return
-	}
-	if contentType == "application/json" {
-		err = (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, req)
-	} else {
-		err = proto.Unmarshal(body, req)
-	}
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot decode the request body")
-		return
-	}
-	res, err := call(r.Context())
-	if err != nil {
-		fail(http.StatusInternalServerError, "unknown", err.Error())
-		return
-	}
-	var out []byte
-	if contentType == "application/json" {
-		out, err = protojson.Marshal(res)
-	} else {
-		out, err = proto.Marshal(res)
-	}
-	if err != nil {
-		fail(http.StatusInternalServerError, "internal", "cannot encode the response")
-		return
-	}
-	w.Header().Set("Content-Type", contentType)
-	_, _ = w.Write(out)
-}
 
 func callOpsService(ctx context.Context, hc *http.Client, url string, req, res proto.Message) error {
 	body, err := proto.Marshal(req)

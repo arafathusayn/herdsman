@@ -8,7 +8,7 @@ import (
 	context "context"
 	json "encoding/json"
 	fmt "fmt"
-	protojson "google.golang.org/protobuf/encoding/protojson"
+	rpc "github.com/arafathusayn/herdsman/sdk/rpc"
 	proto "google.golang.org/protobuf/proto"
 	io "io"
 	http "net/http"
@@ -33,46 +33,17 @@ type ConfigService interface {
 	Validate(context.Context, *ValidateRequest) (*ValidateResponse, error)
 }
 
-// NewConfigServiceHandler serves impl over HTTP. Mount it at the server's root.
+// NewConfigServiceHandler serves impl over HTTP with the full binding. Mount it
+// at the server's root or at rpc.BasePath.
 func NewConfigServiceHandler(impl ConfigService) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc/herdsman.config.v1.ConfigService/Export", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ExportRequest)
-		serveConfigService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Export(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.config.v1.ConfigService/Get", func(w http.ResponseWriter, r *http.Request) {
-		req := new(GetRequest)
-		serveConfigService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Get(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.config.v1.ConfigService/Set", func(w http.ResponseWriter, r *http.Request) {
-		req := new(SetRequest)
-		serveConfigService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Set(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.config.v1.ConfigService/Show", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ShowRequest)
-		serveConfigService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Show(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.config.v1.ConfigService/Unset", func(w http.ResponseWriter, r *http.Request) {
-		req := new(UnsetRequest)
-		serveConfigService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Unset(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.config.v1.ConfigService/Validate", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ValidateRequest)
-		serveConfigService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Validate(ctx, req)
-		})
-	})
-	return mux
+	return rpc.NewMux(
+		rpc.Unary(ConfigServiceName, "Export", impl.Export),
+		rpc.Unary(ConfigServiceName, "Get", impl.Get),
+		rpc.Unary(ConfigServiceName, "Set", impl.Set),
+		rpc.Unary(ConfigServiceName, "Show", impl.Show),
+		rpc.Unary(ConfigServiceName, "Unset", impl.Unset),
+		rpc.Unary(ConfigServiceName, "Validate", impl.Validate),
+	)
 }
 
 type configServiceClient struct {
@@ -135,56 +106,6 @@ func (c *configServiceClient) Validate(ctx context.Context, req *ValidateRequest
 
 // configServiceMaxBody bounds a request or response body.
 const configServiceMaxBody = 4 << 20
-
-func serveConfigService(w http.ResponseWriter, r *http.Request, req proto.Message, call func(context.Context) (proto.Message, error)) {
-	fail := func(status int, code, message string) {
-		body, _ := json.Marshal(map[string]string{"code": code, "message": message})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = w.Write(body)
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		fail(http.StatusMethodNotAllowed, "unimplemented", "only POST is served")
-		return
-	}
-	contentType := r.Header.Get("Content-Type")
-	if contentType != "application/json" && contentType != "application/proto" {
-		fail(http.StatusUnsupportedMediaType, "unimplemented", "unsupported content type")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, configServiceMaxBody))
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot read the request body")
-		return
-	}
-	if contentType == "application/json" {
-		err = (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, req)
-	} else {
-		err = proto.Unmarshal(body, req)
-	}
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot decode the request body")
-		return
-	}
-	res, err := call(r.Context())
-	if err != nil {
-		fail(http.StatusInternalServerError, "unknown", err.Error())
-		return
-	}
-	var out []byte
-	if contentType == "application/json" {
-		out, err = protojson.Marshal(res)
-	} else {
-		out, err = proto.Marshal(res)
-	}
-	if err != nil {
-		fail(http.StatusInternalServerError, "internal", "cannot encode the response")
-		return
-	}
-	w.Header().Set("Content-Type", contentType)
-	_, _ = w.Write(out)
-}
 
 func callConfigService(ctx context.Context, hc *http.Client, url string, req, res proto.Message) error {
 	body, err := proto.Marshal(req)

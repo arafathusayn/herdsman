@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
@@ -20,12 +21,22 @@ var sweepEvery = time.Hour
 // mutationPoll is how often a mutating request retries the export gate.
 const mutationPoll = 10 * time.Millisecond
 
-// journaledRequests take no export gate: the journal's account lock already
-// holds them back, and one that waited on the gate while holding a journal
-// wait would deadlock with the export.
-var journaledRequests = map[string]bool{
-	"POST /v1/shutdown":                         true,
-	"POST /v1/ops/{id}/steps/{ordinal}/resolve": true,
+// messageCallsOutsideTheGate are the MessageService calls an export does not
+// hold: reads, the long-lived Wait, Shutdown, and ResolveOperation, which the
+// journal's account lock already holds. Any other call of the service is held,
+// so a new writer is covered without being listed. A held call must not wait
+// on a journal lock, or it and the export wait for each other.
+var messageCallsOutsideTheGate = map[string]bool{
+	"Hello": true, "Health": true, "Shutdown": true, "ListRoutes": true, "Status": true, "GetSetup": true,
+	"Authority": true, "DaemonStatus": true, "ListOperations": true, "GetOperation": true,
+	"ResolveOperation": true, "Wait": true,
+}
+
+// heldDuringExport reports whether an RPC path changes route or registry
+// state outside the journal.
+func heldDuringExport(rpcPath string) bool {
+	name, ok := strings.CutPrefix(rpcPath, rpc.BasePath+daemonv1.MessageServiceName+"/")
+	return ok && !messageCallsOutsideTheGate[name]
 }
 
 // enterMutation admits a request that changes route or registry state, or

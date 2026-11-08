@@ -154,8 +154,7 @@ func TestImportAccountFillsTheNamedStateAndTheDefault(t *testing.T) {
 func TestImportRelocatesARouteCreatedThroughTheDaemon(t *testing.T) {
 	root := recoveryRoot(t)
 	c, stop := serving(t, root, false)
-	var created CreateResult
-	if _, err := c.Do(context.Background(), "POST", "/v1/routes", CreateRequest{Repo: "repo", Route: "r1"}, &created); err != nil {
+	if _, err := c.CreateRoute(context.Background(), CreateRequest{Repo: "repo", Route: "r1"}); err != nil {
 		t.Fatal(err)
 	}
 	dest := filepath.Join(t.TempDir(), "export")
@@ -196,8 +195,7 @@ func TestExportHoldsBackRouteChangesUntilItEnds(t *testing.T) {
 	<-entered
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	var created CreateResult
-	_, err := c.Do(ctx, "POST", "/v1/routes", CreateRequest{Repo: "repo", Route: "r1"}, &created)
+	_, err := c.CreateRoute(ctx, CreateRequest{Repo: "repo", Route: "r1"})
 	time.Sleep(100 * time.Millisecond) // the server sees the client leave
 	close(release)
 	if exportErr := <-done; exportErr != nil {
@@ -213,7 +211,7 @@ func TestExportHoldsBackRouteChangesUntilItEnds(t *testing.T) {
 	if _, ok := rf.Routes["r1"]; ok {
 		t.Fatal("the abandoned request created the route after the export")
 	}
-	if _, err := c.Do(context.Background(), "POST", "/v1/routes", CreateRequest{Repo: "repo", Route: "r1"}, &created); err != nil {
+	if _, err := c.CreateRoute(context.Background(), CreateRequest{Repo: "repo", Route: "r1"}); err != nil {
 		t.Fatalf("after the export: %v", err)
 	}
 }
@@ -408,5 +406,22 @@ func TestTheHourlySweepPrunesExpiredSnapshots(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("folder stayed: %v", err)
+	}
+}
+
+func TestHeldDuringExportCoversOnlyMessageWriters(t *testing.T) {
+	base := rpc.BasePath + daemonv1.MessageServiceName + "/"
+	for path, want := range map[string]bool{
+		base + "Send":        true,
+		base + "CreateRoute": true,
+		base + "SomeNewCall": true,
+		base + "Status":      false,
+		base + "Wait":        false,
+		rpc.BasePath + daemonv1.OpsServiceName + "/Undo": false,
+		rpc.BasePath + daemonv1.RouteServiceName + "/Up": false,
+	} {
+		if got := heldDuringExport(path); got != want {
+			t.Errorf("%s: %v, want %v", path, got, want)
+		}
 	}
 }

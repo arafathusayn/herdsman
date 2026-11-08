@@ -1,11 +1,9 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,77 +20,13 @@ import (
 const (
 	maxBody         = 160 << 10
 	maxStreamsParty = 4
-	maxStreamsView  = 16
 	maxStreamsAll   = 256
-	writeDeadline   = 10 * time.Second
 )
 
-// handler is the daemon's HTTP API (5.1).
+// handler is the daemon's HTTP API: the RPC path and nothing else.
 func (d *Daemon) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/hello", d.hello)
-	h := func(pattern string, fn func(w http.ResponseWriter, r *http.Request) *APIError) {
-		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-			if e := CheckVersion(r.Header, d.cfg.Version, Protocol); e != nil {
-				writeError(w, e)
-				return
-			}
-			if e := d.refuseInInspect(r); e != nil {
-				writeError(w, e)
-				return
-			}
-			if r.Method != http.MethodGet && r.Method != http.MethodHead && !journaledRequests[pattern] {
-				// The server notices a client leaving only once the body
-				// has been read, and this request may wait a long time.
-				body, err := io.ReadAll(io.LimitReader(r.Body, maxBody+1))
-				if err != nil {
-					writeError(w, Errf("bad_request", "body: %v", err))
-					return
-				}
-				r.Body = io.NopCloser(bytes.NewReader(body))
-				release, e := d.enterMutation(r.Context())
-				if e != nil {
-					writeError(w, e)
-					return
-				}
-				defer release()
-			}
-			if e := fn(w, r); e != nil {
-				writeError(w, e)
-			}
-		})
-	}
-	h("GET /v1/health", d.health)
-	h("GET /v1/status", d.statusDetail)
-	h("GET /v1/ops", d.listOps)
-	h("GET /v1/ops/{id}", d.getOp)
-	h("POST /v1/ops/{id}/steps/{ordinal}/resolve", d.resolveOp)
-	h("POST /v1/shutdown", d.shutdown)
-	h("GET /v1/routes", d.listRoutes)
-	h("POST /v1/routes", d.createRoute)
-	h("POST /v1/routes/{route}/adopt", d.adoptRoute)
-	h("DELETE /v1/routes/{route}", d.removeRoute)
-	h("POST /v1/routes/{route}/reset-events", d.resetEvents)
-	h("GET /v1/routes/{route}/status", d.routeStatus)
-	h("GET /v1/routes/{route}/setup", d.getSetup)
-	h("PUT /v1/routes/{route}/setup", d.putSetup)
-	h("POST /v1/routes/{route}/enroll", d.enroll)
-	h("POST /v1/routes/{route}/pair/approve", d.approve)
-	h("POST /v1/routes/{route}/pair/retire", d.retire)
-	h("POST /v1/routes/{route}/messages", d.send)
-	h("POST /v1/routes/{route}/claims", d.claim)
-	h("POST /v1/routes/{route}/claims/{token}/acks", d.ack)
-	h("DELETE /v1/routes/{route}/claims/{token}", d.release)
-	h("PUT /v1/routes/{route}/holds/{name}", d.hold)
-	h("DELETE /v1/routes/{route}/holds/{name}", d.unhold)
-	h("GET /v1/routes/{route}/events", d.partyEvents)
-	h("GET /v1/events", d.viewEvents)
-	h("GET /v1/routes/{route}/authority", d.authority)
-	h("POST /v1/routes/{route}/credentials/{name}/revoke", d.revokeCredential)
 	mux.Handle(rpc.BasePath, d.rpcHandler())
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		writeError(w, Errf("not_found", "no such request: %s %s", r.Method, r.URL.Path))
-	})
 	return d.limit(mux)
 }
 
@@ -103,7 +37,7 @@ func (d *Daemon) limit(next http.Handler) http.Handler {
 		select {
 		case d.sem <- struct{}{}:
 		case <-time.After(2 * time.Second):
-			writeError(w, Errf("busy", "too many requests in flight; retry"))
+			rpc.WriteError(w, rpcFailure(r.Context(), Errf("busy", "too many requests in flight; retry")))
 			return
 		}
 		released := false
@@ -127,54 +61,16 @@ func releaseSlot(r *http.Request) {
 	}
 }
 
-// decode reads a strict JSON body of at most 160 KiB.
-func decode(r *http.Request, v any) *APIError {
-	b, err := io.ReadAll(io.LimitReader(r.Body, maxBody+1))
-	if err != nil {
-		return Errf("bad_request", "body: %v", err)
-	}
-	if len(b) > maxBody {
-		return Errf("bad_request", "body larger than %d bytes", maxBody)
-	}
-	if err := strictDecode(b, v); err != nil {
-		return Errf("bad_request", "strict JSON: %v", err)
-	}
-	// A member may be absent, never null: null would decode to an empty
-	// value and pass as one (5.1).
-	var top map[string]json.RawMessage
-	if json.Unmarshal(b, &top) != nil || top == nil {
-		return Errf("bad_request", "the request body must be a JSON object")
-	}
-	for k, raw := range top {
-		if string(bytes.TrimSpace(raw)) == "null" {
-			return Errf("bad_request", "%q must not be null", k)
-		}
-	}
-	return nil
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	b, _ := encode(v)
-	_, _ = w.Write(append(b, '\n'))
-}
-
 func (d *Daemon) helloBody() Hello {
 	features := []string{}
 	opts := credentialOptions()
 	if len(opts) == 3 {
 		features = append(features, "keychain")
 	}
-	return Hello{DaemonVersion: d.cfg.Version, Protocol: Protocol, MinProtocol: Protocol, Features: features,
-		CredentialOptions: opts, DefaultCredential: "file"}
+	return Hello{DaemonVersion: d.cfg.Version, Features: features, CredentialOptions: opts, DefaultCredential: "file"}
 }
 
-func (d *Daemon) hello(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, 200, d.helloBody())
-}
-
-// Health is GET /v1/health.
+// Health is every route's and Herdr link's health.
 type Health struct {
 	Status string        `json:"status"`
 	Routes []RouteHealth `json:"routes"`
@@ -275,30 +171,15 @@ func (d *Daemon) healthBody(ctx context.Context) Health {
 	return h
 }
 
-func (d *Daemon) health(w http.ResponseWriter, r *http.Request) *APIError {
-	writeJSON(w, 200, d.healthBody(r.Context()))
-	return nil
-}
-
-// ShutdownRequest is POST /v1/shutdown.
-type ShutdownRequest struct {
-	Reason string `json:"reason"`
-}
-
-func (d *Daemon) shutdown(w http.ResponseWriter, r *http.Request) *APIError {
-	var q ShutdownRequest
-	if e := decode(r, &q); e != nil {
-		return e
-	}
-	if q.Reason != "stop" && q.Reason != "restart" {
+func (d *Daemon) shutdown(reason string) *APIError {
+	if reason != "stop" && reason != "restart" {
 		return Errf("bad_request", "reason is stop or restart")
 	}
-	writeJSON(w, 202, struct{}{})
 	go d.Stop("stop")
 	return nil
 }
 
-// RouteInfo is one route of GET /v1/routes.
+// RouteInfo is one registered route.
 type RouteInfo struct {
 	Route   string `json:"route"`
 	Inbox   string `json:"inbox"`
@@ -308,14 +189,12 @@ type RouteInfo struct {
 	Status  string `json:"status"`
 }
 
-func (d *Daemon) listRoutes(w http.ResponseWriter, r *http.Request) *APIError {
+func (d *Daemon) listRoutes(ctx context.Context) ([]RouteInfo, *APIError) {
 	rf, err := ReadRoutes(d.cfg.PrivateHome)
 	if err != nil {
-		return Errf("internal", "%v", err)
+		return nil, Errf("internal", "%v", err)
 	}
-	out := struct {
-		Routes []RouteInfo `json:"routes"`
-	}{Routes: []RouteInfo{}}
+	out := []RouteInfo{}
 	names := make([]string, 0, len(rf.Routes))
 	for n := range rf.Routes {
 		names = append(names, n)
@@ -324,18 +203,17 @@ func (d *Daemon) listRoutes(w http.ResponseWriter, r *http.Request) *APIError {
 	for _, n := range names {
 		info := RouteInfo{Route: n, Inbox: rf.Routes[n].Inbox, Owner: "daemon", Status: "unowned"}
 		if rt, e := d.route(n); e == nil {
-			_ = rt.do(r.Context(), func() *APIError {
+			_ = rt.do(ctx, func() *APIError {
 				info.Epoch, info.LastSeq, info.Status = rt.epoch, rt.visible, rt.routeStatus()
 				return nil
 			})
 		}
-		out.Routes = append(out.Routes, info)
+		out = append(out, info)
 	}
-	writeJSON(w, 200, out)
-	return nil
+	return out, nil
 }
 
-// CreateRequest is POST /v1/routes.
+// CreateRequest registers a new route.
 type CreateRequest struct {
 	Repo        string `json:"repo"`
 	Route       string `json:"route"`
@@ -359,11 +237,7 @@ func (d *Daemon) newOwner(adopted bool) Owner {
 	return o
 }
 
-func (d *Daemon) createRoute(w http.ResponseWriter, r *http.Request) *APIError {
-	var q CreateRequest
-	if e := decode(r, &q); e != nil {
-		return e
-	}
+func (d *Daemon) createRoute(q CreateRequest, res *CreateResult) *APIError {
 	if !validName(q.Repo) || !validName(q.Route) {
 		return Errf("bad_request", "repo and route must be names of letters, digits, '.', '_' or '-'")
 	}
@@ -402,12 +276,11 @@ func (d *Daemon) createRoute(w http.ResponseWriter, r *http.Request) *APIError {
 		return Errf("internal", "routes.json: %v", err)
 	}
 	d.openRoute(q.Route, rf.Routes[q.Route])
-	writeJSON(w, 201, CreateResult{Route: q.Route, Inbox: dir, Epoch: o.Epoch})
+	*res = CreateResult{Route: q.Route, Inbox: dir, Epoch: o.Epoch}
 	return nil
 }
 
-func (d *Daemon) removeRoute(w http.ResponseWriter, r *http.Request) *APIError {
-	name := r.PathValue("route")
+func (d *Daemon) removeRoute(name string) *APIError {
 	d.regMu.Lock()
 	defer d.regMu.Unlock()
 	rf, err := ReadRoutes(d.cfg.PrivateHome)
@@ -421,17 +294,10 @@ func (d *Daemon) removeRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	if err := d.writeRoutes(rf); err != nil {
 		return Errf("internal", "routes.json: %v", err)
 	}
-	// The route leaves the registry and the views that listed it are
-	// taken in one step: each of them gets route_removed below, whether
-	// or not it has attached to the route yet (5.4).
 	d.mu.Lock()
 	rt := d.routes[name]
 	delete(d.routes, name)
 	delete(d.held, name)
-	views := make([]*subscriber, 0, len(d.views))
-	for s := range d.views {
-		views = append(views, s)
-	}
 	d.mu.Unlock()
 	removed := func() *Event { return &Event{Type: "route_removed", Time: d.now().Unix(), Route: name} }
 	if rt != nil {
@@ -448,9 +314,6 @@ func (d *Daemon) removeRoute(w http.ResponseWriter, r *http.Request) *APIError {
 			rt.removed = true
 		})
 	}
-	for _, s := range views {
-		s.push(frame{ev: removed(), route: name})
-	}
 	if rt != nil {
 		rt.stop()
 		for _, l := range rt.retained {
@@ -458,21 +321,21 @@ func (d *Daemon) removeRoute(w http.ResponseWriter, r *http.Request) *APIError {
 		}
 	}
 	d.indexCredentials(name, nil)
-	writeJSON(w, 200, map[string]bool{"removed": true, "inbox_kept": true})
 	return nil
 }
 
-// ResetRequest is POST /v1/routes/{route}/reset-events.
+// ResetRequest asks for a new event epoch.
 type ResetRequest struct {
 	ConfirmRoute string `json:"confirm_route"`
 }
 
-func (d *Daemon) resetEvents(w http.ResponseWriter, r *http.Request) *APIError {
-	name := r.PathValue("route")
-	var q ResetRequest
-	if e := decode(r, &q); e != nil {
-		return e
-	}
+// ResetResult is the new epoch and its checkpoint.
+type ResetResult struct {
+	Epoch         string `json:"epoch"`
+	CheckpointSeq int64  `json:"checkpoint_seq"`
+}
+
+func (d *Daemon) resetEvents(ctx context.Context, name string, q ResetRequest, res *ResetResult) *APIError {
 	if q.ConfirmRoute != name {
 		return Errf("bad_request", "confirm_route must name the route")
 	}
@@ -480,21 +343,13 @@ func (d *Daemon) resetEvents(w http.ResponseWriter, r *http.Request) *APIError {
 	if e != nil {
 		return e
 	}
-	var res struct {
-		Epoch         string `json:"epoch"`
-		CheckpointSeq int64  `json:"checkpoint_seq"`
-	}
-	if e := rt.do(r.Context(), func() *APIError {
+	return rt.do(ctx, func() *APIError {
 		if err := rt.resetEpoch(d.newOwner(false).Epoch); err != nil {
 			return Errf("internal", "reset: %v", err)
 		}
 		res.Epoch, res.CheckpointSeq = rt.epoch, rt.visible
 		return nil
-	}); e != nil {
-		return e
-	}
-	writeJSON(w, 200, res)
-	return nil
+	})
 }
 
 // resetEpoch starts a new event epoch (4.3): the old journal goes, a new
@@ -533,25 +388,7 @@ func (r *Route) resetEpoch(epoch string) error {
 	return nil
 }
 
-func (d *Daemon) routeStatus(w http.ResponseWriter, r *http.Request) *APIError {
-	rt, e := d.route(r.PathValue("route"))
-	if e != nil {
-		return e
-	}
-	if r.Header.Get(HeaderPane) != "" {
-		if _, e := d.authParty(r, rt); e != nil {
-			return e
-		}
-	}
-	var st RouteStatus
-	if e := rt.do(r.Context(), func() *APIError { st = rt.fullStatus(); return nil }); e != nil {
-		return e
-	}
-	writeJSON(w, 200, st)
-	return nil
-}
-
-// SetupInventory is GET /v1/routes/{route}/setup: the live inventory of
+// SetupInventory is the live inventory of
 // the route's Herdr server and the current proof, for the setup form.
 type SetupInventory struct {
 	Inventory []InventoryAgent `json:"inventory"`
@@ -565,19 +402,18 @@ type InventoryAgent struct {
 	Agent   string          `json:"agent"`
 }
 
-func (d *Daemon) getSetup(w http.ResponseWriter, r *http.Request) *APIError {
-	name := r.PathValue("route")
+func (d *Daemon) getSetup(parent context.Context, name string, out *SetupInventory) *APIError {
 	rt, e := d.route(name)
 	if e != nil {
 		return e
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	agents, err := d.herdrFor(name).AgentList(ctx)
 	if err != nil {
 		return Errf("herdr_unreachable", "herdr: %v", err)
 	}
-	out := SetupInventory{Inventory: []InventoryAgent{}}
+	out.Inventory = []InventoryAgent{}
 	for _, a := range agents {
 		ia := InventoryAgent{Pane: a.PaneID, Session: a.AgentSession}
 		if a.Agent.Agent != nil {
@@ -588,23 +424,18 @@ func (d *Daemon) getSetup(w http.ResponseWriter, r *http.Request) *APIError {
 		}
 		out.Inventory = append(out.Inventory, ia)
 	}
-	_ = rt.do(r.Context(), func() *APIError {
+	_ = rt.do(parent, func() *APIError {
 		if doc, ok := rt.readSetup(); ok {
 			out.Proof = doc
 		}
 		return nil
 	})
-	writeJSON(w, 200, out)
 	return nil
 }
 
-func (d *Daemon) putSetup(w http.ResponseWriter, r *http.Request) *APIError {
-	rt, e := d.route(r.PathValue("route"))
+func (d *Daemon) putSetup(ctx context.Context, name string, q SetupRequest, res *SetupResult) *APIError {
+	rt, e := d.route(name)
 	if e != nil {
-		return e
-	}
-	var q SetupRequest
-	if e := decode(r, &q); e != nil {
 		return e
 	}
 	unlock, e := rt.inputLock()
@@ -612,19 +443,14 @@ func (d *Daemon) putSetup(w http.ResponseWriter, r *http.Request) *APIError {
 		return e
 	}
 	defer unlock()
-	var res SetupResult
-	if e := rt.do(r.Context(), func() *APIError {
+	return rt.do(ctx, func() *APIError {
 		var e *APIError
-		res, e = rt.setup(q)
+		*res, e = rt.setup(q)
 		return e
-	}); e != nil {
-		return e
-	}
-	writeJSON(w, 200, res)
-	return nil
+	})
 }
 
-// EnrollRequest is POST /v1/routes/{route}/enroll.
+// EnrollRequest proposes the calling pane as a party.
 type EnrollRequest struct {
 	Name string `json:"name"`
 	Role string `json:"role"`
@@ -650,51 +476,35 @@ func (d *Daemon) liveIdentity(ctx context.Context, route, pane string) (inbox.Id
 	return inbox.Identity{}, Errf("identity_unavailable", "herdr reports no complete, ready identity for pane %s (start the coordinator with herdr agent start)", pane)
 }
 
-func (d *Daemon) enroll(w http.ResponseWriter, r *http.Request) *APIError {
-	name := r.PathValue("route")
+func (d *Daemon) enroll(ctx context.Context, name string, q EnrollRequest, sum *string) *APIError {
 	rt, e := d.route(name)
 	if e != nil {
 		return e
 	}
-	var q EnrollRequest
-	if e := decode(r, &q); e != nil {
-		return e
-	}
-	id, e := d.liveIdentity(r.Context(), name, r.Header.Get(HeaderPane))
+	id, e := d.liveIdentity(ctx, name, callHeader(ctx).Get(HeaderPane))
 	if e != nil {
 		return e
 	}
-	var sum string
-	if e := rt.do(r.Context(), func() *APIError {
+	return rt.do(ctx, func() *APIError {
 		var e *APIError
-		sum, e = rt.enroll(q.Name, q.Role, id)
+		*sum, e = rt.enroll(q.Name, q.Role, id)
 		return e
-	}); e != nil {
-		return e
-	}
-	writeJSON(w, 202, map[string]string{"pending_sha256": sum})
-	return nil
+	})
 }
 
-func (d *Daemon) approve(w http.ResponseWriter, r *http.Request) *APIError {
-	rt, e := d.route(r.PathValue("route"))
+func (d *Daemon) approve(ctx context.Context, name string, q ApproveRequest, res *ApproveResult) *APIError {
+	rt, e := d.route(name)
 	if e != nil {
 		return e
 	}
-	var q ApproveRequest
-	if e := decode(r, &q); e != nil {
-		return e
-	}
-	var res ApproveResult
-	if e := rt.do(r.Context(), func() *APIError {
+	if e := rt.do(ctx, func() *APIError {
 		var e *APIError
-		res, e = rt.approveAsked(q, true)
+		*res, e = rt.approveAsked(q, true)
 		return e
 	}); e != nil {
 		return e
 	}
 	d.logf("route %s: pair approved (%s)", rt.name, approvedBy(q.Interaction, q.AskedBy))
-	writeJSON(w, 200, res)
 	return nil
 }
 
@@ -708,55 +518,43 @@ func approvedBy(interaction, askedBy string) string {
 	return "interaction " + interaction
 }
 
-// RetireRequest is POST /v1/routes/{route}/pair/retire.
+// RetireRequest retires a party by name and registry checksum.
 type RetireRequest struct {
 	Name   string `json:"name"`
 	SHA256 string `json:"sha256"`
 }
 
-func (d *Daemon) retire(w http.ResponseWriter, r *http.Request) *APIError {
-	rt, e := d.route(r.PathValue("route"))
+func (d *Daemon) retire(ctx context.Context, name string, q RetireRequest) *APIError {
+	rt, e := d.route(name)
 	if e != nil {
 		return e
 	}
-	var q RetireRequest
-	if e := decode(r, &q); e != nil {
-		return e
-	}
-	if e := rt.do(r.Context(), func() *APIError {
+	return rt.do(ctx, func() *APIError {
 		_, e := rt.retire(q.Name, q.SHA256)
 		return e
-	}); e != nil {
-		return e
-	}
-	writeJSON(w, 200, map[string]any{"retired": q.Name, "revoked": true})
-	return nil
+	})
 }
 
-func (d *Daemon) revokeCredential(w http.ResponseWriter, r *http.Request) *APIError {
-	rt, e := d.route(r.PathValue("route"))
+func (d *Daemon) revokeCredential(ctx context.Context, route, name string) *APIError {
+	rt, e := d.route(route)
 	if e != nil {
 		return e
 	}
-	name := r.PathValue("name")
-	if e := rt.do(r.Context(), func() *APIError { return rt.revoke(name) }); e != nil {
-		return e
-	}
-	writeJSON(w, 200, map[string]bool{"revoked": true})
-	return nil
+	return rt.do(ctx, func() *APIError { return rt.revoke(name) })
 }
 
 // authParty proves a party request (5.1, 8): the credential (or, for the
 // identity option, the name header) names one approved party of this
 // route, and Herdr's live identity of the caller's pane is that party's
 // enrolled identity.
-func (d *Daemon) authParty(r *http.Request, rt *Route) (string, *APIError) {
-	pane := r.Header.Get(HeaderPane)
+func (d *Daemon) authParty(ctx context.Context, rt *Route) (string, *APIError) {
+	header := callHeader(ctx)
+	pane := header.Get(HeaderPane)
 	if pane == "" {
 		return "", Errf("unauthorized", "the %s header (HERDR_PANE_ID) is required", HeaderPane)
 	}
-	name := r.Header.Get(HeaderName)
-	auth := r.Header.Get("Authorization")
+	name := header.Get(HeaderName)
+	auth := header.Get("Authorization")
 	party := ""
 	if tok, ok := strings.CutPrefix(auth, "Bearer "); ok && tok != "" {
 		d.mu.Lock()
@@ -777,7 +575,7 @@ func (d *Daemon) authParty(r *http.Request, rt *Route) (string, *APIError) {
 	} else {
 		var opt credential
 		var known bool
-		_ = rt.do(r.Context(), func() *APIError {
+		_ = rt.do(ctx, func() *APIError {
 			opt, known = rt.creds[name]
 			return nil
 		})
@@ -790,7 +588,7 @@ func (d *Daemon) authParty(r *http.Request, rt *Route) (string, *APIError) {
 	if !ok {
 		return "", Errf("unauthorized", "%s is not an approved party of route %s", party, rt.name)
 	}
-	id, e := d.liveIdentity(r.Context(), rt.name, pane)
+	id, e := d.liveIdentity(ctx, rt.name, pane)
 	if e != nil {
 		return "", e
 	}
@@ -800,32 +598,27 @@ func (d *Daemon) authParty(r *http.Request, rt *Route) (string, *APIError) {
 	return party, nil
 }
 
-func (d *Daemon) send(w http.ResponseWriter, r *http.Request) *APIError {
-	rt, e := d.route(r.PathValue("route"))
+func (d *Daemon) send(ctx context.Context, route string, q SendRequest, res *SendResult) *APIError {
+	rt, e := d.route(route)
 	if e != nil {
 		return e
 	}
-	var q SendRequest
-	if e := decode(r, &q); e != nil {
-		return e
-	}
-	me, e := d.authParty(r, rt)
+	me, e := d.authParty(ctx, rt)
 	if e != nil {
 		return e
 	}
 	// A retry of a committed send is answered from its key before any
 	// admission check that applies only to a new send (5.4); send itself
 	// still binds the key to its sender and content.
-	var res SendResult
 	known := false
-	if e := rt.do(r.Context(), func() *APIError {
+	if e := rt.do(ctx, func() *APIError {
 		if _, known = rt.sendKeys[q.Key]; !known {
 			return nil
 		}
 		// Answered in the same actor turn as the lookup, so the key
 		// cannot leave the window between them.
 		var e *APIError
-		res, e = rt.send(me, q)
+		*res, e = rt.send(me, q)
 		return e
 	}); e != nil {
 		return e
@@ -840,8 +633,8 @@ func (d *Daemon) send(w http.ResponseWriter, r *http.Request) *APIError {
 			}
 			defer unlock()
 			var auth string
-			if e := rt.do(r.Context(), func() *APIError {
-				auth, _ = rt.authority(r.Context(), d.herdrFor(rt.name))
+			if e := rt.do(ctx, func() *APIError {
+				auth, _ = rt.authority(ctx, d.herdrFor(rt.name))
 				return nil
 			}); e != nil {
 				return e
@@ -850,106 +643,68 @@ func (d *Daemon) send(w http.ResponseWriter, r *http.Request) *APIError {
 				return Errf("human_boundary", "HUMAN boundary; side-agent data not queued")
 			}
 		}
-		if e := rt.do(r.Context(), func() *APIError {
+		if e := rt.do(ctx, func() *APIError {
 			var e *APIError
-			res, e = rt.send(me, q)
+			*res, e = rt.send(me, q)
 			return e
 		}); e != nil {
 			return e
 		}
 	}
-	status := 201
-	if res.Duplicate {
-		status = 200
-	}
-	writeJSON(w, status, res)
 	return nil
 }
 
-func (d *Daemon) claim(w http.ResponseWriter, r *http.Request) *APIError {
-	rt, e := d.route(r.PathValue("route"))
+func (d *Daemon) claim(ctx context.Context, route string, q ClaimRequest, res *ClaimResult) *APIError {
+	rt, e := d.route(route)
 	if e != nil {
 		return e
 	}
-	var q ClaimRequest
-	if e := decode(r, &q); e != nil {
-		return e
-	}
-	me, e := d.authParty(r, rt)
+	me, e := d.authParty(ctx, rt)
 	if e != nil {
 		return e
 	}
-	var res ClaimResult
-	if e := rt.do(r.Context(), func() *APIError {
+	return rt.do(ctx, func() *APIError {
 		var e *APIError
-		res, e = rt.claim(me, q)
+		*res, e = rt.claim(me, q)
 		return e
-	}); e != nil {
-		return e
-	}
-	writeJSON(w, 200, res)
-	return nil
+	})
 }
 
-func (d *Daemon) ack(w http.ResponseWriter, r *http.Request) *APIError {
-	rt, e := d.route(r.PathValue("route"))
+func (d *Daemon) ack(ctx context.Context, route, token string, q AckRequest, res *AckResult) *APIError {
+	rt, e := d.route(route)
 	if e != nil {
 		return e
 	}
-	var q AckRequest
-	if e := decode(r, &q); e != nil {
-		return e
-	}
-	me, e := d.authParty(r, rt)
+	me, e := d.authParty(ctx, rt)
 	if e != nil {
 		return e
 	}
-	var res AckResult
-	if e := rt.do(r.Context(), func() *APIError {
+	return rt.do(ctx, func() *APIError {
 		var e *APIError
-		res, e = rt.ack(me, r.PathValue("token"), q)
+		*res, e = rt.ack(me, token, q)
 		return e
-	}); e != nil {
-		return e
-	}
-	status := 201
-	if res.Already {
-		status = 200
-	}
-	writeJSON(w, status, res)
-	return nil
+	})
 }
 
-func (d *Daemon) release(w http.ResponseWriter, r *http.Request) *APIError {
-	rt, e := d.route(r.PathValue("route"))
+func (d *Daemon) release(ctx context.Context, route, token string) *APIError {
+	rt, e := d.route(route)
 	if e != nil {
 		return e
 	}
-	me, e := d.authParty(r, rt)
+	me, e := d.authParty(ctx, rt)
 	if e != nil {
 		return e
 	}
-	if e := rt.do(r.Context(), func() *APIError { return rt.release(me, r.PathValue("token")) }); e != nil {
-		return e
-	}
-	writeJSON(w, 200, map[string]bool{"released": true})
-	return nil
+	return rt.do(ctx, func() *APIError { return rt.release(me, token) })
 }
 
-func (d *Daemon) holdOp(w http.ResponseWriter, r *http.Request, set bool) *APIError {
-	rt, e := d.route(r.PathValue("route"))
+// holdOp places a hold (reason set) or removes the caller's hold (reason nil).
+func (d *Daemon) holdOp(ctx context.Context, route, target string, reason *string, res *HoldResult) *APIError {
+	rt, e := d.route(route)
 	if e != nil {
 		return e
 	}
-	var reason *string
-	if set {
-		var q HoldRequest
-		if e := decode(r, &q); e != nil {
-			return e
-		}
-		reason = &q.Reason
-	}
-	me, e := d.authParty(r, rt)
+	me, e := d.authParty(ctx, rt)
 	if e != nil {
 		return e
 	}
@@ -958,36 +713,26 @@ func (d *Daemon) holdOp(w http.ResponseWriter, r *http.Request, set bool) *APIEr
 		return e
 	}
 	defer unlock()
-	var res HoldResult
-	if e := rt.do(r.Context(), func() *APIError {
+	return rt.do(ctx, func() *APIError {
 		var e *APIError
-		res, e = rt.hold(me, r.PathValue("name"), reason)
+		*res, e = rt.hold(me, target, reason)
 		return e
-	}); e != nil {
-		return e
-	}
-	writeJSON(w, 200, res)
-	return nil
+	})
 }
 
-func (d *Daemon) hold(w http.ResponseWriter, r *http.Request) *APIError { return d.holdOp(w, r, true) }
-func (d *Daemon) unhold(w http.ResponseWriter, r *http.Request) *APIError {
-	return d.holdOp(w, r, false)
-}
-
-// AuthorityResult is GET /v1/routes/{route}/authority.
+// AuthorityResult says whether relayed messages carry authority.
 type AuthorityResult struct {
 	Authority string   `json:"authority"`
 	Reasons   []string `json:"reasons"`
 }
 
-func (d *Daemon) authority(w http.ResponseWriter, r *http.Request) *APIError {
-	rt, e := d.route(r.PathValue("route"))
+func (d *Daemon) authority(ctx context.Context, route string, res *AuthorityResult) *APIError {
+	rt, e := d.route(route)
 	if e != nil {
 		return e
 	}
-	if r.Header.Get(HeaderPane) != "" {
-		if _, e := d.authParty(r, rt); e != nil {
+	if callHeader(ctx).Get(HeaderPane) != "" {
+		if _, e := d.authParty(ctx, rt); e != nil {
 			return e
 		}
 	}
@@ -997,29 +742,20 @@ func (d *Daemon) authority(w http.ResponseWriter, r *http.Request) *APIError {
 		return e
 	}
 	defer unlock()
-	var res AuthorityResult
-	if e := rt.do(r.Context(), func() *APIError {
-		res.Authority, res.Reasons = rt.authority(r.Context(), d.herdrFor(rt.name))
+	return rt.do(ctx, func() *APIError {
+		res.Authority, res.Reasons = rt.authority(ctx, d.herdrFor(rt.name))
 		return nil
-	}); e != nil {
-		return e
-	}
-	writeJSON(w, 200, res)
-	return nil
+	})
 }
 
-// streamSlot admits a new stream under the caps of 9.3.
+// streamSlot admits a waiting call under the caps of 9.3.
 func (d *Daemon) streamSlot(key string) (func(), *APIError) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.upgrading {
 		return nil, Errf("busy", "the daemon is stopping; reconnect")
 	}
-	limit := maxStreamsParty
-	if key == "view" {
-		limit = maxStreamsView
-	}
-	if d.streams[key] >= limit || d.streams["all"] >= maxStreamsAll {
+	if d.streams[key] >= maxStreamsParty || d.streams["all"] >= maxStreamsAll {
 		return nil, Errf("busy", "too many open streams")
 	}
 	d.streams[key]++
@@ -1030,168 +766,4 @@ func (d *Daemon) streamSlot(key string) (func(), *APIError) {
 		d.streams["all"]--
 		d.mu.Unlock()
 	}, nil
-}
-
-// runStream writes frames to an SSE response until the queue closes, the
-// client goes or a write misses its deadline.
-func runStream(w http.ResponseWriter, r *http.Request, s *subscriber, first []frame, routeOf func(frame) string) {
-	rc := http.NewResponseController(w)
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(200)
-	write := func(f frame) bool {
-		_ = rc.SetWriteDeadline(time.Now().Add(writeDeadline))
-		if writeFrame(w, routeOf(f), f) != nil || rc.Flush() != nil {
-			return false
-		}
-		return !f.last
-	}
-	if rc.Flush() != nil {
-		return
-	}
-	for _, f := range first {
-		if !write(f) {
-			return
-		}
-	}
-	for s.replay != nil {
-		rec, err := s.replay.next()
-		if err != nil {
-			return
-		}
-		if rec == nil {
-			break
-		}
-		if s.wants(rec) && !write(frame{rec: rec, route: s.route}) {
-			return
-		}
-	}
-	var ping <-chan time.Time
-	if s.party == "" {
-		t := time.NewTicker(30 * time.Second)
-		defer t.Stop()
-		ping = t.C
-	}
-	for {
-		select {
-		case f, ok := <-s.q:
-			if !ok || !write(f) {
-				return
-			}
-		case <-ping:
-			_ = rc.SetWriteDeadline(time.Now().Add(writeDeadline))
-			if _, err := io.WriteString(w, ": ping\n\n"); err != nil || rc.Flush() != nil {
-				return
-			}
-		case <-r.Context().Done():
-			return
-		}
-	}
-}
-
-func (d *Daemon) partyEvents(w http.ResponseWriter, r *http.Request) *APIError {
-	rt, e := d.route(r.PathValue("route"))
-	if e != nil {
-		return e
-	}
-	me, e := d.authParty(r, rt)
-	if e != nil {
-		return e
-	}
-	done, e := d.streamSlot(rt.name + "/" + me)
-	if e != nil {
-		return e
-	}
-	defer done()
-	cursor := r.Header.Get("Last-Event-ID")
-	if c := r.URL.Query().Get("after"); c != "" {
-		cursor = c
-	}
-	s := newSubscriber(rt.name, me)
-	var first []frame
-	if e := rt.do(r.Context(), func() *APIError {
-		var e *APIError
-		first, e = rt.subscribe(s, cursor)
-		return e
-	}); e != nil {
-		return e
-	}
-	defer func() {
-		s.close()
-		rt.detach(s)
-		s.replay.close()
-	}()
-	releaseSlot(r)
-	runStream(w, r, s, first, func(frame) string { return rt.name })
-	return nil
-}
-
-// attachView subscribes the view stream to one route: its snapshot first,
-// then its live events (5.4 view stream).
-func (d *Daemon) attachView(rt *Route, s *subscriber) {
-	_ = rt.do(context.Background(), func() *APIError {
-		first, _ := rt.subscribe(s, "")
-		for _, f := range first {
-			if !s.push(f) {
-				delete(rt.subs, s)
-			}
-		}
-		return nil
-	})
-}
-
-func (d *Daemon) viewEvents(w http.ResponseWriter, r *http.Request) *APIError {
-	done, e := d.streamSlot("view")
-	if e != nil {
-		return e
-	}
-	defer done()
-	s := newSubscriber("", "")
-	// Subscribing to the registry and listing it is one step: a route
-	// created later attaches itself through d.views (openRoute).
-	d.mu.Lock()
-	d.views[s] = struct{}{}
-	routes := make([]*Route, 0, len(d.routes))
-	for _, rt := range d.routes {
-		routes = append(routes, rt)
-	}
-	d.mu.Unlock()
-	d.crash("view.listed")
-	sort.Slice(routes, func(i, j int) bool { return routes[i].name < routes[j].name })
-	defer func() {
-		d.mu.Lock()
-		delete(d.views, s)
-		attached := make([]*Route, 0, len(d.routes))
-		for _, rt := range d.routes {
-			attached = append(attached, rt)
-		}
-		d.mu.Unlock()
-		s.close()
-		// Every route the stream was attached to, at its start or later,
-		// forgets it.
-		for _, rt := range attached {
-			rt.detach(s)
-		}
-	}()
-	reg := &Event{Type: "registry", Time: d.now().Unix(), Routes: []RouteRef{}}
-	for _, rt := range routes {
-		var ep string
-		_ = rt.do(r.Context(), func() *APIError { ep = rt.epoch; return nil })
-		reg.Routes = append(reg.Routes, RouteRef{Route: rt.name, Epoch: ep})
-	}
-	first := []frame{{ev: reg}}
-	for _, rt := range routes {
-		d.attachView(rt, s)
-	}
-	releaseSlot(r)
-	runStream(w, r, s, first, func(f frame) string {
-		if f.route != "" {
-			return f.route
-		}
-		if f.ev != nil {
-			return f.ev.Route
-		}
-		return ""
-	})
-	return nil
 }

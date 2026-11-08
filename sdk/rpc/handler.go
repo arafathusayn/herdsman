@@ -129,6 +129,12 @@ func fail(w http.ResponseWriter, failure *Error) {
 	write(w, failure.Code.HTTPStatus(), failure)
 }
 
+// WriteError answers a request with err, for a server that refuses a call
+// before it reaches the mux.
+func WriteError(w http.ResponseWriter, err error) {
+	fail(w, FromError(err))
+}
+
 // deadline applies the request's timeout header. Connect-Timeout-Ms is one to
 // ten ASCII digits; strconv alone would also take a sign.
 func deadline(ctx context.Context, header string) (context.Context, context.CancelFunc, error) {

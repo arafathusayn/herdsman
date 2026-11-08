@@ -13,19 +13,22 @@ import (
 	"time"
 
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
-	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-var statusPath = Path(daemonv1.MessageServiceName, "Status")
+// testService names the service these tests bind. The payloads are core
+// messages, so that this package's tests need no generated service.
+const testService = "herdsman.test.v1.TestService"
 
-func statusMux(fn func(context.Context, *daemonv1.StatusRequest) (*daemonv1.StatusResponse, error)) http.Handler {
-	return NewMux(Unary(daemonv1.MessageServiceName, "Status", fn))
+var statusPath = Path(testService, "Status")
+
+func statusMux(fn func(context.Context, *corev1.RouteId) (*corev1.Error, error)) http.Handler {
+	return NewMux(Unary(testService, "Status", fn))
 }
 
-func echo(_ context.Context, req *daemonv1.StatusRequest) (*daemonv1.StatusResponse, error) {
-	return &daemonv1.StatusResponse{Route: req.GetRoute(), Status: "ok"}, nil
+func echo(_ context.Context, req *corev1.RouteId) (*corev1.Error, error) {
+	return &corev1.Error{Code: req.GetValue(), Message: "ok"}, nil
 }
 
 func do(handler http.Handler, method, path, contentType string, body []byte, headers map[string]string) *httptest.ResponseRecorder {
@@ -53,7 +56,7 @@ func wantFailure(t *testing.T, rec *httptest.ResponseRecorder, status int, code 
 }
 
 func TestServesBothEncodings(t *testing.T) {
-	binary, err := proto.Marshal(&daemonv1.StatusRequest{Route: &corev1.RouteId{Value: "alpha"}})
+	binary, err := proto.Marshal(&corev1.RouteId{Value: "alpha"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,8 +64,8 @@ func TestServesBothEncodings(t *testing.T) {
 		name, contentType, reply string
 		body                     []byte
 	}{
-		{"json", ContentTypeJSON, ContentTypeJSON, []byte(`{"route":{"value":"alpha"},"later_field":1}`)},
-		{"json charset", ContentTypeJSON + "; charset=utf-8", ContentTypeJSON, []byte(`{"route":{"value":"alpha"}}`)},
+		{"json", ContentTypeJSON, ContentTypeJSON, []byte(`{"value":"alpha","later_field":1}`)},
+		{"json charset", ContentTypeJSON + "; charset=utf-8", ContentTypeJSON, []byte(`{"value":"alpha"}`)},
 		{"proto", ContentTypeProto, ContentTypeProto, binary},
 	}
 	for _, c := range cases {
@@ -71,12 +74,12 @@ func TestServesBothEncodings(t *testing.T) {
 			if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != c.reply {
 				t.Fatalf("%d %q: %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body)
 			}
-			var res daemonv1.StatusResponse
+			var res corev1.Error
 			codec, _ := codecFor(c.reply)
 			if err := codec.unmarshal(rec.Body.Bytes(), &res); err != nil {
 				t.Fatal(err)
 			}
-			if res.GetRoute().GetValue() != "alpha" {
+			if res.GetCode() != "alpha" {
 				t.Fatalf("response %v", &res)
 			}
 		})
@@ -113,8 +116,8 @@ func TestRefusesBadRequests(t *testing.T) {
 }
 
 func TestUnencodableResponseIsInternal(t *testing.T) {
-	handler := statusMux(func(context.Context, *daemonv1.StatusRequest) (*daemonv1.StatusResponse, error) {
-		return &daemonv1.StatusResponse{Status: string([]byte{0xff})}, nil
+	handler := statusMux(func(context.Context, *corev1.RouteId) (*corev1.Error, error) {
+		return &corev1.Error{Message: string([]byte{0xff})}, nil
 	})
 	wantFailure(t, do(handler, http.MethodPost, statusPath, ContentTypeProto, nil, nil), http.StatusInternalServerError, Internal)
 }
@@ -144,7 +147,7 @@ func TestUnreadableBody(t *testing.T) {
 
 func TestTimeoutReachesTheService(t *testing.T) {
 	var left time.Duration
-	handler := statusMux(func(ctx context.Context, req *daemonv1.StatusRequest) (*daemonv1.StatusResponse, error) {
+	handler := statusMux(func(ctx context.Context, req *corev1.RouteId) (*corev1.Error, error) {
 		end, ok := ctx.Deadline()
 		if !ok {
 			return nil, Errorf(Internal, "no deadline")
@@ -167,7 +170,7 @@ func TestEveryCodeHasItsStatus(t *testing.T) {
 	}
 	for _, code := range Codes() {
 		t.Run(string(code), func(t *testing.T) {
-			handler := statusMux(func(context.Context, *daemonv1.StatusRequest) (*daemonv1.StatusResponse, error) {
+			handler := statusMux(func(context.Context, *corev1.RouteId) (*corev1.Error, error) {
 				return nil, fmt.Errorf("wrapped: %w", Errorf(code, "why"))
 			})
 			rec := do(handler, http.MethodPost, statusPath, ContentTypeJSON, []byte("{}"), nil)
@@ -379,5 +382,13 @@ func TestTimeoutHeaderBounds(t *testing.T) {
 	}
 	if got := timeoutHeader(cases[4].left); got != cases[4].want {
 		t.Errorf("clamp: %s", got)
+	}
+}
+
+func TestWriteErrorAnswersWithTheCodesStatus(t *testing.T) {
+	rec := httptest.NewRecorder()
+	WriteError(rec, Errorf(Unavailable, "busy"))
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"unavailable"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 }
