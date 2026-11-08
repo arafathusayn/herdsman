@@ -13,9 +13,12 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/arafathusayn/herdsman/internal/hooks"
 	"github.com/arafathusayn/herdsman/internal/suggest"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
+	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
 )
 
 // ErrNoContextRepo reports a project entry asked for where no context repo exists.
@@ -35,6 +38,23 @@ type SuggestService struct {
 	Home       string                  // Empty uses the user's home folder.
 	Harnesses  []string                // Empty looks the known harnesses up on PATH.
 	ContextDir func(dir string) string // The project's context repo; "" or nil means none.
+
+	pinsMu     sync.Mutex // Held from reading the pins to storing them.
+	remoteOnce sync.Once
+	fetcher    *suggest.Remote // One, because it serializes fetches of its cache.
+}
+
+// suggestRefusal is a failure the caller caused, with the code it is served as.
+// The command line prints its text alone.
+type suggestRefusal struct {
+	code rpc.Code
+	text string
+}
+
+func (r *suggestRefusal) Error() string { return r.text }
+
+func refuseSuggest(code rpc.Code, format string, args ...any) error {
+	return &suggestRefusal{code: code, text: fmt.Sprintf(format, args...)}
 }
 
 // SuggestSearchRequest asks for a ranked list. An empty Text gives the top
@@ -214,6 +234,11 @@ func (s *SuggestService) sourcesPath() string {
 	return filepath.Join(s.configDir(), "suggest-sources.txt")
 }
 
+func (s *SuggestService) remote() *suggest.Remote {
+	s.remoteOnce.Do(func() { s.fetcher = suggest.NewRemote(s.cacheDir()) })
+	return s.fetcher
+}
+
 func (s *SuggestService) contextDir(dir string) string {
 	if s.ContextDir == nil {
 		return ""
@@ -233,7 +258,7 @@ func (s *SuggestService) load(ctx context.Context, dir string) (suggest.Catalog,
 	if root := s.contextDir(dir); root != "" {
 		sources = append(sources, suggest.DirSource(suggest.SourceProject, "project", filepath.Join(root, "suggest")))
 	}
-	remote := suggest.NewRemote(s.cacheDir())
+	remote := s.remote()
 	for _, pin := range pins {
 		sources = append(sources, remote.Source(ctx, pin))
 	}
@@ -260,7 +285,7 @@ func (s *SuggestService) find(ctx context.Context, dir, id string) (suggest.Entr
 			return e, nil
 		}
 	}
-	return suggest.Entry{}, fmt.Errorf("no suggestion has the id %q", id)
+	return suggest.Entry{}, refuseSuggest(rpc.NotFound, "no suggestion has the id %q", id)
 }
 
 // Get returns one entry in full.
@@ -356,14 +381,14 @@ func (s *SuggestService) Add(_ context.Context, r SuggestAddRequest) (SuggestAdd
 	// The values as given are what names the file, so they are what must pass:
 	// a value can read as valid once parsed, with the rest of it a comment.
 	if err := suggest.Validate(entry); err != nil {
-		return SuggestAddResponse{}, err
+		return SuggestAddResponse{}, refuseSuggest(rpc.InvalidArgument, "%s", err)
 	}
 	data, err := renderEntry(entry)
 	if err != nil {
-		return SuggestAddResponse{}, err
+		return SuggestAddResponse{}, refuseSuggest(rpc.InvalidArgument, "%s", err)
 	}
 	if _, err := suggest.ParseEntry(data); err != nil {
-		return SuggestAddResponse{}, err
+		return SuggestAddResponse{}, refuseSuggest(rpc.InvalidArgument, "%s", err)
 	}
 	if err := os.MkdirAll(folder, 0o755); err != nil {
 		return SuggestAddResponse{}, err
@@ -392,7 +417,9 @@ func (s *SuggestService) pins() ([]suggest.Pin, error) {
 	for _, line := range strings.Fields(string(data)) {
 		pin, err := suggest.ParsePin(line)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", s.sourcesPath(), err)
+			// Not %w: a damaged file here is the machine's fault, whereas the
+			// error's type would blame the request.
+			return nil, fmt.Errorf("%s: %s", s.sourcesPath(), err)
 		}
 		pins = append(pins, pin)
 	}
@@ -433,67 +460,107 @@ func indexOfPin(pins []suggest.Pin, url string) int {
 	return slices.IndexFunc(pins, func(p suggest.Pin) bool { return p.URL == url })
 }
 
+// changePins runs one read, change and store of the pins as a unit, so that two
+// calls at once cannot lose each other's change.
+func (s *SuggestService) changePins(change func([]suggest.Pin) ([]suggest.Pin, error)) error {
+	s.pinsMu.Lock()
+	defer s.pinsMu.Unlock()
+	pins, err := s.pins()
+	if err != nil {
+		return err
+	}
+	changed, err := change(pins)
+	if err != nil {
+		return err
+	}
+	return s.storePins(changed)
+}
+
+func sourceExists(url string) error {
+	return refuseSuggest(rpc.AlreadyExists, "the source %s is already added", url)
+}
+
+func findPin(pins []suggest.Pin, url string) (int, error) {
+	i := indexOfPin(pins, url)
+	if i < 0 {
+		return 0, refuseSuggest(rpc.NotFound, "no source has the address %s", url)
+	}
+	return i, nil
+}
+
 // SourceAdd fetches a remote catalog into the cache and pins the commit found.
+// The fetch can be slow, so it happens outside the unit that stores the pin,
+// which checks for the source again.
 func (s *SuggestService) SourceAdd(ctx context.Context, r SuggestSourceAddRequest) (SuggestSourceAddResponse, error) {
 	pins, err := s.pins()
 	if err != nil {
 		return SuggestSourceAddResponse{}, err
 	}
 	if indexOfPin(pins, r.URL) >= 0 {
-		return SuggestSourceAddResponse{}, fmt.Errorf("the source %s is already added", r.URL)
+		return SuggestSourceAddResponse{}, sourceExists(r.URL)
 	}
-	pin, err := suggest.NewRemote(s.cacheDir()).Fetch(ctx, r.URL, r.Ref)
+	pin, err := s.remote().Fetch(ctx, r.URL, r.Ref)
 	if err != nil {
 		return SuggestSourceAddResponse{}, err
 	}
-	return SuggestSourceAddResponse{Pin: pin}, s.storePins(append(pins, pin))
-}
-
-func (s *SuggestService) pinOf(url string) ([]suggest.Pin, int, error) {
-	pins, err := s.pins()
-	if err != nil {
-		return nil, 0, err
-	}
-	i := indexOfPin(pins, url)
-	if i < 0 {
-		return nil, 0, fmt.Errorf("no source has the address %s", url)
-	}
-	return pins, i, nil
+	err = s.changePins(func(current []suggest.Pin) ([]suggest.Pin, error) {
+		if indexOfPin(current, r.URL) >= 0 {
+			return nil, sourceExists(r.URL)
+		}
+		return append(current, pin), nil
+	})
+	return SuggestSourceAddResponse{Pin: pin}, err
 }
 
 // SourceRemove forgets a remote catalog.
 func (s *SuggestService) SourceRemove(_ context.Context, r SuggestSourceRemoveRequest) (SuggestSourceRemoveResponse, error) {
-	pins, i, err := s.pinOf(r.URL)
+	err := s.changePins(func(current []suggest.Pin) ([]suggest.Pin, error) {
+		i, err := findPin(current, r.URL)
+		if err != nil {
+			return nil, err
+		}
+		return slices.Delete(current, i, i+1), nil
+	})
 	if err != nil {
 		return SuggestSourceRemoveResponse{}, err
 	}
-	return SuggestSourceRemoveResponse(r), s.storePins(slices.Delete(pins, i, i+1))
+	return SuggestSourceRemoveResponse(r), nil
 }
 
 // SourcePreview fetches and returns the entry diff. The pin does not move.
 func (s *SuggestService) SourcePreview(ctx context.Context, r SuggestSourcePreviewRequest) (suggest.Update, error) {
-	pins, i, err := s.pinOf(r.URL)
+	pins, err := s.pins()
 	if err != nil {
 		return suggest.Update{}, err
 	}
-	return suggest.NewRemote(s.cacheDir()).PreviewUpdate(ctx, pins[i], r.Ref)
+	i, err := findPin(pins, r.URL)
+	if err != nil {
+		return suggest.Update{}, err
+	}
+	return s.remote().PreviewUpdate(ctx, pins[i], r.Ref)
 }
 
 // SourcePin moves a pin to a commit the caller has already shown.
 func (s *SuggestService) SourcePin(_ context.Context, r SuggestSourcePinRequest) (SuggestSourcePinResponse, error) {
-	pins, i, err := s.pinOf(r.URL)
+	var pin suggest.Pin
+	err := s.changePins(func(current []suggest.Pin) ([]suggest.Pin, error) {
+		i, err := findPin(current, r.URL)
+		if err != nil {
+			return nil, err
+		}
+		if current[i].Commit != r.From {
+			return nil, refuseSuggest(rpc.Aborted, "the source %s moved since the preview: it is at %s", r.URL, current[i].Commit)
+		}
+		if pin, err = suggest.ParsePin(r.URL + "@" + r.To); err != nil {
+			return nil, err
+		}
+		current[i] = pin
+		return current, nil
+	})
 	if err != nil {
 		return SuggestSourcePinResponse{}, err
 	}
-	if pins[i].Commit != r.From {
-		return SuggestSourcePinResponse{}, fmt.Errorf("the source %s moved since the preview: it is at %s", r.URL, pins[i].Commit)
-	}
-	pin, err := suggest.ParsePin(r.URL + "@" + r.To)
-	if err != nil {
-		return SuggestSourcePinResponse{}, err
-	}
-	pins[i] = pin
-	return SuggestSourcePinResponse{Pin: pin}, s.storePins(pins)
+	return SuggestSourcePinResponse{Pin: pin}, nil
 }
 
 // knownHarnesses are the programs looked up on PATH.
@@ -551,4 +618,173 @@ func (s *SuggestService) installed() suggest.Installed {
 		}
 	}
 	return found
+}
+
+// suggestRPC serves the catalog on the daemon's RPC surface. It translates
+// messages and failures and holds no behaviour of its own.
+type suggestRPC struct{ s *SuggestService }
+
+var _ suggestv1.SuggestService = (*suggestRPC)(nil)
+
+// suggestFailure is how a failed call is served. The caller's own deadline or
+// cancellation wins over whatever it caused.
+func suggestFailure(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	var refusal *suggestRefusal
+	var bad *suggest.BadSourceError
+	switch {
+	case errors.As(err, &refusal):
+		return rpc.Errorf(refusal.code, "%s", refusal.text)
+	case errors.As(err, &bad):
+		return rpc.Errorf(rpc.InvalidArgument, "%s", bad.Reason)
+	case errors.Is(err, suggest.ErrNoRecipe), errors.Is(err, ErrNoContextRepo):
+		return rpc.Errorf(rpc.FailedPrecondition, "%s", err)
+	case errors.Is(err, fs.ErrExist):
+		return rpc.Errorf(rpc.AlreadyExists, "%s", err)
+	}
+	return rpc.Errorf(rpc.Internal, "%s", err)
+}
+
+func sourceToProto(ref suggest.SourceRef) *suggestv1.SourceRef {
+	return &suggestv1.SourceRef{Kind: string(ref.Kind), Name: ref.Name, Commit: ref.Commit}
+}
+
+func pinToProto(pin suggest.Pin) *suggestv1.Pin {
+	return &suggestv1.Pin{Url: pin.URL, Commit: pin.Commit}
+}
+
+func reasonToProto(reason suggest.Reason) *suggestv1.Reason {
+	return &suggestv1.Reason{Code: reason.Code, Value: reason.Value, Points: int32(reason.Points)}
+}
+
+func problemsToProto(problems []suggest.Problem) []*suggestv1.Problem {
+	out := make([]*suggestv1.Problem, 0, len(problems))
+	for _, problem := range problems {
+		out = append(out, &suggestv1.Problem{Source: sourceToProto(problem.Source), File: problem.File, Error: problem.Err})
+	}
+	return out
+}
+
+func entryToProto(e suggest.Entry) *suggestv1.Suggestion {
+	out := &suggestv1.Suggestion{
+		Id: e.ID, Kind: string(e.Kind), Title: e.Title, Tags: e.Tags, Url: e.URL, Repo: e.Repo, Since: e.Since, Body: e.Body,
+		AppliesTo: &suggestv1.AppliesTo{Harnesses: e.AppliesTo.Harnesses, Ecosystems: e.AppliesTo.Ecosystems, Platforms: e.AppliesTo.Platforms},
+		Source:    sourceToProto(e.Source),
+	}
+	if e.Install != nil {
+		out.Install = &suggestv1.Install{Command: e.Install.Command, Mcp: e.Install.MCP, SkillRepo: e.Install.SkillRepo, Touches: e.Install.Touches}
+	}
+	return out
+}
+
+// Search serves a ranking, each item with its reasons.
+func (r *suggestRPC) Search(ctx context.Context, req *suggestv1.SearchRequest) (*suggestv1.SearchResponse, error) {
+	found, err := r.s.Search(ctx, SuggestSearchRequest{Dir: req.GetDir(), Text: req.GetText(), Kind: req.GetKind(), For: req.GetFor(), Tag: req.GetTag()})
+	if err != nil {
+		return nil, suggestFailure(ctx, err)
+	}
+	res := &suggestv1.SearchResponse{Dir: found.Dir, Problems: problemsToProto(found.Problems)}
+	for _, item := range found.Items {
+		scored := &suggestv1.Scored{Entry: entryToProto(item.Entry), Score: int32(item.Score)}
+		for _, reason := range item.Reasons {
+			scored.Reasons = append(scored.Reasons, reasonToProto(reason))
+		}
+		res.Items = append(res.Items, scored)
+	}
+	for _, left := range found.Excluded {
+		res.Excluded = append(res.Excluded, &suggestv1.Excluded{Id: left.ID, Reason: reasonToProto(left.Reason)})
+	}
+	return res, nil
+}
+
+// Get serves one entry in full.
+func (r *suggestRPC) Get(ctx context.Context, req *suggestv1.GetRequest) (*suggestv1.GetResponse, error) {
+	if req.GetId() == "" {
+		return nil, rpc.Errorf(rpc.InvalidArgument, "the request names no suggestion")
+	}
+	got, err := r.s.Get(ctx, SuggestGetRequest{Dir: req.GetDir(), ID: req.GetId()})
+	if err != nil {
+		return nil, suggestFailure(ctx, err)
+	}
+	return &suggestv1.GetResponse{Entry: entryToProto(got.Entry)}, nil
+}
+
+// Add records a new entry.
+func (r *suggestRPC) Add(ctx context.Context, req *suggestv1.AddRequest) (*suggestv1.AddResponse, error) {
+	added, err := r.s.Add(ctx, SuggestAddRequest{Dir: req.GetDir(), Project: req.GetProject(), ID: req.GetId(), Kind: req.GetKind(), Title: req.GetTitle(), Tags: req.GetTags(), URL: req.GetUrl(), Repo: req.GetRepo(), Body: req.GetBody()})
+	if err != nil {
+		return nil, suggestFailure(ctx, err)
+	}
+	return &suggestv1.AddResponse{Id: added.ID, Path: added.Path}, nil
+}
+
+// Plan serves what applying an entry would do.
+func (r *suggestRPC) Plan(ctx context.Context, req *suggestv1.PlanRequest) (*suggestv1.PlanResponse, error) {
+	if req.GetId() == "" {
+		return nil, rpc.Errorf(rpc.InvalidArgument, "the request names no suggestion")
+	}
+	plan, err := r.s.Plan(ctx, SuggestPlanRequest{Dir: req.GetDir(), ID: req.GetId()})
+	if err != nil {
+		return nil, suggestFailure(ctx, err)
+	}
+	recipe := plan.Recipe
+	return &suggestv1.PlanResponse{Approved: plan.Approved, Recipe: &suggestv1.Recipe{
+		Id: recipe.ID, Title: recipe.Title, Source: sourceToProto(recipe.Source), Kind: string(recipe.Kind),
+		Text: recipe.Text, Touches: recipe.Touches, Checksum: recipe.Checksum,
+	}}, nil
+}
+
+// Sources serves the remote catalogs with their pins.
+func (r *suggestRPC) Sources(ctx context.Context, _ *suggestv1.SourcesRequest) (*suggestv1.SourcesResponse, error) {
+	listed, err := r.s.Sources(ctx, SuggestSourcesRequest{})
+	if err != nil {
+		return nil, suggestFailure(ctx, err)
+	}
+	res := &suggestv1.SourcesResponse{}
+	for _, pin := range listed.Sources {
+		res.Sources = append(res.Sources, pinToProto(pin))
+	}
+	return res, nil
+}
+
+// SourceAdd pins a new remote catalog.
+func (r *suggestRPC) SourceAdd(ctx context.Context, req *suggestv1.SourceAddRequest) (*suggestv1.SourceAddResponse, error) {
+	added, err := r.s.SourceAdd(ctx, SuggestSourceAddRequest{URL: req.GetUrl(), Ref: req.GetRef()})
+	if err != nil {
+		return nil, suggestFailure(ctx, err)
+	}
+	return &suggestv1.SourceAddResponse{Pin: pinToProto(added.Pin)}, nil
+}
+
+// SourceRemove forgets a remote catalog.
+func (r *suggestRPC) SourceRemove(ctx context.Context, req *suggestv1.SourceRemoveRequest) (*suggestv1.SourceRemoveResponse, error) {
+	removed, err := r.s.SourceRemove(ctx, SuggestSourceRemoveRequest{URL: req.GetUrl()})
+	if err != nil {
+		return nil, suggestFailure(ctx, err)
+	}
+	return &suggestv1.SourceRemoveResponse{Url: removed.URL}, nil
+}
+
+// SourcePreview serves what moving a pin would change.
+func (r *suggestRPC) SourcePreview(ctx context.Context, req *suggestv1.SourcePreviewRequest) (*suggestv1.SourcePreviewResponse, error) {
+	update, err := r.s.SourcePreview(ctx, SuggestSourcePreviewRequest{URL: req.GetUrl(), Ref: req.GetRef()})
+	if err != nil {
+		return nil, suggestFailure(ctx, err)
+	}
+	res := &suggestv1.SourcePreviewResponse{From: pinToProto(update.From), To: pinToProto(update.To), Problems: problemsToProto(update.Problems)}
+	for _, change := range update.Changes {
+		res.Changes = append(res.Changes, &suggestv1.Change{Id: change.ID, Action: string(change.Action), Diff: change.Diff})
+	}
+	return res, nil
+}
+
+// SourcePin moves a pin to a commit the caller has already shown.
+func (r *suggestRPC) SourcePin(ctx context.Context, req *suggestv1.SourcePinRequest) (*suggestv1.SourcePinResponse, error) {
+	moved, err := r.s.SourcePin(ctx, SuggestSourcePinRequest{URL: req.GetUrl(), From: req.GetFrom(), To: req.GetTo()})
+	if err != nil {
+		return nil, suggestFailure(ctx, err)
+	}
+	return &suggestv1.SourcePinResponse{Pin: pinToProto(moved.Pin)}, nil
 }

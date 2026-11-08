@@ -4,14 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/suggest"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
+	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 func newSuggestService(t *testing.T) *SuggestService {
@@ -428,5 +434,369 @@ func TestSuggestFallsBackToTheHomeFolder(t *testing.T) {
 	t.Setenv("HOME", "")
 	if got := s.home(); got != "" {
 		t.Fatalf("home = %q", got)
+	}
+}
+
+func suggestAdapter(t *testing.T) (*suggestRPC, *SuggestService) {
+	t.Helper()
+	s := newSuggestService(t)
+	return &suggestRPC{s: s}, s
+}
+
+func failureCode(t *testing.T, err error) rpc.Code {
+	t.Helper()
+	var failure *rpc.Error
+	if !errors.As(err, &failure) {
+		t.Fatalf("error %v is not a wire failure", err)
+	}
+	return failure.Code
+}
+
+func TestSuggestRPCCarriesEveryEntryField(t *testing.T) {
+	r, s := suggestAdapter(t)
+	writeUserEntry(t, s, "full", "url: https://example.com/a\nrepo: https://example.com/b\napplies_to:\n  harnesses: [claude]\n  ecosystems: [go]\n  platforms: [linux, darwin]\n"+commandInstall("true"))
+	ctx := context.Background()
+	got, err := r.Get(ctx, &suggestv1.GetRequest{Id: "full"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := got.GetEntry()
+	if e.GetUrl() != "https://example.com/a" || e.GetRepo() != "https://example.com/b" || e.GetSince() != "1.0.0" || e.GetBody() != "Body of full." || e.GetSource().GetName() != "user" {
+		t.Fatalf("entry = %v", e)
+	}
+	if a := e.GetAppliesTo(); !slices.Equal(a.GetHarnesses(), []string{"claude"}) || !slices.Equal(a.GetEcosystems(), []string{"go"}) || !slices.Equal(a.GetPlatforms(), []string{"linux", "darwin"}) {
+		t.Fatalf("applies_to = %v", a)
+	}
+	if i := e.GetInstall(); i.GetCommand() != "true" || !slices.Equal(i.GetTouches(), []string{"a.txt"}) {
+		t.Fatalf("install = %v", i)
+	}
+	plan, err := r.Plan(ctx, &suggestv1.PlanRequest{Id: "full"})
+	if err != nil || plan.GetRecipe().GetKind() != "command" || plan.GetRecipe().GetText() != "true" || plan.GetApproved() {
+		t.Fatalf("plan = %v, %v", plan, err)
+	}
+	if !proto.Equal(entryToProto(suggest.Entry{ID: "x"}).GetInstall(), (*suggestv1.Install)(nil)) {
+		t.Fatal("an entry with no recipe must carry no install")
+	}
+}
+
+func TestSuggestRPCReportsExcludedAndProblems(t *testing.T) {
+	r, s := suggestAdapter(t)
+	writeUserEntry(t, s, "elsewhere", "applies_to:\n  harnesses: [opencode]\n")
+	broken := filepath.Join(s.ConfigDir, "herdsman", "suggest", "broken.md")
+	if err := os.WriteFile(broken, []byte("not an entry"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeUserEntry(t, s, "for-this-machine", "applies_to:\n  harnesses: [claude]\n")
+	near, err := r.Search(context.Background(), &suggestv1.SearchRequest{Text: "for-this-machine"})
+	if err != nil || len(near.GetItems()) != 1 || len(near.GetItems()[0].GetReasons()) == 0 || near.GetItems()[0].GetScore() == 0 {
+		t.Fatalf("search = %v, %v", near, err)
+	}
+	found, err := r.Search(context.Background(), &suggestv1.SearchRequest{Dir: "/d", Text: "elsewhere"})
+	if err != nil || found.GetDir() != "/d" {
+		t.Fatalf("search = %v, %v", found, err)
+	}
+	if !slices.ContainsFunc(found.GetExcluded(), func(e *suggestv1.Excluded) bool {
+		return e.GetId() == "elsewhere" && e.GetReason().GetCode() != ""
+	}) {
+		t.Fatalf("excluded = %v", found.GetExcluded())
+	}
+	if !slices.ContainsFunc(found.GetProblems(), func(p *suggestv1.Problem) bool {
+		return strings.Contains(p.GetFile(), "broken.md") && p.GetError() != "" && p.GetSource().GetKind() == "user"
+	}) {
+		t.Fatalf("problems = %v", found.GetProblems())
+	}
+}
+
+func TestSuggestRPCFailureCodes(t *testing.T) {
+	r, s := suggestAdapter(t)
+	ctx := context.Background()
+	if err := os.MkdirAll(filepath.Join(s.ConfigDir, "herdsman"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Add(ctx, &suggestv1.AddRequest{Id: "x", Kind: "tip", Title: "line\nbreak", Tags: []string{"t"}, Body: "b"}); failureCode(t, err) != rpc.InvalidArgument {
+		t.Fatalf("a line break gave %v", err)
+	}
+	if _, err := r.SourceRemove(ctx, &suggestv1.SourceRemoveRequest{Url: "https://example.com/none"}); failureCode(t, err) != rpc.NotFound {
+		t.Fatalf("an unknown source gave %v", err)
+	}
+	if _, err := r.SourcePin(ctx, &suggestv1.SourcePinRequest{Url: "https://example.com/none"}); failureCode(t, err) != rpc.NotFound {
+		t.Fatalf("an unknown pin gave %v", err)
+	}
+	if err := os.WriteFile(s.sourcesPath(), []byte("not-a-pin\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Sources(ctx, &suggestv1.SourcesRequest{}); failureCode(t, err) != rpc.Internal {
+		t.Fatalf("a broken sources file gave %v", err)
+	}
+	if _, err := r.Search(ctx, &suggestv1.SearchRequest{}); failureCode(t, err) != rpc.Internal {
+		t.Fatalf("search with a broken sources file gave %v", err)
+	}
+	if _, err := r.SourceAdd(ctx, &suggestv1.SourceAddRequest{Url: "https://example.com/a"}); failureCode(t, err) != rpc.Internal {
+		t.Fatalf("source add with a broken sources file gave %v", err)
+	}
+	if _, err := r.SourcePreview(ctx, &suggestv1.SourcePreviewRequest{Url: "https://example.com/a"}); failureCode(t, err) != rpc.Internal {
+		t.Fatalf("source preview with a broken sources file gave %v", err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := suggestFailure(canceled, errors.New("anything")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a canceled call gave %v", err)
+	}
+}
+
+func TestSuggestServiceIsOnTheDaemonsRPC(t *testing.T) {
+	paths := []string{}
+	for _, procedure := range (&Daemon{}).rpcProcedures() {
+		paths = append(paths, procedure.Path)
+	}
+	for _, method := range []string{"Search", "Get", "Add", "Plan", "Sources", "SourceAdd", "SourceRemove", "SourcePreview", "SourcePin"} {
+		if !slices.Contains(paths, rpc.Path(suggestv1.SuggestServiceName, method)) {
+			t.Errorf("%s is not served; paths = %v", method, paths)
+		}
+	}
+	for _, path := range paths {
+		if strings.HasSuffix(path, "/Run") || strings.HasSuffix(path, "/Apply") || strings.HasSuffix(path, "/Approve") {
+			t.Errorf("%s must not exist: only a person at a terminal runs a recipe", path)
+		}
+	}
+}
+
+func TestConcurrentSourceChangesKeepEveryPin(t *testing.T) {
+	s := newSuggestService(t)
+	ctx := context.Background()
+	const sources = 6
+	urls := make([]string, sources)
+	for i := range urls {
+		url, commit := catalogRepo(t)
+		commit("entry-one")
+		urls[i] = url
+	}
+	var group sync.WaitGroup
+	errs := make([]error, sources)
+	for i, url := range urls {
+		group.Go(func() {
+			_, errs[i] = s.SourceAdd(ctx, SuggestSourceAddRequest{URL: url})
+		})
+	}
+	group.Wait()
+	if err := errors.Join(errs...); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := s.Sources(ctx, SuggestSourcesRequest{})
+	if err != nil || len(listed.Sources) != sources {
+		t.Fatalf("sources = %d of %d, %v", len(listed.Sources), sources, err)
+	}
+}
+
+func TestTwoAddsOfOneSourceLeaveOnePin(t *testing.T) {
+	s := newSuggestService(t)
+	ctx := context.Background()
+	url, commit := catalogRepo(t)
+	commit("entry-one")
+	var group sync.WaitGroup
+	errs := make([]error, 4)
+	for i := range errs {
+		group.Go(func() {
+			_, errs[i] = s.SourceAdd(ctx, SuggestSourceAddRequest{URL: url})
+		})
+	}
+	group.Wait()
+	refusals := 0
+	for _, err := range errs {
+		if err != nil {
+			refusals++
+		}
+	}
+	listed, err := s.Sources(ctx, SuggestSourcesRequest{})
+	if err != nil || len(listed.Sources) != 1 || refusals != 3 {
+		t.Fatalf("sources = %v, refusals = %d, %v", listed.Sources, refusals, err)
+	}
+}
+
+func TestSuggestRefusalsReadTheSameOnTheCommandLine(t *testing.T) {
+	s := newSuggestService(t)
+	_, err := s.Get(context.Background(), SuggestGetRequest{ID: "none"})
+	if err == nil || err.Error() != `no suggestion has the id "none"` {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSuggestRPCSourceRoundTrip(t *testing.T) {
+	r, _ := suggestAdapter(t)
+	ctx := context.Background()
+	url, commit := catalogRepo(t)
+	first := commit("rpc-one")
+	added, err := r.SourceAdd(ctx, &suggestv1.SourceAddRequest{Url: url})
+	if err != nil || added.GetPin().GetCommit() != first {
+		t.Fatalf("add = %v, %v", added, err)
+	}
+	listed, err := r.Sources(ctx, &suggestv1.SourcesRequest{})
+	if err != nil || len(listed.GetSources()) != 1 {
+		t.Fatalf("sources = %v, %v", listed, err)
+	}
+	second := commit("rpc-two")
+	preview, err := r.SourcePreview(ctx, &suggestv1.SourcePreviewRequest{Url: url})
+	if err != nil || preview.GetTo().GetCommit() != second || len(preview.GetChanges()) != 1 || preview.GetChanges()[0].GetDiff() == "" {
+		t.Fatalf("preview = %v, %v", preview, err)
+	}
+	pinned, err := r.SourcePin(ctx, &suggestv1.SourcePinRequest{Url: url, From: first, To: second})
+	if err != nil || pinned.GetPin().GetCommit() != second {
+		t.Fatalf("pin = %v, %v", pinned, err)
+	}
+	removed, err := r.SourceRemove(ctx, &suggestv1.SourceRemoveRequest{Url: url})
+	if err != nil || removed.GetUrl() != url {
+		t.Fatalf("remove = %v, %v", removed, err)
+	}
+}
+
+func TestSuggestRPCEntryRefusals(t *testing.T) {
+	r, s := suggestAdapter(t)
+	ctx := context.Background()
+	writeUserEntry(t, s, "plain", "")
+	added, err := r.Add(ctx, &suggestv1.AddRequest{Id: "fresh", Kind: "tip", Title: "T", Tags: []string{"t"}, Body: "b"})
+	if err != nil || added.GetId() != "fresh" || added.GetPath() == "" {
+		t.Fatalf("add = %v, %v", added, err)
+	}
+	cases := []struct {
+		name string
+		call func() error
+		want rpc.Code
+	}{
+		{"get no id", func() error { _, err := r.Get(ctx, &suggestv1.GetRequest{}); return err }, rpc.InvalidArgument},
+		{"get unknown", func() error { _, err := r.Get(ctx, &suggestv1.GetRequest{Id: "none"}); return err }, rpc.NotFound},
+		{"plan no id", func() error { _, err := r.Plan(ctx, &suggestv1.PlanRequest{}); return err }, rpc.InvalidArgument},
+		{"plan unknown", func() error { _, err := r.Plan(ctx, &suggestv1.PlanRequest{Id: "none"}); return err }, rpc.NotFound},
+		{"plan no recipe", func() error { _, err := r.Plan(ctx, &suggestv1.PlanRequest{Id: "plain"}); return err }, rpc.FailedPrecondition},
+		{"add twice", func() error {
+			_, err := r.Add(ctx, &suggestv1.AddRequest{Id: "fresh", Kind: "tip", Title: "T", Tags: []string{"t"}, Body: "b"})
+			return err
+		}, rpc.AlreadyExists},
+		{"project without a context repo", func() error {
+			_, err := r.Add(ctx, &suggestv1.AddRequest{Project: true, Id: "p", Kind: "tip", Title: "T", Tags: []string{"t"}, Body: "b"})
+			return err
+		}, rpc.FailedPrecondition},
+		{"bad address", func() error { _, err := r.SourceAdd(ctx, &suggestv1.SourceAddRequest{Url: "ext::x"}); return err }, rpc.InvalidArgument},
+		{"preview unknown", func() error {
+			_, err := r.SourcePreview(ctx, &suggestv1.SourcePreviewRequest{Url: "https://example.com/none"})
+			return err
+		}, rpc.NotFound},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := failureCode(t, c.call()); got != c.want {
+				t.Fatalf("code %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// blockFolder puts a file where the service needs a folder.
+func blockFolder(t *testing.T, s *SuggestService) {
+	t.Helper()
+	if err := os.WriteFile(s.ConfigDir, []byte("a file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSuggestReportsAnUnusableConfigFolder(t *testing.T) {
+	ctx := context.Background()
+	entry := SuggestAddRequest{ID: "x", Kind: "tip", Title: "T", Tags: []string{"t"}, Body: "b"}
+
+	s := newSuggestService(t)
+	blockFolder(t, s)
+	if _, err := s.Add(ctx, entry); err == nil {
+		t.Fatal("add must report a config folder it cannot create")
+	}
+	if err := s.storePins(nil); err == nil {
+		t.Fatal("storing pins must report a config folder it cannot create")
+	}
+
+	// The sources path is a folder: reading it fails, and so does the rename.
+	s = newSuggestService(t)
+	if err := os.MkdirAll(s.sourcesPath(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pins(); err == nil {
+		t.Fatal("pins must report an unreadable file")
+	}
+	if err := s.storePins(nil); err == nil {
+		t.Fatal("storing pins must report a failed rename")
+	}
+	if _, err := s.Get(ctx, SuggestGetRequest{ID: "x"}); err == nil {
+		t.Fatal("get must report an unreadable sources file")
+	}
+	if err := s.changePins(func(p []suggest.Pin) ([]suggest.Pin, error) { return p, nil }); err == nil {
+		t.Fatal("changing pins must report an unreadable file")
+	}
+}
+
+func TestSuggestAddReportsAFolderItCannotWriteTo(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores folder permissions")
+	}
+	s := newSuggestService(t)
+	folder := filepath.Join(s.ConfigDir, "herdsman", "suggest")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(folder, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(folder, 0o700) })
+	entry := SuggestAddRequest{ID: "x", Kind: "tip", Title: "T", Tags: []string{"t"}, Body: "b"}
+	if _, err := s.Add(context.Background(), entry); err == nil {
+		t.Fatal("add must report a folder it cannot write to")
+	}
+	configDir := filepath.Dir(s.sourcesPath())
+	if err := os.Chmod(configDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(configDir, 0o700) })
+	if err := s.storePins(nil); err == nil {
+		t.Fatal("storing pins must report a folder it cannot write to")
+	}
+}
+
+func TestSuggestFailureServesAnUnknownErrorAsInternal(t *testing.T) {
+	if got := failureCode(t, suggestFailure(context.Background(), errors.New("broken"))); got != rpc.Internal {
+		t.Fatalf("code %v", got)
+	}
+	exists := fmt.Errorf("write: %w", fs.ErrExist)
+	if got := failureCode(t, suggestFailure(context.Background(), exists)); got != rpc.AlreadyExists {
+		t.Fatalf("code %v", got)
+	}
+}
+
+func TestSourceMovesReportAStoreFailure(t *testing.T) {
+	s := newSuggestService(t)
+	ctx := context.Background()
+	url, commit := catalogRepo(t)
+	first := commit("store-one")
+	if _, err := s.SourceAdd(ctx, SuggestSourceAddRequest{URL: url}); err != nil {
+		t.Fatal(err)
+	}
+	second := commit("store-two")
+	if _, err := s.SourcePin(ctx, SuggestSourcePinRequest{URL: url, From: first, To: "main"}); err == nil {
+		t.Fatal("a pin to a branch name must be refused")
+	}
+	if _, err := s.SourcePreview(ctx, SuggestSourcePreviewRequest{URL: url, Ref: "-bad"}); err == nil {
+		t.Fatal("a bad ref must be refused")
+	}
+	if _, err := s.SourceAdd(ctx, SuggestSourceAddRequest{URL: url + "-other", Ref: "-bad"}); err == nil {
+		t.Fatal("a bad ref must be refused on add")
+	}
+	if _, err := s.SourcePin(ctx, SuggestSourcePinRequest{URL: url, From: first, To: second}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestASkillFolderWithoutGitStillCountsAsInstalled(t *testing.T) {
+	s := newSuggestService(t)
+	if err := os.MkdirAll(filepath.Join(s.Home, ".claude", "skills", "by-hand"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	found := s.installed()
+	if !slices.Equal(found.IDs, []string{"by-hand"}) || len(found.Repos) != 0 {
+		t.Fatalf("installed = %+v", found)
 	}
 }
