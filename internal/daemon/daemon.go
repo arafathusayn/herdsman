@@ -18,6 +18,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/routename"
 )
 
@@ -89,6 +90,8 @@ type Daemon struct {
 	opsCancel context.CancelFunc
 	opsCtx    context.Context
 	bg        sync.WaitGroup
+
+	callers *route.Callers // who asked for each route start
 }
 
 type credRef struct{ route, name string }
@@ -121,7 +124,7 @@ func New(cfg Config) *Daemon {
 	if cfg.DrainWait == 0 {
 		cfg.DrainWait = 60 * time.Second
 	}
-	return &Daemon{cfg: cfg, routes: map[string]*Route{}, held: map[string]string{}, credIndex: map[string]credRef{},
+	return &Daemon{callers: route.NewCallers(), cfg: cfg, routes: map[string]*Route{}, held: map[string]string{}, credIndex: map[string]credRef{},
 		views: map[*subscriber]struct{}{}, streams: map[string]int{}, sem: make(chan struct{}, 32), done: make(chan struct{})}
 }
 
@@ -392,7 +395,8 @@ func (d *Daemon) listen() error {
 		return err
 	}
 	d.ln = &peerListener{Listener: ln}
-	d.srv = &http.Server{Handler: d.handler(), ReadHeaderTimeout: 10 * time.Second}
+	d.srv = &http.Server{Handler: d.handler(), ReadHeaderTimeout: 10 * time.Second,
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context { return context.WithValue(ctx, connKey{}, c) }}
 	return nil
 }
 
