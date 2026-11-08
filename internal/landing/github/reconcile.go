@@ -12,7 +12,7 @@ import (
 // Reconcile reads where a merge ended. It only reads: a lost response is
 // settled by fetching, never by asking for the merge again.
 func (b *Backend) Reconcile(ctx context.Context, ref landing.MergeRef) (landing.MergeResult, error) {
-	if err := validateRef(ref.Number, ref.Head); err != nil {
+	if err := validateRef(ref.Number, ref.Head, ref.Base); err != nil {
 		return landing.MergeResult{}, err
 	}
 	return b.reconcile(ctx, ref), nil
@@ -29,6 +29,9 @@ func (b *Backend) reconcile(ctx context.Context, ref landing.MergeRef) landing.M
 	if err != nil {
 		return landing.MergeResult{State: landing.MergeUnknown, UUID: ref.UUID, Reason: err.Error()}
 	}
+	if pr.Base.Ref != ref.Base {
+		return wrongBase(ref, pr.Base.Ref)
+	}
 	if res, final := classify(pr, ref.Head); final {
 		res.UUID = ref.UUID
 		return res
@@ -37,6 +40,16 @@ func (b *Backend) reconcile(ctx context.Context, ref landing.MergeRef) landing.M
 		return landing.MergeResult{State: landing.MergeUnknown, Reason: "the pull request is open at the pinned head and no request is known"}
 	}
 	return request
+}
+
+// wrongBase stops for a person: whether or not the pull request merged, it is
+// not the merge that was authorized, and it may still land while it is open.
+func wrongBase(ref landing.MergeRef, actual string) landing.MergeResult {
+	return landing.MergeResult{
+		State: landing.MergeNeedsPerson, Head: ref.Head, Base: ref.Base, UUID: ref.UUID,
+		Reason: fmt.Sprintf("pull request %d at head %s (request uuid %q) targets %s, not the expected base %s; do not send the merge again",
+			ref.Number, ref.Head, ref.UUID, actual, ref.Base),
+	}
 }
 
 // classify decides what the pull request alone proves. The pull request wins

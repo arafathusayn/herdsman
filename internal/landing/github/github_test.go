@@ -349,7 +349,7 @@ func TestMergePendingAtTheDeadlineThenReconciled(t *testing.T) {
 		t.Fatal("no uuid to reconcile with")
 	}
 	f.Release()
-	again, err := b.Reconcile(context.Background(), landing.MergeRef{Number: 7, Head: head, UUID: res.UUID})
+	again, err := b.Reconcile(context.Background(), landing.MergeRef{Number: 7, Head: head, Base: "main", UUID: res.UUID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +447,7 @@ func TestReconcile(t *testing.T) {
 			for _, fault := range tt.faults {
 				f.Inject(fault)
 			}
-			res, err := b.Reconcile(context.Background(), landing.MergeRef{Number: 7, Head: head, UUID: tt.uuid})
+			res, err := b.Reconcile(context.Background(), landing.MergeRef{Number: 7, Head: head, Base: "main", UUID: tt.uuid})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -471,7 +471,7 @@ func TestSettleStopsForAPersonWithoutResending(t *testing.T) {
 	b.opt.PollTimeout = time.Millisecond
 	first := merge(t, b)
 	wantState(t, first, landing.MergeUnknown)
-	res, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head}, settleLimit)
+	res, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head, Base: "main"}, settleLimit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +487,7 @@ func TestSettleKeepsTheUUIDForAPerson(t *testing.T) {
 	f.Configure(func() { f.Hold = true })
 	b.opt.PollTimeout = time.Millisecond
 	first := merge(t, b)
-	res, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head, UUID: first.UUID}, settleLimit)
+	res, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head, Base: "main", UUID: first.UUID}, settleLimit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +504,7 @@ func TestSettleReturnsAFinalState(t *testing.T) {
 	b.opt.PollTimeout = time.Millisecond
 	first := merge(t, b)
 	f.Release()
-	res, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head, UUID: first.UUID}, settleLimit)
+	res, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head, Base: "main", UUID: first.UUID}, settleLimit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +516,7 @@ func TestSettleStopsWhenTheContextEnds(t *testing.T) {
 	f, b := setup(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	res, err := landing.Settle(ctx, b, landing.MergeRef{Number: 7, Head: head}, landing.SettleLimit{Attempts: 2, Interval: time.Hour})
+	res, err := landing.Settle(ctx, b, landing.MergeRef{Number: 7, Head: head, Base: "main"}, landing.SettleLimit{Attempts: 2, Interval: time.Hour})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
@@ -524,19 +524,120 @@ func TestSettleStopsWhenTheContextEnds(t *testing.T) {
 	wantMergeCounts(t, f, 0, 0)
 }
 
+func wantBasePerson(t *testing.T, res landing.MergeResult, uuid bool) {
+	t.Helper()
+	wantState(t, res, landing.MergeNeedsPerson)
+	if res.Commit != "" || res.Head != head || res.Base != "main" {
+		t.Errorf("got %+v", res)
+	}
+	if uuid != (res.UUID != "") {
+		t.Errorf("uuid = %q, want present %v", res.UUID, uuid)
+	}
+	for _, part := range []string{head, "main", "release", res.UUID} {
+		if !strings.Contains(res.Reason, part) {
+			t.Errorf("reason %q lacks %q", res.Reason, part)
+		}
+	}
+}
+
+func TestMergeRetargetedAfterTheLastRead(t *testing.T) {
+	f, b := setup(t)
+	f.Inject(ghtest.Fault{Method: "PUT", Path: mergePath, Apply: true, Before: func() { f.Retarget(7, "release") }})
+	wantBasePerson(t, merge(t, b), true)
+	if got := f.Count("PUT", mergePath); got != 1 {
+		t.Errorf("merge requests = %d", got)
+	}
+}
+
+func TestMergeRetargetedWhileAccepted(t *testing.T) {
+	f, b := setup(t)
+	f.Configure(func() { f.Hold = true })
+	f.Inject(ghtest.Fault{Method: "GET", Path: "/merge-async/", Apply: true, Before: func() { f.Retarget(7, "release"); f.Release() }})
+	wantBasePerson(t, merge(t, b), true)
+	if got := f.Count("PUT", mergePath); got != 1 {
+		t.Errorf("merge requests = %d", got)
+	}
+}
+
+func TestMergeRetargetedAndTheResponseLost(t *testing.T) {
+	f, b := setup(t)
+	f.Inject(ghtest.Fault{Method: "PUT", Path: mergePath, Apply: true, Lost: true, Before: func() { f.Retarget(7, "release") }})
+	wantBasePerson(t, merge(t, b), false)
+	if got := f.Count("PUT", mergePath); got != 1 {
+		t.Errorf("merge requests = %d", got)
+	}
+}
+
+func TestReconcileNeverReportsAnotherBaseAsMerged(t *testing.T) {
+	for name, merged := range map[string]bool{"merged": true, "open": false} {
+		t.Run(name, func(t *testing.T) {
+			f, b := setup(t)
+			f.Retarget(7, "release")
+			if merged {
+				f.MergeNow(7)
+			}
+			res, err := b.Reconcile(context.Background(), landing.MergeRef{Number: 7, Head: head, Base: "main"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantBasePerson(t, res, false)
+			settled, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head, Base: "main"}, settleLimit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantBasePerson(t, settled, false)
+			if got := f.Count("PUT", mergePath); got != 0 {
+				t.Errorf("merge requests = %d", got)
+			}
+		})
+	}
+}
+
+func TestSettleNamesTheBaseWhenItStops(t *testing.T) {
+	_, b := setup(t)
+	res, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head, Base: "main"}, settleLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantState(t, res, landing.MergeNeedsPerson)
+	if res.Base != "main" || !strings.Contains(res.Reason, "main") {
+		t.Errorf("got %+v", res)
+	}
+}
+
+func TestReconcileRequiresTheBase(t *testing.T) {
+	f, b := setup(t)
+	if _, err := b.Reconcile(context.Background(), landing.MergeRef{Number: 7, Head: head}); err == nil {
+		t.Error("no error")
+	}
+	if len(f.Calls()) != 0 {
+		t.Errorf("calls = %v", f.Calls())
+	}
+}
+
+// The read of the base must be the last thing before the request.
+func TestMergeReadsThePullRequestRightBeforeSending(t *testing.T) {
+	f, b := setup(t)
+	merge(t, b)
+	calls := f.Calls()
+	if len(calls) < 2 || calls[0].Method != "GET" || !strings.HasSuffix(calls[0].Path, "/pulls/7") || calls[1].Method != "PUT" {
+		t.Errorf("calls = %v", calls)
+	}
+}
+
 func TestSettleRejectsABadLimitOrRef(t *testing.T) {
 	_, b := setup(t)
-	if _, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head}, landing.SettleLimit{}); err == nil {
+	if _, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: head, Base: "main"}, landing.SettleLimit{}); err == nil {
 		t.Error("no attempts accepted")
 	}
-	if _, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: "abc"}, settleLimit); err == nil {
+	if _, err := landing.Settle(context.Background(), b, landing.MergeRef{Number: 7, Head: "abc", Base: "main"}, settleLimit); err == nil {
 		t.Error("bad ref accepted")
 	}
 }
 
 func TestReconcileRejectsAnInvalidRef(t *testing.T) {
 	_, b := setup(t)
-	if _, err := b.Reconcile(context.Background(), landing.MergeRef{Number: 7, Head: "abc"}); err == nil {
+	if _, err := b.Reconcile(context.Background(), landing.MergeRef{Number: 7, Head: "abc", Base: "main"}); err == nil {
 		t.Fatal("no error")
 	}
 }

@@ -44,16 +44,27 @@ func (a asyncReply) uuid() string {
 // Merge requests one direct merge pinned to req.Head and waits for its end, up
 // to PollTimeout. The request is sent at most once: after it, the only calls
 // are reads, whatever came back.
+//
+// GitHub pins the head of a merge request and offers no pin for the base. The
+// base is read immediately before the request and on every reading after it, so
+// a retarget is always reported, but one made after that last read can still
+// merge into the other base: see landing.MergeRequest.
 func (b *Backend) Merge(ctx context.Context, req landing.MergeRequest) (landing.MergeResult, error) {
-	if err := validateRef(req.Number, req.Head); err != nil {
+	if err := validateRef(req.Number, req.Head, req.Base); err != nil {
 		return landing.MergeResult{}, err
-	}
-	if req.Base == "" {
-		return landing.MergeResult{}, errors.New("github: merge needs a base branch")
 	}
 	if req.Method != "squash" && req.Method != "merge" && req.Method != "rebase" {
 		return landing.MergeResult{}, fmt.Errorf("github: invalid merge method %q", req.Method)
 	}
+	payload := map[string]any{"merge_method": req.Method, "merge_action": directMerge, "sha": req.Head}
+	if req.Title != "" {
+		payload["commit_title"] = req.Title
+	}
+	if req.Message != "" {
+		payload["commit_message"] = req.Message
+	}
+
+	// The last read before the request, to keep the unpinned window short.
 	pr, err := b.readPR(ctx, req.Number)
 	if err != nil {
 		return landing.MergeResult{}, err
@@ -67,19 +78,11 @@ func (b *Backend) Merge(ctx context.Context, req landing.MergeRequest) (landing.
 	if err := ctx.Err(); err != nil {
 		return landing.MergeResult{}, err
 	}
-
-	payload := map[string]any{"merge_method": req.Method, "merge_action": directMerge, "sha": req.Head}
-	if req.Title != "" {
-		payload["commit_title"] = req.Title
-	}
-	if req.Message != "" {
-		payload["commit_message"] = req.Message
-	}
 	r := b.call(ctx, "PUT", b.api("pulls/"+strconv.Itoa(req.Number)+"/merge-async"), payload)
 
 	var a asyncReply
 	parsed := json.Unmarshal(r.body, &a) == nil
-	ref := landing.MergeRef{Number: req.Number, Head: req.Head}
+	ref := landing.MergeRef{Number: req.Number, Head: req.Head, Base: req.Base}
 	switch {
 	case r.status == 409:
 		if !parsed || !sameRequest(a, req) {
@@ -96,12 +99,15 @@ func (b *Backend) Merge(ctx context.Context, req landing.MergeRequest) (landing.
 	return b.settle(ctx, ref), nil
 }
 
-func validateRef(number int, head string) error {
+func validateRef(number int, head, base string) error {
 	if number <= 0 {
 		return fmt.Errorf("github: invalid pull request number %d", number)
 	}
 	if !fullSHA.MatchString(head) {
 		return errors.New("github: the head must be a full commit id")
+	}
+	if base == "" {
+		return errors.New("github: a merge needs its base branch")
 	}
 	return nil
 }

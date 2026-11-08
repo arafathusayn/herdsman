@@ -239,6 +239,13 @@ func (f *Fake) PushHead(number int, sha string) {
 	f.prs[number].HeadSHA = sha
 }
 
+// Retarget changes a pull request's base, as an edit would.
+func (f *Fake) Retarget(number int, base string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prs[number].BaseRef = base
+}
+
 // MergeNow merges a pull request outside any request, as another client would.
 func (f *Fake) MergeNow(number int) {
 	f.mu.Lock()

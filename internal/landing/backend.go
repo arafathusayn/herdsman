@@ -41,8 +41,9 @@ const (
 	// another pending request, a queue entry, or a merge at a different head. A
 	// person decides.
 	MergeConflict MergeState = "conflict"
-	// MergeNeedsPerson means a bounded Settle found no final state. The merge must
-	// not be sent again; a person looks at the pull request, the head and the uuid.
+	// MergeNeedsPerson means a bounded Settle found no final state, or the pull
+	// request is not on the expected base, merged or not. The merge must not be
+	// sent again; a person looks at the pull request, the head, the base and the uuid.
 	MergeNeedsPerson MergeState = "needs_person"
 )
 
@@ -66,7 +67,11 @@ type PullRequest struct {
 }
 
 // MergeRequest asks for one merge, pinned to the full commit id in Head, into
-// Base, the branch whose rules were read. A pull request on another base is not merged.
+// Base, the branch whose rules were read. A pull request already on another base
+// is not sent. GitHub has no pin for the base, so a retarget after the backend's
+// last read before the request, or while the request is pending, can still merge
+// into the other base. That window cannot be closed here: such a merge is never
+// reported as MergeMerged, and it ends in MergeNeedsPerson.
 type MergeRequest struct {
 	Number  int
 	Head    string
@@ -76,19 +81,22 @@ type MergeRequest struct {
 	Message string
 }
 
-// MergeRef names a merge to reconcile. UUID is empty when the request's answer was lost.
+// MergeRef names a merge to reconcile, with the base it was requested for. UUID
+// is empty when the request's answer was lost.
 type MergeRef struct {
 	Number int
 	Head   string
+	Base   string
 	UUID   string
 }
 
 // MergeResult is one reading of a merge. Commit is set only for MergeMerged, and
-// Head only for MergeNeedsPerson.
+// Head and Base, the expected base, only for MergeNeedsPerson.
 type MergeResult struct {
 	State  MergeState
 	Commit string
 	Head   string
+	Base   string
 	UUID   string
 	Reason string
 }
@@ -184,8 +192,8 @@ func Settle(ctx context.Context, b Backend, ref MergeRef, limit SettleLimit) (Me
 		}
 	}
 	return MergeResult{
-		State: MergeNeedsPerson, Head: ref.Head, UUID: ref.UUID,
-		Reason: fmt.Sprintf("pull request %d at head %s (request uuid %q) has no final state after %d readings, last %s: %s; do not send the merge again",
-			ref.Number, ref.Head, ref.UUID, limit.Attempts, last.State, last.Reason),
+		State: MergeNeedsPerson, Head: ref.Head, Base: ref.Base, UUID: ref.UUID,
+		Reason: fmt.Sprintf("pull request %d at head %s into %s (request uuid %q) has no final state after %d readings, last %s: %s; do not send the merge again",
+			ref.Number, ref.Head, ref.Base, ref.UUID, limit.Attempts, last.State, last.Reason),
 	}, nil
 }
