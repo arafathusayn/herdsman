@@ -32,6 +32,7 @@ Commands:
   diff     Show a worktree's changes.
   doctor   Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.
   each     Run a command in every worktree.
+  eval     Report a suite's runs with intervals and an A/A control (experimental).
   export   Copy the whole account to a new folder.
   go       Enter a worktree.
   hook     Show, approve or run a worktree hook.
@@ -49,6 +50,7 @@ Commands:
   status   Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.
   suggest  Search the catalog of tips and tools.
   teardown Stop what a task runs, keeping what it holds.
+  trace    Show or export one route's spans as OpenTelemetry.
   transcript-audit Audit a Claude or Codex transcript for writes: transcript-audit claude|codex <transcript> <session-id> [root/ ...].
   undo     Restore a snapshot.
   up       Start a route: workspace, private inbox, both coordinators, the pair and the first brief.
@@ -69,6 +71,7 @@ Commands:
 .BR herdsman-diff (1),
 .BR herdsman-doctor (1),
 .BR herdsman-each (1),
+.BR herdsman-eval (1),
 .BR herdsman-export (1),
 .BR herdsman-go (1),
 .BR herdsman-help (1),
@@ -87,6 +90,7 @@ Commands:
 .BR herdsman-status (1),
 .BR herdsman-suggest (1),
 .BR herdsman-teardown (1),
+.BR herdsman-trace (1),
 .BR herdsman-transcript-audit (1),
 .BR herdsman-undo (1),
 .BR herdsman-up (1),
