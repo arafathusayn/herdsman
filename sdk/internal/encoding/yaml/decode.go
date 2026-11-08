@@ -521,33 +521,42 @@ func (p *parser) quoted(parent int) string {
 	q := p.peek()
 	p.pos++
 	var b strings.Builder
-	keep := 0 // the length up to which trailing blanks are significant
+	// A run of blanks is held back until it is known not to end a line, where
+	// it would be dropped; a builder cannot be shortened in place.
+	blanks := -1
+	flush := func() {
+		if blanks >= 0 {
+			b.WriteString(p.src[blanks:p.pos])
+			blanks = -1
+		}
+	}
 	for {
 		switch c := p.peek(); {
 		case p.eof():
 			p.fail("unterminated quoted scalar")
 		case c == q && q == '\'' && p.at(p.pos+1) == q:
+			flush()
 			b.WriteByte(q)
 			p.pos += 2
-			keep = b.Len()
 		case c == q:
+			flush()
 			p.pos++
 			return b.String()
 		case c == '\\' && q == '"':
+			flush()
 			p.escape(&b)
-			keep = b.Len()
 		case c == '\n':
-			text := b.String()[:keep]
-			b.Reset()
-			b.WriteString(text)
+			blanks = -1
 			writeFold(&b, p.quotedBreaks(parent))
-			keep = b.Len()
+		case isBlank(c):
+			if blanks < 0 {
+				blanks = p.pos
+			}
+			p.pos++
 		default:
+			flush()
 			b.WriteByte(c)
 			p.pos++
-			if !isBlank(c) {
-				keep = b.Len()
-			}
 		}
 	}
 }
@@ -695,7 +704,10 @@ func (p *parser) blockLines(h blockHeader, parent int) ([]string, bool) {
 		for p.at(start+n) == ' ' {
 			n++
 		}
-		end := start + n + strings.IndexByte(p.src[start+n:]+"\n", '\n')
+		end := len(p.src)
+		if i := strings.IndexByte(p.src[start+n:], '\n'); i >= 0 {
+			end = start + n + i
+		}
 		blank := start+n == end
 		if !detected {
 			if blank {

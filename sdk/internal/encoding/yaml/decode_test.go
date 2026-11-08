@@ -3,6 +3,7 @@ package yaml
 import (
 	"errors"
 	"math"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -266,6 +267,60 @@ func TestUnsupportedConstructsSayIt(t *testing.T) {
 				t.Fatalf("Decode(%q) error = %v, want ErrUnsupported", src, err)
 			}
 		})
+	}
+}
+
+// TestScalarAllocationIsLinear guards against a line of input costing work
+// proportional to everything before or after it: four times the input must
+// not cost anywhere near sixteen times the memory.
+func TestScalarAllocationIsLinear(t *testing.T) {
+	cases := map[string]func(lines int) string{
+		"literal": func(n int) string { return "a: |\n" + strings.Repeat("  x\n", n) },
+		"folded":  func(n int) string { return "a: >\n" + strings.Repeat("  x\n", n) },
+		"double":  func(n int) string { return "a: \"x\n" + strings.Repeat("  y\n", n) + "  \"\n" },
+		"single":  func(n int) string { return "a: 'x\n" + strings.Repeat("  y\n", n) + "  '\n" },
+	}
+	measure := func(t *testing.T, src string) uint64 {
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		if _, err := Decode([]byte(src)); err != nil {
+			t.Fatal(err)
+		}
+		runtime.ReadMemStats(&after)
+		return after.TotalAlloc - before.TotalAlloc
+	}
+	for name, build := range cases {
+		t.Run(name, func(t *testing.T) {
+			small := measure(t, build(8192))
+			large := measure(t, build(4*8192))
+			if large > 8*small {
+				t.Fatalf("allocated %d bytes, then %d for four times the input", small, large)
+			}
+			if limit := uint64(64 * len(build(4*8192))); large > limit {
+				t.Fatalf("allocated %d bytes, more than %d", large, limit)
+			}
+		})
+	}
+}
+
+func TestQuotedBlanks(t *testing.T) {
+	for src, want := range map[string]string{
+		"\"a  \"":        "a  ",
+		"'a  '":          "a  ",
+		"\"a  b\"":       "a  b",
+		"\"a  \tb\"":     "a  \tb",
+		"'a  ''b'":       "a  'b",
+		"\"a  \\\n  b\"": "a  b",
+		"\"a  \n  b\"":   "a b",
+		"\"  \n  b\"":    " b",
+	} {
+		got, err := Decode([]byte(src))
+		if err != nil {
+			t.Fatalf("Decode(%q): %v", src, err)
+		}
+		if got.Str != want {
+			t.Errorf("Decode(%q) = %q, want %q", src, got.Str, want)
+		}
 	}
 }
 
