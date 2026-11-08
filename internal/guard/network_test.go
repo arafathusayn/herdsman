@@ -639,8 +639,8 @@ func TestToolsGoInstallsPinnedVersionsInMaintenanceMode(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	calls := loggedCalls(t, log)
-	if len(calls) != 3 {
-		t.Fatalf("want three installs, got %v", calls)
+	if len(calls) != 4 {
+		t.Fatalf("want four installs, got %v", calls)
 	}
 	for _, call := range calls {
 		if !strings.HasPrefix(call, "go||https://proxy.golang.org,direct|off|install ") || !regexp.MustCompile(`@v\d+\.\d+\.\d+$`).MatchString(call) {
