@@ -1,0 +1,12 @@
+{
+  "machine": {
+    "platform": "darwin",
+    "harnesses": ["claude"],
+    "ecosystems": ["go"],
+    "labels": ["testing"],
+    "recent_events": ["review"],
+    "installed": { "repos": [] }
+  },
+  "want": ["claude-only 35", "go-tests 30", "skill-repo 30", "general-a 0", "general-b 0"],
+  "excluded": ["codex-only harness-mismatch", "linux-only platform-mismatch"]
+}
