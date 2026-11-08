@@ -352,6 +352,60 @@ func TestCopyRefusesASourceSwappedAfterTheWalk(t *testing.T) {
 	}
 }
 
+// Some file systems hand a freed inode number straight to the next new file,
+// so a replaced source can look like the same file by device and inode. These
+// cases keep the inode on purpose, which reproduces that on every file system.
+func TestCopyRefusesASourceChangedUnderTheSameInode(t *testing.T) {
+	later := stamp.Add(time.Hour)
+	for name, change := range map[string]func(t *testing.T, path string){
+		"size": func(t *testing.T, path string) {
+			if err := os.WriteFile(path, []byte("longer body"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(path, stamp, stamp); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"mtime": func(t *testing.T, path string) {
+			if err := os.WriteFile(path, []byte("FIRST"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(path, later, later); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			src := filepath.Join(root, "src")
+			write(t, filepath.Join(src, "f"), "first", 0o644)
+			dst := filepath.Join(root, "dst")
+
+			_, err := run(src, dst, func(from, _ string) error {
+				before, statErr := os.Stat(from)
+				if statErr != nil {
+					t.Fatal(statErr)
+				}
+				change(t, from)
+				after, statErr := os.Stat(from)
+				if statErr != nil {
+					t.Fatal(statErr)
+				}
+				if !os.SameFile(before, after) {
+					t.Fatal("the fixture was meant to keep the inode")
+				}
+				return errNoClone
+			})
+			if err == nil || !strings.Contains(err.Error(), "changed") {
+				t.Fatalf("err = %v", err)
+			}
+			if _, statErr := os.Lstat(dst); !errors.Is(statErr, fs.ErrNotExist) {
+				t.Fatalf("partial tree left behind: %v", statErr)
+			}
+		})
+	}
+}
+
 func TestCopyNeverOverwritesAFileThatAppeared(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "src")

@@ -271,7 +271,10 @@ func copyFile(src, dst string, info fs.FileInfo) (err error) {
 	if err != nil {
 		return err
 	}
-	if !os.SameFile(info, current) {
+	// Device and inode alone are not enough: ext4 can give a freed inode number
+	// to the file that replaces the source, and a file rewritten in place keeps
+	// its inode. Either way the walk's mtime would be stamped on different bytes.
+	if !os.SameFile(info, current) || info.Size() != current.Size() || !info.ModTime().Equal(current.ModTime()) {
 		return errors.New("source changed during the clone")
 	}
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
