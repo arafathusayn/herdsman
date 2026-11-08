@@ -35,6 +35,7 @@ func (u upstream) vendorFile() string {
 var dependencyBudget = []upstream{
 	{module: "github.com/mattn/go-sqlite3", copyDir: "third_party/go-sqlite3"},
 	{module: "golang.org/x/sys"},
+	{module: "google.golang.org/protobuf"},
 	{module: "rsc.io/qr", copyDir: "third_party/qr"},
 }
 
