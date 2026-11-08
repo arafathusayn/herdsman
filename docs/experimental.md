@@ -4,7 +4,7 @@ Most of herdsman follows the compatibility promise in [ADR 0003](adr/0003-public
 
 | Surface | How to turn it on | Version label |
 | --- | --- | --- |
-| Plugin protocol and `herdsman plugin` | `--experimental-plugins` on every use | The protocol string `herdsman plugin` prints when it starts |
+| Plugin protocol | Not released yet | To be set when it ships |
 | `herdsman eval` and its reports | `--experimental-eval` on every use | `eval/<version>`, in the `experimental` field of the JSON report |
 | `[automations]` in the configuration | Not released yet | To be set when it ships |
 
