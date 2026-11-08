@@ -25,11 +25,46 @@ func TestOpenCreatesAPull(t *testing.T) {
 		if r.URL.Path != "/api/v1/repos/o/r/pulls" || r.Header.Get("Authorization") != "token t" {
 			t.Errorf("%s %s", r.URL.Path, r.Header.Get("Authorization"))
 		}
+		if r.Method == http.MethodGet {
+			w.Write([]byte("[]"))
+			return
+		}
 		w.Write([]byte(pullJSON))
 	})
 	got, err := b.Open(context.Background(), &pluginv1.OpenRequest{Head: "h", Base: "main"})
 	if err != nil || got.GetNumber() != 3 || got.GetHeadSha() != "abc" {
 		t.Fatalf("%v %v", got, err)
+	}
+}
+
+func TestOpenReturnsTheOpenPullWithoutCreatingOne(t *testing.T) {
+	other := strings.Replace(pullJSON, `"ref":"h"`, `"ref":"other"`, 1)
+	otherBase := strings.Replace(pullJSON, `"ref":"main"`, `"ref":"dev"`, 1)
+	b := fake(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("sent %s", r.Method)
+		}
+		switch r.URL.Query().Get("page") {
+		case "1":
+			w.Write([]byte("[" + other + "," + otherBase + "]"))
+		case "2":
+			w.Write([]byte("[" + pullJSON + "]"))
+		default:
+			w.Write([]byte("[]"))
+		}
+	})
+	for range 2 {
+		got, err := b.Open(context.Background(), &pluginv1.OpenRequest{Head: "h", Base: "main"})
+		if err != nil || got.GetNumber() != 3 {
+			t.Fatalf("%v %v", got, err)
+		}
+	}
+}
+
+func TestOpenReportsAFailedLookup(t *testing.T) {
+	b := fake(t, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "x", http.StatusBadGateway) })
+	if _, err := b.Open(context.Background(), &pluginv1.OpenRequest{Head: "h", Base: "main"}); err == nil {
+		t.Fatal("no error")
 	}
 }
 
@@ -127,5 +162,13 @@ func TestFromEnvironment(t *testing.T) {
 	t.Setenv("GITEA_TOKEN", "x")
 	if b := fromEnvironment(); b.url != "http://g" || b.repo != "o/r" || b.token != "x" {
 		t.Fatalf("%+v", b)
+	}
+}
+
+func TestOpenStopsAfterTooManyPages(t *testing.T) {
+	other := strings.Replace(pullJSON, `"ref":"h"`, `"ref":"other"`, 1)
+	b := fake(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("[" + other + "]")) })
+	if _, err := b.Open(context.Background(), &pluginv1.OpenRequest{Head: "h", Base: "main"}); err == nil || !strings.Contains(err.Error(), "pages") {
+		t.Fatal(err)
 	}
 }

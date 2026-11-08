@@ -20,7 +20,11 @@ import (
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
-const maxResponse = 4 << 20
+const (
+	maxResponse = 4 << 20
+	// maxPages keeps a lookup finite.
+	maxPages = 40
+)
 
 type backend struct {
 	url, repo, token string
@@ -86,12 +90,42 @@ func (b backend) Open(ctx context.Context, r *pluginv1.OpenRequest) (*pluginv1.O
 	if r.GetHead() == "" || r.GetBase() == "" {
 		return nil, rpc.Errorf(rpc.InvalidArgument, "a head and a base are required")
 	}
+	existing, err := b.findOpen(ctx, r.GetHead(), r.GetBase())
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return openResponse(*existing), nil
+	}
 	var created pull
 	in := map[string]any{"head": r.GetHead(), "base": r.GetBase(), "title": r.GetTitle(), "body": r.GetBody()}
 	if err := b.call(ctx, http.MethodPost, "/pulls", in, &created); err != nil {
 		return nil, err
 	}
-	return &pluginv1.OpenResponse{Number: created.Number, Url: created.URL, HeadRef: created.Head.Ref, HeadSha: created.Head.SHA, BaseRef: created.Base.Ref, Draft: created.IsDraft}, nil
+	return openResponse(created), nil
+}
+
+func openResponse(p pull) *pluginv1.OpenResponse {
+	return &pluginv1.OpenResponse{Number: p.Number, Url: p.URL, HeadRef: p.Head.Ref, HeadSha: p.Head.SHA, BaseRef: p.Base.Ref, Draft: p.IsDraft}
+}
+
+// findOpen pages through the open pull requests for one with this head and base.
+func (b backend) findOpen(ctx context.Context, head, base string) (*pull, error) {
+	for page := 1; page <= maxPages; page++ {
+		var pulls []pull
+		if err := b.call(ctx, http.MethodGet, "/pulls?state=open&limit=50&page="+strconv.Itoa(page), nil, &pulls); err != nil {
+			return nil, err
+		}
+		if len(pulls) == 0 {
+			return nil, nil
+		}
+		for i := range pulls {
+			if pulls[i].Head.Ref == head && pulls[i].Base.Ref == base {
+				return &pulls[i], nil
+			}
+		}
+	}
+	return nil, rpc.Errorf(rpc.FailedPrecondition, "more than %d pages of open pull requests", maxPages)
 }
 
 func (b backend) Merge(ctx context.Context, r *pluginv1.MergeRequest) (*pluginv1.MergeResponse, error) {
