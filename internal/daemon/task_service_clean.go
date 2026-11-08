@@ -34,16 +34,20 @@ type WorktreeCleanPlanRequest struct {
 // WorktreeCleanPlan says what cleaning one tree would do and what stands in
 // its way.
 type WorktreeCleanPlan struct {
-	Task         string   `json:"task"`
-	Branch       string   `json:"branch"`
-	Path         string   `json:"path"`
-	Head         string   `json:"head"`
-	Proof        string   `json:"proof,omitempty"`
-	NeedsForce   bool     `json:"needs_force,omitempty"`
-	Reason       string   `json:"reason,omitempty"`
-	Blocked      string   `json:"blocked,omitempty"`
-	Running      []string `json:"running,omitempty"`
-	BranchAction string   `json:"branch_action,omitempty"`
+	Task       string `json:"task"`
+	Branch     string `json:"branch"`
+	Path       string `json:"path"`
+	Head       string `json:"head"`
+	Proof      string `json:"proof,omitempty"`
+	NeedsForce bool   `json:"needs_force,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Blocked    string `json:"blocked,omitempty"`
+	// PullRequestHead is the merged pull request's head, passed back to Clean
+	// so that a whole pass reads GitHub once. A stale value proves nothing,
+	// because it must equal the branch's head when it is used.
+	PullRequestHead string   `json:"pull_request_head,omitempty"`
+	Running         []string `json:"running,omitempty"`
+	BranchAction    string   `json:"branch_action,omitempty"`
 }
 
 // WorktreeCleanPlanResponse is one plan per tree.
@@ -60,6 +64,8 @@ type WorktreeCleanRequest struct {
 	Force      bool     `json:"force,omitempty"`
 	KeepBranch bool     `json:"keep_branch,omitempty"`
 	Named      []string `json:"named,omitempty"`
+	// PullRequestHeads maps branch to head from the plan. Nil reads GitHub.
+	PullRequestHeads map[string]string `json:"pull_request_heads,omitempty"`
 }
 
 // WorktreeCleanReport is one task's outcome.
@@ -152,7 +158,7 @@ func runningLines(ctx context.Context, common, task string) ([]string, error) {
 }
 
 func (r *repository) planOne(ctx context.Context, row wtree.Row, bulk, keepBranch bool, heads map[string]string) (WorktreeCleanPlan, wtree.Safety, error) {
-	plan := WorktreeCleanPlan{Task: row.Task, Branch: row.Branch, Path: row.Path, Head: row.Head, BranchAction: "keep"}
+	plan := WorktreeCleanPlan{Task: row.Task, Branch: row.Branch, Path: row.Path, Head: row.Head, BranchAction: "keep", PullRequestHead: heads[row.Branch]}
 	if plan.Blocked = r.blockedReason(row, bulk); plan.Blocked != "" {
 		return plan, wtree.Safety{}, nil
 	}
@@ -299,9 +305,11 @@ func (s *WorktreeService) Clean(ctx context.Context, req WorktreeCleanRequest) (
 		return resp, err
 	}
 	defer closeStore()
-	heads, err := s.mergedHeads(ctx, r)
-	if err != nil {
-		resp.Warnings = append(resp.Warnings, "merged pull requests are not considered: "+err.Error())
+	heads := req.PullRequestHeads
+	if heads == nil {
+		if heads, err = s.mergedHeads(ctx, r); err != nil {
+			resp.Warnings = append(resp.Warnings, "merged pull requests are not considered: "+err.Error())
+		}
 	}
 	for _, task := range req.Tasks {
 		report := WorktreeCleanReport{CleanReport: wtree.CleanReport{Task: task}}

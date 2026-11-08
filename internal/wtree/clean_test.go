@@ -131,7 +131,7 @@ func TestCleanRemovesAnIntegratedTreeAndKeepsItsIgnoredFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(order, ",") != "running,pre,post" {
+	if strings.Join(order, ",") != "running,pre,running,post" {
 		t.Fatalf("order %v", order)
 	}
 	if report.Snapshot != "s1" || !report.BranchDeleted || report.BranchReason != ProofAncestry {
@@ -251,6 +251,108 @@ func TestCleanRefusesAFileChangedAfterTheSnapshot(t *testing.T) {
 	r.assertKept(err)
 	var uncaptured *UncapturedError
 	if !errors.As(err, &uncaptured) || strings.Join(uncaptured.Paths, ",") != ".env,late.txt" {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestCleanRefusesASymlinkRetargetedAfterTheSnapshot(t *testing.T) {
+	r := newCleanRig(t)
+	r.land()
+	r.req.Force = true
+	link := filepath.Join(r.tree, "current")
+	if err := os.Symlink("one-target", link); err != nil {
+		t.Fatal(err)
+	}
+	take := r.deps.Snapshot
+	r.deps.Snapshot = func(ctx context.Context, q SnapshotQuery) (string, *snapshot.Manifest, error) {
+		id, m, err := take(ctx, q)
+		if removeErr := os.Remove(link); removeErr != nil {
+			t.Fatal(removeErr)
+		}
+		// The same length, so that only the link's identity differs.
+		if linkErr := os.Symlink("two-target", link); linkErr != nil {
+			t.Fatal(linkErr)
+		}
+		return id, m, err
+	}
+	_, err := Clean(context.Background(), r.deps, r.req)
+	r.assertKept(err)
+	var uncaptured *UncapturedError
+	if !errors.As(err, &uncaptured) || strings.Join(uncaptured.Paths, ",") != "current" {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestCleanRefusesAFileReplacedByALinkAfterTheSnapshot(t *testing.T) {
+	r := newCleanRig(t)
+	r.land()
+	r.req.Force = true
+	file := filepath.Join(r.tree, ".env")
+	write(t, file, "0123456789")
+	take := r.deps.Snapshot
+	r.deps.Snapshot = func(ctx context.Context, q SnapshotQuery) (string, *snapshot.Manifest, error) {
+		id, m, err := take(ctx, q)
+		if removeErr := os.Remove(file); removeErr != nil {
+			t.Fatal(removeErr)
+		}
+		if linkErr := os.Symlink("0123456789", file); linkErr != nil {
+			t.Fatal(linkErr)
+		}
+		return id, m, err
+	}
+	_, err := Clean(context.Background(), r.deps, r.req)
+	r.assertKept(err)
+	var uncaptured *UncapturedError
+	if !errors.As(err, &uncaptured) {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestCleanRefusesWhatAPreCleanHookLeftBehind(t *testing.T) {
+	r := newCleanRig(t)
+	r.land()
+	r.deps.PreClean = func(context.Context) error {
+		write(t, filepath.Join(r.tree, "hook-backup.db"), "only copy")
+		return nil
+	}
+	r.req.Force = true
+	_, err := Clean(context.Background(), r.deps, r.req)
+	r.assertKept(err)
+	var uncaptured *UncapturedError
+	if !errors.As(err, &uncaptured) || strings.Join(uncaptured.Paths, ",") != "hook-backup.db" {
+		t.Fatalf("err %v", err)
+	}
+	if !r.exists(filepath.Join(r.tree, "hook-backup.db")) {
+		t.Fatal("the hook's file was removed")
+	}
+}
+
+func TestCleanRefusesWhatAPreCleanHookStarted(t *testing.T) {
+	r := newCleanRig(t)
+	r.land()
+	started := false
+	r.deps.PreClean = func(context.Context) error { started = true; return nil }
+	r.deps.Running = func(context.Context) ([]string, error) {
+		if started {
+			return []string{"process 9"}, nil
+		}
+		return nil, nil
+	}
+	_, err := Clean(context.Background(), r.deps, r.req)
+	r.assertKept(err)
+	if !errors.Is(err, ErrStillRunning) {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestCleanSafetyIgnoresGitDisplaySettings(t *testing.T) {
+	r := newCleanRig(t)
+	r.land()
+	rigGit(t, r.tree, "config", "status.showUntrackedFiles", "no")
+	write(t, filepath.Join(r.tree, "untracked.txt"), "x")
+	_, err := Clean(context.Background(), r.deps, r.req)
+	r.assertKept(err)
+	if !errors.Is(err, ErrUnsafe) {
 		t.Fatalf("err %v", err)
 	}
 }

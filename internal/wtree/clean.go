@@ -103,7 +103,7 @@ func (s Safety) Reason() string {
 // CheckSafety reads a tree's state; it changes nothing.
 func CheckSafety(ctx context.Context, git *gitrun.Runner, path, head string, proof BranchProof) (Safety, error) {
 	var s Safety
-	status, err := git.Run(ctx, path, "status", "--porcelain")
+	status, err := git.Run(ctx, path, fullStatus...)
 	if err != nil {
 		return s, err
 	}
@@ -175,6 +175,33 @@ func refuseWhileRunning(ctx context.Context, deps CleanDeps) error {
 	return nil
 }
 
+// accountFor classifies every path and refuses on any left unexplained.
+func accountFor(ctx context.Context, deps CleanDeps, req CleanRequest, manifest *snapshot.Manifest) (*Inventory, error) {
+	problems, err := CheckSubmodules(ctx, deps.Git, req.Path, manifest)
+	if err != nil {
+		return nil, err
+	}
+	inventory, err := TakeInventory(req.Path, manifest, req.Named, problems)
+	if err != nil {
+		return nil, err
+	}
+	if len(inventory.Uncaptured) > 0 {
+		return nil, &UncapturedError{Paths: inventory.Uncaptured, Reasons: inventory.Reasons}
+	}
+	return inventory, nil
+}
+
+func checkSafe(ctx context.Context, deps CleanDeps, req CleanRequest, proof BranchProof) error {
+	safety, err := CheckSafety(ctx, deps.Git, req.Path, req.Head, proof)
+	if err != nil {
+		return err
+	}
+	if safety.NeedsForce() && !req.Force {
+		return fmt.Errorf("%w: %s; --force goes on, the snapshot holds it", ErrUnsafe, safety.Reason())
+	}
+	return nil
+}
+
 // Clean frees one tree. Each refusal comes before the rename, so a tree either
 // stays whole or was captured and accounted for path by path.
 func Clean(ctx context.Context, deps CleanDeps, req CleanRequest) (*CleanReport, error) {
@@ -192,32 +219,32 @@ func Clean(ctx context.Context, deps CleanDeps, req CleanRequest) (*CleanReport,
 	}
 	report.Snapshot = id
 
-	problems, err := CheckSubmodules(ctx, deps.Git, req.Path, manifest)
-	if err != nil {
+	if _, err := accountFor(ctx, deps, req, manifest); err != nil {
 		return nil, err
 	}
-	inventory, err := TakeInventory(req.Path, manifest, req.Named, problems)
-	if err != nil {
-		return nil, err
-	}
-	if len(inventory.Uncaptured) > 0 {
-		return nil, &UncapturedError{Paths: inventory.Uncaptured, Reasons: inventory.Reasons}
-	}
-	report.Rebuildable, report.Lost, report.UnmatchedNames = inventory.Rebuildable, inventory.Named, inventory.UnmatchedNames
-	report.Submodules = inventory.Submodules
 
 	proof := BranchProof{Target: req.Default, Landed: req.Landed, PullRequestHead: req.PullRequestHead}
-	safety, err := CheckSafety(ctx, deps.Git, req.Path, req.Head, proof)
-	if err != nil {
+	if err := checkSafe(ctx, deps, req, proof); err != nil {
 		return nil, err
-	}
-	if safety.NeedsForce() && !req.Force {
-		return nil, fmt.Errorf("%w: %s; --force goes on, the snapshot holds it", ErrUnsafe, safety.Reason())
 	}
 
 	if err := callHook(ctx, deps.PreClean); err != nil {
 		return nil, fmt.Errorf("pre-clean: %w; nothing was removed", err)
 	}
+	// A hook can write files or start processes, so the checks above are
+	// repeated on the tree as the hooks left it.
+	if err := refuseWhileRunning(ctx, deps); err != nil {
+		return nil, fmt.Errorf("after pre-clean: %w", err)
+	}
+	inventory, err := accountFor(ctx, deps, req, manifest)
+	if err != nil {
+		return nil, fmt.Errorf("after pre-clean: %w", err)
+	}
+	if err := checkSafe(ctx, deps, req, proof); err != nil {
+		return nil, fmt.Errorf("after pre-clean: %w", err)
+	}
+	report.Rebuildable, report.Lost, report.UnmatchedNames = inventory.Rebuildable, inventory.Named, inventory.UnmatchedNames
+	report.Submodules = inventory.Submodules
 	if report.Kept, err = keptResources(ctx, deps.State, req.Task); err != nil {
 		return nil, err
 	}

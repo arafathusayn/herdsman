@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 )
@@ -268,5 +270,106 @@ func TestPruneDryRunAndUsage(t *testing.T) {
 	stubWorktree(t, map[string]string{"CleanPlan": `{"plans":[{"task":"a"}]}`, "Clean": `{"reports":[{"task":"a","error":"e"}]}`})
 	if code, _, _ := runVerb(runPrune); code != 1 {
 		t.Fatalf("%d", code)
+	}
+}
+
+func TestCleanCarriesThePlansPullRequestHeads(t *testing.T) {
+	calls := stubWorktree(t, map[string]string{
+		"CleanPlan": `{"plans":[{"task":"a","branch":"feat/a","pull_request_head":"abc"}],"warnings":["gh is down"]}`,
+		"Clean":     `{"reports":[{"task":"a"}]}`,
+	})
+	code, _, errText := runVerb(runClean, "a", "-y")
+	if code != 0 || !strings.Contains(errText, "gh is down") {
+		t.Fatalf("%d %s", code, errText)
+	}
+	heads := (*calls)[1].body["pull_request_heads"].(map[string]any)
+	if heads["feat/a"] != "abc" {
+		t.Fatalf("%+v", heads)
+	}
+}
+
+func TestCleanShowsNamedPathsBeforeAsking(t *testing.T) {
+	withTerminal(t, true)
+	stubWorktree(t, map[string]string{"CleanPlan": safeCleanPlan})
+	var out, errText strings.Builder
+	if code := runClean([]string{"a", "--force-irreversible", "big.bin"}, strings.NewReader("n\n"), &out, &errText); code != 0 {
+		t.Fatalf("%d %s", code, errText.String())
+	}
+	text := out.String()
+	named, asked := strings.Index(text, "big.bin"), strings.Index(text, "[y/N]")
+	if named < 0 || asked < 0 || named > asked {
+		t.Fatalf("%s", text)
+	}
+}
+
+func decodeOne(t *testing.T, out string) map[string]any {
+	t.Helper()
+	decoder := json.NewDecoder(strings.NewReader(out))
+	var document map[string]any
+	if err := decoder.Decode(&document); err != nil {
+		t.Fatalf("%v in %q", err, out)
+	}
+	if decoder.More() {
+		t.Fatalf("more than one document in %q", out)
+	}
+	return document
+}
+
+func TestJSONOutputIsOneDocumentWhenThereIsNothingToDo(t *testing.T) {
+	stubWorktree(t, map[string]string{"CleanPlan": `{"plans":[]}`})
+	for _, run := range []func([]string, io.Reader, io.Writer, io.Writer) int{runClean, runDown, runPrune} {
+		code, out, _ := runVerb(run, "--json")
+		if code != 0 {
+			t.Fatalf("%d", code)
+		}
+		decodeOne(t, out)
+	}
+}
+
+func TestDownJSONIsOneDocumentWithBothHalves(t *testing.T) {
+	stubWorktree(t, map[string]string{
+		"CleanPlan": safeCleanPlan, "TeardownPlan": stopPlan,
+		"Teardown": `{"reports":[{"task":"a","outcomes":[{"kind":"process","id":"5","result":"stopped"}]}]}`,
+		"Clean":    `{"reports":[{"task":"a","snapshot":"S1"}]}`,
+	})
+	code, out, errText := runVerb(runDown, "a", "-y", "--json")
+	if code != 0 {
+		t.Fatalf("%d %s", code, errText)
+	}
+	document := decodeOne(t, out)
+	teardown := document["teardown"].(map[string]any)
+	if len(teardown["plans"].([]any)) != 1 || len(teardown["reports"].([]any)) != 1 || len(document["reports"].([]any)) != 1 {
+		t.Fatalf("%+v", document)
+	}
+}
+
+func TestDownJSONReportsAFailedStop(t *testing.T) {
+	calls := stubWorktree(t, map[string]string{
+		"CleanPlan": safeCleanPlan, "TeardownPlan": stopPlan,
+		"Teardown": `{"reports":[{"task":"a","error":"changed"}]}`,
+	})
+	code, out, _ := runVerb(runDown, "a", "-y", "--json")
+	if code != 1 || len(decodeOne(t, out)["teardown"].(map[string]any)["reports"].([]any)) != 1 {
+		t.Fatalf("%d %s", code, out)
+	}
+	for _, call := range *calls {
+		if call.method == "Clean" {
+			t.Fatal("clean ran after a failed stop")
+		}
+	}
+}
+
+func TestPruneJSON(t *testing.T) {
+	plan := `{"plans":[{"task":"a"},{"task":"b","blocked":"locked"}]}`
+	stubWorktree(t, map[string]string{"CleanPlan": plan})
+	code, out, _ := runVerb(runPrune, "--dry-run", "--json")
+	document := decodeOne(t, out)
+	if code != 0 || document["dry_run"] != true || len(document["skipped"].([]any)) != 1 || len(document["tasks"].([]any)) != 1 {
+		t.Fatalf("%d %+v", code, document)
+	}
+	stubWorktree(t, map[string]string{"CleanPlan": plan, "Clean": `{"reports":[{"task":"a","error":"e"}]}`})
+	code, out, _ = runVerb(runPrune, "--json")
+	if code != 1 || len(decodeOne(t, out)["reports"].([]any)) != 1 {
+		t.Fatalf("%d %s", code, out)
 	}
 }

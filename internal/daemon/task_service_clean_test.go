@@ -150,11 +150,18 @@ func TestCleanMergedIsOnePassWithOneGitHubCall(t *testing.T) {
 	if strings.Join(names, ",") != "a,b" {
 		t.Fatalf("%v", names)
 	}
-	resp, err := f.svc.Clean(context.Background(), WorktreeCleanRequest{Dir: f.main, Tasks: names})
+	heads := map[string]string{}
+	for _, p := range plan.Plans {
+		heads[p.Branch] = p.PullRequestHead
+	}
+	if heads["feat/b"] != headB {
+		t.Fatalf("plan carried %v", heads)
+	}
+	resp, err := f.svc.Clean(context.Background(), WorktreeCleanRequest{Dir: f.main, Tasks: names, PullRequestHeads: heads})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.ghCalls() != 2 {
+	if f.ghCalls() != 1 {
 		t.Fatalf("clean made %d gh calls in all", f.ghCalls())
 	}
 	for _, report := range resp.Reports {

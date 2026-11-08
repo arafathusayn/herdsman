@@ -43,23 +43,26 @@ func teardownPlansFor(dir string, tasks []string) ([]json.RawMessage, error) {
 }
 
 // stopHalf runs the teardown half and says whether the clean half may start.
-func stopHalf(dir string, plans []json.RawMessage, grace int, include bool, stdout, stderr io.Writer) bool {
+// Its outcomes are printed only in text mode; JSON carries them in the report.
+func stopHalf(dir string, plans []json.RawMessage, grace int, include, asJSON bool, stdout, stderr io.Writer) ([]teardownReport, bool) {
 	raw, err := callWorktree("Teardown", map[string]any{"dir": dir, "plans": plans, "grace_seconds": grace, "include_associated": include})
 	if err != nil {
 		fail(stderr, err)
-		return false
+		return nil, false
 	}
 	var done struct {
 		Reports []teardownReport `json:"reports"`
 	}
 	if err := json.Unmarshal(raw, &done); err != nil {
 		fail(stderr, err)
-		return false
+		return nil, false
 	}
 	ok := true
 	for _, report := range done.Reports {
 		for _, outcome := range report.Outcomes {
-			fmt.Fprintf(stdout, "%s %s %s: %s\n", report.Task, outcome.Kind, outcome.ID, outcome.Result)
+			if !asJSON {
+				fmt.Fprintf(stdout, "%s %s %s: %s\n", report.Task, outcome.Kind, outcome.ID, outcome.Result)
+			}
 			if strings.HasPrefix(outcome.Result, "failed") {
 				ok = false
 			}
@@ -69,7 +72,24 @@ func stopHalf(dir string, plans []json.RawMessage, grace int, include bool, stdo
 			ok = false
 		}
 	}
-	return ok
+	return done.Reports, ok
+}
+
+// writeDownJSON emits one document holding both halves.
+func writeDownJSON(stdout, stderr io.Writer, stopPlans []json.RawMessage, stopped []teardownReport, plans, rawReports []json.RawMessage, code int) int {
+	if stopped == nil {
+		stopped = []teardownReport{}
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	err := encoder.Encode(map[string]any{
+		"teardown": map[string]any{"plans": orEmpty(stopPlans), "reports": stopped},
+		"plans":    orEmpty(plans), "reports": orEmpty(rawReports),
+	})
+	if err != nil {
+		return fail(stderr, err)
+	}
+	return code
 }
 
 func runDown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -95,7 +115,7 @@ func runDown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	plans, rawPlans, err := callCleanPlan(cleanPlanRequest(dir, selector, options))
+	plans, rawPlans, err := callCleanPlan(cleanPlanRequest(dir, selector, options), stderr)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -105,6 +125,9 @@ func runDown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if len(tasks) == 0 {
+		if *options.asJSON {
+			return writeDownJSON(stdout, stderr, nil, nil, rawPlans, nil, 0)
+		}
 		fmt.Fprintln(stdout, "nothing to take down")
 		return 0
 	}
@@ -120,15 +143,28 @@ func runDown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return code
 	}
 	includeAssociated := *include == "associated"
-	if hasStops(stopping, includeAssociated) && !stopHalf(dir, stopping, *grace, includeAssociated, stdout, stderr) {
-		return 1
+	var stopped []teardownReport
+	if hasStops(stopping, includeAssociated) {
+		var ok bool
+		if stopped, ok = stopHalf(dir, stopping, *grace, includeAssociated, *options.asJSON, stdout, stderr); !ok {
+			if *options.asJSON {
+				return writeDownJSON(stdout, stderr, stopping, stopped, rawPlans, nil, 1)
+			}
+			return 1
+		}
 	}
-	reports, rawReports, err := callClean(dir, tasks, options)
+	reports, rawReports, err := callClean(dir, tasks, plans, options)
 	if err != nil {
 		return fail(stderr, err)
 	}
 	if *options.asJSON {
-		return writeCleanJSON(stdout, stderr, rawPlans, rawReports, reports)
+		code := 0
+		for _, report := range reports {
+			if report.Error != "" {
+				code = 1
+			}
+		}
+		return writeDownJSON(stdout, stderr, stopping, stopped, rawPlans, rawReports, code)
 	}
 	return printCleanReports(stdout, stderr, reports)
 }

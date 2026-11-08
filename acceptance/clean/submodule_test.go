@@ -88,3 +88,17 @@ func TestAMovedSubmoduleRefusesDeletionUntilNamed(t *testing.T) {
 		t.Fatalf("%+v", report)
 	}
 }
+
+func TestASubmoduleHidingUntrackedFilesRefusesDeletion(t *testing.T) {
+	g, sub := newSubmoduleGate(t)
+	run(t, sub, "config", "status.showUntrackedFiles", "no")
+	put(t, filepath.Join(sub, "only-copy.txt"), "nowhere else")
+	g.assertRefusedForSubmodule(g.clean(daemon.WorktreeCleanRequest{Force: true}), "uncommitted")
+}
+
+func TestASubmoduleHidingAnEditRefusesDeletion(t *testing.T) {
+	g, sub := newSubmoduleGate(t)
+	run(t, sub, "update-index", "--assume-unchanged", "lib.txt")
+	put(t, filepath.Join(sub, "lib.txt"), "edited and hidden")
+	g.assertRefusedForSubmodule(g.clean(daemon.WorktreeCleanRequest{Force: true}), "hides")
+}

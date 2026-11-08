@@ -35,6 +35,7 @@ type cleanPlan struct {
 	Blocked      string   `json:"blocked"`
 	Running      []string `json:"running"`
 	BranchAction string   `json:"branch_action"`
+	PRHead       string   `json:"pull_request_head"`
 }
 
 type cleanReport struct {
@@ -87,16 +88,20 @@ func (o *cleanOptions) selector(positional []string) (string, error) {
 
 func (o *cleanOptions) bulk() bool { return *o.route != "" || *o.all || *o.merged }
 
-func callCleanPlan(request map[string]any) ([]cleanPlan, []json.RawMessage, error) {
+func callCleanPlan(request map[string]any, stderr io.Writer) ([]cleanPlan, []json.RawMessage, error) {
 	raw, err := callWorktree("CleanPlan", request)
 	if err != nil {
 		return nil, nil, err
 	}
 	var typed struct {
-		Plans []cleanPlan `json:"plans"`
+		Plans    []cleanPlan `json:"plans"`
+		Warnings []string    `json:"warnings"`
 	}
 	if err := json.Unmarshal(raw, &typed); err != nil {
 		return nil, nil, err
+	}
+	for _, warning := range typed.Warnings {
+		fmt.Fprintf(stderr, "herdsman: warning: %s\n", warning)
 	}
 	var plain struct {
 		Plans []json.RawMessage `json:"plans"`
@@ -142,6 +147,12 @@ func (o *cleanOptions) checkPlans(plans []cleanPlan, allowRunning bool) ([]strin
 // approve asks when it must. --force always asks: losing a tree with unsaved
 // work in it is not something a script should do unattended.
 func (o *cleanOptions) approve(stdin io.Reader, stdout, stderr io.Writer, question string) (bool, int) {
+	if *o.asJSON {
+		stdout = stderr // Standard output carries only the document.
+	}
+	if len(*o.named) > 0 {
+		fmt.Fprintf(stdout, "what these match and no snapshot holds is lost for good: %s\n", strings.Join(*o.named, ", "))
+	}
 	if *o.yes && !*o.force {
 		return true, 0
 	}
@@ -196,8 +207,16 @@ func printCleanReports(stdout, stderr io.Writer, reports []cleanReport) int {
 	return code
 }
 
-func callClean(dir string, tasks []string, o *cleanOptions) ([]cleanReport, []json.RawMessage, error) {
-	raw, err := callWorktree("Clean", map[string]any{"dir": dir, "tasks": tasks, "force": *o.force, "keep_branch": *o.keepBranch, "named": []string(*o.named)})
+// callClean hands the plan's pull request heads back, so that one pass reads
+// GitHub once. The map is never nil: nil would ask the service to read again.
+func callClean(dir string, tasks []string, plans []cleanPlan, o *cleanOptions) ([]cleanReport, []json.RawMessage, error) {
+	heads := make(map[string]string, len(plans))
+	for _, plan := range plans {
+		if plan.PRHead != "" {
+			heads[plan.Branch] = plan.PRHead
+		}
+	}
+	raw, err := callWorktree("Clean", map[string]any{"dir": dir, "tasks": tasks, "force": *o.force, "keep_branch": *o.keepBranch, "named": []string(*o.named), "pull_request_heads": heads})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -239,7 +258,7 @@ func runClean(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	plans, rawPlans, err := callCleanPlan(cleanPlanRequest(dir, selector, options))
+	plans, rawPlans, err := callCleanPlan(cleanPlanRequest(dir, selector, options), stderr)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -252,13 +271,16 @@ func runClean(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if len(tasks) == 0 {
+		if *options.asJSON {
+			return writeCleanJSON(stdout, stderr, rawPlans, nil, nil)
+		}
 		fmt.Fprintln(stdout, "nothing to clean")
 		return 0
 	}
 	if ok, code := options.approve(stdin, stdout, stderr, "free these? [y/N] "); !ok {
 		return code
 	}
-	reports, rawReports, err := callClean(dir, tasks, options)
+	reports, rawReports, err := callClean(dir, tasks, plans, options)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -268,10 +290,17 @@ func runClean(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return printCleanReports(stdout, stderr, reports)
 }
 
+func orEmpty(list []json.RawMessage) []json.RawMessage {
+	if list == nil {
+		return []json.RawMessage{}
+	}
+	return list
+}
+
 func writeCleanJSON(stdout, stderr io.Writer, plans, rawReports []json.RawMessage, reports []cleanReport) int {
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(map[string]any{"plans": plans, "reports": rawReports}); err != nil {
+	if err := encoder.Encode(map[string]any{"plans": orEmpty(plans), "reports": orEmpty(rawReports)}); err != nil {
 		return fail(stderr, err)
 	}
 	for _, report := range reports {

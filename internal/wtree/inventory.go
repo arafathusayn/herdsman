@@ -73,13 +73,19 @@ func (w *inventoryWalk) refuseOrName(rel string) {
 	w.out.Uncaptured = append(w.out.Uncaptured, rel)
 }
 
-// unchanged compares only what the manifest recorded for a regular file; a
-// symlink's record has no comparable size or time.
+const (
+	modeTypeMask = 0o170000
+	modeLink     = 0o120000
+)
+
+// unchanged compares the entry with its record. A symlink's size and time are
+// the link's own, so replacing or retargeting one changes them as well.
 func unchanged(record snapshot.FileRecord, info fs.FileInfo) bool {
-	if !info.Mode().IsRegular() {
-		return true
+	isLink := info.Mode()&fs.ModeSymlink != 0
+	if isLink != (record.Mode&modeTypeMask == modeLink) || !isLink && !info.Mode().IsRegular() {
+		return false
 	}
-	return record.Size == info.Size() && (record.MTimeNS == 0 || record.MTimeNS == info.ModTime().UnixNano())
+	return record.Size == info.Size() && record.MTimeNS == info.ModTime().UnixNano()
 }
 
 func (w *inventoryWalk) visit(full string, d fs.DirEntry, err error) error {
@@ -167,6 +173,24 @@ func TakeInventory(root string, m *snapshot.Manifest, named []string, problems m
 	return walk.out, nil
 }
 
+// fullStatus lists everything whatever the repository's display settings say.
+var fullStatus = []string{"status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"}
+
+// hidesChanges finds tracked files marked so that git stops looking at them:
+// status cannot vouch for those, so they count as unsaved.
+func hidesChanges(ctx context.Context, git *gitrun.Runner, full string) (string, error) {
+	listed, err := git.Run(ctx, full, "ls-files", "-z", "-v")
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range strings.Split(string(listed.Stdout), "\x00") {
+		if entry != "" && entry[0] != 'H' {
+			return "it hides changes to tracked files: " + entry[2:], nil
+		}
+	}
+	return "", nil
+}
+
 func ignoredIsRebuildable(rel string, patterns []string) bool {
 	for _, part := range strings.Split(strings.TrimSuffix(rel, "/"), "/") {
 		for _, pattern := range patterns {
@@ -198,7 +222,10 @@ func submoduleProblem(ctx context.Context, git *gitrun.Runner, full, want string
 	if strings.TrimSpace(string(head.Stdout)) != want {
 		return "it moved from the recorded commit", nil
 	}
-	status, err := git.Run(ctx, full, "status", "--porcelain", "-z", "--ignored")
+	if hidden, err := hidesChanges(ctx, git, full); err != nil || hidden != "" {
+		return hidden, err
+	}
+	status, err := git.Run(ctx, full, append(fullStatus, "-z", "--ignored")...)
 	if err != nil {
 		return "", err
 	}
