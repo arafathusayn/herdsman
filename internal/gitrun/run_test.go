@@ -358,3 +358,25 @@ func TestTheGuardIgnoresTestsAndTestdata(t *testing.T) {
 		t.Fatalf("found %v", got)
 	}
 }
+
+func TestRunnerIndexUsesThatIndexFile(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	index := filepath.Join(t.TempDir(), "index")
+	other := &Runner{Index: index}
+	if _, err := other.Run(context.Background(), dir, "add", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(index); err != nil {
+		t.Fatal(err)
+	}
+	out, err := (&Runner{}).Run(context.Background(), dir, "ls-files", "--cached")
+	if err != nil || len(out.Stdout) != 0 {
+		t.Fatalf("the repository's own index changed: %q %v", out.Stdout, err)
+	}
+}
