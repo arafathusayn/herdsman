@@ -8,7 +8,7 @@ import (
 	context "context"
 	json "encoding/json"
 	fmt "fmt"
-	protojson "google.golang.org/protobuf/encoding/protojson"
+	rpc "github.com/arafathusayn/herdsman/sdk/rpc"
 	proto "google.golang.org/protobuf/proto"
 	io "io"
 	http "net/http"
@@ -36,52 +36,18 @@ type ProjectService interface {
 	Unbind(context.Context, *ProjectServiceUnbindRequest) (*ProjectServiceUnbindResponse, error)
 }
 
-// NewProjectServiceHandler serves impl over HTTP. Mount it at the server's root.
+// NewProjectServiceHandler serves impl over HTTP with the full binding. Mount it
+// at the server's root or at rpc.BasePath.
 func NewProjectServiceHandler(impl ProjectService) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.ProjectService/Create", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ProjectServiceCreateRequest)
-		serveProjectService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Create(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.ProjectService/Get", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ProjectServiceGetRequest)
-		serveProjectService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Get(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.ProjectService/List", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ProjectServiceListRequest)
-		serveProjectService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.List(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.ProjectService/Update", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ProjectServiceUpdateRequest)
-		serveProjectService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Update(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.ProjectService/Delete", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ProjectServiceDeleteRequest)
-		serveProjectService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Delete(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.ProjectService/Bind", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ProjectServiceBindRequest)
-		serveProjectService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Bind(ctx, req)
-		})
-	})
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.ProjectService/Unbind", func(w http.ResponseWriter, r *http.Request) {
-		req := new(ProjectServiceUnbindRequest)
-		serveProjectService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Unbind(ctx, req)
-		})
-	})
-	return mux
+	return rpc.NewMux(
+		rpc.Unary(ProjectServiceName, "Create", impl.Create),
+		rpc.Unary(ProjectServiceName, "Get", impl.Get),
+		rpc.Unary(ProjectServiceName, "List", impl.List),
+		rpc.Unary(ProjectServiceName, "Update", impl.Update),
+		rpc.Unary(ProjectServiceName, "Delete", impl.Delete),
+		rpc.Unary(ProjectServiceName, "Bind", impl.Bind),
+		rpc.Unary(ProjectServiceName, "Unbind", impl.Unbind),
+	)
 }
 
 type projectServiceClient struct {
@@ -152,56 +118,6 @@ func (c *projectServiceClient) Unbind(ctx context.Context, req *ProjectServiceUn
 
 // projectServiceMaxBody bounds a request or response body.
 const projectServiceMaxBody = 4 << 20
-
-func serveProjectService(w http.ResponseWriter, r *http.Request, req proto.Message, call func(context.Context) (proto.Message, error)) {
-	fail := func(status int, code, message string) {
-		body, _ := json.Marshal(map[string]string{"code": code, "message": message})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = w.Write(body)
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		fail(http.StatusMethodNotAllowed, "unimplemented", "only POST is served")
-		return
-	}
-	contentType := r.Header.Get("Content-Type")
-	if contentType != "application/json" && contentType != "application/proto" {
-		fail(http.StatusUnsupportedMediaType, "unimplemented", "unsupported content type")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, projectServiceMaxBody))
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot read the request body")
-		return
-	}
-	if contentType == "application/json" {
-		err = (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, req)
-	} else {
-		err = proto.Unmarshal(body, req)
-	}
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot decode the request body")
-		return
-	}
-	res, err := call(r.Context())
-	if err != nil {
-		fail(http.StatusInternalServerError, "unknown", err.Error())
-		return
-	}
-	var out []byte
-	if contentType == "application/json" {
-		out, err = protojson.Marshal(res)
-	} else {
-		out, err = proto.Marshal(res)
-	}
-	if err != nil {
-		fail(http.StatusInternalServerError, "internal", "cannot encode the response")
-		return
-	}
-	w.Header().Set("Content-Type", contentType)
-	_, _ = w.Write(out)
-}
 
 func callProjectService(ctx context.Context, hc *http.Client, url string, req, res proto.Message) error {
 	body, err := proto.Marshal(req)

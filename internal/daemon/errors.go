@@ -1,9 +1,7 @@
 package daemon
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
 )
 
 // APIError is the daemon's error answer (design 5.2): one code, one line of
@@ -34,7 +32,6 @@ var errorTable = map[string]errorSpec{
 	"identity_mismatch":    {403, false, 2},
 	"wrong_route":          {403, false, 2},
 	"unknown_route":        {404, false, 2},
-	"version_missing":      {400, false, 2},
 	"version_malformed":    {400, false, 2},
 	"version_mismatch":     {426, false, 2},
 	"registry_pending":     {409, true, 2},
@@ -93,12 +90,4 @@ func ExitCode(code string) int {
 // errorBody is the JSON of an error answer.
 type errorBody struct {
 	Error *APIError `json:"error"`
-}
-
-// writeError answers r with e.
-func writeError(w http.ResponseWriter, e *APIError) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(e.Status)
-	b, _ := json.Marshal(errorBody{Error: e})
-	_, _ = w.Write(append(b, '\n'))
 }

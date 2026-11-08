@@ -2,8 +2,6 @@ package daemon
 
 import (
 	"context"
-	"fmt"
-	"net"
 	"os"
 	"runtime"
 	"strconv"
@@ -46,32 +44,22 @@ func steady() int {
 	return g
 }
 
-// TestSlowClientBounded: a subscriber that never reads while many events
-// are published costs at most its fixed queue; the stream is closed and a
-// reconnect with its cursor receives every event (9.3, 9.4).
-func TestSlowClientBounded(t *testing.T) {
+// TestEventsResumeAfterCursor: events published while nobody waits hold no
+// memory in the daemon, and a call with the old cursor receives every one of
+// them, more than one reply's worth (9.3, 9.4).
+func TestEventsResumeAfterCursor(t *testing.T) {
 	h := newHarness(t)
 	adj, orch, _ := h.route("r")
 	cursor := mustCursor(t, h, orch)
-	// A raw connection that requests the stream and never reads.
-	conn, err := net.Dial("unix", SocketPath(h.ph))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-	fmt.Fprintf(conn, "GET /v1/routes/r/events HTTP/1.1\r\nHost: h\r\n%s: %s\r\n%s: 1\r\n%s: %s\r\n%s: %s\r\nAuthorization: Bearer %s\r\n\r\n",
-		HeaderVersion, testVersion, HeaderProtocol, HeaderPane, orch.pane, HeaderName, orch.name, orch.c.Credential)
-	time.Sleep(100 * time.Millisecond)
 	base := heapAfterGC()
 	const n = 300
 	for i := range n {
 		adj.send(t, "r", orch.name, "m"+strconv.Itoa(i))
 	}
-	grown := int64(heapAfterGC()) - int64(base)
-	if grown > 2<<20 {
-		t.Fatalf("heap grew %d bytes with a stalled stream", grown)
+	if grown := int64(heapAfterGC()) - int64(base); grown > 2<<20 {
+		t.Fatalf("heap grew %d bytes with nobody waiting", grown)
 	}
-	ev, err := orch.c.Events(context.Background(), "/v1/routes/r/events", cursor)
+	ev, err := orch.c.Events(context.Background(), "r", cursor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,15 +109,7 @@ func TestLoopsStayFlat(t *testing.T) {
 	// grows with the acknowledged history the actor loop leaves.
 	t.Run("party stream", func(t *testing.T) {
 		for range 1000 {
-			ev := openRetry(t, orch.c, "/v1/routes/r/events")
-			waitFrame(t, ev, "snapshot")
-			ev.Close()
-		}
-	})
-	t.Run("view stream", func(t *testing.T) {
-		v := h.client()
-		for range 1000 {
-			ev := openRetry(t, v, "/v1/events")
+			ev := openRetry(t, orch.c, "r")
 			waitFrame(t, ev, "snapshot")
 			ev.Close()
 		}
@@ -217,7 +197,7 @@ func TestLoadManyRoutes(t *testing.T) {
 	var streams []*EventReader
 	for i := range 50 {
 		r := routes[i%20]
-		ev, err := r.orch.c.Events(context.Background(), "/v1/routes/"+r.name+"/events", "")
+		ev, err := r.orch.c.Events(context.Background(), r.name, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -269,19 +249,33 @@ func TestRequestSemaphore(t *testing.T) {
 	_, orch, _ := h.route("r")
 	var evs []*EventReader
 	for range 4 {
-		ev, err := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
+		ev, err := orch.c.Events(context.Background(), "r", "")
 		if err != nil {
 			t.Fatal(err)
 		}
+		waitFrame(t, ev, "snapshot")
 		evs = append(evs, ev)
+		go func() { _, _ = ev.Next() }() // the call that stays open
+	}
+	for i := 0; ; i++ {
+		h.d.mu.Lock()
+		open := h.d.streams["r/"+orch.name]
+		h.d.mu.Unlock()
+		if open == 4 {
+			break
+		}
+		if i == 500 {
+			t.Fatalf("%d calls open, want 4", open)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	if len(h.d.sem) != 0 {
-		t.Fatalf("streams hold %d request slots", len(h.d.sem))
+		t.Fatalf("waiting calls hold %d request slots", len(h.d.sem))
 	}
-	// The fifth stream of one party is busy (4 per party).
-	_, err := orch.c.Events(context.Background(), "/v1/routes/r/events", "")
+	// The fifth call of one party is busy (4 per party).
+	_, err := orch.c.Events(context.Background(), "r", "")
 	if code(err) != "busy" {
-		t.Fatalf("fifth stream: %v", err)
+		t.Fatalf("fifth call: %v", err)
 	}
 	for _, ev := range evs {
 		ev.Close()
@@ -328,22 +322,21 @@ func TestGoroutineAccounting(t *testing.T) {
 	if g := settleAt(base); g != base {
 		t.Fatalf("3 routes: %d goroutines over the base, want 3", g-(g0+4))
 	}
-	// Each open stream holds its connection's goroutine, its writer and
-	// the client side's reader and writer of the connection.
+	// A reader between calls holds no call on the daemon, only its kept
+	// connection.
 	var evs []*EventReader
 	for i, p := range parties {
-		ev, err := p.c.Events(context.Background(), "/v1/routes/"+[]string{"a", "b", "c"}[i]+"/events", "")
+		ev, err := p.c.Events(context.Background(), []string{"a", "b", "c"}[i], "")
 		if err != nil {
 			t.Fatal(err)
 		}
 		waitFrame(t, ev, "snapshot")
 		evs = append(evs, ev)
 	}
-	// Per stream: the server's connection goroutine (which writes the
-	// stream) and its background reader, and the client's reader and
-	// writer of the connection.
-	if g := settleAt(base + 4*len(evs)); g != base+4*len(evs) {
-		t.Fatalf("%d streams: %d goroutines over the routes, want %d", len(evs), g-base, 4*len(evs))
+	// Per reader: the server's connection goroutine and the client's reader
+	// and writer of the connection.
+	if g := settleAt(base + 3*len(evs)); g != base+3*len(evs) {
+		t.Fatalf("%d readers: %d goroutines over the routes, want %d", len(evs), g-base, 3*len(evs))
 	}
 	for _, ev := range evs {
 		ev.Close()

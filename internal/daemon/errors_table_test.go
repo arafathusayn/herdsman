@@ -2,8 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,7 +15,7 @@ import (
 var designErrors = map[string]errorSpec{
 	"bad_request": {400, false, 2}, "unauthorized": {401, false, 2}, "identity_mismatch": {403, false, 2},
 	"wrong_route": {403, false, 2}, "unknown_route": {404, false, 2},
-	"version_missing": {400, false, 2}, "version_malformed": {400, false, 2}, "version_mismatch": {426, false, 2},
+	"version_malformed": {400, false, 2}, "version_mismatch": {426, false, 2},
 	"registry_pending": {409, true, 2}, "proof_stale": {409, false, 2}, "human_boundary": {409, false, 3},
 	"backlog_full": {409, false, 2}, "budget_full": {409, false, 2},
 	"claim_held": {409, false, 2}, "no_claim": {409, false, 2}, "unacked_work": {409, false, 2},
@@ -53,18 +51,9 @@ func TestErrorTableColumns(t *testing.T) {
 		if e.Code != code || e.Status != want.status || e.Retryable != want.retryable {
 			t.Errorf("%s: %+v", code, e)
 		}
-		rec := httptest.NewRecorder()
-		writeError(rec, e)
-		var body struct {
-			Error struct {
-				Code      string `json:"code"`
-				Message   string `json:"message"`
-				Retryable bool   `json:"retryable"`
-			} `json:"error"`
-		}
-		if rec.Code != want.status || json.Unmarshal(rec.Body.Bytes(), &body) != nil || body.Error.Code != code ||
-			body.Error.Retryable != want.retryable || body.Error.Message != "x" {
-			t.Errorf("%s: answer %d %s", code, rec.Code, rec.Body.String())
+		got, ok := AsAPIError(callError(rpcFailure(context.Background(), e)))
+		if !ok || got.Code != code || got.Retryable != want.retryable || got.Message != "x" || got.Status != want.status {
+			t.Errorf("%s: over the wire %+v", code, got)
 		}
 	}
 	for code := range errorTable {
@@ -111,11 +100,6 @@ func TestRefusalBoundaries(t *testing.T) {
 	h := newHarness(t)
 	adj, orch, dir := h.route("r")
 	ctx := context.Background()
-
-	// not_found: an unknown request path.
-	if _, err := h.client().Do(ctx, "GET", "/v1/nothing", nil, nil); code(err) != "not_found" {
-		t.Fatalf("not_found: %v", err)
-	}
 
 	// budget_full: the ninth side-agent message of one source.
 	src := `{"version":1,"text":"x","source":{"pane":"p9","session":"s9"}}`

@@ -80,7 +80,7 @@ type PeerInfo struct {
 	Session string `json:"session"`
 }
 
-// Event is one SSE event's data (5.3). Stored events keep only their type
+// Event is one event's data (5.3). Stored events keep only their type
 // fields in the journal; the stream adds v, route, seq, epoch and time.
 // Field names are lower-case snake_case; fields a type does not use are
 // left out.
