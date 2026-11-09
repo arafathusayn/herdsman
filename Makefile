@@ -150,10 +150,10 @@ vuln:
 	$(TOOLS_BIN)/govulncheck ./...
 	bash .github/scripts/vendor-advisories.sh .
 
-## acceptance: the real-platform gates; each needs what acceptance/requirements.md
-## lists and skips only with a named reason
+## acceptance: the real-platform gates, one suite; a capability requirements.md
+## declares for this platform must work, and only one declared absent skips
 acceptance:
-	go test -p 1 -tags acceptance -count=1 -v ./acceptance/...
+	go run ./acceptance
 
 ## check: every module in MODULES.md, one after another; every module runs, and
 ## the target fails when any failed
