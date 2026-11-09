@@ -29,7 +29,7 @@ func (e *RefusedError) Error() string {
 // refused line has no compiled spec of its own.
 func (e *RefusedError) Hint() string {
 	return "[launch]\n" +
-		`prelude = [{ command = ["sh", "-c", ` + tomlString(e.Line) + `], retry = "never" }]` + "\n" +
+		`prelude = [{ argv = ["sh", "-c", ` + tomlString(e.Line) + `], retry = "never" }]` + "\n" +
 		`command = ["<agent executable>"]` + "\n"
 }
 

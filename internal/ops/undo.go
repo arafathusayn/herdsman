@@ -24,6 +24,9 @@ const ResourcesName = "resources.json"
 // ErrNoVolumeRuntime means a snapshot holds volumes and nothing can import them.
 var ErrNoVolumeRuntime = errors.New("the snapshot holds volumes and no container runtime is configured")
 
+// gitSymlinkMode is how a snapshot records a link.
+const gitSymlinkMode = 0o120000
+
 // undoMarkerName is a file in the restored tree's git folder naming the
 // operation that published it: a matching head alone could be anyone's tree.
 const undoMarkerName = "herdsman-undo"
@@ -532,5 +535,29 @@ func (fx undoEffect) Probe(ctx context.Context, st Step) (Verdict, string, error
 	if err != nil || staged != m.StagedTree {
 		return Different, fmt.Sprintf("%s holds index tree %q, the snapshot recorded %s", spec.Target, staged, m.StagedTree), nil
 	}
+	if why := restoredFilesDiffer(spec.Target, m); why != "" {
+		return Different, why, nil
+	}
 	return Matches, "the tree is restored", nil
+}
+
+// restoredFilesDiffer compares the tree with what the restore wrote: every
+// recorded file, by type, size and modified time, which the restore sets. It
+// returns what differs, or "" when nothing does.
+func restoredFilesDiffer(target string, m *snapshot.Manifest) string {
+	for _, f := range m.Files {
+		name := filepath.FromSlash(string(f.Path))
+		info, err := os.Lstat(filepath.Join(target, name))
+		if err != nil {
+			return fmt.Sprintf("%s lost %s since the restore", target, name)
+		}
+		link := info.Mode()&fs.ModeSymlink != 0
+		if link != (f.Mode == gitSymlinkMode) {
+			return fmt.Sprintf("%s changed type since the restore", name)
+		}
+		if !link && (info.Size() != f.Size || info.ModTime().UnixNano() != f.MTimeNS) {
+			return fmt.Sprintf("%s changed since the restore", name)
+		}
+	}
+	return ""
 }
