@@ -124,3 +124,20 @@ func TestGoModuleCheckNamesMisformattedFiles(t *testing.T) {
 		t.Fatalf("check-sdk did not list the file:\n%s", out)
 	}
 }
+
+// A regeneration left over from an earlier run must not stand in for this one:
+// a generated file whose contract is gone has to be refused.
+func TestProtoCheckRefusesAGeneratedFileWithNoContract(t *testing.T) {
+	makeFakes(t)
+	orphan := "// generated from a contract that no longer exists\n"
+	out, err := runMakeTarget(t, "proto-check", map[string]string{
+		"sdk/daemon/v1/old.pb.go":                    orphan,
+		".tools/proto-check/sdk/daemon/v1/old.pb.go": orphan,
+	})
+	if err == nil {
+		t.Fatalf("proto-check accepted an orphan generated file:\n%s", out)
+	}
+	if !strings.Contains(out, "generated files differ") {
+		t.Fatalf("proto-check failed for another reason:\n%s", out)
+	}
+}
