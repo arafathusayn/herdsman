@@ -10,6 +10,7 @@ function readView(): View {
   const q = new URLSearchParams(location.search);
   const tab = q.get("tab") as RouteTab | null;
   return {
+    page: q.get("page") ?? "",
     route: q.get("r") ?? "",
     tab: tab && tabs.includes(tab) ? tab : "team",
     file: q.get("f") ?? "",
@@ -23,6 +24,7 @@ function readView(): View {
 
 function writeView(v: View, push: boolean): void {
   const q = new URLSearchParams();
+  if (v.page) q.set("page", v.page);
   if (v.route) q.set("r", v.route);
   if (v.tab !== "team") q.set("tab", v.tab);
   if (v.file) q.set("f", v.file);

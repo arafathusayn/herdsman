@@ -64,9 +64,14 @@ var readOnlyMethods = map[protoreflect.FullName]bool{
 
 // planOnlyMethods answer dry runs only. The daemon starts a route for a person
 // at a terminal and refuses a caller under a coding agent, so a tool that asked
-// it to could only ever fail.
+// it to could only ever fail. The verbs after it end or remove a person's route
+// and confirm on a terminal first, which a tool call would pass over.
 var planOnlyMethods = map[protoreflect.FullName]bool{
-	"herdsman.daemon.v1.RouteService.Up": true,
+	"herdsman.daemon.v1.RouteService.Up":     true,
+	"herdsman.daemon.v1.RouteService.Pause":  true,
+	"herdsman.daemon.v1.RouteService.Resume": true,
+	"herdsman.daemon.v1.RouteService.Stop":   true,
+	"herdsman.daemon.v1.RouteService.Delete": true,
 }
 
 // peopleOnlyMethods get no tool. An agent holding this server runs as the same

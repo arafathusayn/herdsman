@@ -11,6 +11,7 @@ Generated from `herdsman spec cli`.
 - [`config`](config.md): Read and change the configuration; install the shell integration.
 - [`cost`](cost.md): Report measured tokens and cost per task, project or route.
 - [`daemon`](daemon.md): The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential.
+- [`delete`](delete.md): Remove a route, once a verified snapshot makes that undoable.
 - [`diff`](diff.md): Show a worktree's changes.
 - [`doctor`](doctor.md): Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.
 - [`each`](each.md): Run a command in every worktree.
@@ -25,15 +26,18 @@ Generated from `herdsman spec cli`.
 - [`message`](message.md): The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.
 - [`models`](models.md): Probe each installed harness: its version, models, efforts and default effort as it reports them.
 - [`new`](new.md): Make a task's branch and worktree.
+- [`pause`](pause.md): Interrupt a route's agents and hold its channel; every pane stays open.
 - [`plugin`](plugin.md): Manage plugins (experimental).
 - [`project`](project.md): Keep projects, their folders and their repositories.
 - [`recommend`](recommend.md): The same as suggest.
 - [`resource`](resource.md): Record a resource a task created: resource add.
+- [`resume`](resume.md): Continue a paused route, or restart a stopped one from its record.
 - [`review`](review.md): Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.
 - [`route`](route.md): Check a route folder (route check) or append a run-state line (route log).
 - [`run-check`](run-check.md): Run one heavy check at a time on this machine, behind a load gate (--publish <hours>: the load reading).
 - [`spec`](spec.md): Print the SDK contracts: spec cli|proto|descriptor.
 - [`status`](status.md): Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.
+- [`stop`](stop.md): End a route's sessions and service panes; the work stays on disk.
 - [`suggest`](suggest.md): Search the catalog of tips and tools.
 - [`task`](task.md): Keep the tasks of each project.
 - [`teardown`](teardown.md): Stop what a task runs, keeping what it holds.

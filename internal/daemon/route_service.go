@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -33,7 +34,11 @@ type routeService struct {
 // operationEffects adds the effects of a route's start and of the project
 // records to the configured ones.
 func (d *Daemon) operationEffects(db store.Conn) map[string]ops.Effect {
-	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run})
+	teardown := d.cfg.RouteTeardown
+	if teardown == nil {
+		teardown = teardownRoute(&WorktreeService{HerdrSocket: d.cfg.HerdrSocket})
+	}
+	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run, Recovery: d.routeRecovery(), Down: d.cfg.RouteDown, Teardown: teardown})
 	for name, effect := range project.Effects(db) {
 		effects[name] = effect
 	}
@@ -54,8 +59,17 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 	if err != nil {
 		return nil, err
 	}
-	var latest *ops.Operation
+	state := route.ControlRunning
 	if len(starts) > 0 {
+		if state, err = s.controlState(q.Repo, q.Route, starts[len(starts)-1].ID); err != nil {
+			return nil, err
+		}
+	}
+	if state == route.ControlPaused || state == route.ControlStopped {
+		return nil, rpc.Errorf(rpc.FailedPrecondition, "the route is %s; bring it back with: herdsman resume %s", state, q.Route)
+	}
+	var latest *ops.Operation
+	if len(starts) > 0 && state != route.ControlDeleted {
 		latest = starts[len(starts)-1]
 		q.Date = route.DateOf(latest)
 	}
@@ -67,6 +81,9 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 		}
 	} else if plan, err = route.PlanUp(q); err != nil {
 		return nil, rpc.Errorf(rpc.InvalidArgument, "%s", err.Error())
+	}
+	if state == route.ControlDeleted {
+		plan.Spec.Key = fmt.Sprintf("%s#%d", plan.Key, len(starts)+1)
 	}
 	if req.GetDryRun() {
 		return &daemonv1.UpResponse{Start: &daemonv1.RouteStart{
@@ -243,9 +260,20 @@ func inspectCaller(pid int, inspect func(int) (procFacts, error)) (tty, harness 
 	return tty, harness
 }
 
-// sortStarts orders starts oldest first; operation ids sort by time.
+// sortStarts orders starts oldest first: by the number in the key, which each
+// new start increments, then by id, which sorts by time only to the millisecond.
 func sortStarts(starts []*ops.Operation) {
-	slices.SortFunc(starts, func(a, b *ops.Operation) int { return strings.Compare(a.ID, b.ID) })
+	number := func(op *ops.Operation) int {
+		i := strings.LastIndex(op.Key, "#")
+		if i < 0 {
+			return 1 // the first start's key carries no number
+		}
+		n, _ := strconv.Atoi(op.Key[i+1:])
+		return n
+	}
+	slices.SortFunc(starts, func(a, b *ops.Operation) int {
+		return cmp.Or(cmp.Compare(number(a), number(b)), strings.Compare(a.ID, b.ID))
+	})
 }
 
 // starts returns the operations of one route's start, oldest first.
@@ -277,7 +305,11 @@ func (s *routeService) Get(_ context.Context, req *daemonv1.RouteServiceGetReque
 	if len(starts) == 0 {
 		return nil, rpc.Errorf(rpc.NotFound, "no start is journaled for route %s", name)
 	}
-	return &daemonv1.RouteServiceGetResponse{Start: startOf(starts[len(starts)-1])}, nil
+	start := startOf(starts[len(starts)-1])
+	if start.Control, err = s.controlState(req.GetRepo(), name, start.GetOperation()); err != nil {
+		return nil, err
+	}
+	return &daemonv1.RouteServiceGetResponse{Start: start}, nil
 }
 
 // List reports every journaled start.
@@ -289,7 +321,11 @@ func (s *routeService) List(context.Context, *daemonv1.RouteServiceListRequest) 
 	out := &daemonv1.RouteServiceListResponse{}
 	for _, op := range all {
 		if op.Kind == route.OperationKind {
-			out.Starts = append(out.Starts, startOf(op))
+			start := startOf(op)
+			if start.Control, err = s.controlState(route.RepoOf(op), start.GetRoute().GetValue(), op.ID); err != nil {
+				return nil, err
+			}
+			out.Starts = append(out.Starts, start)
 		}
 	}
 	return out, nil

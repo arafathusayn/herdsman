@@ -19,6 +19,9 @@ const portBlockSize = 10
 type LedgerService struct {
 	// Read fills a snapshot from the machine.
 	Read func(ctx context.Context, base ledger.Snapshot) (ledger.Snapshot, error)
+	// Survey fills a snapshot faster for a plan a person reads; every stop
+	// still revalidates with Read. When nil, plans use Read.
+	Survey func(ctx context.Context, base ledger.Snapshot) (ledger.Snapshot, error)
 	// Run and Kill act on the machine.
 	Run ledger.Runner
 	// Kill sends a signal.
@@ -32,7 +35,7 @@ type LedgerService struct {
 // NewLedgerService uses this machine.
 func NewLedgerService() *LedgerService {
 	reader := ledger.NewReader()
-	return &LedgerService{Read: reader.Read, Run: reader.Run, Kill: syscall.Kill, Engine: reader.EngineName, Facts: reader.Facts}
+	return &LedgerService{Read: reader.Read, Survey: reader.Survey, Run: reader.Run, Kill: syscall.Kill, Engine: reader.EngineName, Facts: reader.Facts}
 }
 
 // LedgerRequest names one task of one repository.
@@ -139,6 +142,14 @@ func (s *LedgerService) snapshotOf(ctx context.Context, request LedgerRequest) (
 	return base, state, nil
 }
 
+// survey reads the machine for a plan.
+func (s *LedgerService) survey(ctx context.Context, base ledger.Snapshot) (ledger.Snapshot, error) {
+	if s.Survey != nil {
+		return s.Survey(ctx, base)
+	}
+	return s.Read(ctx, base)
+}
+
 // Plan builds a task's teardown plan without acting on it.
 func (s *LedgerService) Plan(ctx context.Context, request LedgerRequest) (ledger.Plan, error) {
 	base, state, err := s.snapshotOf(ctx, request)
@@ -146,7 +157,7 @@ func (s *LedgerService) Plan(ctx context.Context, request LedgerRequest) (ledger
 		return ledger.Plan{}, err
 	}
 	defer state.Close()
-	live, err := s.Read(ctx, base)
+	live, err := s.survey(ctx, base)
 	if err != nil {
 		return ledger.Plan{}, err
 	}
@@ -160,7 +171,7 @@ func (s *LedgerService) Resources(ctx context.Context, request LedgerRequest) (L
 		return LedgerResources{}, err
 	}
 	defer state.Close()
-	live, err := s.Read(ctx, base)
+	live, err := s.survey(ctx, base)
 	if err != nil {
 		return LedgerResources{}, err
 	}
