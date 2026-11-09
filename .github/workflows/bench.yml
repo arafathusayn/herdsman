@@ -1,0 +1,82 @@
+name: bench
+
+on:
+  pull_request:
+    paths:
+      - internal/wtree/**
+      - internal/cow/**
+      - internal/ledger/**
+      - bench/worktrees/**
+      - .github/workflows/bench.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The gate. It only reads the committed results, so a busy runner cannot
+  # fail it; the measuring happens on a quiet machine with `make bench`.
+  bench-results:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # The pull request's own commit, with the history the check walks.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Results are current and hold no lost case
+        shell: bash
+        run: |
+          # The first results file comes from a quiet machine. Until then there
+          # is nothing to judge; once one exists the check applies in full.
+          if compgen -G "bench/worktrees/results/*.md" > /dev/null; then
+            make bench-results
+          else
+            echo "::notice title=bench-results::No results file yet in bench/worktrees/results: the check did not run."
+          fi
+
+  # Report only: a shared runner is too noisy to judge a win on, so a lost case
+  # is a notice. A harness failure or an unavailable case still fails the job.
+  bench:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Install wt
+        run: make tools-wt
+      - name: Measure
+        shell: bash
+        env:
+          OUT: ${{ runner.temp }}/bench
+        run: |
+          set +e
+          make bench BENCH_ARGS="--out $OUT" 2>&1 | tee "$RUNNER_TEMP/bench.log"
+          code=${PIPESTATUS[0]}
+          set -e
+          lines=$(cat "$OUT"/*.md 2>/dev/null | grep '^case: ' || true)
+          if [ -z "$lines" ]; then
+            echo "::error title=bench::The harness wrote no results (exit $code)."
+            exit 1
+          fi
+          if grep -q 'verdict=unavailable' <<<"$lines"; then
+            echo "::error title=bench::$(grep 'verdict=unavailable' <<<"$lines" | head -1)"
+            exit 1
+          fi
+          if lost=$(grep -E 'verdict=(lost|over)' <<<"$lines"); then
+            while read -r line; do echo "::notice title=bench lost case::$line"; done <<<"$lost"
+          fi
+          # The run stops at its first failed case, so only that message excuses it.
+          if [ "$code" != 0 ] && ! grep -Eq 'case [a-z0-9-]+ is (lost|over)$' "$RUNNER_TEMP/bench.log"; then
+            echo "::error title=bench::The harness failed (exit $code)."
+            exit 1
+          fi
+      - name: Summary
+        if: always()
+        run: cat "${{ runner.temp }}"/bench/*.md | tee -a "$GITHUB_STEP_SUMMARY"
