@@ -33,7 +33,7 @@ func (d *Daemon) openOps() error {
 	}
 	d.mu.Lock()
 	d.acctDB = c
-	d.recovery = ops.NewRecovery(ops.RecoveryOptions{StateDir: d.cfg.PrivateHome, Retention: d.cfg.Retention, Quiesce: d.quiesce})
+	d.recovery = ops.NewRecovery(ops.RecoveryOptions{StateDir: d.cfg.PrivateHome, Retention: d.cfg.Retention, Policy: d.cfg.RetentionPolicy, Quiesce: d.quiesce})
 	effects := d.recovery.Effects()
 	maps.Copy(effects, d.operationEffects())
 	d.ops = ops.NewEngine(c, ops.Options{Effects: effects, Checks: d.cfg.Checks, Now: d.cfg.Now, Fault: d.cfg.OpsFault})
@@ -87,6 +87,7 @@ var inspectReads = map[string]bool{
 	"Hello": true, "Health": true, "DaemonStatus": true, "ListOperations": true, "GetOperation": true,
 	"ListRoutes": true, "Status": true, "GetSetup": true, "Authority": true, "Wait": true, "Stream": true,
 	"Get": true, "List": true, "Search": true, "Plan": true, "Sources": true, "Records": true,
+	"ContextCheck": true, "Log": true,
 }
 
 // refuseInInspect answers every call that could change something.

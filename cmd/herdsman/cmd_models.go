@@ -16,7 +16,7 @@ import (
 )
 
 func init() {
-	register(command{name: "models", summary: "Probe each installed harness: its version, models, efforts and default effort as it reports them.", run: runModels})
+	register(command{name: "models", summary: "Probe each installed harness: its version, models, efforts and default effort as it reports them.", help: modelsUsage, run: runModels})
 }
 
 const modelsUsage = `usage: herdsman models [--harness <kind>] [--json]

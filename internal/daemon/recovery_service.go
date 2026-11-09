@@ -11,6 +11,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/statedir"
+	"github.com/arafathusayn/herdsman/sdk/config"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
@@ -108,6 +109,10 @@ func (s *opsService) Undo(ctx context.Context, q *daemonv1.UndoRequest) (*daemon
 	if err != nil {
 		return nil, rpcFailure(ctx, recoveryError(err))
 	}
+	// The tree is back whatever this says, so a failure here is not the undo's.
+	if err := RecordRestoredTree(run, s.d.recovery, q.GetSnapshot(), res.Target); err != nil && s.d.cfg.Log != nil {
+		s.d.cfg.Log("undo: the task record of " + res.Target + " was not written back: " + err.Error())
+	}
 	return &daemonv1.UndoResponse{OperationId: res.Op.ID, Target: res.Target, Original: res.Original}, nil
 }
 
@@ -167,6 +172,19 @@ func (s *opsService) Records(ctx context.Context, _ *daemonv1.RecordsRequest) (*
 		res.Snapshots = append(res.Snapshots, &daemonv1.SnapshotInfo{Id: snap.ID, Task: snap.Task, Size: snap.Size, Created: snap.Created})
 	}
 	return res, nil
+}
+
+// configuredRetention reads [retention] from the user file. The daemon serves
+// the whole account, so a repository's own file has no say.
+func configuredRetention(environ []string) func() (ops.Retention, error) {
+	return func() (ops.Retention, error) {
+		result, err := config.Load(config.Options{Environ: environ})
+		if err != nil {
+			return ops.Retention{}, err
+		}
+		section := result.Config.GetRetention()
+		return ops.ParseRetention(section.GetUndo(), section.GetCap())
+	}
 }
 
 // sweep prunes expired snapshots; a failure waits for the next round.

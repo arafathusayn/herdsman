@@ -224,6 +224,23 @@ func (s *State) SetPrevious(ctx context.Context, name string) error {
 	return err
 }
 
+// Mark remembers that something happened once in this repository.
+func (s *State) Mark(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO meta (key, value) VALUES (?, '1')
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key)
+	return err
+}
+
+// Marked reports whether Mark was called for key.
+func (s *State) Marked(ctx context.Context, key string) (bool, error) {
+	var value string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // Previous returns the remembered worktree, or "" when there is none.
 func (s *State) Previous(ctx context.Context) (string, error) {
 	var name string

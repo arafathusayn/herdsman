@@ -101,7 +101,7 @@ func (c *Client) ReadText(ctx context.Context, paneID string, source Source, lin
 		Read PaneRead `json:"read"`
 	}
 	err := c.Call(ctx, "pane.read", params, &r)
-	return r.Read.Text, err
+	return filterPane(r.Read.Text), err
 }
 
 // AgentPrompt types text into an agent and submits it ("agent.prompt").

@@ -3,7 +3,30 @@
   "commands": [
     {
       "name": "afk",
-      "summary": "Print how long the user has been away: machine idle time or the newest message, whichever is newer."
+      "summary": "Print how long the user has been away: machine idle time or the newest message, whichever is newer.",
+      "help": "usage: herdsman afk [--last-message <unix time>]... [--json]\n\nPrints \"idle <seconds> source <ioreg|logind|message>\": the smaller of this\nmachine's input idle time (macOS: ioreg's HIDIdleTime; Linux: logind) and\nthe time since the newest message (each --last-message, and the web app's\nlast user action), or \"unknown <reason>\". --json prints one object\n{\"idle_seconds\",\"source\"} or {\"unknown\"}, with \"ask_timeout_seconds\"\n(HERDSMAN_ASK_TIMEOUT, default 5m: plain seconds or s, m, h, d; 1s to 1d).\n\nExit codes:\n  0  printed (also when unknown)\n  2  usage error or an invalid setting\n",
+      "usage": [
+        "herdsman afk [--last-message <unix time>]... [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--last-message",
+          "valueName": "unix time"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "printed (also when unknown)"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error or an invalid setting"
+        }
+      ]
     },
     {
       "name": "approval-gate",
@@ -71,6 +94,44 @@
     {
       "name": "checkpointer",
       "summary": "Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.",
+      "help": "usage: TARGET=<pane> herdsman checkpointer [--once|--probe [--json]]\n       herdsman checkpointer guard <orchestrator-name> <pane>\n\nSettings (environment): TARGET (required), INTERVAL=900 (seconds, or with\nan s, m, h or d suffix), LIMIT=250000, LOG=$TMPDIR/checkpointer.log,\nCOMPACT=/compact, PROMPT, TRANSCRIPT, CODEX_HOME; adjutant mode:\nHERDSMAN_ORCHESTRATOR, HERDSMAN_INBOX, HERDSMAN_PREFLIGHT, LOCK_WAIT=6.\n\nWith --json, --probe prints one object: {\"why\",\"hint\",\"file\",\"context\"}\n(context: the tokens read, or null).\n\nExit codes:\n  0  --probe printed; --once sent its checkpoint (and compact when due); guard OK\n  1  --once: no transcript, an input not sent, or a wait that failed\n  2  usage, a bad setting, or a guard refusal\n",
+      "usage": [
+        "TARGET=<pane> herdsman checkpointer [--once|--probe [--json]]",
+        "herdsman checkpointer guard <orchestrator-name> <pane>"
+      ],
+      "positionals": [
+        {
+          "name": "pane"
+        },
+        {
+          "name": "orchestrator-name"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--once"
+        },
+        {
+          "name": "--probe"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "--probe printed; --once sent its checkpoint (and compact when due); guard OK"
+        },
+        {
+          "code": "1",
+          "meaning": "--once: no transcript, an input not sent, or a wait that failed"
+        },
+        {
+          "code": "2",
+          "meaning": "usage, a bad setting, or a guard refusal"
+        }
+      ],
       "subcommands": [
         {
           "name": "guard",
@@ -96,6 +157,68 @@
               "meaning": "usage, a bad setting, or a refusal (the reason on stderr)"
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "clean",
+      "summary": "Free what a task holds, after a verified snapshot.",
+      "help": "usage: herdsman clean [<task>|--merged|--route <folder>|--all] [-y] [--force]\n                      [--keep-branch] [--delete-branch] [--archive-only]\n                      [--force-irreversible <path>]... [--json]\n\nFrees what a task holds. A verified snapshot comes first, including ignored files;\nevery path must then be captured, rebuildable or named, or nothing is removed.\nThe branch is deleted only with proof that it was integrated; --delete-branch\nalso accepts a branch whose every commit is patch-identical on the default one.\n--archive-only stops after the snapshot and removes nothing, so it alone lets\n--force run with -y and no terminal.\n\nexit codes:\n  0  every selected tree was freed\n  1  a tree was refused, or a step failed\n  2  bad usage, or no terminal to ask on\n",
+      "usage": [
+        "herdsman clean [<task>|--merged|--route <folder>|--all] [-y] [--force]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--all"
+        },
+        {
+          "name": "--archive-only"
+        },
+        {
+          "name": "--delete-branch"
+        },
+        {
+          "name": "--force"
+        },
+        {
+          "name": "--force-irreversible",
+          "valueName": "path"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--keep-branch"
+        },
+        {
+          "name": "--merged"
+        },
+        {
+          "name": "--route",
+          "valueName": "folder"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "every selected tree was freed"
+        },
+        {
+          "code": "1",
+          "meaning": "a tree was refused, or a step failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage, or no terminal to ask on"
         }
       ]
     },
@@ -244,7 +367,145 @@
     },
     {
       "name": "daemon",
-      "summary": "The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential."
+      "summary": "The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential.",
+      "help": "usage: herdsman daemon [--json] [--private-home <folder>] <command> [args]\n  run [--inspect]                       the daemon itself (the supervisor starts it); --inspect migrates and serves reads, with no effect at all\n  ops list | show <id> | resolve <id> <step> done|rerun   the journaled operations\n  install | uninstall                   write and start, or stop and remove, the LaunchAgent or systemd user unit\n  start | stop | restart                through the supervisor; stop stays stopped until start\n  status                                health of every route and Herdr link\n  route create --repo <repo> --route <route> [--herdr-socket <path>]\n  route adopt --inbox <path> --route <route> --confirm <peers.approved sha256>\n  route remove <route> | route reset-events <route> | route list\n  setup <route> --rule <policy file>... [--binary <path>] [--boundary <file>] [--watch-targets <file>] [--resume-targets <file>]\n  pair approve <route> <sha256> [--interaction <ask reference> [--asked-by <adjutant>]] [--credential <name>=identity|file|keychain]...\n  pair retire <route> <name> <sha256>\n  credential revoke <route> <name>\n  automations list | approve <event> | dry-run <event> [--project <path>] [--value <name=value>]...   experimental: an action runs only once a person approves its checksum\nThe private home is --private-home, else HERDSMAN_STATE_DIR, else HERDSMAN_PRIVATE_HOME, else ~/.herdsman-private.\n\nexit codes:\n  0   done\n  1   status: the daemon is down or degraded; start, stop, restart, uninstall: no hello or the lock still held after 10 s\n  2   usage, a refusal, another daemon of this account running (daemon_running), no attended terminal\n  3   human_boundary\n  75  retryable: busy, route_unowned, herdr_unreachable, daemon not answering\n",
+      "usage": [
+        "herdsman daemon [--json] [--private-home <folder>] <command> [args]"
+      ],
+      "positionals": [
+        {
+          "name": "command"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--asked-by",
+          "valueName": "adjutant"
+        },
+        {
+          "name": "--binary",
+          "valueName": "path"
+        },
+        {
+          "name": "--boundary",
+          "valueName": "file"
+        },
+        {
+          "name": "--confirm",
+          "valueName": "peers.approved sha256"
+        },
+        {
+          "name": "--credential",
+          "valueName": "name"
+        },
+        {
+          "name": "--herdr-socket",
+          "valueName": "path"
+        },
+        {
+          "name": "--inbox",
+          "valueName": "path"
+        },
+        {
+          "name": "--inspect"
+        },
+        {
+          "name": "--interaction",
+          "valueName": "ask reference"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--private-home",
+          "valueName": "folder"
+        },
+        {
+          "name": "--project",
+          "valueName": "path"
+        },
+        {
+          "name": "--repo",
+          "valueName": "repo"
+        },
+        {
+          "name": "--resume-targets",
+          "valueName": "file"
+        },
+        {
+          "name": "--route",
+          "valueName": "route"
+        },
+        {
+          "name": "--rule",
+          "valueName": "policy file"
+        },
+        {
+          "name": "--value",
+          "valueName": "name=value"
+        },
+        {
+          "name": "--watch-targets",
+          "valueName": "file"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "status: the daemon is down or degraded; start, stop, restart, uninstall: no hello or the lock still held after 10 s"
+        },
+        {
+          "code": "2",
+          "meaning": "usage, a refusal, another daemon of this account running (daemon_running), no attended terminal"
+        },
+        {
+          "code": "3",
+          "meaning": "human_boundary"
+        },
+        {
+          "code": "75",
+          "meaning": "retryable: busy, route_unowned, herdr_unreachable, daemon not answering"
+        }
+      ]
+    },
+    {
+      "name": "delete",
+      "summary": "Remove a route, once a verified snapshot makes that undoable.",
+      "help": "usage: herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--grace <seconds>] [-y] [--dry-run]\n\nRefuses while an agent of the route runs, unless --force, which stops the route\nfirst. Takes a snapshot of the route folder and private inbox through the\nrecovery pipeline, and removes nothing unless that snapshot verifies and covers\nevery path it removes. The result names the operation to give \"herdsman undo\".\n--keep-folder leaves the route folder in place; --keep-worktrees leaves the\nroute's tasks and their worktrees alone.\n",
+      "usage": [
+        "herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--grace <seconds>] [-y] [--dry-run]"
+      ],
+      "positionals": [
+        {
+          "name": "route"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--force"
+        },
+        {
+          "name": "--grace",
+          "valueName": "seconds"
+        },
+        {
+          "name": "--keep-folder"
+        },
+        {
+          "name": "--keep-worktrees"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
+        }
+      ]
     },
     {
       "name": "diff",
@@ -295,7 +556,99 @@
     },
     {
       "name": "doctor",
-      "summary": "Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load."
+      "summary": "Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.",
+      "help": "usage: herdsman doctor [--json]\n\nPrints one line per check, \"ok|warn|fail <check> <detail>\": herdr, gh,\nbinary, inbox (when HERDSMAN_INBOX is set), sandbox, load and enforcement\n(HERDSMAN_LOAD_LIMIT, default the core count; HERDSMAN_MIN_FREE, default 10).\nA \"deprecated\" line appears for each old key or variable in use, each old flag,\nand each installed shell wrapper that differs from this binary's, with its\nreplacement and fix.\n--json prints one object {\"ok\": bool, \"checks\": [{\"level\",\"check\",\"detail\"}]};\na deprecated check adds \"deprecation\": {\"kind\",\"name\",\"replacement\",\"since\",\"fix\"}.\n\nExit codes:\n  0  no check failed\n  1  a check failed\n  2  usage error or an invalid setting\n",
+      "usage": [
+        "herdsman doctor [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "no check failed"
+        },
+        {
+          "code": "1",
+          "meaning": "a check failed"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error or an invalid setting"
+        }
+      ]
+    },
+    {
+      "name": "down",
+      "summary": "Stop a task, then free what it holds.",
+      "help": "usage: herdsman down [<task>|--merged|--route <folder>|--all] [-y] [--force]\n                     [--grace <seconds>] [--keep-branch] [--delete-branch] [--archive-only]\n                     [--include associated]\n                     [--force-irreversible <path>]... [--json]\n\nStops what a task runs, then frees what it holds, as one plan with one question.\nA stop that fails ends the command before anything is removed.\n\nexit codes:\n  0  every selected task was stopped and freed\n  1  a stop or a clean failed\n  2  bad usage, or no terminal to ask on\n",
+      "usage": [
+        "herdsman down [<task>|--merged|--route <folder>|--all] [-y] [--force]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--all"
+        },
+        {
+          "name": "--archive-only"
+        },
+        {
+          "name": "--delete-branch"
+        },
+        {
+          "name": "--force"
+        },
+        {
+          "name": "--force-irreversible",
+          "valueName": "path"
+        },
+        {
+          "name": "--grace",
+          "valueName": "seconds"
+        },
+        {
+          "name": "--include"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--keep-branch"
+        },
+        {
+          "name": "--merged"
+        },
+        {
+          "name": "--route",
+          "valueName": "folder"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "every selected task was stopped and freed"
+        },
+        {
+          "code": "1",
+          "meaning": "a stop or a clean failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage, or no terminal to ask on"
+        }
+      ]
     },
     {
       "name": "each",
@@ -1120,12 +1473,68 @@
     },
     {
       "name": "models",
-      "summary": "Probe each installed harness: its version, models, efforts and default effort as it reports them."
+      "summary": "Probe each installed harness: its version, models, efforts and default effort as it reports them.",
+      "help": "usage: herdsman models [--harness <kind>] [--json]\n       herdsman models last [--json]\n       herdsman models save --role <role> [--runner herdr|subagent] --harness <kind> --model <model> [--effort <effort> [--effort-flag <option>]] [--route <name>] [--json]\n\nAsks each agent kind herdr can start (herdr agent start --help; claude and\ncodex alone when herdr cannot be asked) that is installed, or the one\n--harness names, for its version and its models as the harness itself\nreports them, in its order: Claude from its --help, Codex from codex debug\nmodels, any other from \"<program> models\" when its --help lists that\nsubcommand, with the efforts its --help lists and the default effort it\nreports (\"none\" when it reports none). A harness whose list cannot be read\nprints \"<kind> <version>: unavailable: <reason>\" and offers no models; the\nothers still print. herdsman web's New route form uses the same probe.\n--json prints {\"harnesses\": [{\"kind\",\"label\",\"models\",\"version\",\n\"unavailable\",\"offline\",\"docs_url\",\"effort_flag\",...}], \"herdr_error\"}.\n\nlast prints the last pick of each role (implementer, integrator, reviewer,\nadjutant, orchestrator), one \"<role> runner=<herdr|subagent> harness=<kind>\nmodel=<model> effort=<effort|none> route=<name|none> at=<time>\" line each,\nfrom <user config folder>/herdsman/choices.json; --json prints the file's\nobject {\"picks\": [{\"role\",\"runner\",\"harness\",\"model\",\"effort\",\"route\",\"at\"}]}.\nsave records one role's pick there (mode 600, written atomically; --json\nprints the saved pick as one object); its\nrunner says whether the role's agents run in Herdr panes (the default) or\nas background subagents of the orchestrator's harness. An effort of a\nharness other than Claude and Codex is saved with the option that passes\nit: --effort-flag, else the one the harness's --help names; with neither,\nthe pick is refused.\n\nExit codes:\n  0  at least one harness listed its models; last: a pick printed; save: saved\n  1  no harness listed its models; last: no pick saved, or the file is invalid;\n     save: the pick is invalid or the file cannot be written\n  2  usage error\n",
+      "usage": [
+        "herdsman models [--harness <kind>] [--json]",
+        "herdsman models last [--json]",
+        "herdsman models save --role <role> [--runner herdr|subagent] --harness <kind> --model <model> [--effort <effort> [--effort-flag <option>]] [--route <name>] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--effort",
+          "valueName": "effort"
+        },
+        {
+          "name": "--effort-flag",
+          "valueName": "option"
+        },
+        {
+          "name": "--harness",
+          "valueName": "kind"
+        },
+        {
+          "name": "--help"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--model",
+          "valueName": "model"
+        },
+        {
+          "name": "--role",
+          "valueName": "role"
+        },
+        {
+          "name": "--route",
+          "valueName": "name"
+        },
+        {
+          "name": "--runner",
+          "valueName": "herdr|subagent"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "at least one harness listed its models; last: a pick printed; save: saved"
+        },
+        {
+          "code": "1",
+          "meaning": "no harness listed its models; last: no pick saved, or the file is invalid; save: the pick is invalid or the file cannot be written"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error"
+        }
+      ]
     },
     {
       "name": "new",
       "summary": "Make a task's branch and worktree.",
-      "help": "usage: herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]\n                    [--clobber] [--agent <command>] [--json] [-- <prompt>]\n\nMakes the task's branch and worktree from the fetched base, then runs its hooks\nand setup.\n\nexit codes:\n  0  the worktree is ready\n  1  it could not be made, or a hook or the setup failed (the message says which)\n  2  bad usage\n",
+      "help": "usage: herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]\n                    [--clobber] [--agent <command>] [--integrator] [--json] [-- <prompt>]\n\nMakes the task's branch and worktree from the fetched base, then runs its hooks\nand setup.\n\nexit codes:\n  0  the worktree is ready\n  1  it could not be made, or a hook or the setup failed (the message says which)\n  2  bad usage\n",
       "usage": [
         "herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]"
       ],
@@ -1151,6 +1560,9 @@
         },
         {
           "name": "--from"
+        },
+        {
+          "name": "--integrator"
         },
         {
           "name": "--json"
@@ -1179,6 +1591,31 @@
       ]
     },
     {
+      "name": "pause",
+      "summary": "Interrupt a route's agents and hold its channel; every pane stays open.",
+      "help": "usage: herdsman pause <route> [--teardown] [-y] [--dry-run]\n\nSends each agent the interrupt key, stops the checkpointer's prompts and holds\nthe message channel. The interrupt is best effort: an agent acts on it at its\nnext turn boundary. <route> is a route name, a route folder, or @ for the route\nof the current folder. --teardown also stops the route's task processes.\n",
+      "usage": [
+        "herdsman pause <route> [--teardown] [-y] [--dry-run]"
+      ],
+      "positionals": [
+        {
+          "name": "route"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--teardown"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
+        }
+      ]
+    },
+    {
       "name": "plugin",
       "summary": "Manage plugins (experimental).",
       "help": "usage: herdsman plugin --experimental-plugins <verb> [args] [--json]\n\n  list                   the plugins found, usable or not\n  describe <name>        a plugin's manifest\n  install <path|name>    copy an executable into the plugin folder and ask for approval\n  remove <name>          delete an installed plugin and its approval\n  verify <name>          run the conformance checks for its extension points\n  run <name>             start it in the foreground, for development\n\nPlugins are experimental, so every use needs --experimental-plugins. A plugin\nruns only after a person approves its exact checksum, at a terminal.\n\nexit codes:\n  0  done\n  1  it failed, or a plugin did not pass verify\n  2  bad usage\n",
@@ -1202,6 +1639,166 @@
         {
           "code": "1",
           "meaning": "it failed, or a plugin did not pass verify"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "project",
+      "summary": "Work on a project's context repo: project context init|check|note, project log.",
+      "help": "usage: herdsman project context init|check|note|log ...\n       herdsman project log [--since <date>] [--task <task>] [--json]\n\nWork on the context repo of the project bound to this folder.\n\nexit codes:\n  0  done\n  1  check found problems, the daemon refused, or it is not running\n  2  bad usage\n",
+      "usage": [
+        "herdsman project context init|check|note|log ...",
+        "herdsman project log [--since <date>] [--task <task>] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--since",
+          "valueName": "date"
+        },
+        {
+          "name": "--task",
+          "valueName": "task"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "check found problems, the daemon refused, or it is not running"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "context",
+          "help": "usage: herdsman project context init\n       herdsman project context check\n       herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>\n       herdsman project context log [--since <date>] [--task <task>] [--json]\n\nRun inside a folder bound to a project.\n\ninit lays out the context repo and prints its folder.\ncheck validates the history and prints each problem.\nnote adds a note to the history and prints its id. Without --parent it joins\nevery open branch of the history.\nlog prints the history; it is the same command as herdsman project log.\n\nexit codes:\n  0  done; for check, the history is sound\n  1  check found problems, the daemon refused, or it is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman project context init",
+            "herdsman project context check",
+            "herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>",
+            "herdsman project context log [--since <date>] [--task <task>] [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "text"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--actor",
+              "valueName": "who"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--parent",
+              "valueName": "id"
+            },
+            {
+              "name": "--repo",
+              "valueName": "repo"
+            },
+            {
+              "name": "--since",
+              "valueName": "date"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done; for check, the history is sound"
+            },
+            {
+              "code": "1",
+              "meaning": "check found problems, the daemon refused, or it is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "log",
+          "help": "usage: herdsman project log [--since <date>] [--task <task>] [--json]\n\nPrint the history of the project bound to this folder, parents before\nchildren, then by time. --since takes YYYY-MM-DD (UTC) or an RFC 3339 time.\n\nexit codes:\n  0  printed\n  1  the daemon refused, or it is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman project log [--since <date>] [--task <task>] [--json]"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--since",
+              "valueName": "date"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "printed"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused, or it is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "prune",
+      "summary": "Free integrated worktrees past a minimum age.",
+      "help": "usage: herdsman prune [--min-age <duration>] [--dry-run] [--json]\n\nFrees integrated trees older than --min-age (default 1d; 12h and 3d both work).\nLocked, dirty and current trees, and tasks still running, are skipped.\n\nexit codes:\n  0  every eligible tree was freed\n  1  a tree could not be freed\n  2  bad usage\n",
+      "usage": [
+        "herdsman prune [--min-age <duration>] [--dry-run] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--min-age",
+          "valueName": "duration"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "every eligible tree was freed"
+        },
+        {
+          "code": "1",
+          "meaning": "a tree could not be freed"
         },
         {
           "code": "2",
@@ -1327,8 +1924,77 @@
       ]
     },
     {
+      "name": "resume",
+      "summary": "Continue a paused route, or restart a stopped one from its record.",
+      "help": "usage: herdsman resume <route> [-p <text>] [-y] [--dry-run]\n\nOn a paused route, lifts the channel hold, starts the checkpointer again and\ntells each agent to continue. On a stopped route, also starts the agents and\nservice panes again with the commands recorded by up; the launch prelude does\nnot run again, and the pair is attested and approved again.\n-p adds a note to every continue prompt.\n",
+      "usage": [
+        "herdsman resume <route> [-p <text>] [-y] [--dry-run]"
+      ],
+      "positionals": [
+        {
+          "name": "route"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "-p",
+          "short": "-p",
+          "valueName": "text"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
+        }
+      ]
+    },
+    {
       "name": "review",
-      "summary": "Prepare a reviewer: herdsman review start --worktree <path> --head <commit>."
+      "summary": "Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.",
+      "help": "usage: herdsman review start --worktree <path> --head <commit> [--repo <git dir or checkout>] [--cache-root <dir>] [--json]\n\nMakes the worktree detached at <commit> (git worktree add --detach), or\nchecks <commit> out detached in it when it exists and has no changes, and\nmakes <cache-root>/<worktree name>-go-build and -staticcheck (default cache\nroot: the system temp folder, /private/tmp on macOS). Prints worktree=,\nhead=, GOCACHE= and STATICCHECK_CACHE= lines; --json prints one object\n{\"worktree\",\"head\",\"gocache\",\"staticcheck_cache\"}.\n\nExit codes:\n  0  ready\n  1  the worktree has changes (they are listed), the head is no commit, or git failed\n  2  usage error\n",
+      "usage": [
+        "herdsman review start --worktree <path> --head <commit> [--repo <git dir or checkout>] [--cache-root <dir>] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--cache-root",
+          "valueName": "dir"
+        },
+        {
+          "name": "--detach"
+        },
+        {
+          "name": "--head",
+          "valueName": "commit"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--repo",
+          "valueName": "git dir or checkout"
+        },
+        {
+          "name": "--worktree",
+          "valueName": "path"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "ready"
+        },
+        {
+          "code": "1",
+          "meaning": "the worktree has changes (they are listed), the head is no commit, or git failed"
+        },
+        {
+          "code": "2",
+          "meaning": "usage error"
+        }
+      ]
     },
     {
       "name": "route",
@@ -1515,9 +2181,16 @@
     {
       "name": "status",
       "summary": "Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.",
-      "help": "usage: herdsman status\n\nPrints a health snapshot of every agent in HERDSMAN_STATUS_SPECS\n(\"name:pane:tree ...\") and of the machine. LIMIT_MIN (30) flags a\nbackground job running that many minutes or more.\n\nexit codes:\n  0  the snapshot was printed\n  2  usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid\n     LIMIT_MIN\n",
+      "help": "usage: herdsman status\n       herdsman status --route <route>\n\nPrints a health snapshot of every agent in HERDSMAN_STATUS_SPECS\n(\"name:pane:tree ...\") and of the machine. LIMIT_MIN (30) flags a\nbackground job running that many minutes or more.\n\nWith --route, prints one route's lifecycle state and its pair, flagging\na pair left pending. <route> is a route name, a route folder, or @.\n\nexit codes:\n  0  the snapshot was printed\n  2  usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid\n     LIMIT_MIN\n",
       "usage": [
-        "herdsman status"
+        "herdsman status",
+        "herdsman status --route <route>"
+      ],
+      "flags": [
+        {
+          "name": "--route",
+          "valueName": "route"
+        }
       ],
       "exitCodes": [
         {
@@ -1527,6 +2200,35 @@
         {
           "code": "2",
           "meaning": "usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid LIMIT_MIN"
+        }
+      ]
+    },
+    {
+      "name": "stop",
+      "summary": "End a route's sessions and service panes; the work stays on disk.",
+      "help": "usage: herdsman stop <route> [--grace <seconds>] [--teardown] [-y] [--dry-run]\n\nAsks each agent for its report, waits up to --grace seconds (default 120), then\ncloses the agent and service panes and retires the pair. Worktrees, branches,\nthe route folder and the inbox stay. A stopped route can be resumed.\n--teardown also stops the route's task processes.\n",
+      "usage": [
+        "herdsman stop <route> [--grace <seconds>] [--teardown] [-y] [--dry-run]"
+      ],
+      "positionals": [
+        {
+          "name": "route"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--grace",
+          "valueName": "seconds"
+        },
+        {
+          "name": "--teardown"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
         }
       ]
     },
@@ -1881,7 +2583,7 @@
     {
       "name": "up",
       "summary": "Start a route: workspace, private inbox, both coordinators, the pair and the first brief.",
-      "help": "usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]\n                   [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]\n                   [--pair auto|manual] [--web] [--no-attach] [--dry-run]\n       herdsman up [<route>] --continue [--step <n>=done|rerun]...\n\n-a and -o are the commands that launch each coordinator's harness, typed as you\nwould type them: \"claude doctor && claude --model opus\".\n--dry-run prints the whole plan and starts nothing.\n--web also starts the web app on the route.\n--pair manual asks on the terminal before the pair is approved.\nA second up on the same route picks up where the first stopped.\n",
+      "help": "usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]\n                   [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]\n                   [--pair auto|manual] [--web] [--no-attach] [--dry-run]\n       herdsman up [<route>] --continue [--step <n>=done|rerun]...\n\n-a and -o are the commands that launch each coordinator's harness, typed as you\nwould type them: \"claude doctor && claude --model opus\".\n-c names a config file. Its [launch] section starts the coordinator that has\nno -a or -o; a command given on the line wins.\n--dry-run prints the whole plan and starts nothing.\n--web also starts the web app on the route.\n--pair manual asks on the terminal before the pair is approved. Under the\nrestricted profile it is the default and auto is refused.\nA second up on the same route picks up where the first stopped.\n",
       "usage": [
         "herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]"
       ],
@@ -2092,7 +2794,63 @@
     },
     {
       "name": "web",
-      "summary": "Serve the web app and print its URL, with a one-run token, and a QR code."
+      "summary": "Serve the web app and print its URL, with a one-run token, and a QR code.",
+      "help": "usage: herdsman web [--host <address>] [--port <n>] [--no-qr] [--open] [--session <name>] [--inbox <folder>] [--client <url>] [--public-url <url>] [--route <folder>]... [--allow-host <host>]...\n\nServes the web app and prints its URL, with a one-run token, and a QR code.\n\n  --port <n>          port to listen on, 0 picks a free one (default 7878)\n  --host <address>    address to listen on: loopback, or one LAN or Tailscale address (default 127.0.0.1)\n  --no-qr             do not print the QR code\n  --open              open the app in the default browser\n  --session <name>    herdr session name (default: HERDR_SESSION or the default session)\n  --inbox <folder>    private message folder of the adjutant channel (default: HERDSMAN_INBOX)\n  --client <url>      URL of a hosted web app to print a link for, or none (default: HERDSMAN_CLIENT, else the hosted app)\n  --public-url <url>  HTTPS address in front of this server; the QR code then opens the hosted app\n  --route <folder>    route folder to show first (repeatable)\n  --allow-host <host> another host name to answer to, such as a proxy or tunnel's (repeatable)\n\nexit codes:\n  0  stopped, or printed this help\n  1  a bad argument, or the server could not start\n",
+      "usage": [
+        "herdsman web [--host <address>] [--port <n>] [--no-qr] [--open] [--session <name>] [--inbox <folder>] [--client <url>] [--public-url <url>] [--route <folder>]... [--allow-host <host>]..."
+      ],
+      "flags": [
+        {
+          "name": "--allow-host",
+          "valueName": "host"
+        },
+        {
+          "name": "--client",
+          "valueName": "url"
+        },
+        {
+          "name": "--host",
+          "valueName": "address",
+          "defaultValue": "127.0.0.1"
+        },
+        {
+          "name": "--inbox",
+          "valueName": "folder"
+        },
+        {
+          "name": "--no-qr"
+        },
+        {
+          "name": "--open"
+        },
+        {
+          "name": "--port",
+          "valueName": "n",
+          "defaultValue": "7878"
+        },
+        {
+          "name": "--public-url",
+          "valueName": "url"
+        },
+        {
+          "name": "--route",
+          "valueName": "folder"
+        },
+        {
+          "name": "--session",
+          "valueName": "name"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "stopped, or printed this help"
+        },
+        {
+          "code": "1",
+          "meaning": "a bad argument, or the server could not start"
+        }
+      ]
     }
   ]
 }

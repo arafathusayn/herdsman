@@ -20,13 +20,16 @@ var (
 	helpShortFlag  = regexp.MustCompile(`(^|[\s\[(|])(-[a-zA-Z])\b(?:[ =]<([^>]+)>)?`)
 	helpPositional = regexp.MustCompile(`<([^>]+)>`)
 	helpExitRow    = regexp.MustCompile(`^  (\d+|N)\s+(.*)$`)
+	// helpDefault is a flag's own row ending in one literal value. A row that
+	// says where a default comes from, "(default: ...)", declares no value.
+	helpDefault = regexp.MustCompile(`(?m)^[ \t]+(--[a-z0-9][a-z0-9-]*)\b.*\(default ([^\s():]+)\)[ \t]*$`)
 )
 
 // builtinCommands are answered by the dispatcher in run, not registered.
 var builtinCommands = []command{
 	{name: "help", summary: "Print the commands."},
 	{name: "version", summary: "Print the version, commit and platform."},
-	{name: "web", summary: "Serve the web app and print its URL, with a one-run token, and a QR code."},
+	{name: "web", summary: "Serve the web app and print its URL, with a one-run token, and a QR code.", help: webHelp},
 }
 
 // writeSpecCLI prints every command as indented JSON. Indenting also removes
@@ -46,9 +49,8 @@ func writeSpecCLI(w io.Writer) error {
 		return err
 	}
 	var out bytes.Buffer
-	if err := json.Indent(&out, data, "", "  "); err != nil {
-		return err
-	}
+	// What protojson just wrote is valid JSON, so this cannot fail.
+	_ = json.Indent(&out, data, "", "  ")
 	out.WriteByte('\n')
 	_, err = w.Write(out.Bytes())
 	return err
@@ -122,6 +124,10 @@ func flagsIn(help string, usage []string) []*cliv1.FlagSpec {
 			values[match[2]] = value
 		}
 	}
+	defaults := map[string]string{}
+	for _, match := range helpDefault.FindAllStringSubmatch(help, -1) {
+		defaults[match[1]] = match[2]
+	}
 	short := map[string]bool{}
 	for _, line := range usage {
 		for _, match := range helpShortFlag.FindAllStringSubmatch(line, -1) {
@@ -136,7 +142,7 @@ func flagsIn(help string, usage []string) []*cliv1.FlagSpec {
 	sort.Strings(names)
 	flags := make([]*cliv1.FlagSpec, 0, len(names))
 	for _, name := range names {
-		flag := &cliv1.FlagSpec{Name: name, ValueName: values[name]}
+		flag := &cliv1.FlagSpec{Name: name, ValueName: values[name], DefaultValue: defaults[name]}
 		if short[name] {
 			flag.Short = name
 		}

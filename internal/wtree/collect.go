@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -146,7 +147,36 @@ func (c *Collector) Skeleton(ctx context.Context) ([]Row, error) {
 		row.Locked = !row.Main && isLocked(head.Path)
 		rows = append(rows, row)
 	}
-	return rows, nil
+	return append(rows, c.cloneRows(ctx, recorded, rows, defaultName)...), nil
+}
+
+// cloneRows adds the recorded tasks that are repositories of their own, which
+// git's worktree list cannot name. A clone that is gone or unreadable has no
+// row, as a removed worktree has none.
+func (c *Collector) cloneRows(ctx context.Context, recorded []Worktree, known []Row, defaultName string) []Row {
+	var out []Row
+	for _, worktree := range recorded {
+		if slices.ContainsFunc(known, func(r Row) bool { return r.Path == worktree.Path }) {
+			continue
+		}
+		if info, err := os.Lstat(filepath.Join(worktree.Path, ".git")); err != nil || !info.IsDir() {
+			continue
+		}
+		reader, err := gitrefs.Open(worktree.Path)
+		if err != nil {
+			continue
+		}
+		heads, err := reader.Heads(ctx)
+		if err != nil || len(heads) == 0 {
+			continue
+		}
+		branch := strings.TrimPrefix(heads[0].Branch, headsPrefix)
+		out = append(out, Row{
+			Task: worktree.Task, Path: worktree.Path, Head: heads[0].Object, Branch: branch,
+			Detached: heads[0].State == gitrefs.HeadDetached, IsDefault: branch != "" && branch == defaultName,
+		})
+	}
+	return out
 }
 
 // isLocked looks for the lock file in the worktree's administrative folder.

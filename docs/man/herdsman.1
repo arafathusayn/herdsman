@@ -25,12 +25,15 @@ Commands:
   afk      Print how long the user has been away: machine idle time or the newest message, whichever is newer.
   approval-gate Bind a relayed go before its effect: approval-gate consume ... | complete <request-id> <outcome>.
   checkpointer Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.
+  clean    Free what a task holds, after a verified snapshot.
   commit   Commit a worktree with a Conventional Commits message.
   config   Read and change the configuration; install the shell integration.
   cost     Report measured tokens and cost per task, project or route.
   daemon   The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential.
+  delete   Remove a route, once a verified snapshot makes that undoable.
   diff     Show a worktree's changes.
   doctor   Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.
+  down     Stop a task, then free what it holds.
   each     Run a command in every worktree.
   eval     Report a suite's runs with intervals and an A/A control (experimental).
   export   Copy the whole account to a new folder.
@@ -42,14 +45,19 @@ Commands:
   message  The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.
   models   Probe each installed harness: its version, models, efforts and default effort as it reports them.
   new      Make a task's branch and worktree.
+  pause    Interrupt a route's agents and hold its channel; every pane stays open.
   plugin   Manage plugins (experimental).
+  project  Work on a project's context repo: project context init|check|note, project log.
+  prune    Free integrated worktrees past a minimum age.
   recommend The same as suggest.
   resource Record a resource a task created: resource add.
+  resume   Continue a paused route, or restart a stopped one from its record.
   review   Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.
   route    Check a route folder (route check) or append a run-state line (route log).
   run-check Run one heavy check at a time on this machine, behind a load gate (--publish <hours>: the load reading).
   spec     Print the SDK contracts: spec cli|proto|descriptor.
   status   Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.
+  stop     End a route's sessions and service panes; the work stays on disk.
   suggest  Search the catalog of tips and tools.
   teardown Stop what a task runs, keeping what it holds.
   trace    Show or export one route's spans as OpenTelemetry.
@@ -66,12 +74,15 @@ Commands:
 .BR herdsman-afk (1),
 .BR herdsman-approval-gate (1),
 .BR herdsman-checkpointer (1),
+.BR herdsman-clean (1),
 .BR herdsman-commit (1),
 .BR herdsman-config (1),
 .BR herdsman-cost (1),
 .BR herdsman-daemon (1),
+.BR herdsman-delete (1),
 .BR herdsman-diff (1),
 .BR herdsman-doctor (1),
+.BR herdsman-down (1),
 .BR herdsman-each (1),
 .BR herdsman-eval (1),
 .BR herdsman-export (1),
@@ -84,14 +95,19 @@ Commands:
 .BR herdsman-message (1),
 .BR herdsman-models (1),
 .BR herdsman-new (1),
+.BR herdsman-pause (1),
 .BR herdsman-plugin (1),
+.BR herdsman-project (1),
+.BR herdsman-prune (1),
 .BR herdsman-recommend (1),
 .BR herdsman-resource (1),
+.BR herdsman-resume (1),
 .BR herdsman-review (1),
 .BR herdsman-route (1),
 .BR herdsman-run-check (1),
 .BR herdsman-spec (1),
 .BR herdsman-status (1),
+.BR herdsman-stop (1),
 .BR herdsman-suggest (1),
 .BR herdsman-teardown (1),
 .BR herdsman-trace (1),

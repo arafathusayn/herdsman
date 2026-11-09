@@ -85,7 +85,10 @@ await run(async () => {
   equal("the theme switch marks its choice", checked(q(dialog(), ".theme-switch")), [2]);
   check("the theme switch keeps its node", q(dialog(), ".theme-switch") === sw);
 
+  // A dialog announces its close in a later task, and that event removes it:
+  // this listener runs after the view's, so the removal is done when it fires.
+  const closed = new Promise((r) => dlg.addEventListener("close", r, { once: true }));
   q(dialog(), ".dialog-actions .btn").click();
-  await new Promise((r) => setTimeout(r, 50));
+  await closed;
   check("Done closes and removes the dialog", document.querySelector("dialog.appearance") === null);
 });

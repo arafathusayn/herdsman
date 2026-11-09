@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +21,9 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/secrets"
 	"github.com/arafathusayn/herdsman/sdk/client"
+	"github.com/arafathusayn/herdsman/sdk/config"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
@@ -37,9 +41,12 @@ const upUsage = `usage: herdsman up <route> -p <prompt> -a <command> -o <command
 const upHelp = upUsage + `
 -a and -o are the commands that launch each coordinator's harness, typed as you
 would type them: "claude doctor && claude --model opus".
+-c names a config file. Its [launch] section starts the coordinator that has
+no -a or -o; a command given on the line wins.
 --dry-run prints the whole plan and starts nothing.
 --web also starts the web app on the route.
---pair manual asks on the terminal before the pair is approved.
+--pair manual asks on the terminal before the pair is approved. Under the
+restricted profile it is the default and auto is refused.
 A second up on the same route picks up where the first stopped.
 `
 
@@ -47,6 +54,7 @@ A second up on the same route picks up where the first stopped.
 const upDiskMinimum = 1 << 30
 
 type upFlags struct {
+	pairSet                                       bool
 	route, prompt, adjutant, orchestrator, config string
 	adjutantKind, orchestratorKind, pair          string
 	noAdjutant, web, noAttach, dryRun, resume     bool
@@ -102,6 +110,7 @@ func parseUp(args []string, stderr io.Writer) (upFlags, bool) {
 	if err := fs.Parse(args); err != nil {
 		return f, false
 	}
+	fs.Visit(func(set *flag.Flag) { f.pairSet = f.pairSet || set.Name == "pair" })
 	if fs.NArg() > 0 {
 		fmt.Fprintf(stderr, "unexpected argument %q\n%s", fs.Arg(0), upUsage)
 		return f, false
@@ -110,16 +119,30 @@ func parseUp(args []string, stderr io.Writer) (upFlags, bool) {
 		fmt.Fprintf(stderr, "--pair must be auto or manual\n%s", upUsage)
 		return f, false
 	}
+	if f.config != "" {
+		// The daemon runs in its own folder; a relative path is the caller's.
+		absolute, err := filepath.Abs(f.config)
+		if err != nil {
+			fmt.Fprintf(stderr, "herdsman up: %v\n", err)
+			return f, false
+		}
+		f.config = absolute
+	}
 	if f.resume {
 		return f, true
 	}
 	var missing []string
-	for _, field := range []struct{ name, value string }{{"<route>", f.route}, {"-p", f.prompt}, {"-o", f.orchestrator}} {
+	for _, field := range []struct{ name, value string }{{"<route>", f.route}, {"-p", f.prompt}} {
 		if field.value == "" {
 			missing = append(missing, field.name)
 		}
 	}
-	if f.adjutant == "" && !f.noAdjutant {
+	// With a config, its [launch] section can start one coordinator; the daemon
+	// refuses the request if nothing starts the other.
+	if f.orchestrator == "" && f.config == "" {
+		missing = append(missing, "-o")
+	}
+	if f.adjutant == "" && !f.noAdjutant && f.config == "" {
 		missing = append(missing, "-a")
 	}
 	if len(missing) > 0 {
@@ -169,7 +192,7 @@ func runUp(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	req := &daemonv1.UpRequest{
 		Route: &corev1.RouteId{Value: f.route}, Repo: repo, Prompt: f.prompt, AdjutantCommand: f.adjutant, OrchestratorCommand: f.orchestrator,
 		AdjutantKind: f.adjutantKind, OrchestratorKind: f.orchestratorKind, NoAdjutant: f.noAdjutant, ConfigPath: f.config,
-		HerdrSocket: socket, PairManual: f.pair == "manual", DryRun: f.dryRun, Continue: f.resume, Verdicts: f.steps,
+		HerdrSocket: socket, PairManual: upPairMode(f, repo) == "manual", SecretRefs: os.Getenv(secrets.RefsVariable), DryRun: f.dryRun, Continue: f.resume, Verdicts: f.steps,
 		Caller: upCaller(), Kinds: upKinds(ctx), Date: now().Format("2006-01-02"),
 	}
 	res, err := sdk.Route.Up(ctx, req)
@@ -362,8 +385,7 @@ func upFollow(ctx context.Context, sdk *client.Client, req *daemonv1.UpRequest, 
 			if req.GetPairManual() && sum != "" && !start.GetPair().GetApproved() && asked != sum && strings.Contains(start.GetReason(), "confirm") {
 				asked = sum
 				if ok, err := upConfirmTTY(start); err == nil && ok {
-					req.Caller.ConfirmedChecksum = sum
-					req.Continue = true
+					upConfirmedPair(req, sum)
 					if _, err := sdk.Route.Up(ctx, req); err != nil {
 						fmt.Fprintln(stderr, "herdsman up:", err)
 						return start, 1
@@ -377,6 +399,14 @@ func upFollow(ctx context.Context, sdk *client.Client, req *daemonv1.UpRequest, 
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// upConfirmedPair turns a request into the call that carries a person's
+// confirmation. Its verdicts were spent by the call that got this far.
+func upConfirmedPair(req *daemonv1.UpRequest, sum string) {
+	req.Caller.ConfirmedChecksum = sum
+	req.Continue = true
+	req.Verdicts = nil
 }
 
 // upConfirmTTY shows the pair on the controlling terminal and asks.
@@ -398,14 +428,49 @@ func upConfirmTTY(start *daemonv1.RouteStart) (bool, error) {
 	return strings.EqualFold(strings.TrimSpace(line), "y"), nil
 }
 
-// upWeb starts the web app detached, so it outlives this command, and prints
-// its address lines from the log.
+// upWeb starts the web app on the route, or points at the one already serving.
 func upWeb(start *daemonv1.RouteStart, stdout io.Writer) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	logPath := filepath.Join(start.GetFolder(), "web.log")
+	return upWebProcess(exe, start.GetFolder(), start.GetInbox(), 5*time.Second, stdout)
+}
+
+var upWebAddress = regexp.MustCompile(`http://[^\s]+`)
+
+// upWebServing returns the newest address in the log if something answers on
+// it, so that a repeated up does not start a process that loses the port.
+func upWebServing(log []byte) string {
+	found := upWebAddress.FindAll(log, -1)
+	if len(found) == 0 {
+		return ""
+	}
+	last := string(found[len(found)-1])
+	parsed, err := url.Parse(last)
+	if err != nil {
+		return ""
+	}
+	conn, err := net.DialTimeout("tcp", parsed.Host, 500*time.Millisecond)
+	if err != nil {
+		return ""
+	}
+	_ = conn.Close()
+	return last
+}
+
+// upWebProcess reads only what this run adds to the append-only log: an
+// address left by an earlier run says nothing about this process.
+func upWebProcess(exe, folder, inbox string, wait time.Duration, stdout io.Writer) error {
+	logPath := filepath.Join(folder, "web.log")
+	before, err := os.ReadFile(logPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if address := upWebServing(before); address != "" {
+		fmt.Fprintf(stdout, "the web app is already serving: %s\n", address)
+		return nil
+	}
 	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
@@ -413,19 +478,33 @@ func upWeb(start *daemonv1.RouteStart, stdout io.Writer) error {
 	defer log.Close()
 	cmd := exec.Command(exe, "web")
 	cmd.Stdout, cmd.Stderr = log, log
-	cmd.Env = append(os.Environ(), "HERDSMAN_INBOX="+start.GetInbox())
+	cmd.Env = append(os.Environ(), "HERDSMAN_INBOX="+inbox)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	go func() { _ = cmd.Wait() }()
-	for range 50 {
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	added := func() string {
 		b, _ := os.ReadFile(logPath)
-		if strings.Contains(string(b), "http://") {
-			fmt.Fprint(stdout, string(b))
+		return string(b[min(len(before), len(b)):])
+	}
+	for deadline := time.Now().Add(wait); time.Now().Before(deadline); {
+		select {
+		case err := <-exited:
+			// The address may have been written just before the exit.
+			if text := added(); err == nil && strings.Contains(text, "http://") {
+				fmt.Fprint(stdout, text)
+				return nil
+			} else {
+				return fmt.Errorf("the web app exited: %v: %s", err, strings.TrimSpace(text))
+			}
+		case <-time.After(100 * time.Millisecond):
+		}
+		if text := added(); strings.Contains(text, "http://") {
+			fmt.Fprint(stdout, text)
 			return nil
 		}
-		time.Sleep(100 * time.Millisecond)
 	}
 	fmt.Fprintf(stdout, "the web app is starting; its address will be in %s\n", logPath)
 	return nil
@@ -455,4 +534,18 @@ func upAttach(ctx context.Context, noAttach bool, stdout, stderr io.Writer) int 
 		return 1
 	}
 	return 0
+}
+
+// upPairMode is the pair mode to request. Without an explicit --pair, the
+// restricted profile means manual; an explicit auto is sent as typed so that
+// the service refuses it. An unreadable file is the service's to report.
+func upPairMode(f upFlags, repo string) string {
+	if f.pairSet {
+		return f.pair
+	}
+	result, err := config.Load(config.Options{RepoRoot: repo})
+	if err == nil && result.Config.GetPolicy().GetProfile() == "restricted" {
+		return "manual"
+	}
+	return f.pair
 }

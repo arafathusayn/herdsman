@@ -173,7 +173,7 @@ func TestRefusalHintIsAStructuredSpec(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 	want := `[launch]
-prelude = [{ command = ["sh", "-c", "a \"b\" | c\u0001 \\ é ` + "�" + `"], retry = "never" }]
+prelude = [{ argv = ["sh", "-c", "a \"b\" | c\u0001 \\ é ` + "�" + `"], retry = "never" }]
 command = ["<agent executable>"]
 `
 	if got := refused.Hint(); got != want {

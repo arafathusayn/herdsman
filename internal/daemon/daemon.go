@@ -60,12 +60,20 @@ type Config struct {
 	// Effects and Checks are the operation engine's registered step kinds.
 	Effects map[string]ops.Effect
 	Checks  map[string]ops.Check
+	// Recovery replaces the backend of a route's delete. Nil: the daemon's undo.
+	Recovery route.Recovery
+	// RouteDown frees a route's tasks, for a delete that does not keep them.
+	RouteDown func(ctx context.Context, repo, folder string) error
+	// RouteTeardown stops a route's task processes (nil: the worktree service).
+	RouteTeardown func(ctx context.Context, repo, folder string) error
 	// Sink receives the operations' outbox (nil: events wait in the store).
 	Sink ops.Sink
 	// OpsFault is called at the operation engine's step boundaries.
 	OpsFault func(point string)
 	// Retention bounds the snapshots; the zero value is the defaults.
 	Retention ops.Retention
+	// RetentionPolicy, when set, replaces Retention and is read at each use.
+	RetentionPolicy func() (ops.Retention, error)
 }
 
 // Daemon is one running daemon.
