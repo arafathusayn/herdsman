@@ -504,7 +504,12 @@ func Listen(host string, port int) (net.Listener, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	return ln, ln.Addr().(*net.TCPAddr).Port, nil
+	addr := ln.Addr().(*net.TCPAddr)
+	if addr.IP.IsUnspecified() {
+		_ = ln.Close()
+		return nil, 0, fmt.Errorf("host %q listens on every interface; name the one address to use, such as a LAN or Tailscale IP", host)
+	}
+	return ln, addr.Port, nil
 }
 
 // polled are the GET endpoints the app reads on its own timers; a request to

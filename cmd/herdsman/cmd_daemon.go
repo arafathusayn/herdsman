@@ -8,7 +8,7 @@ import (
 )
 
 func init() {
-	register(command{name: "daemon", summary: "The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential.", run: runDaemon})
+	register(command{name: "daemon", summary: "The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential.", help: daemon.DaemonHelp, run: runDaemon})
 }
 
 // daemonVersion is this binary's version as the daemon handshake compares
