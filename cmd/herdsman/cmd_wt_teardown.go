@@ -85,8 +85,8 @@ func hasStops(plans []json.RawMessage, includeAssociated bool) bool {
 	return false
 }
 
-func confirmTeardown(stdin io.Reader, stdout io.Writer) (bool, error) {
-	fmt.Fprint(stdout, "stop these? [y/N] ")
+func confirmTeardown(stdin io.Reader, stdout io.Writer, question string) (bool, error) {
+	fmt.Fprint(stdout, question+" [y/N] ")
 	line, err := bufio.NewReader(stdin).ReadString('\n')
 	if err != nil && err != io.EOF {
 		return false, err
@@ -135,6 +135,7 @@ func runTeardown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	var planned struct {
 		Plans []json.RawMessage `json:"plans"`
+		Hooks bool              `json:"hooks"`
 	}
 	if err := json.Unmarshal(raw, &planned); err != nil {
 		return fail(stderr, err)
@@ -151,18 +152,27 @@ func runTeardown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	includeAssociated := *include == "associated"
-	if !hasStops(planned.Plans, includeAssociated) {
+	hooksOnly := !hasStops(planned.Plans, includeAssociated)
+	unapproved := !*yes && *approved == ""
+	if hooksOnly && unapproved && planned.Hooks && !stdinIsTerminal(stdin) {
+		fmt.Fprintln(stderr, "herdsman: nothing to stop, and the teardown hooks did not run: pass -y to run them")
+	}
+	if hooksOnly && (!planned.Hooks || unapproved && !stdinIsTerminal(stdin)) {
 		if *asJSON {
 			return writeTeardownJSON(stdout, planned.Plans, nil, stderr)
 		}
 		fmt.Fprintln(stdout, "nothing to stop")
 		return 0
 	}
-	if !*yes && *approved == "" {
+	if unapproved {
 		if !stdinIsTerminal(stdin) {
 			return usageError(stderr, "no terminal to ask on: read this plan and pass -y")
 		}
-		proceed, err := confirmTeardown(stdin, stdout)
+		question := "stop these?"
+		if hooksOnly {
+			question = "nothing to stop; run the teardown hooks?"
+		}
+		proceed, err := confirmTeardown(stdin, stdout, question)
 		if err != nil {
 			return fail(stderr, err)
 		}
@@ -193,6 +203,9 @@ func runTeardown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "herdsman: %s: %s\n", report.Task, report.Error)
 			code = 1
 		}
+	}
+	if hooksOnly && code == 0 {
+		fmt.Fprintln(stdout, "nothing to stop; the teardown hooks ran")
 	}
 	return code
 }

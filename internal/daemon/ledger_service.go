@@ -251,6 +251,8 @@ type WorktreeTeardownPlanRequest struct {
 // WorktreeTeardownPlanResponse holds one plan per task.
 type WorktreeTeardownPlanResponse struct {
 	Plans []ledger.Plan `json:"plans"`
+	// Hooks says a teardown would run configured hooks even with nothing to stop.
+	Hooks bool `json:"hooks,omitempty"`
 }
 
 // WorktreeTeardownRequest carries what a person approved.
@@ -372,8 +374,28 @@ func (s *WorktreeService) TeardownPlan(ctx context.Context, req WorktreeTeardown
 			return resp, err
 		}
 		resp.Plans = append(resp.Plans, plan)
+		hooked, err := r.hasTeardownHooks(row)
+		if err != nil {
+			return resp, err
+		}
+		resp.Hooks = resp.Hooks || hooked
 	}
 	return resp, nil
+}
+
+// hasTeardownHooks reports a task whose teardown would run a configured hook.
+func (r *repository) hasTeardownHooks(row wtree.Row) (bool, error) {
+	vars := r.vars(row.Task, row.Branch, row.Path, "feat", "", row.Head)
+	for _, hook := range []string{"pre-teardown", "post-teardown"} {
+		plan, err := r.hooks.Plan(hook, vars)
+		if err != nil {
+			return false, err
+		}
+		if len(plan) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // teardownOne runs the blocking stop hooks, the stop, then the background

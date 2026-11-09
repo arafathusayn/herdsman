@@ -175,3 +175,29 @@ func TestResourceAddBadUsageAndFailure(t *testing.T) {
 		t.Fatalf("backend failure: code = %d", code)
 	}
 }
+
+const hookOnlyPlan = `{"plans":[{"task":"a","lines":[]}],"hooks":true}`
+
+func TestAnEmptyPlanWithHooksRunsThemOnYes(t *testing.T) {
+	calls := stubWorktree(t, map[string]string{"TeardownPlan": hookOnlyPlan, "Teardown": `{"reports":[{"task":"a","outcomes":[]}]}`})
+	code, out, _ := runVerb(runTeardown, "a", "-y")
+	if code != 0 || len(*calls) != 2 || (*calls)[1].method != "Teardown" || !strings.Contains(out, "hooks ran") {
+		t.Fatalf("code = %d, out = %q, calls = %+v", code, out, *calls)
+	}
+}
+
+func TestAnEmptyPlanWithHooksStaysQuietWithoutApproval(t *testing.T) {
+	calls := stubWorktree(t, map[string]string{"TeardownPlan": hookOnlyPlan})
+	code, out, stderr := runVerb(runTeardown, "a")
+	if code != 0 || len(*calls) != 1 || !strings.Contains(out, "nothing to stop") || !strings.Contains(stderr, "-y") {
+		t.Fatalf("code = %d, out = %q, stderr = %q, calls = %+v", code, out, stderr, *calls)
+	}
+}
+
+func TestAnEmptyPlanWithoutHooksCallsNothing(t *testing.T) {
+	calls := stubWorktree(t, map[string]string{"TeardownPlan": `{"plans":[{"task":"a","lines":[]}]}`})
+	code, out, _ := runVerb(runTeardown, "a", "-y")
+	if code != 0 || len(*calls) != 1 || !strings.Contains(out, "nothing to stop") {
+		t.Fatalf("code = %d, out = %q, calls = %+v", code, out, *calls)
+	}
+}
