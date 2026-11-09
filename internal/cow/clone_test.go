@@ -751,3 +751,47 @@ func TestCloneRunsSeveralFilesAtOnceOnOneCore(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLinkAndDirectoryFailuresFailTheClone(t *testing.T) {
+	boom := errors.New("boom")
+	oldRead, oldLink, oldTime, oldMode, oldStamp := readLink, makeLink, stampLink, chmodDir, stampDir
+	defer func() {
+		readLink, makeLink, stampLink, chmodDir, stampDir = oldRead, oldLink, oldTime, oldMode, oldStamp
+	}()
+	reset := func() {
+		readLink, makeLink, stampLink, chmodDir, stampDir = oldRead, oldLink, oldTime, oldMode, oldStamp
+	}
+	for name, breakIt := range map[string]func(){
+		"read link": func() { readLink = func(string) (string, error) { return "", boom } },
+		"make link": func() { makeLink = func(string, string) error { return boom } },
+		"link time": func() { stampLink = func(string, time.Time) error { return boom } },
+		"dir mode":  func() { chmodDir = func(string, fs.FileMode) error { return boom } },
+		"dir time":  func() { stampDir = func(string, time.Time, time.Time) error { return boom } },
+	} {
+		t.Run(name, func(t *testing.T) {
+			reset()
+			breakIt()
+			dst := filepath.Join(t.TempDir(), "dst")
+			if _, err := run(sampleTree(t), dst, noClone); !errors.Is(err, boom) {
+				t.Fatalf("got %v", err)
+			}
+			if _, err := os.Lstat(dst); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("the partial tree stayed: %v", err)
+			}
+		})
+	}
+}
+
+func TestALinkDestinationThatAppearsIsReportedAsExisting(t *testing.T) {
+	old := makeLink
+	defer func() { makeLink = old }()
+	makeLink = func(string, string) error { return fs.ErrExist }
+	dir := t.TempDir()
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink("x", link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(link, filepath.Join(dir, "dst"), noClone); !errors.Is(err, ErrDestinationExists) {
+		t.Fatalf("got %v", err)
+	}
+}

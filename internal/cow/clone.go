@@ -118,14 +118,14 @@ func run(src, dst string, clone cloneFunc) (Result, error) {
 			}
 			directories = append(directories, directory{target, info})
 		case info.Mode()&fs.ModeSymlink != 0:
-			link, err := os.Readlink(path)
+			link, err := readLink(path)
 			if err != nil {
 				return err
 			}
-			if err := os.Symlink(link, target); err != nil {
+			if err := makeLink(link, target); err != nil {
 				return err
 			}
-			if err := setLinkTime(target, info.ModTime()); err != nil {
+			if err := stampLink(target, info.ModTime()); err != nil {
 				return err
 			}
 			result.Entries = append(result.Entries, Entry{Path: name, Method: Copied})
@@ -311,12 +311,21 @@ func copyFile(src, dst string, info fs.FileInfo) (err error) {
 func finishDirectories(directories []directory) error {
 	for index := len(directories) - 1; index >= 0; index-- {
 		entry := directories[index]
-		if err := os.Chtimes(entry.path, time.Time{}, entry.info.ModTime()); err != nil {
+		if err := stampDir(entry.path, time.Time{}, entry.info.ModTime()); err != nil {
 			return err
 		}
-		if err := os.Chmod(entry.path, entry.info.Mode().Perm()); err != nil {
+		if err := chmodDir(entry.path, entry.info.Mode().Perm()); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+
+// These calls are variables so that a test can make each one fail.
+var (
+	readLink  = os.Readlink
+	makeLink  = os.Symlink
+	stampLink = setLinkTime
+	chmodDir  = os.Chmod
+	stampDir  = os.Chtimes
+)
