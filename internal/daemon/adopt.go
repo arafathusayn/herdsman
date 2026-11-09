@@ -106,12 +106,12 @@ func (d *Daemon) checkAdoptInbox(dir string) *APIError {
 	return nil
 }
 
-func (d *Daemon) adoptRoute(ctx context.Context, name string, q AdoptRequest, res *AdoptResult) *APIError {
+// admitAdopt runs the checks of an adoption that change nothing. The caller
+// holds regMu.
+func (d *Daemon) admitAdopt(name string, q AdoptRequest) *APIError {
 	if !validName(name) {
 		return Errf("bad_request", "invalid route name")
 	}
-	d.regMu.Lock()
-	defer d.regMu.Unlock()
 	rf, err := ReadRoutes(d.cfg.PrivateHome)
 	if err != nil {
 		return Errf("internal", "%v", err)
@@ -127,6 +127,15 @@ func (d *Daemon) adoptRoute(ctx context.Context, name string, q AdoptRequest, re
 	d.mu.Unlock()
 	if served {
 		return Errf("route_exists", "route %s is already served", name)
+	}
+	return nil
+}
+
+func (d *Daemon) adoptRoute(ctx context.Context, name string, q AdoptRequest, res *AdoptResult) *APIError {
+	d.regMu.Lock()
+	defer d.regMu.Unlock()
+	if e := d.admitAdopt(name, q); e != nil {
+		return e
 	}
 	out, e := d.adopt(ctx, name, q.Inbox, q.ConfirmPairSHA256, true)
 	if e != nil {

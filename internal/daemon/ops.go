@@ -70,19 +70,21 @@ func (q *SendRequest) validate() *APIError {
 }
 
 // send is one send (4.2 Send) for the authenticated party from.
-func (r *Route) send(from string, q SendRequest) (SendResult, *APIError) {
+// admitSend runs every check of a send that changes nothing. A retry of a
+// committed send returns its earlier result; otherwise the two peers are the
+// sender and the recipient.
+func (r *Route) admitSend(from string, q SendRequest) (*SendResult, *inbox.Peer, *inbox.Peer, *APIError) {
 	if e := q.validate(); e != nil {
-		return SendResult{}, e
+		return nil, nil, nil, e
 	}
-	bodySum := sha256Hex([]byte(q.Body))
 	if k, ok := r.sendKeys[q.Key]; ok {
-		if k.From == from && k.To == q.To && k.Kind == q.Kind && k.ReplyTo == q.ReplyTo && k.BodySHA256 == bodySum {
-			return SendResult{ID: k.ID, Seq: k.Seq, Duplicate: true}, nil
+		if k.From == from && k.To == q.To && k.Kind == q.Kind && k.ReplyTo == q.ReplyTo && k.BodySHA256 == sha256Hex([]byte(q.Body)) {
+			return &SendResult{ID: k.ID, Seq: k.Seq, Duplicate: true}, nil, nil, nil
 		}
-		return SendResult{}, Errf("key_conflict", "send key reused with other content")
+		return nil, nil, nil, Errf("key_conflict", "send key reused with other content")
 	}
 	if e := r.deliveryAllowed(); e != nil {
-		return SendResult{}, e
+		return nil, nil, nil, e
 	}
 	peers, _ := r.approvedPeers()
 	var me, to *inbox.Peer
@@ -95,23 +97,35 @@ func (r *Route) send(from string, q SendRequest) (SendResult, *APIError) {
 		}
 	}
 	if me == nil {
-		return SendResult{}, Errf("unauthorized", "%s is not an approved party", from)
+		return nil, nil, nil, Errf("unauthorized", "%s is not an approved party", from)
 	}
 	if to == nil {
-		return SendResult{}, Errf("bad_request", "unknown peer")
+		return nil, nil, nil, Errf("bad_request", "unknown peer")
 	}
 	if q.ReplyTo != "" && !regular(r.path("ids", q.ReplyTo, "envelope")) {
-		return SendResult{}, Errf("bad_request", "unknown reply id")
+		return nil, nil, nil, Errf("bad_request", "unknown reply id")
 	}
 	if r.keysInWindow() >= keyWindowMax {
-		return SendResult{}, Errf("key_window_full", "%d send keys are inside the retry window; retry with the same key shortly", keyWindowMax)
+		return nil, nil, nil, Errf("key_window_full", "%d send keys are inside the retry window; retry with the same key shortly", keyWindowMax)
 	}
 	if e := r.caps(q); e != nil {
-		return SendResult{}, e
+		return nil, nil, nil, e
 	}
 	if r.lastID >= 999999999999 {
-		return SendResult{}, Errf("internal", "message sequence exhausted")
+		return nil, nil, nil, Errf("internal", "message sequence exhausted")
 	}
+	return nil, me, to, nil
+}
+
+func (r *Route) send(from string, q SendRequest) (SendResult, *APIError) {
+	earlier, me, to, e := r.admitSend(from, q)
+	if e != nil {
+		return SendResult{}, e
+	}
+	if earlier != nil {
+		return *earlier, nil
+	}
+	bodySum := sha256Hex([]byte(q.Body))
 	if err := r.boxInit(q.To); err != nil {
 		return SendResult{}, Errf("internal", "mailbox: %v", err)
 	}

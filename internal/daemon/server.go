@@ -243,23 +243,33 @@ func (d *Daemon) newOwner(adopted bool) Owner {
 	return o
 }
 
-func (d *Daemon) createRoute(q CreateRequest, res *CreateResult) *APIError {
+// admitCreate runs every check of a create that changes nothing. The caller
+// holds regMu.
+func (d *Daemon) admitCreate(q CreateRequest) (RoutesFile, *APIError) {
 	if !validName(q.Repo) || !validName(q.Route) {
-		return Errf("bad_request", "repo and route must be names of letters, digits, '.', '_' or '-'")
+		return RoutesFile{}, Errf("bad_request", "repo and route must be names of letters, digits, '.', '_' or '-'")
 	}
 	if q.HerdrSocket != "" && !filepath.IsAbs(q.HerdrSocket) {
-		return Errf("bad_request", "herdr_socket must be an absolute path")
+		return RoutesFile{}, Errf("bad_request", "herdr_socket must be an absolute path")
 	}
-	d.regMu.Lock()
-	defer d.regMu.Unlock()
 	rf, err := ReadRoutes(d.cfg.PrivateHome)
 	if err != nil {
-		return Errf("internal", "%v", err)
+		return RoutesFile{}, Errf("internal", "%v", err)
 	}
 	if _, ok := rf.Routes[q.Route]; ok {
-		return Errf("route_exists", "route %s is already registered", q.Route)
+		return RoutesFile{}, Errf("route_exists", "route %s is already registered", q.Route)
 	}
 	if e := d.nameTaken(rf, q.Route, ""); e != nil {
+		return RoutesFile{}, e
+	}
+	return rf, nil
+}
+
+func (d *Daemon) createRoute(q CreateRequest, res *CreateResult) *APIError {
+	d.regMu.Lock()
+	defer d.regMu.Unlock()
+	rf, e := d.admitCreate(q)
+	if e != nil {
 		return e
 	}
 	dir := filepath.Join(d.cfg.PrivateHome, q.Repo+"-"+q.Route)
