@@ -110,7 +110,6 @@ func assertSameTree(t *testing.T, src, dst string) {
 			if from != to {
 				t.Errorf("%s: link %q, want %q", rel, to, from)
 			}
-			return nil
 		case want.Mode().IsRegular():
 			if read(t, path) != read(t, filepath.Join(dst, rel)) {
 				t.Errorf("%s: contents differ", rel)

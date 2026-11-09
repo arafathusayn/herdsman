@@ -62,7 +62,7 @@ type Result struct {
 
 // Clone duplicates src, a file, a symbolic link or a directory, at dst. Parents
 // of dst are created; dst itself must not exist. Modes and modification times
-// are kept, except a symbolic link's own time, and links are not followed. When
+// are kept, also a symbolic link's own time, and links are not followed. When
 // Clone fails, a directory it had started at dst is removed.
 func Clone(src, dst string) (Result, error) {
 	return run(src, dst, platformClone)
@@ -123,6 +123,9 @@ func run(src, dst string, clone cloneFunc) (Result, error) {
 				return err
 			}
 			if err := os.Symlink(link, target); err != nil {
+				return err
+			}
+			if err := setLinkTime(target, info.ModTime()); err != nil {
 				return err
 			}
 			result.Entries = append(result.Entries, Entry{Path: name, Method: Copied})
