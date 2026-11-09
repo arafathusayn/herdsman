@@ -1588,6 +1588,9 @@
         "route": {
           "$ref": "#/$defs/herdsman.core.v1.RouteId"
         },
+        "secret_refs": {
+          "type": "string"
+        },
         "verdicts": {
           "items": {
             "$ref": "#/$defs/herdsman.daemon.v1.StepVerdict"

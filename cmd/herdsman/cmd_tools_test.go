@@ -64,7 +64,7 @@ func fakeDoctor(t *testing.T, fail bool) {
 func TestDoctorCommand(t *testing.T) {
 	fakeDoctor(t, false)
 	out, errOut, code := call(t, "doctor")
-	if code != 0 || errOut != "" || !regexp.MustCompile(`(?m)^ok herdr herdr 0\.9\.4 protocol 22 at .*\nok gh gh auth status: exit 0 .*\nok gh-account o/r: readable by u \(active\); the route will confirm u\nok binary .*\nok sandbox .*\nok load load 1\.00 \(limit 4\), free 50% \(min 10\)\n$`).MatchString(out) {
+	if code != 0 || errOut != "" || !regexp.MustCompile(`(?m)^ok herdr herdr 0\.9\.4 protocol 22 at .*\nok gh gh auth status: exit 0 .*\nok gh-account o/r: readable by u \(active\); the route will confirm u\nok binary .*\nok sandbox .*\nok load load 1\.00 \(limit 4\), free 50% \(min 10\)\nwarn enforcement profile unknown: .*\n$`).MatchString(out) {
 		t.Errorf("%d %q %q", code, out, errOut)
 	}
 	out, _, code = call(t, "doctor", "--json")
@@ -72,7 +72,7 @@ func TestDoctorCommand(t *testing.T) {
 		OK     bool `json:"ok"`
 		Checks []struct{ Level, Check, Detail string }
 	}
-	if code != 0 || json.Unmarshal([]byte(out), &rep) != nil || !rep.OK || len(rep.Checks) != 6 || rep.Checks[0].Check != "herdr" || strings.Count(out, "\n") != 1 {
+	if code != 0 || json.Unmarshal([]byte(out), &rep) != nil || !rep.OK || len(rep.Checks) != 7 || rep.Checks[0].Check != "herdr" || strings.Count(out, "\n") != 1 {
 		t.Errorf("%d %q", code, out)
 	}
 

@@ -17,7 +17,7 @@ import (
 var worktreeCall func(ctx context.Context, method string, request []byte) ([]byte, error)
 
 const newHelp = `usage: herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]
-                    [--clobber] [--agent <command>] [--json] [-- <prompt>]
+                    [--clobber] [--agent <command>] [--integrator] [--json] [-- <prompt>]
 
 Makes the task's branch and worktree from the fetched base, then runs its hooks
 and setup.
@@ -114,11 +114,14 @@ func runNew(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		Prompt  string `json:"prompt,omitempty"`
 		NoSetup bool   `json:"no_setup,omitempty"`
 		Clobber bool   `json:"clobber,omitempty"`
+		// Integrator gives the agent the [policy] roots.
+		Integrator bool `json:"integrator,omitempty"`
 	}
 	fs.StringVar(&request.Base, "base", "", "ref to branch from (default: the default branch)")
 	fs.StringVar(&request.From, "from", "", "start from a pull request, pr:<n>")
 	fs.StringVar(&request.Type, "type", "", "the branch's type prefix (default: feat)")
 	fs.StringVar(&request.Agent, "agent", "", "command that starts an agent")
+	fs.BoolVar(&request.Integrator, "integrator", false, "under the restricted profile, grant the agent the [policy] roots")
 	fs.BoolVar(&request.NoSetup, "no-setup", false, "skip the detected setup")
 	fs.BoolVar(&request.Clobber, "clobber", false, "rename a stale folder at the path aside")
 	asJSON := fs.Bool("json", false, "print the result as JSON")

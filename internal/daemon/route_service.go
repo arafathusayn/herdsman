@@ -160,7 +160,12 @@ func (s *routeService) request(req *daemonv1.UpRequest) (route.UpRequest, error)
 	if socket == "" {
 		socket = s.d.cfg.HerdrSocket
 	}
+	governing, protected, err := repoPolicy(req.GetRepo())
+	if err != nil {
+		return route.UpRequest{}, rpc.Errorf(rpc.FailedPrecondition, "the repository's configuration: %v", err)
+	}
 	return route.UpRequest{
+		Policy: governing, Protected: protected, SecretRefs: req.GetSecretRefs(),
 		Route: name, Repo: req.GetRepo(), Prompt: req.GetPrompt(),
 		AdjutantCommand: req.GetAdjutantCommand(), OrchestratorCommand: req.GetOrchestratorCommand(),
 		AdjutantKind: req.GetAdjutantKind(), OrchestratorKind: req.GetOrchestratorKind(),
