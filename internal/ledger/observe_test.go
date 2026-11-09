@@ -40,3 +40,59 @@ func TestObserveReportsAClosedDatabase(t *testing.T) {
 		t.Fatal("observations on a closed database")
 	}
 }
+
+func observedTable(t *testing.T) *Table {
+	t.Helper()
+	table := openTable(t)
+	for _, column := range []string{"evidence TEXT NOT NULL DEFAULT ''", "detail TEXT NOT NULL DEFAULT ''", "seen_at INTEGER NOT NULL DEFAULT 0"} {
+		if _, err := table.db.Exec("ALTER TABLE resources ADD COLUMN " + column); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return table
+}
+
+func TestObserveStoresOnlyTheLinesThatMatchAReader(t *testing.T) {
+	table := observedTable(t)
+	ctx := context.Background()
+	for _, record := range []Record{
+		{Task: "a", Execution: "e", Kind: KindContainer, ID: "c"},
+		{Task: "a", Execution: "e", Kind: KindVolume, ID: "v", Start: testStart},
+		{Task: "b", Execution: "e", Kind: KindContainer, ID: "c"},
+	} {
+		if err := table.Add(ctx, record, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan := Plan{Task: "a", Lines: []Line{
+		{Kind: KindContainer, ID: "c", Level: LevelExclusive, Class: "compensatable", State: "running"},
+		{Kind: KindVolume, ID: "v", Identity: Identity{Kind: KindVolume, ID: "v", Start: testStart}.String(), Level: LevelExclusive},
+	}}
+	if err := table.Observe(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	seen, err := table.Observations(ctx, "a")
+	if err != nil || len(seen) != 2 {
+		t.Fatalf("seen = %+v, err = %v", seen, err)
+	}
+	if seen[0].Kind != KindContainer || seen[0].Detail != `{"class":"compensatable","state":"running"}` || seen[0].Evidence != LevelExclusive {
+		t.Fatalf("seen = %+v", seen[0])
+	}
+	if other, err := table.Observations(ctx, "b"); err != nil || len(other) != 0 {
+		t.Fatalf("other = %+v, err = %v", other, err)
+	}
+}
+
+func TestObserveReportsAFailedWrite(t *testing.T) {
+	table := openTable(t)
+	ctx := context.Background()
+	if err := table.Add(ctx, Record{Task: "a", Execution: "e", Kind: KindContainer, ID: "c"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := table.Observe(ctx, Plan{Task: "a", Lines: []Line{{Kind: KindContainer, ID: "c"}}}); err == nil {
+		t.Fatal("a table without the columns")
+	}
+	if _, err := table.Observations(ctx, "a"); err == nil {
+		t.Fatal("a table without the columns")
+	}
+}
