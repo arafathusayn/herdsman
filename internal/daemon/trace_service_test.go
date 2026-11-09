@@ -100,6 +100,9 @@ func TestTraceServiceInInspectWritesNothing(t *testing.T) {
 	if err != nil || first.GetTrace().GetTraceId() != second.GetTrace().GetTraceId() || first.GetTrace().GetTraceId() == "" {
 		t.Fatalf("%v, %v and %v", err, first.GetTrace().GetTraceId(), second.GetTrace().GetTraceId())
 	}
+	if _, err := client.Evaluate(ctx, &tracev1.EvaluateRequest{Suite: filepath.Join(route, "absent")}); err == nil || !strings.HasPrefix(err.Error(), string(rpc.NotFound)+": ") {
+		t.Fatalf("Evaluate is a read and must be served: %v", err)
+	}
 	before, _ := os.ReadFile(filepath.Join(route, "trace", "spans.jsonl"))
 	calls := map[string]func() error{
 		"Export": func() error { _, err := client.Export(ctx, &tracev1.ExportRequest{Route: route}); return err },

@@ -42,6 +42,11 @@ func TestMCPToolsAreExactlyWhatTheDaemonServes(t *testing.T) {
 	}
 	withheld := []string{"Stream", "Shutdown", "Enroll", "ApprovePair", "RetirePair", "RevokeCredential", "ResetEvents", "Export", "Import"}
 	for _, procedure := range served {
+		// A trace call names any folder on the machine, so it stays off the tools
+		// an agent is handed until a tool can be limited to the agent's own route.
+		if strings.Contains(procedure, "/herdsman.trace.v1.TraceService/") {
+			continue
+		}
 		if !slices.Contains(tools, procedure) && !slices.Contains(withheld, procedure[strings.LastIndex(procedure, "/")+1:]) {
 			t.Errorf("%s is served but has no tool and is not withheld", procedure)
 		}

@@ -335,12 +335,16 @@
     {
       "name": "eval",
       "summary": "Report a suite's runs with intervals and an A/A control (experimental).",
-      "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
+      "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval run <suite folder> [--json]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nrun executes the suite described by suite.json in the folder: {\"tasks\":\n[{\"id\",\"prompt\",\"check\"}], \"arms\":[{\"name\",\"command\"}], \"runs\", \"control_runs\",\n\"timeout_seconds\"}. Every arm runs every task in its own route folder under\nroutes/, ordinary runs and the two halves of its A/A control interleaved, then\nthe report above is printed. An arm's command gets the prompt in\nHERDSMAN_EVAL_PROMPT and may write {\"tokens\",\"cost_micros\"} to the file named by\nHERDSMAN_EVAL_USAGE; a run passes when the command and the task's check exit 0.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
       "usage": [
         "herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]",
+        "herdsman eval --experimental-eval run <suite folder> [--json]",
         "herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>"
       ],
       "positionals": [
+        {
+          "name": "suite folder"
+        },
         {
           "name": "route folder"
         }
@@ -414,12 +418,99 @@
       "subcommands": [
         {
           "name": "finding",
-          "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
+          "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval run <suite folder> [--json]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nrun executes the suite described by suite.json in the folder: {\"tasks\":\n[{\"id\",\"prompt\",\"check\"}], \"arms\":[{\"name\",\"command\"}], \"runs\", \"control_runs\",\n\"timeout_seconds\"}. Every arm runs every task in its own route folder under\nroutes/, ordinary runs and the two halves of its A/A control interleaved, then\nthe report above is printed. An arm's command gets the prompt in\nHERDSMAN_EVAL_PROMPT and may write {\"tokens\",\"cost_micros\"} to the file named by\nHERDSMAN_EVAL_USAGE; a run passes when the command and the task's check exit 0.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
           "usage": [
             "herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]",
+            "herdsman eval --experimental-eval run <suite folder> [--json]",
             "herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>"
           ],
           "positionals": [
+            {
+              "name": "suite folder"
+            },
+            {
+              "name": "route folder"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--experimental-eval",
+              "valueName": "suite folder"
+            },
+            {
+              "name": "--file",
+              "valueName": "path"
+            },
+            {
+              "name": "--findings",
+              "valueName": "route folder"
+            },
+            {
+              "name": "--head",
+              "valueName": "commit"
+            },
+            {
+              "name": "--id",
+              "valueName": "id"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--line",
+              "valueName": "n"
+            },
+            {
+              "name": "--rank"
+            },
+            {
+              "name": "--reviewer",
+              "valueName": "name"
+            },
+            {
+              "name": "--severity",
+              "valueName": "level"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            },
+            {
+              "name": "--title",
+              "valueName": "text"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "reported or recorded"
+            },
+            {
+              "code": "1",
+              "meaning": "a file could not be read or written, or the suite has no A/A control"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage, or the experimental flag is missing"
+            },
+            {
+              "code": "3",
+              "meaning": "a ranking was asked for and refused"
+            }
+          ]
+        },
+        {
+          "name": "run",
+          "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval run <suite folder> [--json]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nrun executes the suite described by suite.json in the folder: {\"tasks\":\n[{\"id\",\"prompt\",\"check\"}], \"arms\":[{\"name\",\"command\"}], \"runs\", \"control_runs\",\n\"timeout_seconds\"}. Every arm runs every task in its own route folder under\nroutes/, ordinary runs and the two halves of its A/A control interleaved, then\nthe report above is printed. An arm's command gets the prompt in\nHERDSMAN_EVAL_PROMPT and may write {\"tokens\",\"cost_micros\"} to the file named by\nHERDSMAN_EVAL_USAGE; a run passes when the command and the task's check exit 0.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
+          "usage": [
+            "herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]",
+            "herdsman eval --experimental-eval run <suite folder> [--json]",
+            "herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>"
+          ],
+          "positionals": [
+            {
+              "name": "suite folder"
+            },
             {
               "name": "route folder"
             }
