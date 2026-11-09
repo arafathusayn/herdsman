@@ -14,8 +14,8 @@ import (
 )
 
 func init() {
-	register(command{name: "doctor", summary: "Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.", run: runDoctor})
-	register(command{name: "review", summary: "Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.", run: runReview})
+	register(command{name: "doctor", summary: "Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.", help: doctorUsage, run: runDoctor})
+	register(command{name: "review", summary: "Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.", help: reviewUsage, run: runReview})
 }
 
 const doctorUsage = `usage: herdsman doctor [--json]
