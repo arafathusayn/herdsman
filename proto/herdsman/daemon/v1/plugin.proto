@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package herdsman.daemon.v1;
+
+import "herdsman/plugin/v1/plugin.proto";
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
+
+// PluginService manages the installed plugins. It is experimental, and it has
+// no method that approves one: approval needs a person at a terminal.
+service PluginService {
+  // List reports every plugin found, including those that cannot be used.
+  rpc List(PluginServiceListRequest) returns (PluginServiceListResponse);
+  // Describe starts one approved plugin and returns its manifest.
+  rpc Describe(PluginServiceDescribeRequest) returns (PluginServiceDescribeResponse);
+  // Install copies an executable into the plugin folder, unapproved.
+  rpc Install(PluginServiceInstallRequest) returns (PluginServiceInstallResponse);
+  // Remove deletes an installed plugin and its approval.
+  rpc Remove(PluginServiceRemoveRequest) returns (PluginServiceRemoveResponse);
+  // Verify runs the conformance checks for a plugin's extension points.
+  rpc Verify(PluginServiceVerifyRequest) returns (PluginServiceVerifyResponse);
+}
+
+// PluginStatus is one plugin as the host sees it.
+message PluginStatus {
+  string name = 1;
+  string path = 2;
+  // checksum is the SHA-256 of the executable, in hex.
+  string checksum = 3;
+  bool approved = 4;
+  // version and extension_points are known only after a handshake.
+  string version = 5;
+  repeated herdsman.plugin.v1.ExtensionPoint extension_points = 6;
+  // skipped says why the plugin cannot be used; empty when it can.
+  string skipped = 7;
+}
+
+message PluginServiceListRequest {}
+
+message PluginServiceListResponse {
+  repeated PluginStatus plugins = 1;
+  // protocol is the version string of this experimental surface.
+  string protocol = 2;
+}
+
+message PluginServiceDescribeRequest {
+  string name = 1;
+}
+
+message PluginServiceDescribeResponse {
+  herdsman.plugin.v1.Manifest manifest = 1;
+  PluginStatus status = 2;
+  string protocol = 3;
+}
+
+message PluginServiceInstallRequest {
+  // source is the path of an executable file.
+  string source = 1;
+  // name overrides the name taken from the file.
+  string name = 2;
+}
+
+message PluginServiceInstallResponse {
+  PluginStatus status = 1;
+  string protocol = 2;
+}
+
+message PluginServiceRemoveRequest {
+  string name = 1;
+}
+
+message PluginServiceRemoveResponse {
+  string protocol = 1;
+}
+
+message PluginServiceVerifyRequest {
+  string name = 1;
+}
+
+// VerifyCheck is one conformance scenario's result.
+message VerifyCheck {
+  string name = 1;
+  bool passed = 2;
+  string detail = 3;
+}
+
+message PluginServiceVerifyResponse {
+  string name = 1;
+  bool passed = 2;
+  repeated VerifyCheck checks = 3;
+  string protocol = 4;
+}
