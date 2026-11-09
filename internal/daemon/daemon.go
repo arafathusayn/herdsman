@@ -98,6 +98,7 @@ type Daemon struct {
 	bg         sync.WaitGroup
 
 	callers *route.Callers // who asked for each route start
+	turns   turnClock      // when each open claim began, for the route's trace
 
 	hub  *eventHub     // the topics the event stream and long poll read
 	view *registryView // publishes the routes into hub

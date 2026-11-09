@@ -232,6 +232,9 @@ func (s *WorktreeService) open(ctx context.Context, dir string) (*repository, er
 		return nil, fmt.Errorf("worktree service: folder %q is not absolute", dir)
 	}
 	git := &gitrun.Runner{}
+	if folder := os.Getenv(routeFolderEnv); folder != "" {
+		git.Tracer = gitrun.NewFileTrace(filepath.Join(folder, "logs"))
+	}
 	out, err := git.Run(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return nil, fmt.Errorf("%s is not inside a git repository: %w", dir, err)
@@ -339,7 +342,12 @@ func (s *WorktreeService) plan(r *repository, hook string, vars wtree.Vars) (hoo
 }
 
 func (r *repository) runner(vars wtree.Vars, path string) *hooks.Runner {
-	return &hooks.Runner{LogDir: filepath.Join(r.common, wtree.StateFolder, "logs"), Dir: path, Env: hooks.Env{
+	logs := filepath.Join(r.common, wtree.StateFolder, "logs")
+	// A hook run for a route is logged where that route's trace looks for it.
+	if folder := os.Getenv(routeFolderEnv); folder != "" {
+		logs = filepath.Join(folder, "logs", "hooks")
+	}
+	return &hooks.Runner{LogDir: logs, Dir: path, Env: hooks.Env{
 		Task: vars.Values["task"], Branch: vars.Values["branch"], Worktree: path, Route: vars.Values["route"],
 	}}
 }

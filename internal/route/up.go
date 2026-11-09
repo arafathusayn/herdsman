@@ -225,7 +225,8 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 		return nil, err
 	}
 	coordinators = append(coordinators, orchestrator)
-	channelEnv := map[string]string{}
+	// Everything a route's agents run records its spans in the route's folder.
+	channelEnv := map[string]string{"HERDSMAN_ROUTE_FOLDER": p.Folder}
 	if !q.NoAdjutant {
 		channelEnv["HERDSMAN_INBOX"] = p.Inbox
 		channelEnv["HERDSMAN_PREFLIGHT"] = filepath.Join(p.Inbox, "setup.json")
