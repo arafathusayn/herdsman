@@ -403,7 +403,7 @@ func TestFixtureMakesNewShareTheIgnoredTree(t *testing.T) {
 		t.Fatalf("got %+v", plan)
 	}
 	// The install the lock file implies must not reach for the network.
-	if _, err := execStep(toolEnv(f), Step{Dir: f.Repo20, Argv: []string{"bun", "install", "--frozen-lockfile"}}); err != nil {
+	if _, err := execStep(toolEnv(f), Step{Dir: f.Repo20, Argv: []string{filepath.Join(f.Bin, "bun"), "install", "--frozen-lockfile"}}); err != nil {
 		t.Fatal(err)
 	}
 	if out, _ := exec.Command(filepath.Join(f.Bin, "bun"), "--version").CombinedOutput(); len(out) != 0 {
