@@ -318,9 +318,10 @@ func TestGoroutineAccounting(t *testing.T) {
 	for _, p := range parties {
 		p.c.Close()
 	}
-	base := g0 + 4 + 3
+	// Per route: its actor and the feed that publishes its events.
+	base := g0 + 4 + 3*2
 	if g := settleAt(base); g != base {
-		t.Fatalf("3 routes: %d goroutines over the base, want 3", g-(g0+4))
+		t.Fatalf("3 routes: %d goroutines over the base, want 6", g-(g0+4))
 	}
 	// A reader between calls holds no call on the daemon, only its kept
 	// connection.
