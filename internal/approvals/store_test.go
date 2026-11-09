@@ -97,3 +97,46 @@ func TestDefaultLocation(t *testing.T) {
 		t.Fatalf("path %s", store.path)
 	}
 }
+
+func TestPathNamesTheFile(t *testing.T) {
+	if got := Open("/x/y").Path(); got != "/x/y" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestStoreFailures(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Open(filepath.Join(blocker, "sub", FileName)).Approve("p", "t"); err == nil {
+		t.Fatal("wrote under a file")
+	}
+	folder := filepath.Join(dir, "folder")
+	if err := os.MkdirAll(filepath.Join(folder, "inner"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(folder).List(); err == nil {
+		t.Fatal("read a folder")
+	}
+	if err := Open(folder).Approve("p", "t"); err == nil {
+		t.Fatal("replaced a folder")
+	}
+	if _, err := Open(folder).Clear(""); err == nil {
+		t.Fatal("cleared a folder")
+	}
+	if _, err := Open(folder).Approved("p", "t"); err == nil {
+		t.Fatal("read a folder")
+	}
+	if err := Open(filepath.Join(folder, "held.toml")).write(map[string][]string{"p": {"t"}}); err != nil {
+		t.Fatal(err)
+	}
+	locked := filepath.Join(dir, "locked", FileName)
+	if err := os.MkdirAll(locked+".lock", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Open(locked).Approve("p", "t"); err == nil {
+		t.Fatal("a folder served as the lock")
+	}
+}

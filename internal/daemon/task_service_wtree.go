@@ -260,11 +260,11 @@ func loadHooks(folder string) (hooks.Config, error) {
 	if err != nil || path == "" {
 		return hooks.Config{}, err
 	}
-	result, err := config.ReadFile(path)
+	table, err := config.ReadHooks(path)
 	if err != nil {
 		return nil, err
 	}
-	return hooks.Parse(result.HookTable())
+	return hooks.Parse(table)
 }
 
 func (s *WorktreeService) approvals() (*hooks.Approvals, error) {

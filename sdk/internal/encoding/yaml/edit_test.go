@@ -253,3 +253,61 @@ func TestEncodeWritesEveryKind(t *testing.T) {
 		t.Fatalf("not the same:\n%s", data)
 	}
 }
+
+func TestKeysThatNeedQuotes(t *testing.T) {
+	doc := parseDoc(t, "\"a\\\"b\": 1\n'it''s': 2\nyes: 3\n")
+	if err := doc.Set([]string{`a"b`}, tree.NewInt(4)); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.Set([]string{"it's"}, tree.NewInt(5)); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(doc.Encode()); got != "\"a\\\"b\": 4\n'it''s': 5\nyes: 3\n" {
+		t.Fatalf("got:\n%s", got)
+	}
+	if err := doc.Set([]string{"on"}, tree.NewInt(6)); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(doc.Encode()), "\"on\": 6") {
+		t.Fatalf("a reserved word went in bare:\n%s", doc.Encode())
+	}
+}
+
+func TestAContinuedStringIsOneValue(t *testing.T) {
+	doc := parseDoc(t, "a: \"x\n  b: y\"\nc: 1\n")
+	if err := doc.Set([]string{"a"}, tree.NewInt(2)); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(doc.Encode()); got != "a: 2\nc: 1\n" {
+		t.Fatalf("got:\n%s", got)
+	}
+}
+
+func TestEmptyPathIsRefused(t *testing.T) {
+	doc := parseDoc(t, "a: 1\n")
+	if _, err := doc.locate(nil); err == nil {
+		t.Fatal("an empty path was accepted")
+	}
+}
+
+func TestFloatSpellings(t *testing.T) {
+	for value, want := range map[float64]string{math.Inf(-1): "-.inf", 1e21: "1e+21"} {
+		if got := floatText(value); got != want {
+			t.Errorf("%v: %q", value, got)
+		}
+	}
+	if got := floatText(math.NaN()); got != ".nan" {
+		t.Errorf("nan: %q", got)
+	}
+}
+
+func TestUnsetAndSetInsideASequenceValueRewriteIt(t *testing.T) {
+	doc := parseDoc(t, "a:\n  - 1\nb: 2\n")
+	if err := doc.Set([]string{"a", "x"}, tree.NewInt(1)); err == nil {
+		t.Fatal("went through a list")
+	}
+	doc = parseDoc(t, "m:\n  # only a comment\nb: 2\n")
+	if err := doc.Set([]string{"m", "x"}, tree.NewInt(1)); err == nil {
+		t.Fatal("went through a null")
+	}
+}

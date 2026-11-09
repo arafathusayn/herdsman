@@ -419,3 +419,53 @@ func TestSpecJSONSchema(t *testing.T) {
 		t.Fatalf("output:\n%s", stdout.String())
 	}
 }
+
+func TestConfigErrorsFromBrokenFilesAndKeys(t *testing.T) {
+	path := configHome(t)
+	writeConfig(t, path, "not toml")
+	for _, args := range [][]string{{"get", "merge.land", "-c", path}, {"get", "merge.land", "--json", "-c", path}, {"update", "-c", path}} {
+		if code, _, _ := configCmd(t, args...); code != 1 {
+			t.Errorf("%v: code %d", args, code)
+		}
+	}
+	writeConfig(t, path, "")
+	for _, args := range [][]string{
+		{"get", "no.such", "--source", "-c", path},
+		{"get", "no.such", "--json", "-c", path},
+		{"get", "no.such", "-c", path},
+		{"set", "no.such", "x", "--project", "-c", filepath.Join(filepath.Dir(path), "gone.toml")},
+		{"update", "-c", filepath.Join(filepath.Dir(path), "gone.toml")},
+	} {
+		if code, _, _ := configCmd(t, args...); code == 0 {
+			t.Errorf("%v: code 0", args)
+		}
+	}
+	if code, _, _ := configCmd(t, "schema", "--format", "nope"); code != 2 {
+		t.Errorf("schema: code %d", code)
+	}
+}
+
+func TestConfigSetUserWithoutHome(t *testing.T) {
+	configHome(t)
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if code, _, _ := configCmd(t, "set", "merge.land", "push", "--user"); code != 1 {
+		t.Fatalf("code %d", code)
+	}
+}
+
+func TestConfigSetUserEditsAnExistingFile(t *testing.T) {
+	configHome(t)
+	userConfig(t, "[merge]\nland = \"pr\"\n")
+	code, out, errText := configCmd(t, "set", "merge.land", "push", "--user")
+	if code != 0 || !strings.Contains(out, "pr -> push") {
+		t.Fatalf("code %d, out %q, err %s", code, out, errText)
+	}
+}
+
+func TestSpecUsageAndUnknownView(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runSpec([]string{"nope"}, strings.NewReader(""), &stdout, &stderr); code != 2 {
+		t.Fatalf("code %d", code)
+	}
+}
