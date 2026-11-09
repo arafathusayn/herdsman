@@ -679,6 +679,41 @@
     }
   },
   {
+    "name": "daemon_ops_records",
+    "description": "Calls herdsman.daemon.v1.OpsService/Records.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_ops_undo",
+    "description": "Calls herdsman.daemon.v1.OpsService/Undo. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "snapshot": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "daemon_route_get",
     "description": "Calls herdsman.daemon.v1.RouteService/Get.",
     "inputSchema": {

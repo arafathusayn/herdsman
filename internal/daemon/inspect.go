@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"path"
@@ -32,7 +33,11 @@ func (d *Daemon) openOps() error {
 	}
 	d.mu.Lock()
 	d.acctDB = c
-	d.ops = ops.NewEngine(c, ops.Options{Effects: d.operationEffects(), Checks: d.cfg.Checks, Now: d.cfg.Now})
+	d.recovery = ops.NewRecovery(ops.RecoveryOptions{StateDir: d.cfg.PrivateHome, Retention: d.cfg.Retention, Quiesce: d.quiesce})
+	effects := d.recovery.Effects()
+	maps.Copy(effects, d.operationEffects())
+	d.ops = ops.NewEngine(c, ops.Options{Effects: effects, Checks: d.cfg.Checks, Now: d.cfg.Now, Fault: d.cfg.OpsFault})
+	d.recovery.Attach(d.ops)
 	d.mu.Unlock()
 	return nil
 }
@@ -81,7 +86,7 @@ func (d *Daemon) startInspect(rf RoutesFile) error {
 var inspectReads = map[string]bool{
 	"Hello": true, "Health": true, "DaemonStatus": true, "ListOperations": true, "GetOperation": true,
 	"ListRoutes": true, "Status": true, "GetSetup": true, "Authority": true, "Wait": true, "Stream": true,
-	"Get": true, "List": true, "Search": true, "Plan": true, "Sources": true,
+	"Get": true, "List": true, "Search": true, "Plan": true, "Sources": true, "Records": true,
 }
 
 // refuseInInspect answers every call that could change something.
@@ -110,6 +115,8 @@ func (d *Daemon) startOpsRecovery(ctx context.Context) {
 			d.logf("operations: %v", err)
 		}
 		d.deliverOutbox(cctx)
+		d.sweep(cctx)
+		d.sweepLater(cctx)
 	}()
 }
 

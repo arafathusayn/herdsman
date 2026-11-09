@@ -33,8 +33,10 @@ Commands:
   doctor   Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.
   each     Run a command in every worktree.
   eval     Report a suite's runs with intervals and an A/A control (experimental).
+  export   Copy the whole account to a new folder.
   go       Enter a worktree.
   hook     Show, approve or run a worktree hook.
+  import   Rebuild an account from an export.
   ls       List the repository's worktrees.
   mcp      Serve the daemon's services as MCP tools over stdio.
   message  The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.
@@ -52,6 +54,7 @@ Commands:
   teardown Stop what a task runs, keeping what it holds.
   trace    Show or export one route's spans as OpenTelemetry.
   transcript-audit Audit a Claude or Codex transcript for writes: transcript-audit claude|codex <transcript> <session-id> [root/ ...].
+  undo     Restore a snapshot.
   up       Start a route: workspace, private inbox, both coordinators, the pair and the first brief.
   update   Install the latest signed release over this binary.
   wait     Wait for the next event of the loop (a report, a review, a blocked or stalled agent, a health flag), or TICK.
@@ -71,9 +74,11 @@ Commands:
 .BR herdsman-doctor (1),
 .BR herdsman-each (1),
 .BR herdsman-eval (1),
+.BR herdsman-export (1),
 .BR herdsman-go (1),
 .BR herdsman-help (1),
 .BR herdsman-hook (1),
+.BR herdsman-import (1),
 .BR herdsman-ls (1),
 .BR herdsman-mcp (1),
 .BR herdsman-message (1),
@@ -91,6 +96,7 @@ Commands:
 .BR herdsman-teardown (1),
 .BR herdsman-trace (1),
 .BR herdsman-transcript-audit (1),
+.BR herdsman-undo (1),
 .BR herdsman-up (1),
 .BR herdsman-update (1),
 .BR herdsman-version (1),
