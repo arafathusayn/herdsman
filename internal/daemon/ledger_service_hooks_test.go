@@ -103,3 +103,68 @@ func TestAnUnapprovedHookIsReported(t *testing.T) {
 		}
 	}
 }
+
+func TestASecondTeardownOfATaskIsRefusedWhileOneRuns(t *testing.T) {
+	s, repo, _, common := verbRepo(t)
+	useLedger(t, setupLedger(t).service)
+	release, err := lockTeardown(common, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	refused, err := s.Teardown(ctx, WorktreeTeardownRequest{Dir: repo, Plans: []ledger.Plan{{Task: "task"}}})
+	if err != nil || !strings.Contains(refused.Reports[0].Error, "already running") {
+		t.Fatalf("refused = %+v, err = %v", refused, err)
+	}
+	release()
+	again, err := lockTeardown(common, "task")
+	if err != nil {
+		t.Fatalf("after release: %v", err)
+	}
+	again()
+}
+
+func TestLockTeardownRefusesWhatItCannotLock(t *testing.T) {
+	if _, err := lockTeardown(t.TempDir(), "a/b"); err == nil {
+		t.Fatal("a bad name")
+	}
+	folder := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(folder, "herdsman", "logs", "a", "teardown.lock"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lockTeardown(folder, "a"); err == nil {
+		t.Fatal("a folder as the lock")
+	}
+}
+
+func TestARunThatNeverEndedIsReportedOnTheNext(t *testing.T) {
+	s, repo, _, common := verbRepo(t)
+	useLedger(t, setupLedger(t).service)
+	useLedgerCommon(t, common)
+	ctx := context.Background()
+	planned, err := s.TeardownPlan(ctx, WorktreeTeardownPlanRequest{Dir: repo, Selector: "task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := s.Teardown(ctx, WorktreeTeardownRequest{Dir: repo, Plans: planned.Plans})
+	if err != nil || !strings.Contains(done.Reports[0].Warning, "did not finish") {
+		t.Fatalf("done = %+v, err = %v", done, err)
+	}
+	second, err := s.Teardown(ctx, WorktreeTeardownRequest{Dir: repo, Plans: planned.Plans})
+	if err != nil || second.Reports[0].Warning != "" {
+		t.Fatalf("second = %+v, err = %v", second, err)
+	}
+}
+
+// useLedgerCommon leaves a log whose run wrote its plan and stopped there.
+func useLedgerCommon(t *testing.T, common string) {
+	t.Helper()
+	folder, err := ledger.LogFolder(common, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := []byte(`{"event":"plan"}` + "\n")
+	if err := os.WriteFile(filepath.Join(folder, "teardown.log"), line, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

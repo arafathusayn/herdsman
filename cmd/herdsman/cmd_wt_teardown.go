@@ -48,6 +48,7 @@ type teardownReport struct {
 	Task     string            `json:"task"`
 	Outcomes []teardownOutcome `json:"outcomes"`
 	Error    string            `json:"error"`
+	Warning  string            `json:"warning,omitempty"`
 }
 
 func init() {
@@ -196,6 +197,9 @@ func runTeardown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	code := 0
 	for _, report := range done.Reports {
+		if report.Warning != "" {
+			fmt.Fprintf(stderr, "herdsman: %s: %s\n", report.Task, report.Warning)
+		}
 		for _, outcome := range report.Outcomes {
 			fmt.Fprintf(stdout, "%s %s %s: %s\n", report.Task, outcome.Kind, outcome.ID, outcome.Result)
 		}

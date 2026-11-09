@@ -284,6 +284,8 @@ type WorktreeTeardownReport struct {
 	Task     string           `json:"task"`
 	Outcomes []ledger.Outcome `json:"outcomes"`
 	Error    string           `json:"error,omitempty"`
+	// Warning says an earlier run did not finish, so its hooks may run twice.
+	Warning string `json:"warning,omitempty"`
 }
 
 // WorktreeTeardownResponse holds one report per plan.
@@ -414,6 +416,27 @@ func (r *repository) hasTeardownHooks(row wtree.Row) (bool, error) {
 	return false, nil
 }
 
+// teardownLocked runs one task's teardown alone, and says if the one before it
+// was cut off. Repeating is safe for signals, each of which is proved again,
+// but a hook that already ran runs a second time.
+func (s *WorktreeService) teardownLocked(ctx context.Context, r *repository, req WorktreeTeardownRequest, plan ledger.Plan) ([]ledger.Outcome, string, error) {
+	release, err := lockTeardown(r.common, plan.Task)
+	if err != nil {
+		return nil, "", err
+	}
+	defer release()
+	unfinished, err := ledger.Unfinished(r.common, plan.Task)
+	if err != nil {
+		return nil, "", err
+	}
+	warning := ""
+	if unfinished {
+		warning = "an earlier teardown of this task did not finish; its hooks may have run already and are running again"
+	}
+	outcomes, err := s.teardownOne(ctx, r, req, plan)
+	return outcomes, warning, err
+}
+
 // teardownOne runs the blocking stop hooks, the stop, then the background
 // hooks. A hook that fails stops this task before anything is signaled.
 func (s *WorktreeService) teardownOne(ctx context.Context, r *repository, req WorktreeTeardownRequest, plan ledger.Plan) ([]ledger.Outcome, error) {
@@ -457,7 +480,7 @@ func (s *WorktreeService) Teardown(ctx context.Context, req WorktreeTeardownRequ
 	for _, plan := range req.Plans {
 		report := WorktreeTeardownReport{Task: plan.Task}
 		var err error
-		if report.Outcomes, err = s.teardownOne(ctx, r, req, plan); err != nil {
+		if report.Outcomes, report.Warning, err = s.teardownLocked(ctx, r, req, plan); err != nil {
 			report.Error = err.Error()
 		}
 		resp.Reports = append(resp.Reports, report)

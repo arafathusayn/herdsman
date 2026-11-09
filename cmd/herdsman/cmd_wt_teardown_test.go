@@ -201,3 +201,11 @@ func TestAnEmptyPlanWithoutHooksCallsNothing(t *testing.T) {
 		t.Fatalf("code = %d, out = %q, calls = %+v", code, out, *calls)
 	}
 }
+
+func TestTeardownPrintsAWarningFromTheService(t *testing.T) {
+	stubWorktree(t, map[string]string{"TeardownPlan": stopPlan, "Teardown": `{"reports":[{"task":"a","outcomes":[],"warning":"check it"}]}`})
+	code, _, stderr := runVerb(runTeardown, "a", "-y")
+	if code != 0 || !strings.Contains(stderr, "check it") {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+}

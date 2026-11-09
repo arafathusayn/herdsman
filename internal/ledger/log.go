@@ -19,14 +19,55 @@ type Log struct {
 	now  func() time.Time
 }
 
-// OpenLog opens <common git dir>/herdsman/logs/<task>/teardown.log for appending.
-func OpenLog(commonDir, task string) (*Log, error) {
+// LogFolder makes and names the folder that holds one task's teardown files.
+func LogFolder(commonDir, task string) (string, error) {
 	if task == "" || filepath.Base(task) != task || strings.HasPrefix(task, ".") {
-		return nil, fmt.Errorf("ledger: task %q cannot name a log folder", task)
+		return "", fmt.Errorf("ledger: task %q cannot name a log folder", task)
 	}
 	folder := filepath.Join(commonDir, "herdsman", "logs", task)
 	if err := os.MkdirAll(folder, 0o700); err != nil {
-		return nil, fmt.Errorf("ledger: log folder: %w", err)
+		return "", fmt.Errorf("ledger: log folder: %w", err)
+	}
+	return folder, nil
+}
+
+// Unfinished reports a log whose newest run wrote its plan and never its end,
+// so that it was killed part of the way through. A missing log has no run.
+func Unfinished(commonDir, task string) (bool, error) {
+	folder, err := LogFolder(commonDir, task)
+	if err != nil {
+		return false, err
+	}
+	data, err := os.ReadFile(filepath.Join(folder, "teardown.log"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("ledger: log: %w", err)
+	}
+	unfinished := false
+	for _, line := range strings.Split(string(data), "\n") {
+		var entry struct {
+			Event string `json:"event"`
+		}
+		if json.Unmarshal([]byte(line), &entry) != nil {
+			continue
+		}
+		switch entry.Event {
+		case "plan":
+			unfinished = true
+		case "finish":
+			unfinished = false
+		}
+	}
+	return unfinished, nil
+}
+
+// OpenLog opens <common git dir>/herdsman/logs/<task>/teardown.log for appending.
+func OpenLog(commonDir, task string) (*Log, error) {
+	folder, err := LogFolder(commonDir, task)
+	if err != nil {
+		return nil, err
 	}
 	file, err := os.OpenFile(filepath.Join(folder, "teardown.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
