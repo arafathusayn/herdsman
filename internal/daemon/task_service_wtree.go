@@ -23,7 +23,10 @@ import (
 	"github.com/arafathusayn/herdsman/internal/wtree"
 )
 
-const herdrProbeTimeout = 500 * time.Millisecond
+const (
+	herdrProbeTimeout = 500 * time.Millisecond
+	agentStartTimeout = 60 * time.Second
+)
 
 // WorktreeService implements the worktree verbs. Its zero value uses the
 // caller's environment; the fields exist so that tests can replace it.
@@ -32,9 +35,6 @@ type WorktreeService struct {
 	Approvals   string // Empty uses the user's configuration folder.
 	GH          string // Program for GitHub calls; empty means "gh".
 	Repo        string // owner/name; empty reads it from origin.
-}
-
-// WorktreeNewRequest asks for a task's worktree.
 	ConfigDir   string // Folder of the user's file; empty uses the standard one.
 }
 
@@ -44,8 +44,8 @@ const worktreeSchemaVersion = "1.0.0"
 // WorktreeSchema says which version of the JSON a response follows.
 type WorktreeSchema struct {
 	Version string `json:"version"`
-type WorktreeNewRequest struct {
-	Dir     string `json:"dir"`
+}
+
 // versioned is embedded in each response of the worktree verbs.
 type versioned struct {
 	Schema WorktreeSchema `json:"schema"`
@@ -53,6 +53,9 @@ type versioned struct {
 
 func (v *versioned) stamp() { v.Schema.Version = worktreeSchemaVersion }
 
+// WorktreeNewRequest asks for a task's worktree.
+type WorktreeNewRequest struct {
+	Dir     string `json:"dir"`
 	Task    string `json:"task"`
 	Base    string `json:"base,omitempty"`
 	From    string `json:"from,omitempty"`
@@ -65,10 +68,10 @@ func (v *versioned) stamp() { v.Schema.Version = worktreeSchemaVersion }
 
 // WorktreeNewResponse describes the worktree that was made.
 type WorktreeNewResponse struct {
+	versioned
 	Task     string   `json:"task"`
 	Branch   string   `json:"branch"`
 	Path     string   `json:"path"`
-	versioned
 	Base     string   `json:"base"`
 	Port     int      `json:"port"`
 	Herdr    bool     `json:"herdr"`
@@ -76,6 +79,8 @@ type WorktreeNewResponse struct {
 	Launch   string   `json:"launch"`
 	Logs     []string `json:"logs,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
+	// AgentName is the agent started in the worktree, when one was.
+	AgentName string `json:"agent_name,omitempty"`
 }
 
 // WorktreeListRequest asks for the worktree table.
@@ -105,12 +110,12 @@ type WorktreeRow struct {
 
 // WorktreeListResponse is the table, or one line of it for a status bar.
 type WorktreeListResponse struct {
+	versioned
 	Rows       []WorktreeRow `json:"rows"`
 	Statusline string        `json:"statusline,omitempty"`
 }
 
 // WorktreeGoRequest asks where a selector leads.
-	versioned
 type WorktreeGoRequest struct {
 	Dir      string `json:"dir"`
 	Selector string `json:"selector"`
@@ -119,12 +124,12 @@ type WorktreeGoRequest struct {
 
 // WorktreeGoResponse names the worktree a selector led to.
 type WorktreeGoResponse struct {
+	versioned
 	Task       string   `json:"task"`
 	Branch     string   `json:"branch"`
 	Path       string   `json:"path"`
 	Created    bool     `json:"created"`
 	Focused    bool     `json:"focused"`
-	versioned
 	PushRemote string   `json:"push_remote,omitempty"`
 	Warnings   []string `json:"warnings,omitempty"`
 }
@@ -150,12 +155,12 @@ type WorktreeHookCommand struct {
 
 // WorktreeHookResponse is the plan, the approvals made, or the run's outcome.
 type WorktreeHookResponse struct {
+	versioned
 	Commands []WorktreeHookCommand `json:"commands,omitempty"`
 	Approved []string              `json:"approved,omitempty"`
 	OK       bool                  `json:"ok"`
 	Result   string                `json:"result,omitempty"`
 }
-	versioned
 
 // WorktreeCall serves one verb for the command line in this process.
 func WorktreeCall(ctx context.Context, method string, request []byte) ([]byte, error) {
@@ -198,14 +203,14 @@ func dispatch[Req, Resp any](ctx context.Context, data []byte, method func(conte
 	if err != nil {
 		return nil, err
 	}
+	if stamped, ok := any(&response).(interface{ stamp() }); ok {
+		stamped.stamp()
+	}
 	return json.Marshal(response)
 }
 
 // repository is everything one call needs about the repository around Dir.
 type repository struct {
-	if stamped, ok := any(&response).(interface{ stamp() }); ok {
-		stamped.stamp()
-	}
 	git     *gitrun.Runner
 	state   *wtree.State
 	reader  *gitrefs.Reader
@@ -215,6 +220,7 @@ type repository struct {
 	dir     string
 	dflt    string
 	hooks   hooks.Config
+	naming  wtree.Naming
 	project string
 }
 
@@ -254,7 +260,7 @@ func (s *WorktreeService) open(ctx context.Context, dir string) (*repository, er
 	}
 	repo.main, repo.project = repo.rows[0].Path, repo.rows[0].Path
 	repo.dflt = repo.defaultBranch(ctx)
-	if repo.hooks, err = loadHooks(filepath.Dir(repo.main)); err != nil {
+	if err := s.loadSettings(ctx, repo); err != nil {
 		state.Close()
 		return nil, err
 	}
@@ -271,33 +277,6 @@ func (r *repository) defaultBranch(ctx context.Context) string {
 		return strings.TrimPrefix(strings.TrimSpace(string(out.Stdout)), "origin/")
 	}
 	return r.rows[0].Branch
-}
-
-// loadHooks reads the hooks of the configuration file beside the repository.
-// A file in a format this build cannot read stops the command: running without
-// the hooks someone wrote would be worse than refusing.
-func loadHooks(folder string) (hooks.Config, error) {
-	path := filepath.Join(folder, "herdsman.config.json")
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		for _, extension := range []string{"toml", "yaml", "yml", "bin"} {
-			other := filepath.Join(folder, "herdsman.config."+extension)
-			if _, err := os.Stat(other); err == nil {
-				return nil, fmt.Errorf("%s: this build reads hooks only from herdsman.config.json, not %s", other, extension)
-			}
-		}
-		return hooks.Config{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var file struct {
-		Hooks map[string]any `json:"hooks"`
-	}
-	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return hooks.Parse(file.Hooks)
 }
 
 func (s *WorktreeService) approvals() (*hooks.Approvals, error) {
@@ -425,7 +404,8 @@ func (r *repository) clearPath(path string, clobber bool) error {
 // create makes the tree through herdr when it answers, else through git. With
 // an empty start the branch already exists.
 func (s *WorktreeService) create(ctx context.Context, r *repository, task, branch, path, start string, resp *WorktreeNewResponse) error {
-	if client := s.herdrClient(ctx); client != nil && start != "" {
+	client := s.herdrClient(ctx)
+	if client != nil && start != "" {
 		params := map[string]any{"cwd": r.main, "branch": branch, "base": start, "path": path, "label": task, "focus": false}
 		err := client.Call(ctx, "worktree.create", params, nil)
 		if _, statErr := os.Stat(filepath.Join(path, ".git")); err == nil && statErr == nil {
@@ -438,8 +418,19 @@ func (s *WorktreeService) create(ctx context.Context, r *repository, task, branc
 	if start != "" {
 		args = []string{"worktree", "add", "-q", "-b", branch, path, start}
 	}
-	_, err := r.git.Run(ctx, r.main, args...)
-	return err
+	if _, err := r.git.Run(ctx, r.main, args...); err != nil {
+		return err
+	}
+	if client != nil && start == "" {
+		// herdr's create always makes a branch; one that exists can only be opened.
+		params := map[string]any{"cwd": r.main, "path": path, "label": task, "focus": false}
+		if err := client.Call(ctx, "worktree.open", params, nil); err != nil {
+			resp.Warnings = append(resp.Warnings, "herdr did not open the worktree: "+err.Error())
+		} else {
+			resp.Herdr = true
+		}
+	}
+	return nil
 }
 
 // New makes a task's worktree: base, names, the tree, its hooks and setup.
@@ -457,7 +448,7 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if kind == "" {
 		kind = "feat"
 	}
-	naming := wtree.DefaultNaming()
+	naming := r.naming
 	path, err := naming.ResolvePath(r.vars(req.Task, "", "", kind, "", ""))
 	if err != nil {
 		return resp, err
@@ -507,7 +498,9 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	resp.Launch = "cd " + path
 	if req.Agent != "" {
 		resp.Launch += " && " + req.Agent
-		resp.Warnings = append(resp.Warnings, "the agent was not started; run the launch line")
+		if !resp.Herdr {
+			resp.Warnings = append(resp.Warnings, "the agent was not started; run the launch line")
+		}
 	} else if req.Prompt != "" {
 		resp.Warnings = append(resp.Warnings, "the prompt was ignored: no agent was named")
 	}
@@ -517,7 +510,74 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := s.finishNew(ctx, r, req, vars, before, after, &resp); err != nil {
 		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
 	}
+	if err := s.enterWorkspace(ctx, req, &resp); err != nil {
+		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
+	}
 	return resp, nil
+}
+
+// quoteForShell makes text one word for a shell.
+func quoteForShell(text string) string {
+	return "'" + strings.ReplaceAll(text, "'", `'\''`) + "'"
+}
+
+// workspacePane finds the pane herdr opened in the worktree.
+func workspacePane(ctx context.Context, client *herdr.Client, path string) (string, error) {
+	panes, err := client.PaneList(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, pane := range panes {
+		if pane.Cwd != nil && *pane.Cwd == path {
+			return pane.ID, nil
+		}
+	}
+	return "", fmt.Errorf("no herdr pane is at %s", path)
+}
+
+// enterWorkspace gives the worktree's herdr pane the task's environment and
+// starts the agent there. herdr's worktree calls take no environment, so the
+// values are exported at the pane's shell prompt.
+func (s *WorktreeService) enterWorkspace(ctx context.Context, req WorktreeNewRequest, resp *WorktreeNewResponse) error {
+	if !resp.Herdr {
+		return nil
+	}
+	client := s.herdrClient(ctx)
+	if client == nil {
+		return s.noPane(req, resp, errors.New("herdr stopped answering"))
+	}
+	pane, err := workspacePane(ctx, client, resp.Path)
+	if err != nil {
+		return s.noPane(req, resp, err)
+	}
+	export := fmt.Sprintf("export HERDSMAN_TASK=%s HERDSMAN_BRANCH=%s HERDSMAN_WORKTREE_PATH=%s\n",
+		quoteForShell(resp.Task), quoteForShell(resp.Branch), quoteForShell(resp.Path))
+	if err := client.Call(ctx, "pane.send_input", map[string]any{"pane_id": pane, "text": export}, nil); err != nil {
+		return s.noPane(req, resp, err)
+	}
+	words := strings.Fields(req.Agent)
+	if len(words) == 0 {
+		return nil
+	}
+	if _, err := client.AgentStart(ctx, resp.Task, words[0], pane, words[1:], int(agentStartTimeout.Milliseconds())); err != nil {
+		return fmt.Errorf("the agent did not start: %w; run the launch line", err)
+	}
+	resp.AgentName = resp.Task
+	if req.Prompt != "" {
+		if err := client.AgentPrompt(ctx, resp.Task, req.Prompt); err != nil {
+			return fmt.Errorf("the agent started, but the prompt was not delivered: %w", err)
+		}
+	}
+	return nil
+}
+
+// noPane is an error when an agent needed the pane, and a note otherwise.
+func (s *WorktreeService) noPane(req WorktreeNewRequest, resp *WorktreeNewResponse, cause error) error {
+	if req.Agent != "" {
+		return fmt.Errorf("the agent did not start: %w; run the launch line", cause)
+	}
+	resp.Warnings = append(resp.Warnings, "the herdr pane did not get the task's environment: "+cause.Error())
+	return nil
 }
 
 func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req WorktreeNewRequest, vars wtree.Vars, before, after hooks.Plan, resp *WorktreeNewResponse) error {
@@ -526,18 +586,14 @@ func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req Work
 		return err
 	}
 	if !req.NoSetup {
-		detected, err := wtree.Detect(resp.Path)
+		setup, installs, err := s.setupPlan(r, vars, resp.Path)
 		if err != nil {
 			return err
-		}
-		var setup hooks.Plan
-		for _, install := range detected.Install {
-			setup = append(setup, []hooks.Planned{{Command: hooks.Command{Name: "setup", Template: install}, Rendered: install}})
 		}
 		if _, err := runner.Run(ctx, "setup", setup); err != nil {
 			return err
 		}
-		resp.Setup = detected.Install
+		resp.Setup = installs
 	}
 	logs, err := runner.Start("post-start", after)
 	resp.Logs = logs
@@ -921,7 +977,7 @@ func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text str
 	if err != nil {
 		return wtree.Row{}, err
 	}
-	path, err := wtree.DefaultNaming().ResolvePath(r.vars(task, "", "", "feat", "", ""))
+	path, err := r.naming.ResolvePath(r.vars(task, "", "", "feat", "", ""))
 	if err != nil {
 		return wtree.Row{}, err
 	}
@@ -1061,6 +1117,9 @@ func (s *WorktreeService) Hook(ctx context.Context, req WorktreeHookRequest) (Wo
 		return resp, err
 	}
 	if req.DryRun || req.Approve {
+		if req.Type == "" && len(r.hooks[setupHook]) > 0 {
+			types = append(slices.Clone(types), setupHook)
+		}
 		return s.describeHooks(r, store, types, vars, req.Approve)
 	}
 	plan, err := s.plan(r, req.Type, vars)
