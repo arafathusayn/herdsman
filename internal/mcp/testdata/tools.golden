@@ -1,5 +1,45 @@
 [
   {
+    "name": "daemon_event_wait",
+    "description": "Calls herdsman.daemon.v1.EventService/Wait.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.daemon.v1.TopicCursor": {
+          "additionalProperties": false,
+          "properties": {
+            "cursor": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "topics": {
+          "items": {
+            "$ref": "#/$defs/herdsman.daemon.v1.TopicCursor"
+          },
+          "type": "array"
+        },
+        "wait_ms": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "daemon_message_ack",
     "description": "Calls herdsman.daemon.v1.MessageService/Ack. Changes state.",
     "inputSchema": {

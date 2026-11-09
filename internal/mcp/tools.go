@@ -40,6 +40,7 @@ var toolNamePattern = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 // readOnlyMethods names the methods known to change nothing, until their protos
 // say so with idempotency_level. A method on neither list counts as mutating.
 var readOnlyMethods = map[protoreflect.FullName]bool{
+	"herdsman.daemon.v1.EventService.Wait":             true,
 	"herdsman.daemon.v1.MessageService.Hello":          true,
 	"herdsman.daemon.v1.MessageService.Health":         true,
 	"herdsman.daemon.v1.MessageService.ListRoutes":     true,
@@ -78,6 +79,7 @@ var peopleOnlyMethods = map[protoreflect.FullName]bool{
 // Files are the contracts served as tools: only those the daemon serves.
 func Files() []protoreflect.FileDescriptor {
 	return []protoreflect.FileDescriptor{
+		daemonv1.File_herdsman_daemon_v1_events_proto,
 		daemonv1.File_herdsman_daemon_v1_message_proto,
 		daemonv1.File_herdsman_daemon_v1_route_proto,
 		suggestv1.File_herdsman_suggest_v1_suggest_proto,

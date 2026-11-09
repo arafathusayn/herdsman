@@ -404,6 +404,7 @@ func (d *Daemon) adoptPending(ctx context.Context, name, dir string, m adoptMark
 	delete(d.held, name)
 	d.routes[name] = rt
 	d.mu.Unlock()
+	d.view.attach(rt)
 	return res, nil
 }
 
