@@ -1,6 +1,7 @@
 package up
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -35,17 +36,30 @@ func TestALeftPendingPairIsReportedAndTheRouteCanBeDeleted(t *testing.T) {
 	if !strings.Contains(status, "<-- PAIR PENDING") {
 		t.Fatalf("status does not report the pair:\n%s", status)
 	}
-	// Undo is not in this build, so delete refuses before it stops anything.
-	if out, err := m.verb("delete", "harbor", "--force", "--grace", "1", "-y"); err == nil || !strings.Contains(out, "recovery") {
-		t.Fatalf("delete with no recovery: %v\n%s", err, out)
+	// Nothing in this build can free the route's tasks, so delete must be told
+	// to leave them; until then it refuses before it stops anything.
+	if out, err := m.verb("delete", "harbor", "--force", "--grace", "1", "-y"); err == nil || !strings.Contains(out, "keep-worktrees") {
+		t.Fatalf("delete that cannot run down: %v\n%s", err, out)
 	}
-	after := m.must("status", "--route", "harbor")
-	if !strings.Contains(after, "route harbor: running") {
-		t.Fatalf("a refused delete changed the route:\n%s", after)
+	before := m.must("status", "--route", "harbor")
+	if !strings.Contains(before, "route harbor: running") {
+		t.Fatalf("a refused delete changed the route:\n%s", before)
 	}
-	folder := strings.TrimSpace(after[strings.Index(after, "folder: ")+len("folder: ") : strings.Index(after, "\nreason")])
+	folder := strings.TrimSpace(before[strings.Index(before, "folder: ")+len("folder: ") : strings.Index(before, "\nreason")])
+	done, err := m.verb("delete", "harbor", "--force", "--keep-worktrees", "--grace", "1", "-y")
+	if err != nil || !strings.Contains(done, "route harbor is deleted") {
+		t.Fatalf("delete: %v\n%s", err, done)
+	}
+	if _, err := os.Stat(folder); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the route folder stayed: %v", err)
+	}
+	_, id, ok := strings.Cut(done, "herdsman undo ")
+	if !ok {
+		t.Fatalf("delete does not say how to undo it:\n%s", done)
+	}
+	m.must("undo", strings.TrimSpace(id))
 	if _, err := os.Stat(folder); err != nil {
-		t.Fatal(err)
+		t.Fatalf("undo did not bring the route folder back: %v", err)
 	}
 }
 
