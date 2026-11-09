@@ -291,8 +291,12 @@ func TestMergedPinsKeepTheStrongerSource(t *testing.T) {
 }
 
 func TestAnOrdinaryBoundFolderFindsTheProjectsContextRepo(t *testing.T) {
-	h := newHarness(t)
-	records := project.New(h.d.acctDB, ops.NewEngine(h.d.acctDB, ops.Options{Effects: project.Effects(h.d.acctDB)}))
+	db, err := store.Open(filepath.Join(t.TempDir(), "account.db"), store.Writer, store.KindAccount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	records := project.New(db, ops.NewEngine(db, ops.Options{Effects: project.Effects(db)}))
 	created, err := records.CreateProject(project.ProjectInput{Name: "acme"})
 	if err != nil {
 		t.Fatal(err)
@@ -318,11 +322,11 @@ func TestAnOrdinaryBoundFolderFindsTheProjectsContextRepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := projectContextDir(h.d.acctDB, ordinary); got != "" {
+	if got := projectContextDir(db, ordinary); got != "" {
 		t.Fatalf("an unmarked folder was taken: %q", got)
 	}
 	writeProjectFile(t, mark, strings.Replace(string(text), "[project]\n", "[project]\ncontext = true\n", 1))
-	if got := projectContextDir(h.d.acctDB, ordinary); got != shared {
+	if got := projectContextDir(db, ordinary); got != shared {
 		t.Fatalf("got %q, want %q", got, shared)
 	}
 	if got := projectContextDir(nil, plain); got != "" {
@@ -332,7 +336,7 @@ func TestAnOrdinaryBoundFolderFindsTheProjectsContextRepo(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "config"))
 	t.Setenv("HOME", filepath.Join(base, "home"))
-	service := &suggestRPC{s: productionSuggest(func() store.Conn { return h.d.acctDB })}
+	service := &suggestRPC{s: productionSuggest(func() store.Conn { return db })}
 	added, err := service.Add(context.Background(), &suggestv1.AddRequest{Dir: ordinary, Project: true, Id: "shared", Kind: "tip", Title: "Shared", Tags: []string{"one"}, Body: "b"})
 	if err != nil || added.GetPath() != filepath.Join(shared, "suggest", "shared.md") {
 		t.Fatalf("%v %v", added, err)

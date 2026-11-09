@@ -165,10 +165,15 @@ func TestObservingWithoutAJournalDoesNothing(t *testing.T) {
 	(&Daemon{}).observeTurns(context.Background())
 }
 
-func TestWatchTurnsStopsWithItsContext(t *testing.T) {
+func TestTurnObservationStopsWithItsContext(t *testing.T) {
+	d := &Daemon{}
+	d.turns.every = time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
+	d.observeTurnsLater(ctx)
+	time.Sleep(20 * time.Millisecond)
 	cancel()
-	(&Daemon{}).watchTurns(ctx)
+	time.Sleep(20 * time.Millisecond)
+	d.bg.Wait()
 }
 
 func TestATurnThatCannotBeWrittenIsOnlyLogged(t *testing.T) {

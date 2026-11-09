@@ -454,7 +454,7 @@ func (d *Daemon) unwindStart() {
 func (d *Daemon) Serve(ctx context.Context) error {
 	if !d.cfg.Inspect {
 		go d.scheduler(ctx)
-		go d.watchTurns(ctx)
+		d.observeTurnsLater(ctx)
 		d.startOpsRecovery(ctx)
 	}
 	errc := make(chan error, 1)

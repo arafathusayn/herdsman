@@ -31,6 +31,7 @@ const turnPollInterval = 5 * time.Second
 type turnWatch struct {
 	mu      sync.Mutex
 	working map[string]observedTurn
+	every   time.Duration // Zero means turnPollInterval.
 }
 
 type observedTurn struct {
@@ -49,18 +50,25 @@ func turnKind(agent string) string {
 	return trace.KindTurn
 }
 
-// watchTurns records agents' turns from what herdr reports until ctx ends.
-func (d *Daemon) watchTurns(ctx context.Context) {
-	ticker := time.NewTicker(turnPollInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			d.observeTurns(ctx)
-		}
+// observeTurnsLater arms the next look at the routes' agents. A timer rather
+// than a loop, so no goroutine waits between rounds.
+func (d *Daemon) observeTurnsLater(ctx context.Context) {
+	every := d.turns.every
+	if every == 0 {
+		every = turnPollInterval
 	}
+	time.AfterFunc(every, func() {
+		d.mu.Lock()
+		if d.upgrading || ctx.Err() != nil {
+			d.mu.Unlock()
+			return
+		}
+		d.bg.Add(1)
+		d.mu.Unlock()
+		defer d.bg.Done()
+		d.observeTurns(ctx)
+		d.observeTurnsLater(ctx)
+	})
 }
 
 // observeTurns looks once at the agents of every route that is up.
