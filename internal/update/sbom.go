@@ -24,6 +24,12 @@ type Component struct {
 	License  string
 }
 
+// These are replaced by tests: neither fails on the values this file gives them.
+var (
+	relPath       = filepath.Rel
+	marshalIndent = json.MarshalIndent
+)
+
 // GitlinkFunc returns the commit recorded for a submodule path.
 type GitlinkFunc func(root, path string) (string, error)
 
@@ -79,7 +85,7 @@ func Components(root string, gitlink GitlinkFunc) ([]Component, error) {
 			if err != nil {
 				return err
 			}
-			rel, err := filepath.Rel(root, p)
+			rel, err := relPath(root, p)
 			if err != nil {
 				return err
 			}
@@ -273,7 +279,7 @@ func SPDX(product, version, created string, components []Component) ([]byte, err
 		doc.Packages = append(doc.Packages, p)
 		doc.Relationships = append(doc.Relationships, spdxRelationship{rootID, "CONTAINS", id})
 	}
-	data, err := json.MarshalIndent(doc, "", "  ")
+	data, err := marshalIndent(doc, "", "  ")
 	if err != nil {
 		return nil, err
 	}

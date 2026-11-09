@@ -48,8 +48,11 @@ func statusSnapshot(ctx context.Context, w io.Writer, specs string) {
 
 func runStatus(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	args, asJSON := takeJSON(args)
+	if len(args) == 2 && args[0] == "--route" {
+		return runRouteStatus(args[1], asJSON, stdout, stderr)
+	}
 	if len(args) > 0 {
-		fmt.Fprintln(stderr, "usage: herdsman status (set HERDSMAN_STATUS_SPECS)")
+		fmt.Fprintln(stderr, "usage: herdsman status [--route <route>] (without --route, set HERDSMAN_STATUS_SPECS)")
 		return 2
 	}
 	specs := os.Getenv("HERDSMAN_STATUS_SPECS")
