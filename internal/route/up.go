@@ -91,32 +91,34 @@ type UpPlan struct {
 // stepData is the part of a plan an effect needs. It is written into each
 // journal step, so a restarted daemon needs nothing else.
 type stepData struct {
-	Key          string            `json:"key"`
-	Route        string            `json:"route"`
-	Repo         string            `json:"repo"`
-	Folder       string            `json:"folder"`
-	Inbox        string            `json:"inbox,omitempty"`
-	Workspace    string            `json:"workspace"`
-	Socket       string            `json:"socket"`
-	Executable   string            `json:"executable"`
-	Label        string            `json:"label,omitempty"`
-	Group        string            `json:"group,omitempty"`
-	Env          map[string]string `json:"env,omitempty"`
-	Prompt       string            `json:"prompt,omitempty"`
-	Config       string            `json:"config,omitempty"`
-	PolicyFiles  []string          `json:"policy_files,omitempty"`
-	N            int               `json:"n,omitempty"`
-	Launch       *launch.Step      `json:"launch,omitempty"`
-	TimeoutMS    int64             `json:"timeout_ms,omitempty"`
-	Name         string            `json:"name,omitempty"`
-	Kind         string            `json:"kind,omitempty"`
-	Args         []string          `json:"args,omitempty"`
-	Role         string            `json:"role,omitempty"`
-	Adjutant     string            `json:"adjutant,omitempty"`
-	Orchestrator string            `json:"orchestrator,omitempty"`
-	Line         string            `json:"line,omitempty"`
-	Manual       bool              `json:"manual,omitempty"`
-	Peers        []string          `json:"peers,omitempty"`
+	Key         string            `json:"key"`
+	Route       string            `json:"route"`
+	Repo        string            `json:"repo"`
+	Folder      string            `json:"folder"`
+	Inbox       string            `json:"inbox,omitempty"`
+	Workspace   string            `json:"workspace"`
+	Socket      string            `json:"socket"`
+	Executable  string            `json:"executable"`
+	Label       string            `json:"label,omitempty"`
+	Group       string            `json:"group,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Prompt      string            `json:"prompt,omitempty"`
+	Config      string            `json:"config,omitempty"`
+	PolicyFiles []string          `json:"policy_files,omitempty"`
+	// Cwd is the folder a coordinator's pane opens in; empty means the repository.
+	Cwd          string       `json:"cwd,omitempty"`
+	N            int          `json:"n,omitempty"`
+	Launch       *launch.Step `json:"launch,omitempty"`
+	TimeoutMS    int64        `json:"timeout_ms,omitempty"`
+	Name         string       `json:"name,omitempty"`
+	Kind         string       `json:"kind,omitempty"`
+	Args         []string     `json:"args,omitempty"`
+	Role         string       `json:"role,omitempty"`
+	Adjutant     string       `json:"adjutant,omitempty"`
+	Orchestrator string       `json:"orchestrator,omitempty"`
+	Line         string       `json:"line,omitempty"`
+	Manual       bool         `json:"manual,omitempty"`
+	Peers        []string     `json:"peers,omitempty"`
 	// Op is the running operation's id, filled in when a step is decoded.
 	Op string `json:"-"`
 	// Tag says which delivery a prompt step is, for its record.
@@ -271,10 +273,10 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 		add("create the private inbox", effectInbox, "inbox:"+p.Inbox, ops.RetryIdempotent, with(func(d *stepData) { d.PolicyFiles = q.PolicyFiles }))
 	}
 	firstEnv := mergeEnv(channelEnv, coordinators[0].spec.Env)
-	add("create the workspace", effectWorkspace, "workspace:"+p.Workspace, ops.RetryIdempotent, with(func(d *stepData) { d.Env = firstEnv }))
+	add("create the workspace", effectWorkspace, "workspace:"+p.Workspace, ops.RetryIdempotent, with(func(d *stepData) { d.Env, d.Cwd = firstEnv, coordinators[0].spec.Cwd }))
 	for _, c := range coordinators {
 		add("open the "+c.role+" pane", effectPane, "pane:"+c.role, ops.RetryIdempotent, with(func(d *stepData) {
-			d.Label, d.Group, d.Env = c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env)
+			d.Label, d.Group, d.Env, d.Cwd = c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), c.spec.Cwd
 		}))
 	}
 	n := 0
@@ -294,7 +296,7 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 			p.Prelude[n] = step
 			fmt.Fprintf(&text, "step %d: %s\n  retry: %s\n", n, plan.Steps[i].Command, plan.Steps[i].Retry)
 			add(fmt.Sprintf("run prelude step %d", n), effectPrelude, "prelude:"+strconv.Itoa(n), retry, with(func(d *stepData) {
-				d.N, d.Launch, d.TimeoutMS, d.Label, d.Group, d.Env = n, &step, c.spec.Timeout().Milliseconds(), c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env)
+				d.N, d.Launch, d.TimeoutMS, d.Label, d.Group, d.Env, d.Cwd = n, &step, c.spec.Timeout().Milliseconds(), c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), c.spec.Cwd
 			}))
 		}
 		for _, e := range plan.Env {
@@ -302,7 +304,7 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 		}
 		fmt.Fprintf(&text, "agent: %s\n", plan.Agent)
 		add("start "+c.name, effectAgent, "agent:"+c.name, ops.RetryNever, with(func(d *stepData) {
-			d.Name, d.Kind, d.Args, d.Label, d.Group, d.Env = c.name, c.kind, c.spec.Command[1:], c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env)
+			d.Name, d.Kind, d.Args, d.Label, d.Group, d.Env, d.Cwd = c.name, c.kind, c.spec.Command[1:], c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), c.spec.Cwd
 		}))
 	}
 

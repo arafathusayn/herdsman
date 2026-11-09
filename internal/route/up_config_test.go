@@ -1,6 +1,8 @@
 package route_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -96,5 +98,28 @@ func TestOneLaunchSectionCannotFillBothRoles(t *testing.T) {
 	req.Launch = &launch.Spec{Command: []string{"codex"}, Cwd: r.repo}
 	if _, err := route.PlanUp(req); err == nil || !strings.Contains(err.Error(), "one agent") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestConfiguredCwdReachesThePrelude(t *testing.T) {
+	r := newRig(t)
+	cwd := filepath.Join(r.repo, "tools")
+	if err := os.Mkdir(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(r.private, "pwd")
+	req := r.request("claude", "")
+	req.Launch = &launch.Spec{Command: []string{"codex"}, Cwd: cwd, Prelude: []launch.Step{{
+		Command: launch.Command{Argv: []string{"/bin/sh", "-c", "pwd > '" + output + "'"}},
+	}}}
+	e, done := r.engine()
+	defer done()
+	drive(t, e, r.plan(req).Spec)
+	got, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(got)) != cwd {
+		t.Fatalf("prelude ran in %q, want %q", strings.TrimSpace(string(got)), cwd)
 	}
 }
