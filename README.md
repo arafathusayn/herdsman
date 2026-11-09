@@ -20,6 +20,8 @@ herdsman is a skill for coding agents. You talk to one agent: the orchestrator, 
 
 Read the docs at <https://herdsman.arafat.ai/docs/>, or at `/docs/` on any running `herdsman web`.
 
+The reference lives in [`docs/`](docs/index.md): [commands](docs/commands/index.md), [configuration](docs/config.md), the [SDK](docs/sdk.md) and [plugins](docs/plugins.md).
+
 ---
 
 ## Contents
@@ -195,7 +197,7 @@ In the orchestrator session, inside herdr:
 
 ## The herdsman CLI
 
-Besides `web`, the `herdsman` command holds the tools the skill runs, in one Go binary. Each command reads strict settings, stops with exit code 2 and the setting's name when one is wrong, and prints its usage and exit codes with `--help`. Most print JSON with `--json`. `herdsman help` lists them all.
+Besides `web`, the `herdsman` command holds the tools the skill runs, in one Go binary. Each command reads strict settings, stops with exit code 2 and the setting's name when one is wrong, and prints its usage and exit codes with `--help`. Most print JSON with `--json`. `herdsman help` lists them all, `herdsman spec cli` prints them as JSON, and each has a [page](docs/commands/index.md).
 
 | Command | What it does |
 | --- | --- |
@@ -333,6 +335,8 @@ herdr pane run <new pane id> "TARGET=<orchestrator pane id> herdsman checkpointe
 The command reads `INTERVAL` (seconds, default 900), `LIMIT` (tokens, default 250000), `PROMPT` and `COMPACT` from the environment. `--once` runs one checkpoint now and exits.
 
 </details>
+
+The pages in `docs/commands/`, `docs/config.md` and `docs/man/` are generated. After changing a command's help or a contract, run `make docs` and commit the result; CI fails when they differ.
 
 ## Design notes
 

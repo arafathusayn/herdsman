@@ -21,6 +21,7 @@ Repository: <absolute path of the checkout> (remote `origin` = GitHub <org>/<rep
 2. Worktree (if the route uses worktrees): `git -C <repo> worktree add <worktree path> -b <branch> origin/<base>`, or, when the route's binary has the verb, `herdsman new <task> --base <base>` run from inside `<repo>` ([`git-and-github.md`](git-and-github.md), Worktrees). Work only inside your worktree.
 3. Install dependencies (`bun install` or the project's command). If the default cache path is not writable, set TMPDIR and the package manager's cache directory to a path under /private/tmp.
 4. Test database: <host:port, user, auth>. Create your own database `<prefix>_<task>_test`, run suites with `TEST_DATABASE_URL=... <test command>` inside the package, drop it when you finish. Never touch another database.
+5. Commands: take every herdsman verb, flag and exit code from `herdsman spec cli` of the route's binary, or `herdsman <verb> --help`. Never write one from memory; a release may have added or changed it.
 
 ## Code standard
 
