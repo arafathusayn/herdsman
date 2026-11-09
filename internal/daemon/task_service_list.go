@@ -84,30 +84,49 @@ func (s *WorktreeService) fillAgents(ctx context.Context, resp *WorktreeListResp
 }
 
 type pullState struct {
-	Number         int    `json:"number"`
-	HeadRefName    string `json:"headRefName"`
-	ReviewDecision string `json:"reviewDecision"`
-	Rollup         []struct {
-		Conclusion string `json:"conclusion"`
-		Status     string `json:"status"`
-	} `json:"statusCheckRollup"`
+	Number         int           `json:"number"`
+	HeadRefName    string        `json:"headRefName"`
+	ReviewDecision string        `json:"reviewDecision"`
+	Rollup         []rollupEntry `json:"statusCheckRollup"`
+}
+
+// rollupEntry is one of GitHub's two kinds of check: a check run reports a
+// conclusion, and a commit status reports a state.
+type rollupEntry struct {
+	Conclusion string `json:"conclusion"`
+	Status     string `json:"status"`
+	State      string `json:"state"`
+}
+
+func (e rollupEntry) verdict() string {
+	result := e.Conclusion
+	if result == "" {
+		result = e.State
+	}
+	switch result {
+	case "FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE":
+		return "failing"
+	case "", "PENDING", "EXPECTED":
+		return "pending"
+	}
+	return "passing"
 }
 
 func (p pullState) checks() string {
-	verdict := ""
+	result := ""
 	for _, check := range p.Rollup {
-		switch check.Conclusion {
-		case "FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED":
+		switch check.verdict() {
+		case "failing":
 			return "failing"
-		case "":
-			verdict = "pending"
+		case "pending":
+			result = "pending"
 		default:
-			if verdict == "" {
-				verdict = "passing"
+			if result == "" {
+				result = "passing"
 			}
 		}
 	}
-	return verdict
+	return result
 }
 
 // fillPullRequests reads the open pull requests in one call. A machine with no
@@ -143,9 +162,10 @@ func (s *WorktreeService) fillPullRequests(ctx context.Context, r *repository, r
 	return nil
 }
 
-func diskUse(root string) int64 {
+// sizeOf adds up the logical size of the regular files at or under path.
+func sizeOf(path string) int64 {
 	var total int64
-	_ = filepath.WalkDir(root, func(_ string, entry fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(path, func(_ string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // A file that vanished or is unreadable counts as nothing.
 		}
@@ -157,6 +177,22 @@ func diskUse(root string) int64 {
 	return total
 }
 
+// ignoredBytes is the logical size of the worktree's ignored files, the data a
+// clean would have to decide about. Git names an ignored folder once.
+func (r *repository) ignoredBytes(ctx context.Context, path string) (int64, error) {
+	out, err := r.git.Run(ctx, path, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z")
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for name := range strings.SplitSeq(strings.TrimRight(string(out.Stdout), "\x00"), "\x00") {
+		if name != "" {
+			total += sizeOf(filepath.Join(path, name))
+		}
+	}
+	return total, nil
+}
+
 // fillLocal sets the cells that come from this repository's records and disk.
 func (r *repository) fillLocal(ctx context.Context, resp *WorktreeListResponse) error {
 	var failure error
@@ -166,7 +202,11 @@ func (r *repository) fillLocal(ctx context.Context, resp *WorktreeListResponse) 
 			continue
 		}
 		row.Port = wtree.HashPort(row.Task)
-		row.DiskBytes = diskUse(row.Path)
+		size, err := r.ignoredBytes(ctx, row.Path)
+		if err != nil {
+			failure = errors.Join(failure, err)
+		}
+		row.DiskBytes = size
 		resources, err := r.state.Resources(ctx, row.Task)
 		if err != nil {
 			failure = errors.Join(failure, err)

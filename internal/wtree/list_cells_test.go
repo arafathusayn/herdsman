@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/daemon"
@@ -22,6 +23,8 @@ func listFull(t *testing.T, w *world) daemon.WorktreeListResponse {
 func TestFullListFillsEveryCell(t *testing.T) {
 	w := newWorld(t)
 	made := w.create(t, "one")
+	os.MkdirAll(filepath.Join(w.repo, ".git", "info"), 0o755)
+	os.WriteFile(filepath.Join(w.repo, ".git", "info", "exclude"), []byte("blob\n"), 0o644)
 	os.WriteFile(filepath.Join(made.Path, "blob"), make([]byte, 4096), 0o644)
 	os.WriteFile(filepath.Join(made.Path, "dirty"), nil, 0o644)
 	git(t, made.Path, "push", "-q", "-u", "origin", "HEAD")
@@ -48,7 +51,7 @@ func TestFullListFillsEveryCell(t *testing.T) {
 	if got.Agent != "worker" || got.PR != 7 || got.Review != "APPROVED" || got.CI != "failing" {
 		t.Fatalf("service cells: %+v", got)
 	}
-	if got.PortsHeld != 1 || got.Port == 0 || got.DiskBytes < 4096 {
+	if got.PortsHeld != 1 || got.Port == 0 || got.DiskBytes != 4096 {
 		t.Fatalf("local cells: %+v", got)
 	}
 	if list.Summary.Worktrees != 2 || list.Summary.Dirty != 1 {
@@ -104,5 +107,44 @@ func TestSkeletonListHasNamesAndNoCollectedCells(t *testing.T) {
 	got := row(t, list.Rows, "one")
 	if got.Branch != "feat/one" || got.Subject != "" || got.HasBase {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestDiskCellCountsOnlyIgnoredFiles(t *testing.T) {
+	w := newWorld(t)
+	made := w.create(t, "one")
+	os.WriteFile(filepath.Join(made.Path, "tracked"), make([]byte, 8192), 0o644)
+	git(t, made.Path, "add", "tracked")
+	git(t, made.Path, "commit", "-q", "-m", "a large tracked file")
+	os.WriteFile(filepath.Join(made.Path, "untracked"), make([]byte, 512), 0o644)
+	if got := row(t, listFull(t, w).Rows, "one"); got.DiskBytes != 0 {
+		t.Fatalf("no ignored file, but %d bytes", got.DiskBytes)
+	}
+	os.MkdirAll(filepath.Join(w.repo, ".git", "info"), 0o755)
+	os.WriteFile(filepath.Join(w.repo, ".git", "info", "exclude"), []byte("cache/\n"), 0o644)
+	os.MkdirAll(filepath.Join(made.Path, "cache", "deep"), 0o755)
+	os.WriteFile(filepath.Join(made.Path, "cache", "deep", "a"), make([]byte, 100), 0o644)
+	os.WriteFile(filepath.Join(made.Path, "cache", "b"), make([]byte, 28), 0o644)
+	if got := row(t, listFull(t, w).Rows, "one"); got.DiskBytes != 128 {
+		t.Fatalf("%d bytes", got.DiskBytes)
+	}
+}
+
+func TestCICellReadsBothKindsOfCheck(t *testing.T) {
+	for want, rollup := range map[string]string{
+		"failing":   `[{"__typename":"StatusContext","state":"FAILURE"}]`,
+		"failing ":  `[{"__typename":"CheckRun","conclusion":"SUCCESS","status":"COMPLETED"},{"__typename":"StatusContext","state":"ERROR"}]`,
+		"passing":   `[{"__typename":"StatusContext","state":"SUCCESS"},{"__typename":"CheckRun","conclusion":"NEUTRAL","status":"COMPLETED"}]`,
+		"pending":   `[{"__typename":"StatusContext","state":"PENDING"},{"__typename":"CheckRun","conclusion":"SUCCESS","status":"COMPLETED"}]`,
+		"pending ":  `[{"__typename":"CheckRun","conclusion":"","status":"IN_PROGRESS"}]`,
+		"failing  ": `[{"__typename":"CheckRun","conclusion":"STARTUP_FAILURE","status":"COMPLETED"}]`,
+	} {
+		w := newWorld(t)
+		w.create(t, "one")
+		w.service.Repo = "acme/repo"
+		w.service.GH = fakeGH(t, w, `[{"number":7,"headRefName":"feat/one","statusCheckRollup":`+rollup+`}]`)
+		if got := row(t, listFull(t, w).Rows, "one"); got.CI != strings.TrimSpace(want) {
+			t.Errorf("%s: %q", rollup, got.CI)
+		}
 	}
 }
