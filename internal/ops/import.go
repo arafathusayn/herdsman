@@ -53,6 +53,9 @@ func Import(ctx context.Context, src, state string) error {
 	if err := os.Chmod(tmp, 0o700); err != nil {
 		return err
 	}
+	if err := refuseLeavingLinks(tmp); err != nil {
+		return err
+	}
 	for _, id := range m.Snapshots {
 		if err := copySnapshot(ctx, filepath.Join(src, exportSnapshotDir, id), filepath.Join(tmp, exportSnapshotDir, id)); err != nil {
 			return fmt.Errorf("import: snapshot %s: %w", id, err)
@@ -74,6 +77,32 @@ func Import(ctx context.Context, src, state string) error {
 		return err
 	}
 	return syncPath(filepath.Dir(state))
+}
+
+// refuseLeavingLinks fails on a link in the staged state that does not resolve
+// to a place inside it. The folder is private to this attempt, so nothing can
+// add one after the walk. A link that resolves nowhere is refused too: a write
+// through it would create its target. Snapshots are copied after this and keep
+// their own links, which are data: nothing writes through them.
+func refuseLeavingLinks(root string) error {
+	real, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.Type()&fs.ModeSymlink == 0 {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("import: the link %s leaves the state: it resolves nowhere", rel)
+		}
+		if inside, err := filepath.Rel(real, target); err != nil || !filepath.IsLocal(inside) {
+			return fmt.Errorf("import: the link %s leaves the state", rel)
+		}
+		return nil
+	})
 }
 
 func readExportManifest(src string) (*exportManifest, error) {

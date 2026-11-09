@@ -89,8 +89,8 @@ func parseAge(value string) (time.Duration, error) {
 	if days, ok := strings.CutSuffix(value, "d"); ok {
 		var n int64
 		if n, err = strconv.ParseInt(days, 10, 64); err == nil {
-			if n > math.MaxInt64/int64(24*time.Hour) {
-				return 0, fmt.Errorf("retention undo %q is too long", value)
+			if n <= 0 || n > math.MaxInt64/int64(24*time.Hour) {
+				return 0, fmt.Errorf("retention undo %q: want a positive duration, as \"720h\" or \"30d\"", value)
 			}
 			age = time.Duration(n) * 24 * time.Hour
 		}

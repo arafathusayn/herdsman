@@ -687,7 +687,7 @@ func TestParseRetention(t *testing.T) {
 	if got, err := ops.ParseRetention("", ""); err != nil || got != (ops.Retention{}) {
 		t.Fatalf("%+v %v", got, err)
 	}
-	for _, bad := range [][2]string{{"soon", ""}, {"-1d", ""}, {"0h", ""}, {"", "lots"}, {"", "0"}, {"", "-1GiB"}, {"", "99999999999TiB"}, {"99999999999d", ""}} {
+	for _, bad := range [][2]string{{"soon", ""}, {"-1d", ""}, {"0h", ""}, {"", "lots"}, {"", "0"}, {"", "-1GiB"}, {"", "99999999999TiB"}, {"99999999999d", ""}, {"-213503d", ""}, {"-1d", "1"}, {"", "-9223372036854775808"}} {
 		if got, err := ops.ParseRetention(bad[0], bad[1]); err == nil {
 			t.Errorf("%v parsed: %+v", bad, got)
 		}
@@ -1560,5 +1560,58 @@ func TestExportHoldsTheQuiesceGateForTheCopy(t *testing.T) {
 	}
 	if !sawHeld.Load() || held.Load() {
 		t.Fatalf("held during the copy: %v; released after: %v", sawHeld.Load(), !held.Load())
+	}
+}
+
+// An export is data from elsewhere: a link in it must not carry a write out of
+// the state being built.
+func TestImportRefusesALinkThatLeavesTheDestination(t *testing.T) {
+	cases := map[string]func(t *testing.T, outside string) string{
+		"absolute": func(_ *testing.T, outside string) string { return outside },
+		"relative": func(t *testing.T, outside string) string {
+			return strings.Repeat("../", 8) + strings.TrimPrefix(outside, "/")
+		},
+		"dangling": func(_ *testing.T, outside string) string { return filepath.Join(outside, "absent") },
+	}
+	for name, target := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, rigOptions{})
+			_, tree := dirtyWorktree(t)
+			snapshotOf(t, r, "t1", tree)
+			dest := filepath.Join(t.TempDir(), "export")
+			if _, err := r.rec.Export(context.Background(), dest); err != nil {
+				t.Fatal(err)
+			}
+			outside := t.TempDir()
+			if err := os.Symlink(target(t, outside), filepath.Join(dest, "state", "snapshots")); err != nil {
+				t.Fatal(err)
+			}
+			if err := ops.Import(context.Background(), dest, filepath.Join(t.TempDir(), "s")); err == nil || !strings.Contains(err.Error(), "leaves the state") {
+				t.Fatalf("err = %v", err)
+			}
+			if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
+				t.Fatalf("written outside: %v %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestImportKeepsALinkInsideTheState(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	_, tree := dirtyWorktree(t)
+	snapshotOf(t, r, "t1", tree)
+	dest := filepath.Join(t.TempDir(), "export")
+	if _, err := r.rec.Export(context.Background(), dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("daemon", filepath.Join(dest, "state", "alias")); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(t.TempDir(), "s")
+	if err := ops.Import(context.Background(), dest, state); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.Readlink(filepath.Join(state, "alias")); err != nil || got != "daemon" {
+		t.Fatalf("%q %v", got, err)
 	}
 }
