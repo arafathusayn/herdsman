@@ -32,7 +32,7 @@ type treeSpec struct {
 	Start    string `json:"start,omitempty"`    // Empty: the branch exists.
 	Identity string `json:"identity,omitempty"` // The pull request it was made for.
 	GitOnly  bool   `json:"git_only,omitempty"`
-	Socket   string `json:"socket,omitempty"` // Where the caller's herdr listens.
+	Socket   string `json:"socket,omitempty"`    // Where the caller's herdr listens.
 	OwnClone bool   `json:"own_clone,omitempty"` // The restricted profile: a clone of its own, not a worktree.
 }
 
