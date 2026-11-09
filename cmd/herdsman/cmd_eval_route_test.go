@@ -43,7 +43,7 @@ func (s *scriptedRoutes) Up(_ context.Context, req *daemonv1.UpRequest) (*daemon
 		return nil, err
 	}
 	s.folders[req.GetRepo()] = folder
-	go s.agent(req.GetRepo(), req.GetPrompt(), req.GetOrchestratorCommand(), req.GetOrchestratorKind())
+	s.agent(req.GetRepo(), req.GetPrompt(), req.GetOrchestratorCommand(), req.GetOrchestratorKind())
 	return &daemonv1.UpResponse{}, nil
 }
 
@@ -249,6 +249,32 @@ func TestRouteCostAddsUpTheSpansWithoutAUsageFile(t *testing.T) {
 	}
 	if got := runner.routeCost(ctx, route, t.TempDir()); got == nil || *got != 12 {
 		t.Fatalf("%v", got)
+	}
+}
+
+func TestEvalRunGivesUpOnARouteThatNeverStarts(t *testing.T) {
+	routes := withScriptedRoutes(t, &scriptedRoutes{state: "starting", agent: func(string, string, string, string) {}})
+	saved := evalTimeoutUnit
+	t.Cleanup(func() { evalTimeoutUnit = saved })
+	evalTimeoutUnit = 10 * time.Millisecond
+	if code, _, errOut := runEvalArgs(evalFlag, "run", routeSuite(t, 1)); code != 1 || !strings.Contains(errOut, "deadline") {
+		t.Fatalf("%d %s", code, errOut)
+	}
+	if routes.stopped.Load() != 1 {
+		t.Fatalf("stopped %d", routes.stopped.Load())
+	}
+}
+
+type traceGetFails struct{ tracev1.TraceService }
+
+func (traceGetFails) Get(context.Context, *tracev1.GetRequest) (*tracev1.GetResponse, error) {
+	return nil, errors.New("broken")
+}
+
+func TestRouteCostIsUnknownWhenTheTraceCannotBeRead(t *testing.T) {
+	runner := &evalRunner{service: traceGetFails{}}
+	if got := runner.routeCost(context.Background(), t.TempDir(), t.TempDir()); got != nil {
+		t.Fatalf("%v", *got)
 	}
 }
 

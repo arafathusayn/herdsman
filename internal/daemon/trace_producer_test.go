@@ -20,18 +20,6 @@ import (
 	tracev1 "github.com/arafathusayn/herdsman/sdk/trace/v1"
 )
 
-func routeFolderFixture(t *testing.T, repo, name string) string {
-	t.Helper()
-	folder := filepath.Join(repo, ".herdsman", name)
-	if err := os.MkdirAll(folder, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(folder, route.RouteFile), []byte("# route\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return folder
-}
-
 func collectedKinds(t *testing.T, folder string) (map[string]int, trace.Trace) {
 	t.Helper()
 	got, err := trace.Collect(trace.Sources{Route: folder})
