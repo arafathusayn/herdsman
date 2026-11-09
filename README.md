@@ -106,6 +106,16 @@ Purple is planning with you, blue is agents at work, grey is the orchestrator as
 - **Health checks.** Each wake shows every agent's state, model, background jobs and their ages, recent file writes, and the machine's load and free memory. Long-running jobs, idle trees and a loaded machine are flagged. Between wakes the waiter checks every ten minutes and wakes the orchestrator only for a new flag.
 - **One heavy check at a time.** Type checks, lint, tests and builds go through `herdsman run-check`: a machine-wide lock with a load gate, at lower CPU priority, so checks queue instead of piling up.
 
+**Work in worktrees and measure**
+
+- **Worktree commands** *(next release)*. `new`, `go`, `ls`, `diff`, `commit`, `each` and `teardown` work on a task's worktree by name. `teardown` stops only what the task owns.
+- **One-command start** *(next release)*. `herdsman up` starts a route and picks up where it stopped when you run it again.
+- **Cost and traces** *(next release)*. `cost` reports the tokens that harnesses measured, and `trace` exports a route's spans as OpenTelemetry.
+
+**Build on it**
+
+- **Contracts, an SDK and MCP** *(next release)*. The commands and the daemon's services are defined as contracts, with Go and TypeScript clients, and `herdsman mcp` serves them to agents.
+
 **Manage context**
 
 - **Checkpointer.** A pane next to the orchestrator asks it to save its memory every 15 minutes, and to compact its context once it passes a token limit.
@@ -197,7 +207,7 @@ In the orchestrator session, inside herdr:
 
 ## The herdsman CLI
 
-Besides `web`, the `herdsman` command holds the tools the skill runs, in one Go binary. Each command reads strict settings, stops with exit code 2 and the setting's name when one is wrong, and prints its usage and exit codes with `--help`. Most print JSON with `--json`. `herdsman help` lists them all, `herdsman spec cli` prints them as JSON, and each has a [page](docs/commands/index.md).
+The `herdsman` command holds the web app, the tools the skill runs and the worktree commands, in one Go binary. Each command reads strict settings, stops with exit code 2 and the setting's name when one is wrong, and prints its usage and exit codes with `--help`. Most print JSON with `--json`. `herdsman help` lists them all, `herdsman spec cli` prints them as JSON, and each has a [page](docs/commands/index.md).
 
 | Command | What it does |
 | --- | --- |
@@ -215,6 +225,44 @@ Besides `web`, the `herdsman` command holds the tools the skill runs, in one Go 
 | `models [last\|save]` | Probes each installed harness for its version, models, efforts and default effort as it reports them; `last` and `save` keep your last pick for each role. |
 | `afk` | How long you have been away: the machine's idle time or your newest message, whichever is newer. |
 | `review start` | Prepares a clean, detached worktree at a commit for a reviewer, with its own build caches. |
+
+**Tasks and worktrees**
+
+| Command | What it does |
+| --- | --- |
+| `new` *(next release)* | Makes a task's branch and worktree from the fetched base, then runs its hooks and setup. |
+| `go` *(next release)* | Enters a worktree by task, branch, path or pull request, making one for a pull request when needed. |
+| `ls` *(next release)* | Lists the repository's worktrees, with a form for status lines. |
+| `diff` *(next release)* | Shows a worktree's changes. |
+| `commit` *(next release)* | Commits a worktree with a Conventional Commits message. |
+| `each` *(next release)* | Runs a command in every worktree. |
+| `hook` *(next release)* | Shows, approves or runs a worktree hook. |
+| `resource` *(next release)* | Records a resource that a task created. |
+| `teardown` *(next release)* | Stops what a task runs and keeps what it holds. |
+
+**Routes and measurement**
+
+| Command | What it does |
+| --- | --- |
+| `up` *(next release)* | Starts a route in one command: workspace, private inbox, both coordinators, the pair and the first brief. |
+| `cost` *(next release)* | Reports measured tokens and cost per task, project or route. |
+| `trace` *(next release)* | Shows one route's spans, or exports them as OpenTelemetry. |
+| `eval` *(next release)* | Reports a suite's runs with intervals and an A/A control. [Experimental](docs/experimental.md). |
+
+**Setup and integration**
+
+| Command | What it does |
+| --- | --- |
+| `web` | Serves the web app and prints its URL, a one-run token and a QR code. |
+| `config` *(next release)* | Reads and changes the configuration, and installs the shell integration. See the [configuration reference](docs/config.md). |
+| `suggest` *(next release)* | Searches the catalog of tips and tools, ranked for this machine and project. |
+| `recommend` *(next release)* | The same as `suggest`. |
+| `spec` *(next release)* | Prints the contracts: `cli`, `proto` or `descriptor`. See the [SDK](docs/sdk.md). |
+| `mcp` *(next release)* | Serves the daemon's services as MCP tools over stdio. |
+| `plugin` *(next release)* | Manages [plugins](docs/plugins.md). Experimental. |
+| `update` *(next release)* | Installs the latest signed release over this binary. |
+| `version` | Prints the version, commit and platform. |
+| `help` | Prints the commands. |
 
 Commands marked *next release* are on `main`; build from source to use them now.
 
@@ -313,7 +361,7 @@ make tools
 make check
 ```
 
-`make check` runs the web app's format check, type checks and tests (`make web-check`), the web build, gofmt, `go vet` and staticcheck (`make lint`), the Go tests with the race detector (`make test`) and govulncheck (`make vuln`). `make build` writes `bin/herdsman` with the app embedded and `CGO_ENABLED=1`; `make web-e2e` runs the built app and its forms in headless Chrome. The Go tests cover every `herdsman` command the skill runs (the waiter, the watchers, status, route check and log, run-check, the checkpointer, the message channel, the approval gate, and the daemon with its SQLite store), with a fake Herdr socket server and a fake `gh`. CI runs them on macOS and Linux. A pushed `v*` tag builds the release binaries on a macOS runner: the darwin ones with its clang, the Linux ones with `zig cc` against musl.
+`make check` runs the checks of every module listed in [`MODULES.md`](MODULES.md), one after another, and fails when any fails. `make build` writes `bin/herdsman` with the app embedded and `CGO_ENABLED=1`; `make web-e2e` runs the built app and its forms in headless Chrome. The Go tests cover every `herdsman` command the skill runs (the waiter, the watchers, status, route check and log, run-check, the checkpointer, the message channel, the approval gate, and the daemon with its SQLite store), with a fake Herdr socket server and a fake `gh`. CI runs them on macOS and Linux. A pushed `v*` tag builds the release binaries on a macOS runner: the darwin ones with its clang, the Linux ones with `zig cc` against musl.
 
 <details>
 <summary>Try the checkpointer against a live orchestrator pane</summary>
