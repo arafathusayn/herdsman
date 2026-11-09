@@ -11,6 +11,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/statedir"
+	"github.com/arafathusayn/herdsman/sdk/config"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
@@ -171,6 +172,19 @@ func (s *opsService) Records(ctx context.Context, _ *daemonv1.RecordsRequest) (*
 		res.Snapshots = append(res.Snapshots, &daemonv1.SnapshotInfo{Id: snap.ID, Task: snap.Task, Size: snap.Size, Created: snap.Created})
 	}
 	return res, nil
+}
+
+// configuredRetention reads [retention] from the user file. The daemon serves
+// the whole account, so a repository's own file has no say.
+func configuredRetention(environ []string) func() (ops.Retention, error) {
+	return func() (ops.Retention, error) {
+		result, err := config.Load(config.Options{Environ: environ})
+		if err != nil {
+			return ops.Retention{}, err
+		}
+		section := result.Config.GetRetention()
+		return ops.ParseRetention(section.GetUndo(), section.GetCap())
+	}
 }
 
 // sweep prunes expired snapshots; a failure waits for the next round.

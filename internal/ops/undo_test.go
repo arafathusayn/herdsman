@@ -41,6 +41,7 @@ type rigOptions struct {
 	fault     func(string)
 	extra     map[string]ops.Effect
 	quiesce   func() func()
+	policy    func() (ops.Retention, error)
 }
 
 func newRig(t *testing.T, o rigOptions) *rig {
@@ -61,7 +62,7 @@ func openRig(t *testing.T, state string, o rigOptions) *rig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	rec := ops.NewRecovery(ops.RecoveryOptions{StateDir: state, Retention: o.retention, Volumes: o.volumes, Quiesce: o.quiesce})
+	rec := ops.NewRecovery(ops.RecoveryOptions{StateDir: state, Retention: o.retention, Volumes: o.volumes, Quiesce: o.quiesce, Policy: o.policy})
 	effects := rec.Effects()
 	for k, v := range o.extra {
 		effects[k] = v
@@ -627,6 +628,69 @@ func TestSweepPrunesOnlyExpiredSnapshots(t *testing.T) {
 	}
 	if pruned, err := r.rec.Sweep(context.Background()); err != nil || len(pruned) != 0 {
 		t.Fatalf("second sweep: %v %v", pruned, err)
+	}
+}
+
+// The settings are read when they are applied, so a change holds at once.
+func TestSweepUsesTheConfiguredAge(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	age := 24 * time.Hour
+	r := newRig(t, rigOptions{now: func() time.Time { return now }, policy: func() (ops.Retention, error) { return ops.Retention{Undo: age}, nil }})
+	_, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	now = now.Add(2 * time.Hour)
+	if pruned, err := r.rec.Sweep(context.Background()); err != nil || len(pruned) != 0 {
+		t.Fatalf("pruned %v, %v", pruned, err)
+	}
+	age = time.Hour
+	if pruned, err := r.rec.Sweep(context.Background()); err != nil || !reflect.DeepEqual(pruned, []string{id}) {
+		t.Fatalf("pruned %v, %v", pruned, err)
+	}
+}
+
+// Settings that cannot be read may hold a longer age than the default, so
+// nothing is deleted on a guess.
+func TestSweepDeletesNothingWhenTheSettingsCannotBeRead(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	var broken error
+	r := newRig(t, rigOptions{now: func() time.Time { return now }, policy: func() (ops.Retention, error) { return ops.Retention{Undo: time.Hour}, broken }})
+	_, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	now = now.Add(365 * 24 * time.Hour)
+	broken = errors.New("bad file")
+	if _, err := r.rec.Sweep(context.Background()); err == nil || !strings.Contains(err.Error(), "bad file") {
+		t.Fatalf("err = %v", err)
+	}
+	if list, _ := r.rec.Snapshots(); len(list) != 1 || list[0].ID != id {
+		t.Fatalf("left: %+v", list)
+	}
+}
+
+func TestConfiguredCapRefusesASnapshot(t *testing.T) {
+	r := newRig(t, rigOptions{policy: func() (ops.Retention, error) { return ops.Retention{Cap: 1}, nil }})
+	r.seedSnapshot(t, "older", 1)
+	_, tree := dirtyWorktree(t)
+	op, err := r.rec.Snapshot(context.Background(), ops.SnapshotRequest{Task: "t", Worktree: tree})
+	if err == nil && op.State == ops.OpDone {
+		t.Fatalf("a snapshot was admitted over the cap: %+v", op)
+	}
+}
+
+func TestParseRetention(t *testing.T) {
+	got, err := ops.ParseRetention("7d", "500MiB")
+	if err != nil || got.Undo != 7*24*time.Hour || got.Cap != 500<<20 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if got, err := ops.ParseRetention("36h", "1048576"); err != nil || got.Undo != 36*time.Hour || got.Cap != 1<<20 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if got, err := ops.ParseRetention("", ""); err != nil || got != (ops.Retention{}) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	for _, bad := range [][2]string{{"soon", ""}, {"-1d", ""}, {"0h", ""}, {"", "lots"}, {"", "0"}, {"", "-1GiB"}, {"", "99999999999TiB"}, {"99999999999d", ""}, {"-213503d", ""}, {"-1d", "1"}, {"", "-9223372036854775808"}} {
+		if got, err := ops.ParseRetention(bad[0], bad[1]); err == nil {
+			t.Errorf("%v parsed: %+v", bad, got)
+		}
 	}
 }
 
@@ -1497,4 +1561,121 @@ func TestExportHoldsTheQuiesceGateForTheCopy(t *testing.T) {
 	if !sawHeld.Load() || held.Load() {
 		t.Fatalf("held during the copy: %v; released after: %v", sawHeld.Load(), !held.Load())
 	}
+}
+
+// An export is data from elsewhere: a link in it must not carry a write out of
+// the state being built.
+func TestImportRefusesALinkThatLeavesTheDestination(t *testing.T) {
+	cases := map[string]func(t *testing.T, outside string) string{
+		"absolute": func(_ *testing.T, outside string) string { return outside },
+		"relative": func(t *testing.T, outside string) string {
+			return strings.Repeat("../", 8) + strings.TrimPrefix(outside, "/")
+		},
+		"dangling": func(_ *testing.T, outside string) string { return filepath.Join(outside, "absent") },
+	}
+	for name, target := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, rigOptions{})
+			_, tree := dirtyWorktree(t)
+			snapshotOf(t, r, "t1", tree)
+			dest := filepath.Join(t.TempDir(), "export")
+			if _, err := r.rec.Export(context.Background(), dest); err != nil {
+				t.Fatal(err)
+			}
+			outside := t.TempDir()
+			if err := os.Symlink(target(t, outside), filepath.Join(dest, "state", "snapshots")); err != nil {
+				t.Fatal(err)
+			}
+			if err := ops.Import(context.Background(), dest, filepath.Join(t.TempDir(), "s")); err == nil || !strings.Contains(err.Error(), "leaves the state") {
+				t.Fatalf("err = %v", err)
+			}
+			if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
+				t.Fatalf("written outside: %v %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestImportKeepsALinkInsideTheState(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	_, tree := dirtyWorktree(t)
+	snapshotOf(t, r, "t1", tree)
+	dest := filepath.Join(t.TempDir(), "export")
+	if _, err := r.rec.Export(context.Background(), dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("daemon", filepath.Join(dest, "state", "alias")); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(t.TempDir(), "s")
+	if err := ops.Import(context.Background(), dest, state); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.Readlink(filepath.Join(state, "alias")); err != nil || got != "daemon" {
+		t.Fatalf("%q %v", got, err)
+	}
+}
+
+func killedAfterPublication(t *testing.T) (*rig, string) {
+	t.Helper()
+	armed := true
+	r := newRig(t, rigOptions{fault: func(p string) {
+		if p == "undo:published" && armed {
+			armed = false
+			panic("killed")
+		}
+	}})
+	repo, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	removeWorktree(t, repo, tree)
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id})
+	}()
+	return r, tree
+}
+
+func recoveredState(t *testing.T, r *rig) ops.OpState {
+	t.Helper()
+	again := openRig(t, r.state, rigOptions{})
+	if err := again.eng.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	list, err := again.eng.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return list[0].State
+}
+
+func TestUndoProbeNoticesAMissingPreservedFile(t *testing.T) {
+	r, tree := killedAfterPublication(t)
+	if err := os.Remove(filepath.Join(tree, ".env")); err != nil {
+		t.Fatal(err)
+	}
+	if state := recoveredState(t, r); state == ops.OpDone {
+		t.Fatal("done although .env is gone")
+	}
+	if _, err := os.Stat(filepath.Join(tree, ".env")); !os.IsNotExist(err) {
+		t.Fatalf("recovery wrote over the tree: %v", err)
+	}
+}
+
+func TestUndoProbeNoticesAnEditedFile(t *testing.T) {
+	r, tree := killedAfterPublication(t)
+	write(t, filepath.Join(tree, "new.txt"), "edited by someone\n")
+	if state := recoveredState(t, r); state == ops.OpDone {
+		t.Fatal("done although new.txt changed")
+	}
+	if got := read(t, filepath.Join(tree, "new.txt")); got != "edited by someone\n" {
+		t.Fatalf("recovery overwrote the edit: %q", got)
+	}
+}
+
+func TestUndoProbeAcceptsAnUntouchedTree(t *testing.T) {
+	r, tree := killedAfterPublication(t)
+	if state := recoveredState(t, r); state != ops.OpDone {
+		t.Fatalf("state %s", state)
+	}
+	assertRestored(t, tree)
 }

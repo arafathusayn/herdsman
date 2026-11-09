@@ -50,7 +50,7 @@ func TestTransportByInboxOwner(t *testing.T) {
 		{"enroll always", map[string]string{"HERDSMAN_ROUTE": "new"}, []string{"enroll", "a", "adjutant"}, "new", true},
 	}
 	for _, c := range cases {
-		env := map[string]string{"HERDSMAN_PRIVATE_HOME": ph}
+		env := map[string]string{"HERDSMAN_PRIVATE_HOME": ph, "HOME": ph}
 		for k, v := range c.env {
 			env[k] = v
 		}

@@ -15,10 +15,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/route/routechan"
 	"github.com/arafathusayn/herdsman/internal/sys"
+	"github.com/arafathusayn/herdsman/sdk/config"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
@@ -162,9 +164,23 @@ func (s *routeService) request(req *daemonv1.UpRequest) (route.UpRequest, error)
 	if err != nil {
 		return route.UpRequest{}, rpc.Errorf(rpc.FailedPrecondition, "the repository's configuration: %v", err)
 	}
+	var configured *launch.Spec
+	if path := req.GetConfigPath(); path != "" && !req.GetContinue() {
+		// The daemon's own folder means nothing to the caller.
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(req.GetRepo(), path)
+		}
+		result, err := config.Load(config.Options{ConfigPath: path, RepoRoot: req.GetRepo()})
+		if err != nil {
+			return route.UpRequest{}, rpc.Errorf(rpc.InvalidArgument, "the configuration: %v", err)
+		}
+		if configured, err = route.ConfigLaunch(result.Config.GetLaunch(), req.GetRepo()); err != nil {
+			return route.UpRequest{}, rpc.Errorf(rpc.InvalidArgument, "the configuration: %v", err)
+		}
+	}
 	return route.UpRequest{
 		Policy: governing, Protected: protected, SecretRefs: req.GetSecretRefs(),
-		Route: name, Repo: req.GetRepo(), Prompt: req.GetPrompt(),
+		Launch: configured, Route: name, Repo: req.GetRepo(), Prompt: req.GetPrompt(),
 		AdjutantCommand: req.GetAdjutantCommand(), OrchestratorCommand: req.GetOrchestratorCommand(),
 		AdjutantKind: req.GetAdjutantKind(), OrchestratorKind: req.GetOrchestratorKind(),
 		NoAdjutant: req.GetNoAdjutant(), PairManual: req.GetPairManual(), ConfigPath: req.GetConfigPath(),

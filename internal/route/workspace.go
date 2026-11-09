@@ -32,7 +32,7 @@ func applyWorkspace(ctx context.Context, deps Deps, c *herdr.Client, d stepData)
 	if err != nil {
 		return err
 	}
-	params := map[string]any{"label": d.Workspace, "cwd": d.Repo, "focus": false, "env": env}
+	params := map[string]any{"label": d.Workspace, "cwd": d.paneFolder(), "focus": false, "env": env}
 	return c.Call(ctx, "workspace.create", params, nil)
 }
 
@@ -58,6 +58,14 @@ func labelOf(p herdr.Pane) string {
 var groupLabels = map[string][]string{
 	"coordinators": {roleAdjutant, roleOrchestrator, labelCheckpoint},
 	"services":     {labelCourier, labelCardWatch},
+}
+
+// paneFolder is the folder a step's pane opens in.
+func (d stepData) paneFolder() string {
+	if d.Cwd != "" {
+		return d.Cwd
+	}
+	return d.Repo
 }
 
 // ensurePane finds the pane with the step's label or makes it: an unlabeled
@@ -103,7 +111,7 @@ func ensurePane(ctx context.Context, deps Deps, c *herdr.Client, d stepData) (st
 				PaneID string `json:"pane_id"`
 			} `json:"pane"`
 		}
-		params := map[string]any{"target_pane_id": sibling, "direction": "right", "cwd": d.Repo, "focus": false, "env": env}
+		params := map[string]any{"target_pane_id": sibling, "direction": "right", "cwd": d.paneFolder(), "focus": false, "env": env}
 		if err := c.Call(ctx, "pane.split", params, &r); err != nil {
 			return "", err
 		}
@@ -114,7 +122,7 @@ func ensurePane(ctx context.Context, deps Deps, c *herdr.Client, d stepData) (st
 				PaneID string `json:"pane_id"`
 			} `json:"root_pane"`
 		}
-		params := map[string]any{"workspace_id": workspace, "cwd": d.Repo, "label": d.Group, "focus": false, "env": env}
+		params := map[string]any{"workspace_id": workspace, "cwd": d.paneFolder(), "label": d.Group, "focus": false, "env": env}
 		if err := c.Call(ctx, "tab.create", params, &r); err != nil {
 			return "", err
 		}
