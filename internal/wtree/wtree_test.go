@@ -482,7 +482,7 @@ func TestOpenStateCreatesPrivateFilesAtSchemaOne(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("%v %v", info, err)
 	}
-	if v, err := st.SchemaVersion(context.Background()); err != nil || v != 1 {
+	if v, err := st.SchemaVersion(context.Background()); err != nil || v != len(migrations) {
 		t.Fatalf("version %d, %v", v, err)
 	}
 }

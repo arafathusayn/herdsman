@@ -141,7 +141,8 @@ func (s *LedgerService) snapshotOf(ctx context.Context, request LedgerRequest) (
 	return base, state, nil
 }
 
-// Plan builds a task's teardown plan without acting on it.
+// Plan builds a task's teardown plan and notes what it saw, without acting on
+// anything the plan names.
 func (s *LedgerService) Plan(ctx context.Context, request LedgerRequest) (ledger.Plan, error) {
 	base, state, err := s.snapshotOf(ctx, request)
 	if err != nil {
@@ -152,7 +153,11 @@ func (s *LedgerService) Plan(ctx context.Context, request LedgerRequest) (ledger
 	if err != nil {
 		return ledger.Plan{}, err
 	}
-	return ledger.BuildPlan(live), nil
+	plan := ledger.BuildPlan(live)
+	if err := ledger.NewTable(state.DB()).Observe(ctx, plan); err != nil {
+		return ledger.Plan{}, err
+	}
+	return plan, nil
 }
 
 // Resources lists a task's records and its live plan.
@@ -167,6 +172,9 @@ func (s *LedgerService) Resources(ctx context.Context, request LedgerRequest) (L
 		return LedgerResources{}, err
 	}
 	own := LedgerResources{Plan: ledger.BuildPlan(live)}
+	if err := ledger.NewTable(state.DB()).Observe(ctx, own.Plan); err != nil {
+		return LedgerResources{}, err
+	}
 	for _, record := range base.Records {
 		if record.Task == request.Task {
 			own.Records = append(own.Records, record)
