@@ -1053,7 +1053,7 @@ type countingRefs struct {
 	aheadBehind atomic.Int32
 }
 
-func (c *countingRefs) AheadBehind(ctx context.Context, base string) (map[string]gitrefs.Divergence, error) {
+func (c *countingRefs) AheadBehind(ctx context.Context, base string) (map[string]gitrefs.BranchDivergence, error) {
 	c.aheadBehind.Add(1)
 	return c.RefSource.AheadBehind(ctx, base)
 }
@@ -1220,7 +1220,7 @@ func (f failingRefs) Heads(context.Context) ([]gitrefs.Head, error) {
 func (failingRefs) Refs(context.Context) ([]gitrefs.Ref, error) {
 	return nil, errors.New("refs failed")
 }
-func (failingRefs) AheadBehind(context.Context, string) (map[string]gitrefs.Divergence, error) {
+func (failingRefs) AheadBehind(context.Context, string) (map[string]gitrefs.BranchDivergence, error) {
 	return nil, errors.New("ahead-behind failed")
 }
 
@@ -1488,7 +1488,7 @@ func TestDivergenceFailureMarksRowsAndKeepsStatus(t *testing.T) {
 
 type headsAndRefsOnly struct{ RefSource }
 
-func (headsAndRefsOnly) AheadBehind(context.Context, string) (map[string]gitrefs.Divergence, error) {
+func (headsAndRefsOnly) AheadBehind(context.Context, string) (map[string]gitrefs.BranchDivergence, error) {
 	return nil, errors.New("ahead-behind failed")
 }
 
@@ -1760,29 +1760,6 @@ func TestFillReportsARefReadFailure(t *testing.T) {
 	}
 }
 
-// When a branch cannot be shown unchanged after the count, the count is still
-// displayed but must not be remembered under the old object ids.
-func TestAnUnconfirmedDivergenceIsShownButNotCached(t *testing.T) {
-	f := newFixture(t, 1)
-	ctx := context.Background()
-	rows, err := f.coll.Skeleton(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.coll.Refs = &refsFailingAt{RefSource: f.coll.Refs, n: 2}
-	if err := f.coll.Fill(ctx, rows, nil); err != nil {
-		t.Fatal(err)
-	}
-	row := rowByTask(t, rows, "t00")
-	if !row.HasDivergence {
-		t.Fatalf("%+v", row)
-	}
-	var entries int
-	if err := f.state.db.QueryRow(`SELECT count(*) FROM caches WHERE kind = ?`, string(CacheDivergence)).Scan(&entries); err != nil || entries != 0 {
-		t.Fatalf("%d entries, %v", entries, err)
-	}
-}
-
 func TestDivergenceCodec(t *testing.T) {
 	d, ok := decodeDivergence(encodeDivergence(gitrefs.Divergence{Ahead: 3, Behind: 4}))
 	if !ok || d != (gitrefs.Divergence{Ahead: 3, Behind: 4}) {
@@ -1792,5 +1769,62 @@ func TestDivergenceCodec(t *testing.T) {
 		if _, ok := decodeDivergence(bad); ok {
 			t.Errorf("%q decoded", bad)
 		}
+	}
+}
+
+// movingRefs answers AheadBehind as if the branch stood on another commit when
+// git counted, then returns to the commit the row holds.
+type movingRefs struct {
+	RefSource
+	branch, moved string
+}
+
+func (m movingRefs) AheadBehind(context.Context, string) (map[string]gitrefs.BranchDivergence, error) {
+	return map[string]gitrefs.BranchDivergence{
+		headsPrefix + m.branch: {Object: m.moved, Divergence: gitrefs.Divergence{Ahead: 99, Behind: 99}},
+	}, nil
+}
+
+// A branch that moves away and back during the count must not store counts for
+// the other commit under the key of the commit it is back on.
+func TestABranchThatMovesAndReturnsDoesNotPoisonTheCache(t *testing.T) {
+	f := newFixture(t, 1)
+	c := f.coll
+	rows, err := c.Skeleton(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := -1
+	for i := range rows {
+		if !rows[i].IsDefault && rows[i].Branch != "" {
+			row = i
+		}
+	}
+	if row < 0 {
+		t.Fatalf("no branch row in %+v", rows)
+	}
+	c.Refs = movingRefs{RefSource: c.Refs, branch: rows[row].Branch, moved: strings.Repeat("a", len(rows[row].Head))}
+	if err := c.Fill(context.Background(), rows, nil); err != nil {
+		t.Fatal(err)
+	}
+	if rows[row].HasDivergence {
+		t.Fatalf("row shows counts for another commit: %+v", rows[row].Divergence)
+	}
+	base := ""
+	for _, r := range rows {
+		if r.IsDefault {
+			base = r.Head
+		}
+	}
+	key, err := CacheKey(rows[row].Head, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached, err := c.State.Cached(context.Background(), CacheDivergence, []string{key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cached) != 0 {
+		t.Fatalf("cache holds %v", cached)
 	}
 }
