@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package herdsman.daemon.v1;
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
+
+// OpsService recovers and copies an account.
+service OpsService {
+  // Undo restores a snapshot; nothing is overwritten.
+  rpc Undo(UndoRequest) returns (UndoResponse);
+  // Export copies the whole account to a new folder, complete or not at all.
+  rpc Export(ExportRequest) returns (ExportResponse);
+  // Import rebuilds an account from an export into another, empty state
+  // directory. To fill the state directory of a daemon that is not running
+  // yet, use `herdsman import`.
+  rpc Import(ImportRequest) returns (ImportResponse);
+  // Records lists the account's records and snapshots.
+  rpc Records(RecordsRequest) returns (RecordsResponse);
+}
+
+message UndoRequest {
+  // The snapshot, named by the operation that took it.
+  string snapshot = 1;
+  // An absolute path; empty means the original path when free, else beside it.
+  string target = 2;
+}
+
+message UndoResponse {
+  string operation_id = 1;
+  string target = 2;
+  // Whether the target is the snapshot's original path.
+  bool original = 3;
+}
+
+message ExportRequest {
+  // An absolute path that does not exist yet.
+  string dest = 1;
+}
+
+message ExportResponse {
+  string operation_id = 1;
+  string dest = 2;
+}
+
+message ImportRequest {
+  // The folder an export wrote.
+  string source = 1;
+  // An absolute path, empty or missing, outside this daemon's own state.
+  string state_dir = 2;
+}
+
+message ImportResponse {
+  string state_dir = 1;
+}
+
+message RecordsRequest {}
+
+message RecordsResponse {
+  repeated AccountRecord records = 1;
+  repeated SnapshotInfo snapshots = 2;
+  // The digest of records.
+  string digest = 3;
+}
+
+// AccountRecord is one stable record of the account.
+message AccountRecord {
+  string kind = 1;
+  string id = 2;
+  repeated string fields = 3;
+}
+
+// SnapshotInfo is one snapshot, without where it happens to be stored.
+message SnapshotInfo {
+  string id = 1;
+  string task = 2;
+  int64 size = 3;
+  int64 created = 4;
+}

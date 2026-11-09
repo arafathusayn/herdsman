@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+// Services of the herdsman daemon.
+package herdsman.daemon.v1;
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
+
+// EventService carries live updates by topic. Besides Wait, the daemon serves
+// a WebSocket at GET /rpc/herdsman.daemon.v1.EventService/Stream whose messages
+// in both directions are StreamFrame: binary protobuf by default, or JSON text
+// under the herdsman.json subprotocol. It is not declared as a method because
+// it is not unary. The stream and Wait read the same topics and cursors.
+service EventService {
+  // Wait returns the events after each topic's cursor, or none when wait_ms
+  // passes first.
+  rpc Wait(EventServiceWaitRequest) returns (EventServiceWaitResponse);
+}
+
+// TopicCursor is a position in one topic.
+message TopicCursor {
+  string topic = 1;
+  // "<epoch>-<seq>"; empty starts from the oldest event the topic retains.
+  string cursor = 2;
+}
+
+message EventServiceWaitRequest {
+  repeated TopicCursor topics = 1;
+  // How long to wait for an event; zero answers at once.
+  int32 wait_ms = 2;
+}
+
+message EventServiceWaitResponse {
+  repeated Event events = 1;
+  repeated Lagged lagged = 2;
+  // Where to resume each requested topic, whether or not it had events.
+  repeated TopicCursor cursors = 3;
+}
+
+// StreamFrame is one WebSocket message.
+message StreamFrame {
+  oneof frame {
+    // Client to server.
+    Subscribe subscribe = 1;
+    // Client to server.
+    Unsubscribe unsubscribe = 2;
+    // Server to client.
+    Event event = 3;
+    // Server to client.
+    Lagged lagged = 4;
+    // Either direction; the receiver of a client's ping answers with the same
+    // nonce.
+    Ping ping = 5;
+  }
+}
+
+// Subscribe starts a topic after a cursor. Subscribing again replaces the
+// topic's position.
+message Subscribe {
+  string topic = 1;
+  // "<epoch>-<seq>"; empty starts from the oldest event the topic retains.
+  string cursor = 2;
+}
+
+// Unsubscribe stops a topic.
+message Unsubscribe {
+  string topic = 1;
+}
+
+// Event is one update of a topic.
+message Event {
+  string topic = 1;
+  // The position after this event.
+  string cursor = 2;
+  string type = 3;
+  // JSON for daemon events; raw bytes for high-volume topics.
+  bytes payload = 4;
+}
+
+// Lagged says that delivery of a topic stopped. The topic stays stopped on the
+// stream until the client subscribes again from cursor.
+message Lagged {
+  string topic = 1;
+  // Where to subscribe again.
+  string cursor = 2;
+  // "queue_full": the subscriber fell behind, and resuming from cursor loses
+  // nothing while the topic still retains it. "cursor_expired" or
+  // "epoch_changed": events were lost, so re-read the state first.
+  string reason = 3;
+}
+
+// Ping keeps an idle connection known to be alive.
+message Ping {
+  string nonce = 1;
+}

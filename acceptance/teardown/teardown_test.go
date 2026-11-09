@@ -286,13 +286,9 @@ func level(plan ledger.Plan, p *started) ledger.Level {
 // TestAContainerIsStoppedAndKept stops a recorded container and leaves it on
 // the machine, stopped.
 func TestAContainerIsStoppedAndKept(t *testing.T) {
-	if err := exec.Command("docker", "info").Run(); err != nil {
-		t.Skipf("requirement missing, a running container engine: %v", err)
-	}
+	// The suite probes the engine and the image first; a platform without them
+	// declares docker absent, so nothing here may skip.
 	const image = "alpine:3"
-	if err := exec.Command("docker", "image", "inspect", image).Run(); err != nil {
-		t.Skipf("requirement missing, the local image %s; this gate never pulls: %v", image, err)
-	}
 	w := newWorld(t)
 	tree, execution := w.worktree("task-c")
 	name := fmt.Sprintf("herdsman-accept-%d", os.Getpid())
