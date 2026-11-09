@@ -318,6 +318,23 @@ func TestGatewayAnswersToTheLocalhostName(t *testing.T) {
 	}
 }
 
+// An empty host reaches the system as "every interface" without ever naming an
+// address, so only the address actually bound can show it.
+func TestListenRefusesEveryInterface(t *testing.T) {
+	for _, host := range []string{"", "0.0.0.0", "::"} {
+		ln, _, err := Listen(host, 0)
+		if err == nil {
+			addr := ln.Addr()
+			_ = ln.Close()
+			t.Errorf("host %q listened on %s", host, addr)
+			continue
+		}
+		if !strings.Contains(err.Error(), "every interface") {
+			t.Errorf("host %q: %v", host, err)
+		}
+	}
+}
+
 func TestListenBindsOnlyTheNamedLoopback(t *testing.T) {
 	ln, _, err := Listen("127.0.0.1", 0)
 	if err != nil {

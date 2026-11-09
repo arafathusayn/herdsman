@@ -233,18 +233,18 @@ func (r *Route) unsubscribe(s *subscriber) { delete(r.subs, s) }
 
 // always runs fn on the actor outside the operation rules (a degraded or
 // removed route, a full queue) and waits for it; a stopped route runs
-// nothing, and its stop has already dropped every stream. A function that has
-// started is waited for even as the route stops, because the caller reads what
-// it wrote.
+// nothing, and its stop has already dropped every stream.
 func (r *Route) always(fn func()) {
 	done := make(chan struct{})
-	var state atomic.Int32 // 0 queued, 1 started, 2 abandoned
+	// state: 0 queued, 1 started, 2 withdrawn. Callers read what fn wrote as
+	// soon as this returns, so a stop withdraws fn only while it is queued and
+	// otherwise waits for it to end.
+	var state atomic.Int32
 	op := func() {
-		if !state.CompareAndSwap(0, 1) {
-			return
+		if state.CompareAndSwap(0, 1) {
+			fn()
+			close(done)
 		}
-		fn()
-		close(done)
 	}
 	select {
 	case r.ops <- op:
