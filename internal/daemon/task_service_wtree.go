@@ -503,6 +503,9 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := wtree.ValidateTask(req.Task); err != nil {
 		return resp, err
 	}
+	if _, err := splitAgentCommand(req.Agent); err != nil {
+		return resp, err
+	}
 	r, err := s.open(ctx, req.Dir)
 	if err != nil {
 		return resp, err
@@ -620,7 +623,10 @@ func (s *WorktreeService) enterWorkspace(ctx context.Context, req WorktreeNewReq
 	if err := client.Call(ctx, "pane.send_input", map[string]any{"pane_id": pane, "text": export}, nil); err != nil {
 		return fmt.Errorf("the task's environment was not set: %w", err)
 	}
-	words := strings.Fields(req.Agent)
+	words, err := splitAgentCommand(req.Agent)
+	if err != nil {
+		return err
+	}
 	if len(words) == 0 {
 		return nil
 	}
