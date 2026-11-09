@@ -66,6 +66,8 @@ type Config struct {
 	OpsFault func(point string)
 	// Retention bounds the snapshots; the zero value is the defaults.
 	Retention ops.Retention
+	// RetentionPolicy, when set, replaces Retention and is read at each use.
+	RetentionPolicy func() (ops.Retention, error)
 }
 
 // Daemon is one running daemon.

@@ -41,6 +41,7 @@ type rigOptions struct {
 	fault     func(string)
 	extra     map[string]ops.Effect
 	quiesce   func() func()
+	policy    func() (ops.Retention, error)
 }
 
 func newRig(t *testing.T, o rigOptions) *rig {
@@ -61,7 +62,7 @@ func openRig(t *testing.T, state string, o rigOptions) *rig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	rec := ops.NewRecovery(ops.RecoveryOptions{StateDir: state, Retention: o.retention, Volumes: o.volumes, Quiesce: o.quiesce})
+	rec := ops.NewRecovery(ops.RecoveryOptions{StateDir: state, Retention: o.retention, Volumes: o.volumes, Quiesce: o.quiesce, Policy: o.policy})
 	effects := rec.Effects()
 	for k, v := range o.extra {
 		effects[k] = v
@@ -627,6 +628,69 @@ func TestSweepPrunesOnlyExpiredSnapshots(t *testing.T) {
 	}
 	if pruned, err := r.rec.Sweep(context.Background()); err != nil || len(pruned) != 0 {
 		t.Fatalf("second sweep: %v %v", pruned, err)
+	}
+}
+
+// The settings are read when they are applied, so a change holds at once.
+func TestSweepUsesTheConfiguredAge(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	age := 24 * time.Hour
+	r := newRig(t, rigOptions{now: func() time.Time { return now }, policy: func() (ops.Retention, error) { return ops.Retention{Undo: age}, nil }})
+	_, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	now = now.Add(2 * time.Hour)
+	if pruned, err := r.rec.Sweep(context.Background()); err != nil || len(pruned) != 0 {
+		t.Fatalf("pruned %v, %v", pruned, err)
+	}
+	age = time.Hour
+	if pruned, err := r.rec.Sweep(context.Background()); err != nil || !reflect.DeepEqual(pruned, []string{id}) {
+		t.Fatalf("pruned %v, %v", pruned, err)
+	}
+}
+
+// Settings that cannot be read may hold a longer age than the default, so
+// nothing is deleted on a guess.
+func TestSweepDeletesNothingWhenTheSettingsCannotBeRead(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	var broken error
+	r := newRig(t, rigOptions{now: func() time.Time { return now }, policy: func() (ops.Retention, error) { return ops.Retention{Undo: time.Hour}, broken }})
+	_, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	now = now.Add(365 * 24 * time.Hour)
+	broken = errors.New("bad file")
+	if _, err := r.rec.Sweep(context.Background()); err == nil || !strings.Contains(err.Error(), "bad file") {
+		t.Fatalf("err = %v", err)
+	}
+	if list, _ := r.rec.Snapshots(); len(list) != 1 || list[0].ID != id {
+		t.Fatalf("left: %+v", list)
+	}
+}
+
+func TestConfiguredCapRefusesASnapshot(t *testing.T) {
+	r := newRig(t, rigOptions{policy: func() (ops.Retention, error) { return ops.Retention{Cap: 1}, nil }})
+	r.seedSnapshot(t, "older", 1)
+	_, tree := dirtyWorktree(t)
+	op, err := r.rec.Snapshot(context.Background(), ops.SnapshotRequest{Task: "t", Worktree: tree})
+	if err == nil && op.State == ops.OpDone {
+		t.Fatalf("a snapshot was admitted over the cap: %+v", op)
+	}
+}
+
+func TestParseRetention(t *testing.T) {
+	got, err := ops.ParseRetention("7d", "500MiB")
+	if err != nil || got.Undo != 7*24*time.Hour || got.Cap != 500<<20 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if got, err := ops.ParseRetention("36h", "1048576"); err != nil || got.Undo != 36*time.Hour || got.Cap != 1<<20 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if got, err := ops.ParseRetention("", ""); err != nil || got != (ops.Retention{}) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	for _, bad := range [][2]string{{"soon", ""}, {"-1d", ""}, {"0h", ""}, {"", "lots"}, {"", "0"}, {"", "-1GiB"}, {"", "99999999999TiB"}, {"99999999999d", ""}} {
+		if got, err := ops.ParseRetention(bad[0], bad[1]); err == nil {
+			t.Errorf("%v parsed: %+v", bad, got)
+		}
 	}
 }
 

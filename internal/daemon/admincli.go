@@ -298,7 +298,8 @@ func (a *AdminEnv) run(ph, home string) int {
 	// the bounded log (9.3): a KeepAlive restart loop cannot grow it.
 	a.Stderr = lg
 	logf := func(s string) { lg.Line(time.Now().Format(time.RFC3339) + " " + s) }
-	d := New(Config{PrivateHome: ph, Home: home, Version: a.Version, Executable: a.Executable, HerdrSocket: herdrDefaultSocket(), Log: logf, Inspect: a.Inspect})
+	d := New(Config{PrivateHome: ph, Home: home, Version: a.Version, Executable: a.Executable, HerdrSocket: herdrDefaultSocket(), Log: logf, Inspect: a.Inspect,
+		RetentionPolicy: configuredRetention(append(os.Environ(), "HOME="+home))})
 	if err := d.Start(); err != nil {
 		return a.fail(err)
 	}

@@ -26,6 +26,19 @@ message Config {
   Suggest suggest = 13;
   Teardown teardown = 14;
   Worktree worktree = 15;
+  Retention retention = 16;
+}
+
+// Retention bounds the snapshots that undo can restore. The daemon reads it from
+// the user file each time it applies a limit. A value that cannot be read stops
+// the sweep and refuses new snapshots; nothing is deleted on a guess.
+message Retention {
+  // How long a snapshot is kept: a Go duration or a count of days, as "720h"
+  // or "30d". The default is 30 days.
+  optional string undo = 1;
+  // The most all snapshots may hold: bytes, or a count with KiB, MiB, GiB or
+  // TiB, as "20GiB". The default is 20 GiB. A full cap refuses a new snapshot.
+  optional string cap = 2;
 }
 
 // Schema says which version of this contract a file was written against.
