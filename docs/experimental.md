@@ -6,7 +6,7 @@ Most of herdsman follows the compatibility promise in [ADR 0003](adr/0003-public
 | --- | --- | --- |
 | Plugin protocol | Not released yet | To be set when it ships |
 | `herdsman eval` and its reports | `--experimental-eval` on every use | `eval/<version>`, in the `experimental` field of the JSON report |
-| `[automations]` in the configuration | Not released yet | To be set when it ships |
+| `[automations]` in the configuration, `herdsman daemon automations` | `experimental = true` in the section, and a person approves each action | `automations/0.1.0`, on each line of the action log |
 
 ## What experimental means
 

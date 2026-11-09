@@ -12,7 +12,17 @@ const initial = (): App => ({
   theme: "system",
   fatal: "",
   channel: null,
-  view: { route: "route", tab: "docs", file: "readme", source: "", diffFile: "", artifact: "", pane: "", ws: "" },
+  view: {
+    page: "",
+    route: "route",
+    tab: "docs",
+    file: "readme",
+    source: "",
+    diffFile: "",
+    artifact: "",
+    pane: "",
+    ws: "",
+  },
 });
 
 test("application updates notify signal readers without mutating previous snapshots", () => {

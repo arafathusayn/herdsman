@@ -261,16 +261,17 @@ func TestRequestSemaphore(t *testing.T) {
 		h.d.mu.Lock()
 		open := h.d.streams["r/"+orch.name]
 		h.d.mu.Unlock()
-		if open == 4 {
+		// Wait counts its stream before it gives its slot back, so a call
+		// can be open and still hold a slot for a moment: only both together
+		// mean attached. A slot that is never returned ends at the limit.
+		slots := len(h.d.sem)
+		if open == 4 && slots == 0 {
 			break
 		}
 		if i == 500 {
-			t.Fatalf("%d calls open, want 4", open)
+			t.Fatalf("%d calls open, want 4; waiting calls hold %d request slots", open, slots)
 		}
 		time.Sleep(5 * time.Millisecond)
-	}
-	if len(h.d.sem) != 0 {
-		t.Fatalf("waiting calls hold %d request slots", len(h.d.sem))
 	}
 	// The fifth call of one party is busy (4 per party).
 	_, err := orch.c.Events(context.Background(), "r", "")
@@ -318,9 +319,10 @@ func TestGoroutineAccounting(t *testing.T) {
 	for _, p := range parties {
 		p.c.Close()
 	}
-	base := g0 + 4 + 3
+	// Per route: its actor and the feed that publishes its events.
+	base := g0 + 4 + 3*2
 	if g := settleAt(base); g != base {
-		t.Fatalf("3 routes: %d goroutines over the base, want 3", g-(g0+4))
+		t.Fatalf("3 routes: %d goroutines over the base, want 6", g-(g0+4))
 	}
 	// A reader between calls holds no call on the daemon, only its kept
 	// connection.

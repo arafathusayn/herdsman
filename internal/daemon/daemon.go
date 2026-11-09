@@ -60,8 +60,18 @@ type Config struct {
 	// Effects and Checks are the operation engine's registered step kinds.
 	Effects map[string]ops.Effect
 	Checks  map[string]ops.Check
+	// Recovery replaces the backend of a route's delete. Nil: the daemon's undo.
+	Recovery route.Recovery
+	// RouteDown frees a route's tasks, for a delete that does not keep them.
+	RouteDown func(ctx context.Context, repo, folder string) error
+	// RouteTeardown stops a route's task processes (nil: the worktree service).
+	RouteTeardown func(ctx context.Context, repo, folder string) error
 	// Sink receives the operations' outbox (nil: events wait in the store).
 	Sink ops.Sink
+	// OpsFault is called at the operation engine's step boundaries.
+	OpsFault func(point string)
+	// Retention bounds the snapshots; the zero value is the defaults.
+	Retention ops.Retention
 }
 
 // Daemon is one running daemon.
@@ -86,11 +96,17 @@ type Daemon struct {
 	stateLock *os.File
 	acctDB    store.Conn
 	ops       *ops.Engine
-	opsCancel context.CancelFunc
-	opsCtx    context.Context
-	bg        sync.WaitGroup
+	recovery  *ops.Recovery
+	// exportGate keeps route and registry writers out of an export's copy.
+	exportGate sync.RWMutex
+	opsCancel  context.CancelFunc
+	opsCtx     context.Context
+	bg         sync.WaitGroup
 
 	callers *route.Callers // who asked for each route start
+
+	hub  *eventHub     // the topics the event stream and long poll read
+	view *registryView // publishes the routes into hub
 }
 
 type credRef struct{ route, name string }
@@ -123,7 +139,8 @@ func New(cfg Config) *Daemon {
 	if cfg.DrainWait == 0 {
 		cfg.DrainWait = 60 * time.Second
 	}
-	return &Daemon{callers: route.NewCallers(), cfg: cfg, routes: map[string]*Route{}, held: map[string]string{}, credIndex: map[string]credRef{},
+	hub := newEventHub()
+	return &Daemon{hub: hub, view: newRegistryView(hub), callers: route.NewCallers(), cfg: cfg, routes: map[string]*Route{}, held: map[string]string{}, credIndex: map[string]credRef{},
 		streams: map[string]int{}, sem: make(chan struct{}, 32), done: make(chan struct{})}
 }
 
@@ -409,6 +426,7 @@ func (d *Daemon) closeStateLock() {
 // unwindStart frees what a failed Start took. The retained inbox locks
 // stay, as on any stop, for the next start to take back.
 func (d *Daemon) unwindStart() {
+	d.closeEvents()
 	d.mu.Lock()
 	routes := make([]*Route, 0, len(d.routes))
 	for _, r := range d.routes {
@@ -467,6 +485,7 @@ func (d *Daemon) Stop(reason string) {
 			routes = append(routes, r)
 		}
 		d.mu.Unlock()
+		d.closeEvents()
 		for _, r := range routes {
 			_ = r.do(context.Background(), func() *APIError {
 				for s := range r.subs {
@@ -517,6 +536,7 @@ func (d *Daemon) openRoute(name string, e RouteEntry) {
 	delete(d.held, name)
 	d.routes[name] = r
 	d.mu.Unlock()
+	d.view.attach(r)
 }
 
 // route returns a served route.
@@ -607,8 +627,12 @@ func (d *Daemon) scheduler(ctx context.Context) {
 			go d.Stop("upgrade")
 			return
 		}
-		d.retryHeld()
-		d.checkHealth(ctx)
+		// An export is copying the routes: this tick's work waits for the next.
+		if d.exportGate.TryRLock() {
+			d.retryHeld()
+			d.checkHealth(ctx)
+			d.exportGate.RUnlock()
+		}
 		t.Reset(d.cfg.HeartbeatEvery)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -45,6 +46,8 @@ func ServeWorld(f *Fixture) *World {
 	s.Handle("pane.rename", w.paneRename)
 	s.Handle("pane.send_input", w.paneSendInput)
 	s.Handle("pane.process_info", w.paneProcessInfo)
+	s.Handle("pane.close", w.paneClose)
+	s.Handle("workspace.close", w.workspaceClose)
 	s.Handle("agent.start", w.agentStart)
 	return w
 }
@@ -267,12 +270,14 @@ func (w *World) agentStart(p map[string]any) (any, string) {
 		w.mu.Unlock()
 		return nil, "pane_not_found"
 	}
-	w.starts[name]++
-	workspace, tab, count := pane.workspace, pane.tab, w.starts[name]
+	workspace, tab := pane.workspace, pane.tab
 	w.mu.Unlock()
-	if count > 1 {
+	if w.f.named(name) {
 		return nil, "agent_name_taken"
 	}
+	w.mu.Lock()
+	w.starts[name]++
+	w.mu.Unlock()
 	rec := Agent(id, "session-"+name)
 	rec["name"], rec["agent"], rec["workspace_id"], rec["tab_id"] = name, kind, workspace, tab
 	rec["agent_session"] = map[string]any{"source": "hook", "agent": kind, "kind": "id", "value": "session-" + name}
@@ -298,4 +303,53 @@ func (w *World) snapshot(map[string]any) (any, string) {
 	snapshot["agents"] = w.f.sorted()
 	w.f.mu.Unlock()
 	return map[string]any{"type": "session_snapshot", "snapshot": snapshot}, ""
+}
+
+func (w *World) paneClose(p map[string]any) (any, string) {
+	if c := w.f.failed("pane.close"); c != "" {
+		return nil, c
+	}
+	id := str(p, "pane_id")
+	w.mu.Lock()
+	_, ok := w.panes[id]
+	w.mu.Unlock()
+	if !ok {
+		return nil, "pane_not_found"
+	}
+	w.Destroy(id)
+	w.f.SetAgent(id, nil)
+	return map[string]any{"type": "ok"}, ""
+}
+
+func (w *World) workspaceClose(p map[string]any) (any, string) {
+	if c := w.f.failed("workspace.close"); c != "" {
+		return nil, c
+	}
+	id := str(p, "workspace_id")
+	w.mu.Lock()
+	w.workspaces = slices.DeleteFunc(w.workspaces, func(m map[string]any) bool { return m["workspace_id"] == id })
+	var closing []string
+	for pane, data := range w.panes {
+		if data.workspace == id {
+			closing = append(closing, pane)
+		}
+	}
+	w.mu.Unlock()
+	for _, pane := range closing {
+		w.Destroy(pane)
+		w.f.SetAgent(pane, nil)
+	}
+	return map[string]any{"type": "ok"}, ""
+}
+
+// named reports whether a live agent already has the name.
+func (f *Fixture) named(name string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, a := range f.agents {
+		if a["name"] == name {
+			return true
+		}
+	}
+	return false
 }

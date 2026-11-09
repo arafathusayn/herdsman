@@ -142,6 +142,7 @@ func (c *Client) ReadPane(ctx context.Context, paneID string, o ReadOptions) (Pa
 		params["format"] = "ansi"
 	}
 	err := c.Call(ctx, "pane.read", params, &r)
+	r.Read.Text = filterPane(r.Read.Text)
 	return r.Read, err
 }
 

@@ -2,8 +2,10 @@ package route_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +19,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/route/routechan"
+	"github.com/arafathusayn/herdsman/internal/secrets"
 	"github.com/arafathusayn/herdsman/internal/sys"
 )
 
@@ -25,18 +28,25 @@ type crash struct{}
 // rig is one fake machine: a repository, a private home, a fake herdr and a
 // journal that outlives the engines a test makes to stand for restarts.
 type rig struct {
-	t       *testing.T
-	repo    string
-	private string
-	db      string
-	srv     *herdrtest.Server
-	fix     *herdrtest.Fixture
-	world   *herdrtest.World
-	callers *route.Callers
-	crashOn string
-	poll    func()
-	exe     string
-	policy  string
+	undo           *ops.Recovery
+	t              *testing.T
+	repo           string
+	private        string
+	db             string
+	srv            *herdrtest.Server
+	fix            *herdrtest.Fixture
+	world          *herdrtest.World
+	callers        *route.Callers
+	crashOn        string
+	onFault        func(string)
+	recovery       route.Recovery
+	down, teardown func(context.Context, string, string) error
+	downs          int
+	poll           func()
+	exe            string
+	policy         string
+	// keychain replaces the system keychain when set.
+	keychain secrets.Keychain
 }
 
 func newRig(t *testing.T) *rig {
@@ -88,13 +98,23 @@ func (r *rig) engine() (*ops.Engine, func()) {
 		if r.poll != nil {
 			r.poll()
 		}
-	}, AgentTimeout: 5 * time.Second}
-	e := ops.NewEngine(db, ops.Options{Effects: route.Effects(deps), Fault: func(point string) {
+	}, AgentTimeout: 5 * time.Second, Keychain: r.keychain, Recovery: r.recovery, Down: r.down, Teardown: r.teardown}
+	effects := route.Effects(deps)
+	if r.undo != nil {
+		maps.Copy(effects, r.undo.Effects())
+	}
+	e := ops.NewEngine(db, ops.Options{Effects: effects, Fault: func(point string) {
+		if r.onFault != nil {
+			r.onFault(point)
+		}
 		if point == r.crashOn {
 			r.crashOn = ""
 			panic(crash{})
 		}
 	}})
+	if r.undo != nil {
+		r.undo.Attach(e)
+	}
 	return e, func() { db.Close() }
 }
 
@@ -753,5 +773,40 @@ func TestPlanOfAJournaledStartResumesWithoutTheOriginalFlags(t *testing.T) {
 	}
 	if op, _ = e.Drive(context.Background(), op.ID); op.State != ops.OpDone {
 		t.Fatalf("state %s: %s", op.State, op.Reason)
+	}
+}
+
+func TestAFinishedStartLeavesOneStartedEvent(t *testing.T) {
+	for _, noAdjutant := range []bool{false, true} {
+		r := newRig(t)
+		q := r.request("claude", "codex")
+		q.NoAdjutant = noAdjutant
+		p := r.plan(q)
+		carrying := 0
+		for i, step := range p.Spec.Steps {
+			if len(step.Events) == 0 {
+				continue
+			}
+			carrying++
+			if i != len(p.Spec.Steps)-1 {
+				t.Fatalf("step %q is not the last and carries the event", step.Name)
+			}
+			if len(step.Events) != 1 || step.Events[0].Topic != route.TopicStarted {
+				t.Fatalf("%+v", step.Events)
+			}
+			var payload struct {
+				Project string            `json:"project"`
+				Values  map[string]string `json:"values"`
+			}
+			if err := json.Unmarshal([]byte(step.Events[0].Payload), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Project != q.Repo || payload.Values["route"] != q.Route || payload.Values["workspace"] != p.Workspace {
+				t.Fatalf("%+v", payload)
+			}
+		}
+		if carrying != 1 {
+			t.Fatalf("%d steps carry the event", carrying)
+		}
 	}
 }

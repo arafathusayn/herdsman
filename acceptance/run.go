@@ -38,7 +38,8 @@ var Gates = []Gate{
 	{Name: "up-usage-error", Package: "./acceptance/up", Test: "TestMissingFlagsAreAUsageError"},
 	{Name: "up-manual-pair", Package: "./acceptance/up", Test: "TestManualPairOnAScriptedTerminal", Needs: []string{"pty"}},
 
-	{Name: "up-prelude-crash", Package: "./acceptance/up", Test: "TestPreludeCrashReplaysNothing"},
+	{Name: "up-prelude-crash", Package: "./acceptance/up", Test: "TestPreludeCrashReplaysNothing", Needs: []string{"pty", "signals"}},
+	{Name: "up-verdict-then-pair", Package: "./acceptance/up", Test: "TestVerdictSurvivesThePairQuestion", Needs: []string{"pty", "signals"}},
 	{Name: "clean-undo-ignored-data", Package: "./acceptance/recovery", Test: "TestIgnoredDataComesBackThroughUndo"},
 	{Name: "clean-failed-snapshot", Package: "./acceptance/recovery", Test: "TestFailedSnapshotDeletesNothing"},
 	{Name: "restore-without-source", Package: "./acceptance/recovery", Test: "TestRestoreNeedsNoSourceRepository"},
@@ -127,7 +128,12 @@ func judge(gate Gate, stream string, runErr error) Result {
 		return fail("skipped inside the gate, which only requirements.md may do: " + strings.Join(skipped, ", "))
 	}
 	if len(tail) > reasonTailLines {
-		tail = tail[len(tail)-reasonTailLines:]
+		cut, kept := tail[:len(tail)-reasonTailLines], tail[len(tail)-reasonTailLines:]
+		// A failed test prints its cause first and may dump a log after it.
+		if i := slices.IndexFunc(cut, func(l string) bool { return strings.Contains(l, "_test.go:") }); i >= 0 {
+			kept = append([]string{cut[i]}, kept...)
+		}
+		tail = kept
 	}
 	if runErr != nil {
 		return fail(fmt.Sprintf("go test: %v\n%s", runErr, strings.Join(tail, "\n")))
@@ -220,7 +226,7 @@ func execGate(ctx context.Context, gate Gate, goEnv map[string]string) Result {
 	defer os.RemoveAll(root)
 	poison, home := filepath.Join(root, "bin"), filepath.Join(root, "home")
 	for _, dir := range []string{poison, home} {
-		if err := os.Mkdir(dir, 0o755); err != nil {
+		if err := makeDir(dir, 0o755); err != nil {
 			return fail(err)
 		}
 	}
@@ -240,8 +246,14 @@ func execGate(ctx context.Context, gate Gate, goEnv map[string]string) Result {
 	return result
 }
 
+// These are replaced by tests.
+var (
+	makeDir = os.Mkdir
+	exit    = os.Exit
+)
+
 func main() {
-	os.Exit(realMain(os.Args[1:], os.Stdout, os.Stderr))
+	exit(realMain(os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func realMain(args []string, stdout, stderr io.Writer) int {

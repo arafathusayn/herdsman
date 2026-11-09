@@ -42,22 +42,23 @@ func init() {
 	register(command{name: "go", summary: "Enter a worktree.", help: goHelp, run: runGo})
 }
 
-// pickSelector prints the table and reads a selector; "" means nothing chosen.
-func pickSelector(dir string, stdin io.Reader, stdout io.Writer) (string, error) {
-	result, _, err := readList(listRequest{Dir: dir})
+// pickSelector shows the table on screen and reads a selector; an empty one
+// means nothing was chosen. It also returns the table as JSON.
+func pickSelector(dir string, stdin io.Reader, screen io.Writer) (string, []byte, error) {
+	result, table, err := readList(listRequest{Dir: dir})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	printTable(stdout, result.Rows, false)
+	printTable(screen, result.Rows, false)
 	if !stdinIsTerminal(stdin) {
-		return "", nil
+		return "", table, nil
 	}
-	fmt.Fprint(stdout, "go to: ")
+	fmt.Fprint(screen, "go to: ")
 	line, err := bufio.NewReader(stdin).ReadString('\n')
 	if err != nil && err != io.EOF {
-		return "", err
+		return "", nil, err
 	}
-	return strings.TrimSpace(line), nil
+	return strings.TrimSpace(line), table, nil
 }
 
 func writeDirective(path string) error {
@@ -95,12 +96,23 @@ func runGo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	selector := ""
+	var table []byte
 	if len(positional) == 1 {
 		selector = positional[0]
-	} else if selector, err = pickSelector(dir, stdin, stdout); err != nil {
-		return fail(stderr, err)
+	} else {
+		// With --json, standard output carries nothing but the JSON.
+		screen := stdout
+		if *asJSON {
+			screen = stderr
+		}
+		if selector, table, err = pickSelector(dir, stdin, screen); err != nil {
+			return fail(stderr, err)
+		}
 	}
 	if selector == "" {
+		if *asJSON {
+			fmt.Fprintln(stdout, string(table))
+		}
 		return 0
 	}
 	data, err := callWorktree("Go", map[string]any{"dir": dir, "selector": selector, "focus": *focus})
