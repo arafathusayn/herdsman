@@ -35,8 +35,24 @@ type WorktreeService struct {
 }
 
 // WorktreeNewRequest asks for a task's worktree.
+	ConfigDir   string // Folder of the user's file; empty uses the standard one.
+}
+
+// worktreeSchemaVersion is the version of the verbs' JSON. It only grows.
+const worktreeSchemaVersion = "1.0.0"
+
+// WorktreeSchema says which version of the JSON a response follows.
+type WorktreeSchema struct {
+	Version string `json:"version"`
 type WorktreeNewRequest struct {
 	Dir     string `json:"dir"`
+// versioned is embedded in each response of the worktree verbs.
+type versioned struct {
+	Schema WorktreeSchema `json:"schema"`
+}
+
+func (v *versioned) stamp() { v.Schema.Version = worktreeSchemaVersion }
+
 	Task    string `json:"task"`
 	Base    string `json:"base,omitempty"`
 	From    string `json:"from,omitempty"`
@@ -52,6 +68,7 @@ type WorktreeNewResponse struct {
 	Task     string   `json:"task"`
 	Branch   string   `json:"branch"`
 	Path     string   `json:"path"`
+	versioned
 	Base     string   `json:"base"`
 	Port     int      `json:"port"`
 	Herdr    bool     `json:"herdr"`
@@ -93,6 +110,7 @@ type WorktreeListResponse struct {
 }
 
 // WorktreeGoRequest asks where a selector leads.
+	versioned
 type WorktreeGoRequest struct {
 	Dir      string `json:"dir"`
 	Selector string `json:"selector"`
@@ -106,6 +124,7 @@ type WorktreeGoResponse struct {
 	Path       string   `json:"path"`
 	Created    bool     `json:"created"`
 	Focused    bool     `json:"focused"`
+	versioned
 	PushRemote string   `json:"push_remote,omitempty"`
 	Warnings   []string `json:"warnings,omitempty"`
 }
@@ -136,6 +155,7 @@ type WorktreeHookResponse struct {
 	OK       bool                  `json:"ok"`
 	Result   string                `json:"result,omitempty"`
 }
+	versioned
 
 // WorktreeCall serves one verb for the command line in this process.
 func WorktreeCall(ctx context.Context, method string, request []byte) ([]byte, error) {
@@ -183,6 +203,9 @@ func dispatch[Req, Resp any](ctx context.Context, data []byte, method func(conte
 
 // repository is everything one call needs about the repository around Dir.
 type repository struct {
+	if stamped, ok := any(&response).(interface{ stamp() }); ok {
+		stamped.stamp()
+	}
 	git     *gitrun.Runner
 	state   *wtree.State
 	reader  *gitrefs.Reader

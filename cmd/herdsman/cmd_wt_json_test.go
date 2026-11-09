@@ -51,3 +51,32 @@ func TestGoJSONOnATerminalKeepsThePickerOffStandardOutput(t *testing.T) {
 		t.Fatalf("%q", errOut.String())
 	}
 }
+
+func TestStatuslineJSONGolden(t *testing.T) {
+	worktreeRepo(t)
+	out, _, code := call(t, "ls", "--statusline", "--format", "json")
+	if want := `{"schema":{"version":"1.0.0"},"statusline":"main"}` + "\n"; code != 0 || out != want {
+		t.Fatalf("%d %q", code, out)
+	}
+}
+
+func TestVerbJSONCarriesTheSchemaVersion(t *testing.T) {
+	worktreeRepo(t)
+	for _, args := range [][]string{
+		{"new", "one", "--no-setup", "--json"},
+		{"ls", "--json"},
+		{"go", "one", "--no-cd", "--json"},
+		{"go", "--json"},
+		{"hook", "show", "--json"},
+	} {
+		out, stderr, code := call(t, args...)
+		var got struct {
+			Schema struct {
+				Version string `json:"version"`
+			} `json:"schema"`
+		}
+		if err := json.Unmarshal([]byte(out), &got); code != 0 || err != nil || got.Schema.Version != "1.0.0" {
+			t.Errorf("%v: %d %q %q %v", args, code, out, stderr, err)
+		}
+	}
+}
