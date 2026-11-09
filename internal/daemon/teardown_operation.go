@@ -236,6 +236,9 @@ func (s *WorktreeService) teardownSteps(ctx context.Context, r *repository, req 
 
 // teardownOne runs one task's teardown as a task-locked operation.
 func (s *WorktreeService) teardownOne(ctx context.Context, r *repository, req WorktreeTeardownRequest, plan ledger.Plan) ([]ledger.Outcome, error) {
+	if s.engine == nil {
+		return nil, errors.New("teardown runs only in the daemon, which journals it")
+	}
 	steps, err := s.teardownSteps(ctx, r, req, plan)
 	if err != nil {
 		return nil, err

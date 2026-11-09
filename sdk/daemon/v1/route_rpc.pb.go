@@ -26,6 +26,14 @@ type RouteService interface {
 	Get(context.Context, *RouteServiceGetRequest) (*RouteServiceGetResponse, error)
 	// List reports every route start the daemon has journaled.
 	List(context.Context, *RouteServiceListRequest) (*RouteServiceListResponse, error)
+	// Pause interrupts a route's agents and holds its channel; nothing closes.
+	Pause(context.Context, *RouteServicePauseRequest) (*RouteServicePauseResponse, error)
+	// Resume continues a paused route or restarts a stopped one.
+	Resume(context.Context, *RouteServiceResumeRequest) (*RouteServiceResumeResponse, error)
+	// Stop ends a route's sessions and keeps its work on disk.
+	Stop(context.Context, *RouteServiceStopRequest) (*RouteServiceStopResponse, error)
+	// Delete removes a route, once a verified snapshot covers all it removes.
+	Delete(context.Context, *RouteServiceDeleteRequest) (*RouteServiceDeleteResponse, error)
 }
 
 // NewRouteServiceHandler serves impl over HTTP with the full binding. Mount it
@@ -35,6 +43,10 @@ func NewRouteServiceHandler(impl RouteService) http.Handler {
 		rpc.Unary(RouteServiceName, "Up", impl.Up),
 		rpc.Unary(RouteServiceName, "Get", impl.Get),
 		rpc.Unary(RouteServiceName, "List", impl.List),
+		rpc.Unary(RouteServiceName, "Pause", impl.Pause),
+		rpc.Unary(RouteServiceName, "Resume", impl.Resume),
+		rpc.Unary(RouteServiceName, "Stop", impl.Stop),
+		rpc.Unary(RouteServiceName, "Delete", impl.Delete),
 	)
 }
 
@@ -67,6 +79,38 @@ func (c *routeServiceClient) Get(ctx context.Context, req *RouteServiceGetReques
 func (c *routeServiceClient) List(ctx context.Context, req *RouteServiceListRequest) (*RouteServiceListResponse, error) {
 	res := new(RouteServiceListResponse)
 	if err := callRouteService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RouteService/List", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *routeServiceClient) Pause(ctx context.Context, req *RouteServicePauseRequest) (*RouteServicePauseResponse, error) {
+	res := new(RouteServicePauseResponse)
+	if err := callRouteService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RouteService/Pause", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *routeServiceClient) Resume(ctx context.Context, req *RouteServiceResumeRequest) (*RouteServiceResumeResponse, error) {
+	res := new(RouteServiceResumeResponse)
+	if err := callRouteService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RouteService/Resume", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *routeServiceClient) Stop(ctx context.Context, req *RouteServiceStopRequest) (*RouteServiceStopResponse, error) {
+	res := new(RouteServiceStopResponse)
+	if err := callRouteService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RouteService/Stop", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *routeServiceClient) Delete(ctx context.Context, req *RouteServiceDeleteRequest) (*RouteServiceDeleteResponse, error) {
+	res := new(RouteServiceDeleteResponse)
+	if err := callRouteService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RouteService/Delete", req, res); err != nil {
 		return nil, err
 	}
 	return res, nil

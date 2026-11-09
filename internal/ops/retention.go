@@ -262,6 +262,26 @@ func (fx snapshotEffect) Apply(ctx context.Context, st Step) error {
 	return nil
 }
 
+// Register records a snapshot taken outside a snapshot step, so that undo and
+// retention know it. content is its folder as it is now, for the cap's sake.
+// Registering the same id again changes nothing.
+func (r *Recovery) Register(rec SnapshotRecord, content string) error {
+	if _, err := r.snapshotByID(rec.ID); err == nil || !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	size, err := treeSize(content)
+	if err != nil {
+		return err
+	}
+	return r.eng.tx(func(c store.Conn) error {
+		if err := admit(c, r.opt.Retention.Cap, size); err != nil {
+			return err
+		}
+		_, err := c.Exec("INSERT INTO snapshots(id, task, dir, repo, size, created) VALUES (?,?,?,?,?,?)", rec.ID, rec.Task, rec.Dir, rec.Repo, size, r.eng.now())
+		return err
+	})
+}
+
 // Probe trusts the row alone: it is written after the folder is complete, and
 // a folder without one is a partial attempt that Apply clears.
 func (fx snapshotEffect) Probe(_ context.Context, st Step) (Verdict, string, error) {

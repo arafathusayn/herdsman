@@ -25,7 +25,10 @@ import (
 	"github.com/arafathusayn/herdsman/internal/wtree"
 )
 
-const herdrProbeTimeout = 500 * time.Millisecond
+const (
+	herdrProbeTimeout = 500 * time.Millisecond
+	agentStartTimeout = 60 * time.Second
+)
 
 // WorktreeService implements the worktree verbs. Its zero value uses the
 // caller's environment; the fields exist so that tests can replace it.
@@ -34,10 +37,26 @@ type WorktreeService struct {
 	Approvals   string // Empty uses the user's configuration folder.
 	GH          string // Program for GitHub calls; empty means "gh".
 	Repo        string // owner/name; empty reads it from origin.
+	ConfigDir   string // Folder of the user's file; empty uses the standard one.
 
 	journal *teardownJournal // Set by the daemon, which runs teardowns.
 	engine  *ops.Engine
 }
+
+// worktreeSchemaVersion is the version of the verbs' JSON. It only grows.
+const worktreeSchemaVersion = "1.0.0"
+
+// WorktreeSchema says which version of the JSON a response follows.
+type WorktreeSchema struct {
+	Version string `json:"version"`
+}
+
+// versioned is embedded in each response of the worktree verbs.
+type versioned struct {
+	Schema WorktreeSchema `json:"schema"`
+}
+
+func (v *versioned) stamp() { v.Schema.Version = worktreeSchemaVersion }
 
 // WorktreeNewRequest asks for a task's worktree.
 type WorktreeNewRequest struct {
@@ -54,6 +73,7 @@ type WorktreeNewRequest struct {
 
 // WorktreeNewResponse describes the worktree that was made.
 type WorktreeNewResponse struct {
+	versioned
 	Task     string   `json:"task"`
 	Branch   string   `json:"branch"`
 	Path     string   `json:"path"`
@@ -64,6 +84,8 @@ type WorktreeNewResponse struct {
 	Launch   string   `json:"launch"`
 	Logs     []string `json:"logs,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
+	// AgentName is the agent started in the worktree, when one was.
+	AgentName string `json:"agent_name,omitempty"`
 }
 
 // WorktreeListRequest asks for the worktree table.
@@ -93,6 +115,7 @@ type WorktreeRow struct {
 
 // WorktreeListResponse is the table, or one line of it for a status bar.
 type WorktreeListResponse struct {
+	versioned
 	Rows       []WorktreeRow `json:"rows"`
 	Statusline string        `json:"statusline,omitempty"`
 }
@@ -106,6 +129,7 @@ type WorktreeGoRequest struct {
 
 // WorktreeGoResponse names the worktree a selector led to.
 type WorktreeGoResponse struct {
+	versioned
 	Task       string   `json:"task"`
 	Branch     string   `json:"branch"`
 	Path       string   `json:"path"`
@@ -136,6 +160,7 @@ type WorktreeHookCommand struct {
 
 // WorktreeHookResponse is the plan, the approvals made, or the run's outcome.
 type WorktreeHookResponse struct {
+	versioned
 	Commands []WorktreeHookCommand `json:"commands,omitempty"`
 	Approved []string              `json:"approved,omitempty"`
 	OK       bool                  `json:"ok"`
@@ -175,6 +200,9 @@ func dispatch[Req, Resp any](ctx context.Context, data []byte, method func(conte
 	if err != nil {
 		return nil, err
 	}
+	if stamped, ok := any(&response).(interface{ stamp() }); ok {
+		stamped.stamp()
+	}
 	return json.Marshal(response)
 }
 
@@ -189,6 +217,7 @@ type repository struct {
 	dir     string
 	dflt    string
 	hooks   hooks.Config
+	naming  wtree.Naming
 	project string
 }
 
@@ -228,7 +257,7 @@ func (s *WorktreeService) open(ctx context.Context, dir string) (*repository, er
 	}
 	repo.main, repo.project = repo.rows[0].Path, repo.rows[0].Path
 	repo.dflt = repo.defaultBranch(ctx)
-	if repo.hooks, err = loadHooks(filepath.Dir(repo.main)); err != nil {
+	if err := s.loadSettings(ctx, repo); err != nil {
 		state.Close()
 		return nil, err
 	}
@@ -245,33 +274,6 @@ func (r *repository) defaultBranch(ctx context.Context) string {
 		return strings.TrimPrefix(strings.TrimSpace(string(out.Stdout)), "origin/")
 	}
 	return r.rows[0].Branch
-}
-
-// loadHooks reads the hooks of the configuration file beside the repository.
-// A file in a format this build cannot read stops the command: running without
-// the hooks someone wrote would be worse than refusing.
-func loadHooks(folder string) (hooks.Config, error) {
-	path := filepath.Join(folder, "herdsman.config.json")
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		for _, extension := range []string{"toml", "yaml", "yml", "bin"} {
-			other := filepath.Join(folder, "herdsman.config."+extension)
-			if _, err := os.Stat(other); err == nil {
-				return nil, fmt.Errorf("%s: this build reads hooks only from herdsman.config.json, not %s", other, extension)
-			}
-		}
-		return hooks.Config{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var file struct {
-		Hooks map[string]any `json:"hooks"`
-	}
-	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return hooks.Parse(file.Hooks)
 }
 
 func (s *WorktreeService) approvals() (*hooks.Approvals, error) {
@@ -399,7 +401,8 @@ func (r *repository) clearPath(path string, clobber bool) error {
 // create makes the tree through herdr when it answers, else through git. With
 // an empty start the branch already exists.
 func (s *WorktreeService) create(ctx context.Context, r *repository, task, branch, path, start string, resp *WorktreeNewResponse) error {
-	if client := s.herdrClient(ctx); client != nil && start != "" {
+	client := s.herdrClient(ctx)
+	if client != nil && start != "" {
 		params := map[string]any{"cwd": r.main, "branch": branch, "base": start, "path": path, "label": task, "focus": false}
 		err := client.Call(ctx, "worktree.create", params, nil)
 		if _, statErr := os.Stat(filepath.Join(path, ".git")); err == nil && statErr == nil {
@@ -412,8 +415,19 @@ func (s *WorktreeService) create(ctx context.Context, r *repository, task, branc
 	if start != "" {
 		args = []string{"worktree", "add", "-q", "-b", branch, path, start}
 	}
-	_, err := r.git.Run(ctx, r.main, args...)
-	return err
+	if _, err := r.git.Run(ctx, r.main, args...); err != nil {
+		return err
+	}
+	if client != nil && start == "" {
+		// herdr's create always makes a branch; one that exists can only be opened.
+		params := map[string]any{"cwd": r.main, "path": path, "label": task, "focus": false}
+		if err := client.Call(ctx, "worktree.open", params, nil); err != nil {
+			resp.Warnings = append(resp.Warnings, "herdr did not open the worktree: "+err.Error())
+		} else {
+			resp.Herdr = true
+		}
+	}
+	return nil
 }
 
 // New makes a task's worktree: base, names, the tree, its hooks and setup.
@@ -431,21 +445,23 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if kind == "" {
 		kind = "feat"
 	}
-	naming := wtree.DefaultNaming()
+	naming := r.naming
 	path, err := naming.ResolvePath(r.vars(req.Task, "", "", kind, "", ""))
 	if err != nil {
 		return resp, err
 	}
 	var branch, start string
+	var request *pullRequest
 	if req.From != "" {
 		pr, err := s.pullRequest(ctx, r, req.From)
 		if err != nil {
 			return resp, err
 		}
-		branch, resp.Base = pr.Head.Ref, pr.Base.Ref
-		if err := r.fetchRequest(ctx, pr); err != nil {
+		resp.Base = pr.Base.Ref
+		if branch, start, err = r.fetchRequest(ctx, pr); err != nil {
 			return resp, err
 		}
+		request = pr
 	} else {
 		if resp.Base, start, err = r.resolveBase(ctx, req.Base, &resp); err != nil {
 			return resp, err
@@ -469,11 +485,19 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := s.create(ctx, r, req.Task, branch, path, start, &resp); err != nil {
 		return resp, err
 	}
+	if request != nil {
+		if err := r.markRequest(ctx, request, branch); err != nil {
+			return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
+		}
+		resp.Warnings = append(resp.Warnings, renamedWarning(request, branch)...)
+	}
 	resp.Task, resp.Branch, resp.Path, resp.Port = req.Task, branch, path, vars.Port
 	resp.Launch = "cd " + path
 	if req.Agent != "" {
 		resp.Launch += " && " + req.Agent
-		resp.Warnings = append(resp.Warnings, "the agent was not started; run the launch line")
+		if !resp.Herdr {
+			resp.Warnings = append(resp.Warnings, "the agent was not started; run the launch line")
+		}
 	} else if req.Prompt != "" {
 		resp.Warnings = append(resp.Warnings, "the prompt was ignored: no agent was named")
 	}
@@ -483,7 +507,65 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := s.finishNew(ctx, r, req, vars, before, after, &resp); err != nil {
 		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
 	}
+	if err := s.enterWorkspace(ctx, req, &resp); err != nil {
+		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
+	}
 	return resp, nil
+}
+
+// quoteForShell makes text one word for a shell.
+func quoteForShell(text string) string {
+	return "'" + strings.ReplaceAll(text, "'", `'\''`) + "'"
+}
+
+// workspacePane finds the pane herdr opened in the worktree.
+func workspacePane(ctx context.Context, client *herdr.Client, path string) (string, error) {
+	panes, err := client.PaneList(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, pane := range panes {
+		if pane.Cwd != nil && *pane.Cwd == path {
+			return pane.ID, nil
+		}
+	}
+	return "", fmt.Errorf("no herdr pane is at %s", path)
+}
+
+// enterWorkspace gives the worktree's herdr pane the task's environment and
+// starts the agent there. herdr's worktree calls take no environment, so the
+// values are exported at the pane's shell prompt.
+func (s *WorktreeService) enterWorkspace(ctx context.Context, req WorktreeNewRequest, resp *WorktreeNewResponse) error {
+	if !resp.Herdr {
+		return nil
+	}
+	client := s.herdrClient(ctx)
+	if client == nil {
+		return errors.New("herdr stopped answering before the task's environment was set")
+	}
+	pane, err := workspacePane(ctx, client, resp.Path)
+	if err != nil {
+		return fmt.Errorf("the task's environment was not set: %w", err)
+	}
+	export := fmt.Sprintf("export HERDSMAN_TASK=%s HERDSMAN_BRANCH=%s HERDSMAN_WORKTREE_PATH=%s\n",
+		quoteForShell(resp.Task), quoteForShell(resp.Branch), quoteForShell(resp.Path))
+	if err := client.Call(ctx, "pane.send_input", map[string]any{"pane_id": pane, "text": export}, nil); err != nil {
+		return fmt.Errorf("the task's environment was not set: %w", err)
+	}
+	words := strings.Fields(req.Agent)
+	if len(words) == 0 {
+		return nil
+	}
+	if _, err := client.AgentStart(ctx, resp.Task, words[0], pane, words[1:], int(agentStartTimeout.Milliseconds())); err != nil {
+		return fmt.Errorf("the agent did not start: %w; run the launch line", err)
+	}
+	resp.AgentName = resp.Task
+	if req.Prompt != "" {
+		if err := client.AgentPrompt(ctx, resp.Task, req.Prompt); err != nil {
+			return fmt.Errorf("the agent started, but the prompt was not delivered: %w", err)
+		}
+	}
+	return nil
 }
 
 // shareIgnored brings one ignored folder over from the main tree, sharing its
@@ -519,14 +601,14 @@ func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req Work
 		for _, folder := range detected.Share {
 			r.shareIgnored(ctx, folder, resp)
 		}
-		var setup hooks.Plan
-		for _, install := range detected.Install {
-			setup = append(setup, []hooks.Planned{{Command: hooks.Command{Name: "setup", Template: install}, Rendered: install}})
+		setup, installs, err := s.setupPlan(r, vars, detected)
+		if err != nil {
+			return err
 		}
 		if _, err := runner.Run(ctx, "setup", setup); err != nil {
 			return err
 		}
-		resp.Setup = detected.Install
+		resp.Setup = installs
 	}
 	logs, err := runner.Start("post-start", after)
 	resp.Logs = logs
@@ -702,6 +784,7 @@ type pullRequest struct {
 	Number int
 	Head   struct {
 		Ref  string `json:"ref"`
+		SHA  string `json:"sha"`
 		Repo *struct {
 			FullName string `json:"full_name"`
 			CloneURL string `json:"clone_url"`
@@ -713,6 +796,9 @@ type pullRequest struct {
 	Base struct {
 		Ref string `json:"ref"`
 	} `json:"base"`
+
+	identity string // Which pull request of which repository this is.
+	sameRepo bool   // The head branch lives in this repository.
 }
 
 var (
@@ -767,6 +853,8 @@ func (s *WorktreeService) pullRequest(ctx context.Context, r *repository, text s
 	if err := wtree.ValidateBranch(pr.Head.Ref); err != nil {
 		return nil, fmt.Errorf("pull request %d: %w", selector.Number, err)
 	}
+	pr.identity = strings.ToLower(repo) + "#" + strconv.Itoa(selector.Number)
+	pr.sameRepo = pr.Head.Repo != nil && strings.EqualFold(pr.Head.Repo.FullName, repo)
 	return pr, nil
 }
 
@@ -783,10 +871,127 @@ func httpBody(out []byte) []byte {
 	return out
 }
 
-func (r *repository) fetchRequest(ctx context.Context, pr *pullRequest) error {
-	refspec := fmt.Sprintf("refs/pull/%d/head:refs/heads/%s", pr.Number, pr.Head.Ref)
-	_, err := r.git.Run(ctx, r.main, "fetch", "-q", "origin", refspec)
+func requestMarker(branch string) string { return "branch." + branch + ".herdsman-pr" }
+
+// markedRequest says which pull request a local branch was made for, if any.
+func (r *repository) markedRequest(ctx context.Context, branch string) string {
+	if branch == "" {
+		return ""
+	}
+	out, err := r.git.Run(ctx, r.main, "config", "--get", requestMarker(branch))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out.Stdout))
+}
+
+func (r *repository) markRequest(ctx context.Context, pr *pullRequest, branch string) error {
+	_, err := r.git.Run(ctx, r.main, "config", requestMarker(branch), pr.identity)
 	return err
+}
+
+func (r *repository) branchExists(ctx context.Context, branch string) bool {
+	_, err := r.git.Run(ctx, r.main, "rev-parse", "--verify", "-q", "refs/heads/"+branch)
+	return err == nil
+}
+
+// requestBranch picks the local branch of a pull request. A fork's head name
+// says nothing about the local branch of that name, so a taken name gets a
+// distinct one. It reports whether the branch already belongs to the request.
+func (r *repository) requestBranch(ctx context.Context, pr *pullRequest) (string, bool, error) {
+	if !r.branchExists(ctx, pr.Head.Ref) {
+		return pr.Head.Ref, false, nil
+	}
+	if pr.sameRepo || r.markedRequest(ctx, pr.Head.Ref) == pr.identity {
+		return pr.Head.Ref, true, nil
+	}
+	distinct := "pr-" + strconv.Itoa(pr.Number) + "-" + strings.ReplaceAll(pr.Head.Ref, "/", "-")
+	if !r.branchExists(ctx, distinct) {
+		return distinct, false, nil
+	}
+	if r.markedRequest(ctx, distinct) == pr.identity {
+		return distinct, true, nil
+	}
+	return "", false, fmt.Errorf("pull request %d: the branches %s and %s belong to other work", pr.Number, pr.Head.Ref, distinct)
+}
+
+// fetchRequest brings the pull request's commit here and checks it is the one
+// GitHub named. It returns the local branch, and the commit to start that
+// branch at when it does not exist yet.
+func (r *repository) fetchRequest(ctx context.Context, pr *pullRequest) (branch, start string, err error) {
+	if pr.Head.SHA == "" {
+		return "", "", fmt.Errorf("pull request %d: GitHub named no head commit", pr.Number)
+	}
+	private := "refs/herdsman/pull/" + strconv.Itoa(pr.Number)
+	if _, err := r.git.Run(ctx, r.main, "fetch", "-q", "origin", fmt.Sprintf("+refs/pull/%d/head:%s", pr.Number, private)); err != nil {
+		return "", "", err
+	}
+	defer r.git.Run(context.WithoutCancel(ctx), r.main, "update-ref", "-d", private)
+	out, err := r.git.Run(ctx, r.main, "rev-parse", "--verify", "-q", private+"^{commit}")
+	if err != nil {
+		return "", "", err
+	}
+	fetched := strings.TrimSpace(string(out.Stdout))
+	if !strings.EqualFold(fetched, pr.Head.SHA) {
+		return "", "", fmt.Errorf("pull request %d: fetched %s, but GitHub names %s as its head", pr.Number, fetched, pr.Head.SHA)
+	}
+	branch, exists, err := r.requestBranch(ctx, pr)
+	if err != nil {
+		return "", "", err
+	}
+	if !exists {
+		return branch, fetched, nil
+	}
+	for _, row := range r.rows {
+		if row.Branch == branch {
+			return "", "", fmt.Errorf("pull request %d: branch %s is checked out at %s", pr.Number, branch, row.Path)
+		}
+	}
+	ref := "refs/heads/" + branch
+	if _, err := r.git.Run(ctx, r.main, "merge-base", "--is-ancestor", ref, fetched); err != nil {
+		return "", "", fmt.Errorf("pull request %d: local branch %s has commits the request does not", pr.Number, branch)
+	}
+	if _, err := r.git.Run(ctx, r.main, "update-ref", ref, fetched); err != nil {
+		return "", "", err
+	}
+	return branch, "", nil
+}
+
+func renamedWarning(pr *pullRequest, branch string) []string {
+	if branch == pr.Head.Ref {
+		return nil
+	}
+	return []string{fmt.Sprintf("the local branch %s is already other work, so pull request %d is on %s; to publish, push %s:%s", pr.Head.Ref, pr.Number, branch, branch, pr.Head.Ref)}
+}
+
+// holdsCommit says whether the row's branch contains the commit.
+func (r *repository) holdsCommit(ctx context.Context, row wtree.Row, commit string) bool {
+	if commit == "" {
+		return false
+	}
+	_, err := r.git.Run(ctx, r.main, "merge-base", "--is-ancestor", commit, "refs/heads/"+row.Branch)
+	return err == nil
+}
+
+// existingRequest finds the worktree that already holds the pull request.
+func (r *repository) existingRequest(ctx context.Context, pr *pullRequest, task string) (wtree.Row, bool, error) {
+	for _, row := range r.rows {
+		if r.markedRequest(ctx, row.Branch) == pr.identity || (pr.sameRepo && row.Branch == pr.Head.Ref) {
+			return row, true, nil
+		}
+	}
+	for _, row := range r.rows {
+		if row.Task != task {
+			continue
+		}
+		// A worktree made before branches carried the marker counts only when
+		// it really holds the request's commit.
+		if row.Branch == pr.Head.Ref && !row.Main && r.markedRequest(ctx, row.Branch) == "" && r.holdsCommit(ctx, row, pr.Head.SHA) {
+			return row, true, r.markRequest(ctx, pr, row.Branch)
+		}
+		return wtree.Row{}, false, fmt.Errorf("task %s is other work, on branch %s; pull request %d needs that name", task, row.Branch, pr.Number)
+	}
+	return wtree.Row{}, false, nil
 }
 
 func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text string, selector wtree.Selector, resp *WorktreeGoResponse) (wtree.Row, error) {
@@ -795,54 +1000,114 @@ func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text str
 		return wtree.Row{}, err
 	}
 	task := "pr-" + strconv.Itoa(selector.Number)
-	for _, row := range r.rows {
-		if row.Task == task || row.Branch == pr.Head.Ref {
-			return row, nil
-		}
+	if row, found, err := r.existingRequest(ctx, pr, task); found || err != nil {
+		return row, err
 	}
-	if err := r.fetchRequest(ctx, pr); err != nil {
+	branch, start, err := r.fetchRequest(ctx, pr)
+	if err != nil {
 		return wtree.Row{}, err
 	}
-	path, err := wtree.DefaultNaming().ResolvePath(r.vars(task, "", "", "feat", "", ""))
+	path, err := r.naming.ResolvePath(r.vars(task, "", "", "feat", "", ""))
 	if err != nil {
 		return wtree.Row{}, err
 	}
 	if err := r.clearPath(path, false); err != nil {
 		return wtree.Row{}, err
 	}
-	if _, err := r.git.Run(ctx, r.main, "worktree", "add", "-q", path, pr.Head.Ref); err != nil {
+	args := []string{"worktree", "add", "-q", path, branch}
+	if start != "" {
+		args = []string{"worktree", "add", "-q", "-b", branch, path, start}
+	}
+	if _, err := r.git.Run(ctx, r.main, args...); err != nil {
 		return wtree.Row{}, err
 	}
-	if err := r.state.PutWorktree(ctx, wtree.Worktree{Task: task, Branch: pr.Head.Ref, Path: path, CreatedAt: time.Now()}); err != nil {
+	if err := r.markRequest(ctx, pr, branch); err != nil {
+		return wtree.Row{}, err
+	}
+	if err := r.state.PutWorktree(ctx, wtree.Worktree{Task: task, Branch: branch, Path: path, CreatedAt: time.Now()}); err != nil {
 		return wtree.Row{}, err
 	}
 	resp.Created = true
-	if resp.PushRemote, err = s.setPushRemote(ctx, r, pr); err != nil {
+	resp.Warnings = append(resp.Warnings, renamedWarning(pr, branch)...)
+	if resp.PushRemote, err = r.setPushRemote(ctx, pr, branch); err != nil {
 		return wtree.Row{}, err
 	}
-	return wtree.Row{Task: task, Branch: pr.Head.Ref, Path: path}, nil
+	return wtree.Row{Task: task, Branch: branch, Path: path}, nil
+}
+
+var defaultPorts = map[string]string{"https": "443", "http": "80", "ssh": "22", "git": "9418"}
+
+// remoteAddress reduces a remote's URL to host and path, so that the https and
+// ssh spellings of one repository compare equal. A port other than the
+// scheme's own is a different server and stays.
+func remoteAddress(url string) string {
+	url = strings.TrimSpace(url)
+	if scheme, rest, ok := strings.Cut(url, "://"); ok {
+		host, path, _ := strings.Cut(rest, "/")
+		host = host[strings.LastIndex(host, "@")+1:]
+		if name, port, ported := strings.Cut(host, ":"); ported && port == defaultPorts[strings.ToLower(scheme)] {
+			host = name
+		}
+		url = host + "/" + path
+	} else if host, path, ok := strings.Cut(url, ":"); ok && !strings.Contains(host, "/") {
+		url = host[strings.LastIndex(host, "@")+1:] + "/" + path
+	}
+	url = strings.TrimRight(url, "/")
+	return strings.ToLower(strings.TrimSuffix(url, ".git"))
+}
+
+// pushesOnlyTo says whether every push address of the listing is the fork.
+func pushesOnlyTo(listing, fork string) bool {
+	want := remoteAddress(fork)
+	for _, line := range strings.Fields(listing) {
+		if remoteAddress(line) != want {
+			return false
+		}
+	}
+	return true
+}
+
+// forkRemote returns a remote that pushes to the fork: the owner's name when it
+// is free or already that fork, else an unused name. It never edits a remote
+// the user set up.
+func (r *repository) forkRemote(ctx context.Context, owner, url string) (string, error) {
+	const attempts = 100
+	for i := range attempts {
+		name := owner
+		if i == 1 {
+			name = owner + "-fork"
+		} else if i > 1 {
+			name = owner + "-fork-" + strconv.Itoa(i)
+		}
+		out, err := r.git.Run(ctx, r.main, "remote", "get-url", "--push", "--all", name)
+		if err != nil {
+			if _, err := r.git.Run(ctx, r.main, "remote", "add", name, url); err != nil {
+				return "", err
+			}
+			return name, nil
+		}
+		if pushesOnlyTo(string(out.Stdout), url) {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no free remote name for %s after %d tries", owner, attempts)
 }
 
 // setPushRemote points a fork's branch at the fork, so that a push goes there.
-func (s *WorktreeService) setPushRemote(ctx context.Context, r *repository, pr *pullRequest) (string, error) {
-	repo, err := s.repoName(ctx, r)
+func (r *repository) setPushRemote(ctx context.Context, pr *pullRequest, branch string) (string, error) {
+	head := pr.Head.Repo
+	if head == nil || pr.sameRepo {
+		return "", nil
+	}
+	owner := head.Owner.Login
+	if !remoteName.MatchString(owner) || !strings.HasPrefix(head.CloneURL, "https://") {
+		return "", fmt.Errorf("pull request %d: unusable fork %q at %q", pr.Number, owner, head.CloneURL)
+	}
+	remote, err := r.forkRemote(ctx, owner, head.CloneURL)
 	if err != nil {
 		return "", err
 	}
-	head := pr.Head.Repo
-	if head == nil || strings.EqualFold(head.FullName, repo) {
-		return "", nil
-	}
-	remote := head.Owner.Login
-	if !remoteName.MatchString(remote) || !strings.HasPrefix(head.CloneURL, "https://") {
-		return "", fmt.Errorf("pull request %d: unusable fork %q at %q", pr.Number, remote, head.CloneURL)
-	}
-	if _, err := r.git.Run(ctx, r.main, "remote", "get-url", remote); err != nil {
-		if _, err := r.git.Run(ctx, r.main, "remote", "add", remote, head.CloneURL); err != nil {
-			return "", err
-		}
-	}
-	_, err = r.git.Run(ctx, r.main, "config", "branch."+pr.Head.Ref+".pushRemote", remote)
+	_, err = r.git.Run(ctx, r.main, "config", "branch."+branch+".pushRemote", remote)
 	return remote, err
 }
 
@@ -887,6 +1152,9 @@ func (s *WorktreeService) Hook(ctx context.Context, req WorktreeHookRequest) (Wo
 		return resp, err
 	}
 	if req.DryRun || req.Approve {
+		if req.Type == "" && len(r.hooks[setupHook]) > 0 {
+			types = append(slices.Clone(types), setupHook)
+		}
 		return s.describeHooks(r, store, types, vars, req.Approve)
 	}
 	plan, err := s.plan(r, req.Type, vars)

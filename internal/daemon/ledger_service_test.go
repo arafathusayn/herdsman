@@ -80,6 +80,48 @@ func (w *ledgerWorld) request(task string) LedgerRequest {
 	return LedgerRequest{CommonDir: w.common, Task: task}
 }
 
+func TestPlanSurveysAndTeardownRevalidatesWithTheStrictRead(t *testing.T) {
+	w := setupLedger(t, "a")
+	reads, surveys := 0, 0
+	read := w.service.Read
+	w.service.Read = func(ctx context.Context, base ledger.Snapshot) (ledger.Snapshot, error) {
+		reads++
+		return read(ctx, base)
+	}
+	w.service.Survey = func(ctx context.Context, base ledger.Snapshot) (ledger.Snapshot, error) {
+		surveys++
+		return read(ctx, base)
+	}
+	ctx := context.Background()
+	w.pids = []ledger.Process{{Pid: 5, Group: 5, Parent: 1, Start: ledgerStart, Command: "server"}}
+	if _, err := w.service.AddResource(ctx, w.request("a"), ledger.Record{Execution: "zz", Kind: ledger.KindProcess, ID: "5"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := w.service.Plan(ctx, w.request("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.service.Resources(ctx, w.request("a")); err != nil {
+		t.Fatal(err)
+	}
+	if surveys != 2 || reads != 0 {
+		t.Fatalf("planning read %d times and surveyed %d", reads, surveys)
+	}
+	if _, err := w.service.Teardown(ctx, TeardownRequest{LedgerRequest: w.request("a"), Approved: plan, Grace: time.Millisecond}); err != nil {
+		t.Fatal(err)
+	}
+	if surveys != 2 || reads == 0 {
+		t.Fatalf("a stop must revalidate with the strict read: %d reads, %d surveys", reads, surveys)
+	}
+}
+
+func TestPlanFallsBackToTheStrictRead(t *testing.T) {
+	w := setupLedger(t, "a")
+	if _, err := w.service.Plan(context.Background(), w.request("a")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPlanAndResourcesUseTheRecords(t *testing.T) {
 	w := setupLedger(t, "a", "b")
 	ctx := context.Background()
