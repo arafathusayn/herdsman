@@ -40,14 +40,6 @@ func contextClient(t *testing.T) *client.Client {
 	return dialHarness(t, newHarness(t))
 }
 
-func wantCode(t *testing.T, err error, code rpc.Code) {
-	t.Helper()
-	var failure *rpc.Error
-	if !errors.As(err, &failure) || failure.Code != code {
-		t.Fatalf("error %v, want code %v", err, code)
-	}
-}
-
 func TestContextVerbsOverTheSDK(t *testing.T) {
 	sdk := contextClient(t)
 	ctx := context.Background()

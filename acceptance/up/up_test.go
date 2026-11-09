@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,7 @@ type machine struct {
 	path    string
 	srv     *herdrtest.Server
 	world   *herdrtest.World
+	daemon  *exec.Cmd
 }
 
 func (m *machine) env() []string {
@@ -70,8 +72,12 @@ func setup(t *testing.T) *machine {
 	}
 	// doctor stops up when gh is installed and not logged in. The test must not
 	// depend on the host's gh, so a gh that reports a login comes first on PATH.
-	if err := os.WriteFile(filepath.Join(tools, "gh"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
+	// The named harnesses get the same treatment: a machine without them, or
+	// with a logged-in copy, must see the same result.
+	for _, tool := range []string{"gh", "claude", "codex"} {
+		if err := os.WriteFile(filepath.Join(tools, tool), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	git, err := exec.LookPath("git")
 	if err != nil {
@@ -98,6 +104,7 @@ func (m *machine) startDaemon() {
 	if err := cmd.Start(); err != nil {
 		m.t.Fatal(err)
 	}
+	m.daemon = cmd
 	m.t.Cleanup(func() {
 		cancel()
 		_ = cmd.Wait()
@@ -105,10 +112,12 @@ func (m *machine) startDaemon() {
 			m.t.Logf("daemon log:\n%s", log.String())
 		}
 	})
+	// Dial rather than look for the file: a killed daemon leaves its socket.
 	sock := filepath.Join(m.private, "run", "daemon.sock")
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(sock); err == nil {
+		if conn, err := net.Dial("unix", sock); err == nil {
+			conn.Close()
 			return
 		}
 		time.Sleep(50 * time.Millisecond)

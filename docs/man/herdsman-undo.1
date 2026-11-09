@@ -1,0 +1,18 @@
+.TH HERDSMAN-UNDO 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-undo \- Restore a snapshot.
+.SH DESCRIPTION
+.nf
+usage: herdsman undo <snapshot> [--to <path>] [--json]
+
+Restores a snapshot: the tree, its index, the branch and the ignored files it
+kept. Without --to it goes back to its original path, or beside it when that
+path is taken. Nothing is overwritten; a conflict stops with both sides named.
+
+exit codes:
+  0  restored
+  1  refused or failed
+  2  bad usage
+.fi
+.SH SEE ALSO
+.BR herdsman (1)
