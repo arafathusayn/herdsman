@@ -1179,6 +1179,37 @@
       ]
     },
     {
+      "name": "plugin",
+      "summary": "Manage plugins (experimental).",
+      "help": "usage: herdsman plugin --experimental-plugins <verb> [args] [--json]\n\n  list                   the plugins found, usable or not\n  describe <name>        a plugin's manifest\n  install <path|name>    copy an executable into the plugin folder and ask for approval\n  remove <name>          delete an installed plugin and its approval\n  verify <name>          run the conformance checks for its extension points\n  run <name>             start it in the foreground, for development\n\nPlugins are experimental, so every use needs --experimental-plugins. A plugin\nruns only after a person approves its exact checksum, at a terminal.\n\nexit codes:\n  0  done\n  1  it failed, or a plugin did not pass verify\n  2  bad usage\n",
+      "usage": [
+        "herdsman plugin --experimental-plugins <verb> [args] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--experimental-plugins",
+          "valueName": "verb"
+        },
+        {
+          "name": "--json"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "it failed, or a plugin did not pass verify"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
       "name": "recommend",
       "summary": "The same as suggest.",
       "help": "usage: herdsman suggest [<query>...] [--kind tip|mcp|skill|plugin|mod|repo]\n                        [--for <harness>] [--tag <tag>] [--json]\n       herdsman suggest show <id> [--json]\n       herdsman suggest add --title <text> --tag <tag>... --body-file <path> [--id <id>]\n                        [--kind <kind>] [--url <url>] [--repo <url>] [--project] [--json]\n       herdsman suggest apply <id> [--run] [--json]\n       herdsman suggest source add <url> [--ref <commit|tag>] [--json]\n       herdsman suggest source list [--json]\n       herdsman suggest source remove <url>\n       herdsman suggest source update <url> [--ref <commit|tag>] [--yes] [--json]\n\nSearches the catalog, ranked for this machine and project. apply prints a\nrecipe; --run executes it, on a terminal only, after approving its checksum.\nsource update shows the changes before it moves the pin.\n\nexit codes:\n  0  done\n  1  the entry or source was not found, or a recipe was refused or failed\n  2  bad usage\n",

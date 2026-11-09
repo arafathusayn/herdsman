@@ -12,8 +12,9 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	recovery := &opsService{d: d}
 	routes := &routeService{d: d}
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
+	eventRPC := newEventService(d.hub, d.admitEvents, releaseContext)
 	name := daemonv1.MessageServiceName
-	return []rpc.Procedure{
+	return append(eventRPC.procedures(), []rpc.Procedure{
 		rpc.Unary(name, "Hello", m.Hello),
 		rpc.Unary(name, "Health", m.Health),
 		rpc.Unary(name, "Shutdown", m.Shutdown),
@@ -57,5 +58,5 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(suggestv1.SuggestServiceName, "SourceRemove", suggestions.SourceRemove),
 		rpc.Unary(suggestv1.SuggestServiceName, "SourcePreview", suggestions.SourcePreview),
 		rpc.Unary(suggestv1.SuggestServiceName, "SourcePin", suggestions.SourcePin),
-	}
+	}...)
 }

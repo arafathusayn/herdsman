@@ -11,6 +11,7 @@ import (
 	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
+	pluginv1 "github.com/arafathusayn/herdsman/sdk/plugin/v1"
 	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -73,7 +74,7 @@ func writeSpecProto(w io.Writer) error {
 func writeSpecDescriptor(w io.Writer) error {
 	set := &descriptorpb.FileDescriptorSet{}
 	seen := map[string]bool{}
-	for _, file := range []protoreflect.FileDescriptor{cliv1.File_herdsman_cli_v1_cli_proto, configv1.File_herdsman_config_v1_config_proto, corev1.File_herdsman_core_v1_core_proto, daemonv1.File_herdsman_daemon_v1_ledger_proto, daemonv1.File_herdsman_daemon_v1_message_proto, daemonv1.File_herdsman_daemon_v1_ops_proto, daemonv1.File_herdsman_daemon_v1_project_proto, daemonv1.File_herdsman_daemon_v1_route_proto, daemonv1.File_herdsman_daemon_v1_task_proto, suggestv1.File_herdsman_suggest_v1_suggest_proto} {
+	for _, file := range []protoreflect.FileDescriptor{cliv1.File_herdsman_cli_v1_cli_proto, configv1.File_herdsman_config_v1_config_proto, corev1.File_herdsman_core_v1_core_proto, daemonv1.File_herdsman_daemon_v1_events_proto, daemonv1.File_herdsman_daemon_v1_ledger_proto, daemonv1.File_herdsman_daemon_v1_message_proto, daemonv1.File_herdsman_daemon_v1_ops_proto, daemonv1.File_herdsman_daemon_v1_plugin_proto, daemonv1.File_herdsman_daemon_v1_project_proto, daemonv1.File_herdsman_daemon_v1_route_proto, daemonv1.File_herdsman_daemon_v1_task_proto, pluginv1.File_herdsman_plugin_v1_plugin_proto, suggestv1.File_herdsman_suggest_v1_suggest_proto} {
 		appendFile(set, seen, file)
 	}
 	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(set)
