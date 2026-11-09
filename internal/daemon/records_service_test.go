@@ -335,10 +335,18 @@ func TestCurrentTaskComesFromTheWorktree(t *testing.T) {
 	}
 }
 
+// restartInspecting brings the daemon back in inspect mode, which is fixed
+// when it starts, and returns a client of the new one.
+func restartInspecting(t *testing.T, h *harness) *client.Client {
+	t.Helper()
+	h.stop()
+	h.cfg.Inspect = true
+	h.start()
+	return routeClient(t, h)
+}
+
 func TestInspectDaemonChangesNoRecords(t *testing.T) {
-	h := newHarness(t)
-	h.d.cfg.Inspect = true
-	c := routeClient(t, h)
+	c := restartInspecting(t, newHarness(t))
 	ctx := context.Background()
 	calls := []func() error{
 		func() error {
@@ -447,7 +455,7 @@ func TestCurrentTaskLookupWritesNothingOnAnInspectDaemon(t *testing.T) {
 	ctx := context.Background()
 	repo, tree := recordsRepoWithWorktree(t, "fix-lights", "fix-lights")
 	task := createTask(t, c, createProject(t, c, "orchard", "api").GetName(), "Fix lights")
-	h.d.cfg.Inspect = true
+	c = restartInspecting(t, h)
 
 	got, err := c.Task.Get(ctx, &daemonv1.TaskServiceGetRequest{Scope: &daemonv1.Scope{Project: "orchard", Folder: filepath.Join(tree)}, Task: "@"})
 	if err != nil || got.GetTask().GetId().GetValue() != task.GetId().GetValue() {
