@@ -18,7 +18,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const projectHelp = `usage: herdsman project create <name> [--description <text>] [--repo <spec>]... [--bind] [--json]
+const projectHelp = `usage: herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]
        herdsman project show [<project>] [--json]
        herdsman project list [--archived] [--json]
        herdsman project update [<project>] [--name <name>] [--description <text>]
@@ -29,6 +29,7 @@ const projectHelp = `usage: herdsman project create <name> [--description <text>
 
 Keeps the projects, the folders bound to them and their repositories. A <spec>
 is [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.
+create binds --folder, or this folder with --bind.
 <project> is a name, an id or @; left out, it is the project bound to this
 folder. delete refuses a project with open tasks or tasks on a running route;
 --force archives it instead and keeps its records.
@@ -39,13 +40,15 @@ exit codes:
   2  bad usage
 `
 
-const taskHelp = `usage: herdsman task create <title> [--project <project>] [--slug <slug>] [--body <text>]
+const taskHelp = `usage: herdsman task create <title> [--project <project>] [--id <slug>] [--slug <slug>]
+                            [--body <text>] [--body-file <path>]
                             [--label <label>]... [--repo <name>]... [--json]
        herdsman task show <task> [--project <project>] [--json]
        herdsman task list [--project <project>] [--all] [--status <status>]
                           [--repo <name>] [--label <label>] [--json]
        herdsman task update <task> [--project <project>] [--title <text>] [--body <text>]
                             [--status <status>] [--add-repo <name>]... [--remove-repo <name>]...
+                            [--label <label>]... [--unlabel <label>]...
                             [--add-label <label>]... [--remove-label <label>]... [--json]
        herdsman task delete <task> [--project <project>] [--force]
        herdsman task link <task> <link> [--project <project>] [--repo <name>] [--json]
@@ -53,7 +56,9 @@ const taskHelp = `usage: herdsman task create <title> [--project <project>] [--s
 Keeps the tasks of each project. <task> is a slug, an id, or @ for the task of
 the current worktree. A <status> is todo, doing, review, done or archived. A
 <link> is pr:<n>, issue:<n> or a URL; --repo may be left out when the task
-names one repository. A task's project cannot change. With no arguments on a
+names one repository. A task's project cannot change. delete refuses a task
+that still has a worktree or runs in a route, and names down. --slug is --id,
+--add-label is --label and --remove-label is --unlabel. With no arguments on a
 terminal, task create opens a form.
 
 exit codes:
@@ -139,10 +144,22 @@ func setFlag(fs *flag.FlagSet, name string, value *string) *string {
 	return value
 }
 
+// fromHere makes a path absolute against this folder, because the daemon has
+// a different working folder.
+func fromHere(path string) (string, error) {
+	if filepath.IsAbs(path) {
+		return path, nil
+	}
+	here, err := workingFolder()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(here, path), nil
+}
+
 var errBadRepoSpec = errors.New("a repository is [<name>=]<path>[:<branch>[:<remote>]]")
 
-// parseRepoSpec reads one repository. A relative path is taken from here,
-// because the daemon has a different working folder.
+// parseRepoSpec reads one repository.
 func parseRepoSpec(spec string) (*corev1.ProjectRepo, error) {
 	name, rest, named := strings.Cut(spec, "=")
 	if !named {
@@ -152,13 +169,9 @@ func parseRepoSpec(spec string) (*corev1.ProjectRepo, error) {
 	if (named && name == "") || fields[0] == "" {
 		return nil, errBadRepoSpec
 	}
-	path := fields[0]
-	if !filepath.IsAbs(path) {
-		here, err := workingFolder()
-		if err != nil {
-			return nil, err
-		}
-		path = filepath.Join(here, path)
+	path, err := fromHere(fields[0])
+	if err != nil {
+		return nil, err
 	}
 	out := &corev1.ProjectRepo{Name: name, Path: path}
 	if len(fields) > 1 {
@@ -222,6 +235,18 @@ func tabbed(w io.Writer, show func(io.Writer)) {
 	t.Flush()
 }
 
+// printTaskDetail is the show view: the row, its labels, then the description.
+func printTaskDetail(w io.Writer, res proto.Message) {
+	printTask(w, res)
+	task := res.(taskHolder).GetTask()
+	if labels := task.GetLabels(); len(labels) > 0 {
+		fmt.Fprintf(w, "labels: %s\n", strings.Join(labels, ", "))
+	}
+	if body := task.GetBody(); body != "" {
+		fmt.Fprintf(w, "\n%s\n", strings.TrimRight(body, "\n"))
+	}
+}
+
 type projectHolder interface{ GetProject() *corev1.Project }
 
 func printProject(w io.Writer, res proto.Message) {
@@ -254,23 +279,27 @@ func runProjectCreate(args []string, stdout, stderr io.Writer) int {
 	description := fs.String("description", "", "what the project is")
 	var specs repeatedFlag
 	fs.Var(&specs, "repo", "a repository of the project; repeatable")
+	folder := fs.String("folder", "", "a folder to bind to the project")
 	bind := fs.Bool("bind", false, "bind this folder to the project")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	positional, ok := recordVerb(fs, stderr, args, 1, 1)
 	if !ok {
 		return 2
 	}
+	if *bind && *folder != "" {
+		return usageError(stderr, "give --folder or --bind, not both")
+	}
 	repos, code := parseRepoSpecs(specs, stderr)
 	if code != 0 {
 		return code
 	}
 	req := &daemonv1.ProjectServiceCreateRequest{Name: positional[0], Description: *description, Repos: repos}
-	if *bind {
-		folder, err := workingFolder()
+	if *bind || *folder != "" {
+		target, err := fromHere(*folder)
 		if err != nil {
 			return fail(stderr, err)
 		}
-		req.Folder = folder
+		req.Folder = target
 	}
 	return sendRecord(stdout, stderr, *asJSON, func(ctx context.Context, p daemonv1.ProjectService, _ daemonv1.TaskService) (proto.Message, error) {
 		return p.Create(ctx, req)
@@ -422,8 +451,10 @@ func runTask(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func runTaskCreate(args []string, stdout, stderr io.Writer) int {
 	fs := verbFlags("task create", stderr)
 	project := fs.String("project", "", "the project (default: the bound folder's)")
-	slug := fs.String("slug", "", "the slug (default: made from the title)")
+	id := fs.String("id", "", "the slug (default: made from the title)")
+	slug := fs.String("slug", "", "the same as --id")
 	body := fs.String("body", "", "the description")
+	bodyFile := fs.String("body-file", "", "a file holding the description")
 	var labels, repos repeatedFlag
 	fs.Var(&labels, "label", "a label; repeatable")
 	fs.Var(&repos, "repo", "a repository; repeatable (default: all of the project's)")
@@ -432,11 +463,24 @@ func runTaskCreate(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return 2
 	}
+	if *id != "" && *slug != "" {
+		return usageError(stderr, "give --id or --slug, not both")
+	}
+	if *body != "" && *bodyFile != "" {
+		return usageError(stderr, "give --body or --body-file, not both")
+	}
+	if *bodyFile != "" {
+		text, err := readBodyFile(*bodyFile)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		*body = text
+	}
 	scope, err := herescope(*project)
 	if err != nil {
 		return fail(stderr, err)
 	}
-	req := &daemonv1.TaskServiceCreateRequest{Scope: scope, Title: positional[0], Slug: *slug, Body: *body, Labels: labels, Repos: repos}
+	req := &daemonv1.TaskServiceCreateRequest{Scope: scope, Title: positional[0], Slug: *id + *slug, Body: *body, Labels: labels, Repos: repos}
 	return sendRecord(stdout, stderr, *asJSON, func(ctx context.Context, _ daemonv1.ProjectService, t daemonv1.TaskService) (proto.Message, error) {
 		return t.Create(ctx, req)
 	}, printTask)
@@ -456,7 +500,7 @@ func runTaskShow(args []string, stdout, stderr io.Writer) int {
 	}
 	return sendRecord(stdout, stderr, *asJSON, func(ctx context.Context, _ daemonv1.ProjectService, t daemonv1.TaskService) (proto.Message, error) {
 		return t.Get(ctx, &daemonv1.TaskServiceGetRequest{Scope: scope, Task: positional[0]})
-	}, printTask)
+	}, printTaskDetail)
 }
 
 func runTaskList(args []string, stdout, stderr io.Writer) int {
@@ -495,8 +539,10 @@ func runTaskUpdate(args []string, stdout, stderr io.Writer) int {
 	var addRepos, removeRepos, addLabels, removeLabels repeatedFlag
 	fs.Var(&addRepos, "add-repo", "a repository to add; repeatable")
 	fs.Var(&removeRepos, "remove-repo", "a repository to remove; repeatable")
-	fs.Var(&addLabels, "add-label", "a label to add; repeatable")
-	fs.Var(&removeLabels, "remove-label", "a label to remove; repeatable")
+	fs.Var(&addLabels, "label", "a label to add; repeatable")
+	fs.Var(&addLabels, "add-label", "the same as --label")
+	fs.Var(&removeLabels, "unlabel", "a label to remove; repeatable")
+	fs.Var(&removeLabels, "remove-label", "the same as --unlabel")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	positional, ok := recordVerb(fs, stderr, args, 1, 1)
 	if !ok {

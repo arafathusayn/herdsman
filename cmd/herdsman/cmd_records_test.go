@@ -365,3 +365,65 @@ func TestRecordsDialOpensTheDaemonClient(t *testing.T) {
 		t.Fatal("no error without a home folder")
 	}
 }
+
+func TestContractedRecordFlags(t *testing.T) {
+	f := &fakeRecords{}
+	withRecords(t, f)
+	dir := t.TempDir()
+	if code, _, errs := projectArgs("create", "orchard", "--folder", dir); code != 0 || f.last.(*daemonv1.ProjectServiceCreateRequest).GetFolder() != dir {
+		t.Fatalf("%d %s %v", code, errs, f.last)
+	}
+	here, err := workingFolder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := projectArgs("create", "orchard", "--folder", "sub"); code != 0 || f.last.(*daemonv1.ProjectServiceCreateRequest).GetFolder() != filepath.Join(here, "sub") {
+		t.Fatalf("a relative folder: %d %s %v", code, errs, f.last)
+	}
+	if code, _, errs := taskArgs("create", "Title", "--id", "mine"); code != 0 || f.last.(*daemonv1.TaskServiceCreateRequest).GetSlug() != "mine" {
+		t.Fatalf("%d %s %v", code, errs, f.last)
+	}
+	body := filepath.Join(dir, "body.md")
+	if err := os.WriteFile(body, []byte("from a file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := taskArgs("create", "Title", "--body-file", body); code != 0 || f.last.(*daemonv1.TaskServiceCreateRequest).GetBody() != "from a file\n" {
+		t.Fatalf("%d %s %v", code, errs, f.last)
+	}
+	if code, _, _ := taskArgs("create", "Title", "--body-file", filepath.Join(dir, "gone")); code != 1 {
+		t.Fatalf("a missing body file: code %d", code)
+	}
+	if code, _, _ := taskArgs("create", "Title", "--body", "b", "--body-file", body); code != 2 {
+		t.Fatalf("two bodies: code %d", code)
+	}
+	if code, _, _ := taskArgs("create", "Title", "--id", "a", "--slug", "b"); code != 2 {
+		t.Fatalf("two slugs: code %d", code)
+	}
+	if code, _, errs := taskArgs("update", "mine", "--label", "new", "--unlabel", "old", "--add-label", "more", "--remove-label", "less"); code != 0 {
+		t.Fatalf("%d %s", code, errs)
+	}
+	u := f.last.(*daemonv1.TaskServiceUpdateRequest)
+	if strings.Join(u.GetAddLabels(), ",") != "new,more" || strings.Join(u.GetRemoveLabels(), ",") != "old,less" {
+		t.Fatalf("%v", u)
+	}
+	if code, _, _ := projectArgs("create", "orchard", "--folder", dir, "--bind"); code != 2 {
+		t.Fatalf("--bind and --folder: code %d", code)
+	}
+}
+
+func TestTaskShowPrintsTheBodyAndDetail(t *testing.T) {
+	saved := oneTask.Body
+	t.Cleanup(func() { oneTask.Body = saved })
+	oneTask.Body = "The full task description."
+	withRecords(t, &fakeRecords{})
+	code, out, _ := taskArgs("show", "lights")
+	for _, want := range []string{"The full task description.", "Lights", "todo", "api", "x", "pr:7"} {
+		if code != 0 || !strings.Contains(out, want) {
+			t.Fatalf("missing %q: %d %q", want, code, out)
+		}
+	}
+	code, out, _ = taskArgs("list")
+	if code != 0 || strings.Contains(out, "The full task description.") {
+		t.Fatalf("a list row printed the body: %q", out)
+	}
+}
