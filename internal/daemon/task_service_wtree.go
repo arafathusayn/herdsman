@@ -440,15 +440,17 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 		return resp, err
 	}
 	var branch, start string
+	var request *pullRequest
 	if req.From != "" {
 		pr, err := s.pullRequest(ctx, r, req.From)
 		if err != nil {
 			return resp, err
 		}
-		branch, resp.Base = pr.Head.Ref, pr.Base.Ref
-		if err := r.fetchRequest(ctx, pr); err != nil {
+		resp.Base = pr.Base.Ref
+		if branch, start, err = r.fetchRequest(ctx, pr); err != nil {
 			return resp, err
 		}
+		request = pr
 	} else {
 		if resp.Base, start, err = r.resolveBase(ctx, req.Base, &resp); err != nil {
 			return resp, err
@@ -471,6 +473,12 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	}
 	if err := s.create(ctx, r, req.Task, branch, path, start, &resp); err != nil {
 		return resp, err
+	}
+	if request != nil {
+		if err := r.markRequest(ctx, request, branch); err != nil {
+			return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
+		}
+		resp.Warnings = append(resp.Warnings, renamedWarning(request, branch)...)
 	}
 	resp.Task, resp.Branch, resp.Path, resp.Port = req.Task, branch, path, vars.Port
 	resp.Launch = "cd " + path
@@ -682,6 +690,7 @@ type pullRequest struct {
 	Number int
 	Head   struct {
 		Ref  string `json:"ref"`
+		SHA  string `json:"sha"`
 		Repo *struct {
 			FullName string `json:"full_name"`
 			CloneURL string `json:"clone_url"`
@@ -693,6 +702,9 @@ type pullRequest struct {
 	Base struct {
 		Ref string `json:"ref"`
 	} `json:"base"`
+
+	identity string // Which pull request of which repository this is.
+	sameRepo bool   // The head branch lives in this repository.
 }
 
 var (
@@ -747,6 +759,8 @@ func (s *WorktreeService) pullRequest(ctx context.Context, r *repository, text s
 	if err := wtree.ValidateBranch(pr.Head.Ref); err != nil {
 		return nil, fmt.Errorf("pull request %d: %w", selector.Number, err)
 	}
+	pr.identity = strings.ToLower(repo) + "#" + strconv.Itoa(selector.Number)
+	pr.sameRepo = pr.Head.Repo != nil && strings.EqualFold(pr.Head.Repo.FullName, repo)
 	return pr, nil
 }
 
@@ -763,10 +777,112 @@ func httpBody(out []byte) []byte {
 	return out
 }
 
-func (r *repository) fetchRequest(ctx context.Context, pr *pullRequest) error {
-	refspec := fmt.Sprintf("refs/pull/%d/head:refs/heads/%s", pr.Number, pr.Head.Ref)
-	_, err := r.git.Run(ctx, r.main, "fetch", "-q", "origin", refspec)
+func requestMarker(branch string) string { return "branch." + branch + ".herdsman-pr" }
+
+// markedRequest says which pull request a local branch was made for, if any.
+func (r *repository) markedRequest(ctx context.Context, branch string) string {
+	if branch == "" {
+		return ""
+	}
+	out, err := r.git.Run(ctx, r.main, "config", "--get", requestMarker(branch))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out.Stdout))
+}
+
+func (r *repository) markRequest(ctx context.Context, pr *pullRequest, branch string) error {
+	_, err := r.git.Run(ctx, r.main, "config", requestMarker(branch), pr.identity)
 	return err
+}
+
+func (r *repository) branchExists(ctx context.Context, branch string) bool {
+	_, err := r.git.Run(ctx, r.main, "rev-parse", "--verify", "-q", "refs/heads/"+branch)
+	return err == nil
+}
+
+// requestBranch picks the local branch of a pull request. A fork's head name
+// says nothing about the local branch of that name, so a taken name gets a
+// distinct one. It reports whether the branch already belongs to the request.
+func (r *repository) requestBranch(ctx context.Context, pr *pullRequest) (string, bool, error) {
+	if !r.branchExists(ctx, pr.Head.Ref) {
+		return pr.Head.Ref, false, nil
+	}
+	if pr.sameRepo || r.markedRequest(ctx, pr.Head.Ref) == pr.identity {
+		return pr.Head.Ref, true, nil
+	}
+	distinct := "pr-" + strconv.Itoa(pr.Number) + "-" + strings.ReplaceAll(pr.Head.Ref, "/", "-")
+	if !r.branchExists(ctx, distinct) {
+		return distinct, false, nil
+	}
+	if r.markedRequest(ctx, distinct) == pr.identity {
+		return distinct, true, nil
+	}
+	return "", false, fmt.Errorf("pull request %d: the branches %s and %s belong to other work", pr.Number, pr.Head.Ref, distinct)
+}
+
+// fetchRequest brings the pull request's commit here and checks it is the one
+// GitHub named. It returns the local branch, and the commit to start that
+// branch at when it does not exist yet.
+func (r *repository) fetchRequest(ctx context.Context, pr *pullRequest) (branch, start string, err error) {
+	if pr.Head.SHA == "" {
+		return "", "", fmt.Errorf("pull request %d: GitHub named no head commit", pr.Number)
+	}
+	private := "refs/herdsman/pull/" + strconv.Itoa(pr.Number)
+	if _, err := r.git.Run(ctx, r.main, "fetch", "-q", "origin", fmt.Sprintf("+refs/pull/%d/head:%s", pr.Number, private)); err != nil {
+		return "", "", err
+	}
+	defer r.git.Run(context.WithoutCancel(ctx), r.main, "update-ref", "-d", private)
+	out, err := r.git.Run(ctx, r.main, "rev-parse", "--verify", "-q", private+"^{commit}")
+	if err != nil {
+		return "", "", err
+	}
+	fetched := strings.TrimSpace(string(out.Stdout))
+	if !strings.EqualFold(fetched, pr.Head.SHA) {
+		return "", "", fmt.Errorf("pull request %d: fetched %s, but GitHub names %s as its head", pr.Number, fetched, pr.Head.SHA)
+	}
+	branch, exists, err := r.requestBranch(ctx, pr)
+	if err != nil {
+		return "", "", err
+	}
+	if !exists {
+		return branch, fetched, nil
+	}
+	ref := "refs/heads/" + branch
+	if _, err := r.git.Run(ctx, r.main, "merge-base", "--is-ancestor", ref, fetched); err != nil {
+		return "", "", fmt.Errorf("pull request %d: local branch %s has commits the request does not", pr.Number, branch)
+	}
+	if _, err := r.git.Run(ctx, r.main, "update-ref", ref, fetched); err != nil {
+		return "", "", err
+	}
+	return branch, "", nil
+}
+
+func renamedWarning(pr *pullRequest, branch string) []string {
+	if branch == pr.Head.Ref {
+		return nil
+	}
+	return []string{fmt.Sprintf("the local branch %s is already other work, so pull request %d is on %s; to publish, push %s:%s", pr.Head.Ref, pr.Number, branch, branch, pr.Head.Ref)}
+}
+
+// existingRequest finds the worktree that already holds the pull request.
+func (r *repository) existingRequest(ctx context.Context, pr *pullRequest, task string) (wtree.Row, bool, error) {
+	for _, row := range r.rows {
+		if r.markedRequest(ctx, row.Branch) == pr.identity || (pr.sameRepo && row.Branch == pr.Head.Ref) {
+			return row, true, nil
+		}
+	}
+	for _, row := range r.rows {
+		if row.Task != task {
+			continue
+		}
+		// Worktrees made before branches carried the marker.
+		if row.Branch == pr.Head.Ref && !row.Main && r.markedRequest(ctx, row.Branch) == "" {
+			return row, true, nil
+		}
+		return wtree.Row{}, false, fmt.Errorf("task %s is other work, on branch %s; pull request %d needs that name", task, row.Branch, pr.Number)
+	}
+	return wtree.Row{}, false, nil
 }
 
 func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text string, selector wtree.Selector, resp *WorktreeGoResponse) (wtree.Row, error) {
@@ -775,12 +891,11 @@ func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text str
 		return wtree.Row{}, err
 	}
 	task := "pr-" + strconv.Itoa(selector.Number)
-	for _, row := range r.rows {
-		if row.Task == task || row.Branch == pr.Head.Ref {
-			return row, nil
-		}
+	if row, found, err := r.existingRequest(ctx, pr, task); found || err != nil {
+		return row, err
 	}
-	if err := r.fetchRequest(ctx, pr); err != nil {
+	branch, start, err := r.fetchRequest(ctx, pr)
+	if err != nil {
 		return wtree.Row{}, err
 	}
 	path, err := wtree.DefaultNaming().ResolvePath(r.vars(task, "", "", "feat", "", ""))
@@ -790,39 +905,95 @@ func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text str
 	if err := r.clearPath(path, false); err != nil {
 		return wtree.Row{}, err
 	}
-	if _, err := r.git.Run(ctx, r.main, "worktree", "add", "-q", path, pr.Head.Ref); err != nil {
+	args := []string{"worktree", "add", "-q", path, branch}
+	if start != "" {
+		args = []string{"worktree", "add", "-q", "-b", branch, path, start}
+	}
+	if _, err := r.git.Run(ctx, r.main, args...); err != nil {
 		return wtree.Row{}, err
 	}
-	if err := r.state.PutWorktree(ctx, wtree.Worktree{Task: task, Branch: pr.Head.Ref, Path: path, CreatedAt: time.Now()}); err != nil {
+	if err := r.markRequest(ctx, pr, branch); err != nil {
+		return wtree.Row{}, err
+	}
+	if err := r.state.PutWorktree(ctx, wtree.Worktree{Task: task, Branch: branch, Path: path, CreatedAt: time.Now()}); err != nil {
 		return wtree.Row{}, err
 	}
 	resp.Created = true
-	if resp.PushRemote, err = s.setPushRemote(ctx, r, pr); err != nil {
+	resp.Warnings = append(resp.Warnings, renamedWarning(pr, branch)...)
+	if resp.PushRemote, err = r.setPushRemote(ctx, pr, branch); err != nil {
 		return wtree.Row{}, err
 	}
-	return wtree.Row{Task: task, Branch: pr.Head.Ref, Path: path}, nil
+	return wtree.Row{Task: task, Branch: branch, Path: path}, nil
+}
+
+// remoteAddress reduces a remote's URL to host and path, so that the https and
+// ssh spellings of one repository compare equal.
+func remoteAddress(url string) string {
+	url = strings.TrimSpace(url)
+	if _, rest, ok := strings.Cut(url, "://"); ok {
+		host, path, _ := strings.Cut(rest, "/")
+		host = host[strings.LastIndex(host, "@")+1:]
+		host, _, _ = strings.Cut(host, ":")
+		url = host + "/" + path
+	} else if host, path, ok := strings.Cut(url, ":"); ok && !strings.Contains(host, "/") {
+		url = host[strings.LastIndex(host, "@")+1:] + "/" + path
+	}
+	url = strings.TrimRight(url, "/")
+	return strings.ToLower(strings.TrimSuffix(url, ".git"))
+}
+
+// pushesOnlyTo says whether every push address of the listing is the fork.
+func pushesOnlyTo(listing, fork string) bool {
+	want := remoteAddress(fork)
+	for _, line := range strings.Fields(listing) {
+		if remoteAddress(line) != want {
+			return false
+		}
+	}
+	return true
+}
+
+// forkRemote returns a remote that pushes to the fork: the owner's name when it
+// is free or already that fork, else an unused name. It never edits a remote
+// the user set up.
+func (r *repository) forkRemote(ctx context.Context, owner, url string) (string, error) {
+	const attempts = 100
+	for i := range attempts {
+		name := owner
+		if i == 1 {
+			name = owner + "-fork"
+		} else if i > 1 {
+			name = owner + "-fork-" + strconv.Itoa(i)
+		}
+		out, err := r.git.Run(ctx, r.main, "remote", "get-url", "--push", "--all", name)
+		if err != nil {
+			if _, err := r.git.Run(ctx, r.main, "remote", "add", name, url); err != nil {
+				return "", err
+			}
+			return name, nil
+		}
+		if pushesOnlyTo(string(out.Stdout), url) {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no free remote name for %s after %d tries", owner, attempts)
 }
 
 // setPushRemote points a fork's branch at the fork, so that a push goes there.
-func (s *WorktreeService) setPushRemote(ctx context.Context, r *repository, pr *pullRequest) (string, error) {
-	repo, err := s.repoName(ctx, r)
+func (r *repository) setPushRemote(ctx context.Context, pr *pullRequest, branch string) (string, error) {
+	head := pr.Head.Repo
+	if head == nil || pr.sameRepo {
+		return "", nil
+	}
+	owner := head.Owner.Login
+	if !remoteName.MatchString(owner) || !strings.HasPrefix(head.CloneURL, "https://") {
+		return "", fmt.Errorf("pull request %d: unusable fork %q at %q", pr.Number, owner, head.CloneURL)
+	}
+	remote, err := r.forkRemote(ctx, owner, head.CloneURL)
 	if err != nil {
 		return "", err
 	}
-	head := pr.Head.Repo
-	if head == nil || strings.EqualFold(head.FullName, repo) {
-		return "", nil
-	}
-	remote := head.Owner.Login
-	if !remoteName.MatchString(remote) || !strings.HasPrefix(head.CloneURL, "https://") {
-		return "", fmt.Errorf("pull request %d: unusable fork %q at %q", pr.Number, remote, head.CloneURL)
-	}
-	if _, err := r.git.Run(ctx, r.main, "remote", "get-url", remote); err != nil {
-		if _, err := r.git.Run(ctx, r.main, "remote", "add", remote, head.CloneURL); err != nil {
-			return "", err
-		}
-	}
-	_, err = r.git.Run(ctx, r.main, "config", "branch."+pr.Head.Ref+".pushRemote", remote)
+	_, err = r.git.Run(ctx, r.main, "config", "branch."+branch+".pushRemote", remote)
 	return remote, err
 }
 
