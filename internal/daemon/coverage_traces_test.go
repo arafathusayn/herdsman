@@ -67,21 +67,6 @@ func TestExportReportsARouteThatIsNotThere(t *testing.T) {
 	}
 }
 
-func TestATurnThatCannotBeWrittenIsOnlyLogged(t *testing.T) {
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(root)
-	folder := routeFolderFixture(t, filepath.Join(root, "repo"), "r-2026-01-02")
-	h := newHarness(t)
-	h.route("r")
-	if err := os.WriteFile(filepath.Join(folder, "trace"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	h.d.recordTurn("r", "orch", "t")
-}
-
 func TestLabelsAreEmptyWhenTheStoreCannotAnswer(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

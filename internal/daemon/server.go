@@ -670,15 +670,11 @@ func (d *Daemon) claim(ctx context.Context, route string, q ClaimRequest, res *C
 	if e != nil {
 		return e
 	}
-	e = rt.do(ctx, func() *APIError {
+	return rt.do(ctx, func() *APIError {
 		var e *APIError
 		*res, e = rt.claim(me, q)
 		return e
 	})
-	if e == nil {
-		d.turns.begin(route, res.Claim)
-	}
-	return e
 }
 
 func (d *Daemon) ack(ctx context.Context, route, token string, q AckRequest, res *AckResult) *APIError {
@@ -690,15 +686,11 @@ func (d *Daemon) ack(ctx context.Context, route, token string, q AckRequest, res
 	if e != nil {
 		return e
 	}
-	e = rt.do(ctx, func() *APIError {
+	return rt.do(ctx, func() *APIError {
 		var e *APIError
 		*res, e = rt.ack(me, token, q)
 		return e
 	})
-	if e == nil && !res.Already {
-		d.recordTurn(route, me, token)
-	}
-	return e
 }
 
 func (d *Daemon) release(ctx context.Context, route, token string) *APIError {
@@ -710,11 +702,7 @@ func (d *Daemon) release(ctx context.Context, route, token string) *APIError {
 	if e != nil {
 		return e
 	}
-	e = rt.do(ctx, func() *APIError { return rt.release(me, token) })
-	if e == nil {
-		d.turns.end(route, token)
-	}
-	return e
+	return rt.do(ctx, func() *APIError { return rt.release(me, token) })
 }
 
 // holdOp places a hold (reason set) or removes the caller's hold (reason nil).
