@@ -1,0 +1,201 @@
+.TH HERDSMAN-MESSAGE 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-message \- The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.
+.SH DESCRIPTION
+.nf
+The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.
+
+message ack:
+usage: herdsman message [--json] ack <claim> <id> <record>
+  acknowledge a claimed message after durable intake
+
+settings: HERDSMAN_NAME and HERDSMAN_INBOX are required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+
+message authority:
+usage: herdsman message [--json] authority
+  RELAY or HUMAN (--json: {"type":"authority","status":"relay|human","text"})
+
+settings: HERDSMAN_INBOX is required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done (RELAY)
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+  3  HUMAN
+
+message card-watch:
+usage: herdsman message [--json] card-watch [--json]
+  INTERVAL=5 RUN_FOR=0 (it prints no event lines; alerts go to herdr)
+
+settings: HERDSMAN_INBOX is required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+
+message courier:
+usage: herdsman message [--json] courier
+  SWEEP=60 ALERT_AFTER=600 RUN_FOR=0
+
+settings: HERDSMAN_INBOX is required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+
+message hold:
+usage: herdsman message [--json] hold <name> <reason> | unhold <name>
+
+settings: HERDSMAN_NAME and HERDSMAN_INBOX are required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+
+message leak-gate:
+usage: herdsman message [--json] leak-gate <file> [heading...]
+  LEAK_ALLOW_FILE LEAK_PATTERN
+
+settings: LEAK_PATTERN (an added pattern) and LEAK_ALLOW_FILE (exact lines allowed) are optional; no inbox is needed.
+
+exit codes:
+  0  done (clean)
+  1  a leak or a missing section
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+
+message read:
+usage: herdsman message [--json] read [claim]
+  claim ready messages; print manifests, never bodies
+
+settings: HERDSMAN_NAME and HERDSMAN_INBOX are required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+
+message register:
+usage: herdsman message [--json] register propose <name> adjutant|orchestrator | approve <checksum> | retire <name> <checksum>
+
+settings: HERDSMAN_INBOX is required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+
+message release:
+usage: herdsman message [--json] release <claim>
+  release a fully acknowledged claim
+
+settings: HERDSMAN_NAME and HERDSMAN_INBOX are required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+
+message resume-goal:
+usage: herdsman message [--json] resume-goal <name>
+  RESUME_TARGET_SUM (--json: {"type":"resume","status":"held|noop|sent","text"})
+
+settings: HERDSMAN_INBOX is required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done (NOOP or SENT)
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+  3  HELD
+
+message send:
+usage: herdsman message [--json] send <to> <file> <kind> [reply]
+
+settings: HERDSMAN_NAME and HERDSMAN_INBOX are required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+
+message status:
+usage: herdsman message [--json] status
+  channel metadata, read-only (--json: one object)
+
+settings: HERDSMAN_NAME and HERDSMAN_INBOX are required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+
+message unhold:
+usage: herdsman message [--json] hold <name> <reason> | unhold <name>
+
+settings: HERDSMAN_NAME and HERDSMAN_INBOX are required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+
+message wait:
+usage: herdsman message [--json] wait
+  wait for a message or a health change (--json: one event object)
+
+settings: HERDSMAN_NAME and HERDSMAN_INBOX are required.
+SWEEP, ALERT_AFTER, RUN_FOR, INTERVAL, RECHECK, DEADLINE, HEALTH_AFTER and EVENT_READ_MAX are
+durations (seconds, or with an s, m, h or d suffix; blanks around it allowed; clamped to each
+command's range); LOCK_WAIT is a whole number from 1 to 60. A bad or missing value is one line
+naming it, exit 2, before anything runs.
+
+exit codes:
+  0  done (a message or TICK)
+  1  HEALTH
+  2  usage, an invalid or missing setting, or a refusal (the reason on stderr)
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

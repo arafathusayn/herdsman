@@ -1,0 +1,3 @@
+{"time":"2026-11-08T10:00:01Z","dir":"/srv/repo","args":["-c","http.extraHeader=Authorization: bearer abc","fetch","https://me:secret@example.com/r.git"],"exit":0,"duration_ms":120.5}
+{"time":"2026-11-08T10:00:02Z","dir":"/srv/repo","args":["status","--porcelain"],"exit":128,"duration_ms":3}
+not json

@@ -8,7 +8,7 @@ import (
 // FuzzRequestPath drives the whole request path with arbitrary input: it must
 // never panic, and every answer must be a success or a well-formed failure.
 func FuzzRequestPath(f *testing.F) {
-	f.Add(ContentTypeJSON, "", "", []byte(`{"route":{"value":"alpha"}}`))
+	f.Add(ContentTypeJSON, "", "", []byte(`{"value":"alpha"}`))
 	f.Add(ContentTypeProto, "1", "1000", []byte{0x0a, 0x02, 0x0a, 0x00})
 	f.Add("application/json; charset=utf-8", "2", "x", []byte("{"))
 	f.Add("", "", "99999999999", []byte{0xff})

@@ -33,6 +33,7 @@ type exportManifest struct {
 	Created   int64    `json:"created"`
 	Op        string   `json:"op"`
 	Digest    string   `json:"digest"`
+	StateRoot string   `json:"state_root"`
 	Snapshots []string `json:"snapshots"`
 }
 
@@ -66,6 +67,9 @@ func stagingPath(dest, op string) string { return dest + ".tmp-" + op }
 // left, then builds the export beside the destination.
 func (fx exportEffect) Apply(ctx context.Context, st Step) error {
 	dest := st.Spec
+	if quiesce := fx.r.opt.Quiesce; quiesce != nil {
+		defer quiesce()()
+	}
 	fx.r.eng.fault("export:barrier")
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return err
@@ -103,7 +107,7 @@ func (fx exportEffect) build(ctx context.Context, op, tmp string) error {
 	if err != nil {
 		return err
 	}
-	if err := copyState(r.opt.StateDir, filepath.Join(tmp, exportStateDir)); err != nil {
+	if err := r.copyState(r.opt.StateDir, filepath.Join(tmp, exportStateDir)); err != nil {
 		return err
 	}
 	ids := make([]string, 0, len(snapshots))
@@ -114,7 +118,7 @@ func (fx exportEffect) build(ctx context.Context, op, tmp string) error {
 		}
 		ids = append(ids, s.ID)
 	}
-	raw, err := json.MarshalIndent(exportManifest{Schema: exportSchema, Created: r.eng.now(), Op: op, Digest: digest, Snapshots: ids}, "", "  ")
+	raw, err := json.MarshalIndent(exportManifest{Schema: exportSchema, Created: r.eng.now(), Op: op, Digest: digest, StateRoot: r.opt.StateDir, Snapshots: ids}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -166,7 +170,7 @@ func sidecar(name string) bool {
 	return strings.HasSuffix(name, "-wal") || strings.HasSuffix(name, "-shm") || strings.HasSuffix(name, "-journal")
 }
 
-func copyState(from, to string) error {
+func (r *Recovery) copyState(from, to string) error {
 	return copyTree(from, to, func(rel, source string, isDir bool) (bool, error) {
 		if stateSkip[rel] || sidecar(rel) {
 			return true, nil
@@ -178,7 +182,7 @@ func copyState(from, to string) error {
 		if err != nil || !isDB {
 			return false, err
 		}
-		return true, vacuumInto(source, filepath.Join(to, rel))
+		return true, r.vacuumInto(source, filepath.Join(to, rel))
 	})
 }
 
@@ -198,16 +202,31 @@ func isSQLite(name string) (bool, error) {
 	return string(head) == "SQLite format 3\x00", nil
 }
 
-func databaseKind(name string) store.Kind {
-	if filepath.Base(name) == filepath.Base(accountDatabase) {
-		return store.KindAccount
+// vacuumInto copies a live database consistently. The target is created
+// first, private, because SQLite's checked open will not create files; the
+// connection must be a writer because VACUUM INTO attaches its output with the
+// flags of the connection, and it writes nothing to the source. The account
+// database goes through the engine's own connection; a route's has its writer
+// in another actor, so it gets a short-lived one.
+func (r *Recovery) vacuumInto(source, target string) error {
+	f, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
 	}
-	return store.KindRoute
-}
-
-// vacuumInto is the one consistent way to copy a live SQLite database.
-func vacuumInto(source, target string) error {
-	c, err := store.Open(source, store.Reader, databaseKind(source))
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if rel, err := filepath.Rel(r.opt.StateDir, source); err == nil && filepath.ToSlash(rel) == accountDatabase {
+		err := r.eng.Read(func(c store.Conn) error {
+			_, err := c.Exec("VACUUM INTO ?", target)
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("export: %s: %w", source, err)
+		}
+		return nil
+	}
+	c, err := store.Open(source, store.Writer, store.KindRoute)
 	if err != nil {
 		return fmt.Errorf("export: %s: %w", source, err)
 	}
@@ -215,7 +234,7 @@ func vacuumInto(source, target string) error {
 	if _, err := c.Exec("VACUUM INTO ?", target); err != nil {
 		return fmt.Errorf("export: %s: %w", source, err)
 	}
-	return os.Chmod(target, 0o600)
+	return nil
 }
 
 // copyTree copies a folder, keeping modes and links. handled, given a path

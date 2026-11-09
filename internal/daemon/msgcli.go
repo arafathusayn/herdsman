@@ -37,8 +37,6 @@ type MessageEnv struct {
 	Keychain Keychain
 	// AttemptTimeout bounds one attempt of a keyed request (0: 10 s).
 	AttemptTimeout time.Duration
-	// StatusRPC reads the status over RPC (nil: the 0.x route).
-	StatusRPC func(ctx context.Context, c *Client, route string, out *RouteStatus) error
 }
 
 // MessageHelp is the daemon path's grammar and exit codes.
@@ -226,15 +224,14 @@ func RunMessage(e *MessageEnv, args []string) int {
 		c.Name = ""
 	}
 	ctx := context.Background()
-	base := "/v1/routes/" + route
 	switch action {
 	case "status":
 		if len(rest) != 0 {
 			return e.usage("status takes no arguments")
 		}
-		return e.status(ctx, c, base, route, dir)
+		return e.status(ctx, c, route, dir)
 	case "wait":
-		return e.wait(c, base, me, rest)
+		return e.wait(c, route, me, rest)
 	case "read":
 		if len(rest) > 1 {
 			return e.usage("read [claim]")
@@ -244,7 +241,7 @@ func RunMessage(e *MessageEnv, args []string) int {
 			q = ClaimRequest{Token: rest[0], ExtendKey: randomHex(16)}
 		}
 		var res ClaimResult
-		if err := e.retry(ctx, func(ctx context.Context) error { _, err := c.Do(ctx, "POST", base+"/claims", q, &res); return err }); err != nil {
+		if err := e.retry(ctx, func(ctx context.Context) error { var err error; res, err = c.Claim(ctx, route, q); return err }); err != nil {
 			return e.fail(action, err)
 		}
 		e.line(obj("type", "claim", "token", res.Claim))
@@ -258,7 +255,7 @@ func RunMessage(e *MessageEnv, args []string) int {
 		if len(rest) != 1 {
 			return e.usage("release <claim>")
 		}
-		if _, err := c.Do(ctx, "DELETE", base+"/claims/"+rest[0], nil, nil); err != nil {
+		if err := c.Release(ctx, route, rest[0]); err != nil {
 			return e.fail(action, err)
 		}
 		fmt.Fprintln(e.Stdout, `{"type":"released"}`)
@@ -277,7 +274,8 @@ func RunMessage(e *MessageEnv, args []string) int {
 		var res AckResult
 		q := AckRequest{ID: rest[1], Record: string(rec)}
 		if err := e.retry(ctx, func(ctx context.Context) error {
-			_, err := c.Do(ctx, "POST", base+"/claims/"+rest[0]+"/acks", q, &res)
+			var err error
+			res, err = c.Ack(ctx, route, rest[0], q)
 			return err
 		}); err != nil {
 			return e.fail(action, err)
@@ -305,7 +303,7 @@ func RunMessage(e *MessageEnv, args []string) int {
 		}
 		q.Body = string(body)
 		var res SendResult
-		if err := e.retry(ctx, func(ctx context.Context) error { _, err := c.Do(ctx, "POST", base+"/messages", q, &res); return err }); err != nil {
+		if err := e.retry(ctx, func(ctx context.Context) error { var err error; res, err = c.Send(ctx, route, q); return err }); err != nil {
 			return e.fail(action, err)
 		}
 		if e.JSON {
@@ -321,9 +319,9 @@ func RunMessage(e *MessageEnv, args []string) int {
 		var res HoldResult
 		var err error
 		if action == "hold" {
-			_, err = c.Do(ctx, "PUT", base+"/holds/"+rest[0], HoldRequest{Reason: rest[1]}, &res)
+			res, err = c.Hold(ctx, route, rest[0], rest[1])
 		} else {
-			_, err = c.Do(ctx, "DELETE", base+"/holds/"+rest[0], nil, &res)
+			res, err = c.Unhold(ctx, route, rest[0])
 		}
 		if err != nil {
 			return e.fail(action, err)
@@ -343,22 +341,22 @@ func RunMessage(e *MessageEnv, args []string) int {
 		if rest[1] != "adjutant" && rest[1] != "orchestrator" {
 			return e.usage("enroll <name> adjutant|orchestrator")
 		}
-		var res map[string]string
-		if _, err := c.Do(ctx, "POST", base+"/enroll", EnrollRequest{Name: rest[0], Role: rest[1]}, &res); err != nil {
+		sum, err := c.Enroll(ctx, route, EnrollRequest{Name: rest[0], Role: rest[1]})
+		if err != nil {
 			return e.fail(action, err)
 		}
 		if e.JSON {
-			e.line(obj("pending_sha256", res["pending_sha256"]))
+			e.line(obj("pending_sha256", sum))
 		} else {
-			fmt.Fprintf(e.Stdout, "pending registry %s\n", res["pending_sha256"])
+			fmt.Fprintf(e.Stdout, "pending registry %s\n", sum)
 		}
 		return 0
 	case "authority":
 		if len(rest) != 0 {
 			return e.usage("authority takes no arguments")
 		}
-		var res AuthorityResult
-		if _, err := c.Do(ctx, "GET", base+"/authority", nil, &res); err != nil {
+		res, err := c.Authority(ctx, route)
+		if err != nil {
 			return e.fail(action, err)
 		}
 		if e.JSON {
@@ -421,15 +419,9 @@ const retryWindow = 60 * time.Second
 
 // status asks the daemon; when it does not answer within 1 s, it reads
 // the files read-only and reports daemon=down with exit 1 (4.5).
-func (e *MessageEnv) status(ctx context.Context, c *Client, base, route, dir string) int {
+func (e *MessageEnv) status(ctx context.Context, c *Client, route, dir string) int {
 	cctx, cancel := context.WithTimeout(ctx, time.Second)
-	var out RouteStatus
-	var err error
-	if e.StatusRPC != nil {
-		err = e.StatusRPC(cctx, c, route, &out)
-	} else {
-		_, err = c.Do(cctx, "GET", base+"/status", nil, &out)
-	}
+	out, err := c.Status(cctx, route)
 	cancel()
 	code := 0
 	if err != nil {
@@ -636,7 +628,7 @@ var waitTypes = []string{"message", "receipt", "notice", "health", "pair", "ques
 
 // wait is `herdsman message wait` (6.1): one event, printed with its
 // cursor, then exit.
-func (e *MessageEnv) wait(c *Client, base, me string, args []string) int {
+func (e *MessageEnv) wait(c *Client, route, me string, args []string) int {
 	after, types := "", slices.Clone(waitTypes)
 	deadlineText := e.env("DEADLINE")
 	for i := 0; i < len(args); i++ {
@@ -681,7 +673,7 @@ func (e *MessageEnv) wait(c *Client, base, me string, args []string) int {
 		}
 		grace = d
 	}
-	w := &waiter{e: e, c: c, path: base + "/events", me: me, cursor: after, types: types, grace: grace}
+	w := &waiter{e: e, c: c, route: route, me: me, cursor: after, types: types, grace: grace}
 	return w.run(deadline)
 }
 
@@ -693,7 +685,7 @@ const stableStream = 5 * time.Second
 type waiter struct {
 	e      *MessageEnv
 	c      *Client
-	path   string
+	route  string
 	me     string
 	cursor string
 	types  []string
@@ -724,7 +716,7 @@ func (w *waiter) run(deadline time.Duration) int {
 		attempt := w.e.now()
 		actx, acancel := context.WithCancel(ctx)
 		timer := time.AfterFunc(w.grace, acancel)
-		ev, err := w.c.Events(actx, w.path, w.cursor)
+		ev, err := w.c.Events(actx, w.route, w.cursor)
 		if !timer.Stop() && err == nil {
 			ev.Close()
 			err = &DownError{Err: errors.New("no answer within HEALTH_GRACE")}

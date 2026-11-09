@@ -35,7 +35,7 @@ func (r *Route) boxInit(name string) error {
 	return nil
 }
 
-// SendRequest is POST /v1/routes/{route}/messages.
+// SendRequest queues one message.
 type SendRequest struct {
 	To      string `json:"to"`
 	Kind    string `json:"kind"`
@@ -267,7 +267,7 @@ func identityObj(id inbox.Identity) ordered {
 	return obj("pane", id.Pane, "session", obj("agent", s.Agent, "kind", s.Kind, "source", s.Source, "value", s.Value))
 }
 
-// ClaimRequest is POST /v1/routes/{route}/claims: a first read carries a
+// ClaimRequest reads ready messages: a first read carries a
 // read_key; an extension carries the token and an extend_key (4.2).
 type ClaimRequest struct {
 	ReadKey   string `json:"read_key,omitempty"`
@@ -537,7 +537,7 @@ func (r *Route) manifest(me, token string) (ClaimResult, *APIError) {
 	return res, nil
 }
 
-// AckRequest is POST /v1/routes/{route}/claims/{token}/acks.
+// AckRequest acknowledges one claimed message.
 type AckRequest struct {
 	ID     string `json:"id"`
 	Record string `json:"record"`

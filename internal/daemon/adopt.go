@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,7 +15,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
-// AdoptRequest is POST /v1/routes/{route}/adopt.
+// AdoptRequest moves a file inbox under the daemon.
 type AdoptRequest struct {
 	Inbox             string `json:"inbox"`
 	ConfirmPairSHA256 string `json:"confirm_pair_sha256"`
@@ -107,12 +106,7 @@ func (d *Daemon) checkAdoptInbox(dir string) *APIError {
 	return nil
 }
 
-func (d *Daemon) adoptRoute(w http.ResponseWriter, r *http.Request) *APIError {
-	name := r.PathValue("route")
-	var q AdoptRequest
-	if e := decode(r, &q); e != nil {
-		return e
-	}
+func (d *Daemon) adoptRoute(ctx context.Context, name string, q AdoptRequest, res *AdoptResult) *APIError {
 	if !validName(name) {
 		return Errf("bad_request", "invalid route name")
 	}
@@ -134,11 +128,11 @@ func (d *Daemon) adoptRoute(w http.ResponseWriter, r *http.Request) *APIError {
 	if served {
 		return Errf("route_exists", "route %s is already served", name)
 	}
-	res, e := d.adopt(r.Context(), name, q.Inbox, q.ConfirmPairSHA256, true)
+	out, e := d.adopt(ctx, name, q.Inbox, q.ConfirmPairSHA256, true)
 	if e != nil {
 		return e
 	}
-	writeJSON(w, 200, res)
+	*res = out
 	return nil
 }
 
@@ -409,14 +403,8 @@ func (d *Daemon) adoptPending(ctx context.Context, name, dir string, m adoptMark
 	d.mu.Lock()
 	delete(d.held, name)
 	d.routes[name] = rt
-	views := make([]*subscriber, 0, len(d.views))
-	for s := range d.views {
-		views = append(views, s)
-	}
 	d.mu.Unlock()
-	for _, s := range views {
-		d.attachView(rt, s)
-	}
+	d.view.attach(rt)
 	return res, nil
 }
 

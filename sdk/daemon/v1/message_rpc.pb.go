@@ -8,7 +8,7 @@ import (
 	context "context"
 	json "encoding/json"
 	fmt "fmt"
-	protojson "google.golang.org/protobuf/encoding/protojson"
+	rpc "github.com/arafathusayn/herdsman/sdk/rpc"
 	proto "google.golang.org/protobuf/proto"
 	io "io"
 	http "net/http"
@@ -20,20 +20,96 @@ const MessageServiceName = "herdsman.daemon.v1.MessageService"
 
 // MessageService is a route's message channel.
 type MessageService interface {
+	// Hello reports the daemon's build and what it offers. It is the one method
+	// a client of any version may call.
+	Hello(context.Context, *HelloRequest) (*HelloResponse, error)
+	// Health reports every route and every Herdr link.
+	Health(context.Context, *HealthRequest) (*HealthResponse, error)
+	// Shutdown asks the daemon to stop.
+	Shutdown(context.Context, *ShutdownRequest) (*ShutdownResponse, error)
+	// ListRoutes lists the registered routes.
+	ListRoutes(context.Context, *ListRoutesRequest) (*ListRoutesResponse, error)
+	// CreateRoute registers a new route with a new inbox.
+	CreateRoute(context.Context, *CreateRouteRequest) (*CreateRouteResponse, error)
+	// AdoptRoute moves an existing file inbox under the daemon.
+	AdoptRoute(context.Context, *AdoptRouteRequest) (*AdoptRouteResponse, error)
+	// RemoveRoute forgets a route and keeps its inbox.
+	RemoveRoute(context.Context, *RemoveRouteRequest) (*RemoveRouteResponse, error)
+	// ResetEvents starts a new event epoch for a route.
+	ResetEvents(context.Context, *ResetEventsRequest) (*ResetEventsResponse, error)
 	// Status reports the channel of one route.
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
+	// GetSetup lists a route's live agents and its current proof.
+	GetSetup(context.Context, *GetSetupRequest) (*GetSetupResponse, error)
+	// PutSetup records the human's setup proof.
+	PutSetup(context.Context, *PutSetupRequest) (*PutSetupResponse, error)
+	// Enroll proposes the calling pane as a party of the route.
+	Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error)
+	// ApprovePair approves the pending registry by its checksum.
+	ApprovePair(context.Context, *ApprovePairRequest) (*ApprovePairResponse, error)
+	// RetirePair retires a party and revokes its credential.
+	RetirePair(context.Context, *RetirePairRequest) (*RetirePairResponse, error)
+	// RevokeCredential revokes one party's credential.
+	RevokeCredential(context.Context, *RevokeCredentialRequest) (*RevokeCredentialResponse, error)
+	// Send queues a message from the calling party.
+	Send(context.Context, *SendRequest) (*SendResponse, error)
+	// Claim reads ready messages, or extends the active claim.
+	Claim(context.Context, *ClaimRequest) (*ClaimResponse, error)
+	// Ack acknowledges one claimed message.
+	Ack(context.Context, *AckRequest) (*AckResponse, error)
+	// Release gives back a fully acknowledged claim.
+	Release(context.Context, *ReleaseRequest) (*ReleaseResponse, error)
+	// Hold places the calling party's hold on a target.
+	Hold(context.Context, *HoldRequest) (*HoldResponse, error)
+	// Unhold removes the calling party's hold from a target.
+	Unhold(context.Context, *UnholdRequest) (*UnholdResponse, error)
+	// Authority reports whether relayed messages carry authority.
+	Authority(context.Context, *AuthorityRequest) (*AuthorityResponse, error)
+	// DaemonStatus reports the state directory and what it holds.
+	DaemonStatus(context.Context, *DaemonStatusRequest) (*DaemonStatusResponse, error)
+	// ListOperations lists the operation journal.
+	ListOperations(context.Context, *ListOperationsRequest) (*ListOperationsResponse, error)
+	// GetOperation reads one operation.
+	GetOperation(context.Context, *GetOperationRequest) (*GetOperationResponse, error)
+	// ResolveOperation records what happened to a step whose outcome is unknown.
+	ResolveOperation(context.Context, *ResolveOperationRequest) (*ResolveOperationResponse, error)
+	// Wait returns the calling party's next events after a cursor, or none when
+	// wait_ms passes first.
+	Wait(context.Context, *WaitRequest) (*WaitResponse, error)
 }
 
-// NewMessageServiceHandler serves impl over HTTP. Mount it at the server's root.
+// NewMessageServiceHandler serves impl over HTTP with the full binding. Mount it
+// at the server's root or at rpc.BasePath.
 func NewMessageServiceHandler(impl MessageService) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc/herdsman.daemon.v1.MessageService/Status", func(w http.ResponseWriter, r *http.Request) {
-		req := new(StatusRequest)
-		serveMessageService(w, r, req, func(ctx context.Context) (proto.Message, error) {
-			return impl.Status(ctx, req)
-		})
-	})
-	return mux
+	return rpc.NewMux(
+		rpc.Unary(MessageServiceName, "Hello", impl.Hello),
+		rpc.Unary(MessageServiceName, "Health", impl.Health),
+		rpc.Unary(MessageServiceName, "Shutdown", impl.Shutdown),
+		rpc.Unary(MessageServiceName, "ListRoutes", impl.ListRoutes),
+		rpc.Unary(MessageServiceName, "CreateRoute", impl.CreateRoute),
+		rpc.Unary(MessageServiceName, "AdoptRoute", impl.AdoptRoute),
+		rpc.Unary(MessageServiceName, "RemoveRoute", impl.RemoveRoute),
+		rpc.Unary(MessageServiceName, "ResetEvents", impl.ResetEvents),
+		rpc.Unary(MessageServiceName, "Status", impl.Status),
+		rpc.Unary(MessageServiceName, "GetSetup", impl.GetSetup),
+		rpc.Unary(MessageServiceName, "PutSetup", impl.PutSetup),
+		rpc.Unary(MessageServiceName, "Enroll", impl.Enroll),
+		rpc.Unary(MessageServiceName, "ApprovePair", impl.ApprovePair),
+		rpc.Unary(MessageServiceName, "RetirePair", impl.RetirePair),
+		rpc.Unary(MessageServiceName, "RevokeCredential", impl.RevokeCredential),
+		rpc.Unary(MessageServiceName, "Send", impl.Send),
+		rpc.Unary(MessageServiceName, "Claim", impl.Claim),
+		rpc.Unary(MessageServiceName, "Ack", impl.Ack),
+		rpc.Unary(MessageServiceName, "Release", impl.Release),
+		rpc.Unary(MessageServiceName, "Hold", impl.Hold),
+		rpc.Unary(MessageServiceName, "Unhold", impl.Unhold),
+		rpc.Unary(MessageServiceName, "Authority", impl.Authority),
+		rpc.Unary(MessageServiceName, "DaemonStatus", impl.DaemonStatus),
+		rpc.Unary(MessageServiceName, "ListOperations", impl.ListOperations),
+		rpc.Unary(MessageServiceName, "GetOperation", impl.GetOperation),
+		rpc.Unary(MessageServiceName, "ResolveOperation", impl.ResolveOperation),
+		rpc.Unary(MessageServiceName, "Wait", impl.Wait),
+	)
 }
 
 type messageServiceClient struct {
@@ -46,6 +122,70 @@ func NewMessageServiceClient(hc *http.Client, base string) MessageService {
 	return &messageServiceClient{http: hc, base: strings.TrimRight(base, "/")}
 }
 
+func (c *messageServiceClient) Hello(ctx context.Context, req *HelloRequest) (*HelloResponse, error) {
+	res := new(HelloResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Hello", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) Health(ctx context.Context, req *HealthRequest) (*HealthResponse, error) {
+	res := new(HealthResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Health", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) Shutdown(ctx context.Context, req *ShutdownRequest) (*ShutdownResponse, error) {
+	res := new(ShutdownResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Shutdown", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) ListRoutes(ctx context.Context, req *ListRoutesRequest) (*ListRoutesResponse, error) {
+	res := new(ListRoutesResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/ListRoutes", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) CreateRoute(ctx context.Context, req *CreateRouteRequest) (*CreateRouteResponse, error) {
+	res := new(CreateRouteResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/CreateRoute", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) AdoptRoute(ctx context.Context, req *AdoptRouteRequest) (*AdoptRouteResponse, error) {
+	res := new(AdoptRouteResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/AdoptRoute", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) RemoveRoute(ctx context.Context, req *RemoveRouteRequest) (*RemoveRouteResponse, error) {
+	res := new(RemoveRouteResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/RemoveRoute", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) ResetEvents(ctx context.Context, req *ResetEventsRequest) (*ResetEventsResponse, error) {
+	res := new(ResetEventsResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/ResetEvents", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 func (c *messageServiceClient) Status(ctx context.Context, req *StatusRequest) (*StatusResponse, error) {
 	res := new(StatusResponse)
 	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Status", req, res); err != nil {
@@ -54,58 +194,152 @@ func (c *messageServiceClient) Status(ctx context.Context, req *StatusRequest) (
 	return res, nil
 }
 
+func (c *messageServiceClient) GetSetup(ctx context.Context, req *GetSetupRequest) (*GetSetupResponse, error) {
+	res := new(GetSetupResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/GetSetup", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) PutSetup(ctx context.Context, req *PutSetupRequest) (*PutSetupResponse, error) {
+	res := new(PutSetupResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/PutSetup", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) Enroll(ctx context.Context, req *EnrollRequest) (*EnrollResponse, error) {
+	res := new(EnrollResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Enroll", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) ApprovePair(ctx context.Context, req *ApprovePairRequest) (*ApprovePairResponse, error) {
+	res := new(ApprovePairResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/ApprovePair", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) RetirePair(ctx context.Context, req *RetirePairRequest) (*RetirePairResponse, error) {
+	res := new(RetirePairResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/RetirePair", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) RevokeCredential(ctx context.Context, req *RevokeCredentialRequest) (*RevokeCredentialResponse, error) {
+	res := new(RevokeCredentialResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/RevokeCredential", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) Send(ctx context.Context, req *SendRequest) (*SendResponse, error) {
+	res := new(SendResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Send", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) Claim(ctx context.Context, req *ClaimRequest) (*ClaimResponse, error) {
+	res := new(ClaimResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Claim", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) Ack(ctx context.Context, req *AckRequest) (*AckResponse, error) {
+	res := new(AckResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Ack", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) Release(ctx context.Context, req *ReleaseRequest) (*ReleaseResponse, error) {
+	res := new(ReleaseResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Release", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) Hold(ctx context.Context, req *HoldRequest) (*HoldResponse, error) {
+	res := new(HoldResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Hold", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) Unhold(ctx context.Context, req *UnholdRequest) (*UnholdResponse, error) {
+	res := new(UnholdResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Unhold", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) Authority(ctx context.Context, req *AuthorityRequest) (*AuthorityResponse, error) {
+	res := new(AuthorityResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Authority", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) DaemonStatus(ctx context.Context, req *DaemonStatusRequest) (*DaemonStatusResponse, error) {
+	res := new(DaemonStatusResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/DaemonStatus", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) ListOperations(ctx context.Context, req *ListOperationsRequest) (*ListOperationsResponse, error) {
+	res := new(ListOperationsResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/ListOperations", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) GetOperation(ctx context.Context, req *GetOperationRequest) (*GetOperationResponse, error) {
+	res := new(GetOperationResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/GetOperation", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) ResolveOperation(ctx context.Context, req *ResolveOperationRequest) (*ResolveOperationResponse, error) {
+	res := new(ResolveOperationResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/ResolveOperation", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) Wait(ctx context.Context, req *WaitRequest) (*WaitResponse, error) {
+	res := new(WaitResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Wait", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // messageServiceMaxBody bounds a request or response body.
 const messageServiceMaxBody = 4 << 20
-
-func serveMessageService(w http.ResponseWriter, r *http.Request, req proto.Message, call func(context.Context) (proto.Message, error)) {
-	fail := func(status int, code, message string) {
-		body, _ := json.Marshal(map[string]string{"code": code, "message": message})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = w.Write(body)
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		fail(http.StatusMethodNotAllowed, "unimplemented", "only POST is served")
-		return
-	}
-	contentType := r.Header.Get("Content-Type")
-	if contentType != "application/json" && contentType != "application/proto" {
-		fail(http.StatusUnsupportedMediaType, "unimplemented", "unsupported content type")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, messageServiceMaxBody))
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot read the request body")
-		return
-	}
-	if contentType == "application/json" {
-		err = (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, req)
-	} else {
-		err = proto.Unmarshal(body, req)
-	}
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid_argument", "cannot decode the request body")
-		return
-	}
-	res, err := call(r.Context())
-	if err != nil {
-		fail(http.StatusInternalServerError, "unknown", err.Error())
-		return
-	}
-	var out []byte
-	if contentType == "application/json" {
-		out, err = protojson.Marshal(res)
-	} else {
-		out, err = proto.Marshal(res)
-	}
-	if err != nil {
-		fail(http.StatusInternalServerError, "internal", "cannot encode the response")
-		return
-	}
-	w.Header().Set("Content-Type", contentType)
-	_, _ = w.Write(out)
-}
 
 func callMessageService(ctx context.Context, hc *http.Client, url string, req, res proto.Message) error {
 	body, err := proto.Marshal(req)

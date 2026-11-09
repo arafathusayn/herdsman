@@ -40,6 +40,7 @@ type rigOptions struct {
 	now       func() time.Time
 	fault     func(string)
 	extra     map[string]ops.Effect
+	quiesce   func() func()
 }
 
 func newRig(t *testing.T, o rigOptions) *rig {
@@ -60,7 +61,7 @@ func openRig(t *testing.T, state string, o rigOptions) *rig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	rec := ops.NewRecovery(ops.RecoveryOptions{StateDir: state, Retention: o.retention, Volumes: o.volumes})
+	rec := ops.NewRecovery(ops.RecoveryOptions{StateDir: state, Retention: o.retention, Volumes: o.volumes, Quiesce: o.quiesce})
 	effects := rec.Effects()
 	for k, v := range o.extra {
 		effects[k] = v
@@ -486,8 +487,7 @@ func TestUndoRefusesATamperedOrEscapingArchive(t *testing.T) {
 
 func TestUndoRetriesCleanlyAfterAKillBeforePublication(t *testing.T) {
 	armed := true
-	var r *rig
-	r = newRig(t, rigOptions{fault: func(p string) {
+	r := newRig(t, rigOptions{fault: func(p string) {
 		if p == "undo:staged" && armed {
 			armed = false
 			panic("killed")
@@ -504,7 +504,7 @@ func TestUndoRetriesCleanlyAfterAKillBeforePublication(t *testing.T) {
 		t.Fatalf("the target appeared before publication: %v", err)
 	}
 	// The journal says the step was intended; a restart decides from the world.
-	again := openRig(t, r.state+"", rigOptions{})
+	again := openRig(t, r.state, rigOptions{})
 	if err := again.eng.Recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -1061,5 +1061,440 @@ func TestExportKillLeavesNoDestination(t *testing.T) {
 	}
 	if held, _ := r.eng.HeldLocks(); len(held) != 0 {
 		t.Fatalf("locks left: %v", held)
+	}
+}
+
+// --- paths the gates above do not reach ---
+
+func TestExportCopiesRouteDatabases(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	folder := filepath.Join(r.state, "routes", "one")
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(r.state, "routes"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	live, err := store.Open(filepath.Join(folder, "route.db"), store.Writer, store.KindRoute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer live.Close()
+	dest := filepath.Join(t.TempDir(), "export")
+	if _, err := r.rec.Export(context.Background(), dest); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(t.TempDir(), "state")
+	if err := ops.Import(context.Background(), dest, state); err != nil {
+		t.Fatal(err)
+	}
+	copied := filepath.Join(state, "routes", "one", "route.db")
+	info, err := os.Stat(copied)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("copied database: %v, %v", info, err)
+	}
+	c, err := store.Open(copied, store.Writer, store.KindRoute)
+	if err != nil {
+		t.Fatalf("the copy does not open: %v", err)
+	}
+	c.Close()
+}
+
+func TestExportProbeReadsTheDestination(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	fx := r.rec.Effects()["account.export"]
+	base := t.TempDir()
+	step := func(dest string) ops.Step { return ops.Step{StepSpec: ops.StepSpec{Spec: dest}, OpID: "OP"} }
+	manifest := func(name, body string) string {
+		dest := filepath.Join(base, name)
+		write(t, filepath.Join(dest, ops.ExportManifestName), body)
+		return dest
+	}
+	foreign := filepath.Join(base, "foreign")
+	write(t, filepath.Join(foreign, "x"), "x")
+	for _, c := range []struct {
+		name, dest string
+		want       ops.Verdict
+	}{
+		{"nothing there", filepath.Join(base, "none"), ops.Absent},
+		{"someone's folder", foreign, ops.Different},
+		{"unreadable manifest", manifest("bad", "{"), ops.Different},
+		{"another export", manifest("other", `{"op":"ELSE"}`), ops.Different},
+		{"this export", manifest("mine", `{"op":"OP"}`), ops.Matches},
+	} {
+		if got, _, err := fx.Probe(context.Background(), step(c.dest)); err != nil || got != c.want {
+			t.Errorf("%s: %v, %v; want %v", c.name, got, err, c.want)
+		}
+	}
+}
+
+func TestPruneProbeAndApplyOfAGoneSnapshot(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	fx := r.rec.Effects()["snapshot.prune"]
+	gone := ops.Step{StepSpec: ops.StepSpec{Spec: "gone"}}
+	if err := fx.Apply(context.Background(), gone); err != nil {
+		t.Fatal(err)
+	}
+	if v, _, err := fx.Probe(context.Background(), gone); err != nil || v != ops.Matches {
+		t.Fatalf("%v %v", v, err)
+	}
+	r.seedSnapshot(t, "held", 1)
+	if v, _, err := fx.Probe(context.Background(), ops.Step{StepSpec: ops.StepSpec{Spec: "held"}}); err != nil || v != ops.Unknown {
+		t.Fatalf("%v %v", v, err)
+	}
+}
+
+func TestUndoProbeCallsAnotherTreeAConflict(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	_, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	other := t.TempDir()
+	write(t, filepath.Join(other, "x"), "x")
+	raw, _ := json.Marshal(map[string]string{"snapshot": id, "target": other})
+	v, detail, err := r.rec.Effects()["undo.restore"].Probe(context.Background(), ops.Step{StepSpec: ops.StepSpec{Spec: string(raw)}})
+	if err != nil || v != ops.Different || !strings.Contains(detail, other) {
+		t.Fatalf("%v %q %v", v, detail, err)
+	}
+}
+
+func TestUndoOfADetachedHead(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	repo, tree := dirtyWorktree(t)
+	head := git(t, tree, "rev-parse", "HEAD")
+	git(t, tree, "checkout", "-q", "--detach")
+	id := snapshotOf(t, r, "t1", tree)
+	git(t, repo, "worktree", "remove", "--force", tree)
+	if _, err := r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id}); err != nil {
+		t.Fatal(err)
+	}
+	if got := git(t, tree, "rev-parse", "HEAD"); got != head {
+		t.Errorf("HEAD = %s, want %s", got, head)
+	}
+	if list := git(t, repo, "worktree", "list", "--porcelain"); !strings.Contains(list, "worktree "+tree+"\n") {
+		t.Errorf("not linked:\n%s", list)
+	}
+}
+
+func TestUndoAcceptsTheBranchAtTheRecordedCommit(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	repo, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	git(t, repo, "worktree", "remove", "--force", tree)
+	if _, err := r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id}); err != nil {
+		t.Fatal(err)
+	}
+	assertRestored(t, tree)
+}
+
+func TestUndoOfAnUnbornBranchStaysStandalone(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := filepath.Join(base, "repo")
+	if err := os.Mkdir(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(t, tree, "init", "-q", "-b", "main")
+	write(t, filepath.Join(tree, "a.txt"), "first\n")
+	id := snapshotOf(t, r, "t1", tree)
+	target := filepath.Join(base, "restored")
+	if _, err := r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id, Target: target}); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(target, "a.txt")); got != "first\n" {
+		t.Errorf("a.txt = %q", got)
+	}
+}
+
+func TestUndoRefusesARelativeTarget(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	_, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	if _, err := r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id, Target: "relative"}); err == nil {
+		t.Fatal("a relative target was accepted")
+	}
+}
+
+func TestScratchWithTheSameContentCountsAsRestored(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	repo, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	removeWorktree(t, repo, tree)
+	var buf bytes.Buffer
+	w := tar.NewWriter(&buf)
+	for _, h := range []*tar.Header{
+		{Name: "sub/", Mode: 0o700, Typeflag: tar.TypeDir},
+		{Name: "sub/link", Linkname: "target", Typeflag: tar.TypeSymlink},
+	} {
+		if err := w.WriteHeader(h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	if err := os.MkdirAll(filepath.Join(scratch, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target", filepath.Join(scratch, "sub", "link")); err != nil {
+		t.Fatal(err)
+	}
+	addResources(t, snapshotRecord(t, r, id).Dir, ops.Resources{
+		Scratch: []ops.ScratchArchive{{Path: scratch, Archive: "s.tar", SHA256: sum(buf.Bytes())}},
+	}, map[string][]byte{"s.tar": buf.Bytes()})
+	if _, err := r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id}); err != nil {
+		t.Fatal(err)
+	}
+	assertRestored(t, tree)
+}
+
+func TestScratchRefusesADeviceEntry(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	repo, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	removeWorktree(t, repo, tree)
+	var buf bytes.Buffer
+	w := tar.NewWriter(&buf)
+	if err := w.WriteHeader(&tar.Header{Name: "dev", Mode: 0o600, Typeflag: tar.TypeChar}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	addResources(t, snapshotRecord(t, r, id).Dir, ops.Resources{
+		Scratch: []ops.ScratchArchive{{Path: filepath.Join(t.TempDir(), "scratch"), Archive: "s.tar", SHA256: sum(buf.Bytes())}},
+	}, map[string][]byte{"s.tar": buf.Bytes()})
+	if _, err := r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id}); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestUndoRefusesUnreadableResources(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	_, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	write(t, filepath.Join(snapshotRecord(t, r, id).Dir, ops.ResourcesName), "{")
+	if _, err := r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id, Target: filepath.Join(t.TempDir(), "x")}); err == nil || !strings.Contains(err.Error(), ops.ResourcesName) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestImportRefusesRelativePathsAndAMissingDatabaseRow(t *testing.T) {
+	if err := ops.Import(context.Background(), "relative", "/x"); err == nil {
+		t.Fatal("a relative source was accepted")
+	}
+	r := newRig(t, rigOptions{})
+	_, tree := dirtyWorktree(t)
+	snapshotOf(t, r, "t1", tree)
+	dest := filepath.Join(t.TempDir(), "export")
+	if _, err := r.rec.Export(context.Background(), dest); err != nil {
+		t.Fatal(err)
+	}
+	raw := read(t, filepath.Join(dest, ops.ExportManifestName))
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatal(err)
+	}
+	m["snapshots"] = []string{}
+	edited, _ := json.Marshal(m)
+	write(t, filepath.Join(dest, ops.ExportManifestName), string(edited))
+	if err := ops.Import(context.Background(), dest, filepath.Join(t.TempDir(), "s")); err == nil || !strings.Contains(err.Error(), "not in the export") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestLockedErrorNamesTheHolder(t *testing.T) {
+	err := (&ops.LockedError{Lock: "a", Holder: "b"}).Error()
+	if !strings.Contains(err, "a") || !strings.Contains(err, "b") {
+		t.Fatal(err)
+	}
+}
+
+// --- staging, identity and ownership ---
+
+func TestImportKeepsAnUnrelatedFolderBesideTheState(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	dest := filepath.Join(t.TempDir(), "export")
+	if _, err := r.rec.Export(context.Background(), dest); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(t.TempDir(), "imported")
+	keep := state + ".import-tmp/keep.txt"
+	write(t, keep, "precious")
+	if err := ops.Import(context.Background(), dest, state); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, keep); got != "precious" {
+		t.Fatalf("keep.txt = %q", got)
+	}
+}
+
+func TestScratchKeepsAnUnrelatedFolderBesideIt(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	repo, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	removeWorktree(t, repo, tree)
+	archive := tarOf(t, map[string]string{"note": "mine"})
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	keep := scratch + ".herdsman-undo-tmp/keep.txt"
+	write(t, keep, "precious")
+	addResources(t, snapshotRecord(t, r, id).Dir, ops.Resources{
+		Scratch: []ops.ScratchArchive{{Path: scratch, Archive: "s.tar", SHA256: sum(archive)}},
+	}, map[string][]byte{"s.tar": archive})
+	if _, err := r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id}); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, keep); got != "precious" {
+		t.Fatalf("keep.txt = %q", got)
+	}
+}
+
+func TestImportRefusesASnapshotIDThatLeavesTheFolder(t *testing.T) {
+	for _, id := range []string{"../../payload", "..", ".", "a/b", ""} {
+		t.Run(id, func(t *testing.T) {
+			r := newRig(t, rigOptions{})
+			parent := t.TempDir()
+			dest := filepath.Join(parent, "export")
+			if _, err := r.rec.Export(context.Background(), dest); err != nil {
+				t.Fatal(err)
+			}
+			raw := read(t, filepath.Join(dest, ops.ExportManifestName))
+			quoted, _ := json.Marshal([]string{id})
+			write(t, filepath.Join(dest, ops.ExportManifestName), strings.Replace(raw, `"snapshots": []`, `"snapshots": `+string(quoted), 1))
+			write(t, filepath.Join(parent, "payload", "keep.txt"), "outside")
+			stateParent := t.TempDir()
+			if err := ops.Import(context.Background(), dest, filepath.Join(stateParent, "state")); err == nil || !strings.Contains(err.Error(), "snapshot id") {
+				t.Fatalf("err = %v", err)
+			}
+			if entries, _ := os.ReadDir(stateParent); len(entries) != 0 {
+				t.Fatalf("written outside staging: %v", entries)
+			}
+		})
+	}
+}
+
+func TestUndoDoesNotTakeAnUnrelatedTreeAtTheSameHeadForItsOwn(t *testing.T) {
+	armed := false
+	var repo, tree string
+	r := newRig(t, rigOptions{fault: func(p string) {
+		if armed && p == "step:0:intended" {
+			armed = false
+			git(t, filepath.Dir(tree), "clone", "-q", repo, tree)
+			git(t, tree, "checkout", "-q", "--detach", "HEAD")
+			write(t, filepath.Join(tree, "occupant.txt"), "someone else's work")
+		}
+	}})
+	repo, tree = dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	removeWorktree(t, repo, tree)
+	armed = true
+	_, err := r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id})
+	var opErr *ops.OperationError
+	if !errors.As(err, &opErr) || opErr.Op.State != ops.OpConflict {
+		t.Fatalf("err = %v", err)
+	}
+	if got := read(t, filepath.Join(tree, "occupant.txt")); got != "someone else's work" {
+		t.Fatalf("occupant = %q", got)
+	}
+}
+
+func TestAConflictedExportCanResolveItsOwnBarrier(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "export")
+	r := newRig(t, rigOptions{extra: map[string]ops.Effect{"fx": &scripted{}}, fault: func(p string) {
+		if p == "export:barrier" {
+			write(t, filepath.Join(dest, "occupant.txt"), "keep")
+		}
+	}})
+	_, err := r.rec.Export(context.Background(), dest)
+	var opErr *ops.OperationError
+	if !errors.As(err, &opErr) || opErr.Op.State != ops.OpConflict {
+		t.Fatalf("err = %v", err)
+	}
+	// Everyone else still waits for it.
+	_, serr := r.eng.Submit(context.Background(), ops.Spec{Kind: "k", Plan: "p", Steps: []ops.StepSpec{{Name: "s", Effect: "fx", Key: "k1", Spec: "{}"}}})
+	var locked *ops.LockedError
+	if !errors.As(serr, &locked) {
+		t.Fatalf("a submit during the conflict: %v", serr)
+	}
+	if err := r.eng.Resolve(opErr.Op.ID, 0, ops.ResolveDone); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+}
+
+func TestImportRebasesAccountPathsOntoTheNewState(t *testing.T) {
+	r := newRig(t, rigOptions{})
+	inbox := filepath.Join(r.state, "repo-r1")
+	outside := "/srv/elsewhere/inbox"
+	for route, dir := range map[string]string{"r1": inbox, "r2": outside} {
+		if _, err := r.db.Exec("INSERT INTO routes(route, inbox, repo, herdr_socket, db_path, created, state, open_gen, reserved_message_id, reserved_seq) VALUES (?,?,?,?,?,?,'active','g',0,0)",
+			route, dir, "repo", "", filepath.Join(dir, "route.db"), 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, _ := json.Marshal(map[string]any{"version": 1, "routes": map[string]any{
+		"r1": map[string]any{"inbox": inbox, "repo": "repo", "herdr_socket": "", "created": 1},
+		"r2": map[string]any{"inbox": outside, "repo": "repo", "herdr_socket": "", "created": 1},
+	}})
+	if err := os.WriteFile(filepath.Join(r.state, "daemon", "routes.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "export")
+	if _, err := r.rec.Export(context.Background(), dest); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(t.TempDir(), "imported")
+	if err := ops.Import(context.Background(), dest, state); err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Routes map[string]struct {
+			Inbox string `json:"inbox"`
+		} `json:"routes"`
+	}
+	if err := json.Unmarshal([]byte(read(t, filepath.Join(state, "daemon", "routes.json"))), &file); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := file.Routes["r1"].Inbox, filepath.Join(state, "repo-r1"); got != want {
+		t.Errorf("registry inbox = %s, want %s", got, want)
+	}
+	if got := file.Routes["r2"].Inbox; got != outside {
+		t.Errorf("outside inbox moved to %s", got)
+	}
+	m := openRig(t, state, rigOptions{})
+	rows, paths := map[string]string{}, map[string]string{}
+	if err := m.db.Query("SELECT route, inbox, db_path FROM routes", nil, func(row store.Row) error {
+		rows[row.Text(0)], paths[row.Text(0)] = row.Text(1), row.Text(2)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rows["r1"] != filepath.Join(state, "repo-r1") || rows["r2"] != outside {
+		t.Errorf("table inboxes = %v", rows)
+	}
+	if paths["r1"] != filepath.Join(state, "repo-r1", "route.db") || paths["r2"] != filepath.Join(outside, "route.db") {
+		t.Errorf("table database paths = %v", paths)
+	}
+}
+
+func TestExportHoldsTheQuiesceGateForTheCopy(t *testing.T) {
+	var held atomic.Bool
+	var sawHeld atomic.Bool
+	state := filepath.Join(t.TempDir(), "state")
+	r := openRig(t, state, rigOptions{quiesce: func() func() {
+		held.Store(true)
+		return func() { held.Store(false) }
+	}, fault: func(p string) {
+		if p == "export:staged" {
+			sawHeld.Store(held.Load())
+		}
+	}})
+	if _, err := r.rec.Export(context.Background(), filepath.Join(t.TempDir(), "export")); err != nil {
+		t.Fatal(err)
+	}
+	if !sawHeld.Load() || held.Load() {
+		t.Fatalf("held during the copy: %v; released after: %v", sawHeld.Load(), !held.Load())
 	}
 }

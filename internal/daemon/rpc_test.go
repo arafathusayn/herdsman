@@ -17,65 +17,6 @@ import (
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
-// msgBoth runs one message command over the 0.x route and over RPC.
-func (h *harness) msgBoth(p *party, route string, args ...string) (old, next [3]string) {
-	h.t.Helper()
-	env := map[string]string{"HERDSMAN_PRIVATE_HOME": h.ph, "HERDSMAN_ROUTE": route, "HERDSMAN_NAME": p.name, "HERDR_PANE_ID": p.pane}
-	run := func(status func(context.Context, *Client, string, *RouteStatus) error) [3]string {
-		var out, errb bytes.Buffer
-		e := &MessageEnv{Getenv: func(k string) string { return env[k] }, Stdout: &out, Stderr: &errb, Version: testVersion, StatusRPC: status}
-		list := args
-		if len(list) > 0 && list[0] == "--json" {
-			e.JSON, list = true, list[1:]
-		}
-		code := RunMessage(e, list)
-		return [3]string{out.String(), errb.String(), fmt.Sprint(code)}
-	}
-	return run(nil), run(StatusOverRPC)
-}
-
-func TestStatusOverRPCEqualsTheRoute(t *testing.T) {
-	h := newHarness(t)
-	adj, orch, _ := h.route("r")
-	adj.send(t, "r", orch.name, "x")
-	for _, args := range [][]string{{"status"}, {"--json", "status"}} {
-		old, next := h.msgBoth(adj, "r", args...)
-		if old != next {
-			t.Fatalf("%v:\n0.x %q\nrpc %q", args, old, next)
-		}
-		if old[2] != "0" || old[0] == "" {
-			t.Fatalf("%v: no status to compare: %q", args, old)
-		}
-	}
-}
-
-func TestStatusOverRPCRefusalEqualsTheRoute(t *testing.T) {
-	h := newHarness(t)
-	adj, _, _ := h.route("r")
-	stranger := &party{name: adj.name, pane: "no-such-pane"}
-	for _, args := range [][]string{{"status"}, {"--json", "status"}} {
-		for name, route := range map[string]string{"unknown route": "missing", "wrong party": "r"} {
-			old, next := h.msgBoth(stranger, route, args...)
-			if old != next {
-				t.Fatalf("%s %v:\n0.x %q\nrpc %q", name, args, old, next)
-			}
-			if old[2] == "0" {
-				t.Fatalf("%s: not refused: %q", name, old)
-			}
-		}
-	}
-}
-
-func TestStatusOverRPCDaemonDownEqualsTheRoute(t *testing.T) {
-	h := newHarness(t)
-	adj, _, _ := h.route("r")
-	h.stop()
-	old, next := h.msgBoth(adj, "r", "status")
-	if old != next || old[2] != "1" {
-		t.Fatalf("0.x %q\nrpc %q", old, next)
-	}
-}
-
 func TestSDKFindsTheDaemonSocket(t *testing.T) {
 	getenv := func(string) string { return "" }
 	t.Setenv("HOME", "/somewhere")
@@ -133,17 +74,6 @@ func TestRPCUnknownRouteCarriesTheDaemonCode(t *testing.T) {
 	}
 }
 
-func TestRPCLeavesTheOldRoutesServed(t *testing.T) {
-	h := newHarness(t)
-	h.route("r")
-	sdk := NewClient(filepath.Join(h.ph, "run", "daemon.sock"), testVersion)
-	defer sdk.Close()
-	var out RouteStatus
-	if _, err := sdk.Do(context.Background(), "GET", "/v1/routes/r/status", nil, &out); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestRPCBodyBound(t *testing.T) {
 	h := newHarness(t)
 	rec := &responseRecorder{header: http.Header{}}
@@ -195,7 +125,7 @@ func TestRPCFailureReportsAnUnencodableDetail(t *testing.T) {
 	}
 }
 
-func TestStatusCallErrorSorts(t *testing.T) {
+func TestCallErrorSorts(t *testing.T) {
 	withDetail := rpc.Errorf(rpc.NotFound, "wire")
 	if err := withDetail.AddDetail(&corev1.Error{Code: "unknown_route", Message: "the message"}); err != nil {
 		t.Fatal(err)
@@ -223,18 +153,17 @@ func TestStatusCallErrorSorts(t *testing.T) {
 		}},
 	}
 	for _, c := range cases {
-		if got := statusCallError(c.err); !c.check(got) {
+		if got := callError(c.err); !c.check(got) {
 			t.Errorf("%s: %v", c.name, got)
 		}
 	}
 }
 
-func TestStatusOverRPCStopsAtTheVersionCheck(t *testing.T) {
+func TestStatusStopsAtTheVersionCheck(t *testing.T) {
 	h := newHarness(t)
 	c := NewClient(filepath.Join(h.ph, "run", "daemon.sock"), "999.0.0")
 	defer c.Close()
-	var out RouteStatus
-	err := StatusOverRPC(context.Background(), c, "r", &out)
+	_, err := c.Status(context.Background(), "r")
 	if a, ok := AsAPIError(err); !ok || a.Code != "version_mismatch" {
 		t.Fatalf("error %v", err)
 	}
@@ -248,16 +177,6 @@ func TestRPCStatusReportsACanceledCall(t *testing.T) {
 	_, err := (&messageService{d: h.d}).Status(ctx, &daemonv1.StatusRequest{Route: &corev1.RouteId{Value: "r"}})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error %v", err)
-	}
-}
-
-func TestStatusOverRPCReportsAMissingHome(t *testing.T) {
-	t.Setenv("HOME", "")
-	t.Setenv("HERDSMAN_PRIVATE_HOME", "")
-	c := &Client{checked: true}
-	var out RouteStatus
-	if err := StatusOverRPC(context.Background(), c, "r", &out); err == nil {
-		t.Fatal("no error without a socket or a home")
 	}
 }
 

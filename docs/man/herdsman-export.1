@@ -1,0 +1,18 @@
+.TH HERDSMAN-EXPORT 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-export \- Copy the whole account to a new folder.
+.SH DESCRIPTION
+.nf
+usage: herdsman export <destination>
+
+Copies the whole account to a new folder: every database, every snapshot the
+records name and the rest of the state directory. Other operations wait until
+it ends. The folder appears complete or not at all.
+
+exit codes:
+  0  exported
+  1  refused or failed
+  2  bad usage
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

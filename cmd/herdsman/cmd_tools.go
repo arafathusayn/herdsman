@@ -23,7 +23,11 @@ const doctorUsage = `usage: herdsman doctor [--json]
 Prints one line per check, "ok|warn|fail <check> <detail>": herdr, gh,
 binary, inbox (when HERDSMAN_INBOX is set), sandbox and load
 (HERDSMAN_LOAD_LIMIT, default the core count; HERDSMAN_MIN_FREE, default 10).
---json prints one object {"ok": bool, "checks": [{"level","check","detail"}]}.
+A "deprecated" line appears for each old key or variable in use, each old flag,
+and each installed shell wrapper that differs from this binary's, with its
+replacement and fix.
+--json prints one object {"ok": bool, "checks": [{"level","check","detail"}]};
+a deprecated check adds "deprecation": {"kind","name","replacement","since","fix"}.
 
 Exit codes:
   0  no check failed

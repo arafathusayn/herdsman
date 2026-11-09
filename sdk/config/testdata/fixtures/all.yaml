@@ -1,0 +1,35 @@
+# One encoding of the settings shared by every file in this folder.
+schema:
+  version: "1.2.0"
+worktree:
+  path: "/srv/trees/{{ task }}"
+branch:
+  name: "work/{{ task }}"
+  types: [wip, spike]
+merge:
+  strategy: rebase
+  land: push
+  verify: false
+teardown:
+  grace: 3
+  volumes: on-teardown
+commit:
+  generation:
+    template-append: Name the ticket.
+hooks:
+  pre-merge: make lint
+  pre-commit:
+    - make fmt
+    - unit: make unit
+  post-start:
+    cache-warm: make warm
+launch:
+  command: [agent, --fast]
+  prelude:
+    - argv: [agent, update]
+      retry: never
+policy:
+  max_agents: 4
+  protected: [trunk]
+aliases:
+  ship-it: merge --land

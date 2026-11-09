@@ -215,14 +215,15 @@ func TestA2CancelledHoldKeepsMutationBoundary(t *testing.T) {
 	<-entered
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req := httptest.NewRequest("PUT", "/v1/routes/r/holds/"+orch.name, strings.NewReader(`{"reason":"pause"}`)).WithContext(ctx)
-	req.SetPathValue("route", "r")
-	req.SetPathValue("name", orch.name)
+	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set(HeaderPane, adj.pane)
 	req.Header.Set(HeaderName, adj.name)
 	req.Header.Set("Authorization", "Bearer "+adj.c.Credential)
 	handlerDone := make(chan *APIError, 1)
-	go func() { handlerDone <- h.d.holdOp(httptest.NewRecorder(), req, true) }()
+	reason := "pause"
+	go func() {
+		handlerDone <- h.d.holdOp(context.WithValue(ctx, requestKey{}, req), "r", orch.name, &reason, &HoldResult{})
+	}()
 	end := time.Now().Add(time.Second)
 	for len(rt.ops) == 0 && time.Now().Before(end) {
 		time.Sleep(time.Millisecond)
@@ -257,11 +258,9 @@ func TestA6SetupLockOrder(t *testing.T) {
 	<-started
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	body, _ := json.Marshal(SetupRequest{Rules: []string{h.rules}, PolicyVerified: true, Boundary: json.RawMessage(`{"version":1}`)})
-	req := httptest.NewRequest("PUT", "/v1/routes/r/setup", strings.NewReader(string(body))).WithContext(ctx)
-	req.SetPathValue("route", "r")
+	q := SetupRequest{Rules: []string{h.rules}, PolicyVerified: true, Boundary: json.RawMessage(`{"version":1}`)}
 	answered := make(chan *APIError, 1)
-	go func() { answered <- h.d.putSetup(httptest.NewRecorder(), req) }()
+	go func() { answered <- h.d.putSetup(ctx, "r", q, &SetupResult{}) }()
 	end := time.Now().Add(time.Second)
 	for len(rt.ops) == 0 && time.Now().Before(end) {
 		time.Sleep(time.Millisecond)
@@ -359,20 +358,14 @@ func TestSideAgentRetryBeforeBoundary(t *testing.T) {
 	}
 }
 
-// TestRequestNullRefused: a request body is one JSON object whose members
-// may be absent but never null; null never decodes to an empty value.
-func TestRequestNullRefused(t *testing.T) {
+// TestRequestNotAnObjectRefused: a request body is one JSON object.
+func TestRequestNotAnObjectRefused(t *testing.T) {
 	h := newHarness(t)
-	adj, orch, _ := h.route("r")
-	for _, body := range []string{
-		`{"to":"` + orch.name + `","kind":"brief","body":null,"key":"` + key() + `"}`,
-		`{"to":null,"kind":"brief","body":"x","key":"` + key() + `"}`,
-		`null`,
-		`[]`,
-	} {
-		var raw json.RawMessage = json.RawMessage(body)
-		if _, err := adj.c.Do(context.Background(), "POST", "/v1/routes/r/messages", raw, nil); code(err) != "bad_request" {
-			t.Errorf("%s: %v", body, err)
+	adj, _, _ := h.route("r")
+	for _, body := range []string{`null`, `[]`, `"x"`} {
+		resp := postRPC(t, adj.c, "Send", body, nil)
+		if resp.StatusCode != 400 {
+			t.Errorf("%s: %d", body, resp.StatusCode)
 		}
 	}
 }
@@ -382,30 +375,19 @@ func TestRequestNullRefused(t *testing.T) {
 func TestDerivedFramesCarryTime(t *testing.T) {
 	h := newHarness(t)
 	_, orch, _ := h.route("r")
-	for _, path := range []string{"/v1/routes/r/events", "/v1/events"} {
-		c := orch.c
-		if path == "/v1/events" {
-			c = h.client()
-		}
-		ev, err := c.Events(context.Background(), path, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		for i := 0; i < 2; i++ {
-			f, err := ev.Next()
-			if err != nil {
-				t.Fatal(err)
-			}
-			var m map[string]any
-			_ = json.Unmarshal(f.Data, &m)
-			if tm, ok := m["time"].(float64); !ok || tm <= 0 {
-				t.Errorf("%s %s frame without time: %s", path, f.Event, f.Data)
-			}
-			if f.Event == "snapshot" {
-				break
-			}
-		}
-		ev.Close()
+	ev, err := orch.c.Events(context.Background(), "r", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ev.Close()
+	f, err := ev.Next()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	_ = json.Unmarshal(f.Data, &m)
+	if tm, ok := m["time"].(float64); !ok || tm <= 0 {
+		t.Errorf("%s frame without time: %s", f.Event, f.Data)
 	}
 }
 

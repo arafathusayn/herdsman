@@ -449,6 +449,476 @@ func (x *MessageHeader) GetAcknowledged() bool {
 	return false
 }
 
+// ProjectId names a project.
+type ProjectId struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Value         string                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectId) Reset() {
+	*x = ProjectId{}
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectId) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectId) ProtoMessage() {}
+
+func (x *ProjectId) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectId.ProtoReflect.Descriptor instead.
+func (*ProjectId) Descriptor() ([]byte, []int) {
+	return file_herdsman_core_v1_core_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ProjectId) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+// TaskId names a task.
+type TaskId struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Value         string                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TaskId) Reset() {
+	*x = TaskId{}
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskId) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskId) ProtoMessage() {}
+
+func (x *TaskId) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskId.ProtoReflect.Descriptor instead.
+func (*TaskId) Descriptor() ([]byte, []int) {
+	return file_herdsman_core_v1_core_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *TaskId) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+// ProjectRepo is one repository of a project.
+type ProjectRepo struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Absolute. The name defaults to the last path element.
+	Path          string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	DefaultBranch string `protobuf:"bytes,3,opt,name=default_branch,json=defaultBranch,proto3" json:"default_branch,omitempty"`
+	Remote        string `protobuf:"bytes,4,opt,name=remote,proto3" json:"remote,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectRepo) Reset() {
+	*x = ProjectRepo{}
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectRepo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectRepo) ProtoMessage() {}
+
+func (x *ProjectRepo) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectRepo.ProtoReflect.Descriptor instead.
+func (*ProjectRepo) Descriptor() ([]byte, []int) {
+	return file_herdsman_core_v1_core_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ProjectRepo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ProjectRepo) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *ProjectRepo) GetDefaultBranch() string {
+	if x != nil {
+		return x.DefaultBranch
+	}
+	return ""
+}
+
+func (x *ProjectRepo) GetRemote() string {
+	if x != nil {
+		return x.Remote
+	}
+	return ""
+}
+
+// Project is a project record with what hangs off it.
+type Project struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          *ProjectId             `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	// "active" or "archived".
+	State     string         `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`
+	Folders   []string       `protobuf:"bytes,5,rep,name=folders,proto3" json:"folders,omitempty"`
+	Repos     []*ProjectRepo `protobuf:"bytes,6,rep,name=repos,proto3" json:"repos,omitempty"`
+	OpenTasks int32          `protobuf:"varint,7,opt,name=open_tasks,json=openTasks,proto3" json:"open_tasks,omitempty"`
+	// Milliseconds since the Unix epoch.
+	Created       int64 `protobuf:"varint,8,opt,name=created,proto3" json:"created,omitempty"`
+	Updated       int64 `protobuf:"varint,9,opt,name=updated,proto3" json:"updated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Project) Reset() {
+	*x = Project{}
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Project) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Project) ProtoMessage() {}
+
+func (x *Project) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Project.ProtoReflect.Descriptor instead.
+func (*Project) Descriptor() ([]byte, []int) {
+	return file_herdsman_core_v1_core_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *Project) GetId() *ProjectId {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+func (x *Project) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Project) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *Project) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *Project) GetFolders() []string {
+	if x != nil {
+		return x.Folders
+	}
+	return nil
+}
+
+func (x *Project) GetRepos() []*ProjectRepo {
+	if x != nil {
+		return x.Repos
+	}
+	return nil
+}
+
+func (x *Project) GetOpenTasks() int32 {
+	if x != nil {
+		return x.OpenTasks
+	}
+	return 0
+}
+
+func (x *Project) GetCreated() int64 {
+	if x != nil {
+		return x.Created
+	}
+	return 0
+}
+
+func (x *Project) GetUpdated() int64 {
+	if x != nil {
+		return x.Updated
+	}
+	return 0
+}
+
+// TaskLink attaches a pull request, an issue or a URL to a task's repository.
+type TaskLink struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Repo  string                 `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
+	// "pr", "issue" or "url".
+	Kind          string `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	Target        string `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TaskLink) Reset() {
+	*x = TaskLink{}
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskLink) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskLink) ProtoMessage() {}
+
+func (x *TaskLink) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskLink.ProtoReflect.Descriptor instead.
+func (*TaskLink) Descriptor() ([]byte, []int) {
+	return file_herdsman_core_v1_core_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *TaskLink) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *TaskLink) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *TaskLink) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+// Task is a task record. Its project is fixed at creation.
+type Task struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Id      *TaskId                `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Project *ProjectId             `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	// Unique within the project; the id the worktree verbs take.
+	Slug  string `protobuf:"bytes,3,opt,name=slug,proto3" json:"slug,omitempty"`
+	Title string `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
+	Body  string `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`
+	// "todo", "doing", "review", "done" or "archived".
+	Status string `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	// Empty when the task runs in no route.
+	Route  *RouteId    `protobuf:"bytes,7,opt,name=route,proto3" json:"route,omitempty"`
+	Repos  []string    `protobuf:"bytes,8,rep,name=repos,proto3" json:"repos,omitempty"`
+	Labels []string    `protobuf:"bytes,9,rep,name=labels,proto3" json:"labels,omitempty"`
+	Links  []*TaskLink `protobuf:"bytes,10,rep,name=links,proto3" json:"links,omitempty"`
+	// Milliseconds since the Unix epoch.
+	Created       int64 `protobuf:"varint,11,opt,name=created,proto3" json:"created,omitempty"`
+	Updated       int64 `protobuf:"varint,12,opt,name=updated,proto3" json:"updated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Task) Reset() {
+	*x = Task{}
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Task) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Task) ProtoMessage() {}
+
+func (x *Task) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Task.ProtoReflect.Descriptor instead.
+func (*Task) Descriptor() ([]byte, []int) {
+	return file_herdsman_core_v1_core_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *Task) GetId() *TaskId {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+func (x *Task) GetProject() *ProjectId {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
+func (x *Task) GetSlug() string {
+	if x != nil {
+		return x.Slug
+	}
+	return ""
+}
+
+func (x *Task) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *Task) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+func (x *Task) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *Task) GetRoute() *RouteId {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *Task) GetRepos() []string {
+	if x != nil {
+		return x.Repos
+	}
+	return nil
+}
+
+func (x *Task) GetLabels() []string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *Task) GetLinks() []*TaskLink {
+	if x != nil {
+		return x.Links
+	}
+	return nil
+}
+
+func (x *Task) GetCreated() int64 {
+	if x != nil {
+		return x.Created
+	}
+	return 0
+}
+
+func (x *Task) GetUpdated() int64 {
+	if x != nil {
+		return x.Updated
+	}
+	return 0
+}
+
 var File_herdsman_core_v1_core_proto protoreflect.FileDescriptor
 
 const file_herdsman_core_v1_core_proto_rawDesc = "" +
@@ -480,7 +950,45 @@ const file_herdsman_core_v1_core_proto_rawDesc = "" +
 	"\x04kind\x18\x05 \x01(\tR\x04kind\x126\n" +
 	"\breply_to\x18\x06 \x01(\v2\x1b.herdsman.core.v1.MessageIdR\areplyTo\x12\x14\n" +
 	"\x05state\x18\a \x01(\tR\x05state\x12\"\n" +
-	"\facknowledged\x18\b \x01(\bR\facknowledgedB5Z3github.com/arafathusayn/herdsman/sdk/core/v1;corev1b\x06proto3"
+	"\facknowledged\x18\b \x01(\bR\facknowledged\"!\n" +
+	"\tProjectId\x12\x14\n" +
+	"\x05value\x18\x01 \x01(\tR\x05value\"\x1e\n" +
+	"\x06TaskId\x12\x14\n" +
+	"\x05value\x18\x01 \x01(\tR\x05value\"t\n" +
+	"\vProjectRepo\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\x12%\n" +
+	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\x12\x16\n" +
+	"\x06remote\x18\x04 \x01(\tR\x06remote\"\xa4\x02\n" +
+	"\aProject\x12+\n" +
+	"\x02id\x18\x01 \x01(\v2\x1b.herdsman.core.v1.ProjectIdR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x14\n" +
+	"\x05state\x18\x04 \x01(\tR\x05state\x12\x18\n" +
+	"\afolders\x18\x05 \x03(\tR\afolders\x123\n" +
+	"\x05repos\x18\x06 \x03(\v2\x1d.herdsman.core.v1.ProjectRepoR\x05repos\x12\x1d\n" +
+	"\n" +
+	"open_tasks\x18\a \x01(\x05R\topenTasks\x12\x18\n" +
+	"\acreated\x18\b \x01(\x03R\acreated\x12\x18\n" +
+	"\aupdated\x18\t \x01(\x03R\aupdated\"J\n" +
+	"\bTaskLink\x12\x12\n" +
+	"\x04repo\x18\x01 \x01(\tR\x04repo\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x16\n" +
+	"\x06target\x18\x03 \x01(\tR\x06target\"\x82\x03\n" +
+	"\x04Task\x12(\n" +
+	"\x02id\x18\x01 \x01(\v2\x18.herdsman.core.v1.TaskIdR\x02id\x125\n" +
+	"\aproject\x18\x02 \x01(\v2\x1b.herdsman.core.v1.ProjectIdR\aproject\x12\x12\n" +
+	"\x04slug\x18\x03 \x01(\tR\x04slug\x12\x14\n" +
+	"\x05title\x18\x04 \x01(\tR\x05title\x12\x12\n" +
+	"\x04body\x18\x05 \x01(\tR\x04body\x12\x16\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x12/\n" +
+	"\x05route\x18\a \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
+	"\x05repos\x18\b \x03(\tR\x05repos\x12\x16\n" +
+	"\x06labels\x18\t \x03(\tR\x06labels\x120\n" +
+	"\x05links\x18\n" +
+	" \x03(\v2\x1a.herdsman.core.v1.TaskLinkR\x05links\x12\x18\n" +
+	"\acreated\x18\v \x01(\x03R\acreated\x12\x18\n" +
+	"\aupdated\x18\f \x01(\x03R\aupdatedB5Z3github.com/arafathusayn/herdsman/sdk/core/v1;corev1b\x06proto3"
 
 var (
 	file_herdsman_core_v1_core_proto_rawDescOnce sync.Once
@@ -494,7 +1002,7 @@ func file_herdsman_core_v1_core_proto_rawDescGZIP() []byte {
 	return file_herdsman_core_v1_core_proto_rawDescData
 }
 
-var file_herdsman_core_v1_core_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_herdsman_core_v1_core_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_herdsman_core_v1_core_proto_goTypes = []any{
 	(*RouteId)(nil),       // 0: herdsman.core.v1.RouteId
 	(*MessageId)(nil),     // 1: herdsman.core.v1.MessageId
@@ -503,18 +1011,30 @@ var file_herdsman_core_v1_core_proto_goTypes = []any{
 	(*Plan)(nil),          // 4: herdsman.core.v1.Plan
 	(*PlanStep)(nil),      // 5: herdsman.core.v1.PlanStep
 	(*MessageHeader)(nil), // 6: herdsman.core.v1.MessageHeader
-	(*anypb.Any)(nil),     // 7: google.protobuf.Any
+	(*ProjectId)(nil),     // 7: herdsman.core.v1.ProjectId
+	(*TaskId)(nil),        // 8: herdsman.core.v1.TaskId
+	(*ProjectRepo)(nil),   // 9: herdsman.core.v1.ProjectRepo
+	(*Project)(nil),       // 10: herdsman.core.v1.Project
+	(*TaskLink)(nil),      // 11: herdsman.core.v1.TaskLink
+	(*Task)(nil),          // 12: herdsman.core.v1.Task
+	(*anypb.Any)(nil),     // 13: google.protobuf.Any
 }
 var file_herdsman_core_v1_core_proto_depIdxs = []int32{
-	7, // 0: herdsman.core.v1.Error.details:type_name -> google.protobuf.Any
-	5, // 1: herdsman.core.v1.Plan.steps:type_name -> herdsman.core.v1.PlanStep
-	1, // 2: herdsman.core.v1.MessageHeader.id:type_name -> herdsman.core.v1.MessageId
-	1, // 3: herdsman.core.v1.MessageHeader.reply_to:type_name -> herdsman.core.v1.MessageId
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	13, // 0: herdsman.core.v1.Error.details:type_name -> google.protobuf.Any
+	5,  // 1: herdsman.core.v1.Plan.steps:type_name -> herdsman.core.v1.PlanStep
+	1,  // 2: herdsman.core.v1.MessageHeader.id:type_name -> herdsman.core.v1.MessageId
+	1,  // 3: herdsman.core.v1.MessageHeader.reply_to:type_name -> herdsman.core.v1.MessageId
+	7,  // 4: herdsman.core.v1.Project.id:type_name -> herdsman.core.v1.ProjectId
+	9,  // 5: herdsman.core.v1.Project.repos:type_name -> herdsman.core.v1.ProjectRepo
+	8,  // 6: herdsman.core.v1.Task.id:type_name -> herdsman.core.v1.TaskId
+	7,  // 7: herdsman.core.v1.Task.project:type_name -> herdsman.core.v1.ProjectId
+	0,  // 8: herdsman.core.v1.Task.route:type_name -> herdsman.core.v1.RouteId
+	11, // 9: herdsman.core.v1.Task.links:type_name -> herdsman.core.v1.TaskLink
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_core_v1_core_proto_init() }
@@ -528,7 +1048,7 @@ func file_herdsman_core_v1_core_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herdsman_core_v1_core_proto_rawDesc), len(file_herdsman_core_v1_core_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

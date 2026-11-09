@@ -95,6 +95,7 @@ func TestSpecProtoPrintsEverySource(t *testing.T) {
 	for _, want := range []string{
 		"// file: herdsman/core/v1/core.proto\n",
 		"// file: herdsman/daemon/v1/message.proto\n",
+		"// file: herdsman/daemon/v1/ops.proto\n",
 		"package herdsman.core.v1;",
 		"service MessageService",
 	} {
@@ -113,7 +114,7 @@ func TestSpecRejectsBadUsage(t *testing.T) {
 		if code := runSpec(args, nil, &stdout, &stderr); code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
 		}
-		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "spec proto|descriptor") {
+		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "spec cli|proto|descriptor") {
 			t.Errorf("%v: stdout %q, stderr %q", args, stdout.String(), stderr.String())
 		}
 	}

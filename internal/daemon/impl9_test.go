@@ -70,26 +70,18 @@ func TestOversizedValidBodyRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	post := func(body []byte) (int, string) {
-		req, err := c.request(ctx, "POST", "/v1/routes", body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp, err := c.hc.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
+		resp := postRPC(t, c, "CreateRoute", string(body), nil)
 		b, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(b)
 	}
 	pad := func(route string, n int) []byte {
-		return []byte(`{"repo":"repo",` + strings.Repeat(" ", n) + `"route":"` + route + `"}`)
+		return []byte(`{"repo":"repo",` + strings.Repeat(" ", n) + `"route":{"value":"` + route + `"}}`)
 	}
-	if code, b := post(pad("small", 1024)); code != 201 {
+	if code, b := post(pad("small", 1024)); code != 200 {
 		t.Fatalf("control: %d %s", code, b)
 	}
 	big := pad("big", maxBody)
-	if code, b := post(big); code != 400 || !strings.Contains(b, "body larger") {
+	if code, b := post(big); code != 429 || !strings.Contains(b, "resource_exhausted") {
 		t.Fatalf("a %d byte body: %d %s", len(big), code, b)
 	}
 	if bytes.Contains([]byte(mustRoutes(t, h.ph)), []byte(`"big"`)) {

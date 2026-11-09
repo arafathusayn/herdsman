@@ -99,6 +99,9 @@ func confirmQuestion(stdin io.Reader, stdout io.Writer, question string) (bool, 
 }
 
 func runTeardown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if code, opened := openTeardownForm(&args, stdin, stdout, stderr); opened {
+		return code
+	}
 	fs := verbFlags("teardown", stderr)
 	yes := fs.Bool("y", false, "do not ask")
 	route := fs.String("route", "", "every task of a route folder")
@@ -106,6 +109,9 @@ func runTeardown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	grace := fs.Int("grace", 0, "seconds between the polite and the forced stop")
 	include := fs.String("include", "", `also stop what is only "associated"`)
 	asJSON := fs.Bool("json", false, "print each plan and report as JSON")
+	showID := fs.Bool("show-plan-id", false, "print the plan and its ID, and stop")
+	approved := fs.String("approve-plan", "", "run only if the plan still has this ID")
+	addFormFlags(fs)
 	positional, _, err := parseVerb(fs, args)
 	if err != nil {
 		return 2
@@ -140,6 +146,14 @@ func runTeardown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if !*asJSON {
 		printTeardownPlans(stdout, planned.Plans)
 	}
+	if *showID {
+		fmt.Fprintln(stdout, planIDPrefix+teardownPlanID(planned.Plans))
+		return 0
+	}
+	if *approved != "" && teardownPlanID(planned.Plans) != *approved {
+		fmt.Fprintln(stderr, "herdsman: the plan changed after it was confirmed; nothing was stopped")
+		return 1
+	}
 	includeAssociated := *include == "associated"
 	if !hasStops(planned.Plans, includeAssociated) {
 		if *asJSON {
@@ -148,7 +162,7 @@ func runTeardown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "nothing to stop")
 		return 0
 	}
-	if !*yes {
+	if !*yes && *approved == "" {
 		if !stdinIsTerminal(stdin) {
 			return usageError(stderr, "no terminal to ask on: read this plan and pass -y")
 		}

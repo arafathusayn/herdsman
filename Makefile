@@ -36,6 +36,9 @@ export GOPROXY := off
 # The pinned Go tools, installed by tools-go.
 TOOLS_BIN ?= $(CURDIR)/.tools/bin
 
+# Where make docs keeps the spec output it renders; ignored by git.
+DOCS_INPUTS := $(CURDIR)/.tools/docs
+
 # Where proto-check regenerates the SDK to compare it; ignored by git, and
 # overwritten on each run. Contracts only grow, so no file there goes stale.
 PROTO_CHECK_DIR := $(CURDIR)/.tools/proto-check
@@ -45,7 +48,7 @@ define need-tool
 	@test -x $(TOOLS_BIN)/$(1) || { echo "$(1) is not installed: run make tools-go"; exit 1; }
 endef
 
-.PHONY: acceptance proto proto-check proto-plugin tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
+.PHONY: docs acceptance proto proto-check proto-plugin tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
 
 all: check build
 
@@ -62,6 +65,16 @@ tools-go:
 	@for tool in $(STATICCHECK) $(GOVULNCHECK) $(GORELEASER) $(BUF); do \
 		env -u GOFLAGS GOWORK=off GOPROXY=$(DEPS_GOPROXY) GOBIN=$(TOOLS_BIN) go install $$tool || exit 1; \
 	done
+
+## docs: the generated reference pages, from what the binary says about itself
+docs:
+	@mkdir -p $(DOCS_INPUTS)
+	CGO_ENABLED=1 go build -trimpath -o $(DOCS_INPUTS)/herdsman ./cmd/herdsman
+	$(DOCS_INPUTS)/herdsman spec cli > $(DOCS_INPUTS)/cli.json
+	$(DOCS_INPUTS)/herdsman spec descriptor > $(DOCS_INPUTS)/descriptor.bin
+	$(DOCS_INPUTS)/herdsman spec proto > $(DOCS_INPUTS)/contracts.proto
+	go run ./cmd/herdsman-docs --cli $(DOCS_INPUTS)/cli.json --descriptor $(DOCS_INPUTS)/descriptor.bin --proto $(DOCS_INPUTS)/contracts.proto --out docs
+	HERDSMAN_WRITE_MAN=1 go test -count=1 ./cmd/herdsman -run TestManPagesAreCurrent
 
 ## web: build the web app into internal/web/dist for go:embed
 web:
@@ -123,10 +136,10 @@ vuln:
 	$(TOOLS_BIN)/govulncheck ./...
 	bash .github/scripts/vendor-advisories.sh .
 
-## acceptance: the real-platform gates; each needs what acceptance/requirements.md
-## lists and skips only with a named reason
+## acceptance: the real-platform gates, one suite; a capability requirements.md
+## declares for this platform must work, and only one declared absent skips
 acceptance:
-	go test -p 1 -tags acceptance -count=1 -v ./acceptance/...
+	go run ./acceptance
 
 ## check: every module in MODULES.md, one after another; every module runs, and
 ## the target fails when any failed
@@ -166,10 +179,10 @@ check-sdk:
 check-conformance:
 	$(call go-module-check,sdk/conformance)
 
-## check-sdk-ts: the TypeScript SDK; passes while the module has no test files
+## check-sdk-ts: the TypeScript SDK's strict type check, tests and build
 check-sdk-ts:
 	@if [ -n "$$(find sdk/ts -type f ! -path '*/node_modules/*' \( -false $(BUN_TEST_NAMES) \) 2>/dev/null)" ]; then \
-		cd sdk/ts && bun test; \
+		cd sdk/ts && bun check --no-pretty --typeRoots "$(BUN_GLOBAL)" && bun test && bun run build.ts; \
 	else \
 		echo "sdk/ts: no test files yet"; \
 	fi
@@ -197,16 +210,19 @@ deps-verify:
 	@changed="$$(git status --porcelain -- vendor go.work.sum go.sum sdk/go.sum sdk/conformance/go.sum)"; \
 	test -z "$$changed" || { echo "$$changed"; echo "the committed tree differs from a re-vendor: run make vendor and commit"; exit 1; }
 
-## proto-plugin: build the code generator from the vendored sources
+## proto-plugin: build the code generators from the vendored sources
 proto-plugin:
 	go build -o $(TOOLS_BIN)/protoc-gen-herdsman-go ./cmd/protoc-gen-herdsman-go
+	go build -o $(TOOLS_BIN)/protoc-gen-herdsman-ts ./cmd/protoc-gen-herdsman-ts
 
-## proto: regenerate the SDK's Go code and the descriptor golden
+## proto: regenerate the SDK's Go and TypeScript code and the two goldens
 proto: proto-plugin
 	$(call need-tool,buf)
 	PATH="$(TOOLS_BIN):$$PATH" $(TOOLS_BIN)/buf generate
 	go run ./cmd/herdsman spec descriptor > sdk/testdata/descriptor.golden.new
 	mv sdk/testdata/descriptor.golden.new sdk/testdata/descriptor.golden
+	go run ./cmd/herdsman spec cli > sdk/conformance/cli/testdata/spec.golden.json.new
+	mv sdk/conformance/cli/testdata/spec.golden.json.new sdk/conformance/cli/testdata/spec.golden.json
 
 ## proto-check: lint, no breaking change, and generated code that matches the
 ## contracts; the descriptor golden is compared by the cmd/herdsman tests
@@ -216,8 +232,8 @@ proto-check: proto-plugin
 	$(TOOLS_BIN)/buf breaking --against proto/baseline.binpb
 	@mkdir -p $(PROTO_CHECK_DIR)
 	@PATH="$(TOOLS_BIN):$$PATH" $(TOOLS_BIN)/buf generate -o $(PROTO_CHECK_DIR)
-	@cd $(PROTO_CHECK_DIR)/sdk && find . -name '*.pb.go' | sort > $(PROTO_CHECK_DIR)/fresh
-	@cd sdk && find . -name '*.pb.go' | sort > $(PROTO_CHECK_DIR)/committed
+	@cd $(PROTO_CHECK_DIR)/sdk && find . -name '*.pb.go' -o -path './ts/src/generated/*.ts' | sort > $(PROTO_CHECK_DIR)/fresh
+	@cd sdk && find . -name '*.pb.go' -o -path './ts/src/generated/*.ts' | sort > $(PROTO_CHECK_DIR)/committed
 	@diff $(PROTO_CHECK_DIR)/fresh $(PROTO_CHECK_DIR)/committed || { echo "generated files differ: run make proto"; exit 1; }
 	@while read -r file; do \
 		cmp "$(PROTO_CHECK_DIR)/sdk/$$file" "sdk/$$file" || { echo "$$file is stale: run make proto"; exit 1; }; \

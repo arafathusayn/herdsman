@@ -25,19 +25,43 @@ type Options struct {
 	Getenv func(string) string
 	// Header is sent with every call.
 	Header http.Header
+	// CallHeader, when set, is asked for headers on every call, with that
+	// call's context. It suits an identity that can change between calls. Its
+	// names replace the same names in Header.
+	CallHeader func(context.Context) http.Header
+}
+
+// callHeaders adds a call's own headers on the way to the socket.
+type callHeaders struct {
+	next   http.RoundTripper
+	header func(context.Context) http.Header
+}
+
+// RoundTrip implements http.RoundTripper.
+func (t *callHeaders) RoundTrip(req *http.Request) (*http.Response, error) {
+	out := req.Clone(req.Context())
+	for name, values := range t.header(req.Context()) {
+		out.Header[http.CanonicalHeaderKey(name)] = values
+	}
+	return t.next.RoundTrip(out)
 }
 
 // Client holds one service client per daemon service.
 type Client struct {
 	Message daemonv1.MessageService
+	Ops     daemonv1.OpsService
+	Route   daemonv1.RouteService
 
 	http *http.Client
 }
 
-// SocketPath is the daemon's socket: under HERDSMAN_PRIVATE_HOME when it is
-// set, otherwise under ~/.herdsman-private.
+// SocketPath is the daemon's socket: under HERDSMAN_STATE_DIR when it is set,
+// then HERDSMAN_PRIVATE_HOME, otherwise under ~/.herdsman-private.
 func SocketPath(getenv func(string) string) (string, error) {
-	home := getenv("HERDSMAN_PRIVATE_HOME")
+	home := getenv("HERDSMAN_STATE_DIR")
+	if home == "" {
+		home = getenv("HERDSMAN_PRIVATE_HOME")
+	}
 	if home == "" {
 		user, err := os.UserHomeDir()
 		if err != nil {
@@ -72,8 +96,12 @@ func Dial(options Options) (*Client, error) {
 		IdleConnTimeout:    30 * time.Second,
 		DisableCompression: true,
 	}
-	hc := &http.Client{Transport: &rpc.Transport{Base: transport, Header: options.Header}}
-	return &Client{Message: daemonv1.NewMessageServiceClient(hc, base), http: &http.Client{Transport: transport}}, nil
+	var next http.RoundTripper = transport
+	if options.CallHeader != nil {
+		next = &callHeaders{next: transport, header: options.CallHeader}
+	}
+	hc := &http.Client{Transport: &rpc.Transport{Base: next, Header: options.Header}}
+	return &Client{Message: daemonv1.NewMessageServiceClient(hc, base), Ops: daemonv1.NewOpsServiceClient(hc, base), Route: daemonv1.NewRouteServiceClient(hc, base), http: &http.Client{Transport: transport}}, nil
 }
 
 // Close frees the client's idle connections.

@@ -12,6 +12,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
 // Item 3 (review a-2 P1s on client.go and msgcli.go).
@@ -29,15 +32,48 @@ func fakeDaemon(t *testing.T, routes func(m *http.ServeMux)) string {
 		t.Fatal(err)
 	}
 	m := http.NewServeMux()
-	m.HandleFunc("GET /v1/hello", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, 200, Hello{DaemonVersion: testVersion, Protocol: Protocol, MinProtocol: Protocol, Features: []string{},
-			CredentialOptions: []string{"file"}, DefaultCredential: "file"})
-	})
+	m.Handle(rpc.Path(daemonv1.MessageServiceName, "Hello"), rpc.NewMux(rpc.Unary(daemonv1.MessageServiceName, "Hello",
+		func(context.Context, *daemonv1.HelloRequest) (*daemonv1.HelloResponse, error) {
+			return &daemonv1.HelloResponse{DaemonVersion: testVersion, CredentialOptions: []string{"file"}, DefaultCredential: "file"}, nil
+		})))
 	routes(m)
 	srv := &http.Server{Handler: m}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 	return ph
+}
+
+// fakeSocket serves handler on a private home's daemon socket.
+func fakeSocket(t *testing.T, handler http.Handler) string {
+	t.Helper()
+	ph := filepath.Join(shortDir(t), "p")
+	if err := os.MkdirAll(filepath.Join(ph, "run"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", SocketPath(ph))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: handler}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	return ph
+}
+
+// fakeDaemonWithout is a daemon of an older build: its socket answers every
+// path with a JSON 404, as the routes before RPC did.
+func fakeDaemonWithout(t *testing.T) string {
+	t.Helper()
+	return fakeSocket(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(404)
+		_, _ = w.Write([]byte(`{"error":{"code":"not_found","message":"no such request","retryable":false}}`))
+	}))
+}
+
+// fakePath is one method's path, for a fake daemon's mux.
+func fakePath(method string) string {
+	return "POST " + rpc.Path(daemonv1.MessageServiceName, method)
 }
 
 // hang blocks a handler until its client or the server goes.
@@ -70,10 +106,9 @@ func partyEnv(ph string) map[string]string {
 func TestWaitBacksOffAfterStreamEnds(t *testing.T) {
 	var opens atomic.Int64
 	ph := fakeDaemon(t, func(m *http.ServeMux) {
-		m.HandleFunc("GET /v1/routes/r/events", func(w http.ResponseWriter, _ *http.Request) {
+		m.HandleFunc(fakePath("Wait"), func(w http.ResponseWriter, r *http.Request) {
 			opens.Add(1)
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.WriteHeader(200)
+			rpc.WriteError(w, rpcFailure(r.Context(), Errf("busy", "closed")))
 		})
 	})
 	var mu sync.Mutex
@@ -102,7 +137,7 @@ func TestWaitBacksOffAfterStreamEnds(t *testing.T) {
 // deadline.
 func TestWaitGraceBoundsHandshake(t *testing.T) {
 	ph := fakeDaemon(t, func(m *http.ServeMux) {
-		m.HandleFunc("GET /v1/routes/r/events", hang)
+		m.HandleFunc(fakePath("Wait"), hang)
 	})
 	env := partyEnv(ph)
 	env["HEALTH_GRACE"] = "1"
@@ -117,7 +152,7 @@ func TestWaitGraceBoundsHandshake(t *testing.T) {
 func TestKeyedCallAttemptDeadline(t *testing.T) {
 	var tries atomic.Int64
 	ph := fakeDaemon(t, func(m *http.ServeMux) {
-		m.HandleFunc("POST /v1/routes/r/messages", func(w http.ResponseWriter, r *http.Request) {
+		m.HandleFunc(fakePath("Send"), func(w http.ResponseWriter, r *http.Request) {
 			tries.Add(1)
 			hang(w, r)
 		})
