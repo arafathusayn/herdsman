@@ -25,12 +25,14 @@ Commands:
   afk      Print how long the user has been away: machine idle time or the newest message, whichever is newer.
   approval-gate Bind a relayed go before its effect: approval-gate consume ... | complete <request-id> <outcome>.
   checkpointer Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.
+  clean    Free what a task holds, after a verified snapshot.
   commit   Commit a worktree with a Conventional Commits message.
   config   Read and change the configuration; install the shell integration.
   cost     Report measured tokens and cost per task, project or route.
   daemon   The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential.
   diff     Show a worktree's changes.
   doctor   Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.
+  down     Stop a task, then free what it holds.
   each     Run a command in every worktree.
   eval     Report a suite's runs with intervals and an A/A control (experimental).
   export   Copy the whole account to a new folder.
@@ -43,6 +45,7 @@ Commands:
   models   Probe each installed harness: its version, models, efforts and default effort as it reports them.
   new      Make a task's branch and worktree.
   plugin   Manage plugins (experimental).
+  prune    Free integrated worktrees past a minimum age.
   recommend The same as suggest.
   resource Record a resource a task created: resource add.
   review   Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.
@@ -66,12 +69,14 @@ Commands:
 .BR herdsman-afk (1),
 .BR herdsman-approval-gate (1),
 .BR herdsman-checkpointer (1),
+.BR herdsman-clean (1),
 .BR herdsman-commit (1),
 .BR herdsman-config (1),
 .BR herdsman-cost (1),
 .BR herdsman-daemon (1),
 .BR herdsman-diff (1),
 .BR herdsman-doctor (1),
+.BR herdsman-down (1),
 .BR herdsman-each (1),
 .BR herdsman-eval (1),
 .BR herdsman-export (1),
@@ -85,6 +90,7 @@ Commands:
 .BR herdsman-models (1),
 .BR herdsman-new (1),
 .BR herdsman-plugin (1),
+.BR herdsman-prune (1),
 .BR herdsman-recommend (1),
 .BR herdsman-resource (1),
 .BR herdsman-review (1),

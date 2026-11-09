@@ -7,12 +7,14 @@ Generated from `herdsman spec cli`.
 - [`afk`](afk.md): Print how long the user has been away: machine idle time or the newest message, whichever is newer.
 - [`approval-gate`](approval-gate.md): Bind a relayed go before its effect: approval-gate consume ... | complete <request-id> <outcome>.
 - [`checkpointer`](checkpointer.md): Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.
+- [`clean`](clean.md): Free what a task holds, after a verified snapshot.
 - [`commit`](commit.md): Commit a worktree with a Conventional Commits message.
 - [`config`](config.md): Read and change the configuration; install the shell integration.
 - [`cost`](cost.md): Report measured tokens and cost per task, project or route.
 - [`daemon`](daemon.md): The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential.
 - [`diff`](diff.md): Show a worktree's changes.
 - [`doctor`](doctor.md): Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.
+- [`down`](down.md): Stop a task, then free what it holds.
 - [`each`](each.md): Run a command in every worktree.
 - [`eval`](eval.md): Report a suite's runs with intervals and an A/A control (experimental).
 - [`export`](export.md): Copy the whole account to a new folder.
@@ -26,6 +28,7 @@ Generated from `herdsman spec cli`.
 - [`models`](models.md): Probe each installed harness: its version, models, efforts and default effort as it reports them.
 - [`new`](new.md): Make a task's branch and worktree.
 - [`plugin`](plugin.md): Manage plugins (experimental).
+- [`prune`](prune.md): Free integrated worktrees past a minimum age.
 - [`recommend`](recommend.md): The same as suggest.
 - [`resource`](resource.md): Record a resource a task created: resource add.
 - [`review`](review.md): Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.

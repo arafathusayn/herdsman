@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,6 +30,7 @@ type WorktreeCleanPlanRequest struct {
 	Merged        bool   `json:"merged,omitempty"`
 	MinAgeSeconds int64  `json:"min_age_seconds,omitempty"`
 	KeepBranch    bool   `json:"keep_branch,omitempty"`
+	DeleteBranch  bool   `json:"delete_branch,omitempty"`
 }
 
 // WorktreeCleanPlan says what cleaning one tree would do and what stands in
@@ -54,6 +56,9 @@ type WorktreeCleanPlan struct {
 type WorktreeCleanPlanResponse struct {
 	Plans    []WorktreeCleanPlan `json:"plans"`
 	Warnings []string            `json:"warnings,omitempty"`
+	// FirstRebuildable is the set a clean would treat as rebuildable, given
+	// until the first clean of this repository has happened.
+	FirstRebuildable []string `json:"first_rebuildable,omitempty"`
 }
 
 // WorktreeCleanRequest frees the named tasks. Each is checked again here,
@@ -64,6 +69,10 @@ type WorktreeCleanRequest struct {
 	Force      bool     `json:"force,omitempty"`
 	KeepBranch bool     `json:"keep_branch,omitempty"`
 	Named      []string `json:"named,omitempty"`
+	// DeleteBranch accepts a patch-equivalent branch as integrated.
+	DeleteBranch bool `json:"delete_branch,omitempty"`
+	// ArchiveOnly takes the snapshot and removes nothing.
+	ArchiveOnly bool `json:"archive_only,omitempty"`
 	// PullRequestHeads maps branch to head from the plan. Nil reads GitHub.
 	PullRequestHeads map[string]string `json:"pull_request_heads,omitempty"`
 }
@@ -157,7 +166,7 @@ func runningLines(ctx context.Context, common, task string) ([]string, error) {
 	return running, nil
 }
 
-func (r *repository) planOne(ctx context.Context, row wtree.Row, bulk, keepBranch bool, heads map[string]string) (WorktreeCleanPlan, wtree.Safety, error) {
+func (r *repository) planOne(ctx context.Context, row wtree.Row, bulk bool, req WorktreeCleanPlanRequest, heads map[string]string) (WorktreeCleanPlan, wtree.Safety, error) {
 	plan := WorktreeCleanPlan{Task: row.Task, Branch: row.Branch, Path: row.Path, Head: row.Head, BranchAction: "keep", PullRequestHead: heads[row.Branch]}
 	if plan.Blocked = r.blockedReason(row, bulk); plan.Blocked != "" {
 		return plan, wtree.Safety{}, nil
@@ -167,8 +176,17 @@ func (r *repository) planOne(ctx context.Context, row wtree.Row, bulk, keepBranc
 		return plan, safety, err
 	}
 	plan.Proof, plan.NeedsForce, plan.Reason = safety.Proof, safety.NeedsForce(), safety.Reason()
-	if safety.Proof != "" && !keepBranch && row.Branch != "" {
+	if safety.Proof != "" && !req.KeepBranch && row.Branch != "" {
 		plan.BranchAction = "delete"
+	}
+	if safety.Proof == "" && req.DeleteBranch && row.Branch != "" && row.Head != "" {
+		equivalent, err := wtree.PatchEquivalent(ctx, r.git, r.main, row.Head, r.dflt)
+		if err != nil {
+			return plan, safety, err
+		}
+		if equivalent {
+			plan.BranchAction = "delete"
+		}
 	}
 	plan.Running, err = runningLines(ctx, r.common, row.Task)
 	return plan, safety, err
@@ -190,6 +208,17 @@ func (s *WorktreeService) CleanPlan(ctx context.Context, req WorktreeCleanPlanRe
 	if err != nil {
 		return resp, err
 	}
+	settings, err := loadSnapshotSettings(filepath.Dir(r.main))
+	if err != nil {
+		return resp, err
+	}
+	shown, err := r.state.Marked(ctx, rebuildableShownKey)
+	if err != nil {
+		return resp, err
+	}
+	if !shown {
+		resp.FirstRebuildable = settings.Rebuildable
+	}
 	heads, err := s.mergedHeads(ctx, r)
 	if err != nil {
 		resp.Warnings = append(resp.Warnings, "merged pull requests are not considered: "+err.Error())
@@ -199,7 +228,7 @@ func (s *WorktreeService) CleanPlan(ctx context.Context, req WorktreeCleanPlanRe
 		if req.MinAgeSeconds > 0 && time.Since(created[row.Task]) < time.Duration(req.MinAgeSeconds)*time.Second {
 			continue
 		}
-		plan, _, err := r.planOne(ctx, row, bulk, req.KeepBranch, heads)
+		plan, _, err := r.planOne(ctx, row, bulk, req, heads)
 		if err != nil {
 			return resp, err
 		}
@@ -253,7 +282,7 @@ func takeSnapshot(rec *ops.Recovery) func(context.Context, wtree.SnapshotQuery) 
 	}
 }
 
-func (s *WorktreeService) cleanOne(ctx context.Context, r *repository, rec *ops.Recovery, req WorktreeCleanRequest, task string, heads map[string]string) (*wtree.CleanReport, error) {
+func (s *WorktreeService) cleanOne(ctx context.Context, r *repository, rec *ops.Recovery, req WorktreeCleanRequest, task string, heads map[string]string, settings snapshotSettings) (*wtree.CleanReport, error) {
 	row, err := wtree.ResolveSelector(wtree.Selector{Kind: wtree.SelectName, Value: task}, r.selectContext(""))
 	if err != nil {
 		return nil, err
@@ -287,7 +316,8 @@ func (s *WorktreeService) cleanOne(ctx context.Context, r *repository, rec *ops.
 	return wtree.Clean(ctx, deps, wtree.CleanRequest{
 		Common: r.common, Main: r.main, Task: row.Task, Branch: row.Branch, Path: row.Path, Head: row.Head, Default: r.dflt,
 		PullRequestHead: heads[row.Branch], Force: req.Force, KeepBranch: req.KeepBranch, Named: req.Named,
-		Rebuildable: snapshot.DefaultRebuildable(), FileCap: s.FileCap,
+		DeleteBranch: req.DeleteBranch, ArchiveOnly: req.ArchiveOnly,
+		Rebuildable: settings.Rebuildable, FileCap: cmp.Or(s.FileCap, settings.FileCap),
 	})
 }
 
@@ -300,6 +330,10 @@ func (s *WorktreeService) Clean(ctx context.Context, req WorktreeCleanRequest) (
 		return resp, err
 	}
 	defer r.close()
+	settings, err := loadSnapshotSettings(filepath.Dir(r.main))
+	if err != nil {
+		return resp, err
+	}
 	rec, closeStore, err := s.recovery()
 	if err != nil {
 		return resp, err
@@ -313,7 +347,7 @@ func (s *WorktreeService) Clean(ctx context.Context, req WorktreeCleanRequest) (
 	}
 	for _, task := range req.Tasks {
 		report := WorktreeCleanReport{CleanReport: wtree.CleanReport{Task: task}}
-		done, err := s.cleanOne(ctx, r, rec, req, task, heads)
+		done, err := s.cleanOne(ctx, r, rec, req, task, heads, settings)
 		if done != nil {
 			report.CleanReport = *done
 		}
@@ -321,6 +355,11 @@ func (s *WorktreeService) Clean(ctx context.Context, req WorktreeCleanRequest) (
 			report.Error = err.Error()
 		}
 		resp.Reports = append(resp.Reports, report)
+		if report.Error == "" && report.Snapshot != "" {
+			if err := r.state.Mark(ctx, rebuildableShownKey); err != nil {
+				resp.Warnings = append(resp.Warnings, "the first-clean notice will show again: "+err.Error())
+			}
+		}
 	}
 	return resp, nil
 }

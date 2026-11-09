@@ -108,6 +108,10 @@ func (s *opsService) Undo(ctx context.Context, q *daemonv1.UndoRequest) (*daemon
 	if err != nil {
 		return nil, rpcFailure(ctx, recoveryError(err))
 	}
+	// The tree is back whatever this says, so a failure here is not the undo's.
+	if err := RecordRestoredTree(run, s.d.recovery, q.GetSnapshot(), res.Target); err != nil && s.d.cfg.Log != nil {
+		s.d.cfg.Log("undo: the task record of " + res.Target + " was not written back: " + err.Error())
+	}
 	return &daemonv1.UndoResponse{OperationId: res.Op.ID, Target: res.Target, Original: res.Original}, nil
 }
 

@@ -8,7 +8,8 @@ import (
 )
 
 const downHelp = `usage: herdsman down [<task>|--merged|--route <folder>|--all] [-y] [--force]
-                     [--grace <seconds>] [--keep-branch] [--include associated]
+                     [--grace <seconds>] [--keep-branch] [--delete-branch] [--archive-only]
+                     [--include associated]
                      [--force-irreversible <path>]... [--json]
 
 Stops what a task runs, then frees what it holds, as one plan with one question.
@@ -102,8 +103,8 @@ func runDown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	selector, err := options.selector(positional)
-	if err != nil || len(positional) > 1 {
-		return usageError(stderr, "name one task, or --merged, or --route, or --all")
+	if err != nil {
+		return usageError(stderr, err.Error())
 	}
 	if *grace < 0 {
 		return usageError(stderr, "--grace is a number of seconds")

@@ -59,8 +59,12 @@ type CleanRequest struct {
 	Common, Main, Task, Branch, Path, Head, Default string
 	PullRequestHead                                 string
 	Landed, Force, KeepBranch                       bool
-	Named, Rebuildable                              []string
-	FileCap                                         int64
+	// DeleteBranch accepts a patch-equivalent branch as integrated.
+	DeleteBranch bool
+	// ArchiveOnly stops once the snapshot is verified: nothing is removed.
+	ArchiveOnly        bool
+	Named, Rebuildable []string
+	FileCap            int64
 }
 
 // CleanReport is what happened to one tree.
@@ -68,6 +72,7 @@ type CleanReport struct {
 	Task           string   `json:"task"`
 	Snapshot       string   `json:"snapshot,omitempty"`
 	Forced         bool     `json:"forced,omitempty"`
+	ArchiveOnly    bool     `json:"archive_only,omitempty"`
 	Rebuildable    []string `json:"rebuildable,omitempty"`
 	Submodules     []string `json:"submodules,omitempty"`
 	Lost           []string `json:"lost,omitempty"`
@@ -218,6 +223,10 @@ func Clean(ctx context.Context, deps CleanDeps, req CleanRequest) (*CleanReport,
 		return nil, fmt.Errorf("snapshot: %w; nothing was removed", err)
 	}
 	report.Snapshot = id
+	if req.ArchiveOnly {
+		report.ArchiveOnly = true
+		return report, nil
+	}
 
 	if _, err := accountFor(ctx, deps, req, manifest); err != nil {
 		return nil, err
@@ -263,7 +272,9 @@ func Clean(ctx context.Context, deps CleanDeps, req CleanRequest) (*CleanReport,
 		return report, err
 	}
 	if !req.KeepBranch {
-		if report.BranchDeleted, report.BranchReason, err = DeleteBranch(ctx, deps.Git, req.Main, req.Branch, req.Head, proof); err != nil {
+		deletion := proof
+		deletion.AcceptEquivalent = req.DeleteBranch
+		if report.BranchDeleted, report.BranchReason, err = DeleteBranch(ctx, deps.Git, req.Main, req.Branch, req.Head, deletion); err != nil {
 			return report, err
 		}
 	}

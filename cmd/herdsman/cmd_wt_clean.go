@@ -10,11 +10,15 @@ import (
 )
 
 const cleanHelp = `usage: herdsman clean [<task>|--merged|--route <folder>|--all] [-y] [--force]
-                      [--keep-branch] [--force-irreversible <path>]... [--json]
+                      [--keep-branch] [--delete-branch] [--archive-only]
+                      [--force-irreversible <path>]... [--json]
 
 Frees what a task holds. A verified snapshot comes first, including ignored files;
 every path must then be captured, rebuildable or named, or nothing is removed.
-The branch is deleted only with proof that it was integrated.
+The branch is deleted only with proof that it was integrated; --delete-branch
+also accepts a branch whose every commit is patch-identical on the default one.
+--archive-only stops after the snapshot and removes nothing, so it alone lets
+--force run with -y and no terminal.
 
 exit codes:
   0  every selected tree was freed
@@ -41,6 +45,7 @@ type cleanPlan struct {
 type cleanReport struct {
 	Task           string   `json:"task"`
 	Snapshot       string   `json:"snapshot"`
+	ArchiveOnly    bool     `json:"archive_only"`
 	Lost           []string `json:"lost"`
 	Submodules     []string `json:"submodules"`
 	UnmatchedNames []string `json:"unmatched_names"`
@@ -53,9 +58,9 @@ type cleanReport struct {
 
 // cleanOptions are the flags clean and down share.
 type cleanOptions struct {
-	yes, all, merged, force, keepBranch, asJSON *bool
-	route                                       *string
-	named                                       *stringList
+	yes, all, merged, force, keepBranch, deleteBranch, archiveOnly, asJSON *bool
+	route                                                                  *string
+	named                                                                  *stringList
 }
 
 func addCleanFlags(fs *flag.FlagSet) *cleanOptions {
@@ -65,12 +70,17 @@ func addCleanFlags(fs *flag.FlagSet) *cleanOptions {
 		yes: fs.Bool("y", false, "do not ask"), all: fs.Bool("all", false, "every task"),
 		merged: fs.Bool("merged", false, "every integrated task"), force: fs.Bool("force", false, "go on with unsaved work, which the snapshot holds"),
 		keepBranch: fs.Bool("keep-branch", false, "keep the branch"), asJSON: fs.Bool("json", false, "print the plans and reports as JSON"),
-		route: fs.String("route", "", "every task of a route folder"), named: named,
+		deleteBranch: fs.Bool("delete-branch", false, "also delete a branch whose changes are all on the default branch, patch for patch"),
+		archiveOnly:  fs.Bool("archive-only", false, "take the snapshot and remove nothing"),
+		route:        fs.String("route", "", "every task of a route folder"), named: named,
 	}
 }
 
 // selector validates the choice of trees and returns the named task, if any.
 func (o *cleanOptions) selector(positional []string) (string, error) {
+	if *o.deleteBranch && (*o.keepBranch || *o.archiveOnly) {
+		return "", fmt.Errorf("--delete-branch cannot go with --keep-branch or --archive-only")
+	}
 	chosen := len(positional)
 	for _, set := range []bool{*o.route != "", *o.all, *o.merged} {
 		if set {
@@ -94,14 +104,18 @@ func callCleanPlan(request map[string]any, stderr io.Writer) ([]cleanPlan, []jso
 		return nil, nil, err
 	}
 	var typed struct {
-		Plans    []cleanPlan `json:"plans"`
-		Warnings []string    `json:"warnings"`
+		Plans            []cleanPlan `json:"plans"`
+		Warnings         []string    `json:"warnings"`
+		FirstRebuildable []string    `json:"first_rebuildable"`
 	}
 	if err := json.Unmarshal(raw, &typed); err != nil {
 		return nil, nil, err
 	}
 	for _, warning := range typed.Warnings {
 		fmt.Fprintf(stderr, "herdsman: warning: %s\n", warning)
+	}
+	if len(typed.FirstRebuildable) > 0 {
+		fmt.Fprintf(stderr, "herdsman: a first clean here: these are treated as rebuildable and left out of the snapshot: %s; the snapshot section of herdsman.config.json changes them\n", strings.Join(typed.FirstRebuildable, ", "))
 	}
 	var plain struct {
 		Plans []json.RawMessage `json:"plans"`
@@ -136,7 +150,7 @@ func (o *cleanOptions) checkPlans(plans []cleanPlan, allowRunning bool) ([]strin
 			return nil, fmt.Sprintf("%s: %s", plan.Task, plan.Blocked)
 		case len(plan.Running) > 0 && !allowRunning:
 			return nil, fmt.Sprintf("%s still runs %s; run herdsman teardown or herdsman down first", plan.Task, strings.Join(plan.Running, ", "))
-		case plan.NeedsForce && !*o.force:
+		case plan.NeedsForce && !*o.force && !*o.archiveOnly:
 			return nil, fmt.Sprintf("%s: %s; --force goes on, because the snapshot holds it", plan.Task, plan.Reason)
 		}
 		tasks = append(tasks, plan.Task)
@@ -144,8 +158,9 @@ func (o *cleanOptions) checkPlans(plans []cleanPlan, allowRunning bool) ([]strin
 	return tasks, ""
 }
 
-// approve asks when it must. --force always asks: losing a tree with unsaved
-// work in it is not something a script should do unattended.
+// approve asks when it must. --force always asks, because losing a tree with
+// unsaved work in it is not something a script should do unattended, unless
+// --archive-only says that nothing will be removed.
 func (o *cleanOptions) approve(stdin io.Reader, stdout, stderr io.Writer, question string) (bool, int) {
 	if *o.asJSON {
 		stdout = stderr // Standard output carries only the document.
@@ -153,7 +168,7 @@ func (o *cleanOptions) approve(stdin io.Reader, stdout, stderr io.Writer, questi
 	if len(*o.named) > 0 {
 		fmt.Fprintf(stdout, "what these match and no snapshot holds is lost for good: %s\n", strings.Join(*o.named, ", "))
 	}
-	if *o.yes && !*o.force {
+	if *o.yes && (!*o.force || *o.archiveOnly) {
 		return true, 0
 	}
 	if !stdinIsTerminal(stdin) {
@@ -178,6 +193,10 @@ func printCleanReports(stdout, stderr io.Writer, reports []cleanReport) int {
 		if report.Error != "" {
 			fmt.Fprintf(stderr, "herdsman: %s: %s\n", report.Task, report.Error)
 			code = 1
+			continue
+		}
+		if report.ArchiveOnly {
+			fmt.Fprintf(stdout, "%s: archived as %s, nothing removed\n", report.Task, report.Snapshot)
 			continue
 		}
 		branch := "branch kept"
@@ -216,7 +235,7 @@ func callClean(dir string, tasks []string, plans []cleanPlan, o *cleanOptions) (
 			heads[plan.Branch] = plan.PRHead
 		}
 	}
-	raw, err := callWorktree("Clean", map[string]any{"dir": dir, "tasks": tasks, "force": *o.force, "keep_branch": *o.keepBranch, "named": []string(*o.named), "pull_request_heads": heads})
+	raw, err := callWorktree("Clean", map[string]any{"dir": dir, "tasks": tasks, "force": *o.force, "keep_branch": *o.keepBranch, "delete_branch": *o.deleteBranch, "archive_only": *o.archiveOnly, "named": []string(*o.named), "pull_request_heads": heads})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -236,7 +255,7 @@ func callClean(dir string, tasks []string, plans []cleanPlan, o *cleanOptions) (
 }
 
 func cleanPlanRequest(dir, selector string, o *cleanOptions) map[string]any {
-	return map[string]any{"dir": dir, "selector": selector, "route": *o.route, "all": *o.all, "merged": *o.merged, "keep_branch": *o.keepBranch}
+	return map[string]any{"dir": dir, "selector": selector, "route": *o.route, "all": *o.all, "merged": *o.merged, "keep_branch": *o.keepBranch, "delete_branch": *o.deleteBranch}
 }
 
 func init() {
@@ -251,8 +270,8 @@ func runClean(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	selector, err := options.selector(positional)
-	if err != nil || len(positional) > 1 {
-		return usageError(stderr, "name one task, or --merged, or --route, or --all")
+	if err != nil {
+		return usageError(stderr, err.Error())
 	}
 	dir, err := workingFolder()
 	if err != nil {

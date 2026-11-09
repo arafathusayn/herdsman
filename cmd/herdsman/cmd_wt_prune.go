@@ -102,7 +102,7 @@ func runPrune(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	}
 	force, keep := false, false
-	reports, rawReports, err := callClean(dir, tasks, plans, &cleanOptions{force: &force, keepBranch: &keep, named: &stringList{}})
+	reports, rawReports, err := callClean(dir, tasks, plans, &cleanOptions{force: &force, keepBranch: &keep, deleteBranch: new(bool), archiveOnly: new(bool), named: &stringList{}})
 	if err != nil {
 		return fail(stderr, err)
 	}
