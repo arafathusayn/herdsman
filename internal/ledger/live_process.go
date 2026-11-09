@@ -129,12 +129,22 @@ func (r *Reader) lsof(ctx context.Context, args ...string) ([]byte, error) {
 	return out, nil
 }
 
+// cwdArgs reads every process's working folder. This read walks every process
+// and is the slowest of a scan. On macOS -b and -l drop lookups it does not
+// need; on Linux -b would lose the folder, which comes from a readlink.
+func (r *Reader) cwdArgs() []string {
+	if r.GOOS == "darwin" {
+		return []string{"-b", "-l", "-d", "cwd", "-F", "pn"}
+	}
+	return []string{"-d", "cwd", "-F", "pn"}
+}
+
 // readSockets runs its three reads together: nothing depends on their order.
 func (r *Reader) readSockets(ctx context.Context, into *Snapshot) error {
 	var group sync.WaitGroup
 	var errs [3]error
 	group.Go(func() {
-		raw, err := r.lsof(ctx, "-d", "cwd", "-F", "pn")
+		raw, err := r.lsof(ctx, r.cwdArgs()...)
 		if err != nil {
 			errs[0] = err
 			return

@@ -588,7 +588,8 @@ const (
 	psEnvMac   = "ps -E -ax -ww -o " + psFormat
 	psEnvLin   = "ps axeww -o " + psFormat
 	psStates   = "ps -ax -o pid=,stat="
-	lsofCwd    = "lsof -w -d cwd -F pn"
+	lsofCwd    = "lsof -w -b -l -d cwd -F pn"
+	lsofCwdLin = "lsof -w -d cwd -F pn"
 	lsofListen = "lsof -w -iTCP -sTCP:LISTEN -P -n -F pn"
 	lsofEstab  = "lsof -w -iTCP -sTCP:ESTABLISHED -P -n -F pn"
 )
@@ -600,6 +601,7 @@ func validHost() *fakeHost {
 		psEnvLin:                               text("100 1 100 Mon Nov 2 10:00:00 2026 /bin/sleep 300 HERDSMAN_EXEC=x\n"),
 		psStates:                               text("100 S\n200 Z\n"),
 		lsofCwd:                                text("p100\nfcwd\nn/w\n"),
+		lsofCwdLin:                             text("p100\nfcwd\nn/w\n"),
 		lsofListen:                             text("p100\nf3\nn*:4100\n"),
 		lsofEstab:                              text("p100\nf4\nn127.0.0.1:4100->127.0.0.1:50000\n"),
 		"docker --version":                     text("Docker"),
@@ -726,6 +728,16 @@ func TestSurveyFailsOnAnyFailedRead(t *testing.T) {
 		if _, err := hostReader(h, "darwin").Survey(context.Background(), Snapshot{}); err == nil {
 			t.Errorf("%s: no error", key)
 		}
+	}
+}
+
+func TestLinuxReadsWorkingFoldersWithoutTheNonBlockingFlag(t *testing.T) {
+	h := validHost()
+	if _, err := hostReader(h, "linux").Read(context.Background(), Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(h.seen, lsofCwdLin) || slices.Contains(h.seen, lsofCwd) {
+		t.Fatalf("seen = %v", h.seen)
 	}
 }
 
