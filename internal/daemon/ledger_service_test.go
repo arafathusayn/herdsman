@@ -348,3 +348,43 @@ func TestARecordWrittenDuringTeardownIsSeenBeforeTheNextSignal(t *testing.T) {
 		t.Fatalf("calls = %v, want only the first pid", w.calls)
 	}
 }
+
+func TestAuthorityRevokedDuringTeardownIsSeenBeforeTheNextSignal(t *testing.T) {
+	w := setupLedger(t, "a")
+	ctx := context.Background()
+	w.pids = []ledger.Process{
+		{Pid: 5, Group: 5, Parent: 1, Start: ledgerStart, Command: "server"},
+		{Pid: 6, Group: 6, Parent: 1, Start: ledgerStart, Command: "server"},
+	}
+	for _, id := range []string{"5", "6"} {
+		if _, err := w.service.AddResource(ctx, w.request("a"), ledger.Record{Execution: "zz", Kind: ledger.KindProcess, ID: id}, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := w.service.Plan(ctx, w.request("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := wtree.OpenState(w.request("a").CommonDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	kill := w.service.Kill
+	w.service.Kill = func(pid int, signal syscall.Signal) error {
+		if signal != 0 && len(w.calls) == 0 {
+			if _, err := state.DB().ExecContext(ctx, `DELETE FROM resources WHERE id = '6'`); err != nil {
+				t.Error(err)
+			}
+		}
+		return kill(pid, signal)
+	}
+	_, err = w.service.Teardown(ctx, TeardownRequest{LedgerRequest: w.request("a"), Approved: plan, Grace: time.Millisecond})
+	var stop *ledger.StopError
+	if !errors.As(err, &stop) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(w.calls) != 1 {
+		t.Fatalf("calls = %v, want only the first pid", w.calls)
+	}
+}
