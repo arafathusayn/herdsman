@@ -169,7 +169,7 @@ func InitDetected(path, format, root string) (Ecosystem, error) {
 	if format == FormatTOML {
 		data = commentTOML(data)
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	file, err := openNew(path)
 	if err != nil {
 		return Ecosystem{}, err
 	}

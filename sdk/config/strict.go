@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 
+	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -42,6 +43,8 @@ func isSafetySection(fd protoreflect.FieldDescriptor) bool {
 type report struct {
 	strict   bool
 	warnings []Warning
+	// wire is the binary message read, when the source was binary.
+	wire *configv1.Config
 }
 
 func (r *report) unknown(path, key string, md protoreflect.MessageDescriptor, safety bool) error {

@@ -34,16 +34,20 @@ func TestExportKeepsAnExplicitEmptyListInTextFormats(t *testing.T) {
 	}
 }
 
-func TestBinaryRefusesAnEmptyListItCannotHold(t *testing.T) {
+func TestBinaryHoldsAnEmptyListInEveryPlace(t *testing.T) {
 	for name, tc := range map[string]struct{ text, key string }{
 		"section": {"[branch]\ntypes = []\n", "branch.types"},
 		"step":    {"[[launch.prelude]]\nargv = []\n", "launch.prelude[0].argv"},
 		"project": {"[projects.a.branch]\ntypes = []\n", "projects.a.branch.types"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := ExportFile(configFile(t, tc.text), FormatBin)
-			if err == nil || !strings.Contains(err.Error(), tc.key) {
-				t.Fatalf("err = %v", err)
+			data, err := ExportFile(configFile(t, tc.text), FormatBin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			again, err := ExportFile(writeFile(t, filepath.Join(t.TempDir(), "c.bin"), string(data)), FormatTOML)
+			if err != nil || !strings.Contains(string(again), "= []") {
+				t.Fatalf("%s: %v\n%s", tc.key, err, again)
 			}
 		})
 	}
@@ -63,21 +67,21 @@ func TestBinaryKeepsAnEmptyPipelineHook(t *testing.T) {
 	}
 }
 
-func TestSettingAnEmptyListOnABinaryFileLeavesItAlone(t *testing.T) {
+func TestSettingAnEmptyListOnABinaryFileKeepsIt(t *testing.T) {
 	original, err := encodeBin(&configv1.Config{Branch: &configv1.Branch{Types: []string{"a"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	path := writeFile(t, filepath.Join(t.TempDir(), "c.bin"), string(original))
-	if err := SetFile(path, "branch.types", ""); err == nil || !strings.Contains(err.Error(), "branch.types") {
-		t.Fatalf("err = %v", err)
+	if err := SetFile(path, "branch.types", ""); err != nil {
+		t.Fatal(err)
 	}
-	data, err := os.ReadFile(path)
+	got, err := Load(Options{ConfigPath: path, UserDir: t.TempDir(), Environ: []string{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(data, original) {
-		t.Fatal("the file changed")
+	if types := got.Config.GetBranch().GetTypes(); len(types) != 0 {
+		t.Fatalf("types: %v", types)
 	}
 }
 

@@ -311,3 +311,27 @@ func TestUnsetAndSetInsideASequenceValueRewriteIt(t *testing.T) {
 		t.Fatal("went through a null")
 	}
 }
+
+func TestParseKeyRefusesWhatIsNotAKey(t *testing.T) {
+	for _, line := range []string{`"open`, `"closed" value`, `no colon here`} {
+		if _, _, ok := parseKey(line); ok {
+			t.Errorf("%q was read as a key", line)
+		}
+	}
+	if key, _, ok := parseKey(`"a\"b": 1`); !ok || key != `a"b` {
+		t.Errorf("%q %v", key, ok)
+	}
+}
+
+func TestClosingQuoteOfAnUnclosedScalar(t *testing.T) {
+	if got := closingQuote(`'open`); got != -1 {
+		t.Fatal(got)
+	}
+}
+
+func TestSplitCommentSkipsAnEscapedQuote(t *testing.T) {
+	value, comment := splitComment(` "a\"#b" # why`)
+	if value != `"a\"#b"` || comment != " # why" {
+		t.Fatalf("%q %q", value, comment)
+	}
+}

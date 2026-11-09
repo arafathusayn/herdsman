@@ -27,6 +27,8 @@ message Config {
   Teardown teardown = 14;
   Worktree worktree = 15;
   Automations automations = 16;
+  // Paths of the lists written as empty, in the binary form only.
+  reserved 900;
 }
 
 // Schema says which version of this contract a file was written against.

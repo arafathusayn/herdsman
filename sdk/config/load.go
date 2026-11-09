@@ -19,7 +19,6 @@ import (
 	"github.com/arafathusayn/herdsman/sdk/internal/encoding/toml"
 	"github.com/arafathusayn/herdsman/sdk/internal/encoding/tree"
 	"github.com/arafathusayn/herdsman/sdk/internal/encoding/yaml"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -170,6 +169,9 @@ func ReadFile(path string) (*Result, error) {
 	msg := &configv1.Config{}
 	if err := bindMessage(layer, msg.ProtoReflect(), ""); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if rep.wire != nil {
+		carryUnknown(rep.wire.ProtoReflect(), msg.ProtoReflect())
 	}
 	sources := map[string]string{}
 	recordSources(layer, "", SourceProject, sources)
@@ -441,7 +443,7 @@ func applyText(merged *tree.Node, resolved *resolved, value, source string, sour
 
 // writeAtomic replaces a file so that a reader never sees half of it.
 func writeAtomic(path string, data []byte) error {
-	temp, err := os.CreateTemp(filepath.Dir(path), ".herdsman-config-*")
+	temp, err := createTemp(filepath.Dir(path), ".herdsman-config-*")
 	if err != nil {
 		return err
 	}
@@ -522,18 +524,15 @@ func encodeFile(format string, root *tree.Node, original []byte) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	if err := refuseEmptyLists(layer, configDescriptor(), ""); err != nil {
-		return nil, err
-	}
 	if err := bindMessage(layer, msg.ProtoReflect(), ""); err != nil {
 		return nil, err
 	}
-	prior := &configv1.Config{}
-	if err := proto.Unmarshal(original, prior); err != nil {
+	prior, _, err := unmarshalBin(original)
+	if err != nil {
 		return nil, err
 	}
 	carryUnknown(prior.ProtoReflect(), msg.ProtoReflect())
-	return encodeBin(msg)
+	return encodeBinLists(msg, emptyLists(layer, configDescriptor(), nil))
 }
 
 func decodeRaw(format string, data []byte) (*tree.Node, error) {
@@ -724,6 +723,12 @@ func UnsetFile(path, key string) (bool, error) {
 	if err := checkEdit(format, out); err != nil {
 		return false, err
 	}
+	// Report a removal only once the bytes about to be written show one.
+	if back, err := decodeRaw(format, out); err == nil {
+		if _, there := back.Lookup(written...); there {
+			return false, fmt.Errorf("%s: the key could not be removed from this file", key)
+		}
+	}
 	return true, writeAtomic(path, out)
 }
 
@@ -832,6 +837,13 @@ func UpdateFile(path string) error {
 					continue
 				}
 			}
+			moved, err := doc.RenameKey(item.from, item.to)
+			if err != nil {
+				return err
+			}
+			if moved {
+				continue
+			}
 			if _, err := doc.Unset(item.from); err != nil {
 				return err
 			}
@@ -877,7 +889,7 @@ func InitFile(path, format string) error {
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	file, err := openNew(path)
 	if err != nil {
 		return err
 	}
