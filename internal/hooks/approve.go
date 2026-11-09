@@ -25,7 +25,7 @@ func (a *Approvals) Approved(project, template string) (bool, error) {
 	return ok, nil
 }
 
-// Unapproved lists the plan's templates that were not accepted, without repeats.
+// Unapproved lists the templates of a run that were not accepted, without repeats.
 func (a *Approvals) Unapproved(project string, plan Plan) ([]string, error) {
 	held, err := a.store().List()
 	if err != nil {
