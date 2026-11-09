@@ -1615,3 +1615,67 @@ func TestImportKeepsALinkInsideTheState(t *testing.T) {
 		t.Fatalf("%q %v", got, err)
 	}
 }
+
+func killedAfterPublication(t *testing.T) (*rig, string) {
+	t.Helper()
+	armed := true
+	r := newRig(t, rigOptions{fault: func(p string) {
+		if p == "undo:published" && armed {
+			armed = false
+			panic("killed")
+		}
+	}})
+	repo, tree := dirtyWorktree(t)
+	id := snapshotOf(t, r, "t1", tree)
+	removeWorktree(t, repo, tree)
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = r.rec.Undo(context.Background(), ops.UndoRequest{Snapshot: id})
+	}()
+	return r, tree
+}
+
+func recoveredState(t *testing.T, r *rig) ops.OpState {
+	t.Helper()
+	again := openRig(t, r.state, rigOptions{})
+	if err := again.eng.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	list, err := again.eng.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return list[0].State
+}
+
+func TestUndoProbeNoticesAMissingPreservedFile(t *testing.T) {
+	r, tree := killedAfterPublication(t)
+	if err := os.Remove(filepath.Join(tree, ".env")); err != nil {
+		t.Fatal(err)
+	}
+	if state := recoveredState(t, r); state == ops.OpDone {
+		t.Fatal("done although .env is gone")
+	}
+	if _, err := os.Stat(filepath.Join(tree, ".env")); !os.IsNotExist(err) {
+		t.Fatalf("recovery wrote over the tree: %v", err)
+	}
+}
+
+func TestUndoProbeNoticesAnEditedFile(t *testing.T) {
+	r, tree := killedAfterPublication(t)
+	write(t, filepath.Join(tree, "new.txt"), "edited by someone\n")
+	if state := recoveredState(t, r); state == ops.OpDone {
+		t.Fatal("done although new.txt changed")
+	}
+	if got := read(t, filepath.Join(tree, "new.txt")); got != "edited by someone\n" {
+		t.Fatalf("recovery overwrote the edit: %q", got)
+	}
+}
+
+func TestUndoProbeAcceptsAnUntouchedTree(t *testing.T) {
+	r, tree := killedAfterPublication(t)
+	if state := recoveredState(t, r); state != ops.OpDone {
+		t.Fatalf("state %s", state)
+	}
+	assertRestored(t, tree)
+}
