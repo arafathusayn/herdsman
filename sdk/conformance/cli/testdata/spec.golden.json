@@ -306,7 +306,7 @@
     {
       "name": "daemon",
       "summary": "The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential.",
-      "help": "usage: herdsman daemon [--json] [--private-home <folder>] <command> [args]\n  run [--inspect]                       the daemon itself (the supervisor starts it); --inspect migrates and serves reads, with no effect at all\n  ops list | show <id> | resolve <id> <step> done|rerun   the journaled operations\n  install | uninstall                   write and start, or stop and remove, the LaunchAgent or systemd user unit\n  start | stop | restart                through the supervisor; stop stays stopped until start\n  status                                health of every route and Herdr link\n  route create --repo <repo> --route <route> [--herdr-socket <path>]\n  route adopt --inbox <path> --route <route> --confirm <peers.approved sha256>\n  route remove <route> | route reset-events <route> | route list\n  setup <route> --rule <policy file>... [--binary <path>] [--boundary <file>] [--watch-targets <file>] [--resume-targets <file>]\n  pair approve <route> <sha256> [--interaction <ask reference> [--asked-by <adjutant>]] [--credential <name>=identity|file|keychain]...\n  pair retire <route> <name> <sha256>\n  credential revoke <route> <name>\nThe private home is --private-home, else HERDSMAN_STATE_DIR, else HERDSMAN_PRIVATE_HOME, else ~/.herdsman-private.\n\nexit codes:\n  0   done\n  1   status: the daemon is down or degraded; start, stop, restart, uninstall: no hello or the lock still held after 10 s\n  2   usage, a refusal, another daemon of this account running (daemon_running), no attended terminal\n  3   human_boundary\n  75  retryable: busy, route_unowned, herdr_unreachable, daemon not answering\n",
+      "help": "usage: herdsman daemon [--json] [--private-home <folder>] <command> [args]\n  run [--inspect]                       the daemon itself (the supervisor starts it); --inspect migrates and serves reads, with no effect at all\n  ops list | show <id> | resolve <id> <step> done|rerun   the journaled operations\n  install | uninstall                   write and start, or stop and remove, the LaunchAgent or systemd user unit\n  start | stop | restart                through the supervisor; stop stays stopped until start\n  status                                health of every route and Herdr link\n  route create --repo <repo> --route <route> [--herdr-socket <path>]\n  route adopt --inbox <path> --route <route> --confirm <peers.approved sha256>\n  route remove <route> | route reset-events <route> | route list\n  setup <route> --rule <policy file>... [--binary <path>] [--boundary <file>] [--watch-targets <file>] [--resume-targets <file>]\n  pair approve <route> <sha256> [--interaction <ask reference> [--asked-by <adjutant>]] [--credential <name>=identity|file|keychain]...\n  pair retire <route> <name> <sha256>\n  credential revoke <route> <name>\n  automations list | approve <event> | dry-run <event> [--project <path>] [--value <name=value>]...   experimental: an action runs only once a person approves its checksum\nThe private home is --private-home, else HERDSMAN_STATE_DIR, else HERDSMAN_PRIVATE_HOME, else ~/.herdsman-private.\n\nexit codes:\n  0   done\n  1   status: the daemon is down or degraded; start, stop, restart, uninstall: no hello or the lock still held after 10 s\n  2   usage, a refusal, another daemon of this account running (daemon_running), no attended terminal\n  3   human_boundary\n  75  retryable: busy, route_unowned, herdr_unreachable, daemon not answering\n",
       "usage": [
         "herdsman daemon [--json] [--private-home <folder>] <command> [args]"
       ],
@@ -359,6 +359,10 @@
           "valueName": "folder"
         },
         {
+          "name": "--project",
+          "valueName": "path"
+        },
+        {
           "name": "--repo",
           "valueName": "repo"
         },
@@ -373,6 +377,10 @@
         {
           "name": "--rule",
           "valueName": "policy file"
+        },
+        {
+          "name": "--value",
+          "valueName": "name=value"
         },
         {
           "name": "--watch-targets",
