@@ -505,3 +505,19 @@ func TestControlRefusesARouteWithNoStart(t *testing.T) {
 		t.Fatalf("empty: %v", err)
 	}
 }
+
+func TestUpReadsARelativeConfigFromTheRepository(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	repo := filepath.Join(h.dir, "proj")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeLaunchConfig(t, repo, "[launch]\ncommand = [\"codex\"]\n")
+	req := upRequest(repo)
+	req.OrchestratorCommand = ""
+	req.ConfigPath = "route.toml"
+	if _, err := c.Route.Up(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+}

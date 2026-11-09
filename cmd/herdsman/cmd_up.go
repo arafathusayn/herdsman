@@ -114,6 +114,15 @@ func parseUp(args []string, stderr io.Writer) (upFlags, bool) {
 		fmt.Fprintf(stderr, "--pair must be auto or manual\n%s", upUsage)
 		return f, false
 	}
+	if f.config != "" {
+		// The daemon runs in its own folder; a relative path is the caller's.
+		absolute, err := filepath.Abs(f.config)
+		if err != nil {
+			fmt.Fprintf(stderr, "herdsman up: %v\n", err)
+			return f, false
+		}
+		f.config = absolute
+	}
 	if f.resume {
 		return f, true
 	}

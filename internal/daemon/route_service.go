@@ -158,6 +158,10 @@ func (s *routeService) request(req *daemonv1.UpRequest) (route.UpRequest, error)
 	}
 	var configured *launch.Spec
 	if path := req.GetConfigPath(); path != "" && !req.GetContinue() {
+		// The daemon's own folder means nothing to the caller.
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(req.GetRepo(), path)
+		}
 		result, err := config.Load(config.Options{ConfigPath: path, RepoRoot: req.GetRepo()})
 		if err != nil {
 			return route.UpRequest{}, rpc.Errorf(rpc.InvalidArgument, "the configuration: %v", err)
