@@ -185,8 +185,10 @@ func (r *Route) start() {
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		if r.intakeDue {
+		// During an export the intake stays due and the next request runs it.
+		if r.intakeDue && r.d.exportGate.TryRLock() {
 			_ = r.runOp(func() *APIError { return nil })
+			r.d.exportGate.RUnlock()
 		}
 		for {
 			select {

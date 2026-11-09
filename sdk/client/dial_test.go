@@ -136,6 +136,13 @@ func TestDialReadsTheProcessEnvironment(t *testing.T) {
 	c.Close()
 }
 
+func TestSocketPathPrefersTheStateDirectoryOverride(t *testing.T) {
+	got, err := SocketPath(env(map[string]string{"HERDSMAN_STATE_DIR": "/s", "HERDSMAN_PRIVATE_HOME": "/x/y"}))
+	if err != nil || got != filepath.Join("/s", "run", "daemon.sock") {
+		t.Fatalf("%q %v", got, err)
+	}
+}
+
 // statusOK answers any Status call.
 func statusOK(context.Context, *daemonv1.StatusRequest) (*daemonv1.StatusResponse, error) {
 	return &daemonv1.StatusResponse{Status: "ok"}, nil
