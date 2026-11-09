@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +12,8 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/status"
 	"github.com/arafathusayn/herdsman/internal/watch"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 func init() {
@@ -39,21 +40,27 @@ func statusWithLedger(ctx context.Context, w io.Writer, specs string) {
 		if err != nil || string(agent.Status) != "done" {
 			continue
 		}
-		raw, err := callWorktree("LedgerHealth", map[string]string{"dir": spec.Tree})
-		if err != nil {
+		running := ledgerRunning(ctx, spec.Tree)
+		if len(running) == 0 {
 			continue
 		}
-		var health struct {
-			Running []struct {
-				Kind string `json:"kind"`
-				ID   string `json:"id"`
-			} `json:"running"`
-		}
-		if json.Unmarshal(raw, &health) != nil || len(health.Running) == 0 {
-			continue
-		}
-		fmt.Fprintf(w, "== %s (ledger)\n   <-- OWNED RESOURCES OUTLIVE DONE: %s %s and %d in all\n", spec.Name, health.Running[0].Kind, health.Running[0].ID, len(health.Running))
+		fmt.Fprintf(w, "== %s (ledger)\n   <-- OWNED RESOURCES OUTLIVE DONE: %s %s and %d in all\n", spec.Name, running[0].GetKind(), running[0].GetId(), len(running))
 	}
+}
+
+// ledgerRunning adds to a status check, so a daemon that cannot answer leaves
+// the check as it was.
+func ledgerRunning(ctx context.Context, tree string) []*daemonv1.ResourceLine {
+	service, closeService, err := dialLedger()
+	if err != nil {
+		return nil
+	}
+	defer closeService()
+	health, err := service.LedgerHealth(ctx, &daemonv1.LedgerHealthRequest{Dir: tree})
+	if err != nil {
+		return nil
+	}
+	return health.GetRunning()
 }
 
 func signalContext() (context.Context, context.CancelFunc) {

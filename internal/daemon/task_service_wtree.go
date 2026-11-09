@@ -21,6 +21,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/gitrun"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/hooks"
+	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/wtree"
 )
 
@@ -39,6 +40,9 @@ type WorktreeService struct {
 	StateDir    string // Empty resolves the account's state folder.
 	FileCap     int64  // Largest file a snapshot captures; 0 is the default.
 	ConfigDir   string // Folder of the user's file; empty uses the standard one.
+
+	journal *teardownJournal // Set by the daemon, which runs teardowns.
+	engine  *ops.Engine
 }
 
 // worktreeSchemaVersion is the version of the verbs' JSON. It only grows.
@@ -187,14 +191,6 @@ func (s *WorktreeService) Call(ctx context.Context, method string, request []byt
 		return dispatch(ctx, request, s.Commit)
 	case "Diff":
 		return dispatch(ctx, request, s.Diff)
-	case "TeardownPlan":
-		return dispatch(ctx, request, s.TeardownPlan)
-	case "Teardown":
-		return dispatch(ctx, request, s.Teardown)
-	case "ResourceAdd":
-		return dispatch(ctx, request, s.ResourceAdd)
-	case "LedgerHealth":
-		return dispatch(ctx, request, s.LedgerHealth)
 	case "CleanPlan":
 		return dispatch(ctx, request, s.CleanPlan)
 	case "Clean":

@@ -26,6 +26,14 @@ type LedgerService interface {
 	Plan(context.Context, *PlanRequest) (*PlanResponse, error)
 	// AddResource records authority over a resource for one execution.
 	AddResource(context.Context, *AddResourceRequest) (*AddResourceResponse, error)
+	// TeardownPlans builds one plan per selected task and changes nothing.
+	TeardownPlans(context.Context, *TeardownPlansRequest) (*TeardownPlansResponse, error)
+	// Teardown runs approved plans, each as one journaled operation.
+	Teardown(context.Context, *TeardownRequest) (*TeardownResponse, error)
+	// RegisterResource records a resource for a task found from a folder.
+	RegisterResource(context.Context, *RegisterResourceRequest) (*RegisterResourceResponse, error)
+	// LedgerHealth lists what a folder's task still runs that it alone owns.
+	LedgerHealth(context.Context, *LedgerHealthRequest) (*LedgerHealthResponse, error)
 }
 
 // NewLedgerServiceHandler serves impl over HTTP with the full binding. Mount it
@@ -35,6 +43,10 @@ func NewLedgerServiceHandler(impl LedgerService) http.Handler {
 		rpc.Unary(LedgerServiceName, "Resources", impl.Resources),
 		rpc.Unary(LedgerServiceName, "Plan", impl.Plan),
 		rpc.Unary(LedgerServiceName, "AddResource", impl.AddResource),
+		rpc.Unary(LedgerServiceName, "TeardownPlans", impl.TeardownPlans),
+		rpc.Unary(LedgerServiceName, "Teardown", impl.Teardown),
+		rpc.Unary(LedgerServiceName, "RegisterResource", impl.RegisterResource),
+		rpc.Unary(LedgerServiceName, "LedgerHealth", impl.LedgerHealth),
 	)
 }
 
@@ -67,6 +79,38 @@ func (c *ledgerServiceClient) Plan(ctx context.Context, req *PlanRequest) (*Plan
 func (c *ledgerServiceClient) AddResource(ctx context.Context, req *AddResourceRequest) (*AddResourceResponse, error) {
 	res := new(AddResourceResponse)
 	if err := callLedgerService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.LedgerService/AddResource", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *ledgerServiceClient) TeardownPlans(ctx context.Context, req *TeardownPlansRequest) (*TeardownPlansResponse, error) {
+	res := new(TeardownPlansResponse)
+	if err := callLedgerService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.LedgerService/TeardownPlans", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *ledgerServiceClient) Teardown(ctx context.Context, req *TeardownRequest) (*TeardownResponse, error) {
+	res := new(TeardownResponse)
+	if err := callLedgerService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.LedgerService/Teardown", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *ledgerServiceClient) RegisterResource(ctx context.Context, req *RegisterResourceRequest) (*RegisterResourceResponse, error) {
+	res := new(RegisterResourceResponse)
+	if err := callLedgerService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.LedgerService/RegisterResource", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *ledgerServiceClient) LedgerHealth(ctx context.Context, req *LedgerHealthRequest) (*LedgerHealthResponse, error) {
+	res := new(LedgerHealthResponse)
+	if err := callLedgerService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.LedgerService/LedgerHealth", req, res); err != nil {
 		return nil, err
 	}
 	return res, nil
