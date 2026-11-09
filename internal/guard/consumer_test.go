@@ -74,12 +74,18 @@ func git(t *testing.T, dir string, env []string, args ...string) string {
 // consumerRepo commits a copy of the SDK to a local repository and returns the
 // commit and an environment in which the module's GitHub URL resolves to it, so
 // the external-consumer build runs with no network.
-func consumerRepo(t *testing.T, sdkVersionSource string) (string, []string) {
+func consumerRepo(t *testing.T, sdkVersionSource string, clientSource ...string) (string, []string) {
 	t.Helper()
 	base := t.TempDir()
 	repo := filepath.Join(base, "herdsman")
 	writeFile(t, filepath.Join(repo, "sdk", "go.mod"), readRepoFile(t, "sdk/go.mod"))
 	writeFile(t, filepath.Join(repo, "sdk", "version", "version.go"), sdkVersionSource)
+	// A stand-in that imports nothing, so that the build needs no network.
+	stub := "package client\n\ntype Options struct{}\n"
+	if len(clientSource) > 0 {
+		stub = clientSource[0]
+	}
+	writeFile(t, filepath.Join(repo, "sdk", "client", "client.go"), stub)
 
 	gitConfig := filepath.Join(base, "gitconfig")
 	writeFile(t, gitConfig, "[url \"file://"+repo+"\"]\n\tinsteadOf = https://github.com/arafathusayn/herdsman\n[user]\n\tname = fixture\n\temail = fixture@example.com\n")
@@ -166,5 +172,17 @@ func TestConsumerScriptFailsWhenTheSDKDoesNotCompile(t *testing.T) {
 	out, err := runConsumerScript(t, commit, env)
 	if err == nil {
 		t.Fatalf("script passed against an SDK without Version:\n%s", out)
+	}
+}
+
+// The consumer has to build the client, not only the version constant.
+func TestConsumerScriptFailsWhenTheClientCannotBuild(t *testing.T) {
+	commit, env := consumerRepo(t, readRepoFile(t, "sdk/version/version.go"), "package client\n\nvar broken = missing\n")
+	out, err := runConsumerScript(t, commit, env)
+	if err == nil {
+		t.Fatalf("script passed with a broken client:\n%s", out)
+	}
+	if !strings.Contains(out, "missing") {
+		t.Fatalf("script failed for another reason:\n%s", out)
 	}
 }
