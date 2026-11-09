@@ -60,7 +60,7 @@ type Config struct {
 	// Effects and Checks are the operation engine's registered step kinds.
 	Effects map[string]ops.Effect
 	Checks  map[string]ops.Check
-	// Recovery makes a route's delete undoable. Nil: every delete refuses.
+	// Recovery replaces the backend of a route's delete. Nil: the daemon's undo.
 	Recovery route.Recovery
 	// RouteDown frees a route's tasks, for a delete that does not keep them.
 	RouteDown func(ctx context.Context, repo, folder string) error

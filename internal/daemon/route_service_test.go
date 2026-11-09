@@ -256,30 +256,35 @@ func withRecovery(t *testing.T, h *harness) *client.Client {
 	return routeClient(t, h)
 }
 
-func TestDeleteRefusesWithoutRecoveryAndTouchesNothing(t *testing.T) {
+// The daemon's own backend makes a delete that its own undo reverses.
+func TestDeleteThroughTheServiceIsUndoneByUndo(t *testing.T) {
 	h := newHarness(t)
 	c := routeClient(t, h)
-	repo, world := upNoAdjutant(t, h, c)
+	repo, _ := upNoAdjutant(t, h, c)
+	git(t, repo, "init", "-q")
+	git(t, repo, "-c", "user.name=t", "-c", "user.email=t@e", "commit", "-q", "--allow-empty", "-m", "base")
 	ctx := context.Background()
 	id := &corev1.RouteId{Value: "harbor"}
-	for _, q := range []*daemonv1.RouteServiceDeleteRequest{
-		{Route: id, Repo: repo, Force: true, DryRun: true},
-		{Route: id, Repo: repo, Force: true},
-		{Route: id, Repo: repo, Force: true, KeepWorktrees: true},
-	} {
-		if _, err := c.Route.Delete(ctx, q); codeOf(err) != rpc.FailedPrecondition || !strings.Contains(err.Error(), "recovery") {
-			t.Fatalf("got %v", err)
-		}
+	got, err := c.Route.Get(ctx, &daemonv1.RouteServiceGetRequest{Route: id, Repo: repo})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if world.PaneByLabel("orchestrator") == "" {
-		t.Fatal("a refused delete stopped the agents")
+	note := filepath.Join(got.GetStart().GetFolder(), "note")
+	if err := os.WriteFile(note, []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	res, err := c.Route.Get(ctx, &daemonv1.RouteServiceGetRequest{Route: id, Repo: repo})
-	if err != nil || res.GetStart().GetControl() != "running" {
+	res, err := c.Route.Delete(ctx, &daemonv1.RouteServiceDeleteRequest{Route: id, Repo: repo, Force: true, KeepWorktrees: true})
+	if err != nil || res.GetResult().GetState() != "done" {
 		t.Fatalf("%v %v", res, err)
 	}
-	if _, err := os.Stat(res.GetStart().GetFolder()); err != nil {
+	if _, err := os.Stat(note); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the route folder stayed: %v", err)
+	}
+	if _, err := dialOps(t, h.ph).Undo(ctx, &daemonv1.UndoRequest{Snapshot: res.GetResult().GetOperation()}); err != nil {
 		t.Fatal(err)
+	}
+	if raw, err := os.ReadFile(note); err != nil || string(raw) != "keep me" {
+		t.Fatalf("%q %v", raw, err)
 	}
 }
 
@@ -287,10 +292,6 @@ func TestDeleteNeedsDownUnlessWorktreesAreKept(t *testing.T) {
 	h := newHarness(t)
 	c := routeClient(t, h)
 	repo, _ := upNoAdjutant(t, h, c)
-	h.stop()
-	h.cfg.Recovery = fakeRecovery{}
-	h.start()
-	c = routeClient(t, h)
 	id := &corev1.RouteId{Value: "harbor"}
 	_, err := c.Route.Delete(context.Background(), &daemonv1.RouteServiceDeleteRequest{Route: id, Repo: repo, Force: true})
 	if codeOf(err) != rpc.FailedPrecondition || !strings.Contains(err.Error(), "down") {

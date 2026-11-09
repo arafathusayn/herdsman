@@ -8,7 +8,7 @@ usage: herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--g
 Refuses while an agent of the route runs, unless --force, which stops the route
 first. Takes a snapshot of the route folder and private inbox through the
 recovery pipeline, and removes nothing unless that snapshot verifies and covers
-every path it removes. A build without the pipeline's undo refuses every delete.
+every path it removes. The result names the operation to give "herdsman undo".
 --keep-folder leaves the route folder in place; --keep-worktrees leaves the
 route's tasks and their worktrees alone.
 .fi

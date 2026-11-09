@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,6 +26,7 @@ type crash struct{}
 // rig is one fake machine: a repository, a private home, a fake herdr and a
 // journal that outlives the engines a test makes to stand for restarts.
 type rig struct {
+	undo           *ops.Recovery
 	t              *testing.T
 	repo           string
 	private        string
@@ -93,7 +95,11 @@ func (r *rig) engine() (*ops.Engine, func()) {
 			r.poll()
 		}
 	}, AgentTimeout: 5 * time.Second, Recovery: r.recovery, Down: r.down, Teardown: r.teardown}
-	e := ops.NewEngine(db, ops.Options{Effects: route.Effects(deps), Fault: func(point string) {
+	effects := route.Effects(deps)
+	if r.undo != nil {
+		maps.Copy(effects, r.undo.Effects())
+	}
+	e := ops.NewEngine(db, ops.Options{Effects: effects, Fault: func(point string) {
 		if r.onFault != nil {
 			r.onFault(point)
 		}
@@ -102,6 +108,9 @@ func (r *rig) engine() (*ops.Engine, func()) {
 			panic(crash{})
 		}
 	}})
+	if r.undo != nil {
+		r.undo.Attach(e)
+	}
 	return e, func() { db.Close() }
 }
 

@@ -35,7 +35,7 @@ func (d *Daemon) operationEffects() map[string]ops.Effect {
 	if teardown == nil {
 		teardown = teardownRoute(&WorktreeService{HerdrSocket: d.cfg.HerdrSocket})
 	}
-	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run, Recovery: d.cfg.Recovery, Down: d.cfg.RouteDown, Teardown: teardown})
+	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run, Recovery: d.routeRecovery(), Down: d.cfg.RouteDown, Teardown: teardown})
 	for name, effect := range d.cfg.Effects {
 		effects[name] = effect
 	}

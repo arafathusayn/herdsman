@@ -206,7 +206,7 @@ func runControl(v controlVerb, args []string, stdout, stderr io.Writer) int {
 	case "done":
 		fmt.Fprintf(stdout, "route %s is %s\n", id.GetValue(), res.GetControl())
 		if res.GetSnapshot() != "" {
-			fmt.Fprintf(stdout, "snapshot: %s\n", res.GetSnapshot())
+			fmt.Fprintf(stdout, "snapshot: %s\nto restore it: herdsman undo %s\n", res.GetSnapshot(), res.GetOperation())
 		}
 		return 0
 	case "unchanged":

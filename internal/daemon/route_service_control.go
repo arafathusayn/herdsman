@@ -102,13 +102,25 @@ func (s *routeService) controlState(repo, name, startID string) (string, error) 
 	return route.ControlState(verbs), nil
 }
 
+// routeRecovery is what makes a route's delete undoable: the configured backend
+// or the daemon's own undo, nil only before the journal is open.
+func (d *Daemon) routeRecovery() route.Recovery {
+	if d.cfg.Recovery != nil {
+		return d.cfg.Recovery
+	}
+	if d.recovery == nil {
+		return nil
+	}
+	return route.Pipeline{Recovery: d.recovery}
+}
+
 // deletable refuses a delete this daemon could not undo, before anything runs
 // and even for a dry run, whose plan would otherwise promise it.
 func (s *routeService) deletable(call controlCall) error {
 	if call.verb != route.VerbDelete {
 		return nil
 	}
-	if s.d.cfg.Recovery == nil {
+	if s.d.routeRecovery() == nil {
 		return rpc.Errorf(rpc.FailedPrecondition, "%s", route.ErrNoRecovery.Error())
 	}
 	if s.d.cfg.RouteDown == nil && !call.keepWorktrees {

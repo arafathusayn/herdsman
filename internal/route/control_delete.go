@@ -35,7 +35,9 @@ var ErrNoRecovery = errors.New("delete needs the recovery pipeline's snapshot an
 // SnapshotRequest asks the recovery pipeline for a snapshot of a route.
 type SnapshotRequest struct {
 	Route, Repo, Operation, Dest string
-	Targets                      []string
+	// Targets are the paths the snapshot must cover; Remove, those the delete
+	// takes away, which undo must be able to put back at their own paths.
+	Targets, Remove []string
 }
 
 // SnapshotTarget is one path a delete removes. Live is where its bytes are now:
@@ -183,7 +185,7 @@ func applySnapshot(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) 
 		if err := os.MkdirAll(filepath.Dir(d.Control.Snapshot), 0o700); err != nil {
 			return err
 		}
-		q := SnapshotRequest{Route: d.Route, Repo: d.Repo, Operation: d.Op, Dest: d.Control.Snapshot, Targets: d.Control.Captures}
+		q := SnapshotRequest{Route: d.Route, Repo: d.Repo, Operation: d.Op, Dest: d.Control.Snapshot, Targets: d.Control.Captures, Remove: d.Control.Targets}
 		if err := deps.Recovery.Capture(ctx, q); err != nil {
 			return fmt.Errorf("take the snapshot: %w", err)
 		}
