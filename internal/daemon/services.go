@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
@@ -12,7 +13,7 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	m := &messageService{d: d}
 	recovery := &opsService{d: d}
 	routes := &routeService{d: d}
-	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
+	suggestions := &suggestRPC{s: productionSuggest(func() store.Conn { return d.acctDB }), inspect: d.cfg.Inspect}
 	traces := &traceRPC{inspect: d.cfg.Inspect}
 	eventRPC := newEventService(d.hub, d.admitEvents, releaseContext)
 	name := daemonv1.MessageServiceName

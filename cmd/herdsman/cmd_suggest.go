@@ -11,11 +11,10 @@ import (
 	"strings"
 )
 
-// suggestCall serves the catalog verbs, with the shape a generated client will
-// have. suggestRun applies a recipe; it is separate because no service method
-// may do that. main.go sets both.
+// suggestCall serves the catalog verbs. suggestRun applies a recipe; it is
+// separate because no service method may do that, and main.go sets it.
 var (
-	suggestCall func(ctx context.Context, method string, request []byte) ([]byte, error)
+	suggestCall = sdkSuggestCall
 	suggestRun  func(ctx context.Context, dir, id string, in io.Reader, out, errOut io.Writer, isTerminal bool) error
 	// suggestIsTerminal must ask the kernel: a recipe depends on the answer.
 	suggestIsTerminal func(stdin any) bool
@@ -395,7 +394,11 @@ func listSuggestSources(asJSON bool, stdout, stderr io.Writer) int {
 			Commit string `json:"commit"`
 		} `json:"sources"`
 	}
-	data, err := callSuggest("Sources", struct{}{}, &result)
+	dir, err := workingFolder()
+	if err != nil {
+		return fail(stderr, err)
+	}
+	data, err := callSuggest("Sources", map[string]string{"dir": dir}, &result)
 	if err != nil {
 		return fail(stderr, err)
 	}

@@ -35,10 +35,9 @@ func init() {
 	importCall = daemon.ImportAccount
 }
 
-// The suggest verbs have no client yet either. A recipe runs through its own
-// function because the service must never be able to run one.
+// A recipe runs through its own function because the service must never be
+// able to run one; the catalog verbs go through the SDK.
 func init() {
-	suggestCall = daemon.SuggestCall
 	suggestIsTerminal = daemon.IsTerminal
 	suggestRun = func(ctx context.Context, dir, id string, in io.Reader, out, errOut io.Writer, isTerminal bool) error {
 		return daemon.SuggestRun(ctx, dir, id, suggest.Terminal{In: in, Out: out, Err: errOut, IsTerminal: isTerminal})
