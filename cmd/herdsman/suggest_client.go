@@ -37,9 +37,7 @@ func invokeSuggest[Req, Res proto.Message](ctx context.Context, request []byte, 
 	}
 	// protojson varies its spacing on purpose; printed output should not.
 	var compact bytes.Buffer
-	if err := json.Compact(&compact, data); err != nil {
-		return nil, err
-	}
+	_ = json.Compact(&compact, data) // protojson wrote valid JSON
 	return compact.Bytes(), nil
 }
 

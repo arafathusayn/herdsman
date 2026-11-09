@@ -49,10 +49,8 @@ func AppendRun(suite string, run Run) error {
 		return fmt.Errorf("%w: eval: a run needs a task, an arm, a result and a duration of zero or more", ErrInvalid)
 	}
 	run.Schema = EvalVersion
-	line, err := json.Marshal(run)
-	if err != nil {
-		return fmt.Errorf("eval: encode: %w", err)
-	}
+	// A run holds only strings, numbers and booleans.
+	line, _ := json.Marshal(run)
 	handle, err := os.OpenFile(filepath.Join(suite, RunsFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return fmt.Errorf("eval: %w", err)

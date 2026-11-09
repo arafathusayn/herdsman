@@ -36,12 +36,15 @@ func rpcText(err error) error {
 	return err
 }
 
+// absolutePath is replaced only by the test of a process with no working folder.
+var absolutePath = filepath.Abs
+
 // absolutePaths resolves folders against this process, since the daemon's
 // working folder is its own.
 func absolutePaths(paths []string) ([]string, error) {
 	out := make([]string, 0, len(paths))
 	for _, path := range paths {
-		abs, err := filepath.Abs(path)
+		abs, err := absolutePath(path)
 		if err != nil {
 			return nil, err
 		}

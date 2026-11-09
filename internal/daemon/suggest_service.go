@@ -482,6 +482,10 @@ func (s *SuggestService) userFile() (string, error) {
 	return filepath.Join(s.userConfigFolder(), "config.toml"), nil
 }
 
+// readUserConfig is replaced only by the test of a file that changes while it
+// is being read.
+var readUserConfig = config.ReadFile
+
 // changeablePins are the pins a person can change from here: their own file's
 // and the older file's. A repository's pins change by editing that repository.
 func (s *SuggestService) changeablePins() ([]suggest.Pin, error) {
@@ -491,7 +495,7 @@ func (s *SuggestService) changeablePins() ([]suggest.Pin, error) {
 	}
 	var own []suggest.Pin
 	if _, statErr := os.Stat(path); statErr == nil {
-		result, err := config.ReadFile(path)
+		result, err := readUserConfig(path)
 		if err != nil {
 			return nil, err
 		}
@@ -516,12 +520,10 @@ func (s *SuggestService) storePins(pins []suggest.Pin) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
+	if _, statErr := os.Stat(path); errors.Is(statErr, fs.ErrNotExist) {
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			return err
+		}
 	}
 	texts := make([]string, 0, len(pins))
 	for _, pin := range pins {
