@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -18,7 +19,11 @@ import (
 // The daemon reads it itself, so a caller cannot claim a looser profile. It
 // also names the files a sandbox root must never hold.
 func repoPolicy(repo string) (policy.Policy, []string, error) {
-	result, err := config.Load(config.Options{RepoRoot: repo})
+	return loadPolicy(repo, "")
+}
+
+func loadPolicy(repo, userDir string) (policy.Policy, []string, error) {
+	result, err := config.Load(config.Options{RepoRoot: repo, UserDir: userDir})
 	if err != nil {
 		return policy.Policy{}, nil, err
 	}
@@ -45,10 +50,13 @@ type taskShape struct {
 
 // shapeOf reads the profile. An unreadable configuration stops the task, since
 // a task that ran looser than its configuration asks could not be undone.
-func (r *repository) shapeOf() (taskShape, error) {
-	governing, protected, err := repoPolicy(filepath.Dir(r.common))
+func (s *WorktreeService) shapeOf(r *repository) (taskShape, error) {
+	governing, protected, err := loadPolicy(r.main, s.ConfigDir)
 	if err != nil {
-		return taskShape{}, err
+		var legacy bool
+		if governing, protected, legacy = legacyPolicy(r.main, s.ConfigDir); !legacy {
+			return taskShape{}, err
+		}
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -56,6 +64,33 @@ func (r *repository) shapeOf() (taskShape, error) {
 	}
 	protected = slices.Concat(protected, []string{r.common}, policyFiles(home))
 	return taskShape{policy: governing, protected: protected, ownClone: profile.ShapeFor(governing) == profile.ShapeOwnClone}, nil
+}
+
+// legacyPolicy governs a repository whose herdsman.config.json predates the
+// shared schema and so stops the layered load. That file still works alone, but
+// it and the user's file can each ask for the restricted profile, and the
+// stricter of the two holds. It reports false when the policy cannot be read.
+func legacyPolicy(repo, userDir string) (policy.Policy, []string, bool) {
+	path := filepath.Join(filepath.Dir(repo), "herdsman.config.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return policy.Policy{}, nil, false
+	}
+	var file struct {
+		Policy policy.Section `json:"policy"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		return policy.Policy{}, nil, false
+	}
+	written, err := policy.Parse(file.Policy)
+	if err != nil {
+		return policy.Policy{}, nil, false
+	}
+	user, protected, err := loadPolicy("", userDir)
+	if err != nil {
+		return policy.Policy{}, nil, false
+	}
+	return policy.Compose(user, written), append(protected, path), true
 }
 
 // admit parses an agent command under the profile before anything is made. It

@@ -450,7 +450,7 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 		return resp, err
 	}
 	defer r.close()
-	shape, err := r.shapeOf()
+	shape, err := s.shapeOf(r)
 	if err != nil {
 		return resp, err
 	}
@@ -1040,7 +1040,7 @@ func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text str
 	if err := r.clearPath(path, false); err != nil {
 		return wtree.Row{}, err
 	}
-	shape, err := r.shapeOf()
+	shape, err := s.shapeOf(r)
 	if err != nil {
 		return wtree.Row{}, err
 	}

@@ -242,3 +242,32 @@ func TestRestrictedNeverStartsAnAgentThroughHerdr(t *testing.T) {
 		t.Fatalf("%+v", resp)
 	}
 }
+
+func TestLegacyFileCanStillAskForRestricted(t *testing.T) {
+	w := newWorld(t)
+	body := `{"policy":{"profile":"restricted"},"hooks":{"pre-start":{"slow":{"command":"true","timeout":"30s"}}}}`
+	if err := os.WriteFile(filepath.Join(filepath.Dir(w.repo), "herdsman.config.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	approveAll(t, w)
+	if info, err := os.Stat(filepath.Join(w.create(t, "legacy").Path, ".git")); err != nil || !info.IsDir() {
+		t.Fatalf("a legacy file's restricted profile was ignored: %v", err)
+	}
+}
+
+func TestUserFileStaysInForceBesideALegacyFile(t *testing.T) {
+	w := newWorld(t)
+	w.config(t, map[string]any{"pre-start": map[string]any{"slow": map[string]any{"command": "true", "timeout": "30s"}}})
+	w.service.ConfigDir = filepath.Join(w.root, "user")
+	if err := os.MkdirAll(w.service.ConfigDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "[schema]\nversion = \"1.0.0\"\n[policy]\nprofile = \"restricted\"\n"
+	if err := os.WriteFile(filepath.Join(w.service.ConfigDir, "config.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	approveAll(t, w)
+	if info, err := os.Stat(filepath.Join(w.create(t, "layered").Path, ".git")); err != nil || !info.IsDir() {
+		t.Fatalf("the user's restricted profile was ignored: %v", err)
+	}
+}
