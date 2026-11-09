@@ -6,10 +6,14 @@ Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machi
 
 ```text
 usage: herdsman status
+       herdsman status --route <route>
 
 Prints a health snapshot of every agent in HERDSMAN_STATUS_SPECS
 ("name:pane:tree ...") and of the machine. LIMIT_MIN (30) flags a
 background job running that many minutes or more.
+
+With --route, prints one route's lifecycle state and its pair, flagging
+a pair left pending. <route> is a route name, a route folder, or @.
 
 exit codes:
   0  the snapshot was printed
