@@ -36,6 +36,8 @@ type WorktreeService struct {
 	Approvals   string // Empty uses the user's configuration folder.
 	GH          string // Program for GitHub calls; empty means "gh".
 	Repo        string // owner/name; empty reads it from origin.
+	StateDir    string // Empty resolves the account's state folder.
+	FileCap     int64  // Largest file a snapshot captures; 0 is the default.
 	ConfigDir   string // Folder of the user's file; empty uses the standard one.
 }
 
@@ -193,6 +195,10 @@ func (s *WorktreeService) Call(ctx context.Context, method string, request []byt
 		return dispatch(ctx, request, s.ResourceAdd)
 	case "LedgerHealth":
 		return dispatch(ctx, request, s.LedgerHealth)
+	case "CleanPlan":
+		return dispatch(ctx, request, s.CleanPlan)
+	case "Clean":
+		return dispatch(ctx, request, s.Clean)
 	}
 	return nil, fmt.Errorf("worktree service: no method %q", method)
 }

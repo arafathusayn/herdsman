@@ -1,0 +1,20 @@
+.TH HERDSMAN-DOWN 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-down \- Stop a task, then free what it holds.
+.SH DESCRIPTION
+.nf
+usage: herdsman down [<task>|--merged|--route <folder>|--all] [-y] [--force]
+                     [--grace <seconds>] [--keep-branch] [--delete-branch] [--archive-only]
+                     [--include associated]
+                     [--force-irreversible <path>]... [--json]
+
+Stops what a task runs, then frees what it holds, as one plan with one question.
+A stop that fails ends the command before anything is removed.
+
+exit codes:
+  0  every selected task was stopped and freed
+  1  a stop or a clean failed
+  2  bad usage, or no terminal to ask on
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

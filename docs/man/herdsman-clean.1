@@ -1,0 +1,23 @@
+.TH HERDSMAN-CLEAN 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-clean \- Free what a task holds, after a verified snapshot.
+.SH DESCRIPTION
+.nf
+usage: herdsman clean [<task>|--merged|--route <folder>|--all] [-y] [--force]
+                      [--keep-branch] [--delete-branch] [--archive-only]
+                      [--force-irreversible <path>]... [--json]
+
+Frees what a task holds. A verified snapshot comes first, including ignored files;
+every path must then be captured, rebuildable or named, or nothing is removed.
+The branch is deleted only with proof that it was integrated; --delete-branch
+also accepts a branch whose every commit is patch-identical on the default one.
+--archive-only stops after the snapshot and removes nothing, so it alone lets
+--force run with -y and no terminal.
+
+exit codes:
+  0  every selected tree was freed
+  1  a tree was refused, or a step failed
+  2  bad usage, or no terminal to ask on
+.fi
+.SH SEE ALSO
+.BR herdsman (1)
