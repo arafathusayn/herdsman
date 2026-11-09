@@ -16,6 +16,7 @@ needs no line. Those are noted below for the reader.
 
 - Version 2 adds the operation journal: `operations`, `operation_steps`,
   `operation_locks` and `outbox`. Existing rows are untouched.
+- Version 4 adds the snapshot records: `snapshots`. Existing rows are untouched.
 
 ## Listed transformations
 

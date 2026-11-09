@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"path"
 	"strconv"
@@ -43,9 +45,32 @@ func (d *Daemon) rpcHandler() http.Handler {
 				return
 			}
 		}
+		if heldDuringExport(r.URL.Path) {
+			// The server notices a client leaving only once the body has
+			// been read, and this call may wait a long time.
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				// The RPC layer refuses a bad body in its own words.
+				r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), failedRead{err}))
+				mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestKey{}, r)))
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			release, e := d.enterMutation(r.Context())
+			if e != nil {
+				rpc.WriteError(w, rpcFailure(r.Context(), e))
+				return
+			}
+			defer release()
+		}
 		mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestKey{}, r)))
 	}), maxBody)
 }
+
+// failedRead replays the error of a body that was already read.
+type failedRead struct{ err error }
+
+func (f failedRead) Read([]byte) (int, error) { return 0, f.err }
 
 // messageService is the daemon's MessageService.
 type messageService struct{ d *Daemon }
