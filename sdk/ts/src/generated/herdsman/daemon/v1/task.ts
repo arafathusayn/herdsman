@@ -131,6 +131,10 @@ export interface TaskServiceNewRequest {
    * The caller's environment, as NAME=value, for hooks and for finding herdr.
    */
   environ?: string[];
+  /**
+   * Under the restricted profile, grant the agent the [policy] roots.
+   */
+  integrator?: boolean;
 }
 
 export interface TaskServiceNewResponse {

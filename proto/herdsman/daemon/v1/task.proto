@@ -123,6 +123,8 @@ message TaskServiceNewRequest {
   bool clobber = 9;
   // The caller's environment, as NAME=value, for hooks and for finding herdr.
   repeated string environ = 10;
+  // Under the restricted profile, grant the agent the [policy] roots.
+  bool integrator = 11;
 }
 
 message TaskServiceNewResponse {

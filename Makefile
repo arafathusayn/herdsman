@@ -116,6 +116,7 @@ pages: web
 ## web-check: format check, type check and tests of the web app
 web-check:
 	cd web && bun fmt --check
+	cd web && bun run src/sdk/boundary.ts
 	cd web && bun check --no-pretty --typeRoots "$(BUN_GLOBAL)"
 	cd web && bun check --no-pretty -p tsconfig.strict.json --typeRoots "$(BUN_GLOBAL)"
 	cd web && bun check --no-pretty -p ../bench/web/herdsman-ui-cases/legacy/tsconfig.json --typeRoots "$(BUN_GLOBAL)"

@@ -3,7 +3,19 @@
 herdsman-review \- Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.
 .SH DESCRIPTION
 .nf
-Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.
+usage: herdsman review start --worktree <path> --head <commit> [--repo <git dir or checkout>] [--cache-root <dir>] [--json]
+
+Makes the worktree detached at <commit> (git worktree add --detach), or
+checks <commit> out detached in it when it exists and has no changes, and
+makes <cache-root>/<worktree name>-go-build and -staticcheck (default cache
+root: the system temp folder, /private/tmp on macOS). Prints worktree=,
+head=, GOCACHE= and STATICCHECK_CACHE= lines; --json prints one object
+{"worktree","head","gocache","staticcheck_cache"}.
+
+Exit codes:
+  0  ready
+  1  the worktree has changes (they are listed), the head is no commit, or git failed
+  2  usage error
 .fi
 .SH SEE ALSO
 .BR herdsman (1)

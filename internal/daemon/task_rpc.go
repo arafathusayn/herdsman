@@ -29,7 +29,7 @@ func refusal(err error) error { return rpc.Errorf(rpc.FailedPrecondition, "%s", 
 func (t *taskRPC) New(ctx context.Context, in *daemonv1.TaskServiceNewRequest) (*daemonv1.TaskServiceNewResponse, error) {
 	made, err := t.service.forCaller(in.GetEnviron()).New(ctx, WorktreeNewRequest{
 		Dir: in.GetDir(), Task: in.GetTask(), Base: in.GetBase(), From: in.GetFrom(), Type: in.GetType(),
-		Agent: in.GetAgent(), Prompt: in.GetPrompt(), NoSetup: in.GetNoSetup(), Clobber: in.GetClobber(),
+		Agent: in.GetAgent(), Prompt: in.GetPrompt(), NoSetup: in.GetNoSetup(), Clobber: in.GetClobber(), Integrator: in.GetIntegrator(),
 	})
 	if err != nil {
 		return nil, refusal(err)

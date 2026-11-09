@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -191,4 +192,47 @@ func TestTreeProbeTellsAbsentMatchingAndForeign(t *testing.T) {
 	spec.Path = filepath.Join(filepath.Dir(repo), "stray")
 	os.Mkdir(spec.Path, 0o755)
 	check(ops.Different)
+}
+
+func TestTheCallCarriesTheIntegratorRequest(t *testing.T) {
+	repo, environ := taskRepo(t)
+	made, err := (&taskRPC{service: &WorktreeService{}}).New(context.Background(), &daemonv1.TaskServiceNewRequest{Dir: repo, Task: "one", Integrator: true, Environ: environ})
+	if err != nil || !slices.ContainsFunc(made.GetWarnings(), func(line string) bool { return strings.Contains(line, "integrator") }) {
+		t.Fatalf("%v %v", made, err)
+	}
+}
+
+func TestTheProbeKnowsATasksOwnClone(t *testing.T) {
+	repo, environ := taskRepo(t)
+	service := (&WorktreeService{}).forCaller(environ)
+	r, err := service.open(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.close()
+	path := filepath.Join(t.TempDir(), "clone")
+	spec := treeSpec{Main: repo, Task: "one", Branch: "feat/one", Path: path, OwnClone: true}
+	check := func(want ops.Verdict) {
+		t.Helper()
+		if got, detail, err := probeTree(context.Background(), r, spec); err != nil || got != want {
+			t.Fatalf("%s %q %v", got, detail, err)
+		}
+	}
+	check(ops.Absent)
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	check(ops.Different)
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", path}, args...)...)
+		cmd.Env = environ
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+	}
+	git("init", "-q", "-b", "other")
+	check(ops.Different)
+	git("symbolic-ref", "HEAD", "refs/heads/feat/one")
+	check(ops.Matches)
 }

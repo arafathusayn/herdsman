@@ -33,12 +33,16 @@ type treeSpec struct {
 	Identity string `json:"identity,omitempty"` // The pull request it was made for.
 	GitOnly  bool   `json:"git_only,omitempty"`
 	Socket   string `json:"socket,omitempty"` // Where the caller's herdr listens.
+	OwnClone bool   `json:"own_clone,omitempty"` // The restricted profile: a clone of its own, not a worktree.
 }
 
 // applyTree makes the worktree, through herdr unless the spec says git.
 func (s *WorktreeService) applyTree(ctx context.Context, r *repository, spec treeSpec, resp *WorktreeNewResponse) error {
+	if spec.OwnClone {
+		return r.cloneTask(ctx, spec.Branch, spec.Path, spec.Start)
+	}
 	if !spec.GitOnly {
-		return s.create(ctx, r, spec.Task, spec.Branch, spec.Path, spec.Start, resp)
+		return s.create(ctx, r, taskShape{}, spec.Task, spec.Branch, spec.Path, spec.Start, resp)
 	}
 	args := []string{"worktree", "add", "-q", spec.Path, spec.Branch}
 	if spec.Start != "" {
@@ -58,8 +62,28 @@ func applyRecord(ctx context.Context, r *repository, spec treeSpec) error {
 	return r.state.PutWorktree(ctx, wtree.Worktree{Task: spec.Task, Branch: spec.Branch, Path: spec.Path, CreatedAt: time.Now()})
 }
 
+// probeClone says whether the task's own clone is there and on its branch.
+func probeClone(ctx context.Context, r *repository, spec treeSpec) (ops.Verdict, string, error) {
+	if _, err := os.Lstat(spec.Path); errors.Is(err, fs.ErrNotExist) {
+		return ops.Absent, "no clone at " + spec.Path, nil
+	} else if err != nil {
+		return ops.Unknown, "", err
+	}
+	out, err := r.git.Run(ctx, spec.Path, "symbolic-ref", "-q", "--short", "HEAD")
+	if err != nil {
+		return ops.Different, spec.Path + " exists and is not a clone on " + spec.Branch, nil
+	}
+	if strings.TrimSpace(string(out.Stdout)) != spec.Branch {
+		return ops.Different, spec.Path + " is on another branch", nil
+	}
+	return ops.Matches, "", nil
+}
+
 // probeTree says whether the worktree the spec names is there, and is that one.
 func probeTree(ctx context.Context, r *repository, spec treeSpec) (ops.Verdict, string, error) {
+	if spec.OwnClone {
+		return probeClone(ctx, r, spec)
+	}
 	out, err := r.git.Run(ctx, r.main, "worktree", "list", "--porcelain")
 	if err != nil {
 		return ops.Unknown, "", err

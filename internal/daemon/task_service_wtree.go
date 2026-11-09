@@ -36,6 +36,8 @@ type WorktreeService struct {
 	Approvals   string // Empty uses the user's configuration folder.
 	GH          string // Program for GitHub calls; empty means "gh".
 	Repo        string // owner/name; empty reads it from origin.
+	StateDir    string // Empty resolves the account's state folder.
+	FileCap     int64  // Largest file a snapshot captures; 0 is the default.
 	ConfigDir   string // Folder of the user's file; empty uses the standard one.
 
 	caller  []string     // The caller's environment; nil means this process's.
@@ -89,6 +91,8 @@ type WorktreeNewRequest struct {
 	Prompt  string `json:"prompt,omitempty"`
 	NoSetup bool   `json:"no_setup,omitempty"`
 	Clobber bool   `json:"clobber,omitempty"`
+	// Integrator gives the agent the [policy] roots under the restricted profile.
+	Integrator bool `json:"integrator,omitempty"`
 }
 
 // WorktreeNewResponse describes the worktree that was made.
@@ -239,6 +243,10 @@ func (s *WorktreeService) Call(ctx context.Context, method string, request []byt
 		return dispatch(ctx, request, s.ResourceAdd)
 	case "LedgerHealth":
 		return dispatch(ctx, request, s.LedgerHealth)
+	case "CleanPlan":
+		return dispatch(ctx, request, s.CleanPlan)
+	case "Clean":
+		return dispatch(ctx, request, s.Clean)
 	}
 	return nil, fmt.Errorf("worktree service: no method %q", method)
 }
@@ -467,7 +475,10 @@ func (r *repository) clearPath(path string, clobber bool) error {
 
 // create makes the tree through herdr when it answers, else through git. With
 // an empty start the branch already exists.
-func (s *WorktreeService) create(ctx context.Context, r *repository, task, branch, path, start string, resp *WorktreeNewResponse) error {
+func (s *WorktreeService) create(ctx context.Context, r *repository, shape taskShape, task, branch, path, start string, resp *WorktreeNewResponse) error {
+	if shape.ownClone {
+		return r.cloneTask(ctx, branch, path, start)
+	}
 	client := s.herdrClient(ctx)
 	if client != nil && start != "" {
 		params := map[string]any{"cwd": r.main, "branch": branch, "base": start, "path": path, "label": task, "focus": false}
@@ -511,6 +522,14 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 		return resp, err
 	}
 	defer r.close()
+	shape, err := s.shapeOf(r)
+	if err != nil {
+		return resp, err
+	}
+	command, err := shape.admit(req.Agent)
+	if err != nil {
+		return resp, err
+	}
 	kind := req.Type
 	if kind == "" {
 		kind = "feat"
@@ -552,7 +571,7 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := r.clearPath(path, req.Clobber); err != nil {
 		return resp, err
 	}
-	spec := treeSpec{Main: r.main, Task: req.Task, Branch: branch, Path: path, Start: start}
+	spec := treeSpec{Main: r.main, Task: req.Task, Branch: branch, Path: path, Start: start, OwnClone: shape.ownClone}
 	if request != nil {
 		spec.Identity = request.identity
 	}
@@ -567,8 +586,17 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 		resp.Ports = append(resp.Ports, vars.Port+i)
 	}
 	resp.Launch = "cd " + path
-	if req.Agent != "" {
+	if len(command) > 0 {
+		if resp.Launch, err = shape.launchLine(command, path, req.Integrator); err != nil {
+			return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
+		}
+	} else if req.Agent != "" {
 		resp.Launch += " && " + req.Agent
+	}
+	if req.Integrator && !shape.ownClone {
+		resp.Warnings = append(resp.Warnings, "integrator has no effect outside the restricted profile")
+	}
+	if req.Agent != "" {
 		if !resp.Herdr {
 			resp.Warnings = append(resp.Warnings, "the agent was not started; run the launch line")
 		}
@@ -1117,15 +1145,23 @@ func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text str
 	if err := r.clearPath(path, false); err != nil {
 		return wtree.Row{}, err
 	}
+	shape, err := s.shapeOf(r)
+	if err != nil {
+		return wtree.Row{}, err
+	}
+	gitDir := r.main
+	if shape.ownClone {
+		gitDir = path
+	}
 	var made WorktreeNewResponse
-	spec := treeSpec{Main: r.main, Task: task, Branch: branch, Path: path, Start: start, Identity: pr.identity, GitOnly: true}
+	spec := treeSpec{Main: r.main, Task: task, Branch: branch, Path: path, Start: start, Identity: pr.identity, GitOnly: true, OwnClone: shape.ownClone}
 	if err := s.makeTree(ctx, r, spec, &made); err != nil {
 		return wtree.Row{}, err
 	}
 	resp.Warnings = append(resp.Warnings, made.Warnings...)
 	resp.Created = true
 	resp.Warnings = append(resp.Warnings, renamedWarning(pr, branch)...)
-	if resp.PushRemote, err = r.setPushRemote(ctx, pr, branch); err != nil {
+	if resp.PushRemote, err = r.setPushRemote(ctx, pr, branch, gitDir); err != nil {
 		return wtree.Row{}, err
 	}
 	return wtree.Row{Task: task, Branch: branch, Path: path}, nil
@@ -1166,7 +1202,7 @@ func pushesOnlyTo(listing, fork string) bool {
 // forkRemote returns a remote that pushes to the fork: the owner's name when it
 // is free or already that fork, else an unused name. It never edits a remote
 // the user set up.
-func (r *repository) forkRemote(ctx context.Context, owner, url string) (string, error) {
+func (r *repository) forkRemote(ctx context.Context, gitDir, owner, url string) (string, error) {
 	const attempts = 100
 	for i := range attempts {
 		name := owner
@@ -1175,9 +1211,9 @@ func (r *repository) forkRemote(ctx context.Context, owner, url string) (string,
 		} else if i > 1 {
 			name = owner + "-fork-" + strconv.Itoa(i)
 		}
-		out, err := r.git.Run(ctx, r.main, "remote", "get-url", "--push", "--all", name)
+		out, err := r.git.Run(ctx, gitDir, "remote", "get-url", "--push", "--all", name)
 		if err != nil {
-			if _, err := r.git.Run(ctx, r.main, "remote", "add", name, url); err != nil {
+			if _, err := r.git.Run(ctx, gitDir, "remote", "add", name, url); err != nil {
 				return "", err
 			}
 			return name, nil
@@ -1190,7 +1226,7 @@ func (r *repository) forkRemote(ctx context.Context, owner, url string) (string,
 }
 
 // setPushRemote points a fork's branch at the fork, so that a push goes there.
-func (r *repository) setPushRemote(ctx context.Context, pr *pullRequest, branch string) (string, error) {
+func (r *repository) setPushRemote(ctx context.Context, pr *pullRequest, branch, gitDir string) (string, error) {
 	head := pr.Head.Repo
 	if head == nil || pr.sameRepo {
 		return "", nil
@@ -1199,11 +1235,11 @@ func (r *repository) setPushRemote(ctx context.Context, pr *pullRequest, branch 
 	if !remoteName.MatchString(owner) || !strings.HasPrefix(head.CloneURL, "https://") {
 		return "", fmt.Errorf("pull request %d: unusable fork %q at %q", pr.Number, owner, head.CloneURL)
 	}
-	remote, err := r.forkRemote(ctx, owner, head.CloneURL)
+	remote, err := r.forkRemote(ctx, gitDir, owner, head.CloneURL)
 	if err != nil {
 		return "", err
 	}
-	_, err = r.git.Run(ctx, r.main, "config", "branch."+branch+".pushRemote", remote)
+	_, err = r.git.Run(ctx, gitDir, "config", "branch."+branch+".pushRemote", remote)
 	return remote, err
 }
 

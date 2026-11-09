@@ -753,7 +753,9 @@ type TaskServiceNewRequest struct {
 	// Rename a stale folder at the path aside.
 	Clobber bool `protobuf:"varint,9,opt,name=clobber,proto3" json:"clobber,omitempty"`
 	// The caller's environment, as NAME=value, for hooks and for finding herdr.
-	Environ       []string `protobuf:"bytes,10,rep,name=environ,proto3" json:"environ,omitempty"`
+	Environ []string `protobuf:"bytes,10,rep,name=environ,proto3" json:"environ,omitempty"`
+	// Under the restricted profile, grant the agent the [policy] roots.
+	Integrator    bool `protobuf:"varint,11,opt,name=integrator,proto3" json:"integrator,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -856,6 +858,13 @@ func (x *TaskServiceNewRequest) GetEnviron() []string {
 		return x.Environ
 	}
 	return nil
+}
+
+func (x *TaskServiceNewRequest) GetIntegrator() bool {
+	if x != nil {
+		return x.Integrator
+	}
+	return false
 }
 
 type TaskServiceNewResponse struct {
@@ -1232,7 +1241,7 @@ const file_herdsman_daemon_v1_task_proto_rawDesc = "" +
 	"\x04link\x18\x03 \x01(\tR\x04link\x12\x12\n" +
 	"\x04repo\x18\x04 \x01(\tR\x04repo\"E\n" +
 	"\x17TaskServiceLinkResponse\x12*\n" +
-	"\x04task\x18\x01 \x01(\v2\x16.herdsman.core.v1.TaskR\x04task\"\xf6\x01\n" +
+	"\x04task\x18\x01 \x01(\v2\x16.herdsman.core.v1.TaskR\x04task\"\x96\x02\n" +
 	"\x15TaskServiceNewRequest\x12\x10\n" +
 	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\x12\x12\n" +
@@ -1244,7 +1253,10 @@ const file_herdsman_daemon_v1_task_proto_rawDesc = "" +
 	"\bno_setup\x18\b \x01(\bR\anoSetup\x12\x18\n" +
 	"\aclobber\x18\t \x01(\bR\aclobber\x12\x18\n" +
 	"\aenviron\x18\n" +
-	" \x03(\tR\aenviron\"\xd0\x02\n" +
+	" \x03(\tR\aenviron\x12\x1e\n" +
+	"\n" +
+	"integrator\x18\v \x01(\bR\n" +
+	"integrator\"\xd0\x02\n" +
 	"\x16TaskServiceNewResponse\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\tR\rschemaVersion\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\x12\x16\n" +
