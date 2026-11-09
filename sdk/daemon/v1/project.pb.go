@@ -1278,7 +1278,10 @@ type ProjectServiceLogRequest struct {
 	// Only this task's events, when set.
 	Task string `protobuf:"bytes,3,opt,name=task,proto3" json:"task,omitempty"`
 	// Render the response's text as JSON instead of a list for people.
-	Json          bool `protobuf:"varint,4,opt,name=json,proto3" json:"json,omitempty"`
+	Json bool `protobuf:"varint,4,opt,name=json,proto3" json:"json,omitempty"`
+	// Where to go on: the next_page_token of the page before. Empty for the
+	// first page.
+	PageToken     string `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1341,15 +1344,23 @@ func (x *ProjectServiceLogRequest) GetJson() bool {
 	return false
 }
 
+func (x *ProjectServiceLogRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
 type ProjectServiceLogResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Parents before children, then by time.
-	Events []*ContextEvent `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
-	// The events nothing follows yet, over the whole history.
-	Heads []string `protobuf:"bytes,2,rep,name=heads,proto3" json:"heads,omitempty"`
-	// The events as a list for people, grouped by UTC date, or as JSON when the
-	// request asked for it.
-	Text          string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	// A piece of the history's rendering, parents before children, then by time:
+	// a list for people grouped by UTC date, or JSON when the request asked for
+	// it. The pieces of all the pages, joined, are the whole rendering.
+	Text string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	// Pass this to read the next page. Empty on the last page. When the history
+	// changes between two pages the call fails with aborted, and the read starts
+	// again from the first page.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1384,23 +1395,16 @@ func (*ProjectServiceLogResponse) Descriptor() ([]byte, []int) {
 	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{24}
 }
 
-func (x *ProjectServiceLogResponse) GetEvents() []*ContextEvent {
-	if x != nil {
-		return x.Events
-	}
-	return nil
-}
-
-func (x *ProjectServiceLogResponse) GetHeads() []string {
-	if x != nil {
-		return x.Heads
-	}
-	return nil
-}
-
 func (x *ProjectServiceLogResponse) GetText() string {
 	if x != nil {
 		return x.Text
+	}
+	return ""
+}
+
+func (x *ProjectServiceLogResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
 	}
 	return ""
 }
@@ -1492,16 +1496,17 @@ const file_herdsman_daemon_v1_project_proto_rawDesc = "" +
 	"\aparents\x18\x05 \x03(\tR\aparents\x12\x12\n" +
 	"\x04body\x18\x06 \x01(\tR\x04body\"[\n" +
 	"!ProjectServiceContextNoteResponse\x126\n" +
-	"\x05event\x18\x01 \x01(\v2 .herdsman.daemon.v1.ContextEventR\x05event\"\x89\x01\n" +
+	"\x05event\x18\x01 \x01(\v2 .herdsman.daemon.v1.ContextEventR\x05event\"\xa8\x01\n" +
 	"\x18ProjectServiceLogRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x14\n" +
 	"\x05since\x18\x02 \x01(\x03R\x05since\x12\x12\n" +
 	"\x04task\x18\x03 \x01(\tR\x04task\x12\x12\n" +
-	"\x04json\x18\x04 \x01(\bR\x04json\"\x7f\n" +
-	"\x19ProjectServiceLogResponse\x128\n" +
-	"\x06events\x18\x01 \x03(\v2 .herdsman.daemon.v1.ContextEventR\x06events\x12\x14\n" +
-	"\x05heads\x18\x02 \x03(\tR\x05heads\x12\x12\n" +
-	"\x04text\x18\x03 \x01(\tR\x04text2\xd1\t\n" +
+	"\x04json\x18\x04 \x01(\bR\x04json\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x05 \x01(\tR\tpageToken\"W\n" +
+	"\x19ProjectServiceLogResponse\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\xd1\t\n" +
 	"\x0eProjectService\x12k\n" +
 	"\x06Create\x12/.herdsman.daemon.v1.ProjectServiceCreateRequest\x1a0.herdsman.daemon.v1.ProjectServiceCreateResponse\x12b\n" +
 	"\x03Get\x12,.herdsman.daemon.v1.ProjectServiceGetRequest\x1a-.herdsman.daemon.v1.ProjectServiceGetResponse\x12e\n" +
@@ -1582,34 +1587,33 @@ var file_herdsman_daemon_v1_project_proto_depIdxs = []int32{
 	0,  // 18: herdsman.daemon.v1.ProjectServiceContextNoteRequest.scope:type_name -> herdsman.daemon.v1.Scope
 	15, // 19: herdsman.daemon.v1.ProjectServiceContextNoteResponse.event:type_name -> herdsman.daemon.v1.ContextEvent
 	0,  // 20: herdsman.daemon.v1.ProjectServiceLogRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	15, // 21: herdsman.daemon.v1.ProjectServiceLogResponse.events:type_name -> herdsman.daemon.v1.ContextEvent
-	1,  // 22: herdsman.daemon.v1.ProjectService.Create:input_type -> herdsman.daemon.v1.ProjectServiceCreateRequest
-	3,  // 23: herdsman.daemon.v1.ProjectService.Get:input_type -> herdsman.daemon.v1.ProjectServiceGetRequest
-	5,  // 24: herdsman.daemon.v1.ProjectService.List:input_type -> herdsman.daemon.v1.ProjectServiceListRequest
-	7,  // 25: herdsman.daemon.v1.ProjectService.Update:input_type -> herdsman.daemon.v1.ProjectServiceUpdateRequest
-	9,  // 26: herdsman.daemon.v1.ProjectService.Delete:input_type -> herdsman.daemon.v1.ProjectServiceDeleteRequest
-	11, // 27: herdsman.daemon.v1.ProjectService.Bind:input_type -> herdsman.daemon.v1.ProjectServiceBindRequest
-	13, // 28: herdsman.daemon.v1.ProjectService.Unbind:input_type -> herdsman.daemon.v1.ProjectServiceUnbindRequest
-	17, // 29: herdsman.daemon.v1.ProjectService.ContextInit:input_type -> herdsman.daemon.v1.ProjectServiceContextInitRequest
-	19, // 30: herdsman.daemon.v1.ProjectService.ContextCheck:input_type -> herdsman.daemon.v1.ProjectServiceContextCheckRequest
-	21, // 31: herdsman.daemon.v1.ProjectService.ContextNote:input_type -> herdsman.daemon.v1.ProjectServiceContextNoteRequest
-	23, // 32: herdsman.daemon.v1.ProjectService.Log:input_type -> herdsman.daemon.v1.ProjectServiceLogRequest
-	2,  // 33: herdsman.daemon.v1.ProjectService.Create:output_type -> herdsman.daemon.v1.ProjectServiceCreateResponse
-	4,  // 34: herdsman.daemon.v1.ProjectService.Get:output_type -> herdsman.daemon.v1.ProjectServiceGetResponse
-	6,  // 35: herdsman.daemon.v1.ProjectService.List:output_type -> herdsman.daemon.v1.ProjectServiceListResponse
-	8,  // 36: herdsman.daemon.v1.ProjectService.Update:output_type -> herdsman.daemon.v1.ProjectServiceUpdateResponse
-	10, // 37: herdsman.daemon.v1.ProjectService.Delete:output_type -> herdsman.daemon.v1.ProjectServiceDeleteResponse
-	12, // 38: herdsman.daemon.v1.ProjectService.Bind:output_type -> herdsman.daemon.v1.ProjectServiceBindResponse
-	14, // 39: herdsman.daemon.v1.ProjectService.Unbind:output_type -> herdsman.daemon.v1.ProjectServiceUnbindResponse
-	18, // 40: herdsman.daemon.v1.ProjectService.ContextInit:output_type -> herdsman.daemon.v1.ProjectServiceContextInitResponse
-	20, // 41: herdsman.daemon.v1.ProjectService.ContextCheck:output_type -> herdsman.daemon.v1.ProjectServiceContextCheckResponse
-	22, // 42: herdsman.daemon.v1.ProjectService.ContextNote:output_type -> herdsman.daemon.v1.ProjectServiceContextNoteResponse
-	24, // 43: herdsman.daemon.v1.ProjectService.Log:output_type -> herdsman.daemon.v1.ProjectServiceLogResponse
-	33, // [33:44] is the sub-list for method output_type
-	22, // [22:33] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	1,  // 21: herdsman.daemon.v1.ProjectService.Create:input_type -> herdsman.daemon.v1.ProjectServiceCreateRequest
+	3,  // 22: herdsman.daemon.v1.ProjectService.Get:input_type -> herdsman.daemon.v1.ProjectServiceGetRequest
+	5,  // 23: herdsman.daemon.v1.ProjectService.List:input_type -> herdsman.daemon.v1.ProjectServiceListRequest
+	7,  // 24: herdsman.daemon.v1.ProjectService.Update:input_type -> herdsman.daemon.v1.ProjectServiceUpdateRequest
+	9,  // 25: herdsman.daemon.v1.ProjectService.Delete:input_type -> herdsman.daemon.v1.ProjectServiceDeleteRequest
+	11, // 26: herdsman.daemon.v1.ProjectService.Bind:input_type -> herdsman.daemon.v1.ProjectServiceBindRequest
+	13, // 27: herdsman.daemon.v1.ProjectService.Unbind:input_type -> herdsman.daemon.v1.ProjectServiceUnbindRequest
+	17, // 28: herdsman.daemon.v1.ProjectService.ContextInit:input_type -> herdsman.daemon.v1.ProjectServiceContextInitRequest
+	19, // 29: herdsman.daemon.v1.ProjectService.ContextCheck:input_type -> herdsman.daemon.v1.ProjectServiceContextCheckRequest
+	21, // 30: herdsman.daemon.v1.ProjectService.ContextNote:input_type -> herdsman.daemon.v1.ProjectServiceContextNoteRequest
+	23, // 31: herdsman.daemon.v1.ProjectService.Log:input_type -> herdsman.daemon.v1.ProjectServiceLogRequest
+	2,  // 32: herdsman.daemon.v1.ProjectService.Create:output_type -> herdsman.daemon.v1.ProjectServiceCreateResponse
+	4,  // 33: herdsman.daemon.v1.ProjectService.Get:output_type -> herdsman.daemon.v1.ProjectServiceGetResponse
+	6,  // 34: herdsman.daemon.v1.ProjectService.List:output_type -> herdsman.daemon.v1.ProjectServiceListResponse
+	8,  // 35: herdsman.daemon.v1.ProjectService.Update:output_type -> herdsman.daemon.v1.ProjectServiceUpdateResponse
+	10, // 36: herdsman.daemon.v1.ProjectService.Delete:output_type -> herdsman.daemon.v1.ProjectServiceDeleteResponse
+	12, // 37: herdsman.daemon.v1.ProjectService.Bind:output_type -> herdsman.daemon.v1.ProjectServiceBindResponse
+	14, // 38: herdsman.daemon.v1.ProjectService.Unbind:output_type -> herdsman.daemon.v1.ProjectServiceUnbindResponse
+	18, // 39: herdsman.daemon.v1.ProjectService.ContextInit:output_type -> herdsman.daemon.v1.ProjectServiceContextInitResponse
+	20, // 40: herdsman.daemon.v1.ProjectService.ContextCheck:output_type -> herdsman.daemon.v1.ProjectServiceContextCheckResponse
+	22, // 41: herdsman.daemon.v1.ProjectService.ContextNote:output_type -> herdsman.daemon.v1.ProjectServiceContextNoteResponse
+	24, // 42: herdsman.daemon.v1.ProjectService.Log:output_type -> herdsman.daemon.v1.ProjectServiceLogResponse
+	32, // [32:43] is the sub-list for method output_type
+	21, // [21:32] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_project_proto_init() }

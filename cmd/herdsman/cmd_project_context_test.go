@@ -3,12 +3,15 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/daemon"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
 const contextBinding = "[project]\nid = \"01KB2A00000000000000000001\"\nname = \"sample\"\n"
@@ -244,5 +247,75 @@ func TestProjectVerbsWithoutADaemon(t *testing.T) {
 	}
 	if _, errOut, code := projectLog(); code != 1 || errOut == "" {
 		t.Errorf("log: exit %d, stderr %q", code, errOut)
+	}
+}
+
+// A history larger than one response still prints whole.
+func TestProjectLogReadsPastOneResponse(t *testing.T) {
+	contextFolderUnderDaemon(t)
+	if _, errOut, code := projectContext("init"); code != 0 {
+		t.Fatalf("init: %s", errOut)
+	}
+	const notes = 40
+	body := strings.Repeat("x", 150_000)
+	for range notes {
+		if _, errOut, code := projectContext("note", "--actor", "someone", body); code != 0 {
+			t.Fatalf("note: %s", errOut)
+		}
+	}
+	for _, args := range [][]string{nil, {"--json"}} {
+		out, errOut, code := projectLog(args...)
+		if code != 0 || strings.Count(out, body) != notes {
+			t.Errorf("%q: exit %d, stderr %q, %d bytes", args, code, errOut, len(out))
+		}
+	}
+}
+
+func TestReadLogStartsAgainWhenTheHistoryMoves(t *testing.T) {
+	aborted := rpc.Errorf(rpc.Aborted, "moved")
+	calls := 0
+	text, err := readLog(context.Background(), func(_ context.Context, req *daemonv1.ProjectServiceLogRequest) (*daemonv1.ProjectServiceLogResponse, error) {
+		calls++
+		switch calls {
+		case 1:
+			return &daemonv1.ProjectServiceLogResponse{Text: "stale ", NextPageToken: "next"}, nil
+		case 2:
+			if req.GetPageToken() != "next" {
+				t.Errorf("token %q", req.GetPageToken())
+			}
+			return nil, aborted
+		case 3:
+			if req.GetPageToken() != "" {
+				t.Errorf("did not start again: %q", req.GetPageToken())
+			}
+		}
+		return &daemonv1.ProjectServiceLogResponse{Text: "fresh"}, nil
+	}, &daemonv1.ProjectServiceLogRequest{})
+	if err != nil || text != "fresh" {
+		t.Fatalf("%q, %v", text, err)
+	}
+}
+
+func TestReadLogGivesUpOnAHistoryThatKeepsMoving(t *testing.T) {
+	aborted := rpc.Errorf(rpc.Aborted, "moved")
+	calls := 0
+	_, err := readLog(context.Background(), func(context.Context, *daemonv1.ProjectServiceLogRequest) (*daemonv1.ProjectServiceLogResponse, error) {
+		calls++
+		return nil, aborted
+	}, &daemonv1.ProjectServiceLogRequest{})
+	if !errors.Is(err, aborted) || calls != logReadAttempts {
+		t.Fatalf("%v after %d calls", err, calls)
+	}
+}
+
+func TestReadLogStopsAtAnotherFailure(t *testing.T) {
+	failure := rpc.Errorf(rpc.Internal, "broken")
+	calls := 0
+	_, err := readLog(context.Background(), func(context.Context, *daemonv1.ProjectServiceLogRequest) (*daemonv1.ProjectServiceLogResponse, error) {
+		calls++
+		return nil, failure
+	}, &daemonv1.ProjectServiceLogRequest{})
+	if !errors.Is(err, failure) || calls != 1 {
+		t.Fatalf("%v after %d calls", err, calls)
 	}
 }

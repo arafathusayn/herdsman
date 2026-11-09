@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -87,12 +88,19 @@ func TestContextVerbsOverTheSDK(t *testing.T) {
 		t.Fatalf("check %+v, %v", check, err)
 	}
 
-	log, err := sdk.Project.Log(ctx, &daemonv1.ProjectServiceLogRequest{Scope: scope, Task: "alpha"})
-	if err != nil || len(log.GetEvents()) != 1 || log.GetEvents()[0].GetId() != event.GetId() {
-		t.Fatalf("log %+v, %v", log, err)
+	log, err := sdk.Project.Log(ctx, &daemonv1.ProjectServiceLogRequest{Scope: scope, Task: "alpha", Json: true})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(log.GetHeads()) != 1 || log.GetHeads()[0] != second.GetEvent().GetId() {
-		t.Fatalf("heads %v", log.GetHeads())
+	var graph contextrepo.Chronology
+	if err := json.Unmarshal([]byte(log.GetText()), &graph); err != nil {
+		t.Fatal(err)
+	}
+	if len(graph.Events) != 1 || graph.Events[0].ID != event.GetId() {
+		t.Fatalf("log %s", log.GetText())
+	}
+	if len(graph.Heads) != 1 || graph.Heads[0] != second.GetEvent().GetId() {
+		t.Fatalf("heads %v", graph.Heads)
 	}
 }
 
@@ -152,13 +160,9 @@ func TestProjectLogGoldenOverTheSDK(t *testing.T) {
 	if asJSON.GetText() != string(wantJSON) {
 		t.Fatalf("json:\n%s", asJSON.GetText())
 	}
-	last := log.GetEvents()[len(log.GetEvents())-1]
-	if last.GetCommits()["core"] != "abc1234" || last.GetExtra()["reviewer"] != "kim" || len(last.GetParents()) != 2 {
-		t.Fatalf("event %+v", last)
-	}
 	since := time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC).UnixMilli()
 	log, err = sdk.Project.Log(ctx, &daemonv1.ProjectServiceLogRequest{Scope: scope, Since: since})
-	if err != nil || len(log.GetEvents()) != 1 {
+	if err != nil || log.GetText() == "" || len(log.GetText()) >= len(want) {
 		t.Fatalf("since: %+v, %v", log, err)
 	}
 }

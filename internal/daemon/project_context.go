@@ -3,8 +3,13 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	contextrepo "github.com/arafathusayn/herdsman/internal/context"
 	"github.com/arafathusayn/herdsman/internal/project"
@@ -14,6 +19,10 @@ import (
 
 // currentProject is the project reference that means the caller's own.
 const currentProject = "@"
+
+// logPageBytes bounds the text of one Log response, well inside the limit on
+// a response body.
+const logPageBytes = rpc.MaxBody / 2
 
 // projectContextService is the part of ProjectService that works on a
 // project's context repo.
@@ -109,18 +118,47 @@ func (*projectContextService) Log(_ context.Context, req *daemonv1.ProjectServic
 	if err != nil {
 		return nil, contextFailure(err)
 	}
-	var text bytes.Buffer
+	var out bytes.Buffer
 	// A bytes.Buffer does not fail, and a chronology always encodes.
 	if req.GetJson() {
-		_ = chronology.WriteJSON(&text)
+		_ = chronology.WriteJSON(&out)
 	} else {
-		_ = chronology.WriteText(&text)
+		_ = chronology.WriteText(&out)
 	}
-	res := &daemonv1.ProjectServiceLogResponse{Heads: chronology.Heads, Text: text.String()}
-	for _, event := range chronology.Events {
-		res.Events = append(res.Events, contextEvent(event))
+	// An event file can hold any bytes, and a response string only text.
+	text, next, err := logPage(strings.ToValidUTF8(out.String(), "\uFFFD"), req.GetPageToken())
+	if err != nil {
+		return nil, err
 	}
-	return res, nil
+	return &daemonv1.ProjectServiceLogResponse{Text: text, NextPageToken: next}, nil
+}
+
+// logPage cuts the piece of a rendering that a page token asks for, on a
+// character boundary. The token is the offset and a digest of the rendering,
+// so that the pages of one read always come from one history.
+func logPage(text, token string) (page, next string, err error) {
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
+	offset := 0
+	if token != "" {
+		position, tokenDigest, _ := strings.Cut(token, ".")
+		if offset, err = strconv.Atoi(position); err != nil || offset < 0 {
+			return "", "", rpc.Errorf(rpc.InvalidArgument, "bad page token %q", token)
+		}
+		if tokenDigest != digest {
+			return "", "", rpc.Errorf(rpc.Aborted, "the history changed during the read: start again from the first page")
+		}
+		if offset >= len(text) || !utf8.RuneStart(text[offset]) {
+			return "", "", rpc.Errorf(rpc.InvalidArgument, "bad page token %q", token)
+		}
+	}
+	end := offset + logPageBytes
+	if end >= len(text) {
+		return text[offset:], "", nil
+	}
+	for !utf8.RuneStart(text[end]) {
+		end--
+	}
+	return text[offset:end], strconv.Itoa(end) + "." + digest, nil
 }
 
 func contextEvent(e contextrepo.Event) *daemonv1.ContextEvent {

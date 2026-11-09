@@ -196,22 +196,26 @@ export interface ProjectServiceLogRequest {
    * Render the response's text as JSON instead of a list for people.
    */
   json?: boolean;
+  /**
+   * Where to go on: the next_page_token of the page before. Empty for the
+   * first page.
+   */
+  pageToken?: string;
 }
 
 export interface ProjectServiceLogResponse {
   /**
-   * Parents before children, then by time.
-   */
-  events?: ContextEvent[];
-  /**
-   * The events nothing follows yet, over the whole history.
-   */
-  heads?: string[];
-  /**
-   * The events as a list for people, grouped by UTC date, or as JSON when the
-   * request asked for it.
+   * A piece of the history's rendering, parents before children, then by time:
+   * a list for people grouped by UTC date, or JSON when the request asked for
+   * it. The pieces of all the pages, joined, are the whole rendering.
    */
   text?: string;
+  /**
+   * Pass this to read the next page. Empty on the last page. When the history
+   * changes between two pages the call fails with aborted, and the read starts
+   * again from the first page.
+   */
+  nextPageToken?: string;
 }
 
 /**
