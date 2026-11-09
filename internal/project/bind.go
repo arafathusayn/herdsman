@@ -23,6 +23,8 @@ var (
 	idKey         = regexp.MustCompile(`^(?:id|"id"|'id')\s*=\s*(.*)$`)
 	nameKey       = regexp.MustCompile(`^(?:name|"name"|'name')\s*=\s*(.*)$`)
 	escapedKey    = regexp.MustCompile(`^"[^"]*\\`)
+	arrayProject  = regexp.MustCompile(`^\[\[\s*(?:"project"|'project'|project)\s*\]\]`)
+	escapedName   = regexp.MustCompile(`^\[*\s*("(?:[^"\\]|\\.)*\\(?:[^"\\]|\\.)*")`)
 	stringValue   = regexp.MustCompile(`^("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$`)
 )
 
@@ -250,6 +252,9 @@ func parseConfig(path, text string) (*config, error) {
 		if !top {
 			continue
 		}
+		if err := refuseUneditable(path, line); err != nil {
+			return nil, err
+		}
 		if strings.HasPrefix(line, "[") {
 			if cfg.start >= 0 && cfg.end == 0 {
 				cfg.end = sectionEnd(cfg.lines, cfg.start, i)
@@ -274,6 +279,20 @@ func parseConfig(path, text string) (*config, error) {
 		cfg.end = sectionEnd(cfg.lines, cfg.start, len(cfg.lines))
 	}
 	return cfg, nil
+}
+
+// refuseUneditable stops at the spellings of project this parser cannot edit:
+// adding a [project] section beside either would leave a file TOML rejects.
+func refuseUneditable(path, line string) error {
+	if arrayProject.MatchString(line) {
+		return fmt.Errorf("%w: %s: project is an array of tables", ErrInvalid, path)
+	}
+	if m := escapedName.FindStringSubmatch(line); m != nil {
+		if name, err := strconv.Unquote(m[1]); err == nil && name == "project" {
+			return fmt.Errorf("%w: %s: project is spelled with escapes, which cannot be edited", ErrInvalid, path)
+		}
+	}
+	return nil
 }
 
 func (cfg *config) readKey(path string, i int, line string) error {
