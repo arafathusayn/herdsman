@@ -27,12 +27,14 @@ type LedgerService struct {
 	Engine func(ctx context.Context) string
 	// Facts reads a live process's start time and argv.
 	Facts func(ctx context.Context, pid int) (time.Time, string, error)
+	// Created reads when a named volume or network was made.
+	Created func(ctx context.Context, kind, name string) (time.Time, error)
 }
 
 // NewLedgerService uses this machine.
 func NewLedgerService() *LedgerService {
 	reader := ledger.NewReader()
-	return &LedgerService{Read: reader.Read, Run: reader.Run, Kill: syscall.Kill, Engine: reader.EngineName, Facts: reader.Facts}
+	return &LedgerService{Read: reader.Read, Run: reader.Run, Kill: syscall.Kill, Engine: reader.EngineName, Facts: reader.Facts, Created: reader.Created}
 }
 
 // LedgerRequest names one task of one repository.
@@ -173,8 +175,9 @@ func (s *LedgerService) Resources(ctx context.Context, request LedgerRequest) (L
 	return own, nil
 }
 
-// AddResource records authority over a resource. A process record is filled
-// from the machine, so its start time and argv are what a later proof reads.
+// AddResource records authority over a resource. A process, volume or network
+// record is filled from the machine, so that a later proof can tell it from a
+// reused pid or name; one whose identity cannot be read is refused.
 func (s *LedgerService) AddResource(ctx context.Context, request LedgerRequest, record ledger.Record, source string) (ledger.Record, error) {
 	state, err := wtree.OpenState(request.CommonDir)
 	if err != nil {
@@ -192,6 +195,11 @@ func (s *LedgerService) AddResource(ctx context.Context, request LedgerRequest, 
 			return ledger.Record{}, fmt.Errorf("ledger: task %q has no execution yet", request.Task)
 		}
 		record.Execution = executions[0]
+	}
+	if record.Kind == ledger.KindVolume || record.Kind == ledger.KindNetwork {
+		if record.Start, err = s.Created(ctx, record.Kind, record.ID); err != nil {
+			return ledger.Record{}, err
+		}
 	}
 	if record.Kind == ledger.KindProcess {
 		var pid int

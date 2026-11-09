@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // EngineName names the container tool, or "" when neither is installed.
@@ -35,6 +36,29 @@ func engineDown(err error) bool {
 		}
 	}
 	return false
+}
+
+// Created reads when a named volume or network was made. It refuses what it
+// cannot establish, because a record with no creation time matches nothing.
+func (r *Reader) Created(ctx context.Context, kind, name string) (time.Time, error) {
+	engine := r.EngineName(ctx)
+	if engine == "" {
+		return time.Time{}, fmt.Errorf("ledger: no container tool to read %s %q", kind, name)
+	}
+	raw, err := r.Run(ctx, engine, kind, "inspect", name)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("ledger: %s %q: %w", kind, name, err)
+	}
+	resources, err := ParseResources(raw)
+	if err != nil {
+		return time.Time{}, err
+	}
+	for _, resource := range resources {
+		if resource.Name == name && !resource.Created.IsZero() {
+			return resource.Created, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("ledger: %s %q has no readable creation time", kind, name)
 }
 
 func outputFields(raw []byte) []string {

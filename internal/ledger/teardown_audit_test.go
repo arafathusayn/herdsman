@@ -12,6 +12,7 @@ import (
 	"slices"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func openTestLog(t *testing.T) (*Log, func() []map[string]any) {
@@ -219,5 +220,39 @@ func TestAnOwnedProjectIsStoppedByItsIDsInOneCall(t *testing.T) {
 	}
 	if !slices.Equal(x.calls, []string{"docker stop c1 c2"}) || len(outcomes) != 2 {
 		t.Fatalf("calls = %v, outcomes = %v", x.calls, outcomes)
+	}
+}
+
+func TestCreatedReadsAResourcesCreationTime(t *testing.T) {
+	h := validHost()
+	r := hostReader(h, "darwin")
+	got, err := r.Created(context.Background(), KindVolume, "v1")
+	if err != nil || !got.Equal(time.Date(2026, 11, 8, 9, 0, 0, 0, time.UTC)) {
+		t.Fatalf("created = %v, err = %v", got, err)
+	}
+	if got, err = r.Created(context.Background(), KindNetwork, "n1"); err != nil || got.IsZero() {
+		t.Fatalf("created = %v, err = %v", got, err)
+	}
+}
+
+func TestCreatedRefusesWhatItCannotEstablish(t *testing.T) {
+	ctx := context.Background()
+	noEngine := &Reader{Run: func(context.Context, string, ...string) ([]byte, error) { return nil, exec.ErrNotFound }}
+	if _, err := noEngine.Created(ctx, KindVolume, "v"); err == nil {
+		t.Fatal("no engine")
+	}
+	reply := func(text string, failure error) *Reader {
+		return &Reader{Engine: "docker", Run: func(context.Context, string, ...string) ([]byte, error) { return []byte(text), failure }}
+	}
+	cases := map[string]*Reader{
+		"failed read": reply("", errors.New("no such volume")),
+		"bad output":  reply("not json", nil),
+		"other name":  reply(`[{"Name":"other","CreatedAt":"2026-11-08T09:00:00Z"}]`, nil),
+		"no time":     reply(`[{"Name":"v","CreatedAt":"2 hours ago"}]`, nil),
+	}
+	for name, r := range cases {
+		if _, err := r.Created(ctx, KindVolume, "v"); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

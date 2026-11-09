@@ -66,6 +66,12 @@ func setupLedger(t *testing.T, tasks ...string) *ledgerWorld {
 			}
 			return ledgerStart, "server", nil
 		},
+		Created: func(_ context.Context, kind, name string) (time.Time, error) {
+			if name == "absent" {
+				return time.Time{}, errors.New("no such " + kind)
+			}
+			return ledgerStart, nil
+		},
 	}
 	return w
 }
@@ -386,5 +392,36 @@ func TestAuthorityRevokedDuringTeardownIsSeenBeforeTheNextSignal(t *testing.T) {
 	}
 	if len(w.calls) != 1 {
 		t.Fatalf("calls = %v, want only the first pid", w.calls)
+	}
+}
+
+func TestAVolumeOrNetworkIsRecordedWithItsCreationTime(t *testing.T) {
+	w := setupLedger(t, "a")
+	ctx := context.Background()
+	for _, kind := range []string{ledger.KindVolume, ledger.KindNetwork} {
+		record, err := w.service.AddResource(ctx, w.request("a"), ledger.Record{Execution: "zz", Kind: kind, ID: "shared"}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !record.Start.Equal(ledgerStart) {
+			t.Fatalf("%s start = %v", kind, record.Start)
+		}
+	}
+}
+
+func TestARegistrationWithoutCreationIdentityIsRefused(t *testing.T) {
+	w := setupLedger(t, "a")
+	ctx := context.Background()
+	if _, err := w.service.AddResource(ctx, w.request("a"), ledger.Record{Execution: "zz", Kind: ledger.KindVolume, ID: "absent"}, ""); err == nil {
+		t.Fatal("a volume that cannot be read was recorded")
+	}
+	state, err := wtree.OpenState(w.common)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	records, err := ledger.NewTable(state.DB()).Records(ctx)
+	if err != nil || len(records) != 0 {
+		t.Fatalf("records = %v, err = %v", records, err)
 	}
 }
