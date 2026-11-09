@@ -20,9 +20,12 @@ import (
 //go:embed schema.sql
 var schemaOne string
 
+//go:embed schema_two.sql
+var schemaTwo string
+
 // migrations holds one script per schema version, in order. Versions only go
 // forward: a script is added here and never edited or removed.
-var migrations = []string{schemaOne}
+var migrations = []string{schemaOne, schemaTwo}
 
 // StateFolder is the state's folder inside a repository's common git directory.
 const StateFolder = "herdsman"

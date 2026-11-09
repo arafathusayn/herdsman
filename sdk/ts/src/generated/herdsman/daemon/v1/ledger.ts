@@ -80,6 +80,108 @@ export interface AddResourceResponse {
   record?: ResourceRecord;
 }
 
+export interface TeardownPlansRequest {
+  /**
+   * dir is an absolute folder inside the repository.
+   */
+  dir?: string;
+  /**
+   * selector names one task; empty means the task of dir.
+   */
+  selector?: string;
+  /**
+   * route selects every task of a route folder.
+   */
+  route?: string;
+  /**
+   * all selects every task.
+   */
+  all?: boolean;
+}
+
+export interface TeardownPlansResponse {
+  /**
+   * plans are versioned plan documents, each a JSON object. Teardown takes
+   * them back byte for byte, so the identity of what was approved holds.
+   */
+  plans?: string[];
+  /**
+   * hooks says a teardown would run configured hooks even with nothing to stop.
+   */
+  hooks?: boolean;
+}
+
+export interface TeardownRequest {
+  /**
+   * dir is an absolute folder inside the repository.
+   */
+  dir?: string;
+  /**
+   * plans are documents from TeardownPlans that a person approved.
+   */
+  plans?: string[];
+  /**
+   * grace_seconds is the wait before a forced stop; zero takes the default.
+   */
+  graceSeconds?: number;
+  /**
+   * include_associated also stops what is only associated with the task.
+   */
+  includeAssociated?: boolean;
+}
+
+export interface TeardownOutcome {
+  kind?: string;
+  id?: string;
+  level?: string;
+  result?: string;
+}
+
+export interface TeardownReport {
+  task?: string;
+  outcomes?: TeardownOutcome[];
+  /**
+   * error is empty when every approved stop finished.
+   */
+  error?: string;
+}
+
+export interface TeardownResponse {
+  reports?: TeardownReport[];
+}
+
+export interface RegisterResourceRequest {
+  /**
+   * dir is an absolute folder inside the repository.
+   */
+  dir?: string;
+  /**
+   * task is empty to use the task of dir.
+   */
+  task?: string;
+  /**
+   * execution is empty to use the task's newest execution.
+   */
+  execution?: string;
+  kind?: string;
+  id?: string;
+}
+
+export interface RegisterResourceResponse {
+  record?: ResourceRecord;
+}
+
+export interface LedgerHealthRequest {
+  /**
+   * dir is an absolute folder inside the task's worktree.
+   */
+  dir?: string;
+}
+
+export interface LedgerHealthResponse {
+  running?: ResourceLine[];
+}
+
 /**
  * LedgerService reports what a task runs and records what it owns.
  */
@@ -106,6 +208,34 @@ export const LedgerService = {
     addResource: {
       path: "/rpc/herdsman.daemon.v1.LedgerService/AddResource",
       signature: undefined as unknown as (request: AddResourceRequest) => AddResourceResponse,
+    },
+    /**
+     * TeardownPlans builds one plan per selected task and changes nothing.
+     */
+    teardownPlans: {
+      path: "/rpc/herdsman.daemon.v1.LedgerService/TeardownPlans",
+      signature: undefined as unknown as (request: TeardownPlansRequest) => TeardownPlansResponse,
+    },
+    /**
+     * Teardown runs approved plans, each as one journaled operation.
+     */
+    teardown: {
+      path: "/rpc/herdsman.daemon.v1.LedgerService/Teardown",
+      signature: undefined as unknown as (request: TeardownRequest) => TeardownResponse,
+    },
+    /**
+     * RegisterResource records a resource for a task found from a folder.
+     */
+    registerResource: {
+      path: "/rpc/herdsman.daemon.v1.LedgerService/RegisterResource",
+      signature: undefined as unknown as (request: RegisterResourceRequest) => RegisterResourceResponse,
+    },
+    /**
+     * LedgerHealth lists what a folder's task still runs that it alone owns.
+     */
+    ledgerHealth: {
+      path: "/rpc/herdsman.daemon.v1.LedgerService/LedgerHealth",
+      signature: undefined as unknown as (request: LedgerHealthRequest) => LedgerHealthResponse,
     },
   },
 } as const;

@@ -50,6 +50,7 @@ func (t *callHeaders) RoundTrip(req *http.Request) (*http.Response, error) {
 type Client struct {
 	Message daemonv1.MessageService
 	Ops     daemonv1.OpsService
+	Ledger  daemonv1.LedgerService
 	Route   daemonv1.RouteService
 	Project daemonv1.ProjectService
 	Task    daemonv1.TaskService
@@ -106,6 +107,7 @@ func Dial(options Options) (*Client, error) {
 	return &Client{
 		Message: daemonv1.NewMessageServiceClient(hc, base),
 		Ops:     daemonv1.NewOpsServiceClient(hc, base),
+		Ledger:  daemonv1.NewLedgerServiceClient(hc, base),
 		Route:   daemonv1.NewRouteServiceClient(hc, base),
 		Project: daemonv1.NewProjectServiceClient(hc, base),
 		Task:    daemonv1.NewTaskServiceClient(hc, base),

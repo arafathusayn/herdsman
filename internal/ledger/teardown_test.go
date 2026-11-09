@@ -415,7 +415,7 @@ func TestAWhollyOwnProjectStopsByName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(x.calls, []string{"docker compose -p p stop"}) || len(outcomes) != 1 {
+	if !slices.Equal(x.calls, []string{"docker stop c1"}) || len(outcomes) != 1 {
 		t.Fatalf("calls = %v, outcomes = %v", x.calls, outcomes)
 	}
 }
@@ -1074,7 +1074,9 @@ func TestOpenLogRefusals(t *testing.T) {
 func TestANilLogDoesNothing(t *testing.T) {
 	var log *Log
 	log.plan(Plan{})
-	log.action(Line{}, 0, 0)
+	log.action(Line{}, 0, 0, nil)
+	log.refused(Line{}, errors.New("x"))
+	log.finish(nil, nil)
 	if err := log.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -1091,7 +1093,7 @@ func TestStoppingOneProjectLeavesOtherTargetsToTheirOwnStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(x.calls, []string{"docker compose -p p stop", "docker stop c2", "docker stop c3"}) {
+	if !slices.Equal(x.calls, []string{"docker stop c1", "docker stop c2", "docker stop c3"}) {
 		t.Fatalf("calls = %v", x.calls)
 	}
 	if len(outcomes) != 3 {

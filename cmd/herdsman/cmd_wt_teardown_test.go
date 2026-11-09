@@ -8,6 +8,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 const stopPlan = `{"plans":[{"task":"a","lines":[{"kind":"process","id":"5","level":"exclusive","class":"compensatable","action":"stop"}]}]}`
@@ -23,6 +25,9 @@ func stubWorktree(t *testing.T, replies map[string]string) *[]verbCall {
 	calls := &[]verbCall{}
 	old := worktreeCall
 	t.Cleanup(func() { worktreeCall = old })
+	oldDial := dialLedger
+	t.Cleanup(func() { dialLedger = oldDial })
+	dialLedger = func() (daemonv1.LedgerService, func(), error) { return ledgerStub{}, func() {}, nil }
 	worktreeCall = func(_ context.Context, method string, request []byte) ([]byte, error) {
 		var body map[string]any
 		_ = json.Unmarshal(request, &body)
@@ -173,5 +178,31 @@ func TestResourceAddBadUsageAndFailure(t *testing.T) {
 	}
 	if code, _, _ := runVerb(runResource, "add", "--kind", "x", "--id", "y"); code != 1 {
 		t.Fatalf("backend failure: code = %d", code)
+	}
+}
+
+const hookOnlyPlan = `{"plans":[{"task":"a","lines":[]}],"hooks":true}`
+
+func TestAnEmptyPlanWithHooksRunsThemOnYes(t *testing.T) {
+	calls := stubWorktree(t, map[string]string{"TeardownPlan": hookOnlyPlan, "Teardown": `{"reports":[{"task":"a","outcomes":[]}]}`})
+	code, out, _ := runVerb(runTeardown, "a", "-y")
+	if code != 0 || len(*calls) != 2 || (*calls)[1].method != "Teardown" || !strings.Contains(out, "hooks ran") {
+		t.Fatalf("code = %d, out = %q, calls = %+v", code, out, *calls)
+	}
+}
+
+func TestAnEmptyPlanWithHooksStaysQuietWithoutApproval(t *testing.T) {
+	calls := stubWorktree(t, map[string]string{"TeardownPlan": hookOnlyPlan})
+	code, out, stderr := runVerb(runTeardown, "a")
+	if code != 0 || len(*calls) != 1 || !strings.Contains(out, "nothing to stop") || !strings.Contains(stderr, "-y") {
+		t.Fatalf("code = %d, out = %q, stderr = %q, calls = %+v", code, out, stderr, *calls)
+	}
+}
+
+func TestAnEmptyPlanWithoutHooksCallsNothing(t *testing.T) {
+	calls := stubWorktree(t, map[string]string{"TeardownPlan": `{"plans":[{"task":"a","lines":[]}]}`})
+	code, out, _ := runVerb(runTeardown, "a", "-y")
+	if code != 0 || len(*calls) != 1 || !strings.Contains(out, "nothing to stop") {
+		t.Fatalf("code = %d, out = %q, calls = %+v", code, out, *calls)
 	}
 }
