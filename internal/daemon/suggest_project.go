@@ -9,6 +9,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/project"
+	"github.com/arafathusayn/herdsman/sdk/config"
 )
 
 const (
@@ -21,8 +22,9 @@ const (
 // productionSuggest is the service over the real machine. account gives the
 // account store when this process has one.
 func productionSuggest(account func() store.Conn) *SuggestService {
-	s := &SuggestService{ContextDir: projectContextDir}
+	s := &SuggestService{ContextDir: func(dir string) string { return projectContextDir(nil, dir) }}
 	if account != nil {
+		s.ContextDir = func(dir string) string { return projectContextDir(account(), dir) }
 		s.Labels = func(dir string) []string { return projectLabels(account(), dir) }
 	}
 	return s
@@ -33,18 +35,42 @@ func isFolder(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// projectContextDir is the context repo of the project dir is bound to: the
-// bound folder, once it has the context repo's layout. A folder that cannot be
-// read is treated as having none, because ranking must not fail over it.
-func projectContextDir(dir string) string {
+func hasContextLayout(folder string) bool {
+	return isFolder(filepath.Join(folder, "events")) && isFolder(filepath.Join(folder, "suggest"))
+}
+
+// markedContextRepo says whether a folder's config names it the project's
+// context repo.
+func markedContextRepo(folder string) bool {
+	result, err := config.ReadFile(filepath.Join(folder, project.ConfigFile))
+	return err == nil && result.Config.GetProject().GetContext()
+}
+
+// projectContextDir finds the context repo of the project dir is bound to: the
+// bound folder itself once it has the layout, else the project's other bound
+// folder that its config marks as the context repo. A folder that cannot be
+// read counts as having none, because ranking must not fail over it.
+func projectContextDir(db store.Conn, dir string) string {
 	binding, ok, err := project.FindBinding(dir)
 	if err != nil || !ok {
 		return ""
 	}
-	if !isFolder(filepath.Join(binding.Folder, "events")) || !isFolder(filepath.Join(binding.Folder, "suggest")) {
+	if hasContextLayout(binding.Folder) {
+		return binding.Folder
+	}
+	if db == nil {
 		return ""
 	}
-	return binding.Folder
+	bound, err := project.New(db, nil).GetProject(binding.ID)
+	if err != nil {
+		return ""
+	}
+	for _, folder := range bound.Folders {
+		if markedContextRepo(folder) && hasContextLayout(folder) {
+			return folder
+		}
+	}
+	return ""
 }
 
 // projectLabels gathers the labels on the tasks of the project dir is bound to.

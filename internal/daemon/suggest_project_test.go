@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
+	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/project"
 	"github.com/arafathusayn/herdsman/internal/suggest"
 	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
@@ -51,7 +53,7 @@ func TestProductionFindsTheBoundContextRepoFromASubfolder(t *testing.T) {
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := projectContextDir(nested); got != root {
+	if got := projectContextDir(nil, nested); got != root {
 		t.Fatalf("got %q, want %q", got, root)
 	}
 }
@@ -62,17 +64,17 @@ func TestABoundFolderWithoutTheLayoutHasNoContextRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeProjectFile(t, filepath.Join(root, project.ConfigFile), boundConfig)
-	if got := projectContextDir(root); got != "" {
+	if got := projectContextDir(nil, root); got != "" {
 		t.Fatalf("got %q", got)
 	}
-	if got := projectContextDir("relative"); got != "" {
+	if got := projectContextDir(nil, "relative"); got != "" {
 		t.Fatalf("a relative folder: %q", got)
 	}
 	unbound, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := projectContextDir(unbound); got != "" {
+	if got := projectContextDir(nil, unbound); got != "" {
 		t.Fatalf("an unbound folder: %q", got)
 	}
 }
@@ -98,7 +100,7 @@ func TestRankingUsesTheProjectsLabelsAndRecentEvents(t *testing.T) {
 	root := boundContextRepo(t)
 	event(t, root, "01KB1A00000000000000000001", "merge.landed")
 	s := newSuggestService(t)
-	s.ContextDir = projectContextDir
+	s.ContextDir = func(dir string) string { return projectContextDir(nil, dir) }
 	s.Labels = func(string) []string { return []string{"database"} }
 	writeUserEntry(t, s, "by-label", "")
 	entry := filepath.Join(s.ConfigDir, "herdsman", "suggest", "by-label.md")
@@ -285,5 +287,57 @@ func TestMergedPinsKeepTheStrongerSource(t *testing.T) {
 	weak := suggest.Pin{URL: "u", Commit: "2"}
 	if got := mergePins([]suggest.Pin{strong}, []suggest.Pin{weak}); len(got) != 1 || got[0] != strong {
 		t.Fatalf("%v", got)
+	}
+}
+
+func TestAnOrdinaryBoundFolderFindsTheProjectsContextRepo(t *testing.T) {
+	h := newHarness(t)
+	records := project.New(h.d.acctDB, ops.NewEngine(h.d.acctDB, ops.Options{Effects: project.Effects(h.d.acctDB)}))
+	created, err := records.CreateProject(project.ProjectInput{Name: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder := func() string {
+		dir, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := records.Bind(created.ID, dir); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	ordinary, plain, shared := folder(), folder(), folder()
+	for _, sub := range []string{"events", "suggest"} {
+		if err := os.Mkdir(filepath.Join(shared, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mark := filepath.Join(shared, project.ConfigFile)
+	text, err := os.ReadFile(mark)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := projectContextDir(h.d.acctDB, ordinary); got != "" {
+		t.Fatalf("an unmarked folder was taken: %q", got)
+	}
+	writeProjectFile(t, mark, strings.Replace(string(text), "[project]\n", "[project]\ncontext = true\n", 1))
+	if got := projectContextDir(h.d.acctDB, ordinary); got != shared {
+		t.Fatalf("got %q, want %q", got, shared)
+	}
+	if got := projectContextDir(nil, plain); got != "" {
+		t.Fatalf("no store: %q", got)
+	}
+	event(t, shared, "01KB1A00000000000000000001", "merge.landed")
+	base := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "config"))
+	t.Setenv("HOME", filepath.Join(base, "home"))
+	service := &suggestRPC{s: productionSuggest(func() store.Conn { return h.d.acctDB })}
+	added, err := service.Add(context.Background(), &suggestv1.AddRequest{Dir: ordinary, Project: true, Id: "shared", Kind: "tip", Title: "Shared", Tags: []string{"one"}, Body: "b"})
+	if err != nil || added.GetPath() != filepath.Join(shared, "suggest", "shared.md") {
+		t.Fatalf("%v %v", added, err)
+	}
+	if kinds := service.s.machine(ordinary).RecentEvents; len(kinds) != 1 || kinds[0] != "merge.landed" {
+		t.Fatalf("%v", kinds)
 	}
 }
