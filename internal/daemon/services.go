@@ -4,6 +4,7 @@ import (
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
+	tracev1 "github.com/arafathusayn/herdsman/sdk/trace/v1"
 )
 
 // rpcProcedures lists every RPC method the daemon serves.
@@ -12,6 +13,7 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	recovery := &opsService{d: d}
 	routes := &routeService{d: d}
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
+	traces := &traceRPC{inspect: d.cfg.Inspect}
 	eventRPC := newEventService(d.hub, d.admitEvents, releaseContext)
 	name := daemonv1.MessageServiceName
 	return append(eventRPC.procedures(), []rpc.Procedure{
@@ -58,5 +60,12 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(suggestv1.SuggestServiceName, "SourceRemove", suggestions.SourceRemove),
 		rpc.Unary(suggestv1.SuggestServiceName, "SourcePreview", suggestions.SourcePreview),
 		rpc.Unary(suggestv1.SuggestServiceName, "SourcePin", suggestions.SourcePin),
+		rpc.Unary(tracev1.TraceServiceName, "Get", traces.Get),
+		rpc.Unary(tracev1.TraceServiceName, "Export", traces.Export),
+		rpc.Unary(tracev1.TraceServiceName, "AddSpan", traces.AddSpan),
+		rpc.Unary(tracev1.TraceServiceName, "Evaluate", traces.Evaluate),
+		rpc.Unary(tracev1.TraceServiceName, "RecordRun", traces.RecordRun),
+		rpc.Unary(tracev1.TraceServiceName, "AddFinding", traces.AddFinding),
+		rpc.Unary(tracev1.TraceServiceName, "SetOutcome", traces.SetOutcome),
 	}...)
 }

@@ -2,7 +2,6 @@ package trace
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -60,7 +59,7 @@ func validOutcome(outcome string) bool {
 // record.
 func AddFinding(route string, finding Finding, at time.Time) (string, error) {
 	if finding.Reviewer == "" || finding.Severity == "" || finding.Title == "" {
-		return "", errors.New("eval: a finding needs a reviewer, a severity and a title")
+		return "", fmt.Errorf("%w: eval: a finding needs a reviewer, a severity and a title", ErrInvalid)
 	}
 	if finding.ID == "" {
 		finding.ID = digest(finding.Reviewer, finding.Severity, finding.Task, finding.Head, finding.File, strconv.Itoa(finding.Line), finding.Title)[:16]
@@ -82,14 +81,14 @@ func AddFinding(route string, finding Finding, at time.Time) (string, error) {
 // SetOutcome records what happened to a finding.
 func SetOutcome(route, id, outcome string, at time.Time) error {
 	if !validOutcome(outcome) {
-		return fmt.Errorf("eval: outcome %q: use %s, %s or %s", outcome, OutcomeDismissed, OutcomeAccepted, OutcomeFixed)
+		return fmt.Errorf("%w: eval: outcome %q: use %s, %s or %s", ErrInvalid, outcome, OutcomeDismissed, OutcomeAccepted, OutcomeFixed)
 	}
 	existing, _, err := LoadFindings(route)
 	if err != nil {
 		return err
 	}
 	if !slices.ContainsFunc(existing, func(f Finding) bool { return f.ID == id }) {
-		return fmt.Errorf("eval: no finding %q in this route", id)
+		return fmt.Errorf("%w: eval: no finding %q in this route", ErrInvalid, id)
 	}
 	return appendLine(route, FindingsFile, findingLine{Schema: EvalVersion, Type: lineOutcome, Finding: Finding{ID: id, Outcome: outcome, Time: at}})
 }

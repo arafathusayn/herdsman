@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 )
 
 // EvalVersion is the version of the experimental evaluation surface: its
@@ -39,6 +40,25 @@ type Run struct {
 func (r Run) valid() bool {
 	return r.Task != "" && r.Arm != "" && r.Pass != nil && r.DurationMS != nil && *r.DurationMS >= 0 &&
 		(r.CostMicros == nil || *r.CostMicros >= 0) && slices.Contains([]string{"", controlA, controlB}, r.Control)
+}
+
+// AppendRun records one run in the suite folder, in one write call so that
+// lines from concurrent processes do not interleave.
+func AppendRun(suite string, run Run) error {
+	if !run.valid() {
+		return fmt.Errorf("%w: eval: a run needs a task, an arm, a result and a duration of zero or more", ErrInvalid)
+	}
+	run.Schema = EvalVersion
+	line, err := json.Marshal(run)
+	if err != nil {
+		return fmt.Errorf("eval: encode: %w", err)
+	}
+	handle, err := os.OpenFile(filepath.Join(suite, RunsFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return fmt.Errorf("eval: %w", err)
+	}
+	_, err = handle.Write(append(line, '\n'))
+	return errors.Join(err, handle.Close())
 }
 
 // LoadRuns reads a suite folder. It returns the runs and how many lines it

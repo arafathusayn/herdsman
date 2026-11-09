@@ -1287,7 +1287,10 @@ func (x *PlanResponse) GetApproved() bool {
 }
 
 type SourcesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The folder whose repository configuration also counts; empty reads only
+	// the user's.
+	Dir           string `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1320,6 +1323,13 @@ func (x *SourcesRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SourcesRequest.ProtoReflect.Descriptor instead.
 func (*SourcesRequest) Descriptor() ([]byte, []int) {
 	return file_herdsman_suggest_v1_suggest_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *SourcesRequest) GetDir() string {
+	if x != nil {
+		return x.Dir
+	}
+	return ""
 }
 
 type SourcesResponse struct {
@@ -1876,8 +1886,9 @@ const file_herdsman_suggest_v1_suggest_proto_rawDesc = "" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"_\n" +
 	"\fPlanResponse\x123\n" +
 	"\x06recipe\x18\x01 \x01(\v2\x1b.herdsman.suggest.v1.RecipeR\x06recipe\x12\x1a\n" +
-	"\bapproved\x18\x02 \x01(\bR\bapproved\"\x10\n" +
-	"\x0eSourcesRequest\"E\n" +
+	"\bapproved\x18\x02 \x01(\bR\bapproved\"\"\n" +
+	"\x0eSourcesRequest\x12\x10\n" +
+	"\x03dir\x18\x01 \x01(\tR\x03dir\"E\n" +
 	"\x0fSourcesResponse\x122\n" +
 	"\asources\x18\x01 \x03(\v2\x18.herdsman.suggest.v1.PinR\asources\"6\n" +
 	"\x10SourceAddRequest\x12\x10\n" +

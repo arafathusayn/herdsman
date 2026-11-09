@@ -91,11 +91,15 @@ func (s Span) valid() bool {
 	return recordedKind(s.Kind) && s.Name != "" && s.DurationMS >= 0 && !s.Start.IsZero()
 }
 
+// ErrInvalid marks a record that can never be accepted, as opposed to a file
+// that could not be read or written.
+var ErrInvalid = errors.New("invalid record")
+
 // Append records a span in the route's own log, for the work no other log
 // covers: agent turns, checks and reviews.
 func Append(route string, span Span) error {
 	if !span.valid() {
-		return fmt.Errorf("trace: a span needs a known kind, a name, a start and a duration of zero or more (kind %q, name %q)", span.Kind, span.Name)
+		return fmt.Errorf("%w: trace: a span needs a known kind, a name, a start and a duration of zero or more (kind %q, name %q)", ErrInvalid, span.Kind, span.Name)
 	}
 	span.Schema, span.TraceID, span.SpanID, span.ParentID = SchemaVersion, "", "", ""
 	return appendLine(route, spansFile, span)
@@ -206,6 +210,18 @@ func routeIdentity(route string) (string, error) {
 	id, err := readRouteID(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return createRouteID(route, path)
+	}
+	return id, err
+}
+
+// identityOf is routeIdentity for a caller that may be forbidden to write.
+func identityOf(route string, readOnly bool) (string, error) {
+	if !readOnly {
+		return routeIdentity(route)
+	}
+	id, err := readRouteID(filepath.Join(route, traceDir, routeIDFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return digest("path", route)[:32], nil
 	}
 	return id, err
 }

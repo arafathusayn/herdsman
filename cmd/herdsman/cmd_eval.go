@@ -1,17 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"slices"
-	"time"
+	"strings"
 
-	"github.com/arafathusayn/herdsman/internal/trace"
+	tracev1 "github.com/arafathusayn/herdsman/sdk/trace/v1"
 )
 
 const evalExperimentalFlag = "--experimental-eval"
+
+// evalVersion is the experimental surface's version, printed with every run.
+const evalVersion = "0.1.0"
 
 const evalHelp = `usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]
        herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>
@@ -45,7 +49,7 @@ func runEval(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	args = slices.DeleteFunc(slices.Clone(args), func(arg string) bool { return arg == evalExperimentalFlag })
-	fmt.Fprintf(stderr, "herdsman: eval is experimental (eval/%s) and can change between minor releases\n", trace.EvalVersion)
+	fmt.Fprintf(stderr, "herdsman: eval is experimental (eval/%s) and can change between minor releases\n", evalVersion)
 	if len(args) > 0 && args[0] == "finding" {
 		return runEvalFinding(args[1:], stdout, stderr)
 	}
@@ -86,51 +90,42 @@ func runEvalReport(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func buildEvalReport(suite string, routes []string, rank bool, stderr io.Writer) (trace.Report, int) {
-	runs, skipped, err := trace.LoadRuns(suite)
+func buildEvalReport(suite string, routes []string, rank bool, stderr io.Writer) (evalView, int) {
+	paths, err := absolutePaths(append([]string{suite}, routes...))
 	if err != nil {
 		fmt.Fprintln(stderr, err)
-		return trace.Report{}, 1
+		return evalView{}, 1
 	}
-	report, err := trace.Evaluate(suite, runs, skipped)
+	service, closeService, err := dialTrace()
 	if err != nil {
-		fmt.Fprintf(stderr, "eval: no A/A control: %v\n", err)
-		return trace.Report{}, 1
+		fmt.Fprintln(stderr, err)
+		return evalView{}, 1
 	}
-	var found []trace.Finding
-	for _, route := range routes {
-		some, unreadable, err := trace.LoadFindings(route)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return trace.Report{}, 1
+	defer closeService()
+	res, err := service.Evaluate(context.Background(), &tracev1.EvaluateRequest{Suite: paths[0], FindingRoutes: paths[1:], Rank: rank})
+	if err != nil {
+		text := rpcText(err)
+		if strings.Contains(text.Error(), "A/A control") {
+			fmt.Fprintf(stderr, "eval: no A/A control: %v\n", text)
+		} else {
+			fmt.Fprintln(stderr, text)
 		}
-		if unreadable > 0 {
-			fmt.Fprintf(stderr, "eval: skipped %d unreadable finding lines in %s\n", unreadable, route)
-		}
-		found = append(found, some...)
+		return evalView{}, 1
 	}
-	counts := trace.CountFindings(found)
-	if len(routes) > 0 {
-		report.Findings = &counts
+	for _, warning := range res.GetWarnings() {
+		fmt.Fprintf(stderr, "eval: %s\n", warning)
 	}
-	if rank {
-		decision := trace.DecideRank(counts)
-		report.Rank = &decision
-	}
-	if report.Skipped > 0 {
-		fmt.Fprintf(stderr, "eval: skipped %d unreadable run lines\n", report.Skipped)
-	}
-	return report, 0
+	return evalFromProto(res.GetReport(), suite), 0
 }
 
-func intervalText(interval *trace.Interval, format string) string {
+func intervalText(interval *intervalView, format string) string {
 	if interval == nil {
 		return "too few runs"
 	}
 	return fmt.Sprintf(format+".."+format, interval.Low, interval.High)
 }
 
-func printEval(out io.Writer, report trace.Report) {
+func printEval(out io.Writer, report evalView) {
 	fmt.Fprintf(out, "suite %s (95%% confidence intervals)\n", report.Suite)
 	for _, arm := range report.Arms {
 		fmt.Fprintf(out, "%s: %d runs, %d passed, pass rate %s, duration ms %s, cost micros %s (%d runs reported cost)\n",
@@ -162,9 +157,8 @@ func runEvalFinding(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, usageLine)
 			return 2
 		}
-		if err := trace.SetOutcome(args[1], args[2], args[3], time.Now().UTC()); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+		if code := setEvalOutcome(args[1], args[2], args[3], stderr); code != 0 {
+			return code
 		}
 		return 0
 	}
@@ -172,18 +166,38 @@ func runEvalFinding(args []string, stdout, stderr io.Writer) int {
 	return 2
 }
 
+func setEvalOutcome(route, id, outcome string, stderr io.Writer) int {
+	paths, err := absolutePaths([]string{route})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	service, closeService, err := dialTrace()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer closeService()
+	if _, err := service.SetOutcome(context.Background(), &tracev1.SetOutcomeRequest{Route: paths[0], Id: id, Outcome: outcome}); err != nil {
+		fmt.Fprintln(stderr, rpcText(err))
+		return 1
+	}
+	return 0
+}
+
 func runFindingAdd(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("eval finding add", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var finding trace.Finding
-	flags.StringVar(&finding.ID, "id", "", "the finding's id (default: derived from its fields)")
-	flags.StringVar(&finding.Reviewer, "reviewer", "", "who reported it")
-	flags.StringVar(&finding.Severity, "severity", "", "its severity, such as P1")
-	flags.StringVar(&finding.Title, "title", "", "one line saying what is wrong")
-	flags.StringVar(&finding.Task, "task", "", "the task under review")
-	flags.StringVar(&finding.Head, "head", "", "the commit under review")
-	flags.StringVar(&finding.File, "file", "", "the file it is in")
-	flags.IntVar(&finding.Line, "line", 0, "the line it is on")
+	finding := &tracev1.Finding{}
+	var line int
+	idFlag := flags.String("id", "", "the finding's id (default: derived from its fields)")
+	reviewerFlag := flags.String("reviewer", "", "who reported it")
+	severityFlag := flags.String("severity", "", "its severity, such as P1")
+	titleFlag := flags.String("title", "", "one line saying what is wrong")
+	taskFlag := flags.String("task", "", "the task under review")
+	headFlag := flags.String("head", "", "the commit under review")
+	fileFlag := flags.String("file", "", "the file it is in")
+	flags.IntVar(&line, "line", 0, "the line it is on")
 	positional, err := parseInterspersed(flags, args)
 	if err != nil {
 		return 2
@@ -192,11 +206,24 @@ func runFindingAdd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level> --title <text>")
 		return 2
 	}
-	id, err := trace.AddFinding(positional[0], finding, time.Now().UTC())
+	finding.Id, finding.Reviewer, finding.Severity, finding.Title = *idFlag, *reviewerFlag, *severityFlag, *titleFlag
+	finding.Task, finding.Head, finding.File, finding.Line = *taskFlag, *headFlag, *fileFlag, int32(line)
+	paths, err := absolutePaths(positional)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintln(stdout, id)
+	service, closeService, err := dialTrace()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer closeService()
+	res, err := service.AddFinding(context.Background(), &tracev1.AddFindingRequest{Route: paths[0], Finding: finding})
+	if err != nil {
+		fmt.Fprintln(stderr, rpcText(err))
+		return 1
+	}
+	fmt.Fprintln(stdout, res.GetId())
 	return 0
 }
