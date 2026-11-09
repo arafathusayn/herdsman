@@ -1,9 +1,11 @@
 .TH HERDSMAN-PROJECT 1 "" "herdsman" "herdsman manual"
 .SH NAME
-herdsman-project \- Keep projects, their folders and their repositories.
+herdsman-project \- Keep projects, their folders and repositories, and work on their context repo.
 .SH DESCRIPTION
 .nf
-usage: herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]
+usage: herdsman project context init|check|note|log ...
+       herdsman project log [--since <date>] [--task <task>] [--json]
+       herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]
        herdsman project show [<project>] [--json]
        herdsman project list [--archived] [--json]
        herdsman project update [<project>] [--name <name>] [--description <text>]
@@ -11,6 +13,8 @@ usage: herdsman project create <name> [--description <text>] [--repo <spec>]... 
        herdsman project delete [<project>] [--force]
        herdsman project bind [<project>] [--folder <path>] [--json]
        herdsman project unbind [--folder <path>] [--json]
+
+context and log work on the context repo of the project bound to this folder.
 
 Keeps the projects, the folders bound to them and their repositories. A <spec>
 is [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.
@@ -21,7 +25,37 @@ folder. delete refuses a project with open tasks or tasks on a running route;
 
 exit codes:
   0  done
-  1  the record was not found, the change was refused, or the call failed
+  1  check found problems, the record was not found, the daemon refused, or it is not running
+  2  bad usage
+
+project context:
+usage: herdsman project context init
+       herdsman project context check
+       herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>
+       herdsman project context log [--since <date>] [--task <task>] [--json]
+
+Run inside a folder bound to a project.
+
+init lays out the context repo and prints its folder.
+check validates the history and prints each problem.
+note adds a note to the history and prints its id. Without --parent it joins
+every open branch of the history.
+log prints the history; it is the same command as herdsman project log.
+
+exit codes:
+  0  done; for check, the history is sound
+  1  check found problems, the daemon refused, or it is not running
+  2  bad usage
+
+project log:
+usage: herdsman project log [--since <date>] [--task <task>] [--json]
+
+Print the history of the project bound to this folder, parents before
+children, then by time. --since takes YYYY-MM-DD (UTC) or an RFC 3339 time.
+
+exit codes:
+  0  printed
+  1  the daemon refused, or it is not running
   2  bad usage
 .fi
 .SH SEE ALSO

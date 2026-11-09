@@ -18,28 +18,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const projectHelp = `usage: herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]
-       herdsman project show [<project>] [--json]
-       herdsman project list [--archived] [--json]
-       herdsman project update [<project>] [--name <name>] [--description <text>]
-                               [--add-repo <spec>]... [--remove-repo <name>]... [--json]
-       herdsman project delete [<project>] [--force]
-       herdsman project bind [<project>] [--folder <path>] [--json]
-       herdsman project unbind [--folder <path>] [--json]
-
-Keeps the projects, the folders bound to them and their repositories. A <spec>
-is [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.
-create binds --folder, or this folder with --bind.
-<project> is a name, an id or @; left out, it is the project bound to this
-folder. delete refuses a project with open tasks or tasks on a running route;
---force archives it instead and keeps its records.
-
-exit codes:
-  0  done
-  1  the record was not found, the change was refused, or the call failed
-  2  bad usage
-`
-
 const taskHelp = `usage: herdsman task create <title> [--project <project>] [--id <slug>] [--slug <slug>]
                             [--body <text>] [--body-file <path>]
                             [--label <label>]... [--repo <name>]... [--json]
@@ -79,7 +57,6 @@ var recordsDial = func() (daemonv1.ProjectService, daemonv1.TaskService, func(),
 }
 
 func init() {
-	register(command{name: "project", summary: "Keep projects, their folders and their repositories.", help: projectHelp, run: runProject})
 	register(command{name: "task", summary: "Keep the tasks of each project.", help: taskHelp, run: runTask})
 }
 
@@ -120,7 +97,7 @@ func recordVerb(fs *flag.FlagSet, stderr io.Writer, args []string, least, most i
 		return nil, false
 	}
 	if len(positional) < least || len(positional) > most {
-		usageError(stderr, fs.Name()+": wrong number of arguments")
+		usageError(stderr, fs.Name()+": wrong number of arguments (usage: herdsman "+strings.Fields(fs.Name())[0]+" --help)")
 		return nil, false
 	}
 	return positional, true
@@ -259,19 +236,9 @@ func printTask(w io.Writer, res proto.Message) {
 	tabbed(w, func(t io.Writer) { showTask(t, res.(taskHolder).GetTask()) })
 }
 
-func runProject(args []string, _ io.Reader, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		return usageError(stderr, "project needs a verb: create, show, list, update, delete, bind or unbind")
-	}
-	verbs := map[string]func([]string, io.Writer, io.Writer) int{
-		"create": runProjectCreate, "show": runProjectShow, "list": runProjectList, "update": runProjectUpdate,
-		"delete": runProjectDelete, "bind": runProjectBind, "unbind": runProjectUnbind,
-	}
-	verb, ok := verbs[args[0]]
-	if !ok {
-		return usageError(stderr, "unknown project verb "+args[0])
-	}
-	return verb(args[1:], stdout, stderr)
+// plainVerb adapts a verb that reads nothing from its input to the verb table.
+func plainVerb(run func([]string, io.Writer, io.Writer) int) func([]string, io.Reader, io.Writer, io.Writer) int {
+	return func(args []string, _ io.Reader, stdout, stderr io.Writer) int { return run(args, stdout, stderr) }
 }
 
 func runProjectCreate(args []string, stdout, stderr io.Writer) int {

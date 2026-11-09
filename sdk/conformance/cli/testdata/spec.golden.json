@@ -1271,9 +1271,11 @@
     },
     {
       "name": "project",
-      "summary": "Keep projects, their folders and their repositories.",
-      "help": "usage: herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]\n       herdsman project show [<project>] [--json]\n       herdsman project list [--archived] [--json]\n       herdsman project update [<project>] [--name <name>] [--description <text>]\n                               [--add-repo <spec>]... [--remove-repo <name>]... [--json]\n       herdsman project delete [<project>] [--force]\n       herdsman project bind [<project>] [--folder <path>] [--json]\n       herdsman project unbind [--folder <path>] [--json]\n\nKeeps the projects, the folders bound to them and their repositories. A <spec>\nis [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.\ncreate binds --folder, or this folder with --bind.\n<project> is a name, an id or @; left out, it is the project bound to this\nfolder. delete refuses a project with open tasks or tasks on a running route;\n--force archives it instead and keeps its records.\n\nexit codes:\n  0  done\n  1  the record was not found, the change was refused, or the call failed\n  2  bad usage\n",
+      "summary": "Keep projects, their folders and repositories, and work on their context repo.",
+      "help": "usage: herdsman project context init|check|note|log ...\n       herdsman project log [--since <date>] [--task <task>] [--json]\n       herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]\n       herdsman project show [<project>] [--json]\n       herdsman project list [--archived] [--json]\n       herdsman project update [<project>] [--name <name>] [--description <text>]\n                               [--add-repo <spec>]... [--remove-repo <name>]... [--json]\n       herdsman project delete [<project>] [--force]\n       herdsman project bind [<project>] [--folder <path>] [--json]\n       herdsman project unbind [--folder <path>] [--json]\n\ncontext and log work on the context repo of the project bound to this folder.\n\nKeeps the projects, the folders bound to them and their repositories. A <spec>\nis [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.\ncreate binds --folder, or this folder with --bind.\n<project> is a name, an id or @; left out, it is the project bound to this\nfolder. delete refuses a project with open tasks or tasks on a running route;\n--force archives it instead and keeps its records.\n\nexit codes:\n  0  done\n  1  check found problems, the record was not found, the daemon refused, or it is not running\n  2  bad usage\n",
       "usage": [
+        "herdsman project context init|check|note|log ...",
+        "herdsman project log [--since <date>] [--task <task>] [--json]",
         "herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]",
         "herdsman project show [<project>] [--json]",
         "herdsman project list [--archived] [--json]",
@@ -1323,6 +1325,14 @@
         {
           "name": "--repo",
           "valueName": "spec"
+        },
+        {
+          "name": "--since",
+          "valueName": "date"
+        },
+        {
+          "name": "--task",
+          "valueName": "task"
         }
       ],
       "exitCodes": [
@@ -1332,11 +1342,101 @@
         },
         {
           "code": "1",
-          "meaning": "the record was not found, the change was refused, or the call failed"
+          "meaning": "check found problems, the record was not found, the daemon refused, or it is not running"
         },
         {
           "code": "2",
           "meaning": "bad usage"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "context",
+          "help": "usage: herdsman project context init\n       herdsman project context check\n       herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>\n       herdsman project context log [--since <date>] [--task <task>] [--json]\n\nRun inside a folder bound to a project.\n\ninit lays out the context repo and prints its folder.\ncheck validates the history and prints each problem.\nnote adds a note to the history and prints its id. Without --parent it joins\nevery open branch of the history.\nlog prints the history; it is the same command as herdsman project log.\n\nexit codes:\n  0  done; for check, the history is sound\n  1  check found problems, the daemon refused, or it is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman project context init",
+            "herdsman project context check",
+            "herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>",
+            "herdsman project context log [--since <date>] [--task <task>] [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "text"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--actor",
+              "valueName": "who"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--parent",
+              "valueName": "id"
+            },
+            {
+              "name": "--repo",
+              "valueName": "repo"
+            },
+            {
+              "name": "--since",
+              "valueName": "date"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done; for check, the history is sound"
+            },
+            {
+              "code": "1",
+              "meaning": "check found problems, the daemon refused, or it is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "log",
+          "help": "usage: herdsman project log [--since <date>] [--task <task>] [--json]\n\nPrint the history of the project bound to this folder, parents before\nchildren, then by time. --since takes YYYY-MM-DD (UTC) or an RFC 3339 time.\n\nexit codes:\n  0  printed\n  1  the daemon refused, or it is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman project log [--since <date>] [--task <task>] [--json]"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--since",
+              "valueName": "date"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "printed"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused, or it is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
         }
       ]
     },
