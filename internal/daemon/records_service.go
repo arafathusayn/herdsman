@@ -23,20 +23,9 @@ type recordsRPC struct {
 
 func (s *recordsRPC) store() *project.Store { return project.New(s.d.acctDB, s.d.ops) }
 
-// writable refuses a change on a daemon started to inspect.
-func (s *recordsRPC) writable() error {
-	if s.d.cfg.Inspect {
-		return rpc.Errorf(rpc.FailedPrecondition, "the daemon is in inspect mode and changes nothing")
-	}
-	return nil
-}
-
 // recordsError serves a failure of the records under the code of its class.
 func recordsError(err error) error {
-	var served *rpc.Error
 	switch {
-	case errors.As(err, &served):
-		return err
 	case errors.Is(err, project.ErrNotFound):
 		return rpc.Errorf(rpc.NotFound, "%s", err.Error())
 	case errors.Is(err, project.ErrInvalid):
@@ -129,9 +118,6 @@ type projectRPC struct{ *recordsRPC }
 // Create stores a project and, when asked, binds a folder to it. A bind that
 // fails removes the project again, so a refused call leaves nothing.
 func (s projectRPC) Create(_ context.Context, req *daemonv1.ProjectServiceCreateRequest) (*daemonv1.ProjectServiceCreateResponse, error) {
-	if err := s.writable(); err != nil {
-		return nil, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	store := s.store()
@@ -177,9 +163,6 @@ func (s projectRPC) List(_ context.Context, req *daemonv1.ProjectServiceListRequ
 
 // Update changes a project's fields and repositories.
 func (s projectRPC) Update(_ context.Context, req *daemonv1.ProjectServiceUpdateRequest) (*daemonv1.ProjectServiceUpdateResponse, error) {
-	if err := s.writable(); err != nil {
-		return nil, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	store := s.store()
@@ -196,9 +179,6 @@ func (s projectRPC) Update(_ context.Context, req *daemonv1.ProjectServiceUpdate
 
 // Delete removes a project, or archives it when forced.
 func (s projectRPC) Delete(_ context.Context, req *daemonv1.ProjectServiceDeleteRequest) (*daemonv1.ProjectServiceDeleteResponse, error) {
-	if err := s.writable(); err != nil {
-		return nil, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	store := s.store()
@@ -214,9 +194,6 @@ func (s projectRPC) Delete(_ context.Context, req *daemonv1.ProjectServiceDelete
 
 // Bind ties a folder to a project.
 func (s projectRPC) Bind(_ context.Context, req *daemonv1.ProjectServiceBindRequest) (*daemonv1.ProjectServiceBindResponse, error) {
-	if err := s.writable(); err != nil {
-		return nil, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	store := s.store()
@@ -233,9 +210,6 @@ func (s projectRPC) Bind(_ context.Context, req *daemonv1.ProjectServiceBindRequ
 
 // Unbind releases a folder.
 func (s projectRPC) Unbind(_ context.Context, req *daemonv1.ProjectServiceUnbindRequest) (*daemonv1.ProjectServiceUnbindResponse, error) {
-	if err := s.writable(); err != nil {
-		return nil, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, err := s.store().Unbind(req.GetFolder())
@@ -250,9 +224,6 @@ type taskRPC struct{ *recordsRPC }
 
 // Create stores a task under the project the scope names.
 func (s taskRPC) Create(_ context.Context, req *daemonv1.TaskServiceCreateRequest) (*daemonv1.TaskServiceCreateResponse, error) {
-	if err := s.writable(); err != nil {
-		return nil, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	store := s.store()
@@ -306,9 +277,6 @@ func (s taskRPC) List(_ context.Context, req *daemonv1.TaskServiceListRequest) (
 // Update changes a task. A scope naming another project is refused rather than
 // read as a move, because a task's project is written once.
 func (s taskRPC) Update(_ context.Context, req *daemonv1.TaskServiceUpdateRequest) (*daemonv1.TaskServiceUpdateResponse, error) {
-	if err := s.writable(); err != nil {
-		return nil, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	store := s.store()
@@ -340,9 +308,6 @@ func (s taskRPC) Update(_ context.Context, req *daemonv1.TaskServiceUpdateReques
 
 // Delete removes a task.
 func (s taskRPC) Delete(_ context.Context, req *daemonv1.TaskServiceDeleteRequest) (*daemonv1.TaskServiceDeleteResponse, error) {
-	if err := s.writable(); err != nil {
-		return nil, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	store := s.store()
@@ -358,9 +323,6 @@ func (s taskRPC) Delete(_ context.Context, req *daemonv1.TaskServiceDeleteReques
 
 // Link attaches a pull request, an issue or a URL to a task.
 func (s taskRPC) Link(_ context.Context, req *daemonv1.TaskServiceLinkRequest) (*daemonv1.TaskServiceLinkResponse, error) {
-	if err := s.writable(); err != nil {
-		return nil, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	store := s.store()
