@@ -12,7 +12,11 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	routes := &routeService{d: d}
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
 	name := daemonv1.MessageServiceName
+	ledgers := ledgerRPC{inspect: d.cfg.Inspect}
 	return []rpc.Procedure{
+		rpc.Unary(daemonv1.LedgerServiceName, "Resources", ledgers.Resources),
+		rpc.Unary(daemonv1.LedgerServiceName, "Plan", ledgers.Plan),
+		rpc.Unary(daemonv1.LedgerServiceName, "AddResource", ledgers.AddResource),
 		rpc.Unary(name, "Hello", m.Hello),
 		rpc.Unary(name, "Health", m.Health),
 		rpc.Unary(name, "Shutdown", m.Shutdown),
