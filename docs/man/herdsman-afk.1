@@ -3,7 +3,18 @@
 herdsman-afk \- Print how long the user has been away: machine idle time or the newest message, whichever is newer.
 .SH DESCRIPTION
 .nf
-Print how long the user has been away: machine idle time or the newest message, whichever is newer.
+usage: herdsman afk [--last-message <unix time>]... [--json]
+
+Prints "idle <seconds> source <ioreg|logind|message>": the smaller of this
+machine's input idle time (macOS: ioreg's HIDIdleTime; Linux: logind) and
+the time since the newest message (each --last-message, and the web app's
+last user action), or "unknown <reason>". --json prints one object
+{"idle_seconds","source"} or {"unknown"}, with "ask_timeout_seconds"
+(HERDSMAN_ASK_TIMEOUT, default 5m: plain seconds or s, m, h, d; 1s to 1d).
+
+Exit codes:
+  0  printed (also when unknown)
+  2  usage error or an invalid setting
 .fi
 .SH SEE ALSO
 .BR herdsman (1)
