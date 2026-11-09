@@ -161,6 +161,68 @@
       ]
     },
     {
+      "name": "clean",
+      "summary": "Free what a task holds, after a verified snapshot.",
+      "help": "usage: herdsman clean [<task>|--merged|--route <folder>|--all] [-y] [--force]\n                      [--keep-branch] [--delete-branch] [--archive-only]\n                      [--force-irreversible <path>]... [--json]\n\nFrees what a task holds. A verified snapshot comes first, including ignored files;\nevery path must then be captured, rebuildable or named, or nothing is removed.\nThe branch is deleted only with proof that it was integrated; --delete-branch\nalso accepts a branch whose every commit is patch-identical on the default one.\n--archive-only stops after the snapshot and removes nothing, so it alone lets\n--force run with -y and no terminal.\n\nexit codes:\n  0  every selected tree was freed\n  1  a tree was refused, or a step failed\n  2  bad usage, or no terminal to ask on\n",
+      "usage": [
+        "herdsman clean [<task>|--merged|--route <folder>|--all] [-y] [--force]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--all"
+        },
+        {
+          "name": "--archive-only"
+        },
+        {
+          "name": "--delete-branch"
+        },
+        {
+          "name": "--force"
+        },
+        {
+          "name": "--force-irreversible",
+          "valueName": "path"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--keep-branch"
+        },
+        {
+          "name": "--merged"
+        },
+        {
+          "name": "--route",
+          "valueName": "folder"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "every selected tree was freed"
+        },
+        {
+          "code": "1",
+          "meaning": "a tree was refused, or a step failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage, or no terminal to ask on"
+        }
+      ]
+    },
+    {
       "name": "commit",
       "summary": "Commit a worktree with a Conventional Commits message.",
       "help": "usage: herdsman commit [--squash <target>] [--dry-run] [-m <message>] [--type <type>] [--scope <scope>] [--json]\n\nStages the current worktree by its [commit] stage policy and commits. The\nmessage is written by the configured generator, from the staged diff, and must\nbe a Conventional Commits message. When no generator can answer, the command\nwrites a plain one from the branch and the file names and says so; an answer\nthat is still invalid after one retry stops the commit.\n\n--squash folds every commit since the branch left <target> into this one.\n--dry-run shows the request, which program gets it and its answer; nothing changes.\n\nexit codes:\n  0  committed, or the dry run printed\n  1  nothing to commit, an invalid message, or git refused\n  2  bad usage\n",
@@ -516,6 +578,75 @@
         {
           "code": "2",
           "meaning": "usage error or an invalid setting"
+        }
+      ]
+    },
+    {
+      "name": "down",
+      "summary": "Stop a task, then free what it holds.",
+      "help": "usage: herdsman down [<task>|--merged|--route <folder>|--all] [-y] [--force]\n                     [--grace <seconds>] [--keep-branch] [--delete-branch] [--archive-only]\n                     [--include associated]\n                     [--force-irreversible <path>]... [--json]\n\nStops what a task runs, then frees what it holds, as one plan with one question.\nA stop that fails ends the command before anything is removed.\n\nexit codes:\n  0  every selected task was stopped and freed\n  1  a stop or a clean failed\n  2  bad usage, or no terminal to ask on\n",
+      "usage": [
+        "herdsman down [<task>|--merged|--route <folder>|--all] [-y] [--force]"
+      ],
+      "positionals": [
+        {
+          "name": "task"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--all"
+        },
+        {
+          "name": "--archive-only"
+        },
+        {
+          "name": "--delete-branch"
+        },
+        {
+          "name": "--force"
+        },
+        {
+          "name": "--force-irreversible",
+          "valueName": "path"
+        },
+        {
+          "name": "--grace",
+          "valueName": "seconds"
+        },
+        {
+          "name": "--include"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--keep-branch"
+        },
+        {
+          "name": "--merged"
+        },
+        {
+          "name": "--route",
+          "valueName": "folder"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "every selected task was stopped and freed"
+        },
+        {
+          "code": "1",
+          "meaning": "a stop or a clean failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage, or no terminal to ask on"
         }
       ]
     },
@@ -1638,6 +1769,40 @@
               "meaning": "bad usage"
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "prune",
+      "summary": "Free integrated worktrees past a minimum age.",
+      "help": "usage: herdsman prune [--min-age <duration>] [--dry-run] [--json]\n\nFrees integrated trees older than --min-age (default 1d; 12h and 3d both work).\nLocked, dirty and current trees, and tasks still running, are skipped.\n\nexit codes:\n  0  every eligible tree was freed\n  1  a tree could not be freed\n  2  bad usage\n",
+      "usage": [
+        "herdsman prune [--min-age <duration>] [--dry-run] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--min-age",
+          "valueName": "duration"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "every eligible tree was freed"
+        },
+        {
+          "code": "1",
+          "meaning": "a tree could not be freed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
         }
       ]
     },

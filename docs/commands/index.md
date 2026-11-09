@@ -7,6 +7,7 @@ Generated from `herdsman spec cli`.
 - [`afk`](afk.md): Print how long the user has been away: machine idle time or the newest message, whichever is newer.
 - [`approval-gate`](approval-gate.md): Bind a relayed go before its effect: approval-gate consume ... | complete <request-id> <outcome>.
 - [`checkpointer`](checkpointer.md): Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.
+- [`clean`](clean.md): Free what a task holds, after a verified snapshot.
 - [`commit`](commit.md): Commit a worktree with a Conventional Commits message.
 - [`config`](config.md): Read and change the configuration; install the shell integration.
 - [`cost`](cost.md): Report measured tokens and cost per task, project or route.
@@ -14,6 +15,7 @@ Generated from `herdsman spec cli`.
 - [`delete`](delete.md): Remove a route, once a verified snapshot makes that undoable.
 - [`diff`](diff.md): Show a worktree's changes.
 - [`doctor`](doctor.md): Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.
+- [`down`](down.md): Stop a task, then free what it holds.
 - [`each`](each.md): Run a command in every worktree.
 - [`eval`](eval.md): Report a suite's runs with intervals and an A/A control (experimental).
 - [`export`](export.md): Copy the whole account to a new folder.
@@ -29,6 +31,7 @@ Generated from `herdsman spec cli`.
 - [`pause`](pause.md): Interrupt a route's agents and hold its channel; every pane stays open.
 - [`plugin`](plugin.md): Manage plugins (experimental).
 - [`project`](project.md): Work on a project's context repo: project context init|check|note, project log.
+- [`prune`](prune.md): Free integrated worktrees past a minimum age.
 - [`recommend`](recommend.md): The same as suggest.
 - [`resource`](resource.md): Record a resource a task created: resource add.
 - [`resume`](resume.md): Continue a paused route, or restart a stopped one from its record.
