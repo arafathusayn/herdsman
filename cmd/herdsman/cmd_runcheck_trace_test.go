@@ -10,17 +10,37 @@ import (
 	tracev1 "github.com/arafathusayn/herdsman/sdk/trace/v1"
 )
 
-func TestCheckNameKeepsOnlyTheProgramAndItsFirstWord(t *testing.T) {
-	cases := map[string][]string{
-		"go test":    {"env", "GOMAXPROCS=1", "go", "test", "-p", "1", "./..."},
-		"make check": {"make", "check", "GOFLAGS=-mod=vendor"},
-		"true":       {"true"},
-		"":           {"env", "A=1"},
+func TestCheckNameIsOnlyAProgramLabel(t *testing.T) {
+	cases := []struct {
+		want string
+		args []string
+	}{
+		{"go", []string{"env", "GOMAXPROCS=1", "go", "test", "-p", "1", "./..."}},
+		{"make", []string{"make", "check", "TOKEN=secret"}},
+		{"sh", []string{"/bin/sh", "-c", "printf PRIVATE_TOKEN_123"}},
+		{"bash", []string{"bash", "-c", "curl -H 'Authorization: x' y"}},
+		{"true", []string{"/usr/bin/true"}},
+		{"check", []string{"env", "A=1"}},
+		{"check", []string{"env", "-u", "SECRET_NAME", "go", "test"}},
+		{"check", []string{"env", "-S", "go test"}},
+		{"check", []string{"a program with spaces"}},
+		{"check", []string{"PASSWORD=x"}},
+		{"check", nil},
 	}
-	for want, args := range cases {
-		if got := checkName(args); got != want {
-			t.Errorf("%v: %q, want %q", args, got, want)
+	for _, c := range cases {
+		if got := checkName(c.args); got != c.want {
+			t.Errorf("%v: %q, want %q", c.args, got, c.want)
 		}
+	}
+}
+
+func TestACheckSpanHoldsNoShellText(t *testing.T) {
+	route := t.TempDir()
+	t.Setenv("HERDSMAN_ROUTE_FOLDER", route)
+	recordCheckSpan([]string{"/bin/sh", "-c", "printf PRIVATE_TOKEN_123"}, time.Now(), 0, &bytes.Buffer{})
+	_, out, _ := runTraceArgs(route, "--json")
+	if strings.Contains(out, "PRIVATE_TOKEN_123") || !strings.Contains(out, `"name": "sh"`) {
+		t.Fatal(out)
 	}
 }
 
@@ -37,7 +57,7 @@ func TestACheckInARouteAddsASpan(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("%d %s", code, errOut)
 	}
-	for _, want := range []string{`"name": "make check"`, `"name": "check"`, `"exit": 3`} {
+	for _, want := range []string{`"name": "make"`, `"name": "check"`, `"exit": 3`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %s in %s", want, out)
 		}

@@ -88,7 +88,7 @@ func recordedKind(kind string) bool {
 }
 
 func (s Span) valid() bool {
-	return recordedKind(s.Kind) && s.Name != "" && s.DurationMS >= 0 && !s.Start.IsZero()
+	return recordedKind(s.Kind) && s.Name != "" && finiteDuration(s.DurationMS) && !s.Start.IsZero()
 }
 
 // ErrInvalid marks a record that can never be accepted, as opposed to a file

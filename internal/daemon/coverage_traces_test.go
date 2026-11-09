@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/project"
 	"github.com/arafathusayn/herdsman/internal/suggest"
 	"github.com/arafathusayn/herdsman/internal/trace"
@@ -82,19 +83,23 @@ func TestATurnThatCannotBeWrittenIsOnlyLogged(t *testing.T) {
 }
 
 func TestLabelsAreEmptyWhenTheStoreCannotAnswer(t *testing.T) {
-	h := newHarness(t)
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeProjectFile(t, filepath.Join(root, project.ConfigFile), boundConfig)
-	if _, err := h.d.acctDB.Exec("DROP TABLE task_labels"); err != nil {
+	folder := filepath.Join(root, "db")
+	if err := os.Mkdir(folder, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.d.acctDB.Exec("DROP TABLE tasks"); err != nil {
+	db, err := store.Open(filepath.Join(folder, "account.db"), store.Writer, store.KindAccount)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := projectLabels(h.d.acctDB, root); got != nil {
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := projectLabels(db, root); got != nil {
 		t.Fatalf("%v", got)
 	}
 }

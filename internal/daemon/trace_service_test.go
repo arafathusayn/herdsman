@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -206,4 +208,34 @@ func appendTo(t *testing.T, path, text string) []byte {
 		t.Fatal(err)
 	}
 	return append(data, text...)
+}
+
+func TestRecordRunWithNoRunIsRefusedInBothEncodings(t *testing.T) {
+	suite := t.TempDir()
+	if _, err := traceTransport(t, false).RecordRun(context.Background(), &tracev1.RecordRunRequest{Suite: suite}); err == nil || !strings.HasPrefix(err.Error(), string(rpc.InvalidArgument)+": ") {
+		t.Fatalf("binary: %v", err)
+	}
+	server := httptest.NewServer((&Daemon{}).rpcHandler())
+	defer server.Close()
+	body := strings.NewReader(`{"suite":` + strconv.Quote(suite) + `}`)
+	res, err := server.Client().Post(server.URL+"/rpc/herdsman.trace.v1.TraceService/RecordRun", "application/json", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	text, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusBadRequest || !strings.Contains(string(text), string(rpc.InvalidArgument)) {
+		t.Fatalf("json: %d %s", res.StatusCode, text)
+	}
+	if _, err := os.Stat(filepath.Join(suite, trace.RunsFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused run touched the file: %v", err)
+	}
+}
+
+func TestRecordRunRefusesAnInfiniteDuration(t *testing.T) {
+	suite := t.TempDir()
+	run := &tracev1.Run{Task: "t", Arm: "a", Pass: true, DurationMs: math.Inf(1)}
+	if _, err := traceTransport(t, false).RecordRun(context.Background(), &tracev1.RecordRunRequest{Suite: suite, Run: run}); err == nil || !strings.HasPrefix(err.Error(), string(rpc.InvalidArgument)+": ") {
+		t.Fatalf("%v", err)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -37,10 +38,18 @@ type Run struct {
 	CostMicros *int64   `json:"cost_micros,omitempty"`
 }
 
+// finiteDuration is a duration JSON can carry: zero or more and a real number.
+func finiteDuration(ms float64) bool {
+	return ms >= 0 && !math.IsInf(ms, 1) && !math.IsNaN(ms)
+}
+
 func (r Run) valid() bool {
-	return r.Task != "" && r.Arm != "" && r.Pass != nil && r.DurationMS != nil && *r.DurationMS >= 0 &&
+	return r.Task != "" && r.Arm != "" && r.Pass != nil && r.DurationMS != nil && finiteDuration(*r.DurationMS) &&
 		(r.CostMicros == nil || *r.CostMicros >= 0) && slices.Contains([]string{"", controlA, controlB}, r.Control)
 }
+
+// encodeRun is replaced only by the test of a run that cannot be encoded.
+var encodeRun = func(run Run) ([]byte, error) { return json.Marshal(run) }
 
 // AppendRun records one run in the suite folder, in one write call so that
 // lines from concurrent processes do not interleave.
@@ -49,8 +58,10 @@ func AppendRun(suite string, run Run) error {
 		return fmt.Errorf("%w: eval: a run needs a task, an arm, a result and a duration of zero or more", ErrInvalid)
 	}
 	run.Schema = EvalVersion
-	// A run holds only strings, numbers and booleans.
-	line, _ := json.Marshal(run)
+	line, err := encodeRun(run)
+	if err != nil {
+		return fmt.Errorf("eval: encode: %w", err)
+	}
 	handle, err := os.OpenFile(filepath.Join(suite, RunsFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return fmt.Errorf("eval: %w", err)

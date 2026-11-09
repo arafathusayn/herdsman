@@ -217,6 +217,9 @@ func (r *traceRPC) RecordRun(ctx context.Context, req *tracev1.RecordRunRequest)
 	if err := needAbsolute("suite folder", req.GetSuite()); err != nil {
 		return nil, err
 	}
+	if req.GetRun() == nil {
+		return nil, rpc.Errorf(rpc.InvalidArgument, "the request holds no run")
+	}
 	pass, duration := req.GetRun().GetPass(), req.GetRun().GetDurationMs()
 	run := trace.Run{Task: req.GetRun().GetTask(), Arm: req.GetRun().GetArm(), Control: req.GetRun().GetControl(), Pass: &pass, DurationMS: &duration, CostMicros: req.GetRun().CostMicros}
 	if err := trace.AppendRun(req.GetSuite(), run); err != nil {

@@ -142,12 +142,6 @@ func TestRPCTextDropsTheCodeFromAPlainError(t *testing.T) {
 	}
 }
 
-func TestCheckNameSkipsFlagsBetweenWords(t *testing.T) {
-	if got := checkName([]string{"go", "-C", "test"}); got != "go test" {
-		t.Fatalf("%q", got)
-	}
-}
-
 func TestSDKSuggestCallReportsWhatItCannotCarry(t *testing.T) {
 	ctx := context.Background()
 	if _, err := sdkSuggestCall(ctx, "Nope", []byte(`{}`)); err == nil || !strings.Contains(err.Error(), "no method") {

@@ -2,8 +2,10 @@ package trace
 
 import (
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -76,5 +78,41 @@ func TestIdentityFallsBackWhenTheRouteCannotBeWritten(t *testing.T) {
 				t.Fatalf("%q %v", id, err)
 			}
 		})
+	}
+}
+
+func TestRunValidRefusesNonFiniteValues(t *testing.T) {
+	pass := true
+	for _, duration := range []float64{math.Inf(1), math.Inf(-1), math.NaN()} {
+		value := duration
+		suite := t.TempDir()
+		if err := AppendRun(suite, Run{Task: "t", Arm: "a", Pass: &pass, DurationMS: &value}); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%v: %v", duration, err)
+		}
+		if _, err := os.Stat(filepath.Join(suite, RunsFile)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%v touched the runs file: %v", duration, err)
+		}
+	}
+}
+
+func TestSpanValidRefusesNonFiniteDurations(t *testing.T) {
+	for _, duration := range []float64{math.Inf(1), math.NaN()} {
+		if err := Append(t.TempDir(), Span{Kind: KindCheck, Name: "c", Start: time.Unix(1, 0), DurationMS: duration}); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%v: %v", duration, err)
+		}
+	}
+}
+
+func TestAppendRunReturnsAnEncodingError(t *testing.T) {
+	saved := encodeRun
+	t.Cleanup(func() { encodeRun = saved })
+	encodeRun = func(Run) ([]byte, error) { return nil, errors.New("cannot encode") }
+	pass, duration := true, 1.0
+	suite := t.TempDir()
+	if err := AppendRun(suite, Run{Task: "t", Arm: "a", Pass: &pass, DurationMS: &duration}); err == nil || !strings.Contains(err.Error(), "cannot encode") {
+		t.Fatalf("%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(suite, RunsFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a failed encoding touched the runs file: %v", err)
 	}
 }
