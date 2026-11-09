@@ -107,6 +107,7 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 		return err
 	}
 	r.naming = wtree.DefaultNaming()
+	r.ports = wtree.PortBlock
 	loaded, err := config.Load(config.Options{RepoRoot: r.main, UserDir: s.ConfigDir, ProjectKey: r.projectKey(ctx), Environ: s.caller})
 	if err != nil {
 		if !hasJSON {
@@ -129,6 +130,14 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 	}
 	if name := loaded.Config.GetBranch().GetName(); name != "" {
 		r.naming.BranchName = name
+	}
+	setup := loaded.Config.GetSetup()
+	r.envFiles, r.shared = setup.GetEnv(), setup.GetShare()
+	if setup.Ports != nil {
+		r.ports = int(setup.GetPorts())
+	}
+	if r.ports < 0 || r.ports > wtree.PortBlock {
+		return fmt.Errorf("setup.ports is %d; a task's block holds at most %d", r.ports, wtree.PortBlock)
 	}
 	if install := strings.TrimSpace(loaded.Config.GetSetup().GetInstall()); install != "" {
 		if r.hooks == nil {

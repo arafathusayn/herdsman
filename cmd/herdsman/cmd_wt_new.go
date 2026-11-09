@@ -51,6 +51,7 @@ type newResult struct {
 	Logs      []string    `json:"logs,omitempty"`
 	Warnings  []string    `json:"warnings,omitempty"`
 	AgentName string      `json:"agent_name,omitempty"`
+	Ports     []int32     `json:"ports,omitempty"`
 }
 
 // dialTask reaches the daemon through the SDK; tests replace it.
@@ -187,7 +188,7 @@ func runNew(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		Schema: schemaField{Version: response.GetSchemaVersion()}, Task: response.GetTask(), Branch: response.GetBranch(),
 		Path: response.GetPath(), Base: response.GetBase(), Port: response.GetPort(), Herdr: response.GetHerdr(),
 		Setup: response.GetSetup(), Launch: response.GetLaunch(), Logs: response.GetLogs(),
-		Warnings: response.GetWarnings(), AgentName: response.GetAgentName(),
+		Warnings: response.GetWarnings(), AgentName: response.GetAgentName(), Ports: response.GetPorts(),
 	}
 	warn(stderr, result.Warnings)
 	if *asJSON {

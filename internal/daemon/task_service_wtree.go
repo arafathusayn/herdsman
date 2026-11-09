@@ -105,6 +105,8 @@ type WorktreeNewResponse struct {
 	Warnings []string `json:"warnings,omitempty"`
 	// AgentName is the agent started in the worktree, when one was.
 	AgentName string `json:"agent_name,omitempty"`
+	// Ports is the task's reserved block, starting at Port.
+	Ports []int `json:"ports,omitempty"`
 }
 
 // WorktreeListRequest asks for the worktree table.
@@ -247,6 +249,9 @@ type repository struct {
 	naming  wtree.Naming
 	route   string
 	environ []string
+	// What setup.env and setup.share list, and setup.ports.
+	envFiles, shared []string
+	ports            int
 	project string
 }
 
@@ -339,7 +344,12 @@ func (r *repository) vars(task, branch, path, kind, base, head string) wtree.Var
 			values[key] = value
 		}
 	}
-	return wtree.Vars{Values: values, Port: wtree.HashPort(task)}
+	port := wtree.HashPort(task)
+	block := make(map[string]int, r.ports)
+	for i := range r.ports {
+		block[strconv.Itoa(i)] = port + i
+	}
+	return wtree.Vars{Values: values, Port: port, Ports: block}
 }
 
 // plan expands a hook and refuses one that holds a template nobody accepted.
@@ -526,6 +536,9 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 		resp.Warnings = append(resp.Warnings, renamedWarning(request, branch)...)
 	}
 	resp.Task, resp.Branch, resp.Path, resp.Port = req.Task, branch, path, vars.Port
+	for i := range r.ports {
+		resp.Ports = append(resp.Ports, vars.Port+i)
+	}
 	resp.Launch = "cd " + path
 	if req.Agent != "" {
 		resp.Launch += " && " + req.Agent
@@ -622,6 +635,25 @@ func (r *repository) shareIgnored(ctx context.Context, folder string, resp *Work
 	}
 }
 
+// bringListed brings over what the configuration names. A listed path outside
+// the repository or one that is tracked work stays, and the response says so.
+func (r *repository) bringListed(ctx context.Context, listed []string, resp *WorktreeNewResponse) {
+	for _, name := range listed {
+		if !filepath.IsLocal(name) {
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf("setup lists %s, which is outside the repository; left alone", name))
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(r.main, name)); err != nil {
+			continue
+		}
+		if _, err := r.git.Run(ctx, r.main, "check-ignore", "-q", name); err != nil {
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf("setup lists %s, which git does not ignore; left alone", name))
+			continue
+		}
+		r.shareIgnored(ctx, name, resp)
+	}
+}
+
 func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req WorktreeNewRequest, vars wtree.Vars, before, after hooks.Plan, resp *WorktreeNewResponse) error {
 	runner := r.runner(vars, resp.Path)
 	if _, err := runner.Run(ctx, "pre-start", before); err != nil {
@@ -635,6 +667,7 @@ func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req Work
 		for _, folder := range detected.Share {
 			r.shareIgnored(ctx, folder, resp)
 		}
+		r.bringListed(ctx, slices.Concat(r.envFiles, r.shared), resp)
 		setup, installs, err := s.setupPlan(r, vars, detected)
 		if err != nil {
 			return err

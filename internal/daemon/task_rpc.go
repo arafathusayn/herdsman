@@ -30,8 +30,12 @@ func (t *taskRPC) New(ctx context.Context, in *daemonv1.TaskServiceNewRequest) (
 	if err != nil {
 		return nil, refusal(err)
 	}
+	ports := make([]int32, len(made.Ports))
+	for i, port := range made.Ports {
+		ports[i] = int32(port)
+	}
 	return &daemonv1.TaskServiceNewResponse{
-		SchemaVersion: worktreeSchemaVersion, Task: made.Task, Branch: made.Branch, Path: made.Path, Base: made.Base,
+		Ports: ports, SchemaVersion: worktreeSchemaVersion, Task: made.Task, Branch: made.Branch, Path: made.Path, Base: made.Base,
 		Port: int32(made.Port), Herdr: made.Herdr, Setup: made.Setup, Launch: made.Launch, Logs: made.Logs,
 		Warnings: made.Warnings, AgentName: made.AgentName,
 	}, nil

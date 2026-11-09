@@ -158,6 +158,10 @@ export interface TaskServiceNewResponse {
    * The agent started in the worktree; empty when none was.
    */
   agentName?: string;
+  /**
+   * The ports reserved for the task, starting at port.
+   */
+  ports?: number[];
 }
 
 export interface TaskServiceGoRequest {

@@ -142,6 +142,8 @@ message TaskServiceNewResponse {
   repeated string warnings = 11;
   // The agent started in the worktree; empty when none was.
   string agent_name = 12;
+  // The ports reserved for the task, starting at port.
+  repeated int32 ports = 13;
 }
 
 message TaskServiceGoRequest {

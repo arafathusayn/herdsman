@@ -875,7 +875,9 @@ type TaskServiceNewResponse struct {
 	Logs     []string `protobuf:"bytes,10,rep,name=logs,proto3" json:"logs,omitempty"`
 	Warnings []string `protobuf:"bytes,11,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	// The agent started in the worktree; empty when none was.
-	AgentName     string `protobuf:"bytes,12,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
+	AgentName string `protobuf:"bytes,12,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
+	// The ports reserved for the task, starting at port.
+	Ports         []int32 `protobuf:"varint,13,rep,packed,name=ports,proto3" json:"ports,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -992,6 +994,13 @@ func (x *TaskServiceNewResponse) GetAgentName() string {
 		return x.AgentName
 	}
 	return ""
+}
+
+func (x *TaskServiceNewResponse) GetPorts() []int32 {
+	if x != nil {
+		return x.Ports
+	}
+	return nil
 }
 
 type TaskServiceGoRequest struct {
@@ -1235,7 +1244,7 @@ const file_herdsman_daemon_v1_task_proto_rawDesc = "" +
 	"\bno_setup\x18\b \x01(\bR\anoSetup\x12\x18\n" +
 	"\aclobber\x18\t \x01(\bR\aclobber\x12\x18\n" +
 	"\aenviron\x18\n" +
-	" \x03(\tR\aenviron\"\xba\x02\n" +
+	" \x03(\tR\aenviron\"\xd0\x02\n" +
 	"\x16TaskServiceNewResponse\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\tR\rschemaVersion\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\x12\x16\n" +
@@ -1250,7 +1259,8 @@ const file_herdsman_daemon_v1_task_proto_rawDesc = "" +
 	" \x03(\tR\x04logs\x12\x1a\n" +
 	"\bwarnings\x18\v \x03(\tR\bwarnings\x12\x1d\n" +
 	"\n" +
-	"agent_name\x18\f \x01(\tR\tagentName\"t\n" +
+	"agent_name\x18\f \x01(\tR\tagentName\x12\x14\n" +
+	"\x05ports\x18\r \x03(\x05R\x05ports\"t\n" +
 	"\x14TaskServiceGoRequest\x12\x10\n" +
 	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x1a\n" +
 	"\bselector\x18\x02 \x01(\tR\bselector\x12\x14\n" +
