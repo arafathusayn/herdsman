@@ -6,8 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/wtree"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
@@ -91,4 +96,99 @@ func TestLocalTaskServiceServesTheSameCalls(t *testing.T) {
 	if err != nil || made.GetBranch() != "feat/one" {
 		t.Fatalf("%+v %v", made, err)
 	}
+}
+
+func awaitWorktreeRow(t *testing.T, repo, task string) string {
+	t.Helper()
+	state, err := wtree.OpenState(filepath.Join(repo, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		rows, err := state.Worktrees(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			if row.Task == task {
+				return row.Path
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no record of %s: %+v", task, rows)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A crash after the tree exists and before it is recorded must not strand it:
+// the restarted daemon sees the tree and writes the record, once.
+func TestACrashBetweenTheTreeAndItsRecordIsFinishedOnRestart(t *testing.T) {
+	h := newHarness(t)
+	h.stop()
+	var crashed atomic.Bool
+	h.cfg.OpsFault = func(point string) {
+		if strings.HasPrefix(point, "step:") && strings.HasSuffix(point, ":applied") && crashed.CompareAndSwap(false, true) {
+			panic("crash after the first effect")
+		}
+	}
+	h.start()
+	repo, environ := taskRepo(t)
+	sdk := dialHarness(t, h)
+	if _, err := sdk.Task.New(context.Background(), &daemonv1.TaskServiceNewRequest{Dir: repo, Task: "one", NoSetup: true, Environ: environ}); err == nil {
+		t.Fatal("the crash did not reach the caller")
+	}
+	if !crashed.Load() {
+		t.Fatal("no crash")
+	}
+	state, err := wtree.OpenState(filepath.Join(repo, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := state.Worktrees(context.Background())
+	state.Close()
+	if len(rows) != 0 {
+		t.Fatalf("recorded before the crash: %+v", rows)
+	}
+	h.stop()
+	h.cfg.OpsFault = nil
+	h.start()
+	path := awaitWorktreeRow(t, repo, "one")
+	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	listing, err := exec.Command("git", "-C", repo, "worktree", "list", "--porcelain").Output()
+	if err != nil || strings.Count(string(listing), path) != 1 {
+		t.Fatalf("%s %v", listing, err)
+	}
+}
+
+func TestTreeProbeTellsAbsentMatchingAndForeign(t *testing.T) {
+	repo, environ := taskRepo(t)
+	service := (&WorktreeService{}).forCaller(environ)
+	r, err := service.open(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.close()
+	path := filepath.Join(filepath.Dir(repo), "tree")
+	spec := treeSpec{Main: r.main, Task: "t", Branch: "feat/t", Path: path}
+	check := func(want ops.Verdict) {
+		t.Helper()
+		if got, _, err := probeTree(context.Background(), r, spec); err != nil || got != want {
+			t.Fatalf("%v, want %v, %v", got, want, err)
+		}
+	}
+	check(ops.Absent)
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-q", "-b", "feat/t", path).CombinedOutput(); err != nil {
+		t.Fatalf("%s", out)
+	}
+	check(ops.Matches)
+	spec.Branch = "feat/other"
+	check(ops.Different)
+	spec.Path = filepath.Join(filepath.Dir(repo), "stray")
+	os.Mkdir(spec.Path, 0o755)
+	check(ops.Different)
 }

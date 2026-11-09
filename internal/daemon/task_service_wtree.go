@@ -38,7 +38,8 @@ type WorktreeService struct {
 	Repo        string // owner/name; empty reads it from origin.
 	ConfigDir   string // Folder of the user's file; empty uses the standard one.
 
-	caller []string // The caller's environment; nil means this process's.
+	caller  []string     // The caller's environment; nil means this process's.
+	journal *taskJournal // Nil runs the effects without an operation.
 }
 
 // forCaller is the service for a request from a process with this environment.
@@ -252,7 +253,7 @@ type repository struct {
 	// What setup.env and setup.share list, and setup.ports.
 	envFiles, shared []string
 	ports            int
-	project string
+	project          string
 }
 
 func (r *repository) close() { r.state.Close() }
@@ -526,13 +527,14 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := r.clearPath(path, req.Clobber); err != nil {
 		return resp, err
 	}
-	if err := s.create(ctx, r, req.Task, branch, path, start, &resp); err != nil {
+	spec := treeSpec{Main: r.main, Task: req.Task, Branch: branch, Path: path, Start: start}
+	if request != nil {
+		spec.Identity = request.identity
+	}
+	if err := s.makeTree(ctx, r, spec, &resp); err != nil {
 		return resp, err
 	}
 	if request != nil {
-		if err := r.markRequest(ctx, request, branch); err != nil {
-			return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
-		}
 		resp.Warnings = append(resp.Warnings, renamedWarning(request, branch)...)
 	}
 	resp.Task, resp.Branch, resp.Path, resp.Port = req.Task, branch, path, vars.Port
@@ -547,9 +549,6 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 		}
 	} else if req.Prompt != "" {
 		resp.Warnings = append(resp.Warnings, "the prompt was ignored: no agent was named")
-	}
-	if err := r.state.PutWorktree(ctx, wtree.Worktree{Task: req.Task, Branch: branch, Path: path, CreatedAt: time.Now()}); err != nil {
-		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
 	}
 	if err := s.finishNew(ctx, r, req, vars, before, after, &resp); err != nil {
 		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
@@ -1081,19 +1080,12 @@ func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text str
 	if err := r.clearPath(path, false); err != nil {
 		return wtree.Row{}, err
 	}
-	args := []string{"worktree", "add", "-q", path, branch}
-	if start != "" {
-		args = []string{"worktree", "add", "-q", "-b", branch, path, start}
-	}
-	if _, err := r.git.Run(ctx, r.main, args...); err != nil {
+	var made WorktreeNewResponse
+	spec := treeSpec{Main: r.main, Task: task, Branch: branch, Path: path, Start: start, Identity: pr.identity, GitOnly: true}
+	if err := s.makeTree(ctx, r, spec, &made); err != nil {
 		return wtree.Row{}, err
 	}
-	if err := r.markRequest(ctx, pr, branch); err != nil {
-		return wtree.Row{}, err
-	}
-	if err := r.state.PutWorktree(ctx, wtree.Worktree{Task: task, Branch: branch, Path: path, CreatedAt: time.Now()}); err != nil {
-		return wtree.Row{}, err
-	}
+	resp.Warnings = append(resp.Warnings, made.Warnings...)
 	resp.Created = true
 	resp.Warnings = append(resp.Warnings, renamedWarning(pr, branch)...)
 	if resp.PushRemote, err = r.setPushRemote(ctx, pr, branch); err != nil {

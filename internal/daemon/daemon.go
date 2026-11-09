@@ -90,6 +90,8 @@ type Daemon struct {
 	stateLock *os.File
 	acctDB    store.Conn
 	ops       *ops.Engine
+	tasks     *taskJournal
+	tasksOnce sync.Once
 	recovery  *ops.Recovery
 	// exportGate keeps route and registry writers out of an export's copy.
 	exportGate sync.RWMutex

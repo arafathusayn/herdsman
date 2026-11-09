@@ -14,6 +14,10 @@ type taskRPC struct {
 	service *WorktreeService
 }
 
+func newTaskRPC(journal *taskJournal) *taskRPC {
+	return &taskRPC{service: &WorktreeService{journal: journal}}
+}
+
 // LocalTaskService serves the contract in the calling process.
 func LocalTaskService() daemonv1.TaskService {
 	return &taskRPC{service: &WorktreeService{}}
