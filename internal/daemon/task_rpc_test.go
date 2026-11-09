@@ -1,0 +1,94 @@
+package daemon
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
+)
+
+func taskRepo(t *testing.T) (repo string, environ []string) {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo = filepath.Join(root, "work", "repo")
+	os.MkdirAll(repo, 0o755)
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+	}
+	return repo, []string{
+		"PATH=" + os.Getenv("PATH"), "HOME=" + root, "XDG_CONFIG_HOME=" + filepath.Join(root, "config"),
+		"HERDR_SOCKET_PATH=" + filepath.Join(root, "none.sock"), "CALLER_ONLY=from-caller",
+	}
+}
+
+func TestNewAndGoThroughTheDaemon(t *testing.T) {
+	sdk := dialHarness(t, newHarness(t))
+	repo, environ := taskRepo(t)
+	ctx := context.Background()
+	made, err := sdk.Task.New(ctx, &daemonv1.TaskServiceNewRequest{Dir: repo, Task: "one", NoSetup: true, Environ: environ})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if made.GetTask() != "one" || made.GetBranch() != "feat/one" || made.GetSchemaVersion() != worktreeSchemaVersion {
+		t.Fatalf("%+v", made)
+	}
+	if _, err := os.Stat(filepath.Join(made.GetPath(), ".git")); err != nil {
+		t.Fatal(err)
+	}
+	found, err := sdk.Task.Go(ctx, &daemonv1.TaskServiceGoRequest{Dir: repo, Selector: "one", Environ: environ})
+	if err != nil || found.GetPath() != made.GetPath() || found.GetCreated() {
+		t.Fatalf("%+v %v", found, err)
+	}
+}
+
+func TestNewRunsHooksInTheCallersEnvironment(t *testing.T) {
+	sdk := dialHarness(t, newHarness(t))
+	repo, environ := taskRepo(t)
+	config := `{"hooks":{"pre-start":"echo \"$CALLER_ONLY\" > seen"}}`
+	if err := os.WriteFile(filepath.Join(filepath.Dir(repo), "herdsman.config.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	service := (&WorktreeService{}).forCaller(environ)
+	if _, err := service.Hook(ctx, WorktreeHookRequest{Dir: repo, Type: "pre-start", Approve: true}); err != nil {
+		t.Fatal(err)
+	}
+	made, err := sdk.Task.New(ctx, &daemonv1.TaskServiceNewRequest{Dir: repo, Task: "one", NoSetup: true, Environ: environ})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(made.GetPath(), "seen")); string(data) != "from-caller\n" {
+		t.Fatalf("%q", data)
+	}
+}
+
+func TestNewReportsAFailureAsARefusal(t *testing.T) {
+	sdk := dialHarness(t, newHarness(t))
+	_, environ := taskRepo(t)
+	_, err := sdk.Task.New(context.Background(), &daemonv1.TaskServiceNewRequest{Dir: "relative", Task: "one", Environ: environ})
+	var failure *rpc.Error
+	if !errors.As(err, &failure) || failure.Code != rpc.FailedPrecondition {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestLocalTaskServiceServesTheSameCalls(t *testing.T) {
+	repo, environ := taskRepo(t)
+	made, err := LocalTaskService().New(context.Background(), &daemonv1.TaskServiceNewRequest{Dir: repo, Task: "one", NoSetup: true, Environ: environ})
+	if err != nil || made.GetBranch() != "feat/one" {
+		t.Fatalf("%+v %v", made, err)
+	}
+}

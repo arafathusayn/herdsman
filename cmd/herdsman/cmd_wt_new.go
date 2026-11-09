@@ -3,12 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/arafathusayn/herdsman/sdk/client"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
 // worktreeCall serves the worktree verbs. It takes a method name and a JSON
@@ -28,13 +34,60 @@ exit codes:
   2  bad usage
 `
 
+type schemaField struct {
+	Version string `json:"version"`
+}
+
 type newResult struct {
-	Task     string   `json:"task"`
-	Branch   string   `json:"branch"`
-	Path     string   `json:"path"`
-	Port     int      `json:"port"`
-	Launch   string   `json:"launch"`
-	Warnings []string `json:"warnings"`
+	Schema    schemaField `json:"schema"`
+	Task      string      `json:"task"`
+	Branch    string      `json:"branch"`
+	Path      string      `json:"path"`
+	Base      string      `json:"base"`
+	Port      int32       `json:"port"`
+	Herdr     bool        `json:"herdr"`
+	Setup     []string    `json:"setup,omitempty"`
+	Launch    string      `json:"launch"`
+	Logs      []string    `json:"logs,omitempty"`
+	Warnings  []string    `json:"warnings,omitempty"`
+	AgentName string      `json:"agent_name,omitempty"`
+}
+
+// dialTask reaches the daemon through the SDK; tests replace it.
+var dialTask = func() (daemonv1.TaskService, func(), error) {
+	sdk, err := client.Dial(client.Options{})
+	if err != nil {
+		return nil, nil, err
+	}
+	return sdk.Task, sdk.Close, nil
+}
+
+// localTask serves the same contract in this process, for a machine where no
+// daemon runs or the running one is older than the call.
+var localTask daemonv1.TaskService
+
+// daemonAbsent says the call never reached a daemon that knows it, so nothing
+// happened and it is safe to serve the call here.
+func daemonAbsent(err error) bool {
+	var failure *rpc.Error
+	if errors.As(err, &failure) {
+		return failure.Code == rpc.Unimplemented
+	}
+	var dial *net.OpError
+	return errors.As(err, &dial) && dial.Op == "dial"
+}
+
+// callTask makes one call through the SDK.
+func callTask[Result any](call func(context.Context, daemonv1.TaskService) (Result, error)) (Result, error) {
+	ctx := context.Background()
+	if service, closeService, err := dialTask(); err == nil {
+		defer closeService()
+		result, err := call(ctx, service)
+		if err == nil || !daemonAbsent(err) {
+			return result, err
+		}
+	}
+	return call(ctx, localTask)
 }
 
 func init() {
@@ -104,17 +157,7 @@ func verbFlags(name string, stderr io.Writer) *flag.FlagSet {
 
 func runNew(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	fs := verbFlags("new", stderr)
-	var request struct {
-		Dir     string `json:"dir"`
-		Task    string `json:"task"`
-		Base    string `json:"base,omitempty"`
-		From    string `json:"from,omitempty"`
-		Type    string `json:"type,omitempty"`
-		Agent   string `json:"agent,omitempty"`
-		Prompt  string `json:"prompt,omitempty"`
-		NoSetup bool   `json:"no_setup,omitempty"`
-		Clobber bool   `json:"clobber,omitempty"`
-	}
+	request := &daemonv1.TaskServiceNewRequest{}
 	fs.StringVar(&request.Base, "base", "", "ref to branch from (default: the default branch)")
 	fs.StringVar(&request.From, "from", "", "start from a pull request, pr:<n>")
 	fs.StringVar(&request.Type, "type", "", "the branch's type prefix (default: feat)")
@@ -133,16 +176,25 @@ func runNew(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if request.Dir, err = workingFolder(); err != nil {
 		return fail(stderr, err)
 	}
-	data, err := callWorktree("New", request)
+	request.Environ = os.Environ()
+	response, err := callTask(func(ctx context.Context, service daemonv1.TaskService) (*daemonv1.TaskServiceNewResponse, error) {
+		return service.New(ctx, request)
+	})
 	if err != nil {
 		return fail(stderr, err)
 	}
-	var result newResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return fail(stderr, err)
+	result := newResult{
+		Schema: schemaField{Version: response.GetSchemaVersion()}, Task: response.GetTask(), Branch: response.GetBranch(),
+		Path: response.GetPath(), Base: response.GetBase(), Port: response.GetPort(), Herdr: response.GetHerdr(),
+		Setup: response.GetSetup(), Launch: response.GetLaunch(), Logs: response.GetLogs(),
+		Warnings: response.GetWarnings(), AgentName: response.GetAgentName(),
 	}
 	warn(stderr, result.Warnings)
 	if *asJSON {
+		data, err := json.Marshal(result)
+		if err != nil {
+			return fail(stderr, err)
+		}
 		fmt.Fprintln(stdout, string(data))
 		return 0
 	}

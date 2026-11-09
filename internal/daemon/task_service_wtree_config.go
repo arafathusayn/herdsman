@@ -107,7 +107,7 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 		return err
 	}
 	r.naming = wtree.DefaultNaming()
-	loaded, err := config.Load(config.Options{RepoRoot: r.main, UserDir: s.ConfigDir, ProjectKey: r.projectKey(ctx)})
+	loaded, err := config.Load(config.Options{RepoRoot: r.main, UserDir: s.ConfigDir, ProjectKey: r.projectKey(ctx), Environ: s.caller})
 	if err != nil {
 		if !hasJSON {
 			return err

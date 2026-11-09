@@ -37,6 +37,29 @@ type WorktreeService struct {
 	GH          string // Program for GitHub calls; empty means "gh".
 	Repo        string // owner/name; empty reads it from origin.
 	ConfigDir   string // Folder of the user's file; empty uses the standard one.
+
+	caller []string // The caller's environment; nil means this process's.
+}
+
+// forCaller is the service for a request from a process with this environment.
+func (s *WorktreeService) forCaller(environ []string) *WorktreeService {
+	served := *s
+	served.caller = environ
+	return &served
+}
+
+// getenv reads the caller's environment.
+func (s *WorktreeService) getenv(name string) string {
+	if s.caller == nil {
+		return os.Getenv(name)
+	}
+	prefix := name + "="
+	for _, entry := range s.caller {
+		if value, ok := strings.CutPrefix(entry, prefix); ok {
+			return value
+		}
+	}
+	return ""
 }
 
 // worktreeSchemaVersion is the version of the verbs' JSON. It only grows.
@@ -222,6 +245,8 @@ type repository struct {
 	dflt    string
 	hooks   hooks.Config
 	naming  wtree.Naming
+	route   string
+	environ []string
 	project string
 }
 
@@ -249,7 +274,7 @@ func (s *WorktreeService) open(ctx context.Context, dir string) (*repository, er
 	if err != nil {
 		return nil, err
 	}
-	repo := &repository{git: git, state: state, reader: reader, common: common, dir: dir}
+	repo := &repository{git: git, state: state, reader: reader, common: common, dir: dir, route: s.getenv("HERDSMAN_ROUTE"), environ: s.caller}
 	collector := wtree.Collector{Refs: reader, State: state, Git: git}
 	if repo.rows, err = collector.Skeleton(ctx); err != nil {
 		state.Close()
@@ -284,7 +309,7 @@ func (s *WorktreeService) approvals() (*hooks.Approvals, error) {
 	if s.Approvals != "" {
 		return &hooks.Approvals{Path: s.Approvals}, nil
 	}
-	base := os.Getenv("XDG_CONFIG_HOME")
+	base := s.getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -301,7 +326,7 @@ func (r *repository) vars(task, branch, path, kind, base, head string) wtree.Var
 	}
 	optional := map[string]string{
 		"branch": branch, "worktree_path": path, "base": base, "default_branch": r.dflt,
-		"route": os.Getenv("HERDSMAN_ROUTE"), "commit": head,
+		"route": r.route, "commit": head,
 	}
 	if path != "" {
 		optional["worktree_name"] = filepath.Base(path)
@@ -339,7 +364,7 @@ func (s *WorktreeService) plan(r *repository, hook string, vars wtree.Vars) (hoo
 }
 
 func (r *repository) runner(vars wtree.Vars, path string) *hooks.Runner {
-	return &hooks.Runner{LogDir: filepath.Join(r.common, wtree.StateFolder, "logs"), Dir: path, Env: hooks.Env{
+	return &hooks.Runner{LogDir: filepath.Join(r.common, wtree.StateFolder, "logs"), Dir: path, Environ: r.environ, Env: hooks.Env{
 		Task: vars.Values["task"], Branch: vars.Values["branch"], Worktree: path, Route: vars.Values["route"],
 	}}
 }
@@ -348,7 +373,12 @@ func (s *WorktreeService) herdrClient(ctx context.Context) *herdr.Client {
 	socket := s.HerdrSocket
 	if socket == "" {
 		var err error
-		if socket, err = herdr.SocketPath(""); err != nil {
+		if s.caller != nil {
+			socket, err = herdr.SocketPathFor(s.getenv)
+		} else {
+			socket, err = herdr.SocketPath("")
+		}
+		if err != nil {
 			return nil
 		}
 	}

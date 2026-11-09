@@ -40,7 +40,7 @@ func TestMCPToolsAreExactlyWhatTheDaemonServes(t *testing.T) {
 			t.Errorf("tool for %s, which the daemon does not serve", procedure)
 		}
 	}
-	withheld := []string{"Stream", "Shutdown", "Enroll", "ApprovePair", "RetirePair", "RevokeCredential", "ResetEvents", "Export", "Import"}
+	withheld := []string{"New", "Go", "Stream", "Shutdown", "Enroll", "ApprovePair", "RetirePair", "RevokeCredential", "ResetEvents", "Export", "Import"}
 	for _, procedure := range served {
 		if !slices.Contains(tools, procedure) && !slices.Contains(withheld, procedure[strings.LastIndex(procedure, "/")+1:]) {
 			t.Errorf("%s is served but has no tool and is not withheld", procedure)

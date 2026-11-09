@@ -22,6 +22,7 @@ func worktreeRepo(t *testing.T) string {
 	t.Setenv("HERDR_SESSION", "")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv("HERDSMAN_DIRECTIVE_FILE", "")
+	t.Setenv("HERDSMAN_STATE_DIR", filepath.Join(root, "state"))
 	os.MkdirAll(repo, 0o755)
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},

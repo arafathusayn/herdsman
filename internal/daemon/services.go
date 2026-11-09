@@ -14,7 +14,10 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
 	eventRPC := newEventService(d.hub, d.admitEvents, releaseContext)
 	name := daemonv1.MessageServiceName
+	tasks := &taskRPC{service: &WorktreeService{}}
 	return append(eventRPC.procedures(), []rpc.Procedure{
+		rpc.Unary(daemonv1.TaskServiceName, "New", tasks.New),
+		rpc.Unary(daemonv1.TaskServiceName, "Go", tasks.Go),
 		rpc.Unary(name, "Hello", m.Hello),
 		rpc.Unary(name, "Health", m.Health),
 		rpc.Unary(name, "Shutdown", m.Shutdown),

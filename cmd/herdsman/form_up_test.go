@@ -293,7 +293,8 @@ func TestVerbEntryPointsOpenTheirForms(t *testing.T) {
 }
 
 func TestFormFlagsParseBesideOtherArguments(t *testing.T) {
-	stubWorktree(t, map[string]string{"TeardownPlan": `{"plans":[]}`, "Go": `{"path":"/x"}`})
+	stubWorktree(t, map[string]string{"TeardownPlan": `{"plans":[]}`})
+	useTasks(t, &fakeTasks{}, &fakeTasks{}, nil)
 	for name, c := range map[string]struct {
 		run  func([]string, io.Reader, io.Writer, io.Writer) int
 		args []string

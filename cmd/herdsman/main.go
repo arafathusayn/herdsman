@@ -32,6 +32,7 @@ var cgoProbe func(stdout io.Writer) error
 // client exists.
 func init() {
 	worktreeCall = daemon.WorktreeCall
+	localTask = daemon.LocalTaskService()
 	importCall = daemon.ImportAccount
 }
 
