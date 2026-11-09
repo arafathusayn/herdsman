@@ -1065,7 +1065,7 @@
     {
       "name": "new",
       "summary": "Make a task's branch and worktree.",
-      "help": "usage: herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]\n                    [--clobber] [--agent <command>] [--json] [-- <prompt>]\n\nMakes the task's branch and worktree from the fetched base, then runs its hooks\nand setup.\n\nexit codes:\n  0  the worktree is ready\n  1  it could not be made, or a hook or the setup failed (the message says which)\n  2  bad usage\n",
+      "help": "usage: herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]\n                    [--clobber] [--agent <command>] [--integrator] [--json] [-- <prompt>]\n\nMakes the task's branch and worktree from the fetched base, then runs its hooks\nand setup.\n\nexit codes:\n  0  the worktree is ready\n  1  it could not be made, or a hook or the setup failed (the message says which)\n  2  bad usage\n",
       "usage": [
         "herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]"
       ],
@@ -1091,6 +1091,9 @@
         },
         {
           "name": "--from"
+        },
+        {
+          "name": "--integrator"
         },
         {
           "name": "--json"

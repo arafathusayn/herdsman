@@ -4,7 +4,7 @@ Make a task's branch and worktree.
 
 ```text
 usage: herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]
-                    [--clobber] [--agent <command>] [--json] [-- <prompt>]
+                    [--clobber] [--agent <command>] [--integrator] [--json] [-- <prompt>]
 
 Makes the task's branch and worktree from the fetched base, then runs its hooks
 and setup.
