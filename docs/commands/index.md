@@ -30,6 +30,7 @@ Generated from `herdsman spec cli`.
 - [`new`](new.md): Make a task's branch and worktree.
 - [`pause`](pause.md): Interrupt a route's agents and hold its channel; every pane stays open.
 - [`plugin`](plugin.md): Manage plugins (experimental).
+- [`project`](project.md): Work on a project's context repo: project context init|check|note, project log.
 - [`prune`](prune.md): Free integrated worktrees past a minimum age.
 - [`recommend`](recommend.md): The same as suggest.
 - [`resource`](resource.md): Record a resource a task created: resource add.

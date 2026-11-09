@@ -1401,6 +1401,132 @@
       ]
     },
     {
+      "name": "project",
+      "summary": "Work on a project's context repo: project context init|check|note, project log.",
+      "help": "usage: herdsman project context init|check|note|log ...\n       herdsman project log [--since <date>] [--task <task>] [--json]\n\nWork on the context repo of the project bound to this folder.\n\nexit codes:\n  0  done\n  1  check found problems, the daemon refused, or it is not running\n  2  bad usage\n",
+      "usage": [
+        "herdsman project context init|check|note|log ...",
+        "herdsman project log [--since <date>] [--task <task>] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--since",
+          "valueName": "date"
+        },
+        {
+          "name": "--task",
+          "valueName": "task"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "check found problems, the daemon refused, or it is not running"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "context",
+          "help": "usage: herdsman project context init\n       herdsman project context check\n       herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>\n       herdsman project context log [--since <date>] [--task <task>] [--json]\n\nRun inside a folder bound to a project.\n\ninit lays out the context repo and prints its folder.\ncheck validates the history and prints each problem.\nnote adds a note to the history and prints its id. Without --parent it joins\nevery open branch of the history.\nlog prints the history; it is the same command as herdsman project log.\n\nexit codes:\n  0  done; for check, the history is sound\n  1  check found problems, the daemon refused, or it is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman project context init",
+            "herdsman project context check",
+            "herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>",
+            "herdsman project context log [--since <date>] [--task <task>] [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "text"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--actor",
+              "valueName": "who"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--parent",
+              "valueName": "id"
+            },
+            {
+              "name": "--repo",
+              "valueName": "repo"
+            },
+            {
+              "name": "--since",
+              "valueName": "date"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done; for check, the history is sound"
+            },
+            {
+              "code": "1",
+              "meaning": "check found problems, the daemon refused, or it is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "log",
+          "help": "usage: herdsman project log [--since <date>] [--task <task>] [--json]\n\nPrint the history of the project bound to this folder, parents before\nchildren, then by time. --since takes YYYY-MM-DD (UTC) or an RFC 3339 time.\n\nexit codes:\n  0  printed\n  1  the daemon refused, or it is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman project log [--since <date>] [--task <task>] [--json]"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--since",
+              "valueName": "date"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "printed"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused, or it is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "prune",
       "summary": "Free integrated worktrees past a minimum age.",
       "help": "usage: herdsman prune [--min-age <duration>] [--dry-run] [--json]\n\nFrees integrated trees older than --min-age (default 1d; 12h and 3d both work).\nLocked, dirty and current trees, and tasks still running, are skipped.\n\nexit codes:\n  0  every eligible tree was freed\n  1  a tree could not be freed\n  2  bad usage\n",
