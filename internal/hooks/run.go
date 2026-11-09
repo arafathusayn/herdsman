@@ -57,7 +57,7 @@ func (r *Runner) Run(ctx context.Context, hook string, plan Plan) (Result, error
 	return r.execute(ctx, hook, plan, folder)
 }
 
-// execute runs the plan with its logs and result in folder.
+// execute runs a plan with its logs and result in folder.
 func (r *Runner) execute(ctx context.Context, hook string, plan Plan, folder string) (Result, error) {
 	result := Result{Hook: hook, Task: r.Env.Task, OK: true, File: filepath.Join(folder, "result.json")}
 	var failure error
@@ -126,7 +126,7 @@ func (r *Runner) runOne(ctx context.Context, hook string, command Planned, logPa
 }
 
 // Start runs the plan in its own session and returns without waiting, so the
-// commands outlive this process. A detached copy of this program runs the plan
+// commands outlive this process. A detached copy of this program runs that plan
 // exactly as Run does: same order, per-command limits and result file.
 func (r *Runner) Start(hook string, plan Plan) ([]string, error) {
 	if len(plan) == 0 {

@@ -16,7 +16,7 @@ import (
 	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 )
 
-// setupHook is the plan name of the configured install command, which needs
+// setupHook names the configured install command in a hook list, which needs
 // the same approval as a hook.
 const setupHook = "setup"
 
