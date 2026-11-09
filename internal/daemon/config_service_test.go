@@ -361,6 +361,31 @@ func TestHooksLoadFromEveryFormat(t *testing.T) {
 	})
 }
 
+func TestDetectedInstallIsNotAConfiguredHook(t *testing.T) {
+	folder := t.TempDir()
+	mustWrite(t, filepath.Join(folder, "repo", "bun.lock"), "{}\n")
+	r, err := settingsIn(t, folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if steps := r.hooks[setupHook]; len(steps) != 0 {
+		t.Fatalf("a detected install asks for approval: %+v", steps)
+	}
+}
+
+func TestConfiguredInstallStaysAHook(t *testing.T) {
+	folder := t.TempDir()
+	mustWrite(t, filepath.Join(folder, "repo", "bun.lock"), "{}\n")
+	mustWrite(t, filepath.Join(folder, "herdsman.config.toml"), "[setup]\ninstall = \"make deps\"\n")
+	r, err := settingsIn(t, folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if steps := r.hooks[setupHook]; len(steps) != 1 || steps[0][0].Template != "make deps" {
+		t.Fatalf("%+v", steps)
+	}
+}
+
 func TestTwoConfigFilesStopHookLoading(t *testing.T) {
 	folder := t.TempDir()
 	for _, name := range []string{"herdsman.config.toml", "herdsman.config.json"} {

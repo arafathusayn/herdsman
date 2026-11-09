@@ -135,7 +135,10 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 	if name := loaded.Config.GetBranch().GetName(); name != "" {
 		r.naming.BranchName = name
 	}
-	if install := strings.TrimSpace(loaded.Config.GetSetup().GetInstall()); install != "" {
+	// A command only detected from the repository's files comes back as a
+	// default. setupPlan offers it; only one a person wrote is a hook to approve.
+	install := strings.TrimSpace(loaded.Config.GetSetup().GetInstall())
+	if install != "" && loaded.Sources["setup.install"] != config.SourceDefault {
 		if r.hooks == nil {
 			r.hooks = hooks.Config{}
 		}
