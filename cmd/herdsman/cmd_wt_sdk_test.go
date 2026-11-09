@@ -93,3 +93,35 @@ func TestVerbsWorkWithNoDaemonListening(t *testing.T) {
 		t.Fatalf("%d %q %q", code, out, stderr)
 	}
 }
+
+func TestFullTableShowsTheCellsAndASummary(t *testing.T) {
+	worktreeRepo(t)
+	call(t, "new", "one", "--no-setup")
+	out, _, code := call(t, "ls", "--full")
+	if code != 0 {
+		t.Fatal(code)
+	}
+	for _, want := range []string{"REMOTE", "AGENT", "PR", "CI", "REVIEW", "PORTS", "CONTAINERS", "DISK", "AGE", "2 worktrees"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %s in %q", want, out)
+		}
+	}
+}
+
+func TestTerminalListPaintsTheSkeletonThenReplacesIt(t *testing.T) {
+	worktreeRepo(t)
+	original := stdoutIsTerminal
+	defer func() { stdoutIsTerminal = original }()
+	stdoutIsTerminal = func(any) bool { return true }
+	out, _, code := call(t, "ls")
+	if code != 0 || strings.Count(out, "TASK") != 2 || !strings.Contains(out, "\x1b[2A\x1b[J") {
+		t.Fatalf("%d %q", code, out)
+	}
+}
+
+func TestPipedListPrintsOneTable(t *testing.T) {
+	worktreeRepo(t)
+	if out, _, _ := call(t, "ls"); strings.Count(out, "TASK") != 1 || strings.Contains(out, "\x1b[") {
+		t.Fatalf("%q", out)
+	}
+}

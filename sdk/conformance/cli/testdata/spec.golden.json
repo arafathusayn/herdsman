@@ -653,7 +653,7 @@
     {
       "name": "ls",
       "summary": "List the repository's worktrees.",
-      "help": "usage: herdsman ls [--full] [--all] [--json]\n       herdsman ls --statusline [--format text|json|claude-code]\n\nPrints one row per worktree of the repository. --all adds branches without a\ntree, --full adds the commit and path. The JSON form is for scripts:\n\n  herdsman ls --json | jq -r '.rows[] | select(.status != \"\") | .task'\n\nexit codes:\n  0  printed\n  1  the table could not be read\n  2  bad usage\n",
+      "help": "usage: herdsman ls [--full] [--all] [--json]\n       herdsman ls --statusline [--format text|json|claude-code]\n\nPrints one row per worktree of the repository. --all adds branches without a\ntree, --full adds the commit, path and every other cell. The JSON form is for scripts:\n\n  herdsman ls --json | jq -r '.rows[] | select(.status != \"\") | .task'\n\nexit codes:\n  0  printed\n  1  the table could not be read\n  2  bad usage\n",
       "usage": [
         "herdsman ls [--full] [--all] [--json]",
         "herdsman ls --statusline [--format text|json|claude-code]"

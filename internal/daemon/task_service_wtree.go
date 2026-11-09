@@ -115,6 +115,8 @@ type WorktreeListRequest struct {
 	Dir        string `json:"dir"`
 	All        bool   `json:"all,omitempty"`
 	Statusline bool   `json:"statusline,omitempty"`
+	Full       bool   `json:"full,omitempty"`     // Add the slow cells and a summary.
+	Skeleton   bool   `json:"skeleton,omitempty"` // Names only, without collecting.
 }
 
 // WorktreeRow is one line of the table. Path is empty for a branch with no tree.
@@ -133,13 +135,33 @@ type WorktreeRow struct {
 	Main       bool   `json:"main"`
 	Default    bool   `json:"default"`
 	Error      string `json:"error,omitempty"`
+	// The cells of a full list.
+	Remote       string `json:"remote,omitempty"`
+	RemoteAhead  int    `json:"remote_ahead,omitempty"`
+	RemoteBehind int    `json:"remote_behind,omitempty"`
+	Agent        string `json:"agent,omitempty"`
+	PR           int    `json:"pr,omitempty"`
+	Review       string `json:"review,omitempty"`
+	CI           string `json:"ci,omitempty"`
+	Port         int    `json:"port,omitempty"`
+	PortsHeld    int    `json:"ports_held,omitempty"`
+	Containers   int    `json:"containers,omitempty"`
+	DiskBytes    int64  `json:"disk_bytes,omitempty"`
+}
+
+// WorktreeListSummary is the line under a full table.
+type WorktreeListSummary struct {
+	Worktrees int `json:"worktrees"`
+	Dirty     int `json:"dirty"`
 }
 
 // WorktreeListResponse is the table, or one line of it for a status bar.
 type WorktreeListResponse struct {
 	versioned
-	Rows       []WorktreeRow `json:"rows"`
-	Statusline string        `json:"statusline,omitempty"`
+	Rows       []WorktreeRow       `json:"rows"`
+	Statusline string              `json:"statusline,omitempty"`
+	Summary    WorktreeListSummary `json:"summary,omitzero"`
+	Warnings   []string            `json:"warnings,omitempty"`
 }
 
 // WorktreeGoRequest asks where a selector leads.
@@ -704,12 +726,21 @@ func (s *WorktreeService) List(ctx context.Context, req WorktreeListRequest) (Wo
 		return resp, err
 	}
 	defer r.close()
+	if req.Skeleton {
+		for _, row := range r.rows {
+			resp.Rows = append(resp.Rows, tableRow(row))
+		}
+		return resp, nil
+	}
 	collector := wtree.Collector{Refs: r.reader, State: r.state, Git: r.git}
 	if err := collector.Fill(ctx, r.rows, nil); err != nil {
 		return resp, err
 	}
 	for _, row := range r.rows {
 		resp.Rows = append(resp.Rows, tableRow(row))
+	}
+	if req.Full {
+		s.fillFull(ctx, r, &resp)
 	}
 	if req.Statusline {
 		current, err := wtree.ResolveSelector(wtree.Selector{Kind: wtree.SelectCurrent}, r.selectContext(""))
