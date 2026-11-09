@@ -12,10 +12,10 @@ func TestAgentCommandKeepsQuotedWords(t *testing.T) {
 	for input, want := range map[string][]string{
 		`claude`: {"claude"},
 		`claude --append-system-prompt "follow two rules"`: {"claude", "--append-system-prompt", "follow two rules"},
-		`codex -c 'a b' x\ y`: {"codex", "-c", "a b", "x y"},
-		`pi "say \"hi\""`:     {"pi", `say "hi"`},
-		`pi ""`:               {"pi", ""},
-		"  ":                  nil,
+		`codex -c 'a b' x\ y`:                              {"codex", "-c", "a b", "x y"},
+		`pi "say \"hi\""`:                                  {"pi", `say "hi"`},
+		`pi ""`:                                            {"pi", ""},
+		"  ":                                               nil,
 	} {
 		got, err := splitAgentCommand(input)
 		if err != nil || !slices.Equal(got, want) {
