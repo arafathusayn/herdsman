@@ -141,17 +141,13 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 
 // setupPlan is the configured install command, or what the worktree's files
 // suggest when none is configured.
-func (s *WorktreeService) setupPlan(r *repository, vars wtree.Vars, path string) (hooks.Plan, []string, error) {
+func (s *WorktreeService) setupPlan(r *repository, vars wtree.Vars, detected wtree.Plan) (hooks.Plan, []string, error) {
 	if len(r.hooks[setupHook]) > 0 {
 		plan, err := s.plan(r, setupHook, vars)
 		if err != nil {
 			return nil, nil, err
 		}
 		return plan, []string{plan[0][0].Rendered}, nil
-	}
-	detected, err := wtree.Detect(path)
-	if err != nil {
-		return nil, nil, err
 	}
 	var plan hooks.Plan
 	for _, install := range detected.Install {
