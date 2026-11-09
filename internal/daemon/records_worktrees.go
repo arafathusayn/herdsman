@@ -12,15 +12,15 @@ import (
 	"github.com/arafathusayn/herdsman/internal/project"
 )
 
-// linkedTree is a worktree other than the repository's own.
-type linkedTree struct {
+// recordWorktree is a worktree other than the repository's own.
+type recordWorktree struct {
 	path   string
 	branch string
 }
 
-// linkedTrees reads git's list and nothing else: unlike the worktree service
+// recordWorktrees reads git's list and nothing else: unlike the worktree service
 // it opens no state, so it is safe on a daemon that may not write.
-func linkedTrees(dir string) ([]linkedTree, error) {
+func recordWorktrees(dir string) ([]recordWorktree, error) {
 	result, err := (&gitrun.Runner{}).Run(context.Background(), dir, "worktree", "list", "--porcelain")
 	if err != nil {
 		var exit *gitrun.ExitError
@@ -29,10 +29,10 @@ func linkedTrees(dir string) ([]linkedTree, error) {
 		}
 		return nil, err
 	}
-	var out []linkedTree
+	var out []recordWorktree
 	blocks := strings.Split(strings.TrimSpace(string(result.Stdout)), "\n\n")
 	for _, block := range blocks[1:] { // The first is the repository itself.
-		var tree linkedTree
+		var tree recordWorktree
 		for line := range strings.SplitSeq(block, "\n") {
 			if path, ok := strings.CutPrefix(line, "worktree "); ok {
 				tree.path = path
@@ -56,7 +56,7 @@ func taskAt(folder string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	trees, err := linkedTrees(canon)
+	trees, err := recordWorktrees(canon)
 	if err != nil {
 		return "", false, err
 	}
@@ -83,7 +83,7 @@ func refuseLiveWorktrees(store *project.Store, t *project.Task) error {
 		if _, err := os.Stat(r.Path); errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		trees, err := linkedTrees(r.Path)
+		trees, err := recordWorktrees(r.Path)
 		if err != nil {
 			return fmt.Errorf("%w: cannot look for worktrees of task %s in %s: %v", project.ErrRefused, t.Slug, r.Name, err)
 		}
