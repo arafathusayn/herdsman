@@ -9,7 +9,9 @@ export interface LaunchFields {
   repo: string;
   prompt: string;
   adjutant: string;
+  adjutantKind: string;
   orchestrator: string;
+  orchestratorKind: string;
   noAdjutant: boolean;
 }
 
@@ -19,9 +21,12 @@ function shellWord(word: string): string {
 
 /** The terminal command that starts what the form holds. */
 export function launchCommand(fields: LaunchFields): string {
-  const adjutant = fields.noAdjutant ? "--no-adjutant" : `-a ${shellWord(fields.adjutant.trim())}`;
+  const adjutant = fields.noAdjutant
+    ? "--no-adjutant"
+    : `-a ${shellWord(fields.adjutant.trim())} --adjutant-kind ${shellWord(fields.adjutantKind.trim())}`;
+  const orchestrator = `-o ${shellWord(fields.orchestrator.trim())} --orchestrator-kind ${shellWord(fields.orchestratorKind.trim())}`;
   const up = `herdsman up ${shellWord(fields.route.trim())} -p ${shellWord(fields.prompt)}`;
-  return `cd ${shellWord(fields.repo.trim())} && ${up} ${adjutant} -o ${shellWord(fields.orchestrator.trim())}`;
+  return `cd ${shellWord(fields.repo.trim())} && ${up} ${adjutant} ${orchestrator}`;
 }
 
 /** The start request for what the form holds. */
@@ -31,7 +36,10 @@ export function launchRequest(fields: LaunchFields): UpRequest {
     repo: fields.repo.trim(),
     prompt: fields.prompt,
     orchestratorCommand: fields.orchestrator.trim(),
-    ...(fields.noAdjutant ? { noAdjutant: true } : { adjutantCommand: fields.adjutant.trim() }),
+    orchestratorKind: fields.orchestratorKind.trim(),
+    ...(fields.noAdjutant
+      ? { noAdjutant: true }
+      : { adjutantCommand: fields.adjutant.trim(), adjutantKind: fields.adjutantKind.trim() }),
   };
 }
 
@@ -40,7 +48,9 @@ export function NewRoutePage() {
   const [repo, setRepo] = signal("");
   const [prompt, setPrompt] = signal("");
   const [adjutant, setAdjutant] = signal("");
+  const [adjutantKind, setAdjutantKind] = signal("");
   const [orchestrator, setOrchestrator] = signal("");
+  const [orchestratorKind, setOrchestratorKind] = signal("");
   const [noAdjutant, setNoAdjutant] = signal(false);
   const [plan, setPlan] = signal<RouteStart | null>(null);
   const [problem, setProblem] = signal("");
@@ -63,11 +73,17 @@ export function NewRoutePage() {
     repo: repo(),
     prompt: prompt(),
     adjutant: adjutant(),
+    adjutantKind: adjutantKind(),
     orchestrator: orchestrator(),
+    orchestratorKind: orchestratorKind(),
     noAdjutant: noAdjutant(),
   });
   const ready = () =>
-    !!route().trim() && !!repo().trim() && !!orchestrator().trim() && (noAdjutant() || !!adjutant().trim());
+    !!route().trim() &&
+    !!repo().trim() &&
+    !!orchestrator().trim() &&
+    !!orchestratorKind().trim() &&
+    (noAdjutant() || (!!adjutant().trim() && !!adjutantKind().trim()));
 
   const preview = async () => {
     invalidate();
@@ -105,6 +121,10 @@ export function NewRoutePage() {
           Orchestrator launch command
           <input required value={orchestrator()} onInput={edit(setOrchestrator)} />
         </label>
+        <label class="field">
+          Orchestrator kind
+          <input required placeholder="codex" value={orchestratorKind()} onInput={edit(setOrchestratorKind)} />
+        </label>
         <label class="page-check page-wide">
           <input
             type="checkbox"
@@ -120,6 +140,10 @@ export function NewRoutePage() {
           <label class="field page-wide">
             Adjutant launch command
             <input required value={adjutant()} onInput={edit(setAdjutant)} />
+          </label>
+          <label class="field">
+            Adjutant kind
+            <input required placeholder="claude" value={adjutantKind()} onInput={edit(setAdjutantKind)} />
           </label>
         </Show>
         <label class="field page-wide">

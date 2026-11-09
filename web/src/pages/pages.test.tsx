@@ -211,14 +211,51 @@ test("suggestions adds an entry", async () => {
   await settle();
   const form = all(root, "form")[1]!;
   fill(all(form, "input")[0]!, "Formatter");
+  fill(all(form, "input")[1]!, " go, format ,, ");
   fill(all(form, "textarea")[0]!, "notes");
   dispatch(form, "submit");
   await settle();
   expect(calls.find((call) => call.path.endsWith("/Add"))?.body).toEqual({
-    kind: "tool",
+    kind: "tip",
     title: "Formatter",
+    tags: ["go", "format"],
     body: "notes",
   });
+});
+
+test("suggestions offers only the kinds the catalog accepts", async () => {
+  daemon({ "suggest.v1.SuggestService/Search": { items: [] } });
+  const root = await render("suggestions");
+  dispatch(
+    all(root, "button").find((button) => text(button) === "Add an entry")!,
+    "click",
+  );
+  await settle();
+  const form = all(root, "form")[1]!;
+  expect(all(all(form, "select")[0]!, "option").map(text)).toEqual(["tip", "mcp", "skill", "plugin", "mod", "repo"]);
+});
+
+test("suggestions waits for a tag before saving", async () => {
+  daemon({ "suggest.v1.SuggestService/Search": { items: [] } });
+  const root = await render("suggestions");
+  dispatch(
+    all(root, "button").find((button) => text(button) === "Add an entry")!,
+    "click",
+  );
+  await settle();
+  const form = all(root, "form")[1]!;
+  fill(all(form, "input")[0]!, "Formatter");
+  await settle();
+  const save = all(form, "button").find((button) => text(button) === "Save entry")!;
+  expect(save.getAttribute("disabled") !== null || (save as unknown as { disabled?: boolean }).disabled === true).toBe(
+    true,
+  );
+  fill(all(form, "input")[1]!, " , ");
+  fill(all(form, "textarea")[0]!, "notes");
+  await settle();
+  expect(save.getAttribute("disabled") !== null || (save as unknown as { disabled?: boolean }).disabled === true).toBe(
+    true,
+  );
 });
 
 test("route starts lists each start with its steps and names the missing controls", async () => {
@@ -287,7 +324,9 @@ test("launchRequest trims and leaves out the adjutant when there is none", () =>
     repo: " /x ",
     prompt: " go ",
     adjutant: " a ",
+    adjutantKind: " ak ",
     orchestrator: " o ",
+    orchestratorKind: " ok ",
     noAdjutant: false,
   };
   expect(launchRequest(fields)).toEqual({
@@ -295,13 +334,16 @@ test("launchRequest trims and leaves out the adjutant when there is none", () =>
     repo: "/x",
     prompt: " go ",
     orchestratorCommand: "o",
+    orchestratorKind: "ok",
     adjutantCommand: "a",
+    adjutantKind: "ak",
   });
   expect(launchRequest({ ...fields, noAdjutant: true })).toEqual({
     route: { value: "r" },
     repo: "/x",
     prompt: " go ",
     orchestratorCommand: "o",
+    orchestratorKind: "ok",
     noAdjutant: true,
   });
 });
@@ -324,7 +366,7 @@ function launchInputs(root: FakeElement): FakeElement[] {
   return all(root, "input").filter((input) => input.getAttribute("type") !== "checkbox");
 }
 async function fillAndPreview(root: FakeElement): Promise<void> {
-  ["r", "/x", "orch", "adj"].forEach((value, i) => fill(launchInputs(root)[i]!, value));
+  ["r", "/x", "orch", "codex", "adj", "claude"].forEach((value, i) => fill(launchInputs(root)[i]!, value));
   dispatch(all(root, "form")[0]!, "submit");
   await settle();
 }
@@ -333,7 +375,12 @@ test("new route shows the preview, and an edit takes it away", async () => {
   const calls = daemon({ "daemon.v1.RouteService/Up": planned("step one") });
   const root = await render("new-route");
   await fillAndPreview(root);
-  expect(calls[0]?.body).toMatchObject({ route: { value: "r" }, dryRun: true });
+  expect(calls[0]?.body).toMatchObject({
+    route: { value: "r" },
+    dryRun: true,
+    orchestratorKind: "codex",
+    adjutantKind: "claude",
+  });
   expect(text(root)).toContain("step one");
   fill(launchInputs(root)[0]!, "changed");
   await settle();
@@ -391,7 +438,9 @@ test("new route never asks the daemon for a real start, and says where to start 
   expect(all(root, "button").map(text)).toEqual(["Preview"]);
   expect(calls.every((call) => (call.body as { dryRun?: boolean }).dryRun === true)).toBe(true);
   expect(text(root)).toContain("A browser cannot start a route");
-  expect(text(root)).toContain("cd /x && herdsman up r -p '' -a adj -o orch");
+  expect(text(root)).toContain(
+    "cd /x && herdsman up r -p '' -a adj --adjutant-kind claude -o orch --orchestrator-kind codex",
+  );
 });
 
 test("launchCommand quotes what the shell would read", () => {
@@ -400,12 +449,16 @@ test("launchCommand quotes what the shell would read", () => {
     repo: "/my repo",
     prompt: "it's $HOME",
     adjutant: "claude --x",
+    adjutantKind: "claude",
     orchestrator: "codex",
+    orchestratorKind: "codex",
     noAdjutant: false,
   };
-  expect(launchCommand(fields)).toBe("cd '/my repo' && herdsman up r -p 'it'\\''s $HOME' -a 'claude --x' -o codex");
+  expect(launchCommand(fields)).toBe(
+    "cd '/my repo' && herdsman up r -p 'it'\\''s $HOME' -a 'claude --x' --adjutant-kind claude -o codex --orchestrator-kind codex",
+  );
   expect(launchCommand({ ...fields, noAdjutant: true })).toBe(
-    "cd '/my repo' && herdsman up r -p 'it'\\''s $HOME' --no-adjutant -o codex",
+    "cd '/my repo' && herdsman up r -p 'it'\\''s $HOME' --no-adjutant -o codex --orchestrator-kind codex",
   );
 });
 
@@ -417,8 +470,8 @@ test("new route can run without an adjutant", async () => {
   dispatch(box, "change");
   await settle();
   const inputs = all(root, "input").filter((input) => input.getAttribute("type") !== "checkbox");
-  expect(inputs.length).toBe(3);
-  ["r", "/x", "orch"].forEach((value, i) => fill(inputs[i]!, value));
+  expect(inputs.length).toBe(4);
+  ["r", "/x", "orch", "codex"].forEach((value, i) => fill(inputs[i]!, value));
   dispatch(all(root, "form")[0]!, "submit");
   await settle();
   expect(calls[0]?.body).toMatchObject({ noAdjutant: true });

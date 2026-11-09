@@ -4,6 +4,16 @@ import { Markdown } from "../../markdown.tsx";
 import { explain, services } from "../../sdk/index.ts";
 import { Async, Failure, fieldValue, load, PageFrame } from "../load.tsx";
 
+// The catalog's kinds; the daemon refuses any other.
+const kinds = ["tip", "mcp", "skill", "plugin", "mod", "repo"];
+
+function tagsOf(text: string): string[] {
+  return text
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
 export function SuggestionsPage() {
   const [text, setText] = signal("");
   const state = load(() => services().suggest.search({ text: text().trim() }));
@@ -12,7 +22,8 @@ export function SuggestionsPage() {
   const [bodyError, setBodyError] = signal<unknown>(undefined);
   const [adding, setAdding] = signal(false);
   const [title, setTitle] = signal("");
-  const [kind, setKind] = signal("tool");
+  const [kind, setKind] = signal(kinds[0] as string);
+  const [tags, setTags] = signal("");
   const [draft, setDraft] = signal("");
   const [problem, setProblem] = signal("");
 
@@ -32,8 +43,9 @@ export function SuggestionsPage() {
     event.preventDefault();
     setProblem("");
     try {
-      await services().suggest.add({ kind: kind().trim(), title: title().trim(), body: draft() });
+      await services().suggest.add({ kind: kind(), title: title().trim(), tags: tagsOf(tags()), body: draft() });
       setTitle("");
+      setTags("");
       setDraft("");
       setAdding(false);
       await state.reload();
@@ -76,13 +88,29 @@ export function SuggestionsPage() {
           </label>
           <label class="field">
             Kind
-            <input required value={kind()} onInput={(event) => setKind(fieldValue(event))} />
+            <select onChange={(event) => setKind(fieldValue(event))}>
+              <For each={kinds} key={(name) => name}>
+                {(name) => (
+                  <option value={name} selected={name === kind()}>
+                    {name}
+                  </option>
+                )}
+              </For>
+            </select>
+          </label>
+          <label class="field">
+            Tags, separated by commas
+            <input required value={tags()} onInput={(event) => setTags(fieldValue(event))} />
           </label>
           <label class="field page-wide">
             Notes, in Markdown
-            <textarea rows={5} defaultValue={draft()} onInput={(event) => setDraft(fieldValue(event))} />
+            <textarea required rows={5} defaultValue={draft()} onInput={(event) => setDraft(fieldValue(event))} />
           </label>
-          <button class="btn primary" type="submit" disabled={!title().trim() || !kind().trim()}>
+          <button
+            class="btn primary"
+            type="submit"
+            disabled={!title().trim() || tagsOf(tags()).length === 0 || !draft().trim()}
+          >
             Save entry
           </button>
           <Show when={problem()}>
