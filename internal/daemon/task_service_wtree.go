@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/cow"
 	"github.com/arafathusayn/herdsman/internal/gitrefs"
 	"github.com/arafathusayn/herdsman/internal/gitrun"
 	"github.com/arafathusayn/herdsman/internal/herdr"
@@ -495,6 +496,26 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	return resp, nil
 }
 
+// shareIgnored brings one ignored folder over from the main tree, sharing its
+// blocks where the file system can. It leaves alone a folder the checkout made
+// and one that is not ignored, which may be someone's work. A cache that did
+// not come over only makes the install slower, so that is a warning.
+func (r *repository) shareIgnored(ctx context.Context, folder string, resp *WorktreeNewResponse) {
+	src, dst := filepath.Join(r.main, folder), filepath.Join(resp.Path, folder)
+	if _, err := os.Lstat(src); err != nil {
+		return
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		return
+	}
+	if _, err := r.git.Run(ctx, r.main, "check-ignore", "-q", folder); err != nil {
+		return
+	}
+	if _, err := cow.Clone(src, dst); err != nil {
+		resp.Warnings = append(resp.Warnings, fmt.Sprintf("could not bring %s over: %v", folder, err))
+	}
+}
+
 func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req WorktreeNewRequest, vars wtree.Vars, before, after hooks.Plan, resp *WorktreeNewResponse) error {
 	runner := r.runner(vars, resp.Path)
 	if _, err := runner.Run(ctx, "pre-start", before); err != nil {
@@ -504,6 +525,9 @@ func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req Work
 		detected, err := wtree.Detect(resp.Path)
 		if err != nil {
 			return err
+		}
+		for _, folder := range detected.Share {
+			r.shareIgnored(ctx, folder, resp)
 		}
 		var setup hooks.Plan
 		for _, install := range detected.Install {
