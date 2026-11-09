@@ -474,10 +474,28 @@ func clearBinding(files *fileEdits, folder, id string) error {
 	return files.add(path, text, true, updated)
 }
 
+// tempFile is the part of a temporary file replaceFile uses.
+type tempFile interface {
+	Name() string
+	Chmod(os.FileMode) error
+	WriteString(string) (int, error)
+	Sync() error
+	Close() error
+}
+
+// createTemp makes the temporary file; tests replace it to fail a disk call.
+var createTemp = func(dir, pattern string) (tempFile, error) {
+	f, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
 // replaceFile swaps the content in by rename, so a crash leaves the old file
 // or the new one and never half of either.
 func replaceFile(path, text string, mode os.FileMode) (err error) {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".herdsman-config-*")
+	tmp, err := createTemp(filepath.Dir(path), ".herdsman-config-*")
 	if err != nil {
 		return err
 	}
