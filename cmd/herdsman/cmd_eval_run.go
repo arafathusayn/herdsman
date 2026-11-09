@@ -18,7 +18,7 @@ import (
 	tracev1 "github.com/arafathusayn/herdsman/sdk/trace/v1"
 )
 
-// evalSuiteFile describes a golden task set inside a suite folder.
+// evalSuiteFile names the tasks and arms of a suite, inside its folder.
 const evalSuiteFile = "suite.json"
 
 const defaultEvalTimeout = 30 * time.Minute
