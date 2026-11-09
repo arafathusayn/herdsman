@@ -90,6 +90,7 @@ var inspectReads = map[string]bool{
 	"ListRoutes": true, "Status": true, "GetSetup": true, "Authority": true, "Wait": true, "Stream": true,
 	"Get": true, "List": true, "Search": true, "Plan": true, "Sources": true, "Records": true,
 	"Show": true, "Validate": true,
+	"ContextCheck": true, "Log": true,
 }
 
 // inspectProcedures are reads whose short name another service uses for a

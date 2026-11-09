@@ -14,6 +14,7 @@ usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]
 would type them: "claude doctor && claude --model opus".
 --dry-run prints the whole plan and starts nothing.
 --web also starts the web app on the route.
---pair manual asks on the terminal before the pair is approved.
+--pair manual asks on the terminal before the pair is approved. Under the
+restricted profile it is the default and auto is refused.
 A second up on the same route picks up where the first stopped.
 ```

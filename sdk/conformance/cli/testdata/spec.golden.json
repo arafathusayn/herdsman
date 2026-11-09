@@ -1172,7 +1172,7 @@
     {
       "name": "new",
       "summary": "Make a task's branch and worktree.",
-      "help": "usage: herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]\n                    [--clobber] [--agent <command>] [--json] [-- <prompt>]\n\nMakes the task's branch and worktree from the fetched base, then runs its hooks\nand setup.\n\nexit codes:\n  0  the worktree is ready\n  1  it could not be made, or a hook or the setup failed (the message says which)\n  2  bad usage\n",
+      "help": "usage: herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]\n                    [--clobber] [--agent <command>] [--integrator] [--json] [-- <prompt>]\n\nMakes the task's branch and worktree from the fetched base, then runs its hooks\nand setup.\n\nexit codes:\n  0  the worktree is ready\n  1  it could not be made, or a hook or the setup failed (the message says which)\n  2  bad usage\n",
       "usage": [
         "herdsman new <task> [--base <ref>] [--from pr:<n>] [--type <type>] [--no-setup]"
       ],
@@ -1198,6 +1198,9 @@
         },
         {
           "name": "--from"
+        },
+        {
+          "name": "--integrator"
         },
         {
           "name": "--json"
@@ -1278,6 +1281,132 @@
         {
           "code": "2",
           "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "project",
+      "summary": "Work on a project's context repo: project context init|check|note, project log.",
+      "help": "usage: herdsman project context init|check|note|log ...\n       herdsman project log [--since <date>] [--task <task>] [--json]\n\nWork on the context repo of the project bound to this folder.\n\nexit codes:\n  0  done\n  1  check found problems, the daemon refused, or it is not running\n  2  bad usage\n",
+      "usage": [
+        "herdsman project context init|check|note|log ...",
+        "herdsman project log [--since <date>] [--task <task>] [--json]"
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--since",
+          "valueName": "date"
+        },
+        {
+          "name": "--task",
+          "valueName": "task"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "check found problems, the daemon refused, or it is not running"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "context",
+          "help": "usage: herdsman project context init\n       herdsman project context check\n       herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>\n       herdsman project context log [--since <date>] [--task <task>] [--json]\n\nRun inside a folder bound to a project.\n\ninit lays out the context repo and prints its folder.\ncheck validates the history and prints each problem.\nnote adds a note to the history and prints its id. Without --parent it joins\nevery open branch of the history.\nlog prints the history; it is the same command as herdsman project log.\n\nexit codes:\n  0  done; for check, the history is sound\n  1  check found problems, the daemon refused, or it is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman project context init",
+            "herdsman project context check",
+            "herdsman project context note --actor <who> [--task <task>] [--repo <repo>]... [--parent <id>]... <text>",
+            "herdsman project context log [--since <date>] [--task <task>] [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "text"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--actor",
+              "valueName": "who"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--parent",
+              "valueName": "id"
+            },
+            {
+              "name": "--repo",
+              "valueName": "repo"
+            },
+            {
+              "name": "--since",
+              "valueName": "date"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "done; for check, the history is sound"
+            },
+            {
+              "code": "1",
+              "meaning": "check found problems, the daemon refused, or it is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "log",
+          "help": "usage: herdsman project log [--since <date>] [--task <task>] [--json]\n\nPrint the history of the project bound to this folder, parents before\nchildren, then by time. --since takes YYYY-MM-DD (UTC) or an RFC 3339 time.\n\nexit codes:\n  0  printed\n  1  the daemon refused, or it is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman project log [--since <date>] [--task <task>] [--json]"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--since",
+              "valueName": "date"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "printed"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused, or it is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
         }
       ]
     },
@@ -2016,7 +2145,7 @@
     {
       "name": "up",
       "summary": "Start a route: workspace, private inbox, both coordinators, the pair and the first brief.",
-      "help": "usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]\n                   [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]\n                   [--pair auto|manual] [--web] [--no-attach] [--dry-run]\n       herdsman up [<route>] --continue [--step <n>=done|rerun]...\n\n-a and -o are the commands that launch each coordinator's harness, typed as you\nwould type them: \"claude doctor && claude --model opus\".\n--dry-run prints the whole plan and starts nothing.\n--web also starts the web app on the route.\n--pair manual asks on the terminal before the pair is approved.\nA second up on the same route picks up where the first stopped.\n",
+      "help": "usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]\n                   [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]\n                   [--pair auto|manual] [--web] [--no-attach] [--dry-run]\n       herdsman up [<route>] --continue [--step <n>=done|rerun]...\n\n-a and -o are the commands that launch each coordinator's harness, typed as you\nwould type them: \"claude doctor && claude --model opus\".\n--dry-run prints the whole plan and starts nothing.\n--web also starts the web app on the route.\n--pair manual asks on the terminal before the pair is approved. Under the\nrestricted profile it is the default and auto is refused.\nA second up on the same route picks up where the first stopped.\n",
       "usage": [
         "herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]"
       ],
