@@ -579,10 +579,18 @@ func (d *Document) Unset(path []string) (bool, error) {
 }
 
 // UnsetTable drops every header and key at or under path and reports whether
-// any matched. Comment lines stay, because they may describe what follows.
+// any matched. Comment lines stay, because they may describe what follows. A
+// table written inside an inline ancestor is cut out of that ancestor.
 func (d *Document) UnsetTable(path []string) (bool, error) {
 	if err := checkPath(path); err != nil {
 		return false, err
+	}
+	index, err := d.keyStatement(path)
+	if err != nil {
+		return false, err
+	}
+	if index >= 0 && len(d.stmts[index].path) < len(path) {
+		return d.editInline(index, path, nil)
 	}
 	stmts := make([]statement, 0, len(d.stmts))
 	for i := range d.stmts {

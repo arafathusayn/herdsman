@@ -129,3 +129,50 @@ func TestUnsetAndSetReplaceAWholeTable(t *testing.T) {
 		t.Fatalf("a sibling was lost:\n%s", doc.Encode())
 	}
 }
+
+func TestRenameKeyKeepsCommentAndPlace(t *testing.T) {
+	doc, err := Parse([]byte("[a]\nb-c = 1 # why\nd = 2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := doc.RenameKey([]string{"a", "b-c"}, []string{"a", "b_c"})
+	if err != nil || !moved {
+		t.Fatalf("%v %v", moved, err)
+	}
+	if got := string(doc.Encode()); got != "[a]\nb_c = 1 # why\nd = 2\n" {
+		t.Fatalf("got:\n%s", got)
+	}
+	if moved, err := doc.RenameKey([]string{"a", "none"}, []string{"a", "x"}); err != nil || moved {
+		t.Fatalf("%v %v", moved, err)
+	}
+	if _, err := doc.RenameKey(nil, []string{"a"}); err == nil {
+		t.Fatal("an empty path was accepted")
+	}
+	if _, err := doc.RenameKey([]string{"a", "d"}, nil); err == nil {
+		t.Fatal("an empty target was accepted")
+	}
+}
+
+func TestRenameKeyLeavesAnInlineKeyToTheCaller(t *testing.T) {
+	doc, err := Parse([]byte("a = {b-c = 1}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := doc.RenameKey([]string{"a", "b-c"}, []string{"a", "b_c"}); err != nil || moved {
+		t.Fatalf("%v %v", moved, err)
+	}
+}
+
+func TestUnsetTableEditsAnInlineAncestor(t *testing.T) {
+	doc, err := Parse([]byte("a = {b = {c = 1}, d = 2}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, err := doc.UnsetTable([]string{"a", "b"})
+	if err != nil || !removed {
+		t.Fatalf("%v %v", removed, err)
+	}
+	if got := string(doc.Encode()); got != "a = {d = 2}\n" {
+		t.Fatalf("got:\n%s", got)
+	}
+}
