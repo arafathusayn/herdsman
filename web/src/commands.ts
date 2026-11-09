@@ -14,6 +14,7 @@ import {
 import { loadHosts } from "./hosts.ts";
 import { icons } from "./icons.ts";
 import { type Index, type Member, routeLabel, statusLabel, team } from "./model.ts";
+import { pages } from "./pages/index.tsx";
 import { type Command, sidebarKeys } from "./palette.tsx";
 import { type App, type RouteTab, store } from "./store.ts";
 import type { Route } from "./types.ts";
@@ -184,6 +185,15 @@ export function buildCommands(ctx: Context): Command[] {
     icon: icons.users,
     run: () => store.go({ route: ctx.session, tab: "team", file: "", pane: "" }),
   });
+  for (const page of pages) {
+    out.push({
+      id: `page:${page.id}`,
+      kind: "command",
+      title: `Go to: ${page.label}`,
+      icon: page.icon,
+      run: () => store.go({ page: page.id, pane: "" }),
+    });
+  }
 
   if (route) {
     for (const [id, label] of tabs) {

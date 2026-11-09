@@ -58,5 +58,9 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(suggestv1.SuggestServiceName, "SourceRemove", suggestions.SourceRemove),
 		rpc.Unary(suggestv1.SuggestServiceName, "SourcePreview", suggestions.SourcePreview),
 		rpc.Unary(suggestv1.SuggestServiceName, "SourcePin", suggestions.SourcePin),
+		rpc.Unary(daemonv1.RouteServiceName, "Pause", routes.Pause),
+		rpc.Unary(daemonv1.RouteServiceName, "Resume", routes.Resume),
+		rpc.Unary(daemonv1.RouteServiceName, "Stop", routes.Stop),
+		rpc.Unary(daemonv1.RouteServiceName, "Delete", routes.Delete),
 	}...)
 }

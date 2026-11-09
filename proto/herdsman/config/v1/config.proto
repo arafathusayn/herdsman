@@ -26,7 +26,8 @@ message Config {
   Suggest suggest = 13;
   Teardown teardown = 14;
   Worktree worktree = 15;
-  Retention retention = 16;
+  Automations automations = 16;
+  Retention retention = 17;
 }
 
 // Retention bounds the snapshots that undo can restore. The daemon reads it from
@@ -205,6 +206,28 @@ message PolicyBudget {
   optional string machine = 2;
   optional int64 tokens = 3;
   optional string wall = 4;
+}
+
+// Automations run an action when the daemon sees an event. The surface is
+// experimental, so nothing fires until opted in, and each action also needs a
+// person's approval of its exact checksum.
+message Automations {
+  // Must be true for any action to fire.
+  optional bool experimental = 1;
+  // Actions keyed by event kind, such as "merge.landed".
+  map<string, AutomationAction> on = 2;
+}
+
+// AutomationAction sets exactly one of run, builtin and plugin.
+message AutomationAction {
+  // A shell template. Event values reach the shell as variables, never as text.
+  optional string run = 1;
+  // A built-in action, such as "route pause".
+  optional string builtin = 2;
+  // A plugin's action, written "<plugin> <action>".
+  optional string plugin = 3;
+  // How long the action may run, such as "90s".
+  optional string timeout = 4;
 }
 
 // Project binds a folder to one herdsman project.

@@ -307,7 +307,8 @@ type Config struct {
 	Suggest       *Suggest           `protobuf:"bytes,13,opt,name=suggest,proto3" json:"suggest,omitempty"`
 	Teardown      *Teardown          `protobuf:"bytes,14,opt,name=teardown,proto3" json:"teardown,omitempty"`
 	Worktree      *Worktree          `protobuf:"bytes,15,opt,name=worktree,proto3" json:"worktree,omitempty"`
-	Retention     *Retention         `protobuf:"bytes,16,opt,name=retention,proto3" json:"retention,omitempty"`
+	Automations   *Automations       `protobuf:"bytes,16,opt,name=automations,proto3" json:"automations,omitempty"`
+	Retention     *Retention         `protobuf:"bytes,17,opt,name=retention,proto3" json:"retention,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -443,6 +444,13 @@ func (x *Config) GetTeardown() *Teardown {
 func (x *Config) GetWorktree() *Worktree {
 	if x != nil {
 		return x.Worktree
+	}
+	return nil
+}
+
+func (x *Config) GetAutomations() *Automations {
+	if x != nil {
+		return x.Automations
 	}
 	return nil
 }
@@ -1606,6 +1614,136 @@ func (x *PolicyBudget) GetWall() string {
 	return ""
 }
 
+// Automations run an action when the daemon sees an event. The surface is
+// experimental, so nothing fires until opted in, and each action also needs a
+// person's approval of its exact checksum.
+type Automations struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Must be true for any action to fire.
+	Experimental *bool `protobuf:"varint,1,opt,name=experimental,proto3,oneof" json:"experimental,omitempty"`
+	// Actions keyed by event kind, such as "merge.landed".
+	On            map[string]*AutomationAction `protobuf:"bytes,2,rep,name=on,proto3" json:"on,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Automations) Reset() {
+	*x = Automations{}
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Automations) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Automations) ProtoMessage() {}
+
+func (x *Automations) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Automations.ProtoReflect.Descriptor instead.
+func (*Automations) Descriptor() ([]byte, []int) {
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *Automations) GetExperimental() bool {
+	if x != nil && x.Experimental != nil {
+		return *x.Experimental
+	}
+	return false
+}
+
+func (x *Automations) GetOn() map[string]*AutomationAction {
+	if x != nil {
+		return x.On
+	}
+	return nil
+}
+
+// AutomationAction sets exactly one of run, builtin and plugin.
+type AutomationAction struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A shell template. Event values reach the shell as variables, never as text.
+	Run *string `protobuf:"bytes,1,opt,name=run,proto3,oneof" json:"run,omitempty"`
+	// A built-in action, such as "route pause".
+	Builtin *string `protobuf:"bytes,2,opt,name=builtin,proto3,oneof" json:"builtin,omitempty"`
+	// A plugin's action, written "<plugin> <action>".
+	Plugin *string `protobuf:"bytes,3,opt,name=plugin,proto3,oneof" json:"plugin,omitempty"`
+	// How long the action may run, such as "90s".
+	Timeout       *string `protobuf:"bytes,4,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AutomationAction) Reset() {
+	*x = AutomationAction{}
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutomationAction) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutomationAction) ProtoMessage() {}
+
+func (x *AutomationAction) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutomationAction.ProtoReflect.Descriptor instead.
+func (*AutomationAction) Descriptor() ([]byte, []int) {
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *AutomationAction) GetRun() string {
+	if x != nil && x.Run != nil {
+		return *x.Run
+	}
+	return ""
+}
+
+func (x *AutomationAction) GetBuiltin() string {
+	if x != nil && x.Builtin != nil {
+		return *x.Builtin
+	}
+	return ""
+}
+
+func (x *AutomationAction) GetPlugin() string {
+	if x != nil && x.Plugin != nil {
+		return *x.Plugin
+	}
+	return ""
+}
+
+func (x *AutomationAction) GetTimeout() string {
+	if x != nil && x.Timeout != nil {
+		return *x.Timeout
+	}
+	return ""
+}
+
 // Project binds a folder to one herdsman project.
 type Project struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1619,7 +1757,7 @@ type Project struct {
 
 func (x *Project) Reset() {
 	*x = Project{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[17]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1631,7 +1769,7 @@ func (x *Project) String() string {
 func (*Project) ProtoMessage() {}
 
 func (x *Project) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[17]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1644,7 +1782,7 @@ func (x *Project) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Project.ProtoReflect.Descriptor instead.
 func (*Project) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{17}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Project) GetContext() bool {
@@ -1684,7 +1822,7 @@ type Setup struct {
 
 func (x *Setup) Reset() {
 	*x = Setup{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[18]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1696,7 +1834,7 @@ func (x *Setup) String() string {
 func (*Setup) ProtoMessage() {}
 
 func (x *Setup) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[18]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1709,7 +1847,7 @@ func (x *Setup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Setup.ProtoReflect.Descriptor instead.
 func (*Setup) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{18}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Setup) GetEnv() []string {
@@ -1751,7 +1889,7 @@ type Suggest struct {
 
 func (x *Suggest) Reset() {
 	*x = Suggest{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[19]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1763,7 +1901,7 @@ func (x *Suggest) String() string {
 func (*Suggest) ProtoMessage() {}
 
 func (x *Suggest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[19]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1776,7 +1914,7 @@ func (x *Suggest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Suggest.ProtoReflect.Descriptor instead.
 func (*Suggest) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{19}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *Suggest) GetSources() []string {
@@ -1799,7 +1937,7 @@ type Teardown struct {
 
 func (x *Teardown) Reset() {
 	*x = Teardown{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[20]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1811,7 +1949,7 @@ func (x *Teardown) String() string {
 func (*Teardown) ProtoMessage() {}
 
 func (x *Teardown) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[20]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1824,7 +1962,7 @@ func (x *Teardown) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Teardown.ProtoReflect.Descriptor instead.
 func (*Teardown) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{20}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Teardown) GetContainers() string {
@@ -1859,7 +1997,7 @@ type Worktree struct {
 
 func (x *Worktree) Reset() {
 	*x = Worktree{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[21]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1871,7 +2009,7 @@ func (x *Worktree) String() string {
 func (*Worktree) ProtoMessage() {}
 
 func (x *Worktree) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[21]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1884,7 +2022,7 @@ func (x *Worktree) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Worktree.ProtoReflect.Descriptor instead.
 func (*Worktree) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{21}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Worktree) GetPath() string {
@@ -1907,7 +2045,7 @@ type Target struct {
 
 func (x *Target) Reset() {
 	*x = Target{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[22]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1919,7 +2057,7 @@ func (x *Target) String() string {
 func (*Target) ProtoMessage() {}
 
 func (x *Target) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[22]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1932,7 +2070,7 @@ func (x *Target) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Target.ProtoReflect.Descriptor instead.
 func (*Target) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{22}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Target) GetConfigPath() string {
@@ -1960,7 +2098,7 @@ type ExportRequest struct {
 
 func (x *ExportRequest) Reset() {
 	*x = ExportRequest{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[23]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1972,7 +2110,7 @@ func (x *ExportRequest) String() string {
 func (*ExportRequest) ProtoMessage() {}
 
 func (x *ExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[23]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1985,7 +2123,7 @@ func (x *ExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportRequest.ProtoReflect.Descriptor instead.
 func (*ExportRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{23}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ExportRequest) GetTarget() *Target {
@@ -2011,7 +2149,7 @@ type ExportResponse struct {
 
 func (x *ExportResponse) Reset() {
 	*x = ExportResponse{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[24]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2023,7 +2161,7 @@ func (x *ExportResponse) String() string {
 func (*ExportResponse) ProtoMessage() {}
 
 func (x *ExportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[24]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2036,7 +2174,7 @@ func (x *ExportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportResponse.ProtoReflect.Descriptor instead.
 func (*ExportResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{24}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ExportResponse) GetData() []byte {
@@ -2057,7 +2195,7 @@ type GetRequest struct {
 
 func (x *GetRequest) Reset() {
 	*x = GetRequest{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[25]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2069,7 +2207,7 @@ func (x *GetRequest) String() string {
 func (*GetRequest) ProtoMessage() {}
 
 func (x *GetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[25]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2082,7 +2220,7 @@ func (x *GetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRequest.ProtoReflect.Descriptor instead.
 func (*GetRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{25}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetRequest) GetTarget() *Target {
@@ -2110,7 +2248,7 @@ type GetResponse struct {
 
 func (x *GetResponse) Reset() {
 	*x = GetResponse{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[26]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2122,7 +2260,7 @@ func (x *GetResponse) String() string {
 func (*GetResponse) ProtoMessage() {}
 
 func (x *GetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[26]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2135,7 +2273,7 @@ func (x *GetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetResponse.ProtoReflect.Descriptor instead.
 func (*GetResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{26}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetResponse) GetValue() string {
@@ -2163,7 +2301,7 @@ type SetRequest struct {
 
 func (x *SetRequest) Reset() {
 	*x = SetRequest{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[27]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2175,7 +2313,7 @@ func (x *SetRequest) String() string {
 func (*SetRequest) ProtoMessage() {}
 
 func (x *SetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[27]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2188,7 +2326,7 @@ func (x *SetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetRequest.ProtoReflect.Descriptor instead.
 func (*SetRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{27}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SetRequest) GetTarget() *Target {
@@ -2222,7 +2360,7 @@ type SetResponse struct {
 
 func (x *SetResponse) Reset() {
 	*x = SetResponse{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[28]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2234,7 +2372,7 @@ func (x *SetResponse) String() string {
 func (*SetResponse) ProtoMessage() {}
 
 func (x *SetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[28]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2247,7 +2385,7 @@ func (x *SetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetResponse.ProtoReflect.Descriptor instead.
 func (*SetResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{28}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *SetResponse) GetPath() string {
@@ -2268,7 +2406,7 @@ type ShowRequest struct {
 
 func (x *ShowRequest) Reset() {
 	*x = ShowRequest{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[29]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2280,7 +2418,7 @@ func (x *ShowRequest) String() string {
 func (*ShowRequest) ProtoMessage() {}
 
 func (x *ShowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[29]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2293,7 +2431,7 @@ func (x *ShowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowRequest.ProtoReflect.Descriptor instead.
 func (*ShowRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{29}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ShowRequest) GetTarget() *Target {
@@ -2322,7 +2460,7 @@ type ShowResponse struct {
 
 func (x *ShowResponse) Reset() {
 	*x = ShowResponse{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[30]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2334,7 +2472,7 @@ func (x *ShowResponse) String() string {
 func (*ShowResponse) ProtoMessage() {}
 
 func (x *ShowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[30]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2347,7 +2485,7 @@ func (x *ShowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowResponse.ProtoReflect.Descriptor instead.
 func (*ShowResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{30}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ShowResponse) GetProjectPath() string {
@@ -2384,7 +2522,7 @@ type ShownValue struct {
 
 func (x *ShownValue) Reset() {
 	*x = ShownValue{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[31]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2396,7 +2534,7 @@ func (x *ShownValue) String() string {
 func (*ShownValue) ProtoMessage() {}
 
 func (x *ShownValue) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[31]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2409,7 +2547,7 @@ func (x *ShownValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShownValue.ProtoReflect.Descriptor instead.
 func (*ShownValue) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{31}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ShownValue) GetKey() string {
@@ -2443,7 +2581,7 @@ type UnsetRequest struct {
 
 func (x *UnsetRequest) Reset() {
 	*x = UnsetRequest{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[32]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2455,7 +2593,7 @@ func (x *UnsetRequest) String() string {
 func (*UnsetRequest) ProtoMessage() {}
 
 func (x *UnsetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[32]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2468,7 +2606,7 @@ func (x *UnsetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnsetRequest.ProtoReflect.Descriptor instead.
 func (*UnsetRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{32}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *UnsetRequest) GetTarget() *Target {
@@ -2496,7 +2634,7 @@ type UnsetResponse struct {
 
 func (x *UnsetResponse) Reset() {
 	*x = UnsetResponse{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[33]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2508,7 +2646,7 @@ func (x *UnsetResponse) String() string {
 func (*UnsetResponse) ProtoMessage() {}
 
 func (x *UnsetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[33]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2521,7 +2659,7 @@ func (x *UnsetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnsetResponse.ProtoReflect.Descriptor instead.
 func (*UnsetResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{33}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *UnsetResponse) GetPath() string {
@@ -2548,7 +2686,7 @@ type ValidateRequest struct {
 
 func (x *ValidateRequest) Reset() {
 	*x = ValidateRequest{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[34]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2560,7 +2698,7 @@ func (x *ValidateRequest) String() string {
 func (*ValidateRequest) ProtoMessage() {}
 
 func (x *ValidateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[34]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2573,7 +2711,7 @@ func (x *ValidateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateRequest.ProtoReflect.Descriptor instead.
 func (*ValidateRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{34}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ValidateRequest) GetTarget() *Target {
@@ -2599,7 +2737,7 @@ type ValidateResponse struct {
 
 func (x *ValidateResponse) Reset() {
 	*x = ValidateResponse{}
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[35]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2611,7 +2749,7 @@ func (x *ValidateResponse) String() string {
 func (*ValidateResponse) ProtoMessage() {}
 
 func (x *ValidateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_config_v1_config_proto_msgTypes[35]
+	mi := &file_herdsman_config_v1_config_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2624,7 +2762,7 @@ func (x *ValidateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateResponse.ProtoReflect.Descriptor instead.
 func (*ValidateResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{35}
+	return file_herdsman_config_v1_config_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ValidateResponse) GetWarnings() []string {
@@ -2638,7 +2776,7 @@ var File_herdsman_config_v1_config_proto protoreflect.FileDescriptor
 
 const file_herdsman_config_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"\x1fherdsman/config/v1/config.proto\x12\x12herdsman.config.v1\"\x8a\b\n" +
+	"\x1fherdsman/config/v1/config.proto\x12\x12herdsman.config.v1\"\xcd\b\n" +
 	"\x06Config\x12A\n" +
 	"\aaliases\x18\x01 \x03(\v2'.herdsman.config.v1.Config.AliasesEntryR\aaliases\x122\n" +
 	"\x06branch\x18\x02 \x01(\v2\x1a.herdsman.config.v1.BranchR\x06branch\x122\n" +
@@ -2655,8 +2793,9 @@ const file_herdsman_config_v1_config_proto_rawDesc = "" +
 	"\x05setup\x18\f \x01(\v2\x19.herdsman.config.v1.SetupR\x05setup\x125\n" +
 	"\asuggest\x18\r \x01(\v2\x1b.herdsman.config.v1.SuggestR\asuggest\x128\n" +
 	"\bteardown\x18\x0e \x01(\v2\x1c.herdsman.config.v1.TeardownR\bteardown\x128\n" +
-	"\bworktree\x18\x0f \x01(\v2\x1c.herdsman.config.v1.WorktreeR\bworktree\x12;\n" +
-	"\tretention\x18\x10 \x01(\v2\x1d.herdsman.config.v1.RetentionR\tretention\x1a:\n" +
+	"\bworktree\x18\x0f \x01(\v2\x1c.herdsman.config.v1.WorktreeR\bworktree\x12A\n" +
+	"\vautomations\x18\x10 \x01(\v2\x1f.herdsman.config.v1.AutomationsR\vautomations\x12;\n" +
+	"\tretention\x18\x11 \x01(\v2\x1d.herdsman.config.v1.RetentionR\tretention\x1a:\n" +
 	"\fAliasesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aW\n" +
@@ -2794,7 +2933,25 @@ const file_herdsman_config_v1_config_proto_rawDesc = "" +
 	"\n" +
 	"\b_machineB\t\n" +
 	"\a_tokensB\a\n" +
-	"\x05_wall\"r\n" +
+	"\x05_wall\"\xdd\x01\n" +
+	"\vAutomations\x12'\n" +
+	"\fexperimental\x18\x01 \x01(\bH\x00R\fexperimental\x88\x01\x01\x127\n" +
+	"\x02on\x18\x02 \x03(\v2'.herdsman.config.v1.Automations.OnEntryR\x02on\x1a[\n" +
+	"\aOnEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12:\n" +
+	"\x05value\x18\x02 \x01(\v2$.herdsman.config.v1.AutomationActionR\x05value:\x028\x01B\x0f\n" +
+	"\r_experimental\"\xaf\x01\n" +
+	"\x10AutomationAction\x12\x15\n" +
+	"\x03run\x18\x01 \x01(\tH\x00R\x03run\x88\x01\x01\x12\x1d\n" +
+	"\abuiltin\x18\x02 \x01(\tH\x01R\abuiltin\x88\x01\x01\x12\x1b\n" +
+	"\x06plugin\x18\x03 \x01(\tH\x02R\x06plugin\x88\x01\x01\x12\x1d\n" +
+	"\atimeout\x18\x04 \x01(\tH\x03R\atimeout\x88\x01\x01B\x06\n" +
+	"\x04_runB\n" +
+	"\n" +
+	"\b_builtinB\t\n" +
+	"\a_pluginB\n" +
+	"\n" +
+	"\b_timeout\"r\n" +
 	"\aProject\x12\x1d\n" +
 	"\acontext\x18\x01 \x01(\bH\x00R\acontext\x88\x01\x01\x12\x13\n" +
 	"\x02id\x18\x02 \x01(\tH\x01R\x02id\x88\x01\x01\x12\x17\n" +
@@ -2915,7 +3072,7 @@ func file_herdsman_config_v1_config_proto_rawDescGZIP() []byte {
 }
 
 var file_herdsman_config_v1_config_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_herdsman_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
+var file_herdsman_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
 var file_herdsman_config_v1_config_proto_goTypes = []any{
 	(StagePolicy)(0),         // 0: herdsman.config.v1.StagePolicy
 	(RetryPolicy)(0),         // 1: herdsman.config.v1.RetryPolicy
@@ -2939,34 +3096,37 @@ var file_herdsman_config_v1_config_proto_goTypes = []any{
 	(*Merge)(nil),            // 19: herdsman.config.v1.Merge
 	(*Policy)(nil),           // 20: herdsman.config.v1.Policy
 	(*PolicyBudget)(nil),     // 21: herdsman.config.v1.PolicyBudget
-	(*Project)(nil),          // 22: herdsman.config.v1.Project
-	(*Setup)(nil),            // 23: herdsman.config.v1.Setup
-	(*Suggest)(nil),          // 24: herdsman.config.v1.Suggest
-	(*Teardown)(nil),         // 25: herdsman.config.v1.Teardown
-	(*Worktree)(nil),         // 26: herdsman.config.v1.Worktree
-	(*Target)(nil),           // 27: herdsman.config.v1.Target
-	(*ExportRequest)(nil),    // 28: herdsman.config.v1.ExportRequest
-	(*ExportResponse)(nil),   // 29: herdsman.config.v1.ExportResponse
-	(*GetRequest)(nil),       // 30: herdsman.config.v1.GetRequest
-	(*GetResponse)(nil),      // 31: herdsman.config.v1.GetResponse
-	(*SetRequest)(nil),       // 32: herdsman.config.v1.SetRequest
-	(*SetResponse)(nil),      // 33: herdsman.config.v1.SetResponse
-	(*ShowRequest)(nil),      // 34: herdsman.config.v1.ShowRequest
-	(*ShowResponse)(nil),     // 35: herdsman.config.v1.ShowResponse
-	(*ShownValue)(nil),       // 36: herdsman.config.v1.ShownValue
-	(*UnsetRequest)(nil),     // 37: herdsman.config.v1.UnsetRequest
-	(*UnsetResponse)(nil),    // 38: herdsman.config.v1.UnsetResponse
-	(*ValidateRequest)(nil),  // 39: herdsman.config.v1.ValidateRequest
-	(*ValidateResponse)(nil), // 40: herdsman.config.v1.ValidateResponse
-	nil,                      // 41: herdsman.config.v1.Config.AliasesEntry
-	nil,                      // 42: herdsman.config.v1.Config.ProjectsEntry
-	nil,                      // 43: herdsman.config.v1.NamedCommands.CommandsEntry
-	nil,                      // 44: herdsman.config.v1.Launch.EnvEntry
-	nil,                      // 45: herdsman.config.v1.LaunchStep.EnvEntry
-	nil,                      // 46: herdsman.config.v1.List.ColumnsEntry
+	(*Automations)(nil),      // 22: herdsman.config.v1.Automations
+	(*AutomationAction)(nil), // 23: herdsman.config.v1.AutomationAction
+	(*Project)(nil),          // 24: herdsman.config.v1.Project
+	(*Setup)(nil),            // 25: herdsman.config.v1.Setup
+	(*Suggest)(nil),          // 26: herdsman.config.v1.Suggest
+	(*Teardown)(nil),         // 27: herdsman.config.v1.Teardown
+	(*Worktree)(nil),         // 28: herdsman.config.v1.Worktree
+	(*Target)(nil),           // 29: herdsman.config.v1.Target
+	(*ExportRequest)(nil),    // 30: herdsman.config.v1.ExportRequest
+	(*ExportResponse)(nil),   // 31: herdsman.config.v1.ExportResponse
+	(*GetRequest)(nil),       // 32: herdsman.config.v1.GetRequest
+	(*GetResponse)(nil),      // 33: herdsman.config.v1.GetResponse
+	(*SetRequest)(nil),       // 34: herdsman.config.v1.SetRequest
+	(*SetResponse)(nil),      // 35: herdsman.config.v1.SetResponse
+	(*ShowRequest)(nil),      // 36: herdsman.config.v1.ShowRequest
+	(*ShowResponse)(nil),     // 37: herdsman.config.v1.ShowResponse
+	(*ShownValue)(nil),       // 38: herdsman.config.v1.ShownValue
+	(*UnsetRequest)(nil),     // 39: herdsman.config.v1.UnsetRequest
+	(*UnsetResponse)(nil),    // 40: herdsman.config.v1.UnsetResponse
+	(*ValidateRequest)(nil),  // 41: herdsman.config.v1.ValidateRequest
+	(*ValidateResponse)(nil), // 42: herdsman.config.v1.ValidateResponse
+	nil,                      // 43: herdsman.config.v1.Config.AliasesEntry
+	nil,                      // 44: herdsman.config.v1.Config.ProjectsEntry
+	nil,                      // 45: herdsman.config.v1.NamedCommands.CommandsEntry
+	nil,                      // 46: herdsman.config.v1.Launch.EnvEntry
+	nil,                      // 47: herdsman.config.v1.LaunchStep.EnvEntry
+	nil,                      // 48: herdsman.config.v1.List.ColumnsEntry
+	nil,                      // 49: herdsman.config.v1.Automations.OnEntry
 }
 var file_herdsman_config_v1_config_proto_depIdxs = []int32{
-	41, // 0: herdsman.config.v1.Config.aliases:type_name -> herdsman.config.v1.Config.AliasesEntry
+	43, // 0: herdsman.config.v1.Config.aliases:type_name -> herdsman.config.v1.Config.AliasesEntry
 	8,  // 1: herdsman.config.v1.Config.branch:type_name -> herdsman.config.v1.Branch
 	9,  // 2: herdsman.config.v1.Config.commit:type_name -> herdsman.config.v1.Commit
 	11, // 3: herdsman.config.v1.Config.hooks:type_name -> herdsman.config.v1.Hooks
@@ -2974,67 +3134,70 @@ var file_herdsman_config_v1_config_proto_depIdxs = []int32{
 	18, // 5: herdsman.config.v1.Config.list:type_name -> herdsman.config.v1.List
 	19, // 6: herdsman.config.v1.Config.merge:type_name -> herdsman.config.v1.Merge
 	20, // 7: herdsman.config.v1.Config.policy:type_name -> herdsman.config.v1.Policy
-	22, // 8: herdsman.config.v1.Config.project:type_name -> herdsman.config.v1.Project
-	42, // 9: herdsman.config.v1.Config.projects:type_name -> herdsman.config.v1.Config.ProjectsEntry
+	24, // 8: herdsman.config.v1.Config.project:type_name -> herdsman.config.v1.Project
+	44, // 9: herdsman.config.v1.Config.projects:type_name -> herdsman.config.v1.Config.ProjectsEntry
 	7,  // 10: herdsman.config.v1.Config.schema:type_name -> herdsman.config.v1.Schema
-	23, // 11: herdsman.config.v1.Config.setup:type_name -> herdsman.config.v1.Setup
-	24, // 12: herdsman.config.v1.Config.suggest:type_name -> herdsman.config.v1.Suggest
-	25, // 13: herdsman.config.v1.Config.teardown:type_name -> herdsman.config.v1.Teardown
-	26, // 14: herdsman.config.v1.Config.worktree:type_name -> herdsman.config.v1.Worktree
-	6,  // 15: herdsman.config.v1.Config.retention:type_name -> herdsman.config.v1.Retention
-	10, // 16: herdsman.config.v1.Commit.generation:type_name -> herdsman.config.v1.CommitGeneration
-	0,  // 17: herdsman.config.v1.Commit.stage:type_name -> herdsman.config.v1.StagePolicy
-	12, // 18: herdsman.config.v1.Hooks.post_clean:type_name -> herdsman.config.v1.HookSpec
-	12, // 19: herdsman.config.v1.Hooks.post_commit:type_name -> herdsman.config.v1.HookSpec
-	12, // 20: herdsman.config.v1.Hooks.post_merge:type_name -> herdsman.config.v1.HookSpec
-	12, // 21: herdsman.config.v1.Hooks.post_start:type_name -> herdsman.config.v1.HookSpec
-	12, // 22: herdsman.config.v1.Hooks.post_switch:type_name -> herdsman.config.v1.HookSpec
-	12, // 23: herdsman.config.v1.Hooks.post_teardown:type_name -> herdsman.config.v1.HookSpec
-	12, // 24: herdsman.config.v1.Hooks.pre_clean:type_name -> herdsman.config.v1.HookSpec
-	12, // 25: herdsman.config.v1.Hooks.pre_commit:type_name -> herdsman.config.v1.HookSpec
-	12, // 26: herdsman.config.v1.Hooks.pre_merge:type_name -> herdsman.config.v1.HookSpec
-	12, // 27: herdsman.config.v1.Hooks.pre_start:type_name -> herdsman.config.v1.HookSpec
-	12, // 28: herdsman.config.v1.Hooks.pre_switch:type_name -> herdsman.config.v1.HookSpec
-	12, // 29: herdsman.config.v1.Hooks.pre_teardown:type_name -> herdsman.config.v1.HookSpec
-	13, // 30: herdsman.config.v1.HookSpec.named:type_name -> herdsman.config.v1.NamedCommands
-	14, // 31: herdsman.config.v1.HookSpec.pipeline:type_name -> herdsman.config.v1.Pipeline
-	43, // 32: herdsman.config.v1.NamedCommands.commands:type_name -> herdsman.config.v1.NamedCommands.CommandsEntry
-	15, // 33: herdsman.config.v1.Pipeline.stages:type_name -> herdsman.config.v1.PipelineStage
-	13, // 34: herdsman.config.v1.PipelineStage.named:type_name -> herdsman.config.v1.NamedCommands
-	44, // 35: herdsman.config.v1.Launch.env:type_name -> herdsman.config.v1.Launch.EnvEntry
-	17, // 36: herdsman.config.v1.Launch.prelude:type_name -> herdsman.config.v1.LaunchStep
-	45, // 37: herdsman.config.v1.LaunchStep.env:type_name -> herdsman.config.v1.LaunchStep.EnvEntry
-	1,  // 38: herdsman.config.v1.LaunchStep.retry:type_name -> herdsman.config.v1.RetryPolicy
-	46, // 39: herdsman.config.v1.List.columns:type_name -> herdsman.config.v1.List.ColumnsEntry
-	3,  // 40: herdsman.config.v1.Merge.land:type_name -> herdsman.config.v1.LandMode
-	2,  // 41: herdsman.config.v1.Merge.strategy:type_name -> herdsman.config.v1.MergeStrategy
-	21, // 42: herdsman.config.v1.Policy.budget:type_name -> herdsman.config.v1.PolicyBudget
-	4,  // 43: herdsman.config.v1.Teardown.volumes:type_name -> herdsman.config.v1.VolumePolicy
-	27, // 44: herdsman.config.v1.ExportRequest.target:type_name -> herdsman.config.v1.Target
-	27, // 45: herdsman.config.v1.GetRequest.target:type_name -> herdsman.config.v1.Target
-	27, // 46: herdsman.config.v1.SetRequest.target:type_name -> herdsman.config.v1.Target
-	27, // 47: herdsman.config.v1.ShowRequest.target:type_name -> herdsman.config.v1.Target
-	36, // 48: herdsman.config.v1.ShowResponse.values:type_name -> herdsman.config.v1.ShownValue
-	27, // 49: herdsman.config.v1.UnsetRequest.target:type_name -> herdsman.config.v1.Target
-	27, // 50: herdsman.config.v1.ValidateRequest.target:type_name -> herdsman.config.v1.Target
-	5,  // 51: herdsman.config.v1.Config.ProjectsEntry.value:type_name -> herdsman.config.v1.Config
-	28, // 52: herdsman.config.v1.ConfigService.Export:input_type -> herdsman.config.v1.ExportRequest
-	30, // 53: herdsman.config.v1.ConfigService.Get:input_type -> herdsman.config.v1.GetRequest
-	32, // 54: herdsman.config.v1.ConfigService.Set:input_type -> herdsman.config.v1.SetRequest
-	34, // 55: herdsman.config.v1.ConfigService.Show:input_type -> herdsman.config.v1.ShowRequest
-	37, // 56: herdsman.config.v1.ConfigService.Unset:input_type -> herdsman.config.v1.UnsetRequest
-	39, // 57: herdsman.config.v1.ConfigService.Validate:input_type -> herdsman.config.v1.ValidateRequest
-	29, // 58: herdsman.config.v1.ConfigService.Export:output_type -> herdsman.config.v1.ExportResponse
-	31, // 59: herdsman.config.v1.ConfigService.Get:output_type -> herdsman.config.v1.GetResponse
-	33, // 60: herdsman.config.v1.ConfigService.Set:output_type -> herdsman.config.v1.SetResponse
-	35, // 61: herdsman.config.v1.ConfigService.Show:output_type -> herdsman.config.v1.ShowResponse
-	38, // 62: herdsman.config.v1.ConfigService.Unset:output_type -> herdsman.config.v1.UnsetResponse
-	40, // 63: herdsman.config.v1.ConfigService.Validate:output_type -> herdsman.config.v1.ValidateResponse
-	58, // [58:64] is the sub-list for method output_type
-	52, // [52:58] is the sub-list for method input_type
-	52, // [52:52] is the sub-list for extension type_name
-	52, // [52:52] is the sub-list for extension extendee
-	0,  // [0:52] is the sub-list for field type_name
+	25, // 11: herdsman.config.v1.Config.setup:type_name -> herdsman.config.v1.Setup
+	26, // 12: herdsman.config.v1.Config.suggest:type_name -> herdsman.config.v1.Suggest
+	27, // 13: herdsman.config.v1.Config.teardown:type_name -> herdsman.config.v1.Teardown
+	28, // 14: herdsman.config.v1.Config.worktree:type_name -> herdsman.config.v1.Worktree
+	22, // 15: herdsman.config.v1.Config.automations:type_name -> herdsman.config.v1.Automations
+	6,  // 16: herdsman.config.v1.Config.retention:type_name -> herdsman.config.v1.Retention
+	10, // 17: herdsman.config.v1.Commit.generation:type_name -> herdsman.config.v1.CommitGeneration
+	0,  // 18: herdsman.config.v1.Commit.stage:type_name -> herdsman.config.v1.StagePolicy
+	12, // 19: herdsman.config.v1.Hooks.post_clean:type_name -> herdsman.config.v1.HookSpec
+	12, // 20: herdsman.config.v1.Hooks.post_commit:type_name -> herdsman.config.v1.HookSpec
+	12, // 21: herdsman.config.v1.Hooks.post_merge:type_name -> herdsman.config.v1.HookSpec
+	12, // 22: herdsman.config.v1.Hooks.post_start:type_name -> herdsman.config.v1.HookSpec
+	12, // 23: herdsman.config.v1.Hooks.post_switch:type_name -> herdsman.config.v1.HookSpec
+	12, // 24: herdsman.config.v1.Hooks.post_teardown:type_name -> herdsman.config.v1.HookSpec
+	12, // 25: herdsman.config.v1.Hooks.pre_clean:type_name -> herdsman.config.v1.HookSpec
+	12, // 26: herdsman.config.v1.Hooks.pre_commit:type_name -> herdsman.config.v1.HookSpec
+	12, // 27: herdsman.config.v1.Hooks.pre_merge:type_name -> herdsman.config.v1.HookSpec
+	12, // 28: herdsman.config.v1.Hooks.pre_start:type_name -> herdsman.config.v1.HookSpec
+	12, // 29: herdsman.config.v1.Hooks.pre_switch:type_name -> herdsman.config.v1.HookSpec
+	12, // 30: herdsman.config.v1.Hooks.pre_teardown:type_name -> herdsman.config.v1.HookSpec
+	13, // 31: herdsman.config.v1.HookSpec.named:type_name -> herdsman.config.v1.NamedCommands
+	14, // 32: herdsman.config.v1.HookSpec.pipeline:type_name -> herdsman.config.v1.Pipeline
+	45, // 33: herdsman.config.v1.NamedCommands.commands:type_name -> herdsman.config.v1.NamedCommands.CommandsEntry
+	15, // 34: herdsman.config.v1.Pipeline.stages:type_name -> herdsman.config.v1.PipelineStage
+	13, // 35: herdsman.config.v1.PipelineStage.named:type_name -> herdsman.config.v1.NamedCommands
+	46, // 36: herdsman.config.v1.Launch.env:type_name -> herdsman.config.v1.Launch.EnvEntry
+	17, // 37: herdsman.config.v1.Launch.prelude:type_name -> herdsman.config.v1.LaunchStep
+	47, // 38: herdsman.config.v1.LaunchStep.env:type_name -> herdsman.config.v1.LaunchStep.EnvEntry
+	1,  // 39: herdsman.config.v1.LaunchStep.retry:type_name -> herdsman.config.v1.RetryPolicy
+	48, // 40: herdsman.config.v1.List.columns:type_name -> herdsman.config.v1.List.ColumnsEntry
+	3,  // 41: herdsman.config.v1.Merge.land:type_name -> herdsman.config.v1.LandMode
+	2,  // 42: herdsman.config.v1.Merge.strategy:type_name -> herdsman.config.v1.MergeStrategy
+	21, // 43: herdsman.config.v1.Policy.budget:type_name -> herdsman.config.v1.PolicyBudget
+	49, // 44: herdsman.config.v1.Automations.on:type_name -> herdsman.config.v1.Automations.OnEntry
+	4,  // 45: herdsman.config.v1.Teardown.volumes:type_name -> herdsman.config.v1.VolumePolicy
+	29, // 46: herdsman.config.v1.ExportRequest.target:type_name -> herdsman.config.v1.Target
+	29, // 47: herdsman.config.v1.GetRequest.target:type_name -> herdsman.config.v1.Target
+	29, // 48: herdsman.config.v1.SetRequest.target:type_name -> herdsman.config.v1.Target
+	29, // 49: herdsman.config.v1.ShowRequest.target:type_name -> herdsman.config.v1.Target
+	38, // 50: herdsman.config.v1.ShowResponse.values:type_name -> herdsman.config.v1.ShownValue
+	29, // 51: herdsman.config.v1.UnsetRequest.target:type_name -> herdsman.config.v1.Target
+	29, // 52: herdsman.config.v1.ValidateRequest.target:type_name -> herdsman.config.v1.Target
+	5,  // 53: herdsman.config.v1.Config.ProjectsEntry.value:type_name -> herdsman.config.v1.Config
+	23, // 54: herdsman.config.v1.Automations.OnEntry.value:type_name -> herdsman.config.v1.AutomationAction
+	30, // 55: herdsman.config.v1.ConfigService.Export:input_type -> herdsman.config.v1.ExportRequest
+	32, // 56: herdsman.config.v1.ConfigService.Get:input_type -> herdsman.config.v1.GetRequest
+	34, // 57: herdsman.config.v1.ConfigService.Set:input_type -> herdsman.config.v1.SetRequest
+	36, // 58: herdsman.config.v1.ConfigService.Show:input_type -> herdsman.config.v1.ShowRequest
+	39, // 59: herdsman.config.v1.ConfigService.Unset:input_type -> herdsman.config.v1.UnsetRequest
+	41, // 60: herdsman.config.v1.ConfigService.Validate:input_type -> herdsman.config.v1.ValidateRequest
+	31, // 61: herdsman.config.v1.ConfigService.Export:output_type -> herdsman.config.v1.ExportResponse
+	33, // 62: herdsman.config.v1.ConfigService.Get:output_type -> herdsman.config.v1.GetResponse
+	35, // 63: herdsman.config.v1.ConfigService.Set:output_type -> herdsman.config.v1.SetResponse
+	37, // 64: herdsman.config.v1.ConfigService.Show:output_type -> herdsman.config.v1.ShowResponse
+	40, // 65: herdsman.config.v1.ConfigService.Unset:output_type -> herdsman.config.v1.UnsetResponse
+	42, // 66: herdsman.config.v1.ConfigService.Validate:output_type -> herdsman.config.v1.ValidateResponse
+	61, // [61:67] is the sub-list for method output_type
+	55, // [55:61] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_config_v1_config_proto_init() }
@@ -3063,15 +3226,17 @@ func file_herdsman_config_v1_config_proto_init() {
 	file_herdsman_config_v1_config_proto_msgTypes[16].OneofWrappers = []any{}
 	file_herdsman_config_v1_config_proto_msgTypes[17].OneofWrappers = []any{}
 	file_herdsman_config_v1_config_proto_msgTypes[18].OneofWrappers = []any{}
+	file_herdsman_config_v1_config_proto_msgTypes[19].OneofWrappers = []any{}
 	file_herdsman_config_v1_config_proto_msgTypes[20].OneofWrappers = []any{}
-	file_herdsman_config_v1_config_proto_msgTypes[21].OneofWrappers = []any{}
+	file_herdsman_config_v1_config_proto_msgTypes[22].OneofWrappers = []any{}
+	file_herdsman_config_v1_config_proto_msgTypes[23].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herdsman_config_v1_config_proto_rawDesc), len(file_herdsman_config_v1_config_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   42,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

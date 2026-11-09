@@ -158,14 +158,22 @@ func runTool(name string, args ...string) error {
 // so the image is part of the capability.
 const containerImage = "alpine:3"
 
-func probes() map[string]Probe {
+// These are replaced by tests.
+var (
+	geteuid   = os.Geteuid
+	ptyDevice = "/dev/ptmx"
+)
+
+func probes() map[string]Probe { return probesFor(runtime.GOOS) }
+
+func probesFor(goos string) map[string]Probe {
 	self := strconv.Itoa(os.Getpid())
 	return map[string]Probe{
 		"ps": func() error {
 			if err := runTool("ps", "-o", "lstart=", "-p", self); err != nil {
 				return err
 			}
-			if runtime.GOOS == "darwin" {
+			if goos == "darwin" {
 				return runTool("ps", "-E", "-p", self)
 			}
 			return runTool("ps", "e", "-p", self)
@@ -184,20 +192,20 @@ func probes() map[string]Probe {
 					return err
 				}
 			}
-			if os.Geteuid() == 0 {
+			if geteuid() == 0 {
 				return nil
 			}
 			return runTool("sudo", "-n", "true")
 		},
 		"keychain": func() error {
-			if runtime.GOOS == "darwin" {
+			if goos == "darwin" {
 				return runTool("security", "list-keychains")
 			}
 			_, err := exec.LookPath("secret-tool")
 			return err
 		},
 		"pty": func() error {
-			f, err := os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY, 0)
+			f, err := os.OpenFile(ptyDevice, os.O_RDWR|syscall.O_NOCTTY, 0)
 			if err != nil {
 				return err
 			}

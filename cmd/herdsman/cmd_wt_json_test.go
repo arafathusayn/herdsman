@@ -1,0 +1,98 @@
+package main
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestStatuslineHonorsJSON(t *testing.T) {
+	worktreeRepo(t)
+	out, stderr, code := call(t, "ls", "--statusline", "--json")
+	var got struct {
+		Statusline string `json:"statusline"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); code != 0 || err != nil || got.Statusline == "" {
+		t.Fatalf("%d %q %q %v", code, out, stderr, err)
+	}
+}
+
+func TestGoJSONWithoutASelectorPrintsOnlyJSON(t *testing.T) {
+	worktreeRepo(t)
+	call(t, "new", "one", "--no-setup")
+	out, stderr, code := call(t, "go", "--json")
+	var got struct {
+		Rows []struct {
+			Task string `json:"task"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); code != 0 || err != nil || len(got.Rows) != 2 {
+		t.Fatalf("%d %q %q %v", code, out, stderr, err)
+	}
+}
+
+func TestGoJSONOnATerminalKeepsThePickerOffStandardOutput(t *testing.T) {
+	worktreeRepo(t)
+	call(t, "new", "one", "--no-setup")
+	original := stdinIsTerminal
+	defer func() { stdinIsTerminal = original }()
+	stdinIsTerminal = func(any) bool { return true }
+	var out, errOut strings.Builder
+	if code := runGo([]string{"--json"}, strings.NewReader("one\n"), &out, &errOut); code != 0 {
+		t.Fatalf("%d %q", code, errOut.String())
+	}
+	var got struct {
+		Task string `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &got); err != nil || got.Task != "one" {
+		t.Fatalf("%q %v", out.String(), err)
+	}
+	if !strings.Contains(errOut.String(), "go to:") {
+		t.Fatalf("%q", errOut.String())
+	}
+}
+
+func TestStatuslineJSONGolden(t *testing.T) {
+	worktreeRepo(t)
+	out, _, code := call(t, "ls", "--statusline", "--format", "json")
+	if want := `{"schema":{"version":"1.0.0"},"statusline":"main"}` + "\n"; code != 0 || out != want {
+		t.Fatalf("%d %q", code, out)
+	}
+}
+
+func TestVerbJSONCarriesTheSchemaVersion(t *testing.T) {
+	worktreeRepo(t)
+	for _, args := range [][]string{
+		{"new", "one", "--no-setup", "--json"},
+		{"ls", "--json"},
+		{"go", "one", "--no-cd", "--json"},
+		{"go", "--json"},
+		{"hook", "show", "--json"},
+	} {
+		out, stderr, code := call(t, args...)
+		var got struct {
+			Schema struct {
+				Version string `json:"version"`
+			} `json:"schema"`
+		}
+		if err := json.Unmarshal([]byte(out), &got); code != 0 || err != nil || got.Schema.Version != "1.0.0" {
+			t.Errorf("%v: %d %q %q %v", args, code, out, stderr, err)
+		}
+	}
+}
+
+func TestConfigShellJSONGolden(t *testing.T) {
+	worktreeRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ZDOTDIR", "")
+	out, _, code := call(t, "config", "shell", "install", "bash", "--json")
+	want := `{"path":"` + home + `/.bashrc","schema":{"version":"1.0.0"},"shell":"bash"}` + "\n"
+	if code != 0 || out != want {
+		t.Fatalf("%d %q", code, out)
+	}
+	out, _, code = call(t, "config", "shell", "uninstall", "bash", "--json")
+	if want := `{"removed":true,"schema":{"version":"1.0.0"},"shell":"bash"}` + "\n"; code != 0 || out != want {
+		t.Fatalf("%d %q", code, out)
+	}
+}

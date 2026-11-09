@@ -52,6 +52,7 @@ export interface Config {
   suggest?: Suggest;
   teardown?: Teardown;
   worktree?: Worktree;
+  automations?: Automations;
   retention?: Retention;
 }
 
@@ -258,6 +259,44 @@ export interface PolicyBudget {
   machine?: string;
   tokens?: string;
   wall?: string;
+}
+
+/**
+ * Automations run an action when the daemon sees an event. The surface is
+ * experimental, so nothing fires until opted in, and each action also needs a
+ * person's approval of its exact checksum.
+ */
+export interface Automations {
+  /**
+   * Must be true for any action to fire.
+   */
+  experimental?: boolean;
+  /**
+   * Actions keyed by event kind, such as "merge.landed".
+   */
+  on?: Record<string, AutomationAction>;
+}
+
+/**
+ * AutomationAction sets exactly one of run, builtin and plugin.
+ */
+export interface AutomationAction {
+  /**
+   * A shell template. Event values reach the shell as variables, never as text.
+   */
+  run?: string;
+  /**
+   * A built-in action, such as "route pause".
+   */
+  builtin?: string;
+  /**
+   * A plugin's action, written "<plugin> <action>".
+   */
+  plugin?: string;
+  /**
+   * How long the action may run, such as "90s".
+   */
+  timeout?: string;
 }
 
 /**

@@ -2,7 +2,14 @@
 
 package sys
 
-import "golang.org/x/sys/unix"
+import (
+	"time"
+
+	"golang.org/x/sys/unix"
+)
+
+// setTermios is a variable so that a test can make the call fail.
+var setTermios = unix.IoctlSetTermios
 
 // RawMode is a terminal switched to raw mode, holding what Restore puts back.
 type RawMode struct {
@@ -25,7 +32,7 @@ func MakeRaw(fd int) (*RawMode, error) {
 	raw.Cflag |= unix.CS8
 	raw.Cc[unix.VMIN] = 1
 	raw.Cc[unix.VTIME] = 0
-	if err := unix.IoctlSetTermios(fd, reqSetTermios, &raw); err != nil {
+	if err := setTermios(fd, reqSetTermios, &raw); err != nil {
 		return nil, err
 	}
 	return &RawMode{fd: fd, saved: *saved}, nil
@@ -49,4 +56,11 @@ func TerminalSize(fd int) (cols, rows int, err error) {
 		return 0, 0, err
 	}
 	return int(ws.Col), int(ws.Row), nil
+}
+
+// SetLinkTime sets the modification time of the symbolic link at path, and not
+// of what it points to. The access time is set to the same value.
+func SetLinkTime(path string, mtime time.Time) error {
+	stamp := unix.NsecToTimespec(mtime.UnixNano())
+	return unix.UtimesNanoAt(unix.AT_FDCWD, path, []unix.Timespec{stamp, stamp}, unix.AT_SYMLINK_NOFOLLOW)
 }

@@ -1,0 +1,16 @@
+.TH HERDSMAN-DELETE 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-delete \- Remove a route, once a verified snapshot makes that undoable.
+.SH DESCRIPTION
+.nf
+usage: herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--grace <seconds>] [-y] [--dry-run]
+
+Refuses while an agent of the route runs, unless --force, which stops the route
+first. Takes a snapshot of the route folder and private inbox through the
+recovery pipeline, and removes nothing unless that snapshot verifies and covers
+every path it removes. The result names the operation to give "herdsman undo".
+--keep-folder leaves the route folder in place; --keep-worktrees leaves the
+route's tasks and their worktrees alone.
+.fi
+.SH SEE ALSO
+.BR herdsman (1)
