@@ -99,6 +99,106 @@ export interface TaskServiceLinkResponse {
   task?: herdsman_core_v1_core.Task;
 }
 
+export interface TaskServiceNewRequest {
+  /**
+   * The caller's folder, absolute: it selects the repository.
+   */
+  dir?: string;
+  task?: string;
+  /**
+   * Empty means the repository's default branch.
+   */
+  base?: string;
+  /**
+   * A pull request to start from: pr:<n> or a URL.
+   */
+  from?: string;
+  /**
+   * The branch's type prefix; empty means feat.
+   */
+  type?: string;
+  /**
+   * The command that starts an agent in the worktree.
+   */
+  agent?: string;
+  prompt?: string;
+  noSetup?: boolean;
+  /**
+   * Rename a stale folder at the path aside.
+   */
+  clobber?: boolean;
+  /**
+   * The caller's environment, as NAME=value, for hooks and for finding herdr.
+   */
+  environ?: string[];
+}
+
+export interface TaskServiceNewResponse {
+  /**
+   * The version of this response's shape.
+   */
+  schemaVersion?: string;
+  task?: string;
+  branch?: string;
+  path?: string;
+  base?: string;
+  port?: number;
+  /**
+   * Whether herdr made or opened the worktree.
+   */
+  herdr?: boolean;
+  setup?: string[];
+  /**
+   * The command line that enters the worktree.
+   */
+  launch?: string;
+  logs?: string[];
+  warnings?: string[];
+  /**
+   * The agent started in the worktree; empty when none was.
+   */
+  agentName?: string;
+}
+
+export interface TaskServiceGoRequest {
+  /**
+   * The caller's folder, absolute: it selects the repository.
+   */
+  dir?: string;
+  /**
+   * A task, branch or path, one of ^ @ -, pr:<n> or a URL.
+   */
+  selector?: string;
+  /**
+   * Also focus the worktree's herdr pane.
+   */
+  focus?: boolean;
+  /**
+   * The caller's environment, as NAME=value, for hooks and for finding herdr.
+   */
+  environ?: string[];
+}
+
+export interface TaskServiceGoResponse {
+  /**
+   * The version of this response's shape.
+   */
+  schemaVersion?: string;
+  task?: string;
+  branch?: string;
+  path?: string;
+  /**
+   * Whether the call made the worktree.
+   */
+  created?: boolean;
+  focused?: boolean;
+  /**
+   * The remote a fork's branch pushes to; empty for other branches.
+   */
+  pushRemote?: string;
+  warnings?: string[];
+}
+
 /**
  * TaskService keeps the task records of every project.
  */
@@ -146,6 +246,20 @@ export const TaskService = {
     link: {
       path: "/rpc/herdsman.daemon.v1.TaskService/Link",
       signature: undefined as unknown as (request: TaskServiceLinkRequest) => TaskServiceLinkResponse,
+    },
+    /**
+     * New makes a task's worktree: base, names, the tree, its hooks and setup.
+     */
+    new: {
+      path: "/rpc/herdsman.daemon.v1.TaskService/New",
+      signature: undefined as unknown as (request: TaskServiceNewRequest) => TaskServiceNewResponse,
+    },
+    /**
+     * Go finds the worktree a selector means, making one for a pull request.
+     */
+    go: {
+      path: "/rpc/herdsman.daemon.v1.TaskService/Go",
+      signature: undefined as unknown as (request: TaskServiceGoRequest) => TaskServiceGoResponse,
     },
   },
 } as const;
