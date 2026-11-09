@@ -577,3 +577,76 @@ func TestNamedHookCanBeReplacedAndRemovedInTOML(t *testing.T) {
 		}
 	})
 }
+
+func TestYAMLEditsKeepCommentsAndOrder(t *testing.T) {
+	const text = "# head\nmerge: # side\n  land: pr # why\nhooks:\n  pre-merge: a # hook\n"
+	path := func() string { return writeFile(t, filepath.Join(t.TempDir(), "c.yaml"), text) }
+	read := func(p string) string {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	t.Run("set", func(t *testing.T) {
+		p := path()
+		if err := SetFile(p, "merge.land", "push"); err != nil {
+			t.Fatal(err)
+		}
+		if got := read(p); got != strings.Replace(text, "land: pr", `land: "push"`, 1) {
+			t.Fatalf("file:\n%s", got)
+		}
+	})
+	t.Run("unset", func(t *testing.T) {
+		p := path()
+		if removed, err := UnsetFile(p, "merge.land"); err != nil || !removed {
+			t.Fatalf("removed %v, err %v", removed, err)
+		}
+		if got := read(p); got != "# head\nmerge: {} # side\nhooks:\n  pre-merge: a # hook\n" {
+			t.Fatalf("file:\n%s", got)
+		}
+	})
+	t.Run("update", func(t *testing.T) {
+		p := path()
+		if err := UpdateFile(p); err != nil {
+			t.Fatal(err)
+		}
+		if got := read(p); got != strings.Replace(text, "pre-merge", "pre_merge", 1) {
+			t.Fatalf("file:\n%s", got)
+		}
+	})
+	t.Run("update version", func(t *testing.T) {
+		p := writeFile(t, filepath.Join(t.TempDir(), "c.yaml"), "schema:\n  version: \"0.9.0\" # why\n")
+		if err := UpdateFile(p); err != nil {
+			t.Fatal(err)
+		}
+		if got := read(p); got != "schema:\n  version: \"1.0.0\" # why\n" {
+			t.Fatalf("file:\n%s", got)
+		}
+	})
+}
+
+func TestYAMLFlowRootIsRewrittenOnlyWhenNoCommentIsLost(t *testing.T) {
+	plain := writeFile(t, filepath.Join(t.TempDir(), "c.yaml"), "{merge: {land: pr}}\n")
+	if err := SetFile(plain, "merge.land", "push"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadFile(plain)
+	if err != nil || got.Config.GetMerge().GetLand().String() != "LAND_MODE_PUSH" {
+		t.Fatalf("got %v, err %v", got, err)
+	}
+	const commented = "# keep me\n{merge: {land: pr}}\n"
+	path := writeFile(t, filepath.Join(t.TempDir(), "c.yaml"), commented)
+	if err := SetFile(path, "merge.land", "push"); err == nil || !strings.Contains(err.Error(), "comment") {
+		t.Fatalf("err = %v", err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != commented {
+		t.Fatalf("file changed:\n%s", data)
+	}
+	if err := UpdateFile(path); err != nil {
+		t.Fatalf("a file with nothing to update failed: %v", err)
+	}
+	if _, err := UnsetFile(path, "merge.land"); err == nil {
+		t.Fatal("unset rewrote a commented file")
+	}
+}

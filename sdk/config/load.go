@@ -4,6 +4,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -17,6 +18,7 @@ import (
 	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	"github.com/arafathusayn/herdsman/sdk/internal/encoding/toml"
 	"github.com/arafathusayn/herdsman/sdk/internal/encoding/tree"
+	"github.com/arafathusayn/herdsman/sdk/internal/encoding/yaml"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -545,8 +547,15 @@ func SetFile(path, key, value string) error {
 		return err
 	}
 	written := writtenPath(root, resolved.segments, configDescriptor())
+	whole := func() ([]byte, error) {
+		if err := setPath(root, written, node); err != nil {
+			return nil, err
+		}
+		return encodeFile(format, root, data)
+	}
 	var out []byte
-	if format == FormatTOML {
+	switch format {
+	case FormatTOML:
 		doc, err := toml.Parse(data)
 		if err != nil {
 			return err
@@ -560,11 +569,12 @@ func SetFile(path, key, value string) error {
 			return err
 		}
 		out = doc.Encode()
-	} else {
-		if err := setPath(root, written, node); err != nil {
+	case FormatYAML:
+		if out, err = editYAML(data, func(doc *yaml.Document) error { return doc.Set(written, node) }, whole); err != nil {
 			return err
 		}
-		if out, err = encodeFile(format, root, data); err != nil {
+	default:
+		if out, err = whole(); err != nil {
 			return err
 		}
 	}
@@ -572,6 +582,26 @@ func SetFile(path, key, value string) error {
 		return err
 	}
 	return writeAtomic(path, out)
+}
+
+// editYAML applies an edit that keeps the file's comments. A file with no
+// block mapping at its top is rewritten whole, unless that would drop a
+// comment.
+func editYAML(data []byte, edit func(*yaml.Document) error, whole func() ([]byte, error)) ([]byte, error) {
+	doc, err := yaml.Parse(data)
+	if errors.Is(err, yaml.ErrNotEditable) {
+		if bytes.Contains(data, []byte("#")) {
+			return nil, errors.New("this YAML file's layout cannot be edited without losing a comment; write the top level as a block mapping")
+		}
+		return whole()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := edit(doc); err != nil {
+		return nil, err
+	}
+	return doc.Encode(), nil
 }
 
 // UnsetFile removes one key from a file and reports whether it was there.
@@ -588,8 +618,14 @@ func UnsetFile(path, key string) (bool, error) {
 	if _, ok := root.Lookup(written...); !ok {
 		return false, nil
 	}
+	whole := func() ([]byte, error) {
+		parent, _ := root.Lookup(written[:len(written)-1]...)
+		parent.Delete(written[len(written)-1])
+		return encodeFile(format, root, data)
+	}
 	var out []byte
-	if format == FormatTOML {
+	switch format {
+	case FormatTOML:
 		doc, err := toml.Parse(data)
 		if err != nil {
 			return false, err
@@ -603,10 +639,15 @@ func UnsetFile(path, key string) (bool, error) {
 			return false, err
 		}
 		out = doc.Encode()
-	} else {
-		parent, _ := root.Lookup(written[:len(written)-1]...)
-		parent.Delete(written[len(written)-1])
-		if out, err = encodeFile(format, root, data); err != nil {
+	case FormatYAML:
+		if out, err = editYAML(data, func(doc *yaml.Document) error {
+			_, err := doc.Unset(written)
+			return err
+		}, whole); err != nil {
+			return false, err
+		}
+	default:
+		if out, err = whole(); err != nil {
 			return false, err
 		}
 	}
@@ -689,8 +730,24 @@ func UpdateFile(path string) error {
 	if len(pending) == 0 && !outdated {
 		return nil
 	}
+	whole := func() ([]byte, error) {
+		for _, item := range pending {
+			parent, _ := root.Lookup(item.from[:len(item.from)-1]...)
+			parent.Delete(item.from[len(item.from)-1])
+			if err := setPath(root, item.to, item.value); err != nil {
+				return nil, err
+			}
+		}
+		if outdated {
+			if err := setPath(root, schemaPath, tree.NewString(SchemaVersion)); err != nil {
+				return nil, err
+			}
+		}
+		return encodeFile(format, root, data)
+	}
 	var out []byte
-	if format == FormatTOML {
+	switch format {
+	case FormatTOML:
 		doc, err := toml.Parse(data)
 		if err != nil {
 			return err
@@ -718,20 +775,23 @@ func UpdateFile(path string) error {
 			}
 		}
 		out = doc.Encode()
-	} else {
-		for _, item := range pending {
-			parent, _ := root.Lookup(item.from[:len(item.from)-1]...)
-			parent.Delete(item.from[len(item.from)-1])
-			if err := setPath(root, item.to, item.value); err != nil {
-				return err
+	case FormatYAML:
+		edit := func(doc *yaml.Document) error {
+			for _, item := range pending {
+				if err := doc.Rename(item.from, item.to[len(item.to)-1]); err != nil {
+					return err
+				}
 			}
-		}
-		if outdated {
-			if err := setPath(root, schemaPath, tree.NewString(SchemaVersion)); err != nil {
-				return err
+			if outdated {
+				return doc.Set(schemaPath, tree.NewString(SchemaVersion))
 			}
+			return nil
 		}
-		if out, err = encodeFile(format, root, data); err != nil {
+		if out, err = editYAML(data, edit, whole); err != nil {
+			return err
+		}
+	default:
+		if out, err = whole(); err != nil {
 			return err
 		}
 	}
