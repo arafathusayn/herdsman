@@ -6,6 +6,7 @@
 package teardown
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -354,6 +355,7 @@ func TestTheVerbStopsWhatItRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	state.Close()
+	private := startVerbDaemon(t, binary)
 	execution := ledger.NewExecution(time.Now())
 	process := w.spawn(spawn{name: "server", mode: "sleep", dir: worktree, execution: execution})
 	bystander := w.spawn(spawn{name: "bystander", mode: "sleep", dir: worktree})
@@ -362,7 +364,7 @@ func TestTheVerbStopsWhatItRecorded(t *testing.T) {
 		t.Helper()
 		cmd := exec.Command(binary, args...)
 		cmd.Dir = worktree
-		cmd.Env = append(os.Environ(), ledger.EnvExecution+"="+execution)
+		cmd.Env = append(os.Environ(), ledger.EnvExecution+"="+execution, "HERDSMAN_PRIVATE_HOME="+private)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("herdsman %v: %v\n%s", args, err, out)
@@ -373,7 +375,7 @@ func TestTheVerbStopsWhatItRecorded(t *testing.T) {
 	for {
 		cmd := exec.Command(binary, "resource", "add", "--kind", "process", "--id", strconv.Itoa(process.cmd.Process.Pid))
 		cmd.Dir = worktree
-		cmd.Env = append(os.Environ(), ledger.EnvExecution+"="+execution)
+		cmd.Env = append(os.Environ(), ledger.EnvExecution+"="+execution, "HERDSMAN_PRIVATE_HOME="+private)
 		out, err := cmd.CombinedOutput()
 		if err == nil {
 			break
@@ -395,6 +397,50 @@ func TestTheVerbStopsWhatItRecorded(t *testing.T) {
 	if _, err := os.Stat(worktree); err != nil {
 		t.Fatalf("the worktree went away: %v", err)
 	}
+}
+
+// startVerbDaemon runs a daemon of the binary under test in its own folder,
+// because the verbs reach it through the client. The folder's path is short:
+// a socket path has a small limit on macOS.
+func startVerbDaemon(t *testing.T, binary string) string {
+	t.Helper()
+	root, err := os.MkdirTemp("", "td")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	if root, err = filepath.EvalSymlinks(root); err != nil {
+		t.Fatal(err)
+	}
+	private := filepath.Join(root, "p")
+	if err := os.Mkdir(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, binary, "daemon", "run")
+	cmd.Env = append(os.Environ(), "HERDSMAN_PRIVATE_HOME="+private)
+	var log bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &log, &log
+	if err := cmd.Start(); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cancel()
+		_ = cmd.Wait()
+		if t.Failed() {
+			t.Logf("daemon log:\n%s", log.String())
+		}
+	})
+	socket := filepath.Join(private, "run", "daemon.sock")
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if conn, err := net.Dial("unix", socket); err == nil {
+			conn.Close()
+			return private
+		}
+	}
+	t.Fatalf("the daemon did not come up:\n%s", log.String())
+	return ""
 }
 
 func containsLine(out, want string) bool {

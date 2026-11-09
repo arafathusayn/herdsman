@@ -183,8 +183,14 @@ func Run(o Options, stderr io.Writer) (Results, error) {
 	if err != nil {
 		return Results{}, err
 	}
-	env := toolEnv(f)
+	stateRoot, private, err := daemonFolder()
+	if err != nil {
+		return Results{}, err
+	}
+	defer os.RemoveAll(stateRoot)
+	env := append(toolEnv(f), envPrivateHome+"="+private)
 	b := &Bench{Fixtures: f, Tools: Tools{Herdsman: o.Herdsman, Wt: o.Wt}, run: func(s Step) (string, error) { return execStep(env, s) }}
+	b.daemon = func() (func() error, error) { return startDaemon(o.Herdsman, env, f.Root, private) }
 	b.ComposeReady = composeReady(env, f.Repo20)
 	results := Results{
 		Schema: SchemaVersion, Date: time.Now().UTC().Format(time.RFC3339), Commit: commit,
@@ -196,7 +202,7 @@ func Run(o Options, stderr io.Writer) (Results, error) {
 		if c.Rounds > 0 && c.Rounds < rounds {
 			rounds = c.Rounds
 		}
-		result := runCase(c, rounds, b.measureWith())
+		result := b.runWithDaemon(c, rounds, b.measureWith())
 		fmt.Fprintf(stderr, "%s: %s %s\n", result.ID, result.Verdict, result.Reason)
 		results.Cases = append(results.Cases, result)
 	}

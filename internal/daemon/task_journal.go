@@ -202,7 +202,7 @@ func (s *WorktreeService) herdrSocket(r *repository) string {
 // makeTree makes and records the worktree, under an operation when a daemon
 // serves the call.
 func (s *WorktreeService) makeTree(ctx context.Context, r *repository, spec treeSpec, resp *WorktreeNewResponse) error {
-	if s.journal == nil {
+	if s.tasks == nil {
 		if err := s.applyTree(ctx, r, spec, resp); err != nil {
 			return err
 		}
@@ -212,7 +212,7 @@ func (s *WorktreeService) makeTree(ctx context.Context, r *repository, spec tree
 		return nil
 	}
 	spec.Socket = s.herdrSocket(r)
-	return s.journal.run(ctx, r, spec, resp)
+	return s.tasks.run(ctx, r, spec, resp)
 }
 
 func (j *taskJournal) run(ctx context.Context, r *repository, spec treeSpec, resp *WorktreeNewResponse) error {

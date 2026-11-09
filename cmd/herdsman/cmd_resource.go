@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 const resourceHelp = `usage: herdsman resource add --kind <kind> --id <id> [--task <task>] [--execution <id>]
@@ -41,7 +44,12 @@ func runResource(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	if _, err := callWorktree("ResourceAdd", map[string]string{"dir": dir, "task": *task, "execution": *execution, "kind": *kind, "id": *id}); err != nil {
+	service, closeService, err := dialLedger()
+	if err != nil {
+		return fail(stderr, err)
+	}
+	defer closeService()
+	if _, err := service.RegisterResource(context.Background(), &daemonv1.RegisterResourceRequest{Dir: dir, Task: *task, Execution: *execution, Kind: *kind, Id: *id}); err != nil {
 		return fail(stderr, err)
 	}
 	fmt.Fprintf(stdout, "recorded %s %s\n", *kind, *id)

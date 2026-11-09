@@ -101,6 +101,8 @@ type Daemon struct {
 	tasks     *taskJournal
 	tasksOnce sync.Once
 	recovery  *ops.Recovery
+	worktrees *WorktreeService
+	teardowns *teardownJournal
 	// exportGate keeps route and registry writers out of an export's copy.
 	exportGate sync.RWMutex
 	opsCancel  context.CancelFunc
