@@ -53,6 +53,25 @@ export interface Config {
   teardown?: Teardown;
   worktree?: Worktree;
   automations?: Automations;
+  retention?: Retention;
+}
+
+/**
+ * Retention bounds the snapshots that undo can restore. The daemon reads it from
+ * the user file each time it applies a limit. A value that cannot be read stops
+ * the sweep and refuses new snapshots; nothing is deleted on a guess.
+ */
+export interface Retention {
+  /**
+   * How long a snapshot is kept: a Go duration or a count of days, as "720h"
+   * or "30d". The default is 30 days.
+   */
+  undo?: string;
+  /**
+   * The most all snapshots may hold: bytes, or a count with KiB, MiB, GiB or
+   * TiB, as "20GiB". The default is 20 GiB. A full cap refuses a new snapshot.
+   */
+  cap?: string;
 }
 
 /**

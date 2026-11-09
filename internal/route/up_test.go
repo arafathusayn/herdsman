@@ -577,6 +577,29 @@ func TestContinueAfterAFreshAttestationApproves(t *testing.T) {
 	}
 }
 
+// No verdicts is one case, however the caller spells it.
+func TestContinueWithAnEmptyVerdictListApproves(t *testing.T) {
+	r := newRig(t)
+	p := r.plan(r.request("claude", "codex"))
+	e, done := r.engine()
+	defer done()
+	op := drive(t, e, p.Spec)
+	if op.State != ops.OpStopped {
+		t.Fatalf("state %s", op.State)
+	}
+	r.attest(p.Key)
+	if err := route.Continue(e, r.callers, p, op, map[int]string{}); err != nil {
+		t.Fatal(err)
+	}
+	op, err := e.Drive(context.Background(), op.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op.State != ops.OpDone {
+		t.Fatalf("state %s: %s", op.State, op.Reason)
+	}
+}
+
 func TestManualPairNeedsTheConfirmedChecksum(t *testing.T) {
 	r := newRig(t)
 	req := r.request("claude", "codex")
