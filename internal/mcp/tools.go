@@ -50,6 +50,10 @@ var readOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.GetOperation":   true,
 	"herdsman.daemon.v1.RouteService.Get":              true,
 	"herdsman.daemon.v1.RouteService.List":             true,
+	"herdsman.daemon.v1.ProjectService.Get":            true,
+	"herdsman.daemon.v1.ProjectService.List":           true,
+	"herdsman.daemon.v1.TaskService.Get":               true,
+	"herdsman.daemon.v1.TaskService.List":              true,
 	"herdsman.suggest.v1.SuggestService.Search":        true,
 	"herdsman.suggest.v1.SuggestService.Get":           true,
 	"herdsman.suggest.v1.SuggestService.Plan":          true,
@@ -80,6 +84,8 @@ func Files() []protoreflect.FileDescriptor {
 	return []protoreflect.FileDescriptor{
 		daemonv1.File_herdsman_daemon_v1_message_proto,
 		daemonv1.File_herdsman_daemon_v1_route_proto,
+		daemonv1.File_herdsman_daemon_v1_project_proto,
+		daemonv1.File_herdsman_daemon_v1_task_proto,
 		suggestv1.File_herdsman_suggest_v1_suggest_proto,
 	}
 }
