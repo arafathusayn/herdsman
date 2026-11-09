@@ -32,6 +32,8 @@ func Run(ctx context.Context, call route.ChannelCall) error {
 		code = env.Register(call.Args)
 	case route.ChannelSend:
 		code = env.Send(call.Args)
+	case route.ChannelHold:
+		code = env.Hold(call.Args)
 	default:
 		return fmt.Errorf("unknown channel action %q", call.Action)
 	}

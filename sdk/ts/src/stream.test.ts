@@ -30,7 +30,7 @@ class FakeSocket implements WebSocketLike {
   }
 }
 
-function start(options: { maxQueued?: number; signal?: AbortSignal } = {}) {
+function start(options: { maxQueued?: number; signal?: AbortSignal; session?: string } = {}) {
   const socket = new FakeSocket();
   const stream = openStream<{ out: number }, { n: number }>({
     baseUrl: "https://daemon/base/",
@@ -59,6 +59,24 @@ describe("openStream", () => {
     const { socket } = start();
     expect(socket.url).toBe("wss://daemon/base/rpc/herdsman.daemon.v1.EventService/Stream");
     expect(socket.protocols).toEqual(["herdsman.json"]);
+  });
+
+  test("offers the session as a second subprotocol, after the JSON one", () => {
+    const { socket } = start({ session: "device-1" });
+    expect(socket.protocols).toEqual(["herdsman.json", "herdsman.session.device-1"]);
+  });
+
+  test("offers no session entry for an empty session", () => {
+    const { socket } = start({ session: "" });
+    expect(socket.protocols).toEqual(["herdsman.json"]);
+  });
+
+  test("refuses a server that selects the session entry", async () => {
+    const { socket, stream } = start({ session: "device-1" });
+    socket.protocol = "herdsman.session.device-1";
+    socket.open();
+    expect((await failure(stream.next())).code).toBe("unavailable");
+    expect(socket.closed).toEqual([1008]);
   });
 
   test("holds frames until the socket opens, then keeps their order", () => {

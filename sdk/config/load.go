@@ -311,27 +311,6 @@ func findUserFile(opts Options, environ []string) (string, error) {
 // FileIn returns the project file directly in dir, or "" when there is none.
 func FileIn(dir string) (string, error) { return findOne(dir, "herdsman.config", projectFormats) }
 
-// ReadHooks returns one file's hooks section as plain data. It looks at nothing
-// else in the file: commands that read their own sections validate those.
-func ReadHooks(path string) (map[string]any, error) {
-	_, _, root, err := readForEdit(path)
-	if err != nil {
-		return nil, err
-	}
-	if root.Kind != tree.Table {
-		return nil, fmt.Errorf("%s: expected a table, found %s", path, root.Kind)
-	}
-	node, ok := root.Get("hooks")
-	if !ok {
-		return nil, nil
-	}
-	table, isTable := plainValue(node).(map[string]any)
-	if !isTable {
-		return nil, fmt.Errorf("%s: hooks: expected a table, found %s", path, node.Kind)
-	}
-	return table, nil
-}
-
 // UserFile returns the user file's path and whether it exists yet. A new file
 // would be TOML.
 func UserFile(opts Options) (string, bool, error) {

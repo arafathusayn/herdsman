@@ -22,7 +22,15 @@ const (
 	allowEnv = "HERDSMAN_ALLOW_UNTRUSTED_KEY"
 )
 
-func main() { os.Exit(run(os.Args[1:], os.Getenv, os.Stderr)) }
+// These are replaced by tests.
+var (
+	exit        = os.Exit
+	trustedKeys = update.TrustedKeys
+	generateKey = ed25519.GenerateKey
+	writeSeed   = (*os.File).WriteString
+)
+
+func main() { exit(run(os.Args[1:], os.Getenv, os.Stderr)) }
 
 const usage = "usage: releasetool sign|verify|keygen|sbom [flags]\n"
 
@@ -82,7 +90,7 @@ func sign(args []string, getenv func(string) string, out io.Writer) int {
 	}
 	priv := ed25519.NewKeyFromSeed(seed)
 	if getenv(allowEnv) != "1" {
-		trusted, err := update.TrustedKeys()
+		trusted, err := trustedKeys()
 		if err != nil {
 			return fail(out, "sign", err)
 		}
@@ -129,7 +137,7 @@ func keygen(args []string, _ func(string) string, out io.Writer) int {
 	if !ok {
 		return 2
 	}
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	pub, priv, err := generateKey(rand.Reader)
 	if err != nil {
 		return fail(out, "keygen", err)
 	}
@@ -139,7 +147,7 @@ func keygen(args []string, _ func(string) string, out io.Writer) int {
 		return fail(out, "keygen", err)
 	}
 	defer f.Close()
-	if _, err := f.WriteString(base64.StdEncoding.EncodeToString(priv.Seed()) + "\n"); err != nil {
+	if _, err := writeSeed(f, base64.StdEncoding.EncodeToString(priv.Seed())+"\n"); err != nil {
 		return fail(out, "keygen", err)
 	}
 	if err := os.WriteFile(*v["public-out"], []byte(update.PublicKeyLine(pub)+"\n"), 0o644); err != nil {

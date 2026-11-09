@@ -269,7 +269,9 @@ export function routeFor(routes: Route[], key: string): Route | null {
 export function nextView(view: View, patch: Partial<View>): View {
   const ws = patch.route === undefined ? view.ws : "";
   const artifact = patch.route === undefined || patch.route === view.route ? view.artifact : "";
-  return { ...view, ws, artifact, ...patch };
+  // Opening a route leaves the page that stood in front of it.
+  const page = patch.route === undefined ? view.page : "";
+  return { ...view, ws, artifact, page, ...patch };
 }
 
 /**

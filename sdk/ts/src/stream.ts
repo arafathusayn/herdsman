@@ -3,6 +3,7 @@
 import { HerdsmanError } from "./client";
 
 export const JSON_SUBPROTOCOL = "herdsman.json";
+export const SESSION_SUBPROTOCOL_PREFIX = "herdsman.session.";
 
 const STREAM_PATH = "/rpc/herdsman.daemon.v1.EventService/Stream";
 const DEFAULT_MAX_QUEUED = 1024;
@@ -26,6 +27,12 @@ export interface StreamOptions {
   baseUrl: string;
   /** Replaces the global WebSocket. */
   webSocket?: (url: string, protocols: string[]) => WebSocketLike;
+  /**
+   * A paired browser's device secret. A browser cannot set headers on an
+   * upgrade, so the secret travels as an offered subprotocol, which stays out
+   * of the URL. The server never selects it.
+   */
+  session?: string;
   signal?: AbortSignal;
   /** Unread frames to hold before the stream fails; default 1024. */
   maxQueued?: number;
@@ -55,7 +62,7 @@ export function openStream<Out, In>(options: StreamOptions): FrameStream<Out, In
   let ended = false;
   let failure: HerdsmanError | undefined;
 
-  const socket = dial(url, [JSON_SUBPROTOCOL]);
+  const socket = dial(url, options.session ? [JSON_SUBPROTOCOL, SESSION_SUBPROTOCOL_PREFIX + options.session] : [JSON_SUBPROTOCOL]);
 
   // After this, no event changes the stream. Queued frames stay readable.
   const finish = (error?: HerdsmanError, closeCode?: number) => {

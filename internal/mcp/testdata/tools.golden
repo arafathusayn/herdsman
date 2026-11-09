@@ -140,6 +140,46 @@
     }
   },
   {
+    "name": "daemon_event_wait",
+    "description": "Calls herdsman.daemon.v1.EventService/Wait.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.daemon.v1.TopicCursor": {
+          "additionalProperties": false,
+          "properties": {
+            "cursor": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "topics": {
+          "items": {
+            "$ref": "#/$defs/herdsman.daemon.v1.TopicCursor"
+          },
+          "type": "array"
+        },
+        "wait_ms": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "daemon_message_ack",
     "description": "Calls herdsman.daemon.v1.MessageService/Ack. Changes state.",
     "inputSchema": {
@@ -779,6 +819,90 @@
     }
   },
   {
+    "name": "daemon_ops_records",
+    "description": "Calls herdsman.daemon.v1.OpsService/Records.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_ops_undo",
+    "description": "Calls herdsman.daemon.v1.OpsService/Undo. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "snapshot": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_route_delete",
+    "description": "Calls herdsman.daemon.v1.RouteService/Delete. Only plans: dry_run must be true, and the plan is returned with nothing done.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "force": {
+          "type": "boolean"
+        },
+        "grace_seconds": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "type": "integer"
+        },
+        "keep_folder": {
+          "type": "boolean"
+        },
+        "keep_worktrees": {
+          "type": "boolean"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "daemon_route_get",
     "description": "Calls herdsman.daemon.v1.RouteService/Get.",
     "inputSchema": {
@@ -816,6 +940,158 @@
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_route_pause",
+    "description": "Calls herdsman.daemon.v1.RouteService/Pause. Only plans: dry_run must be true, and the plan is returned with nothing done.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "teardown": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_route_resume",
+    "description": "Calls herdsman.daemon.v1.RouteService/Resume. Only plans: dry_run must be true, and the plan is returned with nothing done.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.UpCaller": {
+          "additionalProperties": false,
+          "properties": {
+            "confirmed_checksum": {
+              "type": "string"
+            },
+            "harness_ancestor": {
+              "type": "string"
+            },
+            "pane": {
+              "type": "string"
+            },
+            "pid": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "started": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "tty": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "caller": {
+          "$ref": "#/$defs/herdsman.daemon.v1.UpCaller"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_route_stop",
+    "description": "Calls herdsman.daemon.v1.RouteService/Stop. Only plans: dry_run must be true, and the plan is returned with nothing done.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "grace_seconds": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "type": "integer"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "teardown": {
+          "type": "boolean"
+        }
+      },
       "type": "object"
     },
     "annotations": {

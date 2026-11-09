@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,6 +21,9 @@ import (
 
 // OperationKind names a route's start in the journal.
 const OperationKind = "route.up"
+
+// TopicStarted is the outbox topic of a route whose start has finished.
+const TopicStarted = "route.started"
 
 // StepsOperation is the marker folder of a route's start. It is a fixed name,
 // not the operation's id: a later operation of the same route must read the
@@ -115,6 +119,8 @@ type stepData struct {
 	Op string `json:"-"`
 	// Tag says which delivery a prompt step is, for its record.
 	Tag string `json:"tag,omitempty"`
+	// Control is set on the steps of a pause, resume, stop or delete.
+	Control *controlData `json:"control,omitempty"`
 }
 
 // UpKey is the idempotency key of a route's start.
@@ -301,6 +307,7 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 			d.Name, d.Tag, d.Prompt = p.OrchestratorName, "brief", skillPrefix(orchestratorKind)+"herdsman run "+shellQuote(q.Prompt)
 		}))
 		addCheckpointer(add, with, orchestratorKind, p, channelEnv, q)
+		announceStarted(steps, p, q)
 		p.Spec = ops.Spec{Key: p.Key, Kind: OperationKind, Plan: text.String(), Steps: steps}
 		p.Text = text.String()
 		return p, nil
@@ -336,9 +343,24 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 	add("send the first brief", effectBrief, "brief:"+p.AdjutantName, ops.RetryNever, with(func(d *stepData) {
 		d.Name, d.Tag, d.Prompt = p.AdjutantName, "brief", q.Prompt
 	}))
+	announceStarted(steps, p, q)
 	p.Spec = ops.Spec{Key: p.Key, Kind: OperationKind, Plan: text.String(), Steps: steps}
 	p.Text = text.String()
 	return p, nil
+}
+
+// announceStarted makes the last step publish that the route has started. The
+// outbox holds it in the same transaction that records the step, so a crash
+// cannot lose it or announce a start that did not finish.
+func announceStarted(steps []ops.StepSpec, p *UpPlan, q UpRequest) {
+	payload, err := json.Marshal(map[string]any{
+		"project": q.Repo,
+		"values":  map[string]string{"route": q.Route, "workspace": p.Workspace, "folder": p.Folder},
+	})
+	if err != nil {
+		panic(err) // only strings
+	}
+	steps[len(steps)-1].Events = []ops.Event{{Topic: TopicStarted, Payload: string(payload)}}
 }
 
 // addCheckpointer adds the checkpointer pane when the orchestrator's kind has
@@ -447,6 +469,12 @@ type Deps struct {
 	Poll func()
 	// AgentTimeout bounds one agent start.
 	AgentTimeout time.Duration
+	// Recovery makes a delete undoable; without it a delete refuses.
+	Recovery Recovery
+	// Down frees a route's tasks and worktrees, given the repo and route folder.
+	Down func(ctx context.Context, repo, folder string) error
+	// Teardown stops a route's task processes, given the repo and route folder.
+	Teardown func(ctx context.Context, repo, folder string) error
 }
 
 type effect struct {
@@ -491,7 +519,8 @@ func Effects(deps Deps) map[string]ops.Effect {
 	if deps.Callers == nil {
 		deps.Callers = NewCallers()
 	}
-	return map[string]ops.Effect{
+	effects := controlEffects(deps)
+	maps.Copy(effects, map[string]ops.Effect{
 		effectFolder:    effect{deps, applyFolder, probeFolder},
 		effectInbox:     effect{deps, applyInbox, probeInbox},
 		effectWorkspace: effect{deps, applyWorkspace, probeWorkspace},
@@ -505,7 +534,8 @@ func Effects(deps Deps) map[string]ops.Effect {
 		effectService:   effect{deps, applyService, probeService},
 		effectHandshake: effect{deps, applyHandshake, probeHandshake},
 		effectBrief:     effect{deps, applyPrompt, probeSent},
-	}
+	})
+	return effects
 }
 
 func applyPrelude(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {

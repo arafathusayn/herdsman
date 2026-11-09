@@ -62,7 +62,7 @@ type Result struct {
 
 // Clone duplicates src, a file, a symbolic link or a directory, at dst. Parents
 // of dst are created; dst itself must not exist. Modes and modification times
-// are kept, except a symbolic link's own time, and links are not followed. When
+// are kept, also a symbolic link's own time, and links are not followed. When
 // Clone fails, a directory it had started at dst is removed.
 func Clone(src, dst string) (Result, error) {
 	return run(src, dst, platformClone)
@@ -118,11 +118,14 @@ func run(src, dst string, clone cloneFunc) (Result, error) {
 			}
 			directories = append(directories, directory{target, info})
 		case info.Mode()&fs.ModeSymlink != 0:
-			link, err := os.Readlink(path)
+			link, err := readLink(path)
 			if err != nil {
 				return err
 			}
-			if err := os.Symlink(link, target); err != nil {
+			if err := makeLink(link, target); err != nil {
+				return err
+			}
+			if err := stampLink(target, info.ModTime()); err != nil {
 				return err
 			}
 			result.Entries = append(result.Entries, Entry{Path: name, Method: Copied})
@@ -216,13 +219,17 @@ func resolveExisting(path string) (string, error) {
 
 // cloneFiles fills in each job's entry from a pool of workers and stops
 // handing out work at the first failure.
+// minCloneWorkers is the smallest pool. A clone is kernel work that blocks its
+// thread, so a pool sized by the core count alone starves a small machine.
+const minCloneWorkers = 8
+
 func cloneFiles(jobs []fileJob, entries []Entry, clone cloneFunc) error {
 	var next atomic.Int64
 	var failed atomic.Bool
 	var firstErr error
 	var once sync.Once
 	var workers sync.WaitGroup
-	for range runtime.GOMAXPROCS(0) {
+	for range max(minCloneWorkers, runtime.GOMAXPROCS(0)) {
 		workers.Go(func() {
 			for !failed.Load() {
 				index := int(next.Add(1)) - 1
@@ -304,12 +311,21 @@ func copyFile(src, dst string, info fs.FileInfo) (err error) {
 func finishDirectories(directories []directory) error {
 	for index := len(directories) - 1; index >= 0; index-- {
 		entry := directories[index]
-		if err := os.Chtimes(entry.path, time.Time{}, entry.info.ModTime()); err != nil {
+		if err := stampDir(entry.path, time.Time{}, entry.info.ModTime()); err != nil {
 			return err
 		}
-		if err := os.Chmod(entry.path, entry.info.Mode().Perm()); err != nil {
+		if err := chmodDir(entry.path, entry.info.Mode().Perm()); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+
+// These calls are variables so that a test can make each one fail.
+var (
+	readLink  = os.Readlink
+	makeLink  = os.Symlink
+	stampLink = setLinkTime
+	chmodDir  = os.Chmod
+	stampDir  = os.Chtimes
+)

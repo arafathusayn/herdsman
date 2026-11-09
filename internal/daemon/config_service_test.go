@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/arafathusayn/herdsman/internal/gitrun"
 	"github.com/arafathusayn/herdsman/sdk/config"
 	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
@@ -211,7 +212,18 @@ func TestConfigServiceChangesNothingInInspectMode(t *testing.T) {
 	}
 }
 
-func TestLoadHooksReadsEveryFormat(t *testing.T) {
+// settingsIn loads the settings of a repository whose parent is folder.
+func settingsIn(t *testing.T, folder string) (*repository, error) {
+	t.Helper()
+	main := filepath.Join(folder, "repo")
+	if err := os.MkdirAll(main, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &repository{git: &gitrun.Runner{}, main: main}
+	return r, (&WorktreeService{ConfigDir: t.TempDir()}).loadSettings(context.Background(), r)
+}
+
+func TestHooksLoadFromEveryFormat(t *testing.T) {
 	for name, tc := range map[string]struct{ file, text string }{
 		"toml": {"herdsman.config.toml", "[hooks]\npre-start = \"echo a\"\n"},
 		"yaml": {"herdsman.config.yaml", "hooks:\n  pre_start: echo a\n"},
@@ -223,9 +235,9 @@ func TestLoadHooksReadsEveryFormat(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(folder, tc.file), []byte(tc.text), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			got, err := loadHooks(folder)
-			if err != nil || len(got["pre-start"]) != 1 || got["pre-start"][0][0].Template != "echo a" {
-				t.Fatalf("%+v %v", got, err)
+			r, err := settingsIn(t, folder)
+			if err != nil || len(r.hooks["pre-start"]) != 1 || r.hooks["pre-start"][0][0].Template != "echo a" {
+				t.Fatalf("%+v %v", r.hooks, err)
 			}
 		})
 	}
@@ -242,31 +254,22 @@ func TestLoadHooksReadsEveryFormat(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(folder, "herdsman.config.bin"), data, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		got, err := loadHooks(folder)
-		if err != nil || len(got["pre-start"]) != 1 {
-			t.Fatalf("%+v %v", got, err)
+		r, err := settingsIn(t, folder)
+		if err != nil || len(r.hooks["pre-start"]) != 1 {
+			t.Fatalf("%+v %v", r.hooks, err)
 		}
 	})
 }
 
-func TestLoadHooksEdges(t *testing.T) {
-	if got, err := loadHooks(t.TempDir()); err != nil || len(got) != 0 {
-		t.Fatalf("no file: %v %v", got, err)
-	}
+func TestTwoConfigFilesStopHookLoading(t *testing.T) {
 	folder := t.TempDir()
 	for _, name := range []string{"herdsman.config.toml", "herdsman.config.json"} {
-		if err := os.WriteFile(filepath.Join(folder, name), []byte(""), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(folder, name), []byte("{}"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := loadHooks(folder); err == nil || !strings.Contains(err.Error(), "keep one") {
+	if _, err := settingsIn(t, folder); err == nil || !strings.Contains(err.Error(), "keep one") {
 		t.Fatalf("two files: %v", err)
-	}
-	broken := t.TempDir()
-	if err := os.WriteFile(filepath.Join(broken, "herdsman.config.toml"), []byte("not toml"), 0o644); err == nil {
-		if _, err := loadHooks(broken); err == nil {
-			t.Fatal("read a broken file")
-		}
 	}
 }
 

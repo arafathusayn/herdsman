@@ -11,7 +11,7 @@ import (
 	"github.com/arafathusayn/herdsman/sdk/internal/encoding/yaml"
 )
 
-func TestFileInAndReadHooks(t *testing.T) {
+func TestFileIn(t *testing.T) {
 	dir := t.TempDir()
 	if path, err := FileIn(dir); err != nil || path != "" {
 		t.Fatalf("%q %v", path, err)
@@ -20,26 +20,6 @@ func TestFileInAndReadHooks(t *testing.T) {
 	path, err := FileIn(dir)
 	if err != nil || path != written {
 		t.Fatalf("%q %v", path, err)
-	}
-	table, err := ReadHooks(path)
-	if err != nil || table["pre-start"] != "a" {
-		t.Fatalf("%v %v", table, err)
-	}
-	if table, err := ReadHooks(configFile(t, "")); err != nil || table != nil {
-		t.Fatalf("%v %v", table, err)
-	}
-	other := configFile(t, "[commit]\nstage = \"none\"\n[hooks]\npre-start = \"a\"\n")
-	if table, err := ReadHooks(other); err != nil || table["pre-start"] != "a" {
-		t.Fatalf("another section stopped the hooks: %v %v", table, err)
-	}
-	if _, err := ReadHooks(filepath.Join(dir, "gone.toml")); err == nil {
-		t.Fatal("a missing file was accepted")
-	}
-	if _, err := ReadHooks(writeFile(t, filepath.Join(t.TempDir(), "c.json"), "[1]")); err == nil {
-		t.Fatal("a list was accepted as a file")
-	}
-	if _, err := ReadHooks(configFile(t, "hooks = 1\n")); err == nil {
-		t.Fatal("a number was accepted as the hooks section")
 	}
 }
 

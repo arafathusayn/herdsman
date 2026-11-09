@@ -101,9 +101,18 @@ func nextFrame(t testing.TB, ch <-chan WaitFrame, typ string) Event {
 
 // subCount is the number of streams attached to a route, read on its
 // actor without the operation rules (a degraded route still answers).
+// subCount is the parties attached to a route; the event feed is always there.
 func subCount(rt *Route) int {
 	n := make(chan int, 1)
-	rt.ops <- func() { n <- len(rt.subs) }
+	rt.ops <- func() {
+		count := 0
+		for s := range rt.subs {
+			if s.party != "" {
+				count++
+			}
+		}
+		n <- count
+	}
 	return <-n
 }
 
