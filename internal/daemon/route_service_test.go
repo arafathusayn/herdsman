@@ -139,3 +139,44 @@ func TestGetNamesAnUnknownRoute(t *testing.T) {
 		t.Fatalf("empty: %v", err)
 	}
 }
+
+func writeLaunchConfig(t *testing.T, dir, text string) string {
+	t.Helper()
+	path := filepath.Join(dir, "route.toml")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestUpPlansTheConfiguredLaunch(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	req := upRequest(filepath.Join(h.ph, "proj"))
+	req.OrchestratorCommand = ""
+	req.ConfigPath = writeLaunchConfig(t, h.dir, "[launch]\ncommand = [\"codex\"]\nprelude_timeout = \"90s\"\n[[launch.prelude]]\nargv = [\"make\", \"setup\"]\nretry = \"idempotent\"\n")
+	res, err := c.Route.Up(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.GetStart().GetPlan(), "'make' 'setup'") {
+		t.Fatalf("plan:\n%s", res.GetStart().GetPlan())
+	}
+}
+
+func TestUpRefusesABadConfigBeforeAnyEffect(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	ctx := context.Background()
+	req := upRequest(filepath.Join(h.ph, "proj"))
+	req.DryRun = false
+	req.OrchestratorCommand = ""
+	req.ConfigPath = writeLaunchConfig(t, h.dir, "[launch]\ncommand = [\"codex\"]\nprelude_timeout = \"soon\"\n")
+	if _, err := c.Route.Up(ctx, req); err == nil || !strings.Contains(err.Error(), "soon") {
+		t.Fatalf("err = %v", err)
+	}
+	list, err := c.Route.List(ctx, &daemonv1.RouteServiceListRequest{})
+	if err != nil || len(list.GetStarts()) != 0 {
+		t.Fatalf("journaled: %v %v", list, err)
+	}
+}

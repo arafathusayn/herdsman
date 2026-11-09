@@ -39,6 +39,8 @@ const upUsage = `usage: herdsman up <route> -p <prompt> -a <command> -o <command
 const upHelp = upUsage + `
 -a and -o are the commands that launch each coordinator's harness, typed as you
 would type them: "claude doctor && claude --model opus".
+-c names a config file. Its [launch] section starts the coordinator that has
+no -a or -o; a command given on the line wins.
 --dry-run prints the whole plan and starts nothing.
 --web also starts the web app on the route.
 --pair manual asks on the terminal before the pair is approved.
@@ -116,12 +118,17 @@ func parseUp(args []string, stderr io.Writer) (upFlags, bool) {
 		return f, true
 	}
 	var missing []string
-	for _, field := range []struct{ name, value string }{{"<route>", f.route}, {"-p", f.prompt}, {"-o", f.orchestrator}} {
+	for _, field := range []struct{ name, value string }{{"<route>", f.route}, {"-p", f.prompt}} {
 		if field.value == "" {
 			missing = append(missing, field.name)
 		}
 	}
-	if f.adjutant == "" && !f.noAdjutant {
+	// With a config, its [launch] section can start one coordinator; the daemon
+	// refuses the request if nothing starts the other.
+	if f.orchestrator == "" && f.config == "" {
+		missing = append(missing, "-o")
+	}
+	if f.adjutant == "" && !f.noAdjutant && f.config == "" {
 		missing = append(missing, "-a")
 	}
 	if len(missing) > 0 {

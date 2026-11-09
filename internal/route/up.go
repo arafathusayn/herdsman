@@ -69,6 +69,8 @@ type UpRequest struct {
 	Executable                           string
 	Date                                 string // the date in the route folder's name, YYYY-MM-DD
 	PolicyFiles, Kinds                   []string
+	// Launch, from the configuration, starts the role that has no command line.
+	Launch *launch.Spec
 }
 
 // UpPlan is the computed start: the journal's operation and what to print.
@@ -189,6 +191,9 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 	}
 	if strings.ContainsFunc(q.Prompt, func(r rune) bool { return r == 0 }) {
 		return nil, errors.New("the prompt holds a NUL byte")
+	}
+	if q.Launch != nil && q.OrchestratorCommand == "" && !q.NoAdjutant && q.AdjutantCommand == "" {
+		return nil, errors.New("[launch] describes one agent; give the other coordinator its command with -a or -o")
 	}
 	repoName := filepath.Base(q.Repo)
 	p := &UpPlan{
@@ -353,6 +358,14 @@ func addCheckpointer(add func(string, string, string, ops.Retry, stepData), with
 }
 
 func compileRole(role, name, line, kind, flag string, q UpRequest) (compiled, error) {
+	if line == "" && q.Launch != nil {
+		spec := *q.Launch
+		resolved, err := resolveKind(spec, kind, flag, role, q.Kinds)
+		if err != nil {
+			return compiled{}, err
+		}
+		return compiled{role: role, name: name, kind: resolved, line: launch.Command{Argv: spec.Command}.String(), spec: spec}, nil
+	}
 	spec, err := launch.Compile(line, launch.Options{})
 	if err != nil {
 		var refused *launch.RefusedError

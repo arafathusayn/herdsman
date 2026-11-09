@@ -10,6 +10,8 @@ usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]
 
 -a and -o are the commands that launch each coordinator's harness, typed as you
 would type them: "claude doctor && claude --model opus".
+-c names a config file. Its [launch] section starts the coordinator that has
+no -a or -o; a command given on the line wins.
 --dry-run prints the whole plan and starts nothing.
 --web also starts the web app on the route.
 --pair manual asks on the terminal before the pair is approved.
