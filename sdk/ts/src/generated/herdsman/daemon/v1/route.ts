@@ -64,6 +64,11 @@ export interface UpRequest {
    * YYYY-MM-DD of the first start; names the route folder.
    */
   date?: string;
+  /**
+   * Where each secret is stored, as NAME=service/account separated by commas.
+   * References only: a value never crosses this call.
+   */
+  secretRefs?: string;
 }
 
 /**
