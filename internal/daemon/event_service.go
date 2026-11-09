@@ -190,10 +190,13 @@ func (h *eventHub) head(topic string) int64 {
 	return 0
 }
 
-// read returns events after p up to the limits. A limit of zero on lag turns
-// the lag check off; barrier is the head when the reader subscribed, so that
-// catching up on history never counts as falling behind.
-func (h *eventHub) read(topic string, p eventPosition, maxEvents, maxBytes int, lag, barrier int64) eventRead {
+// read returns events after p up to the limits. spent is the payload the
+// reader's reply already holds and counts against maxBytes; only a reply still
+// empty may take one event larger than maxBytes, or that event could never be
+// delivered. A limit of zero on lag turns the lag check off; barrier is the
+// head when the reader subscribed, so that catching up on history never counts
+// as falling behind.
+func (h *eventHub) read(topic string, p eventPosition, maxEvents, maxBytes, spent int, lag, barrier int64) eventRead {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	t := h.topics[topic]
@@ -221,7 +224,7 @@ func (h *eventHub) read(topic string, p eventPosition, maxEvents, maxBytes int, 
 	}
 	first := int(p.seq - start.seq)
 	out := eventRead{next: p}
-	size := 0
+	size := spent
 	for _, event := range t.ring[first:] {
 		if len(out.events) >= maxEvents || (size > 0 && size+len(event.GetPayload()) > maxBytes) {
 			break
@@ -311,9 +314,9 @@ func (s *eventService) Wait(ctx context.Context, req *daemonv1.EventServiceWaitR
 // collect reads every requested topic into one bounded reply.
 func (s *eventService) collect(topics []*daemonv1.TopicCursor, positions []eventPosition) *daemonv1.EventServiceWaitResponse {
 	res := new(daemonv1.EventServiceWaitResponse)
-	budget, bytes := maxWaitEvents, maxWaitReply
+	budget, spent := maxWaitEvents, 0
 	for i, topic := range topics {
-		found := s.hub.read(topic.GetTopic(), positions[i], max(budget, 0), max(bytes, 1), 0, 0)
+		found := s.hub.read(topic.GetTopic(), positions[i], budget, maxWaitReply, spent, 0, 0)
 		if found.lagged != nil {
 			res.Lagged = append(res.Lagged, found.lagged)
 		}
@@ -321,7 +324,7 @@ func (s *eventService) collect(topics []*daemonv1.TopicCursor, positions []event
 		res.Cursors = append(res.Cursors, &daemonv1.TopicCursor{Topic: topic.GetTopic(), Cursor: found.next.cursor()})
 		budget -= len(found.events)
 		for _, event := range found.events {
-			bytes -= len(event.GetPayload())
+			spent += len(event.GetPayload())
 		}
 	}
 	return res
@@ -481,7 +484,7 @@ func (c *eventConn) pass() (bool, error) {
 	hub := c.service.hub
 	for _, item := range c.snapshot() {
 		topic, sub := item.topic, item.sub
-		found := hub.read(topic, sub.position, streamPassEvents, streamPassBytes, hub.lag, sub.barrier)
+		found := hub.read(topic, sub.position, streamPassEvents, streamPassBytes, 0, hub.lag, sub.barrier)
 		if found.lagged != nil {
 			if err := c.conn.Write(&daemonv1.StreamFrame{Frame: &daemonv1.StreamFrame_Lagged{Lagged: found.lagged}}); err != nil {
 				return false, err

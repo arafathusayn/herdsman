@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -804,7 +805,7 @@ func TestRouteFeedReplaysFromTheJournalWhenTheRingIsPast(t *testing.T) {
 
 // routeTopicTypes is a route topic's retained events by type, oldest first.
 func routeTopicTypes(s *eventServer, route string) []string {
-	got := s.hub.read(events.RouteTopic(route), eventPosition{}, 64, 1<<20, 0, 0)
+	got := s.hub.read(events.RouteTopic(route), eventPosition{}, 64, 1<<20, 0, 0, 0)
 	types := make([]string, 0, len(got.events))
 	for _, e := range got.events {
 		types = append(types, e.GetType())
@@ -846,7 +847,7 @@ func TestAnUnreadableJournalIsAnnouncedBeforeLaterEvents(t *testing.T) {
 			if got := routeTopicTypes(s, "r"); got[0] != "reset" || got[1] != "snapshot" {
 				t.Fatalf("events %v", got)
 			}
-			first := s.hub.read(events.RouteTopic("r"), eventPosition{}, 1, 1<<20, 0, 0).events[0]
+			first := s.hub.read(events.RouteTopic("r"), eventPosition{}, 1, 1<<20, 0, 0, 0).events[0]
 			if !strings.Contains(string(first.GetPayload()), journalUnreadable) {
 				t.Fatalf("reset %s", first.GetPayload())
 			}
@@ -969,5 +970,63 @@ func (s *eventService) closeAll() {
 	defer s.mu.Unlock()
 	for c := range s.conns {
 		c.conn.Close(events.CloseNormal, "")
+	}
+}
+
+// One reply stays inside its byte budget however many topics have events, and
+// a topic that did not fit keeps its cursor so the next call delivers it.
+func TestWaitByteBudgetSpansAllTopics(t *testing.T) {
+	s := newEventServer(t, nil)
+	topics := make([]*daemonv1.TopicCursor, 5)
+	payload := make([]byte, 1<<20)
+	for i := range topics {
+		name := events.RouteTopic("budget" + strconv.Itoa(i))
+		s.hub.publish(name, "message", payload)
+		topics[i] = &daemonv1.TopicCursor{Topic: name}
+	}
+	service := newEventService(s.hub, nil, nil)
+	delivered := map[string]int{}
+	for calls := 0; len(delivered) < len(topics); calls++ {
+		if calls == len(topics) {
+			t.Fatalf("delivered %v after %d calls", delivered, calls)
+		}
+		res, err := service.Wait(context.Background(), &daemonv1.EventServiceWaitRequest{Topics: topics})
+		if err != nil {
+			t.Fatal(err)
+		}
+		size := 0
+		for _, event := range res.GetEvents() {
+			size += len(event.GetPayload())
+			delivered[event.GetTopic()]++
+		}
+		if size > maxWaitReply {
+			t.Fatalf("reply carries %d payload bytes, limit %d", size, maxWaitReply)
+		}
+		if len(res.GetEvents()) == 0 {
+			t.Fatalf("no progress with %v delivered", delivered)
+		}
+		topics = res.GetCursors()
+	}
+	for name, count := range delivered {
+		if count != 1 {
+			t.Errorf("%s delivered %d times", name, count)
+		}
+	}
+}
+
+// A single event larger than the budget still goes out alone, or its topic
+// could never advance.
+func TestWaitDeliversAnOversizedEventAlone(t *testing.T) {
+	s := newEventServer(t, nil)
+	big, small := events.RouteTopic("big"), events.RouteTopic("small")
+	s.hub.publish(big, "message", make([]byte, maxWaitReply+1))
+	s.hub.publish(small, "message", []byte("x"))
+	service := newEventService(s.hub, nil, nil)
+	res, err := service.Wait(context.Background(), &daemonv1.EventServiceWaitRequest{Topics: []*daemonv1.TopicCursor{{Topic: big}, {Topic: small}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.GetEvents()) != 1 || res.GetEvents()[0].GetTopic() != big {
+		t.Fatalf("events %d", len(res.GetEvents()))
 	}
 }
