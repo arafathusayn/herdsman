@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	register(command{name: "afk", summary: "Print how long the user has been away: machine idle time or the newest message, whichever is newer.", run: runAfk})
+	register(command{name: "afk", summary: "Print how long the user has been away: machine idle time or the newest message, whichever is newer.", help: afkUsage, run: runAfk})
 }
 
 const afkUsage = `usage: herdsman afk [--last-message <unix time>]... [--json]

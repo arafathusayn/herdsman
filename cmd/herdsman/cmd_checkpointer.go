@@ -15,7 +15,7 @@ import (
 
 func init() {
 	register(command{name: "checkpointer", summary: "Checkpoint the orchestrator's memory and compact it: TARGET=<pane> checkpointer [--once|--probe] | checkpointer guard <name> <pane>.",
-		subHelp: map[string]string{"guard": guardHelp}, run: runCheckpointer})
+		help: checkpointerUsage, subHelp: map[string]string{"guard": guardHelp}, run: runCheckpointer})
 }
 
 const checkpointerUsage = `usage: TARGET=<pane> herdsman checkpointer [--once|--probe [--json]]
