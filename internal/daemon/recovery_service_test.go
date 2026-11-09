@@ -42,7 +42,7 @@ func dialOps(t *testing.T, root string) daemonv1.OpsService {
 	return sdk.Ops
 }
 
-func wantCode(t *testing.T, err error, code rpc.Code) *rpc.Error {
+func wantFailure(t *testing.T, err error, code rpc.Code) *rpc.Error {
 	t.Helper()
 	var failure *rpc.Error
 	if !errors.As(err, &failure) || failure.Code != code {
@@ -77,7 +77,7 @@ func TestUndoOfAnUnknownSnapshotIsNotFound(t *testing.T) {
 	_, stop := serving(t, root, false)
 	defer stop()
 	_, err := dialOps(t, root).Undo(context.Background(), &daemonv1.UndoRequest{Snapshot: "nope"})
-	wantCode(t, err, rpc.NotFound)
+	wantFailure(t, err, rpc.NotFound)
 }
 
 func TestExportOverAnExistingFolderIsRefused(t *testing.T) {
@@ -85,7 +85,7 @@ func TestExportOverAnExistingFolderIsRefused(t *testing.T) {
 	_, stop := serving(t, root, false)
 	defer stop()
 	_, err := dialOps(t, root).Export(context.Background(), &daemonv1.ExportRequest{Dest: t.TempDir()})
-	wantCode(t, err, rpc.FailedPrecondition)
+	wantFailure(t, err, rpc.FailedPrecondition)
 }
 
 func TestInspectRefusesEveryRecoveryChange(t *testing.T) {
@@ -95,16 +95,16 @@ func TestInspectRefusesEveryRecoveryChange(t *testing.T) {
 	sdk := dialOps(t, root)
 	dest := filepath.Join(t.TempDir(), "export")
 	_, err := sdk.Export(context.Background(), &daemonv1.ExportRequest{Dest: dest})
-	if f := wantCode(t, err, rpc.FailedPrecondition); !strings.Contains(f.Message, "inspect mode") {
+	if f := wantFailure(t, err, rpc.FailedPrecondition); !strings.Contains(f.Message, "inspect mode") {
 		t.Fatal(f)
 	}
 	if _, serr := os.Stat(dest); !os.IsNotExist(serr) {
 		t.Fatalf("inspect exported: %v", serr)
 	}
 	_, err = sdk.Undo(context.Background(), &daemonv1.UndoRequest{Snapshot: "x"})
-	wantCode(t, err, rpc.FailedPrecondition)
+	wantFailure(t, err, rpc.FailedPrecondition)
 	_, err = sdk.Import(context.Background(), &daemonv1.ImportRequest{Source: "/x", StateDir: "/y"})
-	wantCode(t, err, rpc.FailedPrecondition)
+	wantFailure(t, err, rpc.FailedPrecondition)
 	if _, err := sdk.Records(context.Background(), &daemonv1.RecordsRequest{}); err != nil {
 		t.Fatalf("inspect serves reads: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestImportOverTheSDK(t *testing.T) {
 	}
 	for _, bad := range []string{"", root, filepath.Join(root, "inner")} {
 		_, err := sdk.Import(context.Background(), &daemonv1.ImportRequest{Source: dest, StateDir: bad})
-		wantCode(t, err, rpc.InvalidArgument)
+		wantFailure(t, err, rpc.InvalidArgument)
 	}
 }
 
