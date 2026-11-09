@@ -142,7 +142,7 @@ func (s *LedgerService) snapshotOf(ctx context.Context, request LedgerRequest) (
 }
 
 // Plan builds a task's teardown plan and notes what it saw, without acting on
-// anything the plan names.
+// anything it lists.
 func (s *LedgerService) Plan(ctx context.Context, request LedgerRequest) (ledger.Plan, error) {
 	base, state, err := s.snapshotOf(ctx, request)
 	if err != nil {
