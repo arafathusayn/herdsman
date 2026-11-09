@@ -468,6 +468,10 @@ func orDefault(s, d string) string {
 
 // createRoute serves POST /api/routes.
 func (s *Server) createRoute(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.RefuseAgentStart != "" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": s.cfg.RefuseAgentStart})
+		return
+	}
 	var req RouteRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	dec.DisallowUnknownFields()

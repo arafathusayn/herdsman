@@ -19,8 +19,10 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/afk"
+	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/secrets"
 	"github.com/arafathusayn/herdsman/internal/termqr"
 	"github.com/arafathusayn/herdsman/internal/web"
 	"github.com/arafathusayn/herdsman/sdk/client"
@@ -122,11 +124,19 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	hub := web.NewHub(client, pong, routes)
 	queue := web.NewQueue(client, hub)
 	token := web.NewToken()
+	redactor, errorLog, err := webSecrets(os.Getenv, secrets.System(), stderr)
+	if err != nil {
+		return err
+	}
+	profile, err := doctor.ConfiguredProfile(repoRoot())()
+	if err != nil {
+		return err
+	}
 	hostport := net.JoinHostPort(*host, strconv.Itoa(actual))
 	qr := !*noQR && isTerminal(stdout)
 	srv := &http.Server{
 		Handler: web.NewServer(client, hub, queue, web.Config{
-			Token: token, Port: actual, Hosts: hosts, Inbox: *inbox, Executable: runningBinary(),
+			Token: token, Redactor: redactor, RefuseAgentStart: webAgentRefusal(profile), Port: actual, Hosts: hosts, Inbox: *inbox, Executable: runningBinary(),
 			DaemonSocket: gateway,
 			Origins:      gatewayOrigins(clientURL),
 			Choices:      webChoices(),
@@ -139,7 +149,7 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 			},
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		ErrorLog:          log.New(stderr, "", log.LstdFlags),
+		ErrorLog:          log.New(errorLog, "", log.LstdFlags),
 	}
 	go hub.Run(ctx)
 	go queue.Run(ctx)
