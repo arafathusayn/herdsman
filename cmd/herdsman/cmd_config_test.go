@@ -469,3 +469,18 @@ func TestSpecUsageAndUnknownView(t *testing.T) {
 		t.Fatalf("code %d", code)
 	}
 }
+
+func TestConfigApprovalsReportsADamagedStore(t *testing.T) {
+	configHome(t)
+	path := filepath.Join(config.UserDir(os.Environ()), approvals.FileName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, path, "not toml")
+	if code, _, _ := configCmd(t, "approvals", "list"); code == 0 {
+		t.Fatal("listed a damaged store")
+	}
+	if code, _, _ := configCmd(t, "approvals", "clear", "p"); code == 0 {
+		t.Fatal("cleared a damaged store")
+	}
+}

@@ -1,6 +1,7 @@
 package approvals
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -138,5 +139,54 @@ func TestStoreFailures(t *testing.T) {
 	}
 	if err := Open(locked).Approve("p", "t"); err == nil {
 		t.Fatal("a folder served as the lock")
+	}
+}
+
+type failingTemp struct {
+	*os.File
+	fail string
+}
+
+func (f failingTemp) Write(data []byte) (int, error) {
+	if f.fail == "write" {
+		return 0, errors.New("disk failed")
+	}
+	return f.File.Write(data)
+}
+
+func (f failingTemp) Close() error {
+	err := f.File.Close()
+	if f.fail == "close" {
+		return errors.New("disk failed")
+	}
+	return err
+}
+
+func TestDiskFailureKeepsTheApprovals(t *testing.T) {
+	old := createTemp
+	t.Cleanup(func() { createTemp = old })
+	for _, fail := range []string{"create", "write", "close"} {
+		t.Run(fail, func(t *testing.T) {
+			createTemp = old
+			path := filepath.Join(t.TempDir(), FileName)
+			store := Open(path)
+			if err := store.Approve("p", "first"); err != nil {
+				t.Fatal(err)
+			}
+			createTemp = func(dir, pattern string) (tempFile, error) {
+				if fail == "create" {
+					return nil, errors.New("disk failed")
+				}
+				file, err := os.CreateTemp(dir, pattern)
+				return failingTemp{file, fail}, err
+			}
+			if err := store.Approve("p", "second"); err == nil {
+				t.Fatal("no error")
+			}
+			createTemp = old
+			if ok, err := store.Approved("p", "first"); err != nil || !ok {
+				t.Fatalf("%v %v", ok, err)
+			}
+		})
 	}
 }

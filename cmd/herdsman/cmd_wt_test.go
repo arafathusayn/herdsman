@@ -20,6 +20,7 @@ func worktreeRepo(t *testing.T) string {
 	repo := filepath.Join(root, "work", "repo")
 	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(root, "none.sock"))
 	t.Setenv("HERDR_SESSION", "")
+	t.Setenv("HOME", filepath.Join(root, "home"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv("HERDSMAN_DIRECTIVE_FILE", "")
 	os.MkdirAll(repo, 0o755)

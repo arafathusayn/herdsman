@@ -64,6 +64,13 @@ func TestPackageEntryUsesTheCallersEnvironment(t *testing.T) {
 	}
 }
 
+func TestWorldKeepsApprovalsOutOfTheRealHome(t *testing.T) {
+	w := newWorld(t)
+	if dir := config.UserDir(os.Environ()); !strings.HasPrefix(dir, w.root) {
+		t.Fatalf("approvals would go to %s", dir)
+	}
+}
+
 func TestHookNeedsANameToRun(t *testing.T) {
 	w := newWorld(t)
 	if _, err := w.service.Hook(context.Background(), daemon.WorktreeHookRequest{Dir: w.repo}); err == nil {
