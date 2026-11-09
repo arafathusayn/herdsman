@@ -46,9 +46,29 @@ type Row struct {
 	Status        Status
 	Divergence    gitrefs.Divergence // Against the default branch.
 	HasDivergence bool
+	Integration   Integration // Meaningful only with HasDivergence.
 	Subject       string
 	CommitTime    time.Time
 	Err           error // What could not be filled; other cells remain valid.
+}
+
+// Integration says how a branch's work relates to the default branch.
+type Integration string
+
+const (
+	IntegrationNone     Integration = ""         // Commits the default branch lacks.
+	IntegrationSame     Integration = "same"     // The same commit.
+	IntegrationAncestor Integration = "ancestor" // Every commit is already on it.
+)
+
+func integrationOf(d gitrefs.Divergence) Integration {
+	switch {
+	case d.Ahead > 0:
+		return IntegrationNone
+	case d.Behind == 0:
+		return IntegrationSame
+	}
+	return IntegrationAncestor
 }
 
 // Marks renders the state of the worktree itself for a table cell.
@@ -257,6 +277,7 @@ func (c *Collector) fillDivergence(ctx context.Context, rows []Row) {
 		}
 		if divergence, ok := decodeDivergence(cached[key]); ok {
 			rows[i].Divergence, rows[i].HasDivergence = divergence, true
+			rows[i].Integration = integrationOf(divergence)
 		} else {
 			missing = true
 		}
@@ -280,6 +301,7 @@ func (c *Collector) fillDivergence(ctx context.Context, rows []Row) {
 			continue
 		}
 		rows[i].Divergence, rows[i].HasDivergence = branch.Divergence, true
+		rows[i].Integration = integrationOf(branch.Divergence)
 		fresh[key] = encodeDivergence(branch.Divergence)
 	}
 	// The cache only saves work; failing to write it loses nothing.
