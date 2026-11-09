@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -405,14 +407,49 @@ func upConfirmTTY(start *daemonv1.RouteStart) (bool, error) {
 	return strings.EqualFold(strings.TrimSpace(line), "y"), nil
 }
 
-// upWeb starts the web app detached, so it outlives this command, and prints
-// its address lines from the log.
+// upWeb starts the web app on the route, or points at the one already serving.
 func upWeb(start *daemonv1.RouteStart, stdout io.Writer) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	logPath := filepath.Join(start.GetFolder(), "web.log")
+	return upWebProcess(exe, start.GetFolder(), start.GetInbox(), 5*time.Second, stdout)
+}
+
+var upWebAddress = regexp.MustCompile(`http://[^\s]+`)
+
+// upWebServing returns the newest address in the log if something answers on
+// it, so that a repeated up does not start a process that loses the port.
+func upWebServing(log []byte) string {
+	found := upWebAddress.FindAll(log, -1)
+	if len(found) == 0 {
+		return ""
+	}
+	last := string(found[len(found)-1])
+	parsed, err := url.Parse(last)
+	if err != nil {
+		return ""
+	}
+	conn, err := net.DialTimeout("tcp", parsed.Host, 500*time.Millisecond)
+	if err != nil {
+		return ""
+	}
+	_ = conn.Close()
+	return last
+}
+
+// upWebProcess reads only what this run adds to the append-only log: an
+// address left by an earlier run says nothing about this process.
+func upWebProcess(exe, folder, inbox string, wait time.Duration, stdout io.Writer) error {
+	logPath := filepath.Join(folder, "web.log")
+	before, err := os.ReadFile(logPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if address := upWebServing(before); address != "" {
+		fmt.Fprintf(stdout, "the web app is already serving: %s\n", address)
+		return nil
+	}
 	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
@@ -420,19 +457,33 @@ func upWeb(start *daemonv1.RouteStart, stdout io.Writer) error {
 	defer log.Close()
 	cmd := exec.Command(exe, "web")
 	cmd.Stdout, cmd.Stderr = log, log
-	cmd.Env = append(os.Environ(), "HERDSMAN_INBOX="+start.GetInbox())
+	cmd.Env = append(os.Environ(), "HERDSMAN_INBOX="+inbox)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	go func() { _ = cmd.Wait() }()
-	for range 50 {
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	added := func() string {
 		b, _ := os.ReadFile(logPath)
-		if strings.Contains(string(b), "http://") {
-			fmt.Fprint(stdout, string(b))
+		return string(b[min(len(before), len(b)):])
+	}
+	for deadline := time.Now().Add(wait); time.Now().Before(deadline); {
+		select {
+		case err := <-exited:
+			// The address may have been written just before the exit.
+			if text := added(); err == nil && strings.Contains(text, "http://") {
+				fmt.Fprint(stdout, text)
+				return nil
+			} else {
+				return fmt.Errorf("the web app exited: %v: %s", err, strings.TrimSpace(text))
+			}
+		case <-time.After(100 * time.Millisecond):
+		}
+		if text := added(); strings.Contains(text, "http://") {
+			fmt.Fprint(stdout, text)
 			return nil
 		}
-		time.Sleep(100 * time.Millisecond)
 	}
 	fmt.Fprintf(stdout, "the web app is starting; its address will be in %s\n", logPath)
 	return nil
