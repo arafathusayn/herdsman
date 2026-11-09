@@ -77,6 +77,8 @@ type UpRequest struct {
 	Executable                           string
 	Date                                 string // the date in the route folder's name, YYYY-MM-DD
 	PolicyFiles, Kinds                   []string
+	// Launch, from the configuration, starts the role that has no command line.
+	Launch *launch.Spec
 	// Policy is the composed policy for this repository.
 	Policy policy.Policy
 	// SecretRefs lists the keychain references for the coordinators' panes.
@@ -125,6 +127,8 @@ type stepData struct {
 	Line         string            `json:"line,omitempty"`
 	Manual       bool              `json:"manual,omitempty"`
 	Peers        []string          `json:"peers,omitempty"`
+	// Cwd is the folder a coordinator's pane opens in; empty means the repository.
+	Cwd string `json:"cwd,omitempty"`
 	// SecretRefs holds references only, so a value never enters the journal.
 	SecretRefs string       `json:"secret_refs,omitempty"`
 	Clone      string       `json:"clone,omitempty"`
@@ -219,6 +223,9 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 	if strings.ContainsFunc(q.Prompt, func(r rune) bool { return r == 0 }) {
 		return nil, errors.New("the prompt holds a NUL byte")
 	}
+	if q.Launch != nil && q.OrchestratorCommand == "" && !q.NoAdjutant && q.AdjutantCommand == "" {
+		return nil, errors.New("[launch] describes one agent; give the other coordinator its command with -a or -o")
+	}
 	repoName := filepath.Base(q.Repo)
 	p := &UpPlan{
 		Key:              UpKey(q.Repo, q.Route),
@@ -311,10 +318,10 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 			sandboxes[c.role] = sandbox
 		}
 	}
-	add("create the workspace", effectWorkspace, "workspace:"+p.Workspace, ops.RetryIdempotent, with(func(d *stepData) { d.Env, d.SecretRefs = firstEnv, q.SecretRefs }))
+	add("create the workspace", effectWorkspace, "workspace:"+p.Workspace, ops.RetryIdempotent, with(func(d *stepData) { d.Env, d.SecretRefs, d.Cwd = firstEnv, q.SecretRefs, coordinators[0].spec.Cwd }))
 	for _, c := range coordinators {
 		add("open the "+c.role+" pane", effectPane, "pane:"+c.role, ops.RetryIdempotent, with(func(d *stepData) {
-			d.Label, d.Group, d.Env, d.SecretRefs = c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), q.SecretRefs
+			d.Label, d.Group, d.Env, d.SecretRefs, d.Cwd = c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), q.SecretRefs, c.spec.Cwd
 		}))
 	}
 	n := 0
@@ -334,7 +341,7 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 			p.Prelude[n] = step
 			fmt.Fprintf(&text, "step %d: %s\n  retry: %s\n", n, plan.Steps[i].Command, plan.Steps[i].Retry)
 			add(fmt.Sprintf("run prelude step %d", n), effectPrelude, "prelude:"+strconv.Itoa(n), retry, with(func(d *stepData) {
-				d.N, d.Launch, d.TimeoutMS, d.Label, d.Group, d.Env, d.SecretRefs = n, &step, c.spec.Timeout().Milliseconds(), c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), q.SecretRefs
+				d.N, d.Launch, d.TimeoutMS, d.Label, d.Group, d.Env, d.SecretRefs, d.Cwd = n, &step, c.spec.Timeout().Milliseconds(), c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), q.SecretRefs, c.spec.Cwd
 			}))
 		}
 		for _, e := range plan.Env {
@@ -342,7 +349,7 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 		}
 		fmt.Fprintf(&text, "agent: %s\n", plan.Agent)
 		add("start "+c.name, effectAgent, "agent:"+c.name, ops.RetryNever, with(func(d *stepData) {
-			d.Name, d.Kind, d.Args, d.Label, d.Group, d.Env, d.SecretRefs, d.Sandbox = c.name, c.kind, c.spec.Command[1:], c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), q.SecretRefs, sandboxes[c.role]
+			d.Name, d.Kind, d.Args, d.Label, d.Group, d.Env, d.SecretRefs, d.Sandbox, d.Cwd = c.name, c.kind, c.spec.Command[1:], c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), q.SecretRefs, sandboxes[c.role], c.spec.Cwd
 		}))
 	}
 
@@ -442,6 +449,14 @@ func addCheckpointer(add func(string, string, string, ops.Retry, stepData), with
 }
 
 func compileRole(role, name, line, kind, flag string, q UpRequest) (compiled, error) {
+	if line == "" && q.Launch != nil {
+		spec := *q.Launch
+		resolved, err := resolveKind(spec, kind, flag, role, q.Kinds)
+		if err != nil {
+			return compiled{}, err
+		}
+		return compiled{role: role, name: name, kind: resolved, line: launch.Command{Argv: spec.Command}.String(), spec: spec}, nil
+	}
 	spec, err := launch.Compile(line, launch.Options{})
 	if err != nil {
 		var refused *launch.RefusedError
@@ -844,7 +859,7 @@ func Continue(e *ops.Engine, callers *Callers, p *UpPlan, op *ops.Operation, ove
 			return err
 		}
 	}
-	if overrides == nil && (op.State == ops.OpStopped || op.State == ops.OpConflict) {
+	if len(overrides) == 0 && (op.State == ops.OpStopped || op.State == ops.OpConflict) {
 		for _, st := range op.Steps {
 			if st.Effect == effectApprove && st.State == ops.StepIntended {
 				return e.Resolve(op.ID, st.Ordinal, ops.ResolveRerun)
