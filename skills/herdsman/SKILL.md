@@ -25,6 +25,10 @@ Read [`references/harness-guards.md`](references/harness-guards.md) before the f
 
 Requirement: every command this skill runs (`herdsman route check`, `herdsman wait`, `herdsman status`, `herdsman run-check`, `herdsman checkpointer`, `herdsman message` and the rest) is a subcommand of the `herdsman` binary, which must be on `PATH` (install the Homebrew cask or a release archive). The skill needs no bash, jq or nc of its own.
 
+Before you use a `herdsman` command, read its form from `herdsman spec cli` (every command, flag and exit code of the binary on `PATH`) or from `herdsman <verb> --help`. Use a command that the steps below do not name only when `spec cli` lists it. Reason: the skill and the binary can come from different releases, and a form written from memory stops a route with a usage error.
+
+Commands beyond the loop, for a binary that lists them: `herdsman up` starts a route's coordinators in one command, so it runs before this skill's orchestrator exists. `herdsman new`, `herdsman go`, `herdsman ls`, `herdsman diff`, `herdsman commit` and `herdsman each` work on task worktrees. `herdsman teardown` stops what a task runs ([`references/route-close.md`](references/route-close.md)). `herdsman cost` and `herdsman trace` report a route. `herdsman suggest` searches tips and tools. `herdsman config` reads and changes the configuration.
+
 Harness notes: `references/` has one file per harness used so far (launch form, prompt form, slash commands for compact and clear, working and blocked markers, quirks): [`codex.md`](references/codex.md), [`muse.md`](references/muse.md), [`claude-code.md`](references/claude-code.md) and [`agy.md`](references/agy.md). The notes are per harness, not per agent type, because any harness can take any type. Before a route uses a harness with no notes file, probe it (launch in a scratch pane, send a prompt, find its compact, clear and interrupt commands and its working marker) and write the notes file first.
 
 Concepts: the rules that earlier routes taught, with their reasons, one file per concept. Read them before the dispatch plan (step 1), and again when a step touches the concept. With the skill navigator ([`references/optional-techniques.md`](references/optional-techniques.md)), the sections its map names stand in for these full reads, step by step: a rule the map leaves out still binds, and an event or step the map does not cover sends you back to the full files.
@@ -108,6 +112,8 @@ test "${HERDR_ENV:-}" = 1
 ```
 
 When it fails, the orchestrator runs outside Herdr (for example in a desktop app): do not stop. Step 1 then asks where each role's agents run (Runner, below). Then, in one call: `herdr agent start --help` (kinds), `<harness> --version` for every harness in the route, `gh auth status`, and the git remote of the target repository.
+
+Then run `herdsman doctor` and tell the user what it flags before the interview. Reason: a machine that cannot run the route fails later, after agents and worktrees exist.
 
 Before a route, check that the installed skill is current: fetch the git checkout that `<skill>` resolves to (follow the link) and compare its `HEAD` with the remote default branch. When it is behind, ahead or on another branch, tell the user before the interview and ask whether to update it. When the fetch fails (no network or no credential for the remote), say so and compare with the last fetched ref. Reason: a stale skill runs old rules, and the route then repeats mistakes that the current rules already fix.
 
