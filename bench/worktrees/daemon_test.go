@@ -134,12 +134,20 @@ func TestADaemonThatIgnoresStopIsKilledAndReported(t *testing.T) {
 	old := daemonStopLimit
 	t.Cleanup(func() { daemonStopLimit = old })
 	daemonStopLimit = 100 * time.Millisecond
-	stop, err := startDaemon(fakeDaemon(t, "trap '' TERM; while :; do sleep 1; done"), os.Environ(), t.TempDir(), testFolder(t))
+	ready := filepath.Join(t.TempDir(), "ready")
+	stop, err := startDaemon(fakeDaemon(t, "trap '' TERM; : > "+ready+"; while :; do sleep 1; done"), os.Environ(), t.TempDir(), testFolder(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The shell needs a moment to set the trap before the signal arrives.
-	time.Sleep(200 * time.Millisecond)
+	// The socket answers at once here, so wait until the shell has set its trap.
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in did not start")
+		}
+	}
 	if err := stop(); err == nil || !strings.Contains(err.Error(), "did not stop") {
 		t.Fatalf("%v", err)
 	}
