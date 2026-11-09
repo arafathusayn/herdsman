@@ -34,7 +34,7 @@ func (d *Daemon) openOps() error {
 	d.mu.Lock()
 	shared := newSerialConn(c)
 	d.acctDB = shared
-	d.recovery = ops.NewRecovery(ops.RecoveryOptions{StateDir: d.cfg.PrivateHome, Retention: d.cfg.Retention, Quiesce: d.quiesce})
+	d.recovery = ops.NewRecovery(ops.RecoveryOptions{StateDir: d.cfg.PrivateHome, Retention: d.cfg.Retention, Policy: d.cfg.RetentionPolicy, Quiesce: d.quiesce})
 	effects := d.recovery.Effects()
 	maps.Copy(effects, d.operationEffects(shared))
 	d.ops = ops.NewEngine(shared, ops.Options{Effects: effects, Checks: d.cfg.Checks, Now: d.cfg.Now, Fault: d.cfg.OpsFault})

@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,10 +63,67 @@ type SnapshotRecord struct {
 	Created int64  `json:"created"`
 }
 
+// ParseRetention reads the two [retention] values. An empty value leaves that
+// limit at its default.
+func ParseRetention(undo, capacity string) (Retention, error) {
+	var out Retention
+	if undo != "" {
+		age, err := parseAge(undo)
+		if err != nil {
+			return Retention{}, err
+		}
+		out.Undo = age
+	}
+	if capacity != "" {
+		size, err := parseSize(capacity)
+		if err != nil {
+			return Retention{}, err
+		}
+		out.Cap = size
+	}
+	return out, nil
+}
+
+func parseAge(value string) (time.Duration, error) {
+	age, err := time.Duration(0), error(nil)
+	if days, ok := strings.CutSuffix(value, "d"); ok {
+		var n int64
+		if n, err = strconv.ParseInt(days, 10, 64); err == nil {
+			if n <= 0 || n > math.MaxInt64/int64(24*time.Hour) {
+				return 0, fmt.Errorf("retention undo %q: want a positive duration, as \"720h\" or \"30d\"", value)
+			}
+			age = time.Duration(n) * 24 * time.Hour
+		}
+	} else {
+		age, err = time.ParseDuration(value)
+	}
+	if err != nil || age <= 0 {
+		return 0, fmt.Errorf("retention undo %q: want a positive duration, as \"720h\" or \"30d\"", value)
+	}
+	return age, nil
+}
+
+func parseSize(value string) (int64, error) {
+	number, shift := value, 0
+	for suffix, bits := range map[string]int{"KiB": 10, "MiB": 20, "GiB": 30, "TiB": 40} {
+		if n, ok := strings.CutSuffix(value, suffix); ok {
+			number, shift = n, bits
+		}
+	}
+	n, err := strconv.ParseInt(number, 10, 64)
+	if err != nil || n <= 0 || n > math.MaxInt64>>shift {
+		return 0, fmt.Errorf("retention cap %q: want a positive size, as \"20GiB\"", value)
+	}
+	return n << shift, nil
+}
+
 // RecoveryOptions configures a Recovery.
 type RecoveryOptions struct {
 	StateDir  string
 	Retention Retention
+	// Policy, when set, replaces Retention and is read each time a limit is
+	// applied. An error stops the work that needed the limit.
+	Policy func() (Retention, error)
 	// Volumes is the container runtime; nil refuses a snapshot with volumes.
 	Volumes VolumeStore
 	// Quiesce stops every writer the journal does not cover and returns the
@@ -84,6 +143,18 @@ type Recovery struct {
 func NewRecovery(o RecoveryOptions) *Recovery {
 	o.Retention = o.Retention.WithDefaults()
 	return &Recovery{opt: o}
+}
+
+// limits returns the retention settings in force now.
+func (r *Recovery) limits() (Retention, error) {
+	if r.opt.Policy == nil {
+		return r.opt.Retention, nil
+	}
+	got, err := r.opt.Policy()
+	if err != nil {
+		return Retention{}, fmt.Errorf("the retention settings cannot be read: %w", err)
+	}
+	return got.WithDefaults(), nil
 }
 
 // Attach binds the engine that was built with Effects.
@@ -229,7 +300,11 @@ func (fx snapshotEffect) Apply(ctx context.Context, st Step) error {
 		return err
 	}
 	r := fx.r
-	if err := r.eng.tx(func(c store.Conn) error { return admit(c, r.opt.Retention.Cap, 0) }); err != nil {
+	limits, err := r.limits()
+	if err != nil {
+		return err
+	}
+	if err := r.eng.tx(func(c store.Conn) error { return admit(c, limits.Cap, 0) }); err != nil {
 		return err
 	}
 	common, err := runGit(ctx, q.Worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
@@ -249,7 +324,7 @@ func (fx snapshotEffect) Apply(ctx context.Context, st Step) error {
 		return err
 	}
 	err = r.eng.tx(func(c store.Conn) error {
-		if err := admit(c, r.opt.Retention.Cap, size); err != nil {
+		if err := admit(c, limits.Cap, size); err != nil {
 			return err
 		}
 		_, err := c.Exec("INSERT INTO snapshots(id, task, dir, repo, size, created) VALUES (?,?,?,?,?,?)", st.OpID, q.Task, dest, common, size, r.eng.now())
@@ -316,11 +391,15 @@ func treeSize(root string) (int64, error) {
 // Sweep prunes every snapshot older than the retention period. The cap plays
 // no part: only age removes a snapshot without someone asking.
 func (r *Recovery) Sweep(ctx context.Context) ([]string, error) {
+	limits, err := r.limits()
+	if err != nil {
+		return nil, err
+	}
 	list, err := r.Snapshots()
 	if err != nil {
 		return nil, err
 	}
-	cutoff := r.eng.opt.Now().Add(-r.opt.Retention.Undo).Unix()
+	cutoff := r.eng.opt.Now().Add(-limits.Undo).Unix()
 	var ids, locks []string
 	var steps []StepSpec
 	for _, s := range list {

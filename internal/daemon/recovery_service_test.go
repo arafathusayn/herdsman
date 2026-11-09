@@ -19,6 +19,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/snapshot"
 	"github.com/arafathusayn/herdsman/sdk/client"
+	"github.com/arafathusayn/herdsman/sdk/config"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
@@ -423,5 +424,44 @@ func TestHeldDuringExportCoversOnlyMessageWriters(t *testing.T) {
 		if got := heldDuringExport(path); got != want {
 			t.Errorf("%s: %v, want %v", path, got, want)
 		}
+	}
+}
+
+func writeUserConfig(t *testing.T, environ []string, text string) {
+	t.Helper()
+	dir := config.UserDir(environ)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRetentionComesFromTheUserConfig(t *testing.T) {
+	home := t.TempDir()
+	environ := []string{"HOME=" + home, "XDG_CONFIG_HOME=" + filepath.Join(home, ".config")}
+	policy := configuredRetention(environ)
+	got, err := policy()
+	if err != nil || got != (ops.Retention{}) {
+		t.Fatalf("no file: %+v %v", got, err)
+	}
+	writeUserConfig(t, environ, "[retention]\nundo = \"7d\"\ncap = \"1GiB\"\n")
+	if got, err = policy(); err != nil || got.Undo != 7*24*time.Hour || got.Cap != 1<<30 {
+		t.Fatalf("configured: %+v %v", got, err)
+	}
+	writeUserConfig(t, environ, "[retention]\nundo = \"soon\"\n")
+	if _, err = policy(); err == nil || !strings.Contains(err.Error(), "soon") {
+		t.Fatalf("invalid value: %v", err)
+	}
+}
+
+func TestDaemonSweepObeysTheRetentionPolicy(t *testing.T) {
+	h := newHarness(t)
+	h.stop()
+	h.cfg.RetentionPolicy = func() (ops.Retention, error) { return ops.Retention{}, errors.New("settings unreadable") }
+	h.start()
+	if _, err := h.d.recovery.Sweep(context.Background()); err == nil || !strings.Contains(err.Error(), "settings unreadable") {
+		t.Fatalf("err = %v", err)
 	}
 }

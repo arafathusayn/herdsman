@@ -49,9 +49,8 @@ func TestTransportByInboxOwner(t *testing.T) {
 		{"unknown route, no inbox", map[string]string{"HERDSMAN_ROUTE": "nope"}, []string{"status"}, "nope", false},
 		{"enroll always", map[string]string{"HERDSMAN_ROUTE": "new"}, []string{"enroll", "a", "adjutant"}, "new", true},
 	}
-	home := t.TempDir() // A daemon running on this machine must not be seen.
 	for _, c := range cases {
-		env := map[string]string{"HERDSMAN_PRIVATE_HOME": ph, "HOME": home}
+		env := map[string]string{"HERDSMAN_PRIVATE_HOME": ph, "HOME": ph}
 		for k, v := range c.env {
 			env[k] = v
 		}
