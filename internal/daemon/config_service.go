@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -13,19 +14,68 @@ import (
 )
 
 // configRPC serves the configuration contract over the daemon's RPC. In inspect
-// mode the daemon refuses Set and Unset before they reach it.
-type configRPC struct{}
+// mode the daemon refuses Set and Unset before they reach it, and starts no
+// process for the reads.
+type configRPC struct {
+	inspect bool
+}
 
-// configOptions says where a request's settings come from. Only a repository
-// the caller named is asked for its identity.
-func configOptions(ctx context.Context, target *configv1.Target) config.Options {
+// options says where a request's settings come from. Only a repository the
+// caller named is asked for its identity.
+func (c *configRPC) options(ctx context.Context, target *configv1.Target) config.Options {
 	opts := config.Options{ConfigPath: target.GetConfigPath(), RepoRoot: target.GetRepoRoot()}
-	if root := target.GetRepoRoot(); filepath.IsAbs(root) {
+	root := target.GetRepoRoot()
+	switch {
+	case !filepath.IsAbs(root):
+	case c.inspect:
+		opts.ProjectKey = config.RepositoryKey(recordedOrigin(root))
+	default:
 		if out, err := (&gitrun.Runner{}).Run(ctx, root, "remote", "get-url", "origin"); err == nil {
 			opts.ProjectKey = config.RepositoryKey(string(out.Stdout))
 		}
 	}
 	return opts
+}
+
+// recordedOrigin reads the origin address from a repository's own config file,
+// following a linked worktree to its common folder. It starts no process, so
+// include files and url rewrites are not applied; nothing found is "".
+func recordedOrigin(root string) string {
+	folder := filepath.Join(root, ".git")
+	if link, err := os.ReadFile(folder); err == nil {
+		target, linked := strings.CutPrefix(strings.TrimSpace(string(link)), "gitdir: ")
+		if !linked {
+			return ""
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(root, target)
+		}
+		folder = target
+	}
+	if common, err := os.ReadFile(filepath.Join(folder, "commondir")); err == nil {
+		target := strings.TrimSpace(string(common))
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(folder, target)
+		}
+		folder = target
+	}
+	data, err := os.ReadFile(filepath.Join(folder, "config"))
+	if err != nil {
+		return ""
+	}
+	inOrigin := false
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			inOrigin = line == `[remote "origin"]`
+			continue
+		}
+		key, value, found := strings.Cut(line, "=")
+		if inOrigin && found && strings.EqualFold(strings.TrimSpace(key), "url") {
+			return strings.Trim(strings.TrimSpace(value), `"`)
+		}
+	}
+	return ""
 }
 
 // invalidConfig reports a request the configuration refuses; the caller's
@@ -51,7 +101,7 @@ func projectFile(opts config.Options) (string, error) {
 }
 
 func (c *configRPC) Export(ctx context.Context, r *configv1.ExportRequest) (*configv1.ExportResponse, error) {
-	path, err := projectFile(configOptions(ctx, r.GetTarget()))
+	path, err := projectFile(c.options(ctx, r.GetTarget()))
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +113,7 @@ func (c *configRPC) Export(ctx context.Context, r *configv1.ExportRequest) (*con
 }
 
 func (c *configRPC) Get(ctx context.Context, r *configv1.GetRequest) (*configv1.GetResponse, error) {
-	result, err := config.Load(configOptions(ctx, r.GetTarget()))
+	result, err := config.Load(c.options(ctx, r.GetTarget()))
 	if err != nil {
 		return nil, invalidConfig(err)
 	}
@@ -79,7 +129,7 @@ func (c *configRPC) Get(ctx context.Context, r *configv1.GetRequest) (*configv1.
 }
 
 func (c *configRPC) Set(ctx context.Context, r *configv1.SetRequest) (*configv1.SetResponse, error) {
-	path, err := projectFile(configOptions(ctx, r.GetTarget()))
+	path, err := projectFile(c.options(ctx, r.GetTarget()))
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +140,7 @@ func (c *configRPC) Set(ctx context.Context, r *configv1.SetRequest) (*configv1.
 }
 
 func (c *configRPC) Show(ctx context.Context, r *configv1.ShowRequest) (*configv1.ShowResponse, error) {
-	opts := configOptions(ctx, r.GetTarget())
+	opts := c.options(ctx, r.GetTarget())
 	opts.Strict = r.GetStrict()
 	result, err := config.Load(opts)
 	if err != nil {
@@ -104,7 +154,7 @@ func (c *configRPC) Show(ctx context.Context, r *configv1.ShowRequest) (*configv
 }
 
 func (c *configRPC) Unset(ctx context.Context, r *configv1.UnsetRequest) (*configv1.UnsetResponse, error) {
-	path, err := projectFile(configOptions(ctx, r.GetTarget()))
+	path, err := projectFile(c.options(ctx, r.GetTarget()))
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +166,7 @@ func (c *configRPC) Unset(ctx context.Context, r *configv1.UnsetRequest) (*confi
 }
 
 func (c *configRPC) Validate(ctx context.Context, r *configv1.ValidateRequest) (*configv1.ValidateResponse, error) {
-	opts := configOptions(ctx, r.GetTarget())
+	opts := c.options(ctx, r.GetTarget())
 	opts.Strict = r.GetStrict()
 	result, err := config.Load(opts)
 	if err != nil {

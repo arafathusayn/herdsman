@@ -212,6 +212,106 @@ func TestConfigServiceChangesNothingInInspectMode(t *testing.T) {
 	}
 }
 
+// fakeGit puts a git on the PATH that leaves a file behind when it runs.
+func fakeGit(t *testing.T) (marker string) {
+	t.Helper()
+	bin := t.TempDir()
+	marker = filepath.Join(t.TempDir(), "git-ran")
+	script := "#!/bin/sh\nprintf ran > \"" + marker + "\"\nprintf 'https://github.com/other/repo.git\\n'\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return marker
+}
+
+func TestInspectReadsRunNoGitAndStillApplyOverrides(t *testing.T) {
+	for name, layout := range map[string]func(t *testing.T, repo string){
+		"plain folder": func(t *testing.T, repo string) {
+			mustWrite(t, filepath.Join(repo, ".git", "config"), "[core]\n\tbare = false\n[remote \"upstream\"]\n\turl = x\n[remote \"origin\"]\n\turl = https://github.com/acme/app.git\n")
+		},
+		"linked worktree": func(t *testing.T, repo string) {
+			common := filepath.Join(t.TempDir(), "main.git")
+			mustWrite(t, filepath.Join(common, "config"), "[remote \"origin\"]\n\turl = git@github.com:acme/app.git\n")
+			linked := filepath.Join(common, "worktrees", "one")
+			mustWrite(t, filepath.Join(linked, "commondir"), "../..\n")
+			mustWrite(t, filepath.Join(repo, ".git"), "gitdir: "+linked+"\n")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := configClient(t, true)
+			marker := fakeGit(t)
+			repo := t.TempDir()
+			layout(t, repo)
+			mustWrite(t, filepath.Join(config.UserDir(os.Environ()), "config.toml"), "[projects.\"github.com/acme/app\".branch]\nname = \"from-override\"\n")
+			got, err := client.Get(context.Background(), &configv1.GetRequest{Target: &configv1.Target{RepoRoot: repo}, Key: "branch.name"})
+			if err != nil || got.GetValue() != "from-override" {
+				t.Fatalf("%v %v", got, err)
+			}
+			if _, err := os.Stat(marker); err == nil {
+				t.Fatal("an inspect read ran git")
+			}
+		})
+	}
+}
+
+func TestInspectIdentityOfAFolderWithNoRemote(t *testing.T) {
+	for name, layout := range map[string]func(t *testing.T, repo string){
+		"no git": func(t *testing.T, repo string) {},
+		"no origin": func(t *testing.T, repo string) {
+			mustWrite(t, filepath.Join(repo, ".git", "config"), "[core]\n\tbare = false\n")
+		},
+		"origin no url": func(t *testing.T, repo string) {
+			mustWrite(t, filepath.Join(repo, ".git", "config"), "[remote \"origin\"]\n\tfetch = x\n")
+		},
+		"damaged link": func(t *testing.T, repo string) { mustWrite(t, filepath.Join(repo, ".git"), "not a link\n") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := configClient(t, true)
+			repo := t.TempDir()
+			layout(t, repo)
+			if _, err := client.Get(context.Background(), &configv1.GetRequest{Target: &configv1.Target{RepoRoot: repo}, Key: "branch.name"}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestRecordedOriginFollowsARelativeLink(t *testing.T) {
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "real", "config"), "[remote \"origin\"]\n\turl = \"https://github.com/acme/app\"\n")
+	mustWrite(t, filepath.Join(repo, ".git"), "gitdir: real\n")
+	if got := recordedOrigin(repo); got != "https://github.com/acme/app" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestConfigServiceReportsWhatItCannotRead(t *testing.T) {
+	client := configClient(t, false)
+	ctx := context.Background()
+	repo := t.TempDir()
+	for _, name := range []string{"herdsman.config.toml", "herdsman.config.json"} {
+		mustWrite(t, filepath.Join(repo, name), "{}")
+	}
+	two := &configv1.Target{RepoRoot: repo}
+	if _, err := client.Export(ctx, &configv1.ExportRequest{Target: two, Format: "json"}); codeOf(err) != rpc.InvalidArgument {
+		t.Fatalf("two files: %v", err)
+	}
+	if _, err := client.Export(ctx, &configv1.ExportRequest{Target: configTarget(t, ""), Format: "nope"}); codeOf(err) != rpc.InvalidArgument {
+		t.Fatalf("format: %v", err)
+	}
+}
+
+func mustWrite(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // settingsIn loads the settings of a repository whose parent is folder.
 func settingsIn(t *testing.T, folder string) (*repository, error) {
 	t.Helper()

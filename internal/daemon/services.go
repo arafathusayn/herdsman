@@ -13,7 +13,7 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	recovery := &opsService{d: d}
 	routes := &routeService{d: d}
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
-	settings := &configRPC{}
+	settings := &configRPC{inspect: d.cfg.Inspect}
 	eventRPC := newEventService(d.hub, d.admitEvents, releaseContext)
 	name := daemonv1.MessageServiceName
 	return append(eventRPC.procedures(), []rpc.Procedure{
