@@ -15,9 +15,11 @@ Generated from `herdsman spec cli`.
 - [`doctor`](doctor.md): Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.
 - [`each`](each.md): Run a command in every worktree.
 - [`eval`](eval.md): Report a suite's runs with intervals and an A/A control (experimental).
+- [`export`](export.md): Copy the whole account to a new folder.
 - [`go`](go.md): Enter a worktree.
 - [`help`](help.md): Print the commands.
 - [`hook`](hook.md): Show, approve or run a worktree hook.
+- [`import`](import.md): Rebuild an account from an export.
 - [`ls`](ls.md): List the repository's worktrees.
 - [`mcp`](mcp.md): Serve the daemon's services as MCP tools over stdio.
 - [`message`](message.md): The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.
@@ -37,6 +39,7 @@ Generated from `herdsman spec cli`.
 - [`teardown`](teardown.md): Stop what a task runs, keeping what it holds.
 - [`trace`](trace.md): Show or export one route's spans as OpenTelemetry.
 - [`transcript-audit`](transcript-audit.md): Audit a Claude or Codex transcript for writes: transcript-audit claude|codex <transcript> <session-id> [root/ ...].
+- [`undo`](undo.md): Restore a snapshot.
 - [`up`](up.md): Start a route: workspace, private inbox, both coordinators, the pair and the first brief.
 - [`update`](update.md): Install the latest signed release over this binary.
 - [`version`](version.md): Print the version, commit and platform.

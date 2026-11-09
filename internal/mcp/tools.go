@@ -40,6 +40,7 @@ var toolNamePattern = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 // readOnlyMethods names the methods known to change nothing, until their protos
 // say so with idempotency_level. A method on neither list counts as mutating.
 var readOnlyMethods = map[protoreflect.FullName]bool{
+	"herdsman.daemon.v1.EventService.Wait":             true,
 	"herdsman.daemon.v1.MessageService.Hello":          true,
 	"herdsman.daemon.v1.MessageService.Health":         true,
 	"herdsman.daemon.v1.MessageService.ListRoutes":     true,
@@ -48,6 +49,7 @@ var readOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.DaemonStatus":   true,
 	"herdsman.daemon.v1.MessageService.ListOperations": true,
 	"herdsman.daemon.v1.MessageService.GetOperation":   true,
+	"herdsman.daemon.v1.OpsService.Records":            true,
 	"herdsman.daemon.v1.RouteService.Get":              true,
 	"herdsman.daemon.v1.RouteService.List":             true,
 	"herdsman.daemon.v1.ProjectService.Get":            true,
@@ -70,6 +72,8 @@ var planOnlyMethods = map[protoreflect.FullName]bool{
 // peopleOnlyMethods get no tool. An agent holding this server runs as the same
 // user as the person it works for, so these are the decisions it must not be
 // able to make for them: who may talk on a channel, and whether the daemon runs.
+// An export writes the channel secrets to a path of the caller's choosing, and
+// an import builds an account whose approved pairs come from any folder.
 var peopleOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.Shutdown":         true,
 	"herdsman.daemon.v1.MessageService.Enroll":           true,
@@ -77,15 +81,19 @@ var peopleOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.RetirePair":       true,
 	"herdsman.daemon.v1.MessageService.RevokeCredential": true,
 	"herdsman.daemon.v1.MessageService.ResetEvents":      true,
+	"herdsman.daemon.v1.OpsService.Export":               true,
+	"herdsman.daemon.v1.OpsService.Import":               true,
 }
 
 // Files are the contracts served as tools: only those the daemon serves.
 func Files() []protoreflect.FileDescriptor {
 	return []protoreflect.FileDescriptor{
+		daemonv1.File_herdsman_daemon_v1_events_proto,
 		daemonv1.File_herdsman_daemon_v1_message_proto,
 		daemonv1.File_herdsman_daemon_v1_route_proto,
 		daemonv1.File_herdsman_daemon_v1_project_proto,
 		daemonv1.File_herdsman_daemon_v1_task_proto,
+		daemonv1.File_herdsman_daemon_v1_ops_proto,
 		suggestv1.File_herdsman_suggest_v1_suggest_proto,
 	}
 }

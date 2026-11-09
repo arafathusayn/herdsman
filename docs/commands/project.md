@@ -5,7 +5,7 @@
 Keep projects, their folders and their repositories.
 
 ```text
-usage: herdsman project create <name> [--description <text>] [--repo <spec>]... [--bind] [--json]
+usage: herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]
        herdsman project show [<project>] [--json]
        herdsman project list [--archived] [--json]
        herdsman project update [<project>] [--name <name>] [--description <text>]
@@ -16,6 +16,7 @@ usage: herdsman project create <name> [--description <text>] [--repo <spec>]... 
 
 Keeps the projects, the folders bound to them and their repositories. A <spec>
 is [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.
+create binds --folder, or this folder with --bind.
 <project> is a name, an id or @; left out, it is the project bound to this
 folder. delete refuses a project with open tasks or tasks on a running route;
 --force archives it instead and keeps its records.

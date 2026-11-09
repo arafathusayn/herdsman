@@ -5,13 +5,15 @@
 Keep the tasks of each project.
 
 ```text
-usage: herdsman task create <title> [--project <project>] [--slug <slug>] [--body <text>]
+usage: herdsman task create <title> [--project <project>] [--id <slug>] [--slug <slug>]
+                            [--body <text>] [--body-file <path>]
                             [--label <label>]... [--repo <name>]... [--json]
        herdsman task show <task> [--project <project>] [--json]
        herdsman task list [--project <project>] [--all] [--status <status>]
                           [--repo <name>] [--label <label>] [--json]
        herdsman task update <task> [--project <project>] [--title <text>] [--body <text>]
                             [--status <status>] [--add-repo <name>]... [--remove-repo <name>]...
+                            [--label <label>]... [--unlabel <label>]...
                             [--add-label <label>]... [--remove-label <label>]... [--json]
        herdsman task delete <task> [--project <project>] [--force]
        herdsman task link <task> <link> [--project <project>] [--repo <name>] [--json]
@@ -19,7 +21,9 @@ usage: herdsman task create <title> [--project <project>] [--slug <slug>] [--bod
 Keeps the tasks of each project. <task> is a slug, an id, or @ for the task of
 the current worktree. A <status> is todo, doing, review, done or archived. A
 <link> is pr:<n>, issue:<n> or a URL; --repo may be left out when the task
-names one repository. A task's project cannot change. With no arguments on a
+names one repository. A task's project cannot change. delete refuses a task
+that still has a worktree or runs in a route, and names down. --slug is --id,
+--add-label is --label and --remove-label is --unlabel. With no arguments on a
 terminal, task create opens a form.
 
 exit codes:

@@ -494,6 +494,33 @@
       ]
     },
     {
+      "name": "export",
+      "summary": "Copy the whole account to a new folder.",
+      "help": "usage: herdsman export <destination>\n\nCopies the whole account to a new folder: every database, every snapshot the\nrecords name and the rest of the state directory. Other operations wait until\nit ends. The folder appears complete or not at all.\n\nexit codes:\n  0  exported\n  1  refused or failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman export <destination>"
+      ],
+      "positionals": [
+        {
+          "name": "destination"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "exported"
+        },
+        {
+          "code": "1",
+          "meaning": "refused or failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
       "name": "go",
       "summary": "Enter a worktree.",
       "help": "usage: herdsman go [<task>|<branch>|<path>|^|@|-|pr:<n>|<url>] [--no-cd] [--focus] [--json]\n\nFinds a worktree, making one for a pull request, and enters it when the shell\nwrapper is installed (herdsman config shell install). With no argument it prints\nthe table and, on a terminal, reads a selector.\n\nexit codes:\n  0  found\n  1  nothing matched, or the switch hook failed\n  2  bad usage\n",
@@ -583,6 +610,39 @@
         {
           "code": "1",
           "meaning": "the hook failed or is not approved"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "import",
+      "summary": "Rebuild an account from an export.",
+      "help": "usage: herdsman import <export> [--state-dir <path>]\n\nRebuilds an account from an export into an empty state directory, which must\nhave no daemon running on it.\n\nexit codes:\n  0  imported\n  1  refused or failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman import <export> [--state-dir <path>]"
+      ],
+      "positionals": [
+        {
+          "name": "export"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--state-dir",
+          "valueName": "path"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "imported"
+        },
+        {
+          "code": "1",
+          "meaning": "refused or failed"
         },
         {
           "code": "2",
@@ -1152,9 +1212,9 @@
     {
       "name": "project",
       "summary": "Keep projects, their folders and their repositories.",
-      "help": "usage: herdsman project create <name> [--description <text>] [--repo <spec>]... [--bind] [--json]\n       herdsman project show [<project>] [--json]\n       herdsman project list [--archived] [--json]\n       herdsman project update [<project>] [--name <name>] [--description <text>]\n                               [--add-repo <spec>]... [--remove-repo <name>]... [--json]\n       herdsman project delete [<project>] [--force]\n       herdsman project bind [<project>] [--folder <path>] [--json]\n       herdsman project unbind [--folder <path>] [--json]\n\nKeeps the projects, the folders bound to them and their repositories. A <spec>\nis [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.\n<project> is a name, an id or @; left out, it is the project bound to this\nfolder. delete refuses a project with open tasks or tasks on a running route;\n--force archives it instead and keeps its records.\n\nexit codes:\n  0  done\n  1  the record was not found, the change was refused, or the call failed\n  2  bad usage\n",
+      "help": "usage: herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]\n       herdsman project show [<project>] [--json]\n       herdsman project list [--archived] [--json]\n       herdsman project update [<project>] [--name <name>] [--description <text>]\n                               [--add-repo <spec>]... [--remove-repo <name>]... [--json]\n       herdsman project delete [<project>] [--force]\n       herdsman project bind [<project>] [--folder <path>] [--json]\n       herdsman project unbind [--folder <path>] [--json]\n\nKeeps the projects, the folders bound to them and their repositories. A <spec>\nis [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.\ncreate binds --folder, or this folder with --bind.\n<project> is a name, an id or @; left out, it is the project bound to this\nfolder. delete refuses a project with open tasks or tasks on a running route;\n--force archives it instead and keeps its records.\n\nexit codes:\n  0  done\n  1  the record was not found, the change was refused, or the call failed\n  2  bad usage\n",
       "usage": [
-        "herdsman project create <name> [--description <text>] [--repo <spec>]... [--bind] [--json]",
+        "herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]",
         "herdsman project show [<project>] [--json]",
         "herdsman project list [--archived] [--json]",
         "herdsman project update [<project>] [--name <name>] [--description <text>]"
@@ -1621,9 +1681,9 @@
     {
       "name": "task",
       "summary": "Keep the tasks of each project.",
-      "help": "usage: herdsman task create <title> [--project <project>] [--slug <slug>] [--body <text>]\n                            [--label <label>]... [--repo <name>]... [--json]\n       herdsman task show <task> [--project <project>] [--json]\n       herdsman task list [--project <project>] [--all] [--status <status>]\n                          [--repo <name>] [--label <label>] [--json]\n       herdsman task update <task> [--project <project>] [--title <text>] [--body <text>]\n                            [--status <status>] [--add-repo <name>]... [--remove-repo <name>]...\n                            [--add-label <label>]... [--remove-label <label>]... [--json]\n       herdsman task delete <task> [--project <project>] [--force]\n       herdsman task link <task> <link> [--project <project>] [--repo <name>] [--json]\n\nKeeps the tasks of each project. <task> is a slug, an id, or @ for the task of\nthe current worktree. A <status> is todo, doing, review, done or archived. A\n<link> is pr:<n>, issue:<n> or a URL; --repo may be left out when the task\nnames one repository. A task's project cannot change. With no arguments on a\nterminal, task create opens a form.\n\nexit codes:\n  0  done\n  1  the record was not found, the change was refused, or the call failed\n  2  bad usage\n",
+      "help": "usage: herdsman task create <title> [--project <project>] [--id <slug>] [--slug <slug>]\n                            [--body <text>] [--body-file <path>]\n                            [--label <label>]... [--repo <name>]... [--json]\n       herdsman task show <task> [--project <project>] [--json]\n       herdsman task list [--project <project>] [--all] [--status <status>]\n                          [--repo <name>] [--label <label>] [--json]\n       herdsman task update <task> [--project <project>] [--title <text>] [--body <text>]\n                            [--status <status>] [--add-repo <name>]... [--remove-repo <name>]...\n                            [--label <label>]... [--unlabel <label>]...\n                            [--add-label <label>]... [--remove-label <label>]... [--json]\n       herdsman task delete <task> [--project <project>] [--force]\n       herdsman task link <task> <link> [--project <project>] [--repo <name>] [--json]\n\nKeeps the tasks of each project. <task> is a slug, an id, or @ for the task of\nthe current worktree. A <status> is todo, doing, review, done or archived. A\n<link> is pr:<n>, issue:<n> or a URL; --repo may be left out when the task\nnames one repository. A task's project cannot change. delete refuses a task\nthat still has a worktree or runs in a route, and names down. --slug is --id,\n--add-label is --label and --remove-label is --unlabel. With no arguments on a\nterminal, task create opens a form.\n\nexit codes:\n  0  done\n  1  the record was not found, the change was refused, or the call failed\n  2  bad usage\n",
       "usage": [
-        "herdsman task create <title> [--project <project>] [--slug <slug>] [--body <text>]"
+        "herdsman task create <title> [--project <project>] [--id <slug>] [--slug <slug>]"
       ],
       "positionals": [
         {
@@ -1647,7 +1707,15 @@
           "valueName": "text"
         },
         {
+          "name": "--body-file",
+          "valueName": "path"
+        },
+        {
           "name": "--force"
+        },
+        {
+          "name": "--id",
+          "valueName": "slug"
         },
         {
           "name": "--json"
@@ -1683,6 +1751,10 @@
         {
           "name": "--title",
           "valueName": "text"
+        },
+        {
+          "name": "--unlabel",
+          "valueName": "label"
         }
       ],
       "exitCodes": [
@@ -1932,6 +2004,42 @@
         {
           "code": "2",
           "meaning": "a gap: the transcript could not be audited"
+        }
+      ]
+    },
+    {
+      "name": "undo",
+      "summary": "Restore a snapshot.",
+      "help": "usage: herdsman undo <snapshot> [--to <path>] [--json]\n\nRestores a snapshot: the tree, its index, the branch and the ignored files it\nkept. Without --to it goes back to its original path, or beside it when that\npath is taken. Nothing is overwritten; a conflict stops with both sides named.\n\nexit codes:\n  0  restored\n  1  refused or failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman undo <snapshot> [--to <path>] [--json]"
+      ],
+      "positionals": [
+        {
+          "name": "snapshot"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--to",
+          "valueName": "path"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "restored"
+        },
+        {
+          "code": "1",
+          "meaning": "refused or failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
         }
       ]
     },

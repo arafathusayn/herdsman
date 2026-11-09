@@ -352,7 +352,9 @@ func TestWaitRefusesWhenTheQueueClosesEmpty(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 		rt.always(func() {
 			for x := range rt.subs {
-				s = x
+				if x.party != "" {
+					s = x
+				}
 			}
 		})
 	}
