@@ -54,6 +54,7 @@ type WorktreeCleanPlan struct {
 
 // WorktreeCleanPlanResponse is one plan per tree.
 type WorktreeCleanPlanResponse struct {
+	versioned
 	Plans    []WorktreeCleanPlan `json:"plans"`
 	Warnings []string            `json:"warnings,omitempty"`
 	// FirstRebuildable is the set a clean would treat as rebuildable, given
@@ -85,6 +86,7 @@ type WorktreeCleanReport struct {
 
 // WorktreeCleanResponse is one report per task.
 type WorktreeCleanResponse struct {
+	versioned
 	Reports  []WorktreeCleanReport `json:"reports"`
 	Warnings []string              `json:"warnings,omitempty"`
 }

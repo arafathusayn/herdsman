@@ -69,6 +69,19 @@ func firstLine(out []byte) string {
 	return line
 }
 
+// composeReady reports a reachable container engine with compose.
+func composeReady(env []string, dir string) bool {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return false
+	}
+	for _, args := range [][]string{{"docker", "info"}, {"docker", "compose", "version"}} {
+		if _, err := execStep(env, Step{Dir: dir, Argv: args}); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
 // measureWith times the steps of a sample and nothing around them.
 func (b *Bench) measureWith() measureFunc {
 	return func(slot string, c Case, round int) (total time.Duration, err error) {
@@ -172,6 +185,7 @@ func Run(o Options, stderr io.Writer) (Results, error) {
 	}
 	env := toolEnv(f)
 	b := &Bench{Fixtures: f, Tools: Tools{Herdsman: o.Herdsman, Wt: o.Wt}, run: func(s Step) (string, error) { return execStep(env, s) }}
+	b.ComposeReady = composeReady(env, f.Repo20)
 	results := Results{
 		Schema: SchemaVersion, Date: time.Now().UTC().Format(time.RFC3339), Commit: commit,
 		Machine: machineName(), Git: strings.TrimPrefix(gitVersion, "git version "), Go: runtime.Version(),
@@ -264,4 +278,7 @@ func dispatch(args []string, stderr io.Writer) int {
 	return 2
 }
 
-func main() { os.Exit(dispatch(os.Args[1:], os.Stderr)) }
+// exit is a variable so that a test can run main.
+var exit = os.Exit
+
+func main() { exit(dispatch(os.Args[1:], os.Stderr)) }

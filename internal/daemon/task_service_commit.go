@@ -48,6 +48,7 @@ type WorktreeCommitRequest struct {
 
 // WorktreeCommitResponse says what was, or on a dry run would be, committed.
 type WorktreeCommitResponse struct {
+	versioned
 	Task    string   `json:"task"`
 	Branch  string   `json:"branch"`
 	Commit  string   `json:"commit,omitempty"`
@@ -70,6 +71,7 @@ type WorktreeDiffRequest struct {
 
 // WorktreeDiffResponse carries git's output unchanged.
 type WorktreeDiffResponse struct {
+	versioned
 	Task   string `json:"task"`
 	Branch string `json:"branch"`
 	Path   string `json:"path"`

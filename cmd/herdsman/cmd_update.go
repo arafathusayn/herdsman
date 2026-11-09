@@ -36,8 +36,12 @@ func init() {
 	register(command{name: "update", summary: "Install the latest signed release over this binary.", help: updateHelp, run: runUpdate})
 }
 
-// updateRun is replaced by tests.
-var updateRun = update.Run
+// These are replaced by tests.
+var (
+	updateRun        = update.Run
+	updateExecutable = os.Executable
+	updateKeys       = update.TrustedKeys
+)
 
 func runUpdate(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
@@ -52,12 +56,12 @@ func runUpdate(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, updateUsage)
 		return 2
 	}
-	exe, err := os.Executable()
+	exe, err := updateExecutable()
 	if err != nil {
 		fmt.Fprintf(stderr, "herdsman update: %v\n", err)
 		return 1
 	}
-	keys, err := update.TrustedKeys()
+	keys, err := updateKeys()
 	if err != nil {
 		fmt.Fprintf(stderr, "herdsman update: %v\n", err)
 		return 1

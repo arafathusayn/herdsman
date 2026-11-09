@@ -17,8 +17,10 @@ import {
   upsert,
 } from "./hosts.ts";
 import { canonicalRoute, Index, paneSize, team } from "./model.ts";
+import { pageById } from "./pages/index.tsx";
 import { isMac, openPalette, paletteOpen } from "./palette.tsx";
 import { loadWidths, navResizer } from "./resize.tsx";
+import { bindHost } from "./sdk/index.ts";
 import { type App, store } from "./store.ts";
 import { installTooltips } from "./tooltip.tsx";
 import type { Route, State } from "./types.ts";
@@ -38,7 +40,6 @@ import {
 } from "./views/hosts.tsx";
 import { LogView } from "./views/log-view.tsx";
 import { createMessagesState, MessagesView } from "./views/messages.tsx";
-import { openNewRoute } from "./views/new-route.tsx";
 import { showPairing } from "./views/pair.tsx";
 import { ActivityView, ChecklistView, RouteShell, SessionView, TabRow } from "./views/route.tsx";
 import {
@@ -104,10 +105,16 @@ const sidebarActions: SidebarActions = {
         ws === undefined ? { route, tab: "team", file: "", pane: "" } : { route, ws, tab: "team", file: "", pane: "" },
       );
     }),
-  newRoute: () => {
-    setNavOpen(false);
-    openNewRoute();
-  },
+  newRoute: () =>
+    batch(() => {
+      setNavOpen(false);
+      store.go({ page: "new-route", pane: "" });
+    }),
+  page: (page) =>
+    batch(() => {
+      setNavOpen(false);
+      store.go({ page, pane: "" });
+    }),
   theme: (theme) => {
     applyTheme(theme);
     store.set({ theme });
@@ -229,6 +236,8 @@ async function boot(): Promise<void> {
     );
     return;
   }
+  // Before the signal: setting it renders the open page, which reads the SDK at once.
+  bindHost(current);
   setHost(current);
   useHost(current);
   token ||= takePendingLink(current.url);
@@ -277,6 +286,7 @@ function rememberDevice(device: string): void {
   if (!x) return;
   if (device) x.device = device;
   else delete x.device;
+  bindHost(x);
   setHost(x);
   saveHosts(hs);
   useHost(x);
@@ -325,6 +335,8 @@ async function pollChannel(): Promise<void> {
 
 function pickDefaultRoute(): void {
   const { view, server } = store.app;
+  // Moving to a route would close the page this link opened.
+  if (view.page) return;
   if (view.route) {
     // A link by bare name moves to the id, so the sidebar marks it.
     const patch = canonicalRoute(server?.routes ?? [], view);
@@ -339,8 +351,16 @@ function MainContent() {
   const app = store.state;
   return (
     <Show when={!app().fatal} fallback={<FatalView reason={app().fatal} hosts={openHosts} />}>
-      <Show when={app().server} fallback={<ConnectingView hostName={host()?.name ?? "herdr"} />}>
-        {(server) => <ConnectedContent app={app()} server={server()} />}
+      <Show
+        when={host() && pageById(app().view.page)}
+        keyed
+        fallback={
+          <Show when={app().server} fallback={<ConnectingView hostName={host()?.name ?? "herdr"} />}>
+            {(server) => <ConnectedContent app={app()} server={server()} />}
+          </Show>
+        }
+      >
+        {(page) => page.view()}
       </Show>
     </Show>
   );

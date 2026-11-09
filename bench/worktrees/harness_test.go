@@ -421,6 +421,131 @@ func TestToolsDoNotInheritTheCheckWrappersCoreLimit(t *testing.T) {
 	}
 }
 
+func TestMainExitsWithTheDispatchCode(t *testing.T) {
+	oldArgs, oldExit := os.Args, exit
+	defer func() { os.Args, exit = oldArgs, oldExit }()
+	got := -1
+	os.Args, exit = []string{"worktrees"}, func(code int) { got = code }
+	main()
+	if got != 2 {
+		t.Fatalf("got %d", got)
+	}
+}
+
+func TestBuildFixturesReportsAnUnusableRoot(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildFixtures(file, 8, 9, 1); err == nil {
+		t.Fatal("no error")
+	}
+}
+
+func composeLog(t *testing.T, b *Bench, log *[][]string, running *bool) {
+	t.Helper()
+	inner := b.run
+	b.run = func(s Step) (string, error) {
+		if s.Argv[0] != "docker" {
+			return inner(s)
+		}
+		*log = append(*log, s.Argv)
+		joined := strings.Join(s.Argv, " ")
+		switch {
+		case strings.Contains(joined, " up "):
+			*running = true
+		case strings.Contains(joined, " down "):
+			*running = false
+		case strings.Contains(joined, " ps ") && *running:
+			return "abc\n", nil
+		}
+		return "", nil
+	}
+}
+
+func TestComposeCaseAppearsOnlyWithAnEngine(t *testing.T) {
+	var log [][]string
+	b := taskBench(t, &log)
+	has := func() bool {
+		return slices.ContainsFunc(b.Cases(), func(c Case) bool { return c.ID == CaseTeardownCompose })
+	}
+	if has() {
+		t.Fatal("no engine, no case: a machine without one must still produce a full results file")
+	}
+	b.ComposeReady = true
+	if !has() {
+		t.Fatal("an engine must bring the case")
+	}
+	if slices.Contains(requiredBudgets, CaseTeardownCompose) {
+		t.Fatal("the required set must not change")
+	}
+}
+
+func TestComposeCaseStartsRecordsAndVerifiesBothResources(t *testing.T) {
+	var log [][]string
+	running := false
+	b := taskBench(t, &log)
+	b.ComposeReady = true
+	composeLog(t, b, &log, &running)
+	c := findCase(t, b, CaseTeardownCompose)
+	if c.Kind != KindBudget || c.BudgetMS != teardownBudgetMS {
+		t.Fatalf("%+v", c)
+	}
+	s := Sample{Tag: "x"}
+	if err := c.Before(s); err != nil {
+		t.Fatal(err)
+	}
+	if !running {
+		t.Fatal("compose project not started")
+	}
+	kinds := map[string]string{}
+	for _, argv := range log {
+		if len(argv) > 2 && argv[1] == "resource" {
+			flags := map[string]string{}
+			for i := 3; i+1 < len(argv); i += 2 {
+				flags[argv[i]] = argv[i+1]
+			}
+			kinds[flags["--kind"]] = flags["--execution"]
+		}
+	}
+	if kinds[ledger.KindProcess] == "" || kinds[ledger.KindProcess] != kinds[ledger.KindCompose] {
+		t.Fatalf("both resources must be recorded under one execution: %v", kinds)
+	}
+	if err := c.After(s); err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("got %v", err)
+	}
+	if err := c.Cleanup(s); err != nil {
+		t.Fatal(err)
+	}
+	if running {
+		t.Fatal("cleanup must take the project down")
+	}
+}
+
+func TestComposeBeforeStopsTheServerWhenComposeFails(t *testing.T) {
+	var log [][]string
+	b := taskBench(t, &log)
+	b.ComposeReady = true
+	inner := b.run
+	b.run = func(s Step) (string, error) {
+		if s.Argv[0] == "docker" {
+			return "", errors.New("no image")
+		}
+		return inner(s)
+	}
+	c := findCase(t, b, CaseTeardownCompose)
+	done := make(chan error, 1)
+	go func() { done <- c.Before(Sample{Tag: "x"}) }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("no error")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the server was left running")
+	}
+}
+
 func TestBudgetCasesRunOnATaskTheVerbCreated(t *testing.T) {
 	var log [][]string
 	b := taskBench(t, &log)
