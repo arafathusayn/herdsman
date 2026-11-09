@@ -367,7 +367,11 @@ async function dialogs(browser: Browser, mock: Mock, check: Check, errors: strin
     JSON.stringify(app),
   );
   await page.click("dialog.appearance .dialog-actions .btn");
-  await sleep(50);
+  // Waits for removal, not for hidden: a closed dialog is hidden before its
+  // close event removes it.
+  await page
+    .waitForFunction(() => document.querySelector("dialog.appearance") === null, { timeout: 5000 })
+    .catch(() => {});
   check("appearance: Done closes the dialog", (await page.$("dialog.appearance")) === null);
   await page.close();
 }
