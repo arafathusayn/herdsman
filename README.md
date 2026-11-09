@@ -239,12 +239,20 @@ The `herdsman` command holds the web app, the tools the skill runs and the workt
 | `hook` *(next release)* | Shows, approves or runs a worktree hook. |
 | `resource` *(next release)* | Records a resource that a task created. |
 | `teardown` *(next release)* | Stops what a task runs and keeps what it holds. |
+| `down` *(next release)* | Stops a task, then frees what it holds. |
+| `clean` *(next release)* | Frees what a task holds, after a verified snapshot. |
+| `prune` *(next release)* | Frees integrated worktrees past a minimum age. |
+| `undo` *(next release)* | Restores a snapshot. |
 
 **Routes and measurement**
 
 | Command | What it does |
 | --- | --- |
 | `up` *(next release)* | Starts a route in one command: workspace, private inbox, both coordinators, the pair and the first brief. |
+| `pause` *(next release)* | Interrupts a route's agents and holds its channel; every pane stays open. |
+| `resume` *(next release)* | Continues a paused route, or restarts a stopped one from its record. |
+| `stop` *(next release)* | Ends a route's sessions and service panes; the work stays on disk. |
+| `delete` *(next release)* | Removes a route, once a verified snapshot makes that undoable. |
 | `cost` *(next release)* | Reports measured tokens and cost per task, project or route. |
 | `trace` *(next release)* | Shows one route's spans, or exports them as OpenTelemetry. |
 | `eval` *(next release)* | Reports a suite's runs with intervals and an A/A control. [Experimental](docs/experimental.md). |
@@ -255,6 +263,9 @@ The `herdsman` command holds the web app, the tools the skill runs and the workt
 | --- | --- |
 | `web` | Serves the web app and prints its URL, a one-run token and a QR code. |
 | `config` *(next release)* | Reads and changes the configuration, and installs the shell integration. See the [configuration reference](docs/config.md). |
+| `project` *(next release)* | Works on a project's context repository: `project context init\|check\|note` and `project log`. |
+| `export` *(next release)* | Copies the whole account to a new folder. |
+| `import` *(next release)* | Rebuilds an account from an export. |
 | `suggest` *(next release)* | Searches the catalog of tips and tools, ranked for this machine and project. |
 | `recommend` *(next release)* | The same as `suggest`. |
 | `spec` *(next release)* | Prints the contracts: `cli`, `proto` or `descriptor`. See the [SDK](docs/sdk.md). |
