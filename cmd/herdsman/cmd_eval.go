@@ -18,6 +18,7 @@ const evalExperimentalFlag = "--experimental-eval"
 const evalVersion = "0.1.0"
 
 const evalHelp = `usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]
+       herdsman eval --experimental-eval run <suite folder> [--json]
        herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>
                      --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]
        herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed
@@ -27,6 +28,14 @@ releases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per
 arm: counts, and 95% confidence intervals of pass rate, duration and cost, with
 an A/A control of two groups of the same arm. Every arm needs its own control;
 a suite with an arm that has none is refused. Only ranges are reported, never a single value.
+
+run executes the suite described by suite.json in the folder: {"tasks":
+[{"id","prompt","check"}], "arms":[{"name","command"}], "runs", "control_runs",
+"timeout_seconds"}. Every arm runs every task in its own route folder under
+routes/, ordinary runs and the two halves of its A/A control interleaved, then
+the report above is printed. An arm's command gets the prompt in
+HERDSMAN_EVAL_PROMPT and may write {"tokens","cost_micros"} to the file named by
+HERDSMAN_EVAL_USAGE; a run passes when the command and the task's check exit 0.
 
 Each --findings route adds its reviewer findings, counted by outcome. --rank
 never ranks: it reports why not, and exits 3.
@@ -40,7 +49,7 @@ exit codes:
 
 func init() {
 	register(command{name: "eval", summary: "Report a suite's runs with intervals and an A/A control (experimental).", help: evalHelp,
-		subHelp: map[string]string{"finding": evalHelp}, run: runEval})
+		subHelp: map[string]string{"finding": evalHelp, "run": evalHelp}, run: runEval})
 }
 
 func runEval(args []string, _ io.Reader, stdout, stderr io.Writer) int {
@@ -52,6 +61,9 @@ func runEval(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "herdsman: eval is experimental (eval/%s) and can change between minor releases\n", evalVersion)
 	if len(args) > 0 && args[0] == "finding" {
 		return runEvalFinding(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "run" {
+		return runEvalSuite(args[1:], stdout, stderr)
 	}
 	return runEvalReport(args, stdout, stderr)
 }
@@ -75,19 +87,23 @@ func runEvalReport(args []string, stdout, stderr io.Writer) int {
 	if code != 0 {
 		return code
 	}
-	if *asJSON {
-		encoder := json.NewEncoder(stdout)
-		encoder.SetIndent("", "  ")
-		// The report holds only strings, numbers and booleans.
-		_ = encoder.Encode(report)
-	} else {
-		printEval(stdout, report)
-	}
+	printEvalReport(stdout, report, *asJSON)
 	if report.Rank != nil {
 		fmt.Fprintf(stderr, "eval: ranking refused: %s\n", report.Rank.Reason)
 		return 3
 	}
 	return 0
+}
+
+func printEvalReport(stdout io.Writer, report evalView, asJSON bool) {
+	if !asJSON {
+		printEval(stdout, report)
+		return
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	// The report holds only strings, numbers and booleans.
+	_ = encoder.Encode(report)
 }
 
 func buildEvalReport(suite string, routes []string, rank bool, stderr io.Writer) (evalView, int) {
