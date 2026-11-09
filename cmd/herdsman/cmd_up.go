@@ -362,8 +362,7 @@ func upFollow(ctx context.Context, sdk *client.Client, req *daemonv1.UpRequest, 
 			if req.GetPairManual() && sum != "" && !start.GetPair().GetApproved() && asked != sum && strings.Contains(start.GetReason(), "confirm") {
 				asked = sum
 				if ok, err := upConfirmTTY(start); err == nil && ok {
-					req.Caller.ConfirmedChecksum = sum
-					req.Continue = true
+					upConfirmedPair(req, sum)
 					if _, err := sdk.Route.Up(ctx, req); err != nil {
 						fmt.Fprintln(stderr, "herdsman up:", err)
 						return start, 1
@@ -377,6 +376,14 @@ func upFollow(ctx context.Context, sdk *client.Client, req *daemonv1.UpRequest, 
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// upConfirmedPair turns a request into the call that carries a person's
+// confirmation. Its verdicts were spent by the call that got this far.
+func upConfirmedPair(req *daemonv1.UpRequest, sum string) {
+	req.Caller.ConfirmedChecksum = sum
+	req.Continue = true
+	req.Verdicts = nil
 }
 
 // upConfirmTTY shows the pair on the controlling terminal and asks.

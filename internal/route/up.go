@@ -740,7 +740,7 @@ func Continue(e *ops.Engine, callers *Callers, p *UpPlan, op *ops.Operation, ove
 			return err
 		}
 	}
-	if overrides == nil && (op.State == ops.OpStopped || op.State == ops.OpConflict) {
+	if len(overrides) == 0 && (op.State == ops.OpStopped || op.State == ops.OpConflict) {
 		for _, st := range op.Steps {
 			if st.Effect == effectApprove && st.State == ops.StepIntended {
 				return e.Resolve(op.ID, st.Ordinal, ops.ResolveRerun)
