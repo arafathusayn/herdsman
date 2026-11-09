@@ -64,7 +64,11 @@ type Outcome struct {
 
 // Engine fires the configured rules. Set its fields before the first Fire.
 type Engine struct {
-	Config    Config
+	Config Config
+	// Source, when set, replaces Config, Policy and Dir: it reads the event's
+	// project at each firing, so an edit needs its new approval at once, and
+	// the action starts in the project.
+	Source    func(project string) (Config, policy.Policy, error)
 	Approvals *Approvals
 	Policy    policy.Policy
 	// StateDir holds the log and the record of what has fired.
@@ -85,7 +89,14 @@ type Engine struct {
 // Fire runs the rules for the event. A failure is an outcome, never a panic or
 // a skipped check: every path that cannot prove approval ends without running.
 func (e *Engine) Fire(ctx context.Context, ev Event) []Outcome {
-	if !e.Config.Enabled || len(e.Config.Rules) == 0 {
+	config, pol := e.Config, e.Policy
+	if e.Source != nil {
+		var err error
+		if config, pol, err = e.Source(ev.Project); err != nil {
+			return e.refuseAll(ev, err)
+		}
+	}
+	if !config.Enabled || len(config.Rules) == 0 {
 		return nil
 	}
 	e.marker.Do(func() {
@@ -94,11 +105,11 @@ func (e *Engine) Fire(ctx context.Context, ev Event) []Outcome {
 		}
 	})
 	var outcomes []Outcome
-	for _, rule := range e.Config.Rules {
+	for _, rule := range config.Rules {
 		if rule.Event != ev.Kind {
 			continue
 		}
-		outcome := e.fireRule(ctx, rule, ev)
+		outcome := e.fireRule(ctx, rule, ev, pol)
 		if !e.DryRun {
 			e.record(&outcome)
 		}
@@ -107,7 +118,18 @@ func (e *Engine) Fire(ctx context.Context, ev Event) []Outcome {
 	return outcomes
 }
 
-func (e *Engine) fireRule(ctx context.Context, rule Rule, ev Event) Outcome {
+// refuseAll reports a project whose settings cannot be read. No rule is known,
+// so none can run.
+func (e *Engine) refuseAll(ev Event, err error) []Outcome {
+	out := Outcome{Experimental: "automations/" + Version, Time: time.Now().UTC(), Event: ev.Kind, Key: ev.Key, Project: ev.Project, Exit: -1}
+	out.failWith(StatusError, err)
+	if !e.DryRun {
+		e.record(&out)
+	}
+	return []Outcome{out}
+}
+
+func (e *Engine) fireRule(ctx context.Context, rule Rule, ev Event, pol policy.Policy) Outcome {
 	out := Outcome{
 		Experimental: "automations/" + Version, Time: time.Now().UTC(), Event: ev.Kind, Key: ev.Key,
 		Project: ev.Project, Kind: rule.Kind, Checksum: Checksum(rule), Exit: -1,
@@ -123,7 +145,7 @@ func (e *Engine) fireRule(ctx context.Context, rule Rule, ev Event) Outcome {
 	if ev.Key == "" {
 		return out.failWith(StatusError, errors.New("automations: the event has no key to deduplicate by"))
 	}
-	shell, err := e.prepare(rule, ev, &out)
+	shell, err := e.prepare(rule, ev, pol, &out)
 	if err != nil {
 		return out
 	}
@@ -149,7 +171,7 @@ func (o *Outcome) failWith(status Status, err error) Outcome {
 }
 
 // prepare renders a shell action and applies [policy] deny to the result.
-func (e *Engine) prepare(rule Rule, ev Event, out *Outcome) (shellCommand, error) {
+func (e *Engine) prepare(rule Rule, ev Event, pol policy.Policy, out *Outcome) (shellCommand, error) {
 	out.Rendered = rule.Body
 	if rule.Kind != KindShell {
 		return shellCommand{}, nil
@@ -160,11 +182,19 @@ func (e *Engine) prepare(rule Rule, ev Event, out *Outcome) (shellCommand, error
 		return shellCommand{}, err
 	}
 	out.Rendered = shell.text
-	if err := e.Policy.CheckCommand(shell.text); err != nil {
+	if err := pol.CheckCommand(shell.text); err != nil {
 		out.failWith(StatusDenied, err)
 		return shellCommand{}, err
 	}
 	return shell, nil
+}
+
+// workdir is where an event's shell action starts.
+func (e *Engine) workdir(ev Event) string {
+	if e.Source != nil {
+		return ev.Project
+	}
+	return e.Dir
 }
 
 func (e *Engine) folder() string { return filepath.Join(e.StateDir, "automations") }

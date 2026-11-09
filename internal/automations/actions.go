@@ -140,7 +140,7 @@ func (e *Engine) run(ctx context.Context, rule Rule, ev Event, shell shellComman
 	defer cancel()
 	switch rule.Kind {
 	case KindShell:
-		e.runShell(limited, shell, out)
+		e.runShell(limited, e.workdir(ev), shell, out)
 	case KindBuiltin:
 		builtin := e.Builtins[rule.Body]
 		if builtin == nil {
@@ -166,7 +166,7 @@ func (o *Outcome) finish(err error) {
 	o.Status, o.Exit = StatusRan, 0
 }
 
-func (e *Engine) runShell(ctx context.Context, shell shellCommand, out *Outcome) {
+func (e *Engine) runShell(ctx context.Context, dir string, shell shellCommand, out *Outcome) {
 	runs := filepath.Join(e.folder(), "runs")
 	if err := os.MkdirAll(runs, 0o700); err != nil {
 		out.failWith(StatusError, err)
@@ -181,7 +181,7 @@ func (e *Engine) runShell(ctx context.Context, shell shellCommand, out *Outcome)
 	}
 	defer log.Close()
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", shell.text)
-	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = e.Dir, append(os.Environ(), shell.env...), log, log
+	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, append(os.Environ(), shell.env...), log, log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = killGrace
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
