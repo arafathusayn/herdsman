@@ -28,6 +28,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
+	"github.com/arafathusayn/herdsman/internal/secrets"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
@@ -55,7 +56,11 @@ type Server struct {
 type Config struct {
 	// Token lets a browser ask to pair; it never grants access by itself.
 	Token string
-	Port  int
+	// Redactor removes known secrets from every response; nil removes none.
+	Redactor *secrets.Redactor
+	// RefuseAgentStart, when set, is why this server may not start agents.
+	RefuseAgentStart string
+	Port             int
 	// Hosts names the non-loopback address bound with --host and the names
 	// given with --allow-host (a proxy's domain); requests for any other
 	// Host are refused.
@@ -105,6 +110,9 @@ func NewServer(c *herdr.Client, hub *Hub, q *Queue, cfg Config) *Server {
 	}
 	if cfg.OnRotate == nil {
 		cfg.OnRotate = func(string) {}
+	}
+	if q != nil {
+		q.redactor, q.refuseStart = cfg.Redactor, cfg.RefuseAgentStart
 	}
 	return &Server{
 		hub: hub, queue: q, client: c, cfg: cfg, devices: newDevices(cfg.Token), assets: sub,
@@ -158,7 +166,7 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("GET "+rpc.BasePath, gateway) // the stream's upgrade
 	}
 	mux.HandleFunc("GET /", s.static)
-	return s.guard(mux)
+	return s.redact(s.guard(mux))
 }
 
 // guard rejects requests whose Host is not a name this server answers to
@@ -396,6 +404,7 @@ func (s *Server) pane(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
+	read.Text = s.cfg.Redactor.String(read.Text)
 	sum := sha256.Sum256([]byte(read.Text))
 	etag := `"` + hex.EncodeToString(sum[:8]) + `"`
 	w.Header().Set("ETag", etag)
@@ -495,7 +504,12 @@ func Listen(host string, port int) (net.Listener, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	return ln, ln.Addr().(*net.TCPAddr).Port, nil
+	addr := ln.Addr().(*net.TCPAddr)
+	if addr.IP.IsUnspecified() {
+		_ = ln.Close()
+		return nil, 0, fmt.Errorf("host %q listens on every interface; name the one address to use, such as a LAN or Tailscale IP", host)
+	}
+	return ln, addr.Port, nil
 }
 
 // polled are the GET endpoints the app reads on its own timers; a request to

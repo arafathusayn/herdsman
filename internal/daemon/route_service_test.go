@@ -191,6 +191,64 @@ func TestUpRefusesABadConfigBeforeAnyEffect(t *testing.T) {
 	}
 }
 
+func writeRestrictedConfig(t *testing.T, repo string) {
+	t.Helper()
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "[schema]\nversion = \"1.0.0\"\n[policy]\nprofile = \"restricted\"\n"
+	if err := os.WriteFile(filepath.Join(repo, "herdsman.config.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpReadsTheProfileFromTheRepositoryConfig(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	ctx := context.Background()
+	repo := filepath.Join(h.ph, "proj")
+	writeRestrictedConfig(t, repo)
+	q := upRequest(repo)
+	q.AdjutantCommand = "codex"
+	if _, err := c.Route.Up(ctx, q); codeOf(err) != rpc.InvalidArgument || !strings.Contains(err.Error(), "--pair manual") {
+		t.Fatalf("automatic pair: %v", err)
+	}
+	q.PairManual = true
+	res, err := c.Route.Up(ctx, q)
+	if err != nil || !strings.Contains(res.GetStart().GetPlan(), "profile: restricted") {
+		t.Fatalf("%v %v", res, err)
+	}
+}
+
+func TestUpRefusesAnUnreadableConfig(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	repo := filepath.Join(h.ph, "proj")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "herdsman.config.toml"), []byte("[broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Route.Up(context.Background(), upRequest(repo)); codeOf(err) != rpc.FailedPrecondition {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestUpRefusesAProfileNothingEnforces(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	repo := filepath.Join(h.ph, "proj")
+	writeRestrictedConfig(t, repo)
+	body := "[schema]\nversion = \"1.0.0\"\n[policy]\nprofile = \"open\"\n"
+	if err := os.WriteFile(filepath.Join(repo, "herdsman.config.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Route.Up(context.Background(), upRequest(repo)); codeOf(err) != rpc.FailedPrecondition {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 // upNoAdjutant starts a route with one agent through the service, on a fake
 // herdr layout, and waits for it to finish.
 func upNoAdjutant(t *testing.T, h *harness, c *client.Client) (string, *herdrtest.World) {

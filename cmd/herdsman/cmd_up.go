@@ -21,7 +21,9 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/secrets"
 	"github.com/arafathusayn/herdsman/sdk/client"
+	"github.com/arafathusayn/herdsman/sdk/config"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
@@ -43,7 +45,8 @@ would type them: "claude doctor && claude --model opus".
 no -a or -o; a command given on the line wins.
 --dry-run prints the whole plan and starts nothing.
 --web also starts the web app on the route.
---pair manual asks on the terminal before the pair is approved.
+--pair manual asks on the terminal before the pair is approved. Under the
+restricted profile it is the default and auto is refused.
 A second up on the same route picks up where the first stopped.
 `
 
@@ -51,6 +54,7 @@ A second up on the same route picks up where the first stopped.
 const upDiskMinimum = 1 << 30
 
 type upFlags struct {
+	pairSet                                       bool
 	route, prompt, adjutant, orchestrator, config string
 	adjutantKind, orchestratorKind, pair          string
 	noAdjutant, web, noAttach, dryRun, resume     bool
@@ -106,6 +110,7 @@ func parseUp(args []string, stderr io.Writer) (upFlags, bool) {
 	if err := fs.Parse(args); err != nil {
 		return f, false
 	}
+	fs.Visit(func(set *flag.Flag) { f.pairSet = f.pairSet || set.Name == "pair" })
 	if fs.NArg() > 0 {
 		fmt.Fprintf(stderr, "unexpected argument %q\n%s", fs.Arg(0), upUsage)
 		return f, false
@@ -187,7 +192,7 @@ func runUp(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	req := &daemonv1.UpRequest{
 		Route: &corev1.RouteId{Value: f.route}, Repo: repo, Prompt: f.prompt, AdjutantCommand: f.adjutant, OrchestratorCommand: f.orchestrator,
 		AdjutantKind: f.adjutantKind, OrchestratorKind: f.orchestratorKind, NoAdjutant: f.noAdjutant, ConfigPath: f.config,
-		HerdrSocket: socket, PairManual: f.pair == "manual", DryRun: f.dryRun, Continue: f.resume, Verdicts: f.steps,
+		HerdrSocket: socket, PairManual: upPairMode(f, repo) == "manual", SecretRefs: os.Getenv(secrets.RefsVariable), DryRun: f.dryRun, Continue: f.resume, Verdicts: f.steps,
 		Caller: upCaller(), Kinds: upKinds(ctx), Date: now().Format("2006-01-02"),
 	}
 	res, err := sdk.Route.Up(ctx, req)
@@ -529,4 +534,18 @@ func upAttach(ctx context.Context, noAttach bool, stdout, stderr io.Writer) int 
 		return 1
 	}
 	return 0
+}
+
+// upPairMode is the pair mode to request. Without an explicit --pair, the
+// restricted profile means manual; an explicit auto is sent as typed so that
+// the service refuses it. An unreadable file is the service's to report.
+func upPairMode(f upFlags, repo string) string {
+	if f.pairSet {
+		return f.pair
+	}
+	result, err := config.Load(config.Options{RepoRoot: repo})
+	if err == nil && result.Config.GetPolicy().GetProfile() == "restricted" {
+		return "manual"
+	}
+	return f.pair
 }

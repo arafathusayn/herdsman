@@ -17,6 +17,9 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/policy"
+	"github.com/arafathusayn/herdsman/internal/profile"
+	"github.com/arafathusayn/herdsman/internal/secrets"
 )
 
 // OperationKind names a route's start in the journal.
@@ -48,6 +51,7 @@ const (
 	effectService   = "route.service"
 	effectHandshake = "route.handshake"
 	effectBrief     = "route.brief"
+	effectClone     = "route.clone"
 )
 
 // The pane labels of a route.
@@ -75,6 +79,12 @@ type UpRequest struct {
 	PolicyFiles, Kinds                   []string
 	// Launch, from the configuration, starts the role that has no command line.
 	Launch *launch.Spec
+	// Policy is the composed policy for this repository.
+	Policy policy.Policy
+	// SecretRefs lists the keychain references for the coordinators' panes.
+	SecretRefs string
+	// Protected names paths a sandbox root may not hold.
+	Protected []string
 }
 
 // UpPlan is the computed start: the journal's operation and what to print.
@@ -91,40 +101,53 @@ type UpPlan struct {
 // stepData is the part of a plan an effect needs. It is written into each
 // journal step, so a restarted daemon needs nothing else.
 type stepData struct {
-	Key         string            `json:"key"`
-	Route       string            `json:"route"`
-	Repo        string            `json:"repo"`
-	Folder      string            `json:"folder"`
-	Inbox       string            `json:"inbox,omitempty"`
-	Workspace   string            `json:"workspace"`
-	Socket      string            `json:"socket"`
-	Executable  string            `json:"executable"`
-	Label       string            `json:"label,omitempty"`
-	Group       string            `json:"group,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Prompt      string            `json:"prompt,omitempty"`
-	Config      string            `json:"config,omitempty"`
-	PolicyFiles []string          `json:"policy_files,omitempty"`
+	Key          string            `json:"key"`
+	Route        string            `json:"route"`
+	Repo         string            `json:"repo"`
+	Folder       string            `json:"folder"`
+	Inbox        string            `json:"inbox,omitempty"`
+	Workspace    string            `json:"workspace"`
+	Socket       string            `json:"socket"`
+	Executable   string            `json:"executable"`
+	Label        string            `json:"label,omitempty"`
+	Group        string            `json:"group,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
+	Prompt       string            `json:"prompt,omitempty"`
+	Config       string            `json:"config,omitempty"`
+	PolicyFiles  []string          `json:"policy_files,omitempty"`
+	N            int               `json:"n,omitempty"`
+	Launch       *launch.Step      `json:"launch,omitempty"`
+	TimeoutMS    int64             `json:"timeout_ms,omitempty"`
+	Name         string            `json:"name,omitempty"`
+	Kind         string            `json:"kind,omitempty"`
+	Args         []string          `json:"args,omitempty"`
+	Role         string            `json:"role,omitempty"`
+	Adjutant     string            `json:"adjutant,omitempty"`
+	Orchestrator string            `json:"orchestrator,omitempty"`
+	Line         string            `json:"line,omitempty"`
+	Manual       bool              `json:"manual,omitempty"`
+	Peers        []string          `json:"peers,omitempty"`
 	// Cwd is the folder a coordinator's pane opens in; empty means the repository.
-	Cwd          string       `json:"cwd,omitempty"`
-	N            int          `json:"n,omitempty"`
-	Launch       *launch.Step `json:"launch,omitempty"`
-	TimeoutMS    int64        `json:"timeout_ms,omitempty"`
-	Name         string       `json:"name,omitempty"`
-	Kind         string       `json:"kind,omitempty"`
-	Args         []string     `json:"args,omitempty"`
-	Role         string       `json:"role,omitempty"`
-	Adjutant     string       `json:"adjutant,omitempty"`
-	Orchestrator string       `json:"orchestrator,omitempty"`
-	Line         string       `json:"line,omitempty"`
-	Manual       bool         `json:"manual,omitempty"`
-	Peers        []string     `json:"peers,omitempty"`
+	Cwd string `json:"cwd,omitempty"`
+	// SecretRefs holds references only, so a value never enters the journal.
+	SecretRefs string       `json:"secret_refs,omitempty"`
+	Clone      string       `json:"clone,omitempty"`
+	Branch     string       `json:"branch,omitempty"`
+	Sandbox    *sandboxData `json:"sandbox,omitempty"`
 	// Op is the running operation's id, filled in when a step is decoded.
 	Op string `json:"-"`
 	// Tag says which delivery a prompt step is, for its record.
 	Tag string `json:"tag,omitempty"`
 	// Control is set on the steps of a pause, resume, stop or delete.
 	Control *controlData `json:"control,omitempty"`
+}
+
+// sandboxData is what confines one agent, resolved when the agent starts
+// because its folders do not exist when the route is planned.
+type sandboxData struct {
+	Root      string   `json:"root"`
+	Grants    []string `json:"grants,omitempty"`
+	Protected []string `json:"protected,omitempty"`
 }
 
 // UpKey is the idempotency key of a route's start.
@@ -235,6 +258,12 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 		return nil, err
 	}
 	coordinators = append(coordinators, orchestrator)
+	if err := admit(q, coordinators); err != nil {
+		return nil, err
+	}
+	if _, err := secrets.ParseRefs(q.SecretRefs); err != nil {
+		return nil, err
+	}
 	channelEnv := map[string]string{}
 	if !q.NoAdjutant {
 		channelEnv["HERDSMAN_INBOX"] = p.Inbox
@@ -273,10 +302,26 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 		add("create the private inbox", effectInbox, "inbox:"+p.Inbox, ops.RetryIdempotent, with(func(d *stepData) { d.PolicyFiles = q.PolicyFiles }))
 	}
 	firstEnv := mergeEnv(channelEnv, coordinators[0].spec.Env)
-	add("create the workspace", effectWorkspace, "workspace:"+p.Workspace, ops.RetryIdempotent, with(func(d *stepData) { d.Env, d.Cwd = firstEnv, coordinators[0].spec.Cwd }))
+	sandboxes := map[string]*sandboxData{}
+	if profile.ShapeFor(q.Policy) == profile.ShapeOwnClone {
+		fmt.Fprintf(&text, "profile: restricted\n")
+		for _, c := range coordinators {
+			clone := filepath.Join(filepath.Dir(q.Repo), repoName+".worktrees", q.Route+"-"+c.role)
+			fmt.Fprintf(&text, "%s clone: %s\n", c.role, clone)
+			add("clone the repository for the "+c.role, effectClone, "clone:"+c.role, ops.RetryIdempotent, with(func(d *stepData) {
+				d.Clone, d.Branch = clone, q.Route+"-"+c.role
+			}))
+			sandbox := &sandboxData{Root: clone, Grants: []string{p.Folder}, Protected: slices.Concat([]string{filepath.Join(q.Repo, ".git")}, q.Protected, q.PolicyFiles)}
+			if p.Inbox != "" {
+				sandbox.Grants = append(sandbox.Grants, p.Inbox)
+			}
+			sandboxes[c.role] = sandbox
+		}
+	}
+	add("create the workspace", effectWorkspace, "workspace:"+p.Workspace, ops.RetryIdempotent, with(func(d *stepData) { d.Env, d.SecretRefs, d.Cwd = firstEnv, q.SecretRefs, coordinators[0].spec.Cwd }))
 	for _, c := range coordinators {
 		add("open the "+c.role+" pane", effectPane, "pane:"+c.role, ops.RetryIdempotent, with(func(d *stepData) {
-			d.Label, d.Group, d.Env, d.Cwd = c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), c.spec.Cwd
+			d.Label, d.Group, d.Env, d.SecretRefs, d.Cwd = c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), q.SecretRefs, c.spec.Cwd
 		}))
 	}
 	n := 0
@@ -296,7 +341,7 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 			p.Prelude[n] = step
 			fmt.Fprintf(&text, "step %d: %s\n  retry: %s\n", n, plan.Steps[i].Command, plan.Steps[i].Retry)
 			add(fmt.Sprintf("run prelude step %d", n), effectPrelude, "prelude:"+strconv.Itoa(n), retry, with(func(d *stepData) {
-				d.N, d.Launch, d.TimeoutMS, d.Label, d.Group, d.Env, d.Cwd = n, &step, c.spec.Timeout().Milliseconds(), c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), c.spec.Cwd
+				d.N, d.Launch, d.TimeoutMS, d.Label, d.Group, d.Env, d.SecretRefs, d.Cwd = n, &step, c.spec.Timeout().Milliseconds(), c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), q.SecretRefs, c.spec.Cwd
 			}))
 		}
 		for _, e := range plan.Env {
@@ -304,7 +349,7 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 		}
 		fmt.Fprintf(&text, "agent: %s\n", plan.Agent)
 		add("start "+c.name, effectAgent, "agent:"+c.name, ops.RetryNever, with(func(d *stepData) {
-			d.Name, d.Kind, d.Args, d.Label, d.Group, d.Env, d.Cwd = c.name, c.kind, c.spec.Command[1:], c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), c.spec.Cwd
+			d.Name, d.Kind, d.Args, d.Label, d.Group, d.Env, d.SecretRefs, d.Sandbox, d.Cwd = c.name, c.kind, c.spec.Command[1:], c.role, "coordinators", mergeEnv(channelEnv, c.spec.Env), q.SecretRefs, sandboxes[c.role], c.spec.Cwd
 		}))
 	}
 
@@ -354,6 +399,28 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 	p.Spec = ops.Spec{Key: p.Key, Kind: OperationKind, Plan: text.String(), Steps: steps}
 	p.Text = text.String()
 	return p, nil
+}
+
+// admit refuses a start the profile could not hold to its promises.
+func admit(q UpRequest, coordinators []compiled) error {
+	if !q.NoAdjutant {
+		mode := "auto"
+		if q.PairManual {
+			mode = profile.PairManual
+		}
+		if err := profile.CheckPair(q.Policy, mode); err != nil {
+			return err
+		}
+	}
+	for _, c := range coordinators {
+		if err := profile.Admit(q.Policy, c.kind); err != nil {
+			return err
+		}
+		if err := profile.CheckHarnessArgs(q.Policy, c.spec.Command[1:]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // announceStarted makes the last step publish that the route has started. The
@@ -484,6 +551,8 @@ type Deps struct {
 	Poll func()
 	// AgentTimeout bounds one agent start.
 	AgentTimeout time.Duration
+	// Keychain reads secrets; nil is the system keychain.
+	Keychain secrets.Keychain
 	// Recovery makes a delete undoable; without it a delete refuses.
 	Recovery Recovery
 	// Down frees a route's tasks and worktrees, given the repo and route folder.
@@ -549,6 +618,7 @@ func Effects(deps Deps) map[string]ops.Effect {
 		effectService:   effect{deps, applyService, probeService},
 		effectHandshake: effect{deps, applyHandshake, probeHandshake},
 		effectBrief:     effect{deps, applyPrompt, probeSent},
+		effectClone:     effect{deps, applyClone, probeClone},
 	})
 	return effects
 }
@@ -621,7 +691,7 @@ func decisionText(d launch.Decision) string {
 // submitAndWait types one marked line into the coordinator's pane and waits
 // for its status file.
 func submitAndWait(ctx context.Context, deps Deps, c *herdr.Client, d stepData, line string, read func() (launch.Marker, error)) (launch.Marker, error) {
-	pane, err := ensurePane(ctx, c, d)
+	pane, err := ensurePane(ctx, deps, c, d)
 	if err != nil {
 		return launch.Marker{}, err
 	}
@@ -687,11 +757,15 @@ func applyAgent(ctx context.Context, deps Deps, c *herdr.Client, d stepData) err
 	if v, _, err := probeAgent(ctx, deps, c, d); err == nil && v == ops.Matches {
 		return nil
 	}
-	pane, err := ensurePane(ctx, c, d)
+	args, err := confinedArgs(d)
 	if err != nil {
 		return err
 	}
-	_, err = c.AgentStart(ctx, d.Name, d.Kind, pane, d.Args, int(deps.AgentTimeout.Milliseconds()))
+	pane, err := ensurePane(ctx, deps, c, d)
+	if err != nil {
+		return err
+	}
+	_, err = c.AgentStart(ctx, d.Name, d.Kind, pane, args, int(deps.AgentTimeout.Milliseconds()))
 	return err
 }
 

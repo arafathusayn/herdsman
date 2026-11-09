@@ -19,16 +19,39 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/afk"
+	"github.com/arafathusayn/herdsman/internal/doctor"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/inbox"
+	"github.com/arafathusayn/herdsman/internal/secrets"
 	"github.com/arafathusayn/herdsman/internal/termqr"
 	"github.com/arafathusayn/herdsman/internal/web"
 	"github.com/arafathusayn/herdsman/sdk/client"
 )
 
+const webHelp = `usage: herdsman web [--host <address>] [--port <n>] [--no-qr] [--open] [--session <name>] [--inbox <folder>] [--client <url>] [--public-url <url>] [--route <folder>]... [--allow-host <host>]...
+
+Serves the web app and prints its URL, with a one-run token, and a QR code.
+
+  --port <n>          port to listen on, 0 picks a free one (default 7878)
+  --host <address>    address to listen on: loopback, or one LAN or Tailscale address (default 127.0.0.1)
+  --no-qr             do not print the QR code
+  --open              open the app in the default browser
+  --session <name>    herdr session name (default: HERDR_SESSION or the default session)
+  --inbox <folder>    private message folder of the adjutant channel (default: HERDSMAN_INBOX)
+  --client <url>      URL of a hosted web app to print a link for, or none (default: HERDSMAN_CLIENT, else the hosted app)
+  --public-url <url>  HTTPS address in front of this server; the QR code then opens the hosted app
+  --route <folder>    route folder to show first (repeatable)
+  --allow-host <host> another host name to answer to, such as a proxy or tunnel's (repeatable)
+
+exit codes:
+  0  stopped, or printed this help
+  1  a bad argument, or the server could not start
+`
+
 func runWeb(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("web", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() { fmt.Fprint(fs.Output(), webHelp) }
 	port := fs.Int("port", 7878, "port to listen on (0 picks a free one)")
 	host := fs.String("host", "127.0.0.1", "address to listen on: loopback, or one LAN or Tailscale address")
 	noQR := fs.Bool("no-qr", false, "do not print the QR code")
@@ -122,11 +145,19 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 	hub := web.NewHub(client, pong, routes)
 	queue := web.NewQueue(client, hub)
 	token := web.NewToken()
+	redactor, errorLog, err := webSecrets(os.Getenv, secrets.System(), stderr)
+	if err != nil {
+		return err
+	}
+	profile, err := doctor.ConfiguredProfile(repoRoot())()
+	if err != nil {
+		return err
+	}
 	hostport := net.JoinHostPort(*host, strconv.Itoa(actual))
 	qr := !*noQR && isTerminal(stdout)
 	srv := &http.Server{
 		Handler: web.NewServer(client, hub, queue, web.Config{
-			Token: token, Port: actual, Hosts: hosts, Inbox: *inbox, Executable: runningBinary(),
+			Token: token, Redactor: redactor, RefuseAgentStart: webAgentRefusal(profile), Port: actual, Hosts: hosts, Inbox: *inbox, Executable: runningBinary(),
 			DaemonSocket: gateway,
 			Origins:      gatewayOrigins(clientURL),
 			Choices:      webChoices(),
@@ -139,7 +170,7 @@ func runWeb(args []string, stdout, stderr io.Writer) error {
 			},
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		ErrorLog:          log.New(stderr, "", log.LstdFlags),
+		ErrorLog:          log.New(errorLog, "", log.LstdFlags),
 	}
 	go hub.Run(ctx)
 	go queue.Run(ctx)

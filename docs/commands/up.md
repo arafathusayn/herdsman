@@ -16,6 +16,7 @@ would type them: "claude doctor && claude --model opus".
 no -a or -o; a command given on the line wins.
 --dry-run prints the whole plan and starts nothing.
 --web also starts the web app on the route.
---pair manual asks on the terminal before the pair is approved.
+--pair manual asks on the terminal before the pair is approved. Under the
+restricted profile it is the default and auto is refused.
 A second up on the same route picks up where the first stopped.
 ```

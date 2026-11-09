@@ -20,7 +20,7 @@ func workspaceID(snapshot herdr.Snapshot, label string) string {
 	return ""
 }
 
-func applyWorkspace(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
+func applyWorkspace(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
 	snapshot, err := c.Snapshot(ctx)
 	if err != nil {
 		return err
@@ -28,7 +28,11 @@ func applyWorkspace(ctx context.Context, _ Deps, c *herdr.Client, d stepData) er
 	if workspaceID(snapshot, d.Workspace) != "" {
 		return nil
 	}
-	params := map[string]any{"label": d.Workspace, "cwd": d.paneFolder(), "focus": false, "env": d.Env}
+	env, err := paneEnv(deps, d)
+	if err != nil {
+		return err
+	}
+	params := map[string]any{"label": d.Workspace, "cwd": d.paneFolder(), "focus": false, "env": env}
 	return c.Call(ctx, "workspace.create", params, nil)
 }
 
@@ -67,7 +71,7 @@ func (d stepData) paneFolder() string {
 // ensurePane finds the pane with the step's label or makes it: an unlabeled
 // pane is the one a crash left before its rename, a pane of the same group
 // splits, and otherwise the group gets a new tab.
-func ensurePane(ctx context.Context, c *herdr.Client, d stepData) (string, error) {
+func ensurePane(ctx context.Context, deps Deps, c *herdr.Client, d stepData) (string, error) {
 	snapshot, err := c.Snapshot(ctx)
 	if err != nil {
 		return "", err
@@ -93,6 +97,12 @@ func ensurePane(ctx context.Context, c *herdr.Client, d stepData) (string, error
 		}
 	}
 	pane := unlabeled
+	var env map[string]string
+	if pane == "" {
+		if env, err = paneEnv(deps, d); err != nil {
+			return "", err
+		}
+	}
 	switch {
 	case pane != "":
 	case sibling != "":
@@ -101,7 +111,7 @@ func ensurePane(ctx context.Context, c *herdr.Client, d stepData) (string, error
 				PaneID string `json:"pane_id"`
 			} `json:"pane"`
 		}
-		params := map[string]any{"target_pane_id": sibling, "direction": "right", "cwd": d.paneFolder(), "focus": false, "env": d.Env}
+		params := map[string]any{"target_pane_id": sibling, "direction": "right", "cwd": d.paneFolder(), "focus": false, "env": env}
 		if err := c.Call(ctx, "pane.split", params, &r); err != nil {
 			return "", err
 		}
@@ -112,7 +122,7 @@ func ensurePane(ctx context.Context, c *herdr.Client, d stepData) (string, error
 				PaneID string `json:"pane_id"`
 			} `json:"root_pane"`
 		}
-		params := map[string]any{"workspace_id": workspace, "cwd": d.paneFolder(), "label": d.Group, "focus": false, "env": d.Env}
+		params := map[string]any{"workspace_id": workspace, "cwd": d.paneFolder(), "label": d.Group, "focus": false, "env": env}
 		if err := c.Call(ctx, "tab.create", params, &r); err != nil {
 			return "", err
 		}
@@ -136,8 +146,8 @@ func inGroup(group, label string) bool {
 	return false
 }
 
-func applyPane(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
-	_, err := ensurePane(ctx, c, d)
+func applyPane(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
+	_, err := ensurePane(ctx, deps, c, d)
 	return err
 }
 
@@ -164,11 +174,11 @@ func serviceStamp(d stepData) string {
 	return filepath.Join(d.Folder, ".steps", "service-"+d.Label)
 }
 
-func applyService(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
+func applyService(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
 	if _, err := os.Stat(serviceStamp(d)); err == nil {
 		return nil
 	}
-	pane, err := ensurePane(ctx, c, d)
+	pane, err := ensurePane(ctx, deps, c, d)
 	if err != nil {
 		return err
 	}

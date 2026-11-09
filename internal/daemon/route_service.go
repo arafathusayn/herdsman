@@ -156,6 +156,10 @@ func (s *routeService) request(req *daemonv1.UpRequest) (route.UpRequest, error)
 	if socket == "" {
 		socket = s.d.cfg.HerdrSocket
 	}
+	governing, protected, err := repoPolicy(req.GetRepo())
+	if err != nil {
+		return route.UpRequest{}, rpc.Errorf(rpc.FailedPrecondition, "the repository's configuration: %v", err)
+	}
 	var configured *launch.Spec
 	if path := req.GetConfigPath(); path != "" && !req.GetContinue() {
 		// The daemon's own folder means nothing to the caller.
@@ -171,6 +175,7 @@ func (s *routeService) request(req *daemonv1.UpRequest) (route.UpRequest, error)
 		}
 	}
 	return route.UpRequest{
+		Policy: governing, Protected: protected, SecretRefs: req.GetSecretRefs(),
 		Launch: configured, Route: name, Repo: req.GetRepo(), Prompt: req.GetPrompt(),
 		AdjutantCommand: req.GetAdjutantCommand(), OrchestratorCommand: req.GetOrchestratorCommand(),
 		AdjutantKind: req.GetAdjutantKind(), OrchestratorKind: req.GetOrchestratorKind(),
