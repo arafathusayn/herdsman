@@ -32,6 +32,19 @@ func TestLedgerVerbsReportNoDaemon(t *testing.T) {
 	}
 }
 
+func TestDownStopsBeforeCleaningWhenThereIsNoDaemon(t *testing.T) {
+	calls := stubWorktree(t, map[string]string{"CleanPlan": safeCleanPlan})
+	noDaemon(t)
+	if code, _, errText := runVerb(runDown, "a", "-y"); code != 1 || !strings.Contains(errText, "no daemon") {
+		t.Fatalf("down: %d %q", code, errText)
+	}
+	for _, call := range *calls {
+		if call.method == "Clean" {
+			t.Fatal("cleaned with nothing stopped")
+		}
+	}
+}
+
 func TestTheRealDialReportsAMissingDaemon(t *testing.T) {
 	t.Setenv("HERDSMAN_PRIVATE_HOME", t.TempDir())
 	service, closeService, err := dialLedger()
