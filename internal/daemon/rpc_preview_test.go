@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -56,7 +57,19 @@ type previewCase struct {
 	call func(context.Context, *messageService) (proto.Message, error)
 }
 
-func previewCases(ctx, party context.Context, inbox string, adj, orch *party) []previewCase {
+// previewFixture is live state the previews act on, so that each is a request
+// the call itself would accept.
+type previewFixture struct {
+	sum, rules          string
+	claim, message      string
+	emptyClaim          string
+	adoptInbox, adopted string
+	orchParty           context.Context
+}
+
+const protectedBoundary = `{"version":1,"inventory_current":true,"private_home":true,"human_checked":true,"protected_domain":true,"launch_admission":true,"courier_panes":[],"lower_trust":[]}`
+
+func previewCases(ctx, party context.Context, f previewFixture, adj, orch *party) []previewCase {
 	r := routeID("r")
 	return []previewCase{
 		{"Shutdown", ctx, func(c context.Context, s *messageService) (proto.Message, error) {
@@ -66,7 +79,7 @@ func previewCases(ctx, party context.Context, inbox string, adj, orch *party) []
 			return s.CreateRoute(c, &daemonv1.CreateRouteRequest{Repo: "repo", Route: routeID("fresh"), DryRun: true})
 		}},
 		{"AdoptRoute", ctx, func(c context.Context, s *messageService) (proto.Message, error) {
-			return s.AdoptRoute(c, &daemonv1.AdoptRouteRequest{Route: routeID("elsewhere"), Inbox: inbox + "-other", DryRun: true})
+			return s.AdoptRoute(c, &daemonv1.AdoptRouteRequest{Route: routeID("elsewhere"), Inbox: f.adoptInbox, ConfirmPairSha256: f.adopted, DryRun: true})
 		}},
 		{"RemoveRoute", ctx, func(c context.Context, s *messageService) (proto.Message, error) {
 			return s.RemoveRoute(c, &daemonv1.RemoveRouteRequest{Route: r, DryRun: true})
@@ -75,16 +88,16 @@ func previewCases(ctx, party context.Context, inbox string, adj, orch *party) []
 			return s.ResetEvents(c, &daemonv1.ResetEventsRequest{Route: r, ConfirmRoute: "r", DryRun: true})
 		}},
 		{"PutSetup", ctx, func(c context.Context, s *messageService) (proto.Message, error) {
-			return s.PutSetup(c, &daemonv1.PutSetupRequest{Route: r, DryRun: true})
+			return s.PutSetup(c, &daemonv1.PutSetupRequest{Route: r, Rules: []string{f.rules}, PolicyVerified: true, BoundaryJson: protectedBoundary, DryRun: true})
 		}},
 		{"Enroll", party, func(c context.Context, s *messageService) (proto.Message, error) {
-			return s.Enroll(c, &daemonv1.EnrollRequest{Route: r, Name: "extra", Role: "orchestrator", DryRun: true})
+			return s.Enroll(c, &daemonv1.EnrollRequest{Route: r, Name: adj.name, Role: adj.role, DryRun: true})
 		}},
 		{"ApprovePair", ctx, func(c context.Context, s *messageService) (proto.Message, error) {
-			return s.ApprovePair(c, &daemonv1.ApprovePairRequest{Route: r, Sha256: "x", DryRun: true})
+			return s.ApprovePair(c, &daemonv1.ApprovePairRequest{Route: r, Sha256: f.sum, DryRun: true})
 		}},
 		{"RetirePair", ctx, func(c context.Context, s *messageService) (proto.Message, error) {
-			return s.RetirePair(c, &daemonv1.RetirePairRequest{Route: r, Name: adj.name, Sha256: "x", DryRun: true})
+			return s.RetirePair(c, &daemonv1.RetirePairRequest{Route: r, Name: adj.name, Sha256: f.sum, DryRun: true})
 		}},
 		{"RevokeCredential", ctx, func(c context.Context, s *messageService) (proto.Message, error) {
 			return s.RevokeCredential(c, &daemonv1.RevokeCredentialRequest{Route: r, Name: adj.name, DryRun: true})
@@ -93,19 +106,19 @@ func previewCases(ctx, party context.Context, inbox string, adj, orch *party) []
 			return s.Send(c, &daemonv1.SendRequest{Route: r, To: orch.name, Kind: "brief", Body: "preview", Key: key(), DryRun: true})
 		}},
 		{"Claim", party, func(c context.Context, s *messageService) (proto.Message, error) {
-			return s.Claim(c, &daemonv1.ClaimRequest{Route: r, ReadKey: key(), DryRun: true})
+			return s.Claim(c, &daemonv1.ClaimRequest{Route: r, Token: f.claim, ExtendKey: key(), DryRun: true})
 		}},
 		{"Ack", party, func(c context.Context, s *messageService) (proto.Message, error) {
-			return s.Ack(c, &daemonv1.AckRequest{Route: r, Claim: "c", Id: wireMessageID("m"), Record: "r", DryRun: true})
+			return s.Ack(c, &daemonv1.AckRequest{Route: r, Claim: f.claim, Id: wireMessageID(f.message), Record: "r", DryRun: true})
 		}},
-		{"Release", party, func(c context.Context, s *messageService) (proto.Message, error) {
-			return s.Release(c, &daemonv1.ReleaseRequest{Route: r, Claim: "c", DryRun: true})
+		{"Release", f.orchParty, func(c context.Context, s *messageService) (proto.Message, error) {
+			return s.Release(c, &daemonv1.ReleaseRequest{Route: r, Claim: f.emptyClaim, DryRun: true})
 		}},
 		{"Hold", party, func(c context.Context, s *messageService) (proto.Message, error) {
-			return s.Hold(c, &daemonv1.HoldRequest{Route: r, Target: "t", Reason: "why", DryRun: true})
+			return s.Hold(c, &daemonv1.HoldRequest{Route: r, Target: orch.name, Reason: "why", DryRun: true})
 		}},
 		{"Unhold", party, func(c context.Context, s *messageService) (proto.Message, error) {
-			return s.Unhold(c, &daemonv1.UnholdRequest{Route: r, Target: "t", DryRun: true})
+			return s.Unhold(c, &daemonv1.UnholdRequest{Route: r, Target: orch.name, DryRun: true})
 		}},
 	}
 }
@@ -118,8 +131,27 @@ func TestAPreviewPlansAndChangesNothing(t *testing.T) {
 	s := &messageService{d: h.d}
 	ctx := context.Background()
 	party := partyContext(ctx, adj)
-	before := inboxFingerprint(t, inbox, h.d.routesFile())
-	for _, c := range previewCases(ctx, party, inbox, adj, orch) {
+	f := previewFixture{sum: pendingChecksum(t, h), rules: h.rules, orchParty: partyContext(ctx, orch)}
+	f.adoptInbox, f.adopted = fileInbox(t, h)
+	r := routeID("r")
+	if _, err := s.Send(f.orchParty, &daemonv1.SendRequest{Route: r, To: adj.name, Kind: "brief", Body: "work", Key: key()}); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.Claim(party, &daemonv1.ClaimRequest{Route: r, ReadKey: key()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.claim, f.message = claimed.GetClaim(), claimed.GetManifest()[0].GetId().GetValue()
+	empty, err := s.Claim(f.orchParty, &daemonv1.ClaimRequest{Route: r, ReadKey: key()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.emptyClaim = empty.GetClaim()
+	if _, err := s.Hold(party, &daemonv1.HoldRequest{Route: r, Target: orch.name, Reason: "held"}); err != nil {
+		t.Fatal(err)
+	}
+	before := inboxFingerprint(t, inbox, f.adoptInbox, h.d.routesFile())
+	for _, c := range previewCases(ctx, party, f, adj, orch) {
 		t.Run(c.name, func(t *testing.T) {
 			res, err := c.call(c.ctx, s)
 			if err != nil {
@@ -131,11 +163,8 @@ func TestAPreviewPlansAndChangesNothing(t *testing.T) {
 			}
 		})
 	}
-	if after := inboxFingerprint(t, inbox, h.d.routesFile()); after != before {
+	if after := inboxFingerprint(t, inbox, f.adoptInbox, h.d.routesFile()); after != before {
 		t.Fatalf("a preview changed the files:\nbefore:\n%s\nafter:\n%s", before, after)
-	}
-	if got := orch.read(t, "r"); len(got.Manifest) != 0 {
-		t.Fatalf("a preview queued %+v", got.Manifest)
 	}
 	var routes []string
 	h.d.mu.Lock()
@@ -286,11 +315,36 @@ func TestASendPreviewKnowsItsKey(t *testing.T) {
 	if got := rpc.FromError(err); got == nil || got.Code != rpc.AlreadyExists {
 		t.Fatalf("got %v", got)
 	}
-	res, err = s.Send(ctx, &daemonv1.SendRequest{Route: routeID("r"), To: orch.name, Kind: "side_agent_data", Body: `{"version":1,"text":"x","source":{"pane":"p9","session":"s9"}}`, Key: key(), DryRun: true})
+}
+
+// Side-agent data goes through only under RELAY, in a preview as in the send.
+func TestASideAgentPreviewFollowsTheAuthority(t *testing.T) {
+	h := newHarness(t)
+	adj, orch, _ := h.route("r")
+	s := &messageService{d: h.d}
+	ctx := partyContext(context.Background(), adj)
+	preview := func() error {
+		_, err := s.Send(ctx, &daemonv1.SendRequest{Route: routeID("r"), To: orch.name, Kind: "side_agent_data", Body: `{"version":1,"text":"x","source":{"pane":"p9","session":"s9"}}`, Key: key(), DryRun: true})
+		return err
+	}
+	if got := rpc.FromError(preview()); got == nil || got.Code != rpc.FailedPrecondition {
+		t.Fatalf("under HUMAN: %v", got)
+	}
+	h.do("PUT", "/v1/routes/r/setup", SetupRequest{Rules: []string{h.rules}, PolicyVerified: true, Boundary: json.RawMessage(protectedBoundary)}, nil)
+	if err := preview(); err != nil {
+		t.Fatalf("under RELAY: %v", err)
+	}
+}
+
+func TestAClaimPreviewAcceptsAFirstRead(t *testing.T) {
+	h := newHarness(t)
+	adj, _, _ := h.route("r")
+	s := &messageService{d: h.d}
+	res, err := s.Claim(partyContext(context.Background(), adj), &daemonv1.ClaimRequest{Route: routeID("r"), ReadKey: key(), DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(res.GetPlan().GetSteps()[0].GetDescription(), "RELAY") {
-		t.Fatalf("plan %v", res.GetPlan())
+	if len(res.GetPlan().GetSteps()) != 1 || res.GetClaim() != "" {
+		t.Fatalf("response %v", res)
 	}
 }

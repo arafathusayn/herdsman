@@ -10,6 +10,7 @@
 package configv1
 
 import (
+	v1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -2291,10 +2292,12 @@ func (x *GetResponse) GetSource() string {
 }
 
 type SetRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Target        *Target                `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
-	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
-	Value         string                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Target *Target                `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	Key    string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	Value  string                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,4,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2350,10 +2353,19 @@ func (x *SetRequest) GetValue() string {
 	return ""
 }
 
+func (x *SetRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type SetResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The file that changed.
-	Path          string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2393,6 +2405,13 @@ func (x *SetResponse) GetPath() string {
 		return x.Path
 	}
 	return ""
+}
+
+func (x *SetResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
 }
 
 type ShowRequest struct {
@@ -2572,9 +2591,11 @@ func (x *ShownValue) GetSource() string {
 }
 
 type UnsetRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Target        *Target                `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
-	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Target *Target                `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	Key    string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2623,11 +2644,20 @@ func (x *UnsetRequest) GetKey() string {
 	return ""
 }
 
+func (x *UnsetRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type UnsetResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Path  string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
 	// False when the file did not hold the key.
-	Removed       bool `protobuf:"varint,2,opt,name=removed,proto3" json:"removed,omitempty"`
+	Removed bool `protobuf:"varint,2,opt,name=removed,proto3" json:"removed,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,3,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2674,6 +2704,13 @@ func (x *UnsetResponse) GetRemoved() bool {
 		return x.Removed
 	}
 	return false
+}
+
+func (x *UnsetResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
 }
 
 type ValidateRequest struct {
@@ -2776,7 +2813,7 @@ var File_herdsman_config_v1_config_proto protoreflect.FileDescriptor
 
 const file_herdsman_config_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"\x1fherdsman/config/v1/config.proto\x12\x12herdsman.config.v1\"\xcd\b\n" +
+	"\x1fherdsman/config/v1/config.proto\x12\x12herdsman.config.v1\x1a\x1bherdsman/core/v1/core.proto\"\xcd\b\n" +
 	"\x06Config\x12A\n" +
 	"\aaliases\x18\x01 \x03(\v2'.herdsman.config.v1.Config.AliasesEntryR\aaliases\x122\n" +
 	"\x06branch\x18\x02 \x01(\v2\x1a.herdsman.config.v1.BranchR\x06branch\x122\n" +
@@ -2996,14 +3033,16 @@ const file_herdsman_config_v1_config_proto_rawDesc = "" +
 	"\x03key\x18\x02 \x01(\tR\x03key\";\n" +
 	"\vGetResponse\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value\x12\x16\n" +
-	"\x06source\x18\x02 \x01(\tR\x06source\"h\n" +
+	"\x06source\x18\x02 \x01(\tR\x06source\"\x81\x01\n" +
 	"\n" +
 	"SetRequest\x122\n" +
 	"\x06target\x18\x01 \x01(\v2\x1a.herdsman.config.v1.TargetR\x06target\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x03 \x01(\tR\x05value\"!\n" +
+	"\x05value\x18\x03 \x01(\tR\x05value\x12\x17\n" +
+	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"M\n" +
 	"\vSetResponse\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\"Y\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12*\n" +
+	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"Y\n" +
 	"\vShowRequest\x122\n" +
 	"\x06target\x18\x01 \x01(\v2\x1a.herdsman.config.v1.TargetR\x06target\x12\x16\n" +
 	"\x06strict\x18\x02 \x01(\bR\x06strict\"\x85\x01\n" +
@@ -3015,13 +3054,15 @@ const file_herdsman_config_v1_config_proto_rawDesc = "" +
 	"ShownValue\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\x12\x16\n" +
-	"\x06source\x18\x03 \x01(\tR\x06source\"T\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\"m\n" +
 	"\fUnsetRequest\x122\n" +
 	"\x06target\x18\x01 \x01(\v2\x1a.herdsman.config.v1.TargetR\x06target\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\tR\x03key\"=\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"i\n" +
 	"\rUnsetResponse\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
-	"\aremoved\x18\x02 \x01(\bR\aremoved\"]\n" +
+	"\aremoved\x18\x02 \x01(\bR\aremoved\x12*\n" +
+	"\x04plan\x18\x03 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"]\n" +
 	"\x0fValidateRequest\x122\n" +
 	"\x06target\x18\x01 \x01(\v2\x1a.herdsman.config.v1.TargetR\x06target\x12\x16\n" +
 	"\x06strict\x18\x02 \x01(\bR\x06strict\".\n" +
@@ -3124,6 +3165,7 @@ var file_herdsman_config_v1_config_proto_goTypes = []any{
 	nil,                      // 47: herdsman.config.v1.LaunchStep.EnvEntry
 	nil,                      // 48: herdsman.config.v1.List.ColumnsEntry
 	nil,                      // 49: herdsman.config.v1.Automations.OnEntry
+	(*v1.Plan)(nil),          // 50: herdsman.core.v1.Plan
 }
 var file_herdsman_config_v1_config_proto_depIdxs = []int32{
 	43, // 0: herdsman.config.v1.Config.aliases:type_name -> herdsman.config.v1.Config.AliasesEntry
@@ -3175,29 +3217,31 @@ var file_herdsman_config_v1_config_proto_depIdxs = []int32{
 	29, // 46: herdsman.config.v1.ExportRequest.target:type_name -> herdsman.config.v1.Target
 	29, // 47: herdsman.config.v1.GetRequest.target:type_name -> herdsman.config.v1.Target
 	29, // 48: herdsman.config.v1.SetRequest.target:type_name -> herdsman.config.v1.Target
-	29, // 49: herdsman.config.v1.ShowRequest.target:type_name -> herdsman.config.v1.Target
-	38, // 50: herdsman.config.v1.ShowResponse.values:type_name -> herdsman.config.v1.ShownValue
-	29, // 51: herdsman.config.v1.UnsetRequest.target:type_name -> herdsman.config.v1.Target
-	29, // 52: herdsman.config.v1.ValidateRequest.target:type_name -> herdsman.config.v1.Target
-	5,  // 53: herdsman.config.v1.Config.ProjectsEntry.value:type_name -> herdsman.config.v1.Config
-	23, // 54: herdsman.config.v1.Automations.OnEntry.value:type_name -> herdsman.config.v1.AutomationAction
-	30, // 55: herdsman.config.v1.ConfigService.Export:input_type -> herdsman.config.v1.ExportRequest
-	32, // 56: herdsman.config.v1.ConfigService.Get:input_type -> herdsman.config.v1.GetRequest
-	34, // 57: herdsman.config.v1.ConfigService.Set:input_type -> herdsman.config.v1.SetRequest
-	36, // 58: herdsman.config.v1.ConfigService.Show:input_type -> herdsman.config.v1.ShowRequest
-	39, // 59: herdsman.config.v1.ConfigService.Unset:input_type -> herdsman.config.v1.UnsetRequest
-	41, // 60: herdsman.config.v1.ConfigService.Validate:input_type -> herdsman.config.v1.ValidateRequest
-	31, // 61: herdsman.config.v1.ConfigService.Export:output_type -> herdsman.config.v1.ExportResponse
-	33, // 62: herdsman.config.v1.ConfigService.Get:output_type -> herdsman.config.v1.GetResponse
-	35, // 63: herdsman.config.v1.ConfigService.Set:output_type -> herdsman.config.v1.SetResponse
-	37, // 64: herdsman.config.v1.ConfigService.Show:output_type -> herdsman.config.v1.ShowResponse
-	40, // 65: herdsman.config.v1.ConfigService.Unset:output_type -> herdsman.config.v1.UnsetResponse
-	42, // 66: herdsman.config.v1.ConfigService.Validate:output_type -> herdsman.config.v1.ValidateResponse
-	61, // [61:67] is the sub-list for method output_type
-	55, // [55:61] is the sub-list for method input_type
-	55, // [55:55] is the sub-list for extension type_name
-	55, // [55:55] is the sub-list for extension extendee
-	0,  // [0:55] is the sub-list for field type_name
+	50, // 49: herdsman.config.v1.SetResponse.plan:type_name -> herdsman.core.v1.Plan
+	29, // 50: herdsman.config.v1.ShowRequest.target:type_name -> herdsman.config.v1.Target
+	38, // 51: herdsman.config.v1.ShowResponse.values:type_name -> herdsman.config.v1.ShownValue
+	29, // 52: herdsman.config.v1.UnsetRequest.target:type_name -> herdsman.config.v1.Target
+	50, // 53: herdsman.config.v1.UnsetResponse.plan:type_name -> herdsman.core.v1.Plan
+	29, // 54: herdsman.config.v1.ValidateRequest.target:type_name -> herdsman.config.v1.Target
+	5,  // 55: herdsman.config.v1.Config.ProjectsEntry.value:type_name -> herdsman.config.v1.Config
+	23, // 56: herdsman.config.v1.Automations.OnEntry.value:type_name -> herdsman.config.v1.AutomationAction
+	30, // 57: herdsman.config.v1.ConfigService.Export:input_type -> herdsman.config.v1.ExportRequest
+	32, // 58: herdsman.config.v1.ConfigService.Get:input_type -> herdsman.config.v1.GetRequest
+	34, // 59: herdsman.config.v1.ConfigService.Set:input_type -> herdsman.config.v1.SetRequest
+	36, // 60: herdsman.config.v1.ConfigService.Show:input_type -> herdsman.config.v1.ShowRequest
+	39, // 61: herdsman.config.v1.ConfigService.Unset:input_type -> herdsman.config.v1.UnsetRequest
+	41, // 62: herdsman.config.v1.ConfigService.Validate:input_type -> herdsman.config.v1.ValidateRequest
+	31, // 63: herdsman.config.v1.ConfigService.Export:output_type -> herdsman.config.v1.ExportResponse
+	33, // 64: herdsman.config.v1.ConfigService.Get:output_type -> herdsman.config.v1.GetResponse
+	35, // 65: herdsman.config.v1.ConfigService.Set:output_type -> herdsman.config.v1.SetResponse
+	37, // 66: herdsman.config.v1.ConfigService.Show:output_type -> herdsman.config.v1.ShowResponse
+	40, // 67: herdsman.config.v1.ConfigService.Unset:output_type -> herdsman.config.v1.UnsetResponse
+	42, // 68: herdsman.config.v1.ConfigService.Validate:output_type -> herdsman.config.v1.ValidateResponse
+	63, // [63:69] is the sub-list for method output_type
+	57, // [57:63] is the sub-list for method input_type
+	57, // [57:57] is the sub-list for extension type_name
+	57, // [57:57] is the sub-list for extension extendee
+	0,  // [0:57] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_config_v1_config_proto_init() }

@@ -131,6 +131,26 @@ func (d *Daemon) admitAdopt(name string, q AdoptRequest) *APIError {
 	return nil
 }
 
+// admitAdoptInbox runs, without the adoption's locks, the checks adopt makes of
+// the inbox. It changes nothing.
+func (d *Daemon) admitAdoptInbox(name string, q AdoptRequest) *APIError {
+	if e := d.checkAdoptInbox(q.Inbox); e != nil {
+		return e
+	}
+	marker := filepath.Join(q.Inbox, "state", "adopting.json")
+	if _, err := os.Lstat(marker); err == nil {
+		_, e := d.resumeMarker(marker, name, q.Inbox, q.ConfirmPairSHA256)
+		return e
+	}
+	if o, ok := ReadOwner(q.Inbox); ok {
+		return Errf("route_exists", "inbox already owned by the daemon (epoch %s)", o.Epoch)
+	}
+	if partial := partialWrites(q.Inbox); partial != "" {
+		return Errf("adopt_locked", "a file-mode write is in flight (%s); retry when it ends", partial)
+	}
+	return confirmedPair(q.Inbox, q.ConfirmPairSHA256)
+}
+
 func (d *Daemon) adoptRoute(ctx context.Context, name string, q AdoptRequest, res *AdoptResult) *APIError {
 	d.regMu.Lock()
 	defer d.regMu.Unlock()

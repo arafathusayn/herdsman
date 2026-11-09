@@ -50,6 +50,9 @@ func (s *messageService) previewAdoptRoute(ctx context.Context, name string, q A
 	if e := s.d.admitAdopt(name, q); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
+	if e := s.d.admitAdoptInbox(name, q); e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
 	return &daemonv1.AdoptRouteResponse{Version: s.contract(), Plan: planOf("adopt", name, "move the file inbox "+q.Inbox+" under the daemon", false)}, nil
 }
 
@@ -75,10 +78,18 @@ func (s *messageService) previewResetEvents(ctx context.Context, name, confirm s
 }
 
 func (s *messageService) previewEnroll(ctx context.Context, name string, q EnrollRequest) (*daemonv1.EnrollResponse, error) {
-	if _, e := s.d.route(name); e != nil {
+	rt, e := s.d.route(name)
+	if e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
-	if _, e := s.d.liveIdentity(ctx, name, callHeader(ctx).Get(HeaderPane)); e != nil {
+	id, e := s.d.liveIdentity(ctx, name, callHeader(ctx).Get(HeaderPane))
+	if e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
+	if e := rt.do(ctx, func() *APIError {
+		_, e := rt.admitEnroll(q.Name, q.Role, id)
+		return e
+	}); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
 	return &daemonv1.EnrollResponse{Version: s.contract(), Plan: planOf("enroll", q.Name, "propose the calling pane as "+q.Role, false)}, nil
@@ -97,84 +108,153 @@ func (s *messageService) previewSend(ctx context.Context, route string, q SendRe
 	}); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
-	description := "queue a " + q.Kind + " message"
-	switch {
-	case earlier != nil:
-		description = "answer with message " + earlier.ID + ", already sent under this key"
-	case q.Kind == "side_agent_data":
-		description += ", if the route's authority is RELAY when it is sent"
+	if earlier != nil {
+		return &daemonv1.SendResponse{Version: s.contract(), Plan: planOf("send", q.To, "answer with message "+earlier.ID+", already sent under this key", false)}, nil
 	}
+	if q.Kind == "side_agent_data" {
+		var authority string
+		if e := rt.do(ctx, func() *APIError {
+			authority, _ = rt.authority(ctx, s.d.herdrFor(rt.name))
+			return nil
+		}); e != nil {
+			return nil, rpcFailure(ctx, e)
+		}
+		if authority != "RELAY" {
+			return nil, rpcFailure(ctx, Errf("human_boundary", "HUMAN boundary; side-agent data not queued"))
+		}
+	}
+	description := "queue a " + q.Kind + " message"
 	return &daemonv1.SendResponse{Version: s.contract(), Plan: planOf("send", q.To, description, false)}, nil
 }
 
 func (s *messageService) previewResolveOperation(ctx context.Context, req *daemonv1.ResolveOperationRequest) (*daemonv1.ResolveOperationResponse, error) {
-	if d := req.GetDecision(); d != "done" && d != "rerun" {
-		return nil, rpcFailure(ctx, Errf("bad_request", "decision must be done or rerun, got %q", d))
-	}
-	if _, e := s.d.getOp(req.GetId()); e != nil {
+	if _, e := resolveDecision(ResolveRequest{Decision: req.GetDecision()}); e != nil {
 		return nil, rpcFailure(ctx, e)
+	}
+	if err := s.d.ops.CheckResolve(req.GetId(), int(req.GetStep())); err != nil {
+		return nil, rpcFailure(ctx, resolveRefusal(req.GetId(), err))
 	}
 	return &daemonv1.ResolveOperationResponse{Version: s.contract(), Plan: planOf("resolve", req.GetId(), "mark the step "+req.GetDecision(), false)}, nil
 }
 
-func (s *messageService) previewPutSetup(ctx context.Context, name string) (*daemonv1.PutSetupResponse, error) {
-	if _, e := s.d.route(name); e != nil {
+func (s *messageService) previewPutSetup(ctx context.Context, name string, q SetupRequest) (*daemonv1.PutSetupResponse, error) {
+	rt, e := s.d.route(name)
+	if e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
+	if e := rt.do(ctx, func() *APIError {
+		_, _, _, e := rt.admitSetup(q)
+		return e
+	}); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
 	return &daemonv1.PutSetupResponse{Version: s.contract(), Plan: planOf("record", name, "record the setup proof", false)}, nil
 }
 
-func (s *messageService) previewApprovePair(ctx context.Context, name string) (*daemonv1.ApprovePairResponse, error) {
-	if _, e := s.d.route(name); e != nil {
+func (s *messageService) previewApprovePair(ctx context.Context, name string, q ApproveRequest) (*daemonv1.ApprovePairResponse, error) {
+	rt, e := s.d.route(name)
+	if e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
+	if e := rt.do(ctx, func() *APIError {
+		_, e := rt.admitApprove(q, true)
+		return e
+	}); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
 	return &daemonv1.ApprovePairResponse{Version: s.contract(), Plan: planOf("approve", name, "approve the pending registry and issue its credentials", false)}, nil
 }
 
-func (s *messageService) previewRetirePair(ctx context.Context, route, name string) (*daemonv1.RetirePairResponse, error) {
-	if _, e := s.d.route(route); e != nil {
+func (s *messageService) previewRetirePair(ctx context.Context, route string, q RetireRequest) (*daemonv1.RetirePairResponse, error) {
+	rt, e := s.d.route(route)
+	if e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
+	if e := rt.do(ctx, func() *APIError {
+		_, e := rt.admitRetire(q.Name, q.SHA256)
+		return e
+	}); e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
+	name := q.Name
 	return &daemonv1.RetirePairResponse{Version: s.contract(), Plan: planOf("retire", name, "retire the party and revoke its credential", true)}, nil
 }
 
 func (s *messageService) previewRevokeCredential(ctx context.Context, route, name string) (*daemonv1.RevokeCredentialResponse, error) {
-	if _, e := s.d.route(route); e != nil {
+	rt, e := s.d.route(route)
+	if e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
+	if e := rt.do(ctx, func() *APIError { return rt.admitRevoke(name) }); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
 	return &daemonv1.RevokeCredentialResponse{Version: s.contract(), Plan: planOf("revoke", name, "revoke the party's credential", true)}, nil
 }
 
-func (s *messageService) previewClaim(ctx context.Context, route string) (*daemonv1.ClaimResponse, error) {
-	if _, _, e := s.d.previewParty(ctx, route); e != nil {
+func (s *messageService) previewClaim(ctx context.Context, route string, q ClaimRequest) (*daemonv1.ClaimResponse, error) {
+	rt, me, e := s.d.previewParty(ctx, route)
+	if e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
+	if e := rt.do(ctx, func() *APIError {
+		if e := rt.deliveryAllowed(); e != nil {
+			return e
+		}
+		_, _, e := rt.admitClaim(me, q)
+		return e
+	}); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
 	return &daemonv1.ClaimResponse{Version: s.contract(), Plan: planOf("claim", route, "claim the caller's ready messages", false)}, nil
 }
 
-func (s *messageService) previewAck(ctx context.Context, route, id string) (*daemonv1.AckResponse, error) {
-	if _, _, e := s.d.previewParty(ctx, route); e != nil {
+func (s *messageService) previewAck(ctx context.Context, route, claim string, q AckRequest) (*daemonv1.AckResponse, error) {
+	rt, me, e := s.d.previewParty(ctx, route)
+	if e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
+	if e := rt.do(ctx, func() *APIError {
+		_, _, e := rt.admitAck(me, claim, q)
+		return e
+	}); e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
+	id := q.ID
 	return &daemonv1.AckResponse{Version: s.contract(), Plan: planOf("ack", id, "acknowledge the claimed message", true)}, nil
 }
 
 func (s *messageService) previewRelease(ctx context.Context, route, claim string) (*daemonv1.ReleaseResponse, error) {
-	if _, _, e := s.d.previewParty(ctx, route); e != nil {
+	rt, me, e := s.d.previewParty(ctx, route)
+	if e != nil {
+		return nil, rpcFailure(ctx, e)
+	}
+	if e := rt.do(ctx, func() *APIError { return rt.admitRelease(me, claim) }); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
 	return &daemonv1.ReleaseResponse{Version: s.contract(), Plan: planOf("release", claim, "give back the acknowledged claim", false)}, nil
 }
 
-func (s *messageService) previewHold(ctx context.Context, route, target string) (*daemonv1.HoldResponse, error) {
-	if _, _, e := s.d.previewParty(ctx, route); e != nil {
+// admitHoldPreview runs a hold's checks for a preview.
+func (s *messageService) admitHoldPreview(ctx context.Context, route, target string, reason *string) *APIError {
+	rt, me, e := s.d.previewParty(ctx, route)
+	if e != nil {
+		return e
+	}
+	return rt.do(ctx, func() *APIError {
+		_, _, e := rt.admitHold(me, target, reason)
+		return e
+	})
+}
+
+func (s *messageService) previewHold(ctx context.Context, route, target, reason string) (*daemonv1.HoldResponse, error) {
+	if e := s.admitHoldPreview(ctx, route, target, &reason); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
 	return &daemonv1.HoldResponse{Version: s.contract(), Plan: planOf("hold", target, "place the caller's hold on the target", false)}, nil
 }
 
 func (s *messageService) previewUnhold(ctx context.Context, route, target string) (*daemonv1.UnholdResponse, error) {
-	if _, _, e := s.d.previewParty(ctx, route); e != nil {
+	if e := s.admitHoldPreview(ctx, route, target, nil); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
 	return &daemonv1.UnholdResponse{Version: s.contract(), Plan: planOf("unhold", target, "remove the caller's hold from the target", false)}, nil

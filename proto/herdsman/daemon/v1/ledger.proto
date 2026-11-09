@@ -3,6 +3,8 @@ syntax = "proto3";
 // Services of the herdsman daemon.
 package herdsman.daemon.v1;
 
+import "herdsman/core/v1/core.proto";
+
 option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
 
 // LedgerService reports what a task runs and records what it owns.
@@ -78,8 +80,12 @@ message AddResourceRequest {
   string id = 5;
   bool adopted = 6;
   string source = 7;
+  // Report the plan and change nothing.
+  bool dry_run = 8;
 }
 
 message AddResourceResponse {
   ResourceRecord record = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }

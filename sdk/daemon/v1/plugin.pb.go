@@ -7,6 +7,7 @@
 package daemonv1
 
 import (
+	v11 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	v1 "github.com/arafathusayn/herdsman/sdk/plugin/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -316,7 +317,9 @@ type PluginServiceInstallRequest struct {
 	// source is the path of an executable file.
 	Source string `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	// name overrides the name taken from the file.
-	Name          string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -365,10 +368,19 @@ func (x *PluginServiceInstallRequest) GetName() string {
 	return ""
 }
 
+func (x *PluginServiceInstallRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type PluginServiceInstallResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        *PluginStatus          `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	Protocol      string                 `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Status   *PluginStatus          `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	Protocol string                 `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v11.Plan `protobuf:"bytes,3,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -417,9 +429,18 @@ func (x *PluginServiceInstallResponse) GetProtocol() string {
 	return ""
 }
 
+func (x *PluginServiceInstallResponse) GetPlan() *v11.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type PluginServiceRemoveRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -461,9 +482,18 @@ func (x *PluginServiceRemoveRequest) GetName() string {
 	return ""
 }
 
+func (x *PluginServiceRemoveRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type PluginServiceRemoveResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Protocol      string                 `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Protocol string                 `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v11.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -503,6 +533,13 @@ func (x *PluginServiceRemoveResponse) GetProtocol() string {
 		return x.Protocol
 	}
 	return ""
+}
+
+func (x *PluginServiceRemoveResponse) GetPlan() *v11.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
 }
 
 type PluginServiceVerifyRequest struct {
@@ -682,7 +719,7 @@ var File_herdsman_daemon_v1_plugin_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_plugin_proto_rawDesc = "" +
 	"\n" +
-	"\x1fherdsman/daemon/v1/plugin.proto\x12\x12herdsman.daemon.v1\x1a\x1fherdsman/plugin/v1/plugin.proto\"\xf1\x01\n" +
+	"\x1fherdsman/daemon/v1/plugin.proto\x12\x12herdsman.daemon.v1\x1a\x1bherdsman/core/v1/core.proto\x1a\x1fherdsman/plugin/v1/plugin.proto\"\xf1\x01\n" +
 	"\fPluginStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1a\n" +
@@ -700,17 +737,21 @@ const file_herdsman_daemon_v1_plugin_proto_rawDesc = "" +
 	"\x1dPluginServiceDescribeResponse\x128\n" +
 	"\bmanifest\x18\x01 \x01(\v2\x1c.herdsman.plugin.v1.ManifestR\bmanifest\x128\n" +
 	"\x06status\x18\x02 \x01(\v2 .herdsman.daemon.v1.PluginStatusR\x06status\x12\x1a\n" +
-	"\bprotocol\x18\x03 \x01(\tR\bprotocol\"I\n" +
+	"\bprotocol\x18\x03 \x01(\tR\bprotocol\"b\n" +
 	"\x1bPluginServiceInstallRequest\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"t\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"\xa0\x01\n" +
 	"\x1cPluginServiceInstallResponse\x128\n" +
 	"\x06status\x18\x01 \x01(\v2 .herdsman.daemon.v1.PluginStatusR\x06status\x12\x1a\n" +
-	"\bprotocol\x18\x02 \x01(\tR\bprotocol\"0\n" +
+	"\bprotocol\x18\x02 \x01(\tR\bprotocol\x12*\n" +
+	"\x04plan\x18\x03 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"I\n" +
 	"\x1aPluginServiceRemoveRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"9\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x17\n" +
+	"\adry_run\x18\x02 \x01(\bR\x06dryRun\"e\n" +
 	"\x1bPluginServiceRemoveResponse\x12\x1a\n" +
-	"\bprotocol\x18\x01 \x01(\tR\bprotocol\"0\n" +
+	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x12*\n" +
+	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"0\n" +
 	"\x1aPluginServiceVerifyRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"Q\n" +
 	"\vVerifyCheck\x12\x12\n" +
@@ -757,6 +798,7 @@ var file_herdsman_daemon_v1_plugin_proto_goTypes = []any{
 	(*PluginServiceVerifyResponse)(nil),   // 11: herdsman.daemon.v1.PluginServiceVerifyResponse
 	(v1.ExtensionPoint)(0),                // 12: herdsman.plugin.v1.ExtensionPoint
 	(*v1.Manifest)(nil),                   // 13: herdsman.plugin.v1.Manifest
+	(*v11.Plan)(nil),                      // 14: herdsman.core.v1.Plan
 }
 var file_herdsman_daemon_v1_plugin_proto_depIdxs = []int32{
 	12, // 0: herdsman.daemon.v1.PluginStatus.extension_points:type_name -> herdsman.plugin.v1.ExtensionPoint
@@ -764,22 +806,24 @@ var file_herdsman_daemon_v1_plugin_proto_depIdxs = []int32{
 	13, // 2: herdsman.daemon.v1.PluginServiceDescribeResponse.manifest:type_name -> herdsman.plugin.v1.Manifest
 	0,  // 3: herdsman.daemon.v1.PluginServiceDescribeResponse.status:type_name -> herdsman.daemon.v1.PluginStatus
 	0,  // 4: herdsman.daemon.v1.PluginServiceInstallResponse.status:type_name -> herdsman.daemon.v1.PluginStatus
-	10, // 5: herdsman.daemon.v1.PluginServiceVerifyResponse.checks:type_name -> herdsman.daemon.v1.VerifyCheck
-	1,  // 6: herdsman.daemon.v1.PluginService.List:input_type -> herdsman.daemon.v1.PluginServiceListRequest
-	3,  // 7: herdsman.daemon.v1.PluginService.Describe:input_type -> herdsman.daemon.v1.PluginServiceDescribeRequest
-	5,  // 8: herdsman.daemon.v1.PluginService.Install:input_type -> herdsman.daemon.v1.PluginServiceInstallRequest
-	7,  // 9: herdsman.daemon.v1.PluginService.Remove:input_type -> herdsman.daemon.v1.PluginServiceRemoveRequest
-	9,  // 10: herdsman.daemon.v1.PluginService.Verify:input_type -> herdsman.daemon.v1.PluginServiceVerifyRequest
-	2,  // 11: herdsman.daemon.v1.PluginService.List:output_type -> herdsman.daemon.v1.PluginServiceListResponse
-	4,  // 12: herdsman.daemon.v1.PluginService.Describe:output_type -> herdsman.daemon.v1.PluginServiceDescribeResponse
-	6,  // 13: herdsman.daemon.v1.PluginService.Install:output_type -> herdsman.daemon.v1.PluginServiceInstallResponse
-	8,  // 14: herdsman.daemon.v1.PluginService.Remove:output_type -> herdsman.daemon.v1.PluginServiceRemoveResponse
-	11, // 15: herdsman.daemon.v1.PluginService.Verify:output_type -> herdsman.daemon.v1.PluginServiceVerifyResponse
-	11, // [11:16] is the sub-list for method output_type
-	6,  // [6:11] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	14, // 5: herdsman.daemon.v1.PluginServiceInstallResponse.plan:type_name -> herdsman.core.v1.Plan
+	14, // 6: herdsman.daemon.v1.PluginServiceRemoveResponse.plan:type_name -> herdsman.core.v1.Plan
+	10, // 7: herdsman.daemon.v1.PluginServiceVerifyResponse.checks:type_name -> herdsman.daemon.v1.VerifyCheck
+	1,  // 8: herdsman.daemon.v1.PluginService.List:input_type -> herdsman.daemon.v1.PluginServiceListRequest
+	3,  // 9: herdsman.daemon.v1.PluginService.Describe:input_type -> herdsman.daemon.v1.PluginServiceDescribeRequest
+	5,  // 10: herdsman.daemon.v1.PluginService.Install:input_type -> herdsman.daemon.v1.PluginServiceInstallRequest
+	7,  // 11: herdsman.daemon.v1.PluginService.Remove:input_type -> herdsman.daemon.v1.PluginServiceRemoveRequest
+	9,  // 12: herdsman.daemon.v1.PluginService.Verify:input_type -> herdsman.daemon.v1.PluginServiceVerifyRequest
+	2,  // 13: herdsman.daemon.v1.PluginService.List:output_type -> herdsman.daemon.v1.PluginServiceListResponse
+	4,  // 14: herdsman.daemon.v1.PluginService.Describe:output_type -> herdsman.daemon.v1.PluginServiceDescribeResponse
+	6,  // 15: herdsman.daemon.v1.PluginService.Install:output_type -> herdsman.daemon.v1.PluginServiceInstallResponse
+	8,  // 16: herdsman.daemon.v1.PluginService.Remove:output_type -> herdsman.daemon.v1.PluginServiceRemoveResponse
+	11, // 17: herdsman.daemon.v1.PluginService.Verify:output_type -> herdsman.daemon.v1.PluginServiceVerifyResponse
+	13, // [13:18] is the sub-list for method output_type
+	8,  // [8:13] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_plugin_proto_init() }

@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package herdsman.daemon.v1;
 
+import "herdsman/core/v1/core.proto";
 import "herdsman/plugin/v1/plugin.proto";
 
 option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
@@ -58,19 +59,27 @@ message PluginServiceInstallRequest {
   string source = 1;
   // name overrides the name taken from the file.
   string name = 2;
+  // Report the plan and change nothing.
+  bool dry_run = 3;
 }
 
 message PluginServiceInstallResponse {
   PluginStatus status = 1;
   string protocol = 2;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 3;
 }
 
 message PluginServiceRemoveRequest {
   string name = 1;
+  // Report the plan and change nothing.
+  bool dry_run = 2;
 }
 
 message PluginServiceRemoveResponse {
   string protocol = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message PluginServiceVerifyRequest {

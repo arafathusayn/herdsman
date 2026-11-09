@@ -103,31 +103,51 @@ const (
 	ResolveRerun
 )
 
+// CheckResolve says whether Resolve would accept the step. It changes nothing.
+func (e *Engine) CheckResolve(id string, ordinal int) error {
+	return e.Read(func(c store.Conn) error {
+		if err := checkBarrier(c, false, id); err != nil {
+			return err
+		}
+		_, err := resolvableStep(c, id, ordinal)
+		return err
+	})
+}
+
+// resolvableStep is the step a decision applies to, when it can have one.
+func resolvableStep(c store.Conn, id string, ordinal int) (Step, error) {
+	op, err := loadOperation(c, id)
+	if err != nil {
+		return Step{}, err
+	}
+	if op.State != OpStopped && op.State != OpConflict {
+		return Step{}, fmt.Errorf("ops: operation %s is %s, nothing to resolve", id, op.State)
+	}
+	if ordinal < 0 || ordinal >= len(op.Steps) {
+		return Step{}, fmt.Errorf("ops: operation %s has no step %d", id, ordinal)
+	}
+	for _, earlier := range op.Steps[:ordinal] {
+		if earlier.State != StepDone {
+			return Step{}, fmt.Errorf("ops: step %d of %s comes first", earlier.Ordinal, id)
+		}
+	}
+	st := op.Steps[ordinal]
+	// A pending step is here when this binary lacked its effect.
+	if st.State != StepIntended && st.State != StepConflict && st.State != StepPending {
+		return Step{}, fmt.Errorf("ops: step %d of %s is %s", ordinal, id, st.State)
+	}
+	return st, nil
+}
+
 // Resolve records a person's decision and puts the operation back to running.
 func (e *Engine) Resolve(id string, ordinal int, d Decision) error {
 	return e.tx(func(c store.Conn) error {
 		if err := checkBarrier(c, false, id); err != nil {
 			return err
 		}
-		op, err := loadOperation(c, id)
+		st, err := resolvableStep(c, id, ordinal)
 		if err != nil {
 			return err
-		}
-		if op.State != OpStopped && op.State != OpConflict {
-			return fmt.Errorf("ops: operation %s is %s, nothing to resolve", id, op.State)
-		}
-		if ordinal < 0 || ordinal >= len(op.Steps) {
-			return fmt.Errorf("ops: operation %s has no step %d", id, ordinal)
-		}
-		for _, earlier := range op.Steps[:ordinal] {
-			if earlier.State != StepDone {
-				return fmt.Errorf("ops: step %d of %s comes first", earlier.Ordinal, id)
-			}
-		}
-		st := op.Steps[ordinal]
-		// A pending step is here when this binary lacked its effect.
-		if st.State != StepIntended && st.State != StepConflict && st.State != StepPending {
-			return fmt.Errorf("ops: step %d of %s is %s", ordinal, id, st.State)
 		}
 		now := e.now()
 		if d == ResolveDone {

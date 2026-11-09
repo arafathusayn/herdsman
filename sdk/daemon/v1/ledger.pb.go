@@ -9,6 +9,7 @@
 package daemonv1
 
 import (
+	v1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -509,11 +510,13 @@ type AddResourceRequest struct {
 	CommonDir string                 `protobuf:"bytes,1,opt,name=common_dir,json=commonDir,proto3" json:"common_dir,omitempty"`
 	Task      string                 `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
 	// execution is empty to use the task's newest execution.
-	Execution     string `protobuf:"bytes,3,opt,name=execution,proto3" json:"execution,omitempty"`
-	Kind          string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
-	Id            string `protobuf:"bytes,5,opt,name=id,proto3" json:"id,omitempty"`
-	Adopted       bool   `protobuf:"varint,6,opt,name=adopted,proto3" json:"adopted,omitempty"`
-	Source        string `protobuf:"bytes,7,opt,name=source,proto3" json:"source,omitempty"`
+	Execution string `protobuf:"bytes,3,opt,name=execution,proto3" json:"execution,omitempty"`
+	Kind      string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	Id        string `protobuf:"bytes,5,opt,name=id,proto3" json:"id,omitempty"`
+	Adopted   bool   `protobuf:"varint,6,opt,name=adopted,proto3" json:"adopted,omitempty"`
+	Source    string `protobuf:"bytes,7,opt,name=source,proto3" json:"source,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,8,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -597,9 +600,18 @@ func (x *AddResourceRequest) GetSource() string {
 	return ""
 }
 
+func (x *AddResourceRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type AddResourceResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Record        *ResourceRecord        `protobuf:"bytes,1,opt,name=record,proto3" json:"record,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Record *ResourceRecord        `protobuf:"bytes,1,opt,name=record,proto3" json:"record,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -641,11 +653,18 @@ func (x *AddResourceResponse) GetRecord() *ResourceRecord {
 	return nil
 }
 
+func (x *AddResourceResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 var File_herdsman_daemon_v1_ledger_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_ledger_proto_rawDesc = "" +
 	"\n" +
-	"\x1fherdsman/daemon/v1/ledger.proto\x12\x12herdsman.daemon.v1\"E\n" +
+	"\x1fherdsman/daemon/v1/ledger.proto\x12\x12herdsman.daemon.v1\x1a\x1bherdsman/core/v1/core.proto\"E\n" +
 	"\x10ResourcesRequest\x12\x1d\n" +
 	"\n" +
 	"common_dir\x18\x01 \x01(\tR\tcommonDir\x12\x12\n" +
@@ -683,7 +702,7 @@ const file_herdsman_daemon_v1_ledger_proto_rawDesc = "" +
 	"\x05lines\x18\x05 \x03(\v2 .herdsman.daemon.v1.ResourceLineR\x05lines\"\x87\x01\n" +
 	"\x11ResourcesResponse\x12<\n" +
 	"\arecords\x18\x01 \x03(\v2\".herdsman.daemon.v1.ResourceRecordR\arecords\x124\n" +
-	"\x04plan\x18\x02 \x01(\v2 .herdsman.daemon.v1.TeardownPlanR\x04plan\"\xbb\x01\n" +
+	"\x04plan\x18\x02 \x01(\v2 .herdsman.daemon.v1.TeardownPlanR\x04plan\"\xd4\x01\n" +
 	"\x12AddResourceRequest\x12\x1d\n" +
 	"\n" +
 	"common_dir\x18\x01 \x01(\tR\tcommonDir\x12\x12\n" +
@@ -692,9 +711,11 @@ const file_herdsman_daemon_v1_ledger_proto_rawDesc = "" +
 	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x0e\n" +
 	"\x02id\x18\x05 \x01(\tR\x02id\x12\x18\n" +
 	"\aadopted\x18\x06 \x01(\bR\aadopted\x12\x16\n" +
-	"\x06source\x18\a \x01(\tR\x06source\"Q\n" +
+	"\x06source\x18\a \x01(\tR\x06source\x12\x17\n" +
+	"\adry_run\x18\b \x01(\bR\x06dryRun\"}\n" +
 	"\x13AddResourceResponse\x12:\n" +
-	"\x06record\x18\x01 \x01(\v2\".herdsman.daemon.v1.ResourceRecordR\x06record2\x94\x02\n" +
+	"\x06record\x18\x01 \x01(\v2\".herdsman.daemon.v1.ResourceRecordR\x06record\x12*\n" +
+	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan2\x94\x02\n" +
 	"\rLedgerService\x12X\n" +
 	"\tResources\x12$.herdsman.daemon.v1.ResourcesRequest\x1a%.herdsman.daemon.v1.ResourcesResponse\x12I\n" +
 	"\x04Plan\x12\x1f.herdsman.daemon.v1.PlanRequest\x1a .herdsman.daemon.v1.PlanResponse\x12^\n" +
@@ -723,6 +744,7 @@ var file_herdsman_daemon_v1_ledger_proto_goTypes = []any{
 	(*ResourcesResponse)(nil),   // 6: herdsman.daemon.v1.ResourcesResponse
 	(*AddResourceRequest)(nil),  // 7: herdsman.daemon.v1.AddResourceRequest
 	(*AddResourceResponse)(nil), // 8: herdsman.daemon.v1.AddResourceResponse
+	(*v1.Plan)(nil),             // 9: herdsman.core.v1.Plan
 }
 var file_herdsman_daemon_v1_ledger_proto_depIdxs = []int32{
 	5, // 0: herdsman.daemon.v1.PlanResponse.plan:type_name -> herdsman.daemon.v1.TeardownPlan
@@ -730,17 +752,18 @@ var file_herdsman_daemon_v1_ledger_proto_depIdxs = []int32{
 	3, // 2: herdsman.daemon.v1.ResourcesResponse.records:type_name -> herdsman.daemon.v1.ResourceRecord
 	5, // 3: herdsman.daemon.v1.ResourcesResponse.plan:type_name -> herdsman.daemon.v1.TeardownPlan
 	3, // 4: herdsman.daemon.v1.AddResourceResponse.record:type_name -> herdsman.daemon.v1.ResourceRecord
-	0, // 5: herdsman.daemon.v1.LedgerService.Resources:input_type -> herdsman.daemon.v1.ResourcesRequest
-	1, // 6: herdsman.daemon.v1.LedgerService.Plan:input_type -> herdsman.daemon.v1.PlanRequest
-	7, // 7: herdsman.daemon.v1.LedgerService.AddResource:input_type -> herdsman.daemon.v1.AddResourceRequest
-	6, // 8: herdsman.daemon.v1.LedgerService.Resources:output_type -> herdsman.daemon.v1.ResourcesResponse
-	2, // 9: herdsman.daemon.v1.LedgerService.Plan:output_type -> herdsman.daemon.v1.PlanResponse
-	8, // 10: herdsman.daemon.v1.LedgerService.AddResource:output_type -> herdsman.daemon.v1.AddResourceResponse
-	8, // [8:11] is the sub-list for method output_type
-	5, // [5:8] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	9, // 5: herdsman.daemon.v1.AddResourceResponse.plan:type_name -> herdsman.core.v1.Plan
+	0, // 6: herdsman.daemon.v1.LedgerService.Resources:input_type -> herdsman.daemon.v1.ResourcesRequest
+	1, // 7: herdsman.daemon.v1.LedgerService.Plan:input_type -> herdsman.daemon.v1.PlanRequest
+	7, // 8: herdsman.daemon.v1.LedgerService.AddResource:input_type -> herdsman.daemon.v1.AddResourceRequest
+	6, // 9: herdsman.daemon.v1.LedgerService.Resources:output_type -> herdsman.daemon.v1.ResourcesResponse
+	2, // 10: herdsman.daemon.v1.LedgerService.Plan:output_type -> herdsman.daemon.v1.PlanResponse
+	8, // 11: herdsman.daemon.v1.LedgerService.AddResource:output_type -> herdsman.daemon.v1.AddResourceResponse
+	9, // [9:12] is the sub-list for method output_type
+	6, // [6:9] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_ledger_proto_init() }

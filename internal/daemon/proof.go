@@ -233,15 +233,25 @@ func checkSetupRequest(q SetupRequest) *APIError {
 // is therefore stale until setup succeeds. A successful setup clears the
 // stale latch.
 func (r *Route) setup(q SetupRequest) (SetupResult, *APIError) {
-	if e := checkSetupRequest(q); e != nil {
+	doc, data, bin, e := r.admitSetup(q)
+	if e != nil {
 		return SetupResult{}, e
+	}
+	return r.recordSetup(q, doc, data, bin)
+}
+
+// admitSetup runs the checks of a setup and returns the document to record,
+// its bytes and the binary it names. It changes nothing.
+func (r *Route) admitSetup(q SetupRequest) (SetupV2, []byte, string, *APIError) {
+	if e := checkSetupRequest(q); e != nil {
+		return SetupV2{}, nil, "", e
 	}
 	exe := r.installedBinary()
 	bin := exe
 	if q.Binary != "" {
 		b, err := filepath.EvalSymlinks(q.Binary)
 		if err != nil || b != exe {
-			return SetupResult{}, Errf("bad_request", "the binary must be the installed herdsman executable (%s)", exe)
+			return SetupV2{}, nil, "", Errf("bad_request", "the binary must be the installed herdsman executable (%s)", exe)
 		}
 	}
 	boundary, _ := r.withPair(q.Boundary)
@@ -252,11 +262,11 @@ func (r *Route) setup(q SetupRequest) (SetupResult, *APIError) {
 	}
 	for i, p := range append(slices.Clone(q.Rules), bin) {
 		if !filepath.IsAbs(p) || strings.ContainsAny(p, "\t\r\n\\") {
-			return SetupResult{}, Errf("bad_request", "%q is not an absolute path", p)
+			return SetupV2{}, nil, "", Errf("bad_request", "%q is not an absolute path", p)
 		}
 		sum, err := r.hashes.sum(p)
 		if err != nil {
-			return SetupResult{}, Errf("bad_request", "%q is not a readable regular file", p)
+			return SetupV2{}, nil, "", Errf("bad_request", "%q is not a readable regular file", p)
 		}
 		fs := FileSum{Path: p, SHA256: sum}
 		if i == len(q.Rules) {
@@ -267,8 +277,13 @@ func (r *Route) setup(q SetupRequest) (SetupResult, *APIError) {
 	}
 	data := prettyJSON(doc)
 	if len(data) > inbox.MaxSize {
-		return SetupResult{}, Errf("bad_request", "setup document too large")
+		return SetupV2{}, nil, "", Errf("bad_request", "setup document too large")
 	}
+	return doc, data, bin, nil
+}
+
+// recordSetup writes an admitted setup.
+func (r *Route) recordSetup(q SetupRequest, doc SetupV2, data []byte, bin string) (SetupResult, *APIError) {
 	for i, raw := range []json.RawMessage{doc.WatchTargets, doc.ResumeTargets} {
 		p := r.path(targetFiles[i])
 		var err error

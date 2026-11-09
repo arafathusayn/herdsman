@@ -17,10 +17,18 @@ export interface TaskServiceCreateRequest {
    * Every repository of the project when empty.
    */
   repos?: string[];
+  /**
+   * Report the plan and change nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface TaskServiceCreateResponse {
   task?: herdsman_core_v1_core.Task;
+  /**
+   * What the request would do; set only for dry_run.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface TaskServiceGetRequest {
@@ -67,19 +75,35 @@ export interface TaskServiceUpdateRequest {
   removeRepos?: string[];
   addLabels?: string[];
   removeLabels?: string[];
+  /**
+   * Report the plan and change nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface TaskServiceUpdateResponse {
   task?: herdsman_core_v1_core.Task;
+  /**
+   * What the request would do; set only for dry_run.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface TaskServiceDeleteRequest {
   scope?: herdsman_daemon_v1_project.Scope;
   task?: string;
   force?: boolean;
+  /**
+   * Report the plan and change nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface TaskServiceDeleteResponse {
+  /**
+   * What the request would do; set only for dry_run.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface TaskServiceLinkRequest {
@@ -93,10 +117,18 @@ export interface TaskServiceLinkRequest {
    * May be empty when the task names one repository.
    */
   repo?: string;
+  /**
+   * Report the plan and change nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface TaskServiceLinkResponse {
   task?: herdsman_core_v1_core.Task;
+  /**
+   * What the request would do; set only for dry_run.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 /**

@@ -7,6 +7,7 @@
 package suggestv1
 
 import (
+	v1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -1023,16 +1024,18 @@ func (x *GetResponse) GetEntry() *Suggestion {
 }
 
 type AddRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Dir           string                 `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`
-	Project       bool                   `protobuf:"varint,2,opt,name=project,proto3" json:"project,omitempty"`
-	Id            string                 `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
-	Kind          string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
-	Title         string                 `protobuf:"bytes,5,opt,name=title,proto3" json:"title,omitempty"`
-	Tags          []string               `protobuf:"bytes,6,rep,name=tags,proto3" json:"tags,omitempty"`
-	Url           string                 `protobuf:"bytes,7,opt,name=url,proto3" json:"url,omitempty"`
-	Repo          string                 `protobuf:"bytes,8,opt,name=repo,proto3" json:"repo,omitempty"`
-	Body          string                 `protobuf:"bytes,9,opt,name=body,proto3" json:"body,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Dir     string                 `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`
+	Project bool                   `protobuf:"varint,2,opt,name=project,proto3" json:"project,omitempty"`
+	Id      string                 `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
+	Kind    string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	Title   string                 `protobuf:"bytes,5,opt,name=title,proto3" json:"title,omitempty"`
+	Tags    []string               `protobuf:"bytes,6,rep,name=tags,proto3" json:"tags,omitempty"`
+	Url     string                 `protobuf:"bytes,7,opt,name=url,proto3" json:"url,omitempty"`
+	Repo    string                 `protobuf:"bytes,8,opt,name=repo,proto3" json:"repo,omitempty"`
+	Body    string                 `protobuf:"bytes,9,opt,name=body,proto3" json:"body,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,10,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1130,10 +1133,19 @@ func (x *AddRequest) GetBody() string {
 	return ""
 }
 
+func (x *AddRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type AddResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Path          string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Path  string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,3,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1180,6 +1192,13 @@ func (x *AddResponse) GetPath() string {
 		return x.Path
 	}
 	return ""
+}
+
+func (x *AddResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
 }
 
 type PlanRequest struct {
@@ -1367,9 +1386,11 @@ func (x *SourcesResponse) GetSources() []*Pin {
 }
 
 type SourceAddRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
-	Ref           string                 `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Url   string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	Ref   string                 `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1418,9 +1439,18 @@ func (x *SourceAddRequest) GetRef() string {
 	return ""
 }
 
+func (x *SourceAddRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type SourceAddResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Pin           *Pin                   `protobuf:"bytes,1,opt,name=pin,proto3" json:"pin,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Pin   *Pin                   `protobuf:"bytes,1,opt,name=pin,proto3" json:"pin,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1462,9 +1492,18 @@ func (x *SourceAddResponse) GetPin() *Pin {
 	return nil
 }
 
+func (x *SourceAddResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type SourceRemoveRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Url   string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1506,9 +1545,18 @@ func (x *SourceRemoveRequest) GetUrl() string {
 	return ""
 }
 
+func (x *SourceRemoveRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type SourceRemoveResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Url   string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1548,6 +1596,13 @@ func (x *SourceRemoveResponse) GetUrl() string {
 		return x.Url
 	}
 	return ""
+}
+
+func (x *SourceRemoveResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
 }
 
 type SourcePreviewRequest struct {
@@ -1671,10 +1726,12 @@ func (x *SourcePreviewResponse) GetProblems() []*Problem {
 }
 
 type SourcePinRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
-	From          string                 `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
-	To            string                 `protobuf:"bytes,3,opt,name=to,proto3" json:"to,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Url   string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	From  string                 `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
+	To    string                 `protobuf:"bytes,3,opt,name=to,proto3" json:"to,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,4,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1730,9 +1787,18 @@ func (x *SourcePinRequest) GetTo() string {
 	return ""
 }
 
+func (x *SourcePinRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type SourcePinResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Pin           *Pin                   `protobuf:"bytes,1,opt,name=pin,proto3" json:"pin,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Pin   *Pin                   `protobuf:"bytes,1,opt,name=pin,proto3" json:"pin,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1774,11 +1840,18 @@ func (x *SourcePinResponse) GetPin() *Pin {
 	return nil
 }
 
+func (x *SourcePinResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 var File_herdsman_suggest_v1_suggest_proto protoreflect.FileDescriptor
 
 const file_herdsman_suggest_v1_suggest_proto_rawDesc = "" +
 	"\n" +
-	"!herdsman/suggest/v1/suggest.proto\x12\x13herdsman.suggest.v1\"\xd9\x02\n" +
+	"!herdsman/suggest/v1/suggest.proto\x12\x13herdsman.suggest.v1\x1a\x1bherdsman/core/v1/core.proto\"\xd9\x02\n" +
 	"\n" +
 	"Suggestion\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
@@ -1856,7 +1929,7 @@ const file_herdsman_suggest_v1_suggest_proto_rawDesc = "" +
 	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"D\n" +
 	"\vGetResponse\x125\n" +
-	"\x05entry\x18\x01 \x01(\v2\x1f.herdsman.suggest.v1.SuggestionR\x05entry\"\xc0\x01\n" +
+	"\x05entry\x18\x01 \x01(\v2\x1f.herdsman.suggest.v1.SuggestionR\x05entry\"\xd9\x01\n" +
 	"\n" +
 	"AddRequest\x12\x10\n" +
 	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x18\n" +
@@ -1867,10 +1940,13 @@ const file_herdsman_suggest_v1_suggest_proto_rawDesc = "" +
 	"\x04tags\x18\x06 \x03(\tR\x04tags\x12\x10\n" +
 	"\x03url\x18\a \x01(\tR\x03url\x12\x12\n" +
 	"\x04repo\x18\b \x01(\tR\x04repo\x12\x12\n" +
-	"\x04body\x18\t \x01(\tR\x04body\"1\n" +
+	"\x04body\x18\t \x01(\tR\x04body\x12\x17\n" +
+	"\adry_run\x18\n" +
+	" \x01(\bR\x06dryRun\"]\n" +
 	"\vAddResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04path\x18\x02 \x01(\tR\x04path\"/\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\x12*\n" +
+	"\x04plan\x18\x03 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"/\n" +
 	"\vPlanRequest\x12\x10\n" +
 	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"_\n" +
@@ -1879,16 +1955,20 @@ const file_herdsman_suggest_v1_suggest_proto_rawDesc = "" +
 	"\bapproved\x18\x02 \x01(\bR\bapproved\"\x10\n" +
 	"\x0eSourcesRequest\"E\n" +
 	"\x0fSourcesResponse\x122\n" +
-	"\asources\x18\x01 \x03(\v2\x18.herdsman.suggest.v1.PinR\asources\"6\n" +
+	"\asources\x18\x01 \x03(\v2\x18.herdsman.suggest.v1.PinR\asources\"O\n" +
 	"\x10SourceAddRequest\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x10\n" +
-	"\x03ref\x18\x02 \x01(\tR\x03ref\"?\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"k\n" +
 	"\x11SourceAddResponse\x12*\n" +
-	"\x03pin\x18\x01 \x01(\v2\x18.herdsman.suggest.v1.PinR\x03pin\"'\n" +
+	"\x03pin\x18\x01 \x01(\v2\x18.herdsman.suggest.v1.PinR\x03pin\x12*\n" +
+	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"@\n" +
 	"\x13SourceRemoveRequest\x12\x10\n" +
-	"\x03url\x18\x01 \x01(\tR\x03url\"(\n" +
+	"\x03url\x18\x01 \x01(\tR\x03url\x12\x17\n" +
+	"\adry_run\x18\x02 \x01(\bR\x06dryRun\"T\n" +
 	"\x14SourceRemoveResponse\x12\x10\n" +
-	"\x03url\x18\x01 \x01(\tR\x03url\":\n" +
+	"\x03url\x18\x01 \x01(\tR\x03url\x12*\n" +
+	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\":\n" +
 	"\x14SourcePreviewRequest\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\"\xe0\x01\n" +
@@ -1896,13 +1976,15 @@ const file_herdsman_suggest_v1_suggest_proto_rawDesc = "" +
 	"\x04from\x18\x01 \x01(\v2\x18.herdsman.suggest.v1.PinR\x04from\x12(\n" +
 	"\x02to\x18\x02 \x01(\v2\x18.herdsman.suggest.v1.PinR\x02to\x125\n" +
 	"\achanges\x18\x03 \x03(\v2\x1b.herdsman.suggest.v1.ChangeR\achanges\x128\n" +
-	"\bproblems\x18\x04 \x03(\v2\x1c.herdsman.suggest.v1.ProblemR\bproblems\"H\n" +
+	"\bproblems\x18\x04 \x03(\v2\x1c.herdsman.suggest.v1.ProblemR\bproblems\"a\n" +
 	"\x10SourcePinRequest\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12\x0e\n" +
-	"\x02to\x18\x03 \x01(\tR\x02to\"?\n" +
+	"\x02to\x18\x03 \x01(\tR\x02to\x12\x17\n" +
+	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"k\n" +
 	"\x11SourcePinResponse\x12*\n" +
-	"\x03pin\x18\x01 \x01(\v2\x18.herdsman.suggest.v1.PinR\x03pin2\x9f\x06\n" +
+	"\x03pin\x18\x01 \x01(\v2\x18.herdsman.suggest.v1.PinR\x03pin\x12*\n" +
+	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan2\x9f\x06\n" +
 	"\x0eSuggestService\x12Q\n" +
 	"\x06Search\x12\".herdsman.suggest.v1.SearchRequest\x1a#.herdsman.suggest.v1.SearchResponse\x12H\n" +
 	"\x03Get\x12\x1f.herdsman.suggest.v1.GetRequest\x1a .herdsman.suggest.v1.GetResponse\x12H\n" +
@@ -1957,6 +2039,7 @@ var file_herdsman_suggest_v1_suggest_proto_goTypes = []any{
 	(*SourcePreviewResponse)(nil), // 26: herdsman.suggest.v1.SourcePreviewResponse
 	(*SourcePinRequest)(nil),      // 27: herdsman.suggest.v1.SourcePinRequest
 	(*SourcePinResponse)(nil),     // 28: herdsman.suggest.v1.SourcePinResponse
+	(*v1.Plan)(nil),               // 29: herdsman.core.v1.Plan
 }
 var file_herdsman_suggest_v1_suggest_proto_depIdxs = []int32{
 	1,  // 0: herdsman.suggest.v1.Suggestion.applies_to:type_name -> herdsman.suggest.v1.AppliesTo
@@ -1971,37 +2054,41 @@ var file_herdsman_suggest_v1_suggest_proto_depIdxs = []int32{
 	7,  // 9: herdsman.suggest.v1.SearchResponse.excluded:type_name -> herdsman.suggest.v1.Excluded
 	8,  // 10: herdsman.suggest.v1.SearchResponse.problems:type_name -> herdsman.suggest.v1.Problem
 	0,  // 11: herdsman.suggest.v1.GetResponse.entry:type_name -> herdsman.suggest.v1.Suggestion
-	9,  // 12: herdsman.suggest.v1.PlanResponse.recipe:type_name -> herdsman.suggest.v1.Recipe
-	4,  // 13: herdsman.suggest.v1.SourcesResponse.sources:type_name -> herdsman.suggest.v1.Pin
-	4,  // 14: herdsman.suggest.v1.SourceAddResponse.pin:type_name -> herdsman.suggest.v1.Pin
-	4,  // 15: herdsman.suggest.v1.SourcePreviewResponse.from:type_name -> herdsman.suggest.v1.Pin
-	4,  // 16: herdsman.suggest.v1.SourcePreviewResponse.to:type_name -> herdsman.suggest.v1.Pin
-	10, // 17: herdsman.suggest.v1.SourcePreviewResponse.changes:type_name -> herdsman.suggest.v1.Change
-	8,  // 18: herdsman.suggest.v1.SourcePreviewResponse.problems:type_name -> herdsman.suggest.v1.Problem
-	4,  // 19: herdsman.suggest.v1.SourcePinResponse.pin:type_name -> herdsman.suggest.v1.Pin
-	11, // 20: herdsman.suggest.v1.SuggestService.Search:input_type -> herdsman.suggest.v1.SearchRequest
-	13, // 21: herdsman.suggest.v1.SuggestService.Get:input_type -> herdsman.suggest.v1.GetRequest
-	15, // 22: herdsman.suggest.v1.SuggestService.Add:input_type -> herdsman.suggest.v1.AddRequest
-	17, // 23: herdsman.suggest.v1.SuggestService.Plan:input_type -> herdsman.suggest.v1.PlanRequest
-	19, // 24: herdsman.suggest.v1.SuggestService.Sources:input_type -> herdsman.suggest.v1.SourcesRequest
-	21, // 25: herdsman.suggest.v1.SuggestService.SourceAdd:input_type -> herdsman.suggest.v1.SourceAddRequest
-	23, // 26: herdsman.suggest.v1.SuggestService.SourceRemove:input_type -> herdsman.suggest.v1.SourceRemoveRequest
-	25, // 27: herdsman.suggest.v1.SuggestService.SourcePreview:input_type -> herdsman.suggest.v1.SourcePreviewRequest
-	27, // 28: herdsman.suggest.v1.SuggestService.SourcePin:input_type -> herdsman.suggest.v1.SourcePinRequest
-	12, // 29: herdsman.suggest.v1.SuggestService.Search:output_type -> herdsman.suggest.v1.SearchResponse
-	14, // 30: herdsman.suggest.v1.SuggestService.Get:output_type -> herdsman.suggest.v1.GetResponse
-	16, // 31: herdsman.suggest.v1.SuggestService.Add:output_type -> herdsman.suggest.v1.AddResponse
-	18, // 32: herdsman.suggest.v1.SuggestService.Plan:output_type -> herdsman.suggest.v1.PlanResponse
-	20, // 33: herdsman.suggest.v1.SuggestService.Sources:output_type -> herdsman.suggest.v1.SourcesResponse
-	22, // 34: herdsman.suggest.v1.SuggestService.SourceAdd:output_type -> herdsman.suggest.v1.SourceAddResponse
-	24, // 35: herdsman.suggest.v1.SuggestService.SourceRemove:output_type -> herdsman.suggest.v1.SourceRemoveResponse
-	26, // 36: herdsman.suggest.v1.SuggestService.SourcePreview:output_type -> herdsman.suggest.v1.SourcePreviewResponse
-	28, // 37: herdsman.suggest.v1.SuggestService.SourcePin:output_type -> herdsman.suggest.v1.SourcePinResponse
-	29, // [29:38] is the sub-list for method output_type
-	20, // [20:29] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	29, // 12: herdsman.suggest.v1.AddResponse.plan:type_name -> herdsman.core.v1.Plan
+	9,  // 13: herdsman.suggest.v1.PlanResponse.recipe:type_name -> herdsman.suggest.v1.Recipe
+	4,  // 14: herdsman.suggest.v1.SourcesResponse.sources:type_name -> herdsman.suggest.v1.Pin
+	4,  // 15: herdsman.suggest.v1.SourceAddResponse.pin:type_name -> herdsman.suggest.v1.Pin
+	29, // 16: herdsman.suggest.v1.SourceAddResponse.plan:type_name -> herdsman.core.v1.Plan
+	29, // 17: herdsman.suggest.v1.SourceRemoveResponse.plan:type_name -> herdsman.core.v1.Plan
+	4,  // 18: herdsman.suggest.v1.SourcePreviewResponse.from:type_name -> herdsman.suggest.v1.Pin
+	4,  // 19: herdsman.suggest.v1.SourcePreviewResponse.to:type_name -> herdsman.suggest.v1.Pin
+	10, // 20: herdsman.suggest.v1.SourcePreviewResponse.changes:type_name -> herdsman.suggest.v1.Change
+	8,  // 21: herdsman.suggest.v1.SourcePreviewResponse.problems:type_name -> herdsman.suggest.v1.Problem
+	4,  // 22: herdsman.suggest.v1.SourcePinResponse.pin:type_name -> herdsman.suggest.v1.Pin
+	29, // 23: herdsman.suggest.v1.SourcePinResponse.plan:type_name -> herdsman.core.v1.Plan
+	11, // 24: herdsman.suggest.v1.SuggestService.Search:input_type -> herdsman.suggest.v1.SearchRequest
+	13, // 25: herdsman.suggest.v1.SuggestService.Get:input_type -> herdsman.suggest.v1.GetRequest
+	15, // 26: herdsman.suggest.v1.SuggestService.Add:input_type -> herdsman.suggest.v1.AddRequest
+	17, // 27: herdsman.suggest.v1.SuggestService.Plan:input_type -> herdsman.suggest.v1.PlanRequest
+	19, // 28: herdsman.suggest.v1.SuggestService.Sources:input_type -> herdsman.suggest.v1.SourcesRequest
+	21, // 29: herdsman.suggest.v1.SuggestService.SourceAdd:input_type -> herdsman.suggest.v1.SourceAddRequest
+	23, // 30: herdsman.suggest.v1.SuggestService.SourceRemove:input_type -> herdsman.suggest.v1.SourceRemoveRequest
+	25, // 31: herdsman.suggest.v1.SuggestService.SourcePreview:input_type -> herdsman.suggest.v1.SourcePreviewRequest
+	27, // 32: herdsman.suggest.v1.SuggestService.SourcePin:input_type -> herdsman.suggest.v1.SourcePinRequest
+	12, // 33: herdsman.suggest.v1.SuggestService.Search:output_type -> herdsman.suggest.v1.SearchResponse
+	14, // 34: herdsman.suggest.v1.SuggestService.Get:output_type -> herdsman.suggest.v1.GetResponse
+	16, // 35: herdsman.suggest.v1.SuggestService.Add:output_type -> herdsman.suggest.v1.AddResponse
+	18, // 36: herdsman.suggest.v1.SuggestService.Plan:output_type -> herdsman.suggest.v1.PlanResponse
+	20, // 37: herdsman.suggest.v1.SuggestService.Sources:output_type -> herdsman.suggest.v1.SourcesResponse
+	22, // 38: herdsman.suggest.v1.SuggestService.SourceAdd:output_type -> herdsman.suggest.v1.SourceAddResponse
+	24, // 39: herdsman.suggest.v1.SuggestService.SourceRemove:output_type -> herdsman.suggest.v1.SourceRemoveResponse
+	26, // 40: herdsman.suggest.v1.SuggestService.SourcePreview:output_type -> herdsman.suggest.v1.SourcePreviewResponse
+	28, // 41: herdsman.suggest.v1.SuggestService.SourcePin:output_type -> herdsman.suggest.v1.SourcePinResponse
+	33, // [33:42] is the sub-list for method output_type
+	24, // [24:33] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_suggest_v1_suggest_proto_init() }

@@ -31,7 +31,9 @@ type TaskServiceCreateRequest struct {
 	Body   string   `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
 	Labels []string `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty"`
 	// Every repository of the project when empty.
-	Repos         []string `protobuf:"bytes,6,rep,name=repos,proto3" json:"repos,omitempty"`
+	Repos []string `protobuf:"bytes,6,rep,name=repos,proto3" json:"repos,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,7,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -108,9 +110,18 @@ func (x *TaskServiceCreateRequest) GetRepos() []string {
 	return nil
 }
 
+func (x *TaskServiceCreateRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type TaskServiceCreateResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Task          *v1.Task               `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Task  *v1.Task               `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -148,6 +159,13 @@ func (*TaskServiceCreateResponse) Descriptor() ([]byte, []int) {
 func (x *TaskServiceCreateResponse) GetTask() *v1.Task {
 	if x != nil {
 		return x.Task
+	}
+	return nil
+}
+
+func (x *TaskServiceCreateResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
 	}
 	return nil
 }
@@ -374,16 +392,18 @@ func (x *TaskServiceListResponse) GetTasks() []*v1.Task {
 // TaskServiceUpdateRequest names the task through its scope but has no field
 // that sets a project.
 type TaskServiceUpdateRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Scope         *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
-	Task          string                 `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
-	Title         *string                `protobuf:"bytes,3,opt,name=title,proto3,oneof" json:"title,omitempty"`
-	Body          *string                `protobuf:"bytes,4,opt,name=body,proto3,oneof" json:"body,omitempty"`
-	Status        *string                `protobuf:"bytes,5,opt,name=status,proto3,oneof" json:"status,omitempty"`
-	AddRepos      []string               `protobuf:"bytes,6,rep,name=add_repos,json=addRepos,proto3" json:"add_repos,omitempty"`
-	RemoveRepos   []string               `protobuf:"bytes,7,rep,name=remove_repos,json=removeRepos,proto3" json:"remove_repos,omitempty"`
-	AddLabels     []string               `protobuf:"bytes,8,rep,name=add_labels,json=addLabels,proto3" json:"add_labels,omitempty"`
-	RemoveLabels  []string               `protobuf:"bytes,9,rep,name=remove_labels,json=removeLabels,proto3" json:"remove_labels,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Scope        *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+	Task         string                 `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
+	Title        *string                `protobuf:"bytes,3,opt,name=title,proto3,oneof" json:"title,omitempty"`
+	Body         *string                `protobuf:"bytes,4,opt,name=body,proto3,oneof" json:"body,omitempty"`
+	Status       *string                `protobuf:"bytes,5,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	AddRepos     []string               `protobuf:"bytes,6,rep,name=add_repos,json=addRepos,proto3" json:"add_repos,omitempty"`
+	RemoveRepos  []string               `protobuf:"bytes,7,rep,name=remove_repos,json=removeRepos,proto3" json:"remove_repos,omitempty"`
+	AddLabels    []string               `protobuf:"bytes,8,rep,name=add_labels,json=addLabels,proto3" json:"add_labels,omitempty"`
+	RemoveLabels []string               `protobuf:"bytes,9,rep,name=remove_labels,json=removeLabels,proto3" json:"remove_labels,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,10,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -481,9 +501,18 @@ func (x *TaskServiceUpdateRequest) GetRemoveLabels() []string {
 	return nil
 }
 
+func (x *TaskServiceUpdateRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type TaskServiceUpdateResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Task          *v1.Task               `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Task  *v1.Task               `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -525,11 +554,20 @@ func (x *TaskServiceUpdateResponse) GetTask() *v1.Task {
 	return nil
 }
 
+func (x *TaskServiceUpdateResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type TaskServiceDeleteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Scope         *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
-	Task          string                 `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
-	Force         bool                   `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Scope *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+	Task  string                 `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
+	Force bool                   `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,4,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -585,8 +623,17 @@ func (x *TaskServiceDeleteRequest) GetForce() bool {
 	return false
 }
 
+func (x *TaskServiceDeleteRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type TaskServiceDeleteResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,1,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -621,6 +668,13 @@ func (*TaskServiceDeleteResponse) Descriptor() ([]byte, []int) {
 	return file_herdsman_daemon_v1_task_proto_rawDescGZIP(), []int{9}
 }
 
+func (x *TaskServiceDeleteResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type TaskServiceLinkRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Scope *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
@@ -628,7 +682,9 @@ type TaskServiceLinkRequest struct {
 	// pr:<n>, issue:<n> or a URL.
 	Link string `protobuf:"bytes,3,opt,name=link,proto3" json:"link,omitempty"`
 	// May be empty when the task names one repository.
-	Repo          string `protobuf:"bytes,4,opt,name=repo,proto3" json:"repo,omitempty"`
+	Repo string `protobuf:"bytes,4,opt,name=repo,proto3" json:"repo,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,5,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -691,9 +747,18 @@ func (x *TaskServiceLinkRequest) GetRepo() string {
 	return ""
 }
 
+func (x *TaskServiceLinkRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type TaskServiceLinkResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Task          *v1.Task               `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Task  *v1.Task               `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -735,20 +800,29 @@ func (x *TaskServiceLinkResponse) GetTask() *v1.Task {
 	return nil
 }
 
+func (x *TaskServiceLinkResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 var File_herdsman_daemon_v1_task_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_task_proto_rawDesc = "" +
 	"\n" +
-	"\x1dherdsman/daemon/v1/task.proto\x12\x12herdsman.daemon.v1\x1a\x1bherdsman/core/v1/core.proto\x1a herdsman/daemon/v1/project.proto\"\xb7\x01\n" +
+	"\x1dherdsman/daemon/v1/task.proto\x12\x12herdsman.daemon.v1\x1a\x1bherdsman/core/v1/core.proto\x1a herdsman/daemon/v1/project.proto\"\xd0\x01\n" +
 	"\x18TaskServiceCreateRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x12\n" +
 	"\x04slug\x18\x03 \x01(\tR\x04slug\x12\x12\n" +
 	"\x04body\x18\x04 \x01(\tR\x04body\x12\x16\n" +
 	"\x06labels\x18\x05 \x03(\tR\x06labels\x12\x14\n" +
-	"\x05repos\x18\x06 \x03(\tR\x05repos\"G\n" +
+	"\x05repos\x18\x06 \x03(\tR\x05repos\x12\x17\n" +
+	"\adry_run\x18\a \x01(\bR\x06dryRun\"s\n" +
 	"\x19TaskServiceCreateResponse\x12*\n" +
-	"\x04task\x18\x01 \x01(\v2\x16.herdsman.core.v1.TaskR\x04task\"\\\n" +
+	"\x04task\x18\x01 \x01(\v2\x16.herdsman.core.v1.TaskR\x04task\x12*\n" +
+	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\\\n" +
 	"\x15TaskServiceGetRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\"D\n" +
@@ -761,7 +835,7 @@ const file_herdsman_daemon_v1_task_proto_rawDesc = "" +
 	"\x04repo\x18\x04 \x01(\tR\x04repo\x12\x14\n" +
 	"\x05label\x18\x05 \x01(\tR\x05label\"G\n" +
 	"\x17TaskServiceListResponse\x12,\n" +
-	"\x05tasks\x18\x01 \x03(\v2\x16.herdsman.core.v1.TaskR\x05tasks\"\xd2\x02\n" +
+	"\x05tasks\x18\x01 \x03(\v2\x16.herdsman.core.v1.TaskR\x05tasks\"\xeb\x02\n" +
 	"\x18TaskServiceUpdateRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\x12\x19\n" +
@@ -772,24 +846,31 @@ const file_herdsman_daemon_v1_task_proto_rawDesc = "" +
 	"\fremove_repos\x18\a \x03(\tR\vremoveRepos\x12\x1d\n" +
 	"\n" +
 	"add_labels\x18\b \x03(\tR\taddLabels\x12#\n" +
-	"\rremove_labels\x18\t \x03(\tR\fremoveLabelsB\b\n" +
+	"\rremove_labels\x18\t \x03(\tR\fremoveLabels\x12\x17\n" +
+	"\adry_run\x18\n" +
+	" \x01(\bR\x06dryRunB\b\n" +
 	"\x06_titleB\a\n" +
 	"\x05_bodyB\t\n" +
-	"\a_status\"G\n" +
+	"\a_status\"s\n" +
 	"\x19TaskServiceUpdateResponse\x12*\n" +
-	"\x04task\x18\x01 \x01(\v2\x16.herdsman.core.v1.TaskR\x04task\"u\n" +
+	"\x04task\x18\x01 \x01(\v2\x16.herdsman.core.v1.TaskR\x04task\x12*\n" +
+	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\x8e\x01\n" +
 	"\x18TaskServiceDeleteRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\x12\x14\n" +
-	"\x05force\x18\x03 \x01(\bR\x05force\"\x1b\n" +
-	"\x19TaskServiceDeleteResponse\"\x85\x01\n" +
+	"\x05force\x18\x03 \x01(\bR\x05force\x12\x17\n" +
+	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"G\n" +
+	"\x19TaskServiceDeleteResponse\x12*\n" +
+	"\x04plan\x18\x01 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\x9e\x01\n" +
 	"\x16TaskServiceLinkRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\x12\x12\n" +
 	"\x04link\x18\x03 \x01(\tR\x04link\x12\x12\n" +
-	"\x04repo\x18\x04 \x01(\tR\x04repo\"E\n" +
+	"\x04repo\x18\x04 \x01(\tR\x04repo\x12\x17\n" +
+	"\adry_run\x18\x05 \x01(\bR\x06dryRun\"q\n" +
 	"\x17TaskServiceLinkResponse\x12*\n" +
-	"\x04task\x18\x01 \x01(\v2\x16.herdsman.core.v1.TaskR\x04task2\xe2\x04\n" +
+	"\x04task\x18\x01 \x01(\v2\x16.herdsman.core.v1.TaskR\x04task\x12*\n" +
+	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan2\xe2\x04\n" +
 	"\vTaskService\x12e\n" +
 	"\x06Create\x12,.herdsman.daemon.v1.TaskServiceCreateRequest\x1a-.herdsman.daemon.v1.TaskServiceCreateResponse\x12\\\n" +
 	"\x03Get\x12).herdsman.daemon.v1.TaskServiceGetRequest\x1a*.herdsman.daemon.v1.TaskServiceGetResponse\x12_\n" +
@@ -826,36 +907,41 @@ var file_herdsman_daemon_v1_task_proto_goTypes = []any{
 	(*TaskServiceLinkResponse)(nil),   // 11: herdsman.daemon.v1.TaskServiceLinkResponse
 	(*Scope)(nil),                     // 12: herdsman.daemon.v1.Scope
 	(*v1.Task)(nil),                   // 13: herdsman.core.v1.Task
+	(*v1.Plan)(nil),                   // 14: herdsman.core.v1.Plan
 }
 var file_herdsman_daemon_v1_task_proto_depIdxs = []int32{
 	12, // 0: herdsman.daemon.v1.TaskServiceCreateRequest.scope:type_name -> herdsman.daemon.v1.Scope
 	13, // 1: herdsman.daemon.v1.TaskServiceCreateResponse.task:type_name -> herdsman.core.v1.Task
-	12, // 2: herdsman.daemon.v1.TaskServiceGetRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	13, // 3: herdsman.daemon.v1.TaskServiceGetResponse.task:type_name -> herdsman.core.v1.Task
-	12, // 4: herdsman.daemon.v1.TaskServiceListRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	13, // 5: herdsman.daemon.v1.TaskServiceListResponse.tasks:type_name -> herdsman.core.v1.Task
-	12, // 6: herdsman.daemon.v1.TaskServiceUpdateRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	13, // 7: herdsman.daemon.v1.TaskServiceUpdateResponse.task:type_name -> herdsman.core.v1.Task
-	12, // 8: herdsman.daemon.v1.TaskServiceDeleteRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	12, // 9: herdsman.daemon.v1.TaskServiceLinkRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	13, // 10: herdsman.daemon.v1.TaskServiceLinkResponse.task:type_name -> herdsman.core.v1.Task
-	0,  // 11: herdsman.daemon.v1.TaskService.Create:input_type -> herdsman.daemon.v1.TaskServiceCreateRequest
-	2,  // 12: herdsman.daemon.v1.TaskService.Get:input_type -> herdsman.daemon.v1.TaskServiceGetRequest
-	4,  // 13: herdsman.daemon.v1.TaskService.List:input_type -> herdsman.daemon.v1.TaskServiceListRequest
-	6,  // 14: herdsman.daemon.v1.TaskService.Update:input_type -> herdsman.daemon.v1.TaskServiceUpdateRequest
-	8,  // 15: herdsman.daemon.v1.TaskService.Delete:input_type -> herdsman.daemon.v1.TaskServiceDeleteRequest
-	10, // 16: herdsman.daemon.v1.TaskService.Link:input_type -> herdsman.daemon.v1.TaskServiceLinkRequest
-	1,  // 17: herdsman.daemon.v1.TaskService.Create:output_type -> herdsman.daemon.v1.TaskServiceCreateResponse
-	3,  // 18: herdsman.daemon.v1.TaskService.Get:output_type -> herdsman.daemon.v1.TaskServiceGetResponse
-	5,  // 19: herdsman.daemon.v1.TaskService.List:output_type -> herdsman.daemon.v1.TaskServiceListResponse
-	7,  // 20: herdsman.daemon.v1.TaskService.Update:output_type -> herdsman.daemon.v1.TaskServiceUpdateResponse
-	9,  // 21: herdsman.daemon.v1.TaskService.Delete:output_type -> herdsman.daemon.v1.TaskServiceDeleteResponse
-	11, // 22: herdsman.daemon.v1.TaskService.Link:output_type -> herdsman.daemon.v1.TaskServiceLinkResponse
-	17, // [17:23] is the sub-list for method output_type
-	11, // [11:17] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	14, // 2: herdsman.daemon.v1.TaskServiceCreateResponse.plan:type_name -> herdsman.core.v1.Plan
+	12, // 3: herdsman.daemon.v1.TaskServiceGetRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	13, // 4: herdsman.daemon.v1.TaskServiceGetResponse.task:type_name -> herdsman.core.v1.Task
+	12, // 5: herdsman.daemon.v1.TaskServiceListRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	13, // 6: herdsman.daemon.v1.TaskServiceListResponse.tasks:type_name -> herdsman.core.v1.Task
+	12, // 7: herdsman.daemon.v1.TaskServiceUpdateRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	13, // 8: herdsman.daemon.v1.TaskServiceUpdateResponse.task:type_name -> herdsman.core.v1.Task
+	14, // 9: herdsman.daemon.v1.TaskServiceUpdateResponse.plan:type_name -> herdsman.core.v1.Plan
+	12, // 10: herdsman.daemon.v1.TaskServiceDeleteRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	14, // 11: herdsman.daemon.v1.TaskServiceDeleteResponse.plan:type_name -> herdsman.core.v1.Plan
+	12, // 12: herdsman.daemon.v1.TaskServiceLinkRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	13, // 13: herdsman.daemon.v1.TaskServiceLinkResponse.task:type_name -> herdsman.core.v1.Task
+	14, // 14: herdsman.daemon.v1.TaskServiceLinkResponse.plan:type_name -> herdsman.core.v1.Plan
+	0,  // 15: herdsman.daemon.v1.TaskService.Create:input_type -> herdsman.daemon.v1.TaskServiceCreateRequest
+	2,  // 16: herdsman.daemon.v1.TaskService.Get:input_type -> herdsman.daemon.v1.TaskServiceGetRequest
+	4,  // 17: herdsman.daemon.v1.TaskService.List:input_type -> herdsman.daemon.v1.TaskServiceListRequest
+	6,  // 18: herdsman.daemon.v1.TaskService.Update:input_type -> herdsman.daemon.v1.TaskServiceUpdateRequest
+	8,  // 19: herdsman.daemon.v1.TaskService.Delete:input_type -> herdsman.daemon.v1.TaskServiceDeleteRequest
+	10, // 20: herdsman.daemon.v1.TaskService.Link:input_type -> herdsman.daemon.v1.TaskServiceLinkRequest
+	1,  // 21: herdsman.daemon.v1.TaskService.Create:output_type -> herdsman.daemon.v1.TaskServiceCreateResponse
+	3,  // 22: herdsman.daemon.v1.TaskService.Get:output_type -> herdsman.daemon.v1.TaskServiceGetResponse
+	5,  // 23: herdsman.daemon.v1.TaskService.List:output_type -> herdsman.daemon.v1.TaskServiceListResponse
+	7,  // 24: herdsman.daemon.v1.TaskService.Update:output_type -> herdsman.daemon.v1.TaskServiceUpdateResponse
+	9,  // 25: herdsman.daemon.v1.TaskService.Delete:output_type -> herdsman.daemon.v1.TaskServiceDeleteResponse
+	11, // 26: herdsman.daemon.v1.TaskService.Link:output_type -> herdsman.daemon.v1.TaskServiceLinkResponse
+	21, // [21:27] is the sub-list for method output_type
+	15, // [15:21] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_task_proto_init() }

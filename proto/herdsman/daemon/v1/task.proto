@@ -32,10 +32,14 @@ message TaskServiceCreateRequest {
   repeated string labels = 5;
   // Every repository of the project when empty.
   repeated string repos = 6;
+  // Report the plan and change nothing.
+  bool dry_run = 7;
 }
 
 message TaskServiceCreateResponse {
   herdsman.core.v1.Task task = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message TaskServiceGetRequest {
@@ -74,19 +78,28 @@ message TaskServiceUpdateRequest {
   repeated string remove_repos = 7;
   repeated string add_labels = 8;
   repeated string remove_labels = 9;
+  // Report the plan and change nothing.
+  bool dry_run = 10;
 }
 
 message TaskServiceUpdateResponse {
   herdsman.core.v1.Task task = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message TaskServiceDeleteRequest {
   Scope scope = 1;
   string task = 2;
   bool force = 3;
+  // Report the plan and change nothing.
+  bool dry_run = 4;
 }
 
-message TaskServiceDeleteResponse {}
+message TaskServiceDeleteResponse {
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 1;
+}
 
 message TaskServiceLinkRequest {
   Scope scope = 1;
@@ -95,8 +108,12 @@ message TaskServiceLinkRequest {
   string link = 3;
   // May be empty when the task names one repository.
   string repo = 4;
+  // Report the plan and change nothing.
+  bool dry_run = 5;
 }
 
 message TaskServiceLinkResponse {
   herdsman.core.v1.Task task = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }

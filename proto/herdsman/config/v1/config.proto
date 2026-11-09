@@ -4,6 +4,8 @@ syntax = "proto3";
 // encodings of the Config message, so a field added here is a key everywhere.
 package herdsman.config.v1;
 
+import "herdsman/core/v1/core.proto";
+
 option go_package = "github.com/arafathusayn/herdsman/sdk/config/v1;configv1";
 
 // Config is the whole file. It has sections only, never a bare setting.
@@ -321,11 +323,15 @@ message SetRequest {
   Target target = 1;
   string key = 2;
   string value = 3;
+  // Report the plan and change nothing.
+  bool dry_run = 4;
 }
 
 message SetResponse {
   // The file that changed.
   string path = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message ShowRequest {
@@ -352,12 +358,16 @@ message ShownValue {
 message UnsetRequest {
   Target target = 1;
   string key = 2;
+  // Report the plan and change nothing.
+  bool dry_run = 3;
 }
 
 message UnsetResponse {
   string path = 1;
   // False when the file did not hold the key.
   bool removed = 2;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 3;
 }
 
 message ValidateRequest {

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package herdsman.suggest.v1;
 
+import "herdsman/core/v1/core.proto";
+
 option go_package = "github.com/arafathusayn/herdsman/sdk/suggest/v1;suggestv1";
 
 // Suggestion is one catalog entry. The same fields are the front matter of an
@@ -128,11 +130,15 @@ message AddRequest {
   string url = 7;
   string repo = 8;
   string body = 9;
+  // Report the plan and change nothing.
+  bool dry_run = 10;
 }
 
 message AddResponse {
   string id = 1;
   string path = 2;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 3;
 }
 
 message PlanRequest {
@@ -154,18 +160,26 @@ message SourcesResponse {
 message SourceAddRequest {
   string url = 1;
   string ref = 2;
+  // Report the plan and change nothing.
+  bool dry_run = 3;
 }
 
 message SourceAddResponse {
   Pin pin = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message SourceRemoveRequest {
   string url = 1;
+  // Report the plan and change nothing.
+  bool dry_run = 2;
 }
 
 message SourceRemoveResponse {
   string url = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message SourcePreviewRequest {
@@ -184,10 +198,14 @@ message SourcePinRequest {
   string url = 1;
   string from = 2;
   string to = 3;
+  // Report the plan and change nothing.
+  bool dry_run = 4;
 }
 
 message SourcePinResponse {
   Pin pin = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 // SuggestService reads and records the catalog. It deliberately has no method

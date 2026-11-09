@@ -210,14 +210,14 @@ func (s *messageService) GetSetup(ctx context.Context, req *daemonv1.GetSetupReq
 }
 
 func (s *messageService) PutSetup(ctx context.Context, req *daemonv1.PutSetupRequest) (*daemonv1.PutSetupResponse, error) {
-	if req.GetDryRun() {
-		return s.previewPutSetup(ctx, req.GetRoute().GetValue())
-	}
 	q := SetupRequest{Rules: req.GetRules(), Binary: req.GetBinary(), PolicyVerified: req.GetPolicyVerified(),
 		Boundary: rawJSON(req.GetBoundaryJson()), WatchTargets: rawJSON(req.GetWatchTargetsJson()), ResumeTargets: rawJSON(req.GetResumeTargetsJson())}
 	for _, p := range req.GetProbes() {
 		q.Probes = append(q.Probes, Probe{Identity: rawJSON(p.GetIdentityJson()), InboxWriteDenied: p.GetInboxWriteDenied(),
 			SocketConnectDenied: p.GetSocketConnectDenied(), RecordedBy: p.GetRecordedBy()})
+	}
+	if req.GetDryRun() {
+		return s.previewPutSetup(ctx, req.GetRoute().GetValue(), q)
 	}
 	var out SetupResult
 	if e := s.d.putSetup(ctx, req.GetRoute().GetValue(), q, &out); e != nil {
@@ -246,11 +246,11 @@ func (s *messageService) Enroll(ctx context.Context, req *daemonv1.EnrollRequest
 }
 
 func (s *messageService) ApprovePair(ctx context.Context, req *daemonv1.ApprovePairRequest) (*daemonv1.ApprovePairResponse, error) {
+	q := ApproveRequest{SHA256: req.GetSha256(), Interaction: req.GetInteraction(), AskedBy: req.GetAskedBy(), Credentials: req.GetCredentials()}
 	if req.GetDryRun() {
-		return s.previewApprovePair(ctx, req.GetRoute().GetValue())
+		return s.previewApprovePair(ctx, req.GetRoute().GetValue(), q)
 	}
 	var out ApproveResult
-	q := ApproveRequest{SHA256: req.GetSha256(), Interaction: req.GetInteraction(), AskedBy: req.GetAskedBy(), Credentials: req.GetCredentials()}
 	if e := s.d.approve(ctx, req.GetRoute().GetValue(), q, &out); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
@@ -263,7 +263,7 @@ func (s *messageService) ApprovePair(ctx context.Context, req *daemonv1.ApproveP
 
 func (s *messageService) RetirePair(ctx context.Context, req *daemonv1.RetirePairRequest) (*daemonv1.RetirePairResponse, error) {
 	if req.GetDryRun() {
-		return s.previewRetirePair(ctx, req.GetRoute().GetValue(), req.GetName())
+		return s.previewRetirePair(ctx, req.GetRoute().GetValue(), RetireRequest{Name: req.GetName(), SHA256: req.GetSha256()})
 	}
 	if e := s.d.retire(ctx, req.GetRoute().GetValue(), RetireRequest{Name: req.GetName(), SHA256: req.GetSha256()}); e != nil {
 		return nil, rpcFailure(ctx, e)
@@ -294,11 +294,11 @@ func (s *messageService) Send(ctx context.Context, req *daemonv1.SendRequest) (*
 }
 
 func (s *messageService) Claim(ctx context.Context, req *daemonv1.ClaimRequest) (*daemonv1.ClaimResponse, error) {
+	q := ClaimRequest{ReadKey: req.GetReadKey(), Token: req.GetToken(), ExtendKey: req.GetExtendKey()}
 	if req.GetDryRun() {
-		return s.previewClaim(ctx, req.GetRoute().GetValue())
+		return s.previewClaim(ctx, req.GetRoute().GetValue(), q)
 	}
 	var out ClaimResult
-	q := ClaimRequest{ReadKey: req.GetReadKey(), Token: req.GetToken(), ExtendKey: req.GetExtendKey()}
 	if e := s.d.claim(ctx, req.GetRoute().GetValue(), q, &out); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
@@ -311,7 +311,7 @@ func (s *messageService) Claim(ctx context.Context, req *daemonv1.ClaimRequest) 
 
 func (s *messageService) Ack(ctx context.Context, req *daemonv1.AckRequest) (*daemonv1.AckResponse, error) {
 	if req.GetDryRun() {
-		return s.previewAck(ctx, req.GetRoute().GetValue(), req.GetId().GetValue())
+		return s.previewAck(ctx, req.GetRoute().GetValue(), req.GetClaim(), AckRequest{ID: req.GetId().GetValue(), Record: req.GetRecord()})
 	}
 	var out AckResult
 	if e := s.d.ack(ctx, req.GetRoute().GetValue(), req.GetClaim(), AckRequest{ID: req.GetId().GetValue(), Record: req.GetRecord()}, &out); e != nil {
@@ -341,7 +341,7 @@ func holdsToProto(holds map[string]HoldOwner) map[string]*daemonv1.HoldOwner {
 
 func (s *messageService) Hold(ctx context.Context, req *daemonv1.HoldRequest) (*daemonv1.HoldResponse, error) {
 	if req.GetDryRun() {
-		return s.previewHold(ctx, req.GetRoute().GetValue(), req.GetTarget())
+		return s.previewHold(ctx, req.GetRoute().GetValue(), req.GetTarget(), req.GetReason())
 	}
 	var out HoldResult
 	reason := req.GetReason()

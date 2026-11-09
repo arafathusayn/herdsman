@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package herdsman.daemon.v1;
 
+import "herdsman/core/v1/core.proto";
+
 option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
 
 // OpsService recovers and copies an account.
@@ -23,6 +25,8 @@ message UndoRequest {
   string snapshot = 1;
   // An absolute path; empty means the original path when free, else beside it.
   string target = 2;
+  // Report the plan and change nothing.
+  bool dry_run = 3;
 }
 
 message UndoResponse {
@@ -30,16 +34,22 @@ message UndoResponse {
   string target = 2;
   // Whether the target is the snapshot's original path.
   bool original = 3;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 4;
 }
 
 message ExportRequest {
   // An absolute path that does not exist yet.
   string dest = 1;
+  // Report the plan and change nothing.
+  bool dry_run = 2;
 }
 
 message ExportResponse {
   string operation_id = 1;
   string dest = 2;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 3;
 }
 
 message ImportRequest {
@@ -47,10 +57,14 @@ message ImportRequest {
   string source = 1;
   // An absolute path, empty or missing, outside this daemon's own state.
   string state_dir = 2;
+  // Report the plan and change nothing.
+  bool dry_run = 3;
 }
 
 message ImportResponse {
   string state_dir = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message RecordsRequest {}

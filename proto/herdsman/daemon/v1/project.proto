@@ -48,10 +48,14 @@ message ProjectServiceCreateRequest {
   repeated herdsman.core.v1.ProjectRepo repos = 3;
   // An absolute folder to bind right away; empty for none.
   string folder = 4;
+  // Report the plan and change nothing.
+  bool dry_run = 5;
 }
 
 message ProjectServiceCreateResponse {
   herdsman.core.v1.Project project = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message ProjectServiceGetRequest {
@@ -76,36 +80,53 @@ message ProjectServiceUpdateRequest {
   optional string description = 3;
   repeated herdsman.core.v1.ProjectRepo add_repos = 4;
   repeated string remove_repos = 5;
+  // Report the plan and change nothing.
+  bool dry_run = 6;
 }
 
 message ProjectServiceUpdateResponse {
   herdsman.core.v1.Project project = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message ProjectServiceDeleteRequest {
   Scope scope = 1;
   bool force = 2;
+  // Report the plan and change nothing.
+  bool dry_run = 3;
 }
 
-message ProjectServiceDeleteResponse {}
+message ProjectServiceDeleteResponse {
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 1;
+}
 
 message ProjectServiceBindRequest {
   Scope scope = 1;
   // The absolute folder to bind.
   string folder = 2;
+  // Report the plan and change nothing.
+  bool dry_run = 3;
 }
 
 message ProjectServiceBindResponse {
   herdsman.core.v1.Project project = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message ProjectServiceUnbindRequest {
   // The absolute folder to release.
   string folder = 1;
+  // Report the plan and change nothing.
+  bool dry_run = 2;
 }
 
 message ProjectServiceUnbindResponse {
   herdsman.core.v1.Project project = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 // ContextEvent is one entry of a project's history.
@@ -137,11 +158,15 @@ message ContextProblem {
 
 message ProjectServiceContextInitRequest {
   Scope scope = 1;
+  // Report the plan and change nothing.
+  bool dry_run = 2;
 }
 
 message ProjectServiceContextInitResponse {
   // The absolute folder that now holds the layout.
   string folder = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message ProjectServiceContextCheckRequest {
@@ -164,10 +189,14 @@ message ProjectServiceContextNoteRequest {
   // Empty joins every open branch of the history.
   repeated string parents = 5;
   string body = 6;
+  // Report the plan and change nothing.
+  bool dry_run = 7;
 }
 
 message ProjectServiceContextNoteResponse {
   ContextEvent event = 1;
+  // What the request would do; set only for dry_run.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message ProjectServiceLogRequest {

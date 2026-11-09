@@ -7,6 +7,7 @@
 package daemonv1
 
 import (
+	v1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -26,7 +27,9 @@ type UndoRequest struct {
 	// The snapshot, named by the operation that took it.
 	Snapshot string `protobuf:"bytes,1,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
 	// An absolute path; empty means the original path when free, else beside it.
-	Target        string `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	Target string `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -75,12 +78,21 @@ func (x *UndoRequest) GetTarget() string {
 	return ""
 }
 
+func (x *UndoRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type UndoResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	OperationId string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
 	Target      string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
 	// Whether the target is the snapshot's original path.
-	Original      bool `protobuf:"varint,3,opt,name=original,proto3" json:"original,omitempty"`
+	Original bool `protobuf:"varint,3,opt,name=original,proto3" json:"original,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,4,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -136,10 +148,19 @@ func (x *UndoResponse) GetOriginal() bool {
 	return false
 }
 
+func (x *UndoResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type ExportRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// An absolute path that does not exist yet.
-	Dest          string `protobuf:"bytes,1,opt,name=dest,proto3" json:"dest,omitempty"`
+	Dest string `protobuf:"bytes,1,opt,name=dest,proto3" json:"dest,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -181,10 +202,19 @@ func (x *ExportRequest) GetDest() string {
 	return ""
 }
 
+func (x *ExportRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type ExportResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OperationId   string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
-	Dest          string                 `protobuf:"bytes,2,opt,name=dest,proto3" json:"dest,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	OperationId string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Dest        string                 `protobuf:"bytes,2,opt,name=dest,proto3" json:"dest,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,3,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -233,12 +263,21 @@ func (x *ExportResponse) GetDest() string {
 	return ""
 }
 
+func (x *ExportResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type ImportRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The folder an export wrote.
 	Source string `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	// An absolute path, empty or missing, outside this daemon's own state.
-	StateDir      string `protobuf:"bytes,2,opt,name=state_dir,json=stateDir,proto3" json:"state_dir,omitempty"`
+	StateDir string `protobuf:"bytes,2,opt,name=state_dir,json=stateDir,proto3" json:"state_dir,omitempty"`
+	// Report the plan and change nothing.
+	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -287,9 +326,18 @@ func (x *ImportRequest) GetStateDir() string {
 	return ""
 }
 
+func (x *ImportRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type ImportResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	StateDir      string                 `protobuf:"bytes,1,opt,name=state_dir,json=stateDir,proto3" json:"state_dir,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	StateDir string                 `protobuf:"bytes,1,opt,name=state_dir,json=stateDir,proto3" json:"state_dir,omitempty"`
+	// What the request would do; set only for dry_run.
+	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -329,6 +377,13 @@ func (x *ImportResponse) GetStateDir() string {
 		return x.StateDir
 	}
 	return ""
+}
+
+func (x *ImportResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
 }
 
 type RecordsRequest struct {
@@ -562,24 +617,30 @@ var File_herdsman_daemon_v1_ops_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_ops_proto_rawDesc = "" +
 	"\n" +
-	"\x1cherdsman/daemon/v1/ops.proto\x12\x12herdsman.daemon.v1\"A\n" +
+	"\x1cherdsman/daemon/v1/ops.proto\x12\x12herdsman.daemon.v1\x1a\x1bherdsman/core/v1/core.proto\"Z\n" +
 	"\vUndoRequest\x12\x1a\n" +
 	"\bsnapshot\x18\x01 \x01(\tR\bsnapshot\x12\x16\n" +
-	"\x06target\x18\x02 \x01(\tR\x06target\"e\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"\x91\x01\n" +
 	"\fUndoResponse\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x1a\n" +
-	"\boriginal\x18\x03 \x01(\bR\boriginal\"#\n" +
+	"\boriginal\x18\x03 \x01(\bR\boriginal\x12*\n" +
+	"\x04plan\x18\x04 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"<\n" +
 	"\rExportRequest\x12\x12\n" +
-	"\x04dest\x18\x01 \x01(\tR\x04dest\"G\n" +
+	"\x04dest\x18\x01 \x01(\tR\x04dest\x12\x17\n" +
+	"\adry_run\x18\x02 \x01(\bR\x06dryRun\"s\n" +
 	"\x0eExportResponse\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12\x12\n" +
-	"\x04dest\x18\x02 \x01(\tR\x04dest\"D\n" +
+	"\x04dest\x18\x02 \x01(\tR\x04dest\x12*\n" +
+	"\x04plan\x18\x03 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"]\n" +
 	"\rImportRequest\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x1b\n" +
-	"\tstate_dir\x18\x02 \x01(\tR\bstateDir\"-\n" +
+	"\tstate_dir\x18\x02 \x01(\tR\bstateDir\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"Y\n" +
 	"\x0eImportResponse\x12\x1b\n" +
-	"\tstate_dir\x18\x01 \x01(\tR\bstateDir\"\x10\n" +
+	"\tstate_dir\x18\x01 \x01(\tR\bstateDir\x12*\n" +
+	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\x10\n" +
 	"\x0eRecordsRequest\"\xa6\x01\n" +
 	"\x0fRecordsResponse\x12;\n" +
 	"\arecords\x18\x01 \x03(\v2!.herdsman.daemon.v1.AccountRecordR\arecords\x12>\n" +
@@ -625,23 +686,27 @@ var file_herdsman_daemon_v1_ops_proto_goTypes = []any{
 	(*RecordsResponse)(nil), // 7: herdsman.daemon.v1.RecordsResponse
 	(*AccountRecord)(nil),   // 8: herdsman.daemon.v1.AccountRecord
 	(*SnapshotInfo)(nil),    // 9: herdsman.daemon.v1.SnapshotInfo
+	(*v1.Plan)(nil),         // 10: herdsman.core.v1.Plan
 }
 var file_herdsman_daemon_v1_ops_proto_depIdxs = []int32{
-	8, // 0: herdsman.daemon.v1.RecordsResponse.records:type_name -> herdsman.daemon.v1.AccountRecord
-	9, // 1: herdsman.daemon.v1.RecordsResponse.snapshots:type_name -> herdsman.daemon.v1.SnapshotInfo
-	0, // 2: herdsman.daemon.v1.OpsService.Undo:input_type -> herdsman.daemon.v1.UndoRequest
-	2, // 3: herdsman.daemon.v1.OpsService.Export:input_type -> herdsman.daemon.v1.ExportRequest
-	4, // 4: herdsman.daemon.v1.OpsService.Import:input_type -> herdsman.daemon.v1.ImportRequest
-	6, // 5: herdsman.daemon.v1.OpsService.Records:input_type -> herdsman.daemon.v1.RecordsRequest
-	1, // 6: herdsman.daemon.v1.OpsService.Undo:output_type -> herdsman.daemon.v1.UndoResponse
-	3, // 7: herdsman.daemon.v1.OpsService.Export:output_type -> herdsman.daemon.v1.ExportResponse
-	5, // 8: herdsman.daemon.v1.OpsService.Import:output_type -> herdsman.daemon.v1.ImportResponse
-	7, // 9: herdsman.daemon.v1.OpsService.Records:output_type -> herdsman.daemon.v1.RecordsResponse
-	6, // [6:10] is the sub-list for method output_type
-	2, // [2:6] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	10, // 0: herdsman.daemon.v1.UndoResponse.plan:type_name -> herdsman.core.v1.Plan
+	10, // 1: herdsman.daemon.v1.ExportResponse.plan:type_name -> herdsman.core.v1.Plan
+	10, // 2: herdsman.daemon.v1.ImportResponse.plan:type_name -> herdsman.core.v1.Plan
+	8,  // 3: herdsman.daemon.v1.RecordsResponse.records:type_name -> herdsman.daemon.v1.AccountRecord
+	9,  // 4: herdsman.daemon.v1.RecordsResponse.snapshots:type_name -> herdsman.daemon.v1.SnapshotInfo
+	0,  // 5: herdsman.daemon.v1.OpsService.Undo:input_type -> herdsman.daemon.v1.UndoRequest
+	2,  // 6: herdsman.daemon.v1.OpsService.Export:input_type -> herdsman.daemon.v1.ExportRequest
+	4,  // 7: herdsman.daemon.v1.OpsService.Import:input_type -> herdsman.daemon.v1.ImportRequest
+	6,  // 8: herdsman.daemon.v1.OpsService.Records:input_type -> herdsman.daemon.v1.RecordsRequest
+	1,  // 9: herdsman.daemon.v1.OpsService.Undo:output_type -> herdsman.daemon.v1.UndoResponse
+	3,  // 10: herdsman.daemon.v1.OpsService.Export:output_type -> herdsman.daemon.v1.ExportResponse
+	5,  // 11: herdsman.daemon.v1.OpsService.Import:output_type -> herdsman.daemon.v1.ImportResponse
+	7,  // 12: herdsman.daemon.v1.OpsService.Records:output_type -> herdsman.daemon.v1.RecordsResponse
+	9,  // [9:13] is the sub-list for method output_type
+	5,  // [5:9] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_ops_proto_init() }

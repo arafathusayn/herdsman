@@ -3,10 +3,12 @@ package daemon
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
@@ -53,19 +55,34 @@ func TestACreatePreviewRefusesARelativeSocket(t *testing.T) {
 }
 
 func TestAResolvePreviewPlansAKnownOperation(t *testing.T) {
-	h := newHarness(t)
 	ctx := context.Background()
-	var effect string
-	for name := range h.d.operationEffects() {
-		effect = name
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	op, err := h.d.ops.Submit(ctx, ops.Spec{Kind: "k", Plan: "p", Locks: []string{ops.TaskLock("t1")},
-		Steps: []ops.StepSpec{{Name: "s", Effect: effect, Key: "agent-a", Spec: "{}", Retry: ops.RetryNever}}})
+	db, err := store.Open(filepath.Join(dir, "account.db"), store.Writer, store.KindAccount)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &messageService{d: h.d}
-	res, err := s.ResolveOperation(ctx, &daemonv1.ResolveOperationRequest{Id: op.ID, Decision: "rerun", DryRun: true})
+	t.Cleanup(func() { db.Close() })
+	stop := ""
+	e := ops.NewEngine(db, ops.Options{Effects: map[string]ops.Effect{"unknown": unknownEffect{}}, Fault: func(p string) {
+		if p == stop {
+			panic("crash")
+		}
+	}})
+	spec := ops.Spec{Kind: "k", Plan: "p", Steps: []ops.StepSpec{{Name: "s", Effect: "unknown", Key: "k1", Spec: "{}", Retry: ops.RetryNever}}}
+	s := &messageService{d: &Daemon{ops: e}}
+	leaveIntended(t, e, &stop, spec)
+	if err := e.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := e.List()
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("operations %v: %v", listed, err)
+	}
+	id := listed[0].ID
+	res, err := s.ResolveOperation(ctx, &daemonv1.ResolveOperationRequest{Id: id, Decision: "rerun", DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +90,22 @@ func TestAResolvePreviewPlansAKnownOperation(t *testing.T) {
 	if len(steps) != 1 || !strings.Contains(steps[0].GetDescription(), "rerun") {
 		t.Fatalf("plan %v", res.GetPlan())
 	}
+	if got, err := e.Get(id); err != nil || got.State != ops.OpStopped {
+		t.Fatalf("a preview changed the operation: %v %v", got, err)
+	}
+	_, err = s.ResolveOperation(ctx, &daemonv1.ResolveOperationRequest{Id: id, Step: 5, Decision: "done", DryRun: true})
+	if got := rpc.FromError(err); got == nil || got.Code != rpc.FailedPrecondition {
+		t.Fatalf("a step the operation does not have: %v", got)
+	}
+}
+
+// unknownEffect cannot tell whether it happened, so its step waits for a person.
+type unknownEffect struct{}
+
+func (unknownEffect) Apply(context.Context, ops.Step) error { return nil }
+
+func (unknownEffect) Probe(context.Context, ops.Step) (ops.Verdict, string, error) {
+	return ops.Unknown, "", nil
 }
 
 // admitSend refuses what send would refuse, before anything is written.
