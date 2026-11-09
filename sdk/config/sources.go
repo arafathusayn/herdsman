@@ -84,6 +84,16 @@ func (r *Result) sourceOf(key string) string {
 	return found
 }
 
+// HookTable is the hooks section as plain data, keyed by canonical hook name.
+func (r *Result) HookTable() map[string]any {
+	node, ok := r.tree.Get("hooks")
+	if !ok {
+		return nil
+	}
+	table, _ := plainValue(node).(map[string]any)
+	return table
+}
+
 // Encode writes the whole effective configuration in a text format.
 func (r *Result) Encode(format string) ([]byte, error) { return encodeText(format, r.tree) }
 

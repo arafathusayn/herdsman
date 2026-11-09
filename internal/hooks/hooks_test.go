@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/wtree"
+
+	"github.com/arafathusayn/herdsman/internal/approvals"
 )
 
 func TestTypesAreTheTwelvePoints(t *testing.T) {
@@ -348,4 +350,22 @@ func processAlive(pid string) bool {
 		return false
 	}
 	return syscall.Kill(n, 0) == nil
+}
+
+func TestApprovalsAreTheStoreTheConfigCommandReads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), approvals.FileName)
+	store := &Approvals{Path: path}
+	if err := store.Approve("p", []string{"echo a", "echo b"}); err != nil {
+		t.Fatal(err)
+	}
+	held, err := approvals.Open(path).List()
+	if err != nil || len(held["p"]) != 2 {
+		t.Fatalf("%v %v", held, err)
+	}
+	if removed, err := approvals.Open(path).Clear("p"); err != nil || removed != 2 {
+		t.Fatalf("%d %v", removed, err)
+	}
+	if ok, err := store.Approved("p", "echo a"); err != nil || ok {
+		t.Fatalf("still approved after clear: %v %v", ok, err)
+	}
 }

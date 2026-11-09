@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode"
 
+	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
@@ -50,6 +51,10 @@ var readOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.GetOperation":   true,
 	"herdsman.daemon.v1.RouteService.Get":              true,
 	"herdsman.daemon.v1.RouteService.List":             true,
+	"herdsman.config.v1.ConfigService.Export":          true,
+	"herdsman.config.v1.ConfigService.Get":             true,
+	"herdsman.config.v1.ConfigService.Show":            true,
+	"herdsman.config.v1.ConfigService.Validate":        true,
 	"herdsman.suggest.v1.SuggestService.Search":        true,
 	"herdsman.suggest.v1.SuggestService.Get":           true,
 	"herdsman.suggest.v1.SuggestService.Plan":          true,
@@ -65,7 +70,8 @@ var planOnlyMethods = map[protoreflect.FullName]bool{
 
 // peopleOnlyMethods get no tool. An agent holding this server runs as the same
 // user as the person it works for, so these are the decisions it must not be
-// able to make for them: who may talk on a channel, and whether the daemon runs.
+// able to make for them: who may talk on a channel, whether the daemon runs,
+// and what the safety settings and hooks in a configuration file say.
 var peopleOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.Shutdown":         true,
 	"herdsman.daemon.v1.MessageService.Enroll":           true,
@@ -73,6 +79,8 @@ var peopleOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.RetirePair":       true,
 	"herdsman.daemon.v1.MessageService.RevokeCredential": true,
 	"herdsman.daemon.v1.MessageService.ResetEvents":      true,
+	"herdsman.config.v1.ConfigService.Set":               true,
+	"herdsman.config.v1.ConfigService.Unset":             true,
 }
 
 // Files are the contracts served as tools: only those the daemon serves.
@@ -81,6 +89,7 @@ func Files() []protoreflect.FileDescriptor {
 		daemonv1.File_herdsman_daemon_v1_message_proto,
 		daemonv1.File_herdsman_daemon_v1_route_proto,
 		suggestv1.File_herdsman_suggest_v1_suggest_proto,
+		configv1.File_herdsman_config_v1_config_proto,
 	}
 }
 

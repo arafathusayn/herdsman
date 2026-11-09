@@ -308,6 +308,9 @@ func findUserFile(opts Options, environ []string) (string, error) {
 	return findOne(dir, "config", userFormats)
 }
 
+// FileIn returns the project file directly in dir, or "" when there is none.
+func FileIn(dir string) (string, error) { return findOne(dir, "herdsman.config", projectFormats) }
+
 // UserFile returns the user file's path and whether it exists yet. A new file
 // would be TOML.
 func UserFile(opts Options) (string, bool, error) {

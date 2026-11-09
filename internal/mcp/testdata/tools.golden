@@ -1,5 +1,145 @@
 [
   {
+    "name": "config_export",
+    "description": "Calls herdsman.config.v1.ConfigService/Export.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.config.v1.Target": {
+          "additionalProperties": false,
+          "properties": {
+            "config_path": {
+              "type": "string"
+            },
+            "repo_root": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/herdsman.config.v1.Target"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "config_get",
+    "description": "Calls herdsman.config.v1.ConfigService/Get.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.config.v1.Target": {
+          "additionalProperties": false,
+          "properties": {
+            "config_path": {
+              "type": "string"
+            },
+            "repo_root": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/herdsman.config.v1.Target"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "config_show",
+    "description": "Calls herdsman.config.v1.ConfigService/Show.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.config.v1.Target": {
+          "additionalProperties": false,
+          "properties": {
+            "config_path": {
+              "type": "string"
+            },
+            "repo_root": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "strict": {
+          "type": "boolean"
+        },
+        "target": {
+          "$ref": "#/$defs/herdsman.config.v1.Target"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "config_validate",
+    "description": "Calls herdsman.config.v1.ConfigService/Validate.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.config.v1.Target": {
+          "additionalProperties": false,
+          "properties": {
+            "config_path": {
+              "type": "string"
+            },
+            "repo_root": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "strict": {
+          "type": "boolean"
+        },
+        "target": {
+          "$ref": "#/$defs/herdsman.config.v1.Target"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "daemon_message_ack",
     "description": "Calls herdsman.daemon.v1.MessageService/Ack. Changes state.",
     "inputSchema": {

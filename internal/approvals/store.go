@@ -34,6 +34,9 @@ func Default(environ []string) (*Store, error) {
 	return Open(filepath.Join(dir, FileName)), nil
 }
 
+// Path is the file behind the store.
+func (s *Store) Path() string { return s.path }
+
 // List returns every approval, by project.
 func (s *Store) List() (map[string][]string, error) {
 	data, err := os.ReadFile(s.path)

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
@@ -11,6 +12,7 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	m := &messageService{d: d}
 	routes := &routeService{d: d}
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
+	settings := &configRPC{}
 	name := daemonv1.MessageServiceName
 	return []rpc.Procedure{
 		rpc.Unary(name, "Hello", m.Hello),
@@ -43,6 +45,12 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(daemonv1.RouteServiceName, "Up", routes.Up),
 		rpc.Unary(daemonv1.RouteServiceName, "Get", routes.Get),
 		rpc.Unary(daemonv1.RouteServiceName, "List", routes.List),
+		rpc.Unary(configv1.ConfigServiceName, "Export", settings.Export),
+		rpc.Unary(configv1.ConfigServiceName, "Get", settings.Get),
+		rpc.Unary(configv1.ConfigServiceName, "Set", settings.Set),
+		rpc.Unary(configv1.ConfigServiceName, "Show", settings.Show),
+		rpc.Unary(configv1.ConfigServiceName, "Unset", settings.Unset),
+		rpc.Unary(configv1.ConfigServiceName, "Validate", settings.Validate),
 		rpc.Unary(suggestv1.SuggestServiceName, "Search", suggestions.Search),
 		rpc.Unary(suggestv1.SuggestServiceName, "Get", suggestions.Get),
 		rpc.Unary(suggestv1.SuggestServiceName, "Add", suggestions.Add),

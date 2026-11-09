@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/arafathusayn/herdsman/internal/approvals"
 	"github.com/arafathusayn/herdsman/internal/daemon"
 	"github.com/arafathusayn/herdsman/internal/landing/ghtest"
+	"github.com/arafathusayn/herdsman/sdk/config"
 )
 
 func TestNewWarnsAboutAPromptWithNoAgent(t *testing.T) {
@@ -57,7 +59,7 @@ func TestPackageEntryUsesTheCallersEnvironment(t *testing.T) {
 	if _, err := daemon.WorktreeCall(context.Background(), "Hook", request); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(w.root, "xdg", "herdsman", "approvals.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(config.UserDir(os.Environ()), approvals.FileName)); err != nil {
 		t.Fatal(err)
 	}
 }

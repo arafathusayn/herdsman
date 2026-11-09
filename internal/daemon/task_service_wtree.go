@@ -16,11 +16,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/approvals"
 	"github.com/arafathusayn/herdsman/internal/gitrefs"
 	"github.com/arafathusayn/herdsman/internal/gitrun"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/hooks"
 	"github.com/arafathusayn/herdsman/internal/wtree"
+	"github.com/arafathusayn/herdsman/sdk/config"
 )
 
 const herdrProbeTimeout = 500 * time.Millisecond
@@ -250,46 +252,30 @@ func (r *repository) defaultBranch(ctx context.Context) string {
 	return r.rows[0].Branch
 }
 
-// loadHooks reads the hooks of the configuration file beside the repository.
-// A file in a format this build cannot read stops the command: running without
-// the hooks someone wrote would be worse than refusing.
+// loadHooks reads the hooks of the configuration file beside the repository,
+// in whichever format it was written. A file that cannot be read stops the
+// command: running without the hooks someone wrote would be worse.
 func loadHooks(folder string) (hooks.Config, error) {
-	path := filepath.Join(folder, "herdsman.config.json")
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		for _, extension := range []string{"toml", "yaml", "yml", "bin"} {
-			other := filepath.Join(folder, "herdsman.config."+extension)
-			if _, err := os.Stat(other); err == nil {
-				return nil, fmt.Errorf("%s: this build reads hooks only from herdsman.config.json, not %s", other, extension)
-			}
-		}
-		return hooks.Config{}, nil
+	path, err := config.FileIn(folder)
+	if err != nil || path == "" {
+		return hooks.Config{}, err
 	}
+	result, err := config.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var file struct {
-		Hooks map[string]any `json:"hooks"`
-	}
-	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return hooks.Parse(file.Hooks)
+	return hooks.Parse(result.HookTable())
 }
 
 func (s *WorktreeService) approvals() (*hooks.Approvals, error) {
 	if s.Approvals != "" {
 		return &hooks.Approvals{Path: s.Approvals}, nil
 	}
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		base = filepath.Join(home, ".config")
+	store, err := approvals.Default(os.Environ())
+	if err != nil {
+		return nil, err
 	}
-	return &hooks.Approvals{Path: filepath.Join(base, "herdsman", "approvals.json")}, nil
+	return &hooks.Approvals{Path: store.Path()}, nil
 }
 
 func (r *repository) vars(task, branch, path, kind, base, head string) wtree.Vars {

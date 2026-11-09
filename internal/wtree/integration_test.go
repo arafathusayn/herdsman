@@ -563,9 +563,9 @@ func TestHookRefusesWhatItCannotRead(t *testing.T) {
 		t.Error("corrupt config accepted")
 	}
 	os.Remove(filepath.Join(parent, "herdsman.config.json"))
-	os.WriteFile(filepath.Join(parent, "herdsman.config.toml"), nil, 0o644)
+	os.WriteFile(filepath.Join(parent, "herdsman.config.toml"), []byte("not toml"), 0o644)
 	if _, err := w.service.Hook(ctx, daemon.WorktreeHookRequest{Dir: w.repo, Type: "pre-commit"}); err == nil || !strings.Contains(err.Error(), "toml") {
-		t.Errorf("toml hooks ignored silently: %v", err)
+		t.Errorf("a broken toml file was ignored: %v", err)
 	}
 }
 
