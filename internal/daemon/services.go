@@ -13,6 +13,7 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	m := &messageService{d: d}
 	recovery := &opsService{d: d}
 	routes := &routeService{d: d}
+	projectContext := &projectContextService{}
 	suggestions := &suggestRPC{s: productionSuggest(func() store.Conn { return d.acctDB }), inspect: d.cfg.Inspect}
 	traces := &traceRPC{inspect: d.cfg.Inspect}
 	eventRPC := newEventService(d.hub, d.admitEvents, releaseContext)
@@ -68,5 +69,13 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(tracev1.TraceServiceName, "RecordRun", traces.RecordRun),
 		rpc.Unary(tracev1.TraceServiceName, "AddFinding", traces.AddFinding),
 		rpc.Unary(tracev1.TraceServiceName, "SetOutcome", traces.SetOutcome),
+		rpc.Unary(daemonv1.ProjectServiceName, "ContextInit", projectContext.ContextInit),
+		rpc.Unary(daemonv1.ProjectServiceName, "ContextCheck", projectContext.ContextCheck),
+		rpc.Unary(daemonv1.ProjectServiceName, "ContextNote", projectContext.ContextNote),
+		rpc.Unary(daemonv1.ProjectServiceName, "Log", projectContext.Log),
+		rpc.Unary(daemonv1.RouteServiceName, "Pause", routes.Pause),
+		rpc.Unary(daemonv1.RouteServiceName, "Resume", routes.Resume),
+		rpc.Unary(daemonv1.RouteServiceName, "Stop", routes.Stop),
+		rpc.Unary(daemonv1.RouteServiceName, "Delete", routes.Delete),
 	}...)
 }

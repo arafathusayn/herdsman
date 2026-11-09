@@ -1,0 +1,14 @@
+.TH HERDSMAN-PAUSE 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-pause \- Interrupt a route's agents and hold its channel; every pane stays open.
+.SH DESCRIPTION
+.nf
+usage: herdsman pause <route> [--teardown] [-y] [--dry-run]
+
+Sends each agent the interrupt key, stops the checkpointer's prompts and holds
+the message channel. The interrupt is best effort: an agent acts on it at its
+next turn boundary. <route> is a route name, a route folder, or @ for the route
+of the current folder. --teardown also stops the route's task processes.
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

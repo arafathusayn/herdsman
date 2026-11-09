@@ -7,6 +7,8 @@ import type { Theme } from "./ui.ts";
 export type RouteTab = "team" | "checklist" | "log" | "docs" | "changes" | "artifacts" | "messages" | "activity";
 
 export interface View {
+  /** A page of `pages/index.tsx`; it stands in front of the route views. */
+  page: string;
   route: string;
   tab: RouteTab;
   file: string;

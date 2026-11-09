@@ -17,8 +17,9 @@ import (
 
 // Case ids a results file must hold.
 const (
-	CaseLedgerScan = "ledger-scan"
-	CaseTeardown   = "teardown"
+	CaseLedgerScan      = "ledger-scan"
+	CaseTeardown        = "teardown"
+	CaseTeardownCompose = "teardown-compose"
 
 	// teardownTask is the task both budget cases work on.
 	teardownTask = "teardown-target"
@@ -82,9 +83,10 @@ type Case struct {
 
 // Bench holds what the cases share.
 type Bench struct {
-	Fixtures *Fixtures
-	Tools    Tools
-	run      func(Step) (string, error)
+	Fixtures     *Fixtures
+	Tools        Tools
+	run          func(Step) (string, error)
+	ComposeReady bool
 }
 
 func (b *Bench) resetCaches(repo string, s Sample) error {
@@ -217,7 +219,56 @@ func (b *Bench) ensureTask(repo string) error {
 	return err
 }
 
-func (b *Bench) teardownCase() Case {
+func (b *Bench) teardownCase() Case { return b.teardownWith(CaseTeardown, nil) }
+
+// composeFile runs one container that stops at once when asked.
+const composeFile = "services:\n  web:\n    image: alpine:3\n    init: true\n    command: sleep 600\n"
+
+// composeCase also starts a compose project, so that the measured teardown
+// stops a dev server and containers together.
+func (b *Bench) composeCase() Case {
+	const project = "herdsman-bench"
+	repo := b.Fixtures.Repo20
+	var folder string
+	compose := func(args ...string) Step {
+		return Step{Dir: folder, Argv: append([]string{"docker", "compose", "-p", project}, args...)}
+	}
+	c := b.teardownWith(CaseTeardownCompose, func(_ Sample, path, execution string) error {
+		folder = path
+		if err := os.WriteFile(filepath.Join(path, "compose.yaml"), []byte(composeFile), 0o644); err != nil {
+			return err
+		}
+		if _, err := b.run(compose("up", "-d", "--wait")); err != nil {
+			return err
+		}
+		_, err := b.run(Step{Dir: repo, Argv: []string{b.Tools.Herdsman, "resource", "add",
+			"--task", teardownTask, "--execution", execution, "--kind", ledger.KindCompose, "--id", project}})
+		return err
+	})
+	after, cleanup := c.After, c.Cleanup
+	c.After = func(s Sample) error {
+		if err := after(s); err != nil {
+			return err
+		}
+		out, err := b.run(compose("ps", "-q", "--status", "running"))
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(out) != "" {
+			return errors.New("the compose project was still running after teardown")
+		}
+		return nil
+	}
+	c.Cleanup = func(s Sample) error {
+		_, err := b.run(compose("down", "-v", "--timeout", "0"))
+		return errors.Join(err, cleanup(s))
+	}
+	return c
+}
+
+// teardownWith measures teardown of a recorded server, and whatever extra
+// starts beside it under the same execution.
+func (b *Bench) teardownWith(id string, extra func(s Sample, path, execution string) error) Case {
 	repo := b.Fixtures.Repo20
 	type server struct {
 		pid  int
@@ -225,7 +276,7 @@ func (b *Bench) teardownCase() Case {
 	}
 	servers := map[string]server{}
 	return Case{
-		ID: CaseTeardown, Kind: KindBudget, BudgetMS: teardownBudgetMS,
+		ID: id, Kind: KindBudget, BudgetMS: teardownBudgetMS,
 		Before: func(s Sample) error {
 			if err := b.ensureTask(repo); err != nil {
 				return err
@@ -250,6 +301,9 @@ func (b *Bench) teardownCase() Case {
 			// Only a recorded process is the task's own to stop.
 			_, err = b.run(Step{Dir: repo, Argv: []string{b.Tools.Herdsman, "resource", "add",
 				"--task", teardownTask, "--execution", execution, "--kind", ledger.KindProcess, "--id", strconv.Itoa(pid)}})
+			if err == nil && extra != nil {
+				err = extra(s, path, execution)
+			}
 			if err != nil {
 				_ = syscall.Kill(pid, syscall.SIGKILL)
 				<-done
@@ -283,7 +337,7 @@ func (b *Bench) teardownCase() Case {
 // Cases lists the benchmarks of the commands that ship today.
 func (b *Bench) Cases() []Case {
 	f := b.Fixtures
-	return []Case{
+	cases := []Case{
 		b.listCase("ls-20-cold", f.Repo20, false, true),
 		b.listCase("ls-20-warm", f.Repo20, false, false),
 		b.listCase("ls-50-cold", f.Repo50, false, true),
@@ -296,4 +350,8 @@ func (b *Bench) Cases() []Case {
 		b.ledgerCase(),
 		b.teardownCase(),
 	}
+	if b.ComposeReady {
+		cases = append(cases, b.composeCase())
+	}
+	return cases
 }

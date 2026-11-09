@@ -95,6 +95,130 @@ export interface ProjectServiceUnbindResponse {
 }
 
 /**
+ * ContextEvent is one entry of a project's history.
+ */
+export interface ContextEvent {
+  id?: string;
+  kind?: string;
+  /**
+   * Milliseconds since the Unix epoch.
+   */
+  at?: string;
+  actor?: string;
+  task?: string;
+  repos?: string[];
+  /**
+   * Empty for an event that starts the history.
+   */
+  parents?: string[];
+  /**
+   * The commit of each repository, by repository name.
+   */
+  commits?: Record<string, string>;
+  /**
+   * Header keys this version of the contract does not name, as written.
+   */
+  extra?: Record<string, string>;
+  body?: string;
+}
+
+/**
+ * ContextProblem is one thing wrong with one event file.
+ */
+export interface ContextProblem {
+  file?: string;
+  /**
+   * "malformed", "missing-parent", "cycle" or "not-monotone".
+   */
+  code?: string;
+  /**
+   * For people; the wording may change.
+   */
+  detail?: string;
+}
+
+export interface ProjectServiceContextInitRequest {
+  scope?: Scope;
+}
+
+export interface ProjectServiceContextInitResponse {
+  /**
+   * The absolute folder that now holds the layout.
+   */
+  folder?: string;
+}
+
+export interface ProjectServiceContextCheckRequest {
+  scope?: Scope;
+}
+
+export interface ProjectServiceContextCheckResponse {
+  /**
+   * How many event files parsed.
+   */
+  events?: number;
+  /**
+   * Empty when the history is sound.
+   */
+  problems?: ContextProblem[];
+}
+
+export interface ProjectServiceContextNoteRequest {
+  scope?: Scope;
+  /**
+   * Who is writing: a person or an agent.
+   */
+  actor?: string;
+  task?: string;
+  repos?: string[];
+  /**
+   * Empty joins every open branch of the history.
+   */
+  parents?: string[];
+  body?: string;
+}
+
+export interface ProjectServiceContextNoteResponse {
+  event?: ContextEvent;
+}
+
+export interface ProjectServiceLogRequest {
+  scope?: Scope;
+  /**
+   * Milliseconds since the Unix epoch; 0 reads from the start.
+   */
+  since?: string;
+  /**
+   * Only this task's events, when set.
+   */
+  task?: string;
+  /**
+   * Render the response's text as JSON instead of a list for people.
+   */
+  json?: boolean;
+  /**
+   * Where to go on: the next_page_token of the page before. Empty for the
+   * first page.
+   */
+  pageToken?: string;
+}
+
+export interface ProjectServiceLogResponse {
+  /**
+   * A piece of the history's rendering, parents before children, then by time:
+   * a list for people grouped by UTC date, or JSON when the request asked for
+   * it. The pieces of all the pages, joined, are the whole rendering.
+   */
+  text?: string;
+  /**
+   * Pass this to read the next page. Empty on the last page. When the history
+   * changes between two pages the call fails with aborted, and the read starts
+   * again from the first page.
+   */
+  nextPageToken?: string;
+}
+
+/**
  * ProjectService keeps the project records and their folder bindings.
  */
 export const ProjectService = {
@@ -148,6 +272,34 @@ export const ProjectService = {
     unbind: {
       path: "/rpc/herdsman.daemon.v1.ProjectService/Unbind",
       signature: undefined as unknown as (request: ProjectServiceUnbindRequest) => ProjectServiceUnbindResponse,
+    },
+    /**
+     * ContextInit lays out the project's knowledge and history folders.
+     */
+    contextInit: {
+      path: "/rpc/herdsman.daemon.v1.ProjectService/ContextInit",
+      signature: undefined as unknown as (request: ProjectServiceContextInitRequest) => ProjectServiceContextInitResponse,
+    },
+    /**
+     * ContextCheck validates the project's history.
+     */
+    contextCheck: {
+      path: "/rpc/herdsman.daemon.v1.ProjectService/ContextCheck",
+      signature: undefined as unknown as (request: ProjectServiceContextCheckRequest) => ProjectServiceContextCheckResponse,
+    },
+    /**
+     * ContextNote adds a note to the project's history.
+     */
+    contextNote: {
+      path: "/rpc/herdsman.daemon.v1.ProjectService/ContextNote",
+      signature: undefined as unknown as (request: ProjectServiceContextNoteRequest) => ProjectServiceContextNoteResponse,
+    },
+    /**
+     * Log reads the project's history in order.
+     */
+    log: {
+      path: "/rpc/herdsman.daemon.v1.ProjectService/Log",
+      signature: undefined as unknown as (request: ProjectServiceLogRequest) => ProjectServiceLogResponse,
     },
   },
 } as const;

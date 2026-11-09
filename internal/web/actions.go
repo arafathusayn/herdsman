@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
+	"github.com/arafathusayn/herdsman/internal/secrets"
 )
 
 // Action is one browser request to change something in herdr.
@@ -67,6 +69,11 @@ type Queue struct {
 	// scrolled marks panes this queue scrolled back into herdr's
 	// scrollback. Only the Run goroutine touches it.
 	scrolled map[string]bool
+	// redactor cleans what this queue records. NewServer sets both of these
+	// before Run starts.
+	redactor *secrets.Redactor
+	// refuseStart is why agents may not be started, or "".
+	refuseStart string
 }
 
 func NewQueue(c *herdr.Client, h *Hub) *Queue {
@@ -150,6 +157,9 @@ func (q *Queue) run(ctx context.Context, a Action) Result {
 	if a.Type == "scroll" {
 		return q.scroll(ctx, a)
 	}
+	if a.Type == "start" && q.refuseStart != "" {
+		return Result{Code: "refused", Error: q.refuseStart}
+	}
 	st := q.hub.Current()
 	method, params, summary, err := plan(a, st)
 	if err != nil {
@@ -157,6 +167,10 @@ func (q *Queue) run(ctx context.Context, a Action) Result {
 			return Result{Code: "needs_force", Error: summary}
 		}
 		return Result{Code: "invalid_action", Error: err.Error()}
+	}
+	if q.redactor.Active() {
+		// Before the summary clips the text: a clipped value no longer matches.
+		_, _, summary, _ = plan(q.shown(a), st)
 	}
 
 	// Typing into a pane scrolled back jumps to the bottom, as in a terminal.
@@ -173,14 +187,25 @@ func (q *Queue) run(ctx context.Context, a Action) Result {
 	if quiet[a.Type] {
 		return res
 	}
-	q.hub.Log(Entry{At: q.now(), Source: "web", Kind: a.Type, PaneID: a.Pane, Text: outcome(summary, callErr)})
+	logged := q.redactor.String(outcome(summary, callErr))
+	q.hub.Log(Entry{At: q.now(), Source: "web", Kind: a.Type, PaneID: a.Pane, Text: logged})
 	if r := routeOf(st, a.Pane); r != nil {
-		if err := route.AppendLog(r.Dir, "web: "+outcome(summary, callErr), q.now()); err != nil {
+		if err := route.AppendLog(r.Dir, "web: "+logged, q.now()); err != nil {
 			res.Error = strings.TrimSpace(res.Error + "; route log: " + err.Error())
 		}
 	}
 	q.hub.Refresh()
 	return res
+}
+
+// shown is the action as a summary may describe it.
+func (q *Queue) shown(a Action) Action {
+	a.Text = q.redactor.String(a.Text)
+	a.Args = slices.Clone(a.Args)
+	for i, arg := range a.Args {
+		a.Args[i] = q.redactor.String(arg)
+	}
+	return a
 }
 
 // keepFocus runs call and, when it may move herdr's focus, puts the user's

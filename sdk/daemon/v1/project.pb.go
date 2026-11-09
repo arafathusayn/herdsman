@@ -769,6 +769,646 @@ func (x *ProjectServiceUnbindResponse) GetProject() *v1.Project {
 	return nil
 }
 
+// ContextEvent is one entry of a project's history.
+type ContextEvent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Kind  string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	// Milliseconds since the Unix epoch.
+	At    int64    `protobuf:"varint,3,opt,name=at,proto3" json:"at,omitempty"`
+	Actor string   `protobuf:"bytes,4,opt,name=actor,proto3" json:"actor,omitempty"`
+	Task  string   `protobuf:"bytes,5,opt,name=task,proto3" json:"task,omitempty"`
+	Repos []string `protobuf:"bytes,6,rep,name=repos,proto3" json:"repos,omitempty"`
+	// Empty for an event that starts the history.
+	Parents []string `protobuf:"bytes,7,rep,name=parents,proto3" json:"parents,omitempty"`
+	// The commit of each repository, by repository name.
+	Commits map[string]string `protobuf:"bytes,8,rep,name=commits,proto3" json:"commits,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Header keys this version of the contract does not name, as written.
+	Extra         map[string]string `protobuf:"bytes,9,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Body          string            `protobuf:"bytes,10,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContextEvent) Reset() {
+	*x = ContextEvent{}
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContextEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContextEvent) ProtoMessage() {}
+
+func (x *ContextEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContextEvent.ProtoReflect.Descriptor instead.
+func (*ContextEvent) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ContextEvent) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ContextEvent) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *ContextEvent) GetAt() int64 {
+	if x != nil {
+		return x.At
+	}
+	return 0
+}
+
+func (x *ContextEvent) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
+func (x *ContextEvent) GetTask() string {
+	if x != nil {
+		return x.Task
+	}
+	return ""
+}
+
+func (x *ContextEvent) GetRepos() []string {
+	if x != nil {
+		return x.Repos
+	}
+	return nil
+}
+
+func (x *ContextEvent) GetParents() []string {
+	if x != nil {
+		return x.Parents
+	}
+	return nil
+}
+
+func (x *ContextEvent) GetCommits() map[string]string {
+	if x != nil {
+		return x.Commits
+	}
+	return nil
+}
+
+func (x *ContextEvent) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+func (x *ContextEvent) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+// ContextProblem is one thing wrong with one event file.
+type ContextProblem struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	File  string                 `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
+	// "malformed", "missing-parent", "cycle" or "not-monotone".
+	Code string `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
+	// For people; the wording may change.
+	Detail        string `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContextProblem) Reset() {
+	*x = ContextProblem{}
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContextProblem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContextProblem) ProtoMessage() {}
+
+func (x *ContextProblem) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContextProblem.ProtoReflect.Descriptor instead.
+func (*ContextProblem) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ContextProblem) GetFile() string {
+	if x != nil {
+		return x.File
+	}
+	return ""
+}
+
+func (x *ContextProblem) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *ContextProblem) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+type ProjectServiceContextInitRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Scope         *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectServiceContextInitRequest) Reset() {
+	*x = ProjectServiceContextInitRequest{}
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectServiceContextInitRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectServiceContextInitRequest) ProtoMessage() {}
+
+func (x *ProjectServiceContextInitRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectServiceContextInitRequest.ProtoReflect.Descriptor instead.
+func (*ProjectServiceContextInitRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ProjectServiceContextInitRequest) GetScope() *Scope {
+	if x != nil {
+		return x.Scope
+	}
+	return nil
+}
+
+type ProjectServiceContextInitResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The absolute folder that now holds the layout.
+	Folder        string `protobuf:"bytes,1,opt,name=folder,proto3" json:"folder,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectServiceContextInitResponse) Reset() {
+	*x = ProjectServiceContextInitResponse{}
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectServiceContextInitResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectServiceContextInitResponse) ProtoMessage() {}
+
+func (x *ProjectServiceContextInitResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectServiceContextInitResponse.ProtoReflect.Descriptor instead.
+func (*ProjectServiceContextInitResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ProjectServiceContextInitResponse) GetFolder() string {
+	if x != nil {
+		return x.Folder
+	}
+	return ""
+}
+
+type ProjectServiceContextCheckRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Scope         *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectServiceContextCheckRequest) Reset() {
+	*x = ProjectServiceContextCheckRequest{}
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectServiceContextCheckRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectServiceContextCheckRequest) ProtoMessage() {}
+
+func (x *ProjectServiceContextCheckRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectServiceContextCheckRequest.ProtoReflect.Descriptor instead.
+func (*ProjectServiceContextCheckRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ProjectServiceContextCheckRequest) GetScope() *Scope {
+	if x != nil {
+		return x.Scope
+	}
+	return nil
+}
+
+type ProjectServiceContextCheckResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// How many event files parsed.
+	Events int32 `protobuf:"varint,1,opt,name=events,proto3" json:"events,omitempty"`
+	// Empty when the history is sound.
+	Problems      []*ContextProblem `protobuf:"bytes,2,rep,name=problems,proto3" json:"problems,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectServiceContextCheckResponse) Reset() {
+	*x = ProjectServiceContextCheckResponse{}
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectServiceContextCheckResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectServiceContextCheckResponse) ProtoMessage() {}
+
+func (x *ProjectServiceContextCheckResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectServiceContextCheckResponse.ProtoReflect.Descriptor instead.
+func (*ProjectServiceContextCheckResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ProjectServiceContextCheckResponse) GetEvents() int32 {
+	if x != nil {
+		return x.Events
+	}
+	return 0
+}
+
+func (x *ProjectServiceContextCheckResponse) GetProblems() []*ContextProblem {
+	if x != nil {
+		return x.Problems
+	}
+	return nil
+}
+
+type ProjectServiceContextNoteRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Scope *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+	// Who is writing: a person or an agent.
+	Actor string   `protobuf:"bytes,2,opt,name=actor,proto3" json:"actor,omitempty"`
+	Task  string   `protobuf:"bytes,3,opt,name=task,proto3" json:"task,omitempty"`
+	Repos []string `protobuf:"bytes,4,rep,name=repos,proto3" json:"repos,omitempty"`
+	// Empty joins every open branch of the history.
+	Parents       []string `protobuf:"bytes,5,rep,name=parents,proto3" json:"parents,omitempty"`
+	Body          string   `protobuf:"bytes,6,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectServiceContextNoteRequest) Reset() {
+	*x = ProjectServiceContextNoteRequest{}
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectServiceContextNoteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectServiceContextNoteRequest) ProtoMessage() {}
+
+func (x *ProjectServiceContextNoteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectServiceContextNoteRequest.ProtoReflect.Descriptor instead.
+func (*ProjectServiceContextNoteRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ProjectServiceContextNoteRequest) GetScope() *Scope {
+	if x != nil {
+		return x.Scope
+	}
+	return nil
+}
+
+func (x *ProjectServiceContextNoteRequest) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
+func (x *ProjectServiceContextNoteRequest) GetTask() string {
+	if x != nil {
+		return x.Task
+	}
+	return ""
+}
+
+func (x *ProjectServiceContextNoteRequest) GetRepos() []string {
+	if x != nil {
+		return x.Repos
+	}
+	return nil
+}
+
+func (x *ProjectServiceContextNoteRequest) GetParents() []string {
+	if x != nil {
+		return x.Parents
+	}
+	return nil
+}
+
+func (x *ProjectServiceContextNoteRequest) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+type ProjectServiceContextNoteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Event         *ContextEvent          `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectServiceContextNoteResponse) Reset() {
+	*x = ProjectServiceContextNoteResponse{}
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectServiceContextNoteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectServiceContextNoteResponse) ProtoMessage() {}
+
+func (x *ProjectServiceContextNoteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectServiceContextNoteResponse.ProtoReflect.Descriptor instead.
+func (*ProjectServiceContextNoteResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ProjectServiceContextNoteResponse) GetEvent() *ContextEvent {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
+type ProjectServiceLogRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Scope *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+	// Milliseconds since the Unix epoch; 0 reads from the start.
+	Since int64 `protobuf:"varint,2,opt,name=since,proto3" json:"since,omitempty"`
+	// Only this task's events, when set.
+	Task string `protobuf:"bytes,3,opt,name=task,proto3" json:"task,omitempty"`
+	// Render the response's text as JSON instead of a list for people.
+	Json bool `protobuf:"varint,4,opt,name=json,proto3" json:"json,omitempty"`
+	// Where to go on: the next_page_token of the page before. Empty for the
+	// first page.
+	PageToken     string `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectServiceLogRequest) Reset() {
+	*x = ProjectServiceLogRequest{}
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectServiceLogRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectServiceLogRequest) ProtoMessage() {}
+
+func (x *ProjectServiceLogRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectServiceLogRequest.ProtoReflect.Descriptor instead.
+func (*ProjectServiceLogRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ProjectServiceLogRequest) GetScope() *Scope {
+	if x != nil {
+		return x.Scope
+	}
+	return nil
+}
+
+func (x *ProjectServiceLogRequest) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+func (x *ProjectServiceLogRequest) GetTask() string {
+	if x != nil {
+		return x.Task
+	}
+	return ""
+}
+
+func (x *ProjectServiceLogRequest) GetJson() bool {
+	if x != nil {
+		return x.Json
+	}
+	return false
+}
+
+func (x *ProjectServiceLogRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ProjectServiceLogResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A piece of the history's rendering, parents before children, then by time:
+	// a list for people grouped by UTC date, or JSON when the request asked for
+	// it. The pieces of all the pages, joined, are the whole rendering.
+	Text string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	// Pass this to read the next page. Empty on the last page. When the history
+	// changes between two pages the call fails with aborted, and the read starts
+	// again from the first page.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectServiceLogResponse) Reset() {
+	*x = ProjectServiceLogResponse{}
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectServiceLogResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectServiceLogResponse) ProtoMessage() {}
+
+func (x *ProjectServiceLogResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_project_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectServiceLogResponse.ProtoReflect.Descriptor instead.
+func (*ProjectServiceLogResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ProjectServiceLogResponse) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *ProjectServiceLogResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
 var File_herdsman_daemon_v1_project_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_project_proto_rawDesc = "" +
@@ -815,7 +1455,58 @@ const file_herdsman_daemon_v1_project_proto_rawDesc = "" +
 	"\x1bProjectServiceUnbindRequest\x12\x16\n" +
 	"\x06folder\x18\x01 \x01(\tR\x06folder\"S\n" +
 	"\x1cProjectServiceUnbindResponse\x123\n" +
-	"\aproject\x18\x01 \x01(\v2\x19.herdsman.core.v1.ProjectR\aproject2\xf6\x05\n" +
+	"\aproject\x18\x01 \x01(\v2\x19.herdsman.core.v1.ProjectR\aproject\"\xb2\x03\n" +
+	"\fContextEvent\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x0e\n" +
+	"\x02at\x18\x03 \x01(\x03R\x02at\x12\x14\n" +
+	"\x05actor\x18\x04 \x01(\tR\x05actor\x12\x12\n" +
+	"\x04task\x18\x05 \x01(\tR\x04task\x12\x14\n" +
+	"\x05repos\x18\x06 \x03(\tR\x05repos\x12\x18\n" +
+	"\aparents\x18\a \x03(\tR\aparents\x12G\n" +
+	"\acommits\x18\b \x03(\v2-.herdsman.daemon.v1.ContextEvent.CommitsEntryR\acommits\x12A\n" +
+	"\x05extra\x18\t \x03(\v2+.herdsman.daemon.v1.ContextEvent.ExtraEntryR\x05extra\x12\x12\n" +
+	"\x04body\x18\n" +
+	" \x01(\tR\x04body\x1a:\n" +
+	"\fCommitsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"P\n" +
+	"\x0eContextProblem\x12\x12\n" +
+	"\x04file\x18\x01 \x01(\tR\x04file\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\tR\x04code\x12\x16\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail\"S\n" +
+	" ProjectServiceContextInitRequest\x12/\n" +
+	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\";\n" +
+	"!ProjectServiceContextInitResponse\x12\x16\n" +
+	"\x06folder\x18\x01 \x01(\tR\x06folder\"T\n" +
+	"!ProjectServiceContextCheckRequest\x12/\n" +
+	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\"|\n" +
+	"\"ProjectServiceContextCheckResponse\x12\x16\n" +
+	"\x06events\x18\x01 \x01(\x05R\x06events\x12>\n" +
+	"\bproblems\x18\x02 \x03(\v2\".herdsman.daemon.v1.ContextProblemR\bproblems\"\xc1\x01\n" +
+	" ProjectServiceContextNoteRequest\x12/\n" +
+	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x14\n" +
+	"\x05actor\x18\x02 \x01(\tR\x05actor\x12\x12\n" +
+	"\x04task\x18\x03 \x01(\tR\x04task\x12\x14\n" +
+	"\x05repos\x18\x04 \x03(\tR\x05repos\x12\x18\n" +
+	"\aparents\x18\x05 \x03(\tR\aparents\x12\x12\n" +
+	"\x04body\x18\x06 \x01(\tR\x04body\"[\n" +
+	"!ProjectServiceContextNoteResponse\x126\n" +
+	"\x05event\x18\x01 \x01(\v2 .herdsman.daemon.v1.ContextEventR\x05event\"\xa8\x01\n" +
+	"\x18ProjectServiceLogRequest\x12/\n" +
+	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x14\n" +
+	"\x05since\x18\x02 \x01(\x03R\x05since\x12\x12\n" +
+	"\x04task\x18\x03 \x01(\tR\x04task\x12\x12\n" +
+	"\x04json\x18\x04 \x01(\bR\x04json\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x05 \x01(\tR\tpageToken\"W\n" +
+	"\x19ProjectServiceLogResponse\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\xd1\t\n" +
 	"\x0eProjectService\x12k\n" +
 	"\x06Create\x12/.herdsman.daemon.v1.ProjectServiceCreateRequest\x1a0.herdsman.daemon.v1.ProjectServiceCreateResponse\x12b\n" +
 	"\x03Get\x12,.herdsman.daemon.v1.ProjectServiceGetRequest\x1a-.herdsman.daemon.v1.ProjectServiceGetResponse\x12e\n" +
@@ -823,7 +1514,11 @@ const file_herdsman_daemon_v1_project_proto_rawDesc = "" +
 	"\x06Update\x12/.herdsman.daemon.v1.ProjectServiceUpdateRequest\x1a0.herdsman.daemon.v1.ProjectServiceUpdateResponse\x12k\n" +
 	"\x06Delete\x12/.herdsman.daemon.v1.ProjectServiceDeleteRequest\x1a0.herdsman.daemon.v1.ProjectServiceDeleteResponse\x12e\n" +
 	"\x04Bind\x12-.herdsman.daemon.v1.ProjectServiceBindRequest\x1a..herdsman.daemon.v1.ProjectServiceBindResponse\x12k\n" +
-	"\x06Unbind\x12/.herdsman.daemon.v1.ProjectServiceUnbindRequest\x1a0.herdsman.daemon.v1.ProjectServiceUnbindResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
+	"\x06Unbind\x12/.herdsman.daemon.v1.ProjectServiceUnbindRequest\x1a0.herdsman.daemon.v1.ProjectServiceUnbindResponse\x12z\n" +
+	"\vContextInit\x124.herdsman.daemon.v1.ProjectServiceContextInitRequest\x1a5.herdsman.daemon.v1.ProjectServiceContextInitResponse\x12}\n" +
+	"\fContextCheck\x125.herdsman.daemon.v1.ProjectServiceContextCheckRequest\x1a6.herdsman.daemon.v1.ProjectServiceContextCheckResponse\x12z\n" +
+	"\vContextNote\x124.herdsman.daemon.v1.ProjectServiceContextNoteRequest\x1a5.herdsman.daemon.v1.ProjectServiceContextNoteResponse\x12b\n" +
+	"\x03Log\x12,.herdsman.daemon.v1.ProjectServiceLogRequest\x1a-.herdsman.daemon.v1.ProjectServiceLogResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
 
 var (
 	file_herdsman_daemon_v1_project_proto_rawDescOnce sync.Once
@@ -837,60 +1532,88 @@ func file_herdsman_daemon_v1_project_proto_rawDescGZIP() []byte {
 	return file_herdsman_daemon_v1_project_proto_rawDescData
 }
 
-var file_herdsman_daemon_v1_project_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_herdsman_daemon_v1_project_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_herdsman_daemon_v1_project_proto_goTypes = []any{
-	(*Scope)(nil),                        // 0: herdsman.daemon.v1.Scope
-	(*ProjectServiceCreateRequest)(nil),  // 1: herdsman.daemon.v1.ProjectServiceCreateRequest
-	(*ProjectServiceCreateResponse)(nil), // 2: herdsman.daemon.v1.ProjectServiceCreateResponse
-	(*ProjectServiceGetRequest)(nil),     // 3: herdsman.daemon.v1.ProjectServiceGetRequest
-	(*ProjectServiceGetResponse)(nil),    // 4: herdsman.daemon.v1.ProjectServiceGetResponse
-	(*ProjectServiceListRequest)(nil),    // 5: herdsman.daemon.v1.ProjectServiceListRequest
-	(*ProjectServiceListResponse)(nil),   // 6: herdsman.daemon.v1.ProjectServiceListResponse
-	(*ProjectServiceUpdateRequest)(nil),  // 7: herdsman.daemon.v1.ProjectServiceUpdateRequest
-	(*ProjectServiceUpdateResponse)(nil), // 8: herdsman.daemon.v1.ProjectServiceUpdateResponse
-	(*ProjectServiceDeleteRequest)(nil),  // 9: herdsman.daemon.v1.ProjectServiceDeleteRequest
-	(*ProjectServiceDeleteResponse)(nil), // 10: herdsman.daemon.v1.ProjectServiceDeleteResponse
-	(*ProjectServiceBindRequest)(nil),    // 11: herdsman.daemon.v1.ProjectServiceBindRequest
-	(*ProjectServiceBindResponse)(nil),   // 12: herdsman.daemon.v1.ProjectServiceBindResponse
-	(*ProjectServiceUnbindRequest)(nil),  // 13: herdsman.daemon.v1.ProjectServiceUnbindRequest
-	(*ProjectServiceUnbindResponse)(nil), // 14: herdsman.daemon.v1.ProjectServiceUnbindResponse
-	(*v1.RouteId)(nil),                   // 15: herdsman.core.v1.RouteId
-	(*v1.ProjectRepo)(nil),               // 16: herdsman.core.v1.ProjectRepo
-	(*v1.Project)(nil),                   // 17: herdsman.core.v1.Project
+	(*Scope)(nil),                              // 0: herdsman.daemon.v1.Scope
+	(*ProjectServiceCreateRequest)(nil),        // 1: herdsman.daemon.v1.ProjectServiceCreateRequest
+	(*ProjectServiceCreateResponse)(nil),       // 2: herdsman.daemon.v1.ProjectServiceCreateResponse
+	(*ProjectServiceGetRequest)(nil),           // 3: herdsman.daemon.v1.ProjectServiceGetRequest
+	(*ProjectServiceGetResponse)(nil),          // 4: herdsman.daemon.v1.ProjectServiceGetResponse
+	(*ProjectServiceListRequest)(nil),          // 5: herdsman.daemon.v1.ProjectServiceListRequest
+	(*ProjectServiceListResponse)(nil),         // 6: herdsman.daemon.v1.ProjectServiceListResponse
+	(*ProjectServiceUpdateRequest)(nil),        // 7: herdsman.daemon.v1.ProjectServiceUpdateRequest
+	(*ProjectServiceUpdateResponse)(nil),       // 8: herdsman.daemon.v1.ProjectServiceUpdateResponse
+	(*ProjectServiceDeleteRequest)(nil),        // 9: herdsman.daemon.v1.ProjectServiceDeleteRequest
+	(*ProjectServiceDeleteResponse)(nil),       // 10: herdsman.daemon.v1.ProjectServiceDeleteResponse
+	(*ProjectServiceBindRequest)(nil),          // 11: herdsman.daemon.v1.ProjectServiceBindRequest
+	(*ProjectServiceBindResponse)(nil),         // 12: herdsman.daemon.v1.ProjectServiceBindResponse
+	(*ProjectServiceUnbindRequest)(nil),        // 13: herdsman.daemon.v1.ProjectServiceUnbindRequest
+	(*ProjectServiceUnbindResponse)(nil),       // 14: herdsman.daemon.v1.ProjectServiceUnbindResponse
+	(*ContextEvent)(nil),                       // 15: herdsman.daemon.v1.ContextEvent
+	(*ContextProblem)(nil),                     // 16: herdsman.daemon.v1.ContextProblem
+	(*ProjectServiceContextInitRequest)(nil),   // 17: herdsman.daemon.v1.ProjectServiceContextInitRequest
+	(*ProjectServiceContextInitResponse)(nil),  // 18: herdsman.daemon.v1.ProjectServiceContextInitResponse
+	(*ProjectServiceContextCheckRequest)(nil),  // 19: herdsman.daemon.v1.ProjectServiceContextCheckRequest
+	(*ProjectServiceContextCheckResponse)(nil), // 20: herdsman.daemon.v1.ProjectServiceContextCheckResponse
+	(*ProjectServiceContextNoteRequest)(nil),   // 21: herdsman.daemon.v1.ProjectServiceContextNoteRequest
+	(*ProjectServiceContextNoteResponse)(nil),  // 22: herdsman.daemon.v1.ProjectServiceContextNoteResponse
+	(*ProjectServiceLogRequest)(nil),           // 23: herdsman.daemon.v1.ProjectServiceLogRequest
+	(*ProjectServiceLogResponse)(nil),          // 24: herdsman.daemon.v1.ProjectServiceLogResponse
+	nil,                                        // 25: herdsman.daemon.v1.ContextEvent.CommitsEntry
+	nil,                                        // 26: herdsman.daemon.v1.ContextEvent.ExtraEntry
+	(*v1.RouteId)(nil),                         // 27: herdsman.core.v1.RouteId
+	(*v1.ProjectRepo)(nil),                     // 28: herdsman.core.v1.ProjectRepo
+	(*v1.Project)(nil),                         // 29: herdsman.core.v1.Project
 }
 var file_herdsman_daemon_v1_project_proto_depIdxs = []int32{
-	15, // 0: herdsman.daemon.v1.Scope.route:type_name -> herdsman.core.v1.RouteId
-	16, // 1: herdsman.daemon.v1.ProjectServiceCreateRequest.repos:type_name -> herdsman.core.v1.ProjectRepo
-	17, // 2: herdsman.daemon.v1.ProjectServiceCreateResponse.project:type_name -> herdsman.core.v1.Project
+	27, // 0: herdsman.daemon.v1.Scope.route:type_name -> herdsman.core.v1.RouteId
+	28, // 1: herdsman.daemon.v1.ProjectServiceCreateRequest.repos:type_name -> herdsman.core.v1.ProjectRepo
+	29, // 2: herdsman.daemon.v1.ProjectServiceCreateResponse.project:type_name -> herdsman.core.v1.Project
 	0,  // 3: herdsman.daemon.v1.ProjectServiceGetRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	17, // 4: herdsman.daemon.v1.ProjectServiceGetResponse.project:type_name -> herdsman.core.v1.Project
-	17, // 5: herdsman.daemon.v1.ProjectServiceListResponse.projects:type_name -> herdsman.core.v1.Project
+	29, // 4: herdsman.daemon.v1.ProjectServiceGetResponse.project:type_name -> herdsman.core.v1.Project
+	29, // 5: herdsman.daemon.v1.ProjectServiceListResponse.projects:type_name -> herdsman.core.v1.Project
 	0,  // 6: herdsman.daemon.v1.ProjectServiceUpdateRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	16, // 7: herdsman.daemon.v1.ProjectServiceUpdateRequest.add_repos:type_name -> herdsman.core.v1.ProjectRepo
-	17, // 8: herdsman.daemon.v1.ProjectServiceUpdateResponse.project:type_name -> herdsman.core.v1.Project
+	28, // 7: herdsman.daemon.v1.ProjectServiceUpdateRequest.add_repos:type_name -> herdsman.core.v1.ProjectRepo
+	29, // 8: herdsman.daemon.v1.ProjectServiceUpdateResponse.project:type_name -> herdsman.core.v1.Project
 	0,  // 9: herdsman.daemon.v1.ProjectServiceDeleteRequest.scope:type_name -> herdsman.daemon.v1.Scope
 	0,  // 10: herdsman.daemon.v1.ProjectServiceBindRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	17, // 11: herdsman.daemon.v1.ProjectServiceBindResponse.project:type_name -> herdsman.core.v1.Project
-	17, // 12: herdsman.daemon.v1.ProjectServiceUnbindResponse.project:type_name -> herdsman.core.v1.Project
-	1,  // 13: herdsman.daemon.v1.ProjectService.Create:input_type -> herdsman.daemon.v1.ProjectServiceCreateRequest
-	3,  // 14: herdsman.daemon.v1.ProjectService.Get:input_type -> herdsman.daemon.v1.ProjectServiceGetRequest
-	5,  // 15: herdsman.daemon.v1.ProjectService.List:input_type -> herdsman.daemon.v1.ProjectServiceListRequest
-	7,  // 16: herdsman.daemon.v1.ProjectService.Update:input_type -> herdsman.daemon.v1.ProjectServiceUpdateRequest
-	9,  // 17: herdsman.daemon.v1.ProjectService.Delete:input_type -> herdsman.daemon.v1.ProjectServiceDeleteRequest
-	11, // 18: herdsman.daemon.v1.ProjectService.Bind:input_type -> herdsman.daemon.v1.ProjectServiceBindRequest
-	13, // 19: herdsman.daemon.v1.ProjectService.Unbind:input_type -> herdsman.daemon.v1.ProjectServiceUnbindRequest
-	2,  // 20: herdsman.daemon.v1.ProjectService.Create:output_type -> herdsman.daemon.v1.ProjectServiceCreateResponse
-	4,  // 21: herdsman.daemon.v1.ProjectService.Get:output_type -> herdsman.daemon.v1.ProjectServiceGetResponse
-	6,  // 22: herdsman.daemon.v1.ProjectService.List:output_type -> herdsman.daemon.v1.ProjectServiceListResponse
-	8,  // 23: herdsman.daemon.v1.ProjectService.Update:output_type -> herdsman.daemon.v1.ProjectServiceUpdateResponse
-	10, // 24: herdsman.daemon.v1.ProjectService.Delete:output_type -> herdsman.daemon.v1.ProjectServiceDeleteResponse
-	12, // 25: herdsman.daemon.v1.ProjectService.Bind:output_type -> herdsman.daemon.v1.ProjectServiceBindResponse
-	14, // 26: herdsman.daemon.v1.ProjectService.Unbind:output_type -> herdsman.daemon.v1.ProjectServiceUnbindResponse
-	20, // [20:27] is the sub-list for method output_type
-	13, // [13:20] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	29, // 11: herdsman.daemon.v1.ProjectServiceBindResponse.project:type_name -> herdsman.core.v1.Project
+	29, // 12: herdsman.daemon.v1.ProjectServiceUnbindResponse.project:type_name -> herdsman.core.v1.Project
+	25, // 13: herdsman.daemon.v1.ContextEvent.commits:type_name -> herdsman.daemon.v1.ContextEvent.CommitsEntry
+	26, // 14: herdsman.daemon.v1.ContextEvent.extra:type_name -> herdsman.daemon.v1.ContextEvent.ExtraEntry
+	0,  // 15: herdsman.daemon.v1.ProjectServiceContextInitRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	0,  // 16: herdsman.daemon.v1.ProjectServiceContextCheckRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	16, // 17: herdsman.daemon.v1.ProjectServiceContextCheckResponse.problems:type_name -> herdsman.daemon.v1.ContextProblem
+	0,  // 18: herdsman.daemon.v1.ProjectServiceContextNoteRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	15, // 19: herdsman.daemon.v1.ProjectServiceContextNoteResponse.event:type_name -> herdsman.daemon.v1.ContextEvent
+	0,  // 20: herdsman.daemon.v1.ProjectServiceLogRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	1,  // 21: herdsman.daemon.v1.ProjectService.Create:input_type -> herdsman.daemon.v1.ProjectServiceCreateRequest
+	3,  // 22: herdsman.daemon.v1.ProjectService.Get:input_type -> herdsman.daemon.v1.ProjectServiceGetRequest
+	5,  // 23: herdsman.daemon.v1.ProjectService.List:input_type -> herdsman.daemon.v1.ProjectServiceListRequest
+	7,  // 24: herdsman.daemon.v1.ProjectService.Update:input_type -> herdsman.daemon.v1.ProjectServiceUpdateRequest
+	9,  // 25: herdsman.daemon.v1.ProjectService.Delete:input_type -> herdsman.daemon.v1.ProjectServiceDeleteRequest
+	11, // 26: herdsman.daemon.v1.ProjectService.Bind:input_type -> herdsman.daemon.v1.ProjectServiceBindRequest
+	13, // 27: herdsman.daemon.v1.ProjectService.Unbind:input_type -> herdsman.daemon.v1.ProjectServiceUnbindRequest
+	17, // 28: herdsman.daemon.v1.ProjectService.ContextInit:input_type -> herdsman.daemon.v1.ProjectServiceContextInitRequest
+	19, // 29: herdsman.daemon.v1.ProjectService.ContextCheck:input_type -> herdsman.daemon.v1.ProjectServiceContextCheckRequest
+	21, // 30: herdsman.daemon.v1.ProjectService.ContextNote:input_type -> herdsman.daemon.v1.ProjectServiceContextNoteRequest
+	23, // 31: herdsman.daemon.v1.ProjectService.Log:input_type -> herdsman.daemon.v1.ProjectServiceLogRequest
+	2,  // 32: herdsman.daemon.v1.ProjectService.Create:output_type -> herdsman.daemon.v1.ProjectServiceCreateResponse
+	4,  // 33: herdsman.daemon.v1.ProjectService.Get:output_type -> herdsman.daemon.v1.ProjectServiceGetResponse
+	6,  // 34: herdsman.daemon.v1.ProjectService.List:output_type -> herdsman.daemon.v1.ProjectServiceListResponse
+	8,  // 35: herdsman.daemon.v1.ProjectService.Update:output_type -> herdsman.daemon.v1.ProjectServiceUpdateResponse
+	10, // 36: herdsman.daemon.v1.ProjectService.Delete:output_type -> herdsman.daemon.v1.ProjectServiceDeleteResponse
+	12, // 37: herdsman.daemon.v1.ProjectService.Bind:output_type -> herdsman.daemon.v1.ProjectServiceBindResponse
+	14, // 38: herdsman.daemon.v1.ProjectService.Unbind:output_type -> herdsman.daemon.v1.ProjectServiceUnbindResponse
+	18, // 39: herdsman.daemon.v1.ProjectService.ContextInit:output_type -> herdsman.daemon.v1.ProjectServiceContextInitResponse
+	20, // 40: herdsman.daemon.v1.ProjectService.ContextCheck:output_type -> herdsman.daemon.v1.ProjectServiceContextCheckResponse
+	22, // 41: herdsman.daemon.v1.ProjectService.ContextNote:output_type -> herdsman.daemon.v1.ProjectServiceContextNoteResponse
+	24, // 42: herdsman.daemon.v1.ProjectService.Log:output_type -> herdsman.daemon.v1.ProjectServiceLogResponse
+	32, // [32:43] is the sub-list for method output_type
+	21, // [21:32] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_project_proto_init() }
@@ -905,7 +1628,7 @@ func file_herdsman_daemon_v1_project_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herdsman_daemon_v1_project_proto_rawDesc), len(file_herdsman_daemon_v1_project_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

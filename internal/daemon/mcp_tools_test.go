@@ -40,7 +40,8 @@ func TestMCPToolsAreExactlyWhatTheDaemonServes(t *testing.T) {
 			t.Errorf("tool for %s, which the daemon does not serve", procedure)
 		}
 	}
-	withheld := []string{"Stream", "Shutdown", "Enroll", "ApprovePair", "RetirePair", "RevokeCredential", "ResetEvents", "Export", "Import"}
+	withheld := []string{"Stream", "Shutdown", "Enroll", "ApprovePair", "RetirePair", "RevokeCredential", "ResetEvents", "Export", "Import",
+		"ContextInit", "ContextCheck", "ContextNote", "Log"}
 	for _, procedure := range served {
 		// A trace call names any folder on the machine, so it stays off the tools
 		// an agent is handed until a tool can be limited to the agent's own route.
