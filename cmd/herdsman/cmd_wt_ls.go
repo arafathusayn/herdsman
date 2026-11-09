@@ -137,7 +137,7 @@ func runLs(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	switch {
-	case *line && *format == "json":
+	case *line && (*format == "json" || *asJSON):
 		encoded, _ := json.Marshal(map[string]string{"statusline": result.Statusline})
 		fmt.Fprintln(stdout, string(encoded))
 	case *line:
