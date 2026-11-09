@@ -2,11 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -48,57 +48,58 @@ func manPage(title, summary, body string, seeAlso []string) string {
 	return b.String()
 }
 
-// builtinPages are the commands main.go dispatches without the command table.
-var builtinPages = map[string]string{
-	"web":     "serve the web app that operates every agent",
-	"version": "print the version",
-	"help":    "print the help",
+// specEntry is the part of a `spec cli` command the pages use.
+type specEntry struct {
+	Name        string      `json:"name"`
+	Summary     string      `json:"summary"`
+	Help        string      `json:"help"`
+	Subcommands []specEntry `json:"subcommands"`
 }
 
-// manPages renders docs/man from the command table: one page for the program
-// and one for each command, so the pages cannot say other than --help does.
+type cliSpecDoc struct {
+	Commands []specEntry `json:"commands"`
+}
+
+// manPages renders docs/man from `spec cli`, the one list that holds both the
+// registered commands and those main.go dispatches itself.
 func manPages() map[string]string {
-	names := make([]string, 0, len(commands))
-	for n := range commands {
-		names = append(names, n)
+	var spec bytes.Buffer
+	if err := writeSpecCLI(&spec); err != nil {
+		panic(err)
 	}
-	sort.Strings(names)
+	var doc cliSpecDoc
+	if err := json.Unmarshal(spec.Bytes(), &doc); err != nil {
+		panic(err)
+	}
+	return manPagesFrom(doc)
+}
+
+// manPagesFrom makes one page for the program and one for each command, so the
+// pages cannot say other than --help does.
+func manPagesFrom(doc cliSpecDoc) map[string]string {
 	var usageText bytes.Buffer
 	printUsage(&usageText)
-	all := slices.Clone(names)
-	for n := range builtinPages {
-		all = append(all, n)
+	refs := make([]string, len(doc.Commands))
+	for i, c := range doc.Commands {
+		refs[i] = "herdsman-" + c.Name
 	}
-	sort.Strings(all)
-	refs := make([]string, len(all))
-	for i, n := range all {
-		refs[i] = "herdsman-" + n
-	}
+	sort.Strings(refs)
 	pages := map[string]string{
 		"herdsman.1": manPage("herdsman", "run a team of coding agents inside herdr", usageText.String(), refs),
 	}
-	for n, summary := range builtinPages {
-		body := summary + "\n"
-		if n == "web" {
+	for _, c := range doc.Commands {
+		body := c.Help
+		if c.Name == "web" {
+			// web parses its own flags, so the spec holds no help text for it.
 			body = usage
 		}
-		pages["herdsman-"+n+".1"] = manPage("herdsman-"+n, summary, body, []string{"herdsman"})
-	}
-	for _, n := range names {
-		c := commands[n]
-		body := c.help
 		if body == "" {
-			body = c.summary + "\n"
+			body = c.Summary + "\n"
 		}
-		subs := make([]string, 0, len(c.subHelp))
-		for s := range c.subHelp {
-			subs = append(subs, s)
+		for _, s := range c.Subcommands {
+			body += "\n" + c.Name + " " + s.Name + ":\n" + s.Help
 		}
-		sort.Strings(subs)
-		for _, s := range subs {
-			body += "\n" + n + " " + s + ":\n" + c.subHelp[s]
-		}
-		pages["herdsman-"+n+".1"] = manPage("herdsman-"+n, c.summary, body, []string{"herdsman"})
+		pages["herdsman-"+c.Name+".1"] = manPage("herdsman-"+c.Name, c.Summary, body, []string{"herdsman"})
 	}
 	return pages
 }
@@ -167,7 +168,7 @@ func TestManPagesCoverBuiltinCommands(t *testing.T) {
 
 func TestManPagesCoverTheProgramAndEveryCommand(t *testing.T) {
 	pages := manPages()
-	if len(pages) != len(commands)+len(builtinPages)+1 {
+	if len(pages) != len(commands)+len(builtinCommands)+1 {
 		t.Fatalf("%d pages for %d commands", len(pages), len(commands))
 	}
 	if !strings.Contains(pages["herdsman-update.1"], "exit codes") {

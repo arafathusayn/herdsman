@@ -14,6 +14,14 @@ service RouteService {
   rpc Get(RouteServiceGetRequest) returns (RouteServiceGetResponse);
   // List reports every route start the daemon has journaled.
   rpc List(RouteServiceListRequest) returns (RouteServiceListResponse);
+  // Pause interrupts a route's agents and holds its channel; nothing closes.
+  rpc Pause(RouteServicePauseRequest) returns (RouteServicePauseResponse);
+  // Resume continues a paused route or restarts a stopped one.
+  rpc Resume(RouteServiceResumeRequest) returns (RouteServiceResumeResponse);
+  // Stop ends a route's sessions and keeps its work on disk.
+  rpc Stop(RouteServiceStopRequest) returns (RouteServiceStopResponse);
+  // Delete removes a route, once a verified snapshot covers all it removes.
+  rpc Delete(RouteServiceDeleteRequest) returns (RouteServiceDeleteResponse);
 }
 
 // UpCaller is what the process asking for the start says about itself. The
@@ -94,6 +102,8 @@ message RouteStart {
   PairStatus pair = 9;
   // What the start runs, as text, the commands verbatim.
   string plan = 10;
+  // "running", "paused", "stopped" or "deleted", from the last finished control.
+  string control = 11;
 }
 
 message UpResponse {
@@ -113,4 +123,76 @@ message RouteServiceListRequest {}
 
 message RouteServiceListResponse {
   repeated RouteStart starts = 1;
+}
+
+// RouteControl is the outcome of one lifecycle verb.
+message RouteControl {
+  // The journaled operation; empty for a dry run or when nothing had to change.
+  string operation = 1;
+  // The operation's state, "planned" for a dry run, "unchanged" for a repeat.
+  string state = 2;
+  string reason = 3;
+  // The route's lifecycle state after the call.
+  string control = 4;
+  // What the verb runs, as text.
+  string plan = 5;
+  // The snapshot folder of a delete; empty for the other verbs.
+  string snapshot = 6;
+}
+
+message RouteServicePauseRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string repo = 2;
+  bool dry_run = 3;
+  // Also stop the route's task processes.
+  bool teardown = 4;
+}
+
+message RouteServicePauseResponse {
+  RouteControl result = 1;
+}
+
+message RouteServiceResumeRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string repo = 2;
+  bool dry_run = 3;
+  // Added to every agent's continue prompt.
+  string note = 4;
+  // Who asks; a stopped route's pair is attested again.
+  UpCaller caller = 5;
+}
+
+message RouteServiceResumeResponse {
+  RouteControl result = 1;
+}
+
+message RouteServiceStopRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string repo = 2;
+  bool dry_run = 3;
+  // How long agents get to write a report; zero means the default.
+  int32 grace_seconds = 4;
+  // Also stop the route's task processes.
+  bool teardown = 5;
+}
+
+message RouteServiceStopResponse {
+  RouteControl result = 1;
+}
+
+message RouteServiceDeleteRequest {
+  herdsman.core.v1.RouteId route = 1;
+  string repo = 2;
+  bool dry_run = 3;
+  // Stop running agents first instead of refusing.
+  bool force = 4;
+  // Snapshot the route folder but leave it in place.
+  bool keep_folder = 5;
+  int32 grace_seconds = 6;
+  // Leave the route's tasks and their worktrees alone.
+  bool keep_worktrees = 7;
+}
+
+message RouteServiceDeleteResponse {
+  RouteControl result = 1;
 }

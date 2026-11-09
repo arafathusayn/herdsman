@@ -111,6 +111,10 @@ export interface RouteStart {
    * What the start runs, as text, the commands verbatim.
    */
   plan?: string;
+  /**
+   * "running", "paused", "stopped" or "deleted", from the last finished control.
+   */
+  control?: string;
 }
 
 export interface UpResponse {
@@ -131,6 +135,106 @@ export interface RouteServiceListRequest {
 
 export interface RouteServiceListResponse {
   starts?: RouteStart[];
+}
+
+/**
+ * RouteControl is the outcome of one lifecycle verb.
+ */
+export interface RouteControl {
+  /**
+   * The journaled operation; empty for a dry run or when nothing had to change.
+   */
+  operation?: string;
+  /**
+   * The operation's state, "planned" for a dry run, "unchanged" for a repeat.
+   */
+  state?: string;
+  reason?: string;
+  /**
+   * The route's lifecycle state after the call.
+   */
+  control?: string;
+  /**
+   * What the verb runs, as text.
+   */
+  plan?: string;
+  /**
+   * The snapshot folder of a delete; empty for the other verbs.
+   */
+  snapshot?: string;
+}
+
+export interface RouteServicePauseRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  repo?: string;
+  dryRun?: boolean;
+  /**
+   * Also stop the route's task processes.
+   */
+  teardown?: boolean;
+}
+
+export interface RouteServicePauseResponse {
+  result?: RouteControl;
+}
+
+export interface RouteServiceResumeRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  repo?: string;
+  dryRun?: boolean;
+  /**
+   * Added to every agent's continue prompt.
+   */
+  note?: string;
+  /**
+   * Who asks; a stopped route's pair is attested again.
+   */
+  caller?: UpCaller;
+}
+
+export interface RouteServiceResumeResponse {
+  result?: RouteControl;
+}
+
+export interface RouteServiceStopRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  repo?: string;
+  dryRun?: boolean;
+  /**
+   * How long agents get to write a report; zero means the default.
+   */
+  graceSeconds?: number;
+  /**
+   * Also stop the route's task processes.
+   */
+  teardown?: boolean;
+}
+
+export interface RouteServiceStopResponse {
+  result?: RouteControl;
+}
+
+export interface RouteServiceDeleteRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  repo?: string;
+  dryRun?: boolean;
+  /**
+   * Stop running agents first instead of refusing.
+   */
+  force?: boolean;
+  /**
+   * Snapshot the route folder but leave it in place.
+   */
+  keepFolder?: boolean;
+  graceSeconds?: number;
+  /**
+   * Leave the route's tasks and their worktrees alone.
+   */
+  keepWorktrees?: boolean;
+}
+
+export interface RouteServiceDeleteResponse {
+  result?: RouteControl;
 }
 
 /**
@@ -159,6 +263,34 @@ export const RouteService = {
     list: {
       path: "/rpc/herdsman.daemon.v1.RouteService/List",
       signature: undefined as unknown as (request: RouteServiceListRequest) => RouteServiceListResponse,
+    },
+    /**
+     * Pause interrupts a route's agents and holds its channel; nothing closes.
+     */
+    pause: {
+      path: "/rpc/herdsman.daemon.v1.RouteService/Pause",
+      signature: undefined as unknown as (request: RouteServicePauseRequest) => RouteServicePauseResponse,
+    },
+    /**
+     * Resume continues a paused route or restarts a stopped one.
+     */
+    resume: {
+      path: "/rpc/herdsman.daemon.v1.RouteService/Resume",
+      signature: undefined as unknown as (request: RouteServiceResumeRequest) => RouteServiceResumeResponse,
+    },
+    /**
+     * Stop ends a route's sessions and keeps its work on disk.
+     */
+    stop: {
+      path: "/rpc/herdsman.daemon.v1.RouteService/Stop",
+      signature: undefined as unknown as (request: RouteServiceStopRequest) => RouteServiceStopResponse,
+    },
+    /**
+     * Delete removes a route, once a verified snapshot covers all it removes.
+     */
+    delete: {
+      path: "/rpc/herdsman.daemon.v1.RouteService/Delete",
+      signature: undefined as unknown as (request: RouteServiceDeleteRequest) => RouteServiceDeleteResponse,
     },
   },
 } as const;

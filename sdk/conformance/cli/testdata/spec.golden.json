@@ -247,6 +247,41 @@
       "summary": "The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential."
     },
     {
+      "name": "delete",
+      "summary": "Remove a route, once a verified snapshot makes that undoable.",
+      "help": "usage: herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--grace <seconds>] [-y] [--dry-run]\n\nRefuses while an agent of the route runs, unless --force, which stops the route\nfirst. Takes a snapshot of the route folder and private inbox through the\nrecovery pipeline, and removes nothing unless that snapshot verifies and covers\nevery path it removes. The result names the operation to give \"herdsman undo\".\n--keep-folder leaves the route folder in place; --keep-worktrees leaves the\nroute's tasks and their worktrees alone.\n",
+      "usage": [
+        "herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--grace <seconds>] [-y] [--dry-run]"
+      ],
+      "positionals": [
+        {
+          "name": "route"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--force"
+        },
+        {
+          "name": "--grace",
+          "valueName": "seconds"
+        },
+        {
+          "name": "--keep-folder"
+        },
+        {
+          "name": "--keep-worktrees"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
+        }
+      ]
+    },
+    {
       "name": "diff",
       "summary": "Show a worktree's changes.",
       "help": "usage: herdsman diff [<task>] [--working|--committed|--remote] [--json] [-- <git diff args>]\n\nPrints git's diff for a worktree, the current one when no task is named. With\nno mode it is everything since the branch left the default branch, whether\ncommitted, in the index, edited or new. Reading it stages nothing.\n\n  --working    staged, unstaged and untracked changes against the last commit\n  --committed  commits since the branch left the default branch\n  --remote     commits the upstream does not have yet\n\nexit codes:\n  0  printed\n  1  no such worktree, git refused, or --exit-code found differences\n  2  bad usage\n",
@@ -1182,6 +1217,31 @@
       ]
     },
     {
+      "name": "pause",
+      "summary": "Interrupt a route's agents and hold its channel; every pane stays open.",
+      "help": "usage: herdsman pause <route> [--teardown] [-y] [--dry-run]\n\nSends each agent the interrupt key, stops the checkpointer's prompts and holds\nthe message channel. The interrupt is best effort: an agent acts on it at its\nnext turn boundary. <route> is a route name, a route folder, or @ for the route\nof the current folder. --teardown also stops the route's task processes.\n",
+      "usage": [
+        "herdsman pause <route> [--teardown] [-y] [--dry-run]"
+      ],
+      "positionals": [
+        {
+          "name": "route"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--teardown"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
+        }
+      ]
+    },
+    {
       "name": "plugin",
       "summary": "Manage plugins (experimental).",
       "help": "usage: herdsman plugin --experimental-plugins <verb> [args] [--json]\n\n  list                   the plugins found, usable or not\n  describe <name>        a plugin's manifest\n  install <path|name>    copy an executable into the plugin folder and ask for approval\n  remove <name>          delete an installed plugin and its approval\n  verify <name>          run the conformance checks for its extension points\n  run <name>             start it in the foreground, for development\n\nPlugins are experimental, so every use needs --experimental-plugins. A plugin\nruns only after a person approves its exact checksum, at a terminal.\n\nexit codes:\n  0  done\n  1  it failed, or a plugin did not pass verify\n  2  bad usage\n",
@@ -1326,6 +1386,33 @@
         {
           "code": "2",
           "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "resume",
+      "summary": "Continue a paused route, or restart a stopped one from its record.",
+      "help": "usage: herdsman resume <route> [-p <text>] [-y] [--dry-run]\n\nOn a paused route, lifts the channel hold, starts the checkpointer again and\ntells each agent to continue. On a stopped route, also starts the agents and\nservice panes again with the commands recorded by up; the launch prelude does\nnot run again, and the pair is attested and approved again.\n-p adds a note to every continue prompt.\n",
+      "usage": [
+        "herdsman resume <route> [-p <text>] [-y] [--dry-run]"
+      ],
+      "positionals": [
+        {
+          "name": "route"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "-p",
+          "short": "-p",
+          "valueName": "text"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
         }
       ]
     },
@@ -1518,9 +1605,16 @@
     {
       "name": "status",
       "summary": "Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.",
-      "help": "usage: herdsman status\n\nPrints a health snapshot of every agent in HERDSMAN_STATUS_SPECS\n(\"name:pane:tree ...\") and of the machine. LIMIT_MIN (30) flags a\nbackground job running that many minutes or more.\n\nexit codes:\n  0  the snapshot was printed\n  2  usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid\n     LIMIT_MIN\n",
+      "help": "usage: herdsman status\n       herdsman status --route <route>\n\nPrints a health snapshot of every agent in HERDSMAN_STATUS_SPECS\n(\"name:pane:tree ...\") and of the machine. LIMIT_MIN (30) flags a\nbackground job running that many minutes or more.\n\nWith --route, prints one route's lifecycle state and its pair, flagging\na pair left pending. <route> is a route name, a route folder, or @.\n\nexit codes:\n  0  the snapshot was printed\n  2  usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid\n     LIMIT_MIN\n",
       "usage": [
-        "herdsman status"
+        "herdsman status",
+        "herdsman status --route <route>"
+      ],
+      "flags": [
+        {
+          "name": "--route",
+          "valueName": "route"
+        }
       ],
       "exitCodes": [
         {
@@ -1530,6 +1624,35 @@
         {
           "code": "2",
           "meaning": "usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid LIMIT_MIN"
+        }
+      ]
+    },
+    {
+      "name": "stop",
+      "summary": "End a route's sessions and service panes; the work stays on disk.",
+      "help": "usage: herdsman stop <route> [--grace <seconds>] [--teardown] [-y] [--dry-run]\n\nAsks each agent for its report, waits up to --grace seconds (default 120), then\ncloses the agent and service panes and retires the pair. Worktrees, branches,\nthe route folder and the inbox stay. A stopped route can be resumed.\n--teardown also stops the route's task processes.\n",
+      "usage": [
+        "herdsman stop <route> [--grace <seconds>] [--teardown] [-y] [--dry-run]"
+      ],
+      "positionals": [
+        {
+          "name": "route"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--dry-run"
+        },
+        {
+          "name": "--grace",
+          "valueName": "seconds"
+        },
+        {
+          "name": "--teardown"
+        },
+        {
+          "name": "-y",
+          "short": "-y"
         }
       ]
     },
