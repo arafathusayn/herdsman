@@ -1,0 +1,27 @@
+.TH HERDSMAN-PROJECT 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-project \- Keep projects, their folders and their repositories.
+.SH DESCRIPTION
+.nf
+usage: herdsman project create <name> [--description <text>] [--repo <spec>]... [--bind] [--json]
+       herdsman project show [<project>] [--json]
+       herdsman project list [--archived] [--json]
+       herdsman project update [<project>] [--name <name>] [--description <text>]
+                               [--add-repo <spec>]... [--remove-repo <name>]... [--json]
+       herdsman project delete [<project>] [--force]
+       herdsman project bind [<project>] [--folder <path>] [--json]
+       herdsman project unbind [--folder <path>] [--json]
+
+Keeps the projects, the folders bound to them and their repositories. A <spec>
+is [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.
+<project> is a name, an id or @; left out, it is the project bound to this
+folder. delete refuses a project with open tasks or tasks on a running route;
+--force archives it instead and keeps its records.
+
+exit codes:
+  0  done
+  1  the record was not found, the change was refused, or the call failed
+  2  bad usage
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

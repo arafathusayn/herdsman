@@ -24,6 +24,7 @@ Generated from `herdsman spec cli`.
 - [`models`](models.md): Probe each installed harness: its version, models, efforts and default effort as it reports them.
 - [`new`](new.md): Make a task's branch and worktree.
 - [`plugin`](plugin.md): Manage plugins (experimental).
+- [`project`](project.md): Keep projects, their folders and their repositories.
 - [`recommend`](recommend.md): The same as suggest.
 - [`resource`](resource.md): Record a resource a task created: resource add.
 - [`review`](review.md): Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.
@@ -32,6 +33,7 @@ Generated from `herdsman spec cli`.
 - [`spec`](spec.md): Print the SDK contracts: spec cli|proto|descriptor.
 - [`status`](status.md): Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.
 - [`suggest`](suggest.md): Search the catalog of tips and tools.
+- [`task`](task.md): Keep the tasks of each project.
 - [`teardown`](teardown.md): Stop what a task runs, keeping what it holds.
 - [`trace`](trace.md): Show or export one route's spans as OpenTelemetry.
 - [`transcript-audit`](transcript-audit.md): Audit a Claude or Codex transcript for writes: transcript-audit claude|codex <transcript> <session-id> [root/ ...].

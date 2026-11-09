@@ -1150,6 +1150,77 @@
       ]
     },
     {
+      "name": "project",
+      "summary": "Keep projects, their folders and their repositories.",
+      "help": "usage: herdsman project create <name> [--description <text>] [--repo <spec>]... [--bind] [--json]\n       herdsman project show [<project>] [--json]\n       herdsman project list [--archived] [--json]\n       herdsman project update [<project>] [--name <name>] [--description <text>]\n                               [--add-repo <spec>]... [--remove-repo <name>]... [--json]\n       herdsman project delete [<project>] [--force]\n       herdsman project bind [<project>] [--folder <path>] [--json]\n       herdsman project unbind [--folder <path>] [--json]\n\nKeeps the projects, the folders bound to them and their repositories. A <spec>\nis [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.\n<project> is a name, an id or @; left out, it is the project bound to this\nfolder. delete refuses a project with open tasks or tasks on a running route;\n--force archives it instead and keeps its records.\n\nexit codes:\n  0  done\n  1  the record was not found, the change was refused, or the call failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman project create <name> [--description <text>] [--repo <spec>]... [--bind] [--json]",
+        "herdsman project show [<project>] [--json]",
+        "herdsman project list [--archived] [--json]",
+        "herdsman project update [<project>] [--name <name>] [--description <text>]"
+      ],
+      "positionals": [
+        {
+          "name": "name"
+        },
+        {
+          "name": "project"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--add-repo",
+          "valueName": "spec"
+        },
+        {
+          "name": "--archived"
+        },
+        {
+          "name": "--bind"
+        },
+        {
+          "name": "--description",
+          "valueName": "text"
+        },
+        {
+          "name": "--folder",
+          "valueName": "path"
+        },
+        {
+          "name": "--force"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--name",
+          "valueName": "name"
+        },
+        {
+          "name": "--remove-repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--repo",
+          "valueName": "spec"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the record was not found, the change was refused, or the call failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
       "name": "recommend",
       "summary": "The same as suggest.",
       "help": "usage: herdsman suggest [<query>...] [--kind tip|mcp|skill|plugin|mod|repo]\n                        [--for <harness>] [--tag <tag>] [--json]\n       herdsman suggest show <id> [--json]\n       herdsman suggest add --title <text> --tag <tag>... --body-file <path> [--id <id>]\n                        [--kind <kind>] [--url <url>] [--repo <url>] [--project] [--json]\n       herdsman suggest apply <id> [--run] [--json]\n       herdsman suggest source add <url> [--ref <commit|tag>] [--json]\n       herdsman suggest source list [--json]\n       herdsman suggest source remove <url>\n       herdsman suggest source update <url> [--ref <commit|tag>] [--yes] [--json]\n\nSearches the catalog, ranked for this machine and project. apply prints a\nrecipe; --run executes it, on a terminal only, after approving its checksum.\nsource update shows the changes before it moves the pin.\n\nexit codes:\n  0  done\n  1  the entry or source was not found, or a recipe was refused or failed\n  2  bad usage\n",
@@ -1540,6 +1611,88 @@
         {
           "code": "1",
           "meaning": "the entry or source was not found, or a recipe was refused or failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "task",
+      "summary": "Keep the tasks of each project.",
+      "help": "usage: herdsman task create <title> [--project <project>] [--slug <slug>] [--body <text>]\n                            [--label <label>]... [--repo <name>]... [--json]\n       herdsman task show <task> [--project <project>] [--json]\n       herdsman task list [--project <project>] [--all] [--status <status>]\n                          [--repo <name>] [--label <label>] [--json]\n       herdsman task update <task> [--project <project>] [--title <text>] [--body <text>]\n                            [--status <status>] [--add-repo <name>]... [--remove-repo <name>]...\n                            [--add-label <label>]... [--remove-label <label>]... [--json]\n       herdsman task delete <task> [--project <project>] [--force]\n       herdsman task link <task> <link> [--project <project>] [--repo <name>] [--json]\n\nKeeps the tasks of each project. <task> is a slug, an id, or @ for the task of\nthe current worktree. A <status> is todo, doing, review, done or archived. A\n<link> is pr:<n>, issue:<n> or a URL; --repo may be left out when the task\nnames one repository. A task's project cannot change. With no arguments on a\nterminal, task create opens a form.\n\nexit codes:\n  0  done\n  1  the record was not found, the change was refused, or the call failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman task create <title> [--project <project>] [--slug <slug>] [--body <text>]"
+      ],
+      "positionals": [
+        {
+          "name": "title"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--add-label",
+          "valueName": "label"
+        },
+        {
+          "name": "--add-repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--all"
+        },
+        {
+          "name": "--body",
+          "valueName": "text"
+        },
+        {
+          "name": "--force"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--label",
+          "valueName": "label"
+        },
+        {
+          "name": "--project",
+          "valueName": "project"
+        },
+        {
+          "name": "--remove-label",
+          "valueName": "label"
+        },
+        {
+          "name": "--remove-repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--slug",
+          "valueName": "slug"
+        },
+        {
+          "name": "--status",
+          "valueName": "status"
+        },
+        {
+          "name": "--title",
+          "valueName": "text"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the record was not found, the change was refused, or the call failed"
         },
         {
           "code": "2",
