@@ -419,3 +419,16 @@ func TestResolveRootsAddsGrantsForAnyRole(t *testing.T) {
 		t.Fatal("a relative grant was accepted")
 	}
 }
+
+func TestCloneMayNameTheDefaultBranch(t *testing.T) {
+	source := t.TempDir()
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first"}} {
+		if out, err := exec.Command("git", append([]string{"-C", source}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+	}
+	dest := filepath.Join(t.TempDir(), "copy")
+	if err := Clone(context.Background(), CloneOptions{Source: source, Dest: dest, Base: "main", Branch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+}

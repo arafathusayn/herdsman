@@ -65,7 +65,7 @@ func Clone(ctx context.Context, o CloneOptions) error {
 	}
 	switchArgs := []string{"switch", "--quiet", "--detach", commit}
 	if o.Branch != "" {
-		switchArgs = []string{"switch", "--quiet", "-c", o.Branch, commit}
+		switchArgs = []string{"switch", "--quiet", "-C", o.Branch, commit}
 	}
 	if _, err := runGit(ctx, repo, switchArgs...); err != nil {
 		return err
