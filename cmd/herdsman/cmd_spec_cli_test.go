@@ -133,3 +133,70 @@ func TestWriteSpecCLIReportsAWriteFailure(t *testing.T) {
 		t.Fatal("no error")
 	}
 }
+
+// Only these have nothing to declare: help and version take no arguments, and
+// message is described by its subcommands.
+var specWithoutUsage = map[string]bool{"help": true, "version": true, "message": true}
+
+func TestSpecCLIDescribesEveryCommandsInterface(t *testing.T) {
+	all := append([]command{}, builtinCommands...)
+	for _, c := range commands {
+		all = append(all, c)
+	}
+	for _, c := range all {
+		spec := commandSpec(c)
+		if specWithoutUsage[c.name] {
+			if len(spec.GetUsage()) != 0 {
+				t.Errorf("%s now has usage: take it off the list", c.name)
+			}
+			continue
+		}
+		if len(spec.GetUsage()) == 0 {
+			t.Errorf("%s has no usage in the spec", c.name)
+		}
+	}
+}
+
+func TestSpecDeclaresTheWebFlags(t *testing.T) {
+	flags := map[string][2]string{}
+	spec := specFromHelp("web", webHelp)
+	for _, f := range spec.GetFlags() {
+		flags[f.GetName()] = [2]string{f.GetValueName(), f.GetDefaultValue()}
+	}
+	want := map[string][2]string{
+		"--port": {"n", "7878"}, "--host": {"address", "127.0.0.1"}, "--no-qr": {}, "--session": {"name"}, "--open": {},
+		"--inbox": {"folder"}, "--client": {"url"}, "--public-url": {"url"}, "--route": {"folder"}, "--allow-host": {"host"},
+	}
+	if len(flags) != len(want) {
+		t.Errorf("flags %v", flags)
+	}
+	for name, values := range want {
+		if flags[name] != values {
+			t.Errorf("%s: %q, want %q", name, flags[name], values)
+		}
+	}
+	if len(spec.GetExitCodes()) == 0 {
+		t.Error("no exit codes")
+	}
+}
+
+func TestSpecReadsADeclaredDefault(t *testing.T) {
+	flags := specFromHelp("demo", "usage: herdsman demo [--limit <n>] [--mode <m>] [--socket <p>]\n\n  --limit <n>  how many (default 10)\n  --mode <m>   which (default: from MODE)\n  --socket <p> where (default found by search)\n\nSee --limit (default 99).\n").GetFlags()
+	got := map[string]string{}
+	for _, f := range flags {
+		got[f.GetName()] = f.GetDefaultValue()
+	}
+	if got["--limit"] != "10" || got["--mode"] != "" || got["--socket"] != "" {
+		t.Fatalf("defaults %v", got)
+	}
+}
+
+func TestWebHelpIsTheDeclaredText(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := runWeb([]string{"--help"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != webHelp {
+		t.Fatalf("help %q", stdout.String())
+	}
+}
