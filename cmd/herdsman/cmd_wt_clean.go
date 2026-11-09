@@ -69,7 +69,7 @@ func addCleanFlags(fs *flag.FlagSet) *cleanOptions {
 	return &cleanOptions{
 		yes: fs.Bool("y", false, "do not ask"), all: fs.Bool("all", false, "every task"),
 		merged: fs.Bool("merged", false, "every integrated task"), force: fs.Bool("force", false, "go on with unsaved work, which the snapshot holds"),
-		keepBranch: fs.Bool("keep-branch", false, "keep the branch"), asJSON: fs.Bool("json", false, "print the plans and reports as JSON"),
+		keepBranch: fs.Bool("keep-branch", false, "keep the branch"), asJSON: fs.Bool("json", false, "print every plan and report as JSON"),
 		deleteBranch: fs.Bool("delete-branch", false, "also delete a branch whose changes are all on the default branch, patch for patch"),
 		archiveOnly:  fs.Bool("archive-only", false, "take the snapshot and remove nothing"),
 		route:        fs.String("route", "", "every task of a route folder"), named: named,
@@ -226,7 +226,7 @@ func printCleanReports(stdout, stderr io.Writer, reports []cleanReport) int {
 	return code
 }
 
-// callClean hands the plan's pull request heads back, so that one pass reads
+// callClean hands back each plan's pull request head, so that one pass reads
 // GitHub once. The map is never nil: nil would ask the service to read again.
 func callClean(dir string, tasks []string, plans []cleanPlan, o *cleanOptions) ([]cleanReport, []json.RawMessage, error) {
 	heads := make(map[string]string, len(plans))

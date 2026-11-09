@@ -73,7 +73,7 @@ type WorktreeCleanRequest struct {
 	DeleteBranch bool `json:"delete_branch,omitempty"`
 	// ArchiveOnly takes the snapshot and removes nothing.
 	ArchiveOnly bool `json:"archive_only,omitempty"`
-	// PullRequestHeads maps branch to head from the plan. Nil reads GitHub.
+	// PullRequestHeads maps branch to head as planned. Nil reads GitHub.
 	PullRequestHeads map[string]string `json:"pull_request_heads,omitempty"`
 }
 
