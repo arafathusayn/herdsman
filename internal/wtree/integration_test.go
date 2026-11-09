@@ -251,13 +251,19 @@ func TestNewGoesThroughHerdrWhenReachable(t *testing.T) {
 	server := herdrtest.Start(t)
 	w.service.HerdrSocket = server.Socket
 	repo := w.repo
+	var path string
 	server.Handle("worktree.create", func(params map[string]any) (any, string) {
-		cmd := exec.Command("git", "-C", repo, "worktree", "add", "-q", "-b", params["branch"].(string), params["path"].(string), params["base"].(string))
+		path = params["path"].(string)
+		cmd := exec.Command("git", "-C", repo, "worktree", "add", "-q", "-b", params["branch"].(string), path, params["base"].(string))
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return nil, string(out)
 		}
 		return map[string]any{}, ""
 	})
+	server.Handle("pane.list", func(map[string]any) (any, string) {
+		return map[string]any{"panes": []map[string]any{{"pane_id": "p1", "cwd": path}}}, ""
+	})
+	server.Handle("pane.send_input", func(map[string]any) (any, string) { return map[string]any{}, "" })
 	resp := w.create(t, "t")
 	if !resp.Herdr {
 		t.Fatalf("%+v", resp)

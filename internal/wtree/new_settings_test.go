@@ -199,3 +199,22 @@ func TestNewReportsAnAgentThatCouldNotStart(t *testing.T) {
 		t.Fatalf("%+v %v", resp, err)
 	}
 }
+
+func TestNewFailsWhenTheWorkspaceCannotGetTheEnvironment(t *testing.T) {
+	w := newWorld(t)
+	server, _ := herdrWorld(t, w)
+	server.Handle("pane.send_input", func(map[string]any) (any, string) { return nil, "write_failed" })
+	resp, err := w.service.New(context.Background(), daemon.WorktreeNewRequest{Dir: w.repo, Task: "one"})
+	if err == nil || resp.Path == "" {
+		t.Fatalf("%+v %v", resp, err)
+	}
+}
+
+func TestNewFailsWhenTheWorkspaceHasNoPane(t *testing.T) {
+	w := newWorld(t)
+	server, _ := herdrWorld(t, w)
+	server.Handle("pane.list", func(map[string]any) (any, string) { return map[string]any{"panes": []map[string]any{}}, "" })
+	if resp, err := w.service.New(context.Background(), daemon.WorktreeNewRequest{Dir: w.repo, Task: "one"}); err == nil {
+		t.Fatalf("%+v", resp)
+	}
+}

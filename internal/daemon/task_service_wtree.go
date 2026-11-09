@@ -544,16 +544,16 @@ func (s *WorktreeService) enterWorkspace(ctx context.Context, req WorktreeNewReq
 	}
 	client := s.herdrClient(ctx)
 	if client == nil {
-		return s.noPane(req, resp, errors.New("herdr stopped answering"))
+		return errors.New("herdr stopped answering before the task's environment was set")
 	}
 	pane, err := workspacePane(ctx, client, resp.Path)
 	if err != nil {
-		return s.noPane(req, resp, err)
+		return fmt.Errorf("the task's environment was not set: %w", err)
 	}
 	export := fmt.Sprintf("export HERDSMAN_TASK=%s HERDSMAN_BRANCH=%s HERDSMAN_WORKTREE_PATH=%s\n",
 		quoteForShell(resp.Task), quoteForShell(resp.Branch), quoteForShell(resp.Path))
 	if err := client.Call(ctx, "pane.send_input", map[string]any{"pane_id": pane, "text": export}, nil); err != nil {
-		return s.noPane(req, resp, err)
+		return fmt.Errorf("the task's environment was not set: %w", err)
 	}
 	words := strings.Fields(req.Agent)
 	if len(words) == 0 {
@@ -568,15 +568,6 @@ func (s *WorktreeService) enterWorkspace(ctx context.Context, req WorktreeNewReq
 			return fmt.Errorf("the agent started, but the prompt was not delivered: %w", err)
 		}
 	}
-	return nil
-}
-
-// noPane is an error when an agent needed the pane, and a note otherwise.
-func (s *WorktreeService) noPane(req WorktreeNewRequest, resp *WorktreeNewResponse, cause error) error {
-	if req.Agent != "" {
-		return fmt.Errorf("the agent did not start: %w; run the launch line", cause)
-	}
-	resp.Warnings = append(resp.Warnings, "the herdr pane did not get the task's environment: "+cause.Error())
 	return nil
 }
 
@@ -927,6 +918,11 @@ func (r *repository) fetchRequest(ctx context.Context, pr *pullRequest) (branch,
 	if !exists {
 		return branch, fetched, nil
 	}
+	for _, row := range r.rows {
+		if row.Branch == branch {
+			return "", "", fmt.Errorf("pull request %d: branch %s is checked out at %s", pr.Number, branch, row.Path)
+		}
+	}
 	ref := "refs/heads/" + branch
 	if _, err := r.git.Run(ctx, r.main, "merge-base", "--is-ancestor", ref, fetched); err != nil {
 		return "", "", fmt.Errorf("pull request %d: local branch %s has commits the request does not", pr.Number, branch)
@@ -944,6 +940,15 @@ func renamedWarning(pr *pullRequest, branch string) []string {
 	return []string{fmt.Sprintf("the local branch %s is already other work, so pull request %d is on %s; to publish, push %s:%s", pr.Head.Ref, pr.Number, branch, branch, pr.Head.Ref)}
 }
 
+// holdsCommit says whether the row's branch contains the commit.
+func (r *repository) holdsCommit(ctx context.Context, row wtree.Row, commit string) bool {
+	if commit == "" {
+		return false
+	}
+	_, err := r.git.Run(ctx, r.main, "merge-base", "--is-ancestor", commit, "refs/heads/"+row.Branch)
+	return err == nil
+}
+
 // existingRequest finds the worktree that already holds the pull request.
 func (r *repository) existingRequest(ctx context.Context, pr *pullRequest, task string) (wtree.Row, bool, error) {
 	for _, row := range r.rows {
@@ -955,9 +960,10 @@ func (r *repository) existingRequest(ctx context.Context, pr *pullRequest, task 
 		if row.Task != task {
 			continue
 		}
-		// Worktrees made before branches carried the marker.
-		if row.Branch == pr.Head.Ref && !row.Main && r.markedRequest(ctx, row.Branch) == "" {
-			return row, true, nil
+		// A worktree made before branches carried the marker counts only when
+		// it really holds the request's commit.
+		if row.Branch == pr.Head.Ref && !row.Main && r.markedRequest(ctx, row.Branch) == "" && r.holdsCommit(ctx, row, pr.Head.SHA) {
+			return row, true, r.markRequest(ctx, pr, row.Branch)
 		}
 		return wtree.Row{}, false, fmt.Errorf("task %s is other work, on branch %s; pull request %d needs that name", task, row.Branch, pr.Number)
 	}
@@ -1005,14 +1011,19 @@ func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text str
 	return wtree.Row{Task: task, Branch: branch, Path: path}, nil
 }
 
+var defaultPorts = map[string]string{"https": "443", "http": "80", "ssh": "22", "git": "9418"}
+
 // remoteAddress reduces a remote's URL to host and path, so that the https and
-// ssh spellings of one repository compare equal.
+// ssh spellings of one repository compare equal. A port other than the
+// scheme's own is a different server and stays.
 func remoteAddress(url string) string {
 	url = strings.TrimSpace(url)
-	if _, rest, ok := strings.Cut(url, "://"); ok {
+	if scheme, rest, ok := strings.Cut(url, "://"); ok {
 		host, path, _ := strings.Cut(rest, "/")
 		host = host[strings.LastIndex(host, "@")+1:]
-		host, _, _ = strings.Cut(host, ":")
+		if name, port, ported := strings.Cut(host, ":"); ported && port == defaultPorts[strings.ToLower(scheme)] {
+			host = name
+		}
 		url = host + "/" + path
 	} else if host, path, ok := strings.Cut(url, ":"); ok && !strings.Contains(host, "/") {
 		url = host[strings.LastIndex(host, "@")+1:] + "/" + path

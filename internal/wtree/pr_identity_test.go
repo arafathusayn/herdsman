@@ -174,3 +174,75 @@ func TestARemoteWhosePushAddressDiffersIsNotUsed(t *testing.T) {
 		t.Fatalf("%+v %v", got, err)
 	}
 }
+
+func TestNewFromARequestLeavesACheckedOutBranchAlone(t *testing.T) {
+	w := newWorld(t)
+	made := w.create(t, "mine")
+	before := git(t, made.Path, "rev-parse", "HEAD")
+	seed := filepath.Join(w.root, "seed")
+	git(t, seed, "commit", "-q", "--allow-empty", "-m", "ahead")
+	sha := git(t, seed, "rev-parse", "HEAD")
+	git(t, seed, "push", "-q", "origin", "HEAD:refs/pull/30/head")
+	w.service.Repo = "acme/repo"
+	w.service.GH = fakeGH(t, w, fmt.Sprintf(`{"base":{"ref":"main"},"head":{"ref":%q,"sha":%q,"repo":{"full_name":"acme/repo"}}}`, made.Branch, sha))
+	if got, err := w.service.New(context.Background(), daemon.WorktreeNewRequest{Dir: w.repo, Task: "other", From: "pr:30"}); err == nil {
+		t.Fatalf("%+v", got)
+	}
+	if head := git(t, made.Path, "rev-parse", "HEAD"); head != before {
+		t.Fatalf("the checked-out branch moved to %s", head)
+	}
+	if status := git(t, made.Path, "status", "--porcelain"); status != "" {
+		t.Fatalf("%q", status)
+	}
+}
+
+func TestUnmarkedTaskWithoutTheRequestsCommitIsNotAdopted(t *testing.T) {
+	w := newWorld(t)
+	made := w.create(t, "pr-35")
+	sha := forkCommit(t, w, 35)
+	w.service.Repo = "acme/repo"
+	w.service.GH = fakeGH(t, w, forkBody(35, made.Branch, sha, "fork"))
+	if got, err := goTo(w, "pr:35"); err == nil {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestUnmarkedTaskHoldingTheRequestsCommitIsAdopted(t *testing.T) {
+	w := newWorld(t)
+	made := w.create(t, "pr-36")
+	sha := git(t, made.Path, "rev-parse", "HEAD")
+	git(t, made.Path, "commit", "-q", "--allow-empty", "-m", "local")
+	w.service.Repo = "acme/repo"
+	w.service.GH = fakeGH(t, w, forkBody(36, made.Branch, sha, "fork"))
+	got, err := goTo(w, "pr:36")
+	if err != nil || got.Path != made.Path || got.Created {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if mark := git(t, w.repo, "config", "branch."+made.Branch+".herdsman-pr"); mark != "acme/repo#36" {
+		t.Fatal(mark)
+	}
+}
+
+func TestARemoteOnAnotherPortIsNotTheFork(t *testing.T) {
+	w := newWorld(t)
+	sha := pullRequest(t, w, 37, "patch")
+	w.service.Repo = "acme/repo"
+	w.service.GH = fakeGH(t, w, forkBody(37, "patch", sha, "someone"))
+	git(t, w.repo, "remote", "add", "someone", "https://example.test:8443/someone/repo.git")
+	got, err := goTo(w, "pr:37")
+	if err != nil || got.PushRemote == "someone" || got.PushRemote == "" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestADefaultPortIsTheSameRemote(t *testing.T) {
+	w := newWorld(t)
+	sha := pullRequest(t, w, 38, "patch")
+	w.service.Repo = "acme/repo"
+	w.service.GH = fakeGH(t, w, forkBody(38, "patch", sha, "someone"))
+	git(t, w.repo, "remote", "add", "someone", "https://example.test:443/someone/repo.git")
+	got, err := goTo(w, "pr:38")
+	if err != nil || got.PushRemote != "someone" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
