@@ -49,9 +49,8 @@ func writeSpecCLI(w io.Writer) error {
 		return err
 	}
 	var out bytes.Buffer
-	if err := json.Indent(&out, data, "", "  "); err != nil {
-		return err
-	}
+	// What protojson just wrote is valid JSON, so this cannot fail.
+	_ = json.Indent(&out, data, "", "  ")
 	out.WriteByte('\n')
 	_, err = w.Write(out.Bytes())
 	return err

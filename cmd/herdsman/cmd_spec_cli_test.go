@@ -134,6 +134,14 @@ func TestWriteSpecCLIReportsAWriteFailure(t *testing.T) {
 	}
 }
 
+func TestWriteSpecCLIReportsAnUnencodableCommand(t *testing.T) {
+	commands["bad-text"] = command{name: "bad-text", summary: "\xff"}
+	defer delete(commands, "bad-text")
+	if err := writeSpecCLI(&bytes.Buffer{}); err == nil {
+		t.Fatal("no error")
+	}
+}
+
 // Only these have nothing to declare: help and version take no arguments, and
 // message is described by its subcommands.
 var specWithoutUsage = map[string]bool{"help": true, "version": true, "message": true}
