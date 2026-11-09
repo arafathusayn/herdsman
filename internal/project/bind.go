@@ -24,6 +24,8 @@ var (
 	nameKey       = regexp.MustCompile(`^(?:name|"name"|'name')\s*=\s*(.*)$`)
 	escapedKey    = regexp.MustCompile(`^"[^"]*\\`)
 	arrayProject  = regexp.MustCompile(`^\[\[\s*(?:"project"|'project'|project)\s*\]\]`)
+	nestedHeader  = regexp.MustCompile(`^\[+\s*(?:"project"|'project'|project)\s*\.\s*(?:"id"|'id'|id|"name"|'name'|name)\s*[\].]`)
+	dottedKey     = regexp.MustCompile(`^(?:id|name|"id"|"name"|'id'|'name')\s*\.`)
 	escapedName   = regexp.MustCompile(`^\[*\s*("(?:[^"\\]|\\.)*\\(?:[^"\\]|\\.)*")`)
 	stringValue   = regexp.MustCompile(`^("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$`)
 )
@@ -287,6 +289,9 @@ func refuseUneditable(path, line string) error {
 	if arrayProject.MatchString(line) {
 		return fmt.Errorf("%w: %s: project is an array of tables", ErrInvalid, path)
 	}
+	if nestedHeader.MatchString(line) {
+		return fmt.Errorf("%w: %s: the project's id or name is a table", ErrInvalid, path)
+	}
 	if m := escapedName.FindStringSubmatch(line); m != nil {
 		if name, err := strconv.Unquote(m[1]); err == nil && name == "project" {
 			return fmt.Errorf("%w: %s: project is spelled with escapes, which cannot be edited", ErrInvalid, path)
@@ -298,6 +303,9 @@ func refuseUneditable(path, line string) error {
 func (cfg *config) readKey(path string, i int, line string) error {
 	if escapedKey.MatchString(line) {
 		return fmt.Errorf("%w: %s: [project] has a key with escapes, which cannot be edited", ErrInvalid, path)
+	}
+	if dottedKey.MatchString(line) {
+		return fmt.Errorf("%w: %s: [project] has a dotted id or name, which cannot be edited", ErrInvalid, path)
 	}
 	if m := idKey.FindStringSubmatch(line); m != nil {
 		if cfg.idLine >= 0 {
