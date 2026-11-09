@@ -9,10 +9,12 @@ import (
 // rpcProcedures lists every RPC method the daemon serves.
 func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	m := &messageService{d: d}
+	recovery := &opsService{d: d}
 	routes := &routeService{d: d}
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
+	eventRPC := newEventService(d.hub, d.admitEvents, releaseContext)
 	name := daemonv1.MessageServiceName
-	return []rpc.Procedure{
+	return append(eventRPC.procedures(), []rpc.Procedure{
 		rpc.Unary(name, "Hello", m.Hello),
 		rpc.Unary(name, "Health", m.Health),
 		rpc.Unary(name, "Shutdown", m.Shutdown),
@@ -40,6 +42,10 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(name, "GetOperation", m.GetOperation),
 		rpc.Unary(name, "ResolveOperation", m.ResolveOperation),
 		rpc.Unary(name, "Wait", m.Wait),
+		rpc.Unary(daemonv1.OpsServiceName, "Undo", recovery.Undo),
+		rpc.Unary(daemonv1.OpsServiceName, "Export", recovery.Export),
+		rpc.Unary(daemonv1.OpsServiceName, "Import", recovery.Import),
+		rpc.Unary(daemonv1.OpsServiceName, "Records", recovery.Records),
 		rpc.Unary(daemonv1.RouteServiceName, "Up", routes.Up),
 		rpc.Unary(daemonv1.RouteServiceName, "Get", routes.Get),
 		rpc.Unary(daemonv1.RouteServiceName, "List", routes.List),
@@ -56,5 +62,5 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(daemonv1.RouteServiceName, "Resume", routes.Resume),
 		rpc.Unary(daemonv1.RouteServiceName, "Stop", routes.Stop),
 		rpc.Unary(daemonv1.RouteServiceName, "Delete", routes.Delete),
-	}
+	}...)
 }

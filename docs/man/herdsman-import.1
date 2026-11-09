@@ -1,0 +1,17 @@
+.TH HERDSMAN-IMPORT 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-import \- Rebuild an account from an export.
+.SH DESCRIPTION
+.nf
+usage: herdsman import <export> [--state-dir <path>]
+
+Rebuilds an account from an export into an empty state directory, which must
+have no daemon running on it.
+
+exit codes:
+  0  imported
+  1  refused or failed
+  2  bad usage
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

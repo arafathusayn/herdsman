@@ -45,7 +45,10 @@ var cgoProbe func(stdout io.Writer) error
 
 // The worktree verbs run their service in this process until the generated
 // client exists.
-func init() { worktreeCall = daemon.WorktreeCall }
+func init() {
+	worktreeCall = daemon.WorktreeCall
+	importCall = daemon.ImportAccount
+}
 
 // The suggest verbs have no client yet either. A recipe runs through its own
 // function because the service must never be able to run one.
