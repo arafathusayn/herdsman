@@ -3,6 +3,34 @@
 // the checks can push state changes and activity events into.
 import { join } from "node:path";
 
+// What the daemon's RPC services answer, by service and method.
+const rpcReplies: Record<string, unknown> = {
+  "herdsman.daemon.v1.ProjectService/List": {
+    projects: [
+      { id: { value: "p1" }, name: "alpha", description: "The first", openTasks: 2, repos: [{ name: "api" }] },
+    ],
+  },
+  "herdsman.daemon.v1.TaskService/List": {
+    tasks: [
+      { id: { value: "t1" }, project: { value: "alpha" }, slug: "one", title: "Write the docs", status: "doing" },
+    ],
+  },
+  "herdsman.daemon.v1.RouteService/List": {
+    starts: [
+      {
+        operation: "o1",
+        route: { value: "auth" },
+        state: "halted",
+        reason: "waiting for a pair",
+        steps: [{ ordinal: 1, name: "doctor", state: "done" }],
+      },
+    ],
+  },
+  "herdsman.suggest.v1.SuggestService/Search": {
+    items: [{ entry: { id: "s1", title: "A very useful linter", kind: "tool" }, reasons: [{ code: "ecosystem" }] }],
+  },
+};
+
 type Status = "idle" | "working" | "blocked" | "done" | "unknown";
 
 const ws = (workspace_id: string, number: number, label: string) => ({
@@ -215,6 +243,12 @@ export function startMock(dist: string): Mock {
   async function answer(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const p = url.pathname;
+    if (p.startsWith("/rpc/")) {
+      const reply = rpcReplies[p.slice("/rpc/".length)];
+      return reply
+        ? Response.json(reply)
+        : Response.json({ code: "unimplemented", message: "not served" }, { status: 501 });
+    }
     if (p === "/api/pair" && req.method === "POST")
       return Response.json({ status: "pairing", error: "That code is wrong.", left: 2 });
     if (p === "/api/pair") return Response.json({ status: mock.mode });
