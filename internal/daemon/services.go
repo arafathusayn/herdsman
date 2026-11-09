@@ -63,5 +63,9 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(daemonv1.ProjectServiceName, "ContextCheck", projectContext.ContextCheck),
 		rpc.Unary(daemonv1.ProjectServiceName, "ContextNote", projectContext.ContextNote),
 		rpc.Unary(daemonv1.ProjectServiceName, "Log", projectContext.Log),
+		rpc.Unary(daemonv1.RouteServiceName, "Pause", routes.Pause),
+		rpc.Unary(daemonv1.RouteServiceName, "Resume", routes.Resume),
+		rpc.Unary(daemonv1.RouteServiceName, "Stop", routes.Stop),
+		rpc.Unary(daemonv1.RouteServiceName, "Delete", routes.Delete),
 	}...)
 }

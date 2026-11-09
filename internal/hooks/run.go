@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -48,15 +47,19 @@ func (r *Runner) runFolder(hook string) (string, error) {
 // Run executes the plan and waits. Commands of a step run together; the first
 // step with a failure ends the run. The result is written even on failure.
 func (r *Runner) Run(ctx context.Context, hook string, plan Plan) (Result, error) {
-	result := Result{Hook: hook, Task: r.Env.Task, OK: true}
 	if len(plan) == 0 {
-		return result, nil
+		return Result{Hook: hook, Task: r.Env.Task, OK: true}, nil
 	}
 	folder, err := r.runFolder(hook)
 	if err != nil {
-		return result, err
+		return Result{Hook: hook, Task: r.Env.Task, OK: true}, err
 	}
-	result.File = filepath.Join(folder, "result.json")
+	return r.execute(ctx, hook, plan, folder)
+}
+
+// execute runs a plan with its logs and result in folder.
+func (r *Runner) execute(ctx context.Context, hook string, plan Plan, folder string) (Result, error) {
+	result := Result{Hook: hook, Task: r.Env.Task, OK: true, File: filepath.Join(folder, "result.json")}
 	var failure error
 	for index, step := range plan {
 		if err := ctx.Err(); err != nil {
@@ -123,8 +126,8 @@ func (r *Runner) runOne(ctx context.Context, hook string, command Planned, logPa
 }
 
 // Start runs the plan in its own session and returns without waiting, so the
-// commands outlive this process. Steps keep their order and a failed step ends
-// the run, as in Run; the logs are the only record.
+// commands outlive this process. A detached copy of this program runs that plan
+// exactly as Run does: same order, per-command limits and result file.
 func (r *Runner) Start(hook string, plan Plan) ([]string, error) {
 	if len(plan) == 0 {
 		return nil, nil
@@ -133,22 +136,28 @@ func (r *Runner) Start(hook string, plan Plan) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var script strings.Builder
 	logs := make([]string, 0, len(plan))
 	for index, step := range plan {
-		script.WriteString("failed=0\n")
-		for i, command := range step {
-			path := commandLog(folder, index, command.Name)
-			logs = append(logs, path)
-			fmt.Fprintf(&script, "(\n%s\n) > %s 2>&1 &\np%d=$!\n", command.Rendered, shellQuote(path), i)
+		for _, command := range step {
+			logs = append(logs, commandLog(folder, index, command.Name))
 		}
-		for i := range step {
-			fmt.Fprintf(&script, "wait $p%d || failed=1\n", i)
-		}
-		script.WriteString("[ $failed = 0 ] || exit 1\n")
 	}
-	cmd := exec.Command("/bin/sh", "-c", script.String())
-	cmd.Dir, cmd.Env = r.Dir, r.environment(hook)
+	spec := filepath.Join(folder, planFile)
+	if err := r.savePlan(spec, hook, folder, plan); err != nil {
+		return nil, err
+	}
+	program, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("hooks: start %s: %w", hook, err)
+	}
+	failures, err := os.OpenFile(filepath.Join(folder, "supervisor.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("hooks: start %s: %w", hook, err)
+	}
+	defer failures.Close()
+	cmd := exec.Command(program)
+	cmd.Dir, cmd.Stdout, cmd.Stderr = r.Dir, failures, failures
+	cmd.Env = append(os.Environ(), superviseEnv+"="+spec)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("hooks: start %s: %w", hook, err)
@@ -157,5 +166,3 @@ func (r *Runner) Start(hook string, plan Plan) ([]string, error) {
 	go func() { _ = cmd.Wait() }()
 	return logs, nil
 }
-
-func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

@@ -275,21 +275,157 @@ func TestCloneFileMakesAnIndependentCopy(t *testing.T) {
 	if !dstInfo.ModTime().Equal(mtime) {
 		t.Errorf("mtime %v, want %v", dstInfo.ModTime(), mtime)
 	}
+	if got, err := os.ReadFile(dst); err != nil || string(got) != "original" {
+		t.Fatalf("the clone before any write: %q, %v", got, err)
+	}
 	if err := os.Chmod(dst, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	file, err := os.OpenFile(dst, os.O_WRONLY, 0)
+	if err := os.Chmod(src, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overwrite(t, dst, "CLONE!!!")
+	if got, err := os.ReadFile(src); err != nil || string(got) != "original" {
+		t.Fatalf("source after writing the clone: %q, %v", got, err)
+	}
+	overwrite(t, src, "SOURCE!!")
+	if got, err := os.ReadFile(dst); err != nil || string(got) != "CLONE!!!" {
+		t.Fatalf("clone after writing the source: %q, %v", got, err)
+	}
+}
+
+func overwrite(t *testing.T, path, body string) {
+	t.Helper()
+	file, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := file.WriteAt([]byte("CHANGED!"), 0); err != nil {
+	if _, err := file.WriteAt([]byte(body), 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := os.ReadFile(src); err != nil || string(got) != "original" {
-		t.Fatalf("source after writing the clone: %q, %v", got, err)
+}
+
+func TestSetLinkTimeChangesOnlyTheLink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, to := range map[string]string{"live": target, "dangling": filepath.Join(dir, "gone")} {
+		link := filepath.Join(dir, name)
+		if err := os.Symlink(to, link); err != nil {
+			t.Fatal(err)
+		}
+		mtime := time.Unix(1_500_000_000, 123_456_000)
+		if err := SetLinkTime(link, mtime); err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.Lstat(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.ModTime().Equal(mtime) {
+			t.Errorf("%s: mtime %v, want %v", name, got.ModTime(), mtime)
+		}
+	}
+	after, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Error("the link's target changed")
+	}
+	if err := SetLinkTime(filepath.Join(dir, "missing"), time.Now()); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestMakeRawReportsAFailedSet(t *testing.T) {
+	fd := openPTY(t)
+	old := setTermios
+	setTermios = func(int, uint, *unix.Termios) error { return unix.EIO }
+	defer func() { setTermios = old }()
+	if mode, err := MakeRaw(fd); !errors.Is(err, unix.EIO) || mode != nil {
+		t.Fatalf("got %v, %v", mode, err)
+	}
+}
+
+func TestLinuxPeerRejectsAbsentCredentials(t *testing.T) {
+	if got, err := peerFromUcred(0, 65534, 65534); err == nil {
+		t.Fatalf("an unconnected socket gave %+v", got)
+	}
+	got, err := peerFromUcred(42, 7, 8)
+	if err != nil || got != (PeerCred{UID: 7, GID: 8, PID: 42}) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+func TestPeerCredentialsRefuseOtherSockets(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	tcp, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tcp.Close()
+	if runtime.GOOS == "linux" {
+		return // The kernel answers these; TestLinuxPeerRejectsAbsentCredentials covers what it gives.
+	}
+	if got, err := PeerCredentials(tcp.(*net.TCPConn)); err == nil {
+		t.Fatalf("a TCP socket gave %+v", got)
+	}
+	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := os.NewFile(uintptr(fd), "unconnected")
+	defer file.Close()
+	if got, err := PeerCredentials(file); err == nil {
+		t.Fatalf("an unconnected socket gave %+v", got)
+	}
+}
+
+// A real FICLONE, which ordinary Linux test filesystems cannot do.
+func TestCloneFileOnBtrfs(t *testing.T) {
+	if runtime.GOOS != "linux" || os.Getenv("CI") == "" {
+		t.Skip("mounts a loopback image with sudo; runs on Linux CI only")
+	}
+	root := t.TempDir()
+	must := func(name string, args ...string) {
+		t.Helper()
+		if out, err := exec.Command(name, args...).CombinedOutput(); err != nil {
+			t.Fatalf("%s %v: %v\n%s", name, args, err, out)
+		}
+	}
+	if _, err := exec.LookPath("mkfs.btrfs"); err != nil {
+		must("sudo", "apt-get", "install", "-y", "btrfs-progs")
+	}
+	image, mount := filepath.Join(root, "btrfs.img"), filepath.Join(root, "mnt")
+	if err := os.Mkdir(mount, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	must("truncate", "-s", "256M", image)
+	must("mkfs.btrfs", "-q", image)
+	must("sudo", "mount", "-o", "loop", image, mount)
+	t.Cleanup(func() { _ = exec.Command("sudo", "umount", mount).Run() })
+	must("sudo", "chown", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), mount)
+	src, _ := writeSource(t, mount)
+	dst := filepath.Join(mount, "dst")
+	if err := CloneFile(src, dst); err != nil {
+		t.Fatalf("FICLONE on btrfs: %v", err)
+	}
+	if got, err := os.ReadFile(dst); err != nil || string(got) != "original" {
+		t.Fatalf("got %q, %v", got, err)
 	}
 }
 
