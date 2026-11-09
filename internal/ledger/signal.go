@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"slices"
 	"strconv"
 	"syscall"
@@ -34,6 +35,28 @@ const (
 	ResultForced  = "forced"
 	ResultFailed  = "failed"
 )
+
+// exitStatus is a failure's errno or the tool's exit code, 0 for none and -1
+// for a failure that carries neither.
+func exitStatus(failure error) int {
+	if failure == nil {
+		return 0
+	}
+	var errno syscall.Errno
+	if errors.As(failure, &errno) {
+		return int(errno)
+	}
+	var exit *exec.ExitError
+	if errors.As(failure, &exit) {
+		return exit.ExitCode()
+	}
+	return -1
+}
+
+// alreadyGone reports a signal that found its process had left.
+func alreadyGone(failure error) bool {
+	return errors.Is(failure, syscall.ESRCH)
+}
 
 // Execution is one teardown of an approved plan.
 type Execution struct {
@@ -73,11 +96,13 @@ func (e *Execution) Execute(ctx context.Context) ([]Outcome, error) {
 	}
 	e.Log.plan(e.Plan)
 	outcomes, err := e.stopProcesses(ctx)
-	if err != nil {
-		return outcomes, err
+	if err == nil {
+		var stopped []Outcome
+		stopped, err = e.stopContainers(ctx)
+		outcomes = append(outcomes, stopped...)
 	}
-	stopped, err := e.stopContainers(ctx)
-	return append(outcomes, stopped...), err
+	e.Log.finish(outcomes, err)
+	return outcomes, err
 }
 
 // leavesFirst orders targets so that a child is signaled before its parent.
@@ -147,12 +172,14 @@ func groupOwned(check *revalidation, approved map[lineKey]Line, group int) bool 
 func (e *Execution) send(ctx context.Context, target Line, signal syscall.Signal, approved map[lineKey]Line) ([]int, error) {
 	check, err := revalidate(ctx, e.Read, e.Plan)
 	if err != nil {
+		e.Log.refused(target, err)
 		return nil, err
 	}
 	if !check.processAlive(target) {
 		return nil, nil
 	}
 	if err := check.stillAuthorized(target); err != nil {
+		e.Log.refused(target, err)
 		return nil, err
 	}
 	reached := []int{pidOf(target)}
@@ -167,10 +194,11 @@ func (e *Execution) send(ctx context.Context, target Line, signal syscall.Signal
 		slices.Sort(reached)
 		reached = slices.Compact(reached)
 	}
-	if err := e.Kill(destination, signal); err != nil && !errors.Is(err, syscall.ESRCH) {
+	err = e.Kill(destination, signal)
+	e.Log.action(target, destination, int(signal), err)
+	if err != nil && !alreadyGone(err) {
 		return nil, fmt.Errorf("ledger: signal %d to %d: %w", signal, destination, err)
 	}
-	e.Log.action(target, destination, int(signal))
 	return reached, nil
 }
 
@@ -300,36 +328,47 @@ func (e *Execution) stopContainers(ctx context.Context) ([]Outcome, error) {
 	}
 	check, err := revalidate(ctx, e.Read, e.Plan)
 	if err != nil {
+		for _, target := range targets {
+			e.Log.refused(target, err)
+		}
 		return nil, err
 	}
 	var outcomes []Outcome
 	if e.composeOwned(check, targets) {
-		if err := e.engineStop(ctx, "compose", "-p", e.Compose, "stop"); err != nil {
+		var members, others []Line
+		for _, target := range targets {
+			if e.inProject(check, target) {
+				members = append(members, target)
+			} else {
+				others = append(others, target)
+			}
+		}
+		err := e.engineStop(ctx, "compose", "-p", e.Compose, "stop")
+		for _, target := range members {
+			e.Log.action(target, 0, 0, err)
+		}
+		if err != nil {
 			return nil, err
 		}
-		var others []Line
-		for _, target := range targets {
-			if !e.inProject(check, target) {
-				others = append(others, target)
-				continue
-			}
+		for _, target := range members {
 			outcomes = append(outcomes, Outcome{Kind: target.Kind, ID: target.ID, Level: target.Level, Result: ResultStopped})
-			e.Log.action(target, 0, 0)
 		}
 		targets = others
 	}
 	for _, target := range targets {
 		if check, err = revalidate(ctx, e.Read, e.Plan); err != nil {
+			e.Log.refused(target, err)
 			return outcomes, err
 		}
 		if check.lines[lineKey{target.Kind, target.ID}].Action != target.Action {
 			outcomes = append(outcomes, Outcome{Kind: target.Kind, ID: target.ID, Level: target.Level, Result: ResultGone})
 			continue
 		}
-		if err := e.engineStop(ctx, "stop", target.ID); err != nil {
+		err := e.engineStop(ctx, "stop", target.ID)
+		e.Log.action(target, 0, 0, err)
+		if err != nil {
 			return append(outcomes, Outcome{Kind: target.Kind, ID: target.ID, Level: target.Level, Result: ResultFailed}), err
 		}
-		e.Log.action(target, 0, 0)
 		outcomes = append(outcomes, Outcome{Kind: target.Kind, ID: target.ID, Level: target.Level, Result: ResultStopped})
 	}
 	return outcomes, nil

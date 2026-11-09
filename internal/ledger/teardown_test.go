@@ -967,7 +967,9 @@ func TestOpenLogRefusals(t *testing.T) {
 func TestANilLogDoesNothing(t *testing.T) {
 	var log *Log
 	log.plan(Plan{})
-	log.action(Line{}, 0, 0)
+	log.action(Line{}, 0, 0, nil)
+	log.refused(Line{}, errors.New("x"))
+	log.finish(nil, nil)
 	if err := log.Close(); err != nil {
 		t.Fatal(err)
 	}
