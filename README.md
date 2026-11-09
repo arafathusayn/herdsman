@@ -263,7 +263,7 @@ The `herdsman` command holds the web app, the tools the skill runs and the workt
 | --- | --- |
 | `web` | Serves the web app and prints its URL, a one-run token and a QR code. |
 | `config` *(next release)* | Reads and changes the configuration, and installs the shell integration. See the [configuration reference](docs/config.md). |
-| `project` *(next release)* | Works on a project's context repository: `project context init\|check\|note` and `project log`. |
+| `project` *(next release)* | Keeps projects, their folders and repositories: `project create\|show\|list\|update\|delete\|bind\|unbind`. Works on a project's context repository: `project context init\|check\|note` and `project log`. |
 | `export` *(next release)* | Copies the whole account to a new folder. |
 | `import` *(next release)* | Rebuilds an account from an export. |
 | `suggest` *(next release)* | Searches the catalog of tips and tools, ranked for this machine and project. |
@@ -271,6 +271,7 @@ The `herdsman` command holds the web app, the tools the skill runs and the workt
 | `spec` *(next release)* | Prints the contracts: `cli`, `proto` or `descriptor`. See the [SDK](docs/sdk.md). |
 | `mcp` *(next release)* | Serves the daemon's services as MCP tools over stdio. |
 | `plugin` *(next release)* | Manages [plugins](docs/plugins.md). Experimental. |
+| `task` *(next release)* | Keeps the tasks of each project: `task create\|show\|list\|update\|delete\|link`. |
 | `update` *(next release)* | Installs the latest signed release over this binary. |
 | `version` | Prints the version, commit and platform. |
 | `help` | Prints the commands. |
