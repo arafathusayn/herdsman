@@ -3,7 +3,28 @@
 herdsman-daemon \- The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential.
 .SH DESCRIPTION
 .nf
-The per-user message channel daemon: run|install|uninstall|start|stop|restart|status|route|setup|pair|credential.
+usage: herdsman daemon [--json] [--private-home <folder>] <command> [args]
+  run [--inspect]                       the daemon itself (the supervisor starts it); --inspect migrates and serves reads, with no effect at all
+  ops list | show <id> | resolve <id> <step> done|rerun   the journaled operations
+  install | uninstall                   write and start, or stop and remove, the LaunchAgent or systemd user unit
+  start | stop | restart                through the supervisor; stop stays stopped until start
+  status                                health of every route and Herdr link
+  route create --repo <repo> --route <route> [--herdr-socket <path>]
+  route adopt --inbox <path> --route <route> --confirm <peers.approved sha256>
+  route remove <route> | route reset-events <route> | route list
+  setup <route> --rule <policy file>... [--binary <path>] [--boundary <file>] [--watch-targets <file>] [--resume-targets <file>]
+  pair approve <route> <sha256> [--interaction <ask reference> [--asked-by <adjutant>]] [--credential <name>=identity|file|keychain]...
+  pair retire <route> <name> <sha256>
+  credential revoke <route> <name>
+  automations list | approve <event> | dry-run <event> [--project <path>] [--value <name=value>]...   experimental: an action runs only once a person approves its checksum
+The private home is --private-home, else HERDSMAN_STATE_DIR, else HERDSMAN_PRIVATE_HOME, else ~/.herdsman-private.
+
+exit codes:
+  0   done
+  1   status: the daemon is down or degraded; start, stop, restart, uninstall: no hello or the lock still held after 10 s
+  2   usage, a refusal, another daemon of this account running (daemon_running), no attended terminal
+  3   human_boundary
+  75  retryable: busy, route_unowned, herdr_unreachable, daemon not answering
 .fi
 .SH SEE ALSO
 .BR herdsman (1)
