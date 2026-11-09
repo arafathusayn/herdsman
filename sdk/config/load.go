@@ -95,6 +95,17 @@ func Load(opts Options) (*Result, error) {
 	merge(merged, messageTree(Defaults().ProtoReflect()), "", SourceDefault, sources)
 	result := &Result{Sources: sources}
 
+	projectPath, err := findProjectFile(opts, environ)
+	if err != nil {
+		return nil, err
+	}
+	if projectPath == "" {
+		implied, _, err := detected(opts.RepoRoot)
+		if err != nil {
+			return nil, err
+		}
+		merge(merged, messageTree(implied.ProtoReflect()), "", SourceDefault, sources)
+	}
 	userPath, err := findUserFile(opts, environ)
 	if err != nil {
 		return nil, err
@@ -106,10 +117,6 @@ func Load(opts Options) (*Result, error) {
 		}
 		result.UserPath = userPath
 		applyUserLayer(merged, layer, opts.ProjectKey, sources)
-	}
-	projectPath, err := findProjectFile(opts, environ)
-	if err != nil {
-		return nil, err
 	}
 	if projectPath != "" {
 		layer, err := readLayer(projectPath, rep)
@@ -299,6 +306,24 @@ func findUserFile(opts Options, environ []string) (string, error) {
 		return "", nil
 	}
 	return findOne(dir, "config", userFormats)
+}
+
+// UserFile returns the user file's path and whether it exists yet. A new file
+// would be TOML.
+func UserFile(opts Options) (string, bool, error) {
+	environ := opts.Environ
+	if environ == nil {
+		environ = os.Environ()
+	}
+	dir := userDir(opts, environ)
+	if dir == "" {
+		return "", false, errors.New("no user configuration folder: HOME is unset")
+	}
+	found, err := findOne(dir, "config", userFormats)
+	if err != nil || found != "" {
+		return found, found != "", err
+	}
+	return filepath.Join(dir, "config.toml"), false, nil
 }
 
 // ProjectFile returns the project file discovery chooses, or "" when there
@@ -531,22 +556,64 @@ func readForEdit(path string) (string, []byte, *tree.Node, error) {
 	return format, data, root, nil
 }
 
-// SetFile writes one value into a file, keeping a TOML file's comments. The
-// file is not touched unless the result is valid.
+// SetFile writes one value into a file, keeping the comments of a format that
+// has them. The file is not touched unless the result is valid.
 func SetFile(path, key, value string) error {
+	_, err := EditFile(path, key, value, false)
+	return err
+}
+
+// Edit says what a change to a file did. Old is meaningful when HadOld is true.
+type Edit struct {
+	Path, Key, Old, New string
+	HadOld              bool
+}
+
+// EditFile sets a key and reports the old and new value. With appendItem the
+// value is added, as one item, to the end of a list held in the file.
+func EditFile(path, key, value string, appendItem bool) (Edit, error) {
 	resolved, err := resolveKey(key, configDescriptor())
 	if err != nil {
-		return err
+		return Edit{}, err
 	}
-	node, err := textNode(resolved, value)
-	if err != nil {
-		return err
+	var node *tree.Node
+	if !appendItem {
+		if node, err = textNode(resolved, value); err != nil {
+			return Edit{}, err
+		}
+	} else if !resolved.field.IsList() || resolved.field.Kind() != protoreflect.StringKind || resolved.hookEntry || resolved.mapEntry {
+		return Edit{}, fmt.Errorf("%s: not a list of strings, so nothing can be appended", key)
 	}
 	format, data, root, err := readForEdit(path)
 	if err != nil {
-		return err
+		return Edit{}, err
 	}
 	written := writtenPath(root, resolved.segments, configDescriptor())
+	edit := Edit{Path: path, Key: strings.Join(resolved.segments, ".")}
+	current, had := root.Lookup(written...)
+	if had {
+		edit.HadOld, edit.Old = true, renderNode(current)
+	}
+	if appendItem {
+		node = tree.NewArray()
+		if had {
+			if current.Kind != tree.Array {
+				return Edit{}, fmt.Errorf("%s: not a list of strings, so nothing can be appended", key)
+			}
+			node.Items = append(node.Items, current.Items...)
+		}
+		node.Items = append(node.Items, tree.NewString(value))
+	}
+	edit.New = renderNode(node)
+	if err := writeSet(path, format, data, root, written, node); err != nil {
+		return Edit{}, err
+	}
+	return edit, nil
+}
+
+// writeSet stores node at written, in the file's own format.
+func writeSet(path, format string, data []byte, root *tree.Node, written []string, node *tree.Node) error {
+	var err error
 	whole := func() ([]byte, error) {
 		if err := setPath(root, written, node); err != nil {
 			return nil, err

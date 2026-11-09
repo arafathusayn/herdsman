@@ -8,6 +8,7 @@ import (
 
 	contracts "github.com/arafathusayn/herdsman/proto"
 	cliv1 "github.com/arafathusayn/herdsman/sdk/cli/v1"
+	"github.com/arafathusayn/herdsman/sdk/config"
 	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
@@ -19,13 +20,14 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-const specUsage = "usage: herdsman spec cli|proto|descriptor\n"
+const specUsage = "usage: herdsman spec cli|proto|descriptor|jsonschema\n"
 
 const specHelp = specUsage + `
 cli prints every command, flag and exit code as JSON.
 proto prints every contract source, each after a "// file: <path>" line.
 descriptor prints the contracts' serialized FileDescriptorSet, with every
 import before the file that needs it.
+jsonschema prints the JSON Schema of the configuration file.
 
 exit codes:
   0  the contracts were printed
@@ -34,11 +36,11 @@ exit codes:
 `
 
 func init() {
-	register(command{name: "spec", summary: "Print the SDK contracts: spec cli|proto|descriptor.", help: specHelp, run: runSpec})
+	register(command{name: "spec", summary: "Print the SDK contracts: spec cli|proto|descriptor|jsonschema.", help: specHelp, run: runSpec})
 }
 
 func runSpec(args []string, _ io.Reader, stdout, stderr io.Writer) int {
-	writers := map[string]func(io.Writer) error{"cli": writeSpecCLI, "proto": writeSpecProto, "descriptor": writeSpecDescriptor}
+	writers := map[string]func(io.Writer) error{"cli": writeSpecCLI, "proto": writeSpecProto, "descriptor": writeSpecDescriptor, "jsonschema": writeSpecJSONSchema}
 	if len(args) != 1 || writers[args[0]] == nil {
 		fmt.Fprint(stderr, specUsage)
 		return 2
@@ -48,6 +50,16 @@ func runSpec(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// writeSpecJSONSchema prints the schema of the configuration file.
+func writeSpecJSONSchema(w io.Writer) error {
+	data, err := config.JSONSchema()
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "%s\n", data)
+	return err
 }
 
 // writeSpecProto prints the embedded sources in path order.

@@ -149,16 +149,16 @@
     {
       "name": "config",
       "summary": "Read and change the configuration; install the shell integration.",
-      "help": "usage: herdsman config get <key> [-c <path>]\n       herdsman config set <key> <value> [-c <path>]\n       herdsman config unset <key> [-c <path>]\n       herdsman config show [--strict] [-c <path>]\n       herdsman config export --format toml|yaml|json|bin [-c <path>]\n       herdsman config update [-c <path>]\n       herdsman config init [--format toml|yaml|json|bin] [-c <path>]\n       herdsman config schema --format jsonschema|descriptor\n       herdsman config approvals list\n       herdsman config approvals clear [<project>]\n       herdsman config shell install|uninstall [bash|zsh|fish] [--json]\n\nKeys are dotted paths such as merge.strategy; a kebab-case spelling is the same\nkey. -c names a file; otherwise HERDSMAN_CONFIG, then the repository's parent\nfolder, then the repository root.\n\nshow prints the file in use and then one \"key = value (source)\" line each.\nA warning goes to stderr; --strict makes it an error. An unknown key in the\npolicy or launch section always stops the command.\n\nshell adds or removes the wrapper that lets herdsman go change the shell's\nfolder, with static completions. The shell defaults to $SHELL.\n\nexit codes:\n  0  done\n  1  the configuration is invalid, or the file cannot be read or written\n  2  usage error\n",
+      "help": "usage: herdsman config get [<key>] [--source] [--json] [-c <path>]\n       herdsman config set <key> <value> [--append] [--project|--user|-c <path>]\n       herdsman config unset <key> [-c <path>]\n       herdsman config show [--strict] [-c <path>]\n       herdsman config export --format toml|yaml|json|bin [-c <path>]\n       herdsman config update [-c <path>]\n       herdsman config init [--format toml|yaml|json|bin] [-c <path>]\n       herdsman config schema --format jsonschema|descriptor|proto\n       herdsman config approvals list\n       herdsman config approvals clear [<project>]\n       herdsman config shell install|uninstall [bash|zsh|fish] [--json]\n\nKeys are dotted paths such as merge.strategy; a kebab-case spelling is the same\nkey. -c names a file; otherwise HERDSMAN_CONFIG, then the repository's parent\nfolder, then the repository root.\n\nget with no key prints the whole effective configuration. --source adds where\na value came from; --json prints typed JSON. set prints the old and new value\nand the file changed; --user writes the user file, --append adds one item to a\nlist.\n\nshow prints the file in use and then one \"key = value (source)\" line each.\nA warning goes to stderr; --strict makes it an error. An unknown key in the\npolicy or launch section always stops the command.\n\nshell adds or removes the wrapper that lets herdsman go change the shell's\nfolder, with static completions. The shell defaults to $SHELL.\n\nexit codes:\n  0  done\n  1  the configuration is invalid, or the file cannot be read or written\n  2  usage error\n",
       "usage": [
-        "herdsman config get <key> [-c <path>]",
-        "herdsman config set <key> <value> [-c <path>]",
+        "herdsman config get [<key>] [--source] [--json] [-c <path>]",
+        "herdsman config set <key> <value> [--append] [--project|--user|-c <path>]",
         "herdsman config unset <key> [-c <path>]",
         "herdsman config show [--strict] [-c <path>]",
         "herdsman config export --format toml|yaml|json|bin [-c <path>]",
         "herdsman config update [-c <path>]",
         "herdsman config init [--format toml|yaml|json|bin] [-c <path>]",
-        "herdsman config schema --format jsonschema|descriptor",
+        "herdsman config schema --format jsonschema|descriptor|proto",
         "herdsman config approvals list",
         "herdsman config approvals clear [<project>]",
         "herdsman config shell install|uninstall [bash|zsh|fish] [--json]"
@@ -176,14 +176,26 @@
       ],
       "flags": [
         {
+          "name": "--append"
+        },
+        {
           "name": "--format",
-          "valueName": "jsonschema|descriptor"
+          "valueName": "jsonschema|descriptor|proto"
         },
         {
           "name": "--json"
         },
         {
+          "name": "--project"
+        },
+        {
+          "name": "--source"
+        },
+        {
           "name": "--strict"
+        },
+        {
+          "name": "--user"
         },
         {
           "name": "-c",
@@ -1432,10 +1444,10 @@
     },
     {
       "name": "spec",
-      "summary": "Print the SDK contracts: spec cli|proto|descriptor.",
-      "help": "usage: herdsman spec cli|proto|descriptor\n\ncli prints every command, flag and exit code as JSON.\nproto prints every contract source, each after a \"// file: <path>\" line.\ndescriptor prints the contracts' serialized FileDescriptorSet, with every\nimport before the file that needs it.\n\nexit codes:\n  0  the contracts were printed\n  1  the contracts could not be read or written\n  2  usage error\n",
+      "summary": "Print the SDK contracts: spec cli|proto|descriptor|jsonschema.",
+      "help": "usage: herdsman spec cli|proto|descriptor|jsonschema\n\ncli prints every command, flag and exit code as JSON.\nproto prints every contract source, each after a \"// file: <path>\" line.\ndescriptor prints the contracts' serialized FileDescriptorSet, with every\nimport before the file that needs it.\njsonschema prints the JSON Schema of the configuration file.\n\nexit codes:\n  0  the contracts were printed\n  1  the contracts could not be read or written\n  2  usage error\n",
       "usage": [
-        "herdsman spec cli|proto|descriptor"
+        "herdsman spec cli|proto|descriptor|jsonschema"
       ],
       "exitCodes": [
         {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/arafathusayn/herdsman/sdk/internal/encoding/tree"
 )
@@ -51,6 +52,40 @@ func (r *Result) Show() []Shown {
 	})
 	return out
 }
+
+// Typed returns a dotted key's value as plain data and where it came from. A
+// table whose entries came from several places reports "mixed".
+func (r *Result) Typed(key string) (any, string, error) {
+	resolved, err := resolveKey(key, configDescriptor())
+	if err != nil {
+		return nil, "", err
+	}
+	node, ok := r.tree.Lookup(resolved.segments...)
+	if !ok {
+		return nil, "", fmt.Errorf("%s: not set", key)
+	}
+	return plainValue(node), r.sourceOf(strings.Join(resolved.segments, ".")), nil
+}
+
+func (r *Result) sourceOf(key string) string {
+	if source, ok := r.Sources[key]; ok {
+		return source
+	}
+	found := ""
+	for candidate, source := range r.Sources {
+		if !strings.HasPrefix(candidate, key+".") {
+			continue
+		}
+		if found != "" && found != source {
+			return "mixed"
+		}
+		found = source
+	}
+	return found
+}
+
+// Encode writes the whole effective configuration in a text format.
+func (r *Result) Encode(format string) ([]byte, error) { return encodeText(format, r.tree) }
 
 // renderNode is a value as one line of text: a scalar bare, anything else as
 // JSON.

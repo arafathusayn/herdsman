@@ -24,10 +24,10 @@ func TestSetKeepsCommentsAndOrder(t *testing.T) {
 		value *tree.Node
 		want  string
 	}{
-		"replace": {[]string{"merge", "land"}, tree.NewString("push"), "# head\nmerge: # beside section\n  # about land\n  land: \"push\" # beside land\n  verify: true\n\n# about branch\nbranch:\n  name: x\n"},
-		"new key": {[]string{"merge", "clean"}, tree.NewBool(false), "# head\nmerge: # beside section\n  # about land\n  land: pr # beside land\n  verify: true\n  clean: false\n\n# about branch\nbranch:\n  name: x\n"},
+		"replace":     {[]string{"merge", "land"}, tree.NewString("push"), "# head\nmerge: # beside section\n  # about land\n  land: \"push\" # beside land\n  verify: true\n\n# about branch\nbranch:\n  name: x\n"},
+		"new key":     {[]string{"merge", "clean"}, tree.NewBool(false), "# head\nmerge: # beside section\n  # about land\n  land: pr # beside land\n  verify: true\n  clean: false\n\n# about branch\nbranch:\n  name: x\n"},
 		"new section": {[]string{"worktree", "path"}, tree.NewString("/w"), source + "worktree:\n  path: \"/w\"\n"},
-		"to list": {[]string{"branch", "name"}, tree.NewArray(tree.NewString("a")), "# head\nmerge: # beside section\n  # about land\n  land: pr # beside land\n  verify: true\n\n# about branch\nbranch:\n  name:\n    - \"a\"\n"},
+		"to list":     {[]string{"branch", "name"}, tree.NewArray(tree.NewString("a")), "# head\nmerge: # beside section\n  # about land\n  land: pr # beside land\n  verify: true\n\n# about branch\nbranch:\n  name:\n    - \"a\"\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			doc := parseDoc(t, source)
