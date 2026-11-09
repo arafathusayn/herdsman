@@ -5,6 +5,7 @@ import { Icon, Logo } from "../components/icons.tsx";
 import { ThemeSwitch } from "../components/theme-switch.tsx";
 import { icons } from "../icons.ts";
 import { checklistCounts, routeFor, routeLabel, statusLabel, workspaceGroups } from "../model.ts";
+import { pages } from "../pages/index.tsx";
 import { isMac, paletteKeys, sidebarKeys } from "../palette.tsx";
 import type { App } from "../store.ts";
 import type { Route, State, Workspace } from "../types.ts";
@@ -114,6 +115,7 @@ export function Topbar(props: TopbarProps) {
 }
 
 export interface SidebarActions {
+  page(id: string): void;
   go(route: string, workspace?: string): void;
   newRoute(): void;
   theme(theme: Theme): void;
@@ -298,6 +300,23 @@ export function Sidebar(props: SidebarProps) {
   return (
     <nav class="sidebar" aria-label="Routes">
       <div class="nav-scroll">
+        <h3 class="nav-head">Workspace data</h3>
+        <For each={pages.filter((page) => page.id !== "new-route")} key={(page) => page.id}>
+          {(page) => (
+            <a
+              href={`?page=${page.id}`}
+              class={props.app.view.page === page.id ? "nav-item nav-page active" : "nav-item nav-page"}
+              aria-current={props.app.view.page === page.id ? "page" : null}
+              onClick={(event) => {
+                event.preventDefault();
+                props.actions.page(page.id);
+              }}
+            >
+              <Icon paths={page.icon} />
+              <span class="nav-text">{page.label}</span>
+            </a>
+          )}
+        </For>
         <Show when={server()}>
           {(current) => <SidebarRoutes app={props.app} server={current()} actions={props.actions} />}
         </Show>

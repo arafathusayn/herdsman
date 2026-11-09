@@ -6,6 +6,7 @@ import { Icon } from "../components/icons.tsx";
 import { mountRoot } from "../components/mount-root.ts";
 import { icons } from "../icons.ts";
 import { ago, Index, type Member } from "../model.ts";
+import { pages } from "../pages/index.tsx";
 import { isMac, paletteKeys, sidebarKeys } from "../palette.tsx";
 import type { App } from "../store.ts";
 import { type FakeElement, type FakeNode, installFakeDocument, ops, resetOps } from "../test-dom-core.ts";
@@ -137,7 +138,18 @@ const app = (view: Partial<App["view"]> = {}, extra: Partial<App> = {}): App => 
   server: state,
   entries: [],
   connected: true,
-  view: { route: "auth", tab: "team", file: "", source: "", diffFile: "", artifact: "", pane: "", ws: "", ...view },
+  view: {
+    page: "",
+    route: "auth",
+    tab: "team",
+    file: "",
+    source: "",
+    diffFile: "",
+    artifact: "",
+    pane: "",
+    ws: "",
+    ...view,
+  },
   theme: "system",
   fatal: "",
   channel: null,
@@ -277,9 +289,22 @@ test("topbar: the markup of the h() version in each state, patched in place, and
   expect(log).toEqual(["toggle", "home"]);
 });
 
+const pageLinks = `<h3 class="nav-head">Workspace data</h3>${pages
+  .filter((page) => page.id !== "new-route")
+  .map(
+    (page) =>
+      `<a class="nav-item nav-page" href="?page=${page.id}">${iconMarkup(page.icon)}<span class="nav-text">${page.label}</span></a>`,
+  )
+  .join("")}`;
+
+// The sidebar opens with its heading and page links; the rest are the routes.
+const routeItems = (scroll: FakeNode) =>
+  elements(scroll).filter((n) => !n.className.includes("nav-page") && n.textContent !== "Workspace data");
+
 const navActs = (log: string[]) => ({
   go: (r: string, w?: string) => log.push(w === undefined ? `go ${r}` : `go ${r} ${w}`),
   newRoute: () => log.push("new"),
+  page: (id: string) => log.push(`page ${id}`),
   theme: (t: string) => log.push(`theme ${t}`),
   appearance: () => log.push("appearance"),
 });
@@ -289,7 +314,7 @@ test("sidebar: the markup of the h() version, links keep their nodes, and they c
   for (const a of [app({}, { server: null }), app({}, { fatal: "gone" })]) {
     expect(dump(fake(mountRoot("nav", () => <Sidebar app={a} actions={navActs(log)} />).el))).toBe(markup`
       <nav aria-label="Routes" class="sidebar">
-        <div class="nav-scroll"></div>
+        <div class="nav-scroll">${pageLinks}</div>
         ${navFoot()}
       </nav>
     `);
@@ -299,6 +324,7 @@ test("sidebar: the markup of the h() version, links keep their nodes, and they c
   expect(dump(nav)).toBe(markup`
     <nav aria-label="Routes" class="sidebar">
       <div class="nav-scroll">
+        ${pageLinks}
         <a class="nav-item" href="?r=*" title="Every agent and pane in this herdr session">
           ${iconMarkup(icons.users)}
           <span class="nav-text">All agents</span>
@@ -340,12 +366,13 @@ test("sidebar: the markup of the h() version, links keep their nodes, and they c
     </nav>
   `);
   const scroll = elements(nav)[0]!;
-  const links = elements(scroll);
+  const links = routeItems(scroll);
   const onSession = app({ route: SESSION, ws: "w1" });
   setApp(onSession);
   expect(dump(nav)).toBe(markup`
     <nav aria-label="Routes" class="sidebar">
       <div class="nav-scroll">
+        ${pageLinks}
         <a class="nav-item" href="?r=*" title="Every agent and pane in this herdr session">
           ${iconMarkup(icons.users)}
           <span class="nav-text">All agents</span>
@@ -387,19 +414,19 @@ test("sidebar: the markup of the h() version, links keep their nodes, and they c
     </nav>
   `);
   expect(elements(nav)[0]).toBe(scroll);
-  expect(elements(scroll)).toEqual(links);
+  expect(routeItems(scroll)).toEqual(links);
 
   resetOps();
   setApp({ ...onSession });
   expect(Object.values(ops).reduce((x, y) => x + y, 0)).toBe(0); // an unchanged render writes nothing
 
-  const group = elements(scroll)[2]!;
+  const group = routeItems(scroll)[2]!;
   const [wsLink, nested] = elements(group);
   const e = dispatch(nested!, "click");
   expect(e.defaultPrevented).toBe(true);
   dispatch(wsLink!, "click");
-  dispatch(elements(scroll)[0]!, "click");
-  dispatch(elements(elements(scroll)[1]!)[1]!, "click");
+  dispatch(routeItems(scroll)[0]!, "click");
+  dispatch(elements(routeItems(scroll)[1]!)[1]!, "click");
   expect(log).toEqual(["go auth", `go ${SESSION} w1`, `go ${SESSION}`, "new"]);
 });
 
