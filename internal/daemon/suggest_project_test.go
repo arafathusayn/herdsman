@@ -291,7 +291,11 @@ func TestMergedPinsKeepTheStrongerSource(t *testing.T) {
 }
 
 func TestAnOrdinaryBoundFolderFindsTheProjectsContextRepo(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "account.db"), store.Writer, store.KindAccount)
+	state := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(state, "account.db"), store.Writer, store.KindAccount)
 	if err != nil {
 		t.Fatal(err)
 	}
