@@ -80,3 +80,19 @@ func TestVerbJSONCarriesTheSchemaVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigShellJSONGolden(t *testing.T) {
+	worktreeRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ZDOTDIR", "")
+	out, _, code := call(t, "config", "shell", "install", "bash", "--json")
+	want := `{"path":"` + home + `/.bashrc","schema":{"version":"1.0.0"},"shell":"bash"}` + "\n"
+	if code != 0 || out != want {
+		t.Fatalf("%d %q", code, out)
+	}
+	out, _, code = call(t, "config", "shell", "uninstall", "bash", "--json")
+	if want := `{"removed":true,"schema":{"version":"1.0.0"},"shell":"bash"}` + "\n"; code != 0 || out != want {
+		t.Fatalf("%d %q", code, out)
+	}
+}

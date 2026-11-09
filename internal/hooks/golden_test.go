@@ -11,7 +11,7 @@ import (
 )
 
 var goldenVariables = []string{
-	"base", "branch", "commit", "default_branch", "hook_name", "hook_type", "owner", "pr_number", "pr_url",
+	"args", "base", "branch", "commit", "compose", "default_branch", "hook_name", "hook_type", "owner", "pr_number", "pr_url",
 	"remote", "repo", "repo_path", "route", "short_commit", "target", "task", "type", "worktree_name", "worktree_path",
 }
 
@@ -21,18 +21,20 @@ func TestEveryHookRendersEveryVariable(t *testing.T) {
 	values := map[string]string{}
 	var template strings.Builder
 	for _, name := range goldenVariables {
-		if name != "hook_name" && name != "hook_type" {
+		if name != "hook_name" && name != "hook_type" && name != "compose" {
 			values[name] = "<" + name + ">"
 		}
 		fmt.Fprintf(&template, "%s={{ %s }}\n", name, name)
 	}
+	template.WriteString("port={{ port }}\nnamed_port={{ port \"db\" }}\ncustom={{ vars.key }}\n")
+	input := wtree.Vars{Values: values, Custom: map[string]string{"key": "<custom>"}, Port: 4100, Ports: map[string]int{"db": 4101}}
 	var got strings.Builder
 	for _, hook := range Types {
 		config, err := Parse(map[string]any{hook: map[string]any{"all": template.String()}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		plan, err := config.Plan(hook, wtree.Vars{Values: values})
+		plan, err := config.Plan(hook, input)
 		if err != nil {
 			t.Fatal(err)
 		}
