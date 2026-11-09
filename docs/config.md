@@ -188,3 +188,22 @@ Worktree controls where task worktrees live.
 | Key | Type | Description |
 | --- | --- | --- |
 | `path` | string | A template for the worktree's folder. |
+
+## [automations]
+
+Automations run an action when the daemon sees an event. The surface is experimental, so nothing fires until opted in, and each action also needs a person's approval of its exact checksum.
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `experimental` | boolean | Must be true for any action to fire. |
+
+### [automations.on.<key>]
+
+Actions keyed by event kind, such as "merge.landed".
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `run` | string | A shell template. Event values reach the shell as variables, never as text. |
+| `builtin` | string | A built-in action, such as "route pause". |
+| `plugin` | string | A plugin's action, written "<plugin> <action>". |
+| `timeout` | string | How long the action may run, such as "90s". |
