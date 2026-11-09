@@ -313,7 +313,7 @@ func (s *WorktreeService) cleanOne(ctx context.Context, r *repository, rec *ops.
 			_, err := r.runner(vars, r.main).Start("post-clean", after)
 			return err
 		},
-		Drain: func(trashed string) error { return wtree.StartDrain(r.common, trashed) },
+		Drain: func(trashed string) error { return startDrain(r.common, trashed) },
 	}
 	return wtree.Clean(ctx, deps, wtree.CleanRequest{
 		Common: r.common, Main: r.main, Task: row.Task, Branch: row.Branch, Path: row.Path, Head: row.Head, Default: r.dflt,
