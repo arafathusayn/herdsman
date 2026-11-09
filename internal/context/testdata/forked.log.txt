@@ -1,0 +1,6 @@
+2026-03-02
+  08:00:00Z  task.created  ledger-sync  maintainer  Opened the sync work.
+  08:05:00Z  task.started  invoice-fix  route-south  Began on invoices.
+  08:10:00Z  task.started  ledger-sync  route-north  Picked up the ledger.
+2026-03-03
+  10:30:00Z  merge.landed  -  maintainer  Both streams are in.

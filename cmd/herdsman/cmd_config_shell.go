@@ -10,6 +10,9 @@ import (
 	"github.com/arafathusayn/herdsman/internal/shell"
 )
 
+// shellSchemaVersion is the version of this command's JSON. It only grows.
+const shellSchemaVersion = "1.0.0"
+
 func printJSON(stdout, stderr io.Writer, value any) int {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -44,7 +47,7 @@ func runConfigShell(args []string, stdout, stderr io.Writer) int {
 			return fail(stderr, err)
 		}
 		if asJSON {
-			return printJSON(stdout, stderr, map[string]any{"shell": name, "path": path})
+			return printJSON(stdout, stderr, map[string]any{"schema": map[string]string{"version": shellSchemaVersion}, "shell": name, "path": path})
 		}
 		fmt.Fprintf(stdout, "installed in %s; open a new shell to use it\n", path)
 		return 0
@@ -54,7 +57,7 @@ func runConfigShell(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	if asJSON {
-		return printJSON(stdout, stderr, map[string]any{"shell": name, "removed": removed})
+		return printJSON(stdout, stderr, map[string]any{"schema": map[string]string{"version": shellSchemaVersion}, "shell": name, "removed": removed})
 	}
 	if removed {
 		fmt.Fprintf(stdout, "removed the %s integration\n", name)

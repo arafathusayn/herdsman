@@ -37,8 +37,9 @@ type listRow struct {
 }
 
 type listResult struct {
-	Rows       []listRow `json:"rows"`
-	Statusline string    `json:"statusline"`
+	Schema     json.RawMessage `json:"schema"`
+	Rows       []listRow       `json:"rows"`
+	Statusline string          `json:"statusline"`
 }
 
 type listRequest struct {
@@ -137,8 +138,8 @@ func runLs(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	switch {
-	case *line && *format == "json":
-		encoded, _ := json.Marshal(map[string]string{"statusline": result.Statusline})
+	case *line && (*format == "json" || *asJSON):
+		encoded, _ := json.Marshal(map[string]any{"schema": result.Schema, "statusline": result.Statusline})
 		fmt.Fprintln(stdout, string(encoded))
 	case *line:
 		fmt.Fprintln(stdout, result.Statusline)

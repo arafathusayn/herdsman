@@ -7,8 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -127,28 +129,48 @@ func (r *Reader) lsof(ctx context.Context, args ...string) ([]byte, error) {
 	return out, nil
 }
 
+// cwdArgs reads every process's working folder. This read walks every process
+// and is the slowest of a scan. On macOS -b and -l drop lookups it does not
+// need; on Linux -b would lose the folder, which comes from a readlink.
+func (r *Reader) cwdArgs() []string {
+	if r.GOOS == "darwin" {
+		return []string{"-b", "-l", "-d", "cwd", "-F", "pn"}
+	}
+	return []string{"-d", "cwd", "-F", "pn"}
+}
+
+// readSockets runs its three reads together: nothing depends on their order.
 func (r *Reader) readSockets(ctx context.Context, into *Snapshot) error {
-	raw, err := r.lsof(ctx, "-d", "cwd", "-F", "pn")
-	if err != nil {
-		return err
-	}
-	if into.Cwds, err = ParseLsofCwd(raw); err != nil {
-		return err
-	}
-	if len(into.Cwds) == 0 {
-		return errors.New("ledger: lsof listed no working folders")
-	}
-	if raw, err = r.lsof(ctx, "-iTCP", "-sTCP:LISTEN", "-P", "-n", "-F", "pn"); err != nil {
-		return err
-	}
-	if into.Listeners, err = ParseLsofListeners(raw); err != nil {
-		return err
-	}
-	if raw, err = r.lsof(ctx, "-iTCP", "-sTCP:ESTABLISHED", "-P", "-n", "-F", "pn"); err != nil {
-		return err
-	}
-	into.Connections, err = ParseLsofConnections(raw)
-	return err
+	var group sync.WaitGroup
+	var errs [3]error
+	group.Go(func() {
+		raw, err := r.lsof(ctx, r.cwdArgs()...)
+		if err != nil {
+			errs[0] = err
+			return
+		}
+		if into.Cwds, errs[0] = ParseLsofCwd(raw); errs[0] == nil && len(into.Cwds) == 0 {
+			errs[0] = errors.New("ledger: lsof listed no working folders")
+		}
+	})
+	group.Go(func() {
+		raw, err := r.lsof(ctx, "-iTCP", "-sTCP:LISTEN", "-P", "-n", "-F", "pn")
+		if err != nil {
+			errs[1] = err
+			return
+		}
+		into.Listeners, errs[1] = ParseLsofListeners(raw)
+	})
+	group.Go(func() {
+		raw, err := r.lsof(ctx, "-iTCP", "-sTCP:ESTABLISHED", "-P", "-n", "-F", "pn")
+		if err != nil {
+			errs[2] = err
+			return
+		}
+		into.Connections, errs[2] = ParseLsofConnections(raw)
+	})
+	group.Wait()
+	return errors.Join(errs[:]...)
 }
 
 // ancestors marks this process and every process above it as the pane's.
@@ -185,6 +207,34 @@ func (r *Reader) Read(ctx context.Context, base Snapshot) (Snapshot, error) {
 	if err := r.readContainers(ctx, &base); err != nil {
 		return Snapshot{}, err
 	}
+	return base, nil
+}
+
+// Survey fills base as Read does, with the process, socket and container reads
+// running together, for building a plan a person will look at. It gives up the
+// order Read keeps, so a stop must revalidate with Read. A row of a process
+// that left between the reads is dropped, which is what that order guarantees.
+func (r *Reader) Survey(ctx context.Context, base Snapshot) (Snapshot, error) {
+	var group sync.WaitGroup
+	var processes []Process
+	var commands map[int]string
+	var errs [3]error
+	group.Go(func() { processes, commands, errs[0] = r.readProcesses(ctx) })
+	group.Go(func() { errs[1] = r.readSockets(ctx, &base) })
+	group.Go(func() { errs[2] = r.readContainers(ctx, &base) })
+	group.Wait()
+	if err := errors.Join(errs[:]...); err != nil {
+		return Snapshot{}, err
+	}
+	base.Processes, base.Commands = processes, commands
+	base.Excluded = append(append([]Excluded(nil), base.Excluded...), r.ancestors(processes)...)
+	listed := make(map[int]bool, len(processes))
+	for _, process := range processes {
+		listed[process.Pid] = true
+	}
+	base.Cwds = slices.DeleteFunc(base.Cwds, func(entry CwdEntry) bool { return !listed[entry.Pid] })
+	base.Listeners = slices.DeleteFunc(base.Listeners, func(entry Listener) bool { return !listed[entry.Pid] })
+	base.Connections = slices.DeleteFunc(base.Connections, func(entry Connection) bool { return !listed[entry.Pid] })
 	return base, nil
 }
 

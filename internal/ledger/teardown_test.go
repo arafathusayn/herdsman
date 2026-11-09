@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -546,14 +547,18 @@ func TestStillAuthorizedWithoutALine(t *testing.T) {
 // --- the reader ---
 
 type fakeHost struct {
+	lock    sync.Mutex
 	replies map[string]func() ([]byte, error)
 	seen    []string
 }
 
 func (h *fakeHost) run(_ context.Context, name string, args ...string) ([]byte, error) {
 	key := name + " " + strings.Join(args, " ")
+	h.lock.Lock()
 	h.seen = append(h.seen, key)
-	if reply, ok := h.replies[key]; ok {
+	reply, ok := h.replies[key]
+	h.lock.Unlock()
+	if ok {
 		return reply()
 	}
 	return nil, fmt.Errorf("unexpected command %q", key)
@@ -583,7 +588,8 @@ const (
 	psEnvMac   = "ps -E -ax -ww -o " + psFormat
 	psEnvLin   = "ps axeww -o " + psFormat
 	psStates   = "ps -ax -o pid=,stat="
-	lsofCwd    = "lsof -w -d cwd -F pn"
+	lsofCwd    = "lsof -w -b -l -d cwd -F pn"
+	lsofCwdLin = "lsof -w -d cwd -F pn"
 	lsofListen = "lsof -w -iTCP -sTCP:LISTEN -P -n -F pn"
 	lsofEstab  = "lsof -w -iTCP -sTCP:ESTABLISHED -P -n -F pn"
 )
@@ -595,6 +601,7 @@ func validHost() *fakeHost {
 		psEnvLin:                               text("100 1 100 Mon Nov 2 10:00:00 2026 /bin/sleep 300 HERDSMAN_EXEC=x\n"),
 		psStates:                               text("100 S\n200 Z\n"),
 		lsofCwd:                                text("p100\nfcwd\nn/w\n"),
+		lsofCwdLin:                             text("p100\nfcwd\nn/w\n"),
 		lsofListen:                             text("p100\nf3\nn*:4100\n"),
 		lsofEstab:                              text("p100\nf4\nn127.0.0.1:4100->127.0.0.1:50000\n"),
 		"docker --version":                     text("Docker"),
@@ -631,6 +638,106 @@ func TestReadFillsTheSnapshot(t *testing.T) {
 	}
 	if h.seen[0] != psCommands || h.seen[1] != psEnvMac || h.seen[2] != psStates {
 		t.Fatalf("read order = %v", h.seen)
+	}
+}
+
+// meet makes the two commands answer only once both are running.
+func meet(t *testing.T, h *fakeHost, first, second string) {
+	t.Helper()
+	started := map[string]chan struct{}{first: make(chan struct{}), second: make(chan struct{})}
+	for key, other := range map[string]string{first: second, second: first} {
+		reply := h.replies[key]
+		h.replies[key] = func() ([]byte, error) {
+			close(started[key])
+			select {
+			case <-started[other]:
+				return reply()
+			case <-time.After(10 * time.Second):
+				return nil, fmt.Errorf("%s ran alone", key)
+			}
+		}
+	}
+}
+
+func TestSurveyFillsTheSnapshotLikeRead(t *testing.T) {
+	got, err := hostReader(validHost(), "darwin").Survey(context.Background(), Snapshot{Scope: Scope{Task: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := hostReader(validHost(), "darwin").Read(context.Background(), Snapshot{Scope: Scope{Task: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v\nwant %+v", got, want)
+	}
+}
+
+func TestSurveyRunsTheProcessAndSocketReadsTogether(t *testing.T) {
+	h := validHost()
+	meet(t, h, psCommands, lsofCwd)
+	if _, err := hostReader(h, "darwin").Survey(context.Background(), Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSocketReadsRunTogether(t *testing.T) {
+	h := validHost()
+	meet(t, h, lsofCwd, lsofListen)
+	if _, err := hostReader(h, "darwin").Read(context.Background(), Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSurveyKeepsTheProcessReadsInOrder(t *testing.T) {
+	h := validHost()
+	if _, err := hostReader(h, "darwin").Survey(context.Background(), Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	for _, key := range h.seen {
+		if strings.HasPrefix(key, "ps ") {
+			order = append(order, key)
+		}
+	}
+	if !slices.Equal(order, []string{psCommands, psEnvMac, psStates}) {
+		t.Fatalf("read order = %v", order)
+	}
+}
+
+// A process that left after lsof read it and before ps did would otherwise
+// show an open socket with no process, which the read order rules out.
+func TestSurveyDropsRowsOfAProcessPsDidNotList(t *testing.T) {
+	h := validHost()
+	h.replies[lsofCwd] = text("p100\nfcwd\nn/w\np999\nfcwd\nn/w\n")
+	h.replies[lsofListen] = text("p100\nf3\nn*:4100\np999\nf3\nn*:4101\n")
+	h.replies[lsofEstab] = text("p999\nf4\nn127.0.0.1:4100->127.0.0.1:50000\n")
+	got, err := hostReader(h, "darwin").Survey(context.Background(), Snapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Cwds) != 1 || got.Cwds[0].Pid != 100 || len(got.Listeners) != 1 || got.Listeners[0].Pid != 100 || len(got.Connections) != 0 {
+		t.Fatalf("sockets = %v %v %v", got.Cwds, got.Listeners, got.Connections)
+	}
+}
+
+func TestSurveyFailsOnAnyFailedRead(t *testing.T) {
+	for _, key := range []string{psCommands, psEnvMac, psStates, lsofCwd, lsofListen, lsofEstab, "docker ps -a -q --no-trunc"} {
+		h := validHost()
+		h.replies[key] = fails(errors.New("x"))
+		if _, err := hostReader(h, "darwin").Survey(context.Background(), Snapshot{}); err == nil {
+			t.Errorf("%s: no error", key)
+		}
+	}
+}
+
+func TestLinuxReadsWorkingFoldersWithoutTheNonBlockingFlag(t *testing.T) {
+	h := validHost()
+	if _, err := hostReader(h, "linux").Read(context.Background(), Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(h.seen, lsofCwdLin) || slices.Contains(h.seen, lsofCwd) {
+		t.Fatalf("seen = %v", h.seen)
 	}
 }
 

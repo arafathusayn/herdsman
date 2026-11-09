@@ -21,6 +21,7 @@ function watch(page: Page, errors: string[]): void {
 export async function appChecks(browser: Browser, mock: Mock, check: Check): Promise<void> {
   const errors: string[] = [];
   try {
+    await sdkPages(browser, mock, check, errors);
     await frameAndNavigation(browser, mock, check, errors);
     await keptAcrossRenders(browser, mock, check, errors);
     await dialogs(browser, mock, check, errors);
@@ -31,6 +32,88 @@ export async function appChecks(browser: Browser, mock: Mock, check: Check): Pro
     check("threw", false, e instanceof Error ? (e.stack ?? e.message) : String(e));
   }
   for (const e of errors) check("page error", false, e);
+}
+
+const sdkPageChecks: [id: string, text: string][] = [
+  ["projects", "alpha"],
+  ["tasks", "Write the docs"],
+  ["route", "waiting for a pair"],
+  ["suggestions", "A very useful linter"],
+  ["worktrees", "Queueing teardown"],
+  ["cost", "herdsman cost"],
+  ["traces", "herdsman trace"],
+  ["new-route", "Orchestrator launch command"],
+];
+
+/** Each page in its own right: read over RPC, usable on a phone, and to the recorded look. */
+async function sdkPages(browser: Browser, mock: Mock, check: Check, errors: string[]): Promise<void> {
+  const page = await open(browser, mock, errors, "/?page=projects");
+  await page.waitForFunction(() => document.querySelector(".page")?.textContent?.includes("alpha"), { timeout: 5000 });
+  check("sdk pages: one sidebar entry per page", (await page.$$(".sidebar .nav-page")).length === 7);
+
+  const asked: string[] = [];
+  page.on("request", (request) => asked.push(new URL(request.url()).pathname));
+  await page.click('.sidebar .nav-page[href="?page=tasks"]');
+  await page.waitForFunction(() => document.querySelector(".page")?.textContent?.includes("Write the docs"), {
+    timeout: 5000,
+  });
+  check("sdk pages: tasks are read over RPC", asked.includes("/rpc/herdsman.daemon.v1.TaskService/List"), asked.join());
+  const legacy = asked.filter((path) => path.startsWith("/api/") && path !== "/api/activity");
+  check("sdk pages: switching page uses no older endpoint", legacy.length === 0, legacy.join());
+
+  check("preferences: the theme switch is in the sidebar", (await page.$(".sidebar .theme-switch")) !== null);
+  check("preferences: the logo is in the top bar", (await page.$(".topbar .brand svg")) !== null);
+  await page.focus(".page-form select");
+  const focus = await page.$eval(".page-form select", (element) => {
+    const style = getComputedStyle(element);
+    const probe = document.createElement("i");
+    probe.style.color = "var(--accent)";
+    document.body.append(probe);
+    const accent = getComputedStyle(probe).color;
+    probe.remove();
+    return { outline: style.outlineStyle, shadow: style.boxShadow, border: style.borderTopColor, accent };
+  });
+  check(
+    "preferences: a focused field has no colored outline",
+    focus.outline === "none" && focus.shadow === "none" && focus.border !== focus.accent,
+    JSON.stringify(focus),
+  );
+  await page.close();
+
+  const phone = await browser.newPage();
+  await phone.setViewport({ width: 375, height: 800 });
+  watch(phone, errors);
+  for (const [id, text] of sdkPageChecks) {
+    await phone.goto(`${mock.base}/?page=${id}`, { waitUntil: "domcontentloaded" });
+    await phone.waitForFunction(
+      (want) => document.querySelector(".page")?.textContent?.includes(want),
+      { timeout: 5000 },
+      text,
+    );
+    const widths = await phone.evaluate(() => ({
+      page: document.documentElement.scrollWidth,
+      main: document.querySelector(".main")!.scrollWidth,
+      view: window.innerWidth,
+    }));
+    check(
+      `sdk pages: ${id} fits 375 px`,
+      widths.page <= widths.view && widths.main <= widths.view,
+      JSON.stringify(widths),
+    );
+  }
+  await phone.close();
+}
+
+/** The guided New route dialog, which the palette opens; the sidebar's button opens the page. */
+async function openGuidedNewRoute(page: Page): Promise<void> {
+  await page.click(".palette-trigger");
+  await page.waitForSelector("dialog.palette[open]", { timeout: 2000 });
+  await page.keyboard.type(">Route: New route");
+  await page.waitForFunction(
+    () => document.querySelector(".palette-row")?.textContent?.startsWith("Route: New route"),
+    { timeout: 2000 },
+  );
+  await page.keyboard.press("Enter");
 }
 
 async function open(browser: Browser, mock: Mock, errors: string[], path = "/"): Promise<Page> {
@@ -49,7 +132,7 @@ async function frameAndNavigation(browser: Browser, mock: Mock, check: Check, er
   const body = await page.evaluate(() => [...document.querySelector(".body")!.children].map((e) => e.className));
   check("body: sidebar, handle, scrim, main, panel host", body.length === 5, JSON.stringify(body));
   check("crumb", (await page.$eval(".crumb", (e) => e.textContent)) === "auth");
-  const navItems = await page.$$eval(".sidebar .nav-item", (es) => es.map((e) => e.textContent));
+  const navItems = await page.$$eval(".sidebar .nav-item:not(.nav-page)", (es) => es.map((e) => e.textContent));
   check("sidebar links", navItems.length === 4, JSON.stringify(navItems));
   const tabs = await page.$$eval(".tabs .tab", (es) => es.map((e) => e.textContent));
   check("tabs", tabs.length === 7, JSON.stringify(tabs));
@@ -112,7 +195,7 @@ async function frameAndNavigation(browser: Browser, mock: Mock, check: Check, er
   await sleep(100);
 
   // The session view.
-  await page.click(".sidebar .nav-item"); // All agents
+  await page.click(".sidebar .nav-item:not(.nav-page)"); // All agents
   await page.waitForSelector(".board .group", { timeout: 2000 });
   check("session cards", (await page.$$eval(".board .cards .card", (es) => es.length)) === 2);
   check("session crumb", (await page.$eval(".crumb", (e) => e.textContent)) === "All agents");
@@ -130,7 +213,7 @@ async function frameAndNavigation(browser: Browser, mock: Mock, check: Check, er
   await page.waitForSelector("dialog.palette[open]", { timeout: 2000 });
   const focused = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
   check("palette focuses its input", focused === "Command palette", String(focused));
-  await page.keyboard.type(">togg");
+  await page.keyboard.type(">toggle");
   await sleep(50);
   const rows = await page.$$eval(".palette-row", (es) => es.map((e) => e.textContent));
   check("palette filters", rows.length > 0 && rows.every((r) => /togg/i.test(r ?? "")), JSON.stringify(rows));
@@ -241,7 +324,7 @@ async function dialogs(browser: Browser, mock: Mock, check: Check, errors: strin
   // New route: "Use the recommended setup?" comes first, with the setup
   // in one summary (A32).
   mock.catalog = false;
-  await page.click(".nav-new");
+  await openGuidedNewRoute(page);
   await page.waitForSelector("dialog.new-route[open] [name=use-recommended]", { timeout: 2000 });
   const first = await page.$eval("dialog.new-route form", (f) => ({
     question: f.querySelector("p.muted")?.textContent,
@@ -265,7 +348,7 @@ async function dialogs(browser: Browser, mock: Mock, check: Check, errors: strin
 
   // With one, the form opens with focus on its first empty field.
   mock.catalog = true;
-  await page.click(".nav-new");
+  await openGuidedNewRoute(page);
   await page.waitForSelector("dialog.new-route[open] [name=use-recommended]", { timeout: 2000 });
   await page.click("dialog.new-route [name=use-recommended]");
   await page.waitForSelector("dialog.new-route[open] [name=start]", { timeout: 2000 });
@@ -319,7 +402,7 @@ async function dialogs(browser: Browser, mock: Mock, check: Check, errors: strin
     { role: "orchestrator", runner: "herdr", harness: "claude", model: "fable", effort: "high", route: "", at: "" },
     { role: "adjutant", runner: "herdr", harness: "claude", model: "fable", effort: "low", route: "", at: "" },
   ];
-  await page.click(".nav-new");
+  await openGuidedNewRoute(page);
   await page.waitForSelector("dialog.new-route[open] [name=use-recommended]", { timeout: 2000 });
   await page.click("dialog.new-route [name=use-recommended]");
   await page.waitForSelector("dialog.new-route[open] [name=use-previous]", { timeout: 2000 });

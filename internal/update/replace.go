@@ -40,6 +40,41 @@ func managed(path string) bool {
 	})
 }
 
+// candidateFile is the part of *os.File that writing a new binary uses.
+type candidateFile interface {
+	Write([]byte) (int, error)
+	Chmod(os.FileMode) error
+	Sync() error
+	Close() error
+	Name() string
+}
+
+// dirSyncer is the part of *os.File that makes a rename durable.
+type dirSyncer interface {
+	Sync() error
+	Close() error
+}
+
+// These are replaced by tests: the failures they stand for cannot be caused
+// on demand on a healthy disk.
+var (
+	statFile   = os.Stat
+	createTemp = func(dir, pattern string) (candidateFile, error) {
+		f, err := os.CreateTemp(dir, pattern)
+		if err != nil {
+			return nil, err
+		}
+		return f, nil
+	}
+	openDir = func(dir string) (dirSyncer, error) {
+		f, err := os.Open(dir)
+		if err != nil {
+			return nil, err
+		}
+		return f, nil
+	}
+)
+
 // Replace installs binary over the file at exe, following links to the real
 // file. The candidate is written beside it and must report version before an
 // atomic rename, so a failure at any step leaves the old binary in place.
@@ -51,11 +86,11 @@ func Replace(ctx context.Context, exe string, binary []byte, version string, smo
 	if managed(target) {
 		return fmt.Errorf("%w (%s): upgrade it there, for example with brew upgrade --cask herdsman", ErrManaged, target)
 	}
-	st, err := os.Stat(target)
+	st, err := statFile(target)
 	if err != nil {
 		return fmt.Errorf("find the running binary: %w", err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(target), ".herdsman-update-*")
+	tmp, err := createTemp(filepath.Dir(target), ".herdsman-update-*")
 	if err != nil {
 		return fmt.Errorf("write beside the binary: %w", err)
 	}
@@ -98,7 +133,7 @@ func reportsVersion(out, version string) bool {
 // syncDir makes the rename durable. Some filesystems refuse to sync a folder;
 // the rename has happened by then, so only a real I/O error counts.
 func syncDir(dir string) error {
-	d, err := os.Open(dir)
+	d, err := openDir(dir)
 	if err != nil {
 		return nil
 	}
