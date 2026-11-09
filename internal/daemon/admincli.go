@@ -57,6 +57,7 @@ const DaemonHelp = `usage: herdsman daemon [--json] [--private-home <folder>] <c
   pair approve <route> <sha256> [--interaction <ask reference> [--asked-by <adjutant>]] [--credential <name>=identity|file|keychain]...
   pair retire <route> <name> <sha256>
   credential revoke <route> <name>
+  automations list | approve <event> | dry-run <event> [--project <path>] [--value <name=value>]...   experimental: an action runs only once a person approves its checksum
 The private home is --private-home, else HERDSMAN_STATE_DIR, else HERDSMAN_PRIVATE_HOME, else ~/.herdsman-private.
 
 exit codes:
@@ -186,6 +187,8 @@ func RunDaemon(a *AdminEnv, args []string) int {
 	}
 	lockHome := dir.LockHome(sup.Home)
 	switch cmd {
+	case "automations":
+		return a.automationsCmd(rest)
 	case "run":
 		inspect := len(rest) == 1 && rest[0] == "--inspect"
 		if len(rest) != 0 && !inspect {

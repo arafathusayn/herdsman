@@ -122,3 +122,15 @@ func TestLoadProjectRefusesAnUnreadableFile(t *testing.T) {
 		t.Fatal("accepted")
 	}
 }
+
+func TestApprovedAnswersForTheRulesCurrentChecksum(t *testing.T) {
+	rule := Rule{Event: "e", Kind: KindShell, Body: "true"}
+	r := newRig(t)
+	if ok, err := r.engine.Approvals.Approved("proj", rule); ok || err != nil {
+		t.Fatalf("%v %v", ok, err)
+	}
+	r.approve(t, rule)
+	if ok, err := r.engine.Approvals.Approved("proj", rule); !ok || err != nil {
+		t.Fatalf("%v %v", ok, err)
+	}
+}

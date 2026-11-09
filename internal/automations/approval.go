@@ -58,6 +58,11 @@ func (a *Approvals) Approve(project string, rule Rule) error {
 	return a.store.Approve(project, Checksum(rule))
 }
 
+// Approved says whether the rule's current checksum is accepted for the project.
+func (a *Approvals) Approved(project string, rule Rule) (bool, error) {
+	return a.approved(project, Checksum(rule))
+}
+
 // approved answers from the file on every call, so a revoked approval stops
 // the next event. No project is never approved.
 func (a *Approvals) approved(project, checksum string) (bool, error) {
