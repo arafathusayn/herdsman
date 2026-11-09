@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 const downHelp = `usage: herdsman down [<task>|--merged|--route <folder>|--all] [-y] [--force]
@@ -28,14 +30,8 @@ func init() {
 func teardownPlansFor(dir string, tasks []string) ([]json.RawMessage, error) {
 	var plans []json.RawMessage
 	for _, task := range tasks {
-		raw, err := callWorktree("TeardownPlan", map[string]any{"dir": dir, "selector": task})
+		planned, err := fetchTeardownPlans(&daemonv1.TeardownPlansRequest{Dir: dir, Selector: task})
 		if err != nil {
-			return nil, err
-		}
-		var planned struct {
-			Plans []json.RawMessage `json:"plans"`
-		}
-		if err := json.Unmarshal(raw, &planned); err != nil {
 			return nil, err
 		}
 		plans = append(plans, planned.Plans...)
@@ -46,20 +42,13 @@ func teardownPlansFor(dir string, tasks []string) ([]json.RawMessage, error) {
 // stopHalf runs the teardown half and says whether the clean half may start.
 // Its outcomes are printed only in text mode; JSON carries them in the report.
 func stopHalf(dir string, plans []json.RawMessage, grace int, include, asJSON bool, stdout, stderr io.Writer) ([]teardownReport, bool) {
-	raw, err := callWorktree("Teardown", map[string]any{"dir": dir, "plans": plans, "grace_seconds": grace, "include_associated": include})
+	reports, err := runTeardownPlans(dir, plans, grace, include)
 	if err != nil {
 		fail(stderr, err)
 		return nil, false
 	}
-	var done struct {
-		Reports []teardownReport `json:"reports"`
-	}
-	if err := json.Unmarshal(raw, &done); err != nil {
-		fail(stderr, err)
-		return nil, false
-	}
 	ok := true
-	for _, report := range done.Reports {
+	for _, report := range reports {
 		for _, outcome := range report.Outcomes {
 			if !asJSON {
 				fmt.Fprintf(stdout, "%s %s %s: %s\n", report.Task, outcome.Kind, outcome.ID, outcome.Result)
@@ -73,7 +62,7 @@ func stopHalf(dir string, plans []json.RawMessage, grace int, include, asJSON bo
 			ok = false
 		}
 	}
-	return done.Reports, ok
+	return reports, ok
 }
 
 // writeDownJSON emits one document holding both halves.
