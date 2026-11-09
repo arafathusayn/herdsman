@@ -22,6 +22,14 @@ service ProjectService {
   rpc Bind(ProjectServiceBindRequest) returns (ProjectServiceBindResponse);
   // Unbind releases a folder.
   rpc Unbind(ProjectServiceUnbindRequest) returns (ProjectServiceUnbindResponse);
+  // ContextInit lays out the project's knowledge and history folders.
+  rpc ContextInit(ProjectServiceContextInitRequest) returns (ProjectServiceContextInitResponse);
+  // ContextCheck validates the project's history.
+  rpc ContextCheck(ProjectServiceContextCheckRequest) returns (ProjectServiceContextCheckResponse);
+  // ContextNote adds a note to the project's history.
+  rpc ContextNote(ProjectServiceContextNoteRequest) returns (ProjectServiceContextNoteResponse);
+  // Log reads the project's history in order.
+  rpc Log(ProjectServiceLogRequest) returns (ProjectServiceLogResponse);
 }
 
 // Scope is where a caller stands when a reference needs resolving.
@@ -98,4 +106,90 @@ message ProjectServiceUnbindRequest {
 
 message ProjectServiceUnbindResponse {
   herdsman.core.v1.Project project = 1;
+}
+
+// ContextEvent is one entry of a project's history.
+message ContextEvent {
+  string id = 1;
+  string kind = 2;
+  // Milliseconds since the Unix epoch.
+  int64 at = 3;
+  string actor = 4;
+  string task = 5;
+  repeated string repos = 6;
+  // Empty for an event that starts the history.
+  repeated string parents = 7;
+  // The commit of each repository, by repository name.
+  map<string, string> commits = 8;
+  // Header keys this version of the contract does not name, as written.
+  map<string, string> extra = 9;
+  string body = 10;
+}
+
+// ContextProblem is one thing wrong with one event file.
+message ContextProblem {
+  string file = 1;
+  // "malformed", "missing-parent", "cycle" or "not-monotone".
+  string code = 2;
+  // For people; the wording may change.
+  string detail = 3;
+}
+
+message ProjectServiceContextInitRequest {
+  Scope scope = 1;
+}
+
+message ProjectServiceContextInitResponse {
+  // The absolute folder that now holds the layout.
+  string folder = 1;
+}
+
+message ProjectServiceContextCheckRequest {
+  Scope scope = 1;
+}
+
+message ProjectServiceContextCheckResponse {
+  // How many event files parsed.
+  int32 events = 1;
+  // Empty when the history is sound.
+  repeated ContextProblem problems = 2;
+}
+
+message ProjectServiceContextNoteRequest {
+  Scope scope = 1;
+  // Who is writing: a person or an agent.
+  string actor = 2;
+  string task = 3;
+  repeated string repos = 4;
+  // Empty joins every open branch of the history.
+  repeated string parents = 5;
+  string body = 6;
+}
+
+message ProjectServiceContextNoteResponse {
+  ContextEvent event = 1;
+}
+
+message ProjectServiceLogRequest {
+  Scope scope = 1;
+  // Milliseconds since the Unix epoch; 0 reads from the start.
+  int64 since = 2;
+  // Only this task's events, when set.
+  string task = 3;
+  // Render the response's text as JSON instead of a list for people.
+  bool json = 4;
+  // Where to go on: the next_page_token of the page before. Empty for the
+  // first page.
+  string page_token = 5;
+}
+
+message ProjectServiceLogResponse {
+  // A piece of the history's rendering, parents before children, then by time:
+  // a list for people grouped by UTC date, or JSON when the request asked for
+  // it. The pieces of all the pages, joined, are the whole rendering.
+  string text = 1;
+  // Pass this to read the next page. Empty on the last page. When the history
+  // changes between two pages the call fails with aborted, and the read starts
+  // again from the first page.
+  string next_page_token = 2;
 }

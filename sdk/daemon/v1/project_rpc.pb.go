@@ -34,6 +34,14 @@ type ProjectService interface {
 	Bind(context.Context, *ProjectServiceBindRequest) (*ProjectServiceBindResponse, error)
 	// Unbind releases a folder.
 	Unbind(context.Context, *ProjectServiceUnbindRequest) (*ProjectServiceUnbindResponse, error)
+	// ContextInit lays out the project's knowledge and history folders.
+	ContextInit(context.Context, *ProjectServiceContextInitRequest) (*ProjectServiceContextInitResponse, error)
+	// ContextCheck validates the project's history.
+	ContextCheck(context.Context, *ProjectServiceContextCheckRequest) (*ProjectServiceContextCheckResponse, error)
+	// ContextNote adds a note to the project's history.
+	ContextNote(context.Context, *ProjectServiceContextNoteRequest) (*ProjectServiceContextNoteResponse, error)
+	// Log reads the project's history in order.
+	Log(context.Context, *ProjectServiceLogRequest) (*ProjectServiceLogResponse, error)
 }
 
 // NewProjectServiceHandler serves impl over HTTP with the full binding. Mount it
@@ -47,6 +55,10 @@ func NewProjectServiceHandler(impl ProjectService) http.Handler {
 		rpc.Unary(ProjectServiceName, "Delete", impl.Delete),
 		rpc.Unary(ProjectServiceName, "Bind", impl.Bind),
 		rpc.Unary(ProjectServiceName, "Unbind", impl.Unbind),
+		rpc.Unary(ProjectServiceName, "ContextInit", impl.ContextInit),
+		rpc.Unary(ProjectServiceName, "ContextCheck", impl.ContextCheck),
+		rpc.Unary(ProjectServiceName, "ContextNote", impl.ContextNote),
+		rpc.Unary(ProjectServiceName, "Log", impl.Log),
 	)
 }
 
@@ -111,6 +123,38 @@ func (c *projectServiceClient) Bind(ctx context.Context, req *ProjectServiceBind
 func (c *projectServiceClient) Unbind(ctx context.Context, req *ProjectServiceUnbindRequest) (*ProjectServiceUnbindResponse, error) {
 	res := new(ProjectServiceUnbindResponse)
 	if err := callProjectService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.ProjectService/Unbind", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *projectServiceClient) ContextInit(ctx context.Context, req *ProjectServiceContextInitRequest) (*ProjectServiceContextInitResponse, error) {
+	res := new(ProjectServiceContextInitResponse)
+	if err := callProjectService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.ProjectService/ContextInit", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *projectServiceClient) ContextCheck(ctx context.Context, req *ProjectServiceContextCheckRequest) (*ProjectServiceContextCheckResponse, error) {
+	res := new(ProjectServiceContextCheckResponse)
+	if err := callProjectService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.ProjectService/ContextCheck", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *projectServiceClient) ContextNote(ctx context.Context, req *ProjectServiceContextNoteRequest) (*ProjectServiceContextNoteResponse, error) {
+	res := new(ProjectServiceContextNoteResponse)
+	if err := callProjectService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.ProjectService/ContextNote", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *projectServiceClient) Log(ctx context.Context, req *ProjectServiceLogRequest) (*ProjectServiceLogResponse, error) {
+	res := new(ProjectServiceLogResponse)
+	if err := callProjectService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.ProjectService/Log", req, res); err != nil {
 		return nil, err
 	}
 	return res, nil
