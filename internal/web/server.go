@@ -29,6 +29,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/secrets"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
 //go:embed all:dist
@@ -85,6 +86,12 @@ type Config struct {
 	// changes something, not the app's own polling) is recorded for
 	// `herdsman afk` (A33); "" records nothing.
 	ActivityFile string
+	// DaemonSocket is the daemon's Unix socket to forward RPC calls to; ""
+	// turns the gateway off.
+	DaemonSocket string
+	// Origins are the exact origins besides this server's own that may call
+	// the gateway.
+	Origins []string
 }
 
 // NewToken returns a random token for one run of the server.
@@ -153,6 +160,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/routes/github", s.auth(http.HandlerFunc(s.githubAccess)))
 	mux.Handle("GET /api/messages", s.auth(http.HandlerFunc(s.messages)))
 	mux.Handle("GET /api/messages/{box}/{id}", s.auth(http.HandlerFunc(s.messageBody)))
+	if s.cfg.DaemonSocket != "" {
+		gateway := newGateway(s.cfg.DaemonSocket, s.cfg.Origins, s.devices, s.recordActivity)
+		mux.Handle("POST "+rpc.BasePath, gateway)
+		mux.Handle("GET "+rpc.BasePath, gateway) // the stream's upgrade
+	}
 	mux.HandleFunc("GET /", s.static)
 	return s.redact(s.guard(mux))
 }
@@ -181,7 +193,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		}
 		if r.Method == http.MethodOptions {
 			h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-None-Match, X-Herdsman-Token, X-Herdsman-Pair")
+			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-None-Match, X-Herdsman-Token, X-Herdsman-Pair, "+rpc.HeaderProtocolVersion+", "+rpc.HeaderTimeout)
 			h.Set("Access-Control-Max-Age", "600")
 			// A public page reaching a loopback or private address (Chrome's
 			// private network access) must be let through by the server.
@@ -469,10 +481,14 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	if strings.HasSuffix(p, ".html") {
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' http: https:; frame-src http: https:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+		w.Header().Set("Content-Security-Policy", appPolicy)
 	}
 	http.ServeFileFS(w, r, s.assets, p)
 }
+
+// appPolicy is the app page's content security policy. The app may reach
+// another paired server, by HTTP and by its event stream.
+const appPolicy = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' http: https: ws: wss:; frame-src http: https:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")

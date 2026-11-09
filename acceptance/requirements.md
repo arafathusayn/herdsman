@@ -1,12 +1,23 @@
 # Platform requirements of the acceptance suite
 
-What a machine must provide for `make acceptance` to mean anything. Each gate names the entries it depends on, and skips with a named reason when an entry is missing, never silently passes.
+What each platform promises to `make acceptance`. The suite reads the table below when it starts.
 
-| Capability | Needed by | How it is checked |
-| --- | --- | --- |
-| `ps` with `-o lstart=` and the environment column (`-E` on macOS, `e` on Linux) | `teardown` | The gate reads its own child's start time and argv |
-| `lsof` with `-d cwd` and `-iTCP` state filters | `teardown` | The gate sees its own child's listener and connection |
-| Signals to a process and a process group of the current user | `teardown` | The gate stops children it started |
-| A container engine (`docker`, or `podman`) running with `compose` | `teardown`, the container gate only | Skipped when `docker info` fails |
-| `git` with `clone --reference --dissociate` and `maintenance run` | `restricted` | The gate clones and runs maintenance on its own repository |
-| `codex` with its `sandbox` command | `restricted`, the folder sandbox gate only | Skipped by name when `codex` is not on the path |
+- `provided`: the suite probes the capability before any gate that needs it. A failed probe fails the run.
+- `absent`: gates that need the capability are skipped and reported by name, with the capability that caused it.
+- A capability with no row is an error for any gate that needs it. No other condition may skip a gate, and a test that skips itself fails the run.
+
+| Capability | darwin | linux | How it is checked |
+| --- | --- | --- | --- |
+| `ps` | provided | provided | Reads this process's start time, then its environment column (`-E` on macOS, `e` on Linux) |
+| `lsof` | provided | provided | Lists this process's working directory |
+| `signals` | provided | provided | Sends signal 0 to this process |
+| `docker` | absent | provided | `docker info` answers and the local image `alpine:3` exists; the gate never pulls |
+| `btrfs-loopback` | absent | provided | `mkfs.btrfs` and `losetup` exist, and the user is root or has passwordless `sudo` |
+| `keychain` | provided | absent | `security list-keychains` answers on macOS; `secret-tool` exists on Linux |
+| `pty` | provided | provided | `/dev/ptmx` opens |
+
+Docker is declared absent on macOS because the hosted macOS runners have no container engine.
+
+Gates run with a scratch `HOME` and no login tokens. Stand-ins for `gh`, `claude` and `codex` come first on `PATH` and record any call, and a recorded call fails the gate, so a result cannot depend on what the machine has installed or logged in to.
+
+The separate package `acceptance/restricted` needs `git` with `clone --reference --dissociate` and `maintenance run`. Its folder sandbox gate also needs `codex` with its `sandbox` command, and is skipped by name when `codex` is not on the path.

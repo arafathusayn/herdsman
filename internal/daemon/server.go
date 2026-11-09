@@ -20,7 +20,10 @@ import (
 const (
 	maxBody         = 160 << 10
 	maxStreamsParty = 4
-	maxStreamsAll   = 256
+	// Event streams and their long polls share one key, so they get their own
+	// limit: half of all streams, which leaves the rest to the parties.
+	maxStreamsEvents = 128
+	maxStreamsAll    = 256
 )
 
 // handler is the daemon's HTTP API: the RPC path and nothing else.
@@ -55,8 +58,11 @@ func (d *Daemon) limit(next http.Handler) http.Handler {
 type releaseKey struct{}
 
 // releaseSlot gives a stream's semaphore slot back.
-func releaseSlot(r *http.Request) {
-	if f, ok := r.Context().Value(releaseKey{}).(func()); ok {
+func releaseSlot(r *http.Request) { releaseContext(r.Context()) }
+
+// releaseContext gives back the semaphore slot of the request behind ctx.
+func releaseContext(ctx context.Context) {
+	if f, ok := ctx.Value(releaseKey{}).(func()); ok {
 		f()
 	}
 }
@@ -299,6 +305,7 @@ func (d *Daemon) removeRoute(name string) *APIError {
 	delete(d.routes, name)
 	delete(d.held, name)
 	d.mu.Unlock()
+	d.view.remove(name)
 	removed := func() *Event { return &Event{Type: "route_removed", Time: d.now().Unix(), Route: name} }
 	if rt != nil {
 		// After this turn the route sends nothing more and refuses every
@@ -755,7 +762,11 @@ func (d *Daemon) streamSlot(key string) (func(), *APIError) {
 	if d.upgrading {
 		return nil, Errf("busy", "the daemon is stopping; reconnect")
 	}
-	if d.streams[key] >= maxStreamsParty || d.streams["all"] >= maxStreamsAll {
+	limit := maxStreamsParty
+	if key == eventSlotKey {
+		limit = maxStreamsEvents
+	}
+	if d.streams[key] >= limit || d.streams["all"] >= maxStreamsAll {
 		return nil, Errf("busy", "too many open streams")
 	}
 	d.streams[key]++
