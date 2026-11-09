@@ -54,6 +54,9 @@ func TestAStartupFolderThatCannotBeMadeIsReported(t *testing.T) {
 }
 
 func TestAStartupFolderThatCannotBeWrittenIsReported(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores folder permissions")
+	}
 	home := t.TempDir()
 	os.Chmod(home, 0o500)
 	defer os.Chmod(home, 0o700)

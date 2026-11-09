@@ -42,8 +42,18 @@ func TestApprovalsAcceptAnEmptyDocument(t *testing.T) {
 }
 
 func TestApproveReportsWhereItCannotWrite(t *testing.T) {
-	if err := (&Approvals{Path: blocked(t)}).Approve("p", []string{"x"}); err == nil || !strings.Contains(err.Error(), "folder") {
+	// A dangling link reads as missing on every platform, and cannot be made
+	// into a folder. A path through a file fails at the read on Linux instead.
+	base := t.TempDir()
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(filepath.Join(base, "gone"), link); err != nil {
 		t.Fatal(err)
+	}
+	if err := (&Approvals{Path: filepath.Join(link, "a.json")}).Approve("p", []string{"x"}); err == nil || !strings.Contains(err.Error(), "folder") {
+		t.Fatal(err)
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores folder permissions")
 	}
 	dir := t.TempDir()
 	os.Chmod(dir, 0o500)
