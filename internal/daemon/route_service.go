@@ -13,7 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/project"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/route/routechan"
 	"github.com/arafathusayn/herdsman/internal/sys"
@@ -28,9 +30,13 @@ type routeService struct {
 	d *Daemon
 }
 
-// operationEffects adds the effects of a route's start to the configured ones.
-func (d *Daemon) operationEffects() map[string]ops.Effect {
+// operationEffects adds the effects of a route's start and of the project
+// records to the configured ones.
+func (d *Daemon) operationEffects(db store.Conn) map[string]ops.Effect {
 	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run})
+	for name, effect := range project.Effects(db) {
+		effects[name] = effect
+	}
 	for name, effect := range d.cfg.Effects {
 		effects[name] = effect
 	}

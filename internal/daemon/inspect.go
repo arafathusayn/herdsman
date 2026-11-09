@@ -31,8 +31,9 @@ func (d *Daemon) openOps() error {
 		return fmt.Errorf("account database: %w", err)
 	}
 	d.mu.Lock()
-	d.acctDB = c
-	d.ops = ops.NewEngine(c, ops.Options{Effects: d.operationEffects(), Checks: d.cfg.Checks, Now: d.cfg.Now})
+	shared := newSerialConn(c)
+	d.acctDB = shared
+	d.ops = ops.NewEngine(shared, ops.Options{Effects: d.operationEffects(shared), Checks: d.cfg.Checks, Now: d.cfg.Now})
 	d.mu.Unlock()
 	return nil
 }

@@ -11,6 +11,8 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	m := &messageService{d: d}
 	routes := &routeService{d: d}
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
+	records := &recordsRPC{d: d}
+	projects, tasks := projectRPC{records}, taskRPC{records}
 	name := daemonv1.MessageServiceName
 	return []rpc.Procedure{
 		rpc.Unary(name, "Hello", m.Hello),
@@ -43,6 +45,19 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(daemonv1.RouteServiceName, "Up", routes.Up),
 		rpc.Unary(daemonv1.RouteServiceName, "Get", routes.Get),
 		rpc.Unary(daemonv1.RouteServiceName, "List", routes.List),
+		rpc.Unary(daemonv1.ProjectServiceName, "Create", projects.Create),
+		rpc.Unary(daemonv1.ProjectServiceName, "Get", projects.Get),
+		rpc.Unary(daemonv1.ProjectServiceName, "List", projects.List),
+		rpc.Unary(daemonv1.ProjectServiceName, "Update", projects.Update),
+		rpc.Unary(daemonv1.ProjectServiceName, "Delete", projects.Delete),
+		rpc.Unary(daemonv1.ProjectServiceName, "Bind", projects.Bind),
+		rpc.Unary(daemonv1.ProjectServiceName, "Unbind", projects.Unbind),
+		rpc.Unary(daemonv1.TaskServiceName, "Create", tasks.Create),
+		rpc.Unary(daemonv1.TaskServiceName, "Get", tasks.Get),
+		rpc.Unary(daemonv1.TaskServiceName, "List", tasks.List),
+		rpc.Unary(daemonv1.TaskServiceName, "Update", tasks.Update),
+		rpc.Unary(daemonv1.TaskServiceName, "Delete", tasks.Delete),
+		rpc.Unary(daemonv1.TaskServiceName, "Link", tasks.Link),
 		rpc.Unary(suggestv1.SuggestServiceName, "Search", suggestions.Search),
 		rpc.Unary(suggestv1.SuggestServiceName, "Get", suggestions.Get),
 		rpc.Unary(suggestv1.SuggestServiceName, "Add", suggestions.Add),
