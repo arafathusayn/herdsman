@@ -66,7 +66,9 @@ type Execution struct {
 	Run  Runner
 	// Engine is the container tool; only needed to stop containers.
 	Engine string
-	// Compose is the task's compose project, stopped as one when wholly its own.
+	// Compose is the task's compose project. When it is wholly the task's own,
+	// its containers are stopped in one call, by id: compose would load whatever
+	// definition it finds where this process happens to run.
 	Compose string
 	// IncludeAssociated also stops the associated lines a person accepted.
 	IncludeAssociated bool
@@ -285,7 +287,7 @@ func (e *Execution) containerTargets() []Line {
 }
 
 // composeOwned reports a project all of whose live containers are targets, so
-// that stopping it by name stops nothing else.
+// that stopping them together leaves none of it running.
 func (e *Execution) composeOwned(check *revalidation, targets []Line) bool {
 	if e.Compose == "" {
 		return false
@@ -305,15 +307,15 @@ func (e *Execution) composeOwned(check *revalidation, targets []Line) bool {
 	return members > 0
 }
 
-// inProject reports a target the compose project's stop reached.
+// inProject reports a target that belongs to the task's compose project.
 func (e *Execution) inProject(check *revalidation, target Line) bool {
 	return slices.ContainsFunc(check.snapshot.Containers, func(c Container) bool {
 		return c.ID == target.ID && c.LabelsExact && c.Labels[LabelComposeProject] == e.Compose
 	})
 }
 
-// engineStop stops containers through the tool. The verbs are stop only:
-// neither down nor rm is ever run, so volumes and networks stay.
+// engineStop stops containers through the tool. The verb is stop only: neither
+// down nor rm is ever run, so volumes and networks stay.
 func (e *Execution) engineStop(ctx context.Context, args ...string) error {
 	if _, err := e.Run(ctx, e.Engine, args...); err != nil {
 		return fmt.Errorf("ledger: %s %v: %w", e.Engine, args, err)
@@ -343,7 +345,11 @@ func (e *Execution) stopContainers(ctx context.Context) ([]Outcome, error) {
 				others = append(others, target)
 			}
 		}
-		err := e.engineStop(ctx, "compose", "-p", e.Compose, "stop")
+		args := []string{"stop"}
+		for _, target := range members {
+			args = append(args, target.ID)
+		}
+		err := e.engineStop(ctx, args...)
 		for _, target := range members {
 			e.Log.action(target, 0, 0, err)
 		}

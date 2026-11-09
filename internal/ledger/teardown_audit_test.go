@@ -204,3 +204,20 @@ func TestAnUnrecognisedFailureHasNoExitStatus(t *testing.T) {
 		t.Fatalf("exitStatus = %d", got)
 	}
 }
+
+// A project's own compose file is what `compose -p` would load from wherever
+// the command runs, so a wholly owned project is stopped by its container ids.
+func TestAnOwnedProjectIsStoppedByItsIDsInOneCall(t *testing.T) {
+	m := newMachine()
+	m.snapshot.Containers = []Container{container("c1", "running", "p", "/w"), container("c2", "running", "p", "/w")}
+	recordContainer(&m.snapshot, "c1")
+	recordContainer(&m.snapshot, "c2")
+	x := &engine{}
+	outcomes, err := containerExecution(m, x, "p").Execute(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(x.calls, []string{"docker stop c1 c2"}) || len(outcomes) != 2 {
+		t.Fatalf("calls = %v, outcomes = %v", x.calls, outcomes)
+	}
+}
