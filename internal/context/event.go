@@ -281,7 +281,7 @@ func formatEvent(e Event) []byte {
 	b.WriteString(fence)
 	line(keyID, e.ID)
 	line(keyKind, e.Kind)
-	line(keyAt, e.At.UTC().Format(time.RFC3339))
+	line(keyAt, e.At.UTC().Format(time.RFC3339Nano))
 	line(keyActor, quote(e.Actor))
 	if e.Task != "" {
 		line(keyTask, quote(e.Task))

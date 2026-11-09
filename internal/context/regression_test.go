@@ -33,6 +33,24 @@ func TestAppendPreservesCheckedActorClock(t *testing.T) {
 	}
 }
 
+// A fraction of a second in the actor's latest time must survive being written,
+// or the new event would be earlier than the one it follows.
+func TestAppendPreservesFractionalActorClock(t *testing.T) {
+	dir := newRepo(t)
+	old := newULID(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	put(t, dir, old+eventExt, event(old, "someone", "2030-01-01T00:00:00.123456Z", ""))
+	if _, err := Append(dir, Input{Kind: KindNote, Actor: "someone", Body: "next", Now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Check(dir)
+	if err != nil || len(report.Problems) != 0 {
+		t.Fatalf("after append: %v, %v", codes(report), err)
+	}
+	if _, err := Log(dir, Query{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Two clones behind the same shared event must not choose the same id, or
 // their histories would not merge.
 func TestClonesDoNotReuseULID(t *testing.T) {
