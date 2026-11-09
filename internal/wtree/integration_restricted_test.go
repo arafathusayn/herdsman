@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/daemon"
+	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 	"github.com/arafathusayn/herdsman/internal/landing/ghtest"
 )
 
@@ -217,5 +218,27 @@ func TestLaunchLineStartsTheAgentConfined(t *testing.T) {
 		`sandbox_workspace_write.writable_roots=["` + filepath.Join(resp.Path, ".git") + `"]`, "--model", "fast"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %q\nwant %q", got, want)
+	}
+}
+
+// TestRestrictedNeverStartsAnAgentThroughHerdr holds the one start herdr could
+// make: it would receive the agent's words without a sandbox.
+func TestRestrictedNeverStartsAnAgentThroughHerdr(t *testing.T) {
+	w := newWorld(t)
+	w.restrict(t)
+	server := herdrtest.Start(t)
+	for _, method := range []string{"worktree.create", "worktree.open", "agent.start"} {
+		server.Handle(method, func(map[string]any) (any, string) {
+			t.Errorf("%s was called under the restricted profile", method)
+			return nil, "refused"
+		})
+	}
+	w.service.HerdrSocket = server.Socket
+	resp, err := w.service.New(context.Background(), daemon.WorktreeNewRequest{Dir: w.repo, Task: "own-start", Agent: "codex", Prompt: "go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Herdr || resp.AgentName != "" || !strings.Contains(strings.Join(resp.Warnings, "\n"), "not started") {
+		t.Fatalf("%+v", resp)
 	}
 }
