@@ -971,3 +971,41 @@ func (s *eventService) closeAll() {
 		c.conn.Close(events.CloseNormal, "")
 	}
 }
+
+// A caller reads what its function wrote as soon as always returns, so always
+// must not return while the actor is still running that function, even when
+// the route stops meanwhile.
+func TestAlwaysWaitsForAStartedFunctionWhenTheRouteStops(t *testing.T) {
+	h := newHarness(t)
+	h.route("r")
+	rt := h.d.routes["r"]
+	started, release, returned := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		rt.always(func() {
+			close(started)
+			<-release
+		})
+		close(returned)
+	}()
+	<-started
+	close(rt.quit)
+	select {
+	case <-returned:
+		t.Error("always returned while its function was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	<-returned
+}
+
+func TestAlwaysSkipsAFunctionThatNeverStarted(t *testing.T) {
+	h := newHarness(t)
+	h.route("r")
+	rt := h.d.routes["r"]
+	h.stop()
+	ran := false
+	rt.always(func() { ran = true })
+	if ran {
+		t.Error("a stopped route ran the function")
+	}
+}

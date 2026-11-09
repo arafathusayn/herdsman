@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
@@ -232,17 +233,30 @@ func (r *Route) unsubscribe(s *subscriber) { delete(r.subs, s) }
 
 // always runs fn on the actor outside the operation rules (a degraded or
 // removed route, a full queue) and waits for it; a stopped route runs
-// nothing, and its stop has already dropped every stream.
+// nothing, and its stop has already dropped every stream. A function that has
+// started is waited for even as the route stops, because the caller reads what
+// it wrote.
 func (r *Route) always(fn func()) {
 	done := make(chan struct{})
+	var state atomic.Int32 // 0 queued, 1 started, 2 abandoned
+	op := func() {
+		if !state.CompareAndSwap(0, 1) {
+			return
+		}
+		fn()
+		close(done)
+	}
 	select {
-	case r.ops <- func() { fn(); close(done) }:
+	case r.ops <- op:
 	case <-r.quit:
 		return
 	}
 	select {
 	case <-done:
 	case <-r.quit:
+		if !state.CompareAndSwap(0, 2) {
+			<-done
+		}
 	}
 }
 
