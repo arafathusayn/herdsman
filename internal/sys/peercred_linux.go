@@ -7,5 +7,5 @@ func peerCredentials(fd int) (PeerCred, error) {
 	if err != nil {
 		return PeerCred{}, err
 	}
-	return PeerCred{UID: int(u.Uid), GID: int(u.Gid), PID: int(u.Pid)}, nil
+	return peerFromUcred(u.Pid, u.Uid, u.Gid)
 }
