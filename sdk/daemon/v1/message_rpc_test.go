@@ -241,3 +241,21 @@ func (s *contextService) Status(ctx context.Context, _ *StatusRequest) (*StatusR
 	s.see(ctx)
 	return &StatusResponse{}, nil
 }
+
+func TestClientReportsARequestItCannotEncode(t *testing.T) {
+	client := NewMessageServiceClient(http.DefaultClient, "http://unused")
+	_, err := client.Status(context.Background(), &StatusRequest{Route: &corev1.RouteId{Value: "\xff"}})
+	if err == nil || !strings.Contains(err.Error(), "UTF-8") {
+		t.Fatalf("error %v", err)
+	}
+}
+
+func TestClientReportsAResponseCutShort(t *testing.T) {
+	client := clientFor(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "64")
+		_, _ = w.Write([]byte{0x0a})
+	})
+	if _, err := client.Status(context.Background(), request()); err == nil {
+		t.Fatal("no error from a truncated response")
+	}
+}

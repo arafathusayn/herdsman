@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
 	"os"
 	"path"
@@ -117,5 +118,24 @@ func TestSpecRejectsBadUsage(t *testing.T) {
 		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "spec cli|proto|descriptor") {
 			t.Errorf("%v: stdout %q, stderr %q", args, stdout.String(), stderr.String())
 		}
+	}
+}
+
+type refusingWriter struct{}
+
+func (refusingWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
+
+// A contract that cannot be written is reported, with the documented exit code.
+func TestSpecReportsAWriteFailure(t *testing.T) {
+	for _, kind := range []string{"cli", "proto", "descriptor"} {
+		t.Run(kind, func(t *testing.T) {
+			var stderr bytes.Buffer
+			if code := runSpec([]string{kind}, nil, refusingWriter{}, &stderr); code != 1 {
+				t.Fatalf("exit %d", code)
+			}
+			if !strings.Contains(stderr.String(), "disk full") {
+				t.Fatalf("stderr %q", stderr.String())
+			}
+		})
 	}
 }
