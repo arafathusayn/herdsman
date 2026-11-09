@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/inbox"
@@ -235,14 +236,27 @@ func (r *Route) unsubscribe(s *subscriber) { delete(r.subs, s) }
 // nothing, and its stop has already dropped every stream.
 func (r *Route) always(fn func()) {
 	done := make(chan struct{})
+	// state: 0 queued, 1 started, 2 withdrawn. Callers read what fn wrote as
+	// soon as this returns, so a stop withdraws fn only while it is queued and
+	// otherwise waits for it to end.
+	var state atomic.Int32
+	op := func() {
+		if state.CompareAndSwap(0, 1) {
+			fn()
+			close(done)
+		}
+	}
 	select {
-	case r.ops <- func() { fn(); close(done) }:
+	case r.ops <- op:
 	case <-r.quit:
 		return
 	}
 	select {
 	case <-done:
 	case <-r.quit:
+		if !state.CompareAndSwap(0, 2) {
+			<-done
+		}
 	}
 }
 
