@@ -1,26 +1,18 @@
 package gitrefs
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
+
+	"github.com/arafathusayn/herdsman/internal/gitrun"
 )
 
-// repositoryEnv lists the variables that point git at another repository
-// (git rev-parse --local-env-vars, plus GIT_NAMESPACE). The reader was opened
-// on an explicit path, so the caller's values must not redirect it.
-var repositoryEnv = []string{
-	"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_CONFIG_COUNT",
-	"GIT_CONFIG_PARAMETERS", "GIT_DIR", "GIT_GRAFT_FILE", "GIT_IMPLICIT_WORK_TREE", "GIT_INDEX_FILE",
-	"GIT_NAMESPACE", "GIT_NO_REPLACE_OBJECTS", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX",
-	"GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE", "GIT_WORK_TREE",
-}
+// SetRunner makes the reader's git calls go through runner, so that they share
+// its trace. Set it before the first read.
+func (r *Reader) SetRunner(runner *gitrun.Runner) { r.git = runner }
 
 func (r *Reader) runGit(ctx context.Context, args ...string) (string, error) {
 	// --git-dir, not -C: discovery could answer from a repository around gitDir.
@@ -32,19 +24,15 @@ func (r *Reader) runGit(ctx context.Context, args ...string) (string, error) {
 	if r.openedOnGitDir && r.currentState().bareUnset && filepath.Base(r.commonDir) != ".git" {
 		global = append(global, "-c", "core.bare=true")
 	}
-	cmd := exec.CommandContext(ctx, "git", append(global, args...)...)
-	cmd.Dir = r.gitDir
-	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
-		name, _, _ := strings.Cut(entry, "=")
-		return slices.Contains(repositoryEnv, name)
-	})
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("gitrefs: git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
+	runner := r.git
+	if runner == nil {
+		runner = &gitrun.Runner{}
 	}
-	return string(out), nil
+	result, err := runner.Run(ctx, r.gitDir, append(global, args...)...)
+	if err != nil {
+		return "", fmt.Errorf("gitrefs: git %s: %w", args[0], err)
+	}
+	return string(result.Stdout), nil
 }
 
 func (r *Reader) forkRefs(ctx context.Context) ([]Ref, error) {
