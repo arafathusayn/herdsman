@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -721,4 +722,33 @@ func TestLargeTreeSharesOnBtrfs(t *testing.T) {
 		t.Skip("mounts a loopback image with sudo; runs on CI only")
 	}
 	assertLargeTreeShares(t, btrfsLoopback(t))
+}
+
+// Cloning is kernel work that blocks its thread, so the pool must not shrink
+// with the core count: a small machine would clone one file at a time.
+func TestCloneRunsSeveralFilesAtOnceOnOneCore(t *testing.T) {
+	old := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(old)
+	src := t.TempDir()
+	for i := range minCloneWorkers {
+		if err := os.WriteFile(filepath.Join(src, fmt.Sprintf("f%d", i)), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var arrived sync.WaitGroup
+	arrived.Add(minCloneWorkers)
+	clone := func(_, dst string) error {
+		arrived.Done()
+		done := make(chan struct{})
+		go func() { arrived.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			return errors.New("the files were cloned one at a time")
+		}
+		return os.WriteFile(dst, nil, 0o600)
+	}
+	if _, err := run(src, filepath.Join(t.TempDir(), "dst"), clone); err != nil {
+		t.Fatal(err)
+	}
 }

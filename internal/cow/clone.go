@@ -216,13 +216,17 @@ func resolveExisting(path string) (string, error) {
 
 // cloneFiles fills in each job's entry from a pool of workers and stops
 // handing out work at the first failure.
+// minCloneWorkers is the smallest pool. A clone is kernel work that blocks its
+// thread, so a pool sized by the core count alone starves a small machine.
+const minCloneWorkers = 8
+
 func cloneFiles(jobs []fileJob, entries []Entry, clone cloneFunc) error {
 	var next atomic.Int64
 	var failed atomic.Bool
 	var firstErr error
 	var once sync.Once
 	var workers sync.WaitGroup
-	for range runtime.GOMAXPROCS(0) {
+	for range max(minCloneWorkers, runtime.GOMAXPROCS(0)) {
 		workers.Go(func() {
 			for !failed.Load() {
 				index := int(next.Add(1)) - 1
