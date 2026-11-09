@@ -3,7 +3,10 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/route"
 )
 
 type recordSink struct {
@@ -41,8 +45,8 @@ func automationRig(t *testing.T, rule automations.Rule, approve bool, next ops.S
 		Config: automations.Config{Enabled: true, Rules: []automations.Rule{rule}}, Approvals: store,
 		StateDir: dir, Dir: dir, Stderr: &strings.Builder{}, Timeout: 5 * time.Second,
 		Builtins: map[string]automations.Builtin{
-			automations.BuiltinRoutePause: RoutePause(herdr.New(server.Socket), func(route string) ([]string, error) {
-				if route != "r1" {
+			automations.BuiltinRoutePause: RoutePause(herdr.New(server.Socket), func(_ context.Context, ev automations.Event) ([]string, error) {
+				if ev.Values["route"] != "r1" {
 					return nil, errors.New("unknown route")
 				}
 				return []string{"pane-a", "gone"}, nil
@@ -130,7 +134,7 @@ func TestTheNextConsumersFailureIsReturned(t *testing.T) {
 }
 
 func TestRoutePauseNeedsARoute(t *testing.T) {
-	pause := RoutePause(herdr.New("/nonexistent"), func(string) ([]string, error) { return nil, errors.New("unknown route") })
+	pause := RoutePause(herdr.New("/nonexistent"), func(context.Context, automations.Event) ([]string, error) { return nil, errors.New("unknown route") })
 	if err := pause(context.Background(), automations.Event{}); err == nil {
 		t.Fatal("no error without a route")
 	}
@@ -140,8 +144,136 @@ func TestRoutePauseNeedsARoute(t *testing.T) {
 }
 
 func TestRoutePauseFailsWhenNoAgentWasReached(t *testing.T) {
-	pause := RoutePause(herdr.New("/nonexistent"), func(string) ([]string, error) { return []string{"a"}, nil })
+	pause := RoutePause(herdr.New("/nonexistent"), func(context.Context, automations.Event) ([]string, error) { return []string{"a"}, nil })
 	if err := pause(context.Background(), automations.Event{Values: map[string]string{"route": "r"}}); err == nil {
 		t.Fatal("reported a pause that reached nobody")
+	}
+}
+
+const startedPayloadFormat = `{"project":%q,"values":{"route":"harbor","workspace":"proj-harbor"}}`
+
+func writeAutomationConfig(t *testing.T, project, run string) {
+	t.Helper()
+	text := "[schema]\nversion = \"1.0.0\"\n\n[automations]\nexperimental = true\n\n[automations.on.\"route.started\"]\nrun = \"" + run + "\"\n"
+	if err := os.WriteFile(filepath.Join(project, "herdsman.config.toml"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheInstalledSinkNeedsAnApprovalForEachEdit(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "proj")
+	if err := os.Mkdir(project, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	environ := []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
+	state := t.TempDir()
+	sink := newAutomationSink(state, environ, herdr.New(filepath.Join(state, "no-herdr")), &strings.Builder{}, func(string) {})
+	ctx := context.Background()
+	payload := fmt.Sprintf(startedPayloadFormat, project)
+	deliver := func(key string) {
+		t.Helper()
+		if err := sink.Deliver(ctx, ops.OutboxEvent{Key: key, Topic: route.TopicStarted, Payload: payload}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exists := func(name string) bool {
+		_, err := os.Stat(filepath.Join(project, name))
+		return err == nil
+	}
+	approve := func() {
+		t.Helper()
+		config, _, err := automations.LoadProject(project, environ)
+		if err != nil {
+			t.Fatal(err)
+		}
+		store, err := automations.DefaultApprovals(environ)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Approve(project, config.Rules[0]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeAutomationConfig(t, project, "touch first")
+	deliver("k1")
+	if exists("first") {
+		t.Fatal("ran without its approval")
+	}
+	approve()
+	deliver("k2")
+	if !exists("first") {
+		t.Fatal("the approved action did not run")
+	}
+	writeAutomationConfig(t, project, "touch second")
+	deliver("k3")
+	if exists("second") {
+		t.Fatal("an edited action ran on the old approval")
+	}
+	approve()
+	deliver("k4")
+	if !exists("second") {
+		t.Fatal("the approved edit did not run")
+	}
+}
+
+func TestRouteAgentsAreTheOrchestratorsWorkspace(t *testing.T) {
+	server := herdrtest.Start(t)
+	fixture := herdrtest.Serve(server)
+	named := func(pane, workspace, name string) {
+		agent := herdrtest.Agent(pane, "sa")
+		agent["workspace_id"], agent["name"] = workspace, name
+		fixture.SetAgent(pane, agent)
+	}
+	named("pane-o", "w1", "proj-harbor-orchestrator")
+	named("pane-i", "w1", "builder")
+	named("pane-x", "w2", "proj-harbor-b-orchestrator")
+	got, err := routeAgents(herdr.New(server.Socket))(context.Background(), automations.Event{Project: "/x/proj", Values: map[string]string{"route": "harbor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"pane-i", "pane-o"}) {
+		t.Fatalf("%v", got)
+	}
+}
+
+func TestRouteAgentsSayWhenTheRouteHasNoOrchestrator(t *testing.T) {
+	server := herdrtest.Start(t)
+	herdrtest.Serve(server)
+	if _, err := routeAgents(herdr.New(server.Socket))(context.Background(), automations.Event{Project: "/x/proj", Values: map[string]string{"route": "harbor"}}); err == nil {
+		t.Fatal("no error")
+	}
+}
+
+func TestOnlyAWritingDaemonGetsTheSink(t *testing.T) {
+	var stderr strings.Builder
+	a := &AdminEnv{Stderr: &stderr}
+	if a.automationSink("ph", func(string) {}) == nil {
+		t.Fatal("no sink")
+	}
+	a.Inspect = true
+	if a.automationSink("ph", func(string) {}) != nil {
+		t.Fatal("an inspect daemon has a sink")
+	}
+}
+
+func TestNoUserFolderMeansNothingIsApproved(t *testing.T) {
+	var logged []string
+	project := t.TempDir()
+	writeAutomationConfig(t, project, "touch ran")
+	sink := newAutomationSink(t.TempDir(), []string{"PATH=" + os.Getenv("PATH")}, herdr.New("/nonexistent"), &strings.Builder{}, func(s string) { logged = append(logged, s) })
+	if err := sink.Deliver(context.Background(), ops.OutboxEvent{Key: "k", Topic: route.TopicStarted, Payload: fmt.Sprintf(startedPayloadFormat, project)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(project, "ran")); err == nil || len(logged) != 1 {
+		t.Fatalf("%v %v", err, logged)
+	}
+}
+
+func TestRouteAgentsReportAnUnreachableHerdr(t *testing.T) {
+	if _, err := routeAgents(herdr.New("/nonexistent"))(context.Background(), automations.Event{}); err == nil {
+		t.Fatal("no error")
 	}
 }
