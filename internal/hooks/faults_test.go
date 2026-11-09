@@ -49,7 +49,7 @@ func TestApproveReportsWhereItCannotWrite(t *testing.T) {
 	if err := os.Symlink(filepath.Join(base, "gone"), link); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&Approvals{Path: filepath.Join(link, "a.toml")}).Approve("p", []string{"x"}); err == nil || !strings.Contains(err.Error(), "folder") {
+	if err := (&Approvals{Path: filepath.Join(link, "a.toml")}).Approve("p", []string{"x"}); err == nil || !strings.Contains(err.Error(), link) {
 		t.Fatal(err)
 	}
 	if os.Geteuid() == 0 {
