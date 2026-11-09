@@ -256,33 +256,3 @@ func TestCreatedRefusesWhatItCannotEstablish(t *testing.T) {
 		}
 	}
 }
-
-func TestUnfinishedFindsARunThatNeverEnded(t *testing.T) {
-	dir := t.TempDir()
-	if got, err := Unfinished(dir, "api"); err != nil || got {
-		t.Fatalf("no log: %v, %v", got, err)
-	}
-	log, err := OpenLog(dir, "api")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer log.Close()
-	log.plan(Plan{})
-	if got, err := Unfinished(dir, "api"); err != nil || !got {
-		t.Fatalf("after a plan: %v, %v", got, err)
-	}
-	log.finish(nil, nil)
-	if got, err := Unfinished(dir, "api"); err != nil || got {
-		t.Fatalf("after its end: %v, %v", got, err)
-	}
-	if _, err := Unfinished(dir, ".."); err == nil {
-		t.Fatal("a bad name")
-	}
-	blocked := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(blocked, "herdsman", "logs", "api", "teardown.log"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Unfinished(blocked, "api"); err == nil {
-		t.Fatal("a folder as the log")
-	}
-}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +32,9 @@ type routeService struct {
 // operationEffects adds the effects of a route's start to the configured ones.
 func (d *Daemon) operationEffects() map[string]ops.Effect {
 	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run})
+	d.worktrees = &WorktreeService{HerdrSocket: d.cfg.HerdrSocket}
+	d.teardowns = newTeardownJournal(d.worktrees)
+	maps.Copy(effects, d.teardowns.effects())
 	for name, effect := range d.cfg.Effects {
 		effects[name] = effect
 	}

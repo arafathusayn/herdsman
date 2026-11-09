@@ -284,8 +284,6 @@ type WorktreeTeardownReport struct {
 	Task     string           `json:"task"`
 	Outcomes []ledger.Outcome `json:"outcomes"`
 	Error    string           `json:"error,omitempty"`
-	// Warning says an earlier run did not finish, so its hooks may run twice.
-	Warning string `json:"warning,omitempty"`
 }
 
 // WorktreeTeardownResponse holds one report per plan.
@@ -416,58 +414,6 @@ func (r *repository) hasTeardownHooks(row wtree.Row) (bool, error) {
 	return false, nil
 }
 
-// teardownLocked runs one task's teardown alone, and says if the one before it
-// was cut off. Repeating is safe for signals, each of which is proved again,
-// but a hook that already ran runs a second time.
-func (s *WorktreeService) teardownLocked(ctx context.Context, r *repository, req WorktreeTeardownRequest, plan ledger.Plan) ([]ledger.Outcome, string, error) {
-	release, err := lockTeardown(r.common, plan.Task)
-	if err != nil {
-		return nil, "", err
-	}
-	defer release()
-	unfinished, err := ledger.Unfinished(r.common, plan.Task)
-	if err != nil {
-		return nil, "", err
-	}
-	warning := ""
-	if unfinished {
-		warning = "an earlier teardown of this task did not finish; its hooks may have run already and are running again"
-	}
-	outcomes, err := s.teardownOne(ctx, r, req, plan)
-	return outcomes, warning, err
-}
-
-// teardownOne runs the blocking stop hooks, the stop, then the background
-// hooks. A hook that fails stops this task before anything is signaled.
-func (s *WorktreeService) teardownOne(ctx context.Context, r *repository, req WorktreeTeardownRequest, plan ledger.Plan) ([]ledger.Outcome, error) {
-	row, err := wtree.ResolveSelector(wtree.Selector{Kind: wtree.SelectName, Value: plan.Task}, r.selectContext(""))
-	if err != nil {
-		return nil, err
-	}
-	vars := r.vars(row.Task, row.Branch, row.Path, "feat", "", row.Head)
-	before, err := s.plan(r, "pre-teardown", vars)
-	if err != nil {
-		return nil, err
-	}
-	after, err := s.plan(r, "post-teardown", vars)
-	if err != nil {
-		return nil, err
-	}
-	runner := r.runner(vars, row.Path)
-	if _, err := runner.Run(ctx, "pre-teardown", before); err != nil {
-		return nil, err
-	}
-	outcomes, err := ledgerService.Teardown(ctx, TeardownRequest{
-		LedgerRequest: LedgerRequest{CommonDir: r.common, Task: plan.Task}, Approved: plan,
-		Grace: time.Duration(req.GraceSeconds) * time.Second, IncludeAssociated: req.IncludeAssociated,
-	})
-	if err != nil {
-		return outcomes, err
-	}
-	_, err = runner.Start("post-teardown", after)
-	return outcomes, err
-}
-
 // Teardown stops every approved plan. One task's failure is reported and does
 // not stop the next, because their plans are independent.
 func (s *WorktreeService) Teardown(ctx context.Context, req WorktreeTeardownRequest) (WorktreeTeardownResponse, error) {
@@ -480,7 +426,7 @@ func (s *WorktreeService) Teardown(ctx context.Context, req WorktreeTeardownRequ
 	for _, plan := range req.Plans {
 		report := WorktreeTeardownReport{Task: plan.Task}
 		var err error
-		if report.Outcomes, report.Warning, err = s.teardownLocked(ctx, r, req, plan); err != nil {
+		if report.Outcomes, err = s.teardownOne(ctx, r, req, plan); err != nil {
 			report.Error = err.Error()
 		}
 		resp.Reports = append(resp.Reports, report)

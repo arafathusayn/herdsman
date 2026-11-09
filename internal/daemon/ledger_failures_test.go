@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -85,22 +84,27 @@ func TestLedgerHealthReportsAFailedPlan(t *testing.T) {
 	}
 }
 
-func TestATeardownThatCannotReadItsLogIsReported(t *testing.T) {
-	s, repo, _, common := verbRepo(t)
-	useLedger(t, setupLedger(t).service)
-	if err := os.MkdirAll(filepath.Join(common, "herdsman", "logs", "task", "teardown.log"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	done, err := s.Teardown(context.Background(), WorktreeTeardownRequest{Dir: repo, Plans: []ledger.Plan{{Task: "task"}}})
-	if err != nil || !strings.Contains(done.Reports[0].Error, "log") {
-		t.Fatalf("done = %+v, err = %v", done, err)
-	}
-}
-
 func TestAHookThatCannotBePlannedStopsThePlan(t *testing.T) {
 	s, repo, _ := hookRepo(t, `{"hooks":{"pre-teardown":"echo {{ nope"}}`)
 	useLedger(t, setupLedger(t).service)
 	if _, err := s.TeardownPlan(context.Background(), WorktreeTeardownPlanRequest{Dir: repo, Selector: "task"}); err == nil {
 		t.Fatal("an unrenderable hook")
+	}
+}
+
+func TestATableLostDuringTeardownEndsIt(t *testing.T) {
+	w := setupLedger(t, "a")
+	ctx := context.Background()
+	w.pids = []ledger.Process{{Pid: 5, Group: 5, Parent: 1, Start: ledgerStart, Command: "server"}}
+	if _, err := w.service.AddResource(ctx, w.request("a"), ledger.Record{Execution: "zz", Kind: ledger.KindProcess, ID: "5"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := w.service.Plan(ctx, w.request("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dropTable(t, w.common, "worktrees")
+	if _, err := w.service.Teardown(ctx, TeardownRequest{LedgerRequest: w.request("a"), Approved: plan}); err == nil {
+		t.Fatal("went on with no record of the worktrees")
 	}
 }

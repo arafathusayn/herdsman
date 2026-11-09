@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"time"
 
@@ -14,7 +15,10 @@ import (
 //
 // inspect is set on a daemon that must change nothing: opening a repository's
 // state can migrate it, and a plan notes what it saw.
-type ledgerRPC struct{ inspect bool }
+type ledgerRPC struct {
+	d       *Daemon
+	inspect bool
+}
 
 // request refuses a call an inspect daemon may not serve, or one that names no
 // repository or task.
@@ -100,4 +104,102 @@ func (l ledgerRPC) AddResource(ctx context.Context, req *daemonv1.AddResourceReq
 		return nil, rpc.Errorf(rpc.Internal, "%v", err)
 	}
 	return &daemonv1.AddResourceResponse{Record: wireRecord(record)}, nil
+}
+
+// admit gives a verb the daemon's own lifetime: a teardown that has begun must
+// not stop because the command that asked for it went away.
+func (l ledgerRPC) admit() (context.Context, *WorktreeService, error) {
+	if l.inspect {
+		return nil, nil, rpc.Errorf(rpc.FailedPrecondition, "this daemon runs in inspect mode and changes nothing")
+	}
+	run, e := l.d.recoveryContext()
+	if e != nil {
+		return nil, nil, rpc.Errorf(rpc.FailedPrecondition, "%s", e.Message)
+	}
+	l.d.mu.Lock()
+	defer l.d.mu.Unlock()
+	if l.d.worktrees == nil {
+		return nil, nil, rpc.Errorf(rpc.FailedPrecondition, "the daemon is not accepting operations now")
+	}
+	return run, l.d.worktrees, nil
+}
+
+// TeardownPlans builds one plan per selected task.
+func (l ledgerRPC) TeardownPlans(_ context.Context, req *daemonv1.TeardownPlansRequest) (*daemonv1.TeardownPlansResponse, error) {
+	run, service, err := l.admit()
+	if err != nil {
+		return nil, err
+	}
+	planned, err := service.TeardownPlan(run, WorktreeTeardownPlanRequest{Dir: req.GetDir(), Selector: req.GetSelector(), Route: req.GetRoute(), All: req.GetAll()})
+	if err != nil {
+		return nil, rpc.Errorf(rpc.FailedPrecondition, "%v", err)
+	}
+	res := &daemonv1.TeardownPlansResponse{Hooks: planned.Hooks}
+	for _, plan := range planned.Plans {
+		document, err := json.Marshal(plan)
+		if err != nil {
+			return nil, rpc.Errorf(rpc.Internal, "%v", err)
+		}
+		res.Plans = append(res.Plans, document)
+	}
+	return res, nil
+}
+
+// Teardown runs approved plans.
+func (l ledgerRPC) Teardown(_ context.Context, req *daemonv1.TeardownRequest) (*daemonv1.TeardownResponse, error) {
+	run, service, err := l.admit()
+	if err != nil {
+		return nil, err
+	}
+	request := WorktreeTeardownRequest{Dir: req.GetDir(), GraceSeconds: int(req.GetGraceSeconds()), IncludeAssociated: req.GetIncludeAssociated()}
+	for _, document := range req.GetPlans() {
+		var plan ledger.Plan
+		if err := json.Unmarshal(document, &plan); err != nil {
+			return nil, rpc.Errorf(rpc.InvalidArgument, "a plan is not a plan document: %v", err)
+		}
+		request.Plans = append(request.Plans, plan)
+	}
+	done, err := service.Teardown(run, request)
+	if err != nil {
+		return nil, rpc.Errorf(rpc.FailedPrecondition, "%v", err)
+	}
+	res := &daemonv1.TeardownResponse{}
+	for _, report := range done.Reports {
+		wire := &daemonv1.TeardownReport{Task: report.Task, Error: report.Error}
+		for _, outcome := range report.Outcomes {
+			wire.Outcomes = append(wire.Outcomes, &daemonv1.TeardownOutcome{Kind: outcome.Kind, Id: outcome.ID, Level: string(outcome.Level), Result: outcome.Result})
+		}
+		res.Reports = append(res.Reports, wire)
+	}
+	return res, nil
+}
+
+// RegisterResource records a resource for the named or the current task.
+func (l ledgerRPC) RegisterResource(_ context.Context, req *daemonv1.RegisterResourceRequest) (*daemonv1.RegisterResourceResponse, error) {
+	run, service, err := l.admit()
+	if err != nil {
+		return nil, err
+	}
+	record, err := service.ResourceAdd(run, WorktreeResourceAddRequest{Dir: req.GetDir(), Task: req.GetTask(), Execution: req.GetExecution(), Kind: req.GetKind(), ID: req.GetId()})
+	if err != nil {
+		return nil, rpc.Errorf(rpc.FailedPrecondition, "%v", err)
+	}
+	return &daemonv1.RegisterResourceResponse{Record: wireRecord(record)}, nil
+}
+
+// LedgerHealth lists what the folder's task still runs that it alone owns.
+func (l ledgerRPC) LedgerHealth(_ context.Context, req *daemonv1.LedgerHealthRequest) (*daemonv1.LedgerHealthResponse, error) {
+	run, service, err := l.admit()
+	if err != nil {
+		return nil, err
+	}
+	health, err := service.LedgerHealth(run, WorktreeLedgerHealthRequest{Dir: req.GetDir()})
+	if err != nil {
+		return nil, rpc.Errorf(rpc.FailedPrecondition, "%v", err)
+	}
+	res := &daemonv1.LedgerHealthResponse{}
+	for _, line := range health.Running {
+		res.Running = append(res.Running, &daemonv1.ResourceLine{Kind: line.Kind, Id: line.ID, Identity: line.Identity, Level: string(line.Level), Class: line.Class, Action: string(line.Action)})
+	}
+	return res, nil
 }

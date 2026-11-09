@@ -50,6 +50,7 @@ func (t *callHeaders) RoundTrip(req *http.Request) (*http.Response, error) {
 type Client struct {
 	Message daemonv1.MessageService
 	Ops     daemonv1.OpsService
+	Ledger  daemonv1.LedgerService
 	Route   daemonv1.RouteService
 
 	http *http.Client
@@ -101,7 +102,7 @@ func Dial(options Options) (*Client, error) {
 		next = &callHeaders{next: transport, header: options.CallHeader}
 	}
 	hc := &http.Client{Transport: &rpc.Transport{Base: next, Header: options.Header}}
-	return &Client{Message: daemonv1.NewMessageServiceClient(hc, base), Ops: daemonv1.NewOpsServiceClient(hc, base), Route: daemonv1.NewRouteServiceClient(hc, base), http: &http.Client{Transport: transport}}, nil
+	return &Client{Message: daemonv1.NewMessageServiceClient(hc, base), Ops: daemonv1.NewOpsServiceClient(hc, base), Ledger: daemonv1.NewLedgerServiceClient(hc, base), Route: daemonv1.NewRouteServiceClient(hc, base), http: &http.Client{Transport: transport}}, nil
 }
 
 // Close frees the client's idle connections.

@@ -21,6 +21,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/gitrun"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/hooks"
+	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/wtree"
 )
 
@@ -33,6 +34,9 @@ type WorktreeService struct {
 	Approvals   string // Empty uses the user's configuration folder.
 	GH          string // Program for GitHub calls; empty means "gh".
 	Repo        string // owner/name; empty reads it from origin.
+
+	journal *teardownJournal // Set by the daemon, which runs teardowns.
+	engine  *ops.Engine
 }
 
 // WorktreeNewRequest asks for a task's worktree.
@@ -158,14 +162,6 @@ func (s *WorktreeService) Call(ctx context.Context, method string, request []byt
 		return dispatch(ctx, request, s.Commit)
 	case "Diff":
 		return dispatch(ctx, request, s.Diff)
-	case "TeardownPlan":
-		return dispatch(ctx, request, s.TeardownPlan)
-	case "Teardown":
-		return dispatch(ctx, request, s.Teardown)
-	case "ResourceAdd":
-		return dispatch(ctx, request, s.ResourceAdd)
-	case "LedgerHealth":
-		return dispatch(ctx, request, s.LedgerHealth)
 	}
 	return nil, fmt.Errorf("worktree service: no method %q", method)
 }

@@ -231,7 +231,9 @@ func verbRepo(t *testing.T) (*WorktreeService, string, string, string) {
 		t.Fatal(err)
 	}
 	state.Close()
-	return &WorktreeService{}, repo, worktree, common
+	service := &WorktreeService{}
+	journalFor(t, service)
+	return service, repo, worktree, common
 }
 
 func useLedger(t *testing.T, service *LedgerService) {

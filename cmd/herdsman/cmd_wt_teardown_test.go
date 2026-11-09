@@ -8,6 +8,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 const stopPlan = `{"plans":[{"task":"a","lines":[{"kind":"process","id":"5","level":"exclusive","class":"compensatable","action":"stop"}]}]}`
@@ -23,6 +25,9 @@ func stubWorktree(t *testing.T, replies map[string]string) *[]verbCall {
 	calls := &[]verbCall{}
 	old := worktreeCall
 	t.Cleanup(func() { worktreeCall = old })
+	oldDial := dialLedger
+	t.Cleanup(func() { dialLedger = oldDial })
+	dialLedger = func() (daemonv1.LedgerService, func(), error) { return ledgerStub{}, func() {}, nil }
 	worktreeCall = func(_ context.Context, method string, request []byte) ([]byte, error) {
 		var body map[string]any
 		_ = json.Unmarshal(request, &body)
@@ -199,13 +204,5 @@ func TestAnEmptyPlanWithoutHooksCallsNothing(t *testing.T) {
 	code, out, _ := runVerb(runTeardown, "a", "-y")
 	if code != 0 || len(*calls) != 1 || !strings.Contains(out, "nothing to stop") {
 		t.Fatalf("code = %d, out = %q, calls = %+v", code, out, *calls)
-	}
-}
-
-func TestTeardownPrintsAWarningFromTheService(t *testing.T) {
-	stubWorktree(t, map[string]string{"TeardownPlan": stopPlan, "Teardown": `{"reports":[{"task":"a","outcomes":[],"warning":"check it"}]}`})
-	code, _, stderr := runVerb(runTeardown, "a", "-y")
-	if code != 0 || !strings.Contains(stderr, "check it") {
-		t.Fatalf("code = %d, stderr = %q", code, stderr)
 	}
 }

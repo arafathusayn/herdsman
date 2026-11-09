@@ -2,11 +2,15 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/arafathusayn/herdsman/sdk/client"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 const teardownHelp = `usage: herdsman teardown [<task>|<selector>] [--route <folder>|--all] [-y]
@@ -48,7 +52,62 @@ type teardownReport struct {
 	Task     string            `json:"task"`
 	Outcomes []teardownOutcome `json:"outcomes"`
 	Error    string            `json:"error"`
-	Warning  string            `json:"warning,omitempty"`
+}
+
+// dialLedger reaches the daemon through the SDK; tests replace it.
+var dialLedger = func() (daemonv1.LedgerService, func(), error) {
+	sdk, err := client.Dial(client.Options{})
+	if err != nil {
+		return nil, nil, err
+	}
+	return sdk.Ledger, sdk.Close, nil
+}
+
+type teardownPlans struct {
+	Plans []json.RawMessage
+	Hooks bool
+}
+
+func fetchTeardownPlans(request *daemonv1.TeardownPlansRequest) (teardownPlans, error) {
+	service, closeService, err := dialLedger()
+	if err != nil {
+		return teardownPlans{}, err
+	}
+	defer closeService()
+	res, err := service.TeardownPlans(context.Background(), request)
+	if err != nil {
+		return teardownPlans{}, err
+	}
+	planned := teardownPlans{Hooks: res.GetHooks()}
+	for _, document := range res.GetPlans() {
+		planned.Plans = append(planned.Plans, json.RawMessage(document))
+	}
+	return planned, nil
+}
+
+func runTeardownPlans(dir string, plans []json.RawMessage, grace int, includeAssociated bool) ([]teardownReport, error) {
+	service, closeService, err := dialLedger()
+	if err != nil {
+		return nil, err
+	}
+	defer closeService()
+	request := &daemonv1.TeardownRequest{Dir: dir, GraceSeconds: int32(grace), IncludeAssociated: includeAssociated}
+	for _, plan := range plans {
+		request.Plans = append(request.Plans, []byte(plan))
+	}
+	res, err := service.Teardown(context.Background(), request)
+	if err != nil {
+		return nil, err
+	}
+	var reports []teardownReport
+	for _, wire := range res.GetReports() {
+		report := teardownReport{Task: wire.GetTask(), Error: wire.GetError()}
+		for _, outcome := range wire.GetOutcomes() {
+			report.Outcomes = append(report.Outcomes, teardownOutcome{Kind: outcome.GetKind(), ID: outcome.GetId(), Result: outcome.GetResult()})
+		}
+		reports = append(reports, report)
+	}
+	return reports, nil
 }
 
 func init() {
@@ -130,15 +189,8 @@ func runTeardown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	raw, err := callWorktree("TeardownPlan", map[string]any{"dir": dir, "selector": selector, "route": *route, "all": *all})
+	planned, err := fetchTeardownPlans(&daemonv1.TeardownPlansRequest{Dir: dir, Selector: selector, Route: *route, All: *all})
 	if err != nil {
-		return fail(stderr, err)
-	}
-	var planned struct {
-		Plans []json.RawMessage `json:"plans"`
-		Hooks bool              `json:"hooks"`
-	}
-	if err := json.Unmarshal(raw, &planned); err != nil {
 		return fail(stderr, err)
 	}
 	if !*asJSON {
@@ -182,24 +234,15 @@ func runTeardown(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 0
 		}
 	}
-	raw, err = callWorktree("Teardown", map[string]any{"dir": dir, "plans": planned.Plans, "grace_seconds": *grace, "include_associated": includeAssociated})
+	reports, err := runTeardownPlans(dir, planned.Plans, *grace, includeAssociated)
 	if err != nil {
 		return fail(stderr, err)
 	}
-	var done struct {
-		Reports []teardownReport `json:"reports"`
-	}
-	if err := json.Unmarshal(raw, &done); err != nil {
-		return fail(stderr, err)
-	}
 	if *asJSON {
-		return writeTeardownJSON(stdout, planned.Plans, done.Reports, stderr)
+		return writeTeardownJSON(stdout, planned.Plans, reports, stderr)
 	}
 	code := 0
-	for _, report := range done.Reports {
-		if report.Warning != "" {
-			fmt.Fprintf(stderr, "herdsman: %s: %s\n", report.Task, report.Warning)
-		}
+	for _, report := range reports {
 		for _, outcome := range report.Outcomes {
 			fmt.Fprintf(stdout, "%s %s %s: %s\n", report.Task, outcome.Kind, outcome.ID, outcome.Result)
 		}
