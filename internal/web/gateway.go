@@ -19,10 +19,6 @@ const (
 	waitPath   = eventsPath + "Wait"
 )
 
-// streamProxy serves the event stream. It is nil in a build without the stream
-// contract, and such a build answers the stream's path as unimplemented.
-var streamProxy func(*gateway, http.ResponseWriter, *http.Request)
-
 // gateway forwards the daemon's RPC services to paired browsers on this
 // machine. It holds no state of its own: the daemon stays the only authority,
 // and the gateway only says which browser is asking.
@@ -54,8 +50,8 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// The stream's own handshake applies the session and origin rules below,
 	// since a refusal there must also end the upgrade.
-	if r.URL.Path == streamPath && streamProxy != nil {
-		streamProxy(g, w, r)
+	if r.URL.Path == streamPath {
+		g.stream(w, r)
 		return
 	}
 	session, ok := g.session(r)

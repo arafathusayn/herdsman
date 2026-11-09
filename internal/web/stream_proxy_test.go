@@ -1,5 +1,3 @@
-//go:build eventservice
-
 package web
 
 import (

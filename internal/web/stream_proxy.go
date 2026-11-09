@@ -1,5 +1,3 @@
-//go:build eventservice
-
 package web
 
 import (
@@ -9,8 +7,6 @@ import (
 
 	"github.com/arafathusayn/herdsman/sdk/events"
 )
-
-func init() { streamProxy = (*gateway).stream }
 
 // stream joins a browser's WebSocket to one of its own on the daemon's socket.
 // It keeps no position of its own: the daemon's cursors are what a browser

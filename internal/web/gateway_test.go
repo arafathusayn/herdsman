@@ -499,12 +499,14 @@ func TestGatewayPassesDaemonConformance(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	suite := exec.CommandContext(ctx, "go", "test", "-count=1", "./daemon")
+	suite := exec.CommandContext(ctx, "go", "test", "-count=1", "-v", "./daemon")
 	suite.Dir = filepath.Join("..", "..", "sdk", "conformance")
 	suite.Env = append(os.Environ(), "HERDSMAN_CONFORMANCE_SOCKET="+front)
-	if out, err := suite.CombinedOutput(); err != nil {
+	out, err := suite.CombinedOutput()
+	if err != nil {
 		t.Fatalf("conformance through the gateway: %v\n%s", err, out)
 	}
+	t.Logf("%s", out)
 }
 
 // startRealDaemon runs this workspace's daemon under a private home.
