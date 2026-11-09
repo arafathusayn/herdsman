@@ -48,7 +48,7 @@ define need-tool
 	@test -x $(TOOLS_BIN)/$(1) || { echo "$(1) is not installed: run make tools-go"; exit 1; }
 endef
 
-.PHONY: docs acceptance proto proto-check proto-plugin tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
+.PHONY: tools-wt bench bench-results docs acceptance proto proto-check proto-plugin tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
 
 all: check build
 
@@ -75,6 +75,32 @@ docs:
 	$(DOCS_INPUTS)/herdsman spec proto > $(DOCS_INPUTS)/contracts.proto
 	go run ./cmd/herdsman-docs --cli $(DOCS_INPUTS)/cli.json --descriptor $(DOCS_INPUTS)/descriptor.bin --proto $(DOCS_INPUTS)/contracts.proto --out docs
 	HERDSMAN_WRITE_MAN=1 go test -count=1 ./cmd/herdsman -run TestManPagesAreCurrent
+## tools-wt: install the wt release the benchmark pins into .tools/bin, after
+## checking the release's checksum (uses the network)
+WT_VERSION = $(shell cat bench/worktrees/wt.version)
+WT_TARGET  = $(shell uname -m | sed 's/arm64/aarch64/')-$(if $(filter Darwin,$(shell uname -s)),apple-darwin,unknown-linux-musl)
+WT_ARCHIVE = worktrunk-$(WT_TARGET).tar.xz
+WT_URL     = https://github.com/max-sixty/worktrunk/releases/download/$(WT_VERSION)/$(WT_ARCHIVE)
+tools-wt:
+	@work=$$(mktemp -d) && cd $$work && \
+	curl -fsSLO $(WT_URL) && curl -fsSLO $(WT_URL).sha256 && \
+	want=$$(cut -d' ' -f1 $(WT_ARCHIVE).sha256) && \
+	got=$$(shasum -a 256 $(WT_ARCHIVE) | cut -d' ' -f1) && \
+	{ test "$$want" = "$$got" || { echo "wt checksum mismatch"; exit 1; }; } && \
+	tar xf $(WT_ARCHIVE) && mkdir -p $(TOOLS_BIN) && \
+	cp worktrunk-$(WT_TARGET)/wt $(TOOLS_BIN)/wt
+
+## bench: measure the worktree verbs against wt and write the results file.
+## Run it on a quiet machine, and commit the file it writes.
+BENCH_ARGS ?=
+bench:
+	@test -x $(TOOLS_BIN)/wt || { echo "wt is not installed: run make tools-wt"; exit 1; }
+	go build -o .tools/bench/herdsman ./cmd/herdsman
+	go run ./bench/worktrees run --herdsman $(CURDIR)/.tools/bench/herdsman --wt $(TOOLS_BIN)/wt --repo . $(BENCH_ARGS)
+
+## bench-results: fail when the committed results are stale or record a lost case
+bench-results:
+	go run ./bench/worktrees check --repo . --results bench/worktrees/results
 
 ## web: build the web app into internal/web/dist for go:embed
 web:
