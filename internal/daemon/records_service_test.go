@@ -387,3 +387,132 @@ func TestInspectDaemonChangesNoRecords(t *testing.T) {
 		t.Errorf("a read was refused: %v", err)
 	}
 }
+
+func putOnRoute(t *testing.T, h *harness, route string, tasks ...*corev1.Task) {
+	t.Helper()
+	for _, task := range tasks {
+		if _, err := h.d.acctDB.Exec("UPDATE tasks SET route = ? WHERE id = ?", route, task.GetId().GetValue()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestExplicitScopeWinsOverAnAmbiguousRoute(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	ctx := context.Background()
+	first := createProject(t, c, "orchard", "api")
+	createProject(t, c, "other", "api")
+	putOnRoute(t, h, "live", createTask(t, c, "orchard", "One"), createTask(t, c, "other", "Two"))
+
+	named := &daemonv1.Scope{Project: "orchard", Route: routeID("live")}
+	got, err := c.Project.Get(ctx, &daemonv1.ProjectServiceGetRequest{Scope: named})
+	if err != nil || got.GetProject().GetId().GetValue() != first.GetId().GetValue() {
+		t.Fatalf("a named project lost to the route: %+v %v", got, err)
+	}
+
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Project.Bind(ctx, &daemonv1.ProjectServiceBindRequest{Scope: byName("orchard"), Folder: dir}); err != nil {
+		t.Fatal(err)
+	}
+	bound := &daemonv1.Scope{Project: "@", Folder: dir, Route: routeID("live")}
+	got, err = c.Project.Get(ctx, &daemonv1.ProjectServiceGetRequest{Scope: bound})
+	if err != nil || got.GetProject().GetId().GetValue() != first.GetId().GetValue() {
+		t.Fatalf("a bound folder lost to the route: %+v %v", got, err)
+	}
+}
+
+func recordsRepoWithWorktree(t *testing.T, branch, folder string) (repo, tree string) {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, tree = filepath.Join(root, "repo"), filepath.Join(root, folder)
+	if err := os.Mkdir(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	recordsGit(t, repo, "init", "-q", "-b", "main")
+	recordsGit(t, repo, "commit", "-q", "--allow-empty", "-m", "first")
+	recordsGit(t, repo, "worktree", "add", "-q", "-b", branch, tree)
+	return repo, tree
+}
+
+func TestCurrentTaskLookupWritesNothingOnAnInspectDaemon(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	ctx := context.Background()
+	repo, tree := recordsRepoWithWorktree(t, "fix-lights", "fix-lights")
+	task := createTask(t, c, createProject(t, c, "orchard", "api").GetName(), "Fix lights")
+	h.d.cfg.Inspect = true
+
+	got, err := c.Task.Get(ctx, &daemonv1.TaskServiceGetRequest{Scope: &daemonv1.Scope{Project: "orchard", Folder: filepath.Join(tree)}, Task: "@"})
+	if err != nil || got.GetTask().GetId().GetValue() != task.GetId().GetValue() {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", "herdsman")); !os.IsNotExist(err) {
+		t.Fatalf("the lookup wrote worktree state: %v", err)
+	}
+}
+
+func TestTaskDeleteRefusesAnExistingWorktree(t *testing.T) {
+	c := routeClient(t, newHarness(t))
+	ctx := context.Background()
+	repo, tree := recordsRepoWithWorktree(t, "one", "one")
+	made, err := c.Project.Create(ctx, &daemonv1.ProjectServiceCreateRequest{Name: "orchard", Repos: []*corev1.ProjectRepo{{Name: "api", Path: repo}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := createTask(t, c, made.GetProject().GetName(), "One")
+	byID := task.GetId().GetValue()
+
+	_, err = c.Task.Delete(ctx, &daemonv1.TaskServiceDeleteRequest{Task: byID})
+	wantRecordsCode(t, err, rpc.FailedPrecondition)
+	if !strings.Contains(err.Error(), "down") || !strings.Contains(err.Error(), tree) {
+		t.Fatalf("the refusal does not name the way out: %v", err)
+	}
+	if _, err := c.Task.Get(ctx, &daemonv1.TaskServiceGetRequest{Task: byID}); err != nil {
+		t.Fatalf("the refused delete lost the task: %v", err)
+	}
+
+	recordsGit(t, repo, "worktree", "remove", tree)
+	if _, err := c.Task.Delete(ctx, &daemonv1.TaskServiceDeleteRequest{Task: byID}); err != nil {
+		t.Fatalf("no worktree remains: %v", err)
+	}
+}
+
+func TestTaskDeleteFindsAWorktreeByItsBranch(t *testing.T) {
+	c := routeClient(t, newHarness(t))
+	ctx := context.Background()
+	repo, _ := recordsRepoWithWorktree(t, "feat/one", "elsewhere")
+	made, err := c.Project.Create(ctx, &daemonv1.ProjectServiceCreateRequest{Name: "orchard", Repos: []*corev1.ProjectRepo{{Name: "api", Path: repo}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := createTask(t, c, made.GetProject().GetName(), "One")
+	_, err = c.Task.Delete(ctx, &daemonv1.TaskServiceDeleteRequest{Task: task.GetId().GetValue()})
+	wantRecordsCode(t, err, rpc.FailedPrecondition)
+	if _, err := c.Task.Delete(ctx, &daemonv1.TaskServiceDeleteRequest{Task: task.GetId().GetValue(), Force: true}); err != nil {
+		t.Fatalf("force: %v", err)
+	}
+}
+
+func TestTaskDeleteIgnoresARepositoryThatIsGoneOrNotGit(t *testing.T) {
+	c := routeClient(t, newHarness(t))
+	ctx := context.Background()
+	plain, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	made, err := c.Project.Create(ctx, &daemonv1.ProjectServiceCreateRequest{Name: "orchard", Repos: []*corev1.ProjectRepo{{Name: "plain", Path: plain}, {Name: "gone", Path: filepath.Join(plain, "gone")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := createTask(t, c, made.GetProject().GetName(), "One")
+	if _, err := c.Task.Delete(ctx, &daemonv1.TaskServiceDeleteRequest{Task: task.GetId().GetValue()}); err != nil {
+		t.Fatal(err)
+	}
+}

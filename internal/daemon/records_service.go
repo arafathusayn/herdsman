@@ -3,8 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/arafathusayn/herdsman/internal/project"
@@ -40,13 +38,20 @@ func recordsError(err error) error {
 
 func recordsScope(store *project.Store, sc *daemonv1.Scope) (project.Scope, error) {
 	out := project.Scope{Project: sc.GetProject(), Folder: sc.GetFolder()}
-	if route := sc.GetRoute().GetValue(); route != "" {
-		id, err := store.ProjectOfRoute(route)
-		if err != nil {
+	route := sc.GetRoute().GetValue()
+	if route == "" || (out.Project != "" && out.Project != "@") {
+		return out, nil
+	}
+	if out.Folder != "" {
+		if _, bound, err := project.FindBinding(out.Folder); bound || err != nil {
 			return out, err
 		}
-		out.RouteProject = id
 	}
+	id, err := store.ProjectOfRoute(route)
+	if err != nil {
+		return out, err
+	}
+	out.RouteProject = id
 	return out, nil
 }
 
@@ -56,23 +61,6 @@ func resolveProject(store *project.Store, sc *daemonv1.Scope) (*project.Project,
 		return nil, err
 	}
 	return store.ResolveProject(scope)
-}
-
-// taskAt names the task of the linked worktree holding folder.
-func taskAt(folder string) (string, bool, error) {
-	if folder == "" {
-		return "", false, nil
-	}
-	list, err := (&WorktreeService{}).List(context.Background(), WorktreeListRequest{Dir: folder})
-	if err != nil {
-		return "", false, err
-	}
-	for _, row := range list.Rows {
-		if !row.Main && row.Path != "" && (folder == row.Path || strings.HasPrefix(folder, row.Path+string(filepath.Separator))) {
-			return row.Task, true, nil
-		}
-	}
-	return "", false, nil
 }
 
 func resolveTask(store *project.Store, sc *daemonv1.Scope, ref string) (*project.Task, error) {
@@ -314,6 +302,11 @@ func (s taskRPC) Delete(_ context.Context, req *daemonv1.TaskServiceDeleteReques
 	t, err := resolveTask(store, req.GetScope(), req.GetTask())
 	if err != nil {
 		return nil, recordsError(err)
+	}
+	if !req.GetForce() {
+		if err := refuseLiveWorktrees(store, t); err != nil {
+			return nil, recordsError(err)
+		}
 	}
 	if err := store.DeleteTask(t.ID, req.GetForce()); err != nil {
 		return nil, recordsError(err)
