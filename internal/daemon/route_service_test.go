@@ -197,20 +197,3 @@ func TestUpRefusesAProfileNothingEnforces(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
-
-func TestNewRefusesAWorktreeUnderRestricted(t *testing.T) {
-	repo := t.TempDir()
-	writeRestrictedConfig(t, repo)
-	if err := refuseLinkedWorktree(repo); err == nil || !strings.Contains(err.Error(), "restricted") {
-		t.Fatalf("err = %v", err)
-	}
-	if err := refuseLinkedWorktree(t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "herdsman.config.toml"), []byte("[broken"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := refuseLinkedWorktree(repo); err == nil {
-		t.Fatal("an unreadable file let a worktree through")
-	}
-}
