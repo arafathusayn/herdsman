@@ -13,6 +13,14 @@ service LedgerService {
   rpc Plan(PlanRequest) returns (PlanResponse);
   // AddResource records authority over a resource for one execution.
   rpc AddResource(AddResourceRequest) returns (AddResourceResponse);
+  // TeardownPlans builds one plan per selected task and changes nothing.
+  rpc TeardownPlans(TeardownPlansRequest) returns (TeardownPlansResponse);
+  // Teardown runs approved plans, each as one journaled operation.
+  rpc Teardown(TeardownRequest) returns (TeardownResponse);
+  // RegisterResource records a resource for a task found from a folder.
+  rpc RegisterResource(RegisterResourceRequest) returns (RegisterResourceResponse);
+  // LedgerHealth lists what a folder's task still runs that it alone owns.
+  rpc LedgerHealth(LedgerHealthRequest) returns (LedgerHealthResponse);
 }
 
 message ResourcesRequest {
@@ -82,4 +90,76 @@ message AddResourceRequest {
 
 message AddResourceResponse {
   ResourceRecord record = 1;
+}
+
+message TeardownPlansRequest {
+  // dir is an absolute folder inside the repository.
+  string dir = 1;
+  // selector names one task; empty means the task of dir.
+  string selector = 2;
+  // route selects every task of a route folder.
+  string route = 3;
+  // all selects every task.
+  bool all = 4;
+}
+
+message TeardownPlansResponse {
+  // plans are versioned plan documents, each a JSON object. Teardown takes
+  // them back byte for byte, so the identity of what was approved holds.
+  repeated bytes plans = 1;
+  // hooks says a teardown would run configured hooks even with nothing to stop.
+  bool hooks = 2;
+}
+
+message TeardownRequest {
+  // dir is an absolute folder inside the repository.
+  string dir = 1;
+  // plans are documents from TeardownPlans that a person approved.
+  repeated bytes plans = 2;
+  // grace_seconds is the wait before a forced stop; zero takes the default.
+  int32 grace_seconds = 3;
+  // include_associated also stops what is only associated with the task.
+  bool include_associated = 4;
+}
+
+message TeardownOutcome {
+  string kind = 1;
+  string id = 2;
+  string level = 3;
+  string result = 4;
+}
+
+message TeardownReport {
+  string task = 1;
+  repeated TeardownOutcome outcomes = 2;
+  // error is empty when every approved stop finished.
+  string error = 3;
+}
+
+message TeardownResponse {
+  repeated TeardownReport reports = 1;
+}
+
+message RegisterResourceRequest {
+  // dir is an absolute folder inside the repository.
+  string dir = 1;
+  // task is empty to use the task of dir.
+  string task = 2;
+  // execution is empty to use the task's newest execution.
+  string execution = 3;
+  string kind = 4;
+  string id = 5;
+}
+
+message RegisterResourceResponse {
+  ResourceRecord record = 1;
+}
+
+message LedgerHealthRequest {
+  // dir is an absolute folder inside the task's worktree.
+  string dir = 1;
+}
+
+message LedgerHealthResponse {
+  repeated ResourceLine running = 1;
 }

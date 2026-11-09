@@ -39,6 +39,7 @@ func (d *Daemon) openOps() error {
 	effects := d.recovery.Effects()
 	maps.Copy(effects, d.operationEffects())
 	d.ops = ops.NewEngine(c, ops.Options{Effects: effects, Checks: d.cfg.Checks, Now: d.cfg.Now, Fault: d.cfg.OpsFault})
+	d.worktrees.useTeardownOperations(d.teardowns, d.ops)
 	d.recovery.Attach(d.ops)
 	d.mu.Unlock()
 	return nil

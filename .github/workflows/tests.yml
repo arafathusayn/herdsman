@@ -38,6 +38,22 @@ jobs:
       - name: Release config
         run: make release-check
 
+  teardown-container:
+    # Stops a real container and proves it stays on the machine. Hosted Linux
+    # runners have an engine; this job must never skip the gate.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Fixture image
+        run: docker pull alpine:3
+      - name: Container gate
+        run: go test -p 1 -tags acceptance -count=1 -v -run '^TestAContainerIsStoppedAndKept$' ./acceptance/teardown/ | tee gate.log
+      - name: The gate ran and passed
+        run: grep -q '^--- PASS. TestAContainerIsStoppedAndKept' gate.log
+
   sdk:
     strategy:
       fail-fast: false
