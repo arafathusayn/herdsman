@@ -37,7 +37,7 @@ func scriptedSuite(t *testing.T) string {
 
 func TestEvalRunExecutesTheSuiteThroughRoutesWithControls(t *testing.T) {
 	suite := scriptedSuite(t)
-	code, out, errOut := runEvalArgs(evalFlag, "run", suite, "--json")
+	code, out, errOut := runEvalArgs(evalFlag, "run", "--local", suite, "--json")
 	if code != 0 {
 		t.Fatalf("%d %s", code, errOut)
 	}
@@ -82,7 +82,7 @@ func TestEvalRunRefusesToPoolWithEarlierRuns(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(suite, "runs.jsonl"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, errOut := runEvalArgs(evalFlag, "run", suite); code != 1 || !strings.Contains(errOut, "already holds runs") {
+	if code, _, errOut := runEvalArgs(evalFlag, "run", "--local", suite); code != 1 || !strings.Contains(errOut, "already holds runs") {
 		t.Fatalf("%d %s", code, errOut)
 	}
 }
@@ -101,7 +101,7 @@ func TestEvalRunRefusesABadSuite(t *testing.T) {
 		"no command":  {Tasks: task, Arms: []evalArm{{Name: "a"}}, Runs: 1, ControlRuns: 2},
 	}
 	for name, suite := range cases {
-		if code, _, errOut := runEvalArgs(evalFlag, "run", writeSuite(t, suite)); code != 1 || !strings.Contains(errOut, "eval:") {
+		if code, _, errOut := runEvalArgs(evalFlag, "run", "--local", writeSuite(t, suite)); code != 1 || !strings.Contains(errOut, "eval:") {
 			t.Errorf("%s: %d %s", name, code, errOut)
 		}
 	}
@@ -109,10 +109,10 @@ func TestEvalRunRefusesABadSuite(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(unknown, evalSuiteFile), []byte(`{"bogus":1}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, _ := runEvalArgs(evalFlag, "run", unknown); code != 1 {
+	if code, _, _ := runEvalArgs(evalFlag, "run", "--local", unknown); code != 1 {
 		t.Error("an unknown key must be refused")
 	}
-	if code, _, _ := runEvalArgs(evalFlag, "run", t.TempDir()); code != 1 {
+	if code, _, _ := runEvalArgs(evalFlag, "run", "--local", t.TempDir()); code != 1 {
 		t.Error("a folder with no suite must be refused")
 	}
 	if code, _, _ := runEvalArgs(evalFlag, "run"); code != 2 {
@@ -132,7 +132,7 @@ func TestEvalRunATimeoutFailsTheRunAndStopsItsChildren(t *testing.T) {
 		TimeoutSeconds: 1,
 	})
 	began := time.Now()
-	code, out, errOut := runEvalArgs(evalFlag, "run", suite, "--json")
+	code, out, errOut := runEvalArgs(evalFlag, "run", "--local", suite, "--json")
 	if code != 0 {
 		t.Fatalf("%d %s", code, errOut)
 	}

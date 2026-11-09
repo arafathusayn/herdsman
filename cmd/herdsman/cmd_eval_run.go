@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	tracev1 "github.com/arafathusayn/herdsman/sdk/trace/v1"
 )
 
@@ -32,6 +34,8 @@ type evalTask struct {
 type evalArm struct {
 	Name    string `json:"name"`
 	Command string `json:"command"`
+	// Kind is the herdr agent kind of the command; a route needs it.
+	Kind string `json:"kind,omitempty"`
 }
 
 type suiteSpec struct {
@@ -44,7 +48,7 @@ type suiteSpec struct {
 
 var evalNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-func loadEvalSuite(folder string) (suiteSpec, error) {
+func loadEvalSuite(folder string, local bool) (suiteSpec, error) {
 	var suite suiteSpec
 	data, err := os.ReadFile(filepath.Join(folder, evalSuiteFile))
 	if err != nil {
@@ -69,6 +73,9 @@ func loadEvalSuite(folder string) (suiteSpec, error) {
 	for _, arm := range suite.Arms {
 		if !evalNamePattern.MatchString(arm.Name) || arm.Command == "" {
 			return suite, fmt.Errorf("arm %q needs a plain name and a command", arm.Name)
+		}
+		if !local && arm.Kind == "" {
+			return suite, fmt.Errorf("arm %q needs a kind to run in a route", arm.Name)
 		}
 	}
 	return suite, nil
@@ -117,6 +124,172 @@ type evalRunner struct {
 	service tracev1.TraceService
 	timeout time.Duration
 	serial  int
+	// routes starts each run as a route; nil runs the command directly.
+	routes *evalRoutes
+}
+
+// evalRoutes is what running in routes needs from the daemon and herdr.
+type evalRoutes struct {
+	service daemonv1.RouteService
+	socket  string
+	kinds   []string
+}
+
+// dialEvalRoutes reaches herdr and the daemon, starting them as up does; tests
+// replace it.
+var dialEvalRoutes = func(ctx context.Context) (*evalRoutes, func(), error) {
+	socket, err := upHerdr(ctx, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	sdk, err := upDaemon(ctx, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &evalRoutes{service: sdk.Route, socket: socket, kinds: upKinds(ctx)}, sdk.Close, nil
+}
+
+const (
+	// evalDoneFile is what an agent creates in its repository when it finishes.
+	evalDoneFile = ".eval-done"
+	// evalUsageFile is where an agent may report {"tokens","cost_micros"}.
+	evalUsageFile = ".eval-usage.json"
+)
+
+// evalTimeoutUnit scales a suite's timeout; only a test changes it.
+var evalTimeoutUnit = time.Second
+
+// evalPollEvery is how often a running route is looked at.
+var evalPollEvery = time.Second
+
+func evalGit(dir string, args ...string) error {
+	command := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=herdsman", "-c", "user.email=herdsman@localhost"}, args...)...)
+	if out, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("git %s: %w: %s", args[0], err, out)
+	}
+	return nil
+}
+
+func evalPause(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(evalPollEvery):
+	}
+}
+
+// startEvalRoute brings a route up and returns its folder once the agent has
+// its brief.
+func (r *evalRunner) startEvalRoute(ctx context.Context, id *corev1.RouteId, repo string, arm evalArm, task evalTask) (string, error) {
+	prompt := task.Prompt + "\n\nWhen the task is finished, create an empty file named " + evalDoneFile + " in the root of this repository."
+	request := &daemonv1.UpRequest{
+		Route: id, Repo: repo, Prompt: prompt, OrchestratorCommand: arm.Command, OrchestratorKind: arm.Kind, NoAdjutant: true,
+		HerdrSocket: r.routes.socket, Caller: upCaller(), Kinds: r.routes.kinds, Date: now().Format("2006-01-02"),
+	}
+	if _, err := r.routes.service.Up(ctx, request); err != nil {
+		return "", err
+	}
+	for ctx.Err() == nil {
+		res, err := r.routes.service.Get(ctx, &daemonv1.RouteServiceGetRequest{Route: id, Repo: repo})
+		if err != nil {
+			return "", err
+		}
+		switch start := res.GetStart(); start.GetState() {
+		case "done":
+			return start.GetFolder(), nil
+		case "stopped", "conflict", "failed", "stale":
+			return "", fmt.Errorf("the route did not start: %s: %s", start.GetState(), start.GetReason())
+		}
+		evalPause(ctx)
+	}
+	return "", ctx.Err()
+}
+
+// awaitEvalDone waits for the agent's finish file; false means time ran out.
+func awaitEvalDone(ctx context.Context, repo string) bool {
+	path := filepath.Join(repo, evalDoneFile)
+	for ctx.Err() == nil {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		evalPause(ctx)
+	}
+	return false
+}
+
+// routeCost is what the run reported itself, else the total on the route's own
+// span; nil when nothing was reported.
+func (r *evalRunner) routeCost(ctx context.Context, folder, repo string) *int64 {
+	if usage := readEvalUsage(filepath.Join(repo, evalUsageFile)); usage.CostMicros != nil {
+		return usage.CostMicros
+	}
+	res, err := r.service.Get(ctx, &tracev1.GetRequest{Route: folder})
+	if err != nil {
+		return nil
+	}
+	for _, span := range res.GetTrace().GetSpans() {
+		if span.GetKind() == "route" {
+			return span.CostMicros
+		}
+	}
+	return nil
+}
+
+// runRoute runs one task in a real route of its own: a new repository, a route
+// started as up starts one, the arm's agent working until it says it finished
+// or time runs out, the task's check, and the route stopped.
+func (r *evalRunner) runRoute(ctx context.Context, arm evalArm, task evalTask, control string) error {
+	r.serial++
+	label := control
+	if label == "" {
+		label = "run"
+	}
+	base := filepath.Join(r.folder, "routes", fmt.Sprintf("%05d-%s-%s-%s", r.serial, arm.Name, task.ID, label))
+	repo := filepath.Join(base, "work")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		return err
+	}
+	if err := evalGit(repo, "init", "-q"); err != nil {
+		return err
+	}
+	if err := evalGit(repo, "commit", "-q", "--allow-empty", "-m", "start"); err != nil {
+		return err
+	}
+	id := &corev1.RouteId{Value: fmt.Sprintf("eval-%05d", r.serial)}
+	stop := &daemonv1.RouteServiceStopRequest{Route: id, Repo: repo, GraceSeconds: 1}
+	limited, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	began := time.Now()
+	folder, err := r.startEvalRoute(limited, id, repo, arm, task)
+	if err != nil {
+		// A route that got partway up must not outlive the run. The start's
+		// failure is the one to report.
+		_, _ = r.routes.service.Stop(ctx, stop)
+		return err
+	}
+	finished := awaitEvalDone(limited, repo)
+	duration := float64(time.Since(began)) / float64(time.Millisecond)
+	pass := false
+	if finished {
+		log, err := os.Create(filepath.Join(base, "check.log"))
+		if err != nil {
+			return err
+		}
+		defer log.Close()
+		began = time.Now()
+		// The check gets its own time: the agent may have used all of the run's.
+		checkContext, cancelCheck := context.WithTimeout(ctx, r.timeout)
+		defer cancelCheck()
+		checked := runEvalShell(checkContext, task.Check, repo, nil, log)
+		if err := r.addSpan(ctx, folder, spanOf("check", task.ID, task.ID, began, checked)); err != nil {
+			return err
+		}
+		pass = checked == 0
+	}
+	if _, err := r.routes.service.Stop(ctx, stop); err != nil {
+		return fmt.Errorf("stop route %s: %w", id.GetValue(), err)
+	}
+	_, err = r.service.RecordRun(ctx, &tracev1.RecordRunRequest{Suite: r.folder, Run: &tracev1.Run{Task: task.ID, Arm: arm.Name, Control: control, Pass: pass, DurationMs: duration, CostMicros: r.routeCost(ctx, folder, repo)}})
+	return err
 }
 
 func (r *evalRunner) addSpan(ctx context.Context, route string, span *tracev1.Span) error {
@@ -191,7 +364,11 @@ func (r *evalRunner) runAll(ctx context.Context) error {
 					groups = append(groups, "a", "b")
 				}
 				for _, control := range groups {
-					if err := r.runOne(ctx, arm, task, control); err != nil {
+					run := r.runOne
+					if r.routes != nil {
+						run = r.runRoute
+					}
+					if err := run(ctx, arm, task, control); err != nil {
 						return fmt.Errorf("%s on %s: %w", arm.Name, task.ID, rpcText(err))
 					}
 				}
@@ -205,12 +382,13 @@ func runEvalSuite(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("eval run", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	asJSON := flags.Bool("json", false, "print JSON")
+	local := flags.Bool("local", false, "run each command directly instead of in a route")
 	positional, err := parseInterspersed(flags, args)
 	if err != nil {
 		return 2
 	}
 	if len(positional) != 1 {
-		fmt.Fprintln(stderr, "usage: herdsman eval --experimental-eval run <suite folder> [--json]")
+		fmt.Fprintln(stderr, "usage: herdsman eval --experimental-eval run <suite folder> [--local] [--json]")
 		return 2
 	}
 	paths, err := absolutePaths(positional)
@@ -218,7 +396,7 @@ func runEvalSuite(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	suite, err := loadEvalSuite(paths[0])
+	suite, err := loadEvalSuite(paths[0], *local)
 	if err != nil {
 		fmt.Fprintf(stderr, "eval: %v\n", err)
 		return 1
@@ -236,9 +414,18 @@ func runEvalSuite(args []string, stdout, stderr io.Writer) int {
 	defer closeService()
 	timeout := defaultEvalTimeout
 	if suite.TimeoutSeconds > 0 {
-		timeout = time.Duration(suite.TimeoutSeconds) * time.Second
+		timeout = time.Duration(suite.TimeoutSeconds) * evalTimeoutUnit
 	}
 	runner := &evalRunner{folder: paths[0], suite: suite, service: service, timeout: timeout}
+	if !*local {
+		routes, closeRoutes, err := dialEvalRoutes(context.Background())
+		if err != nil {
+			fmt.Fprintf(stderr, "eval: %v\n", err)
+			return 1
+		}
+		defer closeRoutes()
+		runner.routes = routes
+	}
 	if err := runner.runAll(context.Background()); err != nil {
 		fmt.Fprintf(stderr, "eval: %v\n", err)
 		return 1

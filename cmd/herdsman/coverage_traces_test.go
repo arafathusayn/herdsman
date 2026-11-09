@@ -81,7 +81,7 @@ func traceAndEvalCalls(route, suite string) map[string]func() int {
 		"eval":        code(runEvalArgs, evalFlag, suite),
 		"outcome":     code(runEvalArgs, evalFlag, "finding", "outcome", route, "id", "fixed"),
 		"finding add": code(runEvalArgs, evalFlag, "finding", "add", route, "--reviewer", "r", "--severity", "P1", "--title", "t"),
-		"eval run":    code(runEvalArgs, evalFlag, "run", suite),
+		"eval run":    code(runEvalArgs, evalFlag, "run", "--local", suite),
 	}
 }
 
@@ -217,7 +217,7 @@ func TestEvalRunStopsWhenItCannotRecord(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			withTrace(t, service)
-			if code, _, errOut := runEvalArgs(evalFlag, "run", oneTaskSuite(t)); code != 1 || !strings.Contains(errOut, "broken") {
+			if code, _, errOut := runEvalArgs(evalFlag, "run", "--local", oneTaskSuite(t)); code != 1 || !strings.Contains(errOut, "broken") {
 				t.Fatalf("%d %s", code, errOut)
 			}
 		})
@@ -226,7 +226,7 @@ func TestEvalRunStopsWhenItCannotRecord(t *testing.T) {
 
 func TestEvalRunStopsWhenTheCheckSpanCannotBeRecorded(t *testing.T) {
 	withTrace(t, &checkSpanFails{TraceService: daemon.NewTraceService(false)})
-	if code, _, errOut := runEvalArgs(evalFlag, "run", oneTaskSuite(t)); code != 1 || !strings.Contains(errOut, "broken") {
+	if code, _, errOut := runEvalArgs(evalFlag, "run", "--local", oneTaskSuite(t)); code != 1 || !strings.Contains(errOut, "broken") {
 		t.Fatalf("%d %s", code, errOut)
 	}
 }
@@ -256,7 +256,7 @@ func TestEvalRunStopsWhenItsFoldersCannotBeMade(t *testing.T) {
 			if err := os.WriteFile(path, nil, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if code, _, errOut := runEvalArgs(evalFlag, "run", suite); code != 1 || errOut == "" {
+			if code, _, errOut := runEvalArgs(evalFlag, "run", "--local", suite); code != 1 || errOut == "" {
 				t.Fatalf("%d %s", code, errOut)
 			}
 		})
