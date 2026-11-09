@@ -261,6 +261,9 @@ func applyRemove(ctx context.Context, deps Deps, c *herdr.Client, d stepData) er
 	back := func(cause error) error { return errors.Join(cause, unstage(renamed)) }
 	for _, target := range d.Control.Targets {
 		if !exists(target) {
+			if exists(stagedPath(target)) { // a crashed run moved it aside
+				renamed = append(renamed, target)
+			}
 			continue
 		}
 		if err := os.Rename(target, stagedPath(target)); err != nil {

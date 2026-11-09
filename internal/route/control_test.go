@@ -458,6 +458,33 @@ func TestAFailedLastCheckPutsEveryTargetBack(t *testing.T) {
 	assertKept(t, r, p)
 }
 
+// A rerun finds what a crashed run already moved aside. A failed last check
+// must put that target back too, not only the ones this run moved.
+func TestAFailedLastCheckPutsBackWhatACrashedRunStaged(t *testing.T) {
+	r, pipe := recoverable(t)
+	p, start, e, done := deleted(t, r)
+	defer done()
+	c := control(t, start, route.VerbDelete, 2)
+	base := pipe.calls
+	r.onFault = func(point string) {
+		if point == "step:1:done" {
+			if err := os.Rename(p.Folder, p.Folder+".deleting"); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	pipe.failVerify = func(call int) error {
+		if call == base+4 {
+			return errors.New("the snapshot went bad")
+		}
+		return nil
+	}
+	if op := drive(t, e, c.Spec); op.State == ops.OpDone {
+		t.Fatal("the delete ignored its last check")
+	}
+	assertKept(t, r, p)
+}
+
 func TestAnAbsentTargetDoesNotExcuseAFailedVerification(t *testing.T) {
 	r, pipe := recoverable(t)
 	p, start, e, done := deleted(t, r)
