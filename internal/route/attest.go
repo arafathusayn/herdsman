@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,9 +14,10 @@ import (
 	"github.com/arafathusayn/herdsman/internal/sys"
 )
 
-// Caller is who asked for a route's start. The daemon fills PID, Started, TTY
-// and HarnessAncestor from the system and the socket's peer, never from the
-// request; Pane and Confirmed are the caller's word, and are checked. It lives only as long as the daemon holds it: a restart forgets it, and the
+// Caller is who asked for a route's start. The daemon fills PID, Started, TTY,
+// HarnessAncestor and CoreCommand from the system and the socket's peer, never
+// from the request; Pane and Confirmed are the caller's word, and are checked.
+// It lives only as long as the daemon holds it: a restart forgets it, and the
 // pair then waits for a new call with a fresh attestation.
 type Caller struct {
 	Pane string
@@ -24,6 +27,9 @@ type Caller struct {
 	TTY     string
 	// HarnessAncestor names a coding agent found among the caller's ancestors.
 	HarnessAncestor string
+	// CoreCommand names the program herdr-core started in the caller's
+	// terminal, when that program is not a shell a person types in.
+	CoreCommand string
 	// Confirmed is the checksum a person confirmed on the terminal, for
 	// --pair manual.
 	Confirmed string
@@ -53,6 +59,43 @@ func (c *Callers) Get(key string) (Caller, bool) {
 	return caller, ok
 }
 
+// ShellNames lists the programs that count as a shell a person types in, when
+// one is the program of a herdr-core terminal.
+var ShellNames = []string{"sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "xonsh", "elvish"}
+
+// CoreTerminalCommand names the program of a herdr-core terminal when the
+// terminal was started with a command, and returns "" when the program is a
+// shell waiting for a person to type.
+//
+// herdr-core starts a command under its holder with no agent among the
+// ancestors, whoever asked for it, so a command there is no sign of a person.
+// A shell counts as one a person types in only with nothing but flags after
+// its name, and without a flag that carries a command: an operand is a script
+// or a command string.
+func CoreTerminalCommand(program string) string {
+	words := strings.Fields(program)
+	if len(words) == 0 {
+		return "unknown"
+	}
+	name := strings.TrimPrefix(filepath.Base(words[0]), "-") // a login shell shows as -zsh
+	if !slices.Contains(ShellNames, name) {
+		return name
+	}
+	for _, word := range words[1:] {
+		switch {
+		case !strings.HasPrefix(word, "-"):
+			return name
+		case strings.HasPrefix(word, "--"):
+			if strings.Contains(word, "command") {
+				return name
+			}
+		case strings.ContainsAny(word, "cC"):
+			return name
+		}
+	}
+	return ""
+}
+
 type paneProcessInfo struct {
 	TTY                 *string `json:"tty"`
 	ForegroundProcesses []struct {
@@ -62,8 +105,15 @@ type paneProcessInfo struct {
 
 // attest decides whether the caller may approve a pair. It asks herdr fresh
 // each time. What a pass proves: the request came from this pane, no agent is
-// attached to it, and no recognized harness is among the caller's ancestors.
-// Nothing here identifies the person behind the pane.
+// attached to it, no recognized harness is among the caller's ancestors, and
+// herdr-core did not start the caller's terminal with a command.
+//
+// It stops an agent that runs up as an ordinary command. It does not stop one
+// that hides: a process started apart from its parents, on a terminal of its
+// own, has no agent above it, and neither has a command under a copy of
+// herdr-core that runs by another name. Nothing here identifies the person
+// behind the pane, and nothing tells a person's typing from text an agent
+// sends into a shell through a terminal's API.
 func attest(ctx context.Context, c *herdr.Client, caller Caller) error {
 	if err := verifyCaller(caller); err != nil {
 		return err
@@ -108,6 +158,9 @@ func attest(ctx context.Context, c *herdr.Client, caller Caller) error {
 func verifyCaller(caller Caller) error {
 	if caller.HarnessAncestor != "" {
 		return fmt.Errorf("up runs under the harness %s", caller.HarnessAncestor)
+	}
+	if caller.CoreCommand != "" {
+		return fmt.Errorf("up runs in a herdr-core terminal started with the command %s, not typed in a shell", caller.CoreCommand)
 	}
 	if caller.TTY == "" {
 		return errors.New("up runs without a controlling terminal")

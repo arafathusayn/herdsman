@@ -107,19 +107,74 @@ func TestVerifiedCallerIgnoresClaimedFacts(t *testing.T) {
 		}
 		return procFacts{ppid: 1}, nil
 	}
-	tty, harness := inspectCaller(10, inspect)
-	if tty != "/dev/ttys9" || harness != "claude" {
-		t.Fatalf("%q %q", tty, harness)
+	facts := inspectCaller(10, inspect)
+	if facts.tty != "/dev/ttys9" || facts.harness != "claude" {
+		t.Fatalf("%+v", facts)
 	}
 	none := func(int) (procFacts, error) { return procFacts{ppid: 1, tty: "??", command: "sshd"}, nil }
-	if tty, harness = inspectCaller(10, none); tty != "" || harness != "" {
-		t.Fatalf("%q %q", tty, harness)
+	if facts = inspectCaller(10, none); facts != (callerFacts{}) {
+		t.Fatalf("%+v", facts)
 	}
 	node := func(int) (procFacts, error) {
 		return procFacts{ppid: 1, tty: "ttys1", command: "node /usr/lib/node_modules/.bin/codex"}, nil
 	}
-	if _, harness = inspectCaller(10, node); harness != "codex" {
-		t.Fatalf("a script harness was missed: %q", harness)
+	if facts = inspectCaller(10, node); facts.harness != "codex" {
+		t.Fatalf("a script harness was missed: %+v", facts)
+	}
+}
+
+// herdr-core starts a terminal's program under its holder, with no agent above
+// it, whoever asked. The holder and core command lines are the ones herdr-core
+// 0.1.19 shows in the process table: under the name hc when hc started the
+// core, and under the name herdr-core when the Herdr app did.
+func TestInspectCallerFindsACommandStartedThroughHerdrCore(t *testing.T) {
+	const (
+		holder    = "/opt/bin/hc hold --socket /run/herdr-core/default.holder.3cd8168b.sock"
+		core      = "/opt/bin/hc --hc-launchd /tmp/hc-launchd-1/ready"
+		appHolder = "/opt/bin/herdr-core hold --socket /state/herdr-core/default/default.holder.8f6529c6.sock"
+		appCore   = "/opt/bin/herdr-core serve"
+		tty       = "/dev/ttys26"
+	)
+	// chain makes a process table from command lines: the caller is process
+	// 10, and each row's parent is the row after it.
+	chain := func(rows []string) func(int) (procFacts, error) {
+		return func(pid int) (procFacts, error) {
+			i := pid - 10
+			if i < 0 || i >= len(rows) {
+				return procFacts{}, errors.New("no such process")
+			}
+			ppid := pid + 1
+			if i == len(rows)-1 {
+				ppid = 1
+			}
+			return procFacts{ppid: ppid, tty: "ttys26", command: rows[i]}, nil
+		}
+	}
+	cases := []struct {
+		name string
+		rows []string
+		want callerFacts
+	}{
+		{"up is the terminal's program", []string{"herdsman up r -p x", holder, core}, callerFacts{tty: tty, coreCommand: "herdsman"}},
+		{"a command string under sh", []string{"herdsman up r", "/bin/sh -c herdsman up r", holder, core}, callerFacts{tty: tty, coreCommand: "sh"}},
+		{"a script", []string{"herdsman up r", "/bin/bash /tmp/start-route.sh", holder, core}, callerFacts{tty: tty, coreCommand: "bash"}},
+		{"typed in the login shell", []string{"herdsman up r", "/bin/zsh -l", holder, core}, callerFacts{tty: tty}},
+		{"typed in a login shell named with a dash", []string{"herdsman up r", "-zsh", holder, core}, callerFacts{tty: tty}},
+		{"run by a tool a person started in the shell", []string{"herdsman up r", "make up", "/bin/zsh -l", holder, core}, callerFacts{tty: tty}},
+		{"an agent in a core terminal", []string{"herdsman up r", "/opt/bin/claude --model x", "/bin/zsh -l", holder, core}, callerFacts{tty: tty, harness: "claude"}},
+		{"outside herdr-core", []string{"herdsman up r", "-zsh", "/usr/bin/login -fp someone"}, callerFacts{tty: tty}},
+		{"up is the program, the core named herdr-core", []string{"herdsman up r -p x", appHolder, appCore}, callerFacts{tty: tty, coreCommand: "herdsman"}},
+		{"typed in a shell, the core named herdr-core", []string{"herdsman up r", "/bin/zsh -l", appHolder, appCore}, callerFacts{tty: tty}},
+		{"a holder with other arguments", []string{"herdsman up r", "/opt/bin/hc keep-terminals --socket /run/x.sock", core}, callerFacts{tty: tty, coreCommand: "herdsman"}},
+		{"the program is a child of the server", []string{"herdsman up r", appCore}, callerFacts{tty: tty, coreCommand: "herdsman"}},
+		{"a shell under a herdr-core command, in a terminal started with a script", []string{"herdsman up r", "/bin/zsh -l", "/opt/bin/hc attach t1", "/bin/bash /tmp/start-route.sh", holder, core}, callerFacts{tty: tty, coreCommand: "bash"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := inspectCaller(10, chain(tc.rows)); got != tc.want {
+				t.Fatalf("got %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }
 

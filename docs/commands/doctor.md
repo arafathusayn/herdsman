@@ -7,9 +7,13 @@ Check that this machine can run a route: herdr, gh, the binary, the inbox, the s
 ```text
 usage: herdsman doctor [--json]
 
-Prints one line per check, "ok|warn|fail <check> <detail>": herdr, gh,
-binary, inbox (when HERDSMAN_INBOX is set), sandbox, load and enforcement
-(HERDSMAN_LOAD_LIMIT, default the core count; HERDSMAN_MIN_FREE, default 10).
+Prints one line per check, "ok|warn|fail <check> <detail>": herdr, herdr-core
+(when it is installed), gh, binary, inbox (when HERDSMAN_INBOX is set),
+sandbox, load and enforcement (HERDSMAN_LOAD_LIMIT, default the core count;
+HERDSMAN_MIN_FREE, default 10). The herdr-core line says whether the launcher
+check knows the holder process of a running herdr-core; it fails when it does
+not, because a command started through herdr-core would then pass as typed by
+a person.
 A "deprecated" line appears for each old key or variable in use, each old flag,
 and each installed shell wrapper that differs from this binary's, with its
 replacement and fix.

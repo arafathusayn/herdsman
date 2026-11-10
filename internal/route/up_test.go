@@ -528,6 +528,9 @@ func TestPairIsLeftPendingWithoutAttestation(t *testing.T) {
 			r.fix.SetAgent(pane, herdrtest.Agent(pane, "s"))
 			r.callers.Set(key, route.Caller{PID: os.Getpid(), Started: ownStart(r.t), TTY: "/dev/ttys-agent"})
 		}, "agent"},
+		{"a command started through herdr-core", func(r *rig, key string) {
+			r.callers.Set(key, route.Caller{PID: os.Getpid(), Started: ownStart(r.t), TTY: "/dev/ttys-core", CoreCommand: "herdsman"})
+		}, "herdr-core"},
 		{"nobody", func(*rig, string) {}, "caller"},
 	}
 	for _, tc := range cases {
@@ -631,6 +634,49 @@ func TestManualPairNeedsTheConfirmedChecksum(t *testing.T) {
 		t.Fatal(err)
 	}
 	if op, _ = e.Drive(context.Background(), op.ID); op.State != ops.OpDone {
+		t.Fatalf("state %s: %s", op.State, op.Reason)
+	}
+}
+
+// A terminal that herdr-core started with a command can be typed into through
+// core's API, so a confirmation there proves no more than the command does.
+func TestManualPairStaysPendingForACommandStartedThroughHerdrCore(t *testing.T) {
+	r := newRig(t)
+	req := r.request("claude", "codex")
+	req.PairManual = true
+	p := r.plan(req)
+	caller := route.Caller{PID: os.Getpid(), Started: ownStart(t), TTY: "/dev/ttys-core", CoreCommand: "herdsman"}
+	r.callers.Set(p.Key, caller)
+	e, done := r.engine()
+	defer done()
+	op := drive(t, e, p.Spec)
+	if op.State != ops.OpStopped {
+		t.Fatalf("state %s: %s", op.State, op.Reason)
+	}
+	sum, _, err := route.PairState(p.Inbox)
+	if err != nil || sum == "" {
+		t.Fatalf("%q %v", sum, err)
+	}
+	caller.Confirmed = sum
+	r.callers.Set(p.Key, caller)
+	if err := route.Continue(e, r.callers, p, op, nil); err != nil {
+		t.Fatal(err)
+	}
+	op, _ = e.Drive(context.Background(), op.ID)
+	if op.State != ops.OpStopped || !strings.Contains(op.Reason, "herdr-core") || !strings.Contains(op.Reason, "register approve") {
+		t.Fatalf("state %s: %s", op.State, op.Reason)
+	}
+}
+
+// A shell a person types in is a terminal outside herdr, in a herdr-core
+// terminal as anywhere else.
+func TestAShellOutsideHerdrApproves(t *testing.T) {
+	r := newRig(t)
+	p := r.plan(r.request("claude", "codex"))
+	r.callers.Set(p.Key, route.Caller{PID: os.Getpid(), Started: ownStart(t), TTY: "/dev/ttys-outside"})
+	e, done := r.engine()
+	defer done()
+	if op := drive(t, e, p.Spec); op.State != ops.OpDone {
 		t.Fatalf("state %s: %s", op.State, op.Reason)
 	}
 }
