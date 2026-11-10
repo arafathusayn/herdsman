@@ -132,7 +132,7 @@ func Subscribe(ctx context.Context, socket string, filter Filter, opts Options) 
 		return nil, err
 	}
 	var snap snapshot
-	err = syncCall(ctx, conn, r, opts, 1, MethodSubscribe, subscribeParams{Labels: filter.Labels, Terminal: filter.Terminal}, &snap)
+	err = syncCall(ctx, conn, r, opts, 1, MethodSubscribe, subscribeParams(filter), &snap)
 	if err == nil && len(snap.Channel) > 0 && string(snap.Channel) != "null" {
 		err = fmt.Errorf("hc %s: core answered with a framed channel", MethodSubscribe)
 	}
