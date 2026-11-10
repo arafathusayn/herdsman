@@ -16,6 +16,15 @@ Review this file in the yearly routine (`MAINTAINING.md`), and whenever a new in
 | Output of `git`, `gh` and other programs | Subprocesses | Parsed as text | Callers of each program |
 | Dependencies at build time | Upstream releases | Pinned copies, offline release build, daily advisories | `third_party/`, `vendor/`, `MAINTAINING.md` |
 | CI actions | GitHub Actions | New or changed actions are pinned to a commit | `.github/workflows/` |
+| Terminal status on herdr-core (OSC 7501) | Any program in a core terminal | Can block a send; never permits one alone and never proves identity | `internal/runtime` |
+| The herdr-core API | Any process of the same user | Not a boundary: labels, names and addresses prove nothing; registration and process evidence do | `internal/hc`, `internal/runtime` |
+| herdr-core state on disk | herdr-core, in plain text | Holds each terminal's launch environment, screens and history; herdsman puts no secret in a launch environment, label, argument or title | `internal/launch` |
+| Other agents on a shared core | The user's other work | Outside a route's inventory by default; a fault under the restricted profile, which needs a core of its own | `internal/runtime` |
+| Worker socket requests | Commands of a managed agent, sandboxed or not | Serves only the calling execution's notice calls, identified by its process; own request and wait limits | `internal/daemon`, `internal/notice` |
+| Final-report notices | The daemon's stop operation | Fixed text, one per execution, only while the route is stopping; no API call issues one | `internal/notice` |
+| Launch environment before registration | An authenticated launch wrapper | Granted secrets reach the prelude and the harness only; authentication gives no standing as an agent | `internal/launch` |
+| Terminals a member starts on core | A managed agent | Classified by evidence; an agent that reports nothing and carries no known harness name is not recognised | `internal/runtime` |
+| Recovery shells | herdr-core, after a lost program | May be a person's shell by then; never stopped unless a person names it | `internal/runtime`, `internal/ledger` |
 
 ## Inputs still to come
 
