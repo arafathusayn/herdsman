@@ -227,6 +227,11 @@ func runUp(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, res.GetStart().GetPlan())
 		return 0
 	}
+	if onCore && !f.resume {
+		// Before anything waits, the steps of this run that need a person:
+		// each raises needs_attention on the event stream when it is due.
+		fmt.Fprint(stdout, upPersonSteps(res.GetStart().GetPlan()))
+	}
 	start, code := upFollow(ctx, sdk, req, stdout, stderr)
 	if code != 0 {
 		return code
@@ -263,6 +268,26 @@ func upBackend(ctx context.Context, sdk *client.Client, repo string, f upFlags) 
 		return "", errors.New("the daemon selected no backend")
 	}
 	return report.GetSelection().GetBackend(), nil
+}
+
+// upPersonSteps is the plan's "needs a person" sections, one per agent: the
+// steps of a run on herdr-core that only a person can take.
+func upPersonSteps(plan string) string {
+	var out strings.Builder
+	in := false
+	for _, line := range strings.Split(plan, "\n") {
+		switch {
+		case strings.HasPrefix(line, "needs a person"):
+			in = true
+		case in && strings.HasPrefix(line, "  "):
+		default:
+			in = false
+		}
+		if in {
+			out.WriteString(line + "\n")
+		}
+	}
+	return out.String()
 }
 
 // upWaitCodes are the waits for a person a start on herdr-core stops at.
