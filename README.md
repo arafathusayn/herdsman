@@ -251,6 +251,7 @@ The `herdsman` command holds the web app, the tools the skill runs and the workt
 | `up` *(next release)* | Starts a route in one command: workspace, private inbox, both coordinators, the pair and the first brief. |
 | `runtime` *(next release)* | Shows which agent runtime a route uses and why, lists agent executions, and reads or sets the installation default. |
 | `launch` *(next release)* | Run by herdr-core, not by a person: proves a reserved terminal is the agent's, runs its prelude and starts its harness. |
+| `notice` *(next release)* | Run by a managed agent on herdr-core: `notice wait`, `notice read` and `notice ack` pull its instructions, which no automation types into its terminal. `runtime submit` is a person's typed line to one agent. |
 | `pause` *(next release)* | Interrupts a route's agents and holds its channel; every pane stays open. |
 | `resume` *(next release)* | Continues a paused route, or restarts a stopped one from its record. |
 | `stop` *(next release)* | Ends a route's sessions and service panes; the work stays on disk. |

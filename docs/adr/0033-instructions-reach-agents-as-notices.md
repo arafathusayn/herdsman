@@ -13,3 +13,7 @@ On herdr-core no automation presses Enter or sends keys in a terminal. An instru
 ## Consequences
 
 Slash commands such as `/goal resume` need a person on core. A route reports each step that needs a person before it starts and as an event when it comes due. Automated typing returns only for a herdr-core version that checks the program at every write.
+
+## Notes
+
+Until the owner decides them, the first implementation keeps three fallbacks. A start line stays a step a person types; no launch command carries it. Codex is attended on core: each notice for a Codex execution raises `needs_attention` with the line "Run `herdsman notice read` and do what it prints", `up` and `runtime doctor` say so before a route starts, and a pause does not interrupt Codex. The restricted profile is still refused on core, so the worker socket serves unrestricted agents only.
