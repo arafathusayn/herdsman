@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,7 +22,8 @@ import (
 // coreRig is a route rig whose agents launch on a fake herdr-core.
 type coreRig struct {
 	*rig
-	w *coretest.World
+	w        *coretest.World
+	services *memServices
 }
 
 func newCoreRig(t *testing.T) *coreRig {
@@ -47,7 +50,57 @@ func (r *coreRig) request() route.UpRequest {
 func (r *coreRig) engine() (*ops.Engine, func()) {
 	r.t.Helper()
 	reg := runtime.Registry{runtime.BackendCore: func(endpoint string) (runtime.Provider, error) { return r.w.NewProvider(endpoint), nil }}
-	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg})
+	if r.services == nil {
+		r.services = &memServices{running: map[string]route.ServiceSpec{}}
+	}
+	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg, Services: r.services})
+}
+
+// memServices is the daemon's service owner as a map: one entry per service.
+type memServices struct {
+	mu      sync.Mutex
+	running map[string]route.ServiceSpec
+	starts  []string
+	stops   []string
+}
+
+func (m *memServices) Start(_ context.Context, s route.ServiceSpec) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.running[s.Key()]; !ok {
+		m.starts = append(m.starts, s.Name)
+	}
+	m.running[s.Key()] = s
+	return nil
+}
+
+func (m *memServices) Stop(_ context.Context, repo, name, service string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := route.ServiceSpec{Repo: repo, Route: name, Name: service}.Key()
+	if _, ok := m.running[key]; ok {
+		m.stops = append(m.stops, service)
+	}
+	delete(m.running, key)
+	return nil
+}
+
+func (m *memServices) Running(repo, name, service string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.running[route.ServiceSpec{Repo: repo, Route: name, Name: service}.Key()]
+	return ok
+}
+
+func (m *memServices) names() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []string
+	for _, s := range m.running {
+		out = append(out, s.Name)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // attestShell makes the caller a person's shell outside every agent.
@@ -242,6 +295,11 @@ func TestCoreControlPausesStopsAndResumes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Services: each registered once with the daemon, no pane copy; no
+	// courier without a channel.
+	if got := r.services.names(); !slices.Equal(got, []string{route.ServiceCardWatch, route.ServiceCheckpoint}) {
+		t.Fatalf("services after the start: %v", got)
+	}
 	verb := func(v route.Verb, gen int, from string) *ops.Operation {
 		t.Helper()
 		plan, err := route.PlanControl(context.Background(), route.ControlRequest{Verb: v, Start: start, Generation: gen, From: from, Date: "2026-11-11"})
@@ -257,6 +315,10 @@ func TestCoreControlPausesStopsAndResumes(t *testing.T) {
 	if rec == nil || len(rec.Agents) != 1 || rec.Agents[0].Status != core.PauseLeftWaiting {
 		t.Fatalf("pause record %+v", rec)
 	}
+	// The pause quiets the checkpointer; the card watch stays.
+	if got := r.services.names(); !slices.Equal(got, []string{route.ServiceCardWatch}) {
+		t.Fatalf("services after the pause: %v", got)
+	}
 	if n := r.w.Core.Calls("terminal.interrupt"); n != 0 {
 		t.Errorf("a pause interrupted an agent at rest %d times", n)
 	}
@@ -266,6 +328,10 @@ func TestCoreControlPausesStopsAndResumes(t *testing.T) {
 	execs, _ := r.w.Records.List(context.Background(), r.repo, "harbor")
 	if len(execs) != 1 || execs[0].Desired != runtime.DesiredStopped {
 		t.Fatalf("after stop: %+v", execs)
+	}
+	// The stop ends every owned service of the route by its record.
+	if got := r.services.names(); len(got) != 0 {
+		t.Fatalf("services after the stop: %v", got)
 	}
 	if _, err := route.PlanControl(context.Background(), route.ControlRequest{Verb: route.VerbDelete, Start: start, Generation: 3, Date: "2026-11-11"}); err == nil {
 		t.Error("delete planned on core")

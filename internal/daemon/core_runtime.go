@@ -53,6 +53,9 @@ type CoreConfig struct {
 	// Person checks that a typed submit's caller is a person's terminal
 	// (default: the check up's pair approval makes). Tests replace it.
 	Person func(route.Caller) error
+	// ServicePoll is how often a core route's services look again
+	// (default 30 s).
+	ServicePoll time.Duration
 }
 
 // coreRuntime is the daemon's half of herdr-core: the launch socket, the
@@ -74,6 +77,8 @@ type coreRuntime struct {
 	registrar *core.Registrar
 	// submits carries out a person's typed submits.
 	submits *core.Submitter
+	// services owns the supporting services of core routes.
+	services *coreServices
 }
 
 // launchSocket is where the core wrappers find this daemon.
@@ -127,9 +132,12 @@ func (d *Daemon) startCore(ctx context.Context) error {
 	}
 	c := &coreRuntime{d: d, ctx: ctx, cfg: cfg, owner: owner, records: storeRecords{d}, app: herdrapp.New(cfg.App, cfg.AppHome),
 		bindings: &core.FileBindings{Path: filepath.Join(d.daemonDir(), "core-bindings.json")}, reconcilers: map[string]*core.Reconciler{}}
+	c.services = &coreServices{c: c, poll: cfg.ServicePoll, running: map[string]*coreService{}}
 	d.mu.Lock()
 	d.core = c
 	d.mu.Unlock()
+	// The services recorded before a restart are the daemon's again.
+	c.services.resume()
 	// Routes already on core are watched from the start.
 	if execs, err := c.records.List(ctx, "", ""); err == nil {
 		for _, e := range execs {

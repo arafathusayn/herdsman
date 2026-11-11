@@ -631,6 +631,9 @@ type Deps struct {
 	// Executions records the execution a launch step adopted or created (nil:
 	// nothing is recorded).
 	Executions func(context.Context, runtime.Execution) error
+	// Services runs the supporting services of a route on herdr-core as the
+	// daemon's own (nil: a core start that needs one fails by name).
+	Services Services
 
 	// rt is the provider of the step being applied or probed.
 	rt runtime.Provider

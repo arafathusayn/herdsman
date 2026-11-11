@@ -37,6 +37,8 @@ const (
 	effectCoreEnroll    = "core.enroll"
 	effectCorePause     = "core.pause"
 	effectCoreStop      = "core.stop"
+	effectCoreService   = "core.service"
+	effectCoreQuiet     = "core.service-stop"
 )
 
 // CoreLaunch is the herdr-core half of an UpRequest, filled by the daemon.
@@ -74,6 +76,8 @@ type coreData struct {
 	// Reissue: the brief step of a resume after a stop first carries on what
 	// the agent's predecessor left unhandled.
 	Reissue bool `json:"reissue,omitempty"`
+	// Service is the supporting service a service step registers.
+	Service *ServiceSpec `json:"service,omitempty"`
 }
 
 // planCore plans a route's start on herdr-core: the route folder, the inbox,
@@ -196,6 +200,15 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 	}))
 	for _, f := range briefs {
 		f()
+	}
+	// The supporting services, each registered with its one owner, the
+	// daemon. Nothing is typed into a pane for them.
+	for _, s := range coreServiceSpecs(q, p, coordinators[len(coordinators)-1]) {
+		s := s
+		fmt.Fprintf(text, "service: %s (run by the daemon)\n", s.Name)
+		add(serviceStepName(s), effectCoreService, "core-service:"+s.Name, ops.RetryIdempotent, with(func(d *stepData) {
+			d.Core = &coreData{Service: &s}
+		}))
 	}
 	return steps, nil
 }
@@ -712,10 +725,23 @@ func (b *controlBuilder) planCoreControl() error {
 	for _, l := range launches {
 		b.agents = append(b.agents, l.AgentName)
 	}
+	services := serviceSteps(b.q.Start)
+	stopService := func(name string) {
+		if _, ok := services[name]; ok {
+			b.add("stop the "+name+" service", effectCoreQuiet, "core-service-stop:"+name, b.with(func(d *stepData) { d.Name, d.Label = "service-"+name, name }))
+		}
+	}
+	startService := func(name, key string) {
+		if st, ok := services[name]; ok {
+			b.add(serviceStepName(*st.Core.Service), effectCoreService, key, b.with(func(d *stepData) { d.Core = st.Core }))
+		}
+	}
 	switch b.q.Verb {
 	case VerbPause:
 		// The hold is persisted before any interrupt.
 		b.add("hold the route's notices", effectCoreHold, "core-hold", b.base)
+		// The checkpointer's prompts stop with the pause, as on the TUI.
+		stopService(ServiceCheckpoint)
 		for _, name := range b.agents {
 			b.add("pause "+name, effectCorePause, "core-pause:"+name, b.with(func(d *stepData) { d.Name = name }))
 		}
@@ -732,6 +758,10 @@ func (b *controlBuilder) planCoreControl() error {
 		for _, name := range b.agents {
 			b.add("stop "+name, effectCoreStop, "core-stop:"+name, b.with(func(d *stepData) { d.Name = name }))
 		}
+		// The route's owned services end with it, by their records.
+		for _, name := range []string{ServiceCheckpoint, ServiceCardWatch, ServiceCourier} {
+			stopService(name)
+		}
 		if b.q.Teardown {
 			b.add("tear down the route's task processes", effectTeardown, "teardown", b.base)
 		}
@@ -745,6 +775,7 @@ func (b *controlBuilder) planCoreControl() error {
 			for _, name := range b.agents {
 				b.add("restore "+name, effectCoreResume, "core-resume:"+name, b.with(func(d *stepData) { d.Name = name }))
 			}
+			startService(ServiceCheckpoint, "core-service:"+ServiceCheckpoint+"#"+strconv.Itoa(b.q.Generation))
 		}
 		if b.q.From == ControlStopped {
 			b.add("end the route's stopping phase", effectCoreRestart, "core-restart#"+strconv.Itoa(b.q.Generation), b.base)
@@ -786,6 +817,9 @@ func (b *controlBuilder) planCoreControl() error {
 			for _, d := range briefs {
 				b.add("issue "+d.Name+"'s first brief as a notice", effectCoreBrief, "core-brief:"+d.Name+"#"+strconv.Itoa(b.q.Generation), d)
 			}
+			for _, name := range []string{ServiceCheckpoint, ServiceCourier, ServiceCardWatch} {
+				startService(name, "core-service:"+name+"#"+strconv.Itoa(b.q.Generation))
+			}
 		}
 		b.add("record the resume", effectRecord, "record", b.base)
 	case VerbDelete:
@@ -822,6 +856,8 @@ func coreEffects(deps Deps) map[string]ops.Effect {
 		effectCoreReport:    effect{deps, applyCoreReport, probeReportRow},
 		effectCoreReports:   effect{deps, applyCoreReports, probeReports},
 		effectCoreRestart:   effect{deps, applyCoreRestart, probeCoreRestart},
+		effectCoreService:   effect{deps, applyCoreService, probeCoreService},
+		effectCoreQuiet:     effect{deps, applyCoreServiceStop, probeCoreServiceStop},
 	}
 }
 
