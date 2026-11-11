@@ -45,7 +45,7 @@ func (d *Daemon) operationEffects() map[string]ops.Effect {
 	}
 	d.worktrees.Backend, d.worktrees.OnCore, d.worktrees.CoreTask = d.taskBackend, d.taskOnCore, d.coreTask
 	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run, Recovery: d.routeRecovery(), Down: d.cfg.RouteDown, Teardown: teardown,
-		Runtime: d.runtimeRegistry(), Executions: d.recordExecution, Services: daemonServices{d}, CoreChannel: coreChannel{d}, Channels: routeChannels{d}})
+		Runtime: d.runtimeRegistry(), Executions: d.recordExecution, Services: daemonServices{d}, CoreChannel: coreChannel{d}, Channels: routeChannels{d}, CoreApp: d.coreApp})
 	maps.Copy(effects, d.teardowns.effects())
 	for name, effect := range d.cfg.Effects {
 		effects[name] = effect
@@ -84,7 +84,7 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 	// The backend is chosen before anything is planned: a route that exists
 	// keeps its own, and a backend this build cannot run stops the start with
 	// a diagnostic rather than another backend.
-	sel, err := s.d.launchBackend(req.GetRepo(), req.GetConfigPath(), req.GetBackend(), persisted)
+	sel, rc, err := s.d.launchRuntime(req.GetRepo(), req.GetConfigPath(), req.GetBackend(), persisted)
 	if err != nil {
 		return nil, runtimeFailure(err)
 	}
@@ -97,7 +97,11 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 		if c == nil {
 			return nil, runtimeFailure(runtime.Unavailable(runtime.BackendCore, "in this daemon: its launch socket is not open"))
 		}
-		q.Core = c.launch()
+		endpoint, err := keptEndpoint(rc, latest, persisted)
+		if err != nil {
+			return nil, runtimeFailure(err)
+		}
+		q.Core = c.launchFor(rc.Settings, endpoint)
 		// Harness kinds come from the core adapter registry, never herdr.
 		q.Kinds = core.Kinds()
 		c.watch(c.ctx, q.Core.Socket)
@@ -134,6 +138,11 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 	op, err := s.begin(ctx, plan, latest, starts, verdicts, req.GetContinue())
 	if err != nil {
 		return nil, err
+	}
+	if c := s.d.coreRT(); c != nil {
+		if ep, ok := route.CoreEndpointOf(op); ok {
+			c.remember(q.Repo, q.Route, ep, route.CoreAppOf(op))
+		}
 	}
 	s.d.driveLater(op.ID)
 	return &daemonv1.UpResponse{Start: startOf(op)}, nil

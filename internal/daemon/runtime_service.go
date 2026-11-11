@@ -14,7 +14,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/runtime"
-	"github.com/arafathusayn/herdsman/sdk/config"
+	"github.com/arafathusayn/herdsman/internal/runtime/coreconfig"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
@@ -36,7 +36,7 @@ func runtimeFailure(err error) error {
 		return rpc.Errorf(rpc.Internal, "%v", err)
 	}
 	wire := rpc.FailedPrecondition
-	if code == runtime.CodeUnknownBackend {
+	if code == runtime.CodeUnknownBackend || code == runtime.CodeInvalidRuntimeConfig {
 		wire = rpc.InvalidArgument
 	}
 	failure := rpc.Errorf(wire, "%s", err.Error())
@@ -65,58 +65,42 @@ func (d *Daemon) installationDefault() (backend, source string, at int64, err er
 	return backend, source, at, err
 }
 
-// configBackend is runtime.backend of the config file a run in repo uses: the
-// file named, or the one the repository finds, with experimental of
-// [runtime.core], the opt-in to the core experiment. An unknown key in
-// [runtime] stops here.
-func configBackend(repo, configPath string) (backend, path string, experimental bool, err error) {
-	if repo == "" && configPath == "" {
-		return "", "", false, nil
-	}
-	if configPath != "" && !filepath.IsAbs(configPath) && repo != "" {
-		configPath = filepath.Join(repo, configPath)
-	}
-	result, err := config.Load(config.Options{ConfigPath: configPath, RepoRoot: repo})
+// selectRuntime resolves the backend of one run in the order of the spec's
+// section 5, with the config's resolved runtime keys, which a run on
+// herdr-core launches with. persisted is the backend an existing route
+// started on; empty for a new route. Every launch path calls it: up, task
+// launches and the doctor. An unusable key stops every run, on either
+// backend, as an unknown key in [runtime] does.
+func (d *Daemon) selectRuntime(repo, configPath, flag, persisted string) (runtime.Selection, runtimeConfig, error) {
+	rc, err := d.readRuntimeConfig(repo, configPath)
 	if err != nil {
-		return "", "", false, err
-	}
-	backend = result.Config.GetRuntime().GetBackend()
-	experimental = result.Config.GetRuntime().GetCore().GetExperimental()
-	if backend != "" {
-		path = result.ProjectPath
-		if configPath != "" {
-			path = configPath
+		if runtime.CodeOf(err) != "" {
+			return runtime.Selection{}, rc, err
 		}
-		if path == "" {
-			path = result.UserPath
-		}
-	}
-	return backend, path, experimental, nil
-}
-
-// selectBackend resolves the backend of one run in the order of the spec's
-// section 5. persisted is the backend an existing route started on; empty for
-// a new route. Every launch path calls it: up, task launches and the doctor.
-func (d *Daemon) selectBackend(repo, configPath, flag, persisted string) (runtime.Selection, error) {
-	cfg, cfgPath, experimental, err := configBackend(repo, configPath)
-	if err != nil {
-		return runtime.Selection{}, &runtime.Error{Code: runtime.CodeUnknownBackend, Msg: "the configuration: " + err.Error()}
+		return runtime.Selection{}, rc, &runtime.Error{Code: runtime.CodeUnknownBackend, Msg: "the configuration: " + err.Error()}
 	}
 	installed, _, _, err := d.installationDefault()
 	if err != nil {
-		return runtime.Selection{}, err
+		return runtime.Selection{}, rc, err
 	}
-	return runtime.Resolve(runtime.Inputs{Flag: flag, Config: cfg, ConfigPath: cfgPath, Installation: installed, Persisted: persisted, Experimental: experimental})
+	sel, err := runtime.Resolve(runtime.Inputs{Flag: flag, Config: rc.Backend, ConfigPath: rc.Path, Installation: installed, Persisted: persisted, Experimental: rc.Experimental})
+	return sel, rc, err
 }
 
 // launchBackend resolves a run's backend and refuses one this build cannot
 // run. There is no fallback: the refusal names the Herdr TUI.
 func (d *Daemon) launchBackend(repo, configPath, flag, persisted string) (runtime.Selection, error) {
-	sel, err := d.selectBackend(repo, configPath, flag, persisted)
+	sel, _, err := d.launchRuntime(repo, configPath, flag, persisted)
+	return sel, err
+}
+
+// launchRuntime is launchBackend with the config's resolved runtime keys.
+func (d *Daemon) launchRuntime(repo, configPath, flag, persisted string) (runtime.Selection, runtimeConfig, error) {
+	sel, rc, err := d.selectRuntime(repo, configPath, flag, persisted)
 	if err != nil {
-		return sel, err
+		return sel, rc, err
 	}
-	return sel, d.runtimeRegistry().Available(sel.Backend)
+	return sel, rc, d.runtimeRegistry().Available(sel.Backend)
 }
 
 // taskBackend refuses a task launch in repo on a backend this build cannot
@@ -137,18 +121,26 @@ func (d *Daemon) taskOnCore(_ context.Context, repo string) bool {
 }
 
 // coreTask starts a task agent on herdr-core through the launch
-// transaction, with the daemon's core launch.
+// transaction, on the endpoint and with the timeouts and app its
+// repository's config resolves.
 func (d *Daemon) coreTask(ctx context.Context, q route.TaskLaunch) (route.TaskStarted, error) {
 	c := d.coreRT()
 	if c == nil {
 		return route.TaskStarted{}, runtime.Unavailable(runtime.BackendCore, "in this daemon: its launch socket is not open")
 	}
-	q.Core = c.launch()
+	rc, err := d.readRuntimeConfig(q.Repo, "")
+	if err != nil {
+		return route.TaskStarted{}, err
+	}
+	q.Core = c.launchFor(rc.Settings, rc.Settings.Endpoint())
 	if q.StateDir == "" {
 		q.StateDir = filepath.Join(d.daemonDir(), "tasks")
 	}
 	c.watch(c.ctx, q.Core.Socket)
-	return route.LaunchTask(ctx, c.provider(q.Core.Socket), q)
+	p := c.provider(q.Core.Socket)
+	p.App = c.appOf(q.Core.App)
+	p.Options.ConnectTimeout = q.Core.Timeouts.ConnectTimeout()
+	return route.LaunchTask(ctx, p, q)
 }
 
 // recordExecution writes an execution record into the account store, beside
@@ -392,16 +384,24 @@ func (s *runtimeService) Doctor(ctx context.Context, req *daemonv1.RuntimeServic
 		check("installation-default", "fail", err.Error())
 	}
 	persisted := ""
+	var latest *ops.Operation
 	if name := req.GetRoute().GetValue(); name != "" && req.GetRepo() != "" {
 		starts, err := (&routeService{d: s.d}).starts(route.UpKey(req.GetRepo(), name))
 		if err != nil {
 			return nil, err
 		}
 		if len(starts) > 0 {
-			persisted = route.BackendOf(starts[len(starts)-1])
+			latest = starts[len(starts)-1]
+			persisted = route.BackendOf(latest)
 		}
 	}
-	sel, err := s.d.selectBackend(req.GetRepo(), req.GetConfigPath(), req.GetBackend(), persisted)
+	sel, rc, err := s.d.selectRuntime(req.GetRepo(), req.GetConfigPath(), req.GetBackend(), persisted)
+	var endpoint coreconfig.Endpoint
+	if err == nil && sel.Backend == runtime.BackendCore {
+		var eerr error
+		endpoint, eerr = keptEndpoint(rc, latest, persisted)
+		s.d.doctorSettings(rc.Settings, endpoint, eerr, check)
+	}
 	if err != nil {
 		check("selection", "fail", err.Error())
 	} else {
@@ -433,8 +433,8 @@ func (s *runtimeService) Doctor(ctx context.Context, req *daemonv1.RuntimeServic
 		// dials a core nobody selected.
 		if backend == runtime.BackendCore && report.Available && sel.Backend == runtime.BackendCore {
 			if c := s.d.coreRT(); c != nil {
-				report.Endpoint = c.cfg.Socket
-				if ok, why := c.doctor(ctx, req.GetRepo(), req.GetRoute().GetValue(), check); !ok {
+				report.Endpoint = endpoint.Socket
+				if ok, why := c.doctor(ctx, endpoint.Socket, c.appOf(rc.Settings.App()), req.GetRepo(), req.GetRoute().GetValue(), check); !ok {
 					report.Available, report.Reason = false, why
 				}
 			}
@@ -474,7 +474,8 @@ func (s *runtimeService) Read(ctx context.Context, req *daemonv1.RuntimeServiceR
 	if c == nil {
 		return nil, rpc.Errorf(rpc.Unavailable, "this daemon runs no herdr-core executions")
 	}
-	text, err := c.provider("").Read(ctx, runtime.Target{ExecutionID: req.GetExecutionId()}, runtime.ReadRequest{Lines: int(min(req.GetLines(), 400)), MaxBytes: 64 << 10})
+	ex := got.GetExecution()
+	text, err := c.routeProvider(ex.GetRepo(), ex.GetRoute().GetValue()).Read(ctx, runtime.Target{ExecutionID: req.GetExecutionId()}, runtime.ReadRequest{Lines: int(min(req.GetLines(), 400)), MaxBytes: 64 << 10})
 	if err != nil {
 		return nil, rpc.Errorf(rpc.Unavailable, "read execution %s: %v", req.GetExecutionId(), err)
 	}

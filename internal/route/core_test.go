@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/herdrapp"
 	"github.com/arafathusayn/herdsman/internal/notice"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/policy"
@@ -20,6 +21,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
 	"github.com/arafathusayn/herdsman/internal/runtime/core/coretest"
+	"github.com/arafathusayn/herdsman/internal/runtime/coreconfig"
 )
 
 // coreRig is a route rig whose agents launch on a fake herdr-core.
@@ -28,6 +30,11 @@ type coreRig struct {
 	w        *coretest.World
 	services *memServices
 	channel  *memChannel
+	// coreApp is the daemon's app of a route's [runtime.app], when set.
+	coreApp func(coreconfig.App) *herdrapp.App
+	// opened are the providers the steps opened, in order.
+	openedMu sync.Mutex
+	opened   []*core.Provider
 }
 
 func newCoreRig(t *testing.T) *coreRig {
@@ -53,14 +60,20 @@ func (r *coreRig) request() route.UpRequest {
 
 func (r *coreRig) engine() (*ops.Engine, func()) {
 	r.t.Helper()
-	reg := runtime.Registry{runtime.BackendCore: func(endpoint string) (runtime.Provider, error) { return r.w.NewProvider(endpoint), nil }}
+	reg := runtime.Registry{runtime.BackendCore: func(endpoint string) (runtime.Provider, error) {
+		p := r.w.NewProvider(endpoint)
+		r.openedMu.Lock()
+		r.opened = append(r.opened, p)
+		r.openedMu.Unlock()
+		return p, nil
+	}}
 	if r.services == nil {
 		r.services = &memServices{running: map[string]route.ServiceSpec{}}
 	}
 	if r.channel == nil {
 		r.channel = &memChannel{parties: map[string]string{}, held: map[string]bool{}}
 	}
-	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg, Services: r.services, CoreChannel: r.channel, Recovery: r.recovery, Down: r.down, Channels: r.channels})
+	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg, Services: r.services, CoreChannel: r.channel, Recovery: r.recovery, Down: r.down, Channels: r.channels, CoreApp: r.coreApp})
 }
 
 // memChannel is the daemon's channel of a core route as a map: who is

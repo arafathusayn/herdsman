@@ -49,7 +49,10 @@ type Reconciler struct {
 	Records    Records
 	Procs      ProcessTable
 	App        *herdrapp.App
-	Bindings   Bindings
+	// AppFor, when set, is the app an execution's route shows its agents in
+	// (its [runtime.app] binary and home); nil from it, or no AppFor, is App.
+	AppFor   func(runtime.Execution) *herdrapp.App
+	Bindings Bindings
 	// HarnessNames are the program names that count as a coding agent.
 	HarnessNames []string
 	// Restricted reports whether a route runs under the restricted profile.
@@ -170,6 +173,9 @@ func (r *Reconciler) Run(ctx context.Context) error {
 	}()
 	opts := r.Options
 	opts.ExpectCore = r.ExpectCore
+	if opts.ConnectTimeout <= 0 {
+		opts.ConnectTimeout = DefaultConnect
+	}
 	err := hc.Watch(ctx, r.Socket, hc.Filter{}, opts, func(u hc.Update) error {
 		switch u.Kind {
 		case hc.UpdateSnapshot, hc.UpdateMissed:
@@ -199,6 +205,9 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 	r.defaults()
 	opts := r.Options
 	opts.ExpectCore = r.ExpectCore
+	if opts.ConnectTimeout <= 0 {
+		opts.ConnectTimeout = DefaultConnect
+	}
 	c, err := hc.Dial(ctx, r.Socket, opts)
 	if err != nil {
 		var changed *hc.CoreChangedError
@@ -229,8 +238,8 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 		if gone {
 			lost[routeKey(e.Repo, e.Route)] = append(lost[routeKey(e.Repo, e.Route)], next)
 		}
-		if next.Observation.Process == runtime.ProcessLive && r.App != nil && next.App != nil {
-			next = r.visibility(ctx, c, next)
+		if next.Observation.Process == runtime.ProcessLive && r.appOf(next) != nil && next.App != nil {
+			next = r.visibility(ctx, c, r.appOf(next), next)
 		}
 		// Conversation evidence: the harness writes its session once a
 		// person has started it, so a live execution without it is looked
@@ -308,9 +317,19 @@ func (r *Reconciler) recoveryPlans(lost map[string][]runtime.Execution) {
 	}
 }
 
+// appOf is the app an execution is shown in.
+func (r *Reconciler) appOf(e runtime.Execution) *herdrapp.App {
+	if r.AppFor != nil {
+		if a := r.AppFor(e); a != nil {
+			return a
+		}
+	}
+	return r.App
+}
+
 // visibility reconciles one live execution's place in the app, respecting
 // what a person did: a park holds dispatch, a move or a rename is kept.
-func (r *Reconciler) visibility(ctx context.Context, c *hc.Client, e runtime.Execution) runtime.Execution {
+func (r *Reconciler) visibility(ctx context.Context, c *hc.Client, shown *herdrapp.App, e runtime.Execution) runtime.Execution {
 	t, err := c.Get(ctx, e.TerminalAddress)
 	if err != nil {
 		return e
@@ -320,13 +339,13 @@ func (r *Reconciler) visibility(ctx context.Context, c *hc.Client, e runtime.Exe
 		placement = p
 	}
 	owned := herdrapp.Owned{Terminal: e.TerminalAddress, Execution: e.ID, Placement: placement}
-	obs, err := r.App.Observe(ctx, owned)
+	obs, err := shown.Observe(ctx, owned)
 	if err != nil {
 		obs = herdrapp.Observation{AppClosed: true}
 	}
 	bindingValid := false
 	if r.Bindings != nil {
-		if b, ok, err := r.Bindings.Load(r.App.Home, c.Core().ID); err == nil && ok && b.Valid(herdrapp.Core{ID: c.Core().ID, Endpoint: b.Endpoint}, r.App.Home) == nil {
+		if b, ok, err := r.Bindings.Load(shown.Home, c.Core().ID); err == nil && ok && b.Valid(herdrapp.Core{ID: c.Core().ID, Endpoint: b.Endpoint}, shown.Home) == nil {
 			bindingValid = true
 		}
 	}

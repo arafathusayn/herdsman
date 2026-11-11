@@ -88,6 +88,9 @@ type Submitter struct {
 	Notices *notice.Service
 	Procs   ProcessTable
 	Dial    func(ctx context.Context) (Sender, func(), error)
+	// DialFor, when set, reaches the core an execution runs on (its
+	// route's endpoint) and is used instead of Dial.
+	DialFor func(ctx context.Context, e runtime.Execution) (Sender, func(), error)
 	Now     func() time.Time
 
 	// mu holds the decision that nothing is outstanding until the queued
@@ -167,7 +170,11 @@ func (s *Submitter) Submit(ctx context.Context, req SubmitRequest) (SubmitRecord
 		}
 		return SubmitRecord{}, refuse(CodeSubmitOutstanding, "submit %s to execution %s is %s; keep waiting, stop the execution, or send again knowing both may be typed (--again)", p.ID, e.ID, p.State)
 	}
-	c, closeSender, err := s.Dial(ctx)
+	dial := s.Dial
+	if s.DialFor != nil {
+		dial = func(ctx context.Context) (Sender, func(), error) { return s.DialFor(ctx, e) }
+	}
+	c, closeSender, err := dial(ctx)
 	if err != nil {
 		return SubmitRecord{}, err
 	}

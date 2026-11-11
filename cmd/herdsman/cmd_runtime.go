@@ -43,7 +43,10 @@ const runtimeDoctorHelp = `usage: herdsman runtime doctor [--route <route>] [--b
 Says which backend a run here would use and why, and whether each backend can
 run on this machine. For herdr-core it also says how each harness is woken
 and which of its steps need a person, the steps up names before a route
-starts. With --route, the route's own backend. It changes nothing.
+starts, and each value of [runtime.core], [runtime.app] and
+[runtime.tui_view] in use with where it came from: the config file, the
+route's persisted endpoint, or the default. With --route, the route's own
+backend and endpoint. It changes nothing.
 
 exit codes:
   0  the selected backend can run

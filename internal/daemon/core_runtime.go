@@ -30,10 +30,17 @@ import (
 
 // CoreConfig configures the herdr-core backend of a daemon. The zero value is
 // the user's own: core's default session, the installed app and the system's
-// process table. Tests replace every part.
+// process table. Tests replace every part. A route's [runtime.core] and
+// [runtime.app] keys choose its own endpoint, timeouts and app over these.
 type CoreConfig struct {
-	// Socket is core's socket (default: the one hc resolves).
+	// Socket is the endpoint of a route whose config names none (default:
+	// hc's default session under its path rules; HC_SOCKET and HC_SESSION
+	// are never read, since they may be a surrounding agent's scope).
 	Socket string
+	// Getenv reads the variables of hc's path rules (XDG_RUNTIME_DIR,
+	// XDG_STATE_HOME, HOME) for a session a config names (default: the
+	// daemon's environment).
+	Getenv func(string) string
 	// App runs the app command (default: the installed herdr-app).
 	App herdrapp.Runner
 	// AppHome is the app's state directory (default: the app's own).
@@ -83,6 +90,8 @@ type coreRuntime struct {
 	submits *core.Submitter
 	// services owns the supporting services of core routes.
 	services *coreServices
+	// routes are what each route on core persisted with its start.
+	routes map[string]routeCore
 }
 
 // launchSocket is where the core wrappers find this daemon.
@@ -122,7 +131,7 @@ func (d *Daemon) startCore(ctx context.Context) error {
 		cfg.Procs = core.SystemProcs{}
 	}
 	if cfg.Socket == "" {
-		if cfg.Socket, err = hc.SocketPath(""); err != nil {
+		if cfg.Socket, err = hc.SessionSocket(hc.DefaultSession, cfg.Getenv); err != nil {
 			return err
 		}
 	}
@@ -142,12 +151,25 @@ func (d *Daemon) startCore(ctx context.Context) error {
 	d.mu.Unlock()
 	// The services recorded before a restart are the daemon's again.
 	c.services.resume()
-	// Routes already on core are watched from the start.
+	// Routes already on core are watched from the start, each on the
+	// endpoint its start persisted.
 	if execs, err := c.records.List(ctx, "", ""); err == nil {
+		watched := map[string]bool{}
 		for _, e := range execs {
-			if e.Backend == runtime.BackendCore && e.EndpointID != "" {
-				c.watch(ctx, c.cfg.Socket)
-				break
+			if e.Backend != runtime.BackendCore || e.EndpointID == "" {
+				continue
+			}
+			endpoint := c.endpointOf(e.Repo, e.Route)
+			if e.Route == "" {
+				// A task agent has no route start: its repository's
+				// config chose its endpoint when it launched.
+				if rc, err := d.readRuntimeConfig(e.Repo, ""); err == nil {
+					endpoint = rc.Settings.Socket.Value
+				}
+			}
+			if !watched[endpoint] {
+				watched[endpoint] = true
+				c.watch(ctx, endpoint)
 			}
 		}
 	}
@@ -229,7 +251,7 @@ func (c *coreRuntime) reconciler(endpoint string) (*core.Reconciler, bool) {
 	if r, ok := c.reconcilers[endpoint]; ok {
 		return r, false
 	}
-	r := &core.Reconciler{Socket: endpoint, Records: c.records, Procs: c.cfg.Procs, App: c.app, Bindings: c.bindings,
+	r := &core.Reconciler{Socket: endpoint, Records: c.records, Procs: c.cfg.Procs, App: c.app, AppFor: c.appFor, Bindings: c.bindings,
 		HarnessNames: route.HarnessNames, Restricted: c.restricted, Emit: c.emit, Sessions: c.sessions(), Marks: c.noticeMarks}
 	c.reconcilers[endpoint] = r
 	return r, true
@@ -355,7 +377,8 @@ func (i coreInventory) Unknown(ctx context.Context, _ map[string]any) ([]inbox.U
 // routeInventory classifies the core a route runs on, from the last pass or
 // from a pass made now.
 func (c *coreRuntime) routeInventory(ctx context.Context, repo, name string) (core.Inventory, error) {
-	r, _ := c.reconciler(c.cfg.Socket)
+	endpoint := c.endpointOf(repo, name)
+	r, _ := c.reconciler(endpoint)
 	if inv, ok := r.RouteInventory(repo, name); ok {
 		return inv, nil
 	}
@@ -365,7 +388,7 @@ func (c *coreRuntime) routeInventory(ctx context.Context, repo, name string) (co
 	if inv, ok := r.RouteInventory(repo, name); ok {
 		return inv, nil
 	}
-	return core.Inventory{}, fmt.Errorf("no inventory of route %s on %s", name, c.cfg.Socket)
+	return core.Inventory{}, fmt.Errorf("no inventory of route %s on %s", name, endpoint)
 }
 
 // routeOnCore reports whether a route's recorded executions are on core.

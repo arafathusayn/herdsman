@@ -8,6 +8,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/hc"
 	"github.com/arafathusayn/herdsman/internal/route"
+	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
 	"github.com/arafathusayn/herdsman/internal/sys"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
@@ -70,6 +71,14 @@ func (c *coreRuntime) submitter() *core.Submitter {
 		c.submits = &core.Submitter{Store: submitStore{c.d}, Records: c.records, Notices: c.d.noticeSvc(), Procs: c.cfg.Procs,
 			Dial: func(ctx context.Context) (core.Sender, func(), error) {
 				cl, err := hc.Dial(ctx, c.cfg.Socket, hc.Options{})
+				if err != nil {
+					return nil, nil, err
+				}
+				return cl, func() { _ = cl.Close() }, nil
+			},
+			// A typed submit reaches the core its execution's route runs on.
+			DialFor: func(ctx context.Context, e runtime.Execution) (core.Sender, func(), error) {
+				cl, err := hc.Dial(ctx, c.endpointOf(e.Repo, e.Route), hc.Options{ConnectTimeout: core.DefaultConnect})
 				if err != nil {
 					return nil, nil, err
 				}

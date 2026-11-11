@@ -2462,7 +2462,7 @@
         },
         {
           "name": "doctor",
-          "help": "usage: herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]\n\nSays which backend a run here would use and why, and whether each backend can\nrun on this machine. For herdr-core it also says how each harness is woken\nand which of its steps need a person, the steps up names before a route\nstarts. With --route, the route's own backend. It changes nothing.\n\nexit codes:\n  0  the selected backend can run\n  1  a check failed, or the daemon refused or is not running\n  2  bad usage\n",
+          "help": "usage: herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]\n\nSays which backend a run here would use and why, and whether each backend can\nrun on this machine. For herdr-core it also says how each harness is woken\nand which of its steps need a person, the steps up names before a route\nstarts, and each value of [runtime.core], [runtime.app] and\n[runtime.tui_view] in use with where it came from: the config file, the\nroute's persisted endpoint, or the default. With --route, the route's own\nbackend and endpoint. It changes nothing.\n\nexit codes:\n  0  the selected backend can run\n  1  a check failed, or the daemon refused or is not running\n  2  bad usage\n",
           "usage": [
             "herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]"
           ],

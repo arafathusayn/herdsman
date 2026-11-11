@@ -70,7 +70,7 @@ func (w *cardWatcher) pass(ctx context.Context) error {
 		return err
 	}
 	rt := w.channel()
-	p := c.provider("")
+	p := c.routeProvider(w.sp.Repo, w.sp.Route)
 	live := map[string]bool{}
 	for _, e := range all {
 		if e.Backend != runtime.BackendCore || e.Desired != runtime.DesiredRunning || e.Evidence.PID <= 0 {

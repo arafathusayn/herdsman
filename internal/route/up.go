@@ -15,12 +15,15 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/herdrapp"
 	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/policy"
 	"github.com/arafathusayn/herdsman/internal/profile"
 	"github.com/arafathusayn/herdsman/internal/runtime"
+	"github.com/arafathusayn/herdsman/internal/runtime/core"
+	"github.com/arafathusayn/herdsman/internal/runtime/coreconfig"
 	"github.com/arafathusayn/herdsman/internal/runtime/legacytui"
 	"github.com/arafathusayn/herdsman/internal/secrets"
 )
@@ -641,6 +644,9 @@ type Deps struct {
 	// tells to forget the route once its inbox is gone (nil: nothing is
 	// registered, and nothing is forgotten).
 	Channels ChannelRegistry
+	// CoreApp is the app a herdr-core step shows its agents in, from the
+	// route's [runtime.app] (nil: the provider's own).
+	CoreApp func(coreconfig.App) *herdrapp.App
 
 	// rt is the provider of the step being applied or probed.
 	rt runtime.Provider
@@ -660,7 +666,21 @@ func (deps Deps) open(d stepData) (runtime.Provider, error) {
 	if reg == nil {
 		reg = DefaultRuntime()
 	}
-	return reg.Open(runtime.LegacyBackend(d.Backend), d.Socket)
+	p, err := reg.Open(runtime.LegacyBackend(d.Backend), d.Socket)
+	if err != nil {
+		return nil, err
+	}
+	// A core step runs with its route's app and connect timeout, as
+	// journaled with the launch.
+	if cp, ok := p.(*core.Provider); ok && d.Core != nil {
+		if d.Core.App != nil && deps.CoreApp != nil {
+			if app := deps.CoreApp(*d.Core.App); app != nil {
+				cp.App = app
+			}
+		}
+		cp.Options.ConnectTimeout = d.Core.Timeouts.ConnectTimeout()
+	}
+	return p, nil
 }
 
 // provider is the step's provider; a test that calls an effect directly

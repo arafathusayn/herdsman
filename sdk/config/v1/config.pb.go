@@ -544,26 +544,29 @@ func (x *Runtime) GetTuiView() *RuntimeTuiView {
 	return nil
 }
 
-// RuntimeCore says how to reach herdr-core. In this release the daemon reaches
-// the core at the socket hc resolves for its default session and only
-// experimental is read; the other keys are accepted for a later release and
-// change nothing yet.
+// RuntimeCore says how to reach herdr-core. A new route resolves its endpoint
+// once, from socket, else session, else hc's default session, and keeps it:
+// a config that later names another endpoint for that route is refused with
+// backend_migration_required. HC_SOCKET, HC_SESSION and HC_TERMINAL_ID in the
+// daemon's environment never choose the endpoint. A value that cannot be used
+// stops every run with invalid_runtime_config.
 type RuntimeCore struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The hc program; a bare name is looked up on PATH. The default is "hc".
-	// Not read in this release.
+	// The hc program Herdsman runs, such as in `herdsman doctor`; a bare name is
+	// looked up on PATH. The default is "hc". The daemon itself reaches core
+	// over its socket.
 	Binary *string `protobuf:"bytes,1,opt,name=binary,proto3,oneof" json:"binary,omitempty"`
-	// An absolute socket path. Unset resolves the session through hc. Not read
-	// in this release.
+	// An absolute socket path. Unset resolves the session under hc's path
+	// rules (XDG_RUNTIME_DIR, else the state directory).
 	Socket *string `protobuf:"bytes,2,opt,name=socket,proto3,oneof" json:"socket,omitempty"`
-	// The core session. A socket and a session that contradict stop the run.
-	// Not read in this release.
+	// The core session, one path segment. The default is "default". A socket
+	// and a session that name different endpoints stop the run with both named.
 	Session *string `protobuf:"bytes,3,opt,name=session,proto3,oneof" json:"session,omitempty"`
-	// How long to wait for core's socket, such as "5s". Not read in this
-	// release.
+	// How long a connection to core may take to answer, such as "5s". The
+	// default is 5 seconds.
 	ConnectTimeout *string `protobuf:"bytes,4,opt,name=connect_timeout,json=connectTimeout,proto3,oneof" json:"connect_timeout,omitempty"`
-	// How long an agent may take to become ready, such as "90s". Not read in
-	// this release, which waits 90 seconds.
+	// How long an agent may take to become ready after it registers, such as
+	// "90s". The default is 90 seconds.
 	ReadyTimeout *string `protobuf:"bytes,5,opt,name=ready_timeout,json=readyTimeout,proto3,oneof" json:"ready_timeout,omitempty"`
 	// Must be true while the backend ships as an experiment (this release:
 	// runtime.core/0.1.0). Without it a new route on herdr-core is refused with
@@ -645,18 +648,18 @@ func (x *RuntimeCore) GetExperimental() bool {
 	return false
 }
 
-// RuntimeApp says how to reach the native herdr app that shows the agents. In
-// this release the daemon runs the installed herdr-app with the user's main
-// app home; the keys are accepted for a later release and change nothing yet.
+// RuntimeApp says which native herdr app shows a route's agents. The app's
+// binding to core is verified per app home, so a changed home is verified
+// again before a new agent is dispatched.
 type RuntimeApp struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The app program. The default is "herdr-app". Not read in this release.
+	// The app program; a bare name is looked up on PATH. The default is
+	// "herdr-app".
 	Binary *string `protobuf:"bytes,1,opt,name=binary,proto3,oneof" json:"binary,omitempty"`
-	// An absolute app home; unset means the user's main app. Not read in this
-	// release.
+	// An absolute app home; unset means the user's main app.
 	Home *string `protobuf:"bytes,2,opt,name=home,proto3,oneof" json:"home,omitempty"`
-	// How long to wait for an agent to appear in the app, such as "15s". Not
-	// read in this release, which waits 15 seconds.
+	// How long to wait for an agent to appear in the app, such as "15s". The
+	// default is 15 seconds.
 	VisibilityTimeout *string `protobuf:"bytes,3,opt,name=visibility_timeout,json=visibilityTimeout,proto3,oneof" json:"visibility_timeout,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
@@ -714,13 +717,15 @@ func (x *RuntimeApp) GetVisibilityTimeout() string {
 }
 
 // RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the
-// execution backend. The mirror is not built in this release: the keys are
-// accepted and nothing is mirrored.
+// execution backend. The mirror is not available in this release: enabled =
+// true stops every run with invalid_runtime_config, and socket alone is
+// accepted and changes nothing.
 type RuntimeTuiView struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Mirror core agents in the TUI. Off unless set.
+	// Mirror core agents in the TUI. Off unless set; true is refused in this
+	// release.
 	Enabled *bool `protobuf:"varint,1,opt,name=enabled,proto3,oneof" json:"enabled,omitempty"`
-	// The TUI's absolute socket path; required when enabled.
+	// The TUI's absolute socket path, for the mirror of a later release.
 	Socket        *string `protobuf:"bytes,2,opt,name=socket,proto3,oneof" json:"socket,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

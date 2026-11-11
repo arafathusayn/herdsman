@@ -27,6 +27,19 @@ type Timeouts struct {
 	Ready      time.Duration // the first status since registration (default 90 s)
 	Visibility time.Duration // the window's adoption of a placement (default 15 s)
 	Poll       time.Duration // how often a wait looks again (default 250 ms)
+	Connect    time.Duration // the dial and hello of a connection to core (default 5 s)
+}
+
+// DefaultConnect is how long a connection to core may take when nothing
+// sets connect_timeout.
+const DefaultConnect = 5 * time.Second
+
+// ConnectTimeout is the bound on a connection to core.
+func (t Timeouts) ConnectTimeout() time.Duration {
+	if t.Connect <= 0 {
+		return DefaultConnect
+	}
+	return t.Connect
 }
 
 func (t Timeouts) poll() time.Duration {

@@ -118,9 +118,15 @@ func (s *runtimeService) Show(ctx context.Context, req *daemonv1.RuntimeServiceS
 	if row.Backend == runtime.BackendTUI {
 		endpoint = row.EndpointID
 	}
-	p, err := s.d.runtimeRegistry().Open(row.Backend, endpoint)
-	if err != nil {
-		return nil, runtimeFailure(err)
+	var p runtime.Provider
+	if c := s.d.coreRT(); c != nil && row.Backend == runtime.BackendCore {
+		// The route's own core and app, as its start persisted them.
+		p = c.routeProvider(row.Repo, row.Route)
+	} else {
+		var err error
+		if p, err = s.d.runtimeRegistry().Open(row.Backend, endpoint); err != nil {
+			return nil, runtimeFailure(err)
+		}
 	}
 	target := runtime.Target{Name: row.Agent, Pane: row.Pane, ExecutionID: row.ID, Generation: row.Generation, TerminalAddress: row.TerminalAddress}
 	if err := p.Show(ctx, target); err != nil {

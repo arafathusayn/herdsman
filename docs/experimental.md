@@ -17,7 +17,7 @@ Most of herdsman follows the compatibility promise in [ADR 0003](adr/0003-public
 - **It can change incompatibly between minor releases.** No old name is kept as an alias. The release notes describe each change, and stored data gets a migration or written manual steps.
 - **Nothing stable relies on it.** You can ignore this page and lose nothing.
 
-For the herdr-core backend the marker gates new routes only: a route already started on core keeps running and resuming there if the marker is later removed. Every installation, new or existing, defaults to the Herdr TUI while core is an experiment. Going back to the Herdr TUI is `backend = "herdr-tui"` in `[runtime]`.
+For the herdr-core backend the marker gates new routes only: a route already started on core keeps running and resuming there if the marker is later removed. Every installation, new or existing, defaults to the Herdr TUI while core is an experiment. Going back to the Herdr TUI is `backend = "herdr-tui"` in `[runtime]`. The other keys of `[runtime.core]` and `[runtime.app]` (the endpoint, the timeouts and the app) belong to the experiment and can change with it. The Herdr TUI view of core agents is not in this release at all: `enabled = true` in `[runtime.tui_view]` is refused.
 
 ## When a surface becomes stable
 

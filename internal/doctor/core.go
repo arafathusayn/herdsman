@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/runtime/coreconfig"
+	"github.com/arafathusayn/herdsman/sdk/config"
 )
 
 // CoreState is what an installed herdr-core says about itself.
@@ -74,18 +77,76 @@ func processName(command string) string {
 // PATH. It asks the core for its status only when a herdr-core process is
 // already running, because any question starts a core that is not.
 func coreState(ctx context.Context) (*CoreState, error) {
-	bin := ""
+	binary, socket, err := configuredCore()
+	if err != nil {
+		return nil, err
+	}
+	return coreStateOf(ctx, binary, socket)
+}
+
+// configuredCore is the hc program and the core socket of the config in use:
+// [runtime.core] binary (empty when the config names none) and the endpoint
+// its socket or session resolves to. HC_SOCKET and HC_SESSION are never read.
+func configuredCore() (binary, socket string, err error) {
+	dir, _ := os.Getwd()
+	result, err := config.Load(config.Options{RepoRoot: nearestRepository(dir)})
+	if err != nil {
+		return "", "", err
+	}
+	s, err := coreconfig.Resolve(coreconfig.Input{Runtime: result.Config.GetRuntime(), Sources: result.Sources, ProjectPath: result.ProjectPath, UserPath: result.UserPath})
+	if err != nil {
+		return "", "", err
+	}
+	if s.Binary.From != coreconfig.FromDefault {
+		binary = s.Binary.Value
+	}
+	return binary, s.Socket.Value, nil
+}
+
+// coreBinary finds the hc program: the configured one, which must be there,
+// else the first of herdr-core's names on PATH; empty when none is installed.
+func coreBinary(binary string, lookPath func(string) (string, error)) (string, error) {
+	if binary != "" {
+		found, err := lookPath(binary)
+		if err != nil {
+			return "", fmt.Errorf("[runtime.core] binary %q: %w", binary, err)
+		}
+		return found, nil
+	}
 	for _, name := range herdr.CoreNames {
-		if found, err := exec.LookPath(name); err == nil {
-			bin = found
-			break
+		if found, err := lookPath(name); err == nil {
+			return found, nil
 		}
 	}
-	if bin == "" {
-		return nil, nil
+	return "", nil
+}
+
+// coreCommand runs the hc program against the configured core: HC_SOCKET is
+// the resolved socket, and the caller's HC_SESSION and HC_TERMINAL_ID, which
+// may be another agent's scope, are left out.
+func coreCommand(ctx context.Context, bin, socket string, environ []string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, bin, args...)
+	for _, kv := range environ {
+		k, _, _ := strings.Cut(kv, "=")
+		if k != "HC_SOCKET" && k != "HC_SESSION" && k != "HC_TERMINAL_ID" {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	if socket != "" {
+		cmd.Env = append(cmd.Env, "HC_SOCKET="+socket)
+	}
+	return cmd
+}
+
+// coreStateOf reads the hc program binary (or the installed one when empty)
+// about the core at socket.
+func coreStateOf(ctx context.Context, binary, socket string) (*CoreState, error) {
+	bin, err := coreBinary(binary, exec.LookPath)
+	if err != nil || bin == "" {
+		return nil, err
 	}
 	name := filepath.Base(bin)
-	out, err := exec.CommandContext(ctx, bin, "--version").Output()
+	out, err := coreCommand(ctx, bin, socket, os.Environ(), "--version").Output()
 	if err != nil {
 		return nil, fmt.Errorf("%s --version: %w", name, err)
 	}
@@ -98,7 +159,7 @@ func coreState(ctx context.Context) (*CoreState, error) {
 	if !st.Running {
 		return st, nil
 	}
-	out, err = exec.CommandContext(ctx, bin, "server", "status", "--json").Output()
+	out, err = coreCommand(ctx, bin, socket, os.Environ(), "server", "status", "--json").Output()
 	if err != nil {
 		return nil, fmt.Errorf("%s server status: %w", name, err)
 	}

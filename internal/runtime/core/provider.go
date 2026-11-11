@@ -64,6 +64,9 @@ func (p *Provider) procs() ProcessTable {
 func (p *Provider) Dial(ctx context.Context) (*hc.Client, error) {
 	opts := p.Options
 	opts.ExpectCore = p.ExpectCore
+	if opts.ConnectTimeout <= 0 {
+		opts.ConnectTimeout = DefaultConnect
+	}
 	c, err := hc.Dial(ctx, p.Socket, opts)
 	if err != nil {
 		return nil, err

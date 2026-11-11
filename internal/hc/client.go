@@ -12,9 +12,10 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/arafathusayn/herdsman/internal/hcpath"
 )
 
 // Error kinds core puts in data.kind. The list is not closed: core may send
@@ -78,7 +79,9 @@ var ErrClosed = errors.New("hc: connection closed")
 // SocketPath resolves the socket of a core session the way hc does: HC_SOCKET
 // first; otherwise the session (the argument, else HC_SESSION, else
 // "default") under XDG_RUNTIME_DIR, or under the state directory when
-// XDG_RUNTIME_DIR is unset.
+// XDG_RUNTIME_DIR is unset. It is how a person's own hc finds its core. A
+// route's endpoint never comes from HC_SOCKET or HC_SESSION, which may be a
+// surrounding agent's scope: it is resolved with SessionSocket.
 func SocketPath(session string) (string, error) {
 	if p := os.Getenv("HC_SOCKET"); p != "" && session == "" {
 		return p, nil
@@ -87,21 +90,22 @@ func SocketPath(session string) (string, error) {
 		session = os.Getenv("HC_SESSION")
 	}
 	if session == "" {
-		session = "default"
+		session = DefaultSession
 	}
-	if x := os.Getenv("XDG_RUNTIME_DIR"); x != "" {
-		return filepath.Join(x, "herdr-core", session+".sock"), nil
-	}
-	state := os.Getenv("XDG_STATE_HOME")
-	if state == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		state = filepath.Join(home, ".local", "state")
-	}
-	return filepath.Join(state, "herdr-core", session, session+".sock"), nil
+	return hcpath.Socket(session, os.Getenv)
 }
+
+// DefaultSession is the session hc uses when nothing names another.
+const DefaultSession = hcpath.DefaultSession
+
+// SessionSocket is the socket of a named core session under hc's path rules;
+// see hcpath.SessionSocket. It never reads HC_SOCKET or HC_SESSION.
+func SessionSocket(session string, getenv func(string) string) (string, error) {
+	return hcpath.SessionSocket(session, getenv)
+}
+
+// ValidSession refuses a session name that is not one path segment.
+func ValidSession(session string) error { return hcpath.ValidSession(session) }
 
 // Options tune a connection. The zero value takes the defaults.
 type Options struct {
@@ -115,6 +119,9 @@ type Options struct {
 	// ExpectCore, when set, is the core id the endpoint was persisted with; a
 	// different core is refused with *CoreChangedError.
 	ExpectCore string
+	// ConnectTimeout bounds the dial and the hello of a connection; zero
+	// leaves them to the context, and the hello to Timeout.
+	ConnectTimeout time.Duration
 }
 
 func (o Options) maxFrame() int {
@@ -181,6 +188,11 @@ func Dial(ctx context.Context, socket string, opts Options) (*Client, error) {
 // open dials, says hello and checks capabilities: the steps every connection
 // takes before anything else.
 func open(ctx context.Context, socket string, opts Options) (net.Conn, *bufio.Reader, HelloResult, error) {
+	if opts.ConnectTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, opts.ConnectTimeout)
+		defer cancel()
+	}
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", socket)
 	if err != nil {

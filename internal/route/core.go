@@ -22,6 +22,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/profile"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
+	"github.com/arafathusayn/herdsman/internal/runtime/coreconfig"
 )
 
 // The steps of a launch on herdr-core (spec section 8). Each is one step of
@@ -60,12 +61,22 @@ type CoreLaunch struct {
 	Login     map[string]string
 	LoginFrom string
 	Timeouts  core.Timeouts
+	// Endpoint is the route's canonical connection to core, persisted with
+	// each launch step; Socket is its socket.
+	Endpoint coreconfig.Endpoint
+	// App is the app the route's agents are shown in ([runtime.app]).
+	App coreconfig.App
 }
 
 // coreData is what one core step carries.
 type coreData struct {
 	Launch   core.Launch   `json:"launch"`
 	Timeouts core.Timeouts `json:"timeouts"`
+	// Endpoint and App are the route's persisted connection to core and the
+	// app it shows its agents in; a step journaled before they existed has
+	// none and reads as the step's socket and the daemon's app.
+	Endpoint *coreconfig.Endpoint `json:"endpoint,omitempty"`
+	App      *coreconfig.App      `json:"app,omitempty"`
 	// Line is the start line a person submits, when the adapter needs one.
 	Line string `json:"line,omitempty"`
 	// LineHoldsPrompt keeps the line out of the step's reason.
@@ -123,6 +134,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 		return d
 	}
 	fmt.Fprintf(text, "backend: %s\n", runtime.BackendCore)
+	fmt.Fprintf(text, "core: %s\n", q.Core.Socket)
 	add("create the route folder", effectFolder, "folder:"+p.Folder, ops.RetryIdempotent, with(func(d *stepData) {
 		d.Prompt, d.Config, d.Adjutant, d.Orchestrator = q.Prompt, q.ConfigPath, p.AdjutantName, p.OrchestratorName
 	}))
@@ -166,7 +178,11 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 			Wrapper: []string{q.Core.Wrapper, "launch", "--socket", q.Core.LaunchSocket, "--intent", intent}, Cwd: d.Cwd, Descriptor: d,
 		}
 		data := func(edit func(*coreData)) stepData {
-			cd := coreData{Launch: l, Timeouts: q.Core.Timeouts}
+			endpoint, app := q.Core.Endpoint, q.Core.App
+			if endpoint.Socket == "" {
+				endpoint.Socket = q.Core.Socket
+			}
+			cd := coreData{Launch: l, Timeouts: q.Core.Timeouts, Endpoint: &endpoint, App: &app}
 			if edit != nil {
 				edit(&cd)
 			}
@@ -827,7 +843,7 @@ func (b *controlBuilder) planCoreControl() error {
 				intents = append(intents, fresh.Intent)
 				cd := coreData{Launch: fresh}
 				if a, ok := attach[l.AgentName]; ok {
-					cd.Timeouts = a.Timeouts
+					cd.Timeouts, cd.Endpoint, cd.App = a.Timeouts, a.Endpoint, a.App
 				}
 				step := func(edit func(*coreData)) stepData {
 					c := cd

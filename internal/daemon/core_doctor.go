@@ -14,6 +14,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
+	"github.com/arafathusayn/herdsman/internal/runtime/coreconfig"
 )
 
 // coreExec is the part of a core client the doctor runs commands through:
@@ -29,8 +30,13 @@ type coreExec interface {
 // daemon's and in core's own environment, the repository and worktree roots
 // as core reads them, and the inventory rule in force with the foreign agents
 // and the terminals at fault. It changes nothing.
-func (c *coreRuntime) doctor(ctx context.Context, repo, name string, check func(name, state, detail string)) (reachable bool, reason string) {
-	endpoint := c.cfg.Socket
+func (c *coreRuntime) doctor(ctx context.Context, endpoint string, app *herdrapp.App, repo, name string, check func(name, state, detail string)) (reachable bool, reason string) {
+	if endpoint == "" {
+		endpoint = c.cfg.Socket
+	}
+	if app == nil {
+		app = c.app
+	}
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	client, err := hc.Dial(cctx, endpoint, hc.Options{})
@@ -64,7 +70,7 @@ func (c *coreRuntime) doctor(ctx context.Context, repo, name string, check func(
 			}
 		}
 	}
-	c.doctorBinding(info.ID, check)
+	c.doctorBinding(app, info.ID, check)
 	c.doctorEnvironment(cctx, client, check)
 	c.doctorRoots(cctx, client, repo, execs, check)
 	if repo != "" && name != "" {
@@ -89,20 +95,20 @@ func compatibleVersions() string {
 
 // doctorBinding says whether the app-to-core binding was verified, when, and
 // with which app.
-func (c *coreRuntime) doctorBinding(coreID string, check func(name, state, detail string)) {
-	b, ok, err := c.bindings.Load(c.app.Home, coreID)
+func (c *coreRuntime) doctorBinding(shown *herdrapp.App, coreID string, check func(name, state, detail string)) {
+	b, ok, err := c.bindings.Load(shown.Home, coreID)
 	switch {
 	case err != nil:
 		check("app-binding", "fail", err.Error())
 	case !ok:
 		check("app-binding", "warn", fmt.Sprintf("%s: the app at %s was never verified to show core %s; the first launch waits until a person opens it",
-			core.CodeWaitingVisibility, c.app.Home, coreID))
+			core.CodeWaitingVisibility, shown.Home, coreID))
 	default:
 		app := ""
 		if b.AppVersion != "" {
 			app = " (herdr-app " + b.AppVersion + ")"
 		}
-		check("app-binding", "ok", fmt.Sprintf("the app at %s%s shows core %s; verified %s", c.app.Home, app, coreID, b.VerifiedAt.UTC().Format(time.RFC3339)))
+		check("app-binding", "ok", fmt.Sprintf("the app at %s%s shows core %s; verified %s", shown.Home, app, coreID, b.VerifiedAt.UTC().Format(time.RFC3339)))
 	}
 }
 
@@ -226,4 +232,40 @@ func (c *coreRuntime) doctorNotices(ctx context.Context, repo, name string, chec
 	if len(attended) > 0 {
 		check("route-attendance", "warn", fmt.Sprintf("route %s has agents a person must wake: %s", name, strings.Join(attended, ", ")))
 	}
+}
+
+// doctorSettings reports each resolved [runtime.core], [runtime.app] and
+// [runtime.tui_view] value and where it came from: the config layer that set
+// it, the route's persisted endpoint, or the default.
+func (d *Daemon) doctorSettings(s coreconfig.Settings, endpoint coreconfig.Endpoint, endpointErr error, check func(name, state, detail string)) {
+	socket := s.Socket.String()
+	if endpoint.Socket != "" && endpoint.Socket != s.Socket.Value {
+		socket = endpoint.Socket + " (the route's endpoint, persisted with its start)"
+	}
+	if endpointErr != nil {
+		check("core-socket", "fail", endpointErr.Error())
+	} else {
+		check("core-socket", "ok", socket)
+	}
+	session := s.Session
+	if session.Value == "" {
+		session.Value = "none"
+	}
+	if endpoint.Session != "" && endpoint.Session != s.Session.Value {
+		session = coreconfig.Setting{Value: endpoint.Session, From: "the route's endpoint, persisted with its start"}
+	}
+	for _, v := range []struct {
+		name string
+		s    coreconfig.Setting
+	}{
+		{"core-binary", s.Binary}, {"core-session", session}, {"connect-timeout", s.ConnectTimeout}, {"ready-timeout", s.ReadyTimeout},
+		{"app-binary", s.AppBinary}, {"app-home", s.AppHome}, {"visibility-timeout", s.VisibilityTimeout},
+	} {
+		check(v.name, "ok", v.s.String())
+	}
+	view := "off (" + s.TUIView.From + "); the Herdr TUI view of core agents is not available in this release"
+	if s.TUIViewSocket.Value != "" {
+		view += "; socket " + s.TUIViewSocket.String() + " is accepted and changes nothing"
+	}
+	check("tui-view", "ok", view)
 }

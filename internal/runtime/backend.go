@@ -43,6 +43,11 @@ const (
 	// CodeBackendExperimental refuses herdr-core for a new route while it
 	// ships as an experiment and the config in use does not opt in.
 	CodeBackendExperimental = "backend_experimental"
+	// CodeInvalidRuntimeConfig refuses a run whose [runtime.core],
+	// [runtime.app] or [runtime.tui_view] keys cannot be used: a duration
+	// that does not parse, a socket and a session that contradict, an
+	// enabled TUI view.
+	CodeInvalidRuntimeConfig = "invalid_runtime_config"
 )
 
 // CoreExperimental is true while herdr-core ships as an experiment (spec
