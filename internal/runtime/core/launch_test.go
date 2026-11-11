@@ -253,7 +253,8 @@ func TestWrapperOfAnotherProcessIsRefused(t *testing.T) {
 
 // Crash points: whatever was or was not done before the daemon died, a retry
 // adopts the one verified terminal, refuses an ambiguous one, and never
-// starts a second.
+// starts a second. The shared cases are in gates_test.go; these two need a
+// fake core that can hide a run or lose a record.
 func TestUncertainSpawnIsReconciled(t *testing.T) {
 	ctx := testCtx(t)
 	t.Run("crash after the record, before the run", func(t *testing.T) {
@@ -265,52 +266,6 @@ func TestUncertainSpawnIsReconciled(t *testing.T) {
 		w.spawn(l)
 		if n := w.core.Calls(hc.MethodRun); n != 1 {
 			t.Fatalf("runs = %d", n)
-		}
-	})
-	t.Run("crash after the run, reply lost", func(t *testing.T) {
-		w := newWorld(t)
-		l := w.launchOf("r2", "r2-o", "orchestrator", "claude")
-		c := w.dial()
-		if _, err := core.Spawn(ctx, c, l); err != nil { // the run whose answer was lost
-			t.Fatal(err)
-		}
-		if v, _, _ := w.p.ProbeSpawn(ctx, l); v != core.ProbeMatches {
-			t.Fatalf("probe = %v", v)
-		}
-		rec, err := w.p.SpawnStep(ctx, l)
-		if err != nil || rec.TerminalAddress == "" {
-			t.Fatalf("spawn: %+v %v", rec, err)
-		}
-		if n := w.core.Calls(hc.MethodRun); n != 1 {
-			t.Fatalf("a second terminal was started: %d runs", n)
-		}
-	})
-	t.Run("two matches", func(t *testing.T) {
-		w := newWorld(t)
-		l := w.launchOf("r3", "r3-o", "orchestrator", "claude")
-		c := w.dial()
-		labels, _ := l.Labels().Map()
-		for range 2 {
-			if _, err := c.Run(ctx, hc.RunRequest{Argv: []string{"sh"}, Labels: labels, Keep: true}); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if v, d, _ := w.p.ProbeSpawn(ctx, l); v != core.ProbeDifferent {
-			t.Fatalf("probe = %v %s", v, d)
-		}
-		if _, err := w.p.SpawnStep(ctx, l); core.CodeOf(err) != core.CodeConflict {
-			t.Fatalf("spawn: %v", err)
-		}
-		if n := w.core.Calls(hc.MethodRun); n != 2 {
-			t.Fatalf("runs = %d", n)
-		}
-	})
-	t.Run("copied labels", func(t *testing.T) {
-		w := newWorld(t)
-		l := w.launchOf("r4", "r4-o", "orchestrator", "claude")
-		w.core.Add(map[string]string{herdrapp.LabelExecution: l.Execution, herdrapp.LabelRoute: "someone-else"})
-		if _, err := w.p.SpawnStep(ctx, l); core.CodeOf(err) != core.CodeConflict {
-			t.Fatalf("spawn: %v", err)
 		}
 	})
 	t.Run("spawned and gone from core", func(t *testing.T) {
@@ -328,17 +283,7 @@ func TestUncertainSpawnIsReconciled(t *testing.T) {
 			t.Fatalf("runs = %d", n)
 		}
 	})
-	t.Run("registered, then another process at the address", func(t *testing.T) {
-		w := newWorld(t)
-		l, rec := w.up("r6", "r6-o", "orchestrator", "claude")
-		w.setProcess(rec.TerminalAddress, w.procs.Add(w.holder, "-zsh"))
-		if v, d, _ := w.p.ProbeSpawn(ctx, l); v != core.ProbeDifferent || !strings.Contains(d, "recovery shell") {
-			t.Fatalf("probe = %v %s", v, d)
-		}
-		if v, _, _ := w.p.ProbeRegister(ctx, l); v != core.ProbeDifferent {
-			t.Fatalf("probe register = %v", v)
-		}
-	})
+	gateUncertainSpawn(t, func(t *testing.T) gate { return newWorld(t) })
 }
 
 // The registrar's evidence is the store's: a second running execution with

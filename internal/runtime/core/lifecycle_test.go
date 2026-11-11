@@ -1,7 +1,6 @@
 package core_test
 
 import (
-	"context"
 	"strings"
 	"sync"
 	"testing"
@@ -9,8 +8,6 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/hc"
 	"github.com/arafathusayn/herdsman/internal/herdrapp"
-	"github.com/arafathusayn/herdsman/internal/herdrapp/apptest"
-	"github.com/arafathusayn/herdsman/internal/ledger"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
 )
@@ -59,140 +56,16 @@ func (w *world) ready(l core.Launch) runtime.Execution {
 	return rec
 }
 
-// Identity replacement: the harness of a kept terminal dies, core starts a
-// shell at the same address with the same labels. The shell inherits
-// nothing: no readiness, no caller identity, no stop, no interrupt.
-func TestRecoveryShellInheritsNothing(t *testing.T) {
-	w := newWorld(t)
-	w.openApp()
-	ctx := testCtx(t)
-	l, rec := w.up("omega", "omega-o", "orchestrator", "claude")
-	rec = w.ready(l)
-	harness := rec.Evidence.PID
-	w.procs.Kill(harness)
-	shell := w.procs.Add(w.holder, "-zsh")
-	w.setProcess(rec.TerminalAddress, shell)
+// Identity replacement, against the fake core (gates_test.go).
+func TestRecoveryShellInheritsNothing(t *testing.T) { gateRecoveryShellInheritsNothing(newWorld(t)) }
 
-	ev := &events{}
-	r := w.reconciler(ev)
-	if err := r.Pass(ctx); err != nil {
-		t.Fatal(err)
-	}
-	got := w.record(l.Intent)
-	if got.Observation.Process != runtime.ProcessLost || got.Observation.Readiness != runtime.ReadinessIdentityUnknown {
-		t.Fatalf("after the loss: %+v", got.Observation)
-	}
-	if len(ev.of(core.EventExecutionLost)) != 1 || len(ev.of(core.EventRecoveryPlan)) != 1 {
-		t.Fatalf("events = %+v", ev.list)
-	}
-	child := w.procs.Add(shell, "herdsman", "message", "send")
-	if _, ok := core.CallerExecution(w.procs, child, []runtime.Execution{got}); ok {
-		t.Fatal("a command from the recovery shell passed as the execution")
-	}
-	if _, err := w.p.Enrollable(ctx, []string{l.Intent}); err == nil {
-		t.Fatal("the shell passed the dispatch gate")
-	}
-	if _, err := w.p.Interrupt(ctx, runtime.Target{ExecutionID: got.ID}); core.CodeOf(err) != core.CodeIdentityNotProven {
-		t.Fatalf("interrupt: %v", err)
-	}
-	stopped, err := w.p.Stop(ctx, runtime.Target{ExecutionID: got.ID})
-	if err != nil || !stopped.Already {
-		t.Fatalf("stop = %+v %v", stopped, err)
-	}
-	for _, m := range []string{hc.MethodKill, hc.MethodInterrupt, hc.MethodSend, "terminal.keys"} {
-		if n := w.core.Calls(m); n != 0 {
-			t.Fatalf("%s reached the shell %d times", m, n)
-		}
-	}
-	// A second pass offers no second plan.
-	if err := r.Pass(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(ev.of(core.EventRecoveryPlan)) != 1 || len(ev.of(core.EventExecutionLost)) != 1 {
-		t.Fatalf("events after a second pass = %+v", ev.list)
-	}
-}
-
-// After a core stop and start every kept execution is a shell: all are lost,
-// one plan names them all, nothing is typed and no shell is killed.
+// Recovery shells after a core restart, against the fake core.
 func TestCoreRestartLosesEveryExecutionOnePlan(t *testing.T) {
-	w := newWorld(t)
-	ctx := testCtx(t)
-	var launches []core.Launch
-	for _, role := range []string{"adjutant", "orchestrator", "implementer"} {
-		l, _ := w.up("multi", "multi-"+role, role, "claude")
-		launches = append(launches, l)
-	}
-	w.core.Restart()
-	newHolder := w.procs.Add(1, "hc", "hold")
-	for _, l := range launches {
-		rec := w.record(l.Intent)
-		w.procs.Kill(rec.Evidence.PID)
-		w.setProcess(rec.TerminalAddress, w.procs.Add(newHolder, "-zsh"))
-	}
-	ev := &events{}
-	if err := w.reconciler(ev).Pass(ctx); err != nil {
-		t.Fatal(err)
-	}
-	for _, l := range launches {
-		if p := w.record(l.Intent).Observation.Process; p != runtime.ProcessLost {
-			t.Fatalf("%s is %s", l.AgentName, p)
-		}
-	}
-	plans := ev.of(core.EventRecoveryPlan)
-	if len(plans) != 1 || len(plans[0].Executions) != 3 {
-		t.Fatalf("plans = %+v", plans)
-	}
-	for _, m := range []string{hc.MethodKill, hc.MethodSend, "terminal.keys", hc.MethodInterrupt} {
-		if n := w.core.Calls(m); n != 0 {
-			t.Fatalf("%s was called %d times", m, n)
-		}
-	}
-	// The ledger holds each shell as associated; a stop leaves them.
-	execs, _ := w.records.List(ctx, "", "")
-	live, err := w.dial().List(ctx, nil, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	inv := core.Classify(core.InventoryInput{Terminals: live.Terminals, Executions: execs, Repo: "/repo", Route: "multi", RouteID: launches[0].RouteID})
-	resources := core.Resources(inv, execs, live.Terminals, w.procs)
-	act, leave := core.StopSet(resources, nil)
-	if len(act) != 0 || len(leave) != 3 {
-		t.Fatalf("stop set: act %v leave %v", act, leave)
-	}
-	for _, r := range leave {
-		if r.Kind != core.ResourceShell || r.Level() != ledger.LevelAssociated || !strings.Contains(r.String(), "lost execution") {
-			t.Fatalf("shell resource = %s", r)
-		}
-	}
-	if act, _ := core.StopSet(resources, map[string]bool{leave[0].Address: true}); len(act) != 1 {
-		t.Fatalf("a shell a person named is not acted on: %v", act)
-	}
+	gateCoreRestartLosesEveryExecutionOnePlan(newWorld(t))
 }
 
-// A command run by the harness is its execution's caller; the same command
-// from outside the tree is not.
-func TestCallerIdentityByProcess(t *testing.T) {
-	w := newWorld(t)
-	_, rec := w.up("callers", "callers-o", "orchestrator", "claude")
-	execs, _ := w.records.List(context.Background(), "", "")
-	tool := w.procs.Add(rec.Evidence.PID, "/bin/zsh", "-c", "herdsman message send")
-	cmd := w.procs.Add(tool, "herdsman", "message", "send")
-	got, ok := core.CallerExecution(w.procs, cmd, execs)
-	if !ok || got.ID != rec.ID {
-		t.Fatalf("caller = %+v %v", got, ok)
-	}
-	outside := w.procs.Add(1, "herdsman", "message", "send")
-	if _, ok := core.CallerExecution(w.procs, outside, execs); ok {
-		t.Fatal("a process outside the tree passed")
-	}
-	// A reused pid is another process.
-	reused := rec
-	reused.Evidence.Start = "1999-01-01T00:00:00Z"
-	if _, ok := core.CallerExecution(w.procs, cmd, []runtime.Execution{reused}); ok {
-		t.Fatal("a reused pid passed")
-	}
-}
+// Caller identity by process, against the fake core.
+func TestCallerIdentityByProcess(t *testing.T) { gateCallerIdentityByProcess(newWorld(t)) }
 
 // Pause: one interrupt at most, none at rest, none to a Codex turn unless a
 // person asked. Stop: only the proven process, its recorded work too.
@@ -289,29 +162,8 @@ func TestUnattendedLaunch(t *testing.T) {
 	})
 }
 
-// An app on another core cannot verify a terminal with the same address.
-func TestEndpointMismatchEndToEnd(t *testing.T) {
-	w := newWorld(t)
-	ctx := testCtx(t)
-	l, rec := w.up("mm", "mm-o", "orchestrator", "claude")
-	other := apptest.NewCore("other-core")
-	labels, _ := l.Labels().Map()
-	labels[herdrapp.LabelSpace], labels[herdrapp.LabelTab] = "hs-elsewhere-space", "hs-elsewhere-tab"
-	other.Run(rec.TerminalAddress, "same-name", labels)
-	w.app.Open(other)
-	w.p.App = herdrapp.New(w.app, w.appHome) // no mirroring: the window follows the other core
-	_, err := w.p.VisibilityStep(ctx, l, core.Timeouts{Visibility: 300 * time.Millisecond, Poll: 20 * time.Millisecond})
-	if core.CodeOf(err) != core.CodeWaitingVisibility {
-		t.Fatalf("visibility: %v", err)
-	}
-	if _, ok, _ := w.bindings.Load(w.appHome, w.core.ID); ok {
-		t.Fatal("a binding was verified against another core")
-	}
-	// A route pinned to its core refuses a socket that leads elsewhere.
-	if _, err := core.Preflight(ctx, w.dial(), core.PreflightInput{Kind: "claude", Argv: []string{"claude"}, ExpectCore: "core-the-route-ran-on"}); core.CodeOf(err) != core.CodeEndpointMismatch {
-		t.Fatalf("preflight: %v", err)
-	}
-}
+// Endpoint mismatch, against the fake core.
+func TestEndpointMismatchEndToEnd(t *testing.T) { gateEndpointMismatch(newWorld(t)) }
 
 // User actions in the app: quit keeps the execution, a park holds it, a move
 // is kept, a close ends it and nothing restarts it.
@@ -395,45 +247,8 @@ func TestUserUIActions(t *testing.T) {
 	}
 }
 
-// Reconnect and events: a core restart opens a new epoch and a full pass; a
-// changed core identity freezes mutations.
-func TestReconnectAndIdentityChange(t *testing.T) {
-	w := newWorld(t)
-	_, rec := w.up("rc", "rc-o", "orchestrator", "claude")
-	ev := &events{}
-	r := w.reconciler(ev)
-	r.Options = hc.Options{IdleTimeout: 2 * time.Second}
-	w.p.Reconciler = r
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- r.Run(ctx) }()
-	waitFor(t, func() bool { return len(ev.of(core.EventResync)) >= 1 })
-	w.core.Restart()
-	waitFor(t, func() bool { return len(ev.of(core.EventResync)) >= 2 })
-	if got := w.record(rec.LaunchIntent); got.Observation.Process != runtime.ProcessLive {
-		t.Fatalf("the surviving execution is %s", got.Observation.Process)
-	}
-	if n := w.core.Calls(hc.MethodRun); n != 1 {
-		t.Fatalf("a reconnect relaunched: %d runs", n)
-	}
-	w.core.Wipe("a-wiped-core-0000000000000000001")
-	w.core.Restart()
-	select {
-	case err := <-done:
-		if core.CodeOf(err) != core.CodeFrozen {
-			t.Fatalf("run ended with %v", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("the reconciler did not stop on a changed core")
-	}
-	if frozen, _ := r.Frozen(); !frozen || len(ev.of(core.EventEndpointMismatch)) != 1 {
-		t.Fatalf("frozen %v, events %+v", frozen, ev.list)
-	}
-	if _, err := w.p.Stop(context.Background(), runtime.Target{ExecutionID: rec.ID}); core.CodeOf(err) != core.CodeFrozen {
-		t.Fatalf("stop on a frozen endpoint: %v", err)
-	}
-}
+// Reconnect and a changed core identity, against the fake core.
+func TestReconnectAndIdentityChange(t *testing.T) { gateReconnectAndIdentityChange(newWorld(t)) }
 
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
