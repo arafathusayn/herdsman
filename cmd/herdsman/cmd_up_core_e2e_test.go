@@ -138,3 +138,20 @@ func TestUpOnCoreThroughTheCLI(t *testing.T) {
 		t.Errorf("up typed into core %d times", n)
 	}
 }
+
+// The gate keeps the TUI's agent list for a file inbox and for a caller in
+// a Herdr pane; only a daemon-owned inbox of a pane-less caller reads the
+// daemon's inventory.
+func TestGateInventoryIsTheDaemonsOnlyOnCore(t *testing.T) {
+	dir := t.TempDir()
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	if gateInventory(dir, env(nil)) != nil {
+		t.Error("a file inbox read the daemon's inventory")
+	}
+	if gateInventory("", env(nil)) != nil {
+		t.Error("no inbox read the daemon's inventory")
+	}
+	if gateInventory(dir, env(map[string]string{"HERDR_PANE_ID": "p1"})) != nil {
+		t.Error("a TUI caller read the daemon's inventory")
+	}
+}
