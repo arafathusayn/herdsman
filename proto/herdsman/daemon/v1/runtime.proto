@@ -136,6 +136,22 @@ message Execution {
   // actions of the web ("prompt", "keys", "text", "input", "scroll", "focus",
   // "close"). A surface offers nothing outside it.
   repeated string actions = 22;
+  // The version label of the experimental backend that wrote the record,
+  // such as "runtime.core/0.1.0"; empty for a stable backend.
+  string experiment = 23;
+  // The harness's own conversation, when the adapter found it with
+  // provenance; absent when it was not found or was ambiguous.
+  NativeConversation native_conversation = 24;
+}
+
+// NativeConversation is a harness's own conversation id and where it was
+// read. It is evidence, never identity: a resumed conversation is a new
+// execution.
+message NativeConversation {
+  string value = 1;
+  // Such as "claude-code:project-session-file" or
+  // "codex:rollout-session-meta".
+  string provenance = 2;
 }
 
 // AttentionReason is one reason an execution waits on a person.

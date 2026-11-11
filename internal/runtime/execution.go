@@ -191,4 +191,8 @@ type Execution struct {
 	TUI              *TUIBinding
 	LastVerifiedAt   time.Time
 	Created, Updated time.Time
+	// Experiment is the version label of the experimental backend that
+	// wrote the record (ExperimentLabel on herdr-core while it is an
+	// experiment); empty for a stable backend. It never changes.
+	Experiment string
 }

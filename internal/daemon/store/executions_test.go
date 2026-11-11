@@ -127,6 +127,43 @@ func TestExecutionKeepsItsConversationEvidence(t *testing.T) {
 	}
 }
 
+// The experiment label: the migration names runtime.core/0.1.0 on every
+// herdr-core record already written and nothing on a herdr-tui one, and a
+// record keeps the label it was first written with.
+func TestExecutionNamesTheExperimentThatWroteIt(t *testing.T) {
+	for _, kind := range []Kind{KindAccount, KindRoute} {
+		t.Run(string(kind), func(t *testing.T) {
+			p := loadFixture(t, 6, kind)
+			c, err := Open(p, Writer, kind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			coreRow, ok, err := ExecutionByID(c, "11111111-1111-4111-8111-111111111111")
+			if err != nil || !ok || coreRow.Experiment != "runtime.core/0.1.0" {
+				t.Fatalf("the herdr-core row: %q %v %v", coreRow.Experiment, ok, err)
+			}
+			tuiRow, ok, err := ExecutionByID(c, "22222222-2222-4222-8222-222222222222")
+			if err != nil || !ok || tuiRow.Experiment != "" {
+				t.Fatalf("the herdr-tui row: %q %v %v", tuiRow.Experiment, ok, err)
+			}
+			e := execution("33333333-3333-4333-8333-333333333333", "op-9:agent:a")
+			e.Backend, e.Experiment = "herdr-core", "runtime.core/0.1.0"
+			if _, err := PutExecution(c, e, 100); err != nil {
+				t.Fatal(err)
+			}
+			e.Experiment = "runtime.core/0.2.0" // a later writer does not relabel it
+			got, err := PutExecution(c, e, 200)
+			if err != nil || got.Experiment != "runtime.core/0.1.0" {
+				t.Fatalf("relabelled: %q %v", got.Experiment, err)
+			}
+			if one, _, _ := ExecutionByID(c, got.ID); one.Experiment != "runtime.core/0.1.0" {
+				t.Fatalf("stored: %q", one.Experiment)
+			}
+		})
+	}
+}
+
 func TestExecutionRecordsKeepIdentityAndCountGenerations(t *testing.T) {
 	for _, kind := range []Kind{KindAccount, KindRoute} {
 		t.Run(string(kind), func(t *testing.T) {

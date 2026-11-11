@@ -31,13 +31,22 @@ needs no line. Those are noted below for the reader.
   read: `notices`, `notice_waits`, `notice_routes`, `notice_approvals`, and a
   person's typed submits, `typed_submits`. Every table starts empty and
   existing rows are untouched.
+- Version 7 adds `executions.experiment`, the version label of the
+  experimental backend that wrote an execution record. It is a new column
+  only. Existing rows get one value: `runtime.core/0.1.0` on a `herdr-core`
+  record, which only the experiment has written, and empty on a `herdr-tui`
+  record. No other column changes. Fixture: `testdata/schema-6`.
 
 ## Route
 
 - Version 2 adds the execution records, `executions`, and the route's backend,
   `route_runtime`. Both start empty; `parties` and `launches` keep their
   columns. Fixture: `testdata/schema-1` and `testdata/schema-4`.
+- Version 3 adds `executions.experiment`, as account version 7 does, with
+  the same values for existing rows. Fixture: `testdata/schema-6`.
 
 ## Listed transformations
 
 - account 5: added installation.*
+- account 7: added executions.experiment
+- route 3: added executions.experiment

@@ -162,6 +162,30 @@ export interface Execution {
    * "close"). A surface offers nothing outside it.
    */
   actions?: string[];
+  /**
+   * The version label of the experimental backend that wrote the record,
+   * such as "runtime.core/0.1.0"; empty for a stable backend.
+   */
+  experiment?: string;
+  /**
+   * The harness's own conversation, when the adapter found it with
+   * provenance; absent when it was not found or was ambiguous.
+   */
+  nativeConversation?: NativeConversation;
+}
+
+/**
+ * NativeConversation is a harness's own conversation id and where it was
+ * read. It is evidence, never identity: a resumed conversation is a new
+ * execution.
+ */
+export interface NativeConversation {
+  value?: string;
+  /**
+   * Such as "claude-code:project-session-file" or
+   * "codex:rollout-session-meta".
+   */
+  provenance?: string;
 }
 
 /**

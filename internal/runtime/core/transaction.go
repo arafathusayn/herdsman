@@ -40,7 +40,7 @@ func (t Timeouts) poll() time.Duration {
 func starting(l Launch, coreID string, now time.Time) runtime.Execution {
 	return runtime.Execution{
 		SchemaVersion: runtime.SchemaVersion, ID: l.Execution, Repo: l.Repo, Route: l.RouteName, Agent: l.AgentName, Role: l.Role,
-		LaunchIntent: l.Intent, Backend: runtime.BackendCore, EndpointID: coreID, Cwd: l.Cwd, HarnessKind: l.Kind,
+		LaunchIntent: l.Intent, Backend: runtime.BackendCore, EndpointID: coreID, Cwd: l.Cwd, HarnessKind: l.Kind, Experiment: runtime.Experiment(runtime.BackendCore),
 		ArgvDigest: l.Descriptor.ArgvDigest(), PolicyDigest: l.Descriptor.Digest(), Desired: runtime.DesiredRunning,
 		Observation: runtime.Observation{Process: runtime.ProcessStarting, Readiness: runtime.ReadinessWaiting, Program: runtime.ProgramUnknown,
 			Visibility: runtime.VisibilityUnverified, Orchestration: runtime.OrchestrationActive, ObservedAt: now},

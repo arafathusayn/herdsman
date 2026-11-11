@@ -189,7 +189,7 @@ func executionRow(e runtime.Execution) store.Execution {
 		Process: string(e.Observation.Process), Readiness: string(e.Observation.Readiness), Program: string(e.Observation.Program),
 		RawProgram: e.Observation.RawProgram, Visibility: string(e.Observation.Visibility), App: string(e.Observation.App),
 		Orchestration: string(e.Observation.Orchestration), TaskOutcome: string(e.Observation.TaskOutcome),
-		ObservedAt: millis(e.Observation.ObservedAt), LastVerifiedAt: millis(e.LastVerifiedAt),
+		ObservedAt: millis(e.Observation.ObservedAt), LastVerifiedAt: millis(e.LastVerifiedAt), Experiment: e.Experiment,
 	}
 	if e.Conversation != nil {
 		row.NativeConversation = jsonOf(e.Conversation)
@@ -215,6 +215,11 @@ func executionMessage(e store.Execution) *daemonv1.Execution {
 		Observation: &daemonv1.ExecutionObservation{Process: e.Process, Readiness: e.Readiness, Program: e.Program,
 			RawProgramStatus: e.RawProgram, Visibility: e.Visibility, App: e.App, Orchestration: e.Orchestration,
 			TaskOutcome: e.TaskOutcome, ObservedAt: e.ObservedAt},
+	}
+	out.Experiment = e.Experiment
+	var conv runtime.Conversation
+	if e.NativeConversation != "" && json.Unmarshal([]byte(e.NativeConversation), &conv) == nil && conv.Value != "" {
+		out.NativeConversation = &daemonv1.NativeConversation{Value: conv.Value, Provenance: conv.Provenance}
 	}
 	var app runtime.AppBinding
 	if e.AppBinding != "" && json.Unmarshal([]byte(e.AppBinding), &app) == nil {

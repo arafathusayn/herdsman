@@ -81,14 +81,42 @@ func seedAccount4(t *testing.T, c Conn) {
 	mustExec(t, c, `INSERT INTO snapshots(id, task, dir, size, created) VALUES ('s-1', 'task-a', '/srv/fixture/snap', 10, 1000)`)
 }
 
-// fixtureSchemas are the released versions each fixture folder holds: the
-// account and the route store as one release shipped them.
+// seedExecutions adds one execution record of each backend, as the stores of
+// account version 6 and route version 2 hold them.
+func seedExecutions(t *testing.T, c Conn) {
+	mustExec(t, c, `INSERT INTO executions(execution_id, schema_version, repo, route, agent, role, launch_intent_id, generation, backend,
+		endpoint_id, terminal_address, pane, harness_kind, desired_state, process_state, readiness, program_status, visibility,
+		orchestration, observed_at, created_at, updated_at)
+		VALUES ('11111111-1111-4111-8111-111111111111', 1, '/srv/fixture/repo-a', 'alpha', 'alpha-orchestrator', 'orchestrator',
+		        'up:/srv/fixture/repo-a:alpha:alpha-orchestrator:1', 1, 'herdr-core', 'core-1', 't-1', '', 'claude', 'running', 'live',
+		        'ready', 'done', 'verified', 'active', 1000, 1000, 1000),
+		       ('22222222-2222-4222-8222-222222222222', 1, '/srv/fixture/repo-b', 'beta', 'beta-orchestrator', 'orchestrator',
+		        'up:/srv/fixture/repo-b:beta:beta-orchestrator:w1:p2', 1, 'herdr-tui', '/srv/fixture/herdr.sock', '', 'w1:p2', 'codex',
+		        'running', 'live', 'waiting', 'idle', 'verified', 'active', 1000, 1000, 1000)`)
+}
+
+// seedAccount6 adds execution records to the tables of account version 6.
+func seedAccount6(t *testing.T, c Conn) {
+	seedAccount4(t, c)
+	seedExecutions(t, c)
+}
+
+// seedRoute2 adds execution records to the route store of version 2.
+func seedRoute2(t *testing.T, c Conn) {
+	seedRoute(t, c)
+	seedExecutions(t, c)
+}
+
+// fixtureSchemas are the versions each fixture folder holds: the account and
+// the route store as one build shipped them, with the rows each seeds.
 var fixtureSchemas = map[int]struct {
 	account, route int
 	seed           func(*testing.T, Conn)
+	routeSeed      func(*testing.T, Conn)
 }{
-	1: {1, 1, seedAccount},
-	4: {4, 1, seedAccount4},
+	1: {1, 1, seedAccount, seedRoute},
+	4: {4, 1, seedAccount4, seedRoute},
+	6: {6, 2, seedAccount6, seedRoute2},
 }
 
 func TestWriteFixtures(t *testing.T) {
@@ -111,7 +139,7 @@ func TestWriteFixtures(t *testing.T) {
 		kind    Kind
 		version int
 		seed    func(*testing.T, Conn)
-	}{{KindAccount, schema.account, schema.seed}, {KindRoute, schema.route, seedRoute}} {
+	}{{KindAccount, schema.account, schema.seed}, {KindRoute, schema.route, schema.routeSeed}} {
 		p := filepath.Join(privateDir(t), string(f.kind)+".db")
 		c := writerAt(t, p)
 		if err := migrate(c, p, f.kind, schemaUpTo(t, f.kind, f.version)); err != nil {

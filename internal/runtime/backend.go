@@ -57,6 +57,15 @@ const CoreExperimental = true
 // every experimental surface carries one.
 const ExperimentLabel = "runtime.core/0.1.0"
 
+// Experiment is the label a backend writes on its records while it ships as
+// an experiment, and empty once it is stable.
+func Experiment(backend string) string {
+	if backend == BackendCore && CoreExperimental {
+		return ExperimentLabel
+	}
+	return ""
+}
+
 // ExperimentNotice is the one line a run on core says while it is an
 // experiment.
 const ExperimentNotice = "herdr-core is experimental (" + ExperimentLabel + ") and can change between minor releases; backend = \"herdr-tui\" in [runtime] goes back to the Herdr TUI"

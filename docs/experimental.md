@@ -7,7 +7,7 @@ Most of herdsman follows the compatibility promise in [ADR 0003](adr/0003-public
 | Plugin protocol | Not released yet | To be set when it ships |
 | `herdsman eval` and its reports | `--experimental-eval` on every use | `eval/<version>`, in the `experimental` field of the JSON report |
 | `[automations]` in the configuration, `herdsman daemon automations` | `experimental = true` in the section, and a person approves each action | `automations/0.1.0`, on each line of the action log |
-| The herdr-core backend: `backend = "herdr-core"` in `[runtime]`, `herdsman up --backend herdr-core` | `experimental = true` in `[runtime.core]` beside the backend; a new route on core without it is refused with `backend_experimental` | `runtime.core/0.1.0`, in the line each run prints on stderr and in `herdsman runtime doctor` |
+| The herdr-core backend: `backend = "herdr-core"` in `[runtime]`, `herdsman up --backend herdr-core` | `experimental = true` in `[runtime.core]` beside the backend; a new route on core without it is refused with `backend_experimental` | `runtime.core/0.1.0`, in the line each run prints on stderr, in `herdsman runtime doctor`, and on each execution record it writes (`experiment` in `herdsman runtime ls --json`) |
 
 ## What experimental means
 

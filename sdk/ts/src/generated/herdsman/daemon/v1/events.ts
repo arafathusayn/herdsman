@@ -121,8 +121,9 @@ export interface Ping {
  * type is the event's kind (herdr-core backend spec, sections 10 to 12). Kinds:
  * "execution_lost", "execution_replaced", "identity_changed",
  * "visibility_changed", "inventory_fault", "needs_attention" (reason
- * "notice_waiting", "interrupted", "compaction_due", "goal_paused" or a
- * dialog), "not_waiting", "notice_held" (reason: the gate), "claim_stuck",
+ * "notice_waiting", "interrupted", "compaction_due", "goal_paused",
+ * "start_line", "dialog", or one of the card watch's "side_agent_cards",
+ * "relay_failed", "read_failed" and "identity_lost"), "not_waiting", "notice_held" (reason: the gate), "claim_stuck",
  * "notice_outcome" (outcome other than "completed"), "notice_returned",
  * "report_outcome" (outcome "reported", "report_timeout",
  * "report_unavailable" or "not_reached"), "submit_unresolved",

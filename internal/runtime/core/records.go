@@ -44,7 +44,7 @@ func (m *MemRecords) Put(_ context.Context, e runtime.Execution) (runtime.Execut
 	now := time.Now()
 	for i, r := range m.rows {
 		if r.LaunchIntent == e.LaunchIntent {
-			e.ID, e.Generation, e.Created, e.SchemaVersion = r.ID, r.Generation, r.Created, r.SchemaVersion
+			e.ID, e.Generation, e.Created, e.SchemaVersion, e.Experiment = r.ID, r.Generation, r.Created, r.SchemaVersion, r.Experiment
 			if e.Evidence.PID == 0 {
 				e.Evidence = r.Evidence
 			}

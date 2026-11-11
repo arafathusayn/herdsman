@@ -278,6 +278,34 @@ func TestExecutionsListRecordsAndLegacyAgents(t *testing.T) {
 	}
 }
 
+// An execution's experiment label and its native conversation, with its
+// provenance, reach the wire as the record holds them.
+func TestExecutionCarriesItsExperimentAndConversation(t *testing.T) {
+	h := newHarness(t)
+	c := routeClient(t, h)
+	ctx := context.Background()
+	repo := filepath.Join(h.ph, "proj")
+	e := runtime.Execution{
+		SchemaVersion: runtime.SchemaVersion, ID: runtime.NewExecutionID(), Repo: repo, Route: "harbor", Agent: "proj-harbor-orchestrator",
+		Role: "orchestrator", LaunchIntent: "up:" + repo + ":harbor:proj-harbor-orchestrator:x", Backend: runtime.BackendCore,
+		EndpointID: "core-1", TerminalAddress: "t-1", HarnessKind: "claude", Desired: runtime.DesiredRunning, Experiment: runtime.ExperimentLabel,
+		Conversation: &runtime.Conversation{Value: "0b7f3c1e-5d2a-4c8e-9f10-2a3b4c5d6e7f", Provenance: "claude-code:project-session-file"},
+		Observation:  liveObservation(),
+	}
+	if err := h.d.recordExecution(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	one, err := c.Runtime.GetExecution(ctx, &daemonv1.RuntimeServiceGetExecutionRequest{ExecutionId: e.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := one.GetExecution()
+	if got.GetExperiment() != runtime.ExperimentLabel || got.GetNativeConversation().GetValue() != e.Conversation.Value ||
+		got.GetNativeConversation().GetProvenance() != e.Conversation.Provenance {
+		t.Fatalf("%+v", got)
+	}
+}
+
 // The tracer of the runtime contract: a start on the TUI goes through the
 // provider and leaves an execution record, and a second look at the same agent
 // is the same execution.

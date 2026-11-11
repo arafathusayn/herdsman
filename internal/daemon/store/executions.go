@@ -46,13 +46,16 @@ type Execution struct {
 	TUIBinding         string
 	LastVerifiedAt     int64
 	Created, Updated   int64
+	// Experiment is the label of the experimental backend that wrote the
+	// record (runtime.core/0.1.0); empty for a stable one. Written once.
+	Experiment string
 }
 
 const executionColumns = `execution_id, schema_version, repo, route, agent, role, task_id, launch_intent_id, generation,
 	backend, endpoint_id, terminal_address, pane, initial_created_ms, observed_pid, observed_process_start,
 	argv_digest, cwd, harness_kind, harness_version, policy_digest, launch_guard_registration, native_conversation,
 	desired_state, process_state, readiness, program_status, raw_program_status, visibility, app_state, orchestration,
-	task_outcome, observed_at, app_binding, tui_binding, last_verified_at, created_at, updated_at`
+	task_outcome, observed_at, app_binding, tui_binding, last_verified_at, created_at, updated_at, experiment`
 
 // nullable turns an unknown value into SQL NULL.
 func nullable[T comparable](v T) any {
@@ -72,7 +75,7 @@ func scanExecution(r Row) Execution {
 		LaunchGuard: r.Text(21), NativeConversation: r.Text(22), DesiredState: r.Text(23), Process: r.Text(24),
 		Readiness: r.Text(25), Program: r.Text(26), RawProgram: r.Text(27), Visibility: r.Text(28), App: r.Text(29),
 		Orchestration: r.Text(30), TaskOutcome: r.Text(31), ObservedAt: r.Int64(32), AppBinding: r.Text(33),
-		TUIBinding: r.Text(34), LastVerifiedAt: r.Int64(35), Created: r.Int64(36), Updated: r.Int64(37),
+		TUIBinding: r.Text(34), LastVerifiedAt: r.Int64(35), Created: r.Int64(36), Updated: r.Int64(37), Experiment: r.Text(38),
 	}
 }
 
@@ -90,7 +93,7 @@ func PutExecution(c Conn, e Execution, now int64) (Execution, error) {
 			return err
 		}
 		if found {
-			e.ID, e.Generation, e.Created, e.SchemaVersion = prev.ID, prev.Generation, prev.Created, prev.SchemaVersion
+			e.ID, e.Generation, e.Created, e.SchemaVersion, e.Experiment = prev.ID, prev.Generation, prev.Created, prev.SchemaVersion, prev.Experiment
 			if e.PID == 0 {
 				e.PID, e.ProcessStart = prev.PID, prev.ProcessStart
 			}
@@ -118,12 +121,12 @@ func PutExecution(c Conn, e Execution, now int64) (Execution, error) {
 		}
 		e.Generation, e.SchemaVersion, e.Created, e.Updated = last+1, ExecutionSchema, now, now
 		_, err = tx.Exec(`INSERT INTO executions(`+executionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.ID, e.SchemaVersion, e.Repo, e.Route, e.Agent, e.Role, e.TaskID, e.LaunchIntent, e.Generation,
 			e.Backend, e.EndpointID, e.TerminalAddress, e.Pane, nullable(e.InitialCreatedMS), nullable(e.PID), nullable(e.ProcessStart),
 			e.ArgvDigest, e.Cwd, e.HarnessKind, e.HarnessVersion, e.PolicyDigest, e.LaunchGuard, nullable(e.NativeConversation),
 			e.DesiredState, e.Process, e.Readiness, e.Program, e.RawProgram, e.Visibility, e.App, e.Orchestration,
-			e.TaskOutcome, e.ObservedAt, nullable(e.AppBinding), nullable(e.TUIBinding), nullable(e.LastVerifiedAt), e.Created, e.Updated)
+			e.TaskOutcome, e.ObservedAt, nullable(e.AppBinding), nullable(e.TUIBinding), nullable(e.LastVerifiedAt), e.Created, e.Updated, e.Experiment)
 		return err
 	})
 	if err != nil {

@@ -463,6 +463,7 @@ func executionOf(r store.Execution) runtime.Execution {
 		Evidence: runtime.ProcessEvidence{PID: int(r.PID), Start: r.ProcessStart}, ArgvDigest: r.ArgvDigest, Cwd: r.Cwd,
 		HarnessKind: r.HarnessKind, HarnessVersion: r.HarnessVersion, PolicyDigest: r.PolicyDigest, LaunchGuard: r.LaunchGuard,
 		Desired: runtime.Desired(r.DesiredState), LastVerifiedAt: fromMillis(r.LastVerifiedAt), Created: fromMillis(r.Created), Updated: fromMillis(r.Updated),
+		Experiment: r.Experiment,
 		Observation: runtime.Observation{
 			Process: runtime.Process(r.Process), Readiness: runtime.Readiness(r.Readiness), Program: runtime.Program(r.Program),
 			RawProgram: r.RawProgram, Visibility: runtime.Visibility(r.Visibility), App: runtime.App(r.App),
