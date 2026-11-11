@@ -82,6 +82,10 @@ type Core struct {
 	conns      map[*conn]bool
 	requests   []Request
 	execs      map[string]ExecAnswer
+	// posting counts replies whose follow-up events are still being sent;
+	// settled is signalled when it returns to zero.
+	posting int
+	settled *sync.Cond
 }
 
 // ExecAnswer is what machine.exec answers for one argv[0].
@@ -134,6 +138,7 @@ func Start(t testing.TB, opts ...Option) *Core {
 		terms: map[string]map[string]any{}, next: 1, pid: 40000, conns: map[*conn]bool{},
 		execs: map[string]ExecAnswer{},
 	}
+	c.settled = sync.NewCond(&c.mu)
 	for _, o := range opts {
 		o(c)
 	}
@@ -202,6 +207,18 @@ func (c *Core) Epoch() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.epoch
+}
+
+// Settle waits until every event that follows a reply already sent has been
+// sent too. A real core may send a call's events after its reply; a test that
+// subscribes after such a call settles first, so those events land before
+// its snapshot and not after it.
+func (c *Core) Settle() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for c.posting > 0 {
+		c.settled.Wait()
+	}
 }
 
 // Seq returns the last event sequence.
@@ -481,11 +498,24 @@ func (c *Core) handle(x *conn) {
 		} else {
 			resp["result"] = result
 		}
-		if err := x.write(resp); err != nil {
-			return
-		}
 		if after != nil {
-			after()
+			c.mu.Lock()
+			c.posting++
+			c.mu.Unlock()
+		}
+		err = x.write(resp)
+		if after != nil {
+			if err == nil {
+				after()
+			}
+			c.mu.Lock()
+			if c.posting--; c.posting == 0 {
+				c.settled.Broadcast()
+			}
+			c.mu.Unlock()
+		}
+		if err != nil {
+			return
 		}
 	}
 }

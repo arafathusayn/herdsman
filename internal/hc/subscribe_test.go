@@ -13,6 +13,7 @@ import (
 
 func subscribe(t *testing.T, core *hctest.Core, f hc.Filter, opts hc.Options) *hc.Subscription {
 	t.Helper()
+	core.Settle()
 	s, err := hc.Subscribe(testCtx(t), core.Socket, f, opts)
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
