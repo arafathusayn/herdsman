@@ -30,7 +30,30 @@ const (
 func (d *Daemon) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle(rpc.BasePath, d.rpcHandler())
-	return d.limit(mux)
+	return d.limit(browserMark(mux))
+}
+
+// webSessionHeader is what herdsman web's gateway sets on a paired browser's
+// call (internal/web.HeaderSession). It grants nothing: it only says that the
+// socket's peer, the web server, forwards a browser's request.
+const webSessionHeader = "Herdsman-Session"
+
+type browserKey struct{}
+
+// browserMark notes on the context that a call came through herdsman web.
+func browserMark(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(webSessionHeader) != "" {
+			r = r.WithContext(context.WithValue(r.Context(), browserKey{}, true))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// fromBrowser reports a call a paired browser made through herdsman web.
+func fromBrowser(ctx context.Context) bool {
+	v, _ := ctx.Value(browserKey{}).(bool)
+	return v
 }
 
 // limit is the request semaphore (9.1): at most 32 requests in flight

@@ -3,11 +3,13 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"syscall"
 
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/hc"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
+	"github.com/arafathusayn/herdsman/internal/sys"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
@@ -47,6 +49,19 @@ func (s submitStore) Submits(execution string) ([]core.SubmitRecord, error) {
 	return out, nil
 }
 
+// peerPID is the process at the other end of the request's socket.
+func peerPID(ctx context.Context) (int, error) {
+	conn, ok := ctx.Value(connKey{}).(syscall.Conn)
+	if !ok {
+		return 0, rpc.Errorf(rpc.PermissionDenied, "the request's connection has no peer to verify")
+	}
+	peer, err := sys.PeerCredentials(conn)
+	if err != nil {
+		return 0, rpc.Errorf(rpc.PermissionDenied, "read the caller's credentials: %v", err)
+	}
+	return peer.PID, nil
+}
+
 // submitter is the daemon's typed-submit service on core's socket.
 func (c *coreRuntime) submitter() *core.Submitter {
 	c.mu.Lock()
@@ -77,7 +92,18 @@ func (s *runtimeService) Submit(ctx context.Context, req *daemonv1.RuntimeServic
 	if !req.GetConfirmed() {
 		return nil, rpc.Errorf(rpc.FailedPrecondition, "a typed submit needs the person's confirmation: %s", core.SubmitConfirmation)
 	}
-	caller, err := (&routeService{d: s.d}).verifiedCaller(ctx, &daemonv1.UpCaller{Pid: req.GetPid()})
+	pid := req.GetPid()
+	if pid == 0 && fromBrowser(ctx) {
+		// A paired browser through herdsman web cannot name a process: the
+		// web server's own, the socket's peer, is checked as a person's
+		// terminal, after the person confirmed in the browser.
+		peer, err := peerPID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		pid = int64(peer)
+	}
+	caller, err := (&routeService{d: s.d}).verifiedCaller(ctx, &daemonv1.UpCaller{Pid: pid})
 	if err != nil {
 		return nil, err
 	}
