@@ -11,6 +11,7 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	m := &messageService{d: d}
 	recovery := &opsService{d: d}
 	routes := &routeService{d: d}
+	runtimes := &runtimeService{d: d}
 	projectContext := &projectContextService{}
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
 	eventRPC := newEventService(d.hub, d.admitEvents, releaseContext)
@@ -75,5 +76,10 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(daemonv1.RouteServiceName, "Resume", routes.Resume),
 		rpc.Unary(daemonv1.RouteServiceName, "Stop", routes.Stop),
 		rpc.Unary(daemonv1.RouteServiceName, "Delete", routes.Delete),
+		rpc.Unary(daemonv1.RuntimeServiceName, "ListExecutions", runtimes.ListExecutions),
+		rpc.Unary(daemonv1.RuntimeServiceName, "GetExecution", runtimes.GetExecution),
+		rpc.Unary(daemonv1.RuntimeServiceName, "Doctor", runtimes.Doctor),
+		rpc.Unary(daemonv1.RuntimeServiceName, "GetDefault", runtimes.GetDefault),
+		rpc.Unary(daemonv1.RuntimeServiceName, "SetDefault", runtimes.SetDefault),
 	}...)
 }

@@ -40,6 +40,9 @@ type WorktreeService struct {
 	StateDir    string // Empty resolves the account's state folder.
 	FileCap     int64  // Largest file a snapshot captures; 0 is the default.
 	ConfigDir   string // Folder of the user's file; empty uses the standard one.
+	// Backend refuses a task launch whose execution backend, resolved for the
+	// repository, this build cannot run; nil checks nothing.
+	Backend func(ctx context.Context, repo string) error
 
 	journal *teardownJournal // Set by the daemon, which runs teardowns.
 	engine  *ops.Engine
@@ -459,6 +462,13 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	command, err := shape.admit(req.Agent)
 	if err != nil {
 		return resp, err
+	}
+	// A task that launches an agent resolves its backend as up does, before
+	// anything is made.
+	if strings.TrimSpace(req.Agent) != "" && s.Backend != nil {
+		if err := s.Backend(ctx, r.main); err != nil {
+			return resp, err
+		}
 	}
 	kind := req.Type
 	if kind == "" {

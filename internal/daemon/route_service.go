@@ -41,7 +41,9 @@ func (d *Daemon) operationEffects() map[string]ops.Effect {
 	if teardown == nil {
 		teardown = teardownRoute(d.worktrees)
 	}
-	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run, Recovery: d.routeRecovery(), Down: d.cfg.RouteDown, Teardown: teardown})
+	d.worktrees.Backend = d.taskBackend
+	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run, Recovery: d.routeRecovery(), Down: d.cfg.RouteDown, Teardown: teardown,
+		Runtime: d.runtimeRegistry(), Executions: d.recordExecution})
 	maps.Copy(effects, d.teardowns.effects())
 	for name, effect := range d.cfg.Effects {
 		effects[name] = effect
@@ -70,10 +72,20 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 		return nil, rpc.Errorf(rpc.FailedPrecondition, "the route is %s; bring it back with: herdsman resume %s", state, q.Route)
 	}
 	var latest *ops.Operation
+	persisted := ""
 	if len(starts) > 0 && state != route.ControlDeleted {
 		latest = starts[len(starts)-1]
 		q.Date = route.DateOf(latest)
+		persisted = route.BackendOf(latest)
 	}
+	// The backend is chosen before anything is planned: a route that exists
+	// keeps its own, and a backend this build cannot run stops the start with
+	// a diagnostic rather than another backend.
+	sel, err := s.d.launchBackend(req.GetRepo(), req.GetConfigPath(), req.GetBackend(), persisted)
+	if err != nil {
+		return nil, runtimeFailure(err)
+	}
+	q.Backend = sel.Backend
 	var plan *route.UpPlan
 	if req.GetContinue() && latest != nil {
 		plan, err = route.PlanOf(latest)
@@ -88,7 +100,7 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 	}
 	if req.GetDryRun() {
 		return &daemonv1.UpResponse{Start: &daemonv1.RouteStart{
-			Route: &corev1.RouteId{Value: q.Route}, State: "planned", Folder: plan.Folder, Inbox: plan.Inbox, Workspace: plan.Workspace, Plan: plan.Text,
+			Route: &corev1.RouteId{Value: q.Route}, State: "planned", Folder: plan.Folder, Inbox: plan.Inbox, Workspace: plan.Workspace, Plan: plan.Text, Backend: sel.Backend,
 		}}, nil
 	}
 	caller, err := s.verifiedCaller(ctx, req.GetCaller())
@@ -379,7 +391,7 @@ func startOf(op *ops.Operation) *daemonv1.RouteStart {
 	facts := route.Describe(op)
 	start := &daemonv1.RouteStart{
 		Operation: op.ID, Route: &corev1.RouteId{Value: facts.Route}, State: string(op.State), Reason: op.Reason,
-		Folder: facts.Folder, Inbox: facts.Inbox, Workspace: facts.Workspace, Plan: op.Plan,
+		Folder: facts.Folder, Inbox: facts.Inbox, Workspace: facts.Workspace, Plan: op.Plan, Backend: route.BackendOf(op),
 	}
 	for _, st := range op.Steps {
 		start.Steps = append(start.Steps, &daemonv1.RouteStep{Ordinal: int32(st.Ordinal), Name: st.Name, Key: st.Key, State: string(st.State), Detail: st.Detail})

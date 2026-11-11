@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
@@ -70,6 +71,18 @@ type harness struct {
 
 func newHarness(t testing.TB) *harness {
 	t.Helper()
+	h := newAccountHarness(t)
+	// The harness drives a fake Herdr TUI server, so its account selects the
+	// TUI as an upgraded installation does. A new account selects herdr-core,
+	// which this build cannot run.
+	h.setDefaultBackend("herdr-tui")
+	return h
+}
+
+// newAccountHarness is a harness whose account keeps the installation default
+// its migration wrote: that of a new installation.
+func newAccountHarness(t testing.TB) *harness {
+	t.Helper()
 	dir := shortDir(t)
 	h := &harness{t: t, dir: dir, ph: filepath.Join(dir, "p"), home: filepath.Join(dir, "h"), clock: newClock()}
 	_ = os.MkdirAll(h.home, 0o700)
@@ -86,6 +99,17 @@ func newHarness(t testing.TB) *harness {
 		Procs: func() ([]Proc, error) { return nil, nil }}
 	h.start()
 	return h
+}
+
+// setDefaultBackend changes the account's installation default.
+func (h *harness) setDefaultBackend(backend string) {
+	h.t.Helper()
+	if err := h.d.ops.Read(func(c store.Conn) error {
+		_, err := store.SetInstallationDefault(c, backend, 1)
+		return err
+	}); err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 func (h *harness) start() {
