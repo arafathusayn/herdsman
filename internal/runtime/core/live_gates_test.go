@@ -1,6 +1,7 @@
 package core_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -385,5 +386,52 @@ func TestLiveInventory(t *testing.T) {
 		if !strings.Contains(text[0].Detail, a+" (") {
 			t.Errorf("the fault does not name %s: %s", a, text[0].Detail)
 		}
+	}
+}
+
+// Recovery shells, as the daemon meets them: the reconciler follows the core
+// through its stop and start. Every kept execution is lost once, one plan
+// names them all, and nothing is typed, killed or started again.
+func TestLiveCoreRestartUnderTheReconciler(t *testing.T) {
+	w := newLive(t, hclive.Options{})
+	var launches []core.Launch
+	for _, role := range []string{"adjutant", "orchestrator", "implementer", "reviewer", "integrator", "checker"} {
+		l, _ := w.gUp("follow", "follow-"+role, role, "claude")
+		launches = append(launches, l)
+	}
+	ev := &events{}
+	r := w.gReconciler(ev)
+	r.Options = hc.Options{IdleTimeout: 2 * time.Second}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx) }()
+	waitFor(t, func() bool { return len(ev.of(core.EventResync)) >= 1 })
+	w.gRestartCore()
+	waitFor(t, func() bool {
+		for _, l := range launches {
+			if w.gRecord(l.Intent).Observation.Process != runtime.ProcessLost {
+				return false
+			}
+		}
+		return len(ev.of(core.EventResync)) >= 2
+	})
+	// Let the passes that follow the shells' start run too.
+	time.Sleep(2 * time.Second)
+	cancel()
+	<-done
+	if plans := ev.of(core.EventRecoveryPlan); len(plans) != 1 || len(plans[0].Executions) != len(launches) {
+		t.Fatalf("plans = %+v", plans)
+	}
+	if lost := ev.of(core.EventExecutionLost); len(lost) != len(launches) {
+		t.Fatalf("lost events = %+v", lost)
+	}
+	for _, m := range []string{hc.MethodKill, hc.MethodSend, "terminal.keys", hc.MethodInterrupt} {
+		if n := w.gCalls(m); n != 0 {
+			t.Fatalf("%s was called %d times", m, n)
+		}
+	}
+	if n := w.gCalls(hc.MethodRun); n != len(launches) {
+		t.Fatalf("runs = %d", n)
 	}
 }

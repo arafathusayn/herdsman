@@ -38,7 +38,7 @@ func (e *events) of(kind string) []core.Event {
 
 func (w *world) reconciler(ev *events) *core.Reconciler {
 	return &core.Reconciler{Socket: w.core.Socket, ExpectCore: w.core.ID, Records: w.records, Procs: w.procs, App: w.p.App, Bindings: w.bindings,
-		HarnessNames: []string{"claude", "codex"}, Emit: ev.add, Safety: time.Hour}
+		HarnessNames: []string{"claude", "codex"}, Emit: ev.add, Safety: time.Hour, Settle: 10 * time.Millisecond}
 }
 
 // ready brings an execution through visibility and readiness.
@@ -249,6 +249,66 @@ func TestUserUIActions(t *testing.T) {
 
 // Reconnect and a changed core identity, against the fake core.
 func TestReconnectAndIdentityChange(t *testing.T) { gateReconnectAndIdentityChange(newWorld(t)) }
+
+// A core that stops ends its terminals one by one: a pass that runs in the
+// middle sees one execution lost while the next is still dying. The plan
+// waits for the incident to settle and names both, once.
+func TestRecoveryPlanSettlesOneIncident(t *testing.T) {
+	w := newWorld(t)
+	ctx := testCtx(t)
+	_, a := w.up("split", "split-a", "orchestrator", "claude")
+	_, b := w.up("split", "split-b", "implementer", "claude")
+	// The pass checks a first and finds it live; b is lost, and a's holder
+	// dies while the pass is under way.
+	w.gLose(b)
+	ev := &events{}
+	r := w.reconciler(ev)
+	r.Emit = func(e core.Event) {
+		ev.add(e)
+		if e.Kind == core.EventExecutionLost && e.Execution == b.ID {
+			w.gLose(a)
+		}
+	}
+	if err := r.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	plans := ev.of(core.EventRecoveryPlan)
+	if len(plans) != 1 || len(plans[0].Executions) != 2 {
+		t.Fatalf("plans = %+v", plans)
+	}
+	if got := w.record(a.LaunchIntent); got.Observation.Process != runtime.ProcessLost {
+		t.Fatalf("a is %s", got.Observation.Process)
+	}
+	if err := r.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(ev.of(core.EventRecoveryPlan)) != 1 || len(ev.of(core.EventExecutionLost)) != 2 {
+		t.Fatalf("events after a second pass = %+v", ev.list)
+	}
+}
+
+// A loss after a plan was offered for the route gets a plan of its own; the
+// executions the first plan named are not named again.
+func TestRecoveryPlanForALaterLoss(t *testing.T) {
+	w := newWorld(t)
+	ctx := testCtx(t)
+	_, a := w.up("later", "later-a", "orchestrator", "claude")
+	_, b := w.up("later", "later-b", "implementer", "claude")
+	ev := &events{}
+	r := w.reconciler(ev)
+	w.gLose(a)
+	if err := r.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	w.gLose(b)
+	if err := r.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	plans := ev.of(core.EventRecoveryPlan)
+	if len(plans) != 2 || len(plans[0].Executions) != 1 || plans[0].Executions[0] != a.ID || len(plans[1].Executions) != 1 || plans[1].Executions[0] != b.ID {
+		t.Fatalf("plans = %+v", plans)
+	}
+}
 
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()

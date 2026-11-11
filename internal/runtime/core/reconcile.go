@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,11 +70,18 @@ type Reconciler struct {
 	// Safety, Coalesce: the periodic pass and the coalescing window
 	// (defaults 30 s and 100 ms).
 	Safety, Coalesce time.Duration
-	Options          hc.Options
+	// Settle is how long a pass that finds a loss waits before it offers
+	// the recovery plan, and looks at the route's other executions again
+	// (default 500 ms; negative: no wait). A core that stops ends its
+	// terminals one by one, so a pass in the middle sees only some of them
+	// lost; the wait keeps one incident in one plan.
+	Settle  time.Duration
+	Options hc.Options
 
-	mu          sync.Mutex
-	frozen      string
-	plans       map[string]bool
+	mu     sync.Mutex
+	frozen string
+	// unplanned are executions found lost and not yet named in a plan.
+	unplanned   map[string]runtime.Execution
 	faults      map[string]string
 	inventories map[string]Inventory
 }
@@ -96,8 +105,11 @@ func (r *Reconciler) defaults() {
 		r.Procs = SystemProcs{}
 	}
 	r.mu.Lock()
-	if r.plans == nil {
-		r.plans, r.faults, r.inventories = map[string]bool{}, map[string]string{}, map[string]Inventory{}
+	if r.Settle == 0 {
+		r.Settle = 500 * time.Millisecond
+	}
+	if r.unplanned == nil {
+		r.unplanned, r.faults, r.inventories = map[string]runtime.Execution{}, map[string]string{}, map[string]Inventory{}
 	}
 	r.mu.Unlock()
 }
@@ -224,10 +236,10 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	lost := map[string][]runtime.Execution{}
 	routes := map[string][2]string{}
+	lostIn := map[string]bool{}
 	for i, e := range execs {
-		if !running(e) || !registered(e) || e.EndpointID != "" && e.EndpointID != c.Core().ID {
+		if !r.ours(c, e) {
 			continue
 		}
 		routes[routeKey(e.Repo, e.Route)] = [2]string{e.Repo, e.Route}
@@ -236,7 +248,8 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 			return err
 		}
 		if gone {
-			lost[routeKey(e.Repo, e.Route)] = append(lost[routeKey(e.Repo, e.Route)], next)
+			r.lose(next)
+			lostIn[routeKey(e.Repo, e.Route)] = true
 		}
 		if next.Observation.Process == runtime.ProcessLive && r.appOf(next) != nil && next.App != nil {
 			next = r.visibility(ctx, c, r.appOf(next), next)
@@ -250,8 +263,53 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 		}
 		execs[i] = next // a conversation recorded now is taken for the rest
 	}
-	r.recoveryPlans(lost)
+	if len(lostIn) > 0 {
+		r.settle(ctx, c, execs, lostIn)
+	}
+	r.recoveryPlans()
 	return r.inventory(ctx, c, routes)
+}
+
+// ours reports a running, registered execution of this core.
+func (r *Reconciler) ours(c *hc.Client, e runtime.Execution) bool {
+	return running(e) && registered(e) && (e.EndpointID == "" || e.EndpointID == c.Core().ID)
+}
+
+// lose keeps a newly lost execution until a plan names it.
+func (r *Reconciler) lose(e runtime.Execution) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.unplanned[e.ID] = e
+}
+
+// settle waits Settle after a loss and checks the live executions of the
+// routes with a loss again, so the executions one incident ends are named in
+// one plan. An error here leaves the rest to the next pass.
+func (r *Reconciler) settle(ctx context.Context, c *hc.Client, execs []runtime.Execution, routes map[string]bool) {
+	if r.Settle < 0 {
+		return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(r.Settle):
+	}
+	for i, e := range execs {
+		if !routes[routeKey(e.Repo, e.Route)] || !r.ours(c, e) || e.Observation.Process != runtime.ProcessLive {
+			continue
+		}
+		next, gone, err := r.execution(ctx, c, e)
+		if err != nil {
+			return
+		}
+		if _, err := r.Records.Put(ctx, next); err != nil {
+			return
+		}
+		execs[i] = next
+		if gone {
+			r.lose(next)
+		}
+	}
 }
 
 // execution checks one execution's identity: the address must run the
@@ -297,17 +355,20 @@ func (r *Reconciler) execution(ctx context.Context, c *hc.Client, e runtime.Exec
 	return e, false, nil
 }
 
-// recoveryPlans offers one plan per route with new losses, naming every lost
-// execution of the route together.
-func (r *Reconciler) recoveryPlans(lost map[string][]runtime.Execution) {
-	for key, list := range lost {
-		r.mu.Lock()
-		offered := r.plans[key]
-		r.plans[key] = true
-		r.mu.Unlock()
-		if offered {
-			continue
-		}
+// recoveryPlans offers one plan per route with losses no plan has named yet,
+// naming every such execution of the route together. An execution is named
+// in one plan only; one lost later gets a plan of its own.
+func (r *Reconciler) recoveryPlans() {
+	r.mu.Lock()
+	byRoute := map[string][]runtime.Execution{}
+	for _, e := range r.unplanned {
+		byRoute[routeKey(e.Repo, e.Route)] = append(byRoute[routeKey(e.Repo, e.Route)], e)
+	}
+	clear(r.unplanned)
+	r.mu.Unlock()
+	for _, key := range slices.Sorted(maps.Keys(byRoute)) {
+		list := byRoute[key]
+		slices.SortFunc(list, func(a, b runtime.Execution) int { return strings.Compare(a.ID, b.ID) })
 		var ids []string
 		for _, e := range list {
 			ids = append(ids, e.ID)
