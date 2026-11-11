@@ -228,17 +228,12 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 // writePersonSteps names, before the route starts, the steps of an agent's run
 // that will need a person (spec section 10, "Attended and unattended"). Each
 // raises needs_attention with its reason on the event stream when it comes
-// due; the route's other agents go on. compaction_due is named as a
-// possibility for a harness that compacts by itself: it comes due only where
-// the user's configuration turns that off.
+// due; the route's other agents go on. They are the adapter's named steps,
+// the ones runtime doctor reports for the harness.
 func writePersonSteps(text *strings.Builder, a core.Adapter) {
 	fmt.Fprintf(text, "needs a person (%s, %s):\n", a.Kind, a.Facts.Level)
-	for _, s := range a.PersonSteps(true) {
-		when := s.When
-		if s.Reason == core.AttentionCompactionDue && a.Facts.Compaction.BySelf {
-			when = "only if the harness's automatic compaction is turned off, " + when
-		}
-		fmt.Fprintf(text, "  %s: %s: %s\n", s.Reason, when, s.What)
+	for _, s := range a.NamedPersonSteps() {
+		fmt.Fprintf(text, "  %s: %s: %s\n", s.Reason, s.When, s.What)
 	}
 }
 

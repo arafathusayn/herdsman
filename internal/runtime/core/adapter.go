@@ -278,6 +278,39 @@ func (a Adapter) PersonSteps(autoCompactOff bool) []PersonStep {
 	return out
 }
 
+// NamedPersonSteps are the person steps up names before a route starts and
+// runtime doctor reports, in one wording: compaction_due is named for a
+// harness that compacts by itself too, as due only where the user's
+// configuration turns that off.
+func (a Adapter) NamedPersonSteps() []PersonStep {
+	steps := a.PersonSteps(true)
+	for i, s := range steps {
+		if s.Reason == AttentionCompactionDue && a.Facts.Compaction.BySelf {
+			steps[i].When = "only if the harness's automatic compaction is turned off, " + s.When
+		}
+	}
+	return steps
+}
+
+// PersonSummary is the one line runtime doctor says of this harness on core:
+// its level, how it is woken, and the reasons of the steps that need a
+// person, the same ones up names before a route starts.
+func (a Adapter) PersonSummary() string {
+	var reasons []string
+	for _, s := range a.NamedPersonSteps() {
+		reasons = append(reasons, s.Reason+" ("+s.When+")")
+	}
+	wake := "a person types `" + notice.AttendedLine + "` in its pane for each notice"
+	if a.Facts.Wake == WakeBackgroundWait {
+		wake = "it holds a background `herdsman notice wait` and wakes when it returns"
+	}
+	level := a.Facts.Level
+	if level == LevelAttended {
+		level = "attended: its steps need a person"
+	}
+	return fmt.Sprintf("%s runs %s on herdr-core; %s; needs a person for %s", a.Kind, level, wake, strings.Join(reasons, ", "))
+}
+
 // Unattended reports an adapter qualified for unattended use on core 0.1.20:
 // it is woken with no terminal input and resumes an interrupted turn with no
 // person. Codex is attended while its queued wake stays the owner's open

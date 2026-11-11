@@ -12,7 +12,6 @@ import (
 	"github.com/arafathusayn/herdsman/internal/hc"
 	"github.com/arafathusayn/herdsman/internal/herdrapp"
 	"github.com/arafathusayn/herdsman/internal/launch"
-	"github.com/arafathusayn/herdsman/internal/notice"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
 )
@@ -194,17 +193,26 @@ func inventoryText(inv core.Inventory) string {
 }
 
 // doctorNotices says how each qualified harness is woken on core before a
-// route starts: Claude Code through its own background wait, Codex by a
-// person (Codex's queued wake is an open owner decision, so every notice
+// route starts and which of its steps need a person, from the adapter, in
+// the words up uses: Claude Code through its own background wait, Codex by
+// a person (Codex's queued wake is an open owner decision, so every notice
 // for a Codex execution waits for a typed line). It also names the worker
 // socket and the wait budget in use.
 func (c *coreRuntime) doctorNotices(ctx context.Context, repo, name string, check func(name, state, detail string)) {
 	if svc := c.d.noticeSvc(); svc != nil {
 		check("notice-channel", "ok", fmt.Sprintf("agents reach notices at %s; %d of %d waits held", NoticeSocketPath(c.d.cfg.PrivateHome), svc.Waits(), svc.MaxWaits()))
 	}
-	check("harness-claude", "ok", "Claude Code steps run unattended: each holds a background `herdsman notice wait` and wakes when it returns")
-	check("harness-codex", "warn", fmt.Sprintf("Codex steps need a person on herdr-core: each notice for a Codex execution raises needs_attention (%s) until a person types %q in its pane; a pause never interrupts Codex",
-		notice.AttentionNoticeWaiting, notice.AttendedLine))
+	for _, kind := range core.Kinds() {
+		a, err := core.AdapterFor(kind)
+		if err != nil {
+			continue
+		}
+		state := "ok"
+		if !a.Unattended() {
+			state = "warn"
+		}
+		check("harness-"+kind, state, a.PersonSummary())
+	}
 	if repo == "" || name == "" {
 		return
 	}
