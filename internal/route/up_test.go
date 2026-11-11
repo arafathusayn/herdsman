@@ -47,6 +47,8 @@ type rig struct {
 	policy         string
 	// keychain replaces the system keychain when set.
 	keychain secrets.Keychain
+	// channels is the daemon's registry of route channels, when set.
+	channels route.ChannelRegistry
 }
 
 func newRig(t *testing.T) *rig {
@@ -94,7 +96,7 @@ func (r *rig) engine() (*ops.Engine, func()) {
 		if r.poll != nil {
 			r.poll()
 		}
-	}, AgentTimeout: 5 * time.Second, Keychain: r.keychain, Recovery: r.recovery, Down: r.down, Teardown: r.teardown})
+	}, AgentTimeout: 5 * time.Second, Keychain: r.keychain, Recovery: r.recovery, Down: r.down, Teardown: r.teardown, Channels: r.channels})
 }
 
 // engineDeps is an engine over the rig's journal with deps.

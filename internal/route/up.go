@@ -637,6 +637,10 @@ type Deps struct {
 	// CoreChannel is the daemon's pair channel for routes on herdr-core
 	// (nil: a core start with an adjutant fails by name).
 	CoreChannel CoreChannel
+	// Channels is the daemon's registry of route channels, which a delete
+	// tells to forget the route once its inbox is gone (nil: nothing is
+	// registered, and nothing is forgotten).
+	Channels ChannelRegistry
 
 	// rt is the provider of the step being applied or probed.
 	rt runtime.Provider

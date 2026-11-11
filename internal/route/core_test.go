@@ -60,7 +60,7 @@ func (r *coreRig) engine() (*ops.Engine, func()) {
 	if r.channel == nil {
 		r.channel = &memChannel{parties: map[string]string{}, held: map[string]bool{}}
 	}
-	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg, Services: r.services, CoreChannel: r.channel, Recovery: r.recovery, Down: r.down})
+	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg, Services: r.services, CoreChannel: r.channel, Recovery: r.recovery, Down: r.down, Channels: r.channels})
 }
 
 // memChannel is the daemon's channel of a core route as a map: who is
@@ -74,11 +74,12 @@ type memChannel struct {
 	handshake int
 }
 
-func (m *memChannel) Open(context.Context, route.ChannelOpen) error {
+func (m *memChannel) Open(_ context.Context, q route.ChannelOpen) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.opened = true
-	return nil
+	// The daemon's channel makes the route's inbox, as Open does there.
+	return os.MkdirAll(q.Inbox, 0o700)
 }
 
 func (m *memChannel) Enroll(_ context.Context, _, party, _ string, e runtime.Execution) error {
@@ -441,12 +442,17 @@ func TestCoreDeleteStopsThroughTheProviderThenArchives(t *testing.T) {
 	}
 	r.recovery = &pipeline{repo: r.repo}
 	r.down = func(context.Context, string, string) error { r.downs++; return nil }
+	reg := &memRegistry{routes: map[string]string{}}
+	r.channels = reg
 	r.w.OpenApp()
 	e, closeDB := r.engine()
 	defer closeDB()
 	q := r.request()
 	q.NoAdjutant = true
 	p := r.plan(q)
+	if p.Inbox != "" {
+		reg.routes["harbor"] = p.Inbox
+	}
 	op := drive(t, e, p.Spec)
 	r.attestShell(p.Key)
 	for op.State != ops.OpDone {
@@ -501,6 +507,10 @@ func TestCoreDeleteStopsThroughTheProviderThenArchives(t *testing.T) {
 	}
 	if got := r.services.names(); len(got) != 0 {
 		t.Errorf("services after the delete: %v", got)
+	}
+	// The route's daemon channel goes with its inbox.
+	if p.Inbox != "" && (reg.Registered("harbor", p.Inbox) || !strings.Contains(plan.Text, "forget the route's daemon channel")) {
+		t.Errorf("the route's channel outlived the delete: %s", plan.Text)
 	}
 	for _, m := range []string{"terminal.send", "terminal.keys", "space.close", "tab.close", "workspace.close"} {
 		if n := r.w.Core.Calls(m); n != 0 {

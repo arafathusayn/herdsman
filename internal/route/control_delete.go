@@ -332,6 +332,36 @@ func probeRemove(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) (o
 	return ops.Unknown, "some targets remain", nil
 }
 
+// ChannelRegistry is the daemon's registry of route channels (routes.json):
+// a route whose inbox the daemon owns, on either backend, is registered there
+// under its name and inbox.
+type ChannelRegistry interface {
+	// Registered reports whether the route is registered at that inbox.
+	Registered(route, inbox string) bool
+	// Forget unregisters the route at that inbox; a route registered at
+	// another inbox, or not at all, is left alone.
+	Forget(ctx context.Context, route, inbox string) error
+}
+
+// applyForget unregisters a deleted route's channel, once its inbox is gone:
+// a route whose files are removed leaves no entry behind in the daemon.
+func applyForget(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) error {
+	if deps.Channels == nil || d.Inbox == "" {
+		return nil
+	}
+	if exists(d.Inbox) || exists(stagedPath(d.Inbox)) {
+		return fmt.Errorf("the inbox %s is still there; its channel is kept", d.Inbox)
+	}
+	return deps.Channels.Forget(ctx, d.Route, d.Inbox)
+}
+
+func probeForget(_ context.Context, deps Deps, _ *herdr.Client, d stepData) (ops.Verdict, string, error) {
+	if deps.Channels == nil || d.Inbox == "" || !deps.Channels.Registered(d.Route, d.Inbox) {
+		return ops.Matches, "", nil
+	}
+	return ops.Absent, "", nil
+}
+
 // SnapshotOf returns the snapshot folder a delete operation writes.
 func SnapshotOf(op *ops.Operation) string {
 	for _, st := range op.Steps {

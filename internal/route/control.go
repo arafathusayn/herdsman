@@ -67,6 +67,7 @@ const (
 	effectDown      = "route.down"
 	effectTeardown  = "route.teardown"
 	effectRemove    = "route.remove"
+	effectForget    = "route.forget-channel"
 )
 
 // controlData is what the steps of a verb carry beyond a start's step data.
@@ -171,6 +172,11 @@ func PlanControl(ctx context.Context, q ControlRequest) (*ControlPlan, error) {
 		q.Grace = DefaultGrace
 	}
 	base := stepData{Key: first.Key, Route: first.Route, Repo: first.Repo, Folder: first.Folder, Inbox: first.Inbox, Workspace: first.Workspace, Socket: first.Socket, Executable: first.Executable}
+	if base.Inbox == "" {
+		// A core start journals its folder step before the inbox is set,
+		// so the route's inbox is the one its channel step names.
+		base.Inbox = journaledInbox(q.Start)
+	}
 	b := &controlBuilder{q: q, base: base}
 	if BackendOf(q.Start) == runtime.BackendCore {
 		b.base.Backend = runtime.BackendCore
@@ -231,6 +237,16 @@ func PlanControl(ctx context.Context, q ControlRequest) (*ControlPlan, error) {
 	}
 	got.Snapshot = plan.Snapshot
 	return got, nil
+}
+
+// journaledInbox is the inbox a start's steps name, or empty with none.
+func journaledInbox(start *ops.Operation) string {
+	for _, st := range start.Steps {
+		if d, err := decode(st); err == nil && d.Inbox != "" {
+			return d.Inbox
+		}
+	}
+	return ""
 }
 
 // plan is the verb's journal entry from the steps built.
@@ -389,6 +405,9 @@ func (b *controlBuilder) remove(dest string) {
 		name = "verify the snapshot again and remove the route, leaving core's spaces and tabs"
 	}
 	b.add(name, effectRemove, "remove", data())
+	if b.base.Inbox != "" {
+		b.add("forget the route's daemon channel", effectForget, "forget-channel", data())
+	}
 }
 
 func controlEffects(deps Deps) map[string]ops.Effect {
@@ -406,6 +425,7 @@ func controlEffects(deps Deps) map[string]ops.Effect {
 		effectDown:      effect{deps, applyDown, probeUnknown},
 		effectTeardown:  effect{deps, applyTeardown, probeUnknown},
 		effectRemove:    effect{deps, applyRemove, probeRemove},
+		effectForget:    effect{deps, applyForget, probeForget},
 	}
 }
 
