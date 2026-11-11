@@ -122,6 +122,9 @@ func TestRealCoreLaunchRegistersAndStops(t *testing.T) {
 	execID := runtime.NewExecutionID()
 	intent := "up:/repo:gate:gate-orchestrator:" + execID
 	work := filepath.Join(dir, "work")
+	// macOS shows no other process's environment for a platform binary, so
+	// the harness writes its own before it becomes sleep.
+	envFile := filepath.Join(dir, "harness.env")
 	if err := os.MkdirAll(work, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +133,7 @@ func TestRealCoreLaunchRegistersAndStops(t *testing.T) {
 		Repo: "/repo", RouteName: "gate", AgentName: "gate-orchestrator", Role: "orchestrator", Kind: "claude",
 		Placement: herdrapp.PlacementIDs{Space: core.OpaqueID("gate", "space"), Tab: core.OpaqueID("tab", execID)}, Name: core.CoreName("gate", "orchestrator", execID),
 		Wrapper: []string{self, "launch", "--socket", reg.Path, "--intent", intent}, Cwd: work,
-		Descriptor: launch.CoreDescriptor{Intent: intent, Execution: execID, Kind: "claude", Harness: []string{"/bin/sleep", "600"}, Cwd: work,
+		Descriptor: launch.CoreDescriptor{Intent: intent, Execution: execID, Kind: "claude", Harness: []string{"/bin/sh", "-c", "/usr/bin/env > " + envFile + "; exec /bin/sleep 600"}, Cwd: work,
 			Login: map[string]string{"PATH": "/usr/bin:/bin", "HOME": dir}, LoginFrom: "daemon", Env: map[string]string{"GATE_SECRET_FREE": "1"}},
 	}
 	rec, err := p.SpawnStep(ctx, l)
@@ -154,7 +157,8 @@ func TestRealCoreLaunchRegistersAndStops(t *testing.T) {
 	if err != nil || term.PID == nil || int(*term.PID) != rec.Evidence.PID {
 		t.Fatalf("the registered pid %d is not the terminal's program %+v (%v)", rec.Evidence.PID, term.PID, err)
 	}
-	// The wrapper became the harness: the same pid now runs sleep.
+	// The wrapper became the harness: the same pid now runs sleep, after
+	// the harness's shell wrote its environment.
 	var argv string
 	for range 100 {
 		out, _ := exec.Command("ps", "-o", "command=", "-p", fmt.Sprint(rec.Evidence.PID)).Output()
@@ -168,9 +172,9 @@ func TestRealCoreLaunchRegistersAndStops(t *testing.T) {
 	}
 	// Environment: the harness has the descriptor's values and nothing that
 	// names another agent, though core was asked for no environment at all.
-	if out, err := exec.Command("ps", "-E", "-o", "command=", "-p", fmt.Sprint(rec.Evidence.PID)).Output(); err != nil {
-		t.Errorf("ps -E: %v", err)
-	} else if env := string(out); !strings.Contains(env, "GATE_SECRET_FREE=1") || strings.Contains(env, "HERDR_") {
+	if out, err := os.ReadFile(envFile); err != nil {
+		t.Errorf("the harness wrote no environment: %v", err)
+	} else if env := string(out); !strings.Contains(env, "GATE_SECRET_FREE=1") || strings.Contains(env, "HERDR_") || !strings.Contains(env, "PATH=/usr/bin:/bin") {
 		t.Errorf("the harness environment is wrong: %s", env)
 	}
 	list, err := c.List(ctx, nil, false)

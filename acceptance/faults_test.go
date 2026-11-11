@@ -30,7 +30,7 @@ func replace[T any](t *testing.T, target *T, value T) {
 }
 
 func TestProbesPassWhenTheirToolsAnswerOnEachPlatform(t *testing.T) {
-	standIns(t, "ps", "lsof", "docker", "security", "secret-tool", "mkfs.btrfs", "losetup", "sudo")
+	standIns(t, "ps", "lsof", "docker", "security", "secret-tool", "mkfs.btrfs", "losetup", "sudo", "hc", "herdr-app")
 	for _, goos := range platforms {
 		for _, uid := range []int{0, 1000} {
 			replace(t, &geteuid, func() int { return uid })
@@ -46,7 +46,7 @@ func TestProbesPassWhenTheirToolsAnswerOnEachPlatform(t *testing.T) {
 func TestProbesFailOnEachPlatformWithoutTheirTools(t *testing.T) {
 	standIns(t)
 	for _, goos := range platforms {
-		for _, name := range []string{"ps", "lsof", "docker", "btrfs-loopback", "keychain"} {
+		for _, name := range []string{"ps", "lsof", "docker", "btrfs-loopback", "keychain", "herdr-core", "herdr-app"} {
 			if err := probesFor(goos)[name](); err == nil {
 				t.Errorf("%s on %s passed with no tools", name, goos)
 			}
