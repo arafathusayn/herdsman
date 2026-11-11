@@ -7,6 +7,7 @@ Most of herdsman follows the compatibility promise in [ADR 0003](adr/0003-public
 | Plugin protocol | Not released yet | To be set when it ships |
 | `herdsman eval` and its reports | `--experimental-eval` on every use | `eval/<version>`, in the `experimental` field of the JSON report |
 | `[automations]` in the configuration, `herdsman daemon automations` | `experimental = true` in the section, and a person approves each action | `automations/0.1.0`, on each line of the action log |
+| The herdr-core backend: `backend = "herdr-core"` in `[runtime]`, `herdsman up --backend herdr-core` | `experimental = true` in `[runtime.core]` beside the backend; a new route on core without it is refused with `backend_experimental` | `runtime.core/0.1.0`, in the line each run prints on stderr and in `herdsman runtime doctor` |
 
 ## What experimental means
 
@@ -15,6 +16,8 @@ Most of herdsman follows the compatibility promise in [ADR 0003](adr/0003-public
 - **Anything it writes says which version wrote it,** so a later release can tell old output from new.
 - **It can change incompatibly between minor releases.** No old name is kept as an alias. The release notes describe each change, and stored data gets a migration or written manual steps.
 - **Nothing stable relies on it.** You can ignore this page and lose nothing.
+
+For the herdr-core backend the marker gates new routes only: a route already started on core keeps running and resuming there if the marker is later removed. Going back to the Herdr TUI is `backend = "herdr-tui"` in `[runtime]`.
 
 ## When a surface becomes stable
 

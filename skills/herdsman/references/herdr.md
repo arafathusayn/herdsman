@@ -1,5 +1,11 @@
 # Herdr: command surface, verified forms, gotchas
 
+## Scope: the Herdr TUI only
+
+This skill drives agents in Herdr TUI panes with the `herdr` command. It has no path for the herdr-core backend, which `herdsman up` selects with `backend = "herdr-core"` and `experimental = true` in `[runtime.core]`. On core the agents run in core terminals that herdr-app shows, the daemon reaches them only through notices they wait for, and no automation may type into them. Do not run a skill route on core, and do not point `herdr agent`, `herdr pane` or a prompt at a core route's agents: none of them is a Herdr pane, and a typed line there is a person's action only. To look at a core route, use `herdsman status --route <route>`, `herdsman runtime ls`, `herdsman runtime show <execution>` (brings its terminal forward in the app) and `herdsman runtime doctor`. A line that a person decides to type goes through `herdsman runtime submit`, which asks for the person's confirmation.
+
+## Command surface
+
 The installed binary is the authority: `herdr --help`, then a group without a subcommand (`herdr agent`, `herdr pane`, `herdr tab`). Do not run bare `herdr` (it attaches the TUI). Do not probe mutating commands by omitting arguments (`herdr workspace create` runs with defaults). When the `--help` of a leaf command prints the global help, read the command surface from `herdr api schema --json` or `herdr completion zsh`, because the leaf help is then wrong.
 
 ## Verified forms
