@@ -75,10 +75,26 @@ func newHarness(t testing.TB) *harness {
 	t.Helper()
 	h := newAccountHarness(t)
 	// The harness drives a fake Herdr TUI server, so its account selects the
-	// TUI as an upgraded installation does. A new account selects herdr-core,
-	// which newCoreHarness drives.
+	// TUI as an upgraded installation does. herdr-core is opted into by the
+	// config file (optInCore), which newCoreHarness writes.
 	h.setDefaultBackend("herdr-tui")
 	return h
+}
+
+// coreOptIn is the config file that selects herdr-core while it ships as an
+// experiment.
+const coreOptIn = "[runtime]\nbackend = \"herdr-core\"\n\n[runtime.core]\nexperimental = true\n"
+
+// optInCore writes coreOptIn where the routes of these tests find it: the
+// parent folder of their repository, the private home.
+func optInCore(t testing.TB, h *harness) {
+	t.Helper()
+	if err := os.MkdirAll(h.ph, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.ph, "herdsman.config.toml"), []byte(coreOptIn), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // newAccountHarness is a harness whose account keeps the installation default

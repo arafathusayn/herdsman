@@ -18,9 +18,10 @@ import (
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
-// newCoreHarness is a new account, so herdr-core is its default, whose core is
-// a fake core with a fake app and process table; every launch terminal runs
-// the wrapper in process.
+// newCoreHarness is a new account whose config file opts into herdr-core, the
+// experiment, and whose core is a fake core with a fake app and process table;
+// every launch terminal runs the wrapper in process.
+
 func newCoreHarness(t *testing.T) (*harness, *coretest.World) {
 	t.Helper()
 	w := coretest.New(t)
@@ -32,8 +33,10 @@ func newCoreHarness(t *testing.T) (*harness, *coretest.World) {
 			Environ:  []string{"PATH=/usr/bin:/bin", "HOME=" + filepath.Join(dir, "h"), "HERDR_PANE_ID=p9", "LANG=C"},
 			Timeouts: core.Timeouts{Register: 5 * time.Second, Ready: 5 * time.Second, Visibility: 300 * time.Millisecond, Poll: 10 * time.Millisecond}, NoReconcile: true}
 	})
+	optInCore(t, h)
 	// The inbox's setup proof needs a sandbox policy file to prove.
 	if err := os.MkdirAll(filepath.Join(h.home, ".claude"), 0o700); err != nil {
+
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(h.home, ".claude", "settings.json"), []byte("{}\n"), 0o600); err != nil {

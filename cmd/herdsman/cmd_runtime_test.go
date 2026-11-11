@@ -18,6 +18,7 @@ type fakeRuntime struct {
 	doctor          *daemonv1.RuntimeServiceDoctorRequest
 	list            *daemonv1.RuntimeServiceListExecutionsRequest
 	submit          *daemonv1.RuntimeServiceSubmitRequest
+	show            *daemonv1.RuntimeServiceShowRequest
 }
 
 func (f *fakeRuntime) ListExecutions(_ context.Context, req *daemonv1.RuntimeServiceListExecutionsRequest) (*daemonv1.RuntimeServiceListExecutionsResponse, error) {
@@ -62,6 +63,31 @@ func (f *fakeRuntime) SetDefault(_ context.Context, req *daemonv1.RuntimeService
 	prev := f.backend
 	f.backend, f.source = req.GetBackend(), "set"
 	return &daemonv1.RuntimeServiceSetDefaultResponse{Backend: f.backend, Previous: prev}, nil
+}
+
+func (f *fakeRuntime) Show(_ context.Context, req *daemonv1.RuntimeServiceShowRequest) (*daemonv1.RuntimeServiceShowResponse, error) {
+	f.show = req
+	if req.GetExecutionId() != "11111111-1111-4111-8111-111111111111" {
+		return nil, rpc.Errorf(rpc.NotFound, "no execution %s", req.GetExecutionId())
+	}
+	return &daemonv1.RuntimeServiceShowResponse{Backend: "herdr-core"}, nil
+}
+
+// runtime show reaches the daemon's Show with the id it is given and creates
+// nothing itself.
+func TestRuntimeShowFocusesThroughTheDaemon(t *testing.T) {
+	f := &fakeRuntime{backend: "herdr-core", source: "set"}
+	withFakeRuntime(t, f)
+	code, stdout, _ := runRuntimeArgs("show", "11111111-1111-4111-8111-111111111111")
+	if code != 0 || !strings.Contains(stdout, "shown on herdr-core") || f.show.GetExecutionId() != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("%d %q %+v", code, stdout, f.show)
+	}
+	if code, _, stderr := runRuntimeArgs("show", "nope"); code != 1 || !strings.Contains(stderr, "no execution") {
+		t.Fatalf("%d %q", code, stderr)
+	}
+	if code, _, _ := runRuntimeArgs("show"); code != 2 {
+		t.Fatalf("no id: %d", code)
+	}
 }
 
 func withFakeRuntime(t *testing.T, f *fakeRuntime) {

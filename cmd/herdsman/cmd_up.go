@@ -192,10 +192,14 @@ func runUp(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	backend, err := upBackend(ctx, sdk, repo, f)
+	backend, experiment, err := upBackend(ctx, sdk, repo, f)
 	if err != nil {
 		fmt.Fprintln(stderr, "herdsman up:", err)
 		return 1
+	}
+	if experiment != "" {
+		// Said once per run, as every experimental surface is.
+		fmt.Fprintln(stderr, "herdsman:", experiment)
 	}
 	onCore := backend == backendCore
 	socket, kinds := "", []string(nil)
@@ -248,21 +252,22 @@ func runUp(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 const backendCore = "herdr-core"
 
 // upBackend asks the daemon which backend this start runs on: the flag, the
-// config file, the installation default, or the backend the route has.
-func upBackend(ctx context.Context, sdk *client.Client, repo string, f upFlags) (string, error) {
+// config file, the installation default, or the backend the route has; and
+// the line to say when that backend ships as an experiment.
+func upBackend(ctx context.Context, sdk *client.Client, repo string, f upFlags) (backend, experiment string, err error) {
 	report, err := sdk.Runtime.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{Repo: repo, ConfigPath: f.config, Backend: f.backend, Route: &corev1.RouteId{Value: f.route}})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if report.GetSelection().GetBackend() == "" {
 		for _, c := range report.GetChecks() {
 			if c.GetName() == "selection" {
-				return "", errors.New(c.GetDetail())
+				return "", "", errors.New(c.GetDetail())
 			}
 		}
-		return "", errors.New("the daemon selected no backend")
+		return "", "", errors.New("the daemon selected no backend")
 	}
-	return report.GetSelection().GetBackend(), nil
+	return report.GetSelection().GetBackend(), report.GetSelection().GetExperiment(), nil
 }
 
 // upWaitCodes are the waits for a person a start on herdr-core stops at.

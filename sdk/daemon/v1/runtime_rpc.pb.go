@@ -40,6 +40,9 @@ type RuntimeService interface {
 	// about 200 ms later with no second check. No automated path calls it, and
 	// a caller that is an agent is refused.
 	Submit(context.Context, *RuntimeServiceSubmitRequest) (*RuntimeServiceSubmitResponse, error)
+	// Show focuses an execution's existing view in the native app through the
+	// provider. It never creates a view or an execution, and it types nothing.
+	Show(context.Context, *RuntimeServiceShowRequest) (*RuntimeServiceShowResponse, error)
 }
 
 // NewRuntimeServiceHandler serves impl over HTTP with the full binding. Mount it
@@ -52,6 +55,7 @@ func NewRuntimeServiceHandler(impl RuntimeService) http.Handler {
 		rpc.Unary(RuntimeServiceName, "GetDefault", impl.GetDefault),
 		rpc.Unary(RuntimeServiceName, "SetDefault", impl.SetDefault),
 		rpc.Unary(RuntimeServiceName, "Submit", impl.Submit),
+		rpc.Unary(RuntimeServiceName, "Show", impl.Show),
 	)
 }
 
@@ -108,6 +112,14 @@ func (c *runtimeServiceClient) SetDefault(ctx context.Context, req *RuntimeServi
 func (c *runtimeServiceClient) Submit(ctx context.Context, req *RuntimeServiceSubmitRequest) (*RuntimeServiceSubmitResponse, error) {
 	res := new(RuntimeServiceSubmitResponse)
 	if err := callRuntimeService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RuntimeService/Submit", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *runtimeServiceClient) Show(ctx context.Context, req *RuntimeServiceShowRequest) (*RuntimeServiceShowResponse, error) {
+	res := new(RuntimeServiceShowResponse)
+	if err := callRuntimeService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RuntimeService/Show", req, res); err != nil {
 		return nil, err
 	}
 	return res, nil

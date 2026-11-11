@@ -18,7 +18,19 @@ import (
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
+// hasCheck reports a doctor check of that name and state whose detail holds
+// the words.
+func hasCheck(doc *daemonv1.RuntimeServiceDoctorResponse, name, state, words string) bool {
+	for _, c := range doc.GetChecks() {
+		if c.GetName() == name && c.GetState() == state && strings.Contains(c.GetDetail(), words) {
+			return true
+		}
+	}
+	return false
+}
+
 // refusalCode is the core.v1.Error code a refused call carries.
+
 func refusalCode(t *testing.T, err error) string {
 	t.Helper()
 	var e *rpc.Error
@@ -62,9 +74,12 @@ func legacyStart(t *testing.T, h *harness, repo string) *ops.Operation {
 	return op
 }
 
-// Gate "Upgrade", new side: a new account selects core and plans a core
-// start, with no fallback to the TUI; the flag picks the TUI for one run.
-func TestNewInstallationSelectsCoreWithoutFallback(t *testing.T) {
+// Gate "Upgrade", new side, under the experiment fallback of spec section 5: a
+// new account starts on the Herdr TUI, core is refused without the marker
+// (naming it), and with experimental = true in [runtime.core] the account
+// plans a core start, with no fallback to the TUI; the flag picks the TUI for
+// one run.
+func TestNewInstallationSelectsCoreOnlyAsTheExperiment(t *testing.T) {
 	h := newAccountHarness(t)
 	c := routeClient(t, h)
 	ctx := context.Background()
@@ -72,16 +87,40 @@ func TestNewInstallationSelectsCoreWithoutFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if def.GetBackend() != runtime.BackendCore || def.GetSource() != "new-store" {
+	if def.GetBackend() != runtime.BackendTUI || def.GetSource() != "new-store" {
 		t.Fatalf("%+v", def)
 	}
 	repo := filepath.Join(h.ph, "proj")
 	coreReq := upRequest(repo)
 	coreReq.OrchestratorCommand = "codex --no-daemon"
+	coreReq.Backend = runtime.BackendCore
+	_, err = c.Route.Up(ctx, coreReq)
+	if codeOf(err) != rpc.FailedPrecondition || refusalCode(t, err) != runtime.CodeBackendExperimental || !strings.Contains(err.Error(), "experimental = true in [runtime.core]") {
+		t.Fatalf("core without the marker: %v", err)
+	}
+	doc, err := c.Runtime.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{Repo: repo, Backend: runtime.BackendCore})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.GetSelection().GetBackend() != "" || !hasCheck(doc, "selection", "fail", "experimental = true") {
+		t.Fatalf("doctor without the marker: %+v", doc)
+	}
+	// Opted in: core is planned, and the run says once that it is an
+	// experiment.
+	optInCore(t, h)
+	coreReq.Backend = ""
 	planned, err := c.Route.Up(ctx, coreReq)
 	if err != nil || planned.GetStart().GetBackend() != runtime.BackendCore || !strings.Contains(planned.GetStart().GetPlan(), "backend: herdr-core") {
 		t.Fatalf("%v %v", planned, err)
 	}
+	doc, err = c.Runtime.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.GetSelection().GetExperiment() != runtime.ExperimentNotice || !hasCheck(doc, "experiment", "warn", runtime.ExperimentLabel) {
+		t.Fatalf("the experiment is not said: %+v", doc)
+	}
+
 	// The flag selects the TUI for this run.
 	req := upRequest(repo)
 	req.Backend = runtime.BackendTUI
@@ -142,8 +181,10 @@ func TestConfigFileSelectsTheBackendAndUnknownRuntimeKeyStops(t *testing.T) {
 // before backends existed stays a TUI route whatever the installation default
 // says, and a flag that names another backend is refused.
 func TestExistingTUIRouteKeepsItsBackend(t *testing.T) {
-	h := newAccountHarness(t) // the default is herdr-core
+	h := newAccountHarness(t)
+	optInCore(t, h) // the config selects herdr-core for new routes
 	c := routeClient(t, h)
+
 	ctx := context.Background()
 	repo := filepath.Join(h.ph, "proj")
 	legacyStart(t, h, repo)
@@ -275,13 +316,31 @@ func TestSetDefaultAndDoctor(t *testing.T) {
 	if err != nil || set.GetPrevious() != runtime.BackendTUI {
 		t.Fatalf("%v %v", set, err)
 	}
+	// Core as the installation default is still the experiment: without the
+	// marker the selection fails and names it, and a task launch is refused
+	// the same way.
 	doc, err := c.Runtime.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.GetSelection().GetBackend() != "" || !hasCheck(doc, "selection", "fail", "experimental = true in [runtime.core]") {
+		t.Fatalf("%+v", doc)
+	}
+	if err := h.d.taskBackend(ctx, ""); runtime.CodeOf(err) != runtime.CodeBackendExperimental {
+		t.Fatalf("%v", err)
+	}
+	marker := filepath.Join(h.dir, "core.toml")
+	if err := os.WriteFile(marker, []byte("[runtime.core]\nexperimental = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err = c.Runtime.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{ConfigPath: marker})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if doc.GetSelection().GetBackend() != runtime.BackendCore || doc.GetSelection().GetSource() != "installation" || doc.GetInstallation().GetSource() != "set" {
 		t.Fatalf("%+v", doc)
 	}
+
 	states := map[string]string{}
 	for _, check := range doc.GetChecks() {
 		states[check.GetName()] = check.GetState()
@@ -301,10 +360,6 @@ func TestSetDefaultAndDoctor(t *testing.T) {
 				t.Fatalf("%+v", b)
 			}
 		}
-	}
-	// A task that launches an agent resolves as up does.
-	if err := h.d.taskBackend(ctx, ""); runtime.CodeOf(err) != runtime.CodeBackendUnavailable {
-		t.Fatalf("%v", err)
 	}
 	h.setDefaultBackend(runtime.BackendTUI)
 	if err := h.d.taskBackend(ctx, ""); err != nil {

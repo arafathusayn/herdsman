@@ -40,7 +40,26 @@ const (
 	CodeBackendMigrationRequired = "backend_migration_required"
 	CodeBackendUnavailable       = "backend_unavailable"
 	CodeUnknownBackend           = "unknown_backend"
+	// CodeBackendExperimental refuses herdr-core for a new route while it
+	// ships as an experiment and the config in use does not opt in.
+	CodeBackendExperimental = "backend_experimental"
 )
+
+// CoreExperimental is true while herdr-core ships as an experiment (spec
+// section 5, "If a gate is still open at the release candidate"): gates that
+// need upstream changes (a guarded submit, a send id, the time of the last
+// human input) are open, so a new route selects core only with
+// experimental = true in [runtime.core]. Core graduates in a minor release by
+// setting this to false; the marker is then accepted and does nothing.
+const CoreExperimental = true
+
+// ExperimentLabel is the version label the experiment is announced with, as
+// every experimental surface carries one.
+const ExperimentLabel = "runtime.core/0.1.0"
+
+// ExperimentNotice is the one line a run on core says while it is an
+// experiment.
+const ExperimentNotice = "herdr-core is experimental (" + ExperimentLabel + ") and can change between minor releases; backend = \"herdr-tui\" in [runtime] goes back to the Herdr TUI"
 
 // Error is a refusal with a stable code.
 type Error struct {
@@ -91,6 +110,9 @@ type Selection struct {
 	Source  Source
 	// ConfigPath is the file that set it, when Source is SourceConfig.
 	ConfigPath string
+	// Experimental is true when the selection runs herdr-core as the
+	// experiment; the run says so once (ExperimentNotice).
+	Experimental bool
 }
 
 // Inputs is everything backend selection reads. Every caller that starts
@@ -107,6 +129,9 @@ type Inputs struct {
 	// Persisted is the backend an existing route started on: LegacyBackend
 	// of what its records say. Empty for a new route.
 	Persisted string
+	// Experimental is experimental of [runtime.core] in the config in use:
+	// the opt-in a new route on herdr-core needs while CoreExperimental.
+	Experimental bool
 }
 
 // Resolve picks the backend (herdr-core backend spec, section 5): an existing
@@ -129,17 +154,36 @@ func Resolve(in Inputs) (Selection, error) {
 				"the route runs on %s and keeps it; --backend %s would move it. Stop the route and start it again under another name to run it on %s",
 				in.Persisted, in.Flag, in.Flag)}
 		}
-		return Selection{Backend: in.Persisted, Source: SourceRoute}, nil
+		// A route already on core keeps running on it with or without the
+		// marker: refusing it would strand its executions.
+		return Selection{Backend: in.Persisted, Source: SourceRoute, Experimental: CoreExperimental && in.Persisted == BackendCore}, nil
 	}
+	var sel Selection
 	switch {
 	case in.Flag != "":
-		return Selection{Backend: in.Flag, Source: SourceFlag}, nil
+		sel = Selection{Backend: in.Flag, Source: SourceFlag}
 	case in.Config != "":
-		return Selection{Backend: in.Config, Source: SourceConfig, ConfigPath: in.ConfigPath}, nil
+		sel = Selection{Backend: in.Config, Source: SourceConfig, ConfigPath: in.ConfigPath}
 	case in.Installation != "":
-		return Selection{Backend: in.Installation, Source: SourceInstallation}, nil
+		sel = Selection{Backend: in.Installation, Source: SourceInstallation}
+	default:
+		return Selection{}, &Error{Code: CodeUnknownBackend, Msg: "no backend is configured and the account has no installation default"}
 	}
-	return Selection{}, &Error{Code: CodeUnknownBackend, Msg: "no backend is configured and the account has no installation default"}
+	if sel.Backend == BackendCore && CoreExperimental {
+		if !in.Experimental {
+			return Selection{}, ExperimentRefusal(sel.Source)
+		}
+		sel.Experimental = true
+	}
+	return sel, nil
+}
+
+// ExperimentRefusal is the refusal of herdr-core for a new route whose config
+// does not opt in to the experiment. It names the marker and the way back.
+func ExperimentRefusal(from Source) error {
+	return &Error{Code: CodeBackendExperimental, Msg: fmt.Sprintf(
+		"%s (from %s) ships as an experiment in this release; set experimental = true in [runtime.core] of the config file beside backend = %q to select it, or use backend = %q",
+		BackendCore, from, BackendCore, BackendTUI)}
 }
 
 // Unavailable is the refusal for a backend this build or machine cannot run.

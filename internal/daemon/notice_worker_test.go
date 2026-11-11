@@ -62,12 +62,14 @@ func newWorkerRig(t *testing.T, notices NoticeConfig) *workerRig {
 	if err := os.WriteFile(filepath.Join(h.home, ".claude", "settings.json"), []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	optInCore(t, h)
 	c := routeClient(t, h)
 	repo := filepath.Join(h.ph, "proj")
 	if err := os.MkdirAll(repo, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.Route.Up(context.Background(), coreUp(repo)); err != nil {
+
 		t.Fatal(err)
 	}
 	waitHalt(t, c, repo)

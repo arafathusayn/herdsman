@@ -28,6 +28,9 @@ service RuntimeService {
   // about 200 ms later with no second check. No automated path calls it, and
   // a caller that is an agent is refused.
   rpc Submit(RuntimeServiceSubmitRequest) returns (RuntimeServiceSubmitResponse);
+  // Show focuses an execution's existing view in the native app through the
+  // provider. It never creates a view or an execution, and it types nothing.
+  rpc Show(RuntimeServiceShowRequest) returns (RuntimeServiceShowResponse);
 }
 
 // ExecutionObservation is what was last observed about an execution. Each
@@ -102,6 +105,71 @@ message Execution {
   string source = 17;
   // The repository of the route.
   string repo = 18;
+  // Why the execution needs a person now, one entry per reason; empty when
+  // nothing waits on a person. Independent of the observation's readiness.
+  repeated AttentionReason attention = 19;
+  // What nobody can tell the outcome of, such as a person's typed submit whose
+  // answer was lost. Each lists the choices a person has.
+  repeated UnresolvedItem unresolved = 20;
+  // The notices of this execution by state. Absent for a backend without
+  // notices.
+  NoticeSummary notices = 21;
+  // The controls a person's surface offers for this execution, an explicit
+  // list per backend: on herdr-core "show" and "submit"; on herdr-tui the pane
+  // actions of the web ("prompt", "keys", "text", "input", "scroll", "focus",
+  // "close"). A surface offers nothing outside it.
+  repeated string actions = 22;
+}
+
+// AttentionReason is one reason an execution waits on a person.
+message AttentionReason {
+  // "notice_waiting", "interrupted", "not_waiting", "notice_held",
+  // "claim_stuck", "compaction_due", "goal_paused" or a dialog's name.
+  string reason = 1;
+  // Words for a person; never task content.
+  string detail = 2;
+  // The notice it concerns, when one does.
+  string notice_id = 3;
+  // A line a person may type in the agent's pane, when one helps.
+  string line = 4;
+  // The gate that holds a notice, for "notice_held".
+  string gate = 5;
+}
+
+// UnresolvedItem is one thing whose outcome nobody can tell.
+message UnresolvedItem {
+  // "typed_submit".
+  string kind = 1;
+  string id = 2;
+  // The item's own state, such as "unresolved" or "pending_in_core".
+  string state = 3;
+  string detail = 4;
+  // What a person can do, such as "keep_waiting", "stop_execution",
+  // "send_again".
+  repeated string choices = 5;
+  // Milliseconds since the Unix epoch.
+  int64 updated = 6;
+}
+
+// NoticeSummary counts an execution's notices by state.
+message NoticeSummary {
+  int32 issued = 1;
+  int32 claimed = 2;
+  int32 handled = 3;
+  int32 returned = 4;
+  // The notice whose claim is open, if any.
+  string open_claim = 5;
+  // The gate that holds the first issued notice, if one holds it.
+  string held_gate = 6;
+}
+
+message RuntimeServiceShowRequest {
+  string execution_id = 1;
+}
+
+message RuntimeServiceShowResponse {
+  // The backend that showed it.
+  string backend = 1;
 }
 
 message RuntimeServiceListExecutionsRequest {
@@ -142,6 +210,9 @@ message RuntimeSelection {
   string source = 2;
   // The config file that set it, when source is "config".
   string config_path = 3;
+  // The one line a run says while the selected backend ships as an
+  // experiment; empty for a stable backend.
+  string experiment = 4;
 }
 
 // BackendReport says whether one backend can run on this machine.
@@ -197,7 +268,9 @@ message RuntimeServiceSubmitRequest {
   string execution_id = 1;
   // The line; at most 4096 bytes and one line.
   string text = 2;
-  // The caller's process id, checked against the socket's peer.
+  // The caller's process id, checked against the socket's peer. Zero on a
+  // call a paired browser makes through herdsman web: the web server's own
+  // process is then the one checked as a person's terminal.
   int64 pid = 3;
   // The person read the confirmation: the Enter follows the check by about
   // 200 ms, and nothing can recall the line once core holds it.

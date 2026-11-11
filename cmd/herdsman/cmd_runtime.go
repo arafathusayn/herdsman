@@ -23,6 +23,7 @@ const runtimeHelp = `usage: herdsman runtime doctor [--route <route>] [--backend
        herdsman runtime ls [--route <route>] [--json]
        herdsman runtime default [<backend>] [--json]
        herdsman runtime submit <execution> <line> [--yes] [--again] [--json]
+       herdsman runtime show <execution> [--json]
 
 Where agents run. A backend is herdr-core or herdr-tui. A new route takes
 --backend, then the config file's [runtime] backend, then the installation
@@ -97,6 +98,48 @@ var runtimeVerbs = map[string]func([]string, io.Writer, io.Writer) int{
 	"ls":      runRuntimeLs,
 	"default": runRuntimeDefault,
 	"submit":  runRuntimeSubmit,
+	"show":    runRuntimeShow,
+}
+
+const runtimeShowHelp = `usage: herdsman runtime show <execution> [--json]
+
+Focuses an execution's existing terminal in the herdr app, through the daemon.
+It never starts an execution, never creates a view and types nothing. The
+execution is an id from herdsman runtime ls.
+
+exit codes:
+  0  shown
+  1  refused (no recorded place, identity not proven) or the daemon is not running
+  2  bad usage
+`
+
+func runRuntimeShow(args []string, stdout, stderr io.Writer) int {
+	fs := verbFlags("runtime show", stderr)
+	asJSON := fs.Bool("json", false, "print the result as JSON")
+	positional, _, err := parseVerb(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) != 1 {
+		return usageError(stderr, "runtime show takes one execution id")
+	}
+	service, closeService, err := dialRuntime()
+	if err != nil {
+		return fail(stderr, err)
+	}
+	defer closeService()
+	res, err := service.Show(context.Background(), &daemonv1.RuntimeServiceShowRequest{ExecutionId: positional[0]})
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if *asJSON {
+		if err := printProto(stdout, res); err != nil {
+			return fail(stderr, err)
+		}
+		return 0
+	}
+	fmt.Fprintf(stdout, "shown on %s\n", res.GetBackend())
+	return 0
 }
 
 const runtimeSubmitHelp = `usage: herdsman runtime submit <execution> <line> [--yes] [--again] [--json]
@@ -177,8 +220,8 @@ func runRuntimeSubmit(args []string, stdout, stderr io.Writer) int {
 }
 
 func init() {
-	register(command{name: "runtime", summary: "Where agents run: runtime doctor, runtime ls, runtime default, runtime submit.", help: runtimeHelp,
-		subHelp: map[string]string{"doctor": runtimeDoctorHelp, "ls": runtimeLsHelp, "default": runtimeDefaultHelp, "submit": runtimeSubmitHelp}, run: runRuntime})
+	register(command{name: "runtime", summary: "Where agents run: runtime doctor, runtime ls, runtime default, runtime submit, runtime show.", help: runtimeHelp,
+		subHelp: map[string]string{"doctor": runtimeDoctorHelp, "ls": runtimeLsHelp, "default": runtimeDefaultHelp, "submit": runtimeSubmitHelp, "show": runtimeShowHelp}, run: runRuntime})
 }
 
 func runRuntime(args []string, _ io.Reader, stdout, stderr io.Writer) int {

@@ -20,7 +20,8 @@ func installation(t *testing.T, c Conn) (string, string) {
 }
 
 // Gate "Upgrade": a store that already existed keeps the Herdr TUI, and a
-// store this version creates selects core.
+// store this version creates also starts on the TUI while herdr-core ships as
+// an experiment; the source still tells the two apart.
 func TestInstallationDefaultIsWrittenOnceByTheMigration(t *testing.T) {
 	for _, v := range []int{1, 4} {
 		p := loadFixture(t, v, KindAccount)
@@ -39,7 +40,7 @@ func TestInstallationDefaultIsWrittenOnceByTheMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b, s := installation(t, c); b != "herdr-core" || s != DefaultFromNewStore {
+	if b, s := installation(t, c); b != "herdr-tui" || s != DefaultFromNewStore {
 		t.Fatalf("a new store has %s from %s", b, s)
 	}
 	_ = c.Close()
@@ -50,14 +51,14 @@ func TestInstallationDefaultIsWrittenOnceByTheMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	if b, _ := installation(t, c); b != "herdr-core" {
-		t.Fatalf("reopened as %s", b)
+	if b, s := installation(t, c); b != "herdr-tui" || s != DefaultFromNewStore {
+		t.Fatalf("reopened as %s from %s", b, s)
 	}
-	prev, err := SetInstallationDefault(c, "herdr-tui", 5)
-	if err != nil || prev != "herdr-core" {
+	prev, err := SetInstallationDefault(c, "herdr-core", 5)
+	if err != nil || prev != "herdr-tui" {
 		t.Fatalf("set: %q %v", prev, err)
 	}
-	if b, s := installation(t, c); b != "herdr-tui" || s != DefaultSet {
+	if b, s := installation(t, c); b != "herdr-core" || s != DefaultSet {
 		t.Fatalf("after set: %s from %s", b, s)
 	}
 	if _, err := SetInstallationDefault(c, "herdr-gui", 6); err == nil {

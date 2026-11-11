@@ -88,6 +88,9 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 		return nil, runtimeFailure(err)
 	}
 	q.Backend = sel.Backend
+	if sel.Experimental && !req.GetDryRun() {
+		s.d.logf("route %s: %s", q.Route, runtime.ExperimentNotice)
+	}
 	if sel.Backend == runtime.BackendCore {
 		c := s.d.coreRT()
 		if c == nil {

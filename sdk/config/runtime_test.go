@@ -45,10 +45,11 @@ func TestRuntimeSectionKeepsOmittedApartFromExplicit(t *testing.T) {
 	}
 }
 
-// Gate "Upgrade": a new file names core, an existing file without the key has
-// no backend after loading (so the installation default decides), and update
-// never adds one.
-func TestNewFileSelectsCoreAndUpdateAddsNoBackend(t *testing.T) {
+// Gate "Upgrade": a new file names its backend (the Herdr TUI while herdr-core
+// ships as an experiment), an existing file without the key has no backend
+// after loading (so the installation default decides), and update never adds
+// one.
+func TestNewFileNamesItsBackendAndUpdateAddsNoBackend(t *testing.T) {
 	for _, format := range fixtureFormats {
 		t.Run(format, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "herdsman.config."+format)
@@ -59,7 +60,7 @@ func TestNewFileSelectsCoreAndUpdateAddsNoBackend(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Config.GetRuntime().GetBackend() != NewFileBackend || NewFileBackend != "herdr-core" {
+			if got.Config.GetRuntime().GetBackend() != NewFileBackend || NewFileBackend != "herdr-tui" {
 				t.Fatalf("a new file names %q", got.Config.GetRuntime().GetBackend())
 			}
 		})

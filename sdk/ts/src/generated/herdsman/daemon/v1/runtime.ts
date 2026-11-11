@@ -123,6 +123,109 @@ export interface Execution {
    * The repository of the route.
    */
   repo?: string;
+  /**
+   * Why the execution needs a person now, one entry per reason; empty when
+   * nothing waits on a person. Independent of the observation's readiness.
+   */
+  attention?: AttentionReason[];
+  /**
+   * What nobody can tell the outcome of, such as a person's typed submit whose
+   * answer was lost. Each lists the choices a person has.
+   */
+  unresolved?: UnresolvedItem[];
+  /**
+   * The notices of this execution by state. Absent for a backend without
+   * notices.
+   */
+  notices?: NoticeSummary;
+  /**
+   * The controls a person's surface offers for this execution, an explicit
+   * list per backend: on herdr-core "show" and "submit"; on herdr-tui the pane
+   * actions of the web ("prompt", "keys", "text", "input", "scroll", "focus",
+   * "close"). A surface offers nothing outside it.
+   */
+  actions?: string[];
+}
+
+/**
+ * AttentionReason is one reason an execution waits on a person.
+ */
+export interface AttentionReason {
+  /**
+   * "notice_waiting", "interrupted", "not_waiting", "notice_held",
+   * "claim_stuck", "compaction_due", "goal_paused" or a dialog's name.
+   */
+  reason?: string;
+  /**
+   * Words for a person; never task content.
+   */
+  detail?: string;
+  /**
+   * The notice it concerns, when one does.
+   */
+  noticeId?: string;
+  /**
+   * A line a person may type in the agent's pane, when one helps.
+   */
+  line?: string;
+  /**
+   * The gate that holds a notice, for "notice_held".
+   */
+  gate?: string;
+}
+
+/**
+ * UnresolvedItem is one thing whose outcome nobody can tell.
+ */
+export interface UnresolvedItem {
+  /**
+   * "typed_submit".
+   */
+  kind?: string;
+  id?: string;
+  /**
+   * The item's own state, such as "unresolved" or "pending_in_core".
+   */
+  state?: string;
+  detail?: string;
+  /**
+   * What a person can do, such as "keep_waiting", "stop_execution",
+   * "send_again".
+   */
+  choices?: string[];
+  /**
+   * Milliseconds since the Unix epoch.
+   */
+  updated?: string;
+}
+
+/**
+ * NoticeSummary counts an execution's notices by state.
+ */
+export interface NoticeSummary {
+  issued?: number;
+  claimed?: number;
+  handled?: number;
+  returned?: number;
+  /**
+   * The notice whose claim is open, if any.
+   */
+  openClaim?: string;
+  /**
+   * The gate that holds the first issued notice, if one holds it.
+   */
+  heldGate?: string;
+}
+
+export interface RuntimeServiceShowRequest {
+  executionId?: string;
+}
+
+export interface RuntimeServiceShowResponse {
+  /**
+   * The backend that showed it.
+   */
+  backend?: string;
 }
 
 export interface RuntimeServiceListExecutionsRequest {
@@ -181,6 +284,11 @@ export interface RuntimeSelection {
    * The config file that set it, when source is "config".
    */
   configPath?: string;
+  /**
+   * The one line a run says while the selected backend ships as an
+   * experiment; empty for a stable backend.
+   */
+  experiment?: string;
 }
 
 /**
@@ -260,7 +368,9 @@ export interface RuntimeServiceSubmitRequest {
    */
   text?: string;
   /**
-   * The caller's process id, checked against the socket's peer.
+   * The caller's process id, checked against the socket's peer. Zero on a
+   * call a paired browser makes through herdsman web: the web server's own
+   * process is then the one checked as a person's terminal.
    */
   pid?: string;
   /**
@@ -340,6 +450,14 @@ export const RuntimeService = {
     submit: {
       path: "/rpc/herdsman.daemon.v1.RuntimeService/Submit",
       signature: undefined as unknown as (request: RuntimeServiceSubmitRequest) => RuntimeServiceSubmitResponse,
+    },
+    /**
+     * Show focuses an execution's existing view in the native app through the
+     * provider. It never creates a view or an execution, and it types nothing.
+     */
+    show: {
+      path: "/rpc/herdsman.daemon.v1.RuntimeService/Show",
+      signature: undefined as unknown as (request: RuntimeServiceShowRequest) => RuntimeServiceShowResponse,
     },
   },
 } as const;

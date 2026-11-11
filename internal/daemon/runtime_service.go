@@ -66,20 +66,22 @@ func (d *Daemon) installationDefault() (backend, source string, at int64, err er
 }
 
 // configBackend is runtime.backend of the config file a run in repo uses: the
-// file named, or the one the repository finds. An unknown key in [runtime]
-// stops here.
-func configBackend(repo, configPath string) (backend, path string, err error) {
+// file named, or the one the repository finds, with experimental of
+// [runtime.core], the opt-in to the core experiment. An unknown key in
+// [runtime] stops here.
+func configBackend(repo, configPath string) (backend, path string, experimental bool, err error) {
 	if repo == "" && configPath == "" {
-		return "", "", nil
+		return "", "", false, nil
 	}
 	if configPath != "" && !filepath.IsAbs(configPath) && repo != "" {
 		configPath = filepath.Join(repo, configPath)
 	}
 	result, err := config.Load(config.Options{ConfigPath: configPath, RepoRoot: repo})
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	backend = result.Config.GetRuntime().GetBackend()
+	experimental = result.Config.GetRuntime().GetCore().GetExperimental()
 	if backend != "" {
 		path = result.ProjectPath
 		if configPath != "" {
@@ -89,14 +91,14 @@ func configBackend(repo, configPath string) (backend, path string, err error) {
 			path = result.UserPath
 		}
 	}
-	return backend, path, nil
+	return backend, path, experimental, nil
 }
 
 // selectBackend resolves the backend of one run in the order of the spec's
 // section 5. persisted is the backend an existing route started on; empty for
 // a new route. Every launch path calls it: up, task launches and the doctor.
 func (d *Daemon) selectBackend(repo, configPath, flag, persisted string) (runtime.Selection, error) {
-	cfg, cfgPath, err := configBackend(repo, configPath)
+	cfg, cfgPath, experimental, err := configBackend(repo, configPath)
 	if err != nil {
 		return runtime.Selection{}, &runtime.Error{Code: runtime.CodeUnknownBackend, Msg: "the configuration: " + err.Error()}
 	}
@@ -104,7 +106,7 @@ func (d *Daemon) selectBackend(repo, configPath, flag, persisted string) (runtim
 	if err != nil {
 		return runtime.Selection{}, err
 	}
-	return runtime.Resolve(runtime.Inputs{Flag: flag, Config: cfg, ConfigPath: cfgPath, Installation: installed, Persisted: persisted})
+	return runtime.Resolve(runtime.Inputs{Flag: flag, Config: cfg, ConfigPath: cfgPath, Installation: installed, Persisted: persisted, Experimental: experimental})
 }
 
 // launchBackend resolves a run's backend and refuses one this build cannot
@@ -251,7 +253,9 @@ func (s *runtimeService) ListExecutions(ctx context.Context, req *daemonv1.Runti
 	out := &daemonv1.RuntimeServiceListExecutionsResponse{}
 	recorded := map[string]bool{}
 	for _, row := range rows {
-		out.Executions = append(out.Executions, executionMessage(row))
+		e := executionMessage(row)
+		s.describe(e)
+		out.Executions = append(out.Executions, e)
 		recorded[row.Repo+"\x00"+row.Route+"\x00"+row.Agent] = true
 	}
 	starts, err := s.d.latestStarts()
@@ -270,7 +274,7 @@ func (s *runtimeService) ListExecutions(ctx context.Context, req *daemonv1.Runti
 			out.Executions = append(out.Executions, &daemonv1.Execution{
 				Ref:   &corev1.RuntimeRef{Backend: a.Backend, EndpointId: a.Socket},
 				Route: &corev1.RouteId{Value: facts.Route}, Repo: repo, Agent: a.Name, Role: a.Role, HarnessKind: a.Kind,
-				Source: "legacy",
+				Source: "legacy", Actions: runtime.Actions(a.Backend),
 			})
 		}
 	}
@@ -294,7 +298,9 @@ func (s *runtimeService) GetExecution(ctx context.Context, req *daemonv1.Runtime
 	if !found {
 		return nil, rpc.Errorf(rpc.NotFound, "no execution %s", req.GetExecutionId())
 	}
-	return &daemonv1.RuntimeServiceGetExecutionResponse{Execution: executionMessage(row)}, nil
+	e := executionMessage(row)
+	s.describe(e)
+	return &daemonv1.RuntimeServiceGetExecutionResponse{Execution: e}, nil
 }
 
 // GetDefault reports the installation default.
@@ -357,6 +363,10 @@ func (s *runtimeService) Doctor(ctx context.Context, req *daemonv1.RuntimeServic
 	} else {
 		out.Selection = &daemonv1.RuntimeSelection{Backend: sel.Backend, Source: string(sel.Source), ConfigPath: sel.ConfigPath}
 		check("selection", "ok", fmt.Sprintf("%s, from %s", sel.Backend, sel.Source))
+		if sel.Experimental {
+			out.Selection.Experiment = runtime.ExperimentNotice
+			check("experiment", "warn", runtime.ExperimentNotice)
+		}
 	}
 	reg := s.d.runtimeRegistry()
 	for _, backend := range runtime.Backends {

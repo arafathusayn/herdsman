@@ -20,8 +20,9 @@ needs no line. Those are noted below for the reader.
 - Version 5 adds the installation default backend, `installation`, and the
   execution records of routes the operation journal starts, `executions`. It
   writes one row into `installation`, once: `herdr-tui` with source
-  `existing-store` when it upgrades a store that already existed, `herdr-core`
-  with source `new-store` when the store is created new. Existing rows are
+  `existing-store` when it upgrades a store that already existed, and
+  `herdr-tui` with source `new-store` when the store is created new, because
+  herdr-core ships as an experiment in this release. Existing rows are
   untouched. An older herdsman refuses a store of version 5 with
   `ErrSchemaNewer`; going back to the Herdr TUI is the config line
   `backend = "herdr-tui"` on this version, not a downgrade. Fixture:

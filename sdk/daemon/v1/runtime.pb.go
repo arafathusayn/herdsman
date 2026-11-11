@@ -305,7 +305,21 @@ type Execution struct {
 	// start journaled before execution records existed.
 	Source string `protobuf:"bytes,17,opt,name=source,proto3" json:"source,omitempty"`
 	// The repository of the route.
-	Repo          string `protobuf:"bytes,18,opt,name=repo,proto3" json:"repo,omitempty"`
+	Repo string `protobuf:"bytes,18,opt,name=repo,proto3" json:"repo,omitempty"`
+	// Why the execution needs a person now, one entry per reason; empty when
+	// nothing waits on a person. Independent of the observation's readiness.
+	Attention []*AttentionReason `protobuf:"bytes,19,rep,name=attention,proto3" json:"attention,omitempty"`
+	// What nobody can tell the outcome of, such as a person's typed submit whose
+	// answer was lost. Each lists the choices a person has.
+	Unresolved []*UnresolvedItem `protobuf:"bytes,20,rep,name=unresolved,proto3" json:"unresolved,omitempty"`
+	// The notices of this execution by state. Absent for a backend without
+	// notices.
+	Notices *NoticeSummary `protobuf:"bytes,21,opt,name=notices,proto3" json:"notices,omitempty"`
+	// The controls a person's surface offers for this execution, an explicit
+	// list per backend: on herdr-core "show" and "submit"; on herdr-tui the pane
+	// actions of the web ("prompt", "keys", "text", "input", "scroll", "focus",
+	// "close"). A surface offers nothing outside it.
+	Actions       []string `protobuf:"bytes,22,rep,name=actions,proto3" json:"actions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -466,6 +480,383 @@ func (x *Execution) GetRepo() string {
 	return ""
 }
 
+func (x *Execution) GetAttention() []*AttentionReason {
+	if x != nil {
+		return x.Attention
+	}
+	return nil
+}
+
+func (x *Execution) GetUnresolved() []*UnresolvedItem {
+	if x != nil {
+		return x.Unresolved
+	}
+	return nil
+}
+
+func (x *Execution) GetNotices() *NoticeSummary {
+	if x != nil {
+		return x.Notices
+	}
+	return nil
+}
+
+func (x *Execution) GetActions() []string {
+	if x != nil {
+		return x.Actions
+	}
+	return nil
+}
+
+// AttentionReason is one reason an execution waits on a person.
+type AttentionReason struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "notice_waiting", "interrupted", "not_waiting", "notice_held",
+	// "claim_stuck", "compaction_due", "goal_paused" or a dialog's name.
+	Reason string `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Words for a person; never task content.
+	Detail string `protobuf:"bytes,2,opt,name=detail,proto3" json:"detail,omitempty"`
+	// The notice it concerns, when one does.
+	NoticeId string `protobuf:"bytes,3,opt,name=notice_id,json=noticeId,proto3" json:"notice_id,omitempty"`
+	// A line a person may type in the agent's pane, when one helps.
+	Line string `protobuf:"bytes,4,opt,name=line,proto3" json:"line,omitempty"`
+	// The gate that holds a notice, for "notice_held".
+	Gate          string `protobuf:"bytes,5,opt,name=gate,proto3" json:"gate,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AttentionReason) Reset() {
+	*x = AttentionReason{}
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttentionReason) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttentionReason) ProtoMessage() {}
+
+func (x *AttentionReason) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttentionReason.ProtoReflect.Descriptor instead.
+func (*AttentionReason) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *AttentionReason) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *AttentionReason) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+func (x *AttentionReason) GetNoticeId() string {
+	if x != nil {
+		return x.NoticeId
+	}
+	return ""
+}
+
+func (x *AttentionReason) GetLine() string {
+	if x != nil {
+		return x.Line
+	}
+	return ""
+}
+
+func (x *AttentionReason) GetGate() string {
+	if x != nil {
+		return x.Gate
+	}
+	return ""
+}
+
+// UnresolvedItem is one thing whose outcome nobody can tell.
+type UnresolvedItem struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "typed_submit".
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Id   string `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	// The item's own state, such as "unresolved" or "pending_in_core".
+	State  string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	Detail string `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
+	// What a person can do, such as "keep_waiting", "stop_execution",
+	// "send_again".
+	Choices []string `protobuf:"bytes,5,rep,name=choices,proto3" json:"choices,omitempty"`
+	// Milliseconds since the Unix epoch.
+	Updated       int64 `protobuf:"varint,6,opt,name=updated,proto3" json:"updated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnresolvedItem) Reset() {
+	*x = UnresolvedItem{}
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnresolvedItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnresolvedItem) ProtoMessage() {}
+
+func (x *UnresolvedItem) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnresolvedItem.ProtoReflect.Descriptor instead.
+func (*UnresolvedItem) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *UnresolvedItem) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *UnresolvedItem) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UnresolvedItem) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *UnresolvedItem) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+func (x *UnresolvedItem) GetChoices() []string {
+	if x != nil {
+		return x.Choices
+	}
+	return nil
+}
+
+func (x *UnresolvedItem) GetUpdated() int64 {
+	if x != nil {
+		return x.Updated
+	}
+	return 0
+}
+
+// NoticeSummary counts an execution's notices by state.
+type NoticeSummary struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Issued   int32                  `protobuf:"varint,1,opt,name=issued,proto3" json:"issued,omitempty"`
+	Claimed  int32                  `protobuf:"varint,2,opt,name=claimed,proto3" json:"claimed,omitempty"`
+	Handled  int32                  `protobuf:"varint,3,opt,name=handled,proto3" json:"handled,omitempty"`
+	Returned int32                  `protobuf:"varint,4,opt,name=returned,proto3" json:"returned,omitempty"`
+	// The notice whose claim is open, if any.
+	OpenClaim string `protobuf:"bytes,5,opt,name=open_claim,json=openClaim,proto3" json:"open_claim,omitempty"`
+	// The gate that holds the first issued notice, if one holds it.
+	HeldGate      string `protobuf:"bytes,6,opt,name=held_gate,json=heldGate,proto3" json:"held_gate,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NoticeSummary) Reset() {
+	*x = NoticeSummary{}
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NoticeSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NoticeSummary) ProtoMessage() {}
+
+func (x *NoticeSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NoticeSummary.ProtoReflect.Descriptor instead.
+func (*NoticeSummary) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *NoticeSummary) GetIssued() int32 {
+	if x != nil {
+		return x.Issued
+	}
+	return 0
+}
+
+func (x *NoticeSummary) GetClaimed() int32 {
+	if x != nil {
+		return x.Claimed
+	}
+	return 0
+}
+
+func (x *NoticeSummary) GetHandled() int32 {
+	if x != nil {
+		return x.Handled
+	}
+	return 0
+}
+
+func (x *NoticeSummary) GetReturned() int32 {
+	if x != nil {
+		return x.Returned
+	}
+	return 0
+}
+
+func (x *NoticeSummary) GetOpenClaim() string {
+	if x != nil {
+		return x.OpenClaim
+	}
+	return ""
+}
+
+func (x *NoticeSummary) GetHeldGate() string {
+	if x != nil {
+		return x.HeldGate
+	}
+	return ""
+}
+
+type RuntimeServiceShowRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RuntimeServiceShowRequest) Reset() {
+	*x = RuntimeServiceShowRequest{}
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RuntimeServiceShowRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RuntimeServiceShowRequest) ProtoMessage() {}
+
+func (x *RuntimeServiceShowRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RuntimeServiceShowRequest.ProtoReflect.Descriptor instead.
+func (*RuntimeServiceShowRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *RuntimeServiceShowRequest) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+type RuntimeServiceShowResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The backend that showed it.
+	Backend       string `protobuf:"bytes,1,opt,name=backend,proto3" json:"backend,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RuntimeServiceShowResponse) Reset() {
+	*x = RuntimeServiceShowResponse{}
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RuntimeServiceShowResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RuntimeServiceShowResponse) ProtoMessage() {}
+
+func (x *RuntimeServiceShowResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RuntimeServiceShowResponse.ProtoReflect.Descriptor instead.
+func (*RuntimeServiceShowResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RuntimeServiceShowResponse) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
 type RuntimeServiceListExecutionsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Only this route's executions; empty lists every route.
@@ -478,7 +869,7 @@ type RuntimeServiceListExecutionsRequest struct {
 
 func (x *RuntimeServiceListExecutionsRequest) Reset() {
 	*x = RuntimeServiceListExecutionsRequest{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[4]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -490,7 +881,7 @@ func (x *RuntimeServiceListExecutionsRequest) String() string {
 func (*RuntimeServiceListExecutionsRequest) ProtoMessage() {}
 
 func (x *RuntimeServiceListExecutionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[4]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -503,7 +894,7 @@ func (x *RuntimeServiceListExecutionsRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use RuntimeServiceListExecutionsRequest.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceListExecutionsRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{4}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RuntimeServiceListExecutionsRequest) GetRoute() *v1.RouteId {
@@ -529,7 +920,7 @@ type RuntimeServiceListExecutionsResponse struct {
 
 func (x *RuntimeServiceListExecutionsResponse) Reset() {
 	*x = RuntimeServiceListExecutionsResponse{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[5]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -541,7 +932,7 @@ func (x *RuntimeServiceListExecutionsResponse) String() string {
 func (*RuntimeServiceListExecutionsResponse) ProtoMessage() {}
 
 func (x *RuntimeServiceListExecutionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[5]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -554,7 +945,7 @@ func (x *RuntimeServiceListExecutionsResponse) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use RuntimeServiceListExecutionsResponse.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceListExecutionsResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{5}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RuntimeServiceListExecutionsResponse) GetExecutions() []*Execution {
@@ -573,7 +964,7 @@ type RuntimeServiceGetExecutionRequest struct {
 
 func (x *RuntimeServiceGetExecutionRequest) Reset() {
 	*x = RuntimeServiceGetExecutionRequest{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[6]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -585,7 +976,7 @@ func (x *RuntimeServiceGetExecutionRequest) String() string {
 func (*RuntimeServiceGetExecutionRequest) ProtoMessage() {}
 
 func (x *RuntimeServiceGetExecutionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[6]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -598,7 +989,7 @@ func (x *RuntimeServiceGetExecutionRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use RuntimeServiceGetExecutionRequest.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceGetExecutionRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{6}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RuntimeServiceGetExecutionRequest) GetExecutionId() string {
@@ -617,7 +1008,7 @@ type RuntimeServiceGetExecutionResponse struct {
 
 func (x *RuntimeServiceGetExecutionResponse) Reset() {
 	*x = RuntimeServiceGetExecutionResponse{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[7]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -629,7 +1020,7 @@ func (x *RuntimeServiceGetExecutionResponse) String() string {
 func (*RuntimeServiceGetExecutionResponse) ProtoMessage() {}
 
 func (x *RuntimeServiceGetExecutionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[7]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -642,7 +1033,7 @@ func (x *RuntimeServiceGetExecutionResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use RuntimeServiceGetExecutionResponse.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceGetExecutionResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{7}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RuntimeServiceGetExecutionResponse) GetExecution() *Execution {
@@ -669,7 +1060,7 @@ type RuntimeServiceDoctorRequest struct {
 
 func (x *RuntimeServiceDoctorRequest) Reset() {
 	*x = RuntimeServiceDoctorRequest{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[8]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -681,7 +1072,7 @@ func (x *RuntimeServiceDoctorRequest) String() string {
 func (*RuntimeServiceDoctorRequest) ProtoMessage() {}
 
 func (x *RuntimeServiceDoctorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[8]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -694,7 +1085,7 @@ func (x *RuntimeServiceDoctorRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeServiceDoctorRequest.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceDoctorRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{8}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RuntimeServiceDoctorRequest) GetRepo() string {
@@ -732,14 +1123,17 @@ type RuntimeSelection struct {
 	// "flag", "config", "installation" or "route".
 	Source string `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
 	// The config file that set it, when source is "config".
-	ConfigPath    string `protobuf:"bytes,3,opt,name=config_path,json=configPath,proto3" json:"config_path,omitempty"`
+	ConfigPath string `protobuf:"bytes,3,opt,name=config_path,json=configPath,proto3" json:"config_path,omitempty"`
+	// The one line a run says while the selected backend ships as an
+	// experiment; empty for a stable backend.
+	Experiment    string `protobuf:"bytes,4,opt,name=experiment,proto3" json:"experiment,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RuntimeSelection) Reset() {
 	*x = RuntimeSelection{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[9]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -751,7 +1145,7 @@ func (x *RuntimeSelection) String() string {
 func (*RuntimeSelection) ProtoMessage() {}
 
 func (x *RuntimeSelection) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[9]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -764,7 +1158,7 @@ func (x *RuntimeSelection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeSelection.ProtoReflect.Descriptor instead.
 func (*RuntimeSelection) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{9}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RuntimeSelection) GetBackend() string {
@@ -788,6 +1182,13 @@ func (x *RuntimeSelection) GetConfigPath() string {
 	return ""
 }
 
+func (x *RuntimeSelection) GetExperiment() string {
+	if x != nil {
+		return x.Experiment
+	}
+	return ""
+}
+
 // BackendReport says whether one backend can run on this machine.
 type BackendReport struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
@@ -803,7 +1204,7 @@ type BackendReport struct {
 
 func (x *BackendReport) Reset() {
 	*x = BackendReport{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[10]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -815,7 +1216,7 @@ func (x *BackendReport) String() string {
 func (*BackendReport) ProtoMessage() {}
 
 func (x *BackendReport) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[10]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -828,7 +1229,7 @@ func (x *BackendReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackendReport.ProtoReflect.Descriptor instead.
 func (*BackendReport) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{10}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *BackendReport) GetBackend() string {
@@ -872,7 +1273,7 @@ type RuntimeCheck struct {
 
 func (x *RuntimeCheck) Reset() {
 	*x = RuntimeCheck{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[11]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -884,7 +1285,7 @@ func (x *RuntimeCheck) String() string {
 func (*RuntimeCheck) ProtoMessage() {}
 
 func (x *RuntimeCheck) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[11]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -897,7 +1298,7 @@ func (x *RuntimeCheck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeCheck.ProtoReflect.Descriptor instead.
 func (*RuntimeCheck) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{11}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RuntimeCheck) GetName() string {
@@ -936,7 +1337,7 @@ type RuntimeServiceDoctorResponse struct {
 
 func (x *RuntimeServiceDoctorResponse) Reset() {
 	*x = RuntimeServiceDoctorResponse{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[12]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -948,7 +1349,7 @@ func (x *RuntimeServiceDoctorResponse) String() string {
 func (*RuntimeServiceDoctorResponse) ProtoMessage() {}
 
 func (x *RuntimeServiceDoctorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[12]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -961,7 +1362,7 @@ func (x *RuntimeServiceDoctorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeServiceDoctorResponse.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceDoctorResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{12}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RuntimeServiceDoctorResponse) GetVersion() *v1.Version {
@@ -1007,7 +1408,7 @@ type RuntimeServiceGetDefaultRequest struct {
 
 func (x *RuntimeServiceGetDefaultRequest) Reset() {
 	*x = RuntimeServiceGetDefaultRequest{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[13]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1019,7 +1420,7 @@ func (x *RuntimeServiceGetDefaultRequest) String() string {
 func (*RuntimeServiceGetDefaultRequest) ProtoMessage() {}
 
 func (x *RuntimeServiceGetDefaultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[13]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1032,7 +1433,7 @@ func (x *RuntimeServiceGetDefaultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeServiceGetDefaultRequest.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceGetDefaultRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{13}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{18}
 }
 
 type RuntimeServiceGetDefaultResponse struct {
@@ -1049,7 +1450,7 @@ type RuntimeServiceGetDefaultResponse struct {
 
 func (x *RuntimeServiceGetDefaultResponse) Reset() {
 	*x = RuntimeServiceGetDefaultResponse{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[14]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1061,7 +1462,7 @@ func (x *RuntimeServiceGetDefaultResponse) String() string {
 func (*RuntimeServiceGetDefaultResponse) ProtoMessage() {}
 
 func (x *RuntimeServiceGetDefaultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[14]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1074,7 +1475,7 @@ func (x *RuntimeServiceGetDefaultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeServiceGetDefaultResponse.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceGetDefaultResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{14}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RuntimeServiceGetDefaultResponse) GetBackend() string {
@@ -1108,7 +1509,7 @@ type RuntimeServiceSetDefaultRequest struct {
 
 func (x *RuntimeServiceSetDefaultRequest) Reset() {
 	*x = RuntimeServiceSetDefaultRequest{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[15]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1120,7 +1521,7 @@ func (x *RuntimeServiceSetDefaultRequest) String() string {
 func (*RuntimeServiceSetDefaultRequest) ProtoMessage() {}
 
 func (x *RuntimeServiceSetDefaultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[15]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1133,7 +1534,7 @@ func (x *RuntimeServiceSetDefaultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeServiceSetDefaultRequest.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceSetDefaultRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{15}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *RuntimeServiceSetDefaultRequest) GetBackend() string {
@@ -1153,7 +1554,7 @@ type RuntimeServiceSetDefaultResponse struct {
 
 func (x *RuntimeServiceSetDefaultResponse) Reset() {
 	*x = RuntimeServiceSetDefaultResponse{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[16]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1165,7 +1566,7 @@ func (x *RuntimeServiceSetDefaultResponse) String() string {
 func (*RuntimeServiceSetDefaultResponse) ProtoMessage() {}
 
 func (x *RuntimeServiceSetDefaultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[16]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1178,7 +1579,7 @@ func (x *RuntimeServiceSetDefaultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeServiceSetDefaultResponse.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceSetDefaultResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{16}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *RuntimeServiceSetDefaultResponse) GetBackend() string {
@@ -1200,7 +1601,9 @@ type RuntimeServiceSubmitRequest struct {
 	ExecutionId string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
 	// The line; at most 4096 bytes and one line.
 	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
-	// The caller's process id, checked against the socket's peer.
+	// The caller's process id, checked against the socket's peer. Zero on a
+	// call a paired browser makes through herdsman web: the web server's own
+	// process is then the one checked as a person's terminal.
 	Pid int64 `protobuf:"varint,3,opt,name=pid,proto3" json:"pid,omitempty"`
 	// The person read the confirmation: the Enter follows the check by about
 	// 200 ms, and nothing can recall the line once core holds it.
@@ -1214,7 +1617,7 @@ type RuntimeServiceSubmitRequest struct {
 
 func (x *RuntimeServiceSubmitRequest) Reset() {
 	*x = RuntimeServiceSubmitRequest{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[17]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1226,7 +1629,7 @@ func (x *RuntimeServiceSubmitRequest) String() string {
 func (*RuntimeServiceSubmitRequest) ProtoMessage() {}
 
 func (x *RuntimeServiceSubmitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[17]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1239,7 +1642,7 @@ func (x *RuntimeServiceSubmitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeServiceSubmitRequest.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceSubmitRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{17}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *RuntimeServiceSubmitRequest) GetExecutionId() string {
@@ -1290,7 +1693,7 @@ type RuntimeServiceSubmitResponse struct {
 
 func (x *RuntimeServiceSubmitResponse) Reset() {
 	*x = RuntimeServiceSubmitResponse{}
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[18]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1302,7 +1705,7 @@ func (x *RuntimeServiceSubmitResponse) String() string {
 func (*RuntimeServiceSubmitResponse) ProtoMessage() {}
 
 func (x *RuntimeServiceSubmitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[18]
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1315,7 +1718,7 @@ func (x *RuntimeServiceSubmitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeServiceSubmitResponse.ProtoReflect.Descriptor instead.
 func (*RuntimeServiceSubmitResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{18}
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *RuntimeServiceSubmitResponse) GetSubmitId() string {
@@ -1369,7 +1772,7 @@ const file_herdsman_daemon_v1_runtime_proto_rawDesc = "" +
 	"\n" +
 	"TuiBinding\x12\x16\n" +
 	"\x06socket\x18\x01 \x01(\tR\x06socket\x12\x12\n" +
-	"\x04pane\x18\x02 \x01(\tR\x04pane\"\xe1\x05\n" +
+	"\x04pane\x18\x02 \x01(\tR\x04pane\"\xbf\a\n" +
 	"\tExecution\x12.\n" +
 	"\x03ref\x18\x01 \x01(\v2\x1c.herdsman.core.v1.RuntimeRefR\x03ref\x12/\n" +
 	"\x05route\x18\x02 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
@@ -1391,7 +1794,38 @@ const file_herdsman_daemon_v1_runtime_proto_rawDesc = "" +
 	"\x10last_verified_at\x18\x0f \x01(\x03R\x0elastVerifiedAt\x12\x18\n" +
 	"\acreated\x18\x10 \x01(\x03R\acreated\x12\x16\n" +
 	"\x06source\x18\x11 \x01(\tR\x06source\x12\x12\n" +
-	"\x04repo\x18\x12 \x01(\tR\x04repo\"j\n" +
+	"\x04repo\x18\x12 \x01(\tR\x04repo\x12A\n" +
+	"\tattention\x18\x13 \x03(\v2#.herdsman.daemon.v1.AttentionReasonR\tattention\x12B\n" +
+	"\n" +
+	"unresolved\x18\x14 \x03(\v2\".herdsman.daemon.v1.UnresolvedItemR\n" +
+	"unresolved\x12;\n" +
+	"\anotices\x18\x15 \x01(\v2!.herdsman.daemon.v1.NoticeSummaryR\anotices\x12\x18\n" +
+	"\aactions\x18\x16 \x03(\tR\aactions\"\x86\x01\n" +
+	"\x0fAttentionReason\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x16\n" +
+	"\x06detail\x18\x02 \x01(\tR\x06detail\x12\x1b\n" +
+	"\tnotice_id\x18\x03 \x01(\tR\bnoticeId\x12\x12\n" +
+	"\x04line\x18\x04 \x01(\tR\x04line\x12\x12\n" +
+	"\x04gate\x18\x05 \x01(\tR\x04gate\"\x96\x01\n" +
+	"\x0eUnresolvedItem\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x12\x16\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail\x12\x18\n" +
+	"\achoices\x18\x05 \x03(\tR\achoices\x12\x18\n" +
+	"\aupdated\x18\x06 \x01(\x03R\aupdated\"\xb3\x01\n" +
+	"\rNoticeSummary\x12\x16\n" +
+	"\x06issued\x18\x01 \x01(\x05R\x06issued\x12\x18\n" +
+	"\aclaimed\x18\x02 \x01(\x05R\aclaimed\x12\x18\n" +
+	"\ahandled\x18\x03 \x01(\x05R\ahandled\x12\x1a\n" +
+	"\breturned\x18\x04 \x01(\x05R\breturned\x12\x1d\n" +
+	"\n" +
+	"open_claim\x18\x05 \x01(\tR\topenClaim\x12\x1b\n" +
+	"\theld_gate\x18\x06 \x01(\tR\bheldGate\">\n" +
+	"\x19RuntimeServiceShowRequest\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\"6\n" +
+	"\x1aRuntimeServiceShowResponse\x12\x18\n" +
+	"\abackend\x18\x01 \x01(\tR\abackend\"j\n" +
 	"#RuntimeServiceListExecutionsRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
 	"\x04repo\x18\x02 \x01(\tR\x04repo\"e\n" +
@@ -1408,12 +1842,15 @@ const file_herdsman_daemon_v1_runtime_proto_rawDesc = "" +
 	"\vconfig_path\x18\x02 \x01(\tR\n" +
 	"configPath\x12\x18\n" +
 	"\abackend\x18\x03 \x01(\tR\abackend\x12/\n" +
-	"\x05route\x18\x04 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\"e\n" +
+	"\x05route\x18\x04 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\"\x85\x01\n" +
 	"\x10RuntimeSelection\x12\x18\n" +
 	"\abackend\x18\x01 \x01(\tR\abackend\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x1f\n" +
 	"\vconfig_path\x18\x03 \x01(\tR\n" +
-	"configPath\"{\n" +
+	"configPath\x12\x1e\n" +
+	"\n" +
+	"experiment\x18\x04 \x01(\tR\n" +
+	"experiment\"{\n" +
 	"\rBackendReport\x12\x18\n" +
 	"\abackend\x18\x01 \x01(\tR\abackend\x12\x1c\n" +
 	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x16\n" +
@@ -1449,7 +1886,7 @@ const file_herdsman_daemon_v1_runtime_proto_rawDesc = "" +
 	"\x1cRuntimeServiceSubmitResponse\x12\x1b\n" +
 	"\tsubmit_id\x18\x01 \x01(\tR\bsubmitId\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x16\n" +
-	"\x06detail\x18\x03 \x01(\tR\x06detail2\xe1\x05\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail2\xc8\x06\n" +
 	"\x0eRuntimeService\x12\x83\x01\n" +
 	"\x0eListExecutions\x127.herdsman.daemon.v1.RuntimeServiceListExecutionsRequest\x1a8.herdsman.daemon.v1.RuntimeServiceListExecutionsResponse\x12}\n" +
 	"\fGetExecution\x125.herdsman.daemon.v1.RuntimeServiceGetExecutionRequest\x1a6.herdsman.daemon.v1.RuntimeServiceGetExecutionResponse\x12k\n" +
@@ -1458,7 +1895,8 @@ const file_herdsman_daemon_v1_runtime_proto_rawDesc = "" +
 	"GetDefault\x123.herdsman.daemon.v1.RuntimeServiceGetDefaultRequest\x1a4.herdsman.daemon.v1.RuntimeServiceGetDefaultResponse\x12w\n" +
 	"\n" +
 	"SetDefault\x123.herdsman.daemon.v1.RuntimeServiceSetDefaultRequest\x1a4.herdsman.daemon.v1.RuntimeServiceSetDefaultResponse\x12k\n" +
-	"\x06Submit\x12/.herdsman.daemon.v1.RuntimeServiceSubmitRequest\x1a0.herdsman.daemon.v1.RuntimeServiceSubmitResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
+	"\x06Submit\x12/.herdsman.daemon.v1.RuntimeServiceSubmitRequest\x1a0.herdsman.daemon.v1.RuntimeServiceSubmitResponse\x12e\n" +
+	"\x04Show\x12-.herdsman.daemon.v1.RuntimeServiceShowRequest\x1a..herdsman.daemon.v1.RuntimeServiceShowResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
 
 var (
 	file_herdsman_daemon_v1_runtime_proto_rawDescOnce sync.Once
@@ -1472,63 +1910,73 @@ func file_herdsman_daemon_v1_runtime_proto_rawDescGZIP() []byte {
 	return file_herdsman_daemon_v1_runtime_proto_rawDescData
 }
 
-var file_herdsman_daemon_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_herdsman_daemon_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_herdsman_daemon_v1_runtime_proto_goTypes = []any{
 	(*ExecutionObservation)(nil),                 // 0: herdsman.daemon.v1.ExecutionObservation
 	(*AppBinding)(nil),                           // 1: herdsman.daemon.v1.AppBinding
 	(*TuiBinding)(nil),                           // 2: herdsman.daemon.v1.TuiBinding
 	(*Execution)(nil),                            // 3: herdsman.daemon.v1.Execution
-	(*RuntimeServiceListExecutionsRequest)(nil),  // 4: herdsman.daemon.v1.RuntimeServiceListExecutionsRequest
-	(*RuntimeServiceListExecutionsResponse)(nil), // 5: herdsman.daemon.v1.RuntimeServiceListExecutionsResponse
-	(*RuntimeServiceGetExecutionRequest)(nil),    // 6: herdsman.daemon.v1.RuntimeServiceGetExecutionRequest
-	(*RuntimeServiceGetExecutionResponse)(nil),   // 7: herdsman.daemon.v1.RuntimeServiceGetExecutionResponse
-	(*RuntimeServiceDoctorRequest)(nil),          // 8: herdsman.daemon.v1.RuntimeServiceDoctorRequest
-	(*RuntimeSelection)(nil),                     // 9: herdsman.daemon.v1.RuntimeSelection
-	(*BackendReport)(nil),                        // 10: herdsman.daemon.v1.BackendReport
-	(*RuntimeCheck)(nil),                         // 11: herdsman.daemon.v1.RuntimeCheck
-	(*RuntimeServiceDoctorResponse)(nil),         // 12: herdsman.daemon.v1.RuntimeServiceDoctorResponse
-	(*RuntimeServiceGetDefaultRequest)(nil),      // 13: herdsman.daemon.v1.RuntimeServiceGetDefaultRequest
-	(*RuntimeServiceGetDefaultResponse)(nil),     // 14: herdsman.daemon.v1.RuntimeServiceGetDefaultResponse
-	(*RuntimeServiceSetDefaultRequest)(nil),      // 15: herdsman.daemon.v1.RuntimeServiceSetDefaultRequest
-	(*RuntimeServiceSetDefaultResponse)(nil),     // 16: herdsman.daemon.v1.RuntimeServiceSetDefaultResponse
-	(*RuntimeServiceSubmitRequest)(nil),          // 17: herdsman.daemon.v1.RuntimeServiceSubmitRequest
-	(*RuntimeServiceSubmitResponse)(nil),         // 18: herdsman.daemon.v1.RuntimeServiceSubmitResponse
-	(*v1.RuntimeRef)(nil),                        // 19: herdsman.core.v1.RuntimeRef
-	(*v1.RouteId)(nil),                           // 20: herdsman.core.v1.RouteId
-	(*v1.Version)(nil),                           // 21: herdsman.core.v1.Version
+	(*AttentionReason)(nil),                      // 4: herdsman.daemon.v1.AttentionReason
+	(*UnresolvedItem)(nil),                       // 5: herdsman.daemon.v1.UnresolvedItem
+	(*NoticeSummary)(nil),                        // 6: herdsman.daemon.v1.NoticeSummary
+	(*RuntimeServiceShowRequest)(nil),            // 7: herdsman.daemon.v1.RuntimeServiceShowRequest
+	(*RuntimeServiceShowResponse)(nil),           // 8: herdsman.daemon.v1.RuntimeServiceShowResponse
+	(*RuntimeServiceListExecutionsRequest)(nil),  // 9: herdsman.daemon.v1.RuntimeServiceListExecutionsRequest
+	(*RuntimeServiceListExecutionsResponse)(nil), // 10: herdsman.daemon.v1.RuntimeServiceListExecutionsResponse
+	(*RuntimeServiceGetExecutionRequest)(nil),    // 11: herdsman.daemon.v1.RuntimeServiceGetExecutionRequest
+	(*RuntimeServiceGetExecutionResponse)(nil),   // 12: herdsman.daemon.v1.RuntimeServiceGetExecutionResponse
+	(*RuntimeServiceDoctorRequest)(nil),          // 13: herdsman.daemon.v1.RuntimeServiceDoctorRequest
+	(*RuntimeSelection)(nil),                     // 14: herdsman.daemon.v1.RuntimeSelection
+	(*BackendReport)(nil),                        // 15: herdsman.daemon.v1.BackendReport
+	(*RuntimeCheck)(nil),                         // 16: herdsman.daemon.v1.RuntimeCheck
+	(*RuntimeServiceDoctorResponse)(nil),         // 17: herdsman.daemon.v1.RuntimeServiceDoctorResponse
+	(*RuntimeServiceGetDefaultRequest)(nil),      // 18: herdsman.daemon.v1.RuntimeServiceGetDefaultRequest
+	(*RuntimeServiceGetDefaultResponse)(nil),     // 19: herdsman.daemon.v1.RuntimeServiceGetDefaultResponse
+	(*RuntimeServiceSetDefaultRequest)(nil),      // 20: herdsman.daemon.v1.RuntimeServiceSetDefaultRequest
+	(*RuntimeServiceSetDefaultResponse)(nil),     // 21: herdsman.daemon.v1.RuntimeServiceSetDefaultResponse
+	(*RuntimeServiceSubmitRequest)(nil),          // 22: herdsman.daemon.v1.RuntimeServiceSubmitRequest
+	(*RuntimeServiceSubmitResponse)(nil),         // 23: herdsman.daemon.v1.RuntimeServiceSubmitResponse
+	(*v1.RuntimeRef)(nil),                        // 24: herdsman.core.v1.RuntimeRef
+	(*v1.RouteId)(nil),                           // 25: herdsman.core.v1.RouteId
+	(*v1.Version)(nil),                           // 26: herdsman.core.v1.Version
 }
 var file_herdsman_daemon_v1_runtime_proto_depIdxs = []int32{
-	19, // 0: herdsman.daemon.v1.Execution.ref:type_name -> herdsman.core.v1.RuntimeRef
-	20, // 1: herdsman.daemon.v1.Execution.route:type_name -> herdsman.core.v1.RouteId
+	24, // 0: herdsman.daemon.v1.Execution.ref:type_name -> herdsman.core.v1.RuntimeRef
+	25, // 1: herdsman.daemon.v1.Execution.route:type_name -> herdsman.core.v1.RouteId
 	0,  // 2: herdsman.daemon.v1.Execution.observation:type_name -> herdsman.daemon.v1.ExecutionObservation
 	1,  // 3: herdsman.daemon.v1.Execution.app_binding:type_name -> herdsman.daemon.v1.AppBinding
 	2,  // 4: herdsman.daemon.v1.Execution.tui_binding:type_name -> herdsman.daemon.v1.TuiBinding
-	20, // 5: herdsman.daemon.v1.RuntimeServiceListExecutionsRequest.route:type_name -> herdsman.core.v1.RouteId
-	3,  // 6: herdsman.daemon.v1.RuntimeServiceListExecutionsResponse.executions:type_name -> herdsman.daemon.v1.Execution
-	3,  // 7: herdsman.daemon.v1.RuntimeServiceGetExecutionResponse.execution:type_name -> herdsman.daemon.v1.Execution
-	20, // 8: herdsman.daemon.v1.RuntimeServiceDoctorRequest.route:type_name -> herdsman.core.v1.RouteId
-	21, // 9: herdsman.daemon.v1.RuntimeServiceDoctorResponse.version:type_name -> herdsman.core.v1.Version
-	9,  // 10: herdsman.daemon.v1.RuntimeServiceDoctorResponse.selection:type_name -> herdsman.daemon.v1.RuntimeSelection
-	10, // 11: herdsman.daemon.v1.RuntimeServiceDoctorResponse.backends:type_name -> herdsman.daemon.v1.BackendReport
-	11, // 12: herdsman.daemon.v1.RuntimeServiceDoctorResponse.checks:type_name -> herdsman.daemon.v1.RuntimeCheck
-	14, // 13: herdsman.daemon.v1.RuntimeServiceDoctorResponse.installation:type_name -> herdsman.daemon.v1.RuntimeServiceGetDefaultResponse
-	4,  // 14: herdsman.daemon.v1.RuntimeService.ListExecutions:input_type -> herdsman.daemon.v1.RuntimeServiceListExecutionsRequest
-	6,  // 15: herdsman.daemon.v1.RuntimeService.GetExecution:input_type -> herdsman.daemon.v1.RuntimeServiceGetExecutionRequest
-	8,  // 16: herdsman.daemon.v1.RuntimeService.Doctor:input_type -> herdsman.daemon.v1.RuntimeServiceDoctorRequest
-	13, // 17: herdsman.daemon.v1.RuntimeService.GetDefault:input_type -> herdsman.daemon.v1.RuntimeServiceGetDefaultRequest
-	15, // 18: herdsman.daemon.v1.RuntimeService.SetDefault:input_type -> herdsman.daemon.v1.RuntimeServiceSetDefaultRequest
-	17, // 19: herdsman.daemon.v1.RuntimeService.Submit:input_type -> herdsman.daemon.v1.RuntimeServiceSubmitRequest
-	5,  // 20: herdsman.daemon.v1.RuntimeService.ListExecutions:output_type -> herdsman.daemon.v1.RuntimeServiceListExecutionsResponse
-	7,  // 21: herdsman.daemon.v1.RuntimeService.GetExecution:output_type -> herdsman.daemon.v1.RuntimeServiceGetExecutionResponse
-	12, // 22: herdsman.daemon.v1.RuntimeService.Doctor:output_type -> herdsman.daemon.v1.RuntimeServiceDoctorResponse
-	14, // 23: herdsman.daemon.v1.RuntimeService.GetDefault:output_type -> herdsman.daemon.v1.RuntimeServiceGetDefaultResponse
-	16, // 24: herdsman.daemon.v1.RuntimeService.SetDefault:output_type -> herdsman.daemon.v1.RuntimeServiceSetDefaultResponse
-	18, // 25: herdsman.daemon.v1.RuntimeService.Submit:output_type -> herdsman.daemon.v1.RuntimeServiceSubmitResponse
-	20, // [20:26] is the sub-list for method output_type
-	14, // [14:20] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	4,  // 5: herdsman.daemon.v1.Execution.attention:type_name -> herdsman.daemon.v1.AttentionReason
+	5,  // 6: herdsman.daemon.v1.Execution.unresolved:type_name -> herdsman.daemon.v1.UnresolvedItem
+	6,  // 7: herdsman.daemon.v1.Execution.notices:type_name -> herdsman.daemon.v1.NoticeSummary
+	25, // 8: herdsman.daemon.v1.RuntimeServiceListExecutionsRequest.route:type_name -> herdsman.core.v1.RouteId
+	3,  // 9: herdsman.daemon.v1.RuntimeServiceListExecutionsResponse.executions:type_name -> herdsman.daemon.v1.Execution
+	3,  // 10: herdsman.daemon.v1.RuntimeServiceGetExecutionResponse.execution:type_name -> herdsman.daemon.v1.Execution
+	25, // 11: herdsman.daemon.v1.RuntimeServiceDoctorRequest.route:type_name -> herdsman.core.v1.RouteId
+	26, // 12: herdsman.daemon.v1.RuntimeServiceDoctorResponse.version:type_name -> herdsman.core.v1.Version
+	14, // 13: herdsman.daemon.v1.RuntimeServiceDoctorResponse.selection:type_name -> herdsman.daemon.v1.RuntimeSelection
+	15, // 14: herdsman.daemon.v1.RuntimeServiceDoctorResponse.backends:type_name -> herdsman.daemon.v1.BackendReport
+	16, // 15: herdsman.daemon.v1.RuntimeServiceDoctorResponse.checks:type_name -> herdsman.daemon.v1.RuntimeCheck
+	19, // 16: herdsman.daemon.v1.RuntimeServiceDoctorResponse.installation:type_name -> herdsman.daemon.v1.RuntimeServiceGetDefaultResponse
+	9,  // 17: herdsman.daemon.v1.RuntimeService.ListExecutions:input_type -> herdsman.daemon.v1.RuntimeServiceListExecutionsRequest
+	11, // 18: herdsman.daemon.v1.RuntimeService.GetExecution:input_type -> herdsman.daemon.v1.RuntimeServiceGetExecutionRequest
+	13, // 19: herdsman.daemon.v1.RuntimeService.Doctor:input_type -> herdsman.daemon.v1.RuntimeServiceDoctorRequest
+	18, // 20: herdsman.daemon.v1.RuntimeService.GetDefault:input_type -> herdsman.daemon.v1.RuntimeServiceGetDefaultRequest
+	20, // 21: herdsman.daemon.v1.RuntimeService.SetDefault:input_type -> herdsman.daemon.v1.RuntimeServiceSetDefaultRequest
+	22, // 22: herdsman.daemon.v1.RuntimeService.Submit:input_type -> herdsman.daemon.v1.RuntimeServiceSubmitRequest
+	7,  // 23: herdsman.daemon.v1.RuntimeService.Show:input_type -> herdsman.daemon.v1.RuntimeServiceShowRequest
+	10, // 24: herdsman.daemon.v1.RuntimeService.ListExecutions:output_type -> herdsman.daemon.v1.RuntimeServiceListExecutionsResponse
+	12, // 25: herdsman.daemon.v1.RuntimeService.GetExecution:output_type -> herdsman.daemon.v1.RuntimeServiceGetExecutionResponse
+	17, // 26: herdsman.daemon.v1.RuntimeService.Doctor:output_type -> herdsman.daemon.v1.RuntimeServiceDoctorResponse
+	19, // 27: herdsman.daemon.v1.RuntimeService.GetDefault:output_type -> herdsman.daemon.v1.RuntimeServiceGetDefaultResponse
+	21, // 28: herdsman.daemon.v1.RuntimeService.SetDefault:output_type -> herdsman.daemon.v1.RuntimeServiceSetDefaultResponse
+	23, // 29: herdsman.daemon.v1.RuntimeService.Submit:output_type -> herdsman.daemon.v1.RuntimeServiceSubmitResponse
+	8,  // 30: herdsman.daemon.v1.RuntimeService.Show:output_type -> herdsman.daemon.v1.RuntimeServiceShowResponse
+	24, // [24:31] is the sub-list for method output_type
+	17, // [17:24] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_runtime_proto_init() }
@@ -1542,7 +1990,7 @@ func file_herdsman_daemon_v1_runtime_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herdsman_daemon_v1_runtime_proto_rawDesc), len(file_herdsman_daemon_v1_runtime_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
