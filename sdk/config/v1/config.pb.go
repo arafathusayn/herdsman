@@ -1913,7 +1913,9 @@ type Automations struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Must be true for any action to fire.
 	Experimental *bool `protobuf:"varint,1,opt,name=experimental,proto3,oneof" json:"experimental,omitempty"`
-	// Actions keyed by event kind, such as "merge.landed".
+	// Actions keyed by event kind, such as "merge.landed", or a runtime event
+	// as "runtime." and its kind, such as "runtime.needs_attention". Runtime
+	// events are delivered at most once: a restart loses those not yet fired.
 	On            map[string]*AutomationAction `protobuf:"bytes,2,rep,name=on,proto3" json:"on,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1968,7 +1970,8 @@ type AutomationAction struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// A shell template. Event values reach the shell as variables, never as text.
 	Run *string `protobuf:"bytes,1,opt,name=run,proto3,oneof" json:"run,omitempty"`
-	// A built-in action, such as "route pause".
+	// A built-in action, such as "route pause". On a herdr-core route it pauses
+	// through the route's pause verb and types nothing in a pane.
 	Builtin *string `protobuf:"bytes,2,opt,name=builtin,proto3,oneof" json:"builtin,omitempty"`
 	// A plugin's action, written "<plugin> <action>".
 	Plugin *string `protobuf:"bytes,3,opt,name=plugin,proto3,oneof" json:"plugin,omitempty"`

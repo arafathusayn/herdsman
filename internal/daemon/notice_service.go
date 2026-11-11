@@ -148,6 +148,7 @@ func (d *Daemon) publishRuntime(ev *daemonv1.RuntimeEvent) {
 		return
 	}
 	d.hub.publish("runtime", ev.GetKind(), payload)
+	d.fireRuntime(ev)
 }
 
 // listenWorker opens the worker socket.

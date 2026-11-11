@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/automations"
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/notice"
@@ -121,6 +122,9 @@ type Daemon struct {
 
 	hub  *eventHub     // the topics the event stream and long poll read
 	view *registryView // publishes the routes into hub
+
+	autoOnce sync.Once              // starts the runtime automation worker
+	autoQ    chan automations.Event // runtime events waiting for automations
 }
 
 type credRef struct{ route, name string }
@@ -154,8 +158,12 @@ func New(cfg Config) *Daemon {
 		cfg.DrainWait = 60 * time.Second
 	}
 	hub := newEventHub()
-	return &Daemon{hub: hub, view: newRegistryView(hub), callers: route.NewCallers(), cfg: cfg, routes: map[string]*Route{}, held: map[string]string{}, credIndex: map[string]credRef{},
+	d := &Daemon{hub: hub, view: newRegistryView(hub), callers: route.NewCallers(), cfg: cfg, routes: map[string]*Route{}, held: map[string]string{}, credIndex: map[string]credRef{},
 		streams: map[string]int{}, sem: make(chan struct{}, 32), done: make(chan struct{})}
+	if sink, ok := cfg.Sink.(*AutomationSink); ok {
+		sink.pauseOnCore(d.routeOnCore, d.pauseRoute)
+	}
+	return d
 }
 
 func (d *Daemon) now() time.Time                    { return d.cfg.Now() }

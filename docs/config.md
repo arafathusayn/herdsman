@@ -199,12 +199,12 @@ Automations run an action when the daemon sees an event. The surface is experime
 
 ### [automations.on.<key>]
 
-Actions keyed by event kind, such as "merge.landed".
+Actions keyed by event kind, such as "merge.landed", or a runtime event as "runtime." and its kind, such as "runtime.needs_attention". Runtime events are delivered at most once: a restart loses those not yet fired.
 
 | Key | Type | Description |
 | --- | --- | --- |
 | `run` | string | A shell template. Event values reach the shell as variables, never as text. |
-| `builtin` | string | A built-in action, such as "route pause". |
+| `builtin` | string | A built-in action, such as "route pause". On a herdr-core route it pauses through the route's pause verb and types nothing in a pane. |
 | `plugin` | string | A plugin's action, written "<plugin> <action>". |
 | `timeout` | string | How long the action may run, such as "90s". |
 

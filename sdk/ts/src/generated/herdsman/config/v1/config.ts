@@ -352,7 +352,9 @@ export interface Automations {
    */
   experimental?: boolean;
   /**
-   * Actions keyed by event kind, such as "merge.landed".
+   * Actions keyed by event kind, such as "merge.landed", or a runtime event
+   * as "runtime." and its kind, such as "runtime.needs_attention". Runtime
+   * events are delivered at most once: a restart loses those not yet fired.
    */
   on?: Record<string, AutomationAction>;
 }
@@ -366,7 +368,8 @@ export interface AutomationAction {
    */
   run?: string;
   /**
-   * A built-in action, such as "route pause".
+   * A built-in action, such as "route pause". On a herdr-core route it pauses
+   * through the route's pause verb and types nothing in a pane.
    */
   builtin?: string;
   /**
