@@ -92,7 +92,18 @@ type Config struct {
 	// raises needs_attention for a person (Codex on core, while its queued
 	// wake is the owner's open decision).
 	Attended func(harness string) bool
+	// Trace receives each step of a notice once, after it is recorded: the
+	// issue (the call's own time), the claim (from issue to claim) and the
+	// handling (from claim to acknowledgement). A repeated call is no step.
+	Trace func(step string, n Notice, start, end time.Time)
 }
+
+// The steps of a notice that Config.Trace receives.
+const (
+	TraceIssue  = "issue"
+	TraceClaim  = "claim"
+	TraceHandle = "handle"
+)
 
 func (c *Config) defaults() {
 	if c.Poll == 0 {
@@ -133,6 +144,9 @@ func (c *Config) defaults() {
 	}
 	if c.Emit == nil {
 		c.Emit = func(Event) {}
+	}
+	if c.Trace == nil {
+		c.Trace = func(string, Notice, time.Time, time.Time) {}
 	}
 	if c.RecordPath == nil {
 		c.RecordPath = func(n Notice) string {
@@ -354,11 +368,13 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (Notice, error) {
 	if req.Key == "" || len(req.Content) == 0 || len(req.Content) > MaxContent {
 		return Notice{}, errors.New("notice: a notice needs a key and content of at most 64 KiB")
 	}
+	start := s.now()
 	e, err := s.execution(ctx, req.Execution)
 	if err != nil {
 		return Notice{}, err
 	}
 	var out Notice
+	issued := false
 	err = s.tx(func(tx Tx) error {
 		if n, found, err := tx.NoticeByKey(req.Key); err != nil || found {
 			out = n
@@ -377,9 +393,12 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (Notice, error) {
 			return err
 		}
 		n.Seq = seq
-		out = n
+		out, issued = n, true
 		return tx.PutNotice(n)
 	})
+	if issued && err == nil {
+		s.cfg.Trace(TraceIssue, out, start, s.now())
+	}
 	return out, err
 }
 
@@ -425,11 +444,13 @@ func (s *Service) IssueFinalReport(ctx context.Context, req FinalRequest) (Notic
 	if req.Key == "" || req.StopOp == "" {
 		return Notice{}, errors.New("notice: a final report needs a key and its stop operation")
 	}
+	start := s.now()
 	e, err := s.execution(ctx, req.Execution)
 	if err != nil {
 		return Notice{}, &Refusal{Gate: "identity_unknown", Detail: err.Error()}
 	}
 	var out Notice
+	issued := false
 	err = s.tx(func(tx Tx) error {
 		if n, found, err := tx.NoticeByKey(req.Key); err != nil || found {
 			out = n
@@ -467,9 +488,12 @@ func (s *Service) IssueFinalReport(ctx context.Context, req FinalRequest) (Notic
 			return err
 		}
 		n.Seq = seq
-		out = n
+		out, issued = n, true
 		return tx.PutNotice(n)
 	})
+	if issued && err == nil {
+		s.cfg.Trace(TraceIssue, out, start, s.now())
+	}
 	return out, err
 }
 
@@ -1043,6 +1067,7 @@ func (s *Service) Read(ctx context.Context, caller runtime.Execution, id string)
 		return ReadAnswer{}, err
 	}
 	var out ReadAnswer
+	claimed := false
 	err = s.tx(func(tx Tx) error {
 		list, err := tx.Notices(e.ID)
 		if err != nil {
@@ -1126,11 +1151,15 @@ func (s *Service) Read(ctx context.Context, caller runtime.Execution, id string)
 		if err := tx.PutNotice(n); err != nil {
 			return err
 		}
+		claimed = true
 		out = ReadAnswer{Notice: n, Content: n.Content, Token: n.Token, MayContinue: true,
 			Next: "start `" + nextWaitAfter(n.ID) + "` in the background before the work, keep notes in " + n.RecordPath +
 				", then run: herdsman notice ack " + n.ID + " --token " + n.Token + " --outcome completed --record <what you did>"}
 		return nil
 	})
+	if claimed && err == nil {
+		s.cfg.Trace(TraceClaim, out.Notice, out.Notice.IssuedAt, out.Notice.ClaimedAt)
+	}
 	return out, err
 }
 
@@ -1196,6 +1225,9 @@ func (s *Service) Ack(ctx context.Context, caller runtime.Execution, id, token, 
 		return out, err
 	}
 	n := out.Notice
+	if !out.Repeated {
+		s.cfg.Trace(TraceHandle, n, n.ClaimedAt, n.HandledAt)
+	}
 	if !out.Repeated && outcome != OutcomeCompleted {
 		s.cfg.Emit(Event{Kind: EventOutcome, Repo: n.Repo, Route: n.Route, Execution: n.Execution, Notice: n.ID, Outcome: outcome, Reason: n.Kind})
 	}

@@ -75,7 +75,7 @@ func (d *Daemon) startNotices() {
 	boot := randomHex(8)
 	svc := notice.New(noticeStore{d}, noticeExecutions{d}, notice.Config{
 		Poll: c.Poll, Renewal: c.Renewal, HeldGrace: c.HeldGrace, WaitGrace: c.WaitGrace, RecoveryGrace: c.RecoveryGrace,
-		GenerationGap: c.GenerationGap, MaxWaits: c.MaxWaits, Boot: boot, Emit: d.emitNotice,
+		GenerationGap: c.GenerationGap, MaxWaits: c.MaxWaits, Boot: boot, Emit: d.emitNotice, Trace: d.traceNotice,
 		Attended: func(kind string) bool {
 			a, err := core.AdapterFor(kind)
 			return err == nil && !a.Unattended()

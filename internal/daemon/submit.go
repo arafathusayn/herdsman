@@ -117,7 +117,11 @@ func (s *runtimeService) Submit(ctx context.Context, req *daemonv1.RuntimeServic
 	if err := person(caller); err != nil {
 		return nil, rpc.Errorf(rpc.PermissionDenied, "a typed submit is a person's action typed in a terminal: %v", err)
 	}
+	started := s.d.now()
 	rec, err := c.submitter().Submit(ctx, core.SubmitRequest{Execution: req.GetExecutionId(), Text: req.GetText(), Again: req.GetAgain()})
+	if err == nil {
+		s.d.traceSubmit(started, rec)
+	}
 	if err != nil {
 		switch core.CodeOf(err) {
 		case core.CodeSubmitOutstanding, core.CodeSubmitNoStatus, core.CodeSubmitState, core.CodeRouteStopping, core.CodeSubmitGate:

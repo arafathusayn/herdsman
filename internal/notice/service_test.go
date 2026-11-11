@@ -697,3 +697,56 @@ func TestTickReportsWaitsAndAttention(t *testing.T) {
 		t.Fatalf("interrupted: %+v", att)
 	}
 }
+
+// Trace: each notice's issue, claim and handling reach the trace once, in
+// that order, with the claim timed from the issue and the handling from the
+// claim; a repeated issue, read or acknowledgement is no step.
+func TestTraceSeesEachStepOnce(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld()
+	type step struct {
+		name       string
+		id         string
+		start, end time.Time
+	}
+	var steps []step
+	s := New(NewMemStore(), w, Config{Poll: 40 * time.Millisecond, Now: w.clock, Emit: w.emit, Boot: "boot-1",
+		Sleep:      func(_ context.Context, d time.Duration) error { w.advance(d); return nil },
+		RecordPath: func(n Notice) string { return "/records/" + n.ID + ".md" },
+		Trace: func(name string, n Notice, start, end time.Time) {
+			steps = append(steps, step{name, n.ID, start, end})
+		}})
+	t.Cleanup(s.Close)
+	a := w.add("e-a", "claude")
+	approved(t, s, a)
+	n := issue(t, s, a.ID, "k1")
+	issue(t, s, a.ID, "k1")
+	w.advance(time.Second)
+	first, err := s.Read(ctx, a, "")
+	if err != nil || first.Token == "" {
+		t.Fatalf("%+v %v", first, err)
+	}
+	if _, err := s.Read(ctx, a, n.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.advance(2 * time.Second)
+	for range 2 {
+		if _, err := s.Ack(ctx, a, n.ID, first.Token, OutcomeCompleted, "shipped"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(steps) != 3 || steps[0].name != TraceIssue || steps[1].name != TraceClaim || steps[2].name != TraceHandle {
+		t.Fatalf("steps %+v", steps)
+	}
+	for _, st := range steps {
+		if st.id != n.ID {
+			t.Errorf("step of another notice: %+v", st)
+		}
+	}
+	if got := steps[1].end.Sub(steps[1].start); got != time.Second {
+		t.Errorf("claim timed %s from issue", got)
+	}
+	if got := steps[2].end.Sub(steps[2].start); got != 2*time.Second {
+		t.Errorf("handling timed %s from claim", got)
+	}
+}

@@ -50,6 +50,7 @@ func (d *Daemon) operationEffects() map[string]ops.Effect {
 	for name, effect := range d.cfg.Effects {
 		effects[name] = effect
 	}
+	d.traceLaunches(effects)
 	return effects
 }
 
