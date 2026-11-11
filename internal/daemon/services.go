@@ -52,6 +52,7 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(name, "GetOperation", m.GetOperation),
 		rpc.Unary(name, "ResolveOperation", m.ResolveOperation),
 		rpc.Unary(name, "Wait", m.Wait),
+		rpc.Unary(name, "ResumeGoal", m.ResumeGoal),
 		rpc.Unary(daemonv1.OpsServiceName, "Undo", recovery.Undo),
 		rpc.Unary(daemonv1.OpsServiceName, "Export", recovery.Export),
 		rpc.Unary(daemonv1.OpsServiceName, "Import", recovery.Import),
@@ -83,5 +84,6 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(daemonv1.RuntimeServiceName, "SetDefault", runtimes.SetDefault),
 		rpc.Unary(daemonv1.RuntimeServiceName, "Submit", runtimes.Submit),
 		rpc.Unary(daemonv1.RuntimeServiceName, "Show", runtimes.Show),
+		rpc.Unary(daemonv1.RuntimeServiceName, "Read", runtimes.Read),
 	}...)
 }

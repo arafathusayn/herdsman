@@ -439,11 +439,33 @@ func (d *Daemon) getSetup(parent context.Context, name string, out *SetupInvento
 	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
+	out.Inventory = []InventoryAgent{}
+	if c := d.coreRT(); c != nil && d.channelOnCore(name) {
+		// A route on herdr-core: the shared-core inventory of section 6,
+		// every terminal its rule calls a fault, named by address and
+		// class. Its members are inside the route's control and are not
+		// listed.
+		e, _ := d.routeEntry(name)
+		unknown, err := coreInventory{c: c, repo: e.Repo, route: name}.Unknown(ctx, nil)
+		if err != nil {
+			return Errf("core_unreachable", "herdr-core: %v", err)
+		}
+		for _, u := range unknown {
+			agent, _ := u.Agent.(string)
+			out.Inventory = append(out.Inventory, InventoryAgent{Pane: u.Pane, Session: u.Session, Agent: agent})
+		}
+		_ = rt.do(parent, func() *APIError {
+			if doc, ok := rt.readSetup(); ok {
+				out.Proof = doc
+			}
+			return nil
+		})
+		return nil
+	}
 	agents, err := d.herdrFor(name).AgentList(ctx)
 	if err != nil {
 		return Errf("herdr_unreachable", "herdr: %v", err)
 	}
-	out.Inventory = []InventoryAgent{}
 	for _, a := range agents {
 		ia := InventoryAgent{Pane: a.PaneID, Session: a.AgentSession}
 		if a.Agent.Agent != nil {
@@ -517,6 +539,17 @@ func (d *Daemon) enroll(ctx context.Context, name string, q EnrollRequest, sum *
 	if e != nil {
 		return e
 	}
+	if d.channelOnCore(name) {
+		id, e := d.coreCaller(ctx, rt)
+		if e != nil {
+			return e
+		}
+		return rt.do(ctx, func() *APIError {
+			var e *APIError
+			*sum, e = rt.enrollExecution(q.Name, q.Role, id, d.executionReplaced)
+			return e
+		})
+	}
 	id, e := d.liveIdentity(ctx, name, callHeader(ctx).Get(HeaderPane))
 	if e != nil {
 		return e
@@ -586,7 +619,8 @@ func (d *Daemon) revokeCredential(ctx context.Context, route, name string) *APIE
 func (d *Daemon) authParty(ctx context.Context, rt *Route) (string, *APIError) {
 	header := callHeader(ctx)
 	pane := header.Get(HeaderPane)
-	if pane == "" {
+	onCore := d.channelOnCore(rt.name)
+	if pane == "" && !onCore {
 		return "", Errf("unauthorized", "the %s header (HERDR_PANE_ID) is required", HeaderPane)
 	}
 	name := header.Get(HeaderName)
@@ -623,6 +657,19 @@ func (d *Daemon) authParty(ctx context.Context, rt *Route) (string, *APIError) {
 	peer, ok := rt.root().Peer(party)
 	if !ok {
 		return "", Errf("unauthorized", "%s is not an approved party of route %s", party, rt.name)
+	}
+	if onCore {
+		// On herdr-core the caller is its process's execution; a pane
+		// header is a hint at most. A replaced execution is another
+		// identity, so its stale binding fails here.
+		id, e := d.coreCaller(ctx, rt)
+		if e != nil {
+			return "", e
+		}
+		if !id.Same(peer.Identity) {
+			return "", Errf("identity_mismatch", "the caller is not %s's enrolled execution; a replaced execution is enrolled again by herdsman up", party)
+		}
+		return party, nil
 	}
 	id, e := d.liveIdentity(ctx, rt.name, pane)
 	if e != nil {

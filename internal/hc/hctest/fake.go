@@ -585,7 +585,11 @@ func (c *Core) dispatch(x *conn, method string, p map[string]any) (any, *rpcErro
 		if err != nil {
 			return nil, err, nil
 		}
-		return map[string]any{"text": "screen of " + t["address"].(string), "complete": true, "how": "screen", "future": true}, nil, nil
+		text := "screen of " + t["address"].(string)
+		if s, ok := t["test_screen"].(string); ok {
+			text = s // a test's screen, set with Mutate
+		}
+		return map[string]any{"text": text, "complete": true, "how": "screen", "future": true}, nil, nil
 	case "terminal.send":
 		return c.send(p)
 	case "terminal.interrupt":

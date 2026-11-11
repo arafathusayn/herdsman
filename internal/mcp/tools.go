@@ -95,6 +95,10 @@ var peopleOnlyMethods = map[protoreflect.FullName]bool{
 	// herdr-core spec, section 10, rule 2); an agent may never press Enter
 	// in another agent's terminal.
 	"herdsman.daemon.v1.RuntimeService.Submit": true,
+	// Read shows another execution's terminal text, which can hold task
+	// content the pair channel does not carry; it serves the waiters and a
+	// person, never an agent through MCP.
+	"herdsman.daemon.v1.RuntimeService.Read": true,
 }
 
 // Files are the contracts served as tools: only those the daemon serves.

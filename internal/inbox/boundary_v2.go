@@ -208,3 +208,36 @@ func hashRegular(p string) (string, error) {
 // beforeHash runs in ProofV2Valid just before a proof file is hashed;
 // tests swap the file there.
 var beforeHash func(p string)
+
+// ListedInventory is an agent list another component reads, such as the
+// daemon's setup inventory of a herdr-core route: every listed agent the
+// boundary does not know is unknown. A failed list is a failure.
+type ListedInventory struct {
+	List func(ctx context.Context) ([]Unknown, error)
+}
+
+// Unknown implements Inventory.
+func (l ListedInventory) Unknown(ctx context.Context, boundary map[string]any) ([]Unknown, error) {
+	if l.List == nil {
+		return nil, errors.New("no inventory to read")
+	}
+	agents, err := l.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var unknown []Unknown
+	for _, a := range agents {
+		var sess any
+		if len(a.Session) > 0 {
+			sess, _ = Decode(a.Session)
+		}
+		if knownAgent(boundary, map[string]any{"pane": a.Pane, "session": sess}, a.Agent) {
+			continue
+		}
+		if len(a.Session) == 0 {
+			a.Session = json.RawMessage("null")
+		}
+		unknown = append(unknown, a)
+	}
+	return unknown, nil
+}

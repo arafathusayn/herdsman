@@ -2,9 +2,14 @@ package route_test
 
 import (
 	"context"
+	"errors"
+	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,7 +25,9 @@ import (
 // coreRig is a route rig whose agents launch on a fake herdr-core.
 type coreRig struct {
 	*rig
-	w *coretest.World
+	w        *coretest.World
+	services *memServices
+	channel  *memChannel
 }
 
 func newCoreRig(t *testing.T) *coreRig {
@@ -47,7 +54,126 @@ func (r *coreRig) request() route.UpRequest {
 func (r *coreRig) engine() (*ops.Engine, func()) {
 	r.t.Helper()
 	reg := runtime.Registry{runtime.BackendCore: func(endpoint string) (runtime.Provider, error) { return r.w.NewProvider(endpoint), nil }}
-	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg})
+	if r.services == nil {
+		r.services = &memServices{running: map[string]route.ServiceSpec{}}
+	}
+	if r.channel == nil {
+		r.channel = &memChannel{parties: map[string]string{}, held: map[string]bool{}}
+	}
+	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg, Services: r.services, CoreChannel: r.channel, Recovery: r.recovery, Down: r.down})
+}
+
+// memChannel is the daemon's channel of a core route as a map: who is
+// enrolled under which name, and whether the pair is approved.
+type memChannel struct {
+	mu        sync.Mutex
+	opened    bool
+	parties   map[string]string // party name -> execution id
+	approved  map[string]string
+	held      map[string]bool
+	handshake int
+}
+
+func (m *memChannel) Open(context.Context, route.ChannelOpen) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opened = true
+	return nil
+}
+
+func (m *memChannel) Enroll(_ context.Context, _, party, _ string, e runtime.Execution) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.parties[party] = e.ID
+	return nil
+}
+
+func (m *memChannel) Approve(_ context.Context, _ string, pair []runtime.Execution) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(pair) != len(m.parties) {
+		return errors.New("the pending pair is not the one up attested")
+	}
+	for _, e := range pair {
+		if m.parties[e.Agent] != e.ID {
+			return errors.New("the pending pair is not the one up attested")
+		}
+	}
+	m.approved = maps.Clone(m.parties)
+	return nil
+}
+
+func (m *memChannel) Approved(string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.approved != nil && maps.Equal(m.approved, m.parties)
+}
+
+func (m *memChannel) Handshake(context.Context, string, string, string, string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.handshake++
+	return nil
+}
+
+func (m *memChannel) Hold(_ context.Context, _, party string, held bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.held[party] = held
+	return nil
+}
+
+func (m *memChannel) Held(_, party string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.held[party]
+}
+
+// memServices is the daemon's service owner as a map: one entry per service.
+type memServices struct {
+	mu      sync.Mutex
+	running map[string]route.ServiceSpec
+	starts  []string
+	stops   []string
+}
+
+func (m *memServices) Start(_ context.Context, s route.ServiceSpec) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.running[s.Key()]; !ok {
+		m.starts = append(m.starts, s.Name)
+	}
+	m.running[s.Key()] = s
+	return nil
+}
+
+func (m *memServices) Stop(_ context.Context, repo, name, service string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := route.ServiceSpec{Repo: repo, Route: name, Name: service}.Key()
+	if _, ok := m.running[key]; ok {
+		m.stops = append(m.stops, service)
+	}
+	delete(m.running, key)
+	return nil
+}
+
+func (m *memServices) Running(repo, name, service string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.running[route.ServiceSpec{Repo: repo, Route: name, Name: service}.Key()]
+	return ok
+}
+
+func (m *memServices) names() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []string
+	for _, s := range m.running {
+		out = append(out, s.Name)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // attestShell makes the caller a person's shell outside every agent.
@@ -74,8 +200,13 @@ func TestCoreUpWaitsForAPersonTwiceThenEnrolls(t *testing.T) {
 	e, closeDB := r.engine()
 	defer closeDB()
 	p := r.plan(r.request())
-	if strings.Contains(p.Text, "pane") {
+	if strings.Contains(p.Text, "pane") && !strings.Contains(p.Text, "needs a person") {
 		t.Errorf("a core plan names a pane:\n%s", p.Text)
+	}
+	// up names, before the route starts, each step that will need a person.
+	if !strings.Contains(p.Text, "needs a person (claude, unattended):") || !strings.Contains(p.Text, "start_line: once, before the first brief") ||
+		!strings.Contains(p.Text, "compaction_due: only if the harness's automatic compaction is turned off") {
+		t.Errorf("the plan does not name the steps that need a person:\n%s", p.Text)
 	}
 	op := drive(t, e, p.Spec)
 	if op.State != ops.OpStopped || !strings.Contains(lastError(op), core.CodeWaitingVisibility) {
@@ -98,6 +229,10 @@ func TestCoreUpWaitsForAPersonTwiceThenEnrolls(t *testing.T) {
 	if op.State != ops.OpStopped || !strings.Contains(lastError(op), core.CodeNeedsAttention) || !strings.Contains(lastError(op), "proj-harbor-adjutant") || !strings.Contains(lastError(op), "herdsman notice wait") {
 		t.Fatalf("second wait: %s %q", op.State, lastError(op))
 	}
+	// The start line is due now, and the stream says so with the line.
+	if evs := r.w.EventsOf(notice.EventNeedsAttention); len(evs) == 0 || evs[len(evs)-1].Reason != core.AttentionStartLine || !strings.Contains(evs[len(evs)-1].Line, "herdsman notice wait") {
+		t.Errorf("no start_line attention on the stream: %+v", evs)
+	}
 	op = cont()
 	if op.State != ops.OpStopped || !strings.Contains(lastError(op), "orchestrator") || !strings.Contains(lastError(op), "herdsman notice wait") {
 		t.Fatalf("orchestrator's start line: %s %q", op.State, lastError(op))
@@ -114,6 +249,20 @@ func TestCoreUpWaitsForAPersonTwiceThenEnrolls(t *testing.T) {
 	}
 	if n := r.w.Core.Calls("terminal.send"); n != 0 {
 		t.Errorf("up typed into core %d times", n)
+	}
+	// Pair channel: the route's channel is the daemon's, each coordinator
+	// enrolled by its execution, the attested pair approved, and the
+	// handshake seeded once.
+	if !r.channel.opened || len(r.channel.parties) != 2 || !r.channel.Approved("harbor") || r.channel.handshake != 1 {
+		t.Errorf("channel: %+v", r.channel)
+	}
+	// The coordinators find their channel by route and party name.
+	all, _ := r.w.Records.List(context.Background(), r.repo, "harbor")
+	for _, x := range all {
+		env := strings.Join(r.w.ExecEnv(x.LaunchIntent), "\n")
+		if !strings.Contains(env, "HERDSMAN_INBOX=") || !strings.Contains(env, "HERDSMAN_NAME="+x.Agent) || strings.Contains(env, "HERDSMAN_ROUTE=") {
+			t.Errorf("%s's environment names no party:\n%s", x.Agent, env)
+		}
 	}
 	// The role commands that the start line used to carry are the first
 	// brief of each agent, issued as a notice once the pair is enrolled.
@@ -233,6 +382,11 @@ func TestCoreControlPausesStopsAndResumes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Services: each registered once with the daemon, no pane copy; no
+	// courier without a channel.
+	if got := r.services.names(); !slices.Equal(got, []string{route.ServiceCardWatch, route.ServiceCheckpoint}) {
+		t.Fatalf("services after the start: %v", got)
+	}
 	verb := func(v route.Verb, gen int, from string) *ops.Operation {
 		t.Helper()
 		plan, err := route.PlanControl(context.Background(), route.ControlRequest{Verb: v, Start: start, Generation: gen, From: from, Date: "2026-11-11"})
@@ -248,6 +402,10 @@ func TestCoreControlPausesStopsAndResumes(t *testing.T) {
 	if rec == nil || len(rec.Agents) != 1 || rec.Agents[0].Status != core.PauseLeftWaiting {
 		t.Fatalf("pause record %+v", rec)
 	}
+	// The pause quiets the checkpointer; the card watch stays.
+	if got := r.services.names(); !slices.Equal(got, []string{route.ServiceCardWatch}) {
+		t.Fatalf("services after the pause: %v", got)
+	}
 	if n := r.w.Core.Calls("terminal.interrupt"); n != 0 {
 		t.Errorf("a pause interrupted an agent at rest %d times", n)
 	}
@@ -258,8 +416,9 @@ func TestCoreControlPausesStopsAndResumes(t *testing.T) {
 	if len(execs) != 1 || execs[0].Desired != runtime.DesiredStopped {
 		t.Fatalf("after stop: %+v", execs)
 	}
-	if _, err := route.PlanControl(context.Background(), route.ControlRequest{Verb: route.VerbDelete, Start: start, Generation: 3, Date: "2026-11-11"}); err == nil {
-		t.Error("delete planned on core")
+	// The stop ends every owned service of the route by its record.
+	if got := r.services.names(); len(got) != 0 {
+		t.Fatalf("services after the stop: %v", got)
 	}
 	resumed := verb(route.VerbResume, 3, route.ControlStopped)
 	if resumed.State != ops.OpStopped || !strings.Contains(lastError(resumed), core.CodeNeedsAttention) {
@@ -268,6 +427,85 @@ func TestCoreControlPausesStopsAndResumes(t *testing.T) {
 	execs, _ = r.w.Records.List(context.Background(), r.repo, "harbor")
 	if len(execs) != 2 || execs[0].LaunchIntent == execs[1].LaunchIntent {
 		t.Fatalf("a resume reused its reservation: %+v", execs)
+	}
+}
+
+// Teardown, delete on core: a delete stops through the provider, then
+// archives; it never closes core's spaces or tabs and never types.
+func TestCoreDeleteStopsThroughTheProviderThenArchives(t *testing.T) {
+	r := newCoreRig(t)
+	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.name=t", "-c", "user.email=t@e", "commit", "-q", "--allow-empty", "-m", "base"}} {
+		if out, err := exec.Command("git", append([]string{"-C", r.repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	r.recovery = &pipeline{repo: r.repo}
+	r.down = func(context.Context, string, string) error { r.downs++; return nil }
+	r.w.OpenApp()
+	e, closeDB := r.engine()
+	defer closeDB()
+	q := r.request()
+	q.NoAdjutant = true
+	p := r.plan(q)
+	op := drive(t, e, p.Spec)
+	r.attestShell(p.Key)
+	for op.State != ops.OpDone {
+		if err := route.Continue(e, r.callers, p, op, nil); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		if op, err = e.Drive(context.Background(), op.ID); err != nil {
+			t.Fatal(err)
+		}
+		if op.State == ops.OpFailed {
+			t.Fatalf("start failed: %q", lastError(op))
+		}
+	}
+	start, err := e.Get(op.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	del := func(gen int, force bool) (*route.ControlPlan, *ops.Operation) {
+		t.Helper()
+		plan, err := route.PlanControl(context.Background(), route.ControlRequest{Verb: route.VerbDelete, Start: start, Generation: gen, Force: force, Date: "2026-11-11"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return plan, drive(t, e, plan.Spec)
+	}
+	// A running agent is never deleted without --force.
+	if _, got := del(1, false); got.State == ops.OpDone {
+		t.Fatal("a running route was deleted without --force")
+	}
+	if _, err := os.Stat(p.Folder); err != nil {
+		t.Fatalf("a refused delete removed the folder: %v", err)
+	}
+	plan, got := del(2, true)
+	if got.State != ops.OpDone {
+		t.Fatalf("delete --force: %s %q", got.State, lastError(got))
+	}
+	if strings.Contains(plan.Text, "close the workspace") {
+		t.Errorf("a core delete closes a workspace:\n%s", plan.Text)
+	}
+	execs, _ := r.w.Records.List(context.Background(), r.repo, "harbor")
+	for _, x := range execs {
+		if x.Desired != runtime.DesiredStopped {
+			t.Errorf("an execution survived the delete: %+v", x)
+		}
+	}
+	if _, err := os.Stat(p.Folder); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the route folder survived: %v", err)
+	}
+	if _, err := os.Stat(plan.Snapshot); err != nil {
+		t.Errorf("no snapshot: %v", err)
+	}
+	if got := r.services.names(); len(got) != 0 {
+		t.Errorf("services after the delete: %v", got)
+	}
+	for _, m := range []string{"terminal.send", "terminal.keys", "space.close", "tab.close", "workspace.close"} {
+		if n := r.w.Core.Calls(m); n != 0 {
+			t.Errorf("the delete called %s %d times", m, n)
+		}
 	}
 }
 

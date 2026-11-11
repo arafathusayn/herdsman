@@ -43,6 +43,10 @@ type RuntimeService interface {
 	// Show focuses an execution's existing view in the native app through the
 	// provider. It never creates a view or an execution, and it types nothing.
 	Show(context.Context, *RuntimeServiceShowRequest) (*RuntimeServiceShowResponse, error)
+	// Read returns the newest lines of one herdr-core execution's terminal and
+	// its last observation, for the waiters (spec section 15: watch and wait read
+	// the runtime, not a pane). It types nothing.
+	Read(context.Context, *RuntimeServiceReadRequest) (*RuntimeServiceReadResponse, error)
 }
 
 // NewRuntimeServiceHandler serves impl over HTTP with the full binding. Mount it
@@ -56,6 +60,7 @@ func NewRuntimeServiceHandler(impl RuntimeService) http.Handler {
 		rpc.Unary(RuntimeServiceName, "SetDefault", impl.SetDefault),
 		rpc.Unary(RuntimeServiceName, "Submit", impl.Submit),
 		rpc.Unary(RuntimeServiceName, "Show", impl.Show),
+		rpc.Unary(RuntimeServiceName, "Read", impl.Read),
 	)
 }
 
@@ -120,6 +125,14 @@ func (c *runtimeServiceClient) Submit(ctx context.Context, req *RuntimeServiceSu
 func (c *runtimeServiceClient) Show(ctx context.Context, req *RuntimeServiceShowRequest) (*RuntimeServiceShowResponse, error) {
 	res := new(RuntimeServiceShowResponse)
 	if err := callRuntimeService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RuntimeService/Show", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *runtimeServiceClient) Read(ctx context.Context, req *RuntimeServiceReadRequest) (*RuntimeServiceReadResponse, error) {
+	res := new(RuntimeServiceReadResponse)
+	if err := callRuntimeService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RuntimeService/Read", req, res); err != nil {
 		return nil, err
 	}
 	return res, nil

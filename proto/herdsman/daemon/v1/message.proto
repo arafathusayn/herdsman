@@ -65,6 +65,29 @@ service MessageService {
   // Wait returns the calling party's next events after a cursor, or none when
   // wait_ms passes first.
   rpc Wait(WaitRequest) returns (WaitResponse);
+  // ResumeGoal asks for a herdr-core agent's paused goal to be resumed. Nothing
+  // is typed: the daemon raises needs_attention with reason goal_paused and the
+  // line a person submits, and the result is always held. A TUI route keeps
+  // its file-mode resume-goal.
+  rpc ResumeGoal(ResumeGoalRequest) returns (ResumeGoalResponse);
+}
+
+message ResumeGoalRequest {
+  herdsman.core.v1.RouteId route = 1;
+  // The approved name of the agent whose goal is paused; never the adjutant.
+  string target = 2;
+}
+
+message ResumeGoalResponse {
+  herdsman.core.v1.Version version = 1;
+  // "held": only a person resumes a paused goal on herdr-core.
+  string status = 2;
+  // "goal_paused".
+  string reason = 3;
+  // The line a person submits in the agent's terminal.
+  string line = 4;
+  // The execution whose goal is paused.
+  herdsman.core.v1.RuntimeRef execution = 5;
 }
 
 message DaemonStatusRequest {}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/snapshot"
 )
 
@@ -276,8 +277,12 @@ func applyRemove(ctx context.Context, deps Deps, c *herdr.Client, d stepData) er
 	if err := verifyCaptures(ctx, deps, d); err != nil {
 		return back(err)
 	}
-	if err := closeWorkspace(ctx, c, d.Workspace); err != nil {
-		return back(err)
+	// On herdr-core the route's space and tabs are core's and may be shared:
+	// a delete never closes them.
+	if d.Backend != runtime.BackendCore {
+		if err := closeWorkspace(ctx, c, d.Workspace); err != nil {
+			return back(err)
+		}
 	}
 	for _, target := range d.Control.Targets {
 		if err := os.RemoveAll(stagedPath(target)); err != nil {

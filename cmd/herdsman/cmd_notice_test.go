@@ -131,6 +131,33 @@ func (f *fakeRuntime) Submit(_ context.Context, req *daemonv1.RuntimeServiceSubm
 	return &daemonv1.RuntimeServiceSubmitResponse{SubmitId: "s-1", State: "typed"}, nil
 }
 
+func (f *fakeRuntime) Read(_ context.Context, req *daemonv1.RuntimeServiceReadRequest) (*daemonv1.RuntimeServiceReadResponse, error) {
+	f.read = append(f.read, req.GetExecutionId())
+	out := &daemonv1.RuntimeServiceReadResponse{Observation: &daemonv1.ExecutionObservation{Program: "blocked"}}
+	if req.GetLines() > 0 {
+		out.Text = "Do you want to proceed?\n"
+	}
+	return out, nil
+}
+
+// The waiter reads a herdr-core agent through the daemon's runtime: core's
+// program status and the terminal, never a pane.
+func TestRuntimeAgentsReadThroughTheDaemon(t *testing.T) {
+	f := &fakeRuntime{}
+	withFakeRuntime(t, f)
+	a := &runtimeAgents{}
+	ctx := context.Background()
+	if st, ok := a.Status(ctx, "e-1"); !ok || st != "blocked" {
+		t.Fatalf("status %q %v", st, ok)
+	}
+	if text, ok := a.Read(ctx, "e-1", 40); !ok || text != "Do you want to proceed?\n" {
+		t.Fatalf("read %q %v", text, ok)
+	}
+	if len(f.read) != 2 {
+		t.Fatalf("reads %v", f.read)
+	}
+}
+
 // A typed submit is confirmed by the person: without --yes it asks, and a
 // refusal types nothing.
 func TestRuntimeSubmitConfirms(t *testing.T) {

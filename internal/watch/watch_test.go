@@ -34,6 +34,7 @@ type harness struct {
 	now    time.Time
 	sleeps []time.Duration
 	status string // the in-process status snapshot
+	agents Agents // the herdr-core agents, by runtime reference
 }
 
 func newHarness(t *testing.T) *harness {
@@ -78,7 +79,7 @@ func (h *harness) run(fn func(context.Context, Env, Deps) int, extra ...string) 
 		return v, ok
 	}
 	var out bytes.Buffer
-	d := Deps{Client: h.client, Now: func() time.Time { return h.now }, Stdout: &out, Stderr: &out,
+	d := Deps{Client: h.client, Agents: h.agents, Now: func() time.Time { return h.now }, Stdout: &out, Stderr: &out,
 		Sleep:  func(d time.Duration) bool { h.sleeps = append(h.sleeps, d); return false },
 		Status: func(_ context.Context, w io.Writer, _ string) { io.WriteString(w, h.status) },
 	}

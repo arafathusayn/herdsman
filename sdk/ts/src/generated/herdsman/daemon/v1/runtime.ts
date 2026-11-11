@@ -3,6 +3,23 @@
 
 import type * as herdsman_core_v1_core from "../../core/v1/core";
 
+export interface RuntimeServiceReadRequest {
+  executionId?: string;
+  /**
+   * At most this many lines; 0 reads only the observation.
+   */
+  lines?: number;
+}
+
+export interface RuntimeServiceReadResponse {
+  text?: string;
+  /**
+   * The text is the end of a longer screen.
+   */
+  truncated?: boolean;
+  observation?: ExecutionObservation;
+}
+
 /**
  * ExecutionObservation is what was last observed about an execution. Each
  * field is independent: a program status of "done" says nothing about the task,
@@ -458,6 +475,15 @@ export const RuntimeService = {
     show: {
       path: "/rpc/herdsman.daemon.v1.RuntimeService/Show",
       signature: undefined as unknown as (request: RuntimeServiceShowRequest) => RuntimeServiceShowResponse,
+    },
+    /**
+     * Read returns the newest lines of one herdr-core execution's terminal and
+     * its last observation, for the waiters (spec section 15: watch and wait read
+     * the runtime, not a pane). It types nothing.
+     */
+    read: {
+      path: "/rpc/herdsman.daemon.v1.RuntimeService/Read",
+      signature: undefined as unknown as (request: RuntimeServiceReadRequest) => RuntimeServiceReadResponse,
     },
   },
 } as const;

@@ -19,6 +19,7 @@ type fakeRuntime struct {
 	list            *daemonv1.RuntimeServiceListExecutionsRequest
 	submit          *daemonv1.RuntimeServiceSubmitRequest
 	show            *daemonv1.RuntimeServiceShowRequest
+	read            []string
 }
 
 func (f *fakeRuntime) ListExecutions(_ context.Context, req *daemonv1.RuntimeServiceListExecutionsRequest) (*daemonv1.RuntimeServiceListExecutionsResponse, error) {

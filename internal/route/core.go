@@ -37,6 +37,9 @@ const (
 	effectCoreEnroll    = "core.enroll"
 	effectCorePause     = "core.pause"
 	effectCoreStop      = "core.stop"
+	effectCoreService   = "core.service"
+	effectCoreQuiet     = "core.service-stop"
+	effectCoreEnded     = "core.ended"
 )
 
 // CoreLaunch is the herdr-core half of an UpRequest, filled by the daemon.
@@ -74,6 +77,8 @@ type coreData struct {
 	// Reissue: the brief step of a resume after a stop first carries on what
 	// the agent's predecessor left unhandled.
 	Reissue bool `json:"reissue,omitempty"`
+	// Service is the supporting service a service step registers.
+	Service *ServiceSpec `json:"service,omitempty"`
 }
 
 // planCore plans a route's start on herdr-core: the route folder, the inbox,
@@ -124,11 +129,17 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 	channelEnv := map[string]string{}
 	if !q.NoAdjutant {
 		base.Inbox = p.Inbox
-		add("create the private inbox", effectInbox, "inbox:"+p.Inbox, ops.RetryIdempotent, with(func(d *stepData) { d.PolicyFiles = q.PolicyFiles }))
+		// The pair's channel is the daemon's: the inbox is daemon-owned,
+		// and each party is the execution its process belongs to.
+		add("register the route's daemon channel", effectCoreChannel, "core-channel:"+p.Inbox, ops.RetryIdempotent, with(func(d *stepData) { d.PolicyFiles = q.PolicyFiles }))
 		channelEnv["HERDSMAN_INBOX"] = p.Inbox
 		channelEnv["HERDSMAN_PREFLIGHT"] = filepath.Join(p.Inbox, "setup.json")
 		channelEnv["HERDSMAN_ORCHESTRATOR"] = p.OrchestratorName
 		channelEnv["HERDSMAN_ADJUTANT"] = p.AdjutantName
+		// No HERDSMAN_ROUTE: the wrapper refuses it as another caller's
+		// scope. The message verbs find the route by its daemon-owned
+		// inbox in the daemon's route registry.
+		fmt.Fprintf(text, "channel: the daemon's, callers identified by their execution\n")
 	}
 	routeID := core.UUIDOf(q.Core.Owner, q.Repo, q.Route)
 	space := core.OpaqueID(q.Core.Owner, q.Repo, q.Route, "space")
@@ -141,7 +152,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 		intents = append(intents, intent)
 		d := launch.CoreDescriptor{
 			Intent: intent, Execution: exec, Kind: c.kind, Harness: append([]string(nil), c.spec.Command...), StepsDir: stepsDir,
-			TimeoutMS: c.spec.Timeout().Milliseconds(), Cwd: coreCwd(c, q), Env: mergeEnv(channelEnv, c.spec.Env),
+			TimeoutMS: c.spec.Timeout().Milliseconds(), Cwd: coreCwd(c, q), Env: mergeEnv(channelEnv, partyEnv(q, c), c.spec.Env),
 			Login: q.Core.Login, LoginFrom: q.Core.LoginFrom, SecretRefs: q.SecretRefs, NoticeSocket: q.Core.NoticeSocket,
 		}
 		for _, step := range c.spec.Prelude {
@@ -180,6 +191,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 		if a.Attended {
 			fmt.Fprintf(text, "attended: %s is woken by a person on herdr-core; each notice for it waits for the line %q in its pane\n", c.kind, notice.AttendedLine)
 		}
+		writePersonSteps(text, a)
 		add("have a person submit "+c.name+"'s start line", effectCoreAttach, "core-attach:"+c.name, ops.RetryNever, data(func(cd *coreData) {
 			cd.Line = a.StartLine
 		}))
@@ -193,10 +205,51 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 	add("enroll the agents", effectCoreEnroll, "core-enroll:"+p.Key, ops.RetryIdempotent, with(func(d *stepData) {
 		d.Core = &coreData{Intents: intents}
 	}))
+	if !q.NoAdjutant {
+		add("seed the handshake", effectCoreHandshake, "core-handshake:"+p.Inbox, ops.RetryIdempotent, with(func(d *stepData) {
+			d.Adjutant, d.Orchestrator = p.AdjutantName, p.OrchestratorName
+		}))
+	}
 	for _, f := range briefs {
 		f()
 	}
+	// The supporting services, each registered with its one owner, the
+	// daemon. Nothing is typed into a pane for them.
+	for _, s := range coreServiceSpecs(q, p, coordinators[len(coordinators)-1]) {
+		s := s
+		fmt.Fprintf(text, "service: %s (run by the daemon)\n", s.Name)
+		add(serviceStepName(s), effectCoreService, "core-service:"+s.Name, ops.RetryIdempotent, with(func(d *stepData) {
+			d.Core = &coreData{Service: &s}
+		}))
+	}
 	return steps, nil
+}
+
+// writePersonSteps names, before the route starts, the steps of an agent's run
+// that will need a person (spec section 10, "Attended and unattended"). Each
+// raises needs_attention with its reason on the event stream when it comes
+// due; the route's other agents go on. compaction_due is named as a
+// possibility for a harness that compacts by itself: it comes due only where
+// the user's configuration turns that off.
+func writePersonSteps(text *strings.Builder, a core.Adapter) {
+	fmt.Fprintf(text, "needs a person (%s, %s):\n", a.Kind, a.Facts.Level)
+	for _, s := range a.PersonSteps(true) {
+		when := s.When
+		if s.Reason == core.AttentionCompactionDue && a.Facts.Compaction.BySelf {
+			when = "only if the harness's automatic compaction is turned off, " + when
+		}
+		fmt.Fprintf(text, "  %s: %s: %s\n", s.Reason, when, s.What)
+	}
+}
+
+// partyEnv names the coordinator's party in the route's channel: the daemon
+// still identifies the caller by its process, and the name only says which
+// party it claims to be.
+func partyEnv(q UpRequest, c compiled) map[string]string {
+	if q.NoAdjutant {
+		return nil
+	}
+	return map[string]string{"HERDSMAN_NAME": c.name}
 }
 
 func coreCwd(c compiled, q UpRequest) string {
@@ -379,8 +432,18 @@ func lineFile(d stepData) string {
 // applyCoreAttach is the first of up's two waits for a person on core: the
 // harness's start line, which no automation types. A person submits it in
 // the agent's pane and runs up again with --continue, which settles the step.
-func applyCoreAttach(_ context.Context, _ Deps, _ *herdr.Client, d stepData) error {
+func applyCoreAttach(_ context.Context, deps Deps, _ *herdr.Client, d stepData) error {
 	where := fmt.Sprintf("in %s's pane in the herdr app (space %s, tab %s)", d.Name, d.Route, d.Label)
+	// The step is due now: it says so on the event stream as well as in
+	// the start's answer, so a person who watches the stream hears of it.
+	attention := notice.Event{Kind: notice.EventNeedsAttention, Repo: d.Repo, Route: d.Route, Execution: d.Core.Launch.Execution, Reason: core.AttentionStartLine,
+		Detail: fmt.Sprintf("a person submits %s's start line %s, then runs herdsman up %s --continue", d.Name, where, d.Route)}
+	if !d.Core.LineHoldsPrompt {
+		attention.Line = d.Core.Line
+	}
+	if cp, err := coreProvider(deps); err == nil && cp.Notices != nil {
+		cp.Notices.Emit(attention)
+	}
 	if d.Core.LineHoldsPrompt {
 		if err := writeFileNew(lineFile(d), []byte(d.Core.Line+"\n")); err != nil {
 			return err
@@ -448,7 +511,12 @@ func applyCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData
 	if b, err := os.ReadFile(pairPath(d)); err == nil {
 		var prev pairRecord
 		if json.Unmarshal(b, &prev) == nil && prev.Checksum == sum {
-			return approve()
+			if err := approve(); err != nil {
+				return err
+			}
+			// The same pair was attested: its channel is enrolled and
+			// approved again only if a crash came between.
+			return enrollChannel(ctx, deps, d, execs)
 		}
 	}
 	caller, ok := deps.Callers.Get(d.Key)
@@ -478,7 +546,10 @@ func applyCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData
 	if err := os.WriteFile(pairPath(d), b, 0o600); err != nil {
 		return err
 	}
-	return approve()
+	if err := approve(); err != nil {
+		return err
+	}
+	return enrollChannel(ctx, deps, d, execs)
 }
 
 func probeCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) (ops.Verdict, string, error) {
@@ -500,6 +571,9 @@ func probeCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData
 	execs, err := cp.Enrollable(ctx, d.Core.Intents)
 	if err != nil || pairChecksum(execs) != rec.Checksum {
 		return ops.Unknown, "the enrolled pair is not the current one", nil
+	}
+	if !channelApproved(deps, d) {
+		return ops.Unknown, "the pair's channel is not approved", nil
 	}
 	return ops.Matches, "", nil
 }
@@ -684,18 +758,18 @@ func (b *controlBuilder) planCoreControl() error {
 	for _, l := range launches {
 		b.agents = append(b.agents, l.AgentName)
 	}
-	switch b.q.Verb {
-	case VerbPause:
-		// The hold is persisted before any interrupt.
-		b.add("hold the route's notices", effectCoreHold, "core-hold", b.base)
-		for _, name := range b.agents {
-			b.add("pause "+name, effectCorePause, "core-pause:"+name, b.with(func(d *stepData) { d.Name = name }))
+	services := serviceSteps(b.q.Start)
+	stopService := func(name string) {
+		if _, ok := services[name]; ok {
+			b.add("stop the "+name+" service", effectCoreQuiet, "core-service-stop:"+name, b.with(func(d *stepData) { d.Name, d.Label = "service-"+name, name }))
 		}
-		if b.q.Teardown {
-			b.add("tear down the route's task processes", effectTeardown, "teardown", b.base)
+	}
+	startService := func(name, key string) {
+		if st, ok := services[name]; ok {
+			b.add(serviceStepName(*st.Core.Service), effectCoreService, key, b.with(func(d *stepData) { d.Core = st.Core }))
 		}
-		b.add("record the pause", effectRecord, "record", b.base)
-	case VerbStop:
+	}
+	stop := func() {
 		b.add("put the route in the stopping phase", effectCoreStopping, "core-stopping", b.base)
 		for _, name := range b.agents {
 			b.add("ask "+name+" for its report", effectCoreReport, "core-report:"+name, b.with(func(d *stepData) { d.Name = name }))
@@ -704,6 +778,10 @@ func (b *controlBuilder) planCoreControl() error {
 		for _, name := range b.agents {
 			b.add("stop "+name, effectCoreStop, "core-stop:"+name, b.with(func(d *stepData) { d.Name = name }))
 		}
+		// The route's owned services end with it, by their records.
+		for _, name := range []string{ServiceCheckpoint, ServiceCardWatch, ServiceCourier} {
+			stopService(name)
+		}
 		if b.q.Teardown {
 			b.add("tear down the route's task processes", effectTeardown, "teardown", b.base)
 		}
@@ -711,12 +789,39 @@ func (b *controlBuilder) planCoreControl() error {
 			d.Control = b.control()
 			d.Control.Verb = VerbStop
 		}))
+	}
+	switch b.q.Verb {
+	case VerbPause:
+		// The hold is persisted before any interrupt.
+		b.add("hold the route's notices", effectCoreHold, "core-hold", b.base)
+		// The checkpointer's prompts stop with the pause, as on the TUI.
+		stopService(ServiceCheckpoint)
+		for _, name := range b.agents {
+			b.add("pause "+name, effectCorePause, "core-pause:"+name, b.with(func(d *stepData) { d.Name = name }))
+		}
+		if b.base.Inbox != "" {
+			for _, name := range b.agents {
+				b.add("hold the channel for "+name, effectCoreChanHold, "core-hold:"+name, b.with(func(d *stepData) { d.Name = name }))
+			}
+		}
+		if b.q.Teardown {
+			b.add("tear down the route's task processes", effectTeardown, "teardown", b.base)
+		}
+		b.add("record the pause", effectRecord, "record", b.base)
+	case VerbStop:
+		stop()
 	case VerbResume:
 		if b.q.From != ControlStopped {
 			b.add("lift the route's hold", effectCoreUnhold, "core-unhold", b.base)
+			if b.base.Inbox != "" {
+				for _, name := range b.agents {
+					b.add("lift the channel hold for "+name, effectCoreChanHold, "core-unhold:"+name, b.with(func(d *stepData) { d.Name = name }))
+				}
+			}
 			for _, name := range b.agents {
 				b.add("restore "+name, effectCoreResume, "core-resume:"+name, b.with(func(d *stepData) { d.Name = name }))
 			}
+			startService(ServiceCheckpoint, "core-service:"+ServiceCheckpoint+"#"+strconv.Itoa(b.q.Generation))
 		}
 		if b.q.From == ControlStopped {
 			b.add("end the route's stopping phase", effectCoreRestart, "core-restart#"+strconv.Itoa(b.q.Generation), b.base)
@@ -758,10 +863,26 @@ func (b *controlBuilder) planCoreControl() error {
 			for _, d := range briefs {
 				b.add("issue "+d.Name+"'s first brief as a notice", effectCoreBrief, "core-brief:"+d.Name+"#"+strconv.Itoa(b.q.Generation), d)
 			}
+			for _, name := range []string{ServiceCheckpoint, ServiceCourier, ServiceCardWatch} {
+				startService(name, "core-service:"+name+"#"+strconv.Itoa(b.q.Generation))
+			}
 		}
 		b.add("record the resume", effectRecord, "record", b.base)
 	case VerbDelete:
-		return runtime.Unavailable(runtime.BackendCore, "for delete yet: stop the route, then remove its folder")
+		// Stop through the provider, then archive (PlanControl adds the
+		// snapshot and the removal). Core's spaces and tabs are never
+		// closed: they may be shared, and the app adapter has no close.
+		if b.q.Force {
+			stop()
+		}
+		for _, name := range b.agents {
+			b.add("confirm "+name+" ended, through the provider", effectCoreEnded, "core-ended:"+name, b.with(func(d *stepData) { d.Name = name }))
+		}
+		if !b.q.Force {
+			for _, name := range []string{ServiceCheckpoint, ServiceCardWatch, ServiceCourier} {
+				stopService(name)
+			}
+		}
 	default:
 		return fmt.Errorf("unknown verb %q", b.q.Verb)
 	}
@@ -794,7 +915,54 @@ func coreEffects(deps Deps) map[string]ops.Effect {
 		effectCoreReport:    effect{deps, applyCoreReport, probeReportRow},
 		effectCoreReports:   effect{deps, applyCoreReports, probeReports},
 		effectCoreRestart:   effect{deps, applyCoreRestart, probeCoreRestart},
+		effectCoreService:   effect{deps, applyCoreService, probeCoreService},
+		effectCoreQuiet:     effect{deps, applyCoreServiceStop, probeCoreServiceStop},
+		effectCoreChannel:   effect{deps, applyCoreChannel, probeCoreChannel},
+		effectCoreHandshake: effect{deps, applyCoreHandshake, probeHandshake},
+		effectCoreChanHold:  effect{deps, applyCoreChanHold, probeCoreChanHold},
+		effectCoreEnded:     effect{deps, applyCoreEnded, probeCoreEnded},
 	}
+}
+
+// applyCoreEnded ends an agent before a delete archives its route: every
+// execution of the agent still desired running is stopped through the
+// provider, which never types and never kills a recovery shell. Without
+// --force a delete of a route whose agent still runs is refused, so a
+// delete never skips the final report a stop asks for.
+func applyCoreEnded(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) error {
+	cp, err := coreProvider(deps)
+	if err != nil {
+		return err
+	}
+	recs, err := liveRecords(ctx, cp, d)
+	if err != nil {
+		return err
+	}
+	for _, rec := range recs {
+		if d.Control == nil || !d.Control.Force {
+			return fmt.Errorf("%s still runs: stop the route first, or delete it with --force", d.Name)
+		}
+		if _, err := cp.Stop(ctx, runtime.Target{ExecutionID: rec.ID}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// probeCoreEnded: done once no execution of the agent is desired running.
+func probeCoreEnded(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) (ops.Verdict, string, error) {
+	cp, err := coreProvider(deps)
+	if err != nil {
+		return ops.Unknown, "", err
+	}
+	recs, err := liveRecords(ctx, cp, d)
+	if err != nil {
+		return ops.Unknown, "", err
+	}
+	if len(recs) == 0 {
+		return ops.Matches, "", nil
+	}
+	return ops.Absent, "", nil
 }
 
 // probeControlRow: a control step is done once its agent's row is written.

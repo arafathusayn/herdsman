@@ -79,6 +79,8 @@ type controlData struct {
 	Snapshot   string   `json:"snapshot,omitempty"`
 	Captures   []string `json:"captures,omitempty"`
 	Targets    []string `json:"targets,omitempty"`
+	// Force is a delete's --force: the route's agents may still run.
+	Force bool `json:"force,omitempty"`
 }
 
 // KindOf returns the operation kind of a verb.
@@ -175,7 +177,21 @@ func PlanControl(ctx context.Context, q ControlRequest) (*ControlPlan, error) {
 		if err := b.planCoreControl(); err != nil {
 			return nil, err
 		}
-		return b.plan(first)
+		snap := ""
+		if q.Verb == VerbDelete {
+			root, err := snapshotRoot(ctx, first.Repo)
+			if err != nil {
+				return nil, err
+			}
+			snap = filepath.Join(root, fmt.Sprintf("%s-%s-%d", first.Route, q.Date, q.Generation))
+			b.remove(snap)
+		}
+		got, err := b.plan(first)
+		if err != nil {
+			return nil, err
+		}
+		got.Snapshot = snap
+		return got, nil
 	}
 	for _, st := range q.Start.Steps {
 		if st.Effect == effectAgent {
@@ -250,7 +266,7 @@ func (b *controlBuilder) add(name, effectName, key string, d stepData) {
 }
 
 func (b *controlBuilder) control() *controlData {
-	return &controlData{Verb: b.q.Verb, Generation: b.q.Generation, Agents: b.agents, GraceMS: b.q.Grace.Milliseconds(), Note: b.q.Note}
+	return &controlData{Verb: b.q.Verb, Generation: b.q.Generation, Agents: b.agents, GraceMS: b.q.Grace.Milliseconds(), Note: b.q.Note, Force: b.q.Verb == VerbDelete && b.q.Force}
 }
 
 func (b *controlBuilder) with(edit func(*stepData)) stepData {
@@ -368,7 +384,11 @@ func (b *controlBuilder) remove(dest string) {
 	if !b.q.KeepWorktrees {
 		b.add("free the route's tasks", effectDown, "down", data())
 	}
-	b.add("verify the snapshot again, close the workspace and remove the route", effectRemove, "remove", data())
+	name := "verify the snapshot again, close the workspace and remove the route"
+	if b.base.Backend == runtime.BackendCore {
+		name = "verify the snapshot again and remove the route, leaving core's spaces and tabs"
+	}
+	b.add(name, effectRemove, "remove", data())
 }
 
 func controlEffects(deps Deps) map[string]ops.Effect {

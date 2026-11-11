@@ -124,11 +124,31 @@ func (d *Daemon) launchBackend(repo, configPath, flag, persisted string) (runtim
 // installation default decide.
 func (d *Daemon) taskBackend(_ context.Context, repo string) error {
 	sel, err := d.launchBackend(repo, "", "", "")
-	if err == nil && sel.Backend == runtime.BackendCore {
-		// Task agents on core need the claims and notices of a later phase.
-		return runtime.Unavailable(runtime.BackendCore, "for task launches yet")
+	if err == nil && sel.Backend == runtime.BackendCore && d.coreRT() == nil {
+		return runtime.Unavailable(runtime.BackendCore, "in this daemon: its launch socket is not open")
 	}
 	return err
+}
+
+// taskOnCore reports a repository whose task agents run on herdr-core.
+func (d *Daemon) taskOnCore(_ context.Context, repo string) bool {
+	sel, err := d.launchBackend(repo, "", "", "")
+	return err == nil && sel.Backend == runtime.BackendCore && d.coreRT() != nil
+}
+
+// coreTask starts a task agent on herdr-core through the launch
+// transaction, with the daemon's core launch.
+func (d *Daemon) coreTask(ctx context.Context, q route.TaskLaunch) (route.TaskStarted, error) {
+	c := d.coreRT()
+	if c == nil {
+		return route.TaskStarted{}, runtime.Unavailable(runtime.BackendCore, "in this daemon: its launch socket is not open")
+	}
+	q.Core = c.launch()
+	if q.StateDir == "" {
+		q.StateDir = filepath.Join(d.daemonDir(), "tasks")
+	}
+	c.watch(c.ctx, q.Core.Socket)
+	return route.LaunchTask(ctx, c.provider(q.Core.Socket), q)
 }
 
 // recordExecution writes an execution record into the account store, beside
@@ -426,5 +446,33 @@ func (s *runtimeService) Doctor(ctx context.Context, req *daemonv1.RuntimeServic
 	}
 	state, detail := appSupport(sel.Backend)
 	check("app-support", state, detail)
+	return out, nil
+}
+
+// Read implements RuntimeService.Read: the newest lines of one herdr-core
+// execution's terminal, read through the provider, and its recorded
+// observation. The waiters read the runtime this way instead of a pane; it
+// types nothing.
+func (s *runtimeService) Read(ctx context.Context, req *daemonv1.RuntimeServiceReadRequest) (*daemonv1.RuntimeServiceReadResponse, error) {
+	got, err := s.GetExecution(ctx, &daemonv1.RuntimeServiceGetExecutionRequest{ExecutionId: req.GetExecutionId()})
+	if err != nil {
+		return nil, err
+	}
+	out := &daemonv1.RuntimeServiceReadResponse{Observation: got.GetExecution().GetObservation()}
+	if req.GetLines() <= 0 {
+		return out, nil
+	}
+	if got.GetExecution().GetRef().GetBackend() != runtime.BackendCore {
+		return nil, rpc.Errorf(rpc.FailedPrecondition, "execution %s runs on %s; read its pane there", req.GetExecutionId(), got.GetExecution().GetRef().GetBackend())
+	}
+	c := s.d.coreRT()
+	if c == nil {
+		return nil, rpc.Errorf(rpc.Unavailable, "this daemon runs no herdr-core executions")
+	}
+	text, err := c.provider("").Read(ctx, runtime.Target{ExecutionID: req.GetExecutionId()}, runtime.ReadRequest{Lines: int(min(req.GetLines(), 400)), MaxBytes: 64 << 10})
+	if err != nil {
+		return nil, rpc.Errorf(rpc.Unavailable, "read execution %s: %v", req.GetExecutionId(), err)
+	}
+	out.Text, out.Truncated = text.Text, text.Truncated
 	return out, nil
 }
