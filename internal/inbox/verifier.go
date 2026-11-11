@@ -2,6 +2,7 @@ package inbox
 
 import (
 	"context"
+	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 )
@@ -25,6 +26,29 @@ type Ref struct {
 
 // PaneRef is the reference of a TUI caller known by its pane.
 func PaneRef(pane string) Ref { return Ref{Backend: BackendTUI, Pane: pane} }
+
+// executionPane is the prefix of the pane slot of an execution's identity: a
+// typed reference to the execution, which no Herdr TUI pane id can be.
+const executionPane = "exec:"
+
+// ExecutionIdentity is the registry identity of a herdr-core execution: the
+// pane slot holds a typed reference to the execution, and the session is the
+// execution, recorded by herdr-core. It fits the registry's identity shape,
+// so the released files keep their form; a new execution of the same agent is
+// another identity, so a replaced execution's binding no longer matches.
+func ExecutionIdentity(harness, execution string) Identity {
+	return Identity{Pane: executionPane + execution, Session: Session{Agent: harness, Kind: "id", Source: BackendCore, Value: execution}}
+}
+
+// ExecutionOf returns the execution an identity names, when it is an
+// execution's identity.
+func ExecutionOf(id Identity) (string, bool) {
+	exec, ok := strings.CutPrefix(id.Pane, executionPane)
+	if !ok || id.Session.Source != BackendCore || id.Session.Value != exec || exec == "" {
+		return "", false
+	}
+	return exec, true
+}
 
 // Verifier answers one question for every identity consumer: is the agent at
 // ref live, and who is it? The results are LiveIdentity's: LiveOK with the

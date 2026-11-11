@@ -128,11 +128,17 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 	channelEnv := map[string]string{}
 	if !q.NoAdjutant {
 		base.Inbox = p.Inbox
-		add("create the private inbox", effectInbox, "inbox:"+p.Inbox, ops.RetryIdempotent, with(func(d *stepData) { d.PolicyFiles = q.PolicyFiles }))
+		// The pair's channel is the daemon's: the inbox is daemon-owned,
+		// and each party is the execution its process belongs to.
+		add("register the route's daemon channel", effectCoreChannel, "core-channel:"+p.Inbox, ops.RetryIdempotent, with(func(d *stepData) { d.PolicyFiles = q.PolicyFiles }))
 		channelEnv["HERDSMAN_INBOX"] = p.Inbox
 		channelEnv["HERDSMAN_PREFLIGHT"] = filepath.Join(p.Inbox, "setup.json")
 		channelEnv["HERDSMAN_ORCHESTRATOR"] = p.OrchestratorName
 		channelEnv["HERDSMAN_ADJUTANT"] = p.AdjutantName
+		// No HERDSMAN_ROUTE: the wrapper refuses it as another caller's
+		// scope. The message verbs find the route by its daemon-owned
+		// inbox in the daemon's route registry.
+		fmt.Fprintf(text, "channel: the daemon's, callers identified by their execution\n")
 	}
 	routeID := core.UUIDOf(q.Core.Owner, q.Repo, q.Route)
 	space := core.OpaqueID(q.Core.Owner, q.Repo, q.Route, "space")
@@ -145,7 +151,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 		intents = append(intents, intent)
 		d := launch.CoreDescriptor{
 			Intent: intent, Execution: exec, Kind: c.kind, Harness: append([]string(nil), c.spec.Command...), StepsDir: stepsDir,
-			TimeoutMS: c.spec.Timeout().Milliseconds(), Cwd: coreCwd(c, q), Env: mergeEnv(channelEnv, c.spec.Env),
+			TimeoutMS: c.spec.Timeout().Milliseconds(), Cwd: coreCwd(c, q), Env: mergeEnv(channelEnv, partyEnv(q, c), c.spec.Env),
 			Login: q.Core.Login, LoginFrom: q.Core.LoginFrom, SecretRefs: q.SecretRefs, NoticeSocket: q.Core.NoticeSocket,
 		}
 		for _, step := range c.spec.Prelude {
@@ -198,6 +204,11 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 	add("enroll the agents", effectCoreEnroll, "core-enroll:"+p.Key, ops.RetryIdempotent, with(func(d *stepData) {
 		d.Core = &coreData{Intents: intents}
 	}))
+	if !q.NoAdjutant {
+		add("seed the handshake", effectCoreHandshake, "core-handshake:"+p.Inbox, ops.RetryIdempotent, with(func(d *stepData) {
+			d.Adjutant, d.Orchestrator = p.AdjutantName, p.OrchestratorName
+		}))
+	}
 	for _, f := range briefs {
 		f()
 	}
@@ -228,6 +239,16 @@ func writePersonSteps(text *strings.Builder, a core.Adapter) {
 		}
 		fmt.Fprintf(text, "  %s: %s: %s\n", s.Reason, when, s.What)
 	}
+}
+
+// partyEnv names the coordinator's party in the route's channel: the daemon
+// still identifies the caller by its process, and the name only says which
+// party it claims to be.
+func partyEnv(q UpRequest, c compiled) map[string]string {
+	if q.NoAdjutant {
+		return nil
+	}
+	return map[string]string{"HERDSMAN_NAME": c.name}
 }
 
 func coreCwd(c compiled, q UpRequest) string {
@@ -489,7 +510,12 @@ func applyCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData
 	if b, err := os.ReadFile(pairPath(d)); err == nil {
 		var prev pairRecord
 		if json.Unmarshal(b, &prev) == nil && prev.Checksum == sum {
-			return approve()
+			if err := approve(); err != nil {
+				return err
+			}
+			// The same pair was attested: its channel is enrolled and
+			// approved again only if a crash came between.
+			return enrollChannel(ctx, deps, d, execs)
 		}
 	}
 	caller, ok := deps.Callers.Get(d.Key)
@@ -519,7 +545,10 @@ func applyCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData
 	if err := os.WriteFile(pairPath(d), b, 0o600); err != nil {
 		return err
 	}
-	return approve()
+	if err := approve(); err != nil {
+		return err
+	}
+	return enrollChannel(ctx, deps, d, execs)
 }
 
 func probeCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) (ops.Verdict, string, error) {
@@ -541,6 +570,9 @@ func probeCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData
 	execs, err := cp.Enrollable(ctx, d.Core.Intents)
 	if err != nil || pairChecksum(execs) != rec.Checksum {
 		return ops.Unknown, "the enrolled pair is not the current one", nil
+	}
+	if !channelApproved(deps, d) {
+		return ops.Unknown, "the pair's channel is not approved", nil
 	}
 	return ops.Matches, "", nil
 }
@@ -745,6 +777,11 @@ func (b *controlBuilder) planCoreControl() error {
 		for _, name := range b.agents {
 			b.add("pause "+name, effectCorePause, "core-pause:"+name, b.with(func(d *stepData) { d.Name = name }))
 		}
+		if b.base.Inbox != "" {
+			for _, name := range b.agents {
+				b.add("hold the channel for "+name, effectCoreChanHold, "core-hold:"+name, b.with(func(d *stepData) { d.Name = name }))
+			}
+		}
 		if b.q.Teardown {
 			b.add("tear down the route's task processes", effectTeardown, "teardown", b.base)
 		}
@@ -772,6 +809,11 @@ func (b *controlBuilder) planCoreControl() error {
 	case VerbResume:
 		if b.q.From != ControlStopped {
 			b.add("lift the route's hold", effectCoreUnhold, "core-unhold", b.base)
+			if b.base.Inbox != "" {
+				for _, name := range b.agents {
+					b.add("lift the channel hold for "+name, effectCoreChanHold, "core-unhold:"+name, b.with(func(d *stepData) { d.Name = name }))
+				}
+			}
 			for _, name := range b.agents {
 				b.add("restore "+name, effectCoreResume, "core-resume:"+name, b.with(func(d *stepData) { d.Name = name }))
 			}
@@ -858,6 +900,9 @@ func coreEffects(deps Deps) map[string]ops.Effect {
 		effectCoreRestart:   effect{deps, applyCoreRestart, probeCoreRestart},
 		effectCoreService:   effect{deps, applyCoreService, probeCoreService},
 		effectCoreQuiet:     effect{deps, applyCoreServiceStop, probeCoreServiceStop},
+		effectCoreChannel:   effect{deps, applyCoreChannel, probeCoreChannel},
+		effectCoreHandshake: effect{deps, applyCoreHandshake, probeHandshake},
+		effectCoreChanHold:  effect{deps, applyCoreChanHold, probeCoreChanHold},
 	}
 }
 

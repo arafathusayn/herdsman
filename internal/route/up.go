@@ -634,6 +634,9 @@ type Deps struct {
 	// Services runs the supporting services of a route on herdr-core as the
 	// daemon's own (nil: a core start that needs one fails by name).
 	Services Services
+	// CoreChannel is the daemon's pair channel for routes on herdr-core
+	// (nil: a core start with an adjutant fails by name).
+	CoreChannel CoreChannel
 
 	// rt is the provider of the step being applied or probed.
 	rt runtime.Provider

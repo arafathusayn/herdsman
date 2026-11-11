@@ -2,6 +2,8 @@ package route_test
 
 import (
 	"context"
+	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -24,6 +26,7 @@ type coreRig struct {
 	*rig
 	w        *coretest.World
 	services *memServices
+	channel  *memChannel
 }
 
 func newCoreRig(t *testing.T) *coreRig {
@@ -53,7 +56,76 @@ func (r *coreRig) engine() (*ops.Engine, func()) {
 	if r.services == nil {
 		r.services = &memServices{running: map[string]route.ServiceSpec{}}
 	}
-	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg, Services: r.services})
+	if r.channel == nil {
+		r.channel = &memChannel{parties: map[string]string{}, held: map[string]bool{}}
+	}
+	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg, Services: r.services, CoreChannel: r.channel})
+}
+
+// memChannel is the daemon's channel of a core route as a map: who is
+// enrolled under which name, and whether the pair is approved.
+type memChannel struct {
+	mu        sync.Mutex
+	opened    bool
+	parties   map[string]string // party name -> execution id
+	approved  map[string]string
+	held      map[string]bool
+	handshake int
+}
+
+func (m *memChannel) Open(context.Context, route.ChannelOpen) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opened = true
+	return nil
+}
+
+func (m *memChannel) Enroll(_ context.Context, _, party, _ string, e runtime.Execution) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.parties[party] = e.ID
+	return nil
+}
+
+func (m *memChannel) Approve(_ context.Context, _ string, pair []runtime.Execution) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(pair) != len(m.parties) {
+		return errors.New("the pending pair is not the one up attested")
+	}
+	for _, e := range pair {
+		if m.parties[e.Agent] != e.ID {
+			return errors.New("the pending pair is not the one up attested")
+		}
+	}
+	m.approved = maps.Clone(m.parties)
+	return nil
+}
+
+func (m *memChannel) Approved(string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.approved != nil && maps.Equal(m.approved, m.parties)
+}
+
+func (m *memChannel) Handshake(context.Context, string, string, string, string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.handshake++
+	return nil
+}
+
+func (m *memChannel) Hold(_ context.Context, _, party string, held bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.held[party] = held
+	return nil
+}
+
+func (m *memChannel) Held(_, party string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.held[party]
 }
 
 // memServices is the daemon's service owner as a map: one entry per service.
@@ -176,6 +248,20 @@ func TestCoreUpWaitsForAPersonTwiceThenEnrolls(t *testing.T) {
 	}
 	if n := r.w.Core.Calls("terminal.send"); n != 0 {
 		t.Errorf("up typed into core %d times", n)
+	}
+	// Pair channel: the route's channel is the daemon's, each coordinator
+	// enrolled by its execution, the attested pair approved, and the
+	// handshake seeded once.
+	if !r.channel.opened || len(r.channel.parties) != 2 || !r.channel.Approved("harbor") || r.channel.handshake != 1 {
+		t.Errorf("channel: %+v", r.channel)
+	}
+	// The coordinators find their channel by route and party name.
+	all, _ := r.w.Records.List(context.Background(), r.repo, "harbor")
+	for _, x := range all {
+		env := strings.Join(r.w.ExecEnv(x.LaunchIntent), "\n")
+		if !strings.Contains(env, "HERDSMAN_INBOX=") || !strings.Contains(env, "HERDSMAN_NAME="+x.Agent) || strings.Contains(env, "HERDSMAN_ROUTE=") {
+			t.Errorf("%s's environment names no party:\n%s", x.Agent, env)
+		}
 	}
 	// The role commands that the start line used to carry are the first
 	// brief of each agent, issued as a notice once the pair is enrolled.
