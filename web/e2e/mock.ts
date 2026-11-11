@@ -26,6 +26,7 @@ const rpcReplies: Record<string, unknown> = {
       },
     ],
   },
+  "herdsman.daemon.v1.RuntimeService/ListExecutions": { executions: [] },
   "herdsman.suggest.v1.SuggestService/Search": {
     items: [{ entry: { id: "s1", title: "A very useful linter", kind: "tool" }, reasons: [{ code: "ecosystem" }] }],
   },
