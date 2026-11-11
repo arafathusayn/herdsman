@@ -1256,6 +1256,24 @@
     }
   },
   {
+    "name": "daemon_runtime_show",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/Show. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "suggest_add",
     "description": "Calls herdsman.suggest.v1.SuggestService/Add. Changes state.",
     "inputSchema": {
