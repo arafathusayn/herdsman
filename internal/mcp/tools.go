@@ -91,6 +91,10 @@ var peopleOnlyMethods = map[protoreflect.FullName]bool{
 	// The installation default decides where every later route of the account
 	// runs.
 	"herdsman.daemon.v1.RuntimeService.SetDefault": true,
+	// A typed submit is one person's explicit action on one execution (the
+	// herdr-core spec, section 10, rule 2); an agent may never press Enter
+	// in another agent's terminal.
+	"herdsman.daemon.v1.RuntimeService.Submit": true,
 }
 
 // Files are the contracts served as tools: only those the daemon serves.

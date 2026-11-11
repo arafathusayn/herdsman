@@ -22,6 +22,12 @@ service RuntimeService {
   // SetDefault changes the installation default backend. Routes that exist keep
   // the backend they started on.
   rpc SetDefault(RuntimeServiceSetDefaultRequest) returns (RuntimeServiceSetDefaultResponse);
+  // Submit types one line into one herdr-core execution's terminal and
+  // presses Enter, as one person's explicit action (spec section 10, rule 2).
+  // Core checks the program's state once, before the paste; the Enter follows
+  // about 200 ms later with no second check. No automated path calls it, and
+  // a caller that is an agent is refused.
+  rpc Submit(RuntimeServiceSubmitRequest) returns (RuntimeServiceSubmitResponse);
 }
 
 // ExecutionObservation is what was last observed about an execution. Each
@@ -185,4 +191,26 @@ message RuntimeServiceSetDefaultRequest {
 message RuntimeServiceSetDefaultResponse {
   string backend = 1;
   string previous = 2;
+}
+
+message RuntimeServiceSubmitRequest {
+  string execution_id = 1;
+  // The line; at most 4096 bytes and one line.
+  string text = 2;
+  // The caller's process id, checked against the socket's peer.
+  int64 pid = 3;
+  // The person read the confirmation: the Enter follows the check by about
+  // 200 ms, and nothing can recall the line once core holds it.
+  bool confirmed = 4;
+  // Send although an earlier submit is unresolved, knowing that both lines
+  // may be typed.
+  bool again = 5;
+}
+
+message RuntimeServiceSubmitResponse {
+  string submit_id = 1;
+  // "queued", "pending_in_core", "typed", "rejected_before_write" or
+  // "unresolved". "typed" is transport evidence, not acceptance of the task.
+  string state = 2;
+  string detail = 3;
 }

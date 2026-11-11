@@ -1639,6 +1639,170 @@
       ]
     },
     {
+      "name": "notice",
+      "summary": "A managed agent's instructions on herdr-core: notice wait, notice read, notice ack.",
+      "help": "usage: herdsman notice wait [--after <id>] [--json]\n       herdsman notice read [<id>] [--json]\n       herdsman notice ack <id> --token <token> --outcome <outcome> --record <text|@file> [--json]\n\nHow a managed agent on herdr-core pulls its instructions. The commands reach\nthe daemon's worker socket, which the core wrapper names in\nHERDSMAN_NOTICE_SOCKET, and answer only for the calling agent's own\nexecution, identified by its process. Every reply prints the next command.\n\nexit codes:\n  0  done: something to act on was printed\n  1  the daemon refused, or this is not a managed execution\n  2  bad usage\n  3  wait only: this wait was replaced by a newer one, or the execution stopped\n",
+      "usage": [
+        "herdsman notice wait [--after <id>] [--json]",
+        "herdsman notice read [<id>] [--json]",
+        "herdsman notice ack <id> --token <token> --outcome <outcome> --record <text|@file> [--json]"
+      ],
+      "positionals": [
+        {
+          "name": "id"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--after",
+          "valueName": "id"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--outcome",
+          "valueName": "outcome"
+        },
+        {
+          "name": "--record",
+          "valueName": "text|@file"
+        },
+        {
+          "name": "--token",
+          "valueName": "token"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done: something to act on was printed"
+        },
+        {
+          "code": "1",
+          "meaning": "the daemon refused, or this is not a managed execution"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        },
+        {
+          "code": "3",
+          "meaning": "wait only: this wait was replaced by a newer one, or the execution stopped"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "ack",
+          "help": "usage: herdsman notice ack <id> --token <token> --outcome <outcome> --record <text|@file> [--json]\n\nCloses a claim. The outcome is completed, interrupted (the work stopped\npart-way; the record says how far) or abandoned (you will not go on, and why).\nThe record is required for every outcome; @file reads it from a file. An\nacknowledgement is accepted in every route state.\n\nexit codes:\n  0  acknowledged\n  1  the daemon refused, or this is not a managed execution\n  2  bad usage\n",
+          "usage": [
+            "herdsman notice ack <id> --token <token> --outcome <outcome> --record <text|@file> [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "id"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--outcome",
+              "valueName": "outcome"
+            },
+            {
+              "name": "--record",
+              "valueName": "text|@file"
+            },
+            {
+              "name": "--token",
+              "valueName": "token"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "acknowledged"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused, or this is not a managed execution"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "read",
+          "help": "usage: herdsman notice read [<id>] [--json]\n\nClaims a notice and prints its content and claim token. A repeat read prints\nthe same token, marked as claimed before; it is not permission to do the work\nagain. Without an id it prints the open claim, or claims the next notice. A\nclaim that a gate refuses leaves the notice issued and says why.\n\nexit codes:\n  0  printed\n  1  the daemon refused, or this is not a managed execution\n  2  bad usage\n",
+          "usage": [
+            "herdsman notice read [<id>] [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "id"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "printed"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused, or this is not a managed execution"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "wait",
+          "help": "usage: herdsman notice wait [--after <id>] [--json]\n\nWaits until a notice of this execution can be claimed, and prints its id and\nthe command that reads it. Hold it as a background command. With --after,\nthe wait says that you work on that claim: it is answered by the route's\nfinal-report notice, by the claim when recovery is due, or by the next notice\nonce the claim is acknowledged. One command polls many times; a newer wait of\nthe same execution replaces it, and it exits with code 3.\n\nexit codes:\n  0  a notice or an open claim was printed\n  1  the daemon refused, or this is not a managed execution\n  2  bad usage\n  3  replaced by a newer wait, or the execution stopped\n",
+          "usage": [
+            "herdsman notice wait [--after <id>] [--json]"
+          ],
+          "flags": [
+            {
+              "name": "--after",
+              "valueName": "id"
+            },
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "a notice or an open claim was printed"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused, or this is not a managed execution"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            },
+            {
+              "code": "3",
+              "meaning": "replaced by a newer wait, or the execution stopped"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "pause",
       "summary": "Interrupt a route's agents and hold its channel; every pane stays open.",
       "help": "usage: herdsman pause <route> [--teardown] [-y] [--dry-run]\n\nSends each agent the interrupt key, stops the checkpointer's prompts and holds\nthe message channel. The interrupt is best effort: an agent acts on it at its\nnext turn boundary. <route> is a route name, a route folder, or @ for the route\nof the current folder. --teardown also stops the route's task processes.\n",
@@ -2206,19 +2370,29 @@
     },
     {
       "name": "runtime",
-      "summary": "Where agents run: runtime doctor, runtime ls, runtime default.",
-      "help": "usage: herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]\n       herdsman runtime ls [--route <route>] [--json]\n       herdsman runtime default [<backend>] [--json]\n\nWhere agents run. A backend is herdr-core or herdr-tui. A new route takes\n--backend, then the config file's [runtime] backend, then the installation\ndefault; a route that exists keeps the backend it started on.\n\nexit codes:\n  0  done; for doctor, the selected backend can run\n  1  the daemon refused or is not running; for doctor, a check failed\n  2  bad usage\n",
+      "summary": "Where agents run: runtime doctor, runtime ls, runtime default, runtime submit.",
+      "help": "usage: herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]\n       herdsman runtime ls [--route <route>] [--json]\n       herdsman runtime default [<backend>] [--json]\n       herdsman runtime submit <execution> <line> [--yes] [--again] [--json]\n\nWhere agents run. A backend is herdr-core or herdr-tui. A new route takes\n--backend, then the config file's [runtime] backend, then the installation\ndefault; a route that exists keeps the backend it started on.\n\nexit codes:\n  0  done; for doctor, the selected backend can run\n  1  the daemon refused or is not running; for doctor, a check failed\n  2  bad usage\n",
       "usage": [
         "herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]",
         "herdsman runtime ls [--route <route>] [--json]",
-        "herdsman runtime default [<backend>] [--json]"
+        "herdsman runtime default [<backend>] [--json]",
+        "herdsman runtime submit <execution> <line> [--yes] [--again] [--json]"
       ],
       "positionals": [
         {
           "name": "backend"
+        },
+        {
+          "name": "execution"
+        },
+        {
+          "name": "line"
         }
       ],
       "flags": [
+        {
+          "name": "--again"
+        },
         {
           "name": "--backend",
           "valueName": "backend"
@@ -2229,6 +2403,9 @@
         {
           "name": "--route",
           "valueName": "route"
+        },
+        {
+          "name": "--yes"
         },
         {
           "name": "-c",
@@ -2344,6 +2521,46 @@
             {
               "code": "1",
               "meaning": "the daemon refused or is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "submit",
+          "help": "usage: herdsman runtime submit <execution> <line> [--yes] [--again] [--json]\n\nTypes one line into one herdr-core execution's terminal and presses Enter, as\nyour own explicit action. herdr-core checks the program's state once, before\nthe paste; the Enter follows that check by about 200 ms with no second check,\nso a dialog that opens in between is confirmed by it. Once core holds the\nline nothing can recall it. It is typed only while the program reports idle,\nafter it reported a status since it started, with no other submit of yours\noutstanding there. No automation ever runs this, and an agent is refused.\n\nWithout --yes it shows that warning and asks you to type yes. --again sends\nalthough an earlier submit is unresolved, knowing that both may be typed.\n\nexit codes:\n  0  typed, or rejected by core before anything was written\n  1  refused, unresolved, or the daemon is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman runtime submit <execution> <line> [--yes] [--again] [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "execution"
+            },
+            {
+              "name": "line"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--again"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--yes"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "typed, or rejected by core before anything was written"
+            },
+            {
+              "code": "1",
+              "meaning": "refused, unresolved, or the daemon is not running"
             },
             {
               "code": "2",

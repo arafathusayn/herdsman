@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/notice"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/policy"
 	"github.com/arafathusayn/herdsman/internal/route"
@@ -94,11 +95,11 @@ func TestCoreUpWaitsForAPersonTwiceThenEnrolls(t *testing.T) {
 		return got
 	}
 	op = cont()
-	if op.State != ops.OpStopped || !strings.Contains(lastError(op), core.CodeNeedsAttention) || !strings.Contains(lastError(op), "herdsman adjutant --name") {
+	if op.State != ops.OpStopped || !strings.Contains(lastError(op), core.CodeNeedsAttention) || !strings.Contains(lastError(op), "proj-harbor-adjutant") || !strings.Contains(lastError(op), "herdsman notice wait") {
 		t.Fatalf("second wait: %s %q", op.State, lastError(op))
 	}
 	op = cont()
-	if op.State != ops.OpStopped || !strings.Contains(lastError(op), "herdsman orchestrator --adjutant") {
+	if op.State != ops.OpStopped || !strings.Contains(lastError(op), "orchestrator") || !strings.Contains(lastError(op), "herdsman notice wait") {
 		t.Fatalf("orchestrator's start line: %s %q", op.State, lastError(op))
 	}
 	// No caller: the pair is left pending, the start is not done.
@@ -113,6 +114,23 @@ func TestCoreUpWaitsForAPersonTwiceThenEnrolls(t *testing.T) {
 	}
 	if n := r.w.Core.Calls("terminal.send"); n != 0 {
 		t.Errorf("up typed into core %d times", n)
+	}
+	// The role commands that the start line used to carry are the first
+	// brief of each agent, issued as a notice once the pair is enrolled.
+	briefs, err := r.w.Notices.RouteList(r.repo, "harbor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var adjutant, orchestrator bool
+	for _, n := range briefs {
+		if n.Kind != notice.KindBrief || n.State != notice.StateIssued {
+			t.Errorf("first brief %s: %s %s", n.ID, n.Kind, n.State)
+		}
+		adjutant = adjutant || strings.Contains(n.Content, "herdsman adjutant --name")
+		orchestrator = orchestrator || strings.Contains(n.Content, "herdsman orchestrator --adjutant")
+	}
+	if len(briefs) != 2 || !adjutant || !orchestrator {
+		t.Errorf("briefs: %d adjutant=%v orchestrator=%v", len(briefs), adjutant, orchestrator)
 	}
 	if _, err := os.Stat(filepath.Join(p.Folder, ".steps", "core-pair.json")); err != nil {
 		t.Errorf("no pair record: %v", err)

@@ -25,6 +25,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
 	"github.com/arafathusayn/herdsman/internal/runtime/legacytui"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 // CoreConfig configures the herdr-core backend of a daemon. The zero value is
@@ -49,6 +50,9 @@ type CoreConfig struct {
 	// Peer reads a launch connection's peer pid (default: the kernel's
 	// record). Tests whose wrapper runs in process replace it.
 	Peer func(net.Conn) (int, error)
+	// Person checks that a typed submit's caller is a person's terminal
+	// (default: the check up's pair approval makes). Tests replace it.
+	Person func(route.Caller) error
 }
 
 // coreRuntime is the daemon's half of herdr-core: the launch socket, the
@@ -68,6 +72,8 @@ type coreRuntime struct {
 	// registrar is the launch socket, opened by the first core step: a
 	// daemon whose routes never use core listens on nothing for it.
 	registrar *core.Registrar
+	// submits carries out a person's typed submits.
+	submits *core.Submitter
 }
 
 // launchSocket is where the core wrappers find this daemon.
@@ -192,7 +198,7 @@ func (c *coreRuntime) provider(endpoint string) *core.Provider {
 	}
 	// The provider and reconcilers keep the wall clock, not the daemon's:
 	// they compare their times with core's status and record times.
-	p := &core.Provider{Socket: endpoint, Records: c.records, Procs: c.cfg.Procs, App: c.app, Bindings: c.bindings}
+	p := &core.Provider{Socket: endpoint, Records: c.records, Procs: c.cfg.Procs, App: c.app, Bindings: c.bindings, Notices: c.d.noticeSvc(), Submits: c.submitter()}
 	if reg, err := c.launchRegistrar(); err == nil {
 		p.Registrar = reg // without it the register step says the socket is missing
 	} else {
@@ -257,10 +263,24 @@ func (c *coreRuntime) restricted(repo, _ string) bool {
 	return profile.ShapeFor(governing) == profile.ShapeOwnClone
 }
 
-// emit publishes what a reconciler found on the runtime topic and logs it.
+// emit publishes what a reconciler found on the runtime topic, under the
+// RuntimeEvent contract. A lost or finished execution returns its notices,
+// and every finding is a gate change the notice waits look at again.
 func (c *coreRuntime) emit(ev core.Event) {
-	c.d.logf("herdr-core %s: %s %s %s", ev.Kind, ev.Route, ev.Execution, ev.Detail)
-	publishEncoded(c.d.hub, "runtime", &Event{V: Protocol, Time: c.d.now().Unix(), Type: ev.Kind, Route: ev.Route, ID: ev.Execution, Reason: ev.Detail})
+	c.d.publishRuntime(&daemonv1.RuntimeEvent{Kind: ev.Kind, Repo: ev.Repo, Route: ev.Route, ExecutionId: ev.Execution, Detail: ev.Detail, Time: ev.At.UnixMilli()})
+	svc := c.d.noticeSvc()
+	if svc == nil {
+		return
+	}
+	switch ev.Kind {
+	case core.EventExecutionLost, core.EventExecutionFinished:
+		if ev.Execution != "" {
+			if _, err := svc.ReturnExecution(ev.Execution, ev.Kind); err != nil {
+				c.d.logf("notices: return %s: %v", ev.Execution, err)
+			}
+		}
+	}
+	svc.Changed()
 }
 
 // launch is the core half of an up request.
@@ -276,7 +296,7 @@ func (c *coreRuntime) launch() *route.CoreLaunch {
 			login[k] = v
 		}
 	}
-	return &route.CoreLaunch{Socket: c.cfg.Socket, Owner: c.owner, Wrapper: c.d.cfg.Executable, LaunchSocket: c.d.launchSocket(),
+	return &route.CoreLaunch{Socket: c.cfg.Socket, Owner: c.owner, Wrapper: c.d.cfg.Executable, LaunchSocket: c.d.launchSocket(), NoticeSocket: NoticeSocketPath(c.d.cfg.PrivateHome),
 		Login: login, LoginFrom: "daemon", Timeouts: c.cfg.Timeouts}
 }
 

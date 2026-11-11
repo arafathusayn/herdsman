@@ -115,6 +115,14 @@ type Delivery struct {
 	Text string
 	// Tag says which delivery it is, for records.
 	Tag string
+	// Kind is the notice kind on herdr-core ("dispatch" when empty); the
+	// TUI ignores it.
+	Kind string
+	// Key makes the delivery idempotent on herdr-core: one key, one notice.
+	// Empty derives it from the target and Tag.
+	Key string
+	// Issuer is the operation that delivers it.
+	Issuer string
 }
 
 // Delivered is Deliver's answer. Pending means the backend accepted it and has

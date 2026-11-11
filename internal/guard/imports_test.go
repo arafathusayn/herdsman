@@ -52,12 +52,13 @@ var serverPackages = []string{
 	"internal/runtime",
 	"internal/runtime/legacytui",
 	"internal/runtime/core",
+	"internal/notice",
 }
 
 // serverPackagesPin holds the number of entries in serverPackages, not their
 // names: raise it when the list grows, never lower it. A same-size swap shows
 // only in the diff of the list.
-const serverPackagesPin = 25
+const serverPackagesPin = 26
 
 // wiringFiles run the daemon in-process, so they stay allowed.
 var wiringFiles = []string{

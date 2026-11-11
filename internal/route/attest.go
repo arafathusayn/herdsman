@@ -158,6 +158,18 @@ func attest(ctx context.Context, c *herdr.Client, caller Caller) error {
 
 // verifyCaller holds for a caller whose facts the daemon read from the
 // system, and whose process is still the one that asked.
+// VerifyPerson checks that a caller is a person's terminal, by the rules the
+// pair approval of up applies: no coding agent among its ancestors, not a
+// herdr-core terminal started with a command, a controlling terminal, and the
+// same process as asked. A caller below a registered execution is refused
+// before this, by its process.
+func VerifyPerson(caller Caller) error {
+	if caller.Execution != "" {
+		return fmt.Errorf("the caller is execution %s, an agent", caller.Execution)
+	}
+	return verifyCaller(caller)
+}
+
 func verifyCaller(caller Caller) error {
 	if caller.HarnessAncestor != "" {
 		return fmt.Errorf("up runs under the harness %s", caller.HarnessAncestor)

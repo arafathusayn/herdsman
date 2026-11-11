@@ -1195,6 +1195,150 @@ func (x *RuntimeServiceSetDefaultResponse) GetPrevious() string {
 	return ""
 }
 
+type RuntimeServiceSubmitRequest struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	// The line; at most 4096 bytes and one line.
+	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	// The caller's process id, checked against the socket's peer.
+	Pid int64 `protobuf:"varint,3,opt,name=pid,proto3" json:"pid,omitempty"`
+	// The person read the confirmation: the Enter follows the check by about
+	// 200 ms, and nothing can recall the line once core holds it.
+	Confirmed bool `protobuf:"varint,4,opt,name=confirmed,proto3" json:"confirmed,omitempty"`
+	// Send although an earlier submit is unresolved, knowing that both lines
+	// may be typed.
+	Again         bool `protobuf:"varint,5,opt,name=again,proto3" json:"again,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RuntimeServiceSubmitRequest) Reset() {
+	*x = RuntimeServiceSubmitRequest{}
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RuntimeServiceSubmitRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RuntimeServiceSubmitRequest) ProtoMessage() {}
+
+func (x *RuntimeServiceSubmitRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RuntimeServiceSubmitRequest.ProtoReflect.Descriptor instead.
+func (*RuntimeServiceSubmitRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *RuntimeServiceSubmitRequest) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *RuntimeServiceSubmitRequest) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *RuntimeServiceSubmitRequest) GetPid() int64 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *RuntimeServiceSubmitRequest) GetConfirmed() bool {
+	if x != nil {
+		return x.Confirmed
+	}
+	return false
+}
+
+func (x *RuntimeServiceSubmitRequest) GetAgain() bool {
+	if x != nil {
+		return x.Again
+	}
+	return false
+}
+
+type RuntimeServiceSubmitResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	SubmitId string                 `protobuf:"bytes,1,opt,name=submit_id,json=submitId,proto3" json:"submit_id,omitempty"`
+	// "queued", "pending_in_core", "typed", "rejected_before_write" or
+	// "unresolved". "typed" is transport evidence, not acceptance of the task.
+	State         string `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	Detail        string `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RuntimeServiceSubmitResponse) Reset() {
+	*x = RuntimeServiceSubmitResponse{}
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RuntimeServiceSubmitResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RuntimeServiceSubmitResponse) ProtoMessage() {}
+
+func (x *RuntimeServiceSubmitResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_runtime_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RuntimeServiceSubmitResponse.ProtoReflect.Descriptor instead.
+func (*RuntimeServiceSubmitResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_runtime_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *RuntimeServiceSubmitResponse) GetSubmitId() string {
+	if x != nil {
+		return x.SubmitId
+	}
+	return ""
+}
+
+func (x *RuntimeServiceSubmitResponse) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *RuntimeServiceSubmitResponse) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
 var File_herdsman_daemon_v1_runtime_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_runtime_proto_rawDesc = "" +
@@ -1295,7 +1439,17 @@ const file_herdsman_daemon_v1_runtime_proto_rawDesc = "" +
 	"\abackend\x18\x01 \x01(\tR\abackend\"X\n" +
 	" RuntimeServiceSetDefaultResponse\x12\x18\n" +
 	"\abackend\x18\x01 \x01(\tR\abackend\x12\x1a\n" +
-	"\bprevious\x18\x02 \x01(\tR\bprevious2\xf4\x04\n" +
+	"\bprevious\x18\x02 \x01(\tR\bprevious\"\x9a\x01\n" +
+	"\x1bRuntimeServiceSubmitRequest\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x10\n" +
+	"\x03pid\x18\x03 \x01(\x03R\x03pid\x12\x1c\n" +
+	"\tconfirmed\x18\x04 \x01(\bR\tconfirmed\x12\x14\n" +
+	"\x05again\x18\x05 \x01(\bR\x05again\"i\n" +
+	"\x1cRuntimeServiceSubmitResponse\x12\x1b\n" +
+	"\tsubmit_id\x18\x01 \x01(\tR\bsubmitId\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12\x16\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail2\xe1\x05\n" +
 	"\x0eRuntimeService\x12\x83\x01\n" +
 	"\x0eListExecutions\x127.herdsman.daemon.v1.RuntimeServiceListExecutionsRequest\x1a8.herdsman.daemon.v1.RuntimeServiceListExecutionsResponse\x12}\n" +
 	"\fGetExecution\x125.herdsman.daemon.v1.RuntimeServiceGetExecutionRequest\x1a6.herdsman.daemon.v1.RuntimeServiceGetExecutionResponse\x12k\n" +
@@ -1303,7 +1457,8 @@ const file_herdsman_daemon_v1_runtime_proto_rawDesc = "" +
 	"\n" +
 	"GetDefault\x123.herdsman.daemon.v1.RuntimeServiceGetDefaultRequest\x1a4.herdsman.daemon.v1.RuntimeServiceGetDefaultResponse\x12w\n" +
 	"\n" +
-	"SetDefault\x123.herdsman.daemon.v1.RuntimeServiceSetDefaultRequest\x1a4.herdsman.daemon.v1.RuntimeServiceSetDefaultResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
+	"SetDefault\x123.herdsman.daemon.v1.RuntimeServiceSetDefaultRequest\x1a4.herdsman.daemon.v1.RuntimeServiceSetDefaultResponse\x12k\n" +
+	"\x06Submit\x12/.herdsman.daemon.v1.RuntimeServiceSubmitRequest\x1a0.herdsman.daemon.v1.RuntimeServiceSubmitResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
 
 var (
 	file_herdsman_daemon_v1_runtime_proto_rawDescOnce sync.Once
@@ -1317,7 +1472,7 @@ func file_herdsman_daemon_v1_runtime_proto_rawDescGZIP() []byte {
 	return file_herdsman_daemon_v1_runtime_proto_rawDescData
 }
 
-var file_herdsman_daemon_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_herdsman_daemon_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_herdsman_daemon_v1_runtime_proto_goTypes = []any{
 	(*ExecutionObservation)(nil),                 // 0: herdsman.daemon.v1.ExecutionObservation
 	(*AppBinding)(nil),                           // 1: herdsman.daemon.v1.AppBinding
@@ -1336,21 +1491,23 @@ var file_herdsman_daemon_v1_runtime_proto_goTypes = []any{
 	(*RuntimeServiceGetDefaultResponse)(nil),     // 14: herdsman.daemon.v1.RuntimeServiceGetDefaultResponse
 	(*RuntimeServiceSetDefaultRequest)(nil),      // 15: herdsman.daemon.v1.RuntimeServiceSetDefaultRequest
 	(*RuntimeServiceSetDefaultResponse)(nil),     // 16: herdsman.daemon.v1.RuntimeServiceSetDefaultResponse
-	(*v1.RuntimeRef)(nil),                        // 17: herdsman.core.v1.RuntimeRef
-	(*v1.RouteId)(nil),                           // 18: herdsman.core.v1.RouteId
-	(*v1.Version)(nil),                           // 19: herdsman.core.v1.Version
+	(*RuntimeServiceSubmitRequest)(nil),          // 17: herdsman.daemon.v1.RuntimeServiceSubmitRequest
+	(*RuntimeServiceSubmitResponse)(nil),         // 18: herdsman.daemon.v1.RuntimeServiceSubmitResponse
+	(*v1.RuntimeRef)(nil),                        // 19: herdsman.core.v1.RuntimeRef
+	(*v1.RouteId)(nil),                           // 20: herdsman.core.v1.RouteId
+	(*v1.Version)(nil),                           // 21: herdsman.core.v1.Version
 }
 var file_herdsman_daemon_v1_runtime_proto_depIdxs = []int32{
-	17, // 0: herdsman.daemon.v1.Execution.ref:type_name -> herdsman.core.v1.RuntimeRef
-	18, // 1: herdsman.daemon.v1.Execution.route:type_name -> herdsman.core.v1.RouteId
+	19, // 0: herdsman.daemon.v1.Execution.ref:type_name -> herdsman.core.v1.RuntimeRef
+	20, // 1: herdsman.daemon.v1.Execution.route:type_name -> herdsman.core.v1.RouteId
 	0,  // 2: herdsman.daemon.v1.Execution.observation:type_name -> herdsman.daemon.v1.ExecutionObservation
 	1,  // 3: herdsman.daemon.v1.Execution.app_binding:type_name -> herdsman.daemon.v1.AppBinding
 	2,  // 4: herdsman.daemon.v1.Execution.tui_binding:type_name -> herdsman.daemon.v1.TuiBinding
-	18, // 5: herdsman.daemon.v1.RuntimeServiceListExecutionsRequest.route:type_name -> herdsman.core.v1.RouteId
+	20, // 5: herdsman.daemon.v1.RuntimeServiceListExecutionsRequest.route:type_name -> herdsman.core.v1.RouteId
 	3,  // 6: herdsman.daemon.v1.RuntimeServiceListExecutionsResponse.executions:type_name -> herdsman.daemon.v1.Execution
 	3,  // 7: herdsman.daemon.v1.RuntimeServiceGetExecutionResponse.execution:type_name -> herdsman.daemon.v1.Execution
-	18, // 8: herdsman.daemon.v1.RuntimeServiceDoctorRequest.route:type_name -> herdsman.core.v1.RouteId
-	19, // 9: herdsman.daemon.v1.RuntimeServiceDoctorResponse.version:type_name -> herdsman.core.v1.Version
+	20, // 8: herdsman.daemon.v1.RuntimeServiceDoctorRequest.route:type_name -> herdsman.core.v1.RouteId
+	21, // 9: herdsman.daemon.v1.RuntimeServiceDoctorResponse.version:type_name -> herdsman.core.v1.Version
 	9,  // 10: herdsman.daemon.v1.RuntimeServiceDoctorResponse.selection:type_name -> herdsman.daemon.v1.RuntimeSelection
 	10, // 11: herdsman.daemon.v1.RuntimeServiceDoctorResponse.backends:type_name -> herdsman.daemon.v1.BackendReport
 	11, // 12: herdsman.daemon.v1.RuntimeServiceDoctorResponse.checks:type_name -> herdsman.daemon.v1.RuntimeCheck
@@ -1360,13 +1517,15 @@ var file_herdsman_daemon_v1_runtime_proto_depIdxs = []int32{
 	8,  // 16: herdsman.daemon.v1.RuntimeService.Doctor:input_type -> herdsman.daemon.v1.RuntimeServiceDoctorRequest
 	13, // 17: herdsman.daemon.v1.RuntimeService.GetDefault:input_type -> herdsman.daemon.v1.RuntimeServiceGetDefaultRequest
 	15, // 18: herdsman.daemon.v1.RuntimeService.SetDefault:input_type -> herdsman.daemon.v1.RuntimeServiceSetDefaultRequest
-	5,  // 19: herdsman.daemon.v1.RuntimeService.ListExecutions:output_type -> herdsman.daemon.v1.RuntimeServiceListExecutionsResponse
-	7,  // 20: herdsman.daemon.v1.RuntimeService.GetExecution:output_type -> herdsman.daemon.v1.RuntimeServiceGetExecutionResponse
-	12, // 21: herdsman.daemon.v1.RuntimeService.Doctor:output_type -> herdsman.daemon.v1.RuntimeServiceDoctorResponse
-	14, // 22: herdsman.daemon.v1.RuntimeService.GetDefault:output_type -> herdsman.daemon.v1.RuntimeServiceGetDefaultResponse
-	16, // 23: herdsman.daemon.v1.RuntimeService.SetDefault:output_type -> herdsman.daemon.v1.RuntimeServiceSetDefaultResponse
-	19, // [19:24] is the sub-list for method output_type
-	14, // [14:19] is the sub-list for method input_type
+	17, // 19: herdsman.daemon.v1.RuntimeService.Submit:input_type -> herdsman.daemon.v1.RuntimeServiceSubmitRequest
+	5,  // 20: herdsman.daemon.v1.RuntimeService.ListExecutions:output_type -> herdsman.daemon.v1.RuntimeServiceListExecutionsResponse
+	7,  // 21: herdsman.daemon.v1.RuntimeService.GetExecution:output_type -> herdsman.daemon.v1.RuntimeServiceGetExecutionResponse
+	12, // 22: herdsman.daemon.v1.RuntimeService.Doctor:output_type -> herdsman.daemon.v1.RuntimeServiceDoctorResponse
+	14, // 23: herdsman.daemon.v1.RuntimeService.GetDefault:output_type -> herdsman.daemon.v1.RuntimeServiceGetDefaultResponse
+	16, // 24: herdsman.daemon.v1.RuntimeService.SetDefault:output_type -> herdsman.daemon.v1.RuntimeServiceSetDefaultResponse
+	18, // 25: herdsman.daemon.v1.RuntimeService.Submit:output_type -> herdsman.daemon.v1.RuntimeServiceSubmitResponse
+	20, // [20:26] is the sub-list for method output_type
+	14, // [14:20] is the sub-list for method input_type
 	14, // [14:14] is the sub-list for extension type_name
 	14, // [14:14] is the sub-list for extension extendee
 	0,  // [0:14] is the sub-list for field type_name
@@ -1383,7 +1542,7 @@ func file_herdsman_daemon_v1_runtime_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herdsman_daemon_v1_runtime_proto_rawDesc), len(file_herdsman_daemon_v1_runtime_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

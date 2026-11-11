@@ -17,6 +17,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/notice"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/routename"
@@ -76,6 +77,9 @@ type Config struct {
 	RetentionPolicy func() (ops.Retention, error)
 	// Core configures the herdr-core backend (zero: the user's own).
 	Core CoreConfig
+	// Notice tunes the notice service and its worker socket (zero: the
+	// defaults of the herdr-core spec, section 10).
+	Notice NoticeConfig
 }
 
 // Daemon is one running daemon.
@@ -110,8 +114,10 @@ type Daemon struct {
 	opsCtx     context.Context
 	bg         sync.WaitGroup
 
-	callers *route.Callers // who asked for each route start
-	core    *coreRuntime   // herdr-core's launch socket and reconcilers
+	callers *route.Callers  // who asked for each route start
+	core    *coreRuntime    // herdr-core's launch socket and reconcilers
+	notices *notice.Service // the notices of herdr-core executions
+	worker  *workerServer   // the worker socket, which serves only notices
 
 	hub  *eventHub     // the topics the event stream and long poll read
 	view *registryView // publishes the routes into hub
@@ -394,6 +400,7 @@ func (d *Daemon) Start() (err error) {
 	if err := d.startCore(coreCtx); err != nil {
 		d.logf("herdr-core: %v", err)
 	}
+	d.startNotices()
 	d.resumeAdoptions()
 	names := make([]string, 0, len(rf.Routes))
 	for n := range rf.Routes {
@@ -408,7 +415,10 @@ func (d *Daemon) Start() (err error) {
 			d.openRoute(n, rf.Routes[n])
 		}
 	}
-	return d.listen()
+	if err := d.listen(); err != nil {
+		return err
+	}
+	return d.listenWorker()
 }
 
 // listen opens the daemon's socket.
@@ -454,6 +464,10 @@ func (d *Daemon) unwindStart() {
 		_ = d.ln.Close()
 		d.ln = nil
 	}
+	if d.worker != nil {
+		_ = d.worker.ln.Close()
+		d.worker = nil
+	}
 	d.stopCore()
 	d.closeOps()
 	d.closeStateLock()
@@ -467,6 +481,8 @@ func (d *Daemon) unwindStart() {
 func (d *Daemon) Serve(ctx context.Context) error {
 	if !d.cfg.Inspect {
 		go d.scheduler(ctx)
+		go d.tickNotices(ctx)
+		d.serveWorker()
 		d.startOpsRecovery(ctx)
 	}
 	errc := make(chan error, 1)
@@ -510,6 +526,7 @@ func (d *Daemon) Stop(reason string) {
 			})
 			r.stop()
 		}
+		d.stopWorker()
 		if d.srv != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			_ = d.srv.Shutdown(ctx)

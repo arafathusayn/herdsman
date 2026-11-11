@@ -253,6 +253,38 @@ export interface RuntimeServiceSetDefaultResponse {
   previous?: string;
 }
 
+export interface RuntimeServiceSubmitRequest {
+  executionId?: string;
+  /**
+   * The line; at most 4096 bytes and one line.
+   */
+  text?: string;
+  /**
+   * The caller's process id, checked against the socket's peer.
+   */
+  pid?: string;
+  /**
+   * The person read the confirmation: the Enter follows the check by about
+   * 200 ms, and nothing can recall the line once core holds it.
+   */
+  confirmed?: boolean;
+  /**
+   * Send although an earlier submit is unresolved, knowing that both lines
+   * may be typed.
+   */
+  again?: boolean;
+}
+
+export interface RuntimeServiceSubmitResponse {
+  submitId?: string;
+  /**
+   * "queued", "pending_in_core", "typed", "rejected_before_write" or
+   * "unresolved". "typed" is transport evidence, not acceptance of the task.
+   */
+  state?: string;
+  detail?: string;
+}
+
 /**
  * RuntimeService reports where agents run: the execution records, the backend a
  * new route would use, and what each backend needs. It never starts or stops an
@@ -297,6 +329,17 @@ export const RuntimeService = {
     setDefault: {
       path: "/rpc/herdsman.daemon.v1.RuntimeService/SetDefault",
       signature: undefined as unknown as (request: RuntimeServiceSetDefaultRequest) => RuntimeServiceSetDefaultResponse,
+    },
+    /**
+     * Submit types one line into one herdr-core execution's terminal and
+     * presses Enter, as one person's explicit action (spec section 10, rule 2).
+     * Core checks the program's state once, before the paste; the Enter follows
+     * about 200 ms later with no second check. No automated path calls it, and
+     * a caller that is an agent is refused.
+     */
+    submit: {
+      path: "/rpc/herdsman.daemon.v1.RuntimeService/Submit",
+      signature: undefined as unknown as (request: RuntimeServiceSubmitRequest) => RuntimeServiceSubmitResponse,
     },
   },
 } as const;

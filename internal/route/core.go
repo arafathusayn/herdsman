@@ -17,6 +17,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/herdrapp"
 	"github.com/arafathusayn/herdsman/internal/launch"
+	"github.com/arafathusayn/herdsman/internal/notice"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/profile"
 	"github.com/arafathusayn/herdsman/internal/runtime"
@@ -48,6 +49,9 @@ type CoreLaunch struct {
 	Wrapper string
 	// LaunchSocket is the daemon's launch socket.
 	LaunchSocket string
+	// NoticeSocket is the daemon's worker socket, which the harness reaches
+	// its notices through.
+	NoticeSocket string
 	// Login are the login values and PATH a launch takes, and LoginFrom
 	// says where they came from.
 	Login     map[string]string
@@ -65,6 +69,11 @@ type coreData struct {
 	LineHoldsPrompt bool `json:"line_holds_prompt,omitempty"`
 	// Intents are the pair's launch intents, for the enroll step.
 	Intents []string `json:"intents,omitempty"`
+	// Brief is the first brief a brief step issues as a notice.
+	Brief string `json:"brief,omitempty"`
+	// Reissue: the brief step of a resume after a stop first carries on what
+	// the agent's predecessor left unhandled.
+	Reissue bool `json:"reissue,omitempty"`
 }
 
 // planCore plans a route's start on herdr-core: the route folder, the inbox,
@@ -125,6 +134,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 	space := core.OpaqueID(q.Core.Owner, q.Repo, q.Route, "space")
 	n := 0
 	var intents []string
+	var briefs []func()
 	for _, c := range coordinators {
 		exec := runtime.NewExecutionID()
 		intent := "up:" + q.Repo + ":" + q.Route + ":" + c.name + ":" + exec
@@ -132,7 +142,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 		d := launch.CoreDescriptor{
 			Intent: intent, Execution: exec, Kind: c.kind, Harness: append([]string(nil), c.spec.Command...), StepsDir: stepsDir,
 			TimeoutMS: c.spec.Timeout().Milliseconds(), Cwd: coreCwd(c, q), Env: mergeEnv(channelEnv, c.spec.Env),
-			Login: q.Core.Login, LoginFrom: q.Core.LoginFrom, SecretRefs: q.SecretRefs,
+			Login: q.Core.Login, LoginFrom: q.Core.LoginFrom, SecretRefs: q.SecretRefs, NoticeSocket: q.Core.NoticeSocket,
 		}
 		for _, step := range c.spec.Prelude {
 			n++
@@ -160,17 +170,32 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 		add("register "+c.name, effectCoreRegister, "core-register:"+c.name, ops.RetryNever, data(nil))
 		add("show "+c.name+" in the app", effectCoreVisible, "core-visibility:"+c.name, ops.RetryIdempotent, data(nil))
 		add("wait until "+c.name+" is ready", effectCoreReady, "core-ready:"+c.name, ops.RetryIdempotent, data(nil))
-		line, holdsPrompt := startLine(q, p, c)
-		if line != "" {
-			fmt.Fprintf(text, "start line: submitted by a person in the app\n")
-			add("have a person submit "+c.name+"'s start line", effectCoreAttach, "core-attach:"+c.name, ops.RetryNever, data(func(cd *coreData) {
-				cd.Line, cd.LineHoldsPrompt = line, holdsPrompt
-			}))
+		// The start line is the adapter's fixed line, with no task content:
+		// a person submits it (no start-line argument is added to a launch
+		// command while that decision is the owner's). The role command
+		// that the TUI typed is the first brief, a notice issued once the
+		// pair is enrolled.
+		a, _ := core.AdapterFor(c.kind)
+		fmt.Fprintf(text, "start line (version %d): submitted by a person in the app\n", a.StartLineVersion)
+		if a.Attended {
+			fmt.Fprintf(text, "attended: %s is woken by a person on herdr-core; each notice for it waits for the line %q in its pane\n", c.kind, notice.AttendedLine)
 		}
+		add("have a person submit "+c.name+"'s start line", effectCoreAttach, "core-attach:"+c.name, ops.RetryNever, data(func(cd *coreData) {
+			cd.Line = a.StartLine
+		}))
+		role, _ := startLine(q, p, c)
+		brief := data(func(cd *coreData) { cd.Brief = briefText(q.Route, role) })
+		name := c.name
+		briefs = append(briefs, func() {
+			add("issue "+name+"'s first brief as a notice", effectCoreBrief, "core-brief:"+name, ops.RetryIdempotent, brief)
+		})
 	}
 	add("enroll the agents", effectCoreEnroll, "core-enroll:"+p.Key, ops.RetryIdempotent, with(func(d *stepData) {
 		d.Core = &coreData{Intents: intents}
 	}))
+	for _, f := range briefs {
+		f()
+	}
 	return steps, nil
 }
 
@@ -235,8 +260,10 @@ func applyCorePreflight(ctx context.Context, deps Deps, _ *herdr.Client, d stepD
 	}
 	defer c.Close()
 	l := d.Core.Launch
-	_, err = core.Preflight(ctx, c, core.PreflightInput{Kind: l.Kind, Argv: l.Descriptor.Harness, Roots: slices.Compact([]string{d.Repo, l.Cwd}), ExpectCore: expect})
-	return err
+	if _, err = core.Preflight(ctx, c, core.PreflightInput{Kind: l.Kind, Argv: l.Descriptor.Harness, Roots: slices.Compact([]string{d.Repo, l.Cwd}), ExpectCore: expect}); err != nil {
+		return err
+	}
+	return waitBudget(ctx, cp, l.Intent)
 }
 
 func probeAbsent(context.Context, Deps, *herdr.Client, stepData) (ops.Verdict, string, error) {
@@ -405,10 +432,23 @@ func applyCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData
 		return err
 	}
 	sum := pairChecksum(execs)
+	// The approved pair is what the notice gates read: each execution under
+	// the policy it was launched with, and the route folder for records.
+	approve := func() error {
+		if cp.Notices == nil {
+			return nil
+		}
+		for _, e := range execs {
+			if err := cp.Notices.Approve(e, d.Folder); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if b, err := os.ReadFile(pairPath(d)); err == nil {
 		var prev pairRecord
 		if json.Unmarshal(b, &prev) == nil && prev.Checksum == sum {
-			return nil
+			return approve()
 		}
 	}
 	caller, ok := deps.Callers.Get(d.Key)
@@ -435,7 +475,10 @@ func applyCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData
 	if err := os.MkdirAll(filepath.Dir(pairPath(d)), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(pairPath(d), b, 0o600)
+	if err := os.WriteFile(pairPath(d), b, 0o600); err != nil {
+		return err
+	}
+	return approve()
 }
 
 func probeCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) (ops.Verdict, string, error) {
@@ -518,15 +561,32 @@ func applyCorePause(ctx context.Context, deps Deps, _ *herdr.Client, d stepData)
 	}
 	var outcomes []string
 	for _, rec := range recs {
-		// The daemon's record of a turn, not the status alone: until turn
-		// notices exist, a turn is what the reconciler last recorded as
-		// working.
-		inTurn := rec.Observation.Program == runtime.ProgramWorking
+		// The daemon's record of a turn, not the status alone (spec section
+		// 12): an execution with an open claim is in a turn; one that only
+		// waits is at rest and gets no key.
+		inTurn := false
+		if cp.Notices != nil {
+			_, open, err := cp.Notices.OpenClaim(rec.ID)
+			if err != nil {
+				return err
+			}
+			inTurn = open
+		}
 		res, err := core.Pause(ctx, c, core.PauseInput{Pause: d.Op, Execution: rec, InTurn: inTurn, Ledger: core.FilePauseLedger{Dir: controlDir(d.Folder)}, Procs: procs})
 		if err != nil {
 			return err
 		}
-		outcomes = append(outcomes, res.Outcome)
+		outcome := res.Outcome
+		if res.Outcome == core.PausePending && cp.Notices != nil {
+			cp.Notices.Emit(notice.Event{Kind: core.PausePending, Repo: rec.Repo, Route: rec.Route, Execution: rec.ID,
+				Detail: "the turn under way ends by itself; nothing new can be claimed meanwhile"})
+		}
+		if draining, err := cp.Submits.Draining(rec.ID); err != nil {
+			return err
+		} else if draining != "" {
+			outcome += ", " + draining
+		}
+		outcomes = append(outcomes, outcome)
 	}
 	return writeRow(d, AgentRow{Name: d.Name, Pane: recs[0].TerminalAddress, Status: strings.Join(outcomes, ", ")})
 }
@@ -542,8 +602,24 @@ func applyCoreStop(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) 
 	if err != nil {
 		return err
 	}
-	status := "stopped"
+	var statuses []string
 	for _, rec := range recs {
+		report, why := "", ""
+		if cp.Notices != nil {
+			report, why = reportOutcome(cp.Notices, d, rec)
+			// Interrupt what is still in a turn, once (spec section 12).
+			_, open, err := cp.Notices.OpenClaim(rec.ID)
+			if err != nil {
+				return err
+			}
+			final, _, _ := cp.Notices.ByKey(finalKey(d.Op, rec.ID))
+			if report != notice.ReportReported && (open || final.Open()) {
+				if err := interruptOnce(ctx, cp, d, rec); err != nil {
+					return err
+				}
+			}
+		}
+		status := "stopped"
 		got, err := cp.Stop(ctx, runtime.Target{ExecutionID: rec.ID})
 		if err != nil {
 			return err
@@ -551,8 +627,35 @@ func applyCoreStop(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) 
 		if got.Already {
 			status = "already ended; a recovery shell at " + rec.TerminalAddress + " is left for a person"
 		}
+		if cp.Notices != nil {
+			if _, err := cp.Notices.ReturnExecution(rec.ID, "stopped"); err != nil {
+				return err
+			}
+			cp.Notices.Emit(notice.Event{Kind: "report_outcome", Repo: rec.Repo, Route: rec.Route, Execution: rec.ID, Outcome: report, Reason: why})
+			status = report + " (" + why + "); " + status
+		}
+		statuses = append(statuses, status)
 	}
-	return writeRow(d, AgentRow{Name: d.Name, Status: status})
+	if len(recs) == 0 {
+		statuses = append(statuses, notice.ReportNotReached)
+	}
+	return writeRow(d, AgentRow{Name: d.Name, Status: strings.Join(statuses, "; ")})
+}
+
+// interruptOnce sends a stop's one interrupt to an execution still in a turn;
+// the stop's id keys the ledger, so a retried step sends none.
+func interruptOnce(ctx context.Context, cp *core.Provider, d stepData, rec runtime.Execution) error {
+	c, err := cp.Dial(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	procs := cp.Procs
+	if procs == nil {
+		procs = core.SystemProcs{}
+	}
+	_, err = core.Pause(ctx, c, core.PauseInput{Pause: d.Op, Execution: rec, InTurn: true, PersonAsked: true, Ledger: core.FilePauseLedger{Dir: controlDir(d.Folder)}, Procs: procs})
+	return err
 }
 
 // planCoreControl plans a verb on a herdr-core route. A pause and a stop act
@@ -562,6 +665,7 @@ func applyCoreStop(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) 
 func (b *controlBuilder) planCoreControl() error {
 	launches := coreLaunches(b.q.Start)
 	attach := map[string]coreData{}
+	brief := map[string]string{}
 	var enroll *ops.Step
 	for _, st := range b.q.Start.Steps {
 		d, err := decode(st)
@@ -571,6 +675,8 @@ func (b *controlBuilder) planCoreControl() error {
 		switch st.Effect {
 		case effectCoreAttach:
 			attach[d.Name] = *d.Core
+		case effectCoreBrief:
+			brief[d.Name] = d.Core.Brief
 		case effectCoreEnroll:
 			enroll = &st
 		}
@@ -580,6 +686,8 @@ func (b *controlBuilder) planCoreControl() error {
 	}
 	switch b.q.Verb {
 	case VerbPause:
+		// The hold is persisted before any interrupt.
+		b.add("hold the route's notices", effectCoreHold, "core-hold", b.base)
 		for _, name := range b.agents {
 			b.add("pause "+name, effectCorePause, "core-pause:"+name, b.with(func(d *stepData) { d.Name = name }))
 		}
@@ -588,6 +696,11 @@ func (b *controlBuilder) planCoreControl() error {
 		}
 		b.add("record the pause", effectRecord, "record", b.base)
 	case VerbStop:
+		b.add("put the route in the stopping phase", effectCoreStopping, "core-stopping", b.base)
+		for _, name := range b.agents {
+			b.add("ask "+name+" for its report", effectCoreReport, "core-report:"+name, b.with(func(d *stepData) { d.Name = name }))
+		}
+		b.add("wait for the reports", effectCoreReports, "core-reports", b.base)
 		for _, name := range b.agents {
 			b.add("stop "+name, effectCoreStop, "core-stop:"+name, b.with(func(d *stepData) { d.Name = name }))
 		}
@@ -599,8 +712,16 @@ func (b *controlBuilder) planCoreControl() error {
 			d.Control.Verb = VerbStop
 		}))
 	case VerbResume:
+		if b.q.From != ControlStopped {
+			b.add("lift the route's hold", effectCoreUnhold, "core-unhold", b.base)
+			for _, name := range b.agents {
+				b.add("restore "+name, effectCoreResume, "core-resume:"+name, b.with(func(d *stepData) { d.Name = name }))
+			}
+		}
 		if b.q.From == ControlStopped {
+			b.add("end the route's stopping phase", effectCoreRestart, "core-restart#"+strconv.Itoa(b.q.Generation), b.base)
 			var intents []string
+			var briefs []stepData
 			for _, l := range launches {
 				fresh := remapLaunch(l)
 				intents = append(intents, fresh.Intent)
@@ -625,11 +746,17 @@ func (b *controlBuilder) planCoreControl() error {
 						c.Line, c.LineHoldsPrompt = a.Line, a.LineHoldsPrompt
 					}))
 				}
+				if br, ok := brief[l.AgentName]; ok {
+					briefs = append(briefs, step(func(c *coreData) { c.Brief, c.Reissue = br, true }))
+				}
 			}
 			if enroll != nil {
 				b.add("enroll the agents", effectCoreEnroll, "core-enroll#"+strconv.Itoa(b.q.Generation), b.with(func(d *stepData) {
 					d.Core = &coreData{Intents: intents}
 				}))
+			}
+			for _, d := range briefs {
+				b.add("issue "+d.Name+"'s first brief as a notice", effectCoreBrief, "core-brief:"+d.Name+"#"+strconv.Itoa(b.q.Generation), d)
 			}
 		}
 		b.add("record the resume", effectRecord, "record", b.base)
@@ -659,6 +786,14 @@ func coreEffects(deps Deps) map[string]ops.Effect {
 		effectCoreEnroll:    effect{deps, applyCoreEnroll, probeCoreEnroll},
 		effectCorePause:     effect{deps, applyCorePause, probeControlRow},
 		effectCoreStop:      effect{deps, applyCoreStop, probeControlRow},
+		effectCoreBrief:     effect{deps, applyCoreBrief, probeCoreBrief},
+		effectCoreHold:      effect{deps, applyCoreHold, probeCoreHold},
+		effectCoreUnhold:    effect{deps, applyCoreUnhold, probeCoreUnhold},
+		effectCoreResume:    effect{deps, applyCoreResume, probeControlRow},
+		effectCoreStopping:  effect{deps, applyCoreStopping, probeCoreStopping},
+		effectCoreReport:    effect{deps, applyCoreReport, probeReportRow},
+		effectCoreReports:   effect{deps, applyCoreReports, probeReports},
+		effectCoreRestart:   effect{deps, applyCoreRestart, probeCoreRestart},
 	}
 }
 

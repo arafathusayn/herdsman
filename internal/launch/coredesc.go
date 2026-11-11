@@ -41,7 +41,16 @@ type CoreDescriptor struct {
 	// SecretRefs lists the keychain references the policy grants, in the
 	// form secrets.ParseRefs reads.
 	SecretRefs string `json:"secret_refs,omitempty"`
+	// NoticeSocket is the daemon's worker socket. It is not a secret: the
+	// socket answers only the calling execution, identified by its process.
+	// The harness finds it in NoticeSocketEnv.
+	NoticeSocket string `json:"notice_socket,omitempty"`
 }
+
+// NoticeSocketEnv names the worker socket in a managed harness's environment.
+// The notice verbs fail without it and say that they serve managed
+// executions.
+const NoticeSocketEnv = "HERDSMAN_NOTICE_SOCKET"
 
 // NumberedStep is one prelude step and the number of its marker files.
 type NumberedStep struct {
@@ -97,6 +106,12 @@ func (d CoreDescriptor) Validate() error {
 		if !slices.Contains(LoginKeys, name) {
 			return fmt.Errorf("launch: %s is not a login value", name)
 		}
+	}
+	if d.NoticeSocket != "" && !filepath.IsAbs(d.NoticeSocket) {
+		return fmt.Errorf("launch: the notice socket %q is not absolute", d.NoticeSocket)
+	}
+	if _, set := d.Env[NoticeSocketEnv]; set {
+		return fmt.Errorf("launch: the launch may not set %s: the daemon names its worker socket", NoticeSocketEnv)
 	}
 	if len(d.Prelude) > 0 && d.StepsDir == "" {
 		return errors.New("launch: prelude steps need a steps folder")
@@ -159,6 +174,9 @@ func CoreEnv(d CoreDescriptor, own []string, granted []string) []string {
 		if name, value, ok := strings.Cut(kv, "="); ok {
 			env[name] = value
 		}
+	}
+	if d.NoticeSocket != "" {
+		env[NoticeSocketEnv] = d.NoticeSocket
 	}
 	out := make([]string, 0, len(env))
 	for _, k := range slices.Sorted(maps.Keys(env)) {

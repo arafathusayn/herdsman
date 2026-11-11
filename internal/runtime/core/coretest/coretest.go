@@ -17,10 +17,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/hc"
 	"github.com/arafathusayn/herdsman/internal/hc/hctest"
 	"github.com/arafathusayn/herdsman/internal/herdrapp"
 	"github.com/arafathusayn/herdsman/internal/herdrapp/apptest"
 	"github.com/arafathusayn/herdsman/internal/launch"
+	"github.com/arafathusayn/herdsman/internal/notice"
+	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
 	"github.com/arafathusayn/herdsman/internal/sys"
 )
@@ -162,7 +165,16 @@ type World struct {
 	AppCore   *apptest.Core
 	Bindings  *core.FileBindings
 	Provider  *core.Provider
-	Dir       string
+	// Notices is the notice service over the world's records, in memory;
+	// NoticeStore holds its state, so a test can open a second service on
+	// it as a daemon restart would.
+	Notices     *notice.Service
+	NoticeStore *notice.MemStore
+	// Events are what the notice service raised.
+	Events []notice.Event
+	// Submits holds a person's typed submits in memory.
+	Submits *MemSubmits
+	Dir     string
 	// Holder is core's process, the parent of every terminal's program.
 	Holder int
 	// Environ is the environment the wrapper sees; Keychain its keychain.
@@ -175,6 +187,7 @@ type World struct {
 	peer    atomic.Int64
 	mu      sync.Mutex
 	execed  map[string][]string
+	envs    map[string][]string
 	wrapped map[string]bool
 	pids    map[string]int
 }
@@ -182,7 +195,7 @@ type World struct {
 // New starts a world. The app is installed but closed.
 func New(t testing.TB) *World {
 	t.Helper()
-	w := &World{T: t, Core: hctest.Start(t), Procs: NewProcs(), Records: &core.MemRecords{}, Ready: "idle", execed: map[string][]string{}, wrapped: map[string]bool{}, pids: map[string]int{}}
+	w := &World{T: t, Core: hctest.Start(t), Procs: NewProcs(), Records: &core.MemRecords{}, Ready: "idle", execed: map[string][]string{}, envs: map[string][]string{}, wrapped: map[string]bool{}, pids: map[string]int{}}
 	// A short path: a unix socket's path is limited.
 	dir, err := os.MkdirTemp("", "hsc")
 	if err != nil {
@@ -207,6 +220,9 @@ func New(t testing.TB) *World {
 	w.App = apptest.New(w.AppHome)
 	w.AppCore = apptest.NewCore(w.Core.ID)
 	w.Bindings = &core.FileBindings{Path: filepath.Join(dir, "bindings.json")}
+	w.NoticeStore = notice.NewMemStore()
+	w.Notices = w.NewNotices(notice.Config{Poll: 200 * time.Millisecond, Boot: "boot-1"})
+	w.Submits = &MemSubmits{}
 	w.Provider = w.NewProvider(w.Core.Socket)
 	w.Core.SetExec("/bin/sh", hctest.ExecAnswer{Stdout: "/usr/local/bin/claude\n"})
 	w.Core.SetExec("/bin/ls", hctest.ExecAnswer{})
@@ -218,7 +234,113 @@ func New(t testing.TB) *World {
 // app and process table.
 func (w *World) NewProvider(endpoint string) *core.Provider {
 	return &core.Provider{Socket: endpoint, Records: w.Records, Procs: w.Procs, Registrar: w.Registrar,
-		App: herdrapp.New(AppRunner{w}, w.AppHome), Bindings: w.Bindings}
+		App: herdrapp.New(AppRunner{w}, w.AppHome), Bindings: w.Bindings, Notices: w.Notices, Submits: w.Submitter()}
+}
+
+// NewNotices opens a notice service on the world's notice store, as a daemon
+// start would; cfg's zero values take the defaults. The adapters decide which
+// harness is attended.
+func (w *World) NewNotices(cfg notice.Config) *notice.Service {
+	if cfg.Emit == nil {
+		cfg.Emit = func(ev notice.Event) {
+			w.mu.Lock()
+			w.Events = append(w.Events, ev)
+			w.mu.Unlock()
+		}
+	}
+	if cfg.Attended == nil {
+		cfg.Attended = func(kind string) bool {
+			a, err := core.AdapterFor(kind)
+			return err == nil && !a.Unattended()
+		}
+	}
+	s := notice.New(w.NoticeStore, Executions{w.Records}, cfg)
+	w.T.Cleanup(s.Close)
+	return s
+}
+
+// EventsOf returns the notice events of one kind so far.
+func (w *World) EventsOf(kind string) []notice.Event {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var out []notice.Event
+	for _, ev := range w.Events {
+		if ev.Kind == kind {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+// Submitter is a typed-submit service on the world's core.
+func (w *World) Submitter() *core.Submitter {
+	return &core.Submitter{Store: w.Submits, Records: w.Records, Notices: w.Notices, Procs: w.Procs,
+		Dial: func(ctx context.Context) (core.Sender, func(), error) {
+			c, err := hc.Dial(ctx, w.Core.Socket, hc.Options{})
+			if err != nil {
+				return nil, nil, err
+			}
+			return c, func() { _ = c.Close() }, nil
+		}}
+}
+
+// Executions reads the notice gates' executions from the world's records.
+type Executions struct{ Records core.Records }
+
+// Execution implements notice.Executions.
+func (x Executions) Execution(ctx context.Context, id string) (runtime.Execution, bool, error) {
+	all, err := x.Records.List(ctx, "", "")
+	for _, e := range all {
+		if e.ID == id {
+			return e, true, err
+		}
+	}
+	return runtime.Execution{}, false, err
+}
+
+// Running implements notice.Executions.
+func (x Executions) Running(ctx context.Context) ([]runtime.Execution, error) {
+	all, err := x.Records.List(ctx, "", "")
+	var out []runtime.Execution
+	for _, e := range all {
+		if e.Desired == runtime.DesiredRunning {
+			out = append(out, e)
+		}
+	}
+	return out, err
+}
+
+// MemSubmits keeps typed submits in memory.
+type MemSubmits struct {
+	mu   sync.Mutex
+	rows []core.SubmitRecord
+}
+
+// PutSubmit implements core.SubmitStore.
+func (m *MemSubmits) PutSubmit(r core.SubmitRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, x := range m.rows {
+		if x.ID == r.ID {
+			m.rows[i] = r
+			return nil
+		}
+	}
+	m.rows = append(m.rows, r)
+	return nil
+}
+
+// Submits implements core.SubmitStore.
+func (m *MemSubmits) Submits(execution string) ([]core.SubmitRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []core.SubmitRecord
+	for _, r := range m.rows {
+		if execution == "" || r.Execution == execution {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 // AppRunner mirrors the fake core's live terminals into the app's core before
@@ -253,6 +375,13 @@ func (w *World) Execed(intent string) []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return slices.Clone(w.execed[intent])
+}
+
+// ExecEnv is the environment the wrapper of intent ran the harness with.
+func (w *World) ExecEnv(intent string) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.envs[intent])
 }
 
 // AutoWrap runs the core wrapper in every launch terminal the fake core
@@ -325,6 +454,7 @@ func (w *World) wrap(ctx context.Context, addr string, argv []string, intent str
 		Exec: func(argv0 string, args, env []string) error {
 			w.mu.Lock()
 			w.execed[intent] = slices.Clone(args)
+			w.envs[intent] = slices.Clone(env)
 			w.mu.Unlock()
 			if w.Ready != "" {
 				w.Core.SetStatus(addr, w.Ready)

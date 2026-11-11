@@ -14,6 +14,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/hc"
 	"github.com/arafathusayn/herdsman/internal/herdrapp"
+	"github.com/arafathusayn/herdsman/internal/notice"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 )
 
@@ -30,8 +31,13 @@ type Provider struct {
 	Bindings   Bindings
 	// Reconciler, when set, freezes mutations after a core identity change.
 	Reconciler *Reconciler
-	Now        func() time.Time
-	Options    hc.Options
+	// Notices is the daemon's notice service: Deliver issues notices only.
+	Notices *notice.Service
+	// Submits holds a person's typed submits, which a pause reports while
+	// one is draining.
+	Submits *Submitter
+	Now     func() time.Time
+	Options hc.Options
 }
 
 // Backend implements runtime.Provider.
@@ -236,9 +242,30 @@ func (p *Provider) Read(ctx context.Context, t runtime.Target, r runtime.ReadReq
 }
 
 // Deliver implements runtime.Provider. On core an instruction is a notice the
-// execution claims; this build issues none yet, and nothing is ever typed.
-func (p *Provider) Deliver(context.Context, runtime.Target, runtime.Delivery) (runtime.Delivered, error) {
-	return runtime.Delivered{}, refuse(CodeDeliveryNotOnCore, "instructions reach herdr-core agents as notices, which this build does not issue yet; nothing is typed into a core terminal")
+// execution claims (spec section 10): it is issued after every gate but the
+// order rule, and it is Pending until the execution claims it. Nothing is
+// ever typed: no automated path calls terminal.send or terminal.keys.
+func (p *Provider) Deliver(ctx context.Context, t runtime.Target, d runtime.Delivery) (runtime.Delivered, error) {
+	if p.Notices == nil {
+		return runtime.Delivered{}, refuse(CodeDeliveryNotOnCore, "instructions reach herdr-core agents as notices, and this daemon serves none; nothing is typed into a core terminal")
+	}
+	if t.ExecutionID == "" {
+		return runtime.Delivered{}, refuse(CodeIdentityNotProven, "a notice needs its execution")
+	}
+	kind, key := d.Kind, d.Key
+	if kind == "" {
+		kind = notice.KindDispatch
+	}
+	if key == "" {
+		if d.Tag == "" {
+			return runtime.Delivered{}, refuse(CodeDeliveryNotOnCore, "a notice needs a key or a tag, so that a retry issues it once")
+		}
+		key = "deliver:" + t.ExecutionID + ":" + d.Tag
+	}
+	if _, err := p.Notices.Issue(ctx, notice.IssueRequest{Key: key, Kind: kind, Execution: t.ExecutionID, Content: d.Text, Issuer: d.Issuer}); err != nil {
+		return runtime.Delivered{}, err
+	}
+	return runtime.Delivered{Pending: true}, nil
 }
 
 // Interrupt implements runtime.Provider: one interrupt to the proven

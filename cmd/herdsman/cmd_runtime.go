@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,7 @@ import (
 const runtimeHelp = `usage: herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]
        herdsman runtime ls [--route <route>] [--json]
        herdsman runtime default [<backend>] [--json]
+       herdsman runtime submit <execution> <line> [--yes] [--again] [--json]
 
 Where agents run. A backend is herdr-core or herdr-tui. A new route takes
 --backend, then the config file's [runtime] backend, then the installation
@@ -94,11 +96,89 @@ var runtimeVerbs = map[string]func([]string, io.Writer, io.Writer) int{
 	"doctor":  runRuntimeDoctor,
 	"ls":      runRuntimeLs,
 	"default": runRuntimeDefault,
+	"submit":  runRuntimeSubmit,
+}
+
+const runtimeSubmitHelp = `usage: herdsman runtime submit <execution> <line> [--yes] [--again] [--json]
+
+Types one line into one herdr-core execution's terminal and presses Enter, as
+your own explicit action. herdr-core checks the program's state once, before
+the paste; the Enter follows that check by about 200 ms with no second check,
+so a dialog that opens in between is confirmed by it. Once core holds the
+line nothing can recall it. It is typed only while the program reports idle,
+after it reported a status since it started, with no other submit of yours
+outstanding there. No automation ever runs this, and an agent is refused.
+
+Without --yes it shows that warning and asks you to type yes. --again sends
+although an earlier submit is unresolved, knowing that both may be typed.
+
+exit codes:
+  0  typed, or rejected by core before anything was written
+  1  refused, unresolved, or the daemon is not running
+  2  bad usage
+`
+
+// submitWarning is what a person reads before a typed submit; the daemon
+// refuses a submit that was not confirmed.
+const submitWarning = "This types one line into the agent's terminal and presses Enter. herdr-core checks the program's state once, before the paste; " +
+	"the Enter follows that check by about 200 ms with no second check, so a dialog that opens in between is confirmed by it. " +
+	"Once core holds the line, nothing can recall it."
+
+// confirmSubmit asks the person at the terminal; tests replace it.
+var confirmSubmit = func(stderr io.Writer) bool {
+	fmt.Fprintf(stderr, "%s\ntype yes to type the line: ", submitWarning)
+	var answer string
+	if _, err := fmt.Fscanln(os.Stdin, &answer); err != nil {
+		return false
+	}
+	return answer == "yes"
+}
+
+func runRuntimeSubmit(args []string, stdout, stderr io.Writer) int {
+	fs := verbFlags("runtime submit", stderr)
+	yes := fs.Bool("yes", false, "you read the warning: the Enter follows the check by about 200 ms")
+	again := fs.Bool("again", false, "send although an earlier submit is unresolved")
+	asJSON := fs.Bool("json", false, "print the result as JSON")
+	positional, _, err := parseVerb(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) != 2 {
+		return usageError(stderr, "runtime submit takes an execution id and one line")
+	}
+	if !*yes && !confirmSubmit(stderr) {
+		return usageError(stderr, "not confirmed; nothing was typed")
+	}
+	service, closeService, err := dialRuntime()
+	if err != nil {
+		return fail(stderr, err)
+	}
+	defer closeService()
+	res, err := service.Submit(context.Background(), &daemonv1.RuntimeServiceSubmitRequest{ExecutionId: positional[0], Text: positional[1],
+		Pid: int64(os.Getpid()), Confirmed: true, Again: *again})
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if *asJSON {
+		if err := printProto(stdout, res); err != nil {
+			return fail(stderr, err)
+		}
+	} else {
+		fmt.Fprintf(stdout, "submit %s: %s\n", res.GetSubmitId(), res.GetState())
+		if res.GetDetail() != "" {
+			fmt.Fprintln(stdout, res.GetDetail())
+		}
+	}
+	if res.GetState() == "unresolved" {
+		fmt.Fprintln(stderr, "herdsman: unresolved: keep waiting, stop the execution, or send again with --again knowing both may be typed")
+		return 1
+	}
+	return 0
 }
 
 func init() {
-	register(command{name: "runtime", summary: "Where agents run: runtime doctor, runtime ls, runtime default.", help: runtimeHelp,
-		subHelp: map[string]string{"doctor": runtimeDoctorHelp, "ls": runtimeLsHelp, "default": runtimeDefaultHelp}, run: runRuntime})
+	register(command{name: "runtime", summary: "Where agents run: runtime doctor, runtime ls, runtime default, runtime submit.", help: runtimeHelp,
+		subHelp: map[string]string{"doctor": runtimeDoctorHelp, "ls": runtimeLsHelp, "default": runtimeDefaultHelp, "submit": runtimeSubmitHelp}, run: runRuntime})
 }
 
 func runRuntime(args []string, _ io.Reader, stdout, stderr io.Writer) int {

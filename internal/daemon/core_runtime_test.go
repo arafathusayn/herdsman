@@ -84,11 +84,11 @@ func TestDaemonStartsARouteOnCore(t *testing.T) {
 		return waitHalt(t, c, repo)
 	}
 	start = again()
-	if !strings.Contains(start.GetReason(), core.CodeNeedsAttention) || !strings.Contains(start.GetReason(), "herdsman adjutant") {
+	if !strings.Contains(start.GetReason(), core.CodeNeedsAttention) || !strings.Contains(start.GetReason(), core.ClaudeStartLine) {
 		t.Fatalf("start line: %+v", start)
 	}
-	start = again() // the orchestrator's start line
-	if !strings.Contains(start.GetReason(), "herdsman orchestrator") {
+	start = again() // the orchestrator's start line: Codex is attended
+	if !strings.Contains(start.GetReason(), core.CodexStartLine) || !strings.Contains(start.GetPlan(), "attended") {
 		t.Fatalf("orchestrator's start line: %+v", start)
 	}
 	var rows []store.Execution

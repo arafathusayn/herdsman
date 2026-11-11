@@ -34,6 +34,12 @@ type RuntimeService interface {
 	// SetDefault changes the installation default backend. Routes that exist keep
 	// the backend they started on.
 	SetDefault(context.Context, *RuntimeServiceSetDefaultRequest) (*RuntimeServiceSetDefaultResponse, error)
+	// Submit types one line into one herdr-core execution's terminal and
+	// presses Enter, as one person's explicit action (spec section 10, rule 2).
+	// Core checks the program's state once, before the paste; the Enter follows
+	// about 200 ms later with no second check. No automated path calls it, and
+	// a caller that is an agent is refused.
+	Submit(context.Context, *RuntimeServiceSubmitRequest) (*RuntimeServiceSubmitResponse, error)
 }
 
 // NewRuntimeServiceHandler serves impl over HTTP with the full binding. Mount it
@@ -45,6 +51,7 @@ func NewRuntimeServiceHandler(impl RuntimeService) http.Handler {
 		rpc.Unary(RuntimeServiceName, "Doctor", impl.Doctor),
 		rpc.Unary(RuntimeServiceName, "GetDefault", impl.GetDefault),
 		rpc.Unary(RuntimeServiceName, "SetDefault", impl.SetDefault),
+		rpc.Unary(RuntimeServiceName, "Submit", impl.Submit),
 	)
 }
 
@@ -93,6 +100,14 @@ func (c *runtimeServiceClient) GetDefault(ctx context.Context, req *RuntimeServi
 func (c *runtimeServiceClient) SetDefault(ctx context.Context, req *RuntimeServiceSetDefaultRequest) (*RuntimeServiceSetDefaultResponse, error) {
 	res := new(RuntimeServiceSetDefaultResponse)
 	if err := callRuntimeService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RuntimeService/SetDefault", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *runtimeServiceClient) Submit(ctx context.Context, req *RuntimeServiceSubmitRequest) (*RuntimeServiceSubmitResponse, error) {
+	res := new(RuntimeServiceSubmitResponse)
+	if err := callRuntimeService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RuntimeService/Submit", req, res); err != nil {
 		return nil, err
 	}
 	return res, nil
