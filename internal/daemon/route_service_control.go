@@ -99,7 +99,7 @@ func (s *routeService) controlState(repo, name, startID string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return route.ControlState(verbs), nil
+	return route.ControlStateUndone(verbs, s.undone()), nil
 }
 
 // routeRecovery is what makes a route's delete undoable: the configured backend
@@ -172,7 +172,7 @@ func (s *routeService) control(ctx context.Context, call controlCall) (*daemonv1
 	if err != nil {
 		return nil, err
 	}
-	state := route.ControlState(verbs)
+	state := route.ControlStateUndone(verbs, s.undone())
 	if err := s.deletable(call); err != nil {
 		return nil, err
 	}
@@ -281,7 +281,7 @@ func (s *routeService) controlResult(call controlCall, op *ops.Operation) (*daem
 	if err != nil {
 		return nil, err
 	}
-	state := route.ControlState(verbs)
+	state := route.ControlStateUndone(verbs, s.undone())
 	return &daemonv1.RouteControl{Operation: op.ID, State: string(op.State), Reason: op.Reason, Control: state, Plan: op.Plan, Snapshot: route.SnapshotOf(op)}, nil
 }
 

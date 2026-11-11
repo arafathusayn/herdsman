@@ -131,6 +131,27 @@ type undoSpec struct {
 	Target   string `json:"target"`
 }
 
+// KindUndo is the kind of an undo operation.
+const KindUndo = "undo"
+
+// UndoneSnapshots are the snapshots a finished undo restored, by id, out of
+// the operations given.
+func UndoneSnapshots(all []*Operation) map[string]bool {
+	out := map[string]bool{}
+	for _, op := range all {
+		if op.Kind != KindUndo || op.State != OpDone {
+			continue
+		}
+		for _, st := range op.Steps {
+			var spec undoSpec
+			if st.Effect == effectUndo && json.Unmarshal([]byte(st.Spec), &spec) == nil && spec.Snapshot != "" {
+				out[spec.Snapshot] = true
+			}
+		}
+	}
+	return out
+}
+
 // pathFree is true for a missing path or an empty folder.
 func pathFree(p string) (bool, error) {
 	info, err := os.Lstat(p)
@@ -197,7 +218,7 @@ func (r *Recovery) Undo(ctx context.Context, q UndoRequest) (*UndoResult, error)
 	if err != nil {
 		return nil, err
 	}
-	op, err := r.run(ctx, Spec{Kind: "undo", Plan: "restore snapshot " + rec.ID + " to " + target,
+	op, err := r.run(ctx, Spec{Kind: KindUndo, Plan: "restore snapshot " + rec.ID + " to " + target,
 		Locks: []string{TaskLock(rec.Task), SnapshotLock(rec.ID)},
 		Steps: []StepSpec{{Name: "restore " + rec.ID, Effect: effectUndo, Key: "undo:" + target, Spec: string(spec)}}})
 	if err != nil {

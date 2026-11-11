@@ -108,6 +108,15 @@ func IsControlKind(kind string) bool {
 // ControlState reads a route's lifecycle state from its verbs, oldest first.
 // Only a finished verb counts: a failed one changed nothing it promised.
 func ControlState(verbs []*ops.Operation) string {
+	return ControlStateUndone(verbs, nil)
+}
+
+// ControlStateUndone is ControlState where a finished delete whose snapshot
+// undo restored (undone, keyed by the delete's operation id, which names its
+// snapshot) leaves the route stopped rather than deleted: its folder and
+// inbox are back, its agents ended with the delete, and a resume starts them
+// again under fresh launches.
+func ControlStateUndone(verbs []*ops.Operation, undone map[string]bool) string {
 	state := ControlRunning
 	for _, op := range verbs {
 		if op.State != ops.OpDone {
@@ -122,6 +131,9 @@ func ControlState(verbs []*ops.Operation) string {
 			state = ControlStopped
 		case KindDelete:
 			state = ControlDeleted
+			if undone[op.ID] {
+				state = ControlStopped
+			}
 		}
 	}
 	return state

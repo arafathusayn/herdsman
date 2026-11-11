@@ -440,6 +440,15 @@ func TestDeleteThroughTheServiceIsUndoneByUndo(t *testing.T) {
 	if raw, err := os.ReadFile(note); err != nil || string(raw) != "keep me" {
 		t.Fatalf("%q %v", raw, err)
 	}
+	// The undone delete leaves a stopped route, which resume restarts.
+	after, err := c.Route.Get(ctx, &daemonv1.RouteServiceGetRequest{Route: id, Repo: repo})
+	if err != nil || after.GetStart().GetControl() != route.ControlStopped {
+		t.Fatalf("after undo: %v %v", after.GetStart().GetControl(), err)
+	}
+	plan, err := c.Route.Resume(ctx, &daemonv1.RouteServiceResumeRequest{Route: id, Repo: repo, DryRun: true})
+	if err != nil || plan.GetResult().GetControl() != route.ControlStopped || plan.GetResult().GetState() != "planned" {
+		t.Fatalf("resume of the restored route: %v %v", plan, err)
+	}
 }
 
 func TestDeleteNeedsDownUnlessWorktreesAreKept(t *testing.T) {

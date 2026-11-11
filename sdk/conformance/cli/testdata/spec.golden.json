@@ -475,7 +475,7 @@
     {
       "name": "delete",
       "summary": "Remove a route, once a verified snapshot makes that undoable.",
-      "help": "usage: herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--grace <seconds>] [-y] [--dry-run]\n\nRefuses while an agent of the route runs, unless --force, which stops the route\nfirst. Takes a snapshot of the route folder and private inbox through the\nrecovery pipeline, and removes nothing unless that snapshot verifies and covers\nevery path it removes. The result names the operation to give \"herdsman undo\".\n--keep-folder leaves the route folder in place; --keep-worktrees leaves the\nroute's tasks and their worktrees alone. Once the inbox is removed, the daemon\nforgets a channel it held for the route.\n",
+      "help": "usage: herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--grace <seconds>] [-y] [--dry-run]\n\nRefuses while an agent of the route runs, unless --force, which stops the route\nfirst. Takes a snapshot of the route folder and private inbox through the\nrecovery pipeline, and removes nothing unless that snapshot verifies and covers\nevery path it removes. The result names the operation to give \"herdsman undo\".\n--keep-folder leaves the route folder in place; --keep-worktrees leaves the\nroute's tasks and their worktrees alone. Once the inbox is removed, the daemon\nforgets a channel it held for the route. Undo of the delete puts the folder and\ninbox back, registers that channel again, and leaves the route stopped: its\nagents ended with the delete, and \"herdsman resume\" starts them again as new\nexecutions.\n",
       "usage": [
         "herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--grace <seconds>] [-y] [--dry-run]"
       ],

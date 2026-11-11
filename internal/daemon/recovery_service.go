@@ -114,6 +114,11 @@ func (s *opsService) Undo(ctx context.Context, q *daemonv1.UndoRequest) (*daemon
 	if err := RecordRestoredTree(run, s.d.recovery, q.GetSnapshot(), res.Target); err != nil && s.d.cfg.Log != nil {
 		s.d.cfg.Log("undo: the task record of " + res.Target + " was not written back: " + err.Error())
 	}
+	// The undo of a route delete brings the route back stopped, with the
+	// daemon channel its delete forgot.
+	if err := s.d.restoreDeletedRoute(q.GetSnapshot()); err != nil {
+		s.d.logf("undo: the channel of the route of %s was not registered again: %v", q.GetSnapshot(), err)
+	}
 	return &daemonv1.UndoResponse{OperationId: res.Op.ID, Target: res.Target, Original: res.Original}, nil
 }
 
