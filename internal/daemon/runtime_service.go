@@ -330,9 +330,28 @@ func (s *runtimeService) SetDefault(ctx context.Context, req *daemonv1.RuntimeSe
 	return &daemonv1.RuntimeServiceSetDefaultResponse{Backend: backend, Previous: previous}, nil
 }
 
-// supportedPlatform is where the core backend is claimed: macOS on Apple
-// silicon, until core and the app are shown on Linux.
-func supportedPlatform() bool { return goruntime.GOOS == "darwin" && goruntime.GOARCH == "arm64" }
+// The machine the doctor judges; tests replace them.
+var platformOS, platformArch = goruntime.GOOS, goruntime.GOARCH
+
+// supportedPlatform is where the core backend and the app are claimed: macOS
+// on Apple silicon, until core and the app are shown on Linux (spec section
+// 19, "Platforms"). An Intel Mac has no prebuilt app.
+func supportedPlatform() bool { return platformOS == "darwin" && platformArch == "arm64" }
+
+// appSupport is the doctor's verdict on this machine for the app: claimed,
+// or why not with the line that selects the TUI. It fails only when the run
+// would use core.
+func appSupport(selected string) (state, detail string) {
+	if supportedPlatform() {
+		return "ok", fmt.Sprintf("herdr-core and herdr-app are claimed for %s/%s, this machine", platformOS, platformArch)
+	}
+	state = "warn"
+	if selected == runtime.BackendCore {
+		state = "fail"
+	}
+	return state, fmt.Sprintf("herdr-core and herdr-app are claimed for macOS on Apple silicon (darwin/arm64) only, and this machine is %s/%s; use backend = %q in [runtime]",
+		platformOS, platformArch, runtime.BackendTUI)
+}
 
 // Doctor reports the selection a run would make and what each backend needs.
 // It changes nothing.
@@ -405,10 +424,7 @@ func (s *runtimeService) Doctor(ctx context.Context, req *daemonv1.RuntimeServic
 			check("backend", "fail", b.GetReason())
 		}
 	}
-	if supportedPlatform() {
-		check("platform", "ok", goruntime.GOOS+"/"+goruntime.GOARCH)
-	} else {
-		check("platform", "warn", fmt.Sprintf("herdr-core is claimed for macOS on Apple silicon only; on %s/%s use backend = %q", goruntime.GOOS, goruntime.GOARCH, runtime.BackendTUI))
-	}
+	state, detail := appSupport(sel.Backend)
+	check("app-support", state, detail)
 	return out, nil
 }

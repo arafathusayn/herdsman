@@ -11,6 +11,11 @@ import (
 // refuses an answer that names another one.
 const Generation uint32 = 1
 
+// TestedVersion is the herdr-core release this client's suite and the release
+// notes name as tested at Generation. Another version at the same generation
+// is accepted; the doctor says it is untested.
+const TestedVersion = "0.1.20"
+
 // GenerationError is a core that speaks another protocol generation.
 type GenerationError struct {
 	Want uint32

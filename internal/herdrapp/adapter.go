@@ -30,6 +30,9 @@ const DefaultBinary = "herdr-app"
 // written against: the probed 0.1.14 and the installed 0.1.15 both qualify.
 const MinVersion = "0.1.14"
 
+// TestedVersion is the app release the release notes name as tested.
+const TestedVersion = "0.1.15"
+
 // requiredCommands are the explicit-target commands the adapter uses. An app
 // whose `commands` list lacks one is unsupported.
 var requiredCommands = []string{"space.rename", "tab.rename", "agent.focus", "pane.focus"}
