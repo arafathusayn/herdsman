@@ -316,7 +316,7 @@ func (w *watcher) watchTarget(t any) error {
 	key := inbox.Digest([]byte(sortedCompact(t) + "\n"))
 	idRaw, _ := compact(t)
 	want, _ := inbox.ParseIdentity(idRaw)
-	observed, code, _ := inbox.LiveIdentity(e.ctx(), e.Client, pane)
+	observed, code, _ := e.verifier().Live(e.ctx(), inbox.PaneRef(pane))
 	if code != inbox.LiveOK || !observed.Same(want) {
 		return e.notify("watch-drift-"+key, "Notice monitor identity changed", "Inspect configured route panes and rebuild approved targets.")
 	}

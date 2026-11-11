@@ -108,7 +108,7 @@ func (r *Route) verifyEntry(box, id string) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	observed, code, note := inbox.LiveIdentity(ctx, r.d.herdrFor(r.name), sender.Identity.Pane)
+	observed, code, note := r.d.verifierFor(r.name).Live(ctx, inbox.PaneRef(sender.Identity.Pane))
 	switch {
 	case code == inbox.LiveGone:
 		return "quarantined"

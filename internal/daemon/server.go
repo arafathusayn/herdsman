@@ -463,6 +463,12 @@ type EnrollRequest struct {
 	Role string `json:"role"`
 }
 
+// verifierFor is the identity verifier of a route. A caller named by its pane
+// (HERDR_PANE_ID) is a Herdr TUI caller and stays on the TUI's check.
+func (d *Daemon) verifierFor(route string) inbox.Verifier {
+	return inbox.VerifierFor(d.herdrFor(route))
+}
+
 // liveIdentity reads a pane's identity from Herdr (10 s deadline).
 func (d *Daemon) liveIdentity(ctx context.Context, route, pane string) (inbox.Identity, *APIError) {
 	if pane == "" {
@@ -470,7 +476,7 @@ func (d *Daemon) liveIdentity(ctx context.Context, route, pane string) (inbox.Id
 	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	id, code, note := inbox.LiveIdentity(cctx, d.herdrFor(route), pane)
+	id, code, note := d.verifierFor(route).Live(cctx, inbox.PaneRef(pane))
 	switch code {
 	case inbox.LiveOK:
 		return id, nil
