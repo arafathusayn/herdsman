@@ -407,7 +407,7 @@ func TestLiveCoreRestartLosesEveryExecutionOnePlan(t *testing.T) {
 	// told to start, and still runs after every stop above.
 	for _, l := range launches {
 		rec := w.gRecord(l.Intent)
-		env, ok := w.core.ShellEnv(rec.TerminalAddress)
+		env, ok := w.core.WaitShellEnv(rec.TerminalAddress, 10*time.Second)
 		if !ok {
 			t.Fatalf("no recovery shell started at %s", rec.TerminalAddress)
 		}

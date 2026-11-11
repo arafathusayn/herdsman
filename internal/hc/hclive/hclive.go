@@ -151,6 +151,27 @@ func (c *Core) ShellEnv(address string) (env []string, ok bool) {
 	return strings.Split(strings.TrimSpace(string(b)), "\n"), true
 }
 
+// WaitShellEnv is ShellEnv after the recovery shell at address has written
+// its whole environment, waiting up to timeout. A shell starts about two
+// seconds after a loss, and core can report the loss before the shell has
+// run, so a test that expects a shell waits for it here.
+func (c *Core) WaitShellEnv(address string, timeout time.Duration) (env []string, ok bool) {
+	deadline := time.Now().Add(timeout)
+	for {
+		if env, ok = c.ShellEnv(address); ok {
+			for _, e := range env {
+				if e == "HC_TERMINAL_ID="+address {
+					return env, true
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return nil, false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // PrivateEnv is what a process needs to reach this core with hc: the
 // session and the folders.
 func (c *Core) PrivateEnv() []string {

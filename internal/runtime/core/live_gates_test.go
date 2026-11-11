@@ -150,7 +150,7 @@ func TestLiveSecretsAndPreludeEnvironment(t *testing.T) {
 	atRest("after the launch")
 	w.gLose(rec)
 	atRest("after the loss")
-	shell, ok := w.core.ShellEnv(rec.TerminalAddress)
+	shell, ok := w.core.WaitShellEnv(rec.TerminalAddress, 10*time.Second)
 	if !ok {
 		t.Fatal("no recovery shell started")
 	}
@@ -270,7 +270,7 @@ func TestLiveEnvironmentStartsEmpty(t *testing.T) {
 	// The core was polluted: its recovery shell, which gets core's own
 	// environment, shows it.
 	w.gLose(rec)
-	shell, ok := w.core.ShellEnv(rec.TerminalAddress)
+	shell, ok := w.core.WaitShellEnv(rec.TerminalAddress, 10*time.Second)
 	if !ok || envMap(shell)["HERDR_PANE_ID"] != "p-polluted" {
 		t.Fatalf("the core did not run under the polluted environment: %v", ok)
 	}
