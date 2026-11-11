@@ -51,6 +51,9 @@ func (m *MemRecords) Put(_ context.Context, e runtime.Execution) (runtime.Execut
 			if e.InitialCreatedMS == 0 {
 				e.InitialCreatedMS = r.InitialCreatedMS
 			}
+			if e.Conversation == nil {
+				e.Conversation = r.Conversation
+			}
 			e.Updated = now
 			m.rows[i] = e
 			return e, nil

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/checkpoint"
 	"github.com/arafathusayn/herdsman/internal/checkpoint/oncore"
 	"github.com/arafathusayn/herdsman/internal/notice"
 	"github.com/arafathusayn/herdsman/internal/runtime"
@@ -123,6 +124,45 @@ func TestNoEvidenceNoGuess(t *testing.T) {
 	p = step(t, c)
 	if !p.Has(oncore.PassNoTranscript) || len(s.issued) != 0 {
 		t.Errorf("pass %+v issued %v", p, s.issued)
+	}
+}
+
+// The evidence the adapters record from the harnesses' own session files
+// leads the checkpointer to exactly that transcript, for each harness.
+func TestRecordedEvidenceFindsItsTranscript(t *testing.T) {
+	home := t.TempDir()
+	cwd := filepath.Join(t.TempDir(), "repo")
+	reg := time.Now().Add(-time.Minute)
+	roots := core.SessionRootsOf(home, "")
+	const id = "0b7f3c1e-5d2a-4c8e-9f10-2a3b4c5d6e7f"
+
+	claudeDir := filepath.Join(roots.Claude, checkpoint.Derived(cwd))
+	codexDir := filepath.Join(roots.Codex, "2026", "11", "11")
+	files := map[string]string{
+		"claude": filepath.Join(claudeDir, id+".jsonl"),
+		"codex":  filepath.Join(codexDir, "rollout-2026-11-11T10-00-00-"+id+".jsonl"),
+	}
+	lines := map[string]string{
+		"claude": fmt.Sprintf(`{"type":"user","cwd":%q,"sessionId":%q}`+"\n", cwd, id),
+		"codex":  fmt.Sprintf(`{"type":"session_meta","payload":{"id":%q,"cwd":%q}}`+"\n", id, cwd),
+	}
+	for kind, p := range files {
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(lines[kind]), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		found := core.FindConversation(roots, core.ConversationQuery{Kind: kind, Cwd: cwd, Registered: reg})
+		if found.Status != core.ConversationFound {
+			t.Fatalf("%s: %+v", kind, found)
+		}
+		conv := found.Conversation
+		e := runtime.Execution{ID: "e-" + kind, HarnessKind: kind, Cwd: cwd, Conversation: &conv}
+		ch, ok := oncore.Transcript(e, home, "")
+		if !ok || ch.File != p {
+			t.Errorf("%s: the transcript is %+v, want %s", kind, ch, p)
+		}
 	}
 }
 

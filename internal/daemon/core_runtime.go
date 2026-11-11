@@ -56,6 +56,10 @@ type CoreConfig struct {
 	// ServicePoll is how often a core route's services look again
 	// (default 30 s).
 	ServicePoll time.Duration
+	// Sessions are the harnesses' session folders an execution's
+	// conversation evidence is read from (default: those of the login
+	// environment's HOME and CODEX_HOME, as the checkpointer reads them).
+	Sessions *core.SessionRoots
 }
 
 // coreRuntime is the daemon's half of herdr-core: the launch socket, the
@@ -206,7 +210,7 @@ func (c *coreRuntime) provider(endpoint string) *core.Provider {
 	}
 	// The provider and reconcilers keep the wall clock, not the daemon's:
 	// they compare their times with core's status and record times.
-	p := &core.Provider{Socket: endpoint, Records: c.records, Procs: c.cfg.Procs, App: c.app, Bindings: c.bindings, Notices: c.d.noticeSvc(), Submits: c.submitter()}
+	p := &core.Provider{Socket: endpoint, Records: c.records, Procs: c.cfg.Procs, App: c.app, Bindings: c.bindings, Notices: c.d.noticeSvc(), Submits: c.submitter(), Sessions: c.sessions()}
 	if reg, err := c.launchRegistrar(); err == nil {
 		p.Registrar = reg // without it the register step says the socket is missing
 	} else {
@@ -226,7 +230,7 @@ func (c *coreRuntime) reconciler(endpoint string) (*core.Reconciler, bool) {
 		return r, false
 	}
 	r := &core.Reconciler{Socket: endpoint, Records: c.records, Procs: c.cfg.Procs, App: c.app, Bindings: c.bindings,
-		HarnessNames: route.HarnessNames, Restricted: c.restricted, Emit: c.emit}
+		HarnessNames: route.HarnessNames, Restricted: c.restricted, Emit: c.emit, Sessions: c.sessions(), Marks: c.noticeMarks}
 	c.reconcilers[endpoint] = r
 	return r, true
 }

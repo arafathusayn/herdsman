@@ -17,6 +17,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/notice"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/runtime"
+	"github.com/arafathusayn/herdsman/internal/runtime/core"
 )
 
 // coreServicePoll is how often a core service looks again.
@@ -282,6 +283,39 @@ func (s *coreServices) checkpointer(sp route.ServiceSpec) func(context.Context) 
 }
 
 // loginValue is one login value of the daemon's launches.
+// sessions are the session folders conversation evidence is read from: the
+// configured ones, or those of the login environment's HOME and CODEX_HOME.
+// With no HOME there, none are read.
+func (c *coreRuntime) sessions() *core.SessionRoots {
+	if c.cfg.Sessions != nil {
+		return c.cfg.Sessions
+	}
+	home := c.loginValue("HOME")
+	if home == "" {
+		return nil
+	}
+	r := core.SessionRootsOf(home, c.loginValue("CODEX_HOME"))
+	return &r
+}
+
+// noticeMarks are the ids of the notices issued to an execution: they settle
+// which of two sessions of one folder is the execution's own.
+func (c *coreRuntime) noticeMarks(execution string) []string {
+	svc := c.d.noticeSvc()
+	if svc == nil {
+		return nil
+	}
+	list, err := svc.List(execution)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(list))
+	for _, n := range list {
+		out = append(out, n.ID)
+	}
+	return out
+}
+
 func (c *coreRuntime) loginValue(k string) string {
 	environ := c.cfg.Environ
 	if environ == nil {

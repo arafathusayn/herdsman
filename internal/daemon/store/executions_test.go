@@ -98,6 +98,35 @@ func execution(id, intent string) Execution {
 	}
 }
 
+// Conversation evidence, once recorded, survives a write that does not carry
+// it: a writer that read the record before the evidence came cannot clear it.
+func TestExecutionKeepsItsConversationEvidence(t *testing.T) {
+	for _, kind := range []Kind{KindAccount, KindRoute} {
+		t.Run(string(kind), func(t *testing.T) {
+			c := openKind(t, kind)
+			e := execution("11111111-1111-4111-8111-111111111111", "op-1:agent:a")
+			if _, err := PutExecution(c, e, 100); err != nil {
+				t.Fatal(err)
+			}
+			withConv := e
+			withConv.NativeConversation = `{"value":"0b7f3c1e-5d2a-4c8e-9f10-2a3b4c5d6e7f","provenance":"codex:rollout-session-meta"}`
+			if _, err := PutExecution(c, withConv, 200); err != nil {
+				t.Fatal(err)
+			}
+			stale := e
+			stale.Program = "working"
+			got, err := PutExecution(c, stale, 300)
+			if err != nil || got.NativeConversation != withConv.NativeConversation {
+				t.Fatalf("the returned record: %q %v", got.NativeConversation, err)
+			}
+			one, _, err := ExecutionByID(c, got.ID)
+			if err != nil || one.NativeConversation != withConv.NativeConversation || one.Program != "working" {
+				t.Fatalf("the stored record: %+v %v", one, err)
+			}
+		})
+	}
+}
+
 func TestExecutionRecordsKeepIdentityAndCountGenerations(t *testing.T) {
 	for _, kind := range []Kind{KindAccount, KindRoute} {
 		t.Run(string(kind), func(t *testing.T) {

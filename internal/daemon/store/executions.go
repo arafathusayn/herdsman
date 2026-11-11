@@ -94,6 +94,11 @@ func PutExecution(c Conn, e Execution, now int64) (Execution, error) {
 			if e.PID == 0 {
 				e.PID, e.ProcessStart = prev.PID, prev.ProcessStart
 			}
+			// Conversation evidence, once recorded, is never cleared by a
+			// writer that did not read it.
+			if e.NativeConversation == "" {
+				e.NativeConversation = prev.NativeConversation
+			}
 			e.Updated = now
 			_, err := tx.Exec(`UPDATE executions SET endpoint_id = ?, terminal_address = ?, pane = ?, observed_pid = ?,
 				observed_process_start = ?, harness_version = ?, native_conversation = ?, desired_state = ?, process_state = ?,

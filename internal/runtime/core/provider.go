@@ -36,8 +36,11 @@ type Provider struct {
 	// Submits holds a person's typed submits, which a pause reports while
 	// one is draining.
 	Submits *Submitter
-	Now     func() time.Time
-	Options hc.Options
+	// Sessions are the harnesses' session folders conversation evidence is
+	// read from; nil reads nothing.
+	Sessions *SessionRoots
+	Now      func() time.Time
+	Options  hc.Options
 }
 
 // Backend implements runtime.Provider.

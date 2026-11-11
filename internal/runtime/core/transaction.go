@@ -301,6 +301,11 @@ func (p *Provider) ReadyStep(ctx context.Context, l Launch, timeouts Timeouts) (
 	if r.Readiness == runtime.ReadinessIdentityUnknown {
 		rec.Observation.Process = runtime.ProcessLost
 	}
+	if p.Sessions != nil {
+		if all, err := p.Records.List(ctx, "", ""); err == nil {
+			rec, _, _ = withConversation(p.Sessions, p.noticeMarks, all, rec)
+		}
+	}
 	if rec, err = p.Records.Put(ctx, rec); err != nil {
 		return rec, err
 	}

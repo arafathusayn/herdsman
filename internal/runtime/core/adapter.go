@@ -50,6 +50,10 @@ type Adapter struct {
 	// RestrictedOnCore: the restricted profile may launch this harness on
 	// core. No harness qualifies yet.
 	RestrictedOnCore bool
+	// Sessions names where the harness keeps its own session files, the
+	// source of its native conversation evidence (SessionsClaudeProject,
+	// SessionsCodexRollout); empty when it has none.
+	Sessions string
 	// Facts are the harness's qualification facts (spec section 9), as the
 	// probes found them for the version they name.
 	Facts Facts
@@ -165,7 +169,7 @@ const CodexStartLine = "You are managed by herdsman. Each later message names a 
 var adapters = map[string]Adapter{
 	"claude": {Kind: "claude", Programs: []string{"claude"}, HoldsWait: true, InterruptResumable: true, RestState: "done", StartPath: StartPathPerson,
 		InterruptAtRest: "opens the rewind view: never sent", InterruptInTurn: "ends the turn; the claim stays open and the background wait stays attached",
-		StartLine: ClaudeStartLine, StartLineVersion: 1,
+		StartLine: ClaudeStartLine, StartLineVersion: 1, Sessions: SessionsClaudeProject,
 		Facts: Facts{
 			Version:               "2.1.322",
 			IdleMeans:             []string{"before the first turn", "after an interrupt"},
@@ -179,7 +183,7 @@ var adapters = map[string]Adapter{
 		}},
 	"codex": {Kind: "codex", Programs: []string{"codex"}, RequiredArgs: []string{"--no-daemon"}, Attended: true, RestState: "done", StartPath: StartPathPerson,
 		InterruptAtRest: "opens the rewind view: never sent", InterruptInTurn: "stops the model, not its command; its queue is held until a person types a line",
-		StartLine: CodexStartLine, StartLineVersion: 1,
+		StartLine: CodexStartLine, StartLineVersion: 1, Sessions: SessionsCodexRollout,
 		Facts: Facts{
 			Version:   "0.164.0",
 			IdleMeans: []string{"before the first turn", "after an interrupt", "after a person's slash command"},

@@ -54,8 +54,14 @@ type Reconciler struct {
 	HarnessNames []string
 	// Restricted reports whether a route runs under the restricted profile.
 	Restricted func(repo, route string) bool
-	Emit       func(Event)
-	Now        func() time.Time
+	// Sessions are the harnesses' session folders a live execution's
+	// conversation evidence is read from; nil reads nothing.
+	Sessions *SessionRoots
+	// Marks are the ids of the notices issued to an execution, which
+	// settle a choice between sessions of one folder; nil has none.
+	Marks func(execution string) []string
+	Emit  func(Event)
+	Now   func() time.Time
 	// Safety, Coalesce: the periodic pass and the coalescing window
 	// (defaults 30 s and 100 ms).
 	Safety, Coalesce time.Duration
@@ -211,7 +217,7 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 	}
 	lost := map[string][]runtime.Execution{}
 	routes := map[string][2]string{}
-	for _, e := range execs {
+	for i, e := range execs {
 		if !running(e) || !registered(e) || e.EndpointID != "" && e.EndpointID != c.Core().ID {
 			continue
 		}
@@ -226,9 +232,14 @@ func (r *Reconciler) Pass(ctx context.Context) error {
 		if next.Observation.Process == runtime.ProcessLive && r.App != nil && next.App != nil {
 			next = r.visibility(ctx, c, next)
 		}
+		// Conversation evidence: the harness writes its session once a
+		// person has started it, so a live execution without it is looked
+		// up again each pass until exactly one session is its own.
+		next, _, _ = withConversation(r.Sessions, r.Marks, execs, next)
 		if _, err := r.Records.Put(ctx, next); err != nil {
 			return err
 		}
+		execs[i] = next // a conversation recorded now is taken for the rest
 	}
 	r.recoveryPlans(lost)
 	return r.inventory(ctx, c, routes)
