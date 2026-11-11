@@ -29,7 +29,29 @@ func replace[T any](t *testing.T, target *T, value T) {
 	t.Cleanup(func() { *target = saved })
 }
 
+// herdr-core and its app are claimed on Apple silicon only: on an Intel Mac
+// both probes fail with that reason, though the tools answer; Linux declares
+// both absent, so its probes are never reached.
+func TestTheCoreProbesClaimAppleSiliconOnly(t *testing.T) {
+	standIns(t, "hc", "herdr-app")
+	replace(t, &goarch, "amd64")
+	for _, name := range []string{"herdr-core", "herdr-app"} {
+		if err := probesFor("darwin")[name](); err == nil || !strings.Contains(err.Error(), "Apple silicon") {
+			t.Errorf("%s on darwin/amd64: %v", name, err)
+		}
+	}
+	replace(t, &goarch, "arm64")
+	for _, name := range []string{"herdr-core", "herdr-app"} {
+		if err := probesFor("darwin")[name](); err != nil {
+			t.Errorf("%s on darwin/arm64: %v", name, err)
+		}
+	}
+}
+
 func TestProbesPassWhenTheirToolsAnswerOnEachPlatform(t *testing.T) {
+	// The core probes claim Apple silicon; the tools are what this test
+	// proves on each platform.
+	replace(t, &goarch, "arm64")
 	standIns(t, "ps", "lsof", "docker", "security", "secret-tool", "mkfs.btrfs", "losetup", "sudo", "hc", "herdr-app")
 	for _, goos := range platforms {
 		for _, uid := range []int{0, 1000} {

@@ -20,7 +20,7 @@ What each platform promises to `make acceptance`. The suite reads the table belo
 
 Docker is declared absent on macOS because the hosted macOS runners have no container engine.
 
-herdr-core and its app are claimed for macOS only, so both are declared absent on Linux. The core gate runs the installed `hc` in a session of its own, with every XDG directory under a temporary folder, and stops it at the end. It never opens the app: app behaviour is proved with the fake app in `internal/runtime/core` and `internal/route`.
+herdr-core and its app are claimed for macOS on Apple silicon only, so both are declared absent on Linux, and on an Intel Mac both probes fail with that reason. The core gate runs the installed `hc` in a session of its own, with every XDG directory under a temporary folder, and stops it at the end. It never opens the app: app behaviour is proved with the fake app in `internal/runtime/core` and `internal/route`.
 
 Gates run with a scratch `HOME` and no login tokens. Stand-ins for `gh`, `claude` and `codex` come first on `PATH` and record any call, and a recorded call fails the gate, so a result cannot depend on what the machine has installed or logged in to.
 
