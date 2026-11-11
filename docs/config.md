@@ -216,3 +216,43 @@ Retention bounds the snapshots that undo can restore. The daemon reads it from t
 | --- | --- | --- |
 | `undo` | string | How long a snapshot is kept: a Go duration or a count of days, as "720h" or "30d". The default is 30 days. |
 | `cap` | string | The most all snapshots may hold: bytes, or a count with KiB, MiB, GiB or TiB, as "20GiB". The default is 20 GiB. A full cap refuses a new snapshot. |
+
+## [runtime]
+
+Runtime chooses where agents run. The section is strict: an unknown key stops the command, so a misspelled backend never falls through to a default.
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `backend` | string | "herdr-core" or "herdr-tui". Unset means the installation default, which `herdsman runtime default` prints. A route that exists keeps the backend it started on. |
+
+### [runtime.core]
+
+RuntimeCore says how to reach herdr-core.
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `binary` | string | The hc program; a bare name is looked up on PATH. The default is "hc". |
+| `socket` | string | An absolute socket path. Unset resolves the session through hc. |
+| `session` | string | The core session. A socket and a session that contradict stop the run. |
+| `connect_timeout` | string | How long to wait for core's socket, such as "5s". |
+| `ready_timeout` | string | How long an agent may take to become ready, such as "90s". |
+| `experimental` | boolean | Must be true while the backend ships as an experiment. |
+
+### [runtime.app]
+
+RuntimeApp says how to reach the native herdr app that shows the agents.
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `binary` | string | The app program. The default is "herdr-app". |
+| `home` | string | An absolute app home; unset means the user's main app. |
+| `visibility_timeout` | string | How long to wait for an agent to appear in the app, such as "15s". |
+
+### [runtime.tui_view]
+
+RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the execution backend.
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `enabled` | boolean | Mirror core agents in the TUI. Off unless set. |
+| `socket` | string | The TUI's absolute socket path; required when enabled. |

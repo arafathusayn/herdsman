@@ -8,6 +8,12 @@ import (
 // SchemaVersion is the contract version this build writes and understands.
 const SchemaVersion = "1.0.0"
 
+// NewFileBackend is the execution backend a new config file names. It is
+// written by InitFile only and is never a default of Load: a file without a
+// [runtime] backend falls back to the installation default, so an existing
+// file keeps the backend it has.
+const NewFileBackend = "herdr-core"
+
 // Defaults returns the settings used when nothing overrides them. It is the
 // one place a default is written.
 func Defaults() *configv1.Config {
@@ -40,4 +46,12 @@ func Defaults() *configv1.Config {
 			},
 		},
 	}
+}
+
+// NewFile returns what InitFile writes: the defaults, plus the execution
+// backend, so the choice is visible where it applies. UpdateFile never adds it.
+func NewFile() *configv1.Config {
+	c := Defaults()
+	c.Runtime = &configv1.Runtime{Backend: proto.String(NewFileBackend)}
+	return c
 }
