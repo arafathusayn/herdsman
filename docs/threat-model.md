@@ -12,7 +12,9 @@ Review this file in the yearly routine (`MAINTAINING.md`), and whenever a new in
 | Web API and page requests | A browser, over TCP on the host `herdsman web` binds | Pairing code and token | `internal/web` |
 | Messages between agents | Files in a route's inbox | A pair must be approved before messages flow; content is data, never a command | `internal/message`, `internal/inbox` |
 | Route folders | Files agents can write | Parsed as data | `internal/route`, `internal/routedb` |
-| Agent and terminal output | Harnesses through Herdr | Displayed or matched as text | `internal/herdr`, `internal/watch` |
+| Agent and terminal output | Harnesses through Herdr, or through herdr-core's read on that backend | Displayed or matched as text; a side-agent card is relayed to the adjutant as data through the approved pair's channel; nothing is typed or answered | `internal/herdr`, `internal/watch`, `internal/daemon` |
+| Another execution's screen text on herdr-core | The runtime's read | Read by the daemon's card watch and shown to a person; never served as an MCP tool, since it can hold task content the pair channel does not carry | `internal/daemon`, `internal/mcp` |
+| Harness session files | Claude Code's projects folder and Codex's sessions folder, writable by any process of the user | Read only under those two folders, never through a link out of them, within size bounds; a session counts only when its recorded folder is the execution's, it was written since registration and no other execution holds it; when two qualify, only a notice id of the execution settles it, otherwise nothing is recorded. The id is evidence for transcripts, never identity | `internal/runtime` |
 | Output of `git`, `gh` and other programs | Subprocesses | Parsed as text | Callers of each program |
 | Dependencies at build time | Upstream releases | Pinned copies, offline release build, daily advisories | `third_party/`, `vendor/`, `MAINTAINING.md` |
 | CI actions | GitHub Actions | New or changed actions are pinned to a commit | `.github/workflows/` |

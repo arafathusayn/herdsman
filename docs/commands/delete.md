@@ -12,5 +12,6 @@ first. Takes a snapshot of the route folder and private inbox through the
 recovery pipeline, and removes nothing unless that snapshot verifies and covers
 every path it removes. The result names the operation to give "herdsman undo".
 --keep-folder leaves the route folder in place; --keep-worktrees leaves the
-route's tasks and their worktrees alone.
+route's tasks and their worktrees alone. Once the inbox is removed, the daemon
+forgets a channel it held for the route.
 ```

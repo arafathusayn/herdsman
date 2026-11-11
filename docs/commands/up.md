@@ -23,9 +23,12 @@ restricted profile it is the default and auto is refused.
 config file's [runtime] backend decides, then the installation default
 (herdsman runtime default). A route that exists keeps its own backend.
 A second up on the same route picks up where the first stopped.
-On herdr-core, up runs no herdr command and types into no terminal. It stops
-for a person twice, exits 1 and says "waiting for a person": until the herdr
-app has shown the core once (waiting_for_visibility), and for each harness's
+herdr-core ships as an experiment: a new route there also needs
+experimental = true in [runtime.core]. On herdr-core, up runs no herdr command
+and types into no terminal. Before it starts, it prints each agent's steps
+that will need a person, as runtime doctor reports each harness. It stops for
+a person twice, exits 1 and says "waiting for a person": until the herdr app
+has shown the core once (waiting_for_visibility), and for each harness's
 start line, which a person submits in the agent's pane (needs_attention).
 Then run up --continue. --pair manual and the restricted profile are refused
 on herdr-core.

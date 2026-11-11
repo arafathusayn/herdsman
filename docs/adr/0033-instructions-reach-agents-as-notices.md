@@ -16,4 +16,6 @@ Slash commands such as `/goal resume` need a person on core. A route reports eac
 
 ## Notes
 
-Until the owner decides them, the first implementation keeps three fallbacks. A start line stays a step a person types; no launch command carries it. Codex is attended on core: each notice for a Codex execution raises `needs_attention` with the line "Run `herdsman notice read` and do what it prints", `up` and `runtime doctor` say so before a route starts, and a pause does not interrupt Codex. The restricted profile is still refused on core, so the worker socket serves unrestricted agents only.
+Until the owner decides them, the first implementation keeps four fallbacks. A start line stays a step a person types; no launch command carries it. Codex is attended on core: each notice for a Codex execution raises `needs_attention` with the line "Run `herdsman notice read` and do what it prints", `up` and `runtime doctor` name the same person steps before a route starts, and a pause does not interrupt Codex. The restricted profile is still refused on core, so the worker socket serves unrestricted agents only. `keep` stays on, so a finished agent's terminal stays in core until a person closes it.
+
+The card watch on core reads screens through the runtime and types nothing: it relays side-agent cards to the adjutant through the route's channel and raises alerts for what needs a person. Reading another agent's screen is the daemon's and a person's, never an MCP tool.

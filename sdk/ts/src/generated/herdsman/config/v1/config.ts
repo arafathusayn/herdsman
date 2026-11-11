@@ -64,8 +64,9 @@ export interface Config {
 export interface Runtime {
   /**
    * "herdr-core" or "herdr-tui". Unset means the installation default, which
-   * `herdsman runtime default` prints. A route that exists keeps the backend it
-   * started on.
+   * `herdsman runtime default` prints: herdr-tui on every installation while
+   * herdr-core ships as an experiment. A route that exists keeps the backend
+   * it started on.
    */
   backend?: string;
   core?: RuntimeCore;
@@ -74,56 +75,71 @@ export interface Runtime {
 }
 
 /**
- * RuntimeCore says how to reach herdr-core.
+ * RuntimeCore says how to reach herdr-core. In this release the daemon reaches
+ * the core at the socket hc resolves for its default session and only
+ * experimental is read; the other keys are accepted for a later release and
+ * change nothing yet.
  */
 export interface RuntimeCore {
   /**
    * The hc program; a bare name is looked up on PATH. The default is "hc".
+   * Not read in this release.
    */
   binary?: string;
   /**
-   * An absolute socket path. Unset resolves the session through hc.
+   * An absolute socket path. Unset resolves the session through hc. Not read
+   * in this release.
    */
   socket?: string;
   /**
    * The core session. A socket and a session that contradict stop the run.
+   * Not read in this release.
    */
   session?: string;
   /**
-   * How long to wait for core's socket, such as "5s".
+   * How long to wait for core's socket, such as "5s". Not read in this
+   * release.
    */
   connectTimeout?: string;
   /**
-   * How long an agent may take to become ready, such as "90s".
+   * How long an agent may take to become ready, such as "90s". Not read in
+   * this release, which waits 90 seconds.
    */
   readyTimeout?: string;
   /**
-   * Must be true while the backend ships as an experiment.
+   * Must be true while the backend ships as an experiment (this release:
+   * runtime.core/0.1.0). Without it a new route on herdr-core is refused with
+   * backend_experimental; a route already on core keeps running there.
    */
   experimental?: boolean;
 }
 
 /**
- * RuntimeApp says how to reach the native herdr app that shows the agents.
+ * RuntimeApp says how to reach the native herdr app that shows the agents. In
+ * this release the daemon runs the installed herdr-app with the user's main
+ * app home; the keys are accepted for a later release and change nothing yet.
  */
 export interface RuntimeApp {
   /**
-   * The app program. The default is "herdr-app".
+   * The app program. The default is "herdr-app". Not read in this release.
    */
   binary?: string;
   /**
-   * An absolute app home; unset means the user's main app.
+   * An absolute app home; unset means the user's main app. Not read in this
+   * release.
    */
   home?: string;
   /**
-   * How long to wait for an agent to appear in the app, such as "15s".
+   * How long to wait for an agent to appear in the app, such as "15s". Not
+   * read in this release, which waits 15 seconds.
    */
   visibilityTimeout?: string;
 }
 
 /**
  * RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the
- * execution backend.
+ * execution backend. The mirror is not built in this release: the keys are
+ * accepted and nothing is mirrored.
  */
 export interface RuntimeTuiView {
   /**

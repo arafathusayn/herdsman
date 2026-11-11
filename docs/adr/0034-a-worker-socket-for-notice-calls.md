@@ -12,4 +12,4 @@ The daemon listens on a second socket that serves only the notice calls of the c
 
 ## Consequences
 
-A worker reaches its own notices and nothing else of the daemon. Agent traffic cannot take the slots that route control needs. A harness whose sandbox cannot allow one socket by path is not qualified for the restricted profile on core.
+A worker reaches its own notices and nothing else of the daemon. Agent traffic cannot take the slots that route control needs. A harness whose sandbox cannot allow one socket by path is not qualified for the restricted profile on core. In this release no harness is: the restricted profile is refused on core, and every managed agent there is unrestricted and still uses this socket.
