@@ -7,9 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -20,7 +18,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
-	"github.com/arafathusayn/herdsman/internal/sys"
+	"github.com/arafathusayn/herdsman/internal/runtime/core/coretest"
 )
 
 func testCtx(t *testing.T) context.Context {
@@ -30,94 +28,12 @@ func testCtx(t *testing.T) context.Context {
 	return ctx
 }
 
-// fakeProcs is a process table: pids with start times, parents and argv.
-type fakeProcs struct {
-	mu      sync.Mutex
-	procs   map[int]*fakeProc
-	signals []string
-	next    int
-}
-
-type fakeProc struct {
-	ppid  int
-	start time.Time
-	argv  []string
-	dead  bool
-	// ignoreTerm keeps the process alive after SIGTERM.
-	ignoreTerm bool
-}
-
-func newProcs() *fakeProcs { return &fakeProcs{procs: map[int]*fakeProc{}, next: 50000} }
-
-func (f *fakeProcs) add(ppid int, argv ...string) int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.next++
-	f.procs[f.next] = &fakeProc{ppid: ppid, start: time.Unix(1794000000, int64(f.next)), argv: argv}
-	return f.next
-}
-
-func (f *fakeProcs) kill(pid int) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if p := f.procs[pid]; p != nil {
-		p.dead = true
-	}
-}
-
-func (f *fakeProcs) Identify(pid int) (time.Time, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	p := f.procs[pid]
-	if p == nil || p.dead {
-		return time.Time{}, sys.ErrNoProcess
-	}
-	return p.start, nil
-}
-
-func (f *fakeProcs) Parent(pid int) (int, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	p := f.procs[pid]
-	if p == nil || p.dead {
-		return 0, sys.ErrNoProcess
-	}
-	return p.ppid, nil
-}
-
-func (f *fakeProcs) List(context.Context) ([]core.Proc, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var out []core.Proc
-	for pid, p := range f.procs {
-		if !p.dead {
-			out = append(out, core.Proc{PID: pid, PPID: p.ppid, Argv: p.argv})
-		}
-	}
-	return out, nil
-}
-
-func (f *fakeProcs) Signal(pid int, sig syscall.Signal) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.signals = append(f.signals, sig.String())
-	p := f.procs[pid]
-	if p == nil || p.dead {
-		return syscall.ESRCH
-	}
-	if sig == syscall.SIGTERM && p.ignoreTerm {
-		return nil
-	}
-	p.dead = true
-	return nil
-}
-
 // world is one fake core, one fake app, the records, the process table and
 // the launch socket.
 type world struct {
 	t        *testing.T
 	core     *hctest.Core
-	procs    *fakeProcs
+	procs    *coretest.Procs
 	records  *core.MemRecords
 	reg      *core.Registrar
 	appHome  string
@@ -132,14 +48,14 @@ type world struct {
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
-	w := &world{t: t, core: hctest.Start(t), procs: newProcs(), records: &core.MemRecords{}}
+	w := &world{t: t, core: hctest.Start(t), procs: coretest.NewProcs(), records: &core.MemRecords{}}
 	dir, err := os.MkdirTemp("", "hsc")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	w.dir = dir
-	w.holder = w.procs.add(1, "hc", "hold")
+	w.holder = w.procs.Add(1, "hc", "hold")
 	reg, err := core.NewRegistrar(filepath.Join(dir, "l.sock"), w.procs)
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +119,7 @@ func (w *world) spawn(l core.Launch) runtime.Execution {
 	if err != nil {
 		w.t.Fatalf("spawn: %v", err)
 	}
-	w.setProcess(rec.TerminalAddress, w.procs.add(w.holder, "herdsman", "launch"))
+	w.setProcess(rec.TerminalAddress, w.procs.Add(w.holder, "herdsman", "launch"))
 	return rec
 }
 
@@ -260,16 +176,7 @@ func (w *world) register(l core.Launch, address string, environ []string, keycha
 	return r.rec, run, r.err
 }
 
-// mapKeychain is a keychain in memory.
-type mapKeychain map[string]string
-
-func (k mapKeychain) Load(service, account string) (string, error) {
-	v, ok := k[service+"/"+account]
-	if !ok {
-		return "", os.ErrNotExist
-	}
-	return v, nil
-}
+type mapKeychain = coretest.Keychain
 
 // up launches one agent through registration.
 func (w *world) up(route, agent, role, kind string) (core.Launch, runtime.Execution) {

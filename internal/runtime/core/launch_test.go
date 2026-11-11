@@ -229,7 +229,7 @@ func TestWrapperOfAnotherProcessIsRefused(t *testing.T) {
 	w := newWorld(t)
 	l := w.launchOf("eps", "eps-orchestrator", "orchestrator", "claude")
 	rec := w.spawn(l)
-	stranger := w.procs.add(1, "sh")
+	stranger := w.procs.Add(1, "sh")
 	done := make(chan error, 1)
 	go func() {
 		_, err := w.p.RegisterStep(testCtx(t), l, core.Timeouts{Register: 5 * time.Second, Poll: 20 * time.Millisecond})
@@ -331,7 +331,7 @@ func TestUncertainSpawnIsReconciled(t *testing.T) {
 	t.Run("registered, then another process at the address", func(t *testing.T) {
 		w := newWorld(t)
 		l, rec := w.up("r6", "r6-o", "orchestrator", "claude")
-		w.setProcess(rec.TerminalAddress, w.procs.add(w.holder, "-zsh"))
+		w.setProcess(rec.TerminalAddress, w.procs.Add(w.holder, "-zsh"))
 		if v, d, _ := w.p.ProbeSpawn(ctx, l); v != core.ProbeDifferent || !strings.Contains(d, "recovery shell") {
 			t.Fatalf("probe = %v %s", v, d)
 		}

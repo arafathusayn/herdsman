@@ -69,8 +69,8 @@ func TestRecoveryShellInheritsNothing(t *testing.T) {
 	l, rec := w.up("omega", "omega-o", "orchestrator", "claude")
 	rec = w.ready(l)
 	harness := rec.Evidence.PID
-	w.procs.kill(harness)
-	shell := w.procs.add(w.holder, "-zsh")
+	w.procs.Kill(harness)
+	shell := w.procs.Add(w.holder, "-zsh")
 	w.setProcess(rec.TerminalAddress, shell)
 
 	ev := &events{}
@@ -85,7 +85,7 @@ func TestRecoveryShellInheritsNothing(t *testing.T) {
 	if len(ev.of(core.EventExecutionLost)) != 1 || len(ev.of(core.EventRecoveryPlan)) != 1 {
 		t.Fatalf("events = %+v", ev.list)
 	}
-	child := w.procs.add(shell, "herdsman", "message", "send")
+	child := w.procs.Add(shell, "herdsman", "message", "send")
 	if _, ok := core.CallerExecution(w.procs, child, []runtime.Execution{got}); ok {
 		t.Fatal("a command from the recovery shell passed as the execution")
 	}
@@ -124,11 +124,11 @@ func TestCoreRestartLosesEveryExecutionOnePlan(t *testing.T) {
 		launches = append(launches, l)
 	}
 	w.core.Restart()
-	newHolder := w.procs.add(1, "hc", "hold")
+	newHolder := w.procs.Add(1, "hc", "hold")
 	for _, l := range launches {
 		rec := w.record(l.Intent)
-		w.procs.kill(rec.Evidence.PID)
-		w.setProcess(rec.TerminalAddress, w.procs.add(newHolder, "-zsh"))
+		w.procs.Kill(rec.Evidence.PID)
+		w.setProcess(rec.TerminalAddress, w.procs.Add(newHolder, "-zsh"))
 	}
 	ev := &events{}
 	if err := w.reconciler(ev).Pass(ctx); err != nil {
@@ -176,13 +176,13 @@ func TestCallerIdentityByProcess(t *testing.T) {
 	w := newWorld(t)
 	_, rec := w.up("callers", "callers-o", "orchestrator", "claude")
 	execs, _ := w.records.List(context.Background(), "", "")
-	tool := w.procs.add(rec.Evidence.PID, "/bin/zsh", "-c", "herdsman message send")
-	cmd := w.procs.add(tool, "herdsman", "message", "send")
+	tool := w.procs.Add(rec.Evidence.PID, "/bin/zsh", "-c", "herdsman message send")
+	cmd := w.procs.Add(tool, "herdsman", "message", "send")
 	got, ok := core.CallerExecution(w.procs, cmd, execs)
 	if !ok || got.ID != rec.ID {
 		t.Fatalf("caller = %+v %v", got, ok)
 	}
-	outside := w.procs.add(1, "herdsman", "message", "send")
+	outside := w.procs.Add(1, "herdsman", "message", "send")
 	if _, ok := core.CallerExecution(w.procs, outside, execs); ok {
 		t.Fatal("a process outside the tree passed")
 	}
@@ -227,9 +227,9 @@ func TestPauseAndStopDiscipline(t *testing.T) {
 	}
 
 	// Codex left a background command that outlives its terminal.
-	background := w.procs.add(codex.Evidence.PID, "node", "server.js")
-	stubborn := w.procs.add(background, "sleep", "600")
-	w.procs.procs[stubborn].ignoreTerm = true
+	background := w.procs.Add(codex.Evidence.PID, "node", "server.js")
+	stubborn := w.procs.Add(background, "sleep", "600")
+	w.procs.IgnoreTerm(stubborn)
 	res, err := core.Stop(ctx, c, core.StopInput{Execution: codex, Procs: w.procs, Grace: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
@@ -237,7 +237,7 @@ func TestPauseAndStopDiscipline(t *testing.T) {
 	if !res.Killed || len(res.Ended) != 2 || len(res.Left) != 0 {
 		t.Fatalf("stop = %+v", res)
 	}
-	w.procs.kill(codex.Evidence.PID) // core's kill ended the harness
+	w.procs.Kill(codex.Evidence.PID) // core's kill ended the harness
 	if alive, _ := core.Alive(w.procs, codex.Evidence); alive {
 		t.Fatal("the harness lives")
 	}

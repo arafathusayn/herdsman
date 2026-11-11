@@ -69,6 +69,11 @@ type Registrar struct {
 	// Peer reads a connection's peer pid (default: the kernel's record).
 	Peer func(net.Conn) (int, error)
 	Now  func() time.Time
+	// ArmWait bounds how long a wrapper that names an intent not armed yet
+	// is held before it is refused (default 2 minutes). The wrapper starts
+	// with its terminal, before the register step arms the launch, and a
+	// restarted daemon arms it again only once it resumes the start.
+	ArmWait time.Duration
 
 	ln   net.Listener
 	mu   sync.Mutex
@@ -151,25 +156,42 @@ func (r *Registrar) Arm(a Arm) <-chan Outcome {
 	return x.out
 }
 
-// Disarm forgets a launch; a wrapper that names it later is refused.
+// Disarm forgets a launch; a wrapper that names it later waits for it to be
+// armed again, up to ArmWait, then is refused.
 func (r *Registrar) Disarm(intent string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.arms, intent)
 }
 
-func (r *Registrar) take(intent string) (*armed, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	x, ok := r.arms[intent]
-	switch {
-	case !ok:
-		return nil, fmt.Errorf("no launch waits for intent %s", intent)
-	case x.busy:
-		return nil, fmt.Errorf("launch %s is already being registered", intent)
+func (r *Registrar) take(ctx context.Context, intent string) (*armed, error) {
+	wait := r.ArmWait
+	if wait == 0 {
+		wait = 2 * time.Minute
 	}
-	x.busy = true
-	return x, nil
+	deadline := time.Now().Add(wait)
+	for {
+		r.mu.Lock()
+		x, ok := r.arms[intent]
+		switch {
+		case ok && x.busy:
+			r.mu.Unlock()
+			return nil, fmt.Errorf("launch %s is already being registered", intent)
+		case ok:
+			x.busy = true
+			r.mu.Unlock()
+			return x, nil
+		}
+		r.mu.Unlock()
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("no launch waits for intent %s", intent)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
 }
 
 func (r *Registrar) release(x *armed) {
@@ -247,7 +269,7 @@ func (r *Registrar) handle(ctx context.Context, c net.Conn) {
 		_ = reply(c, launch.WrapReply{Error: fmt.Sprintf("expected %s at protocol %d", launch.WrapAuthenticate, launch.WrapProtocol)})
 		return
 	}
-	x, err := r.take(req.Intent)
+	x, err := r.take(ctx, req.Intent)
 	if err != nil {
 		_ = reply(c, launch.WrapReply{Error: err.Error()})
 		return
