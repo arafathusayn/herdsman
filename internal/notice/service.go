@@ -161,7 +161,7 @@ type Service struct {
 	// attached is the poll that holds each execution's wait now.
 	attached map[string]*poll
 	// heldUntil is when an execution last held a wait, with the renewal
-	// window after a poll that ended empty.
+	// window after a poll that answered its caller.
 	heldUntil  map[string]time.Time
 	notWaiting map[string]bool
 	// restSince is when an execution with an open claim was last seen to
@@ -849,16 +849,19 @@ func (s *Service) attach(p *poll) error {
 	return nil
 }
 
-// detach frees the poll's slot. A poll that ended empty keeps the
-// execution's place for the renewal window; a lost caller does not.
-func (s *Service) detach(p *poll, empty bool) {
+// detach frees the poll's slot. A poll that answered its caller keeps the
+// execution's place for the renewal window, empty or not: a wait command
+// exits on an answer and the agent starts the next one after it reads, so
+// the execution still holds its wait in between. A lost caller, a replaced
+// poll and a stopped execution keep nothing.
+func (s *Service) detach(p *poll, kept bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.attached[p.exec] == p {
 		delete(s.attached, p.exec)
 	}
 	until := s.now()
-	if empty {
+	if kept {
 		until = until.Add(s.cfg.Renewal)
 	}
 	if until.After(s.heldUntil[p.exec]) {
@@ -867,7 +870,7 @@ func (s *Service) detach(p *poll, empty bool) {
 }
 
 // Holding reports whether an execution holds a wait: a poll attached now, or
-// within the renewal window after one that ended empty.
+// within the renewal window after one that answered its caller.
 func (s *Service) Holding(exec string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -911,8 +914,8 @@ func (s *Service) Wait(ctx context.Context, caller runtime.Execution, req WaitRe
 	} else if err != nil {
 		return WaitAnswer{}, err
 	}
-	empty := true
-	defer func() { s.detach(p, empty) }()
+	kept := true
+	defer func() { s.detach(p, kept) }()
 	timer := time.NewTimer(s.cfg.Poll)
 	defer timer.Stop()
 	expired := false
@@ -923,7 +926,7 @@ func (s *Service) Wait(ctx context.Context, caller runtime.Execution, req WaitRe
 			return WaitAnswer{}, err
 		}
 		if ready {
-			empty = ans.Answer == AnswerNone
+			kept = ans.Answer != AnswerReplaced && ans.Answer != AnswerStopped
 			return ans, nil
 		}
 		if expired {
@@ -938,7 +941,7 @@ func (s *Service) Wait(ctx context.Context, caller runtime.Execution, req WaitRe
 		case <-s.stopped:
 			return WaitAnswer{Answer: AnswerNone, Generation: gen, Reason: "the daemon is stopping; connect again", Next: nextWait}, nil
 		case <-ctx.Done():
-			empty = false
+			kept = false
 			return WaitAnswer{}, ctx.Err()
 		}
 	}
