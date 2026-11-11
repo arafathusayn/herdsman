@@ -14,6 +14,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/runtime"
 )
 
 // Verb is one of a route's lifecycle verbs.
@@ -427,13 +428,13 @@ func sendKey(ctx context.Context, c *herdr.Client, pane, key string) error {
 // applyInterrupt sends the harness's interrupt key. It is best effort: a pane
 // that cannot be reached is named in the record and the pause goes on, since an
 // agent acts on the key at its next turn boundary at the soonest anyway.
-func applyInterrupt(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
-	record, err := c.AgentGet(ctx, d.Name)
+func applyInterrupt(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
+	got, err := deps.provider(c).Interrupt(ctx, runtime.Target{Name: d.Name})
 	if err != nil {
 		return writeRow(d, AgentRow{Name: d.Name, Status: StatusNotReached})
 	}
-	row := AgentRow{Name: d.Name, Pane: record.PaneID, Status: string(record.Status)}
-	if err := sendKey(ctx, c, record.PaneID, "esc"); err != nil {
+	row := AgentRow{Name: d.Name, Pane: got.Pane, Status: got.RawProgram}
+	if !got.Sent {
 		row.Status = StatusNotReached
 	}
 	return writeRow(d, row)
@@ -578,33 +579,40 @@ func probeRecord(_ context.Context, _ Deps, _ *herdr.Client, d stepData) (ops.Ve
 const lastCallPrompt = "The route is stopping. Write your report now and start no new work."
 
 // applyLastCall gives an agent a bounded time to report, then interrupts it.
-func applyLastCall(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
-	record, err := c.AgentGet(ctx, d.Name)
+// applyLastCall is a TUI step: the report request is typed, and the wait reads
+// the agent's status. On herdr-core it becomes the final-report notice.
+func applyLastCall(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
+	tui, err := deps.tui(c)
 	if err != nil {
+		return err
+	}
+	target := runtime.Target{Name: d.Name}
+	got, err := tui.Inspect(ctx, target)
+	if err != nil || !got.Exists {
 		return writeRow(d, AgentRow{Name: d.Name, Status: StatusNotReached})
 	}
-	row := AgentRow{Name: d.Name, Pane: record.PaneID, Status: string(record.Status)}
-	if err := c.AgentPrompt(ctx, d.Name, lastCallPrompt); err != nil {
+	row := AgentRow{Name: d.Name, Pane: got.Pane, Status: got.Observation.RawProgram}
+	if _, err := tui.Deliver(ctx, target, runtime.Delivery{Text: lastCallPrompt, Tag: "last-call"}); err != nil {
 		row.Status = StatusNotReached
 		return writeRow(d, row)
 	}
-	want := []herdr.Status{"idle", "done"}
-	if _, err := c.WaitAgentStatus(ctx, d.Name, want, time.Duration(d.Control.GraceMS)*time.Millisecond); err != nil {
+	want := []runtime.Program{runtime.ProgramIdle, runtime.ProgramDone}
+	if _, err := tui.WaitProgram(ctx, target, want, time.Duration(d.Control.GraceMS)*time.Millisecond); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		_ = sendKey(ctx, c, record.PaneID, "esc") // best effort; the pane closes next
+		_ = tui.SendKey(ctx, got.Pane, "esc") // best effort; the pane closes next
 	}
 	return writeRow(d, row)
 }
 
-func applyClosePane(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
+func applyClosePane(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
 	pane, err := labelledPane(ctx, c, d.Workspace, d.Label)
 	if err != nil {
 		return err
 	}
 	if pane != "" {
-		if err := c.Call(ctx, "pane.close", map[string]any{"pane_id": pane}, nil); err != nil && !isNotFound(err) {
+		if _, err := deps.provider(c).Stop(ctx, runtime.Target{Pane: pane}); err != nil {
 			return err
 		}
 	}
@@ -643,7 +651,7 @@ func probeRetire(_ context.Context, _ Deps, _ *herdr.Client, d stepData) (ops.Ve
 }
 
 // applyContinue tells an agent to go on, with what it was doing when stopped.
-func applyContinue(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
+func applyContinue(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
 	if _, err := os.Stat(sentStamp(d)); err == nil {
 		return nil
 	}
@@ -658,7 +666,7 @@ func applyContinue(ctx context.Context, _ Deps, c *herdr.Client, d stepData) err
 	if d.Control.Note != "" {
 		text += " " + d.Control.Note
 	}
-	if err := c.AgentPrompt(ctx, d.Name, text); err != nil {
+	if _, err := deps.provider(c).Deliver(ctx, runtime.Target{Name: d.Name}, runtime.Delivery{Text: text, Tag: d.Tag}); err != nil {
 		return err
 	}
 	return writeFileNew(sentStamp(d), nil)
@@ -676,7 +684,8 @@ func RepoOf(op *ops.Operation) string {
 	return d.Repo
 }
 
-// RunningAgents names the route's agents herdr still knows, in start order.
+// RunningAgents names the route's agents their backend still knows, in start
+// order.
 func RunningAgents(ctx context.Context, start *ops.Operation) ([]string, error) {
 	var running []string
 	for _, st := range start.Steps {
@@ -687,10 +696,16 @@ func RunningAgents(ctx context.Context, start *ops.Operation) ([]string, error) 
 		if err != nil {
 			return nil, err
 		}
-		if _, err := herdr.New(d.Socket).AgentGet(ctx, d.Name); err == nil {
-			running = append(running, d.Name)
-		} else if !isNotFound(err) {
+		rt, err := (Deps{}).open(d)
+		if err != nil {
+			return nil, fmt.Errorf("ask about %s: %w", d.Name, err)
+		}
+		got, err := rt.Inspect(ctx, runtime.Target{Name: d.Name})
+		if err != nil {
 			return nil, fmt.Errorf("ask herdr about %s: %w", d.Name, err)
+		}
+		if got.Exists {
+			running = append(running, d.Name)
 		}
 	}
 	return running, nil
