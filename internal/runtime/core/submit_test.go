@@ -42,85 +42,15 @@ func sends(w *world) []sendCall {
 
 type sendCall struct{ params map[string]any }
 
-// State guards, `if` and first status: a typed submit needs a first status,
-// the state the adapter permits, and is sent with `if` and force:false.
-func TestTypedSubmitStateGuards(t *testing.T) {
-	w, n, s, _ := submitWorld(t)
-	ctx := testCtx(t)
-	w.openApp()
-	l, e := w.up("sub", "sub-o", "orchestrator", "claude")
-	if err := n.Approve(w.record(l.Intent), ""); err != nil {
-		t.Fatal(err)
-	}
+// State guards, `if` and first status, against the fake core
+// (gates_submit_test.go).
+func TestTypedSubmitStateGuards(t *testing.T) { gateTypedSubmitStateGuards(newWorld(t)) }
 
-	// No status since registration: refused before anything is recorded.
-	if _, err := s.Submit(ctx, core.SubmitRequest{Execution: e.ID, Text: "go on"}); core.CodeOf(err) != core.CodeSubmitNoStatus {
-		t.Fatalf("before the first status: %v", err)
-	}
-	e = w.ready(l)
-	if err := n.Approve(e, ""); err != nil {
-		t.Fatal(err)
-	}
+// State guards for a first status, against the fake core.
+func TestFirstStatusGuards(t *testing.T) { gateFirstStatusGuards(newWorld(t)) }
 
-	// A multi-line text is refused: a typed submit is one line.
-	if _, err := s.Submit(ctx, core.SubmitRequest{Execution: e.ID, Text: "a\nb"}); core.CodeOf(err) != core.CodeSubmitGate {
-		t.Fatalf("two lines: %v", err)
-	}
-
-	// Working: the state is not the adapter's; nothing is typed.
-	w.core.SetStatus(e.TerminalAddress, "working")
-	if _, err := s.Submit(ctx, core.SubmitRequest{Execution: e.ID, Text: "go on"}); core.CodeOf(err) != core.CodeSubmitState {
-		t.Fatalf("working: %v", err)
-	}
-	if len(sends(w)) != 0 {
-		t.Fatal("a refused submit was sent")
-	}
-
-	w.core.SetStatus(e.TerminalAddress, "idle")
-	rec, err := s.Submit(ctx, core.SubmitRequest{Execution: e.ID, Text: "go on"})
-	if err != nil || rec.State != core.SubmitTyped {
-		t.Fatalf("idle: %+v %v", rec, err)
-	}
-	got := sends(w)
-	if len(got) != 1 || got[0].params["if"] != core.SubmitIf || got[0].params["force"] == true {
-		t.Fatalf("send params: %+v", got)
-	}
-	if rec.TextDigest == "" || rec.TextDigest == "go on" {
-		t.Fatalf("the text is stored: %+v", rec)
-	}
-
-	// A held route refuses through the dispatch gates; so does a stopping
-	// one, with its own code.
-	if err := n.Hold(e.Repo, e.Route, true, "pause-1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Submit(ctx, core.SubmitRequest{Execution: e.ID, Text: "go on"}); core.CodeOf(err) != core.CodeSubmitGate {
-		t.Fatalf("held: %v", err)
-	}
-	if err := n.Hold(e.Repo, e.Route, false, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := n.Stopping(e.Repo, e.Route, "stop-1", time.Second); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Submit(ctx, core.SubmitRequest{Execution: e.ID, Text: "go on"}); core.CodeOf(err) != core.CodeRouteStopping {
-		t.Fatalf("stopping: %v", err)
-	}
-	if len(sends(w)) != 1 {
-		t.Fatalf("sends = %d", len(sends(w)))
-	}
-
-	// An execution outside an approved pair is refused.
-	if err := n.Restart(e.Repo, e.Route); err != nil {
-		t.Fatal(err)
-	}
-	if err := n.Withdraw(e.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Submit(ctx, core.SubmitRequest{Execution: e.ID, Text: "go on"}); core.CodeOf(err) != core.CodeSubmitGate {
-		t.Fatalf("not approved: %v", err)
-	}
-}
+// Input race, against the fake core.
+func TestInputRace(t *testing.T) { gateInputRace(newWorld(t)) }
 
 // Input race, send uncertainty and outstanding send: core's own refusal of
 // `if` proves nothing was typed; an answer that never comes leaves the

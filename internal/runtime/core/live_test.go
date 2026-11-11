@@ -34,6 +34,9 @@ import (
 // reserved terminal. The keychain is a file of the test's own, so the
 // user's keychain is never read.
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "fixture" {
+		os.Exit(fixtureMain(os.Args[2:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "launch" {
 		var socket, intent, keychain string
 		for i := 2; i+1 < len(os.Args); i++ {
@@ -78,6 +81,9 @@ type liveWorld struct {
 	// children are added to every harness stand-in's script, before it
 	// reports its status.
 	children []string
+	// fixture, when set, makes the harness of the next launches the input
+	// fixture (live_race_test.go) instead of the shell stand-in.
+	fixture fixtureMode
 }
 
 func newLive(t *testing.T, opts hclive.Options) *liveWorld {
@@ -253,7 +259,11 @@ func (w *liveWorld) gLaunch(route, agent, role, kind string) core.Launch {
 		Wrapper:   []string{w.self, "launch", "--socket", w.reg.Path, "--intent", intent, "--keychain", w.keychain},
 		Cwd:       work,
 	}
-	l.Descriptor = launch.CoreDescriptor{Intent: intent, Execution: exec, Kind: kind, Harness: w.standIn(exec), Cwd: work,
+	harness := w.standIn(exec)
+	if w.fixture != fixtureNone {
+		harness = w.fixtureArgv(exec)
+	}
+	l.Descriptor = launch.CoreDescriptor{Intent: intent, Execution: exec, Kind: kind, Harness: harness, Cwd: work,
 		Login: map[string]string{"PATH": "/usr/bin:/bin", "HOME": w.core.Dir}, LoginFrom: "daemon"}
 	return l
 }
@@ -295,6 +305,9 @@ func (w *liveWorld) gReady(l core.Launch) runtime.Execution {
 	ctx := testCtx(w.t)
 	if _, err := w.p.VisibilityStep(ctx, l, core.Timeouts{Visibility: 5 * time.Second, Poll: 50 * time.Millisecond}); err != nil {
 		w.t.Fatalf("visibility: %v", err)
+	}
+	if w.fixture != fixtureNone { // the fixture reports nothing until told
+		w.gStatus(w.gRecord(l.Intent), "idle")
 	}
 	rec, err := w.p.ReadyStep(ctx, l, core.Timeouts{Ready: 15 * time.Second, Poll: 50 * time.Millisecond})
 	if err != nil {

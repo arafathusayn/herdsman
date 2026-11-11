@@ -57,6 +57,15 @@ type gate interface {
 	// gOtherApp is an app core of another core id that holds a terminal at
 	// address with labels.
 	gOtherApp(address string, labels map[string]string) *apptest.Core
+	// gStatus makes the program of rec report state and returns the word
+	// core then shows (empty for none). The live fixture prints it as its
+	// OSC 7501 status; "blocked" also opens its dialog.
+	gStatus(rec runtime.Execution, state string) string
+	// gReceived is what the program of rec read from its terminal; ok is
+	// false where the world has no program to ask (the fake core).
+	gReceived(rec runtime.Execution) (got string, ok bool)
+	// gSends are the params of every terminal.send that reached core.
+	gSends() []map[string]any
 }
 
 // Identity replacement: the harness of a kept terminal dies, core starts a
@@ -397,6 +406,9 @@ func (w *world) gLose(rec runtime.Execution) int {
 	w.procs.Kill(rec.Evidence.PID)
 	shell := w.procs.Add(w.holder, "-zsh")
 	w.setProcess(rec.TerminalAddress, shell)
+	// A real core's shell starts silent: the harness's status is not
+	// carried to it (TestLiveInputRace records core's status_mismatch).
+	w.core.Mutate(rec.TerminalAddress, func(t map[string]any) { t["status"] = nil })
 	return shell
 }
 
@@ -426,6 +438,23 @@ func (w *world) gOtherApp(address string, labels map[string]string) *apptest.Cor
 	other := apptest.NewCore("other-core")
 	other.Run(address, "same-name", labels)
 	return other
+}
+
+func (w *world) gStatus(rec runtime.Execution, state string) string {
+	w.core.SetStatus(rec.TerminalAddress, state)
+	return state
+}
+
+func (w *world) gReceived(runtime.Execution) (string, bool) { return "", false }
+
+func (w *world) gSends() []map[string]any {
+	var out []map[string]any
+	for _, r := range w.core.Requests() {
+		if r.Method == hc.MethodSend {
+			out = append(out, r.Params)
+		}
+	}
+	return out
 }
 
 var _ gate = (*world)(nil)
