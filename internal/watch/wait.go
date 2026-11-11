@@ -130,11 +130,11 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 				}
 			}
 			pane := paneOf(env, name)
-			text := readPane(ctx, d.Client, pane, 40)
+			text := d.readPane(ctx, pane, 40)
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
-			reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, waitBlockRE, waitWorkRE, waitStalledRE)
+			reason, blocked := screenBlock(d.agentStatus(ctx, pane), text, waitBlockRE, waitWorkRE, waitStalledRE)
 			tell := newBlock(st, name, blocked, h, prev)
 			switch {
 			case blocked:
@@ -174,11 +174,11 @@ func Wait(ctx context.Context, env Env, d Deps) int {
 			if !strings.Contains(spec, ":") {
 				pane = spec
 			}
-			text := readPane(ctx, d.Client, pane, 30)
+			text := d.readPane(ctx, pane, 30)
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
-			reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, waitBlockRE, waitWorkRE, waitStalledRE)
+			reason, blocked := screenBlock(d.agentStatus(ctx, pane), text, waitBlockRE, waitWorkRE, waitStalledRE)
 			if newBlock(st, name, blocked, h, prev) {
 				events = append(events, fmt.Sprintf("BLOCKED %s %s %s", name, reason, now))
 			}

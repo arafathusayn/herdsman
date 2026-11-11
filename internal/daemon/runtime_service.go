@@ -422,3 +422,31 @@ func (s *runtimeService) Doctor(ctx context.Context, req *daemonv1.RuntimeServic
 	}
 	return out, nil
 }
+
+// Read implements RuntimeService.Read: the newest lines of one herdr-core
+// execution's terminal, read through the provider, and its recorded
+// observation. The waiters read the runtime this way instead of a pane; it
+// types nothing.
+func (s *runtimeService) Read(ctx context.Context, req *daemonv1.RuntimeServiceReadRequest) (*daemonv1.RuntimeServiceReadResponse, error) {
+	got, err := s.GetExecution(ctx, &daemonv1.RuntimeServiceGetExecutionRequest{ExecutionId: req.GetExecutionId()})
+	if err != nil {
+		return nil, err
+	}
+	out := &daemonv1.RuntimeServiceReadResponse{Observation: got.GetExecution().GetObservation()}
+	if req.GetLines() <= 0 {
+		return out, nil
+	}
+	if got.GetExecution().GetRef().GetBackend() != runtime.BackendCore {
+		return nil, rpc.Errorf(rpc.FailedPrecondition, "execution %s runs on %s; read its pane there", req.GetExecutionId(), got.GetExecution().GetRef().GetBackend())
+	}
+	c := s.d.coreRT()
+	if c == nil {
+		return nil, rpc.Errorf(rpc.Unavailable, "this daemon runs no herdr-core executions")
+	}
+	text, err := c.provider("").Read(ctx, runtime.Target{ExecutionID: req.GetExecutionId()}, runtime.ReadRequest{Lines: int(min(req.GetLines(), 400)), MaxBytes: 64 << 10})
+	if err != nil {
+		return nil, rpc.Errorf(rpc.Unavailable, "read execution %s: %v", req.GetExecutionId(), err)
+	}
+	out.Text, out.Truncated = text.Text, text.Truncated
+	return out, nil
+}

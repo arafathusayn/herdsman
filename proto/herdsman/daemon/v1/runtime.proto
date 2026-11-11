@@ -28,6 +28,23 @@ service RuntimeService {
   // about 200 ms later with no second check. No automated path calls it, and
   // a caller that is an agent is refused.
   rpc Submit(RuntimeServiceSubmitRequest) returns (RuntimeServiceSubmitResponse);
+  // Read returns the newest lines of one herdr-core execution's terminal and
+  // its last observation, for the waiters (spec section 15: watch and wait read
+  // the runtime, not a pane). It types nothing.
+  rpc Read(RuntimeServiceReadRequest) returns (RuntimeServiceReadResponse);
+}
+
+message RuntimeServiceReadRequest {
+  string execution_id = 1;
+  // At most this many lines; 0 reads only the observation.
+  int32 lines = 2;
+}
+
+message RuntimeServiceReadResponse {
+  string text = 1;
+  // The text is the end of a longer screen.
+  bool truncated = 2;
+  ExecutionObservation observation = 3;
 }
 
 // ExecutionObservation is what was last observed about an execution. Each

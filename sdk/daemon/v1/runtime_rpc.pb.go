@@ -40,6 +40,10 @@ type RuntimeService interface {
 	// about 200 ms later with no second check. No automated path calls it, and
 	// a caller that is an agent is refused.
 	Submit(context.Context, *RuntimeServiceSubmitRequest) (*RuntimeServiceSubmitResponse, error)
+	// Read returns the newest lines of one herdr-core execution's terminal and
+	// its last observation, for the waiters (spec section 15: watch and wait read
+	// the runtime, not a pane). It types nothing.
+	Read(context.Context, *RuntimeServiceReadRequest) (*RuntimeServiceReadResponse, error)
 }
 
 // NewRuntimeServiceHandler serves impl over HTTP with the full binding. Mount it
@@ -52,6 +56,7 @@ func NewRuntimeServiceHandler(impl RuntimeService) http.Handler {
 		rpc.Unary(RuntimeServiceName, "GetDefault", impl.GetDefault),
 		rpc.Unary(RuntimeServiceName, "SetDefault", impl.SetDefault),
 		rpc.Unary(RuntimeServiceName, "Submit", impl.Submit),
+		rpc.Unary(RuntimeServiceName, "Read", impl.Read),
 	)
 }
 
@@ -108,6 +113,14 @@ func (c *runtimeServiceClient) SetDefault(ctx context.Context, req *RuntimeServi
 func (c *runtimeServiceClient) Submit(ctx context.Context, req *RuntimeServiceSubmitRequest) (*RuntimeServiceSubmitResponse, error) {
 	res := new(RuntimeServiceSubmitResponse)
 	if err := callRuntimeService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RuntimeService/Submit", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *runtimeServiceClient) Read(ctx context.Context, req *RuntimeServiceReadRequest) (*RuntimeServiceReadResponse, error) {
+	res := new(RuntimeServiceReadResponse)
+	if err := callRuntimeService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.RuntimeService/Read", req, res); err != nil {
 		return nil, err
 	}
 	return res, nil

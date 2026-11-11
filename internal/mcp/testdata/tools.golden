@@ -537,6 +537,38 @@
     }
   },
   {
+    "name": "daemon_message_resume_goal",
+    "description": "Calls herdsman.daemon.v1.MessageService/ResumeGoal. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "daemon_message_send",
     "description": "Calls herdsman.daemon.v1.MessageService/Send. Changes state.",
     "inputSchema": {
@@ -1245,6 +1277,29 @@
         },
         "route": {
           "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_runtime_read",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/Read.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_id": {
+          "type": "string"
+        },
+        "lines": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "type": "integer"
         }
       },
       "type": "object"

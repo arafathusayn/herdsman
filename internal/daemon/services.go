@@ -83,5 +83,6 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(daemonv1.RuntimeServiceName, "GetDefault", runtimes.GetDefault),
 		rpc.Unary(daemonv1.RuntimeServiceName, "SetDefault", runtimes.SetDefault),
 		rpc.Unary(daemonv1.RuntimeServiceName, "Submit", runtimes.Submit),
+		rpc.Unary(daemonv1.RuntimeServiceName, "Read", runtimes.Read),
 	}...)
 }

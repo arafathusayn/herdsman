@@ -56,6 +56,7 @@ var readOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.RuntimeService.GetExecution":   true,
 	"herdsman.daemon.v1.RuntimeService.Doctor":         true,
 	"herdsman.daemon.v1.RuntimeService.GetDefault":     true,
+	"herdsman.daemon.v1.RuntimeService.Read":           true,
 	"herdsman.suggest.v1.SuggestService.Search":        true,
 	"herdsman.suggest.v1.SuggestService.Get":           true,
 	"herdsman.suggest.v1.SuggestService.Plan":          true,

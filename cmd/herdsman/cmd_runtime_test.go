@@ -18,6 +18,7 @@ type fakeRuntime struct {
 	doctor          *daemonv1.RuntimeServiceDoctorRequest
 	list            *daemonv1.RuntimeServiceListExecutionsRequest
 	submit          *daemonv1.RuntimeServiceSubmitRequest
+	read            []string
 }
 
 func (f *fakeRuntime) ListExecutions(_ context.Context, req *daemonv1.RuntimeServiceListExecutionsRequest) (*daemonv1.RuntimeServiceListExecutionsResponse, error) {
