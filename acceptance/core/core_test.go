@@ -5,6 +5,11 @@
 // launch socket, a real wrapper process that becomes its harness, and a real
 // stop. The app is never opened: nothing here runs herdr-app, and a launch
 // stops before the visibility step, which is proved with the fake app.
+//
+// The rest of the spec's section 17 gates that a real core can show run as
+// opt-in live tests beside the fake-core ones, with the fake app following a
+// private core: `make live-core`, which is
+// HERDSMAN_HC_LIVE=1 go test -count=1 -p 1 -run Live ./internal/hc/... ./internal/runtime/core/
 package core
 
 import (
