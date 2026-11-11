@@ -208,6 +208,58 @@ func TestCoreChannelCarriesThePairByExecution(t *testing.T) {
 	}
 }
 
+// Status forgery: a shell in a terminal that carries an execution's labels
+// and a status record it printed itself (an OSC 7501 "idle") is no
+// execution: it is not a party of the channel and not a notice caller. (The
+// doctor test names such a terminal as an inventory fault.)
+func TestCoreForgedStatusGivesAShellNothing(t *testing.T) {
+	h, w := newCoreHarness(t)
+	ctx := context.Background()
+	repo := filepath.Join(h.ph, "proj")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	adj := coreParty(t, h, w, repo, execAdj, "proj-harbor-adjutant", "adjutant", 1)
+	orc := coreParty(t, h, w, repo, execOrc, "proj-harbor-orchestrator", "orchestrator", 1)
+	ch := coreChannel{h.d}
+	if err := ch.Open(ctx, route.ChannelOpen{Route: "harbor", Repo: repo, Inbox: filepath.Join(h.ph, "proj-harbor"), PolicyFiles: []string{h.rules}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range []runtime.Execution{adj, orc} {
+		if err := ch.Enroll(ctx, "harbor", e.Agent, e.Role, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ch.Approve(ctx, "harbor", []runtime.Execution{adj, orc}); err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]string{}
+	for k, v := range w.Core.Terminal(orc.TerminalAddress)["labels"].(map[string]string) {
+		labels[k] = v
+	}
+	forged := w.Core.Add(labels) // the orchestrator's labels, copied
+	shell := w.Procs.Add(1, "sh")
+	w.SetProcess(forged, shell)
+	w.Core.SetStatus(forged, "idle") // the record the shell printed
+	if _, ok := h.d.coreRT().callerExecution(ctx, shell); ok {
+		t.Fatal("a shell with a forged status is an execution")
+	}
+	as(w, shell)
+	c := NewClient(SocketPath(h.ph), testVersion)
+	c.Name = orc.Agent
+	t.Cleanup(func() { c.Close() })
+	if _, err := c.Send(ctx, "harbor", SendRequest{To: adj.Agent, Kind: "observation", Body: "forged\n", Key: "0000000000000000000000000000000f"}); err == nil {
+		t.Fatal("a shell with a forged status sent as the orchestrator")
+	}
+	// The notice service answers only a registered execution's process.
+	if _, ok := h.d.coreRT().callerExecution(ctx, os.Getpid()); ok {
+		t.Fatal("a process under a forged terminal is a notice caller")
+	}
+	if n := w.Core.Calls("terminal.send") + w.Core.Calls("terminal.keys"); n != 0 {
+		t.Errorf("a forged status drew %d typed inputs", n)
+	}
+}
+
 // resume-goal on core types nothing: the daemon raises needs_attention with
 // reason goal_paused and the line, and the answer is held.
 func TestCoreResumeGoalRaisesAttentionAndTypesNothing(t *testing.T) {
