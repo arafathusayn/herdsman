@@ -189,6 +189,14 @@ func (c *Core) Restart() {
 	c.mu.Unlock()
 }
 
+// Wipe gives the core a new identity, as wiping its state does. Connections
+// stay until the next Restart.
+func (c *Core) Wipe(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ID = id
+}
+
 // Epoch returns how many times the fake restarted.
 func (c *Core) Epoch() int {
 	c.mu.Lock()
@@ -251,6 +259,19 @@ func (c *Core) Terminal(addr string) map[string]any {
 		return maps.Clone(t)
 	}
 	return nil
+}
+
+// Live returns copies of every live terminal record, in creation order.
+func (c *Core) Live() []map[string]any {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []map[string]any
+	for _, a := range c.order {
+		if t := c.terms[a]; t != nil && t["state"] == "live" {
+			out = append(out, maps.Clone(t))
+		}
+	}
+	return out
 }
 
 // Add creates a live terminal with these labels without a request, and
@@ -649,10 +670,16 @@ func (c *Core) run(p map[string]any) (any, *rpcError, func()) {
 			}
 		}
 	}
+	if rm, ok := p["rm"].(bool); !ok || rm {
+		c.mu.Unlock()
+		return nil, failure("invalid_params", "fake core: Herdsman launches keep their record (rm:false)"), nil
+	}
 	t := c.newTerminal(argv, labelsOf(p, "labels"), p["keep"] == true, name)
 	if cwd := str(p, "cwd"); cwd != "" {
 		t["cwd"] = cwd
 	}
+	// Core keeps the launch env in the terminal's record for its whole life.
+	t["env"] = labelsOf(p, "env")
 	out := maps.Clone(t)
 	c.mu.Unlock()
 	addr := out["address"].(string)
@@ -669,6 +696,7 @@ func (c *Core) SetStatus(addr, state string) {
 	}
 	st := map[string]any{"state": state, "app": "fake", "msg": "", "title": ""}
 	t["status"] = st
+	t["status_ms"] = uint64(time.Now().UnixMilli())
 	t["reported"] = true
 	c.mu.Unlock()
 	c.emit(addr, "status", maps.Clone(st))

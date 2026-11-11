@@ -282,7 +282,8 @@ type Size struct {
 
 // RunRequest starts one program in a new terminal on this core. Herdsman
 // launches always go without a core parent and without core notes (spec §4),
-// never wait, and never run on another machine; the client sets those itself.
+// keep their finished record (rm:false, §13), never wait, and never run on
+// another machine; the client sets those itself.
 type RunRequest struct {
 	Argv   []string
 	Cwd    string
@@ -303,6 +304,7 @@ type runParams struct {
 	Size     *Size             `json:"size,omitempty"`
 	NoParent bool              `json:"no_parent"`
 	NoNotify bool              `json:"no_notify"`
+	Rm       bool              `json:"rm"`
 }
 
 // Run starts a program and returns its terminal once it runs.
