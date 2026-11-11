@@ -26,6 +26,10 @@ needs no line. Those are noted below for the reader.
   `ErrSchemaNewer`; going back to the Herdr TUI is the config line
   `backend = "herdr-tui"` on this version, not a downgrade. Fixture:
   `testdata/schema-4`.
+- Version 6 adds the notices of herdr-core executions and what their gates
+  read: `notices`, `notice_waits`, `notice_routes`, `notice_approvals`, and a
+  person's typed submits, `typed_submits`. Every table starts empty and
+  existing rows are untouched.
 
 ## Route
 
