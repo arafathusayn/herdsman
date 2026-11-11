@@ -48,7 +48,7 @@ define need-tool
 	@test -x $(TOOLS_BIN)/$(1) || { echo "$(1) is not installed: run make tools-go"; exit 1; }
 endef
 
-.PHONY: tools-wt bench bench-up bench-results docs acceptance live-core proto proto-check proto-plugin tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
+.PHONY: tools-wt bench bench-up bench-results docs acceptance live-core live-app proto proto-check proto-plugin tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
 
 all: check build
 
@@ -178,6 +178,13 @@ acceptance:
 ## installed hc (darwin/arm64; never the user's core or the herdr app)
 live-core:
 	HERDSMAN_HC_LIVE=1 GOFLAGS=-mod=vendor GOPROXY=off GOMAXPROCS=1 nice -n 10 go test -count=1 -p 1 -run Live ./internal/hc/... ./internal/runtime/core/
+
+## live-app: the native visibility and endpoint mismatch gates with a real
+## herdr app window, opened with a fresh app home on a private core and quit
+## afterwards (darwin/arm64; never the user's window, app home or core);
+## HERDSMAN_APP_SHOTS=<folder> keeps the window's screenshots
+live-app:
+	HERDSMAN_HC_LIVE=1 HERDSMAN_APP_LIVE=1 GOFLAGS=-mod=vendor GOPROXY=off GOMAXPROCS=1 nice -n 10 go test -count=1 -p 1 -run LiveNative -v ./internal/runtime/core/
 
 ## check: every module in MODULES.md, one after another; every module runs, and
 ## the target fails when any failed
