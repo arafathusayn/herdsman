@@ -42,7 +42,7 @@ func TestMCPToolsAreExactlyWhatTheDaemonServes(t *testing.T) {
 	}
 	// Submit is a person's typed submit: people only, never an agent's tool.
 	withheld := []string{"Submit", "Stream", "Shutdown", "Enroll", "ApprovePair", "RetirePair", "RevokeCredential", "ResetEvents", "Export", "Import", "Resources", "Plan", "AddResource", "TeardownPlans", "Teardown", "RegisterResource", "LedgerHealth",
-		"ContextInit", "ContextCheck", "ContextNote", "Log", "SetDefault"}
+		"ContextInit", "ContextCheck", "ContextNote", "Log", "SetDefault", "Read"}
 	for _, procedure := range served {
 		if !slices.Contains(tools, procedure) && !slices.Contains(withheld, procedure[strings.LastIndex(procedure, "/")+1:]) {
 			t.Errorf("%s is served but has no tool and is not withheld", procedure)

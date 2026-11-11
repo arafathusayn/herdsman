@@ -363,7 +363,9 @@ func TestSetDefaultAndDoctor(t *testing.T) {
 	}
 	// A task that launches an agent resolves as up does: on core, with the
 	// daemon's core runtime, it is admitted and runs on core.
-	if err := h.d.taskBackend(ctx, ""); err != nil || !h.d.taskOnCore(ctx, "") {
+	optInCore(t, h)
+	coreRepo := filepath.Join(h.ph, "proj")
+	if err := h.d.taskBackend(ctx, coreRepo); err != nil || !h.d.taskOnCore(ctx, coreRepo) {
 		t.Fatalf("a core task launch: %v", err)
 	}
 	h.setDefaultBackend(runtime.BackendTUI)

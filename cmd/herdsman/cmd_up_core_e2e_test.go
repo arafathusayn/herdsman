@@ -41,6 +41,12 @@ func coreDaemon(t *testing.T) (*coretest.World, string, string) {
 	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
+	// herdr-core ships as an experiment: the config beside the repository opts
+	// in, as a person would.
+	optIn := "[runtime]\nbackend = \"herdr-core\"\n\n[runtime.core]\nexperimental = true\n"
+	if err := os.WriteFile(filepath.Join(base, "herdsman.config.toml"), []byte(optIn), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	bin := filepath.Join(base, "herdsman-bin")
 	if err := os.WriteFile(bin, []byte("binary"), 0o700); err != nil {
 		t.Fatal(err)
