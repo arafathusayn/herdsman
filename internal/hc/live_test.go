@@ -1,76 +1,21 @@
 package hc_test
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/hc"
+	"github.com/arafathusayn/herdsman/internal/hc/hclive"
 )
 
-// privateCore starts a core of the installed hc in a session of its own, with
-// its runtime, state, data and config directories under a temporary folder,
-// and stops it when the test ends. The user's own core is never touched.
-func privateCore(t *testing.T) string {
-	t.Helper()
-	bin, err := exec.LookPath("hc")
-	if err != nil {
-		t.Skip("hc is not installed")
-	}
-	// Under /tmp, because core refuses socket paths over 103 bytes and the
-	// holder sockets are longer than the session's.
-	dir, err := os.MkdirTemp("/tmp", "hcl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	session := fmt.Sprintf("hsl%d", os.Getpid())
-	env := []string{"HC_SESSION=" + session}
-	for _, kv := range [][2]string{{"XDG_RUNTIME_DIR", "run"}, {"XDG_STATE_HOME", "state"}, {"XDG_DATA_HOME", "data"}, {"XDG_CONFIG_HOME", "config"}} {
-		p := filepath.Join(dir, kv[1])
-		if err := os.MkdirAll(p, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		env = append(env, kv[0]+"="+p)
-	}
-	for _, e := range os.Environ() {
-		name, _, _ := strings.Cut(e, "=")
-		switch name {
-		case "HC_SESSION", "HC_SOCKET", "HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME":
-			continue
-		}
-		env = append(env, e)
-	}
-	hcCmd := func(args ...string) ([]byte, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, bin, args...)
-		cmd.Env = env
-		return cmd.CombinedOutput()
-	}
-	if out, err := hcCmd("server", "start", "--json"); err != nil {
-		_ = os.RemoveAll(dir)
-		t.Fatalf("start a private core: %v\n%s", err, out)
-	}
-	t.Cleanup(func() {
-		if out, err := hcCmd("server", "stop", "--json"); err != nil {
-			t.Errorf("stop the private core: %v\n%s", err, out)
-		}
-		_ = os.RemoveAll(dir)
-	})
-	return filepath.Join(dir, "run", "herdr-core", session+".sock")
-}
+// privateCore starts a private core of the installed hc (hclive) and returns
+// its socket. The user's own core is never touched.
+func privateCore(t *testing.T) string { return hclive.Start(t, hclive.Options{}).Socket }
 
 // TestLiveCore runs the listed methods against a real core. It is opt-in:
 // HERDSMAN_HC_LIVE=1 go test ./internal/hc -run TestLiveCore
 func TestLiveCore(t *testing.T) {
-	if os.Getenv("HERDSMAN_HC_LIVE") != "1" {
-		t.Skip("set HERDSMAN_HC_LIVE=1 to run against a private core of the installed hc")
-	}
 	sock := privateCore(t)
 	ctx := testCtx(t)
 	c, err := hc.Dial(ctx, sock, hc.Options{})
