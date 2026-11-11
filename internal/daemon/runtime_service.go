@@ -65,9 +65,6 @@ func (d *Daemon) installationDefault() (backend, source string, at int64, err er
 	return backend, source, at, err
 }
 
-// runtimeRegistry is the providers this daemon runs.
-func (d *Daemon) runtimeRegistry() runtime.Registry { return route.DefaultRuntime() }
-
 // configBackend is runtime.backend of the config file a run in repo uses: the
 // file named, or the one the repository finds. An unknown key in [runtime]
 // stops here.
@@ -124,7 +121,11 @@ func (d *Daemon) launchBackend(repo, configPath, flag, persisted string) (runtim
 // run. A task has no backend flag; its repository's config file and then the
 // installation default decide.
 func (d *Daemon) taskBackend(_ context.Context, repo string) error {
-	_, err := d.launchBackend(repo, "", "", "")
+	sel, err := d.launchBackend(repo, "", "", "")
+	if err == nil && sel.Backend == runtime.BackendCore {
+		// Task agents on core need the claims and notices of a later phase.
+		return runtime.Unavailable(runtime.BackendCore, "for task launches yet")
+	}
 	return err
 }
 
@@ -371,6 +372,16 @@ func (s *runtimeService) Doctor(ctx context.Context, req *daemonv1.RuntimeServic
 				cancel()
 				if perr != nil {
 					report.Available, report.Reason = false, "the Herdr TUI server does not answer: "+perr.Error()
+				}
+			}
+		}
+		// Core is checked only when a run would use it: the doctor never
+		// dials a core nobody selected.
+		if backend == runtime.BackendCore && report.Available && sel.Backend == runtime.BackendCore {
+			if c := s.d.coreRT(); c != nil {
+				report.Endpoint = c.cfg.Socket
+				if ok, why := c.doctor(ctx, req.GetRepo(), req.GetRoute().GetValue(), check); !ok {
+					report.Available, report.Reason = false, why
 				}
 			}
 		}

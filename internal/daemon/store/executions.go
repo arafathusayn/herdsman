@@ -137,6 +137,11 @@ func executionWhere(c Conn, where string, args ...any) (Execution, bool, error) 
 	return out, found, err
 }
 
+// ExecutionByIntent reads the execution of one launch intent.
+func ExecutionByIntent(c Conn, intent string) (Execution, bool, error) {
+	return executionWhere(c, "launch_intent_id = ?", intent)
+}
+
 // ExecutionByID reads one execution.
 func ExecutionByID(c Conn, id string) (Execution, bool, error) {
 	return executionWhere(c, "execution_id = ?", id)

@@ -44,6 +44,14 @@ type proc struct {
 // NewProcs is an empty table.
 func NewProcs() *Procs { return &Procs{procs: map[int]*proc{}, next: 50000} }
 
+// Put records a process under a pid of the caller's choosing, such as this
+// test process, so a caller can be placed below an execution.
+func (f *Procs) Put(pid, ppid int, argv ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.procs[pid] = &proc{ppid: ppid, start: time.Unix(1794000000, int64(pid)), argv: argv}
+}
+
 // Add starts a process under ppid and returns its pid.
 func (f *Procs) Add(ppid int, argv ...string) int {
 	f.mu.Lock()
@@ -226,6 +234,11 @@ func (s AppRunner) Run(ctx context.Context, inv herdrapp.Invocation) (herdrapp.O
 	}
 	return s.W.App.Run(ctx, inv)
 }
+
+// Peer is the launch socket's peer as the kernel would report it: the
+// process of the terminal whose wrapper connected last. A registrar of
+// another package takes it as its Peer.
+func (w *World) Peer(net.Conn) (int, error) { return int(w.peer.Load()), nil }
 
 // OpenApp opens the app window on the selected core.
 func (w *World) OpenApp() { w.App.Open(w.AppCore) }

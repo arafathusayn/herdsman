@@ -74,6 +74,8 @@ type Config struct {
 	Retention ops.Retention
 	// RetentionPolicy, when set, replaces Retention and is read at each use.
 	RetentionPolicy func() (ops.Retention, error)
+	// Core configures the herdr-core backend (zero: the user's own).
+	Core CoreConfig
 }
 
 // Daemon is one running daemon.
@@ -104,10 +106,12 @@ type Daemon struct {
 	// exportGate keeps route and registry writers out of an export's copy.
 	exportGate sync.RWMutex
 	opsCancel  context.CancelFunc
+	coreCancel context.CancelFunc
 	opsCtx     context.Context
 	bg         sync.WaitGroup
 
 	callers *route.Callers // who asked for each route start
+	core    *coreRuntime   // herdr-core's launch socket and reconcilers
 
 	hub  *eventHub     // the topics the event stream and long poll read
 	view *registryView // publishes the routes into hub
@@ -385,6 +389,11 @@ func (d *Daemon) Start() (err error) {
 		return d.listen()
 	}
 	d.touchHeartbeat()
+	coreCtx, coreCancel := context.WithCancel(context.Background())
+	d.coreCancel = coreCancel
+	if err := d.startCore(coreCtx); err != nil {
+		d.logf("herdr-core: %v", err)
+	}
 	d.resumeAdoptions()
 	names := make([]string, 0, len(rf.Routes))
 	for n := range rf.Routes {
@@ -445,6 +454,7 @@ func (d *Daemon) unwindStart() {
 		_ = d.ln.Close()
 		d.ln = nil
 	}
+	d.stopCore()
 	d.closeOps()
 	d.closeStateLock()
 	if d.acct != nil {
@@ -506,6 +516,7 @@ func (d *Daemon) Stop(reason string) {
 			cancel()
 		}
 		_ = os.Remove(SocketPath(d.cfg.PrivateHome))
+		d.stopCore()
 		d.closeOps()
 		d.closeStateLock()
 		if d.acct != nil {

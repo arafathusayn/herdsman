@@ -62,9 +62,9 @@ func legacyStart(t *testing.T, h *harness, repo string) *ops.Operation {
 	return op
 }
 
-// Gate "Upgrade", new side: a new account selects core, and until the core
-// provider exists a start says so and names the TUI line, with no fallback.
-func TestNewInstallationSelectsCoreAndRefusesWithoutFallback(t *testing.T) {
+// Gate "Upgrade", new side: a new account selects core and plans a core
+// start, with no fallback to the TUI; the flag picks the TUI for one run.
+func TestNewInstallationSelectsCoreWithoutFallback(t *testing.T) {
 	h := newAccountHarness(t)
 	c := routeClient(t, h)
 	ctx := context.Background()
@@ -76,10 +76,11 @@ func TestNewInstallationSelectsCoreAndRefusesWithoutFallback(t *testing.T) {
 		t.Fatalf("%+v", def)
 	}
 	repo := filepath.Join(h.ph, "proj")
-	_, err = c.Route.Up(ctx, upRequest(repo))
-	if codeOf(err) != rpc.FailedPrecondition || refusalCode(t, err) != runtime.CodeBackendUnavailable ||
-		!strings.Contains(err.Error(), `backend = "herdr-tui"`) || !strings.Contains(err.Error(), "not available in this build") {
-		t.Fatalf("%v", err)
+	coreReq := upRequest(repo)
+	coreReq.OrchestratorCommand = "codex --no-daemon"
+	planned, err := c.Route.Up(ctx, coreReq)
+	if err != nil || planned.GetStart().GetBackend() != runtime.BackendCore || !strings.Contains(planned.GetStart().GetPlan(), "backend: herdr-core") {
+		t.Fatalf("%v %v", planned, err)
 	}
 	// The flag selects the TUI for this run.
 	req := upRequest(repo)
@@ -291,7 +292,8 @@ func TestSetDefaultAndDoctor(t *testing.T) {
 	for _, b := range doc.GetBackends() {
 		switch b.GetBackend() {
 		case runtime.BackendCore:
-			if b.GetAvailable() || !strings.Contains(b.GetReason(), "herdr-tui") {
+			// The harness's core socket serves nothing.
+			if b.GetAvailable() || !strings.Contains(b.GetReason(), "does not answer") {
 				t.Fatalf("%+v", b)
 			}
 		case runtime.BackendTUI:

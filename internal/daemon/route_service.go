@@ -20,6 +20,8 @@ import (
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/route/routechan"
+	"github.com/arafathusayn/herdsman/internal/runtime"
+	"github.com/arafathusayn/herdsman/internal/runtime/core"
 	"github.com/arafathusayn/herdsman/internal/sys"
 	"github.com/arafathusayn/herdsman/sdk/config"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
@@ -86,6 +88,16 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 		return nil, runtimeFailure(err)
 	}
 	q.Backend = sel.Backend
+	if sel.Backend == runtime.BackendCore {
+		c := s.d.coreRT()
+		if c == nil {
+			return nil, runtimeFailure(runtime.Unavailable(runtime.BackendCore, "in this daemon: its launch socket is not open"))
+		}
+		q.Core = c.launch()
+		// Harness kinds come from the core adapter registry, never herdr.
+		q.Kinds = core.Kinds()
+		c.watch(c.ctx, q.Core.Socket)
+	}
 	var plan *route.UpPlan
 	if req.GetContinue() && latest != nil {
 		plan, err = route.PlanOf(latest)
@@ -244,10 +256,18 @@ func (s *routeService) verifiedCaller(ctx context.Context, claimed *daemonv1.UpC
 		return route.Caller{}, rpc.Errorf(rpc.PermissionDenied, "identify the caller: %v", err)
 	}
 	facts := inspectCaller(peer.PID, systemProcFacts)
-	return route.Caller{
+	caller := route.Caller{
 		Pane: claimed.GetPane(), PID: peer.PID, Started: identity.Start, TTY: facts.tty,
 		HarnessAncestor: facts.harness, CoreCommand: facts.coreCommand, Confirmed: claimed.GetConfirmedChecksum(),
-	}, nil
+	}
+	// A caller is an agent when its process descends from a registered
+	// core execution's process: evidence, never what the request says.
+	if c := s.d.coreRT(); c != nil {
+		if e, ok := c.callerExecution(ctx, peer.PID); ok {
+			caller.Execution = e.ID
+		}
+	}
+	return caller, nil
 }
 
 // procFacts is one process-table row.

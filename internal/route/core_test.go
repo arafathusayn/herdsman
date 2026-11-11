@@ -252,3 +252,56 @@ func TestCoreControlPausesStopsAndResumes(t *testing.T) {
 		t.Fatalf("a resume reused its reservation: %+v", execs)
 	}
 }
+
+// Launch crash points: a daemon killed at any step boundary of a core start
+// and restarted never leaves two terminals or two records for one agent; the
+// restarted start either finishes or stops for a person.
+func TestCoreStartSurvivesACrashAtEveryBoundary(t *testing.T) {
+	probe := newCoreRig(t)
+	pq := probe.request()
+	pq.NoAdjutant = true
+	steps := len(probe.plan(pq).Spec.Steps)
+	for ordinal := range steps {
+		for _, point := range []string{"intended", "applied"} {
+			r := newCoreRig(t)
+			r.w.OpenApp()
+			q := r.request()
+			q.NoAdjutant = true
+			p := r.plan(q)
+			r.attestShell(p.Key)
+			r.crashOn = "step:" + itoa(ordinal) + ":" + point
+			first, closeFirst := r.engine()
+			crashDriveIfReached(t, first, p.Spec)
+			closeFirst()
+			r.crashOn = ""
+			second, closeSecond := r.engine()
+			if err := second.Recover(context.Background()); err != nil {
+				t.Fatalf("step %d %s: %v", ordinal, point, err)
+			}
+			all, err := second.List()
+			if err != nil {
+				t.Fatal(err)
+			}
+			op := all[len(all)-1]
+			for range 4 {
+				if op.State != ops.OpStopped {
+					break
+				}
+				if err := route.Continue(second, r.callers, p, op, nil); err != nil {
+					t.Fatal(err)
+				}
+				if op, err = second.Drive(context.Background(), op.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			closeSecond()
+			execs, _ := r.w.Records.List(context.Background(), r.repo, "harbor")
+			if live := len(r.w.Core.Live()); live > 1 || len(execs) > 1 {
+				t.Fatalf("step %d %s: %d terminals, %d records", ordinal, point, live, len(execs))
+			}
+			if op.State != ops.OpDone && op.State != ops.OpStopped {
+				t.Errorf("step %d %s: %s %q", ordinal, point, op.State, lastError(op))
+			}
+		}
+	}
+}
