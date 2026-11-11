@@ -35,6 +35,7 @@ func init() {
 const upUsage = `usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]
                    [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]
                    [--pair auto|manual] [--web] [--no-attach] [--dry-run]
+                   [--backend herdr-core|herdr-tui]
        herdsman up [<route>] --continue [--step <n>=done|rerun]...
 `
 
@@ -47,6 +48,9 @@ no -a or -o; a command given on the line wins.
 --web also starts the web app on the route.
 --pair manual asks on the terminal before the pair is approved. Under the
 restricted profile it is the default and auto is refused.
+--backend picks where the agents run for this start only. Without it the
+config file's [runtime] backend decides, then the installation default
+(herdsman runtime default). A route that exists keeps its own backend.
 A second up on the same route picks up where the first stopped.
 `
 
@@ -59,6 +63,7 @@ type upFlags struct {
 	adjutantKind, orchestratorKind, pair          string
 	noAdjutant, web, noAttach, dryRun, resume     bool
 	noTUI                                         bool
+	backend                                       string
 	steps                                         []*daemonv1.StepVerdict
 }
 
@@ -105,6 +110,7 @@ func parseUp(args []string, stderr io.Writer) (upFlags, bool) {
 	fs.BoolVar(&f.dryRun, "dry-run", false, "print what would run and stop")
 	fs.BoolVar(&f.resume, "continue", false, "pick up a halted start")
 	fs.BoolVar(&f.noTUI, "no-tui", false, "never open the form")
+	fs.StringVar(&f.backend, "backend", "", "herdr-core or herdr-tui, for this start only")
 	fs.Bool("plain", false, "ask with line prompts")
 	fs.Var(stepFlag{&f.steps}, "step", "a verdict on a halted prelude step")
 	if err := fs.Parse(args); err != nil {
@@ -193,7 +199,7 @@ func runUp(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		Route: &corev1.RouteId{Value: f.route}, Repo: repo, Prompt: f.prompt, AdjutantCommand: f.adjutant, OrchestratorCommand: f.orchestrator,
 		AdjutantKind: f.adjutantKind, OrchestratorKind: f.orchestratorKind, NoAdjutant: f.noAdjutant, ConfigPath: f.config,
 		HerdrSocket: socket, PairManual: upPairMode(f, repo) == "manual", SecretRefs: os.Getenv(secrets.RefsVariable), DryRun: f.dryRun, Continue: f.resume, Verdicts: f.steps,
-		Caller: upCaller(), Kinds: upKinds(ctx), Date: now().Format("2006-01-02"),
+		Caller: upCaller(), Kinds: upKinds(ctx), Date: now().Format("2006-01-02"), Backend: f.backend,
 	}
 	res, err := sdk.Route.Up(ctx, req)
 	if err != nil {

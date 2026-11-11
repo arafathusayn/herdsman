@@ -38,6 +38,7 @@ Generated from `herdsman spec cli`.
 - [`review`](review.md): Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.
 - [`route`](route.md): Check a route folder (route check) or append a run-state line (route log).
 - [`run-check`](run-check.md): Run one heavy check at a time on this machine, behind a load gate (--publish <hours>: the load reading).
+- [`runtime`](runtime.md): Where agents run: runtime doctor, runtime ls, runtime default.
 - [`spec`](spec.md): Print the SDK contracts: spec cli|proto|descriptor.
 - [`status`](status.md): Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.
 - [`stop`](stop.md): End a route's sessions and service panes; the work stays on disk.

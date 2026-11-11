@@ -8,6 +8,7 @@ Start a route: workspace, private inbox, both coordinators, the pair and the fir
 usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]
                    [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]
                    [--pair auto|manual] [--web] [--no-attach] [--dry-run]
+                   [--backend herdr-core|herdr-tui]
        herdsman up [<route>] --continue [--step <n>=done|rerun]...
 
 -a and -o are the commands that launch each coordinator's harness, typed as you
@@ -18,5 +19,8 @@ no -a or -o; a command given on the line wins.
 --web also starts the web app on the route.
 --pair manual asks on the terminal before the pair is approved. Under the
 restricted profile it is the default and auto is refused.
+--backend picks where the agents run for this start only. Without it the
+config file's [runtime] backend decides, then the installation default
+(herdsman runtime default). A route that exists keeps its own backend.
 A second up on the same route picks up where the first stopped.
 ```

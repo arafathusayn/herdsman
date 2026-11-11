@@ -249,6 +249,7 @@ The `herdsman` command holds the web app, the tools the skill runs and the workt
 | Command | What it does |
 | --- | --- |
 | `up` *(next release)* | Starts a route in one command: workspace, private inbox, both coordinators, the pair and the first brief. |
+| `runtime` *(next release)* | Shows which agent runtime a route uses and why, lists agent executions, and reads or sets the installation default. |
 | `pause` *(next release)* | Interrupts a route's agents and holds its channel; every pane stays open. |
 | `resume` *(next release)* | Continues a paused route, or restarts a stopped one from its record. |
 | `stop` *(next release)* | Ends a route's sessions and service panes; the work stays on disk. |
