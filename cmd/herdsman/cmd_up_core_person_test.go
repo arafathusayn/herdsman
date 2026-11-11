@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestUpAndRuntimeDoctorAgreeOnPersonSteps(t *testing.T) {
 	w.OpenApp()
 
 	var doctor bytes.Buffer
-	if code := runRuntimeDoctor([]string{"--backend", "herdr-core"}, &doctor, &bytes.Buffer{}); code != 0 {
+	if code := runRuntimeDoctor([]string{"--backend", "herdr-core"}, &doctor, &bytes.Buffer{}); code != 0 && !onlyAppSupportFails(doctor.String()) {
 		t.Fatalf("runtime doctor: %d\n%s", code, doctor.String())
 	}
 	checks := map[string]string{}
@@ -88,4 +89,25 @@ func TestUpAndRuntimeDoctorAgreeOnPersonSteps(t *testing.T) {
 			t.Errorf("no qualified harness is %s; the test covers no run of that level", level)
 		}
 	}
+}
+
+// onlyAppSupportFails reports whether, off the one platform herdr-core and
+// herdr-app are claimed for, the platform check is the only failing line of
+// a runtime doctor report. That refusal is by design there; any other
+// failing check still fails the test.
+func onlyAppSupportFails(report string) bool {
+	if goruntime.GOOS == "darwin" && goruntime.GOARCH == "arm64" {
+		return false
+	}
+	failing := 0
+	appSupport := false
+	for _, line := range strings.Split(report, "\n") {
+		state, rest, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok || state != "fail" {
+			continue
+		}
+		failing++
+		appSupport = appSupport || strings.HasPrefix(strings.TrimSpace(rest), "app-support:")
+	}
+	return failing == 1 && appSupport
 }
