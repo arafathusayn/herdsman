@@ -48,7 +48,7 @@ define need-tool
 	@test -x $(TOOLS_BIN)/$(1) || { echo "$(1) is not installed: run make tools-go"; exit 1; }
 endef
 
-.PHONY: tools-wt bench bench-results docs acceptance proto proto-check proto-plugin tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
+.PHONY: tools-wt bench bench-up bench-results docs acceptance proto proto-check proto-plugin tools-bun tools-go all tools web pages web-check web-e2e web-fmt build check check-root check-sdk check-conformance check-sdk-ts check-web guard-report test lint lint-fmt vuln vendor deps-verify release-check clean
 
 all: check build
 
@@ -97,6 +97,12 @@ bench:
 	@test -x $(TOOLS_BIN)/wt || { echo "wt is not installed: run make tools-wt"; exit 1; }
 	go build -o .tools/bench/herdsman ./cmd/herdsman
 	go run ./bench/worktrees run --herdsman $(CURDIR)/.tools/bench/herdsman --wt $(TOOLS_BIN)/wt --repo . $(BENCH_ARGS)
+
+## bench-up: measure `up` on herdr-core against the fake core world, with the
+## A/A control, as a 95% confidence interval. Run it on a quiet machine.
+UP_ROUNDS ?= 20
+bench-up:
+	GOMAXPROCS=1 go run ./bench/up -rounds $(UP_ROUNDS)
 
 ## bench-results: fail when the committed results are stale or record a lost case
 bench-results:
