@@ -204,6 +204,12 @@ func probesFor(goos string) map[string]Probe {
 			_, err := exec.LookPath("secret-tool")
 			return err
 		},
+		"herdr-core": func() error { return runTool("hc", "--version") },
+		// Only looked up, never run: running the app could open a window.
+		"herdr-app": func() error {
+			_, err := exec.LookPath("herdr-app")
+			return err
+		},
 		"pty": func() error {
 			f, err := os.OpenFile(ptyDevice, os.O_RDWR|syscall.O_NOCTTY, 0)
 			if err != nil {
