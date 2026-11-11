@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -327,59 +326,6 @@ func (c *coreRuntime) loginValue(k string) string {
 		}
 	}
 	return ""
-}
-
-// dialogRe is the screen of a dialog that only a person ends: a permission or
-// trust question, a password, a usage limit. It adds a blocker; it never
-// removes one the status reports, and it never confers identity.
-var dialogRe = regexp.MustCompile(`(?im)^[ \t]*(([>]?[ \t]*[0-9]+[.)]?[ \t]*)?)(Do you want to proceed|Do you trust|Allow reads outside|Allow once|Allow always|Password for|Permission required|approval required|Yes, proceed|Yes, and don|escalated execution requires|Type your answer|Usage limit|Selected model is at capacity)`)
-
-// cardWatch is the card watch's pass on core: each running member whose
-// program reports blocked, or whose screen shows a dialog, raises
-// needs_attention once per dialog. It types nothing and answers nothing.
-func (s *coreServices) cardWatch(sp route.ServiceSpec) func(context.Context) error {
-	seen := map[string]string{}
-	return func(ctx context.Context) error {
-		all, err := s.c.records.List(ctx, sp.Repo, sp.Route)
-		if err != nil {
-			return err
-		}
-		p := s.c.provider("")
-		live := map[string]bool{}
-		for _, e := range all {
-			if e.Backend != runtime.BackendCore || e.Desired != runtime.DesiredRunning || e.Evidence.PID <= 0 {
-				continue
-			}
-			live[e.ID] = true
-			t := runtime.Target{ExecutionID: e.ID, Generation: e.Generation, TerminalAddress: e.TerminalAddress}
-			text, err := p.Read(ctx, t, runtime.ReadRequest{Lines: 40, MaxBytes: 16 << 10})
-			if err != nil {
-				continue
-			}
-			reason := ""
-			if m := dialogRe.FindStringSubmatch(text.Text); m != nil {
-				reason = strings.TrimSpace(m[3])
-			} else if e.Observation.Program == runtime.ProgramBlocked {
-				reason = "the program reports blocked"
-			}
-			if reason == "" {
-				delete(seen, e.ID)
-				continue
-			}
-			if seen[e.ID] == reason {
-				continue
-			}
-			seen[e.ID] = reason
-			s.c.d.emitNotice(notice.Event{Kind: notice.EventNeedsAttention, Repo: e.Repo, Route: e.Route, Execution: e.ID, Reason: "dialog",
-				Detail: fmt.Sprintf("%s shows a dialog only a person ends (%s); nothing is typed into it", e.Agent, reason)})
-		}
-		for id := range seen {
-			if !live[id] {
-				delete(seen, id)
-			}
-		}
-		return nil
-	}
 }
 
 // daemonServices is the route package's view of the core services: resolved
