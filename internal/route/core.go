@@ -180,6 +180,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 		if a.Attended {
 			fmt.Fprintf(text, "attended: %s is woken by a person on herdr-core; each notice for it waits for the line %q in its pane\n", c.kind, notice.AttendedLine)
 		}
+		writePersonSteps(text, a)
 		add("have a person submit "+c.name+"'s start line", effectCoreAttach, "core-attach:"+c.name, ops.RetryNever, data(func(cd *coreData) {
 			cd.Line = a.StartLine
 		}))
@@ -197,6 +198,23 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 		f()
 	}
 	return steps, nil
+}
+
+// writePersonSteps names, before the route starts, the steps of an agent's run
+// that will need a person (spec section 10, "Attended and unattended"). Each
+// raises needs_attention with its reason on the event stream when it comes
+// due; the route's other agents go on. compaction_due is named as a
+// possibility for a harness that compacts by itself: it comes due only where
+// the user's configuration turns that off.
+func writePersonSteps(text *strings.Builder, a core.Adapter) {
+	fmt.Fprintf(text, "needs a person (%s, %s):\n", a.Kind, a.Facts.Level)
+	for _, s := range a.PersonSteps(true) {
+		when := s.When
+		if s.Reason == core.AttentionCompactionDue && a.Facts.Compaction.BySelf {
+			when = "only if the harness's automatic compaction is turned off, " + when
+		}
+		fmt.Fprintf(text, "  %s: %s: %s\n", s.Reason, when, s.What)
+	}
 }
 
 func coreCwd(c compiled, q UpRequest) string {
@@ -379,8 +397,18 @@ func lineFile(d stepData) string {
 // applyCoreAttach is the first of up's two waits for a person on core: the
 // harness's start line, which no automation types. A person submits it in
 // the agent's pane and runs up again with --continue, which settles the step.
-func applyCoreAttach(_ context.Context, _ Deps, _ *herdr.Client, d stepData) error {
+func applyCoreAttach(_ context.Context, deps Deps, _ *herdr.Client, d stepData) error {
 	where := fmt.Sprintf("in %s's pane in the herdr app (space %s, tab %s)", d.Name, d.Route, d.Label)
+	// The step is due now: it says so on the event stream as well as in
+	// the start's answer, so a person who watches the stream hears of it.
+	attention := notice.Event{Kind: notice.EventNeedsAttention, Repo: d.Repo, Route: d.Route, Execution: d.Core.Launch.Execution, Reason: core.AttentionStartLine,
+		Detail: fmt.Sprintf("a person submits %s's start line %s, then runs herdsman up %s --continue", d.Name, where, d.Route)}
+	if !d.Core.LineHoldsPrompt {
+		attention.Line = d.Core.Line
+	}
+	if cp, err := coreProvider(deps); err == nil && cp.Notices != nil {
+		cp.Notices.Emit(attention)
+	}
 	if d.Core.LineHoldsPrompt {
 		if err := writeFileNew(lineFile(d), []byte(d.Core.Line+"\n")); err != nil {
 			return err

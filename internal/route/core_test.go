@@ -74,8 +74,13 @@ func TestCoreUpWaitsForAPersonTwiceThenEnrolls(t *testing.T) {
 	e, closeDB := r.engine()
 	defer closeDB()
 	p := r.plan(r.request())
-	if strings.Contains(p.Text, "pane") {
+	if strings.Contains(p.Text, "pane") && !strings.Contains(p.Text, "needs a person") {
 		t.Errorf("a core plan names a pane:\n%s", p.Text)
+	}
+	// up names, before the route starts, each step that will need a person.
+	if !strings.Contains(p.Text, "needs a person (claude, unattended):") || !strings.Contains(p.Text, "start_line: once, before the first brief") ||
+		!strings.Contains(p.Text, "compaction_due: only if the harness's automatic compaction is turned off") {
+		t.Errorf("the plan does not name the steps that need a person:\n%s", p.Text)
 	}
 	op := drive(t, e, p.Spec)
 	if op.State != ops.OpStopped || !strings.Contains(lastError(op), core.CodeWaitingVisibility) {
@@ -97,6 +102,10 @@ func TestCoreUpWaitsForAPersonTwiceThenEnrolls(t *testing.T) {
 	op = cont()
 	if op.State != ops.OpStopped || !strings.Contains(lastError(op), core.CodeNeedsAttention) || !strings.Contains(lastError(op), "proj-harbor-adjutant") || !strings.Contains(lastError(op), "herdsman notice wait") {
 		t.Fatalf("second wait: %s %q", op.State, lastError(op))
+	}
+	// The start line is due now, and the stream says so with the line.
+	if evs := r.w.EventsOf(notice.EventNeedsAttention); len(evs) == 0 || evs[len(evs)-1].Reason != core.AttentionStartLine || !strings.Contains(evs[len(evs)-1].Line, "herdsman notice wait") {
+		t.Errorf("no start_line attention on the stream: %+v", evs)
 	}
 	op = cont()
 	if op.State != ops.OpStopped || !strings.Contains(lastError(op), "orchestrator") || !strings.Contains(lastError(op), "herdsman notice wait") {
