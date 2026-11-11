@@ -184,6 +184,53 @@ func (c *Core) PrivateEnv() []string {
 	return out
 }
 
+// AddMachine adds the private core remote to this core as machine name,
+// reached with `hc machine add --via` through a local command in place of
+// ssh: the remote line runs under remote's private session and folders, with
+// its folder as home. No ssh, no ~/.ssh, no other session's machines. It
+// waits until this core reports the machine connected, and removes it when
+// the test ends, before either core stops.
+func (c *Core) AddMachine(remote *Core, name string) {
+	c.t.Helper()
+	via := append([]string{"env"}, remote.PrivateEnv()...)
+	via = append(via, "HOME="+remote.Dir, "sh", "-c")
+	for _, w := range via {
+		if strings.ContainsAny(w, " \t\n'\"\\$`") {
+			c.t.Fatalf("a --via word needs quoting: %q", w)
+		}
+	}
+	out, err := c.HC("machine", "add", "--via", strings.Join(via, " "), "--name", name, "--json")
+	if err != nil {
+		c.t.Fatalf("hc machine add --via: %v\n%s", err, out)
+	}
+	c.t.Cleanup(func() {
+		if out, err := c.HC("machine", "rm", name, "--json"); err != nil {
+			c.t.Errorf("hc machine rm %s: %v\n%s", name, err, out)
+		}
+	})
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		out, err := c.HC("machine", "ls", "--json")
+		var ls struct {
+			Machines []struct {
+				Name  string `json:"name"`
+				State string `json:"state"`
+			} `json:"machines"`
+		}
+		if err == nil && json.Unmarshal(out, &ls) == nil {
+			for _, m := range ls.Machines {
+				if m.Name == name && m.State == "connected" {
+					return
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			c.t.Fatalf("machine %s never connected: %v\n%s", name, err, out)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // GetRaw is terminal.get as core answers it, every field included.
 func (c *Core) GetRaw(address string) (map[string]any, error) {
 	out, err := c.HC("get", address, "--json")
