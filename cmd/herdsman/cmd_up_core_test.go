@@ -11,7 +11,7 @@ import (
 // up tells a wait for a person from a failure by the reason's code.
 func TestUpTellsAPersonWaitFromAFailure(t *testing.T) {
 	for reason, want := range map[string]bool{
-		"step 6 failed (needs_attention: submit this start line in the app)":    true,
+		"step 6 failed (needs_attention: submit this start line in the app)":     true,
 		"step 4 failed (waiting_for_visibility: open the app on that core once)": true,
 		"step 4 failed (visibility_missing: the app does not show terminal t1)":  true,
 		"step 2 failed (launch_failed: the wrapper did not register)":            false,
