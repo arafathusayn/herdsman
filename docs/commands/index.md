@@ -23,6 +23,7 @@ Generated from `herdsman spec cli`.
 - [`help`](help.md): Print the commands.
 - [`hook`](hook.md): Show, approve or run a worktree hook.
 - [`import`](import.md): Rebuild an account from an export.
+- [`launch`](launch.md): Run one agent launch in a herdr-core terminal; herdr-core runs it, not a person.
 - [`ls`](ls.md): List the repository's worktrees.
 - [`mcp`](mcp.md): Serve the daemon's services as MCP tools over stdio.
 - [`message`](message.md): The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.
