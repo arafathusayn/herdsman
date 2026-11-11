@@ -39,6 +39,7 @@ const (
 	effectCoreStop      = "core.stop"
 	effectCoreService   = "core.service"
 	effectCoreQuiet     = "core.service-stop"
+	effectCoreEnded     = "core.ended"
 )
 
 // CoreLaunch is the herdr-core half of an UpRequest, filled by the daemon.
@@ -768,25 +769,7 @@ func (b *controlBuilder) planCoreControl() error {
 			b.add(serviceStepName(*st.Core.Service), effectCoreService, key, b.with(func(d *stepData) { d.Core = st.Core }))
 		}
 	}
-	switch b.q.Verb {
-	case VerbPause:
-		// The hold is persisted before any interrupt.
-		b.add("hold the route's notices", effectCoreHold, "core-hold", b.base)
-		// The checkpointer's prompts stop with the pause, as on the TUI.
-		stopService(ServiceCheckpoint)
-		for _, name := range b.agents {
-			b.add("pause "+name, effectCorePause, "core-pause:"+name, b.with(func(d *stepData) { d.Name = name }))
-		}
-		if b.base.Inbox != "" {
-			for _, name := range b.agents {
-				b.add("hold the channel for "+name, effectCoreChanHold, "core-hold:"+name, b.with(func(d *stepData) { d.Name = name }))
-			}
-		}
-		if b.q.Teardown {
-			b.add("tear down the route's task processes", effectTeardown, "teardown", b.base)
-		}
-		b.add("record the pause", effectRecord, "record", b.base)
-	case VerbStop:
+	stop := func() {
 		b.add("put the route in the stopping phase", effectCoreStopping, "core-stopping", b.base)
 		for _, name := range b.agents {
 			b.add("ask "+name+" for its report", effectCoreReport, "core-report:"+name, b.with(func(d *stepData) { d.Name = name }))
@@ -806,6 +789,27 @@ func (b *controlBuilder) planCoreControl() error {
 			d.Control = b.control()
 			d.Control.Verb = VerbStop
 		}))
+	}
+	switch b.q.Verb {
+	case VerbPause:
+		// The hold is persisted before any interrupt.
+		b.add("hold the route's notices", effectCoreHold, "core-hold", b.base)
+		// The checkpointer's prompts stop with the pause, as on the TUI.
+		stopService(ServiceCheckpoint)
+		for _, name := range b.agents {
+			b.add("pause "+name, effectCorePause, "core-pause:"+name, b.with(func(d *stepData) { d.Name = name }))
+		}
+		if b.base.Inbox != "" {
+			for _, name := range b.agents {
+				b.add("hold the channel for "+name, effectCoreChanHold, "core-hold:"+name, b.with(func(d *stepData) { d.Name = name }))
+			}
+		}
+		if b.q.Teardown {
+			b.add("tear down the route's task processes", effectTeardown, "teardown", b.base)
+		}
+		b.add("record the pause", effectRecord, "record", b.base)
+	case VerbStop:
+		stop()
 	case VerbResume:
 		if b.q.From != ControlStopped {
 			b.add("lift the route's hold", effectCoreUnhold, "core-unhold", b.base)
@@ -865,7 +869,20 @@ func (b *controlBuilder) planCoreControl() error {
 		}
 		b.add("record the resume", effectRecord, "record", b.base)
 	case VerbDelete:
-		return runtime.Unavailable(runtime.BackendCore, "for delete yet: stop the route, then remove its folder")
+		// Stop through the provider, then archive (PlanControl adds the
+		// snapshot and the removal). Core's spaces and tabs are never
+		// closed: they may be shared, and the app adapter has no close.
+		if b.q.Force {
+			stop()
+		}
+		for _, name := range b.agents {
+			b.add("confirm "+name+" ended, through the provider", effectCoreEnded, "core-ended:"+name, b.with(func(d *stepData) { d.Name = name }))
+		}
+		if !b.q.Force {
+			for _, name := range []string{ServiceCheckpoint, ServiceCardWatch, ServiceCourier} {
+				stopService(name)
+			}
+		}
 	default:
 		return fmt.Errorf("unknown verb %q", b.q.Verb)
 	}
@@ -903,7 +920,49 @@ func coreEffects(deps Deps) map[string]ops.Effect {
 		effectCoreChannel:   effect{deps, applyCoreChannel, probeCoreChannel},
 		effectCoreHandshake: effect{deps, applyCoreHandshake, probeHandshake},
 		effectCoreChanHold:  effect{deps, applyCoreChanHold, probeCoreChanHold},
+		effectCoreEnded:     effect{deps, applyCoreEnded, probeCoreEnded},
 	}
+}
+
+// applyCoreEnded ends an agent before a delete archives its route: every
+// execution of the agent still desired running is stopped through the
+// provider, which never types and never kills a recovery shell. Without
+// --force a delete of a route whose agent still runs is refused, so a
+// delete never skips the final report a stop asks for.
+func applyCoreEnded(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) error {
+	cp, err := coreProvider(deps)
+	if err != nil {
+		return err
+	}
+	recs, err := liveRecords(ctx, cp, d)
+	if err != nil {
+		return err
+	}
+	for _, rec := range recs {
+		if d.Control == nil || !d.Control.Force {
+			return fmt.Errorf("%s still runs: stop the route first, or delete it with --force", d.Name)
+		}
+		if _, err := cp.Stop(ctx, runtime.Target{ExecutionID: rec.ID}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// probeCoreEnded: done once no execution of the agent is desired running.
+func probeCoreEnded(ctx context.Context, deps Deps, _ *herdr.Client, d stepData) (ops.Verdict, string, error) {
+	cp, err := coreProvider(deps)
+	if err != nil {
+		return ops.Unknown, "", err
+	}
+	recs, err := liveRecords(ctx, cp, d)
+	if err != nil {
+		return ops.Unknown, "", err
+	}
+	if len(recs) == 0 {
+		return ops.Matches, "", nil
+	}
+	return ops.Absent, "", nil
 }
 
 // probeControlRow: a control step is done once its agent's row is written.

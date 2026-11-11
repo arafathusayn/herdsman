@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -59,7 +60,7 @@ func (r *coreRig) engine() (*ops.Engine, func()) {
 	if r.channel == nil {
 		r.channel = &memChannel{parties: map[string]string{}, held: map[string]bool{}}
 	}
-	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg, Services: r.services, CoreChannel: r.channel})
+	return r.rig.engineDeps(route.Deps{Callers: r.callers, PollEvery: time.Millisecond, AgentTimeout: 5 * time.Second, Runtime: reg, Services: r.services, CoreChannel: r.channel, Recovery: r.recovery, Down: r.down})
 }
 
 // memChannel is the daemon's channel of a core route as a map: who is
@@ -419,9 +420,6 @@ func TestCoreControlPausesStopsAndResumes(t *testing.T) {
 	if got := r.services.names(); len(got) != 0 {
 		t.Fatalf("services after the stop: %v", got)
 	}
-	if _, err := route.PlanControl(context.Background(), route.ControlRequest{Verb: route.VerbDelete, Start: start, Generation: 3, Date: "2026-11-11"}); err == nil {
-		t.Error("delete planned on core")
-	}
 	resumed := verb(route.VerbResume, 3, route.ControlStopped)
 	if resumed.State != ops.OpStopped || !strings.Contains(lastError(resumed), core.CodeNeedsAttention) {
 		t.Fatalf("resume: %s %q", resumed.State, lastError(resumed))
@@ -429,6 +427,85 @@ func TestCoreControlPausesStopsAndResumes(t *testing.T) {
 	execs, _ = r.w.Records.List(context.Background(), r.repo, "harbor")
 	if len(execs) != 2 || execs[0].LaunchIntent == execs[1].LaunchIntent {
 		t.Fatalf("a resume reused its reservation: %+v", execs)
+	}
+}
+
+// Teardown, delete on core: a delete stops through the provider, then
+// archives; it never closes core's spaces or tabs and never types.
+func TestCoreDeleteStopsThroughTheProviderThenArchives(t *testing.T) {
+	r := newCoreRig(t)
+	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.name=t", "-c", "user.email=t@e", "commit", "-q", "--allow-empty", "-m", "base"}} {
+		if out, err := exec.Command("git", append([]string{"-C", r.repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	r.recovery = &pipeline{repo: r.repo}
+	r.down = func(context.Context, string, string) error { r.downs++; return nil }
+	r.w.OpenApp()
+	e, closeDB := r.engine()
+	defer closeDB()
+	q := r.request()
+	q.NoAdjutant = true
+	p := r.plan(q)
+	op := drive(t, e, p.Spec)
+	r.attestShell(p.Key)
+	for op.State != ops.OpDone {
+		if err := route.Continue(e, r.callers, p, op, nil); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		if op, err = e.Drive(context.Background(), op.ID); err != nil {
+			t.Fatal(err)
+		}
+		if op.State == ops.OpFailed {
+			t.Fatalf("start failed: %q", lastError(op))
+		}
+	}
+	start, err := e.Get(op.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	del := func(gen int, force bool) (*route.ControlPlan, *ops.Operation) {
+		t.Helper()
+		plan, err := route.PlanControl(context.Background(), route.ControlRequest{Verb: route.VerbDelete, Start: start, Generation: gen, Force: force, Date: "2026-11-11"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return plan, drive(t, e, plan.Spec)
+	}
+	// A running agent is never deleted without --force.
+	if _, got := del(1, false); got.State == ops.OpDone {
+		t.Fatal("a running route was deleted without --force")
+	}
+	if _, err := os.Stat(p.Folder); err != nil {
+		t.Fatalf("a refused delete removed the folder: %v", err)
+	}
+	plan, got := del(2, true)
+	if got.State != ops.OpDone {
+		t.Fatalf("delete --force: %s %q", got.State, lastError(got))
+	}
+	if strings.Contains(plan.Text, "close the workspace") {
+		t.Errorf("a core delete closes a workspace:\n%s", plan.Text)
+	}
+	execs, _ := r.w.Records.List(context.Background(), r.repo, "harbor")
+	for _, x := range execs {
+		if x.Desired != runtime.DesiredStopped {
+			t.Errorf("an execution survived the delete: %+v", x)
+		}
+	}
+	if _, err := os.Stat(p.Folder); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the route folder survived: %v", err)
+	}
+	if _, err := os.Stat(plan.Snapshot); err != nil {
+		t.Errorf("no snapshot: %v", err)
+	}
+	if got := r.services.names(); len(got) != 0 {
+		t.Errorf("services after the delete: %v", got)
+	}
+	for _, m := range []string{"terminal.send", "terminal.keys", "space.close", "tab.close", "workspace.close"} {
+		if n := r.w.Core.Calls(m); n != 0 {
+			t.Errorf("the delete called %s %d times", m, n)
+		}
 	}
 }
 
