@@ -189,6 +189,36 @@ func TestTypedSubmitRaceAndUncertainty(t *testing.T) {
 	}
 }
 
+// A submit to an execution the reconciler found replaced is refused by
+// identity, as before the reconciler saw it, never as a missing status, and
+// nothing is sent to the program at its address.
+func TestTypedSubmitToAReplacedExecutionIsAnIdentityRefusal(t *testing.T) {
+	w, n, s, _ := submitWorld(t)
+	ctx := testCtx(t)
+	w.openApp()
+	l, _ := w.up("lost", "lost-o", "orchestrator", "claude")
+	e := w.ready(l)
+	if err := n.Approve(e, ""); err != nil {
+		t.Fatal(err)
+	}
+	w.gLose(e)
+	if _, err := s.Submit(ctx, core.SubmitRequest{Execution: e.ID, Text: "go on"}); core.CodeOf(err) != core.CodeIdentityNotProven {
+		t.Fatalf("before the reconciler saw it: %v", err)
+	}
+	if err := w.reconciler(&events{}).Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if r := w.record(l.Intent).Observation.Readiness; r != runtime.ReadinessIdentityUnknown {
+		t.Fatalf("readiness = %s", r)
+	}
+	if _, err := s.Submit(ctx, core.SubmitRequest{Execution: e.ID, Text: "go on"}); core.CodeOf(err) != core.CodeIdentityNotProven {
+		t.Fatalf("after the reconciler saw it: %v", err)
+	}
+	if c := w.core.Calls(hc.MethodSend); c != 0 {
+		t.Fatalf("sent %d times", c)
+	}
+}
+
 // A submit names a running execution on core; any other is refused.
 func TestTypedSubmitNeedsARunningExecution(t *testing.T) {
 	_, _, s, _ := submitWorld(t)

@@ -142,9 +142,15 @@ func (s *Submitter) Submit(ctx context.Context, req SubmitRequest) (SubmitRecord
 	if err != nil {
 		return SubmitRecord{}, err
 	}
+	// An execution the reconciler found lost or replaced is an identity
+	// refusal, not a missing status: another program may run at its
+	// address.
+	if e.Observation.Readiness == runtime.ReadinessIdentityUnknown {
+		return SubmitRecord{}, refuse(CodeIdentityNotProven, "execution %s is not proven to run in terminal %s (process %s); nothing is typed there", e.ID, e.TerminalAddress, e.Observation.Process)
+	}
 	// Rule 6: at least one status since registration (readiness says so).
-	// It is checked first: the identity gate refuses the same execution
-	// with a less useful reason.
+	// It is checked before the dispatch gates: they refuse the same
+	// execution with a less useful reason.
 	if e.Observation.Readiness != runtime.ReadinessReady {
 		return SubmitRecord{}, refuse(CodeSubmitNoStatus, "execution %s has reported no status since it registered (readiness %s); nothing is typed into a program that reports none", e.ID, e.Observation.Readiness)
 	}
