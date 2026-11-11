@@ -130,6 +130,8 @@ type Facts struct {
 const (
 	PersonOnlyInterrupted = "the state after any interrupt"
 	PersonOnlyGoalPaused  = "a paused goal"
+	// GoalResumeLine is the line a person submits to resume a paused goal.
+	GoalResumeLine = "/goal resume"
 )
 
 // PersonStep is one step of a run on core that needs a person: named by up
@@ -264,7 +266,7 @@ func (a Adapter) PersonSteps(autoCompactOff bool) []PersonStep {
 		out = append(out, PersonStep{Reason: AttentionInterrupted, When: "after an interrupt; a pause never sends this harness one", What: "type a line in its pane"})
 	}
 	if slices.Contains(a.Facts.PersonOnly, PersonOnlyGoalPaused) {
-		out = append(out, PersonStep{Reason: AttentionGoalPaused, When: "when its goal is paused", What: "submit /goal resume in its pane"})
+		out = append(out, PersonStep{Reason: AttentionGoalPaused, When: "when its goal is paused", What: "submit " + GoalResumeLine + " in its pane"})
 	}
 	if !a.Facts.Compaction.BySelf || autoCompactOff {
 		out = append(out, PersonStep{Reason: AttentionCompactionDue, When: "when the context passes the checkpointer's limit", What: "submit the harness's compact command in its pane"})

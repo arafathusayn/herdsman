@@ -52,6 +52,7 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(name, "GetOperation", m.GetOperation),
 		rpc.Unary(name, "ResolveOperation", m.ResolveOperation),
 		rpc.Unary(name, "Wait", m.Wait),
+		rpc.Unary(name, "ResumeGoal", m.ResumeGoal),
 		rpc.Unary(daemonv1.OpsServiceName, "Undo", recovery.Undo),
 		rpc.Unary(daemonv1.OpsServiceName, "Export", recovery.Export),
 		rpc.Unary(daemonv1.OpsServiceName, "Import", recovery.Import),

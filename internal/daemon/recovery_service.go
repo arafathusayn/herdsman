@@ -24,13 +24,14 @@ const mutationPoll = 10 * time.Millisecond
 
 // messageCallsOutsideTheGate are the MessageService calls an export does not
 // hold: reads, the long-lived Wait, Shutdown, and ResolveOperation, which the
-// journal's account lock already holds. Any other call of the service is held,
+// journal's account lock already holds, and ResumeGoal, which only raises an
+// event. Any other call of the service is held,
 // so a new writer is covered without being listed. A held call must not wait
 // on a journal lock, or it and the export wait for each other.
 var messageCallsOutsideTheGate = map[string]bool{
 	"Hello": true, "Health": true, "Shutdown": true, "ListRoutes": true, "Status": true, "GetSetup": true,
 	"Authority": true, "DaemonStatus": true, "ListOperations": true, "GetOperation": true,
-	"ResolveOperation": true, "Wait": true,
+	"ResolveOperation": true, "Wait": true, "ResumeGoal": true,
 }
 
 // heldDuringExport reports whether an RPC path changes route or registry

@@ -52,6 +52,7 @@ const MessageHelp = `usage: herdsman message [--json] [--route <route>] <action>
   hold <name> <reason> | unhold <name>
   enroll <name> adjutant|orchestrator   enroll this pane (herdr agent start) as a party
   authority                       RELAY or HUMAN
+  resume-goal <name>              herdr-core: raise needs_attention goal_paused and the line a person submits; HELD
 settings: DEADLINE (wait, default 270s) and HEALTH_GRACE (wait, default 30s) are durations
 (seconds, or with an s, m, h or d suffix). A bad value exits 2 first.
 
@@ -59,7 +60,7 @@ exit codes:
   0   done (wait: an event or TICK; authority: RELAY)
   1   wait: HEALTH (daemon unreachable, version mismatch, resync, route removed); status: daemon down
   2   usage, an invalid setting, or a refusal (the reason on stderr)
-  3   authority: HUMAN; human_boundary
+  3   authority: HUMAN; human_boundary; resume-goal: HELD
   75  retryable: busy, route_unowned, herdr_unreachable, daemon not answering
 `
 
@@ -337,6 +338,23 @@ func RunMessage(e *MessageEnv, args []string) int {
 			fmt.Fprintf(e.Stdout, "UNHOLD %s by %s; no hold remains\n", rest[0], me)
 		}
 		return 0
+	case "resume-goal":
+		// On herdr-core nothing is typed: the daemon raises needs_attention
+		// and the answer is HELD (exit 3), as the file-mode command's.
+		if len(rest) != 1 {
+			return e.usage("resume-goal <name>")
+		}
+		res, err := c.ResumeGoal(ctx, route, rest[0])
+		if err != nil {
+			return e.fail(action, err)
+		}
+		text := fmt.Sprintf("HELD %s: a person submits %s in %s's terminal (execution %s)", res.Reason, res.Line, rest[0], res.Execution)
+		if e.JSON {
+			e.line(obj("type", "resume", "status", res.Status, "reason", res.Reason, "line", res.Line, "execution", res.Execution, "text", text))
+		} else {
+			fmt.Fprintln(e.Stdout, text)
+		}
+		return 3
 	case "enroll":
 		if rest[1] != "adjutant" && rest[1] != "orchestrator" {
 			return e.usage("enroll <name> adjutant|orchestrator")

@@ -17,11 +17,15 @@ import (
 
 // coreParty records a registered core execution of route harbor whose process
 // is a fresh pid of the fake process table.
-func coreParty(t *testing.T, h *harness, w *coretest.World, repo, id, agent, role string, gen int64) runtime.Execution {
+func coreParty(t *testing.T, h *harness, w *coretest.World, repo, id, agent, role string, gen int64, kind ...string) runtime.Execution {
 	t.Helper()
-	pid := w.Procs.Add(1, "claude")
+	harness := "claude"
+	if len(kind) > 0 {
+		harness = kind[0]
+	}
+	pid := w.Procs.Add(1, harness)
 	start, _ := w.Procs.Identify(pid)
-	e := runtime.Execution{ID: id, Repo: repo, Route: "harbor", Agent: agent, Role: role, Backend: runtime.BackendCore, HarnessKind: "claude",
+	e := runtime.Execution{ID: id, Repo: repo, Route: "harbor", Agent: agent, Role: role, Backend: runtime.BackendCore, HarnessKind: harness,
 		LaunchIntent: "i-" + id, Generation: gen, Desired: runtime.DesiredRunning, EndpointID: w.Core.ID,
 		TerminalAddress: w.Core.Add(map[string]string{herdrapp.LabelExecution: id}), Evidence: runtime.ProcessEvidence{PID: pid, Start: core.StartString(start)},
 		Observation: liveObservation()}
@@ -201,5 +205,61 @@ func TestCoreChannelCarriesThePairByExecution(t *testing.T) {
 	}
 	if n := w.Core.Calls("terminal.send") + w.Core.Calls("terminal.keys"); n != 0 {
 		t.Errorf("the channel typed %d times", n)
+	}
+}
+
+// resume-goal on core types nothing: the daemon raises needs_attention with
+// reason goal_paused and the line, and the answer is held.
+func TestCoreResumeGoalRaisesAttentionAndTypesNothing(t *testing.T) {
+	h, w := newCoreHarness(t)
+	ctx := context.Background()
+	repo := filepath.Join(h.ph, "proj")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	adj := coreParty(t, h, w, repo, execAdj, "proj-harbor-adjutant", "adjutant", 1)
+	orc := coreParty(t, h, w, repo, execOrc, "proj-harbor-orchestrator", "orchestrator", 1, "codex")
+	ch := coreChannel{h.d}
+	if err := ch.Open(ctx, route.ChannelOpen{Route: "harbor", Repo: repo, Inbox: filepath.Join(h.ph, "proj-harbor"), PolicyFiles: []string{h.rules}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range []runtime.Execution{adj, orc} {
+		if err := ch.Enroll(ctx, "harbor", e.Agent, e.Role, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ch.Approve(ctx, "harbor", []runtime.Execution{adj, orc}); err != nil {
+		t.Fatal(err)
+	}
+	c := NewClient(SocketPath(h.ph), testVersion)
+	c.Name = adj.Agent
+	t.Cleanup(func() { c.Close() })
+	as(w, adj.Evidence.PID)
+	if _, err := c.ResumeGoal(ctx, "harbor", adj.Agent); err == nil || !strings.Contains(err.Error(), "adjutant") {
+		t.Fatalf("the adjutant was a resume target: %v", err)
+	}
+	got, err := c.ResumeGoal(ctx, "harbor", orc.Agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "held" || got.Reason != core.AttentionGoalPaused || got.Line != core.GoalResumeLine || got.Execution != orc.ID {
+		t.Fatalf("resume-goal: %+v", got)
+	}
+	seen := false
+	for _, ev := range runtimeEvents(t, h) {
+		if ev.GetKind() == "needs_attention" && ev.GetReason() == core.AttentionGoalPaused && ev.GetLine() == core.GoalResumeLine && ev.GetExecutionId() == orc.ID {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Errorf("no needs_attention goal_paused event: %+v", runtimeEvents(t, h))
+	}
+	// A shell outside every execution is no party.
+	as(w, 1)
+	if _, err := c.ResumeGoal(ctx, "harbor", orc.Agent); err == nil {
+		t.Fatal("a shell asked for a resume")
+	}
+	if n := w.Core.Calls("terminal.send") + w.Core.Calls("terminal.keys"); n != 0 {
+		t.Errorf("resume-goal typed %d times", n)
 	}
 }

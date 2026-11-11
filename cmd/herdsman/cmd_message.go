@@ -59,7 +59,9 @@ func daemonPath(args []string, getenv func(string) string) (route string, rest [
 	if len(rest) > 0 && rest[0] == "enroll" {
 		return route, rest, json, true
 	}
-	if len(rest) > 0 && fileOnly[rest[0]] {
+	// resume-goal stays a file-mode program on a file inbox; on a
+	// daemon-owned inbox (every herdr-core route's) the daemon serves it.
+	if len(rest) > 0 && fileOnly[rest[0]] && rest[0] != "resume-goal" {
 		return route, rest, json, false
 	}
 	var routes daemon.RoutesFile
