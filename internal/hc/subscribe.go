@@ -281,9 +281,16 @@ func (s *Subscription) apply(ev Event) {
 		if ev.Type == EventLabels {
 			var d struct {
 				Labels map[string]string `json:"labels"`
+				Record json.RawMessage   `json:"record"`
 			}
 			if json.Unmarshal(ev.Data, &d) == nil && s.filter.matches(Terminal{Address: addr, Labels: d.Labels}) {
-				// It joined the filter; its record comes from Get.
+				// It joined the filter. Core may send its full record with the
+				// event; otherwise the record comes from Get.
+				if full, ok := fullRecord(d.Record); ok && full.Address == addr {
+					s.put(full)
+					delete(s.partial, addr)
+					return
+				}
 				s.cache[addr] = Terminal{Address: addr, Labels: d.Labels, State: "live"}
 				s.partial[addr] = true
 			}

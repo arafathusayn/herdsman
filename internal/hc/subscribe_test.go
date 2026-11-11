@@ -177,6 +177,26 @@ func TestLabelChangesAreMembershipChanges(t *testing.T) {
 	}
 }
 
+// A label event that brings a terminal into the filter may carry its full
+// record under data.record, as core 0.1.20 sends it; the cache then holds
+// the whole record and nothing is left for Get.
+func TestALabelJoinWithItsRecordIsComplete(t *testing.T) {
+	core := hctest.Start(t)
+	c := dial(t, core)
+	b := run(t, c, nil)
+	s := subscribe(t, core, hc.Filter{Labels: map[string]string{"herdsman.route": "r1"}}, hc.Options{})
+	core.Mutate(b.Address, func(t map[string]any) { t["labels"] = map[string]string{"herdsman.route": "r1"} })
+	record := core.Terminal(b.Address)
+	core.Emit(b.Address, hc.EventLabels, map[string]any{"labels": map[string]string{"herdsman.route": "r1"}, "record": record})
+	u := next(t, s)
+	if len(u.Terminals) != 1 || u.Terminals[0].Address != b.Address || u.Terminals[0].PID == nil {
+		t.Fatalf("the joined terminal's record = %+v", u.Terminals)
+	}
+	if inc := s.Incomplete(); len(inc) != 0 {
+		t.Fatalf("a join with its record left it incomplete: %v", inc)
+	}
+}
+
 func TestEventsUpdateTheCache(t *testing.T) {
 	core := hctest.Start(t)
 	c := dial(t, core)
