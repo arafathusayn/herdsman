@@ -90,15 +90,20 @@ func (r *rig) request(adjutant, orchestrator string) route.UpRequest {
 
 func (r *rig) engine() (*ops.Engine, func()) {
 	r.t.Helper()
+	return r.engineDeps(route.Deps{Channel: routechan.Run, Callers: r.callers, PollEvery: time.Millisecond, Poll: func() {
+		if r.poll != nil {
+			r.poll()
+		}
+	}, AgentTimeout: 5 * time.Second, Keychain: r.keychain, Recovery: r.recovery, Down: r.down, Teardown: r.teardown})
+}
+
+// engineDeps is an engine over the rig's journal with deps.
+func (r *rig) engineDeps(deps route.Deps) (*ops.Engine, func()) {
+	r.t.Helper()
 	db, err := store.Open(r.db, store.Writer, store.KindAccount)
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	deps := route.Deps{Channel: routechan.Run, Callers: r.callers, PollEvery: time.Millisecond, Poll: func() {
-		if r.poll != nil {
-			r.poll()
-		}
-	}, AgentTimeout: 5 * time.Second, Keychain: r.keychain, Recovery: r.recovery, Down: r.down, Teardown: r.teardown}
 	effects := route.Effects(deps)
 	if r.undo != nil {
 		maps.Copy(effects, r.undo.Effects())

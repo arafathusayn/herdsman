@@ -91,6 +91,8 @@ type UpRequest struct {
 	// Backend is the resolved execution backend (runtime.Resolve). Empty is
 	// the Herdr TUI, as every start journaled before backends existed.
 	Backend string
+	// Core configures a start on herdr-core; the daemon fills it.
+	Core *CoreLaunch
 }
 
 // UpPlan is the computed start: the journal's operation and what to print.
@@ -149,6 +151,8 @@ type stepData struct {
 	// Backend is the execution backend the route runs on. A step journaled
 	// before backends existed has none and reads as the Herdr TUI.
 	Backend string `json:"backend,omitempty"`
+	// Core is set on the steps of a herdr-core launch.
+	Core *coreData `json:"core,omitempty"`
 }
 
 // sandboxData is what confines one agent, resolved when the agent starts
@@ -306,6 +310,24 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 	}
 	if _, err := secrets.ParseRefs(q.SecretRefs); err != nil {
 		return nil, err
+	}
+	if runtime.LegacyBackend(q.Backend) == runtime.BackendCore {
+		var text strings.Builder
+		fmt.Fprintf(&text, "route: %s\nfolder: %s\nspace: %s\n", q.Route, p.Folder, p.Workspace)
+		if p.Inbox != "" {
+			fmt.Fprintf(&text, "inbox: %s\n", p.Inbox)
+		}
+		if q.ConfigPath != "" {
+			fmt.Fprintf(&text, "config: %s\n", q.ConfigPath)
+		}
+		steps, err := planCore(q, p, coordinators, &text)
+		if err != nil {
+			return nil, err
+		}
+		announceStarted(steps, p, q)
+		p.Spec = ops.Spec{Key: p.Key, Kind: OperationKind, Plan: text.String(), Steps: steps}
+		p.Text = text.String()
+		return p, nil
 	}
 	channelEnv := map[string]string{}
 	if !q.NoAdjutant {
@@ -725,6 +747,7 @@ func Effects(deps Deps) map[string]ops.Effect {
 		effectBrief:     effect{deps, applyPrompt, probeSent},
 		effectClone:     effect{deps, applyClone, probeClone},
 	})
+	maps.Copy(effects, coreEffects(deps))
 	return effects
 }
 
@@ -991,6 +1014,9 @@ func Continue(e *ops.Engine, callers *Callers, p *UpPlan, op *ops.Operation, ove
 		}
 	}
 	if len(overrides) == 0 && (op.State == ops.OpStopped || op.State == ops.OpConflict) {
+		if BackendOf(op) == runtime.BackendCore {
+			return continueCore(e, op)
+		}
 		for _, st := range op.Steps {
 			if st.Effect == effectApprove && st.State == ops.StepIntended {
 				return e.Resolve(op.ID, st.Ordinal, ops.ResolveRerun)

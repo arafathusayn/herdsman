@@ -170,6 +170,13 @@ func PlanControl(ctx context.Context, q ControlRequest) (*ControlPlan, error) {
 	}
 	base := stepData{Key: first.Key, Route: first.Route, Repo: first.Repo, Folder: first.Folder, Inbox: first.Inbox, Workspace: first.Workspace, Socket: first.Socket, Executable: first.Executable}
 	b := &controlBuilder{q: q, base: base}
+	if BackendOf(q.Start) == runtime.BackendCore {
+		b.base.Backend = runtime.BackendCore
+		if err := b.planCoreControl(); err != nil {
+			return nil, err
+		}
+		return b.plan(first)
+	}
 	for _, st := range q.Start.Steps {
 		if st.Effect == effectAgent {
 			d, err := decode(st)
@@ -202,13 +209,24 @@ func PlanControl(ctx context.Context, q ControlRequest) (*ControlPlan, error) {
 	default:
 		return nil, fmt.Errorf("unknown verb %q", q.Verb)
 	}
+	got, err := b.plan(first)
+	if err != nil {
+		return nil, err
+	}
+	got.Snapshot = plan.Snapshot
+	return got, nil
+}
+
+// plan is the verb's journal entry from the steps built.
+func (b *controlBuilder) plan(first stepData) (*ControlPlan, error) {
+	q := b.q
 	key := ControlKeyPrefix(string(q.Verb), first.Repo, first.Route, q.Start.ID) + strconv.Itoa(q.Generation)
 	var text strings.Builder
 	fmt.Fprintf(&text, "%s route %s\n", q.Verb, first.Route)
 	for _, st := range b.steps {
 		fmt.Fprintf(&text, "- %s\n", st.Name)
 	}
-	plan.Text = text.String()
+	plan := &ControlPlan{Text: text.String()}
 	plan.Spec = ops.Spec{Key: key, Kind: KindOf(q.Verb), Plan: plan.Text, Locks: []string{RouteLock(first.Repo, first.Route)}, Steps: b.steps}
 	return plan, nil
 }

@@ -33,6 +33,9 @@ type Caller struct {
 	// Confirmed is the checksum a person confirmed on the terminal, for
 	// --pair manual.
 	Confirmed string
+	// Execution is the agent execution the caller's process belongs to on
+	// herdr-core, found by process evidence: an agent never attests a pair.
+	Execution string
 }
 
 // Callers remembers the caller of each route start, by the start's key.
