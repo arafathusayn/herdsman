@@ -586,7 +586,7 @@ func (c *Core) dispatch(x *conn, method string, p map[string]any) (any, *rpcErro
 			return nil, err, nil
 		}
 		text := "screen of " + t["address"].(string)
-		if s, ok := t["screen"].(string); ok {
+		if s, ok := t["test_screen"].(string); ok {
 			text = s // a test's screen, set with Mutate
 		}
 		return map[string]any{"text": text, "complete": true, "how": "screen", "future": true}, nil, nil

@@ -233,8 +233,8 @@ func TestCodexLevelFromTheLaunch(t *testing.T) {
 	if p.Tokens == 0 {
 		t.Skipf("this build reads no Codex rollout usage from the fixture: %+v", p)
 	}
-	if !p.Has(oncore.PassEarly) {
-		t.Fatalf("at the launch's level less the margin: %+v", p)
+	if !p.Has(oncore.PassEarly) || len(s.issued) != 1 {
+		t.Fatalf("at the launch's level less the margin: %+v %v", p, s.issued)
 	}
 }
 

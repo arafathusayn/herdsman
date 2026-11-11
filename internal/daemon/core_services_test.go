@@ -41,7 +41,7 @@ func TestCoreServicesHaveOneOwner(t *testing.T) {
 	c.services.poll = 10 * time.Millisecond
 	repo := filepath.Join(h.ph, "proj")
 	addr := w.Core.Add(map[string]string{})
-	w.Core.Mutate(addr, func(t map[string]any) { t["screen"] = "Edit file?\n❯ 1. Yes\n  2. No\n Do you want to proceed?" })
+	w.Core.Mutate(addr, func(t map[string]any) { t["test_screen"] = "Edit file?\n❯ 1. Yes\n  2. No\n Do you want to proceed?" })
 	if err := h.d.recordExecution(ctx, runtime.Execution{ID: execOrch, Repo: repo, Route: "harbor", Agent: "orch", Role: "orchestrator", Backend: runtime.BackendCore,
 		LaunchIntent: "i-orch", Generation: 1, Desired: runtime.DesiredRunning, TerminalAddress: addr, Evidence: runtime.ProcessEvidence{PID: 4242, Start: "s"}, Observation: liveObservation()}); err != nil {
 		t.Fatal(err)
