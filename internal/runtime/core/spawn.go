@@ -75,9 +75,11 @@ func Reconcile(ctx context.Context, c Lister, procs ProcessTable, l Launch, evid
 	if err != nil {
 		return Found{}, err
 	}
+	// A terminal on another machine of the core is never this launch's,
+	// whatever labels it carries (spec section 11): it counts as a copy.
 	var owned, copied []hc.Terminal
 	for _, t := range got.Terminals {
-		if sameLabels(t.Labels, want) {
+		if t.Local() && sameLabels(t.Labels, want) {
 			owned = append(owned, t)
 		} else {
 			copied = append(copied, t)
@@ -89,7 +91,7 @@ func Reconcile(ctx context.Context, c Lister, procs ProcessTable, l Launch, evid
 	case len(owned) > 1:
 		return Found{Verdict: Conflict, Detail: fmt.Sprintf("%d terminals carry the labels of execution %s: %s", len(owned), l.Execution, addresses(owned))}, nil
 	case len(owned) == 0:
-		return Found{Verdict: Conflict, Detail: fmt.Sprintf("terminals %s carry execution %s with other ownership labels", addresses(copied), l.Execution)}, nil
+		return Found{Verdict: Conflict, Detail: fmt.Sprintf("terminals %s carry execution %s with other ownership labels or on another machine", addresses(copied), l.Execution)}, nil
 	}
 	t := owned[0]
 	if !registered(runtime.Execution{Evidence: evidence}) {

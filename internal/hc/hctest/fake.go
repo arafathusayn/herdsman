@@ -82,6 +82,10 @@ type Core struct {
 	conns      map[*conn]bool
 	requests   []Request
 	execs      map[string]ExecAnswer
+	// machines are the other machines added, in order; remote is the next
+	// terminal number on each.
+	machines []string
+	remote   map[string]int
 	// posting counts replies whose follow-up events are still being sent;
 	// settled is signalled when it returns to zero.
 	posting int
@@ -136,7 +140,7 @@ func Start(t testing.TB, opts ...Option) *Core {
 		Socket: sock, ID: "fake0000000000000000000000000001", ln: ln, dir: dir,
 		generation: Pinned, dropped: map[string]bool{}, failures: map[string]string{},
 		terms: map[string]map[string]any{}, next: 1, pid: 40000, conns: map[*conn]bool{},
-		execs: map[string]ExecAnswer{},
+		execs: map[string]ExecAnswer{}, remote: map[string]int{},
 	}
 	c.settled = sync.NewCond(&c.mu)
 	for _, o := range opts {
@@ -299,6 +303,35 @@ func (c *Core) Add(labels map[string]string) string {
 	c.mu.Unlock()
 	c.emit(t["address"].(string), "created", maps.Clone(t))
 	return t["address"].(string)
+}
+
+// AddRemote creates a live terminal on another machine of this core, as hc
+// 0.1.20 shows one: its address is "<machine>/t<n>", the record has no
+// machine field, and terminal.list names the machine. pid is the record's
+// pid (0 for the next fake one). It is announced like Add.
+func (c *Core) AddRemote(machine string, labels map[string]string, pid uint32) string {
+	c.mu.Lock()
+	if _, ok := c.remote[machine]; !ok {
+		c.machines = append(c.machines, machine)
+		c.remote[machine] = 1
+	}
+	n := c.remote[machine]
+	c.remote[machine]++
+	t := c.newTerminal([]string{"sh"}, labels, false, "")
+	delete(c.terms, t["address"].(string))
+	c.order = c.order[:len(c.order)-1]
+	c.next--
+	addr := machine + "/t" + strconv.Itoa(n)
+	t["address"], t["notify"], t["cwd"] = addr, true, "/home/remote"
+	if pid != 0 {
+		t["pid"] = pid
+	}
+	c.terms[addr] = t
+	c.order = append(c.order, addr)
+	out := maps.Clone(t)
+	c.mu.Unlock()
+	c.emit(addr, "created", out)
+	return addr
 }
 
 // Mutate changes a terminal and advances the sequence without telling any
@@ -606,7 +639,15 @@ func (c *Core) dispatch(x *conn, method string, p map[string]any) (any, *rpcErro
 			out = append(out, maps.Clone(t))
 		}
 		// Like hc 0.1.20: no machines field when no machine was added.
-		return map[string]any{"terminals": out, "hidden_finished": hidden}, nil, nil
+		res := map[string]any{"terminals": out, "hidden_finished": hidden}
+		if len(c.machines) > 0 {
+			var ms []map[string]any
+			for _, m := range c.machines {
+				ms = append(ms, map[string]any{"name": m, "state": "connected"})
+			}
+			res["machines"] = ms
+		}
+		return res, nil, nil
 	case "terminal.get":
 		t, err := c.lookup(str(p, "terminal"))
 		return t, err, nil

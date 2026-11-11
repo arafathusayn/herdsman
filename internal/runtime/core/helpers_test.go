@@ -44,6 +44,10 @@ type world struct {
 	dir      string
 	peer     atomic.Int64
 	holder   int
+
+	// appRemote is the core of the machine "remote", as the window shows
+	// it, once gRemote has added one.
+	appRemote *apptest.Core
 }
 
 func newWorld(t *testing.T) *world {
@@ -88,7 +92,15 @@ func (s syncRunner) Run(ctx context.Context, inv herdrapp.Invocation) (herdrapp.
 	for _, t := range s.w.core.Live() {
 		labels, _ := t["labels"].(map[string]string)
 		name, _ := t["name"].(string)
-		s.w.appCore.Run(t["address"].(string), name, labels)
+		addr := t["address"].(string)
+		// The window shows a remote record under its machine.
+		if m := hc.MachineOf(addr); m != "" {
+			if s.w.appRemote != nil {
+				s.w.appRemote.Run(strings.TrimPrefix(addr, m+"/"), name, labels)
+			}
+			continue
+		}
+		s.w.appCore.Run(addr, name, labels)
 	}
 	return s.w.app.Run(ctx, inv)
 }

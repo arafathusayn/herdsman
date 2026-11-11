@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/hc"
 	"github.com/arafathusayn/herdsman/internal/herdrapp"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 )
@@ -161,6 +162,11 @@ func (in *VisibilityInput) defaults() {
 // cannot verify one now: the launch then waits for visibility.
 func EstablishVisibility(ctx context.Context, c TerminalReader, in VisibilityInput) (VisibilityResult, error) {
 	in.defaults()
+	// Labels read back from a terminal on another machine of the core
+	// place nothing on this computer (spec sections 7 and 11).
+	if m := hc.MachineOf(in.Address); m != "" {
+		return VisibilityResult{State: herdrapp.Unverified}, refuse(CodeConflict, "terminal %s is on machine %s, not on core %s's own machine", in.Address, m, in.Core.ID)
+	}
 	labels := coreLabels{c}
 	read, err := labels.TerminalLabels(ctx, in.Address)
 	if err != nil {

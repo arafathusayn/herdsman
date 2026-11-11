@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // The one list of core methods Herdsman uses. Capabilities are checked
@@ -230,6 +231,22 @@ func (t *Terminal) UnmarshalJSON(b []byte) error {
 
 // Live reports whether the terminal's program (or its kept shell) runs.
 func (t Terminal) Live() bool { return t.State == "live" }
+
+// MachineOf is the other machine a core address names ("<machine>/t<n>"),
+// or "" for a terminal on the core's own machine. hc 0.1.20 puts no machine
+// field in a terminal record, an event or a snapshot: a remote record is
+// known by its address alone.
+func MachineOf(address string) string {
+	machine, _, ok := strings.Cut(address, "/")
+	if !ok {
+		return ""
+	}
+	return machine
+}
+
+// Local reports a terminal on the core's own machine. V1 acts on local
+// terminals only (spec section 11).
+func (t Terminal) Local() bool { return t.Address != "" && MachineOf(t.Address) == "" }
 
 // Holder is one core holder process.
 type Holder struct {

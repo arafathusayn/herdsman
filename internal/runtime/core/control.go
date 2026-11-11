@@ -25,7 +25,9 @@ type Controller interface {
 // process, now. It returns the terminal; ok is false when the address holds
 // anything else, such as a recovery shell, or has ended.
 func Proven(ctx context.Context, c TerminalReader, procs ProcessTable, e runtime.Execution) (hc.Terminal, bool, error) {
-	if !registered(e) || e.TerminalAddress == "" {
+	// A terminal on another machine is never an execution's: its pid is
+	// that machine's, whatever this machine's process table says of it.
+	if !registered(e) || e.TerminalAddress == "" || hc.MachineOf(e.TerminalAddress) != "" {
 		return hc.Terminal{}, false, nil
 	}
 	t, err := c.Get(ctx, e.TerminalAddress)
@@ -35,7 +37,7 @@ func Proven(ctx context.Context, c TerminalReader, procs ProcessTable, e runtime
 	if err != nil {
 		return hc.Terminal{}, false, err
 	}
-	if !t.Live() || t.PID == nil || int(*t.PID) != e.Evidence.PID {
+	if !t.Local() || !t.Live() || t.PID == nil || int(*t.PID) != e.Evidence.PID {
 		return t, false, nil
 	}
 	alive, err := Alive(procs, e.Evidence)

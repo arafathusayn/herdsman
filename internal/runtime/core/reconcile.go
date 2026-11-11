@@ -337,7 +337,7 @@ func (r *Reconciler) execution(ctx context.Context, c *hc.Client, e runtime.Exec
 	if err != nil {
 		return e, false, err
 	}
-	if t.PID == nil || int(*t.PID) != e.Evidence.PID || !alive {
+	if !t.Local() || t.PID == nil || int(*t.PID) != e.Evidence.PID || !alive {
 		was := obs.Process
 		obs.Process, obs.Readiness = runtime.ProcessLost, runtime.ReadinessIdentityUnknown
 		if was != runtime.ProcessLost {
@@ -453,11 +453,15 @@ func (r *Reconciler) inventory(ctx context.Context, c *hc.Client, routes map[str
 	}
 	procs, _ := r.Procs.List(ctx)
 	for key, rr := range routes {
-		// The route's opaque id is what its members' own terminals carry.
+		// The route's opaque id is what its members' own terminals carry; a
+		// copy of a member's labels on another machine names nothing.
 		routeID := ""
 		for _, t := range live.Terminals {
+			if !t.Local() {
+				continue
+			}
 			for _, e := range execs {
-				if e.Repo == rr[0] && e.Route == rr[1] && t.Labels[herdrapp.LabelExecution] == e.ID {
+				if e.Repo == rr[0] && e.Route == rr[1] && t.Address == e.TerminalAddress && t.Labels[herdrapp.LabelExecution] == e.ID {
 					routeID = t.Labels[herdrapp.LabelRoute]
 				}
 			}

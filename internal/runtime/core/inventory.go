@@ -122,13 +122,15 @@ func Classify(in InventoryInput) Inventory {
 		if running(e) {
 			byPID[e.Evidence.PID] = e
 		}
-		if e.Repo == in.Repo && e.Route == in.Route && e.TerminalAddress != "" {
+		if e.Repo == in.Repo && e.Route == in.Route && e.TerminalAddress != "" && hc.MachineOf(e.TerminalAddress) == "" {
 			lostAt[e.TerminalAddress] = e
 		}
 	}
+	// Only a terminal on the core's own machine can be an execution's: a
+	// remote record's pid is another machine's (spec section 11).
 	members := map[string]runtime.Execution{}
 	for _, t := range in.Terminals {
-		if !t.Live() || t.PID == nil {
+		if !t.Live() || t.PID == nil || !t.Local() {
 			continue
 		}
 		if e, ok := byPID[int(*t.PID)]; ok && e.TerminalAddress == t.Address && e.Repo == in.Repo && e.Route == in.Route {
@@ -159,8 +161,10 @@ func Classify(in InventoryInput) Inventory {
 			continue
 		}
 		e := Entry{Address: t.Address}
+		local := t.Local()
 		pid := 0
-		if t.PID != nil {
+		if t.PID != nil && local {
+			// This machine's process table says nothing of a remote pid.
 			pid = int(*t.PID)
 		}
 		agent := statusEver(t) || harnessIn(t, pid, in.Procs, in.HarnessNames)
@@ -168,7 +172,7 @@ func Classify(in InventoryInput) Inventory {
 		case isMember:
 			e.Class, e.Execution = ClassMember, m.ID
 		default:
-			if parent, ok := memberOf(t); ok {
+			if parent, ok := memberOf(t); ok && local {
 				e.Execution = parent.ID
 				switch {
 				case agent:
@@ -183,7 +187,7 @@ func Classify(in InventoryInput) Inventory {
 				}
 				break
 			}
-			if other, ok := byPID[pid]; ok && other.TerminalAddress == t.Address {
+			if other, ok := byPID[pid]; ok && local && other.TerminalAddress == t.Address {
 				e.Class, e.Execution = ClassOtherRouteMember, other.ID
 				break
 			}

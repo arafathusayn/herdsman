@@ -247,6 +247,8 @@ func (r *Registrar) peerIsProgram(ctx context.Context, x *armed, pid int) (runti
 		return ev, fmt.Errorf("read terminal %s from core: %w", x.Address, err)
 	}
 	switch {
+	case !t.Local() || t.Address != x.Address:
+		return ev, fmt.Errorf("terminal %s is not on this core's own machine", t.Address)
 	case !t.Live():
 		return ev, fmt.Errorf("terminal %s has finished", x.Address)
 	case t.PID == nil || int(*t.PID) != pid:
