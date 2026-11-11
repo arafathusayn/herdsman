@@ -37,7 +37,7 @@ func TestCoreTaskLaunchIssuesItsPromptAsANotice(t *testing.T) {
 	if e.Backend != runtime.BackendCore || e.Agent != "fix-login" || e.Role != "task-agent" || e.Evidence.PID == 0 {
 		t.Fatalf("the task's execution: %+v", e)
 	}
-	n, ok, err := r.w.Notices.ByKey("task:task:" + r.repo + ":fix-login")
+	n, ok, err := r.w.Notices.ByKey("task:" + r.repo + ":fix-login")
 	if err != nil || !ok || n.ID != got.Notice || n.Kind != notice.KindTask || n.Execution != e.ID {
 		t.Fatalf("the task notice: %+v %v %v", n, ok, err)
 	}
@@ -69,5 +69,43 @@ func TestCoreTaskLaunchIssuesItsPromptAsANotice(t *testing.T) {
 	}
 	if n := r.w.Core.Calls("terminal.send") + r.w.Core.Calls("terminal.keys"); n != 0 {
 		t.Errorf("the task launch typed %d times", n)
+	}
+}
+
+// A task prompt journaled under the old doubled key is the same notice: a
+// retry reads it and issues no second prompt under the new key.
+func TestCoreTaskLaunchReadsTheOldDoubledNoticeKey(t *testing.T) {
+	r := newCoreRig(t)
+	r.w.OpenApp()
+	ctx := context.Background()
+	wt := filepath.Join(r.repo, "wt-fix-login")
+	if err := os.MkdirAll(wt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	q := route.TaskLaunch{Repo: r.repo, Path: wt, Task: "fix-login", Branch: "feat/fix-login", Command: []string{"claude"},
+		StateDir: t.TempDir(), Core: r.request().Core}
+	cp := r.w.NewProvider(r.w.Core.Socket)
+	first, err := route.LaunchTask(ctx, cp, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := route.LegacyTaskNoticeKey(r.repo, "fix-login"); got != "task:task:"+r.repo+":fix-login" {
+		t.Fatalf("the old key is %q", got)
+	}
+	old, err := r.w.Notices.Issue(ctx, notice.IssueRequest{Key: route.LegacyTaskNoticeKey(r.repo, "fix-login"), Kind: notice.KindTask,
+		Execution: first.Execution.ID, Content: "fix the login redirect", Issuer: "task:fix-login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.Prompt = "fix the login redirect"
+	again, err := route.LaunchTask(ctx, cp, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Notice != old.ID {
+		t.Errorf("the retry's notice is %q, want the journaled %q", again.Notice, old.ID)
+	}
+	if _, ok, err := r.w.Notices.ByKey(route.TaskNoticeKey(r.repo, "fix-login")); err != nil || ok {
+		t.Errorf("a second prompt was issued under the new key: %v %v", ok, err)
 	}
 }

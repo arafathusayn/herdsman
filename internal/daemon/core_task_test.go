@@ -40,7 +40,7 @@ func TestCoreTaskLaunchThroughTheDaemon(t *testing.T) {
 	if err != nil || len(execs) != 1 || execs[0].ID != got.Execution.ID || execs[0].Role != "task-agent" {
 		t.Fatalf("the account store's records: %+v %v", execs, err)
 	}
-	n, ok, err := h.d.noticeSvc().ByKey("task:task:" + repo + ":fix-login")
+	n, ok, err := h.d.noticeSvc().ByKey("task:" + repo + ":fix-login")
 	if err != nil || !ok || n.Kind != notice.KindTask || n.ID != got.Notice {
 		t.Fatalf("the task notice: %+v %v %v", n, ok, err)
 	}

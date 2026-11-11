@@ -62,7 +62,7 @@ func LaunchTask(ctx context.Context, cp *core.Provider, q TaskLaunch) (TaskStart
 	if err := a.CheckArgs(q.Command[1:]); err != nil {
 		return out, err
 	}
-	intent := "task:" + q.Repo + ":" + q.Task
+	intent := TaskNoticeKey(q.Repo, q.Task)
 	exec := runtime.NewExecutionID()
 	if rec, ok, err := cp.Records.ByIntent(ctx, intent); err != nil {
 		return out, err
@@ -142,7 +142,15 @@ func LaunchTask(ctx context.Context, cp *core.Provider, q TaskLaunch) (TaskStart
 	cp.Notices.Emit(notice.Event{Kind: notice.EventNeedsAttention, Repo: rec.Repo, Route: rec.Route, Execution: rec.ID,
 		Reason: core.AttentionStartLine, Line: a.StartLine, Detail: "a person submits task " + q.Task + "'s start line in its terminal"})
 	if q.Prompt != "" {
-		key := "task:" + intent
+		// A notice journaled under the old doubled key is the same task
+		// prompt: a retry finds it there and issues nothing new.
+		if n, ok, err := cp.Notices.ByKey(LegacyTaskNoticeKey(q.Repo, q.Task)); err != nil {
+			return out, err
+		} else if ok {
+			out.Notice = n.ID
+			return out, nil
+		}
+		key := TaskNoticeKey(q.Repo, q.Task)
 		if _, err := cp.Deliver(ctx, runtime.Target{ExecutionID: rec.ID}, runtime.Delivery{Text: q.Prompt, Kind: notice.KindTask, Key: key, Issuer: "task:" + q.Task}); err != nil {
 			return out, err
 		}
@@ -154,3 +162,11 @@ func LaunchTask(ctx context.Context, cp *core.Provider, q TaskLaunch) (TaskStart
 	}
 	return out, nil
 }
+
+// TaskNoticeKey is the key of a task agent's prompt notice: the task's
+// launch intent, so a retry of the same task issues its prompt once.
+func TaskNoticeKey(repo, task string) string { return "task:" + repo + ":" + task }
+
+// LegacyTaskNoticeKey is the doubled form earlier builds journaled
+// (task:task:<repo>:<task>). It is read, never written.
+func LegacyTaskNoticeKey(repo, task string) string { return "task:" + TaskNoticeKey(repo, task) }
