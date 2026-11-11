@@ -84,6 +84,11 @@ type liveWorld struct {
 	// fixture, when set, makes the harness of the next launches the input
 	// fixture (live_race_test.go) instead of the shell stand-in.
 	fixture fixtureMode
+	// remote is a second private core, added to core as machine "remote"
+	// once gRemote needs it; appRemote is that machine as the window shows
+	// it.
+	remote    *hclive.Core
+	appRemote *apptest.Core
 }
 
 func newLive(t *testing.T, opts hclive.Options) *liveWorld {
@@ -160,6 +165,13 @@ func (s liveRunner) Run(ctx context.Context, inv herdrapp.Invocation) (herdrapp.
 		return herdrapp.Output{}, err
 	}
 	for _, t := range live.Terminals {
+		// The window shows a remote record under its machine.
+		if m := hc.MachineOf(t.Address); m != "" {
+			if s.w.appRemote != nil {
+				s.w.appRemote.Run(strings.TrimPrefix(t.Address, m+"/"), t.Name, t.Labels)
+			}
+			continue
+		}
 		s.w.appCore.Run(t.Address, t.Name, t.Labels)
 	}
 	return s.w.app.Run(ctx, inv)

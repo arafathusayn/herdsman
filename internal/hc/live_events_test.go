@@ -24,8 +24,8 @@ func nextUntil(t *testing.T, ctx context.Context, s *hc.Subscription, what strin
 // The Events gate (spec section 17) against a private real core: the
 // snapshot and an event that races it, a label membership change both ways,
 // a finished record, a sequence that starts again after a core restart, and
-// a subscriber that falls behind. Remote records need a second machine and
-// are left to the fake core.
+// a subscriber that falls behind. Remote records are TestLiveRemoteRecords,
+// with a second private core added as a machine.
 func TestLiveEvents(t *testing.T) {
 	pc := hclive.Start(t, hclive.Options{})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
