@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -67,22 +68,53 @@ func seedRoute(t *testing.T, c Conn) {
 		       (2, 'worker', 'lead', 'reply', 1, '{"subject":"two"}', X'776F726C64', 'sha-two', 'handled', 2, 1001, 'imported')`)
 }
 
+// seedAccount4 adds rows to the tables account versions 2 to 4 brought, so the
+// migrations after them are seen to leave those rows alone.
+func seedAccount4(t *testing.T, c Conn) {
+	seedAccount(t, c)
+	mustExec(t, c, `INSERT INTO operations(id, key, kind, plan, spec_sha256, preconditions, state, created, updated)
+		VALUES ('op-1', 'up:/srv/fixture/repo-a:alpha', 'route.up', 'route: alpha', 'sha-op', '[]', 'done', 1000, 1001)`)
+	mustExec(t, c, `INSERT INTO operation_steps(op_id, ordinal, name, effect, key, spec, retry, events, state)
+		VALUES ('op-1', 1, 'start alpha-orchestrator', 'route.agent', 'agent:alpha-orchestrator',
+		        '{"route":"alpha","socket":"/srv/fixture/herdr.sock","name":"alpha-orchestrator","kind":"codex"}', 'never', '[]', 'done')`)
+	mustExec(t, c, `INSERT INTO projects(id, name, state, created, updated) VALUES ('p-1', 'fixture', 'active', 1000, 1000)`)
+	mustExec(t, c, `INSERT INTO snapshots(id, task, dir, size, created) VALUES ('s-1', 'task-a', '/srv/fixture/snap', 10, 1000)`)
+}
+
+// fixtureSchemas are the released versions each fixture folder holds: the
+// account and the route store as one release shipped them.
+var fixtureSchemas = map[int]struct {
+	account, route int
+	seed           func(*testing.T, Conn)
+}{
+	1: {1, 1, seedAccount},
+	4: {4, 1, seedAccount4},
+}
+
 func TestWriteFixtures(t *testing.T) {
-	if os.Getenv(writeFixturesEnv) == "" {
+	which := os.Getenv(writeFixturesEnv)
+	if which == "" {
 		t.Skip("rebuilds testdata only on request")
 	}
-	const released = 1
+	// The variable names the fixture folder to rebuild; any other value is the
+	// first, as before it took a number.
+	released, err := strconv.Atoi(which)
+	if _, ok := fixtureSchemas[released]; err != nil || !ok {
+		released = 1
+	}
+	schema := fixtureSchemas[released]
 	dir := filepath.Join("testdata", fmt.Sprintf("schema-%d", released))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range []struct {
-		kind Kind
-		seed func(*testing.T, Conn)
-	}{{KindAccount, seedAccount}, {KindRoute, seedRoute}} {
+		kind    Kind
+		version int
+		seed    func(*testing.T, Conn)
+	}{{KindAccount, schema.account, schema.seed}, {KindRoute, schema.route, seedRoute}} {
 		p := filepath.Join(privateDir(t), string(f.kind)+".db")
 		c := writerAt(t, p)
-		if err := migrate(c, p, f.kind, schemaUpTo(t, f.kind, released)); err != nil {
+		if err := migrate(c, p, f.kind, schemaUpTo(t, f.kind, f.version)); err != nil {
 			t.Fatal(err)
 		}
 		f.seed(t, c)

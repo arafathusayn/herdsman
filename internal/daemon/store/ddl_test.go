@@ -23,13 +23,14 @@ func tables(t *testing.T, c Conn) map[string]string {
 
 // TestSchemaV1Tables: the newest schema of each kind has exactly these
 // tables (version 1's, plus the operation journal and the project records in
-// the account database), every one STRICT.
+// the account database, and the execution records and the installation
+// default of the herdr-core backend), every one STRICT.
 func TestSchemaV1Tables(t *testing.T) {
 	want := map[Kind][]string{
-		KindRoute: {"acks", "alerts", "approvals", "cards", "claim_keys", "claims", "credentials", "events",
+		KindRoute: {"acks", "alerts", "approvals", "cards", "claim_keys", "claims", "credentials", "events", "executions",
 			"holds", "import_log", "launches", "messages", "meta", "notices", "parties", "questions",
-			"resume_intents", "send_keys", "setup_proof", "targets", "terminals"},
-		KindAccount: {"activity", "adoptions", "meta", "operation_locks", "operation_steps", "operations", "outbox", "project_commits", "project_folders", "project_repos", "projects", "routes", "snapshots", "task_labels", "task_links", "task_repos", "tasks"},
+			"resume_intents", "route_runtime", "send_keys", "setup_proof", "targets", "terminals"},
+		KindAccount: {"activity", "adoptions", "executions", "installation", "meta", "operation_locks", "operation_steps", "operations", "outbox", "project_commits", "project_folders", "project_repos", "projects", "routes", "snapshots", "task_labels", "task_links", "task_repos", "tasks"},
 	}
 	for kind, names := range want {
 		c := openKind(t, kind)
