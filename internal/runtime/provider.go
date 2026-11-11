@@ -47,6 +47,9 @@ type Intent struct {
 	// created: on the TUI it opens the agent's pane and returns it with the
 	// arguments confined for it. Nil uses Pane and Args as they are.
 	Place func(context.Context) (pane string, args []string, err error)
+	// Launch is the backend's own reserved launch, opaque to the contract:
+	// on herdr-core, the reservation of the launch transaction.
+	Launch any
 }
 
 // Outcome is what EnsureExecution found or did.
