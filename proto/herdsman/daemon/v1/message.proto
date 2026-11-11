@@ -270,6 +270,8 @@ message PeerInfo {
   string role = 2;
   string pane = 3;
   string session = 4;
+  // The peer's execution; for a herdr-tui peer it names the same pane.
+  herdsman.core.v1.RuntimeRef runtime = 5;
 }
 
 // BoxCount is one mailbox's counts.
@@ -308,6 +310,8 @@ message InventoryAgent {
   // The agent session as JSON.
   string session_json = 2;
   string agent = 3;
+  // The agent's execution; for a herdr-tui agent it names the same pane.
+  herdsman.core.v1.RuntimeRef runtime = 4;
 }
 
 // Probe is one negative probe the human reports at setup.

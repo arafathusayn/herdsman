@@ -37,6 +37,9 @@ message UpCaller {
   string harness_ancestor = 5;
   // The pair checksum a person confirmed on the terminal.
   string confirmed_checksum = 6;
+  // The caller's execution, when it runs as one: a hint for error messages
+  // only, since the daemon identifies a caller by its process.
+  herdsman.core.v1.RuntimeRef runtime = 7;
 }
 
 // StepVerdict is a person's answer about one halted prelude step.
@@ -70,6 +73,11 @@ message UpRequest {
   // Where each secret is stored, as NAME=service/account separated by commas.
   // References only: a value never crosses this call.
   string secret_refs = 18;
+  // The execution backend for this run only: "herdr-core" or "herdr-tui".
+  // Empty means the config file's [runtime] backend, then the installation
+  // default. A route that exists keeps its own backend, and a different value
+  // here is refused with backend_migration_required.
+  string backend = 19;
 }
 
 // RouteStep is one journaled step of a route's start.
@@ -104,6 +112,9 @@ message RouteStart {
   string plan = 10;
   // "running", "paused", "stopped" or "deleted", from the last finished control.
   string control = 11;
+  // The execution backend the start runs on: "herdr-core" or "herdr-tui". A
+  // start journaled before backends existed reads as "herdr-tui".
+  string backend = 12;
 }
 
 message UpResponse {

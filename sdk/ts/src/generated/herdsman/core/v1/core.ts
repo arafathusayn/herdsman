@@ -170,3 +170,38 @@ export interface Task {
   created?: string;
   updated?: string;
 }
+
+/**
+ * RuntimeRef names one execution of a runtime backend: one harness launch. It
+ * is added beside the pane fields of older messages, which keep their meaning
+ * for the herdr-tui backend only and are never filled with invented values.
+ */
+export interface RuntimeRef {
+  /**
+   * "herdr-core" or "herdr-tui".
+   */
+  backend?: string;
+  /**
+   * A random UUID of one harness launch; empty for a legacy TUI binding that
+   * predates execution records.
+   */
+  executionId?: string;
+  /**
+   * Raised each time the logical agent is launched again.
+   */
+  generation?: string;
+  /**
+   * The verified endpoint: the core identity on herdr-core, the server socket
+   * on herdr-tui.
+   */
+  endpointId?: string;
+  /**
+   * The core terminal address; never a reusable friendly name. Empty on
+   * herdr-tui.
+   */
+  terminalAddress?: string;
+  /**
+   * The Herdr TUI pane; empty on herdr-core.
+   */
+  pane?: string;
+}

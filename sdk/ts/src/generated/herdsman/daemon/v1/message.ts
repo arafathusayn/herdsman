@@ -245,6 +245,10 @@ export interface PeerInfo {
   role?: string;
   pane?: string;
   session?: string;
+  /**
+   * The peer's execution; for a herdr-tui peer it names the same pane.
+   */
+  runtime?: herdsman_core_v1_core.RuntimeRef;
 }
 
 /**
@@ -295,6 +299,10 @@ export interface InventoryAgent {
    */
   sessionJson?: string;
   agent?: string;
+  /**
+   * The agent's execution; for a herdr-tui agent it names the same pane.
+   */
+  runtime?: herdsman_core_v1_core.RuntimeRef;
 }
 
 /**

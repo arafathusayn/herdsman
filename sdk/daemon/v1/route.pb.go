@@ -36,8 +36,11 @@ type UpCaller struct {
 	HarnessAncestor string `protobuf:"bytes,5,opt,name=harness_ancestor,json=harnessAncestor,proto3" json:"harness_ancestor,omitempty"`
 	// The pair checksum a person confirmed on the terminal.
 	ConfirmedChecksum string `protobuf:"bytes,6,opt,name=confirmed_checksum,json=confirmedChecksum,proto3" json:"confirmed_checksum,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The caller's execution, when it runs as one: a hint for error messages
+	// only, since the daemon identifies a caller by its process.
+	Runtime       *v1.RuntimeRef `protobuf:"bytes,7,opt,name=runtime,proto3" json:"runtime,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpCaller) Reset() {
@@ -110,6 +113,13 @@ func (x *UpCaller) GetConfirmedChecksum() string {
 		return x.ConfirmedChecksum
 	}
 	return ""
+}
+
+func (x *UpCaller) GetRuntime() *v1.RuntimeRef {
+	if x != nil {
+		return x.Runtime
+	}
+	return nil
 }
 
 // StepVerdict is a person's answer about one halted prelude step.
@@ -190,7 +200,12 @@ type UpRequest struct {
 	Date string `protobuf:"bytes,17,opt,name=date,proto3" json:"date,omitempty"`
 	// Where each secret is stored, as NAME=service/account separated by commas.
 	// References only: a value never crosses this call.
-	SecretRefs    string `protobuf:"bytes,18,opt,name=secret_refs,json=secretRefs,proto3" json:"secret_refs,omitempty"`
+	SecretRefs string `protobuf:"bytes,18,opt,name=secret_refs,json=secretRefs,proto3" json:"secret_refs,omitempty"`
+	// The execution backend for this run only: "herdr-core" or "herdr-tui".
+	// Empty means the config file's [runtime] backend, then the installation
+	// default. A route that exists keeps its own backend, and a different value
+	// here is refused with backend_migration_required.
+	Backend       string `protobuf:"bytes,19,opt,name=backend,proto3" json:"backend,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -351,6 +366,13 @@ func (x *UpRequest) GetSecretRefs() string {
 	return ""
 }
 
+func (x *UpRequest) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
 // RouteStep is one journaled step of a route's start.
 type RouteStep struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -505,7 +527,10 @@ type RouteStart struct {
 	// What the start runs, as text, the commands verbatim.
 	Plan string `protobuf:"bytes,10,opt,name=plan,proto3" json:"plan,omitempty"`
 	// "running", "paused", "stopped" or "deleted", from the last finished control.
-	Control       string `protobuf:"bytes,11,opt,name=control,proto3" json:"control,omitempty"`
+	Control string `protobuf:"bytes,11,opt,name=control,proto3" json:"control,omitempty"`
+	// The execution backend the start runs on: "herdr-core" or "herdr-tui". A
+	// start journaled before backends existed reads as "herdr-tui".
+	Backend       string `protobuf:"bytes,12,opt,name=backend,proto3" json:"backend,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -613,6 +638,13 @@ func (x *RouteStart) GetPlan() string {
 func (x *RouteStart) GetControl() string {
 	if x != nil {
 		return x.Control
+	}
+	return ""
+}
+
+func (x *RouteStart) GetBackend() string {
+	if x != nil {
+		return x.Backend
 	}
 	return ""
 }
@@ -1427,17 +1459,18 @@ var File_herdsman_daemon_v1_route_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"\n" +
-	"\x1eherdsman/daemon/v1/route.proto\x12\x12herdsman.daemon.v1\x1a\x1bherdsman/core/v1/core.proto\"\xb6\x01\n" +
+	"\x1eherdsman/daemon/v1/route.proto\x12\x12herdsman.daemon.v1\x1a\x1bherdsman/core/v1/core.proto\"\xee\x01\n" +
 	"\bUpCaller\x12\x12\n" +
 	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x10\n" +
 	"\x03pid\x18\x02 \x01(\x03R\x03pid\x12\x18\n" +
 	"\astarted\x18\x03 \x01(\x03R\astarted\x12\x10\n" +
 	"\x03tty\x18\x04 \x01(\tR\x03tty\x12)\n" +
 	"\x10harness_ancestor\x18\x05 \x01(\tR\x0fharnessAncestor\x12-\n" +
-	"\x12confirmed_checksum\x18\x06 \x01(\tR\x11confirmedChecksum\";\n" +
+	"\x12confirmed_checksum\x18\x06 \x01(\tR\x11confirmedChecksum\x126\n" +
+	"\aruntime\x18\a \x01(\v2\x1c.herdsman.core.v1.RuntimeRefR\aruntime\";\n" +
 	"\vStepVerdict\x12\x12\n" +
 	"\x04step\x18\x01 \x01(\x05R\x04step\x12\x18\n" +
-	"\averdict\x18\x02 \x01(\tR\averdict\"\x91\x05\n" +
+	"\averdict\x18\x02 \x01(\tR\averdict\"\xab\x05\n" +
 	"\tUpRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
 	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x16\n" +
@@ -1461,7 +1494,8 @@ const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"\x05kinds\x18\x10 \x03(\tR\x05kinds\x12\x12\n" +
 	"\x04date\x18\x11 \x01(\tR\x04date\x12\x1f\n" +
 	"\vsecret_refs\x18\x12 \x01(\tR\n" +
-	"secretRefs\"y\n" +
+	"secretRefs\x12\x18\n" +
+	"\abackend\x18\x13 \x01(\tR\abackend\"y\n" +
 	"\tRouteStep\x12\x18\n" +
 	"\aordinal\x18\x01 \x01(\x05R\aordinal\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x10\n" +
@@ -1472,7 +1506,7 @@ const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"PairStatus\x12\x1a\n" +
 	"\bchecksum\x18\x01 \x01(\tR\bchecksum\x12\x1a\n" +
 	"\bapproved\x18\x02 \x01(\bR\bapproved\x12\x16\n" +
-	"\x06record\x18\x03 \x01(\tR\x06record\"\xec\x02\n" +
+	"\x06record\x18\x03 \x01(\tR\x06record\"\x86\x03\n" +
 	"\n" +
 	"RouteStart\x12\x1c\n" +
 	"\toperation\x18\x01 \x01(\tR\toperation\x12/\n" +
@@ -1486,7 +1520,8 @@ const file_herdsman_daemon_v1_route_proto_rawDesc = "" +
 	"\x04pair\x18\t \x01(\v2\x1e.herdsman.daemon.v1.PairStatusR\x04pair\x12\x12\n" +
 	"\x04plan\x18\n" +
 	" \x01(\tR\x04plan\x12\x18\n" +
-	"\acontrol\x18\v \x01(\tR\acontrol\"B\n" +
+	"\acontrol\x18\v \x01(\tR\acontrol\x12\x18\n" +
+	"\abackend\x18\f \x01(\tR\abackend\"B\n" +
 	"\n" +
 	"UpResponse\x124\n" +
 	"\x05start\x18\x01 \x01(\v2\x1e.herdsman.daemon.v1.RouteStartR\x05start\"]\n" +
@@ -1582,47 +1617,49 @@ var file_herdsman_daemon_v1_route_proto_goTypes = []any{
 	(*RouteServiceStopResponse)(nil),   // 17: herdsman.daemon.v1.RouteServiceStopResponse
 	(*RouteServiceDeleteRequest)(nil),  // 18: herdsman.daemon.v1.RouteServiceDeleteRequest
 	(*RouteServiceDeleteResponse)(nil), // 19: herdsman.daemon.v1.RouteServiceDeleteResponse
-	(*v1.RouteId)(nil),                 // 20: herdsman.core.v1.RouteId
+	(*v1.RuntimeRef)(nil),              // 20: herdsman.core.v1.RuntimeRef
+	(*v1.RouteId)(nil),                 // 21: herdsman.core.v1.RouteId
 }
 var file_herdsman_daemon_v1_route_proto_depIdxs = []int32{
-	20, // 0: herdsman.daemon.v1.UpRequest.route:type_name -> herdsman.core.v1.RouteId
-	1,  // 1: herdsman.daemon.v1.UpRequest.verdicts:type_name -> herdsman.daemon.v1.StepVerdict
-	0,  // 2: herdsman.daemon.v1.UpRequest.caller:type_name -> herdsman.daemon.v1.UpCaller
-	20, // 3: herdsman.daemon.v1.RouteStart.route:type_name -> herdsman.core.v1.RouteId
-	3,  // 4: herdsman.daemon.v1.RouteStart.steps:type_name -> herdsman.daemon.v1.RouteStep
-	4,  // 5: herdsman.daemon.v1.RouteStart.pair:type_name -> herdsman.daemon.v1.PairStatus
-	5,  // 6: herdsman.daemon.v1.UpResponse.start:type_name -> herdsman.daemon.v1.RouteStart
-	20, // 7: herdsman.daemon.v1.RouteServiceGetRequest.route:type_name -> herdsman.core.v1.RouteId
-	5,  // 8: herdsman.daemon.v1.RouteServiceGetResponse.start:type_name -> herdsman.daemon.v1.RouteStart
-	5,  // 9: herdsman.daemon.v1.RouteServiceListResponse.starts:type_name -> herdsman.daemon.v1.RouteStart
-	20, // 10: herdsman.daemon.v1.RouteServicePauseRequest.route:type_name -> herdsman.core.v1.RouteId
-	11, // 11: herdsman.daemon.v1.RouteServicePauseResponse.result:type_name -> herdsman.daemon.v1.RouteControl
-	20, // 12: herdsman.daemon.v1.RouteServiceResumeRequest.route:type_name -> herdsman.core.v1.RouteId
-	0,  // 13: herdsman.daemon.v1.RouteServiceResumeRequest.caller:type_name -> herdsman.daemon.v1.UpCaller
-	11, // 14: herdsman.daemon.v1.RouteServiceResumeResponse.result:type_name -> herdsman.daemon.v1.RouteControl
-	20, // 15: herdsman.daemon.v1.RouteServiceStopRequest.route:type_name -> herdsman.core.v1.RouteId
-	11, // 16: herdsman.daemon.v1.RouteServiceStopResponse.result:type_name -> herdsman.daemon.v1.RouteControl
-	20, // 17: herdsman.daemon.v1.RouteServiceDeleteRequest.route:type_name -> herdsman.core.v1.RouteId
-	11, // 18: herdsman.daemon.v1.RouteServiceDeleteResponse.result:type_name -> herdsman.daemon.v1.RouteControl
-	2,  // 19: herdsman.daemon.v1.RouteService.Up:input_type -> herdsman.daemon.v1.UpRequest
-	7,  // 20: herdsman.daemon.v1.RouteService.Get:input_type -> herdsman.daemon.v1.RouteServiceGetRequest
-	9,  // 21: herdsman.daemon.v1.RouteService.List:input_type -> herdsman.daemon.v1.RouteServiceListRequest
-	12, // 22: herdsman.daemon.v1.RouteService.Pause:input_type -> herdsman.daemon.v1.RouteServicePauseRequest
-	14, // 23: herdsman.daemon.v1.RouteService.Resume:input_type -> herdsman.daemon.v1.RouteServiceResumeRequest
-	16, // 24: herdsman.daemon.v1.RouteService.Stop:input_type -> herdsman.daemon.v1.RouteServiceStopRequest
-	18, // 25: herdsman.daemon.v1.RouteService.Delete:input_type -> herdsman.daemon.v1.RouteServiceDeleteRequest
-	6,  // 26: herdsman.daemon.v1.RouteService.Up:output_type -> herdsman.daemon.v1.UpResponse
-	8,  // 27: herdsman.daemon.v1.RouteService.Get:output_type -> herdsman.daemon.v1.RouteServiceGetResponse
-	10, // 28: herdsman.daemon.v1.RouteService.List:output_type -> herdsman.daemon.v1.RouteServiceListResponse
-	13, // 29: herdsman.daemon.v1.RouteService.Pause:output_type -> herdsman.daemon.v1.RouteServicePauseResponse
-	15, // 30: herdsman.daemon.v1.RouteService.Resume:output_type -> herdsman.daemon.v1.RouteServiceResumeResponse
-	17, // 31: herdsman.daemon.v1.RouteService.Stop:output_type -> herdsman.daemon.v1.RouteServiceStopResponse
-	19, // 32: herdsman.daemon.v1.RouteService.Delete:output_type -> herdsman.daemon.v1.RouteServiceDeleteResponse
-	26, // [26:33] is the sub-list for method output_type
-	19, // [19:26] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	20, // 0: herdsman.daemon.v1.UpCaller.runtime:type_name -> herdsman.core.v1.RuntimeRef
+	21, // 1: herdsman.daemon.v1.UpRequest.route:type_name -> herdsman.core.v1.RouteId
+	1,  // 2: herdsman.daemon.v1.UpRequest.verdicts:type_name -> herdsman.daemon.v1.StepVerdict
+	0,  // 3: herdsman.daemon.v1.UpRequest.caller:type_name -> herdsman.daemon.v1.UpCaller
+	21, // 4: herdsman.daemon.v1.RouteStart.route:type_name -> herdsman.core.v1.RouteId
+	3,  // 5: herdsman.daemon.v1.RouteStart.steps:type_name -> herdsman.daemon.v1.RouteStep
+	4,  // 6: herdsman.daemon.v1.RouteStart.pair:type_name -> herdsman.daemon.v1.PairStatus
+	5,  // 7: herdsman.daemon.v1.UpResponse.start:type_name -> herdsman.daemon.v1.RouteStart
+	21, // 8: herdsman.daemon.v1.RouteServiceGetRequest.route:type_name -> herdsman.core.v1.RouteId
+	5,  // 9: herdsman.daemon.v1.RouteServiceGetResponse.start:type_name -> herdsman.daemon.v1.RouteStart
+	5,  // 10: herdsman.daemon.v1.RouteServiceListResponse.starts:type_name -> herdsman.daemon.v1.RouteStart
+	21, // 11: herdsman.daemon.v1.RouteServicePauseRequest.route:type_name -> herdsman.core.v1.RouteId
+	11, // 12: herdsman.daemon.v1.RouteServicePauseResponse.result:type_name -> herdsman.daemon.v1.RouteControl
+	21, // 13: herdsman.daemon.v1.RouteServiceResumeRequest.route:type_name -> herdsman.core.v1.RouteId
+	0,  // 14: herdsman.daemon.v1.RouteServiceResumeRequest.caller:type_name -> herdsman.daemon.v1.UpCaller
+	11, // 15: herdsman.daemon.v1.RouteServiceResumeResponse.result:type_name -> herdsman.daemon.v1.RouteControl
+	21, // 16: herdsman.daemon.v1.RouteServiceStopRequest.route:type_name -> herdsman.core.v1.RouteId
+	11, // 17: herdsman.daemon.v1.RouteServiceStopResponse.result:type_name -> herdsman.daemon.v1.RouteControl
+	21, // 18: herdsman.daemon.v1.RouteServiceDeleteRequest.route:type_name -> herdsman.core.v1.RouteId
+	11, // 19: herdsman.daemon.v1.RouteServiceDeleteResponse.result:type_name -> herdsman.daemon.v1.RouteControl
+	2,  // 20: herdsman.daemon.v1.RouteService.Up:input_type -> herdsman.daemon.v1.UpRequest
+	7,  // 21: herdsman.daemon.v1.RouteService.Get:input_type -> herdsman.daemon.v1.RouteServiceGetRequest
+	9,  // 22: herdsman.daemon.v1.RouteService.List:input_type -> herdsman.daemon.v1.RouteServiceListRequest
+	12, // 23: herdsman.daemon.v1.RouteService.Pause:input_type -> herdsman.daemon.v1.RouteServicePauseRequest
+	14, // 24: herdsman.daemon.v1.RouteService.Resume:input_type -> herdsman.daemon.v1.RouteServiceResumeRequest
+	16, // 25: herdsman.daemon.v1.RouteService.Stop:input_type -> herdsman.daemon.v1.RouteServiceStopRequest
+	18, // 26: herdsman.daemon.v1.RouteService.Delete:input_type -> herdsman.daemon.v1.RouteServiceDeleteRequest
+	6,  // 27: herdsman.daemon.v1.RouteService.Up:output_type -> herdsman.daemon.v1.UpResponse
+	8,  // 28: herdsman.daemon.v1.RouteService.Get:output_type -> herdsman.daemon.v1.RouteServiceGetResponse
+	10, // 29: herdsman.daemon.v1.RouteService.List:output_type -> herdsman.daemon.v1.RouteServiceListResponse
+	13, // 30: herdsman.daemon.v1.RouteService.Pause:output_type -> herdsman.daemon.v1.RouteServicePauseResponse
+	15, // 31: herdsman.daemon.v1.RouteService.Resume:output_type -> herdsman.daemon.v1.RouteServiceResumeResponse
+	17, // 32: herdsman.daemon.v1.RouteService.Stop:output_type -> herdsman.daemon.v1.RouteServiceStopResponse
+	19, // 33: herdsman.daemon.v1.RouteService.Delete:output_type -> herdsman.daemon.v1.RouteServiceDeleteResponse
+	27, // [27:34] is the sub-list for method output_type
+	20, // [20:27] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_route_proto_init() }

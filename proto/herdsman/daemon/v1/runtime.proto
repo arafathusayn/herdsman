@@ -1,0 +1,188 @@
+syntax = "proto3";
+
+package herdsman.daemon.v1;
+
+import "herdsman/core/v1/core.proto";
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
+
+// RuntimeService reports where agents run: the execution records, the backend a
+// new route would use, and what each backend needs. It never starts or stops an
+// execution; the route verbs do.
+service RuntimeService {
+  // ListExecutions lists the executions the daemon knows, newest first.
+  rpc ListExecutions(RuntimeServiceListExecutionsRequest) returns (RuntimeServiceListExecutionsResponse);
+  // GetExecution reports one execution.
+  rpc GetExecution(RuntimeServiceGetExecutionRequest) returns (RuntimeServiceGetExecutionResponse);
+  // Doctor says which backend a new route would use, where that choice comes
+  // from, and whether each backend can run here. It changes nothing.
+  rpc Doctor(RuntimeServiceDoctorRequest) returns (RuntimeServiceDoctorResponse);
+  // GetDefault reports the installation default backend and where it came from.
+  rpc GetDefault(RuntimeServiceGetDefaultRequest) returns (RuntimeServiceGetDefaultResponse);
+  // SetDefault changes the installation default backend. Routes that exist keep
+  // the backend they started on.
+  rpc SetDefault(RuntimeServiceSetDefaultRequest) returns (RuntimeServiceSetDefaultResponse);
+}
+
+// ExecutionObservation is what was last observed about an execution. Each
+// field is independent: a program status of "done" says nothing about the task,
+// and a live process is not ready by itself.
+message ExecutionObservation {
+  // "starting", "live", "lost", "replaced", "finished" or "unknown".
+  string process = 1;
+  // "waiting", "ready", "needs_attention" or "identity_unknown".
+  string readiness = 2;
+  // "idle", "working", "blocked", "done", "error" or "unknown".
+  string program = 3;
+  // The status as the backend reported it, kept when it maps to "unknown".
+  string raw_program_status = 4;
+  // "unverified", "pending", "verified" or "missing".
+  string visibility = 5;
+  // "open", "closed" or "unreachable"; empty when no app is involved.
+  string app = 6;
+  // "active", "paused", "stopping", "stopped" or "failed".
+  string orchestration = 7;
+  // "pending", "review_required", "accepted" or "rejected"; empty with no task.
+  string task_outcome = 8;
+  // Milliseconds since the Unix epoch.
+  int64 observed_at = 9;
+}
+
+// AppBinding is where the native app shows an execution.
+message AppBinding {
+  // The core identity the app was verified against.
+  string core_id = 1;
+  string space_id = 2;
+  string tab_id = 3;
+  string pane_id = 4;
+  // "unverified", "pending", "verified" or "missing".
+  string visibility = 5;
+}
+
+// TuiBinding is an optional mirror of an execution in the Herdr TUI.
+message TuiBinding {
+  string socket = 1;
+  string pane = 2;
+}
+
+// Execution is one harness launch of one logical agent.
+message Execution {
+  herdsman.core.v1.RuntimeRef ref = 1;
+  herdsman.core.v1.RouteId route = 2;
+  // The logical agent, such as the orchestrator's name.
+  string agent = 3;
+  // "adjutant", "orchestrator" or another role.
+  string role = 4;
+  // Empty when the execution serves no task.
+  string task_id = 5;
+  // The durable launch intent this execution fulfils.
+  string launch_intent_id = 6;
+  string harness_kind = 7;
+  string harness_version = 8;
+  // Process evidence: the harness's PID and its start time, recorded when the
+  // execution registered. Zero and empty when not known.
+  int64 observed_pid = 9;
+  string observed_process_start = 10;
+  // "running" or "stopped".
+  string desired_state = 11;
+  ExecutionObservation observation = 12;
+  AppBinding app_binding = 13;
+  TuiBinding tui_binding = 14;
+  // Milliseconds since the Unix epoch; zero when never verified.
+  int64 last_verified_at = 15;
+  int64 created = 16;
+  // "record" for a stored execution record, "legacy" for an agent read from a
+  // start journaled before execution records existed.
+  string source = 17;
+  // The repository of the route.
+  string repo = 18;
+}
+
+message RuntimeServiceListExecutionsRequest {
+  // Only this route's executions; empty lists every route.
+  herdsman.core.v1.RouteId route = 1;
+  // With route, the route's repository.
+  string repo = 2;
+}
+
+message RuntimeServiceListExecutionsResponse {
+  repeated Execution executions = 1;
+}
+
+message RuntimeServiceGetExecutionRequest {
+  string execution_id = 1;
+}
+
+message RuntimeServiceGetExecutionResponse {
+  Execution execution = 1;
+}
+
+message RuntimeServiceDoctorRequest {
+  // The repository whose config file decides; empty uses no config file.
+  string repo = 1;
+  // A config file to read in place of the one the repository finds.
+  string config_path = 2;
+  // A --backend value to resolve as `herdsman up` would.
+  string backend = 3;
+  // A route that exists keeps its backend; with repo, its persisted backend is
+  // reported.
+  herdsman.core.v1.RouteId route = 4;
+}
+
+// RuntimeSelection is the backend a run would use and why.
+message RuntimeSelection {
+  string backend = 1;
+  // "flag", "config", "installation" or "route".
+  string source = 2;
+  // The config file that set it, when source is "config".
+  string config_path = 3;
+}
+
+// BackendReport says whether one backend can run on this machine.
+message BackendReport {
+  string backend = 1;
+  bool available = 2;
+  // Why it cannot run, and what to do instead.
+  string reason = 3;
+  // The endpoint it would use, such as a socket path.
+  string endpoint = 4;
+}
+
+// RuntimeCheck is one finding of the doctor.
+message RuntimeCheck {
+  string name = 1;
+  // "ok", "warn", "fail" or "skip".
+  string state = 2;
+  string detail = 3;
+}
+
+message RuntimeServiceDoctorResponse {
+  herdsman.core.v1.Version version = 1;
+  RuntimeSelection selection = 2;
+  // Empty when the selection itself failed; checks say why.
+  repeated BackendReport backends = 3;
+  repeated RuntimeCheck checks = 4;
+  // The installation default and its source, as GetDefault reports them.
+  RuntimeServiceGetDefaultResponse installation = 5;
+}
+
+message RuntimeServiceGetDefaultRequest {}
+
+message RuntimeServiceGetDefaultResponse {
+  string backend = 1;
+  // "existing-store" when the upgrade found an account, "new-store" when the
+  // account was created by this version, "set" after `herdsman runtime default`.
+  string source = 2;
+  // Milliseconds since the Unix epoch.
+  int64 written_at = 3;
+}
+
+message RuntimeServiceSetDefaultRequest {
+  // "herdr-core" or "herdr-tui".
+  string backend = 1;
+}
+
+message RuntimeServiceSetDefaultResponse {
+  string backend = 1;
+  string previous = 2;
+}

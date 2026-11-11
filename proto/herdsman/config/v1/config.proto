@@ -28,6 +28,54 @@ message Config {
   Worktree worktree = 15;
   Automations automations = 16;
   Retention retention = 17;
+  Runtime runtime = 18;
+}
+
+// Runtime chooses where agents run. The section is strict: an unknown key stops
+// the command, so a misspelled backend never falls through to a default.
+message Runtime {
+  // "herdr-core" or "herdr-tui". Unset means the installation default, which
+  // `herdsman runtime default` prints. A route that exists keeps the backend it
+  // started on.
+  optional string backend = 1;
+  RuntimeCore core = 2;
+  RuntimeApp app = 3;
+  RuntimeTuiView tui_view = 4;
+}
+
+// RuntimeCore says how to reach herdr-core.
+message RuntimeCore {
+  // The hc program; a bare name is looked up on PATH. The default is "hc".
+  optional string binary = 1;
+  // An absolute socket path. Unset resolves the session through hc.
+  optional string socket = 2;
+  // The core session. A socket and a session that contradict stop the run.
+  optional string session = 3;
+  // How long to wait for core's socket, such as "5s".
+  optional string connect_timeout = 4;
+  // How long an agent may take to become ready, such as "90s".
+  optional string ready_timeout = 5;
+  // Must be true while the backend ships as an experiment.
+  optional bool experimental = 6;
+}
+
+// RuntimeApp says how to reach the native herdr app that shows the agents.
+message RuntimeApp {
+  // The app program. The default is "herdr-app".
+  optional string binary = 1;
+  // An absolute app home; unset means the user's main app.
+  optional string home = 2;
+  // How long to wait for an agent to appear in the app, such as "15s".
+  optional string visibility_timeout = 3;
+}
+
+// RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the
+// execution backend.
+message RuntimeTuiView {
+  // Mirror core agents in the TUI. Off unless set.
+  optional bool enabled = 1;
+  // The TUI's absolute socket path; required when enabled.
+  optional string socket = 2;
 }
 
 // Retention bounds the snapshots that undo can restore. The daemon reads it from

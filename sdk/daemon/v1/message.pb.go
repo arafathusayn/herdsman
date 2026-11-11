@@ -1907,11 +1907,13 @@ func (x *RegistryState) GetPendingSha256() string {
 
 // PeerInfo is one approved peer.
 type PeerInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Role          string                 `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"`
-	Pane          string                 `protobuf:"bytes,3,opt,name=pane,proto3" json:"pane,omitempty"`
-	Session       string                 `protobuf:"bytes,4,opt,name=session,proto3" json:"session,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Name    string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Role    string                 `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"`
+	Pane    string                 `protobuf:"bytes,3,opt,name=pane,proto3" json:"pane,omitempty"`
+	Session string                 `protobuf:"bytes,4,opt,name=session,proto3" json:"session,omitempty"`
+	// The peer's execution; for a herdr-tui peer it names the same pane.
+	Runtime       *v1.RuntimeRef `protobuf:"bytes,5,opt,name=runtime,proto3" json:"runtime,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1972,6 +1974,13 @@ func (x *PeerInfo) GetSession() string {
 		return x.Session
 	}
 	return ""
+}
+
+func (x *PeerInfo) GetRuntime() *v1.RuntimeRef {
+	if x != nil {
+		return x.Runtime
+	}
+	return nil
 }
 
 // BoxCount is one mailbox's counts.
@@ -2239,8 +2248,10 @@ type InventoryAgent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Pane  string                 `protobuf:"bytes,1,opt,name=pane,proto3" json:"pane,omitempty"`
 	// The agent session as JSON.
-	SessionJson   string `protobuf:"bytes,2,opt,name=session_json,json=sessionJson,proto3" json:"session_json,omitempty"`
-	Agent         string `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
+	SessionJson string `protobuf:"bytes,2,opt,name=session_json,json=sessionJson,proto3" json:"session_json,omitempty"`
+	Agent       string `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
+	// The agent's execution; for a herdr-tui agent it names the same pane.
+	Runtime       *v1.RuntimeRef `protobuf:"bytes,4,opt,name=runtime,proto3" json:"runtime,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2294,6 +2305,13 @@ func (x *InventoryAgent) GetAgent() string {
 		return x.Agent
 	}
 	return ""
+}
+
+func (x *InventoryAgent) GetRuntime() *v1.RuntimeRef {
+	if x != nil {
+		return x.Runtime
+	}
+	return nil
 }
 
 // Probe is one negative probe the human reports at setup.
@@ -4371,12 +4389,13 @@ const file_herdsman_daemon_v1_message_proto_rawDesc = "" +
 	"\x0e_heartbeat_age\"L\n" +
 	"\rRegistryState\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12%\n" +
-	"\x0epending_sha256\x18\x02 \x01(\tR\rpendingSha256\"`\n" +
+	"\x0epending_sha256\x18\x02 \x01(\tR\rpendingSha256\"\x98\x01\n" +
 	"\bPeerInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\x12\x12\n" +
 	"\x04pane\x18\x03 \x01(\tR\x04pane\x12\x18\n" +
-	"\asession\x18\x04 \x01(\tR\asession\"\xc0\x01\n" +
+	"\asession\x18\x04 \x01(\tR\asession\x126\n" +
+	"\aruntime\x18\x05 \x01(\v2\x1c.herdsman.core.v1.RuntimeRefR\aruntime\"\xc0\x01\n" +
 	"\bBoxCount\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03new\x18\x02 \x01(\x05R\x03new\x12\x14\n" +
@@ -4397,11 +4416,12 @@ const file_herdsman_daemon_v1_message_proto_rawDesc = "" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12@\n" +
 	"\tinventory\x18\x02 \x03(\v2\".herdsman.daemon.v1.InventoryAgentR\tinventory\x12\x1d\n" +
 	"\n" +
-	"proof_json\x18\x03 \x01(\tR\tproofJson\"]\n" +
+	"proof_json\x18\x03 \x01(\tR\tproofJson\"\x95\x01\n" +
 	"\x0eInventoryAgent\x12\x12\n" +
 	"\x04pane\x18\x01 \x01(\tR\x04pane\x12!\n" +
 	"\fsession_json\x18\x02 \x01(\tR\vsessionJson\x12\x14\n" +
-	"\x05agent\x18\x03 \x01(\tR\x05agent\"\xaf\x01\n" +
+	"\x05agent\x18\x03 \x01(\tR\x05agent\x126\n" +
+	"\aruntime\x18\x04 \x01(\v2\x1c.herdsman.core.v1.RuntimeRefR\aruntime\"\xaf\x01\n" +
 	"\x05Probe\x12#\n" +
 	"\ridentity_json\x18\x01 \x01(\tR\fidentityJson\x12,\n" +
 	"\x12inbox_write_denied\x18\x02 \x01(\bR\x10inboxWriteDenied\x122\n" +
@@ -4675,7 +4695,8 @@ var file_herdsman_daemon_v1_message_proto_goTypes = []any{
 	(*v1.Version)(nil),               // 72: herdsman.core.v1.Version
 	(*v1.RouteId)(nil),               // 73: herdsman.core.v1.RouteId
 	(*v1.MessageHeader)(nil),         // 74: herdsman.core.v1.MessageHeader
-	(*v1.MessageId)(nil),             // 75: herdsman.core.v1.MessageId
+	(*v1.RuntimeRef)(nil),            // 75: herdsman.core.v1.RuntimeRef
+	(*v1.MessageId)(nil),             // 76: herdsman.core.v1.MessageId
 }
 var file_herdsman_daemon_v1_message_proto_depIdxs = []int32{
 	72,  // 0: herdsman.daemon.v1.DaemonStatusResponse.version:type_name -> herdsman.core.v1.Version
@@ -4710,107 +4731,109 @@ var file_herdsman_daemon_v1_message_proto_depIdxs = []int32{
 	33,  // 29: herdsman.daemon.v1.StatusResponse.boxes:type_name -> herdsman.daemon.v1.BoxCount
 	34,  // 30: herdsman.daemon.v1.StatusResponse.holds:type_name -> herdsman.daemon.v1.HoldInfo
 	74,  // 31: herdsman.daemon.v1.StatusResponse.messages:type_name -> herdsman.core.v1.MessageHeader
-	73,  // 32: herdsman.daemon.v1.GetSetupRequest.route:type_name -> herdsman.core.v1.RouteId
-	72,  // 33: herdsman.daemon.v1.GetSetupResponse.version:type_name -> herdsman.core.v1.Version
-	37,  // 34: herdsman.daemon.v1.GetSetupResponse.inventory:type_name -> herdsman.daemon.v1.InventoryAgent
-	73,  // 35: herdsman.daemon.v1.PutSetupRequest.route:type_name -> herdsman.core.v1.RouteId
-	38,  // 36: herdsman.daemon.v1.PutSetupRequest.probes:type_name -> herdsman.daemon.v1.Probe
-	72,  // 37: herdsman.daemon.v1.PutSetupResponse.version:type_name -> herdsman.core.v1.Version
-	73,  // 38: herdsman.daemon.v1.EnrollRequest.route:type_name -> herdsman.core.v1.RouteId
-	72,  // 39: herdsman.daemon.v1.EnrollResponse.version:type_name -> herdsman.core.v1.Version
-	73,  // 40: herdsman.daemon.v1.ApprovePairRequest.route:type_name -> herdsman.core.v1.RouteId
-	69,  // 41: herdsman.daemon.v1.ApprovePairRequest.credentials:type_name -> herdsman.daemon.v1.ApprovePairRequest.CredentialsEntry
-	72,  // 42: herdsman.daemon.v1.ApprovePairResponse.version:type_name -> herdsman.core.v1.Version
-	45,  // 43: herdsman.daemon.v1.ApprovePairResponse.credentials:type_name -> herdsman.daemon.v1.ApprovedCredential
-	73,  // 44: herdsman.daemon.v1.RetirePairRequest.route:type_name -> herdsman.core.v1.RouteId
-	72,  // 45: herdsman.daemon.v1.RetirePairResponse.version:type_name -> herdsman.core.v1.Version
-	73,  // 46: herdsman.daemon.v1.RevokeCredentialRequest.route:type_name -> herdsman.core.v1.RouteId
-	72,  // 47: herdsman.daemon.v1.RevokeCredentialResponse.version:type_name -> herdsman.core.v1.Version
-	73,  // 48: herdsman.daemon.v1.SendRequest.route:type_name -> herdsman.core.v1.RouteId
-	72,  // 49: herdsman.daemon.v1.SendResponse.version:type_name -> herdsman.core.v1.Version
-	75,  // 50: herdsman.daemon.v1.SendResponse.id:type_name -> herdsman.core.v1.MessageId
-	73,  // 51: herdsman.daemon.v1.ClaimRequest.route:type_name -> herdsman.core.v1.RouteId
-	72,  // 52: herdsman.daemon.v1.ClaimResponse.version:type_name -> herdsman.core.v1.Version
-	54,  // 53: herdsman.daemon.v1.ClaimResponse.manifest:type_name -> herdsman.daemon.v1.ManifestEntry
-	75,  // 54: herdsman.daemon.v1.ManifestEntry.id:type_name -> herdsman.core.v1.MessageId
-	73,  // 55: herdsman.daemon.v1.AckRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 56: herdsman.daemon.v1.AckRequest.id:type_name -> herdsman.core.v1.MessageId
-	72,  // 57: herdsman.daemon.v1.AckResponse.version:type_name -> herdsman.core.v1.Version
-	75,  // 58: herdsman.daemon.v1.AckResponse.id:type_name -> herdsman.core.v1.MessageId
-	73,  // 59: herdsman.daemon.v1.ReleaseRequest.route:type_name -> herdsman.core.v1.RouteId
-	72,  // 60: herdsman.daemon.v1.ReleaseResponse.version:type_name -> herdsman.core.v1.Version
-	73,  // 61: herdsman.daemon.v1.HoldRequest.route:type_name -> herdsman.core.v1.RouteId
-	72,  // 62: herdsman.daemon.v1.HoldResponse.version:type_name -> herdsman.core.v1.Version
-	70,  // 63: herdsman.daemon.v1.HoldResponse.holds:type_name -> herdsman.daemon.v1.HoldResponse.HoldsEntry
-	73,  // 64: herdsman.daemon.v1.UnholdRequest.route:type_name -> herdsman.core.v1.RouteId
-	72,  // 65: herdsman.daemon.v1.UnholdResponse.version:type_name -> herdsman.core.v1.Version
-	71,  // 66: herdsman.daemon.v1.UnholdResponse.holds:type_name -> herdsman.daemon.v1.UnholdResponse.HoldsEntry
-	73,  // 67: herdsman.daemon.v1.AuthorityRequest.route:type_name -> herdsman.core.v1.RouteId
-	72,  // 68: herdsman.daemon.v1.AuthorityResponse.version:type_name -> herdsman.core.v1.Version
-	73,  // 69: herdsman.daemon.v1.WaitRequest.route:type_name -> herdsman.core.v1.RouteId
-	72,  // 70: herdsman.daemon.v1.WaitResponse.version:type_name -> herdsman.core.v1.Version
-	68,  // 71: herdsman.daemon.v1.WaitResponse.frames:type_name -> herdsman.daemon.v1.EventFrame
-	63,  // 72: herdsman.daemon.v1.HoldResponse.HoldsEntry.value:type_name -> herdsman.daemon.v1.HoldOwner
-	63,  // 73: herdsman.daemon.v1.UnholdResponse.HoldsEntry.value:type_name -> herdsman.daemon.v1.HoldOwner
-	8,   // 74: herdsman.daemon.v1.MessageService.Hello:input_type -> herdsman.daemon.v1.HelloRequest
-	11,  // 75: herdsman.daemon.v1.MessageService.Health:input_type -> herdsman.daemon.v1.HealthRequest
-	15,  // 76: herdsman.daemon.v1.MessageService.Shutdown:input_type -> herdsman.daemon.v1.ShutdownRequest
-	17,  // 77: herdsman.daemon.v1.MessageService.ListRoutes:input_type -> herdsman.daemon.v1.ListRoutesRequest
-	20,  // 78: herdsman.daemon.v1.MessageService.CreateRoute:input_type -> herdsman.daemon.v1.CreateRouteRequest
-	22,  // 79: herdsman.daemon.v1.MessageService.AdoptRoute:input_type -> herdsman.daemon.v1.AdoptRouteRequest
-	24,  // 80: herdsman.daemon.v1.MessageService.RemoveRoute:input_type -> herdsman.daemon.v1.RemoveRouteRequest
-	26,  // 81: herdsman.daemon.v1.MessageService.ResetEvents:input_type -> herdsman.daemon.v1.ResetEventsRequest
-	28,  // 82: herdsman.daemon.v1.MessageService.Status:input_type -> herdsman.daemon.v1.StatusRequest
-	35,  // 83: herdsman.daemon.v1.MessageService.GetSetup:input_type -> herdsman.daemon.v1.GetSetupRequest
-	39,  // 84: herdsman.daemon.v1.MessageService.PutSetup:input_type -> herdsman.daemon.v1.PutSetupRequest
-	41,  // 85: herdsman.daemon.v1.MessageService.Enroll:input_type -> herdsman.daemon.v1.EnrollRequest
-	43,  // 86: herdsman.daemon.v1.MessageService.ApprovePair:input_type -> herdsman.daemon.v1.ApprovePairRequest
-	46,  // 87: herdsman.daemon.v1.MessageService.RetirePair:input_type -> herdsman.daemon.v1.RetirePairRequest
-	48,  // 88: herdsman.daemon.v1.MessageService.RevokeCredential:input_type -> herdsman.daemon.v1.RevokeCredentialRequest
-	50,  // 89: herdsman.daemon.v1.MessageService.Send:input_type -> herdsman.daemon.v1.SendRequest
-	52,  // 90: herdsman.daemon.v1.MessageService.Claim:input_type -> herdsman.daemon.v1.ClaimRequest
-	55,  // 91: herdsman.daemon.v1.MessageService.Ack:input_type -> herdsman.daemon.v1.AckRequest
-	57,  // 92: herdsman.daemon.v1.MessageService.Release:input_type -> herdsman.daemon.v1.ReleaseRequest
-	59,  // 93: herdsman.daemon.v1.MessageService.Hold:input_type -> herdsman.daemon.v1.HoldRequest
-	61,  // 94: herdsman.daemon.v1.MessageService.Unhold:input_type -> herdsman.daemon.v1.UnholdRequest
-	64,  // 95: herdsman.daemon.v1.MessageService.Authority:input_type -> herdsman.daemon.v1.AuthorityRequest
-	0,   // 96: herdsman.daemon.v1.MessageService.DaemonStatus:input_type -> herdsman.daemon.v1.DaemonStatusRequest
-	2,   // 97: herdsman.daemon.v1.MessageService.ListOperations:input_type -> herdsman.daemon.v1.ListOperationsRequest
-	4,   // 98: herdsman.daemon.v1.MessageService.GetOperation:input_type -> herdsman.daemon.v1.GetOperationRequest
-	6,   // 99: herdsman.daemon.v1.MessageService.ResolveOperation:input_type -> herdsman.daemon.v1.ResolveOperationRequest
-	66,  // 100: herdsman.daemon.v1.MessageService.Wait:input_type -> herdsman.daemon.v1.WaitRequest
-	9,   // 101: herdsman.daemon.v1.MessageService.Hello:output_type -> herdsman.daemon.v1.HelloResponse
-	12,  // 102: herdsman.daemon.v1.MessageService.Health:output_type -> herdsman.daemon.v1.HealthResponse
-	16,  // 103: herdsman.daemon.v1.MessageService.Shutdown:output_type -> herdsman.daemon.v1.ShutdownResponse
-	18,  // 104: herdsman.daemon.v1.MessageService.ListRoutes:output_type -> herdsman.daemon.v1.ListRoutesResponse
-	21,  // 105: herdsman.daemon.v1.MessageService.CreateRoute:output_type -> herdsman.daemon.v1.CreateRouteResponse
-	23,  // 106: herdsman.daemon.v1.MessageService.AdoptRoute:output_type -> herdsman.daemon.v1.AdoptRouteResponse
-	25,  // 107: herdsman.daemon.v1.MessageService.RemoveRoute:output_type -> herdsman.daemon.v1.RemoveRouteResponse
-	27,  // 108: herdsman.daemon.v1.MessageService.ResetEvents:output_type -> herdsman.daemon.v1.ResetEventsResponse
-	29,  // 109: herdsman.daemon.v1.MessageService.Status:output_type -> herdsman.daemon.v1.StatusResponse
-	36,  // 110: herdsman.daemon.v1.MessageService.GetSetup:output_type -> herdsman.daemon.v1.GetSetupResponse
-	40,  // 111: herdsman.daemon.v1.MessageService.PutSetup:output_type -> herdsman.daemon.v1.PutSetupResponse
-	42,  // 112: herdsman.daemon.v1.MessageService.Enroll:output_type -> herdsman.daemon.v1.EnrollResponse
-	44,  // 113: herdsman.daemon.v1.MessageService.ApprovePair:output_type -> herdsman.daemon.v1.ApprovePairResponse
-	47,  // 114: herdsman.daemon.v1.MessageService.RetirePair:output_type -> herdsman.daemon.v1.RetirePairResponse
-	49,  // 115: herdsman.daemon.v1.MessageService.RevokeCredential:output_type -> herdsman.daemon.v1.RevokeCredentialResponse
-	51,  // 116: herdsman.daemon.v1.MessageService.Send:output_type -> herdsman.daemon.v1.SendResponse
-	53,  // 117: herdsman.daemon.v1.MessageService.Claim:output_type -> herdsman.daemon.v1.ClaimResponse
-	56,  // 118: herdsman.daemon.v1.MessageService.Ack:output_type -> herdsman.daemon.v1.AckResponse
-	58,  // 119: herdsman.daemon.v1.MessageService.Release:output_type -> herdsman.daemon.v1.ReleaseResponse
-	60,  // 120: herdsman.daemon.v1.MessageService.Hold:output_type -> herdsman.daemon.v1.HoldResponse
-	62,  // 121: herdsman.daemon.v1.MessageService.Unhold:output_type -> herdsman.daemon.v1.UnholdResponse
-	65,  // 122: herdsman.daemon.v1.MessageService.Authority:output_type -> herdsman.daemon.v1.AuthorityResponse
-	1,   // 123: herdsman.daemon.v1.MessageService.DaemonStatus:output_type -> herdsman.daemon.v1.DaemonStatusResponse
-	3,   // 124: herdsman.daemon.v1.MessageService.ListOperations:output_type -> herdsman.daemon.v1.ListOperationsResponse
-	5,   // 125: herdsman.daemon.v1.MessageService.GetOperation:output_type -> herdsman.daemon.v1.GetOperationResponse
-	7,   // 126: herdsman.daemon.v1.MessageService.ResolveOperation:output_type -> herdsman.daemon.v1.ResolveOperationResponse
-	67,  // 127: herdsman.daemon.v1.MessageService.Wait:output_type -> herdsman.daemon.v1.WaitResponse
-	101, // [101:128] is the sub-list for method output_type
-	74,  // [74:101] is the sub-list for method input_type
-	74,  // [74:74] is the sub-list for extension type_name
-	74,  // [74:74] is the sub-list for extension extendee
-	0,   // [0:74] is the sub-list for field type_name
+	75,  // 32: herdsman.daemon.v1.PeerInfo.runtime:type_name -> herdsman.core.v1.RuntimeRef
+	73,  // 33: herdsman.daemon.v1.GetSetupRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 34: herdsman.daemon.v1.GetSetupResponse.version:type_name -> herdsman.core.v1.Version
+	37,  // 35: herdsman.daemon.v1.GetSetupResponse.inventory:type_name -> herdsman.daemon.v1.InventoryAgent
+	75,  // 36: herdsman.daemon.v1.InventoryAgent.runtime:type_name -> herdsman.core.v1.RuntimeRef
+	73,  // 37: herdsman.daemon.v1.PutSetupRequest.route:type_name -> herdsman.core.v1.RouteId
+	38,  // 38: herdsman.daemon.v1.PutSetupRequest.probes:type_name -> herdsman.daemon.v1.Probe
+	72,  // 39: herdsman.daemon.v1.PutSetupResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 40: herdsman.daemon.v1.EnrollRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 41: herdsman.daemon.v1.EnrollResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 42: herdsman.daemon.v1.ApprovePairRequest.route:type_name -> herdsman.core.v1.RouteId
+	69,  // 43: herdsman.daemon.v1.ApprovePairRequest.credentials:type_name -> herdsman.daemon.v1.ApprovePairRequest.CredentialsEntry
+	72,  // 44: herdsman.daemon.v1.ApprovePairResponse.version:type_name -> herdsman.core.v1.Version
+	45,  // 45: herdsman.daemon.v1.ApprovePairResponse.credentials:type_name -> herdsman.daemon.v1.ApprovedCredential
+	73,  // 46: herdsman.daemon.v1.RetirePairRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 47: herdsman.daemon.v1.RetirePairResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 48: herdsman.daemon.v1.RevokeCredentialRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 49: herdsman.daemon.v1.RevokeCredentialResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 50: herdsman.daemon.v1.SendRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 51: herdsman.daemon.v1.SendResponse.version:type_name -> herdsman.core.v1.Version
+	76,  // 52: herdsman.daemon.v1.SendResponse.id:type_name -> herdsman.core.v1.MessageId
+	73,  // 53: herdsman.daemon.v1.ClaimRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 54: herdsman.daemon.v1.ClaimResponse.version:type_name -> herdsman.core.v1.Version
+	54,  // 55: herdsman.daemon.v1.ClaimResponse.manifest:type_name -> herdsman.daemon.v1.ManifestEntry
+	76,  // 56: herdsman.daemon.v1.ManifestEntry.id:type_name -> herdsman.core.v1.MessageId
+	73,  // 57: herdsman.daemon.v1.AckRequest.route:type_name -> herdsman.core.v1.RouteId
+	76,  // 58: herdsman.daemon.v1.AckRequest.id:type_name -> herdsman.core.v1.MessageId
+	72,  // 59: herdsman.daemon.v1.AckResponse.version:type_name -> herdsman.core.v1.Version
+	76,  // 60: herdsman.daemon.v1.AckResponse.id:type_name -> herdsman.core.v1.MessageId
+	73,  // 61: herdsman.daemon.v1.ReleaseRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 62: herdsman.daemon.v1.ReleaseResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 63: herdsman.daemon.v1.HoldRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 64: herdsman.daemon.v1.HoldResponse.version:type_name -> herdsman.core.v1.Version
+	70,  // 65: herdsman.daemon.v1.HoldResponse.holds:type_name -> herdsman.daemon.v1.HoldResponse.HoldsEntry
+	73,  // 66: herdsman.daemon.v1.UnholdRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 67: herdsman.daemon.v1.UnholdResponse.version:type_name -> herdsman.core.v1.Version
+	71,  // 68: herdsman.daemon.v1.UnholdResponse.holds:type_name -> herdsman.daemon.v1.UnholdResponse.HoldsEntry
+	73,  // 69: herdsman.daemon.v1.AuthorityRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 70: herdsman.daemon.v1.AuthorityResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 71: herdsman.daemon.v1.WaitRequest.route:type_name -> herdsman.core.v1.RouteId
+	72,  // 72: herdsman.daemon.v1.WaitResponse.version:type_name -> herdsman.core.v1.Version
+	68,  // 73: herdsman.daemon.v1.WaitResponse.frames:type_name -> herdsman.daemon.v1.EventFrame
+	63,  // 74: herdsman.daemon.v1.HoldResponse.HoldsEntry.value:type_name -> herdsman.daemon.v1.HoldOwner
+	63,  // 75: herdsman.daemon.v1.UnholdResponse.HoldsEntry.value:type_name -> herdsman.daemon.v1.HoldOwner
+	8,   // 76: herdsman.daemon.v1.MessageService.Hello:input_type -> herdsman.daemon.v1.HelloRequest
+	11,  // 77: herdsman.daemon.v1.MessageService.Health:input_type -> herdsman.daemon.v1.HealthRequest
+	15,  // 78: herdsman.daemon.v1.MessageService.Shutdown:input_type -> herdsman.daemon.v1.ShutdownRequest
+	17,  // 79: herdsman.daemon.v1.MessageService.ListRoutes:input_type -> herdsman.daemon.v1.ListRoutesRequest
+	20,  // 80: herdsman.daemon.v1.MessageService.CreateRoute:input_type -> herdsman.daemon.v1.CreateRouteRequest
+	22,  // 81: herdsman.daemon.v1.MessageService.AdoptRoute:input_type -> herdsman.daemon.v1.AdoptRouteRequest
+	24,  // 82: herdsman.daemon.v1.MessageService.RemoveRoute:input_type -> herdsman.daemon.v1.RemoveRouteRequest
+	26,  // 83: herdsman.daemon.v1.MessageService.ResetEvents:input_type -> herdsman.daemon.v1.ResetEventsRequest
+	28,  // 84: herdsman.daemon.v1.MessageService.Status:input_type -> herdsman.daemon.v1.StatusRequest
+	35,  // 85: herdsman.daemon.v1.MessageService.GetSetup:input_type -> herdsman.daemon.v1.GetSetupRequest
+	39,  // 86: herdsman.daemon.v1.MessageService.PutSetup:input_type -> herdsman.daemon.v1.PutSetupRequest
+	41,  // 87: herdsman.daemon.v1.MessageService.Enroll:input_type -> herdsman.daemon.v1.EnrollRequest
+	43,  // 88: herdsman.daemon.v1.MessageService.ApprovePair:input_type -> herdsman.daemon.v1.ApprovePairRequest
+	46,  // 89: herdsman.daemon.v1.MessageService.RetirePair:input_type -> herdsman.daemon.v1.RetirePairRequest
+	48,  // 90: herdsman.daemon.v1.MessageService.RevokeCredential:input_type -> herdsman.daemon.v1.RevokeCredentialRequest
+	50,  // 91: herdsman.daemon.v1.MessageService.Send:input_type -> herdsman.daemon.v1.SendRequest
+	52,  // 92: herdsman.daemon.v1.MessageService.Claim:input_type -> herdsman.daemon.v1.ClaimRequest
+	55,  // 93: herdsman.daemon.v1.MessageService.Ack:input_type -> herdsman.daemon.v1.AckRequest
+	57,  // 94: herdsman.daemon.v1.MessageService.Release:input_type -> herdsman.daemon.v1.ReleaseRequest
+	59,  // 95: herdsman.daemon.v1.MessageService.Hold:input_type -> herdsman.daemon.v1.HoldRequest
+	61,  // 96: herdsman.daemon.v1.MessageService.Unhold:input_type -> herdsman.daemon.v1.UnholdRequest
+	64,  // 97: herdsman.daemon.v1.MessageService.Authority:input_type -> herdsman.daemon.v1.AuthorityRequest
+	0,   // 98: herdsman.daemon.v1.MessageService.DaemonStatus:input_type -> herdsman.daemon.v1.DaemonStatusRequest
+	2,   // 99: herdsman.daemon.v1.MessageService.ListOperations:input_type -> herdsman.daemon.v1.ListOperationsRequest
+	4,   // 100: herdsman.daemon.v1.MessageService.GetOperation:input_type -> herdsman.daemon.v1.GetOperationRequest
+	6,   // 101: herdsman.daemon.v1.MessageService.ResolveOperation:input_type -> herdsman.daemon.v1.ResolveOperationRequest
+	66,  // 102: herdsman.daemon.v1.MessageService.Wait:input_type -> herdsman.daemon.v1.WaitRequest
+	9,   // 103: herdsman.daemon.v1.MessageService.Hello:output_type -> herdsman.daemon.v1.HelloResponse
+	12,  // 104: herdsman.daemon.v1.MessageService.Health:output_type -> herdsman.daemon.v1.HealthResponse
+	16,  // 105: herdsman.daemon.v1.MessageService.Shutdown:output_type -> herdsman.daemon.v1.ShutdownResponse
+	18,  // 106: herdsman.daemon.v1.MessageService.ListRoutes:output_type -> herdsman.daemon.v1.ListRoutesResponse
+	21,  // 107: herdsman.daemon.v1.MessageService.CreateRoute:output_type -> herdsman.daemon.v1.CreateRouteResponse
+	23,  // 108: herdsman.daemon.v1.MessageService.AdoptRoute:output_type -> herdsman.daemon.v1.AdoptRouteResponse
+	25,  // 109: herdsman.daemon.v1.MessageService.RemoveRoute:output_type -> herdsman.daemon.v1.RemoveRouteResponse
+	27,  // 110: herdsman.daemon.v1.MessageService.ResetEvents:output_type -> herdsman.daemon.v1.ResetEventsResponse
+	29,  // 111: herdsman.daemon.v1.MessageService.Status:output_type -> herdsman.daemon.v1.StatusResponse
+	36,  // 112: herdsman.daemon.v1.MessageService.GetSetup:output_type -> herdsman.daemon.v1.GetSetupResponse
+	40,  // 113: herdsman.daemon.v1.MessageService.PutSetup:output_type -> herdsman.daemon.v1.PutSetupResponse
+	42,  // 114: herdsman.daemon.v1.MessageService.Enroll:output_type -> herdsman.daemon.v1.EnrollResponse
+	44,  // 115: herdsman.daemon.v1.MessageService.ApprovePair:output_type -> herdsman.daemon.v1.ApprovePairResponse
+	47,  // 116: herdsman.daemon.v1.MessageService.RetirePair:output_type -> herdsman.daemon.v1.RetirePairResponse
+	49,  // 117: herdsman.daemon.v1.MessageService.RevokeCredential:output_type -> herdsman.daemon.v1.RevokeCredentialResponse
+	51,  // 118: herdsman.daemon.v1.MessageService.Send:output_type -> herdsman.daemon.v1.SendResponse
+	53,  // 119: herdsman.daemon.v1.MessageService.Claim:output_type -> herdsman.daemon.v1.ClaimResponse
+	56,  // 120: herdsman.daemon.v1.MessageService.Ack:output_type -> herdsman.daemon.v1.AckResponse
+	58,  // 121: herdsman.daemon.v1.MessageService.Release:output_type -> herdsman.daemon.v1.ReleaseResponse
+	60,  // 122: herdsman.daemon.v1.MessageService.Hold:output_type -> herdsman.daemon.v1.HoldResponse
+	62,  // 123: herdsman.daemon.v1.MessageService.Unhold:output_type -> herdsman.daemon.v1.UnholdResponse
+	65,  // 124: herdsman.daemon.v1.MessageService.Authority:output_type -> herdsman.daemon.v1.AuthorityResponse
+	1,   // 125: herdsman.daemon.v1.MessageService.DaemonStatus:output_type -> herdsman.daemon.v1.DaemonStatusResponse
+	3,   // 126: herdsman.daemon.v1.MessageService.ListOperations:output_type -> herdsman.daemon.v1.ListOperationsResponse
+	5,   // 127: herdsman.daemon.v1.MessageService.GetOperation:output_type -> herdsman.daemon.v1.GetOperationResponse
+	7,   // 128: herdsman.daemon.v1.MessageService.ResolveOperation:output_type -> herdsman.daemon.v1.ResolveOperationResponse
+	67,  // 129: herdsman.daemon.v1.MessageService.Wait:output_type -> herdsman.daemon.v1.WaitResponse
+	103, // [103:130] is the sub-list for method output_type
+	76,  // [76:103] is the sub-list for method input_type
+	76,  // [76:76] is the sub-list for extension type_name
+	76,  // [76:76] is the sub-list for extension extendee
+	0,   // [0:76] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_message_proto_init() }

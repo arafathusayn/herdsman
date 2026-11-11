@@ -54,6 +54,86 @@ export interface Config {
   worktree?: Worktree;
   automations?: Automations;
   retention?: Retention;
+  runtime?: Runtime;
+}
+
+/**
+ * Runtime chooses where agents run. The section is strict: an unknown key stops
+ * the command, so a misspelled backend never falls through to a default.
+ */
+export interface Runtime {
+  /**
+   * "herdr-core" or "herdr-tui". Unset means the installation default, which
+   * `herdsman runtime default` prints. A route that exists keeps the backend it
+   * started on.
+   */
+  backend?: string;
+  core?: RuntimeCore;
+  app?: RuntimeApp;
+  tuiView?: RuntimeTuiView;
+}
+
+/**
+ * RuntimeCore says how to reach herdr-core.
+ */
+export interface RuntimeCore {
+  /**
+   * The hc program; a bare name is looked up on PATH. The default is "hc".
+   */
+  binary?: string;
+  /**
+   * An absolute socket path. Unset resolves the session through hc.
+   */
+  socket?: string;
+  /**
+   * The core session. A socket and a session that contradict stop the run.
+   */
+  session?: string;
+  /**
+   * How long to wait for core's socket, such as "5s".
+   */
+  connectTimeout?: string;
+  /**
+   * How long an agent may take to become ready, such as "90s".
+   */
+  readyTimeout?: string;
+  /**
+   * Must be true while the backend ships as an experiment.
+   */
+  experimental?: boolean;
+}
+
+/**
+ * RuntimeApp says how to reach the native herdr app that shows the agents.
+ */
+export interface RuntimeApp {
+  /**
+   * The app program. The default is "herdr-app".
+   */
+  binary?: string;
+  /**
+   * An absolute app home; unset means the user's main app.
+   */
+  home?: string;
+  /**
+   * How long to wait for an agent to appear in the app, such as "15s".
+   */
+  visibilityTimeout?: string;
+}
+
+/**
+ * RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the
+ * execution backend.
+ */
+export interface RuntimeTuiView {
+  /**
+   * Mirror core agents in the TUI. Off unless set.
+   */
+  enabled?: boolean;
+  /**
+   * The TUI's absolute socket path; required when enabled.
+   */
+  socket?: string;
 }
 
 /**
