@@ -22,6 +22,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/hooks"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/wtree"
 )
 
@@ -43,6 +44,11 @@ type WorktreeService struct {
 	// Backend refuses a task launch whose execution backend, resolved for the
 	// repository, this build cannot run; nil checks nothing.
 	Backend func(ctx context.Context, repo string) error
+	// OnCore reports a repository whose task agents run on herdr-core; nil
+	// means the TUI.
+	OnCore func(ctx context.Context, repo string) bool
+	// CoreTask starts a task agent on herdr-core.
+	CoreTask func(ctx context.Context, q route.TaskLaunch) (route.TaskStarted, error)
 
 	journal *teardownJournal // Set by the daemon, which runs teardowns.
 	engine  *ops.Engine
@@ -410,12 +416,16 @@ func (r *repository) clearPath(path string, clobber bool) error {
 }
 
 // create makes the tree through herdr when it answers, else through git. With
-// an empty start the branch already exists.
-func (s *WorktreeService) create(ctx context.Context, r *repository, shape taskShape, task, branch, path, start string, resp *WorktreeNewResponse) error {
+// an empty start the branch already exists. A task whose agent runs on
+// herdr-core makes its tree with git alone: no TUI workspace is opened.
+func (s *WorktreeService) create(ctx context.Context, r *repository, shape taskShape, task, branch, path, start string, onCore bool, resp *WorktreeNewResponse) error {
 	if shape.ownClone {
 		return r.cloneTask(ctx, branch, path, start)
 	}
-	client := s.herdrClient(ctx)
+	var client *herdr.Client
+	if !onCore {
+		client = s.herdrClient(ctx)
+	}
 	if client != nil && start != "" {
 		params := map[string]any{"cwd": r.main, "branch": branch, "base": start, "path": path, "label": task, "focus": false}
 		err := client.Call(ctx, "worktree.create", params, nil)
@@ -470,6 +480,13 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 			return resp, err
 		}
 	}
+	// On herdr-core the agent is a core execution, not a TUI pane: the tree
+	// is made with git, and the restricted profile is refused (an owner's
+	// decision that stays open).
+	onCore := strings.TrimSpace(req.Agent) != "" && s.OnCore != nil && s.OnCore(ctx, r.main)
+	if onCore && (shape.ownClone || len(command) > 0) {
+		return resp, errors.New("the restricted profile is refused on herdr-core: run the task on the Herdr TUI")
+	}
 	kind := req.Type
 	if kind == "" {
 		kind = "feat"
@@ -511,7 +528,7 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := r.clearPath(path, req.Clobber); err != nil {
 		return resp, err
 	}
-	if err := s.create(ctx, r, shape, req.Task, branch, path, start, &resp); err != nil {
+	if err := s.create(ctx, r, shape, req.Task, branch, path, start, onCore, &resp); err != nil {
 		return resp, err
 	}
 	if request != nil {
@@ -533,7 +550,7 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 		resp.Warnings = append(resp.Warnings, "integrator has no effect outside the restricted profile")
 	}
 	if req.Agent != "" {
-		if !resp.Herdr {
+		if !resp.Herdr && !onCore {
 			resp.Warnings = append(resp.Warnings, "the agent was not started; run the launch line")
 		}
 	} else if req.Prompt != "" {
@@ -545,10 +562,40 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := s.finishNew(ctx, r, req, vars, before, after, &resp); err != nil {
 		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
 	}
+	if onCore {
+		if err := s.enterCore(ctx, r, req, &resp); err != nil {
+			return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
+		}
+		return resp, nil
+	}
 	if err := s.enterWorkspace(ctx, req, &resp); err != nil {
 		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
 	}
 	return resp, nil
+}
+
+// enterCore starts the task's agent on herdr-core: a core execution through
+// the launch transaction, its prompt a task notice. Nothing is typed; the
+// start line is a person's, and a step that waits on a person is a warning.
+func (s *WorktreeService) enterCore(ctx context.Context, r *repository, req WorktreeNewRequest, resp *WorktreeNewResponse) error {
+	if s.CoreTask == nil {
+		return errors.New("this daemon cannot start a task agent on herdr-core")
+	}
+	got, err := s.CoreTask(ctx, route.TaskLaunch{Repo: r.main, Path: resp.Path, Task: resp.Task, Branch: resp.Branch,
+		Command: strings.Fields(req.Agent), Prompt: req.Prompt})
+	if err != nil {
+		return fmt.Errorf("the agent did not start on herdr-core: %w", err)
+	}
+	resp.AgentName = resp.Task
+	resp.Launch = "cd " + resp.Path
+	resp.Warnings = append(resp.Warnings, "herdr-core execution "+got.Execution.ID+": a person submits the start line in the app")
+	if got.Notice != "" {
+		resp.Warnings = append(resp.Warnings, "the prompt waits for the agent as notice "+got.Notice)
+	}
+	if got.Waiting != "" {
+		resp.Warnings = append(resp.Warnings, "the launch waits on a person: "+got.Waiting)
+	}
+	return nil
 }
 
 // quoteForShell makes text one word for a shell.

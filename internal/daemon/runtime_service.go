@@ -122,11 +122,31 @@ func (d *Daemon) launchBackend(repo, configPath, flag, persisted string) (runtim
 // installation default decide.
 func (d *Daemon) taskBackend(_ context.Context, repo string) error {
 	sel, err := d.launchBackend(repo, "", "", "")
-	if err == nil && sel.Backend == runtime.BackendCore {
-		// Task agents on core need the claims and notices of a later phase.
-		return runtime.Unavailable(runtime.BackendCore, "for task launches yet")
+	if err == nil && sel.Backend == runtime.BackendCore && d.coreRT() == nil {
+		return runtime.Unavailable(runtime.BackendCore, "in this daemon: its launch socket is not open")
 	}
 	return err
+}
+
+// taskOnCore reports a repository whose task agents run on herdr-core.
+func (d *Daemon) taskOnCore(_ context.Context, repo string) bool {
+	sel, err := d.launchBackend(repo, "", "", "")
+	return err == nil && sel.Backend == runtime.BackendCore && d.coreRT() != nil
+}
+
+// coreTask starts a task agent on herdr-core through the launch
+// transaction, with the daemon's core launch.
+func (d *Daemon) coreTask(ctx context.Context, q route.TaskLaunch) (route.TaskStarted, error) {
+	c := d.coreRT()
+	if c == nil {
+		return route.TaskStarted{}, runtime.Unavailable(runtime.BackendCore, "in this daemon: its launch socket is not open")
+	}
+	q.Core = c.launch()
+	if q.StateDir == "" {
+		q.StateDir = filepath.Join(d.daemonDir(), "tasks")
+	}
+	c.watch(c.ctx, q.Core.Socket)
+	return route.LaunchTask(ctx, c.provider(q.Core.Socket), q)
 }
 
 // recordExecution writes an execution record into the account store, beside

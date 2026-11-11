@@ -43,7 +43,7 @@ func (d *Daemon) operationEffects() map[string]ops.Effect {
 	if teardown == nil {
 		teardown = teardownRoute(d.worktrees)
 	}
-	d.worktrees.Backend = d.taskBackend
+	d.worktrees.Backend, d.worktrees.OnCore, d.worktrees.CoreTask = d.taskBackend, d.taskOnCore, d.coreTask
 	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run, Recovery: d.routeRecovery(), Down: d.cfg.RouteDown, Teardown: teardown,
 		Runtime: d.runtimeRegistry(), Executions: d.recordExecution, Services: daemonServices{d}, CoreChannel: coreChannel{d}})
 	maps.Copy(effects, d.teardowns.effects())
