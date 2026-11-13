@@ -69,6 +69,8 @@ All live probes used private core sessions and app/TUI homes. They did not stop 
 
 The successful real-worker probe used an absolute path to the newly built Herdsman executable because the separately installed CLI was an older build without `notice`. The probe operator supplied the initial harness prompt explicitly; subsequent continuation came through the daemon's native queue. This does not claim an automatic initial start. The complete notice race suite also passed ten consecutive runs after the capacity fixture was changed to join canceled reconnects before checking the occupied-slot limit.
 
+The first pushed CI run exposed a pre-existing pause-test synchronization race on macOS: daemon recovery can acquire a newly submitted control operation before the RPC drives it, so the response can legitimately be `running`. The teardown-refusal test now observes the same operation through dry-run reads before asserting its failure reason and hold. It passed 30 consecutive runs with the race detector. Production lifecycle behavior is unchanged.
+
 ## Release qualification still open
 
 The broad acceptance catalog already contained these failures before this review's changes:

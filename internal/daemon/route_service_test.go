@@ -583,6 +583,17 @@ func TestPauseRefusesATeardownItCannotRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Recovery may acquire the submitted operation before this RPC drives it.
+	// Observe that same operation until it settles, without replaying the verb.
+	operation := res.GetResult().GetOperation()
+	deadline := time.Now().Add(5 * time.Second)
+	for res.GetResult().GetState() == "running" && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		res, err = c.Route.Pause(context.Background(), &daemonv1.RouteServicePauseRequest{Route: id, Repo: repo, DryRun: true})
+		if err != nil || res.GetResult().GetOperation() != operation {
+			t.Fatalf("observe pause %s: %v %v", operation, res, err)
+		}
+	}
 	if res.GetResult().GetState() == "done" || !strings.Contains(res.GetResult().GetReason(), "a stop hook failed") {
 		t.Fatalf("%+v", res.GetResult())
 	}
