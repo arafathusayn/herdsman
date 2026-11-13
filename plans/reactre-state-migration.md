@@ -25,10 +25,12 @@ Upstream: Reactre main, `8bae29b9fce00ab1e192f906e15191c6057550d7` (merged state
 
 ## Validation log
 
-- `make web-check`: formatting, SDK and state ownership guards, normal/strict types (including the combined benchmark entry), 331 app tests and 82 legacy tests passed.
+- `make web-check`: formatting, SDK and state ownership guards, normal/strict types (including the combined benchmark entry), 336 app tests and 82 legacy tests passed.
 - `make web-e2e`: 316 Chrome checks passed, including tab exit/reopen, pairing, dialogs, route submission, terminal input, artifacts, docs and large-load responsiveness regressions.
 - `make build`, Go race tests, Go vet/staticcheck and repository guards passed. The ADR guard records the new decision explicitly.
 - OXC reproduced from eight verified npm archives with identical file hashes. Installation passed with an empty cache and network disabled. OSV reported no advisories for the vendored Go/npm pins.
 - Architecture, tradeoffs, ownership inventory and workflow diagrams: [ADR 0036](../docs/adr/0036-actor-owned-web-state.md). CI and review readiness must be verified on the PR's latest head separately.
 - Profiled and removed repeated whole-application serialization, terminal palette invalidation and per-run ANSI teardown overhead. [Measured results and reproduction](../web/e2e/PERFORMANCE.md).
 - Rebased onto main `557461c4`, including its new runtime controls and Go 1.27.4 pin. Migrated the added controls before repeating validation. A full Go run exposed non-atomic hook-result publication; results now publish by rename, with regression coverage and unchanged assertions in the background tests.
+- Final tooltip audit: delay, placement, visibility, warm reuse and closure now use an explicit machine; five transition tests and all existing production-browser tooltip checks pass.
+- Full combined core/state benchmark: 3,888 valid samples, 1.53% lower composite time than `re`, 1.32% A/A gap, fifth of 17 implementations. The [benchmark README](../bench/web/herdsman-ui-cases/README.md) records the narrow margin and complete-run provenance.

@@ -96,6 +96,29 @@ Names match `web/src/state/*.machine.ts`. Disposal aborts active tasks and
 timers; final states accept no further events. Startup task errors lead to
 `failed`; cancel from any active startup state leads to `cancelled`.
 
+Tooltip delay, visibility and warm reuse are one workflow. DOM targets and the
+mounted tooltip remain installer resources; text and measured placement are
+actor-owned values, and visibility derives from the workflow state. Hiding,
+rearming or closing cancels the pending delay. Only a displayed tooltip starts
+the 600 ms warm window; cancelling a pending tooltip does not warm it.
+
+```mermaid
+stateDiagram-v2
+  [*] --> idle
+  idle --> waiting: arm [delay is zero inside warm window]
+  waiting --> waiting: arm (replace timer)
+  waiting --> idle: hide / task error
+  waiting --> placing: elapsed
+  placing --> showing: placed (measure before revealing)
+  placing --> idle: hide (target missing or detached)
+  showing --> idle: hide (start warm window)
+  idle --> closed: close
+  waiting --> closed: close
+  placing --> closed: close
+  showing --> closed: close
+  closed --> [*]
+```
+
 ```mermaid
 stateDiagram-v2
   [*] --> idle
