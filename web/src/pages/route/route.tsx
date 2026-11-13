@@ -1,10 +1,10 @@
 import type { Execution } from "@herdsman/sdk/herdsman/daemon/v1/runtime";
 import { For, Show } from "@reactre/core";
 
-import { explain, services } from "../../sdk/index.ts";
+import { services } from "../../sdk/index.ts";
 import { createPoll } from "../../state/poll.ts";
-import { valueState } from "../../state/value.ts";
 import { Async, Failure, fieldValue, load, NotServed, PageFrame } from "../load.tsx";
+import { type ExecutionControls, executionControls } from "./execution.ts";
 
 const refreshMs = 5000;
 
@@ -14,37 +14,10 @@ export const submitWarning =
   "the Enter follows that check by about 200 ms with no second check, so a dialog that opens in between is confirmed by it. " +
   "Once core holds the line, nothing can recall it.";
 
-/**
- * What a person is doing with one execution's controls. It lives with the page,
- * not the row, so a refresh of the list keeps a half-typed line and the last
- * answer.
- */
-interface RowState {
-  line: string;
-  asking: boolean;
-  problem: string;
-  done: string;
-}
-
-const blankRow: RowState = { line: "", asking: false, problem: "", done: "" };
-
-interface Rows {
-  get: (id: string) => RowState;
-  set: (id: string, change: Partial<RowState>) => void;
-}
-
-function rowStore(): Rows {
-  const [rows, setRows] = valueState<Record<string, RowState>>({});
-  return {
-    get: (id) => rows()[id] ?? blankRow,
-    set: (id, change) => setRows((all) => ({ ...all, [id]: { ...(all[id] ?? blankRow), ...change } })),
-  };
-}
-
 export function RoutesPage() {
   const state = load((signal) => services().routes.list({}, { signal }));
   const executions = load((signal) => services().runtime.listExecutions({}, { signal }));
-  const rows = rowStore();
+  const rows = executionControls(() => void executions.reload());
   const poll = createPoll(async () => {
     await Promise.all([
       state.loading() ? undefined : state.reload(),
@@ -91,7 +64,6 @@ export function RoutesPage() {
                         list={(executions.data()?.executions ?? []).filter(
                           (e) => e.route?.value === start.route?.value,
                         )}
-                        changed={() => void executions.reload()}
                         rows={rows}
                       />
                     </Show>
@@ -108,12 +80,12 @@ export function RoutesPage() {
 }
 
 /** Each runtime field of an execution on its own line, as RuntimeService reports it. */
-function Executions(props: { list: Execution[]; changed: () => void; rows: Rows }) {
+function Executions(props: { list: Execution[]; rows: ExecutionControls }) {
   return (
     <Show when={props.list.length > 0} fallback={<p class="page-sub">No executions recorded.</p>}>
       <ul class="page-list">
         <For each={props.list} key={(e) => e.ref?.executionId || `${e.agent}:${e.source}`}>
-          {(e) => <ExecutionRow execution={e} changed={props.changed} rows={props.rows} />}
+          {(e) => <ExecutionRow execution={e} rows={props.rows} />}
         </For>
       </ul>
     </Show>
@@ -128,45 +100,12 @@ function field(label: string, value: string | undefined) {
   );
 }
 
-function ExecutionRow(props: { execution: Execution; changed: () => void; rows: Rows }) {
+function ExecutionRow(props: { execution: Execution; rows: ExecutionControls }) {
   const e = props.execution;
   const obs = e.observation ?? {};
   const actions = e.actions ?? [];
   const id = e.ref?.executionId ?? "";
-  const row = () => props.rows.get(id);
-  const line = () => row().line;
-  const asking = () => row().asking;
-  const problem = () => row().problem;
-  const done = () => row().done;
-  const setLine = (line: string) => props.rows.set(id, { line });
-  const setAsking = (asking: boolean) => props.rows.set(id, { asking });
-  const setProblem = (problem: string) => props.rows.set(id, { problem });
-  const setDone = (done: string) => props.rows.set(id, { done });
-
-  const show = async () => {
-    setProblem("");
-    try {
-      await services().runtime.show({ executionId: id });
-      setDone("Shown in the herdr app.");
-    } catch (error) {
-      setProblem(explain(error));
-    }
-  };
-  // The confirmation is the person's: the warning is on screen and the line
-  // is typed only from the second button.
-  const submit = async (event: Event) => {
-    event.preventDefault();
-    setProblem("");
-    try {
-      const res = await services().runtime.submit({ executionId: id, text: line().trim(), confirmed: true });
-      setDone(`Typed submit ${res.submitId ?? ""}: ${res.state ?? ""}`);
-      setLine("");
-      setAsking(false);
-      props.changed();
-    } catch (error) {
-      setProblem(explain(error));
-    }
-  };
+  const { line, asking, problem, done, busy, edit, toggle, show, submit, cancel } = props.rows.get(id);
 
   const visibility = obs.visibility ? `${obs.visibility}${obs.app ? `, app ${obs.app}` : ""}` : undefined;
   const program =
@@ -217,12 +156,12 @@ function ExecutionRow(props: { execution: Execution; changed: () => void; rows: 
       <Show when={id && actions.length > 0}>
         <div class="page-row-head">
           <Show when={actions.includes("show")}>
-            <button class="btn" type="button" onClick={() => void show()}>
+            <button class="btn" type="button" disabled={busy()} onClick={show}>
               Show in the app
             </button>
           </Show>
           <Show when={actions.includes("submit")}>
-            <button class="btn" type="button" onClick={() => setAsking(!asking())}>
+            <button class="btn" type="button" disabled={busy()} onClick={toggle}>
               Type a line
             </button>
           </Show>
@@ -235,12 +174,20 @@ function ExecutionRow(props: { execution: Execution; changed: () => void; rows: 
           </p>
           <label class="field">
             Line
-            <input required value={line()} onInput={(event) => setLine(fieldValue(event))} />
+            <input required value={line()} disabled={busy()} onInput={(event) => edit(fieldValue(event))} />
           </label>
-          <button class="btn primary" type="submit" disabled={!line().trim()}>
+          <button class="btn primary" type="submit" disabled={busy() || !line().trim()}>
             I read this: type the line
           </button>
         </form>
+      </Show>
+      <Show when={busy()}>
+        <span class="page-sub" role="status">
+          Waiting for the runtime…
+        </span>
+        <button class="btn" type="button" onClick={cancel}>
+          Stop waiting
+        </button>
       </Show>
       <Show when={done()}>
         <span class="page-sub" role="status">

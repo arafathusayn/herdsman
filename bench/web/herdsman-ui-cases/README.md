@@ -4,12 +4,12 @@ Measures DOM libraries on the screens herdsman web renders, not on the
 js-framework-benchmark table of 1,000 rows. Each contender is one app in
 `apps/<name>/` that renders the same four route tabs from the same data:
 
-| Tab | Content | Size |
-| --- | --- | --- |
-| Team | status lanes of agent cards | 32 cards |
-| Activity | event feed, newest first | 200 events |
-| Checklist | route checklist lines | 80 lines |
-| Log | run-state lines, newest first | 300 lines |
+| Tab       | Content                       | Size       |
+| --------- | ----------------------------- | ---------- |
+| Team      | status lanes of agent cards   | 32 cards   |
+| Activity  | event feed, newest first      | 200 events |
+| Checklist | route checklist lines         | 80 lines   |
+| Log       | run-state lines, newest first | 300 lines  |
 
 ## The contract
 
@@ -38,39 +38,67 @@ js-framework-benchmark table of 1,000 rows. Each contender is one app in
 The reference markup is `apps/herdsman-patch/main.ts`. In short:
 
 ```html
-<div class="team"><div class="kanban">
-  <section class="lane s-{status}" aria-label="{Lane title}">
-    <h2><span class="lane-dot" aria-hidden="true"></span>{Lane title}<span class="count">{n}</span></h2>
-    <button class="card r-{role} s-{status}[ selected]" title="Open {title} ({pane})" data-pane="{pane}">
-      <div class="card-top"><span class="card-title">{title}</span>{pill}</div>
-      <div class="card-task">{task}</div>            <!-- only when task !== null -->
-      <div class="card-sub">{sub}</div>
-      <div class="card-foot"><code>{pane}</code><span class="muted">{tab}</span><span class="muted clip" title="{term}">{term}</span></div>
-    </button>
-    <!-- or, for a lane with no members: <p class="lane-empty">None</p> -->
-  </section>
-</div></div>
+<div class="team">
+  <div class="kanban">
+    <section class="lane s-{status}" aria-label="{Lane title}">
+      <h2>
+        <span class="lane-dot" aria-hidden="true"></span>{Lane title}<span
+          class="count"
+          >{n}</span
+        >
+      </h2>
+      <button
+        class="card r-{role} s-{status}[ selected]"
+        title="Open {title} ({pane})"
+        data-pane="{pane}"
+      >
+        <div class="card-top">
+          <span class="card-title">{title}</span>{pill}
+        </div>
+        <div class="card-task">{task}</div>
+        <!-- only when task !== null -->
+        <div class="card-sub">{sub}</div>
+        <div class="card-foot">
+          <code>{pane}</code><span class="muted">{tab}</span
+          ><span class="muted clip" title="{term}">{term}</span>
+        </div>
+      </button>
+      <!-- or, for a lane with no members: <p class="lane-empty">None</p> -->
+    </section>
+  </div>
+</div>
 
 <!-- pill -->
-<span class="pill s-{status}"><span class="dot" aria-hidden="true"></span>{statusLabel}</span>
+<span class="pill s-{status}"
+  ><span class="dot" aria-hidden="true"></span>{statusLabel}</span
+>
 
 <ol class="timeline activity">
-  <li class="{source}"><time datetime="{at}">{clock}</time><p class="event">{body}</p></li>
+  <li class="{source}">
+    <time datetime="{at}">{clock}</time>
+    <p class="event">{body}</p>
+  </li>
 </ol>
 <!-- body: source "web": <span class="chip accent">web</span><span>{text}</span>
            status set:   <strong>{who}</strong>{pill}
            otherwise:    <span class="chip">{label}</span><strong>{who}</strong>  (strong only when who !== null) -->
 
 <ul class="checklist">
-  <li class="done|skipped|">  <!-- done wins over skipped -->
+  <li class="done|skipped|">
+    <!-- done wins over skipped -->
     <span class="box" aria-label="Done|Not applicable|Open">✓|–|(empty)</span>
-    <code>{id}</code>  <!-- only when id is not empty -->
+    <code>{id}</code>
+    <!-- only when id is not empty -->
     <span>{text}</span>
   </li>
 </ul>
 
 <ol class="timeline">
-  <li class="web|"><time>{time}</time><p>{text}</p></li>  <!-- "web" when text starts with "web:" -->
+  <li class="web|">
+    <time>{time}</time>
+    <p>{text}</p>
+  </li>
+  <!-- "web" when text starts with "web:" -->
 </ol>
 ```
 
@@ -96,7 +124,7 @@ score produced by these DOM timings:
 - **State machines own the data.** Every snapshot enters a declared event
   and transition; components derive their view from the actor. The benchmark
   uses a small `empty` → `showing` machine. The production application uses
-  [cohesive workflow statecharts](../../../docs/adr/0032-actor-owned-web-state.md)
+  [cohesive workflow statecharts](../../../docs/adr/0036-actor-owned-web-state.md)
   for requests, retries, cancellation, pairing and route setup.
 - **Strong types check the machine graph and contracts.** State-specific
   data narrows with the current state. Invalid targets, wrong event payloads,

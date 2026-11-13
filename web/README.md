@@ -71,7 +71,7 @@ replacing a controller disposes it. Requests abort on replacement/cleanup and
 drop late results. URL/browser storage are persistence boundaries. SDK values
 cross a data-only JSON boundary because current upstream contracts exclude
 optional fields, dynamic records and collections; decoded reads are immutable.
-See [the ownership inventory and statecharts](../docs/adr/0032-actor-owned-web-state.md)
+See [the ownership inventory and statecharts](../docs/adr/0036-actor-owned-web-state.md)
 for cleanup rules, diagrams and tradeoffs.
 
 Use `<For>` for keyed DOM lists. When server snapshots replace row objects,

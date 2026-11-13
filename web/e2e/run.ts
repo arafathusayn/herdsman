@@ -18,6 +18,7 @@ import puppeteer from "puppeteer-core";
 
 import { appChecks, type Check } from "./app.ts";
 import { chromeArgs, findChrome } from "./chrome.ts";
+import { executionChecks } from "./execution.ts";
 import { startMock } from "./mock.ts";
 import { pageChecks } from "./pages.ts";
 import { responsivenessChecks } from "./responsiveness.ts";
@@ -35,6 +36,7 @@ const browser = await puppeteer.launch({ headless: true, executablePath: findChr
 const mock = startMock(dist);
 try {
   await appChecks(browser, mock, check);
+  await executionChecks(browser, mock, check);
   await responsivenessChecks(browser, dist, check);
   await pageChecks(browser, check);
 } finally {

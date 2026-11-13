@@ -1,4 +1,4 @@
-# 0032: Actors own web application and UI state
+# 0036: Actors own web application and UI state
 
 Status: accepted
 
@@ -63,16 +63,17 @@ results, the large-load regression fixture and remaining initial-load costs.
 
 ## Ownership and cleanup
 
-| Scope | Actor-owned data | Lifetime |
-| --- | --- | --- |
-| App/session | Navigation, server/channel snapshots, events, credentials, HTTP caches, preferences | Page |
-| Startup/pairing/stream | Trust decisions, pairing attempts, reconnect/backoff | Startup, pairing screen, connection |
-| SDK pages | Resources, drafts, mutations, previews, search | Mounted page |
-| Files/diffs/artifacts | Selection/filter/groups, requests, polling | Explicit cached controller; hiding cancels work, replacing disposes it |
-| Messages/log | Expansion, body actors, bounded log history, page request | Cache/page; tab exit cancels reads |
-| Route dialog | Setup questions, catalog probes, draft/validation, submission, GitHub/inbox reads | Dialog/form |
-| Terminal | Queue, poll, mode/measurement/scroll data, composer draft/send phase | Panel |
-| Controls | Palette, form values, disclosure, resizing, appearance, tooltips, toast/copy feedback | Control or page preference |
+| Scope                      | Actor-owned data                                                                      | Lifetime                                                               |
+| -------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| App/session                | Navigation, server/channel snapshots, events, credentials, HTTP caches, preferences   | Page                                                                   |
+| Startup/pairing/stream     | Trust decisions, pairing attempts, reconnect/backoff                                  | Startup, pairing screen, connection                                    |
+| SDK pages                  | Resources, drafts, mutations, previews, search                                        | Mounted page                                                           |
+| Runtime execution controls | Draft line, confirmation, pending command, result and failure                         | Page-owned controller per execution; refreshed rows retain it          |
+| Files/diffs/artifacts      | Selection/filter/groups, requests, polling                                            | Explicit cached controller; hiding cancels work, replacing disposes it |
+| Messages/log               | Expansion, body actors, bounded log history, page request                             | Cache/page; tab exit cancels reads                                     |
+| Route dialog               | Setup questions, catalog probes, draft/validation, submission, GitHub/inbox reads     | Dialog/form                                                            |
+| Terminal                   | Queue, poll, mode/measurement/scroll data, composer draft/send phase                  | Panel                                                                  |
+| Controls                   | Palette, form values, disclosure, resizing, appearance, tooltips, toast/copy feedback | Control or page preference                                             |
 
 Leaving a task aborts its signal. Reentry replaces work; the library rejects late
 results even for non-cancellable transports. Callbacks check abort before
@@ -80,11 +81,35 @@ external effects. Stopping a request settles its callers as cancelled.
 Mutations do not retry automatically. Cancellation cannot undo a command that
 the server has already accepted.
 
+Runtime execution controls added by the herdr-core backend use the same
+ownership rule. Their controller scopes survive refreshed rows, while page
+disposal aborts pending show/submit calls. Confirmation and a non-blank line
+are required before submission; pending commands reject duplicate clicks.
+The input and command buttons are disabled while waiting so an accepted
+response cannot erase a draft edited during that request.
+Stop waiting aborts the client request and ignores late replies; its feedback
+explicitly warns that the runtime may already have received a submitted line.
+
 ## Statecharts
 
 Names match `web/src/state/*.machine.ts`. Disposal aborts active tasks and
 timers; final states accept no further events. Startup task errors lead to
 `failed`; cancel from any active startup state leads to `cancelled`.
+
+```mermaid
+stateDiagram-v2
+  [*] --> idle
+  idle --> confirming: ask
+  confirming --> idle: cancel (keep draft)
+  confirming --> submitting: submit [non-blank line]
+  submitting --> idle: submitted (clear draft)
+  submitting --> confirming: task error (keep draft for retry)
+  submitting --> confirming: cancel (stop waiting, keep draft)
+  idle --> showing: show
+  confirming --> showing: show
+  showing --> idle: shown / error / cancel [form was closed]
+  showing --> confirming: shown / error / cancel [form was open]
+```
 
 ```mermaid
 stateDiagram-v2
