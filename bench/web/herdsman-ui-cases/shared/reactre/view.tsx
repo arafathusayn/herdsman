@@ -1,4 +1,4 @@
-import { For, memo, selector, Show } from "@reactre/core";
+import { For, Match, memo, selector, Show, Switch } from "@reactre/core";
 import { memo as equalMemo } from "@reactre/core/features/memo";
 
 import {
@@ -39,7 +39,12 @@ function Team(props: {
           a.length === b.length && a.every((member, i) => member === b[i]),
       },
     );
-    return { status, members: items, count: memo(() => items().length) };
+    return {
+      status,
+      label: statusLabel[status],
+      members: items,
+      count: memo(() => items().length),
+    };
   });
   const shown = memo(() => {
     const active = groups();
@@ -54,11 +59,11 @@ function Team(props: {
           {(column) => (
             <section
               class={`lane s-${column.status}`}
-              aria-label={statusLabel[column.status]}
+              aria-label={column.label}
             >
               <h2>
                 <span class="lane-dot" aria-hidden="true" />
-                {statusLabel[column.status]}
+                {column.label}
                 <span class="count">{column.count()}</span>
               </h2>
               <For
@@ -77,7 +82,7 @@ function Team(props: {
                       <span class="card-title">{m.title}</span>
                       <span class={`pill s-${m.status}`}>
                         <span class="dot" aria-hidden="true" />
-                        {statusLabel[m.status]}
+                        {column.label}
                       </span>
                     </div>
                     {cardTask(m.task)}
@@ -106,7 +111,7 @@ type ViewState = {
 
 // Each immutable event body is one flat template. Its shape is chosen once
 // for the row, so removal disposes one body rather than nested fragment slots.
-function eventBody(e: Event) {
+function eventBody(e: Event, statusText: string) {
   if (e.source === "web") {
     return (
       <p class="event">
@@ -122,7 +127,7 @@ function eventBody(e: Event) {
           <strong>{e.who}</strong>
           <span class={`pill s-${e.status}`}>
             <span class="dot" aria-hidden="true" />
-            {statusLabel[e.status]}
+            {statusText}
           </span>
         </p>
       );
@@ -131,7 +136,7 @@ function eventBody(e: Event) {
       <p class="event">
         <span class={`pill s-${e.status}`}>
           <span class="dot" aria-hidden="true" />
-          {statusLabel[e.status]}
+          {statusText}
         </span>
       </p>
     );
@@ -159,7 +164,7 @@ function Activity(props: { state: ViewState }) {
         {(e) => (
           <li class={e.source}>
             <time datetime={e.at}>{e.clock}</time>
-            {eventBody(e)}
+            {eventBody(e, e.status === null ? "" : statusLabel[e.status])}
           </li>
         )}
       </For>
@@ -213,23 +218,23 @@ export function Tabs(props: {
   onSelect(pane: string): void;
 }) {
   return (
-    <>
-      <Show when={props.state.tab === "team"}>
+    <Switch>
+      <Match when={props.state.tab === "team"}>
         <Team
           members={props.state.members}
           selected={props.state.selected}
           onSelect={props.onSelect}
         />
-      </Show>
-      <Show when={props.state.tab === "activity"}>
+      </Match>
+      <Match when={props.state.tab === "activity"}>
         <Activity state={props.state} />
-      </Show>
-      <Show when={props.state.tab === "checklist"}>
+      </Match>
+      <Match when={props.state.tab === "checklist"}>
         <Checklist state={props.state} />
-      </Show>
-      <Show when={props.state.tab === "log"}>
+      </Match>
+      <Match when={props.state.tab === "log"}>
         <Log state={props.state} />
-      </Show>
-    </>
+      </Match>
+    </Switch>
   );
 }

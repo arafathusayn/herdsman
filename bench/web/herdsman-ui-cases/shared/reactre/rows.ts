@@ -14,15 +14,25 @@ function equalFields<T extends object>(a: T, b: T): boolean {
 
 /** Read-only keyed projection of snapshot data. Equal individual rows retain
  * identity, just as the other entries reconcile their per-key fields. There
- * is no writer or operation-aware shortcut, and every input row is visited. */
+ * is no writer or operation-aware shortcut. Unchanged snapshots still compare
+ * every row, but need neither new keys nor a replacement map. */
 export function rows<T extends object>(
   read: () => readonly T[],
   keyOf: (row: T) => string,
 ) {
-  let previous = new Map<string, T>();
-  let list: readonly T[] = [];
+  let previous: Map<string, T> | undefined;
+  let list: readonly T[] | undefined;
   return memo(() => {
     const input = read();
+    // A newly mounted view has no old rows to reconcile. Keep an array copy,
+    // but defer the key index until an update actually changes its data.
+    if (list === undefined) return (list = input.slice());
+    if (
+      input.length === list.length &&
+      input.every((row, i) => equalFields(row, list![i]!))
+    )
+      return list;
+    previous ??= new Map(list.map((row) => [keyOf(row), row]));
     const next = new Map<string, T>();
     const items: T[] = [];
     let same = input.length === list.length;

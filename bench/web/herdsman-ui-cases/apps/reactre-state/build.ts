@@ -1,8 +1,11 @@
 import { join } from "node:path";
 import { plugin } from "bun";
 
-import { reactreSources, stateCompiler } from "../../../../../web/reactre.ts";
-import { reactreCompiler } from "../../../../../web/vendor/reactre/packages/compiler/src/index.ts";
+import {
+  reactreSources,
+  sourceCompiler,
+  stateCompiler,
+} from "../../../../../web/reactre.ts";
 
 plugin(reactreSources);
 const result = await Bun.build({
@@ -12,9 +15,7 @@ const result = await Bun.build({
   plugins: [
     reactreSources,
     stateCompiler(false),
-    reactreCompiler({
-      filter: /\/(?:apps\/reactre-state|shared)\/.*\.[jt]sx?$/,
-    }),
+    sourceCompiler(/\/(?:apps\/reactre-state|shared)\/.*\.[jt]sx?$/),
   ],
 });
 if (!result.success)

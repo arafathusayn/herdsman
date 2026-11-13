@@ -1,8 +1,7 @@
 import { join } from "node:path";
 import { plugin } from "bun";
 
-import { reactreSources } from "../../../../../web/reactre.ts";
-import { reactreCompiler } from "../../../../../web/vendor/reactre/packages/compiler/src/index.ts";
+import { reactreSources, sourceCompiler } from "../../../../../web/reactre.ts";
 
 plugin(reactreSources);
 const result = await Bun.build({
@@ -11,9 +10,7 @@ const result = await Bun.build({
   minify: true,
   plugins: [
     reactreSources,
-    reactreCompiler({
-      filter: /\/(?:apps\/reactre-signals|shared)\/.*\.[jt]sx?$/,
-    }),
+    sourceCompiler(/\/(?:apps\/reactre-signals|shared)\/.*\.[jt]sx?$/),
   ],
 });
 if (!result.success)

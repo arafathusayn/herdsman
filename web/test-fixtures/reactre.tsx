@@ -1,11 +1,10 @@
 import { attach, For, selector, Show, signal } from "@reactre/core";
 
+import { initialRows, labelReads } from "./reactre-rows.ts";
+
 export function mount(root: Element) {
   const [count, setCount] = signal(0);
-  const [rows, setRows] = signal([
-    { id: 1, label: "one" },
-    { id: 2, label: "two" },
-  ]);
+  const [rows, setRows] = signal(initialRows);
   const [selected, setSelected] = signal(1);
   const isSelected = selector(selected);
   const App = () => (
@@ -22,5 +21,5 @@ export function mount(root: Element) {
     </section>
   );
   const dispose = attach(App, root);
-  return { dispose, setCount, setRows, setSelected };
+  return { dispose, setCount, setRows, setSelected, labelReads };
 }

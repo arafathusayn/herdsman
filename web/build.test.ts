@@ -35,7 +35,11 @@ test("vendored Reactre compiles TSX and updates keyed DOM without installed pack
     dispatch(button, "click");
     expect(button.textContent).toBe("1");
     expect(find(section, (e) => e.tagName === "P")?.textContent).toBe("updated");
+    const initialLabelReads = app.labelReads();
     app.setSelected(2);
+    // Selection should touch the two classes, not re-read plain row labels.
+    // This fails when unresolved imports disable whole-program store analysis.
+    expect(app.labelReads()).toBe(initialLabelReads);
     expect(first.className).toBe("");
     expect(second.className).toBe("selected");
     app.setRows([

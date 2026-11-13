@@ -38,7 +38,13 @@ during `make web`. Author no generated JavaScript or template helper calls.
 
 `tsconfig.json` resolves Reactre's types to source. `reactre.ts` resolves the
 runtime's imports to source too, including from inside the submodule's own
-TypeScript config, and loads the upstream compiler. `build.ts` builds both
+TypeScript config, and loads the upstream compiler. Its `sourceCompiler` adapter
+also gives upstream whole-program analysis that source resolver: plain imported
+data must not be treated as possible stores because package resolution failed.
+The same analysis selects the core runtime features. Builds fail if the graph
+cannot be resolved; runtime tests without entrypoints use per-file analysis.
+The compiled integration test checks that selecting a row does not re-read its
+static label. `build.ts` builds both
 HTML pages into `internal/web/dist` for Go to embed. The browser receives the
 normal JavaScript bundle; Reactre does not need a separate build.
 

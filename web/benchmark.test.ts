@@ -32,6 +32,36 @@ test("benchmark row equality distinguishes absent fields from explicit undefined
   });
 });
 
+test("benchmark rows reconcile after empty mounting, equal snapshots, reordering and removal", () => {
+  createRoot((dispose) => {
+    const [read, write] = valueState<{ id: string; label: string }[]>([]);
+    const projected = rows(read, (row) => row.id);
+    const empty = projected();
+    write([]);
+    expect(projected()).toBe(empty);
+    write([
+      { id: "a", label: "A" },
+      { id: "b", label: "B" },
+    ]);
+    const first = projected();
+    write(first.map((row) => ({ ...row })));
+    expect(projected()).toBe(first);
+    write([
+      { id: "b", label: "Changed" },
+      { id: "a", label: "A" },
+    ]);
+    expect(projected()[1]).toBe(first[0]);
+    expect(projected()[0]).not.toBe(first[1]);
+    expect(projected()[0]?.label).toBe("Changed");
+    write([]);
+    expect(projected()).toHaveLength(0);
+    write([{ id: "a", label: "A" }]);
+    expect(projected()[0]).not.toBe(first[0]);
+    expect(projected()[0]).toEqual(first[0]);
+    dispose();
+  });
+});
+
 for (const [name, createApp] of [
   ["actor", createActorApp],
   ["signal", createSignalApp],
