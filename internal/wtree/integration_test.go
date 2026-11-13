@@ -47,6 +47,8 @@ func newWorld(t *testing.T) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	origin := filepath.Join(root, "origin.git")
 	repo := filepath.Join(root, "work", "repo")
 	os.MkdirAll(filepath.Dir(repo), 0o755)

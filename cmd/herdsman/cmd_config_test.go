@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -176,7 +177,7 @@ func TestConfigInitWritesBesideTheRepository(t *testing.T) {
 	if code != 0 || strings.TrimSpace(out) != want {
 		t.Fatalf("init: %d %q %s", code, out, errText)
 	}
-	if code, out, _ := configCmd(t, "set", "teardown.grace", "2"); code != 0 || strings.TrimSpace(out) != want {
+	if code, out, _ := configCmd(t, "set", "teardown.grace", "2"); code != 0 || !strings.Contains(out, "("+want+")") {
 		t.Fatalf("discovered set: %d %q", code, out)
 	}
 }
@@ -244,9 +245,242 @@ func TestConfigApprovals(t *testing.T) {
 
 func TestConfigUsageErrors(t *testing.T) {
 	configHome(t)
-	for _, args := range [][]string{{}, {"nope"}, {"get"}, {"get", "a", "b"}, {"show", "-c"}, {"show", "--format"}} {
+	for _, args := range [][]string{{}, {"nope"}, {"get", "a", "b"}, {"show", "-c"}, {"show", "--format"}} {
 		if code, _, _ := configCmd(t, args...); code != 2 {
 			t.Fatalf("%v: %d", args, code)
 		}
+	}
+}
+
+// gitRepo makes a repository with a remote and moves the test into it.
+func gitRepo(t *testing.T, remote string) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", remote}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	t.Chdir(root)
+	return root
+}
+
+func userConfig(t *testing.T, text string) {
+	t.Helper()
+	dir := config.UserDir(os.Environ())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, filepath.Join(dir, "config.toml"), text)
+}
+
+func TestConfigAppliesTheRepositorysOverrides(t *testing.T) {
+	configHome(t)
+	gitRepo(t, "git@github.com:acme/app.git")
+	userConfig(t, "[branch]\nname = \"general\"\n[projects.\"github.com/acme/app\".branch]\nname = \"special\"\n")
+	code, out, errText := configCmd(t, "get", "branch.name")
+	if code != 0 || strings.TrimSpace(out) != `"special"` && strings.TrimSpace(out) != "special" {
+		t.Fatalf("code %d, out %q, err %s", code, out, errText)
+	}
+}
+
+func TestConfigIgnoresAnotherRepositorysOverrides(t *testing.T) {
+	configHome(t)
+	gitRepo(t, "git@github.com:acme/other.git")
+	userConfig(t, "[branch]\nname = \"general\"\n[projects.\"github.com/acme/app\".branch]\nname = \"special\"\n")
+	if code, out, errText := configCmd(t, "get", "branch.name"); code != 0 || !strings.Contains(out, "general") {
+		t.Fatalf("code %d, out %q, err %s", code, out, errText)
+	}
+}
+
+func TestConfigGetForms(t *testing.T) {
+	path := configHome(t)
+	writeConfig(t, path, "[teardown]\ngrace = 2\n")
+	cases := map[string]struct {
+		args []string
+		want string
+	}{
+		"source":      {[]string{"get", "teardown.grace", "--source", "-c", path}, "2 (project)\n"},
+		"json":        {[]string{"get", "teardown.grace", "--json", "-c", path}, "2\n"},
+		"json source": {[]string{"get", "teardown.grace", "--json", "--source", "-c", path}, "{\"source\":\"project\",\"value\":2}\n"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if code, out, errText := configCmd(t, tc.args...); code != 0 || out != tc.want {
+				t.Fatalf("code %d, out %q, err %s", code, out, errText)
+			}
+		})
+	}
+	code, out, _ := configCmd(t, "get", "-c", path)
+	if code != 0 || !strings.Contains(out, "[teardown]") || !strings.Contains(out, "grace = 2") {
+		t.Fatalf("whole config: code %d\n%s", code, out)
+	}
+	code, out, _ = configCmd(t, "get", "--json", "-c", path)
+	if code != 0 || !strings.Contains(out, "\"grace\": 2") {
+		t.Fatalf("whole json: code %d\n%s", code, out)
+	}
+	if code, _, _ := configCmd(t, "get", "--source", "-c", path); code != 2 {
+		t.Fatalf("--source with no key: code %d", code)
+	}
+}
+
+func TestConfigSetForms(t *testing.T) {
+	path := configHome(t)
+	writeConfig(t, path, "[branch]\ntypes = [\"a\"]\n")
+	code, out, errText := configCmd(t, "set", "branch.name", "x", "-c", path)
+	if code != 0 || out != "branch.name: (unset) -> x ("+path+")\n" {
+		t.Fatalf("code %d, out %q, err %s", code, out, errText)
+	}
+	code, out, errText = configCmd(t, "set", "branch.types", "b", "--append", "-c", path)
+	if code != 0 || !strings.Contains(out, `["a"] -> ["a","b"]`) {
+		t.Fatalf("code %d, out %q, err %s", code, out, errText)
+	}
+}
+
+func TestConfigSetUserFileIsCreatedAndAFailureLeavesNothing(t *testing.T) {
+	configHome(t)
+	file := filepath.Join(config.UserDir(os.Environ()), "config.toml")
+	if code, _, _ := configCmd(t, "set", "merge.land", "octopus", "--user"); code != 1 {
+		t.Fatalf("code %d", code)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("a failed set left a file: %v", err)
+	}
+	code, out, errText := configCmd(t, "set", "merge.land", "push", "--user")
+	if code != 0 || !strings.Contains(out, file) {
+		t.Fatalf("code %d, out %q, err %s", code, out, errText)
+	}
+}
+
+func TestConfigSetProjectNamesTheProjectFile(t *testing.T) {
+	path := configHome(t)
+	writeConfig(t, path, "")
+	t.Setenv("HERDSMAN_CONFIG", path)
+	if code, out, errText := configCmd(t, "set", "merge.land", "push", "--project"); code != 0 || !strings.Contains(out, path) {
+		t.Fatalf("code %d, out %q, err %s", code, out, errText)
+	}
+}
+
+func TestConfigRefusesFlagsThatDoNotApply(t *testing.T) {
+	path := configHome(t)
+	writeConfig(t, path, "")
+	for _, args := range [][]string{
+		{"set", "a.b", "c", "--user", "--project"},
+		{"set", "a.b", "c", "--user", "-c", path},
+		{"set", "a.b", "c", "--json", "-c", path},
+		{"get", "a.b", "--append", "-c", path},
+		{"unset", "a.b", "--user", "-c", path},
+		{"show", "--source", "-c", path},
+	} {
+		if code, _, _ := configCmd(t, args...); code != 2 {
+			t.Errorf("%v: code %d", args, code)
+		}
+	}
+}
+
+func TestConfigInitDetectsAndExplains(t *testing.T) {
+	configHome(t)
+	root := gitRepo(t, "git@github.com:acme/app.git")
+	writeConfig(t, filepath.Join(root, "bun.lock"), "")
+	writeConfig(t, filepath.Join(root, ".env.example"), "")
+	code, out, errText := configCmd(t, "init")
+	if code != 0 || !strings.Contains(out, ".env.example") {
+		t.Fatalf("code %d, out %q, err %s", code, out, errText)
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(root), "herdsman.config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "bun install") || !strings.Contains(string(data), "# ") {
+		t.Fatalf("file:\n%s", data)
+	}
+	jsonFile := filepath.Join(t.TempDir(), "c.json")
+	code, out, _ = configCmd(t, "init", "--format", "json", "-c", jsonFile)
+	if code != 0 || !strings.Contains(out, "merge.strategy: ") {
+		t.Fatalf("code %d\n%s", code, out)
+	}
+}
+
+func TestConfigSchemaProto(t *testing.T) {
+	code, out, _ := configCmd(t, "schema", "--format", "proto")
+	if code != 0 || !strings.Contains(out, "package herdsman.config.v1;") {
+		t.Fatalf("code %d\n%s", code, out)
+	}
+}
+
+func TestSpecJSONSchema(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runSpec([]string{"jsonschema"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("code %d: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "herdsman configuration") {
+		t.Fatalf("output:\n%s", stdout.String())
+	}
+}
+
+func TestConfigErrorsFromBrokenFilesAndKeys(t *testing.T) {
+	path := configHome(t)
+	writeConfig(t, path, "not toml")
+	for _, args := range [][]string{{"get", "merge.land", "-c", path}, {"get", "merge.land", "--json", "-c", path}, {"update", "-c", path}} {
+		if code, _, _ := configCmd(t, args...); code != 1 {
+			t.Errorf("%v: code %d", args, code)
+		}
+	}
+	writeConfig(t, path, "")
+	for _, args := range [][]string{
+		{"get", "no.such", "--source", "-c", path},
+		{"get", "no.such", "--json", "-c", path},
+		{"get", "no.such", "-c", path},
+		{"set", "no.such", "x", "--project", "-c", filepath.Join(filepath.Dir(path), "gone.toml")},
+		{"update", "-c", filepath.Join(filepath.Dir(path), "gone.toml")},
+	} {
+		if code, _, _ := configCmd(t, args...); code == 0 {
+			t.Errorf("%v: code 0", args)
+		}
+	}
+	if code, _, _ := configCmd(t, "schema", "--format", "nope"); code != 2 {
+		t.Errorf("schema: code %d", code)
+	}
+}
+
+func TestConfigSetUserWithoutHome(t *testing.T) {
+	configHome(t)
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if code, _, _ := configCmd(t, "set", "merge.land", "push", "--user"); code != 1 {
+		t.Fatalf("code %d", code)
+	}
+}
+
+func TestConfigSetUserEditsAnExistingFile(t *testing.T) {
+	configHome(t)
+	userConfig(t, "[merge]\nland = \"pr\"\n")
+	code, out, errText := configCmd(t, "set", "merge.land", "push", "--user")
+	if code != 0 || !strings.Contains(out, "pr -> push") {
+		t.Fatalf("code %d, out %q, err %s", code, out, errText)
+	}
+}
+
+func TestSpecUsageAndUnknownView(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runSpec([]string{"nope"}, strings.NewReader(""), &stdout, &stderr); code != 2 {
+		t.Fatalf("code %d", code)
+	}
+}
+
+func TestConfigApprovalsReportsADamagedStore(t *testing.T) {
+	configHome(t)
+	path := filepath.Join(config.UserDir(os.Environ()), approvals.FileName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, path, "not toml")
+	if code, _, _ := configCmd(t, "approvals", "list"); code == 0 {
+		t.Fatal("listed a damaged store")
+	}
+	if code, _, _ := configCmd(t, "approvals", "clear", "p"); code == 0 {
+		t.Fatal("cleared a damaged store")
 	}
 }

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
@@ -14,6 +15,7 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	runtimes := &runtimeService{d: d}
 	projectContext := &projectContextService{}
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
+	settings := &configRPC{inspect: d.cfg.Inspect}
 	records := &recordsRPC{d: d}
 	projects, tasks := projectRPC{records}, taskRPC{records}
 	eventRPC := newEventService(d.hub, d.admitEvents, releaseContext)
@@ -66,6 +68,12 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(daemonv1.RouteServiceName, "Up", routes.Up),
 		rpc.Unary(daemonv1.RouteServiceName, "Get", routes.Get),
 		rpc.Unary(daemonv1.RouteServiceName, "List", routes.List),
+		rpc.Unary(configv1.ConfigServiceName, "Export", settings.Export),
+		rpc.Unary(configv1.ConfigServiceName, "Get", settings.Get),
+		rpc.Unary(configv1.ConfigServiceName, "Set", settings.Set),
+		rpc.Unary(configv1.ConfigServiceName, "Show", settings.Show),
+		rpc.Unary(configv1.ConfigServiceName, "Unset", settings.Unset),
+		rpc.Unary(configv1.ConfigServiceName, "Validate", settings.Validate),
 		rpc.Unary(daemonv1.ProjectServiceName, "Create", projects.Create),
 		rpc.Unary(daemonv1.ProjectServiceName, "Get", projects.Get),
 		rpc.Unary(daemonv1.ProjectServiceName, "List", projects.List),

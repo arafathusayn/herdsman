@@ -3089,7 +3089,7 @@ var File_herdsman_config_v1_config_proto protoreflect.FileDescriptor
 
 const file_herdsman_config_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"\x1fherdsman/config/v1/config.proto\x12\x12herdsman.config.v1\"\x84\t\n" +
+	"\x1fherdsman/config/v1/config.proto\x12\x12herdsman.config.v1\"\x8c\t\n" +
 	"\x06Config\x12A\n" +
 	"\aaliases\x18\x01 \x03(\v2'.herdsman.config.v1.Config.AliasesEntryR\aaliases\x122\n" +
 	"\x06branch\x18\x02 \x01(\v2\x1a.herdsman.config.v1.BranchR\x06branch\x122\n" +
@@ -3115,7 +3115,7 @@ const file_herdsman_config_v1_config_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aW\n" +
 	"\rProjectsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
-	"\x05value\x18\x02 \x01(\v2\x1a.herdsman.config.v1.ConfigR\x05value:\x028\x01\"\xda\x01\n" +
+	"\x05value\x18\x02 \x01(\v2\x1a.herdsman.config.v1.ConfigR\x05value:\x028\x01J\x06\b\x84\a\x10\x85\a\"\xda\x01\n" +
 	"\aRuntime\x12\x1d\n" +
 	"\abackend\x18\x01 \x01(\tH\x00R\abackend\x88\x01\x01\x123\n" +
 	"\x04core\x18\x02 \x01(\v2\x1f.herdsman.config.v1.RuntimeCoreR\x04core\x120\n" +

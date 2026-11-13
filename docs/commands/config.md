@@ -5,14 +5,14 @@
 Read and change the configuration; install the shell integration.
 
 ```text
-usage: herdsman config get <key> [-c <path>]
-       herdsman config set <key> <value> [-c <path>]
+usage: herdsman config get [<key>] [--source] [--json] [-c <path>]
+       herdsman config set <key> <value> [--append] [--project|--user|-c <path>]
        herdsman config unset <key> [-c <path>]
        herdsman config show [--strict] [-c <path>]
        herdsman config export --format toml|yaml|json|bin [-c <path>]
        herdsman config update [-c <path>]
        herdsman config init [--format toml|yaml|json|bin] [-c <path>]
-       herdsman config schema --format jsonschema|descriptor
+       herdsman config schema --format jsonschema|descriptor|proto
        herdsman config approvals list
        herdsman config approvals clear [<project>]
        herdsman config shell install|uninstall [bash|zsh|fish] [--json]
@@ -20,6 +20,11 @@ usage: herdsman config get <key> [-c <path>]
 Keys are dotted paths such as merge.strategy; a kebab-case spelling is the same
 key. -c names a file; otherwise HERDSMAN_CONFIG, then the repository's parent
 folder, then the repository root.
+
+get with no key prints the whole effective configuration. --source adds where
+a value came from; --json prints typed JSON. set prints the old and new value
+and the file changed; --user writes the user file, --append adds one item to a
+list.
 
 show prints the file in use and then one "key = value (source)" line each.
 A warning goes to stderr; --strict makes it an error. An unknown key in the

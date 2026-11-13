@@ -474,6 +474,7 @@ func TestDiffBeforeTheFirstCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitOut(t, repo, "init", "-q", "-b", "main")
+	t.Setenv("HOME", filepath.Join(root, "home"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Chdir(repo)
 	write(t, filepath.Join(repo, "a"), "a\n")

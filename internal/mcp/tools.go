@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode"
 
+	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
@@ -52,6 +53,10 @@ var readOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.OpsService.Records":            true,
 	"herdsman.daemon.v1.RouteService.Get":              true,
 	"herdsman.daemon.v1.RouteService.List":             true,
+	"herdsman.config.v1.ConfigService.Export":          true,
+	"herdsman.config.v1.ConfigService.Get":             true,
+	"herdsman.config.v1.ConfigService.Show":            true,
+	"herdsman.config.v1.ConfigService.Validate":        true,
 	"herdsman.daemon.v1.ProjectService.Get":            true,
 	"herdsman.daemon.v1.ProjectService.List":           true,
 	"herdsman.daemon.v1.TaskService.Get":               true,
@@ -80,7 +85,8 @@ var planOnlyMethods = map[protoreflect.FullName]bool{
 
 // peopleOnlyMethods get no tool. An agent holding this server runs as the same
 // user as the person it works for, so these are the decisions it must not be
-// able to make for them: who may talk on a channel, and whether the daemon runs.
+// able to make for them: who may talk on a channel, whether the daemon runs,
+// and what the safety settings and hooks in a configuration file say.
 // An export writes the channel secrets to a path of the caller's choosing, and
 // an import builds an account whose approved pairs come from any folder.
 var peopleOnlyMethods = map[protoreflect.FullName]bool{
@@ -97,6 +103,8 @@ var peopleOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.ResetEvents":      true,
 	"herdsman.daemon.v1.OpsService.Export":               true,
 	"herdsman.daemon.v1.OpsService.Import":               true,
+	"herdsman.config.v1.ConfigService.Set":               true,
+	"herdsman.config.v1.ConfigService.Unset":             true,
 	// The installation default decides where every later route of the account
 	// runs.
 	"herdsman.daemon.v1.RuntimeService.SetDefault": true,
@@ -121,6 +129,7 @@ func Files() []protoreflect.FileDescriptor {
 		daemonv1.File_herdsman_daemon_v1_ops_proto,
 		daemonv1.File_herdsman_daemon_v1_runtime_proto,
 		suggestv1.File_herdsman_suggest_v1_suggest_proto,
+		configv1.File_herdsman_config_v1_config_proto,
 	}
 }
 

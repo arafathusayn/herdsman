@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,15 +101,41 @@ func TestNewSetsUpWithNoFolderToBringOver(t *testing.T) {
 }
 
 func TestNewWarnsWhenTheFolderCannotBeBroughtOver(t *testing.T) {
-	s, repo := shareRepo(t, "target/\n")
-	locked := filepath.Join(repo, "target", "locked")
-	writeShareFile(t, filepath.Join(locked, "cache"), "built")
-	if err := os.Chmod(locked, 0); err != nil {
-		t.Fatal(err)
+	for _, explicit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("explicit=%t", explicit), func(t *testing.T) {
+			s, repo := shareRepo(t, "target/\n")
+			if explicit {
+				writeSetup(t, repo, "[setup]\nenv = [\"target\"]\nshare = [\"./target\", \"target\"]\n")
+			}
+			locked := filepath.Join(repo, "target", "locked")
+			writeShareFile(t, filepath.Join(locked, "cache"), "built")
+			if err := os.Chmod(locked, 0); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+			resp := newShareTask(t, s, repo, false)
+			if len(resp.Warnings) != 1 || !strings.Contains(resp.Warnings[0], "target") {
+				t.Fatalf("a cache that did not come over must warn exactly once: %v", resp.Warnings)
+			}
+		})
 	}
-	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
-	resp := newShareTask(t, s, repo, false)
-	if len(resp.Warnings) != 1 || !strings.Contains(resp.Warnings[0], "target") {
-		t.Fatalf("a cache that did not come over must not fail the task: %v", resp.Warnings)
+}
+
+func TestConfiguredSharesReplaceDetectedFolders(t *testing.T) {
+	for _, listed := range []string{`[]`, `["cache"]`} {
+		t.Run(listed, func(t *testing.T) {
+			s, repo := shareRepo(t, "target/\ncache/\n")
+			writeShareFile(t, filepath.Join(repo, "target", "cache"), "detected")
+			writeShareFile(t, filepath.Join(repo, "cache", "blob"), "explicit")
+			writeSetup(t, repo, "[setup]\nshare = "+listed+"\n")
+			resp := newShareTask(t, s, repo, false)
+			if _, err := os.Stat(filepath.Join(resp.Path, "target")); !os.IsNotExist(err) {
+				t.Fatalf("explicit share list did not replace detection: %v", err)
+			}
+			_, err := os.Stat(filepath.Join(resp.Path, "cache", "blob"))
+			if listed == `[]` && !os.IsNotExist(err) || listed != `[]` && err != nil {
+				t.Fatalf("explicit share list %s: %v", listed, err)
+			}
+		})
 	}
 }

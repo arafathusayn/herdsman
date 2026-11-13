@@ -1,13 +1,37 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/arafathusayn/herdsman/sdk/config"
 )
+
+func TestLegacyJSONDoesNotHideSafetyConfigErrors(t *testing.T) {
+	for _, section := range []string{"policy", "launch", "runtime"} {
+		t.Run(section, func(t *testing.T) {
+			s, repo := shareRepo(t, "")
+			writeShareFile(t, filepath.Join(filepath.Dir(repo), "herdsman.config.json"), fmt.Sprintf(`{"%s":{"misspelled_safety_key":true}}`, section))
+			_, err := s.New(t.Context(), WorktreeNewRequest{Dir: repo, Task: "one", Base: "main", NoSetup: true})
+			var strict *config.StrictError
+			if !errors.As(err, &strict) {
+				t.Fatalf("expected strict config error, got %v", err)
+			}
+			cmd := exec.Command("git", "branch", "--list", "one")
+			cmd.Dir = repo
+			got, err := cmd.CombinedOutput()
+			if err != nil || strings.TrimSpace(string(got)) != "" {
+				t.Fatalf("created branch despite invalid config: %s", got)
+			}
+		})
+	}
+}
 
 func writeSetup(t *testing.T, repo, body string) {
 	t.Helper()

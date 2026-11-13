@@ -28,6 +28,8 @@ message Config {
   Worktree worktree = 15;
   Automations automations = 16;
   Retention retention = 17;
+  // Paths of the lists written as empty, in the binary form only.
+  reserved 900;
   Runtime runtime = 18;
 }
 

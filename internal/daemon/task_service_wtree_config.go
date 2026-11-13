@@ -102,6 +102,11 @@ func (r *repository) projectKey(ctx context.Context) string {
 // that cannot be read stops the command: running without the hooks someone
 // wrote would be worse than refusing.
 func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error {
+	// Two files side by side are refused here because the fallback below would
+	// otherwise let the JSON one win without a word.
+	if _, err := config.FileIn(filepath.Dir(r.main)); err != nil {
+		return err
+	}
 	written, hasJSON, err := jsonHooks(filepath.Dir(r.main))
 	if err != nil {
 		return err
@@ -110,7 +115,8 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 	r.ports = wtree.PortBlock
 	loaded, err := config.Load(config.Options{RepoRoot: r.main, UserDir: s.ConfigDir, ProjectKey: r.projectKey(ctx), Environ: s.caller})
 	if err != nil {
-		if !hasJSON {
+		var strict *config.StrictError
+		if !hasJSON || errors.As(err, &strict) {
 			return err
 		}
 		// This file predates the shared schema and may not fit it: a timeout
@@ -132,14 +138,26 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 		r.naming.BranchName = name
 	}
 	setup := loaded.Config.GetSetup()
-	r.envFiles, r.shared = setup.GetEnv(), setup.GetShare()
+	r.envFiles = setup.GetEnv()
+	// Detected shares are handled from the new checkout by finishNew. Only
+	// explicitly listed shares should receive configuration diagnostics.
+	shareSource := loaded.Sources["setup.share"]
+	r.shareSet = shareSource != "" && shareSource != config.SourceDefault
+	if r.shareSet {
+		r.shared = setup.GetShare()
+	}
 	if setup.Ports != nil {
 		r.ports = int(setup.GetPorts())
 	}
 	if r.ports < 0 || r.ports > wtree.PortBlock {
 		return fmt.Errorf("setup.ports is %d; a task's block holds at most %d", r.ports, wtree.PortBlock)
 	}
-	if install := strings.TrimSpace(loaded.Config.GetSetup().GetInstall()); install != "" {
+	// A command only detected from the repository's files comes back as a
+	// default. setupPlan offers it; only one a person wrote is a hook to approve.
+	install := strings.TrimSpace(loaded.Config.GetSetup().GetInstall())
+	installSource := loaded.Sources["setup.install"]
+	r.installSet = installSource != "" && installSource != config.SourceDefault
+	if install != "" && r.installSet {
 		if r.hooks == nil {
 			r.hooks = hooks.Config{}
 		}
@@ -157,6 +175,9 @@ func (s *WorktreeService) setupPlan(r *repository, vars wtree.Vars, detected wtr
 			return nil, nil, err
 		}
 		return plan, []string{plan[0][0].Rendered}, nil
+	}
+	if r.installSet {
+		return nil, nil, nil
 	}
 	var plan hooks.Plan
 	for _, install := range detected.Install {
