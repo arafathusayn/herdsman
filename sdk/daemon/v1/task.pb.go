@@ -735,6 +735,458 @@ func (x *TaskServiceLinkResponse) GetTask() *v1.Task {
 	return nil
 }
 
+type TaskServiceNewRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The caller's folder, absolute: it selects the repository.
+	Dir  string `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`
+	Task string `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
+	// Empty means the repository's default branch.
+	Base string `protobuf:"bytes,3,opt,name=base,proto3" json:"base,omitempty"`
+	// A pull request to start from: pr:<n> or a URL.
+	From string `protobuf:"bytes,4,opt,name=from,proto3" json:"from,omitempty"`
+	// The branch's type prefix; empty means feat.
+	Type string `protobuf:"bytes,5,opt,name=type,proto3" json:"type,omitempty"`
+	// The command that starts an agent in the worktree.
+	Agent   string `protobuf:"bytes,6,opt,name=agent,proto3" json:"agent,omitempty"`
+	Prompt  string `protobuf:"bytes,7,opt,name=prompt,proto3" json:"prompt,omitempty"`
+	NoSetup bool   `protobuf:"varint,8,opt,name=no_setup,json=noSetup,proto3" json:"no_setup,omitempty"`
+	// Rename a stale folder at the path aside.
+	Clobber bool `protobuf:"varint,9,opt,name=clobber,proto3" json:"clobber,omitempty"`
+	// The caller's environment, as NAME=value, for hooks and for finding herdr.
+	Environ []string `protobuf:"bytes,10,rep,name=environ,proto3" json:"environ,omitempty"`
+	// Under the restricted profile, grant the agent the [policy] roots.
+	Integrator    bool `protobuf:"varint,11,opt,name=integrator,proto3" json:"integrator,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TaskServiceNewRequest) Reset() {
+	*x = TaskServiceNewRequest{}
+	mi := &file_herdsman_daemon_v1_task_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskServiceNewRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskServiceNewRequest) ProtoMessage() {}
+
+func (x *TaskServiceNewRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_task_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskServiceNewRequest.ProtoReflect.Descriptor instead.
+func (*TaskServiceNewRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_task_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *TaskServiceNewRequest) GetDir() string {
+	if x != nil {
+		return x.Dir
+	}
+	return ""
+}
+
+func (x *TaskServiceNewRequest) GetTask() string {
+	if x != nil {
+		return x.Task
+	}
+	return ""
+}
+
+func (x *TaskServiceNewRequest) GetBase() string {
+	if x != nil {
+		return x.Base
+	}
+	return ""
+}
+
+func (x *TaskServiceNewRequest) GetFrom() string {
+	if x != nil {
+		return x.From
+	}
+	return ""
+}
+
+func (x *TaskServiceNewRequest) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *TaskServiceNewRequest) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *TaskServiceNewRequest) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
+	}
+	return ""
+}
+
+func (x *TaskServiceNewRequest) GetNoSetup() bool {
+	if x != nil {
+		return x.NoSetup
+	}
+	return false
+}
+
+func (x *TaskServiceNewRequest) GetClobber() bool {
+	if x != nil {
+		return x.Clobber
+	}
+	return false
+}
+
+func (x *TaskServiceNewRequest) GetEnviron() []string {
+	if x != nil {
+		return x.Environ
+	}
+	return nil
+}
+
+func (x *TaskServiceNewRequest) GetIntegrator() bool {
+	if x != nil {
+		return x.Integrator
+	}
+	return false
+}
+
+type TaskServiceNewResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The version of this response's shape.
+	SchemaVersion string `protobuf:"bytes,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	Task          string `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
+	Branch        string `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
+	Path          string `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
+	Base          string `protobuf:"bytes,5,opt,name=base,proto3" json:"base,omitempty"`
+	Port          int32  `protobuf:"varint,6,opt,name=port,proto3" json:"port,omitempty"`
+	// Whether herdr made or opened the worktree.
+	Herdr bool     `protobuf:"varint,7,opt,name=herdr,proto3" json:"herdr,omitempty"`
+	Setup []string `protobuf:"bytes,8,rep,name=setup,proto3" json:"setup,omitempty"`
+	// The command line that enters the worktree.
+	Launch   string   `protobuf:"bytes,9,opt,name=launch,proto3" json:"launch,omitempty"`
+	Logs     []string `protobuf:"bytes,10,rep,name=logs,proto3" json:"logs,omitempty"`
+	Warnings []string `protobuf:"bytes,11,rep,name=warnings,proto3" json:"warnings,omitempty"`
+	// The agent started in the worktree; empty when none was.
+	AgentName string `protobuf:"bytes,12,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
+	// The ports reserved for the task, starting at port.
+	Ports         []int32 `protobuf:"varint,13,rep,packed,name=ports,proto3" json:"ports,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TaskServiceNewResponse) Reset() {
+	*x = TaskServiceNewResponse{}
+	mi := &file_herdsman_daemon_v1_task_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskServiceNewResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskServiceNewResponse) ProtoMessage() {}
+
+func (x *TaskServiceNewResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_task_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskServiceNewResponse.ProtoReflect.Descriptor instead.
+func (*TaskServiceNewResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_task_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *TaskServiceNewResponse) GetSchemaVersion() string {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return ""
+}
+
+func (x *TaskServiceNewResponse) GetTask() string {
+	if x != nil {
+		return x.Task
+	}
+	return ""
+}
+
+func (x *TaskServiceNewResponse) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *TaskServiceNewResponse) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *TaskServiceNewResponse) GetBase() string {
+	if x != nil {
+		return x.Base
+	}
+	return ""
+}
+
+func (x *TaskServiceNewResponse) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *TaskServiceNewResponse) GetHerdr() bool {
+	if x != nil {
+		return x.Herdr
+	}
+	return false
+}
+
+func (x *TaskServiceNewResponse) GetSetup() []string {
+	if x != nil {
+		return x.Setup
+	}
+	return nil
+}
+
+func (x *TaskServiceNewResponse) GetLaunch() string {
+	if x != nil {
+		return x.Launch
+	}
+	return ""
+}
+
+func (x *TaskServiceNewResponse) GetLogs() []string {
+	if x != nil {
+		return x.Logs
+	}
+	return nil
+}
+
+func (x *TaskServiceNewResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
+}
+
+func (x *TaskServiceNewResponse) GetAgentName() string {
+	if x != nil {
+		return x.AgentName
+	}
+	return ""
+}
+
+func (x *TaskServiceNewResponse) GetPorts() []int32 {
+	if x != nil {
+		return x.Ports
+	}
+	return nil
+}
+
+type TaskServiceGoRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The caller's folder, absolute: it selects the repository.
+	Dir string `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`
+	// A task, branch or path, one of ^ @ -, pr:<n> or a URL.
+	Selector string `protobuf:"bytes,2,opt,name=selector,proto3" json:"selector,omitempty"`
+	// Also focus the worktree's herdr pane.
+	Focus bool `protobuf:"varint,3,opt,name=focus,proto3" json:"focus,omitempty"`
+	// The caller's environment, as NAME=value, for hooks and for finding herdr.
+	Environ       []string `protobuf:"bytes,4,rep,name=environ,proto3" json:"environ,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TaskServiceGoRequest) Reset() {
+	*x = TaskServiceGoRequest{}
+	mi := &file_herdsman_daemon_v1_task_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskServiceGoRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskServiceGoRequest) ProtoMessage() {}
+
+func (x *TaskServiceGoRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_task_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskServiceGoRequest.ProtoReflect.Descriptor instead.
+func (*TaskServiceGoRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_task_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *TaskServiceGoRequest) GetDir() string {
+	if x != nil {
+		return x.Dir
+	}
+	return ""
+}
+
+func (x *TaskServiceGoRequest) GetSelector() string {
+	if x != nil {
+		return x.Selector
+	}
+	return ""
+}
+
+func (x *TaskServiceGoRequest) GetFocus() bool {
+	if x != nil {
+		return x.Focus
+	}
+	return false
+}
+
+func (x *TaskServiceGoRequest) GetEnviron() []string {
+	if x != nil {
+		return x.Environ
+	}
+	return nil
+}
+
+type TaskServiceGoResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The version of this response's shape.
+	SchemaVersion string `protobuf:"bytes,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	Task          string `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
+	Branch        string `protobuf:"bytes,3,opt,name=branch,proto3" json:"branch,omitempty"`
+	Path          string `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
+	// Whether the call made the worktree.
+	Created bool `protobuf:"varint,5,opt,name=created,proto3" json:"created,omitempty"`
+	Focused bool `protobuf:"varint,6,opt,name=focused,proto3" json:"focused,omitempty"`
+	// The remote a fork's branch pushes to; empty for other branches.
+	PushRemote    string   `protobuf:"bytes,7,opt,name=push_remote,json=pushRemote,proto3" json:"push_remote,omitempty"`
+	Warnings      []string `protobuf:"bytes,8,rep,name=warnings,proto3" json:"warnings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TaskServiceGoResponse) Reset() {
+	*x = TaskServiceGoResponse{}
+	mi := &file_herdsman_daemon_v1_task_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskServiceGoResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskServiceGoResponse) ProtoMessage() {}
+
+func (x *TaskServiceGoResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_task_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskServiceGoResponse.ProtoReflect.Descriptor instead.
+func (*TaskServiceGoResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_task_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *TaskServiceGoResponse) GetSchemaVersion() string {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return ""
+}
+
+func (x *TaskServiceGoResponse) GetTask() string {
+	if x != nil {
+		return x.Task
+	}
+	return ""
+}
+
+func (x *TaskServiceGoResponse) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *TaskServiceGoResponse) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *TaskServiceGoResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
+func (x *TaskServiceGoResponse) GetFocused() bool {
+	if x != nil {
+		return x.Focused
+	}
+	return false
+}
+
+func (x *TaskServiceGoResponse) GetPushRemote() string {
+	if x != nil {
+		return x.PushRemote
+	}
+	return ""
+}
+
+func (x *TaskServiceGoResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
+}
+
 var File_herdsman_daemon_v1_task_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_task_proto_rawDesc = "" +
@@ -789,14 +1241,62 @@ const file_herdsman_daemon_v1_task_proto_rawDesc = "" +
 	"\x04link\x18\x03 \x01(\tR\x04link\x12\x12\n" +
 	"\x04repo\x18\x04 \x01(\tR\x04repo\"E\n" +
 	"\x17TaskServiceLinkResponse\x12*\n" +
-	"\x04task\x18\x01 \x01(\v2\x16.herdsman.core.v1.TaskR\x04task2\xe2\x04\n" +
+	"\x04task\x18\x01 \x01(\v2\x16.herdsman.core.v1.TaskR\x04task\"\x96\x02\n" +
+	"\x15TaskServiceNewRequest\x12\x10\n" +
+	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x12\n" +
+	"\x04task\x18\x02 \x01(\tR\x04task\x12\x12\n" +
+	"\x04base\x18\x03 \x01(\tR\x04base\x12\x12\n" +
+	"\x04from\x18\x04 \x01(\tR\x04from\x12\x12\n" +
+	"\x04type\x18\x05 \x01(\tR\x04type\x12\x14\n" +
+	"\x05agent\x18\x06 \x01(\tR\x05agent\x12\x16\n" +
+	"\x06prompt\x18\a \x01(\tR\x06prompt\x12\x19\n" +
+	"\bno_setup\x18\b \x01(\bR\anoSetup\x12\x18\n" +
+	"\aclobber\x18\t \x01(\bR\aclobber\x12\x18\n" +
+	"\aenviron\x18\n" +
+	" \x03(\tR\aenviron\x12\x1e\n" +
+	"\n" +
+	"integrator\x18\v \x01(\bR\n" +
+	"integrator\"\xd0\x02\n" +
+	"\x16TaskServiceNewResponse\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\tR\rschemaVersion\x12\x12\n" +
+	"\x04task\x18\x02 \x01(\tR\x04task\x12\x16\n" +
+	"\x06branch\x18\x03 \x01(\tR\x06branch\x12\x12\n" +
+	"\x04path\x18\x04 \x01(\tR\x04path\x12\x12\n" +
+	"\x04base\x18\x05 \x01(\tR\x04base\x12\x12\n" +
+	"\x04port\x18\x06 \x01(\x05R\x04port\x12\x14\n" +
+	"\x05herdr\x18\a \x01(\bR\x05herdr\x12\x14\n" +
+	"\x05setup\x18\b \x03(\tR\x05setup\x12\x16\n" +
+	"\x06launch\x18\t \x01(\tR\x06launch\x12\x12\n" +
+	"\x04logs\x18\n" +
+	" \x03(\tR\x04logs\x12\x1a\n" +
+	"\bwarnings\x18\v \x03(\tR\bwarnings\x12\x1d\n" +
+	"\n" +
+	"agent_name\x18\f \x01(\tR\tagentName\x12\x14\n" +
+	"\x05ports\x18\r \x03(\x05R\x05ports\"t\n" +
+	"\x14TaskServiceGoRequest\x12\x10\n" +
+	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x1a\n" +
+	"\bselector\x18\x02 \x01(\tR\bselector\x12\x14\n" +
+	"\x05focus\x18\x03 \x01(\bR\x05focus\x12\x18\n" +
+	"\aenviron\x18\x04 \x03(\tR\aenviron\"\xef\x01\n" +
+	"\x15TaskServiceGoResponse\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\tR\rschemaVersion\x12\x12\n" +
+	"\x04task\x18\x02 \x01(\tR\x04task\x12\x16\n" +
+	"\x06branch\x18\x03 \x01(\tR\x06branch\x12\x12\n" +
+	"\x04path\x18\x04 \x01(\tR\x04path\x12\x18\n" +
+	"\acreated\x18\x05 \x01(\bR\acreated\x12\x18\n" +
+	"\afocused\x18\x06 \x01(\bR\afocused\x12\x1f\n" +
+	"\vpush_remote\x18\a \x01(\tR\n" +
+	"pushRemote\x12\x1a\n" +
+	"\bwarnings\x18\b \x03(\tR\bwarnings2\x9b\x06\n" +
 	"\vTaskService\x12e\n" +
 	"\x06Create\x12,.herdsman.daemon.v1.TaskServiceCreateRequest\x1a-.herdsman.daemon.v1.TaskServiceCreateResponse\x12\\\n" +
 	"\x03Get\x12).herdsman.daemon.v1.TaskServiceGetRequest\x1a*.herdsman.daemon.v1.TaskServiceGetResponse\x12_\n" +
 	"\x04List\x12*.herdsman.daemon.v1.TaskServiceListRequest\x1a+.herdsman.daemon.v1.TaskServiceListResponse\x12e\n" +
 	"\x06Update\x12,.herdsman.daemon.v1.TaskServiceUpdateRequest\x1a-.herdsman.daemon.v1.TaskServiceUpdateResponse\x12e\n" +
 	"\x06Delete\x12,.herdsman.daemon.v1.TaskServiceDeleteRequest\x1a-.herdsman.daemon.v1.TaskServiceDeleteResponse\x12_\n" +
-	"\x04Link\x12*.herdsman.daemon.v1.TaskServiceLinkRequest\x1a+.herdsman.daemon.v1.TaskServiceLinkResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
+	"\x04Link\x12*.herdsman.daemon.v1.TaskServiceLinkRequest\x1a+.herdsman.daemon.v1.TaskServiceLinkResponse\x12\\\n" +
+	"\x03New\x12).herdsman.daemon.v1.TaskServiceNewRequest\x1a*.herdsman.daemon.v1.TaskServiceNewResponse\x12Y\n" +
+	"\x02Go\x12(.herdsman.daemon.v1.TaskServiceGoRequest\x1a).herdsman.daemon.v1.TaskServiceGoResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
 
 var (
 	file_herdsman_daemon_v1_task_proto_rawDescOnce sync.Once
@@ -810,7 +1310,7 @@ func file_herdsman_daemon_v1_task_proto_rawDescGZIP() []byte {
 	return file_herdsman_daemon_v1_task_proto_rawDescData
 }
 
-var file_herdsman_daemon_v1_task_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_herdsman_daemon_v1_task_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_herdsman_daemon_v1_task_proto_goTypes = []any{
 	(*TaskServiceCreateRequest)(nil),  // 0: herdsman.daemon.v1.TaskServiceCreateRequest
 	(*TaskServiceCreateResponse)(nil), // 1: herdsman.daemon.v1.TaskServiceCreateResponse
@@ -824,35 +1324,43 @@ var file_herdsman_daemon_v1_task_proto_goTypes = []any{
 	(*TaskServiceDeleteResponse)(nil), // 9: herdsman.daemon.v1.TaskServiceDeleteResponse
 	(*TaskServiceLinkRequest)(nil),    // 10: herdsman.daemon.v1.TaskServiceLinkRequest
 	(*TaskServiceLinkResponse)(nil),   // 11: herdsman.daemon.v1.TaskServiceLinkResponse
-	(*Scope)(nil),                     // 12: herdsman.daemon.v1.Scope
-	(*v1.Task)(nil),                   // 13: herdsman.core.v1.Task
+	(*TaskServiceNewRequest)(nil),     // 12: herdsman.daemon.v1.TaskServiceNewRequest
+	(*TaskServiceNewResponse)(nil),    // 13: herdsman.daemon.v1.TaskServiceNewResponse
+	(*TaskServiceGoRequest)(nil),      // 14: herdsman.daemon.v1.TaskServiceGoRequest
+	(*TaskServiceGoResponse)(nil),     // 15: herdsman.daemon.v1.TaskServiceGoResponse
+	(*Scope)(nil),                     // 16: herdsman.daemon.v1.Scope
+	(*v1.Task)(nil),                   // 17: herdsman.core.v1.Task
 }
 var file_herdsman_daemon_v1_task_proto_depIdxs = []int32{
-	12, // 0: herdsman.daemon.v1.TaskServiceCreateRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	13, // 1: herdsman.daemon.v1.TaskServiceCreateResponse.task:type_name -> herdsman.core.v1.Task
-	12, // 2: herdsman.daemon.v1.TaskServiceGetRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	13, // 3: herdsman.daemon.v1.TaskServiceGetResponse.task:type_name -> herdsman.core.v1.Task
-	12, // 4: herdsman.daemon.v1.TaskServiceListRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	13, // 5: herdsman.daemon.v1.TaskServiceListResponse.tasks:type_name -> herdsman.core.v1.Task
-	12, // 6: herdsman.daemon.v1.TaskServiceUpdateRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	13, // 7: herdsman.daemon.v1.TaskServiceUpdateResponse.task:type_name -> herdsman.core.v1.Task
-	12, // 8: herdsman.daemon.v1.TaskServiceDeleteRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	12, // 9: herdsman.daemon.v1.TaskServiceLinkRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	13, // 10: herdsman.daemon.v1.TaskServiceLinkResponse.task:type_name -> herdsman.core.v1.Task
+	16, // 0: herdsman.daemon.v1.TaskServiceCreateRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	17, // 1: herdsman.daemon.v1.TaskServiceCreateResponse.task:type_name -> herdsman.core.v1.Task
+	16, // 2: herdsman.daemon.v1.TaskServiceGetRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	17, // 3: herdsman.daemon.v1.TaskServiceGetResponse.task:type_name -> herdsman.core.v1.Task
+	16, // 4: herdsman.daemon.v1.TaskServiceListRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	17, // 5: herdsman.daemon.v1.TaskServiceListResponse.tasks:type_name -> herdsman.core.v1.Task
+	16, // 6: herdsman.daemon.v1.TaskServiceUpdateRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	17, // 7: herdsman.daemon.v1.TaskServiceUpdateResponse.task:type_name -> herdsman.core.v1.Task
+	16, // 8: herdsman.daemon.v1.TaskServiceDeleteRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	16, // 9: herdsman.daemon.v1.TaskServiceLinkRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	17, // 10: herdsman.daemon.v1.TaskServiceLinkResponse.task:type_name -> herdsman.core.v1.Task
 	0,  // 11: herdsman.daemon.v1.TaskService.Create:input_type -> herdsman.daemon.v1.TaskServiceCreateRequest
 	2,  // 12: herdsman.daemon.v1.TaskService.Get:input_type -> herdsman.daemon.v1.TaskServiceGetRequest
 	4,  // 13: herdsman.daemon.v1.TaskService.List:input_type -> herdsman.daemon.v1.TaskServiceListRequest
 	6,  // 14: herdsman.daemon.v1.TaskService.Update:input_type -> herdsman.daemon.v1.TaskServiceUpdateRequest
 	8,  // 15: herdsman.daemon.v1.TaskService.Delete:input_type -> herdsman.daemon.v1.TaskServiceDeleteRequest
 	10, // 16: herdsman.daemon.v1.TaskService.Link:input_type -> herdsman.daemon.v1.TaskServiceLinkRequest
-	1,  // 17: herdsman.daemon.v1.TaskService.Create:output_type -> herdsman.daemon.v1.TaskServiceCreateResponse
-	3,  // 18: herdsman.daemon.v1.TaskService.Get:output_type -> herdsman.daemon.v1.TaskServiceGetResponse
-	5,  // 19: herdsman.daemon.v1.TaskService.List:output_type -> herdsman.daemon.v1.TaskServiceListResponse
-	7,  // 20: herdsman.daemon.v1.TaskService.Update:output_type -> herdsman.daemon.v1.TaskServiceUpdateResponse
-	9,  // 21: herdsman.daemon.v1.TaskService.Delete:output_type -> herdsman.daemon.v1.TaskServiceDeleteResponse
-	11, // 22: herdsman.daemon.v1.TaskService.Link:output_type -> herdsman.daemon.v1.TaskServiceLinkResponse
-	17, // [17:23] is the sub-list for method output_type
-	11, // [11:17] is the sub-list for method input_type
+	12, // 17: herdsman.daemon.v1.TaskService.New:input_type -> herdsman.daemon.v1.TaskServiceNewRequest
+	14, // 18: herdsman.daemon.v1.TaskService.Go:input_type -> herdsman.daemon.v1.TaskServiceGoRequest
+	1,  // 19: herdsman.daemon.v1.TaskService.Create:output_type -> herdsman.daemon.v1.TaskServiceCreateResponse
+	3,  // 20: herdsman.daemon.v1.TaskService.Get:output_type -> herdsman.daemon.v1.TaskServiceGetResponse
+	5,  // 21: herdsman.daemon.v1.TaskService.List:output_type -> herdsman.daemon.v1.TaskServiceListResponse
+	7,  // 22: herdsman.daemon.v1.TaskService.Update:output_type -> herdsman.daemon.v1.TaskServiceUpdateResponse
+	9,  // 23: herdsman.daemon.v1.TaskService.Delete:output_type -> herdsman.daemon.v1.TaskServiceDeleteResponse
+	11, // 24: herdsman.daemon.v1.TaskService.Link:output_type -> herdsman.daemon.v1.TaskServiceLinkResponse
+	13, // 25: herdsman.daemon.v1.TaskService.New:output_type -> herdsman.daemon.v1.TaskServiceNewResponse
+	15, // 26: herdsman.daemon.v1.TaskService.Go:output_type -> herdsman.daemon.v1.TaskServiceGoResponse
+	19, // [19:27] is the sub-list for method output_type
+	11, // [11:19] is the sub-list for method input_type
 	11, // [11:11] is the sub-list for extension type_name
 	11, // [11:11] is the sub-list for extension extendee
 	0,  // [0:11] is the sub-list for field type_name
@@ -871,7 +1379,7 @@ func file_herdsman_daemon_v1_task_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herdsman_daemon_v1_task_proto_rawDesc), len(file_herdsman_daemon_v1_task_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

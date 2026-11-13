@@ -489,7 +489,7 @@ func TestInitWritesLoadableDefaultsAndRefusesOverwrite(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !proto.Equal(got.Config, Defaults()) {
+			if !proto.Equal(got.Config, NewFile()) {
 				t.Fatalf("got %v", got.Config)
 			}
 			if err := InitFile(path, format); err == nil {

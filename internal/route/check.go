@@ -29,6 +29,9 @@ var (
 	openLine     = regexp.MustCompile(`^- \[ \] `)
 	closedLine   = regexp.MustCompile(`^- \[[x-]\] `)
 	nopaneLine   = regexp.MustCompile(`^- \[[ x]\] C3\.2 nopane: `)
+	// A route on herdr-core says so in a "Backend: herdr-core" line; its
+	// agents have no panes, so its task table names each runtime reference.
+	coreBackendLine = regexp.MustCompile(`(?i)^[^[:alnum:]]*backend:[[:space:]]*herdr-core([[:space:]]|$)`)
 	// The adjutant rule's patterns, as herdsman route check greps them.
 	adjutantLine  = regexp.MustCompile(`(?i)^[^[:alnum:]]*adjutant:[[:space:]]*[^[:space:]]`)
 	noAdjutant    = regexp.MustCompile(`(?i)adjutant:[[:space:]]*(none|no|-)([[:space:]]|$)`)
@@ -274,6 +277,8 @@ func Check(dir, stage string, w io.Writer) int {
 	if stage != StagePlan {
 		if slices.ContainsFunc(lines, nopaneLine.MatchString) {
 			ok("no agent panes (C3.2 nopane)")
+		} else if slices.ContainsFunc(all, coreBackendLine.MatchString) {
+			referenceCheck(rows, "Runtime", "runtime reference", ok, missing)
 		} else {
 			paneCheck(rows, ok, missing)
 		}
@@ -301,13 +306,20 @@ func Check(dir, stage string, w io.Writer) int {
 // paneCheck requires a real pane in every task row, from the Pane column
 // of the header row.
 func paneCheck(rows []string, ok, missing func(string)) {
+	referenceCheck(rows, "Pane", "pane", ok, missing)
+}
+
+// referenceCheck requires a real reference in every task row, from the
+// header's column: Pane on a TUI route, Runtime (an execution's stored
+// reference) on a herdr-core route, whose Pane cells may stay empty.
+func referenceCheck(rows []string, column, what string, ok, missing func(string)) {
 	if len(rows) == 0 {
-		missing("a Pane column in the task table header")
+		missing("a " + column + " column in the task table header")
 		return
 	}
-	col := columns(rows[0], "Pane")[0]
+	col := columns(rows[0], column)[0]
 	if col == 0 {
-		missing("a Pane column in the task table header")
+		missing("a " + column + " column in the task table header")
 		return
 	}
 	n := 0
@@ -318,7 +330,7 @@ func paneCheck(rows []string, ok, missing func(string)) {
 		n++
 		switch trimCell(field(awkFields(row), col)) {
 		case "", "tbd", "TBD", "?", "-", "none":
-			missing("pane in the task table: " + row)
+			missing(what + " in the task table: " + row)
 			return
 		}
 	}
@@ -326,7 +338,11 @@ func paneCheck(rows []string, ok, missing func(string)) {
 		missing("task rows in the task table")
 		return
 	}
-	ok("task table panes filled")
+	if column == "Pane" {
+		ok("task table panes filled")
+		return
+	}
+	ok("task table " + what + "s filled")
 }
 
 func isFile(p string) bool {

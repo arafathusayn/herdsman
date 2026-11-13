@@ -107,6 +107,8 @@ Examples:
 
 Read first: [`references/harness-guards.md`](references/harness-guards.md), [`references/herdr.md`](references/herdr.md).
 
+The skill drives the Herdr TUI only; a route on the herdr-core backend is out of its scope ([`references/herdr.md`](references/herdr.md), Scope).
+
 ```bash
 test "${HERDR_ENV:-}" = 1
 ```

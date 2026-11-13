@@ -53,8 +53,11 @@ var refRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 type Gate struct {
 	Options inbox.Options
 	Client  *herdr.Client
-	Stdout  io.Writer
-	Stderr  io.Writer
+	// Inventory replaces the Herdr TUI's agent list in the boundary check:
+	// a herdr-core route's agents are read from the daemon. nil keeps the TUI.
+	Inventory inbox.Inventory
+	Stdout    io.Writer
+	Stderr    io.Writer
 
 	root    *inbox.Root
 	ap      string
@@ -154,6 +157,9 @@ func (g *Gate) run(args []string) exit {
 	}
 	if r.ProofStale {
 		return g.die("sandbox policy or protected installation proof stale; repeat human setup" + r.OldProofHint())
+	}
+	if g.Inventory != nil {
+		r.Inventory = g.Inventory
 	}
 	g.root = r
 	g.ap = r.Path("approvals")

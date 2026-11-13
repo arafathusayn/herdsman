@@ -516,6 +516,23 @@ func (c *Client) Unhold(ctx context.Context, route, target string) (HoldResult, 
 	return holdsFromProto(res.GetHolds()), nil
 }
 
+// ResumeGoalReply is a resume-goal's answer on herdr-core.
+type ResumeGoalReply struct {
+	Status, Reason, Line, Execution string
+}
+
+// ResumeGoal asks for a herdr-core agent's paused goal to be resumed: the
+// daemon raises needs_attention and the answer is held.
+func (c *Client) ResumeGoal(ctx context.Context, route, target string) (ResumeGoalReply, error) {
+	res, err := call(ctx, c, func(s daemonv1.MessageService) (*daemonv1.ResumeGoalResponse, error) {
+		return s.ResumeGoal(ctx, &daemonv1.ResumeGoalRequest{Route: routeID(route), Target: target})
+	})
+	if err != nil {
+		return ResumeGoalReply{}, err
+	}
+	return ResumeGoalReply{Status: res.GetStatus(), Reason: res.GetReason(), Line: res.GetLine(), Execution: res.GetExecution().GetExecutionId()}, nil
+}
+
 // Authority reads whether relayed messages carry authority.
 func (c *Client) Authority(ctx context.Context, route string) (AuthorityResult, error) {
 	res, err := call(ctx, c, func(s daemonv1.MessageService) (*daemonv1.AuthorityResponse, error) {

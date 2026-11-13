@@ -14,6 +14,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/gitrun"
 	"github.com/arafathusayn/herdsman/sdk/config"
 	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
@@ -209,6 +210,15 @@ func TestConfigServiceChangesNothingInInspectMode(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(target.GetConfigPath()); string(data) != text {
 		t.Fatalf("file changed:\n%s", data)
+	}
+}
+
+func TestInspectConfigShowDoesNotAllowRuntimeShow(t *testing.T) {
+	server := httptest.NewServer((&Daemon{cfg: Config{Inspect: true}}).rpcHandler())
+	t.Cleanup(server.Close)
+	client := daemonv1.NewRuntimeServiceClient(&http.Client{Transport: &rpc.Transport{}}, server.URL)
+	if _, err := client.Show(t.Context(), &daemonv1.RuntimeServiceShowRequest{}); codeOf(err) != rpc.FailedPrecondition {
+		t.Fatalf("runtime show in inspect mode: %v", err)
 	}
 }
 

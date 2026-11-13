@@ -1129,7 +1129,7 @@ func adrProblems(want int, files map[string]string, index string) []string {
 
 // adrRecordCount is the number of decisions recorded. A new decision raises it
 // and adds its record together.
-const adrRecordCount = 31
+const adrRecordCount = 35
 
 func TestEveryDecisionRecordIsIndexed(t *testing.T) {
 	entries, err := filepath.Glob(filepath.Join(repoRoot, "docs/adr/[0-9]*.md"))

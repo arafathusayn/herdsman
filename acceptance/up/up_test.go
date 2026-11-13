@@ -91,6 +91,13 @@ func setup(t *testing.T) *machine {
 	fix := herdrtest.Serve(m.srv)
 	m.world = herdrtest.ServeWorld(fix)
 	m.startDaemon()
+	// A new account defaults to herdr-core, which this build cannot run, and
+	// these tests drive the fake Herdr TUI: select it the way a person would.
+	cmd := exec.Command(m.bin, "runtime", "default", "herdr-tui")
+	cmd.Dir, cmd.Env = m.repo, m.env()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("runtime default: %v\n%s", err, out)
+	}
 	return m
 }
 

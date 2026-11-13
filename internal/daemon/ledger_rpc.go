@@ -20,6 +20,28 @@ type ledgerRPC struct {
 	inspect bool
 }
 
+// NewWorktree uses the same runtime-aware service as daemon operations. Once
+// admitted, disconnecting the CLI must not interrupt registration halfway.
+func (l ledgerRPC) NewWorktree(_ context.Context, req *daemonv1.NewWorktreeRequest) (*daemonv1.NewWorktreeResponse, error) {
+	run, service, err := l.admit()
+	if err != nil {
+		return nil, err
+	}
+	if !filepath.IsAbs(req.GetDir()) {
+		return nil, rpc.Errorf(rpc.InvalidArgument, "dir must be absolute")
+	}
+	result, err := service.New(run, WorktreeNewRequest{Dir: req.GetDir(), Task: req.GetTask(), Base: req.GetBase(), From: req.GetFrom(), Type: req.GetType(), Agent: req.GetAgent(), Prompt: req.GetPrompt(), NoSetup: req.GetNoSetup(), Clobber: req.GetClobber(), Integrator: req.GetIntegrator()})
+	if err != nil {
+		return nil, runtimeFailure(err)
+	}
+	result.stamp()
+	document, err := json.Marshal(result)
+	if err != nil {
+		return nil, rpc.Errorf(rpc.Internal, "encode worktree result: %v", err)
+	}
+	return &daemonv1.NewWorktreeResponse{Result: document}, nil
+}
+
 // request refuses a call an inspect daemon may not serve, or one that names no
 // repository or task.
 func (l ledgerRPC) request(commonDir, task string) (LedgerRequest, error) {

@@ -23,14 +23,16 @@ Generated from `herdsman spec cli`.
 - [`help`](help.md): Print the commands.
 - [`hook`](hook.md): Show, approve or run a worktree hook.
 - [`import`](import.md): Rebuild an account from an export.
+- [`launch`](launch.md): Run one agent launch in a herdr-core terminal; herdr-core runs it, not a person.
 - [`ls`](ls.md): List the repository's worktrees.
 - [`mcp`](mcp.md): Serve the daemon's services as MCP tools over stdio.
 - [`message`](message.md): The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.
 - [`models`](models.md): Probe each installed harness: its version, models, efforts and default effort as it reports them.
 - [`new`](new.md): Make a task's branch and worktree.
+- [`notice`](notice.md): A managed agent's instructions on herdr-core: notice wait, notice read, notice ack.
 - [`pause`](pause.md): Interrupt a route's agents and hold its channel; every pane stays open.
 - [`plugin`](plugin.md): Manage plugins (experimental).
-- [`project`](project.md): Work on a project's context repo: project context init|check|note, project log.
+- [`project`](project.md): Keep projects, their folders and repositories, and work on their context repo.
 - [`prune`](prune.md): Free integrated worktrees past a minimum age.
 - [`recommend`](recommend.md): The same as suggest.
 - [`resource`](resource.md): Record a resource a task created: resource add.
@@ -38,10 +40,12 @@ Generated from `herdsman spec cli`.
 - [`review`](review.md): Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.
 - [`route`](route.md): Check a route folder (route check) or append a run-state line (route log).
 - [`run-check`](run-check.md): Run one heavy check at a time on this machine, behind a load gate (--publish <hours>: the load reading).
+- [`runtime`](runtime.md): Where agents run: runtime doctor, runtime ls, runtime default, runtime submit, runtime show.
 - [`spec`](spec.md): Print the SDK contracts: spec cli|proto|descriptor|jsonschema.
 - [`status`](status.md): Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.
 - [`stop`](stop.md): End a route's sessions and service panes; the work stays on disk.
 - [`suggest`](suggest.md): Search the catalog of tips and tools.
+- [`task`](task.md): Keep the tasks of each project.
 - [`teardown`](teardown.md): Stop what a task runs, keeping what it holds.
 - [`trace`](trace.md): Show or export one route's spans as OpenTelemetry.
 - [`transcript-audit`](transcript-audit.md): Audit a Claude or Codex transcript for writes: transcript-audit claude|codex <transcript> <session-id> [root/ ...].

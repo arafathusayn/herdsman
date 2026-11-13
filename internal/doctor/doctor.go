@@ -1,6 +1,7 @@
 // Package doctor checks that a machine can run a herdsman route: the herdr
-// socket, the gh login, the installed binary, the message inbox and its
-// setup proof, what a sandbox denies the gates, and the machine load.
+// socket, what the launcher check assumes about herdr-core, the gh login, the
+// installed binary, the message inbox and its setup proof, what a sandbox
+// denies the gates, and the machine load.
 package doctor
 
 import (
@@ -35,7 +36,7 @@ const (
 
 // Check is one line of the report, `<level> <check> <detail>`.
 //
-// JSON fields: level ("ok", "warn" or "fail"), check (herdr, gh,
+// JSON fields: level ("ok", "warn" or "fail"), check (herdr, herdr-core, gh,
 // gh-account, binary, inbox, sandbox, load, enforcement or deprecated), detail
 // (free text) and, on a deprecated line that names one thing, deprecation.
 type Check struct {
@@ -57,8 +58,10 @@ func Failed(cs []Check) bool {
 
 // Probes are what the checks read; tests replace each one.
 type Probes struct {
-	Getenv   func(string) string
-	Herdr    *herdr.Client // nil when no socket path resolves
+	Getenv func(string) string
+	Herdr  *herdr.Client // nil when no socket path resolves
+	// Core reads the installed herdr-core; a nil state means none is installed.
+	Core     func(ctx context.Context) (*CoreState, error)
 	LookPath func(string) (string, error)
 	GhAuth   func(ctx context.Context, gh string) error
 	// GitRemote is the origin remote of the repository in dir.
@@ -97,7 +100,7 @@ func Default() Probes {
 		client = herdr.New(sock)
 	}
 	return Probes{
-		Getenv: os.Getenv, Herdr: client, LookPath: exec.LookPath, GhAuth: ghAuth,
+		Getenv: os.Getenv, Herdr: client, Core: coreState, LookPath: exec.LookPath, GhAuth: ghAuth,
 		GitRemote: gitRemote, GhAccounts: ghAccounts, GhCanRead: ghCanRead,
 		Executable: os.Executable, GoCache: goCache, WriteDir: writeDir,
 		ReadMemory: readMemory, Renice: renice,
@@ -190,6 +193,7 @@ func Run(ctx context.Context, p Probes) ([]Check, error) {
 	var cs []Check
 	add := func(level, name, detail string) { cs = append(cs, Check{Level: level, Name: name, Detail: detail}) }
 	checkHerdr(ctx, p, add)
+	checkCore(ctx, p, add)
 	checkGh(ctx, p, add)
 	checkGitHub(ctx, p, add)
 	checkBinary(p, add)

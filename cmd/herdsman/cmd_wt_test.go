@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 // worktreeRepo makes a repository, enters it, and keeps every outside service
@@ -23,6 +26,7 @@ func worktreeRepo(t *testing.T) string {
 	t.Setenv("HOME", filepath.Join(root, "home"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv("HERDSMAN_DIRECTIVE_FILE", "")
+	t.Setenv("HERDSMAN_STATE_DIR", filepath.Join(root, "state"))
 	os.MkdirAll(repo, 0o755)
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
@@ -220,8 +224,18 @@ func TestVerbFailuresExitOne(t *testing.T) {
 	}
 }
 
-func TestNewPassesThePromptAndAgent(t *testing.T) {
+func TestNewPassesThePromptAndAgentToLegacyBackend(t *testing.T) {
+	coreDaemon(t)
+	service, closeService, err := dialRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeService()
+	if _, err := service.SetDefault(context.Background(), &daemonv1.RuntimeServiceSetDefaultRequest{Backend: "herdr-tui"}); err != nil {
+		t.Fatal(err)
+	}
 	worktreeRepo(t)
+	t.Setenv("HERDSMAN_STATE_DIR", "")
 	out, errOut, code := call(t, "new", "one", "--no-setup", "--agent", "claude", "--", "do", "it")
 	if code != 0 || !strings.Contains(out, "claude") || !strings.Contains(errOut, "not started") {
 		t.Fatalf("%d %s %s", code, out, errOut)

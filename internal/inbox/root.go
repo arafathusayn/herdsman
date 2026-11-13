@@ -41,6 +41,9 @@ type Root struct {
 	ProofStale bool
 	// TimingStale is set when state/timing.json is invalid or conflicts.
 	TimingStale bool
+	// Inventory replaces the Herdr TUI's agent list in the boundary check of
+	// a daemon-owned inbox, for a route on herdr-core (nil: the TUI's).
+	Inventory Inventory
 
 	now   func() time.Time
 	sleep func(time.Duration)

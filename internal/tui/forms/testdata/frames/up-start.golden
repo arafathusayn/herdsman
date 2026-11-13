@@ -18,4 +18,8 @@ Config file
 Start the web app
     Yes   [ No ]
 
+Backend
+  * herdr-tui
+    herdr-core
+
 ␛[2mEnter submits  Tab moves  Esc cancels␛[0m

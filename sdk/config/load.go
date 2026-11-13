@@ -883,9 +883,10 @@ func UpdateFile(path string) error {
 	return writeAtomic(path, out)
 }
 
-// InitFile writes the defaults to a new file. It never replaces one.
+// InitFile writes the defaults and the execution backend (NewFile) to a new
+// file. It never replaces one.
 func InitFile(path, format string) error {
-	data, err := encodeMessage(Defaults(), format)
+	data, err := encodeMessage(NewFile(), format)
 	if err != nil {
 		return err
 	}

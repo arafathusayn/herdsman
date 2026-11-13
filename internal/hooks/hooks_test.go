@@ -316,6 +316,11 @@ func TestStartLeavesTheCommandRunningAndLogs(t *testing.T) {
 	if err != nil || len(logs) != 1 {
 		t.Fatalf("%v %v", logs, err)
 	}
+	// The command's output precedes the supervisor's final result write.
+	// Wait for that write before TempDir removes the log directory.
+	if result := awaitResult(t, logs); !result.OK {
+		t.Fatalf("background command failed: %+v", result)
+	}
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		data, _ := os.ReadFile(logs[0])

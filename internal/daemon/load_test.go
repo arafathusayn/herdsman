@@ -295,7 +295,7 @@ func settleAt(n int) int {
 }
 
 // TestGoroutineAccounting asserts the goroutine formula of 9.1 for the
-// Phase A daemon: a base of 4 (Serve, the scheduler, the listener and the
+// Phase A daemon: a base of 6 (Serve, the scheduler, the listener, the notice tick, the worker socket's listener and the
 // account database's connection opener), plus 1 per route (its actor), plus
 // 1 per open connection and 1 more per open stream; none per message. The card watcher, goal resume and alert
 // sender are Phase B.
@@ -305,8 +305,8 @@ func TestGoroutineAccounting(t *testing.T) {
 	h.cfg.Log = func(string) {}
 	g0 := settle(0)
 	h.start()
-	if g := settleAt(g0 + 4); g != g0+4 {
-		t.Fatalf("base: %d goroutines over %d, want 4", g-g0, g0)
+	if g := settleAt(g0 + 6); g != g0+6 {
+		t.Fatalf("base: %d goroutines over %d, want 6", g-g0, g0)
 	}
 	var parties []*party
 	for _, n := range []string{"a", "b", "c"} {
@@ -320,9 +320,9 @@ func TestGoroutineAccounting(t *testing.T) {
 		p.c.Close()
 	}
 	// Per route: its actor and the feed that publishes its events.
-	base := g0 + 4 + 3*2
+	base := g0 + 6 + 3*2
 	if g := settleAt(base); g != base {
-		t.Fatalf("3 routes: %d goroutines over the base, want 6", g-(g0+4))
+		t.Fatalf("3 routes: %d goroutines over the base, want 6", g-(g0+6))
 	}
 	// A reader between calls holds no call on the daemon, only its kept
 	// connection.

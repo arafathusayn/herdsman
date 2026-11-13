@@ -317,7 +317,11 @@ func (r *Root) BoundaryOK(ctx context.Context, c *herdr.Client) (bool, string, [
 			return false, FaultStatic, nil
 		}
 		pv, _ := Decode(pb)
-		return BoundaryV2(ctx, c, r.Dir, Object(Object(pv)["boundary"]))
+		var inv Inventory = TUIInventory{Client: c}
+		if r.Inventory != nil {
+			inv = r.Inventory
+		}
+		return BoundaryV2Inventory(ctx, inv, r.Dir, Object(Object(pv)["boundary"]))
 	}
 	if r.ProofStale || !r.PreflightValid() {
 		return false, FaultStatic, nil

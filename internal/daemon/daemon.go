@@ -15,8 +15,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/automations"
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/notice"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/routename"
@@ -74,6 +76,11 @@ type Config struct {
 	Retention ops.Retention
 	// RetentionPolicy, when set, replaces Retention and is read at each use.
 	RetentionPolicy func() (ops.Retention, error)
+	// Core configures the herdr-core backend (zero: the user's own).
+	Core CoreConfig
+	// Notice tunes the notice service and its worker socket (zero: the
+	// defaults of the herdr-core spec, section 10).
+	Notice NoticeConfig
 }
 
 // Daemon is one running daemon.
@@ -98,19 +105,28 @@ type Daemon struct {
 	stateLock *os.File
 	acctDB    store.Conn
 	ops       *ops.Engine
+	tasks     *taskJournal
+	tasksOnce sync.Once
 	recovery  *ops.Recovery
 	worktrees *WorktreeService
 	teardowns *teardownJournal
 	// exportGate keeps route and registry writers out of an export's copy.
 	exportGate sync.RWMutex
 	opsCancel  context.CancelFunc
+	coreCancel context.CancelFunc
 	opsCtx     context.Context
 	bg         sync.WaitGroup
 
-	callers *route.Callers // who asked for each route start
+	callers *route.Callers  // who asked for each route start
+	core    *coreRuntime    // herdr-core's launch socket and reconcilers
+	notices *notice.Service // the notices of herdr-core executions
+	worker  *workerServer   // the worker socket, which serves only notices
 
 	hub  *eventHub     // the topics the event stream and long poll read
 	view *registryView // publishes the routes into hub
+
+	autoOnce sync.Once              // starts the runtime automation worker
+	autoQ    chan automations.Event // runtime events waiting for automations
 }
 
 type credRef struct{ route, name string }
@@ -144,8 +160,12 @@ func New(cfg Config) *Daemon {
 		cfg.DrainWait = 60 * time.Second
 	}
 	hub := newEventHub()
-	return &Daemon{hub: hub, view: newRegistryView(hub), callers: route.NewCallers(), cfg: cfg, routes: map[string]*Route{}, held: map[string]string{}, credIndex: map[string]credRef{},
+	d := &Daemon{hub: hub, view: newRegistryView(hub), callers: route.NewCallers(), cfg: cfg, routes: map[string]*Route{}, held: map[string]string{}, credIndex: map[string]credRef{},
 		streams: map[string]int{}, sem: make(chan struct{}, 32), done: make(chan struct{})}
+	if sink, ok := cfg.Sink.(*AutomationSink); ok {
+		sink.pauseOnCore(d.routeOnCore, d.pauseRoute)
+	}
+	return d
 }
 
 func (d *Daemon) now() time.Time                    { return d.cfg.Now() }
@@ -385,6 +405,12 @@ func (d *Daemon) Start() (err error) {
 		return d.listen()
 	}
 	d.touchHeartbeat()
+	coreCtx, coreCancel := context.WithCancel(context.Background())
+	d.coreCancel = coreCancel
+	if err := d.startCore(coreCtx); err != nil {
+		d.logf("herdr-core: %v", err)
+	}
+	d.startNotices()
 	d.resumeAdoptions()
 	names := make([]string, 0, len(rf.Routes))
 	for n := range rf.Routes {
@@ -399,7 +425,10 @@ func (d *Daemon) Start() (err error) {
 			d.openRoute(n, rf.Routes[n])
 		}
 	}
-	return d.listen()
+	if err := d.listen(); err != nil {
+		return err
+	}
+	return d.listenWorker()
 }
 
 // listen opens the daemon's socket.
@@ -445,6 +474,11 @@ func (d *Daemon) unwindStart() {
 		_ = d.ln.Close()
 		d.ln = nil
 	}
+	if d.worker != nil {
+		_ = d.worker.ln.Close()
+		d.worker = nil
+	}
+	d.stopCore()
 	d.closeOps()
 	d.closeStateLock()
 	if d.acct != nil {
@@ -457,6 +491,8 @@ func (d *Daemon) unwindStart() {
 func (d *Daemon) Serve(ctx context.Context) error {
 	if !d.cfg.Inspect {
 		go d.scheduler(ctx)
+		go d.tickNotices(ctx)
+		d.serveWorker()
 		d.startOpsRecovery(ctx)
 	}
 	errc := make(chan error, 1)
@@ -500,12 +536,14 @@ func (d *Daemon) Stop(reason string) {
 			})
 			r.stop()
 		}
+		d.stopWorker()
 		if d.srv != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			_ = d.srv.Shutdown(ctx)
 			cancel()
 		}
 		_ = os.Remove(SocketPath(d.cfg.PrivateHome))
+		d.stopCore()
 		d.closeOps()
 		d.closeStateLock()
 		if d.acct != nil {

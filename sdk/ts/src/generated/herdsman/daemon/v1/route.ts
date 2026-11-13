@@ -24,6 +24,11 @@ export interface UpCaller {
    * The pair checksum a person confirmed on the terminal.
    */
   confirmedChecksum?: string;
+  /**
+   * The caller's execution, when it runs as one: a hint for error messages
+   * only, since the daemon identifies a caller by its process.
+   */
+  runtime?: herdsman_core_v1_core.RuntimeRef;
 }
 
 /**
@@ -69,6 +74,13 @@ export interface UpRequest {
    * References only: a value never crosses this call.
    */
   secretRefs?: string;
+  /**
+   * The execution backend for this run only: "herdr-core" or "herdr-tui".
+   * Empty means the config file's [runtime] backend, then the installation
+   * default. A route that exists keeps its own backend, and a different value
+   * here is refused with backend_migration_required.
+   */
+  backend?: string;
 }
 
 /**
@@ -115,6 +127,11 @@ export interface RouteStart {
    * "running", "paused", "stopped" or "deleted", from the last finished control.
    */
   control?: string;
+  /**
+   * The execution backend the start runs on: "herdr-core" or "herdr-tui". A
+   * start journaled before backends existed reads as "herdr-tui".
+   */
+  backend?: string;
 }
 
 export interface UpResponse {

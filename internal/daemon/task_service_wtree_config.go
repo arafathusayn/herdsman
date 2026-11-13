@@ -112,9 +112,11 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 		return err
 	}
 	r.naming = wtree.DefaultNaming()
-	loaded, err := config.Load(config.Options{RepoRoot: r.main, UserDir: s.ConfigDir, ProjectKey: r.projectKey(ctx)})
+	r.ports = wtree.PortBlock
+	loaded, err := config.Load(config.Options{RepoRoot: r.main, UserDir: s.ConfigDir, ProjectKey: r.projectKey(ctx), Environ: s.caller})
 	if err != nil {
-		if !hasJSON {
+		var strict *config.StrictError
+		if !hasJSON || errors.As(err, &strict) {
 			return err
 		}
 		// This file predates the shared schema and may not fit it: a timeout
@@ -134,6 +136,14 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 	}
 	if name := loaded.Config.GetBranch().GetName(); name != "" {
 		r.naming.BranchName = name
+	}
+	setup := loaded.Config.GetSetup()
+	r.envFiles, r.shared = setup.GetEnv(), setup.GetShare()
+	if setup.Ports != nil {
+		r.ports = int(setup.GetPorts())
+	}
+	if r.ports < 0 || r.ports > wtree.PortBlock {
+		return fmt.Errorf("setup.ports is %d; a task's block holds at most %d", r.ports, wtree.PortBlock)
 	}
 	// A command only detected from the repository's files comes back as a
 	// default. setupPlan offers it; only one a person wrote is a hook to approve.

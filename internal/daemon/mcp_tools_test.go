@@ -40,9 +40,17 @@ func TestMCPToolsAreExactlyWhatTheDaemonServes(t *testing.T) {
 			t.Errorf("tool for %s, which the daemon does not serve", procedure)
 		}
 	}
-	withheld := []string{"Stream", "Shutdown", "Enroll", "ApprovePair", "RetirePair", "RevokeCredential", "ResetEvents", "Export", "Import", "Set", "Unset", "Resources", "Plan", "AddResource", "TeardownPlans", "Teardown", "RegisterResource", "LedgerHealth",
-		"ContextInit", "ContextCheck", "ContextNote", "Log"}
+	// Submit is a person's typed submit: people only, never an agent's tool.
+	// Ledger methods, including task creation, remain CLI/SDK surfaces.
+	withheld := []string{"Set", "Unset", "New", "Go", "Submit", "Stream", "Shutdown", "Enroll", "ApprovePair", "RetirePair", "RevokeCredential", "ResetEvents", "Export", "Import", "Resources", "Plan", "AddResource", "TeardownPlans", "Teardown", "RegisterResource", "LedgerHealth", "NewWorktree",
+		"ContextInit", "ContextCheck", "ContextNote", "Log", "SetDefault", "Read"}
 	for _, procedure := range served {
+		if procedure == "/rpc/herdsman.daemon.v1.ProjectService/Delete" || procedure == "/rpc/herdsman.daemon.v1.TaskService/Delete" {
+			if slices.Contains(tools, procedure) {
+				t.Errorf("record deletion must remain a person-only action: %s", procedure)
+			}
+			continue
+		}
 		if !slices.Contains(tools, procedure) && !slices.Contains(withheld, procedure[strings.LastIndex(procedure, "/")+1:]) {
 			t.Errorf("%s is served but has no tool and is not withheld", procedure)
 		}
