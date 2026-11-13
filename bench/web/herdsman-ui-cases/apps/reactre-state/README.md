@@ -14,9 +14,10 @@ Every fresh driver snapshot enters a compiled state actor. The upstream
 The finite benchmark contracts are directly typed, unlike Herdsman's SDK
 boundary, which also needs to encode optional fields and collections.
 
-Team, Activity and Checklist derive keyed row projections. They visit every
-input row and compare that row's fields, retaining equal rows for core's
-keyed rendering. Log renders directly from the actor: its key already
+Team, Activity and Checklist derive keyed row projections. Updates compare
+each row's fields, retaining equal rows for core's keyed rendering. Initial
+mounts defer the projection's key index until data changes; equal snapshots
+reuse it without allocating replacement maps. Log renders directly from the actor: its key already
 contains every displayed field. Native element rows let the compiler use
 core's specialized list path, and a keyed selector limits selection work to
 the previously and newly selected cards.
@@ -32,6 +33,9 @@ their old view; card selection goes through a card's own handler.
 The build uses both upstream compilers with production state compilation,
 the same minification and stylesheet as the other entries. Source licenses
 remain in `web/vendor/reactre`; no published or duplicated runtime is used.
+The source adapter resolves the vendored packages for whole-program analysis
+as well as bundling. See the [mounting and cleanup profile](../../PROFILING.md)
+for the compiler fallback regression and allocation optimizations.
 
 From the repository root:
 

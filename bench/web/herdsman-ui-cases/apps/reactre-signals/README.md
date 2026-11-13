@@ -14,6 +14,11 @@ entry sends snapshots through a compiled state actor and its subscription
 bridge. This is a benchmark-only alternative; Herdsman's application state
 continues to belong to `@reactre/state`.
 
+The shared source adapter resolves vendored imports during whole-program
+analysis as well as bundling. The [mounting and cleanup profile](../../PROFILING.md)
+records the compiler fallback fix, direct scalar text holes and deferred
+projection indexes used by both entries.
+
 No whole-snapshot comparisons or operation-aware shortcuts are used. Tests
 exercise both compiled factories with changed non-key fields, optional bodies,
 event shapes, selection and disposal. The unchanged browser runner applies

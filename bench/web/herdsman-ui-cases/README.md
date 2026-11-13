@@ -124,67 +124,65 @@ Measured comparisons and their limitations are recorded in
 [PR #122](https://github.com/arafathusayn/herdsman/pull/122); a speed ranking is
 only claimed when supported by the complete run and its noise floor.
 
-## Recorded comparison for the remaining entries
+## Recorded three-iteration comparison
 
-The historical complete run on 2026-11-13 used 19 entries (18 implementations plus the
-identical-build A/A control), 12 workloads and 19 rotated iterations: **4,332
-samples**, with every correctness gate passing and no invalid entries or errors.
-Benchmark source: `e922d857e92848ae0da97563045c670e8225a078`; Reactre source:
-`8bae29b9fce00ab1e192f906e15191c6057550d7`. Rebasing onto main's five merged
-PRs through `a62bdad1` left benchmark sources, compiler configuration and the
-Reactre pin identical. Chrome 157.0.8103.78, Puppeteer 25.16.0, Bun 1.4.4,
-Apple M5 Pro, macOS 27.2; the unchanged runner applied 4× CPU throttling where
-marked and waited for its normal load threshold.
+Measured on 2026-11-13 from benchmark source `463942782f4f50bcf0ab8fae00014d9a5904cfde`,
+with Chrome 157.0.8103.78, puppeteer-core 25.16.0 and the unchanged
+4× CPU throttling where marked. The complete run includes all **15 implementations
+plus the identical `vanillajs-lite-control`**, 12 workloads and **3 iterations
+(576 samples)**. All 16 correctness gates and 192 retained-node measurements
+completed; there were no invalid entries or timing errors. The control is excluded
+from ranks.
 
-Three benchmark implementations and the old control were subsequently removed. The table below
-filters them out and renumbers the remaining 15 implementations; it preserves
-the original scores and normalization. This is **not a new timing run or a
-performance improvement**. Ranks do not establish a meaningful difference
-between close neighbors. The historical run's identical-build **A/A control gap
-was 0.63%**. Lower composite time is better.
+| Rank | Implementation                  | Geometric mean of relative median times ↓ | JavaScript gzip bytes |
+| ---: | ------------------------------- | ----------------------------------------: | --------------------: |
+|    1 | vanillajs-lite                  |                                  1.055304 |                 4,831 |
+|    2 | vanillajs                       |                                  1.062771 |                 4,607 |
+|    3 | Reactre core + built-in signals |                                  1.069389 |                10,494 |
+|    4 | Reactre core + state            |                                  1.112858 |                11,094 |
+|    5 | sonnet                          |                                  1.122745 |                 4,659 |
+|    6 | preact                          |                                  1.128419 |                 7,494 |
+|    7 | doohtml-dp                      |                                  1.136027 |                 5,812 |
+|    8 | re                              |                                  1.148274 |                 7,260 |
+|    9 | vue-vapor                       |                                  1.155847 |                32,021 |
+|   10 | solid                           |                                  1.206954 |                10,037 |
+|   11 | vue                             |                                  1.207533 |                25,743 |
+|   12 | thane                           |                                  1.213469 |                 8,063 |
+|   13 | preact-signals                  |                                  1.274285 |                11,792 |
+|   14 | solid-2                         |                                  1.310989 |                27,527 |
+|   15 | react                           |                                  1.926441 |                69,710 |
 
-| Implementation                  | Rank of 15 | Geometric mean of relative median times ↓ | JavaScript gzip bytes |
-| ------------------------------- | ---------: | ----------------------------------------: | --------------------: |
-| vanillajs-lite                  |          1 |                                  1.017315 |                 4,831 |
-| vanillajs                       |          2 |                                  1.025820 |                 4,607 |
-| sonnet                          |          3 |                                  1.077628 |                 4,659 |
-| doohtml-dp                      |          4 |                                  1.079541 |                 5,812 |
-| Reactre core + built-in signals |          5 |                                  1.081104 |                10,503 |
-| preact                          |          6 |                                  1.084269 |                 7,494 |
-| re                              |          7 |                                  1.092474 |                 7,260 |
-| Reactre core + state            |          8 |                                  1.093526 |                11,118 |
-| thane                           |          9 |                                  1.139178 |                 8,063 |
-| vue-vapor                       |         10 |                                  1.141109 |                32,021 |
-| solid                           |         11 |                                  1.144613 |                10,037 |
-| vue                             |         12 |                                  1.155214 |                25,743 |
-| preact-signals                  |         13 |                                  1.199588 |                11,792 |
-| solid-2                         |         14 |                                  1.273021 |                27,527 |
-| react                           |         15 |                                  1.411165 |                69,710 |
+Core + built-in signals ranks **3 of 15**; core + state ranks **4 of 15**.
+Reactre core + built-in signals measured **6.87% lower composite time than `re`**. Reactre core + state measured **3.08% lower composite time than `re`**.
+**The signals top-two target was not met; the state top-five target was met in this run.**
+Signals is 0.62% behind second-place `vanillajs`, inside the control gap below.
 
-Among the remaining entries, core + built-in signals ranks **fifth**, with
-**1.04% lower composite time than `re`**. Core + state ranks **eighth**, with
-**0.10% higher composite time than `re`**, inside the control gap: this run does not establish a performance
-difference between those two. The **top-two signals and top-five state targets
-were not met**. The state-machine safety argument below is independent of
-these timings. Before the removal, their ranks in this same run were seventh
-and tenth of 18 respectively.
+The identical-build A/A control gap is **2.795%**. Differences inside that gap
+do not establish a speed advantage. Three samples per workload on a shared
+workstation are a small, noisy comparison, not a robust or universal ordering.
+This run includes a wait for workstation load to fall below the runner's existing
+limit; that safeguard and all workloads remain unchanged.
+Two React selection samples were about 151–153 ms and affect its score; no
+samples were discarded. Inspect the full workload table before generalizing.
 
-The earlier 18-entry run, before the signals entry, ranked core + state fifth
-of 17 and measured 1.53% lower composite time than `re`, with a 1.32% control
-gap. That narrow win did not reproduce in this full-field run. Neither run
-supports a large or universal speed advantage on this shared workstation.
+The [mounting and cleanup profile](PROFILING.md) explains the restored compiler
+analysis, scalar text holes, tab disposal and deferred projection indexes. It
+also records both intermediate three-iteration runs, including the run with a
+4.603% control gap. Scores are normalized within each run and must not be
+subtracted across runs to claim a speedup. The earlier historical 19-entry run
+ranked signals/state seventh/tenth before the requested removals; this table is
+a fresh measurement of the remaining field.
 
 The [full results in PR #122](https://github.com/arafathusayn/herdsman/pull/122)
-include every workload, implementation, control, retained-node count and bundle
-size. The original run is reproducible from benchmark commit `e922d857` with
-`bun build.ts` then `bun run.ts --iterations 19`; raw local results are
-`results/2026-11-13T13-34-32-128Z.json` and `.md`, ignored as usual.
-For the current suite, use `bun build.ts` then `bun run.ts --iterations 16`
-to rotate all 15 implementations plus the A/A control through every position.
-`vanillajs-lite` is now the correctness reference, with an identical
-`vanillajs-lite-control` build for A/A noise measurement in future runs.
-The historical scores above have not been remeasured against this new control.
-A full build clears stale generated entries from `dist/`.
+include each workload, retained-node count and bundle size. Raw local output is
+`results/2026-11-13T16-37-12-579Z.json` and
+`results/2026-11-13T16-37-12-579Z.md`, ignored as usual. Reproduce this
+run with `bun build.ts` then `bun run.ts --iterations 3` at source `46394278`.
+For a complete rotation through every entry's timing position, use
+`bun run.ts --iterations 16`. A full build clears stale generated entries.
+The upstream source pin remains `8bae29b9fce00ab1e192f906e15191c6057550d7`,
+verified against Reactre main on 2026-11-13. The state-machine safety argument
+below is independent of these timings.
 
 ### Safety as well as speed
 
