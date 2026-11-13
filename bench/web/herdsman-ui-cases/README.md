@@ -124,7 +124,61 @@ Measured comparisons and their limitations are recorded in
 [PR #122](https://github.com/arafathusayn/herdsman/pull/122); a speed ranking is
 only claimed when supported by the complete run and its noise floor.
 
-## Recorded three-iteration comparison
+## Recorded five-iteration comparison
+
+Measured on **2026-11-14 (Asia/Dhaka)** from source
+`c4eb85b300a220cc5cf99da7206f93052bd8a61c`, with Reactre pinned to
+`63542a92765fbd401e37ce3b99fe47f429e2cd0f` (upstream PRs #2–#5).
+Chrome 157.0.8103.78, puppeteer-core 25.16.0, and the unchanged
+4× CPU throttling where marked. All **15 implementations plus the identical
+vanillajs-lite-control**, **12 workloads**, and **5 iterations (960 samples)**
+completed. All 16 correctness gates and 192 retained-node measurements passed;
+there were no invalid entries or timing errors. The control is excluded from ranks.
+
+| Rank | Implementation                  | Geometric mean of relative median times ↓ | JavaScript gzip bytes |
+| ---: | ------------------------------- | ----------------------------------------: | --------------------: |
+|    1 | vanillajs-lite                  |                                  1.041455 |                 4,831 |
+|    2 | vanillajs                       |                                  1.068348 |                 4,607 |
+|    3 | Reactre core + built-in signals |                                  1.073360 |                10,494 |
+|    4 | Reactre core + state            |                                  1.075941 |                11,094 |
+|    5 | sonnet                          |                                  1.115435 |                 4,659 |
+|    6 | doohtml-dp                      |                                  1.126570 |                 5,812 |
+|    7 | preact                          |                                  1.134750 |                 7,494 |
+|    8 | re                              |                                  1.136765 |                 7,260 |
+|    9 | vue-vapor                       |                                  1.158973 |                32,021 |
+|   10 | vue                             |                                  1.164023 |                25,743 |
+|   11 | solid                           |                                  1.169482 |                10,037 |
+|   12 | thane                           |                                  1.172542 |                 8,063 |
+|   13 | preact-signals                  |                                  1.212191 |                11,792 |
+|   14 | solid-2                         |                                  1.304255 |                27,527 |
+|   15 | react                           |                                  1.892181 |                69,710 |
+
+Core + signals ranks **3/15** and core + state **4/15**. Their composite times
+are **5.58%** and **5.35%** lower than `re` in this run.
+**The signals top-two target was not met; the state top-five target was met.**
+
+The identical-build A/A control gap is **1.357%**. Signals is
+0.47% behind second place; state is 0.71% behind it. Both gaps, and the
+0.24% gap between the Reactre entries, are inside that control gap. These
+close ranks do not establish a repeatable speed advantage. Five samples per
+workload on a shared workstation remain limited evidence; the complete
+16-iteration timing-position rotation is a stronger follow-up.
+
+[Full workload results, retained nodes, sizes and provenance](UPSTREAM-RESULTS.md).
+Raw output remains under the ignored `results/2026-11-13T19-33-30-130Z.json`
+and `.md`, following this suite's convention. Reproduce with `bun build.ts`
+then `bun run.ts --iterations 5` at the source revision above. Workloads,
+competitor pins, gates, throttling and load safeguards were unchanged.
+
+The production app now uses immutable JSON payloads, but the benchmark already
+used directly typed payloads without string conversion. The compiler adapter
+now uses the public analysis host API; it already restored whole-program facts
+before this update. Both Reactre gzip sizes are unchanged. Do not subtract
+normalized scores across the historical and current runs or attribute their
+difference to the upstream changes. Upstream synthetic results are not Herdsman
+latency or ranking guarantees.
+
+## Historical three-iteration comparison
 
 Measured on 2026-11-13 from benchmark source `463942782f4f50bcf0ab8fae00014d9a5904cfde`,
 with Chrome 157.0.8103.78, puppeteer-core 25.16.0 and the unchanged
@@ -180,8 +234,8 @@ include each workload, retained-node count and bundle size. Raw local output is
 run with `bun build.ts` then `bun run.ts --iterations 3` at source `46394278`.
 For a complete rotation through every entry's timing position, use
 `bun run.ts --iterations 16`. A full build clears stale generated entries.
-The upstream source pin remains `8bae29b9fce00ab1e192f906e15191c6057550d7`,
-verified against Reactre main on 2026-11-13. The state-machine safety argument
+That historical run used source pin `8bae29b9fce00ab1e192f906e15191c6057550d7`,
+before the upstream adoption recorded above. The state-machine safety argument
 below is independent of these timings.
 
 ### Safety as well as speed

@@ -34,3 +34,20 @@ Unknown input still requires domain validation. `immutableData` does not replace
 a schema, support resources or restore freezing through JSON serialization.
 The benchmark already uses typed payloads and shares its renderer between state
 and signals; application data-boundary changes are not benchmark optimizations.
+
+## Verification
+
+Implementation source: `c4eb85b300a220cc5cf99da7206f93052bd8a61c`.
+`make web-check` passes 345 tests, formatting, ownership/SDK guards, normal and
+strict types and both benchmark type checks. `make web-e2e` passes 316 browser
+checks against the mock API. `make build` and every benchmark build pass.
+
+The full five-iteration run completes all 960 samples without errors; signals
+ranks third and state fourth of 15. The 1.357% control gap exceeds both
+entries' gaps from second place. See the [full evidence](../bench/web/herdsman-ui-cases/UPSTREAM-RESULTS.md).
+The top-two signals target remains unmet in the recorded ranking. The state
+top-five target is met. These measurements do not establish a causal speedup
+from this vendor update.
+
+The follow-up PR is #123, stacked on unmerged #122. Upstream Reactre source and
+unrelated checkouts remain untouched; nothing is merged by this task.
