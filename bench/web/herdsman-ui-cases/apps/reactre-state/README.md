@@ -2,7 +2,7 @@
 
 One application using `@reactre/core`, `@reactre/state` and the upstream
 compilers from Herdsman's source submodule, pinned at
-`63542a92765fbd401e37ce3b99fe47f429e2cd0f` (Reactre main verified for the update).
+`f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27` (Reactre main verified for the update).
 The existing `re` entry is the separate `@re/core` library; it is unchanged.
 
 The [core + built-in signals entry](../reactre-signals/) uses the same

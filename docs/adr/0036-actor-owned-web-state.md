@@ -12,7 +12,7 @@ owners of their subscriptions. Requests implemented cancellation separately.
 
 Use `@reactre/state` for all application and interactive UI state. Pin the
 Reactre source submodule to main commit
-`63542a92765fbd401e37ce3b99fe47f429e2cd0f`, retaining its Apache-2.0 license.
+`f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27`, retaining its Apache-2.0 license.
 Both tests and production compile `.machine.ts` with the upstream state
 compiler and other TS/TSX with the core compiler.
 

@@ -2,7 +2,7 @@
 
 One benchmark application using `@reactre/core` and its built-in `signal`.
 Source comes from Herdsman's Reactre submodule at
-`63542a92765fbd401e37ce3b99fe47f429e2cd0f`, the same revision as
+`f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27`, the same revision as
 `../reactre-state`. No `@reactre/state` runtime or machine is used here.
 
 Each fresh driver snapshot is written to the signal. Both Reactre entries

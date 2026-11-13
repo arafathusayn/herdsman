@@ -8,8 +8,9 @@ make web
 ```
 
 `vendor/reactre` is the upstream Reactre Git submodule, pinned to main commit
-`63542a92765fbd401e37ce3b99fe47f429e2cd0f` (compiler hosts, structural JSON data,
-static template text holes and lifecycle examples, Reactre PRs #2–#5). It retains
+`f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27` (compiler hosts, structural JSON data,
+static template text holes, lifecycle examples, last-reader allocation reduction
+and selector equality fixes, Reactre PRs #2–#6). It retains
 upstream's [Apache-2.0 license](vendor/reactre/LICENSE). Core, DOM and state
 runtime/compiler sources are read directly; upstream `dist` and `node_modules`
 are unused. Do not install or build the upstream checkout.

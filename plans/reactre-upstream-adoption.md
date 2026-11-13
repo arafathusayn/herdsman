@@ -51,3 +51,20 @@ from this vendor update.
 
 The follow-up PR is #123, stacked on unmerged #122. Upstream Reactre source and
 unrelated checkouts remain untouched; nothing is merged by this task.
+
+## Follow-up adoption of Reactre PR #6
+
+Advance the source pin from `63542a92765fbd401e37ce3b99fe47f429e2cd0f` to
+`f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27`, verified against origin/main.
+Upstream removes a discarded array allocation for last-reader unsubscription
+and makes selector notifications honor their comparator. Reader counting and
+cleanup remain covered upstream. No public API migration is needed downstream.
+
+Keep Herdsman's existing actor ownership and whole-snapshot bridges. There are
+no imports of `@reactre/state/utils/select` in this downstream source. Selecting
+narrow values is workload-dependent and can lose core batching advantages;
+the upstream results do not justify changing every bridge or claiming a new rank.
+
+Re-run web checks, production browser checks, the embedded build and a full
+five-iteration benchmark with the existing competitors, gates and A/A control.
+Record new source provenance separately from the earlier measurements above.
