@@ -16,24 +16,32 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 		return err
 	}
 	for _, id := range ids {
-		op, err := e.Get(id)
-		if err != nil {
+		if err := e.reconcileOperation(ctx, id); err != nil {
 			return err
 		}
-		for _, st := range op.Steps {
-			if st.State != StepIntended {
-				continue
-			}
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			stopped, err := e.reconcileStep(ctx, op, st)
-			if err != nil {
-				return err
-			}
-			if stopped {
-				break
-			}
+	}
+	return nil
+}
+
+func (e *Engine) reconcileOperation(ctx context.Context, id string) error {
+	if !e.acquireOperation(id) {
+		return nil // A live driver owns this operation; it is not abandoned.
+	}
+	defer e.releaseOperation(id)
+	op, err := e.Get(id)
+	if err != nil || op.State != OpRunning {
+		return err
+	}
+	for _, st := range op.Steps {
+		if st.State != StepIntended {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		stopped, err := e.reconcileStep(ctx, op, st)
+		if err != nil || stopped {
+			return err
 		}
 	}
 	return nil
@@ -87,7 +95,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 	}
 	var first error
 	for _, id := range ids {
-		if _, err := e.Drive(ctx, id); err != nil && !errors.Is(err, ErrPrecondition) && first == nil {
+		if _, err := e.Drive(ctx, id); err != nil && !errors.Is(err, ErrPrecondition) && !errors.Is(err, ErrBusy) && first == nil {
 			first = fmt.Errorf("ops: recover %s: %w", id, err)
 		}
 	}
