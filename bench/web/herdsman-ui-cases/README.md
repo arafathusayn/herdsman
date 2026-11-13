@@ -124,34 +124,59 @@ Measured comparisons and their limitations are recorded in
 [PR #122](https://github.com/arafathusayn/herdsman/pull/122); a speed ranking is
 only claimed when supported by the complete run and its noise floor.
 
-### Earlier comparison before adding the signals entry
+## Complete comparison including built-in signals
 
-The complete run on 2026-11-13 used 18 entries (17 implementations plus the
-identical-build A/A control), 12 workloads and 18 rotated iterations: 3,888
-samples, with every correctness gate passing and no invalid entries or errors.
-Benchmark source: `1cbb1bc365d974b7b4afc8eaada685024f5cff66`; Reactre source:
-`8bae29b9fce00ab1e192f906e15191c6057550d7`. Chrome 157.0.8103.78,
-Puppeteer 25.16.0, Bun 1.4.4, Apple M5 Pro, macOS 27.2; the unchanged runner
-applied 4× CPU throttling where marked and waited for its normal load threshold.
+The complete run on 2026-11-13 used 19 entries (18 implementations plus the
+identical-build A/A control), 12 workloads and 19 rotated iterations: **4,332
+samples**, with every correctness gate passing and no invalid entries or errors.
+Benchmark source: `e922d857e92848ae0da97563045c670e8225a078`; Reactre source:
+`8bae29b9fce00ab1e192f906e15191c6057550d7`. Rebasing onto main's five merged
+PRs through `a62bdad1` left benchmark sources, compiler configuration and the
+Reactre pin identical. Chrome 157.0.8103.78, Puppeteer 25.16.0, Bun 1.4.4,
+Apple M5 Pro, macOS 27.2; the unchanged runner applied 4× CPU throttling where
+marked and waited for its normal load threshold.
 
-| Implementation       | Rank of 17 | Geometric mean of relative median times ↓ | JavaScript gzip bytes |
-| -------------------- | ---------: | ----------------------------------------: | --------------------: |
-| vanillajs-lite       |          1 |                                  1.042608 |                 4,831 |
-| Reactre core + state |          5 |                                  1.078945 |                11,107 |
-| re                   |          8 |                                  1.095725 |                 7,260 |
+Ranks below order the measured scores; they do not establish a meaningful
+difference between close neighbors. The identical-build **A/A control gap
+was 0.63%**. Lower composite time is better.
 
-Core + state measured **1.53% lower composite time than `re`**. The A/A
-control gap was **1.32%**, so this is a narrow measured win on this shared
-workstation, not evidence of a large or universal advantage. It is fifth
-overall; vanilla JavaScript and both Herdsman blocks entries also have lower
-scores. Individual workloads differ, including slower event insertion and
-returning to Team than `re`. The safety argument below is independent of this
-ranking.
+| Implementation                  | Rank of 18 | Geometric mean of relative median times ↓ | JavaScript gzip bytes |
+| ------------------------------- | ---------: | ----------------------------------------: | --------------------: |
+| vanillajs-lite                  |          1 |                                  1.017315 |                 4,831 |
+| vanillajs                       |          2 |                                  1.025820 |                 4,607 |
+| herdsman-blocks                 |          3 |                                  1.026248 |                 7,339 |
+| herdsman-blocks-declarative     |          4 |                                  1.051765 |                 9,141 |
+| sonnet                          |          5 |                                  1.077628 |                 4,659 |
+| doohtml-dp                      |          6 |                                  1.079541 |                 5,812 |
+| Reactre core + built-in signals |          7 |                                  1.081104 |                10,503 |
+| preact                          |          8 |                                  1.084269 |                 7,494 |
+| re                              |          9 |                                  1.092474 |                 7,260 |
+| Reactre core + state            |         10 |                                  1.093526 |                11,118 |
+| thane                           |         11 |                                  1.139178 |                 8,063 |
+| vue-vapor                       |         12 |                                  1.141109 |                32,021 |
+| solid                           |         13 |                                  1.144613 |                10,037 |
+| vue                             |         14 |                                  1.155214 |                25,743 |
+| preact-signals                  |         15 |                                  1.199588 |                11,792 |
+| herdsman-patch                  |         16 |                                  1.245827 |                 5,955 |
+| solid-2                         |         17 |                                  1.273021 |                27,527 |
+| react                           |         18 |                                  1.411165 |                69,710 |
+
+Core + built-in signals ranks **seventh**, with **1.04% lower composite time
+than `re`**. Core + state ranks **tenth**, with **0.10% higher composite time
+than `re`**, inside the control gap: this run does not establish a performance
+difference between those two. The **top-two signals and top-five state targets
+were not met**. The state-machine safety argument below is independent of
+these timings.
+
+The earlier 18-entry run, before the signals entry, ranked core + state fifth
+of 17 and measured 1.53% lower composite time than `re`, with a 1.32% control
+gap. That narrow win did not reproduce in this full-field run. Neither run
+supports a large or universal speed advantage on this shared workstation.
 
 The [full results in PR #122](https://github.com/arafathusayn/herdsman/pull/122)
 include every workload, implementation, control, retained-node count and bundle
-size. Reproduce with `bun build.ts` then `bun run.ts --iterations 18`; raw local
-results are `results/2026-11-13T10-53-17-698Z.json` and `.md`, ignored as usual.
+size. Reproduce with `bun build.ts` then `bun run.ts --iterations 19`; raw local
+results are `results/2026-11-13T13-34-32-128Z.json` and `.md`, ignored as usual.
 
 ### Safety as well as speed
 
