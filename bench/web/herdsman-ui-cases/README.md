@@ -114,6 +114,35 @@ Measured comparisons and their limitations are recorded in
 [PR #122](https://github.com/arafathusayn/herdsman/pull/122); a speed ranking is
 only claimed when supported by the complete run and its noise floor.
 
+### Measured comparison
+
+The complete run on 2026-11-13 used 18 entries (17 implementations plus the
+identical-build A/A control), 12 workloads and 18 rotated iterations: 3,888
+samples, with every correctness gate passing and no invalid entries or errors.
+Benchmark source: `1cbb1bc365d974b7b4afc8eaada685024f5cff66`; Reactre source:
+`8bae29b9fce00ab1e192f906e15191c6057550d7`. Chrome 157.0.8103.78,
+Puppeteer 25.16.0, Bun 1.4.4, Apple M5 Pro, macOS 27.2; the unchanged runner
+applied 4× CPU throttling where marked and waited for its normal load threshold.
+
+| Implementation       | Rank of 17 | Geometric mean of relative median times ↓ | JavaScript gzip bytes |
+| -------------------- | ---------: | ----------------------------------------: | --------------------: |
+| vanillajs-lite       |          1 |                                  1.042608 |                 4,831 |
+| Reactre core + state |          5 |                                  1.078945 |                11,107 |
+| re                   |          8 |                                  1.095725 |                 7,260 |
+
+Core + state measured **1.53% lower composite time than `re`**. The A/A
+control gap was **1.32%**, so this is a narrow measured win on this shared
+workstation, not evidence of a large or universal advantage. It is fifth
+overall; vanilla JavaScript and both Herdsman blocks entries also have lower
+scores. Individual workloads differ, including slower event insertion and
+returning to Team than `re`. The safety argument below is independent of this
+ranking.
+
+The [full results in PR #122](https://github.com/arafathusayn/herdsman/pull/122)
+include every workload, implementation, control, retained-node count and bundle
+size. Reproduce with `bun build.ts` then `bun run.ts --iterations 18`; raw local
+results are `results/2026-11-13T10-53-17-698Z.json` and `.md`, ignored as usual.
+
 ### Safety as well as speed
 
 For Herdsman's state-management needs, we consider **Reactre core + state
