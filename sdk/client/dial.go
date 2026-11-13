@@ -53,6 +53,7 @@ type Client struct {
 	Ledger  daemonv1.LedgerService
 	Route   daemonv1.RouteService
 	Project daemonv1.ProjectService
+	Runtime daemonv1.RuntimeService
 
 	http *http.Client
 }
@@ -109,6 +110,7 @@ func Dial(options Options) (*Client, error) {
 		Ledger:  daemonv1.NewLedgerServiceClient(hc, base),
 		Route:   daemonv1.NewRouteServiceClient(hc, base),
 		Project: daemonv1.NewProjectServiceClient(hc, base),
+		Runtime: daemonv1.NewRuntimeServiceClient(hc, base),
 		http:    &http.Client{Transport: transport},
 	}, nil
 }

@@ -770,7 +770,8 @@ func (r *Route) authority(ctx context.Context, c *herdr.Client) (string, []strin
 		v, _ := inbox.Decode(doc.Boundary)
 		b = inbox.Object(v)
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		ok, fault, unknown := inbox.BoundaryV2(cctx, c, r.inbox, b)
+		inv := r.d.boundaryInventory(r.name, inbox.TUIInventory{Client: c})
+		ok, fault, unknown := inbox.BoundaryV2Inventory(cctx, inv, r.inbox, b)
 		cancel()
 		if !ok {
 			reasons = append(reasons, "boundary-"+fault)

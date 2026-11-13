@@ -76,6 +76,11 @@ type MessageService interface {
 	// Wait returns the calling party's next events after a cursor, or none when
 	// wait_ms passes first.
 	Wait(context.Context, *WaitRequest) (*WaitResponse, error)
+	// ResumeGoal asks for a herdr-core agent's paused goal to be resumed. Nothing
+	// is typed: the daemon raises needs_attention with reason goal_paused and the
+	// line a person submits, and the result is always held. A TUI route keeps
+	// its file-mode resume-goal.
+	ResumeGoal(context.Context, *ResumeGoalRequest) (*ResumeGoalResponse, error)
 }
 
 // NewMessageServiceHandler serves impl over HTTP with the full binding. Mount it
@@ -109,6 +114,7 @@ func NewMessageServiceHandler(impl MessageService) http.Handler {
 		rpc.Unary(MessageServiceName, "GetOperation", impl.GetOperation),
 		rpc.Unary(MessageServiceName, "ResolveOperation", impl.ResolveOperation),
 		rpc.Unary(MessageServiceName, "Wait", impl.Wait),
+		rpc.Unary(MessageServiceName, "ResumeGoal", impl.ResumeGoal),
 	)
 }
 
@@ -333,6 +339,14 @@ func (c *messageServiceClient) ResolveOperation(ctx context.Context, req *Resolv
 func (c *messageServiceClient) Wait(ctx context.Context, req *WaitRequest) (*WaitResponse, error) {
 	res := new(WaitResponse)
 	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/Wait", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *messageServiceClient) ResumeGoal(ctx context.Context, req *ResumeGoalRequest) (*ResumeGoalResponse, error) {
+	res := new(ResumeGoalResponse)
+	if err := callMessageService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.MessageService/ResumeGoal", req, res); err != nil {
 		return nil, err
 	}
 	return res, nil

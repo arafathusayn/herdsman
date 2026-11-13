@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package herdsman.daemon.v1;
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
+
+// NoticeService is how a managed agent on herdr-core pulls its instructions
+// (herdr-core backend spec, section 10). The daemon serves it only on the
+// worker socket, whose path the core wrapper passes to the harness in
+// HERDSMAN_NOTICE_SOCKET, and only for the calling execution: the caller is
+// identified by its process, never by anything it sends. It has no call that
+// issues a notice; the daemon's own operations issue them.
+service NoticeService {
+  // Wait is a unary long poll. It answers with the next notice of the calling
+  // execution that would pass its claim, an open claim when recovery is due, a
+  // final-report notice while the route stops, "replaced" when a newer wait
+  // owns the execution, or nothing yet when the poll ends empty. A command's
+  // first call has no wait generation and is given one; each later poll
+  // carries it.
+  rpc Wait(NoticeServiceWaitRequest) returns (NoticeServiceWaitResponse);
+  // Read claims a notice of the calling execution and prints its content. A
+  // repeat read returns the same claim token and content, marked as claimed
+  // before. Without an id it returns the open claim, or claims the next notice
+  // that passes every gate.
+  rpc Read(NoticeServiceReadRequest) returns (NoticeServiceReadResponse);
+  // Ack closes a claim with an outcome and a processing record. It is accepted
+  // in every route state.
+  rpc Ack(NoticeServiceAckRequest) returns (NoticeServiceAckResponse);
+}
+
+// Notice is one instruction for one execution generation. The content is
+// served only by Read; every other answer carries the document's fields.
+message Notice {
+  // The version of this document's shape.
+  int32 schema_version = 1;
+  string id = 2;
+  // "brief", "continue", "dispatch", "checkpoint", "task" or "final_report".
+  string kind = 3;
+  // The execution and generation the notice is for.
+  string execution_id = 4;
+  int64 generation = 5;
+  // Milliseconds since the Unix epoch.
+  int64 issued_at = 6;
+  // The SHA-256 of the content, hex.
+  string content_digest = 7;
+  // "issued", "claimed", "handled" or "returned".
+  string state = 8;
+  // Whether doing the notice's work twice is safe.
+  bool safe_to_repeat = 9;
+}
+
+// NoticeClaim is an open claim as a recovery answer or a repeat read gives it.
+message NoticeClaim {
+  string notice_id = 1;
+  // Milliseconds since the Unix epoch.
+  int64 claimed_at = 2;
+  // Where the agent keeps its processing record for this notice.
+  string record_path = 3;
+  // The route was paused and resumed since the claim.
+  bool resumed_since = 4;
+  // Whether the work may go on now: not under a hold, not while stopping.
+  bool may_continue = 5;
+}
+
+message NoticeServiceWaitRequest {
+  // A random id the command chose once; every poll of one command carries it.
+  string wait_id = 1;
+  // Zero on the command's first call; afterwards the generation it was given.
+  int64 wait_generation = 2;
+  // The notice whose claim the caller is working on; such a wait is not
+  // answered with that claim until recovery is due.
+  string after = 3;
+}
+
+message NoticeServiceWaitResponse {
+  // "notice", "recovery", "replaced", "stopped" or "none".
+  string answer = 1;
+  // The generation this command owns, for its next poll.
+  int64 wait_generation = 2;
+  // The notice to read, for "notice".
+  Notice notice = 3;
+  // The open claim, for "recovery".
+  NoticeClaim claim = 4;
+  // The command to run next.
+  string next = 5;
+  // Why, for "replaced" and "stopped".
+  string reason = 6;
+}
+
+message NoticeServiceReadRequest {
+  // The notice to read; empty returns the open claim or claims the next one.
+  string id = 1;
+}
+
+message NoticeServiceReadResponse {
+  Notice notice = 1;
+  // The instruction; empty when the notice is handled or the read refused.
+  string content = 2;
+  // The claim token Ack needs.
+  string token = 3;
+  // The notice was claimed by an earlier read.
+  bool claimed_before = 4;
+  NoticeClaim claim = 5;
+  // A refused claim's gate: "approval", "policy", "identity", "visibility",
+  // "route_held", "route_stopping", "order", "deadline" or "returned". The
+  // notice stays issued.
+  string refused = 6;
+  // For a handled notice: its outcome and processing record.
+  string outcome = 7;
+  string record = 8;
+  // The command to run next.
+  string next = 9;
+}
+
+message NoticeServiceAckRequest {
+  string id = 1;
+  string token = 2;
+  // "completed", "interrupted" or "abandoned".
+  string outcome = 3;
+  // What was done and how far it went; required for every outcome.
+  string record = 4;
+}
+
+message NoticeServiceAckResponse {
+  Notice notice = 1;
+  // The acknowledgement repeated one already recorded.
+  bool repeated = 2;
+  // The command to run next.
+  string next = 3;
+}

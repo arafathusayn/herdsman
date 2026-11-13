@@ -32,8 +32,8 @@ var (
 // cgoprobe tag sets it (cgoprobe.go).
 var cgoProbe func(stdout io.Writer) error
 
-// The worktree verbs run their service in this process until the generated
-// client exists.
+// Git-only worktree verbs run locally; agent launches reach the daemon's
+// runtime-aware service through the generated client.
 func init() {
 	worktreeCall = daemon.WorktreeCall
 	importCall = daemon.ImportAccount

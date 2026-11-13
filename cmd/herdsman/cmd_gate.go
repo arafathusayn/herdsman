@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +14,53 @@ import (
 	"github.com/arafathusayn/herdsman/internal/gate"
 	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/settings"
+	"github.com/arafathusayn/herdsman/sdk/client"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
+
+// gateInventory is the boundary check's agent list for a herdr-core route:
+// its inbox is daemon-owned and its agents have no Herdr pane, so the live
+// agents are the daemon's setup inventory of the route (the shared-core
+// faults of spec section 6), read through the SDK, not the TUI's agent
+// list. A TUI caller keeps the TUI's list.
+func gateInventory(dir string, getenv func(string) string) inbox.Inventory {
+	if dir == "" || !inbox.DaemonOwned(dir) || getenv("HERDR_PANE_ID") != "" {
+		return nil
+	}
+	return inbox.ListedInventory{List: func(ctx context.Context) ([]inbox.Unknown, error) {
+		sdk, err := client.Dial(client.Options{Getenv: getenv})
+		if err != nil {
+			return nil, err
+		}
+		defer sdk.Close()
+		routes, err := sdk.Message.ListRoutes(ctx, &daemonv1.ListRoutesRequest{})
+		if err != nil {
+			return nil, err
+		}
+		var route *daemonv1.RouteInfo
+		for _, r := range routes.GetRoutes() {
+			if r.GetInbox() == dir {
+				route = r
+			}
+		}
+		if route == nil {
+			return nil, fmt.Errorf("the daemon serves no route at %s", dir)
+		}
+		setup, err := sdk.Message.GetSetup(ctx, &daemonv1.GetSetupRequest{Route: route.GetRoute()})
+		if err != nil {
+			return nil, err
+		}
+		out := make([]inbox.Unknown, 0, len(setup.GetInventory()))
+		for _, a := range setup.GetInventory() {
+			session := json.RawMessage(a.GetSessionJson())
+			if len(session) == 0 {
+				session = json.RawMessage("null")
+			}
+			out = append(out, inbox.Unknown{Pane: a.GetPane(), Agent: a.GetAgent(), Session: session})
+		}
+		return out, nil
+	}}
+}
 
 func init() {
 	register(command{name: "approval-gate", summary: "Bind a relayed go before its effect: approval-gate consume ... | complete <request-id> <outcome>.", help: gateHelp, run: runGate})
@@ -63,7 +110,7 @@ func runGate(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	opts.Sleep = ctxSleep(ctx)
-	g := &gate.Gate{Options: opts, Client: herdrClient(), Stdout: stdout, Stderr: stderr}
+	g := &gate.Gate{Options: opts, Client: herdrClient(), Inventory: gateInventory(opts.Dir, os.Getenv), Stdout: stdout, Stderr: stderr}
 	// As the script's traps: an interrupted gate frees its locks and exits
 	// 130, 143 or 129. The running gate owns that cleanup: the signal only
 	// stops it at its next write and ends its context; Run then frees the

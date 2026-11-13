@@ -52,6 +52,10 @@ var readOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.OpsService.Records":            true,
 	"herdsman.daemon.v1.RouteService.Get":              true,
 	"herdsman.daemon.v1.RouteService.List":             true,
+	"herdsman.daemon.v1.RuntimeService.ListExecutions": true,
+	"herdsman.daemon.v1.RuntimeService.GetExecution":   true,
+	"herdsman.daemon.v1.RuntimeService.Doctor":         true,
+	"herdsman.daemon.v1.RuntimeService.GetDefault":     true,
 	"herdsman.suggest.v1.SuggestService.Search":        true,
 	"herdsman.suggest.v1.SuggestService.Get":           true,
 	"herdsman.suggest.v1.SuggestService.Plan":          true,
@@ -84,6 +88,17 @@ var peopleOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.ResetEvents":      true,
 	"herdsman.daemon.v1.OpsService.Export":               true,
 	"herdsman.daemon.v1.OpsService.Import":               true,
+	// The installation default decides where every later route of the account
+	// runs.
+	"herdsman.daemon.v1.RuntimeService.SetDefault": true,
+	// A typed submit is one person's explicit action on one execution (the
+	// herdr-core spec, section 10, rule 2); an agent may never press Enter
+	// in another agent's terminal.
+	"herdsman.daemon.v1.RuntimeService.Submit": true,
+	// Read shows another execution's terminal text, which can hold task
+	// content the pair channel does not carry; it serves the waiters and a
+	// person, never an agent through MCP.
+	"herdsman.daemon.v1.RuntimeService.Read": true,
 }
 
 // Files are the contracts served as tools: only those the daemon serves.
@@ -93,6 +108,7 @@ func Files() []protoreflect.FileDescriptor {
 		daemonv1.File_herdsman_daemon_v1_message_proto,
 		daemonv1.File_herdsman_daemon_v1_route_proto,
 		daemonv1.File_herdsman_daemon_v1_ops_proto,
+		daemonv1.File_herdsman_daemon_v1_runtime_proto,
 		suggestv1.File_herdsman_suggest_v1_suggest_proto,
 	}
 }

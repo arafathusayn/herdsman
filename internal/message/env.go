@@ -45,6 +45,9 @@ type Env struct {
 	JSON bool
 	// Ctx bounds herdr calls (nil: background).
 	Ctx context.Context
+	// Verifier checks a caller's or a peer's live identity (nil: the Herdr
+	// TUI's, through Client). Every identity check goes through it.
+	Verifier inbox.Verifier
 
 	ch      *inbox.Channel
 	own     *owner // lock ownership, shared with sub-runs (owner.go)
@@ -54,6 +57,14 @@ type Env struct {
 	settingsDone          bool
 	healthAfter, lockWait string
 	eventReadMax          int
+}
+
+// verifier is the one identity check of the channel commands.
+func (e *Env) verifier() inbox.Verifier {
+	if e.Verifier != nil {
+		return e.Verifier
+	}
+	return inbox.VerifierFor(e.Client)
 }
 
 func (e *Env) ctx() context.Context {

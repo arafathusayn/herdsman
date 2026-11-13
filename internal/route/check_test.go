@@ -275,6 +275,32 @@ func TestCheckNopane(t *testing.T) {
 	want(t, "K20e a dropped nopane line restores the pane check", `^MISSING pane in the task table`, out)
 }
 
+// A herdr-core route's agents have no panes: its task table names each
+// runtime reference, and the check asks for that column by backend.
+func TestCheckRuntimeColumnByBackend(t *testing.T) {
+	repo := krepo(t)
+	k2 := filepath.Join(repo, ".herdsman", "r2")
+	core := func(header, row string) {
+		write(t, filepath.Join(k2, "00-route.md"), "# Route r2", "Backend: herdr-core", "## Decisions", "- x", "## Must prove", "- y",
+			"## Task table", header, "| --- | --- | --- | --- |", row, "## Checklist", "- [x] C0.1 all: read guards -- done", "## Run state")
+	}
+	core("| Task | Agent | Pane | Runtime |", "| a | im-a | - | 1a2b3c4d-0000-4000-8000-00000000000a |")
+	out, rc := check(t, k2, StageLaunch)
+	wantRC(t, "R1 a core route with runtime references passes", rc, 0)
+	want(t, "R1b and says so", `^ok task table runtime references filled$`, out)
+	core("| Task | Agent | Pane | Runtime |", "| a | im-a | w1:p2 | tbd |")
+	out, _ = check(t, k2, StageLaunch)
+	want(t, "R2 a pane does not stand in for a runtime reference on core", `^MISSING runtime reference in the task table`, out)
+	core("| Task | Agent | Pane | Where |", "| a | im-a | w1:p2 | x |")
+	out, _ = check(t, k2, StageLaunch)
+	want(t, "R3 a core route with no Runtime column", `^MISSING a Runtime column`, out)
+	// A TUI route keeps the Pane check, with or without a Runtime column.
+	kroute(t, k2, "| Task | Agent | Pane | Runtime |", "| a | im-a | w1:p2 | - |", "- [x] C0.1 all: read guards -- done")
+	out, rc = check(t, k2, StageLaunch)
+	wantRC(t, "R4 a TUI route passes on its panes", rc, 0)
+	want(t, "R4b", `^ok task table panes filled$`, out)
+}
+
 func TestCheckWithoutRouteFile(t *testing.T) {
 	dir := t.TempDir()
 	out, rc := check(t, dir, StagePlan)

@@ -4,9 +4,9 @@
 >
 > Place in v1.0.0: step 19 of the v1.0.0 roadmap ("The herdr-core backend", its pull request 18), built as stage 5b of the v1 implementation plan, after the web (step 17) and before the release (step 18), with its own tag `v0.11.0`. It keeps the number 19 although it is built before the release, so nothing earlier is renumbered.
 
-**Status:** implementation plan, 2026-11-11. Nothing in it is built yet. The spec is the authority for behaviour; this plan says in which order the behaviour is built, by which pull request, and what proves each one. Where the two differ, the spec wins and this plan is corrected.
+**Status:** phases 0–7 are implemented in PR #121, updated 2026-11-13. Herdr-core is the new-installation default, the main app is required, and the optional TUI view attaches to core. [The implementation and review record](herdr-core-backend-review.md) maps each phase and consumer to its code and validation evidence, including the public task-launch fix. The acceptance checklists below are the original release-qualification checklist; unchecked release, platform and long-running harness gates are not claims of passing tests. The spec is the authority for behaviour; where the two differ, this plan is corrected.
 
-**Outcome.** `herdsman up` gains a second execution backend. Each agent is a herdr-core terminal, placed in the native herdr app where a person watches it and can take over. Agents are identified by their process, not by a pane. Instructions are pulled as notices, and on herdr-core `0.1.19` no automation types into a terminal. The Herdr TUI stays as the other backend, one config line away. New installations select core; every existing installation keeps the backend it has (§5).
+**Outcome.** `herdsman up` and `herdsman new --agent` use the selected execution backend. Each core agent is a herdr-core terminal, placed in the native herdr app where a person watches it and can take over. Agents are identified by their process, not by a pane. Instructions are pulled as notices; no automation types into a terminal. The Herdr TUI stays as the other backend, one config line away. New installations select core; every existing installation keeps the backend it has (§5).
 
 The roadmap's gates for this step, which every phase below serves:
 
@@ -34,11 +34,11 @@ Durable decisions that every phase relies on. Each one is settled in the spec; t
 - **Packages (§15).** `internal/runtime` (provider contract and records), `internal/runtime/legacytui` (the TUI as a provider), `internal/runtime/core` (the core provider and harness adapters), `internal/hc` (core protocol client), `internal/herdrapp` (native app adapter), `internal/notice` (notice domain). Each joins the import guard's server list in the pull request that creates it. No module is added; the dependency budget does not change.
 - **Events.** Execution loss, `needs_attention` with its reason (`compaction_due`, `goal_paused`, `interrupted`, a dialog), `not_waiting`, `wake_unanswered`, `notice_held`, `claim_stuck`, claim outcomes other than `completed`, stop report outcomes, visibility changes and unresolved sends are event kinds on the existing stream.
 - **Platforms.** Claimed for macOS on Apple silicon until core and the app are shown on the Linux runner. On any other machine `runtime doctor` says why and names the TUI backend, and the Linux acceptance run skips the core gates by name.
-- **Fallback.** If a gate that needs a herdr-core change is still open at the release candidate, or no harness passes "Long run with no person" for each coordinator role, the backend ships as an experiment (`experimental = true` in `[runtime.core]`) and the TUI is the default everywhere. `v1.0.0` does not wait.
+- **Default decision (2026-11-13).** Herdr-core is the default for new installations and configuration files. The compatibility marker is accepted without effect. Unsupported capabilities fail explicitly; they never silently select the TUI. Harness qualification and release qualification remain separate from backend selection.
 
 ## Delivery map
 
-Eight pull requests. Three land on their own; the `runtime` group lands as one integrated pull request; the TUI view is optional and lands after the tag.
+The original delivery map below groups the implementation phases. PR #121 integrates the runtime group and the optional TUI view. Merging and publishing a release tag are release operations after review, separate from implementing and pushing this PR.
 
 | Phase | Pull request | Lands as | Starts after | Spec |
 | --- | --- | --- | --- | --- |
@@ -50,7 +50,7 @@ Eight pull requests. Three land on their own; the `runtime` group lands as one i
 | 4 | `notice-channel` | Group `runtime` | Phase 3 integrated; `events-stream`, `restricted-profile` | §10, §13, step 2 |
 | 5 | `core-surfaces` | Group `runtime` | Phase 4 integrated; `web-pages`, `tui-forms`, `automations`, `mcp-server`, `traces-eval` | §9, §15, §16, steps 3 and 4 |
 | 6 | `stage-docs` (5b), then tag `v0.11.0` | Group `runtime` (last), promotion drill | Phase 5 integrated | §18 item 8, §19 |
-| 7 | `tui-view` | Own PR, optional, experimental | The `runtime` pull request | §14, step 5 |
+| 7 | `tui-view` | Included in PR #121; optional attachment | Core launch and identity | §14, step 5 |
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"fontFamily":"Inter, ui-sans-serif, system-ui, sans-serif","lineColor":"#64748b","edgeLabelBackground":"#0f172a","clusterBkg":"#f8fafc","clusterBorder":"#cbd5e1","titleColor":"#0f172a"}}}%%
@@ -66,7 +66,7 @@ flowchart LR
   K["keep after adoption<br>probe"]:::amber -.->|"must be recorded"| P3
   G --> T["tag v0.11.0"]:::green
   P0 --> T
-  T --> P7["7 tui-view"]:::grey
+  P3 --> P7["7 optional tui-view"]:::grey
   classDef blue fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
   classDef green fill:#dcfce7,stroke:#16a34a,color:#14532d
   classDef yellow fill:#fef9c3,stroke:#ca8a04,color:#713f12
@@ -75,7 +75,7 @@ flowchart LR
   linkStyle default stroke:#64748b,color:#f8fafc
 ```
 
-Green lands on its own and gates the tag, blue is a library pull request, yellow is integrated into the one `runtime` pull request in order, amber is a probe that is still owed, and grey is optional and comes after the tag.
+Green lands on its own and gates the tag, blue is a library pull request, yellow is integrated into the one `runtime` pull request in order, amber identifies an upstream probe, and grey is an optional attachment included in PR #121.
 
 ## Before work starts
 
@@ -95,15 +95,15 @@ Green lands on its own and gates the tag, blue is a library pull request, yellow
 | That a stop leaves nothing of a Codex execution running | Phase 3 stop, phase 5 qualification | N31 found an orphaned background command |
 | A held notice with a real harness | Phase 4 gate "Held notices" | Checked in the state model only |
 
-**Owner decisions still open (§18).** Each phase states what it builds while the decision is open, so no phase waits on an answer.
+**Implementation decisions (§18, updated 2026-11-13).** These choices are implemented in PR #121.
 
-| Decision | Until it is made |
+| Decision | Implemented behavior |
 | --- | --- |
 | The start line passed as the harness's initial prompt (one added argument, an exception to the launch-commands rule) | Adapters declare the person's path only: `up` reports `needs_attention` with the line |
 | A harness kind on this backend arrives with a Herdsman adapter | Only Claude Code and Codex adapters exist; any other kind is refused by name on core |
-| Codex woken through its own message queue | Built behind the adapter; if refused, Codex is qualified as attended and every notice needs a person's line |
-| A restricted Codex worker resting on the experimental `network_proxy` feature | Built and pinned to tested Codex versions; if refused, no restricted Codex worker on core |
-| The installation record versus changing the constant before the tag (§5) | The record is built; it holds in either order |
+| Codex woken through its own message queue | Enabled for the pinned version with process and notice-backed conversation evidence; interruptions and paused goals remain attended |
+| A restricted Codex worker resting on the experimental `network_proxy` feature | Enabled for Codex 0.164.0 using a fresh permission profile and resolved configuration verification |
+| The installation record versus changing the constant before the tag (§5) | The record selects core on new installations and preserves existing installations |
 
 ## Phase 0: launcher attestation on core terminals
 
@@ -298,7 +298,7 @@ The tracer bullet: a full route with coordinators, workers, pair messages, the c
 - **Route file check**: a runtime reference column beside Pane, accepted by backend.
 - **Harness qualification**: each fact in the §9 table rechecked for the release's harness versions and models, more than once; each harness qualified as attended or unattended, and `up` names the steps that will need a person before the route starts.
 - **`runtime doctor` complete**: backend source, binding state, environment source and agent markers, inventory rule and foreign-agent count, root readability through core, app support for the machine.
-- **The switch**: the installation default and `config init` select core only if at least one harness in each coordinator role passes "Long run with no person"; otherwise the experiment marker applies.
+- **The switch**: the installation default and `config init` select core. Qualification determines which harness steps need a person; it does not change the selected backend.
 - **Traces and performance**: launch steps, notice issue/claim/handle and typed submits as spans; the `up` budget case gains a core variant with the A/A control, reported as a 95% confidence interval.
 
 ### Acceptance criteria
@@ -307,7 +307,7 @@ These gates of §17:
 
 - [ ] Real harness qualification, Codex process ownership, Pair boundary, Lifecycle, Teardown, Public surfaces, Status forgery, Privacy grants, Platform.
 - [ ] Long run with no person for each harness qualified as unattended; for an attended harness, the named steps and their events, with nothing typed.
-- [ ] The `up` budget on core with its A/A control, reported as a 95% confidence interval.
+- [x] The `up` budget on core with its A/A control, reported as a 95% confidence interval. Twenty rounds: 258.96–270.14 ms against 2,000 ms; A/A −13.26–9.94 ms (2026-11-13).
 - [ ] A new backend that works only for `up` is not accepted: the consumer audit from phase 2 has no remaining legacy-only item on the core path.
 
 ---
@@ -332,22 +332,22 @@ These gates of §17:
 - [ ] The `runtime` group pull request, `attest-core-terminal`, `hc-client` and `herdrapp-adapter` are merged.
 - [ ] The promotion drill passes, including rollback by `backend = "herdr-tui"`.
 - [ ] Upstream requests of §10 sent (guarded submit, `if` for `done`, send id with query and cancel, a deadline on the wait for human quiet, the time of the last human input), and the app's confirmation dialog requested (§18 item 3). Whether they are answered does not hold the tag.
-- [ ] If a gate that needs herdr-core is open, the backend ships with `experimental = true` and the TUI is the default everywhere.
+- [x] New installations and new config files select herdr-core without an experiment marker; existing installations retain their stored choice.
 
 ---
 
-## Phase 7: optional TUI view (after the tag)
+## Phase 7: optional TUI view (included in PR #121)
 
 **Spec:** §14, step 5.
 
 ### What to build
 
-An experimental view of a core execution in the Herdr TUI: dedicated containers, attach by immutable core address, a controlled attach helper that reattaches, durable report sequences, and mirror close that never ends the execution. It is not an identity provider and never calls TUI `agent.prompt` for a core agent.
+An optional view of a core execution in the Herdr TUI: dedicated containers, attach by immutable core address, a controlled attach helper with bounded retries, durable metadata sequences, a daemon lease and expiring display metadata, and mirror close that never ends the execution. The implementation installs no persistent agent lifecycle override (ADR 0035). It is not an identity provider and never calls TUI `agent.prompt` for a core agent.
 
 ### Acceptance criteria
 
-- [ ] Gate "Optional TUI": create, attach, report, reattach, close, lost events, stale report expiry, moved panes, collision and crash recovery.
-- [ ] Not a gate for `v0.11.0` or `v1.0.0`; core and app continue when the TUI is down.
+- [x] Gate "Optional TUI": create, attach, report, reattach, close, lost events, stale report expiry, moved panes, collision and crash recovery. Verified against private core/TUI servers on 2026-11-13.
+- [x] Core and app continue when the TUI is down; the optional view does not participate in execution or visibility admission.
 
 ---
 
@@ -364,7 +364,7 @@ An experimental view of a core execution in the Herdr TUI: dedicated containers,
 
 | Risk | Mitigation |
 | --- | --- |
-| A gate needs a herdr-core change that is not released in time | The experiment fallback; the tag does not wait |
+| A gate needs a herdr-core change that is not released in time | Report the unsupported capability and keep the release gate open; do not change the selected backend |
 | Codex's queue or `network_proxy` changes between versions | The Codex adapter pins the versions where its suite passed; `runtime doctor` reports an unpinned version |
 | The `keep` probe shows that `keep` cannot stay false | Recovery-shell handling of §12 is built in phase 3 either way; the probe only removes work |
 | Harness probes were single runs with one model each | Phase 5 re-runs each §9 fact more than once for the release's versions and models |

@@ -24,13 +24,14 @@ const mutationPoll = 10 * time.Millisecond
 
 // messageCallsOutsideTheGate are the MessageService calls an export does not
 // hold: reads, the long-lived Wait, Shutdown, and ResolveOperation, which the
-// journal's account lock already holds. Any other call of the service is held,
+// journal's account lock already holds, and ResumeGoal, which only raises an
+// event. Any other call of the service is held,
 // so a new writer is covered without being listed. A held call must not wait
 // on a journal lock, or it and the export wait for each other.
 var messageCallsOutsideTheGate = map[string]bool{
 	"Hello": true, "Health": true, "Shutdown": true, "ListRoutes": true, "Status": true, "GetSetup": true,
 	"Authority": true, "DaemonStatus": true, "ListOperations": true, "GetOperation": true,
-	"ResolveOperation": true, "Wait": true,
+	"ResolveOperation": true, "Wait": true, "ResumeGoal": true,
 }
 
 // heldDuringExport reports whether an RPC path changes route or registry
@@ -112,6 +113,11 @@ func (s *opsService) Undo(ctx context.Context, q *daemonv1.UndoRequest) (*daemon
 	// The tree is back whatever this says, so a failure here is not the undo's.
 	if err := RecordRestoredTree(run, s.d.recovery, q.GetSnapshot(), res.Target); err != nil && s.d.cfg.Log != nil {
 		s.d.cfg.Log("undo: the task record of " + res.Target + " was not written back: " + err.Error())
+	}
+	// The undo of a route delete brings the route back stopped, with the
+	// daemon channel its delete forgot.
+	if err := s.d.restoreDeletedRoute(q.GetSnapshot()); err != nil {
+		s.d.logf("undo: the channel of the route of %s was not registered again: %v", q.GetSnapshot(), err)
 	}
 	return &daemonv1.UndoResponse{OperationId: res.Op.ID, Target: res.Target, Original: res.Original}, nil
 }

@@ -110,6 +110,7 @@ Purple is planning with you, blue is agents at work, grey is the orchestrator as
 
 - **Worktree commands** *(next release)*. `new`, `go`, `ls`, `diff`, `commit`, `each` and `teardown` work on a task's worktree by name. `teardown` stops only what the task owns.
 - **One-command start** *(next release)*. `herdsman up` starts a route and picks up where it stopped when you run it again.
+- **herdr-core by default** *(next release)*. New installations use `backend = "herdr-core"` in `[runtime]`: each agent runs as a herdr-core terminal shown in the herdr app. Agents pull their instructions as notices and nothing is typed into their terminals; `up` names the steps that need a person first. Existing installations retain their stored backend. The Herdr TUI remains an explicit alternative backend and an optional view of core executions ([release notes](docs/releases/v0.11.0.md)).
 - **Cost and traces** *(next release)*. `cost` reports the tokens that harnesses measured, and `trace` exports a route's spans as OpenTelemetry.
 
 **Build on it**
@@ -248,11 +249,14 @@ The `herdsman` command holds the web app, the tools the skill runs and the workt
 
 | Command | What it does |
 | --- | --- |
-| `up` *(next release)* | Starts a route in one command: workspace, private inbox, both coordinators, the pair and the first brief. |
+| `up` *(next release)* | Starts a route in one command: workspace, private inbox, both coordinators, the pair and the first brief. `--backend herdr-core` runs the agents on herdr-core, the default for new installations. |
+| `runtime` *(next release)* | `runtime doctor` says which backend a route uses and why, and which steps need a person; `runtime ls` lists agent executions; `runtime default` reads or sets the installation default; `runtime show` brings an agent's terminal forward in the app; `runtime submit` types one line as a person. |
+| `launch` *(next release)* | Run by herdr-core, not by a person: proves a reserved terminal is the agent's, runs its prelude and starts its harness. |
+| `notice` *(next release)* | Run by a managed agent on herdr-core: `notice wait`, `notice read` and `notice ack` pull its instructions through the daemon's worker socket; no automation types into its terminal. |
 | `pause` *(next release)* | Interrupts a route's agents and holds its channel; every pane stays open. |
 | `resume` *(next release)* | Continues a paused route, or restarts a stopped one from its record. |
 | `stop` *(next release)* | Ends a route's sessions and service panes; the work stays on disk. |
-| `delete` *(next release)* | Removes a route, once a verified snapshot makes that undoable. |
+| `delete` *(next release)* | Removes a route, once a verified snapshot makes that undoable, and the daemon's channel for it. |
 | `cost` *(next release)* | Reports measured tokens and cost per task, project or route. |
 | `trace` *(next release)* | Shows one route's spans, or exports them as OpenTelemetry. |
 | `eval` *(next release)* | Reports a suite's runs with intervals and an A/A control. [Experimental](docs/experimental.md). |
@@ -269,7 +273,7 @@ The `herdsman` command holds the web app, the tools the skill runs and the workt
 | `suggest` *(next release)* | Searches the catalog of tips and tools, ranked for this machine and project. |
 | `recommend` *(next release)* | The same as `suggest`. |
 | `spec` *(next release)* | Prints the contracts: `cli`, `proto` or `descriptor`. See the [SDK](docs/sdk.md). |
-| `mcp` *(next release)* | Serves the daemon's services as MCP tools over stdio. |
+| `mcp` *(next release)* | Serves the daemon's services as MCP tools over stdio. A person's typed line and another agent's screen are never tools. |
 | `plugin` *(next release)* | Manages [plugins](docs/plugins.md). Experimental. |
 | `update` *(next release)* | Installs the latest signed release over this binary. |
 | `version` | Prints the version, commit and platform. |

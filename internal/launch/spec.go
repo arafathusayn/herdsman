@@ -3,9 +3,11 @@
 // them, the shell line each step is submitted as, the marker files that line
 // leaves behind, and the decision a resume takes from those markers.
 //
-// The package only computes and reads. It starts no process and writes
-// nothing except the removal of stale markers in ClearMarkers and
-// ClearProbeMarkers.
+// Apart from the core wrapper (corewrap.go), the package only computes and
+// reads. It starts no process and writes nothing except the removal of stale
+// markers in ClearMarkers and ClearProbeMarkers. The core wrapper runs inside a
+// herdr-core terminal: it runs the prelude steps as its children and then
+// replaces itself with the harness.
 package launch
 
 import (

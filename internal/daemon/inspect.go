@@ -88,7 +88,7 @@ var inspectReads = map[string]bool{
 	"Hello": true, "Health": true, "DaemonStatus": true, "ListOperations": true, "GetOperation": true,
 	"ListRoutes": true, "Status": true, "GetSetup": true, "Authority": true, "Wait": true, "Stream": true,
 	"Get": true, "List": true, "Search": true, "Plan": true, "Sources": true, "Records": true,
-	"ContextCheck": true, "Log": true,
+	"ContextCheck": true, "Log": true, "ListExecutions": true, "GetExecution": true, "Doctor": true, "GetDefault": true,
 }
 
 // refuseInInspect answers every call that could change something.

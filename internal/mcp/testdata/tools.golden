@@ -537,6 +537,38 @@
     }
   },
   {
+    "name": "daemon_message_resume_goal",
+    "description": "Calls herdsman.daemon.v1.MessageService/ResumeGoal. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "daemon_message_send",
     "description": "Calls herdsman.daemon.v1.MessageService/Send. Changes state.",
     "inputSchema": {
@@ -860,6 +892,33 @@
           },
           "type": "object"
         },
+        "herdsman.core.v1.RuntimeRef": {
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "type": "string"
+            },
+            "endpoint_id": {
+              "type": "string"
+            },
+            "execution_id": {
+              "type": "string"
+            },
+            "generation": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "pane": {
+              "type": "string"
+            },
+            "terminal_address": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
         "herdsman.daemon.v1.UpCaller": {
           "additionalProperties": false,
           "properties": {
@@ -877,6 +936,9 @@
                 "integer",
                 "string"
               ]
+            },
+            "runtime": {
+              "$ref": "#/$defs/herdsman.core.v1.RuntimeRef"
             },
             "started": {
               "type": [
@@ -974,6 +1036,33 @@
           },
           "type": "object"
         },
+        "herdsman.core.v1.RuntimeRef": {
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "type": "string"
+            },
+            "endpoint_id": {
+              "type": "string"
+            },
+            "execution_id": {
+              "type": "string"
+            },
+            "generation": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "pane": {
+              "type": "string"
+            },
+            "terminal_address": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
         "herdsman.daemon.v1.StepVerdict": {
           "additionalProperties": false,
           "properties": {
@@ -1006,6 +1095,9 @@
                 "string"
               ]
             },
+            "runtime": {
+              "$ref": "#/$defs/herdsman.core.v1.RuntimeRef"
+            },
             "started": {
               "type": [
                 "integer",
@@ -1025,6 +1117,9 @@
           "type": "string"
         },
         "adjutant_kind": {
+          "type": "string"
+        },
+        "backend": {
           "type": "string"
         },
         "caller": {
@@ -1087,6 +1182,126 @@
     "annotations": {
       "readOnlyHint": true,
       "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_runtime_doctor",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/Doctor.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_runtime_get_default",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/GetDefault.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_runtime_get_execution",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/GetExecution.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_runtime_list_executions",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/ListExecutions.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_runtime_show",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/Show. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
       "openWorldHint": false
     }
   },
