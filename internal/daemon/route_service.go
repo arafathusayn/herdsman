@@ -49,6 +49,8 @@ func (d *Daemon) operationEffects(db store.Conn) map[string]ops.Effect {
 	d.worktrees.Backend, d.worktrees.OnCore, d.worktrees.CoreTask = d.taskBackend, d.taskOnCore, d.coreTask
 	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run, Recovery: d.routeRecovery(), Down: d.cfg.RouteDown, Teardown: teardown,
 		Runtime: d.runtimeRegistry(), Executions: d.recordExecution, Services: daemonServices{d}, CoreChannel: coreChannel{d}, Channels: routeChannels{d}, CoreApp: d.coreApp})
+	d.worktrees.tasks = d.taskJournal()
+	maps.Copy(effects, d.worktrees.tasks.effects())
 	maps.Copy(effects, d.teardowns.effects())
 	for name, effect := range project.Effects(db) {
 		effects[name] = effect

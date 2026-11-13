@@ -198,6 +198,9 @@ const (
 
 // HashPort maps a value to the first port of a block. Blocks are aligned, so
 // two tasks either get the same block or blocks that do not overlap.
+// PortBlock is how many ports one task's block holds.
+const PortBlock = portBlock
+
 func HashPort(value string) int {
 	sum := sha256.Sum256([]byte(value))
 	return portFloor + int(binary.BigEndian.Uint64(sum[:8])%portBlockSpan)*portBlock

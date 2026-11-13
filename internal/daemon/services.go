@@ -18,8 +18,11 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	projects, tasks := projectRPC{records}, taskRPC{records}
 	eventRPC := newEventService(d.hub, d.admitEvents, releaseContext)
 	name := daemonv1.MessageServiceName
+	worktrees := newTaskRPC(d)
 	ledgers := ledgerRPC{d: d, inspect: d.cfg.Inspect}
 	return append(eventRPC.procedures(), []rpc.Procedure{
+		rpc.Unary(daemonv1.TaskServiceName, "New", worktrees.New),
+		rpc.Unary(daemonv1.TaskServiceName, "Go", worktrees.Go),
 		rpc.Unary(daemonv1.LedgerServiceName, "NewWorktree", ledgers.NewWorktree),
 		rpc.Unary(daemonv1.LedgerServiceName, "Resources", ledgers.Resources),
 		rpc.Unary(daemonv1.LedgerServiceName, "Plan", ledgers.Plan),

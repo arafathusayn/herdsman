@@ -2,11 +2,14 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 const goHelp = `usage: herdsman go [<task>|<branch>|<path>|^|@|-|pr:<n>|<url>] [--no-cd] [--focus] [--json]
@@ -36,6 +39,17 @@ var stdinIsTerminal = func(stdin any) bool {
 	}
 	null, err := os.Stat(os.DevNull)
 	return err != nil || !os.SameFile(info, null)
+}
+
+type goResult struct {
+	Schema     schemaField `json:"schema"`
+	Task       string      `json:"task"`
+	Branch     string      `json:"branch"`
+	Path       string      `json:"path"`
+	Created    bool        `json:"created"`
+	Focused    bool        `json:"focused"`
+	PushRemote string      `json:"push_remote,omitempty"`
+	Warnings   []string    `json:"warnings,omitempty"`
 }
 
 func init() {
@@ -115,16 +129,16 @@ func runGo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
-	data, err := callWorktree("Go", map[string]any{"dir": dir, "selector": selector, "focus": *focus})
+	response, err := callTask(func(ctx context.Context, service daemonv1.TaskService) (*daemonv1.TaskServiceGoResponse, error) {
+		return service.Go(ctx, &daemonv1.TaskServiceGoRequest{Dir: dir, Selector: selector, Focus: *focus, Environ: os.Environ()})
+	})
 	if err != nil {
 		return fail(stderr, err)
 	}
-	var result struct {
-		Path     string   `json:"path"`
-		Warnings []string `json:"warnings"`
-	}
-	if err := json.Unmarshal(data, &result); err != nil {
-		return fail(stderr, err)
+	result := goResult{
+		Schema: schemaField{Version: response.GetSchemaVersion()}, Task: response.GetTask(), Branch: response.GetBranch(),
+		Path: response.GetPath(), Created: response.GetCreated(), Focused: response.GetFocused(),
+		PushRemote: response.GetPushRemote(), Warnings: response.GetWarnings(),
 	}
 	warn(stderr, result.Warnings)
 	if !*noCD {
@@ -133,6 +147,10 @@ func runGo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 	if *asJSON {
+		data, err := json.Marshal(result)
+		if err != nil {
+			return fail(stderr, err)
+		}
 		fmt.Fprintln(stdout, string(data))
 		return 0
 	}

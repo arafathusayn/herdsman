@@ -32,6 +32,10 @@ type TaskService interface {
 	Delete(context.Context, *TaskServiceDeleteRequest) (*TaskServiceDeleteResponse, error)
 	// Link attaches a pull request, an issue or a URL to a task.
 	Link(context.Context, *TaskServiceLinkRequest) (*TaskServiceLinkResponse, error)
+	// New makes a task's worktree: base, names, the tree, its hooks and setup.
+	New(context.Context, *TaskServiceNewRequest) (*TaskServiceNewResponse, error)
+	// Go finds the worktree a selector means, making one for a pull request.
+	Go(context.Context, *TaskServiceGoRequest) (*TaskServiceGoResponse, error)
 }
 
 // NewTaskServiceHandler serves impl over HTTP with the full binding. Mount it
@@ -44,6 +48,8 @@ func NewTaskServiceHandler(impl TaskService) http.Handler {
 		rpc.Unary(TaskServiceName, "Update", impl.Update),
 		rpc.Unary(TaskServiceName, "Delete", impl.Delete),
 		rpc.Unary(TaskServiceName, "Link", impl.Link),
+		rpc.Unary(TaskServiceName, "New", impl.New),
+		rpc.Unary(TaskServiceName, "Go", impl.Go),
 	)
 }
 
@@ -100,6 +106,22 @@ func (c *taskServiceClient) Delete(ctx context.Context, req *TaskServiceDeleteRe
 func (c *taskServiceClient) Link(ctx context.Context, req *TaskServiceLinkRequest) (*TaskServiceLinkResponse, error) {
 	res := new(TaskServiceLinkResponse)
 	if err := callTaskService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.TaskService/Link", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *taskServiceClient) New(ctx context.Context, req *TaskServiceNewRequest) (*TaskServiceNewResponse, error) {
+	res := new(TaskServiceNewResponse)
+	if err := callTaskService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.TaskService/New", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *taskServiceClient) Go(ctx context.Context, req *TaskServiceGoRequest) (*TaskServiceGoResponse, error) {
+	res := new(TaskServiceGoResponse)
+	if err := callTaskService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.TaskService/Go", req, res); err != nil {
 		return nil, err
 	}
 	return res, nil

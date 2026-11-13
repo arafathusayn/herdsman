@@ -86,7 +86,7 @@ func TestNewAgentUsesDefaultCoreThroughTheCLI(t *testing.T) {
 		}
 	}
 	var out, errOut bytes.Buffer
-	if code := runNew([]string{"probe", "--base", "main", "--no-setup", "--agent", "claude", "--json", "--", "fix the fixture"}, nil, &out, &errOut); code != 0 {
+	if code := runNew([]string{"probe", "--base", "main", "--no-setup", "--agent", `CORE_FIXTURE=ok claude --append-system-prompt "two words"`, "--json", "--", "fix the fixture"}, nil, &out, &errOut); code != 0 {
 		t.Fatalf("new failed (%d): %s %s", code, &out, &errOut)
 	}
 	var result struct {

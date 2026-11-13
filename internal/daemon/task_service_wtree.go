@@ -55,8 +55,31 @@ type WorktreeService struct {
 	// CoreTask starts a task agent on herdr-core.
 	CoreTask func(ctx context.Context, q route.TaskLaunch) (route.TaskStarted, error)
 
+	caller  []string         // The caller's environment; nil means this process's.
+	tasks   *taskJournal     // Nil runs the effects without an operation.
 	journal *teardownJournal // Set by the daemon, which runs teardowns.
 	engine  *ops.Engine
+}
+
+// forCaller is the service for a request from a process with this environment.
+func (s *WorktreeService) forCaller(environ []string) *WorktreeService {
+	served := *s
+	served.caller = environ
+	return &served
+}
+
+// getenv reads the caller's environment.
+func (s *WorktreeService) getenv(name string) string {
+	if s.caller == nil {
+		return os.Getenv(name)
+	}
+	prefix := name + "="
+	for _, entry := range s.caller {
+		if value, ok := strings.CutPrefix(entry, prefix); ok {
+			return value
+		}
+	}
+	return ""
 }
 
 // worktreeSchemaVersion is the version of the verbs' JSON. It only grows.
@@ -104,6 +127,8 @@ type WorktreeNewResponse struct {
 	Warnings []string `json:"warnings,omitempty"`
 	// AgentName is the agent started in the worktree, when one was.
 	AgentName string `json:"agent_name,omitempty"`
+	// Ports is the task's reserved block, starting at Port.
+	Ports []int `json:"ports,omitempty"`
 }
 
 // WorktreeListRequest asks for the worktree table.
@@ -111,6 +136,8 @@ type WorktreeListRequest struct {
 	Dir        string `json:"dir"`
 	All        bool   `json:"all,omitempty"`
 	Statusline bool   `json:"statusline,omitempty"`
+	Full       bool   `json:"full,omitempty"`     // Add the slow cells and a summary.
+	Skeleton   bool   `json:"skeleton,omitempty"` // Names only, without collecting.
 }
 
 // WorktreeRow is one line of the table. Path is empty for a branch with no tree.
@@ -129,13 +156,33 @@ type WorktreeRow struct {
 	Main       bool   `json:"main"`
 	Default    bool   `json:"default"`
 	Error      string `json:"error,omitempty"`
+	// The cells of a full list.
+	Remote       string `json:"remote,omitempty"`
+	RemoteAhead  int    `json:"remote_ahead,omitempty"`
+	RemoteBehind int    `json:"remote_behind,omitempty"`
+	Agent        string `json:"agent,omitempty"`
+	PR           int    `json:"pr,omitempty"`
+	Review       string `json:"review,omitempty"`
+	CI           string `json:"ci,omitempty"`
+	Port         int    `json:"port,omitempty"`
+	PortsHeld    int    `json:"ports_held,omitempty"`
+	Containers   int    `json:"containers,omitempty"`
+	DiskBytes    int64  `json:"disk_bytes,omitempty"`
+}
+
+// WorktreeListSummary is the line under a full table.
+type WorktreeListSummary struct {
+	Worktrees int `json:"worktrees"`
+	Dirty     int `json:"dirty"`
 }
 
 // WorktreeListResponse is the table, or one line of it for a status bar.
 type WorktreeListResponse struct {
 	versioned
-	Rows       []WorktreeRow `json:"rows"`
-	Statusline string        `json:"statusline,omitempty"`
+	Rows       []WorktreeRow       `json:"rows"`
+	Statusline string              `json:"statusline,omitempty"`
+	Summary    WorktreeListSummary `json:"summary,omitzero"`
+	Warnings   []string            `json:"warnings,omitempty"`
 }
 
 // WorktreeGoRequest asks where a selector leads.
@@ -259,7 +306,12 @@ type repository struct {
 	dflt    string
 	hooks   hooks.Config
 	naming  wtree.Naming
-	project string
+	route   string
+	environ []string
+	// What setup.env and setup.share list, and setup.ports.
+	envFiles, shared []string
+	ports            int
+	project          string
 }
 
 func (r *repository) close() { r.state.Close() }
@@ -286,7 +338,7 @@ func (s *WorktreeService) open(ctx context.Context, dir string) (*repository, er
 	if err != nil {
 		return nil, err
 	}
-	repo := &repository{git: git, state: state, reader: reader, common: common, dir: dir}
+	repo := &repository{git: git, state: state, reader: reader, common: common, dir: dir, route: s.getenv("HERDSMAN_ROUTE"), environ: s.caller}
 	collector := wtree.Collector{Refs: reader, State: state, Git: git}
 	if repo.rows, err = collector.Skeleton(ctx); err != nil {
 		state.Close()
@@ -321,7 +373,7 @@ func (s *WorktreeService) approvals() (*hooks.Approvals, error) {
 	if s.Approvals != "" {
 		return &hooks.Approvals{Path: s.Approvals}, nil
 	}
-	base := os.Getenv("XDG_CONFIG_HOME")
+	base := s.getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -338,7 +390,7 @@ func (r *repository) vars(task, branch, path, kind, base, head string) wtree.Var
 	}
 	optional := map[string]string{
 		"branch": branch, "worktree_path": path, "base": base, "default_branch": r.dflt,
-		"route": os.Getenv("HERDSMAN_ROUTE"), "commit": head,
+		"route": r.route, "commit": head,
 	}
 	if path != "" {
 		optional["worktree_name"] = filepath.Base(path)
@@ -351,7 +403,12 @@ func (r *repository) vars(task, branch, path, kind, base, head string) wtree.Var
 			values[key] = value
 		}
 	}
-	return wtree.Vars{Values: values, Port: wtree.HashPort(task)}
+	port := wtree.HashPort(task)
+	block := make(map[string]int, r.ports)
+	for i := range r.ports {
+		block[strconv.Itoa(i)] = port + i
+	}
+	return wtree.Vars{Values: values, Port: port, Ports: block}
 }
 
 // plan expands a hook and refuses one that holds a template nobody accepted.
@@ -376,7 +433,7 @@ func (s *WorktreeService) plan(r *repository, hook string, vars wtree.Vars) (hoo
 }
 
 func (r *repository) runner(vars wtree.Vars, path string) *hooks.Runner {
-	return &hooks.Runner{LogDir: filepath.Join(r.common, wtree.StateFolder, "logs"), Dir: path, Env: hooks.Env{
+	return &hooks.Runner{LogDir: filepath.Join(r.common, wtree.StateFolder, "logs"), Dir: path, Environ: r.environ, Env: hooks.Env{
 		Task: vars.Values["task"], Branch: vars.Values["branch"], Worktree: path, Route: vars.Values["route"],
 	}}
 }
@@ -385,7 +442,12 @@ func (s *WorktreeService) herdrClient(ctx context.Context) *herdr.Client {
 	socket := s.HerdrSocket
 	if socket == "" {
 		var err error
-		if socket, err = herdr.SocketPath(""); err != nil {
+		if s.caller != nil {
+			socket, err = herdr.SocketPathFor(s.getenv)
+		} else {
+			socket, err = herdr.SocketPath("")
+		}
+		if err != nil {
 			return nil
 		}
 	}
@@ -512,6 +574,11 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 			return resp, err
 		}
 	}
+	if !onCore {
+		if _, err := splitAgentCommand(req.Agent); err != nil {
+			return resp, err
+		}
+	}
 	if onCore && shape.ownClone {
 		if err := profile.CheckCoreHarnessArgs(command[1:]); err != nil {
 			return resp, err
@@ -558,16 +625,20 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := r.clearPath(path, req.Clobber); err != nil {
 		return resp, err
 	}
-	if err := s.create(ctx, r, shape, req.Task, branch, path, start, onCore, &resp); err != nil {
+	spec := treeSpec{Main: r.main, Task: req.Task, Branch: branch, Path: path, Start: start, OwnClone: shape.ownClone, GitOnly: onCore}
+	if request != nil {
+		spec.Identity = request.identity
+	}
+	if err := s.makeTree(ctx, r, spec, &resp); err != nil {
 		return resp, err
 	}
 	if request != nil {
-		if err := r.markRequest(ctx, request, branch); err != nil {
-			return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
-		}
 		resp.Warnings = append(resp.Warnings, renamedWarning(request, branch)...)
 	}
 	resp.Task, resp.Branch, resp.Path, resp.Port = req.Task, branch, path, vars.Port
+	for i := range r.ports {
+		resp.Ports = append(resp.Ports, vars.Port+i)
+	}
 	resp.Launch = "cd " + path
 	if len(command) > 0 {
 		if resp.Launch, err = shape.launchLine(command, path, req.Integrator); err != nil {
@@ -585,9 +656,6 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 		}
 	} else if req.Prompt != "" {
 		resp.Warnings = append(resp.Warnings, "the prompt was ignored: no agent was named")
-	}
-	if err := r.state.PutWorktree(ctx, wtree.Worktree{Task: req.Task, Branch: branch, Path: path, CreatedAt: time.Now()}); err != nil {
-		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
 	}
 	if err := s.finishNew(ctx, r, req, vars, before, after, &resp); err != nil {
 		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
@@ -686,7 +754,10 @@ func (s *WorktreeService) enterWorkspace(ctx context.Context, req WorktreeNewReq
 	if err := client.Call(ctx, "pane.send_input", map[string]any{"pane_id": pane, "text": export}, nil); err != nil {
 		return fmt.Errorf("the task's environment was not set: %w", err)
 	}
-	words := strings.Fields(req.Agent)
+	words, err := splitAgentCommand(req.Agent)
+	if err != nil {
+		return err
+	}
 	if len(words) == 0 {
 		return nil
 	}
@@ -722,6 +793,25 @@ func (r *repository) shareIgnored(ctx context.Context, folder string, resp *Work
 	}
 }
 
+// bringListed brings over what the configuration names. A listed path outside
+// the repository or one that is tracked work stays, and the response says so.
+func (r *repository) bringListed(ctx context.Context, listed []string, resp *WorktreeNewResponse) {
+	for _, name := range listed {
+		if !filepath.IsLocal(name) {
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf("setup lists %s, which is outside the repository; left alone", name))
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(r.main, name)); err != nil {
+			continue
+		}
+		if _, err := r.git.Run(ctx, r.main, "check-ignore", "-q", name); err != nil {
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf("setup lists %s, which git does not ignore; left alone", name))
+			continue
+		}
+		r.shareIgnored(ctx, name, resp)
+	}
+}
+
 func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req WorktreeNewRequest, vars wtree.Vars, before, after hooks.Plan, resp *WorktreeNewResponse) error {
 	runner := r.runner(vars, resp.Path)
 	if _, err := runner.Run(ctx, "pre-start", before); err != nil {
@@ -735,6 +825,7 @@ func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req Work
 		for _, folder := range detected.Share {
 			r.shareIgnored(ctx, folder, resp)
 		}
+		r.bringListed(ctx, slices.Concat(r.envFiles, r.shared), resp)
 		setup, installs, err := s.setupPlan(r, vars, detected)
 		if err != nil {
 			return err
@@ -772,12 +863,21 @@ func (s *WorktreeService) List(ctx context.Context, req WorktreeListRequest) (Wo
 		return resp, err
 	}
 	defer r.close()
+	if req.Skeleton {
+		for _, row := range r.rows {
+			resp.Rows = append(resp.Rows, tableRow(row))
+		}
+		return resp, nil
+	}
 	collector := wtree.Collector{Refs: r.reader, State: r.state, Git: r.git}
 	if err := collector.Fill(ctx, r.rows, nil); err != nil {
 		return resp, err
 	}
 	for _, row := range r.rows {
 		resp.Rows = append(resp.Rows, tableRow(row))
+	}
+	if req.Full {
+		s.fillFull(ctx, r, &resp)
 	}
 	if req.Statusline {
 		current, err := wtree.ResolveSelector(wtree.Selector{Kind: wtree.SelectCurrent}, r.selectContext(""))
@@ -1155,24 +1255,13 @@ func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text str
 	gitDir := r.main
 	if shape.ownClone {
 		gitDir = path
-		if err := r.cloneTask(ctx, branch, path, start); err != nil {
-			return wtree.Row{}, err
-		}
-	} else {
-		args := []string{"worktree", "add", "-q", path, branch}
-		if start != "" {
-			args = []string{"worktree", "add", "-q", "-b", branch, path, start}
-		}
-		if _, err := r.git.Run(ctx, r.main, args...); err != nil {
-			return wtree.Row{}, err
-		}
 	}
-	if err := r.markRequest(ctx, pr, branch); err != nil {
+	var made WorktreeNewResponse
+	spec := treeSpec{Main: r.main, Task: task, Branch: branch, Path: path, Start: start, Identity: pr.identity, GitOnly: true, OwnClone: shape.ownClone}
+	if err := s.makeTree(ctx, r, spec, &made); err != nil {
 		return wtree.Row{}, err
 	}
-	if err := r.state.PutWorktree(ctx, wtree.Worktree{Task: task, Branch: branch, Path: path, CreatedAt: time.Now()}); err != nil {
-		return wtree.Row{}, err
-	}
+	resp.Warnings = append(resp.Warnings, made.Warnings...)
 	resp.Created = true
 	resp.Warnings = append(resp.Warnings, renamedWarning(pr, branch)...)
 	if resp.PushRemote, err = r.setPushRemote(ctx, pr, branch, gitDir); err != nil {

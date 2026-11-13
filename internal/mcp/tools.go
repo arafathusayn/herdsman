@@ -84,6 +84,8 @@ var planOnlyMethods = map[protoreflect.FullName]bool{
 // An export writes the channel secrets to a path of the caller's choosing, and
 // an import builds an account whose approved pairs come from any folder.
 var peopleOnlyMethods = map[protoreflect.FullName]bool{
+	"herdsman.daemon.v1.TaskService.New": true,
+	"herdsman.daemon.v1.TaskService.Go":  true,
 	// Record deletion can discard task history or detach a whole project.
 	"herdsman.daemon.v1.ProjectService.Delete":           true,
 	"herdsman.daemon.v1.TaskService.Delete":              true,

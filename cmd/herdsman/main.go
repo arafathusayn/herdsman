@@ -36,6 +36,7 @@ var cgoProbe func(stdout io.Writer) error
 // runtime-aware service through the generated client.
 func init() {
 	worktreeCall = daemon.WorktreeCall
+	localTask = daemon.LocalTaskService()
 	importCall = daemon.ImportAccount
 }
 

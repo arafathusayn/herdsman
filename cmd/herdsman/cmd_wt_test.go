@@ -25,6 +25,7 @@ func worktreeRepo(t *testing.T) string {
 	t.Setenv("HERDR_SESSION", "")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv("HERDSMAN_DIRECTIVE_FILE", "")
+	t.Setenv("HERDSMAN_STATE_DIR", filepath.Join(root, "state"))
 	os.MkdirAll(repo, 0o755)
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
@@ -233,6 +234,7 @@ func TestNewPassesThePromptAndAgentToLegacyBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	worktreeRepo(t)
+	t.Setenv("HERDSMAN_STATE_DIR", "")
 	out, errOut, code := call(t, "new", "one", "--no-setup", "--agent", "claude", "--", "do", "it")
 	if code != 0 || !strings.Contains(out, "claude") || !strings.Contains(errOut, "not started") {
 		t.Fatalf("%d %s %s", code, out, errOut)
