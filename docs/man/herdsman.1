@@ -40,11 +40,13 @@ Commands:
   go       Enter a worktree.
   hook     Show, approve or run a worktree hook.
   import   Rebuild an account from an export.
+  launch   Run one agent launch in a herdr-core terminal; herdr-core runs it, not a person.
   ls       List the repository's worktrees.
   mcp      Serve the daemon's services as MCP tools over stdio.
   message  The adjutant message channel: message status|wait|read|release|ack|send|hold|unhold, and register|courier|card-watch|resume-goal|authority|leak-gate.
   models   Probe each installed harness: its version, models, efforts and default effort as it reports them.
   new      Make a task's branch and worktree.
+  notice   A managed agent's instructions on herdr-core: notice wait, notice read, notice ack.
   pause    Interrupt a route's agents and hold its channel; every pane stays open.
   plugin   Manage plugins (experimental).
   project  Keep projects, their folders and repositories, and work on their context repo.
@@ -55,6 +57,7 @@ Commands:
   review   Prepare a reviewer: herdsman review start --worktree <path> --head <commit>.
   route    Check a route folder (route check) or append a run-state line (route log).
   run-check Run one heavy check at a time on this machine, behind a load gate (--publish <hours>: the load reading).
+  runtime  Where agents run: runtime doctor, runtime ls, runtime default, runtime submit, runtime show.
   spec     Print the SDK contracts: spec cli|proto|descriptor.
   status   Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.
   stop     End a route's sessions and service panes; the work stays on disk.
@@ -91,11 +94,13 @@ Commands:
 .BR herdsman-help (1),
 .BR herdsman-hook (1),
 .BR herdsman-import (1),
+.BR herdsman-launch (1),
 .BR herdsman-ls (1),
 .BR herdsman-mcp (1),
 .BR herdsman-message (1),
 .BR herdsman-models (1),
 .BR herdsman-new (1),
+.BR herdsman-notice (1),
 .BR herdsman-pause (1),
 .BR herdsman-plugin (1),
 .BR herdsman-project (1),
@@ -106,6 +111,7 @@ Commands:
 .BR herdsman-review (1),
 .BR herdsman-route (1),
 .BR herdsman-run-check (1),
+.BR herdsman-runtime (1),
 .BR herdsman-spec (1),
 .BR herdsman-status (1),
 .BR herdsman-stop (1),

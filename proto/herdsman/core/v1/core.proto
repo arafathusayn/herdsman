@@ -122,3 +122,24 @@ message Task {
   int64 created = 11;
   int64 updated = 12;
 }
+
+// RuntimeRef names one execution of a runtime backend: one harness launch. It
+// is added beside the pane fields of older messages, which keep their meaning
+// for the herdr-tui backend only and are never filled with invented values.
+message RuntimeRef {
+  // "herdr-core" or "herdr-tui".
+  string backend = 1;
+  // A random UUID of one harness launch; empty for a legacy TUI binding that
+  // predates execution records.
+  string execution_id = 2;
+  // Raised each time the logical agent is launched again.
+  int64 generation = 3;
+  // The verified endpoint: the core identity on herdr-core, the server socket
+  // on herdr-tui.
+  string endpoint_id = 4;
+  // The core terminal address; never a reusable friendly name. Empty on
+  // herdr-tui.
+  string terminal_address = 5;
+  // The Herdr TUI pane; empty on herdr-core.
+  string pane = 6;
+}

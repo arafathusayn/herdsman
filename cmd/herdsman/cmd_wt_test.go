@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 // worktreeRepo makes a repository, enters it, and keeps every outside service
@@ -219,7 +222,16 @@ func TestVerbFailuresExitOne(t *testing.T) {
 	}
 }
 
-func TestNewPassesThePromptAndAgent(t *testing.T) {
+func TestNewPassesThePromptAndAgentToLegacyBackend(t *testing.T) {
+	coreDaemon(t)
+	service, closeService, err := dialRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeService()
+	if _, err := service.SetDefault(context.Background(), &daemonv1.RuntimeServiceSetDefaultRequest{Backend: "herdr-tui"}); err != nil {
+		t.Fatal(err)
+	}
 	worktreeRepo(t)
 	out, errOut, code := call(t, "new", "one", "--no-setup", "--agent", "claude", "--", "do", "it")
 	if code != 0 || !strings.Contains(out, "claude") || !strings.Contains(errOut, "not started") {

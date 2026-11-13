@@ -278,6 +278,81 @@ test("route starts lists each start with its steps and names the missing control
   }
 });
 
+test("route starts show each execution's runtime fields and its backend's controls", async () => {
+  const calls = daemon({
+    "daemon.v1.RouteService/List": {
+      starts: [{ operation: "o1", route: { value: "auth" }, state: "done", backend: "herdr-core" }],
+    },
+    "daemon.v1.RuntimeService/ListExecutions": {
+      executions: [
+        {
+          ref: { backend: "herdr-core", executionId: "e1", generation: "2", terminalAddress: "t-7" },
+          route: { value: "auth" },
+          agent: "proj-auth-orchestrator",
+          role: "orchestrator",
+          observation: {
+            process: "live",
+            readiness: "needs_attention",
+            program: "idle",
+            visibility: "verified",
+            app: "closed",
+          },
+          attention: [
+            { reason: "notice_waiting", noticeId: "n-1", line: "Run `herdsman notice read` and do what it prints" },
+          ],
+          unresolved: [
+            { kind: "typed_submit", id: "s-0", state: "unresolved", choices: ["keep_waiting", "send_again"] },
+          ],
+          notices: { issued: 1, heldGate: "route_held" },
+          actions: ["show", "submit"],
+        },
+        { ref: { backend: "herdr-tui" }, route: { value: "other" }, agent: "elsewhere", source: "legacy" },
+      ],
+    },
+    "daemon.v1.RuntimeService/Show": { backend: "herdr-core" },
+    "daemon.v1.RuntimeService/Submit": { submitId: "s-1", state: "typed" },
+  });
+  const root = await render("route");
+  for (const expected of [
+    "proj-auth-orchestrator",
+    "Process: live",
+    "Readiness: needs_attention",
+    "Program: idle",
+    "Visibility: verified, app closed",
+    "Needs a person: notice_waiting",
+    "Unresolved typed_submit s-0: unresolved",
+    "keep_waiting, send_again",
+    "Notices: issued 1, claimed 0, handled 0, returned 0, held by route_held",
+  ]) {
+    expect(text(root)).toContain(expected);
+  }
+  expect(text(root)).not.toContain("elsewhere");
+  const buttons = all(root, "button");
+  dispatch(
+    buttons.find((b) => text(b) === "Show in the app")!,
+    "click",
+  );
+  await settle();
+  expect(calls.find((call) => call.path.endsWith("RuntimeService/Show"))?.body).toEqual({ executionId: "e1" });
+  // A typed submit: the warning first, then the person's own confirmation.
+  dispatch(
+    all(root, "button").find((b) => text(b) === "Type a line")!,
+    "click",
+  );
+  await settle();
+  expect(text(root)).toContain("nothing can recall it");
+  expect(calls.some((call) => call.path.endsWith("RuntimeService/Submit"))).toBe(false);
+  fill(all(root, "input")[0]!, " go on ");
+  dispatch(all(root, "form")[0]!, "submit");
+  await settle();
+  expect(calls.find((call) => call.path.endsWith("RuntimeService/Submit"))?.body).toEqual({
+    executionId: "e1",
+    text: "go on",
+    confirmed: true,
+  });
+  expect(text(root)).toContain("Typed submit s-1: typed");
+});
+
 test("worktrees reads the ledger and its plan, and names the missing actions", async () => {
   const calls = daemon({
     "daemon.v1.LedgerService/Resources": {

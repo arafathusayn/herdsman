@@ -56,6 +56,10 @@ var readOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.ProjectService.List":           true,
 	"herdsman.daemon.v1.TaskService.Get":               true,
 	"herdsman.daemon.v1.TaskService.List":              true,
+	"herdsman.daemon.v1.RuntimeService.ListExecutions": true,
+	"herdsman.daemon.v1.RuntimeService.GetExecution":   true,
+	"herdsman.daemon.v1.RuntimeService.Doctor":         true,
+	"herdsman.daemon.v1.RuntimeService.GetDefault":     true,
 	"herdsman.suggest.v1.SuggestService.Search":        true,
 	"herdsman.suggest.v1.SuggestService.Get":           true,
 	"herdsman.suggest.v1.SuggestService.Plan":          true,
@@ -80,6 +84,9 @@ var planOnlyMethods = map[protoreflect.FullName]bool{
 // An export writes the channel secrets to a path of the caller's choosing, and
 // an import builds an account whose approved pairs come from any folder.
 var peopleOnlyMethods = map[protoreflect.FullName]bool{
+	// Record deletion can discard task history or detach a whole project.
+	"herdsman.daemon.v1.ProjectService.Delete":           true,
+	"herdsman.daemon.v1.TaskService.Delete":              true,
 	"herdsman.daemon.v1.MessageService.Shutdown":         true,
 	"herdsman.daemon.v1.MessageService.Enroll":           true,
 	"herdsman.daemon.v1.MessageService.ApprovePair":      true,
@@ -88,6 +95,17 @@ var peopleOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.ResetEvents":      true,
 	"herdsman.daemon.v1.OpsService.Export":               true,
 	"herdsman.daemon.v1.OpsService.Import":               true,
+	// The installation default decides where every later route of the account
+	// runs.
+	"herdsman.daemon.v1.RuntimeService.SetDefault": true,
+	// A typed submit is one person's explicit action on one execution (the
+	// herdr-core spec, section 10, rule 2); an agent may never press Enter
+	// in another agent's terminal.
+	"herdsman.daemon.v1.RuntimeService.Submit": true,
+	// Read shows another execution's terminal text, which can hold task
+	// content the pair channel does not carry; it serves the waiters and a
+	// person, never an agent through MCP.
+	"herdsman.daemon.v1.RuntimeService.Read": true,
 }
 
 // Files are the contracts served as tools: only those the daemon serves.
@@ -99,6 +117,7 @@ func Files() []protoreflect.FileDescriptor {
 		daemonv1.File_herdsman_daemon_v1_project_proto,
 		daemonv1.File_herdsman_daemon_v1_task_proto,
 		daemonv1.File_herdsman_daemon_v1_ops_proto,
+		daemonv1.File_herdsman_daemon_v1_runtime_proto,
 		suggestv1.File_herdsman_suggest_v1_suggest_proto,
 	}
 }

@@ -28,6 +28,8 @@ type Tab struct {
 }
 
 type Pane struct {
+	DisplayTitle  *string `json:"title"`
+	TerminalID    string  `json:"terminal_id"`
 	ID            string  `json:"pane_id"`
 	WorkspaceID   string  `json:"workspace_id"`
 	TabID         string  `json:"tab_id"`

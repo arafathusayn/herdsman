@@ -28,6 +28,72 @@ message Config {
   Worktree worktree = 15;
   Automations automations = 16;
   Retention retention = 17;
+  Runtime runtime = 18;
+}
+
+// Runtime chooses where agents run. The section is strict: an unknown key stops
+// the command, so a misspelled backend never falls through to a default.
+message Runtime {
+  // "herdr-core" or "herdr-tui". Unset means the installation default, which
+  // `herdsman runtime default` prints: herdr-core for a new installation.
+  // Existing installations and routes retain their recorded backend.
+  optional string backend = 1;
+  RuntimeCore core = 2;
+  RuntimeApp app = 3;
+  RuntimeTuiView tui_view = 4;
+}
+
+// RuntimeCore says how to reach herdr-core. A new route resolves its endpoint
+// once, from socket, else session, else hc's default session, and keeps it:
+// a config that later names another endpoint for that route is refused with
+// backend_migration_required. HC_SOCKET, HC_SESSION and HC_TERMINAL_ID in the
+// daemon's environment never choose the endpoint. A value that cannot be used
+// stops every run with invalid_runtime_config.
+message RuntimeCore {
+  // The hc program Herdsman runs, such as in `herdsman doctor`; a bare name is
+  // looked up on PATH. The default is "hc". The daemon itself reaches core
+  // over its socket.
+  optional string binary = 1;
+  // An absolute socket path. Unset resolves the session under hc's path
+  // rules (XDG_RUNTIME_DIR, else the state directory).
+  optional string socket = 2;
+  // The core session, one path segment. The default is "default". A socket
+  // and a session that name different endpoints stop the run with both named.
+  optional string session = 3;
+  // How long a connection to core may take to answer, such as "5s". The
+  // default is 5 seconds.
+  optional string connect_timeout = 4;
+  // How long an agent may take to become ready after it registers, such as
+  // "90s". The default is 90 seconds.
+  optional string ready_timeout = 5;
+  // Compatibility key accepted from earlier experimental configurations.
+  // It has no effect: herdr-core is the default for new installations.
+  optional bool experimental = 6;
+}
+
+// RuntimeApp says which native herdr app shows a route's agents. The app's
+// binding to core is verified per app home, so a changed home is verified
+// again before a new agent is dispatched.
+message RuntimeApp {
+  // The app program; a bare name is looked up on PATH. The default is
+  // "herdr-app".
+  optional string binary = 1;
+  // An absolute app home; unset means the user's main app.
+  optional string home = 2;
+  // How long to wait for an agent to appear in the app, such as "15s". The
+  // default is 15 seconds.
+  optional string visibility_timeout = 3;
+}
+
+// RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the
+// execution backend or the required native-app visibility. Reports are
+// expiring display metadata; the TUI owns no harness identity or readiness.
+message RuntimeTuiView {
+  // Mirror core agents in dedicated TUI workspaces. Off unless set.
+  // Enabling requires an explicit absolute socket path.
+  optional bool enabled = 1;
+  // The TUI's absolute socket path. No ambient pane or session is used.
+  optional string socket = 2;
 }
 
 // Retention bounds the snapshots that undo can restore. The daemon reads it from
@@ -214,7 +280,9 @@ message PolicyBudget {
 message Automations {
   // Must be true for any action to fire.
   optional bool experimental = 1;
-  // Actions keyed by event kind, such as "merge.landed".
+  // Actions keyed by event kind, such as "merge.landed", or a runtime event
+  // as "runtime." and its kind, such as "runtime.needs_attention". Runtime
+  // events are delivered at most once: a restart loses those not yet fired.
   map<string, AutomationAction> on = 2;
 }
 
@@ -222,7 +290,8 @@ message Automations {
 message AutomationAction {
   // A shell template. Event values reach the shell as variables, never as text.
   optional string run = 1;
-  // A built-in action, such as "route pause".
+  // A built-in action, such as "route pause". On a herdr-core route it pauses
+  // through the route's pause verb and types nothing in a pane.
   optional string builtin = 2;
   // A plugin's action, written "<plugin> <action>".
   optional string plugin = 3;

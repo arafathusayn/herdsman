@@ -54,6 +54,104 @@ export interface Config {
   worktree?: Worktree;
   automations?: Automations;
   retention?: Retention;
+  runtime?: Runtime;
+}
+
+/**
+ * Runtime chooses where agents run. The section is strict: an unknown key stops
+ * the command, so a misspelled backend never falls through to a default.
+ */
+export interface Runtime {
+  /**
+   * "herdr-core" or "herdr-tui". Unset means the installation default, which
+   * `herdsman runtime default` prints: herdr-core for a new installation.
+   * Existing installations and routes retain their recorded backend.
+   */
+  backend?: string;
+  core?: RuntimeCore;
+  app?: RuntimeApp;
+  tuiView?: RuntimeTuiView;
+}
+
+/**
+ * RuntimeCore says how to reach herdr-core. A new route resolves its endpoint
+ * once, from socket, else session, else hc's default session, and keeps it:
+ * a config that later names another endpoint for that route is refused with
+ * backend_migration_required. HC_SOCKET, HC_SESSION and HC_TERMINAL_ID in the
+ * daemon's environment never choose the endpoint. A value that cannot be used
+ * stops every run with invalid_runtime_config.
+ */
+export interface RuntimeCore {
+  /**
+   * The hc program Herdsman runs, such as in `herdsman doctor`; a bare name is
+   * looked up on PATH. The default is "hc". The daemon itself reaches core
+   * over its socket.
+   */
+  binary?: string;
+  /**
+   * An absolute socket path. Unset resolves the session under hc's path
+   * rules (XDG_RUNTIME_DIR, else the state directory).
+   */
+  socket?: string;
+  /**
+   * The core session, one path segment. The default is "default". A socket
+   * and a session that name different endpoints stop the run with both named.
+   */
+  session?: string;
+  /**
+   * How long a connection to core may take to answer, such as "5s". The
+   * default is 5 seconds.
+   */
+  connectTimeout?: string;
+  /**
+   * How long an agent may take to become ready after it registers, such as
+   * "90s". The default is 90 seconds.
+   */
+  readyTimeout?: string;
+  /**
+   * Compatibility key accepted from earlier experimental configurations.
+   * It has no effect: herdr-core is the default for new installations.
+   */
+  experimental?: boolean;
+}
+
+/**
+ * RuntimeApp says which native herdr app shows a route's agents. The app's
+ * binding to core is verified per app home, so a changed home is verified
+ * again before a new agent is dispatched.
+ */
+export interface RuntimeApp {
+  /**
+   * The app program; a bare name is looked up on PATH. The default is
+   * "herdr-app".
+   */
+  binary?: string;
+  /**
+   * An absolute app home; unset means the user's main app.
+   */
+  home?: string;
+  /**
+   * How long to wait for an agent to appear in the app, such as "15s". The
+   * default is 15 seconds.
+   */
+  visibilityTimeout?: string;
+}
+
+/**
+ * RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the
+ * execution backend or the required native-app visibility. Reports are
+ * expiring display metadata; the TUI owns no harness identity or readiness.
+ */
+export interface RuntimeTuiView {
+  /**
+   * Mirror core agents in dedicated TUI workspaces. Off unless set.
+   * Enabling requires an explicit absolute socket path.
+   */
+  enabled?: boolean;
+  /**
+   * The TUI's absolute socket path. No ambient pane or session is used.
+   */
+  socket?: string;
 }
 
 /**
@@ -272,7 +370,9 @@ export interface Automations {
    */
   experimental?: boolean;
   /**
-   * Actions keyed by event kind, such as "merge.landed".
+   * Actions keyed by event kind, such as "merge.landed", or a runtime event
+   * as "runtime." and its kind, such as "runtime.needs_attention". Runtime
+   * events are delivered at most once: a restart loses those not yet fired.
    */
   on?: Record<string, AutomationAction>;
 }
@@ -286,7 +386,8 @@ export interface AutomationAction {
    */
   run?: string;
   /**
-   * A built-in action, such as "route pause".
+   * A built-in action, such as "route pause". On a herdr-core route it pauses
+   * through the route's pause verb and types nothing in a pane.
    */
   builtin?: string;
   /**

@@ -117,6 +117,47 @@ export interface Ping {
 }
 
 /**
+ * RuntimeEvent is the JSON payload of an Event on the "runtime" topic, whose
+ * type is the event's kind (herdr-core backend spec, sections 10 to 12). Kinds:
+ * "execution_lost", "execution_replaced", "identity_changed",
+ * "visibility_changed", "inventory_fault", "needs_attention" (reason
+ * "notice_waiting", "interrupted", "compaction_due", "goal_paused",
+ * "start_line", "dialog", or one of the card watch's "side_agent_cards",
+ * "relay_failed", "read_failed" and "identity_lost"), "not_waiting", "notice_held" (reason: the gate), "claim_stuck",
+ * "notice_outcome" (outcome other than "completed"), "notice_returned",
+ * "report_outcome" (outcome "reported", "report_timeout",
+ * "report_unavailable" or "not_reached"), "submit_unresolved",
+ * "resume_partial" and "pause_pending".
+ */
+export interface RuntimeEvent {
+  kind?: string;
+  repo?: string;
+  route?: string;
+  executionId?: string;
+  /**
+   * A short machine word, such as the gate of notice_held.
+   */
+  reason?: string;
+  /**
+   * Words for a person; never task content.
+   */
+  detail?: string;
+  noticeId?: string;
+  /**
+   * A notice's or a stop report's outcome.
+   */
+  outcome?: string;
+  /**
+   * Milliseconds since the Unix epoch.
+   */
+  time?: string;
+  /**
+   * A line a person may type in the agent's pane, for needs_attention.
+   */
+  line?: string;
+}
+
+/**
  * EventService carries live updates by topic. Besides Wait, the daemon serves
  * a WebSocket at GET /rpc/herdsman.daemon.v1.EventService/Stream whose messages
  * in both directions are StreamFrame: binary protobuf by default, or JSON text

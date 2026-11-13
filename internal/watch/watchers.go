@@ -62,11 +62,11 @@ func Implementers(ctx context.Context, env Env, d Deps) int {
 				}
 			}
 			pane := paneOf(env, name)
-			text := readPane(ctx, d.Client, pane, 40)
+			text := d.readPane(ctx, pane, 40)
 			h := hash(text)
 			prev := st.read("hash-" + name)
 			st.write("hash-"+name, h)
-			reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, implBlockRE, implWorkRE, nil)
+			reason, blocked := screenBlock(d.agentStatus(ctx, pane), text, implBlockRE, implWorkRE, nil)
 			tell := newBlock(st, name, blocked, h, prev)
 			switch {
 			case blocked:
@@ -120,12 +120,12 @@ func Reviewer(ctx context.Context, env Env, d Deps) int {
 				out = append(out, fmt.Sprintf("REVIEW %s %s", f, clock(d.Now())))
 			}
 		}
-		text := readPane(ctx, d.Client, pane, 30)
+		text := d.readPane(ctx, pane, 30)
 		h := hash(text)
 		prev := st.read("hash-" + name)
 		st.write("hash-"+name, h)
 		// Once per screen change, like the waiter: an unchanged prompt on screen is the same event.
-		reason, blocked := screenBlock(agentStatus(ctx, d.Client, pane), text, revBlockRE, revWorkRE, nil)
+		reason, blocked := screenBlock(d.agentStatus(ctx, pane), text, revBlockRE, revWorkRE, nil)
 		tell := newBlock(st, name, blocked, h, prev)
 		if blocked {
 			if tell {

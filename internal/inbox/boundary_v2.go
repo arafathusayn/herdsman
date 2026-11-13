@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -36,26 +37,29 @@ const DaemonOwnedLine = "inbox owned by the herdsman daemon; use herdsman messag
 // caller has checked the proof's checksums. It returns the fault and, for
 // FaultInventory, the unknown agents.
 func BoundaryV2(ctx context.Context, c *herdr.Client, dir string, boundary map[string]any) (bool, string, []Unknown) {
-	r := &Root{Dir: dir}
-	// A waiting exposure record (any pending state the classifier does
-	// not call empty) fails closed until an owner of the input lock folds
-	// it.
-	if (&Channel{Root: r}).ExposurePending() {
-		return false, FaultPending, nil
+	return BoundaryV2Inventory(ctx, TUIInventory{Client: c}, dir, boundary)
+}
+
+// Inventory finds the live agents a boundary does not know. The Herdr TUI's
+// is its agent list; a herdr-core route's is the shared-core inventory of the
+// runtime spec's section 6, read under the inventory rule in force.
+type Inventory interface {
+	Unknown(ctx context.Context, boundary map[string]any) ([]Unknown, error)
+}
+
+// TUIInventory is the Herdr TUI's agent list: every live agent of the server
+// must be known to the setup.
+type TUIInventory struct{ Client *herdr.Client }
+
+// Unknown implements Inventory. An empty list is a failure: a server always
+// holds the pair.
+func (t TUIInventory) Unknown(ctx context.Context, boundary map[string]any) ([]Unknown, error) {
+	agents, err := t.Client.AgentList(ctx)
+	if err != nil {
+		return nil, err
 	}
-	// The pair is the approved registry as Registry read it (bounded, no
-	// link, no FIFO), not a second read of the path.
-	pb, _, ok := r.registry()
-	if !ok || Exists(r.Path("state", "boundary-tainted")) {
-		return false, FaultStatic, nil
-	}
-	pair, _ := Decode(pb)
-	if !boundaryFields(boundary, pair) {
-		return false, FaultStatic, nil
-	}
-	agents, err := c.AgentList(ctx)
-	if err != nil || len(agents) == 0 {
-		return false, FaultList, nil
+	if len(agents) == 0 {
+		return nil, errors.New("the server lists no agent")
 	}
 	var unknown []Unknown
 	for _, a := range agents {
@@ -75,6 +79,32 @@ func BoundaryV2(ctx context.Context, c *herdr.Client, dir string, boundary map[s
 			raw = json.RawMessage("null")
 		}
 		unknown = append(unknown, Unknown{Pane: a.PaneID, Agent: harness, Session: raw})
+	}
+	return unknown, nil
+}
+
+// BoundaryV2Inventory is BoundaryV2 over any inventory.
+func BoundaryV2Inventory(ctx context.Context, inv Inventory, dir string, boundary map[string]any) (bool, string, []Unknown) {
+	r := &Root{Dir: dir}
+	// A waiting exposure record (any pending state the classifier does
+	// not call empty) fails closed until an owner of the input lock folds
+	// it.
+	if (&Channel{Root: r}).ExposurePending() {
+		return false, FaultPending, nil
+	}
+	// The pair is the approved registry as Registry read it (bounded, no
+	// link, no FIFO), not a second read of the path.
+	pb, _, ok := r.registry()
+	if !ok || Exists(r.Path("state", "boundary-tainted")) {
+		return false, FaultStatic, nil
+	}
+	pair, _ := Decode(pb)
+	if !boundaryFields(boundary, pair) {
+		return false, FaultStatic, nil
+	}
+	unknown, err := inv.Unknown(ctx, boundary)
+	if err != nil {
+		return false, FaultList, nil
 	}
 	if len(unknown) > 0 {
 		return false, FaultInventory, unknown
@@ -178,3 +208,36 @@ func hashRegular(p string) (string, error) {
 // beforeHash runs in ProofV2Valid just before a proof file is hashed;
 // tests swap the file there.
 var beforeHash func(p string)
+
+// ListedInventory is an agent list another component reads, such as the
+// daemon's setup inventory of a herdr-core route: every listed agent the
+// boundary does not know is unknown. A failed list is a failure.
+type ListedInventory struct {
+	List func(ctx context.Context) ([]Unknown, error)
+}
+
+// Unknown implements Inventory.
+func (l ListedInventory) Unknown(ctx context.Context, boundary map[string]any) ([]Unknown, error) {
+	if l.List == nil {
+		return nil, errors.New("no inventory to read")
+	}
+	agents, err := l.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var unknown []Unknown
+	for _, a := range agents {
+		var sess any
+		if len(a.Session) > 0 {
+			sess, _ = Decode(a.Session)
+		}
+		if knownAgent(boundary, map[string]any{"pane": a.Pane, "session": sess}, a.Agent) {
+			continue
+		}
+		if len(a.Session) == 0 {
+			a.Session = json.RawMessage("null")
+		}
+		unknown = append(unknown, a)
+	}
+	return unknown, nil
+}

@@ -174,6 +174,17 @@ func (s projectRPC) Delete(_ context.Context, req *daemonv1.ProjectServiceDelete
 	if err != nil {
 		return nil, recordsError(err)
 	}
+	if !req.GetForce() {
+		tasks, err := store.ListTasks(project.TaskFilter{ProjectID: p.ID})
+		if err != nil {
+			return nil, recordsError(err)
+		}
+		for _, task := range tasks {
+			if err := refuseLiveWorktrees(store, task); err != nil {
+				return nil, recordsError(err)
+			}
+		}
+	}
 	if err := store.DeleteProject(p.ID, req.GetForce()); err != nil {
 		return nil, recordsError(err)
 	}

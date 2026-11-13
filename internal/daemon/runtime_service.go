@@ -1,0 +1,484 @@
+package daemon
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"path/filepath"
+	goruntime "runtime"
+	"slices"
+	"time"
+
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
+	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/route"
+	"github.com/arafathusayn/herdsman/internal/runtime"
+	"github.com/arafathusayn/herdsman/internal/runtime/coreconfig"
+	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
+	"github.com/arafathusayn/herdsman/sdk/version"
+)
+
+// runtimeService is the daemon's RuntimeService: the execution records, the
+// installation default and the backend doctor. It starts nothing.
+type runtimeService struct {
+	d *Daemon
+}
+
+// runtimeFailure is the wire form of a runtime refusal: its code travels as a
+// core.v1.Error detail, so a caller branches on backend_migration_required or
+// backend_unavailable, never on the words.
+func runtimeFailure(err error) error {
+	code := runtime.CodeOf(err)
+	if code == "" {
+		return rpc.Errorf(rpc.Internal, "%v", err)
+	}
+	wire := rpc.FailedPrecondition
+	if code == runtime.CodeUnknownBackend || code == runtime.CodeInvalidRuntimeConfig {
+		wire = rpc.InvalidArgument
+	}
+	failure := rpc.Errorf(wire, "%s", err.Error())
+	if derr := failure.AddDetail(&corev1.Error{Code: code, Message: err.Error()}); derr != nil {
+		return rpc.Errorf(rpc.Internal, "cannot encode the failure")
+	}
+	return failure
+}
+
+// tuiRef is the runtime reference of a Herdr TUI agent known by its pane: the
+// same pane, never an invented execution. No pane is no reference.
+func tuiRef(pane string) *corev1.RuntimeRef {
+	if pane == "" {
+		return nil
+	}
+	return &corev1.RuntimeRef{Backend: runtime.BackendTUI, Pane: pane}
+}
+
+// installationDefault reads the account's installation default.
+func (d *Daemon) installationDefault() (backend, source string, at int64, err error) {
+	err = d.ops.Read(func(c store.Conn) error {
+		var rerr error
+		backend, source, at, rerr = store.InstallationDefault(c)
+		return rerr
+	})
+	return backend, source, at, err
+}
+
+// selectRuntime resolves the backend of one run in the order of the spec's
+// section 5, with the config's resolved runtime keys, which a run on
+// herdr-core launches with. persisted is the backend an existing route
+// started on; empty for a new route. Every launch path calls it: up, task
+// launches and the doctor. An unusable key stops every run, on either
+// backend, as an unknown key in [runtime] does.
+func (d *Daemon) selectRuntime(repo, configPath, flag, persisted string) (runtime.Selection, runtimeConfig, error) {
+	rc, err := d.readRuntimeConfig(repo, configPath)
+	if err != nil {
+		if runtime.CodeOf(err) != "" {
+			return runtime.Selection{}, rc, err
+		}
+		return runtime.Selection{}, rc, &runtime.Error{Code: runtime.CodeUnknownBackend, Msg: "the configuration: " + err.Error()}
+	}
+	installed, _, _, err := d.installationDefault()
+	if err != nil {
+		return runtime.Selection{}, rc, err
+	}
+	sel, err := runtime.Resolve(runtime.Inputs{Flag: flag, Config: rc.Backend, ConfigPath: rc.Path, Installation: installed, Persisted: persisted, Experimental: rc.Experimental})
+	return sel, rc, err
+}
+
+// launchBackend resolves a run's backend and refuses one this build cannot
+// run. There is no fallback: the refusal names the Herdr TUI.
+func (d *Daemon) launchBackend(repo, configPath, flag, persisted string) (runtime.Selection, error) {
+	sel, _, err := d.launchRuntime(repo, configPath, flag, persisted)
+	return sel, err
+}
+
+// launchRuntime is launchBackend with the config's resolved runtime keys.
+func (d *Daemon) launchRuntime(repo, configPath, flag, persisted string) (runtime.Selection, runtimeConfig, error) {
+	sel, rc, err := d.selectRuntime(repo, configPath, flag, persisted)
+	if err != nil {
+		return sel, rc, err
+	}
+	return sel, rc, d.runtimeRegistry().Available(sel.Backend)
+}
+
+// taskBackend refuses a task launch in repo on a backend this build cannot
+// run. A task has no backend flag; its repository's config file and then the
+// installation default decide.
+func (d *Daemon) taskBackend(_ context.Context, repo string) error {
+	sel, err := d.launchBackend(repo, "", "", "")
+	if err == nil && sel.Backend == runtime.BackendCore && d.coreRT() == nil {
+		return runtime.Unavailable(runtime.BackendCore, "in this daemon: its launch socket is not open")
+	}
+	return err
+}
+
+// taskOnCore reports a repository whose task agents run on herdr-core.
+func (d *Daemon) taskOnCore(_ context.Context, repo string) bool {
+	sel, err := d.launchBackend(repo, "", "", "")
+	return err == nil && sel.Backend == runtime.BackendCore && d.coreRT() != nil
+}
+
+// coreTask starts a task agent on herdr-core through the launch
+// transaction, on the endpoint and with the timeouts and app its
+// repository's config resolves.
+func (d *Daemon) coreTask(ctx context.Context, q route.TaskLaunch) (route.TaskStarted, error) {
+	c := d.coreRT()
+	if c == nil {
+		return route.TaskStarted{}, runtime.Unavailable(runtime.BackendCore, "in this daemon: its launch socket is not open")
+	}
+	rc, err := d.readRuntimeConfig(q.Repo, "")
+	if err != nil {
+		return route.TaskStarted{}, err
+	}
+	q.Core = c.launchFor(rc.Settings, rc.Settings.Endpoint())
+	if q.StateDir == "" {
+		q.StateDir = filepath.Join(d.daemonDir(), "tasks")
+	}
+	c.watch(c.ctx, q.Core.Socket)
+	p := c.provider(q.Core.Socket)
+	p.App = c.appOf(q.Core.App)
+	p.Options.ConnectTimeout = q.Core.Timeouts.ConnectTimeout()
+	return route.LaunchTask(ctx, p, q)
+}
+
+// recordExecution writes an execution record into the account store, beside
+// the journal of the route that launched it.
+func (d *Daemon) recordExecution(_ context.Context, e runtime.Execution) error {
+	row := executionRow(e)
+	return d.ops.Read(func(c store.Conn) error {
+		_, err := store.PutExecution(c, row, d.now().UnixMilli())
+		return err
+	})
+}
+
+func jsonOf(v any) string {
+	if v == nil {
+		return ""
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func millis(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixMilli()
+}
+
+func executionRow(e runtime.Execution) store.Execution {
+	row := store.Execution{
+		ID: e.ID, SchemaVersion: e.SchemaVersion, Repo: e.Repo, Route: e.Route, Agent: e.Agent, Role: e.Role, TaskID: e.TaskID,
+		LaunchIntent: e.LaunchIntent, Generation: e.Generation, Backend: e.Backend, EndpointID: e.EndpointID,
+		TerminalAddress: e.TerminalAddress, Pane: e.Pane, InitialCreatedMS: e.InitialCreatedMS, PID: int64(e.Evidence.PID),
+		ProcessStart: e.Evidence.Start, ArgvDigest: e.ArgvDigest, Cwd: e.Cwd, HarnessKind: e.HarnessKind,
+		HarnessVersion: e.HarnessVersion, PolicyDigest: e.PolicyDigest, LaunchGuard: e.LaunchGuard, DesiredState: string(e.Desired),
+		Process: string(e.Observation.Process), Readiness: string(e.Observation.Readiness), Program: string(e.Observation.Program),
+		RawProgram: e.Observation.RawProgram, Visibility: string(e.Observation.Visibility), App: string(e.Observation.App),
+		Orchestration: string(e.Observation.Orchestration), TaskOutcome: string(e.Observation.TaskOutcome),
+		ObservedAt: millis(e.Observation.ObservedAt), LastVerifiedAt: millis(e.LastVerifiedAt), Experiment: e.Experiment,
+	}
+	if e.Conversation != nil {
+		row.NativeConversation = jsonOf(e.Conversation)
+	}
+	if e.App != nil {
+		row.AppBinding = jsonOf(e.App)
+	}
+	if e.TUI != nil {
+		row.TUIBinding = jsonOf(e.TUI)
+	}
+	return row
+}
+
+// executionMessage is the wire form of a stored execution.
+func executionMessage(e store.Execution) *daemonv1.Execution {
+	out := &daemonv1.Execution{
+		Ref: &corev1.RuntimeRef{Backend: e.Backend, ExecutionId: e.ID, Generation: e.Generation, EndpointId: e.EndpointID,
+			TerminalAddress: e.TerminalAddress, Pane: e.Pane},
+		Route: &corev1.RouteId{Value: e.Route}, Repo: e.Repo, Agent: e.Agent, Role: e.Role, TaskId: e.TaskID,
+		LaunchIntentId: e.LaunchIntent, HarnessKind: e.HarnessKind, HarnessVersion: e.HarnessVersion, ObservedPid: e.PID,
+		ObservedProcessStart: e.ProcessStart, DesiredState: e.DesiredState, LastVerifiedAt: e.LastVerifiedAt, Created: e.Created,
+		Source: "record",
+		Observation: &daemonv1.ExecutionObservation{Process: e.Process, Readiness: e.Readiness, Program: e.Program,
+			RawProgramStatus: e.RawProgram, Visibility: e.Visibility, App: e.App, Orchestration: e.Orchestration,
+			TaskOutcome: e.TaskOutcome, ObservedAt: e.ObservedAt},
+	}
+	out.Experiment = e.Experiment
+	var conv runtime.Conversation
+	if e.NativeConversation != "" && json.Unmarshal([]byte(e.NativeConversation), &conv) == nil && conv.Value != "" {
+		out.NativeConversation = &daemonv1.NativeConversation{Value: conv.Value, Provenance: conv.Provenance}
+	}
+	var app runtime.AppBinding
+	if e.AppBinding != "" && json.Unmarshal([]byte(e.AppBinding), &app) == nil {
+		out.AppBinding = &daemonv1.AppBinding{CoreId: app.CoreID, SpaceId: app.SpaceID, TabId: app.TabID, PaneId: app.PaneID, Visibility: string(app.Visibility)}
+	}
+	var tui runtime.TUIBinding
+	if e.TUIBinding != "" && json.Unmarshal([]byte(e.TUIBinding), &tui) == nil {
+		out.TuiBinding = &daemonv1.TuiBinding{Socket: tui.Socket, Pane: tui.Pane}
+	}
+	return out
+}
+
+// latestStarts is the newest journaled start of each route, oldest route
+// first; a route whose newest start was deleted is left out.
+func (d *Daemon) latestStarts() ([]*ops.Operation, error) {
+	all, err := d.ops.List()
+	if err != nil {
+		return nil, err
+	}
+	byKey := map[string][]*ops.Operation{}
+	var keys []string
+	for _, op := range all {
+		if op.Kind != route.OperationKind {
+			continue
+		}
+		key := route.UpKey(route.RepoOf(op), route.Describe(op).Route)
+		if _, ok := byKey[key]; !ok {
+			keys = append(keys, key)
+		}
+		byKey[key] = append(byKey[key], op)
+	}
+	var out []*ops.Operation
+	for _, key := range keys {
+		starts := byKey[key]
+		sortStarts(starts)
+		out = append(out, starts[len(starts)-1])
+	}
+	return out, nil
+}
+
+// ListExecutions lists the stored execution records and, for a start
+// journaled before records existed, each of its agents as a legacy entry.
+func (s *runtimeService) ListExecutions(ctx context.Context, req *daemonv1.RuntimeServiceListExecutionsRequest) (*daemonv1.RuntimeServiceListExecutionsResponse, error) {
+	name := req.GetRoute().GetValue()
+	if name != "" && req.GetRepo() == "" {
+		return nil, rpc.Errorf(rpc.InvalidArgument, "a route is named by its repository too")
+	}
+	var rows []store.Execution
+	if err := s.d.ops.Read(func(c store.Conn) error {
+		var err error
+		rows, err = store.Executions(c, req.GetRepo(), name)
+		return err
+	}); err != nil {
+		return nil, rpcFailure(ctx, Errf("internal", "executions: %v", err))
+	}
+	out := &daemonv1.RuntimeServiceListExecutionsResponse{}
+	recorded := map[string]bool{}
+	for _, row := range rows {
+		e := executionMessage(row)
+		s.describe(e)
+		out.Executions = append(out.Executions, e)
+		recorded[row.Repo+"\x00"+row.Route+"\x00"+row.Agent] = true
+	}
+	starts, err := s.d.latestStarts()
+	if err != nil {
+		return nil, rpcFailure(ctx, Errf("internal", "operations: %v", err))
+	}
+	for _, op := range starts {
+		repo, facts := route.RepoOf(op), route.Describe(op)
+		if name != "" && (facts.Route != name || repo != req.GetRepo()) {
+			continue
+		}
+		for _, a := range route.AgentsOf(op) {
+			if recorded[repo+"\x00"+facts.Route+"\x00"+a.Name] {
+				continue
+			}
+			out.Executions = append(out.Executions, &daemonv1.Execution{
+				Ref:   &corev1.RuntimeRef{Backend: a.Backend, EndpointId: a.Socket},
+				Route: &corev1.RouteId{Value: facts.Route}, Repo: repo, Agent: a.Name, Role: a.Role, HarnessKind: a.Kind,
+				Source: "legacy", Actions: runtime.Actions(a.Backend),
+			})
+		}
+	}
+	return out, nil
+}
+
+// GetExecution reports one stored execution.
+func (s *runtimeService) GetExecution(ctx context.Context, req *daemonv1.RuntimeServiceGetExecutionRequest) (*daemonv1.RuntimeServiceGetExecutionResponse, error) {
+	if req.GetExecutionId() == "" {
+		return nil, rpc.Errorf(rpc.InvalidArgument, "the request names no execution")
+	}
+	var row store.Execution
+	found := false
+	if err := s.d.ops.Read(func(c store.Conn) error {
+		var err error
+		row, found, err = store.ExecutionByID(c, req.GetExecutionId())
+		return err
+	}); err != nil {
+		return nil, rpcFailure(ctx, Errf("internal", "executions: %v", err))
+	}
+	if !found {
+		return nil, rpc.Errorf(rpc.NotFound, "no execution %s", req.GetExecutionId())
+	}
+	e := executionMessage(row)
+	s.describe(e)
+	return &daemonv1.RuntimeServiceGetExecutionResponse{Execution: e}, nil
+}
+
+// GetDefault reports the installation default.
+func (s *runtimeService) GetDefault(ctx context.Context, _ *daemonv1.RuntimeServiceGetDefaultRequest) (*daemonv1.RuntimeServiceGetDefaultResponse, error) {
+	backend, source, at, err := s.d.installationDefault()
+	if err != nil {
+		return nil, rpcFailure(ctx, Errf("internal", "the installation default: %v", err))
+	}
+	return &daemonv1.RuntimeServiceGetDefaultResponse{Backend: backend, Source: source, WrittenAt: at}, nil
+}
+
+// SetDefault changes the installation default. Routes that exist keep their
+// backend, and a config file's [runtime] backend still wins over it.
+func (s *runtimeService) SetDefault(ctx context.Context, req *daemonv1.RuntimeServiceSetDefaultRequest) (*daemonv1.RuntimeServiceSetDefaultResponse, error) {
+	backend := req.GetBackend()
+	if !runtime.Valid(backend) {
+		return nil, runtimeFailure(&runtime.Error{Code: runtime.CodeUnknownBackend, Msg: fmt.Sprintf("%q is not a backend; use one of %v", backend, runtime.Backends)})
+	}
+	var previous string
+	if err := s.d.ops.Read(func(c store.Conn) error {
+		var err error
+		previous, err = store.SetInstallationDefault(c, backend, s.d.now().UnixMilli())
+		return err
+	}); err != nil {
+		return nil, rpcFailure(ctx, Errf("internal", "the installation default: %v", err))
+	}
+	return &daemonv1.RuntimeServiceSetDefaultResponse{Backend: backend, Previous: previous}, nil
+}
+
+// The machine the doctor judges; tests replace them.
+var platformOS, platformArch = goruntime.GOOS, goruntime.GOARCH
+
+// supportedPlatform is where the core backend and the app are claimed: macOS
+// on Apple silicon, until core and the app are shown on Linux (spec section
+// 19, "Platforms"). An Intel Mac has no prebuilt app.
+func supportedPlatform() bool { return platformOS == "darwin" && platformArch == "arm64" }
+
+// appSupport is the doctor's verdict on this machine for the app: claimed,
+// or why not with the line that selects the TUI. It fails only when the run
+// would use core.
+func appSupport(selected string) (state, detail string) {
+	if supportedPlatform() {
+		return "ok", fmt.Sprintf("herdr-core and herdr-app are claimed for %s/%s, this machine", platformOS, platformArch)
+	}
+	state = "warn"
+	if selected == runtime.BackendCore {
+		state = "fail"
+	}
+	return state, fmt.Sprintf("herdr-core and herdr-app are claimed for macOS on Apple silicon (darwin/arm64) only, and this machine is %s/%s; use backend = %q in [runtime]",
+		platformOS, platformArch, runtime.BackendTUI)
+}
+
+// Doctor reports the selection a run would make and what each backend needs.
+// It changes nothing.
+func (s *runtimeService) Doctor(ctx context.Context, req *daemonv1.RuntimeServiceDoctorRequest) (*daemonv1.RuntimeServiceDoctorResponse, error) {
+	out := &daemonv1.RuntimeServiceDoctorResponse{Version: &corev1.Version{Contract: version.Version, Build: s.d.cfg.Version}}
+	check := func(name, state, detail string) {
+		out.Checks = append(out.Checks, &daemonv1.RuntimeCheck{Name: name, State: state, Detail: detail})
+	}
+	if def, err := s.GetDefault(ctx, nil); err == nil {
+		out.Installation = def
+		check("installation-default", "ok", fmt.Sprintf("%s (%s)", def.GetBackend(), def.GetSource()))
+	} else {
+		check("installation-default", "fail", err.Error())
+	}
+	persisted := ""
+	var latest *ops.Operation
+	if name := req.GetRoute().GetValue(); name != "" && req.GetRepo() != "" {
+		starts, err := (&routeService{d: s.d}).starts(route.UpKey(req.GetRepo(), name))
+		if err != nil {
+			return nil, err
+		}
+		if len(starts) > 0 {
+			latest = starts[len(starts)-1]
+			persisted = route.BackendOf(latest)
+		}
+	}
+	sel, rc, err := s.d.selectRuntime(req.GetRepo(), req.GetConfigPath(), req.GetBackend(), persisted)
+	var endpoint coreconfig.Endpoint
+	if err == nil && sel.Backend == runtime.BackendCore {
+		var eerr error
+		endpoint, eerr = keptEndpoint(rc, latest, persisted)
+		s.d.doctorSettings(rc.Settings, endpoint, eerr, check)
+	}
+	if err != nil {
+		check("selection", "fail", err.Error())
+	} else {
+		out.Selection = &daemonv1.RuntimeSelection{Backend: sel.Backend, Source: string(sel.Source), ConfigPath: sel.ConfigPath}
+		check("selection", "ok", fmt.Sprintf("%s, from %s", sel.Backend, sel.Source))
+		if sel.Experimental {
+			out.Selection.Experiment = runtime.ExperimentNotice
+			check("experiment", "warn", runtime.ExperimentNotice)
+		}
+	}
+	reg := s.d.runtimeRegistry()
+	for _, backend := range runtime.Backends {
+		report := &daemonv1.BackendReport{Backend: backend, Available: true}
+		if err := reg.Available(backend); err != nil {
+			report.Available, report.Reason = false, err.Error()
+		}
+		if backend == runtime.BackendTUI {
+			report.Endpoint = s.d.cfg.HerdrSocket
+			if report.Available {
+				cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				_, perr := herdr.New(s.d.cfg.HerdrSocket).Check(cctx)
+				cancel()
+				if perr != nil {
+					report.Available, report.Reason = false, "the Herdr TUI server does not answer: "+perr.Error()
+				}
+			}
+		}
+		// Core is checked only when a run would use it: the doctor never
+		// dials a core nobody selected.
+		if backend == runtime.BackendCore && report.Available && sel.Backend == runtime.BackendCore {
+			if c := s.d.coreRT(); c != nil {
+				report.Endpoint = endpoint.Socket
+				if ok, why := c.doctor(ctx, endpoint.Socket, c.appOf(rc.Settings.App()), req.GetRepo(), req.GetRoute().GetValue(), check); !ok {
+					report.Available, report.Reason = false, why
+				}
+			}
+		}
+		out.Backends = append(out.Backends, report)
+	}
+	if sel.Backend != "" {
+		i := slices.IndexFunc(out.Backends, func(b *daemonv1.BackendReport) bool { return b.GetBackend() == sel.Backend })
+		if b := out.Backends[i]; b.GetAvailable() {
+			check("backend", "ok", sel.Backend+" can run")
+		} else {
+			check("backend", "fail", b.GetReason())
+		}
+	}
+	state, detail := appSupport(sel.Backend)
+	check("app-support", state, detail)
+	return out, nil
+}
+
+// Read implements RuntimeService.Read: the newest lines of one herdr-core
+// execution's terminal, read through the provider, and its recorded
+// observation. The waiters read the runtime this way instead of a pane; it
+// types nothing.
+func (s *runtimeService) Read(ctx context.Context, req *daemonv1.RuntimeServiceReadRequest) (*daemonv1.RuntimeServiceReadResponse, error) {
+	got, err := s.GetExecution(ctx, &daemonv1.RuntimeServiceGetExecutionRequest{ExecutionId: req.GetExecutionId()})
+	if err != nil {
+		return nil, err
+	}
+	out := &daemonv1.RuntimeServiceReadResponse{Observation: got.GetExecution().GetObservation()}
+	if req.GetLines() <= 0 {
+		return out, nil
+	}
+	if got.GetExecution().GetRef().GetBackend() != runtime.BackendCore {
+		return nil, rpc.Errorf(rpc.FailedPrecondition, "execution %s runs on %s; read its pane there", req.GetExecutionId(), got.GetExecution().GetRef().GetBackend())
+	}
+	c := s.d.coreRT()
+	if c == nil {
+		return nil, rpc.Errorf(rpc.Unavailable, "this daemon runs no herdr-core executions")
+	}
+	ex := got.GetExecution()
+	text, err := c.routeProvider(ex.GetRepo(), ex.GetRoute().GetValue()).Read(ctx, runtime.Target{ExecutionID: req.GetExecutionId()}, runtime.ReadRequest{Lines: int(min(req.GetLines(), 400)), MaxBytes: 64 << 10})
+	if err != nil {
+		return nil, rpc.Errorf(rpc.Unavailable, "read execution %s: %v", req.GetExecutionId(), err)
+	}
+	out.Text, out.Truncated = text.Text, text.Truncated
+	return out, nil
+}

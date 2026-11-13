@@ -492,6 +492,29 @@ func TestTaskDeleteRefusesAnExistingWorktree(t *testing.T) {
 	}
 }
 
+func TestProjectDeletePreservesCompletedTasksWithWorktrees(t *testing.T) {
+	c := routeClient(t, newHarness(t))
+	ctx := context.Background()
+	repo, tree := recordsRepoWithWorktree(t, "one", "one")
+	_, err := c.Project.Create(ctx, &daemonv1.ProjectServiceCreateRequest{Name: "orchard", Repos: []*corev1.ProjectRepo{{Name: "api", Path: repo}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := createTask(t, c, "orchard", "One")
+	if _, err := c.Task.Update(ctx, &daemonv1.TaskServiceUpdateRequest{Task: task.GetId().GetValue(), Status: ptrTo("done")}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Project.Delete(ctx, &daemonv1.ProjectServiceDeleteRequest{Scope: byName("orchard")})
+	wantRecordsCode(t, err, rpc.FailedPrecondition)
+	if _, err := c.Task.Get(ctx, &daemonv1.TaskServiceGetRequest{Task: task.GetId().GetValue()}); err != nil {
+		t.Fatalf("refused deletion lost the completed task: %v", err)
+	}
+	recordsGit(t, repo, "worktree", "remove", tree)
+	if _, err := c.Project.Delete(ctx, &daemonv1.ProjectServiceDeleteRequest{Scope: byName("orchard")}); err != nil {
+		t.Fatalf("no worktree remains: %v", err)
+	}
+}
+
 func TestTaskDeleteFindsAWorktreeByItsBranch(t *testing.T) {
 	c := routeClient(t, newHarness(t))
 	ctx := context.Background()

@@ -43,7 +43,7 @@ func (e *Env) register(args []string) error {
 		if e.pane() == "" {
 			return die("HERDR_PANE_ID: set own pane\ncannot enroll current session")
 		}
-		id, code, note := inbox.LiveIdentity(e.ctx(), e.Client, e.pane())
+		id, code, note := e.verifier().Live(e.ctx(), inbox.PaneRef(e.pane()))
 		if code != inbox.LiveOK {
 			if note != "" {
 				fmt.Fprintln(e.Stderr, note)

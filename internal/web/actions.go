@@ -14,12 +14,19 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/secrets"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
-// Action is one browser request to change something in herdr.
+// Action is one browser request to change something in herdr. It names its
+// target by a pane, or by a runtime reference: Execution, the id of an
+// execution the daemon records, whose backend's explicit action list decides
+// what the action may be.
 type Action struct {
-	Type      string   `json:"type"`
-	Pane      string   `json:"pane"`
+	Type      string `json:"type"`
+	Pane      string `json:"pane"`
+	Execution string `json:"execution,omitempty"`
+	// Confirmed is a person's yes to a typed submit's warning, shown first.
+	Confirmed bool     `json:"confirmed,omitempty"`
 	Text      string   `json:"text,omitempty"`
 	Keys      []string `json:"keys,omitempty"`
 	Name      string   `json:"name,omitempty"`
@@ -74,6 +81,9 @@ type Queue struct {
 	redactor *secrets.Redactor
 	// refuseStart is why agents may not be started, or "".
 	refuseStart string
+	// runtime is the daemon's RuntimeService, for actions keyed by an
+	// execution; nil when the server reaches no daemon.
+	runtime daemonv1.RuntimeService
 }
 
 func NewQueue(c *herdr.Client, h *Hub) *Queue {
@@ -152,6 +162,9 @@ var movesFocus = map[string]bool{"prompt": true, "keys": true, "text": true, "st
 var quiet = map[string]bool{"input": true}
 
 func (q *Queue) run(ctx context.Context, a Action) Result {
+	if a.Execution != "" {
+		return q.runtimeAction(ctx, a)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	if a.Type == "scroll" {
