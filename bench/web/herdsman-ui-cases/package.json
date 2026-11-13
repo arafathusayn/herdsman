@@ -4,8 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "bun build.ts",
-    "bench": "bun run.ts",
-    "check-svg": "bun check-svg.ts"
+    "bench": "bun run.ts"
   },
   "dependencies": {
     "puppeteer-core": "25.16.0"

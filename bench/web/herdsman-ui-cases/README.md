@@ -27,7 +27,7 @@ js-framework-benchmark table of 1,000 rows. Each contender is one app in
   `checkKey`, log lines by `lineKey`.
 - A card's click calls `onSelect(m.pane)` through a handler on that card (or
   the library's own event delegation).
-- The DOM under `#main` must match `apps/herdsman-patch` exactly in the canonical form
+- The DOM under `#main` must match `apps/vanillajs-lite` exactly in the canonical form
   `window.__bench.canon()` gives after every operation. The canonical form
   ignores `data-key`, empty `class` attributes, comments, blank text, the
   order of attributes and classes, and how text is split into text nodes.
@@ -35,7 +35,7 @@ js-framework-benchmark table of 1,000 rows. Each contender is one app in
 - A tab switch replaces the tab's view; the lanes, cards and items of one
   tab never morph into another tab's elements.
 
-The reference markup is `apps/herdsman-patch/main.ts`. In short:
+The reference markup is `apps/vanillajs-lite/main.ts`. In short:
 
 ```html
 <div class="team">
@@ -124,9 +124,9 @@ Measured comparisons and their limitations are recorded in
 [PR #122](https://github.com/arafathusayn/herdsman/pull/122); a speed ranking is
 only claimed when supported by the complete run and its noise floor.
 
-## Complete comparison including built-in signals
+## Recorded comparison for the remaining entries
 
-The complete run on 2026-11-13 used 19 entries (18 implementations plus the
+The historical complete run on 2026-11-13 used 19 entries (18 implementations plus the
 identical-build A/A control), 12 workloads and 19 rotated iterations: **4,332
 samples**, with every correctness gate passing and no invalid entries or errors.
 Benchmark source: `e922d857e92848ae0da97563045c670e8225a078`; Reactre source:
@@ -136,37 +136,38 @@ Reactre pin identical. Chrome 157.0.8103.78, Puppeteer 25.16.0, Bun 1.4.4,
 Apple M5 Pro, macOS 27.2; the unchanged runner applied 4× CPU throttling where
 marked and waited for its normal load threshold.
 
-Ranks below order the measured scores; they do not establish a meaningful
-difference between close neighbors. The identical-build **A/A control gap
+Three benchmark implementations and the old control were subsequently removed. The table below
+filters them out and renumbers the remaining 15 implementations; it preserves
+the original scores and normalization. This is **not a new timing run or a
+performance improvement**. Ranks do not establish a meaningful difference
+between close neighbors. The historical run's identical-build **A/A control gap
 was 0.63%**. Lower composite time is better.
 
-| Implementation                  | Rank of 18 | Geometric mean of relative median times ↓ | JavaScript gzip bytes |
+| Implementation                  | Rank of 15 | Geometric mean of relative median times ↓ | JavaScript gzip bytes |
 | ------------------------------- | ---------: | ----------------------------------------: | --------------------: |
 | vanillajs-lite                  |          1 |                                  1.017315 |                 4,831 |
 | vanillajs                       |          2 |                                  1.025820 |                 4,607 |
-| herdsman-blocks                 |          3 |                                  1.026248 |                 7,339 |
-| herdsman-blocks-declarative     |          4 |                                  1.051765 |                 9,141 |
-| sonnet                          |          5 |                                  1.077628 |                 4,659 |
-| doohtml-dp                      |          6 |                                  1.079541 |                 5,812 |
-| Reactre core + built-in signals |          7 |                                  1.081104 |                10,503 |
-| preact                          |          8 |                                  1.084269 |                 7,494 |
-| re                              |          9 |                                  1.092474 |                 7,260 |
-| Reactre core + state            |         10 |                                  1.093526 |                11,118 |
-| thane                           |         11 |                                  1.139178 |                 8,063 |
-| vue-vapor                       |         12 |                                  1.141109 |                32,021 |
-| solid                           |         13 |                                  1.144613 |                10,037 |
-| vue                             |         14 |                                  1.155214 |                25,743 |
-| preact-signals                  |         15 |                                  1.199588 |                11,792 |
-| herdsman-patch                  |         16 |                                  1.245827 |                 5,955 |
-| solid-2                         |         17 |                                  1.273021 |                27,527 |
-| react                           |         18 |                                  1.411165 |                69,710 |
+| sonnet                          |          3 |                                  1.077628 |                 4,659 |
+| doohtml-dp                      |          4 |                                  1.079541 |                 5,812 |
+| Reactre core + built-in signals |          5 |                                  1.081104 |                10,503 |
+| preact                          |          6 |                                  1.084269 |                 7,494 |
+| re                              |          7 |                                  1.092474 |                 7,260 |
+| Reactre core + state            |          8 |                                  1.093526 |                11,118 |
+| thane                           |          9 |                                  1.139178 |                 8,063 |
+| vue-vapor                       |         10 |                                  1.141109 |                32,021 |
+| solid                           |         11 |                                  1.144613 |                10,037 |
+| vue                             |         12 |                                  1.155214 |                25,743 |
+| preact-signals                  |         13 |                                  1.199588 |                11,792 |
+| solid-2                         |         14 |                                  1.273021 |                27,527 |
+| react                           |         15 |                                  1.411165 |                69,710 |
 
-Core + built-in signals ranks **seventh**, with **1.04% lower composite time
-than `re`**. Core + state ranks **tenth**, with **0.10% higher composite time
-than `re`**, inside the control gap: this run does not establish a performance
+Among the remaining entries, core + built-in signals ranks **fifth**, with
+**1.04% lower composite time than `re`**. Core + state ranks **eighth**, with
+**0.10% higher composite time than `re`**, inside the control gap: this run does not establish a performance
 difference between those two. The **top-two signals and top-five state targets
 were not met**. The state-machine safety argument below is independent of
-these timings.
+these timings. Before the removal, their ranks in this same run were seventh
+and tenth of 18 respectively.
 
 The earlier 18-entry run, before the signals entry, ranked core + state fifth
 of 17 and measured 1.53% lower composite time than `re`, with a 1.32% control
@@ -175,8 +176,15 @@ supports a large or universal speed advantage on this shared workstation.
 
 The [full results in PR #122](https://github.com/arafathusayn/herdsman/pull/122)
 include every workload, implementation, control, retained-node count and bundle
-size. Reproduce with `bun build.ts` then `bun run.ts --iterations 19`; raw local
-results are `results/2026-11-13T13-34-32-128Z.json` and `.md`, ignored as usual.
+size. The original run is reproducible from benchmark commit `e922d857` with
+`bun build.ts` then `bun run.ts --iterations 19`; raw local results are
+`results/2026-11-13T13-34-32-128Z.json` and `.md`, ignored as usual.
+For the current suite, use `bun build.ts` then `bun run.ts --iterations 16`
+to rotate all 15 implementations plus the A/A control through every position.
+`vanillajs-lite` is now the correctness reference, with an identical
+`vanillajs-lite-control` build for A/A noise measurement in future runs.
+The historical scores above have not been remeasured against this new control.
+A full build clears stale generated entries from `dist/`.
 
 ### Safety as well as speed
 
@@ -224,16 +232,7 @@ change the world and render a fresh snapshot: `poll` (no change), `status`
 `burst` (20 new events), `toggle` (checklist line 41 flips done),
 `logline` (one new log line at the top).
 
-## SVG and typed-hole check in Chrome
+## Browser selection
 
-`bun check-svg.ts` (or `bun run check-svg`) bundles `check-svg.page.ts` and
-runs it in headless Chrome: `svg` templates and views get the SVG namespace,
-SVG views render and reorder inside an HTML view's `<svg>`, `class` on an SVG
-element is an attribute (a class marker there fails when the template
-compiles), and typed `on()` and `prop()` holes work on real elements. The
-unit tests' fake DOM only imitates namespaces; this runs the browser's own
-parser. It exits non-zero when a check fails.
-
-Both `run.ts` and `check-svg.ts` launch the Chrome named by `CHROME`, else
-the first one found in the usual macOS and Linux install places or on
-`PATH` (`chrome.ts`).
+`run.ts` launches the Chrome named by `CHROME`, else the first one found in
+the usual macOS and Linux install places or on `PATH` (`chrome.ts`).

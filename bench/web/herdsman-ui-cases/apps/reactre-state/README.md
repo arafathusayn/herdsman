@@ -39,8 +39,8 @@ From the repository root:
 make web
 cd bench/web/herdsman-ui-cases
 bun install --frozen-lockfile
-bun build.ts reactre-state herdsman-patch
-bun run.ts --apps herdsman-patch,herdsman-patch-control,reactre-state
+bun build.ts reactre-state vanillajs-lite
+bun run.ts --apps vanillajs-lite,vanillajs-lite-control,reactre-state
 ```
 
 For the full comparison, first install the other entries' existing pinned
@@ -51,7 +51,7 @@ for app in apps/*; do
   if [ -f "$app/bun.lock" ]; then (cd "$app" && bun install --frozen-lockfile); fi
 done
 bun build.ts
-bun run.ts --iterations 19
+bun run.ts --iterations 16
 ```
 
 The unchanged runner checks canonical DOM and card behavior before timing,

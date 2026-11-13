@@ -24,9 +24,9 @@ benchmark dependencies:
 
 ```sh
 bun build.ts
-bun run.ts --iterations 19
+bun run.ts --iterations 16
 ```
 
-Nineteen iterations rotate each of the 19 entries through every timing
+Sixteen iterations rotate each of the 16 entries through every timing
 position. The benchmark README reports measured ranks and the control gap;
 first or second place is an expectation to test, not an assigned rank.
