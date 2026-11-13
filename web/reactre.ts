@@ -1,19 +1,10 @@
 import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 
 import { type BunPlugin, plugin } from "bun";
 
-import { compileJs, factsFor, transpileSource } from "./vendor/reactre/packages/compiler/src/index.ts";
-import {
-  analyze,
-  CORE_RUNTIME,
-  coreRuntime,
-  type Host,
-  isCore,
-  isExternal,
-  noticingAsync,
-  type Program,
-} from "./vendor/reactre/packages/compiler/src/program.ts";
+import { reactreCompiler } from "./vendor/reactre/packages/compiler/src/index.ts";
+import { isExternal } from "./vendor/reactre/packages/compiler/src/program.ts";
 import { isIdent, literal, skipToken } from "./vendor/reactre/packages/compiler/src/scan.ts";
 import { compile as compileState } from "./vendor/reactre/packages/state/compiler/index.ts";
 
@@ -59,47 +50,23 @@ export function sourceCompiler(filter: RegExp): BunPlugin {
   return {
     name: "herdsman-reactre-compiler",
     setup(build) {
-      const host: Host = {
-        resolve(spec, importer) {
-          if (imports.test(spec)) return source(spec);
-          try {
-            return Bun.resolveSync(spec, dirname(importer));
-          } catch {
-            return isExternal(spec, build.config?.external) ? false : null;
-          }
+      return reactreCompiler({
+        filter,
+        analysis: {
+          // Runtime preloads have no entrypoints. Builds require complete facts;
+          // tests retain upstream's conservative per-file compilation.
+          strict: build.config?.entrypoints !== undefined,
+          resolve(spec, importer) {
+            if (isExternal(spec, build.config?.external)) return false;
+            if (imports.test(spec)) return source(spec);
+            try {
+              return Bun.resolveSync(spec, dirname(importer));
+            } catch {
+              return null;
+            }
+          },
         },
-        transpile(file, code) {
-          return transpileSource(code, file.endsWith(".tsx") ? "tsx" : file.endsWith(".ts") ? "ts" : "jsx");
-        },
-      };
-      let program: Promise<Program | null> = Promise.resolve(null);
-      let keepAsync: Promise<boolean> = Promise.resolve(true);
-      const entries = build.config?.entrypoints;
-      if (entries) {
-        build.onStart(async () => {
-          const seen = { async: false };
-          program = analyze(
-            entries.map((entry) => resolve(entry)),
-            noticingAsync(host, seen),
-          );
-          keepAsync = program.then(() => seen.async);
-          if (!(await program)) throw new Error("Reactre source analysis could not resolve the complete application");
-        });
-      }
-      // Use the same complete graph for upstream runtime selection and JSX facts.
-      build.onLoad({ filter: CORE_RUNTIME }, async ({ path }) => {
-        if (!isCore(path)) return undefined;
-        const contents = await coreRuntime(path, () => Bun.file(path).text(), await keepAsync, false);
-        return contents === null ? undefined : { contents, loader: path.endsWith(".ts") ? "ts" : "js" };
-      });
-      build.onLoad({ filter }, async ({ path }) => {
-        const js = host.transpile(path, await Bun.file(path).text());
-        const props = await factsFor(await program, path, js, host);
-        return {
-          contents: compileJs(js, props ? { props } : undefined),
-          loader: "js",
-        };
-      });
+      }).setup(build);
     },
   };
 }

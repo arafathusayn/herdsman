@@ -128,7 +128,7 @@ export interface SidebarProps {
 
 function RouteLink(props: {
   route: Route;
-  routes: Route[];
+  routes: readonly Route[];
   selected: string;
   nested: boolean;
   actions: SidebarActions;
@@ -163,8 +163,8 @@ function RouteLink(props: {
 }
 
 function RouteLinks(props: {
-  routes: Route[];
-  all: Route[];
+  routes: readonly Route[];
+  all: readonly Route[];
   selected: string;
   nested: boolean;
   actions: SidebarActions;
@@ -190,7 +190,7 @@ function RouteLinks(props: {
 }
 
 type WorkspaceGroup = ReturnType<typeof workspaceGroups>["groups"][number];
-function WorkspaceLinks(props: { group: WorkspaceGroup; app: App; actions: SidebarActions; routes: Route[] }) {
+function WorkspaceLinks(props: { group: WorkspaceGroup; app: App; actions: SidebarActions; routes: readonly Route[] }) {
   const active = memo(
     () => props.app.view.route === SESSION && props.app.view.ws === props.group.workspace.workspace_id,
   );

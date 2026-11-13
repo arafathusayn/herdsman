@@ -7,13 +7,21 @@ import { check, equal, flush, q, run } from "./lib.ts";
 await run(async () => {
   const span = (from: number, to: number): LogLine[] =>
     Array.from({ length: to - from }, (_, index) => ({ time: "09:00", text: `line${from + index}` }));
-  const snapshot = (at: number): Route =>
-    ({
-      id: "log-browser",
-      history: "first",
-      run_state: span(at, at + 4),
-      older_run_state: at,
-    }) as Route;
+  const snapshot = (at: number): Route => ({
+    dir: "",
+    name: "",
+    title: "",
+    orchestrator_pane: "",
+    tasks: null,
+    checklist: null,
+    files: null,
+    modified: "",
+    live: true,
+    id: "log-browser",
+    history: "first",
+    run_state: span(at, at + 4),
+    older_run_state: at,
+  });
   const [route, setRoute] = signal(snapshot(300));
   const root = q(document, "#app");
   const page = async () => ({ lines: span(200, 300), older: 200, history: "first" });

@@ -4,6 +4,7 @@ import { batch, effect, memo } from "@reactre/core";
 import { createRoot } from "@reactre/core/features/owner";
 
 import { type App, createAppState, type View } from "./app-state.ts";
+import type { Channel } from "./types.ts";
 
 const initial = (): App => ({
   server: null,
@@ -137,4 +138,88 @@ test("a multi-domain update publishes one consistent snapshot", () => {
     expect(seen[1]).toMatchObject({ connected: true, fatal: "offline", theme: "dark" });
     dispose();
   });
+});
+
+test("optional JSON fields and dynamic channel records are copied and frozen at ingress", () => {
+  createRoot((dispose) => {
+    const counts = { ready: 2 };
+    const channel: Channel = {
+      configured: true,
+      approved: false,
+      pending: true,
+      peers: [],
+      health: [],
+      health_after: 0,
+      flags: [],
+      holds: [{ name: "route" }],
+      boxes: [{ name: "inbox", orphan: false, counts, unacked: 2, claim: "none", suspicious: 0 }],
+      messages: [],
+      alerts: [],
+    };
+    const state = createAppState(initial());
+    state.set({ channel });
+    const before = state.app;
+    counts.ready = 99;
+    expect(before.channel?.boxes[0]?.counts["ready"]).toBe(2);
+    expect(Object.hasOwn(before.channel!, "error")).toBe(false);
+    expect(Object.hasOwn(before.channel!.holds[0]!, "owners")).toBe(false);
+    expect(() => Object.assign(before.channel!.boxes[0]!.counts, { ready: 3 })).toThrow();
+    state.set({ channel: { ...channel, error: "offline" } });
+    expect(state.app.channel?.error).toBe("offline");
+    expect(before.channel?.error).toBeUndefined();
+    dispose();
+  });
+});
+
+test("equal JSON payloads keep identity and do not notify application readers", () => {
+  createRoot((dispose) => {
+    const state = createAppState(initial());
+    state.addEntries([{ at: "now", source: "web", kind: "status" }]);
+    const before = state.app;
+    let reads = 0;
+    effect(() => {
+      state.state();
+      reads++;
+    });
+    state.set({ view: { ...before.view }, entries: before.entries.map((entry) => ({ ...entry })) });
+    expect(state.app).toBe(before);
+    expect(reads).toBe(1);
+    state.set({ entries: [{ ...before.entries[0]!, text: "" }] });
+    expect(state.app.entries).not.toBe(before.entries);
+    expect(reads).toBe(2);
+    dispose();
+  });
+});
+
+test("invalid JSON updates fail atomically without invoking getters", () => {
+  createRoot((dispose) => {
+    const state = createAppState(initial());
+    const before = state.app;
+    let reads = 0;
+    const invalid = {
+      connected: true,
+      get fatal() {
+        reads++;
+        return "invalid";
+      },
+    };
+    expect(() => state.set(invalid)).toThrow("enumerable data property");
+    expect(reads).toBe(0);
+    expect(() => Reflect.apply(state.set, undefined, [{ connected: true, channel: undefined }])).toThrow();
+    expect(state.app).toBe(before);
+    dispose();
+  });
+});
+
+test("application payloads are frozen again after JSON hydration and stop with their owner", () => {
+  const restored: App = JSON.parse(JSON.stringify(initial()));
+  expect(Object.isFrozen(restored.view)).toBe(false);
+  const owned = createRoot((dispose) => ({ dispose, state: createAppState(restored) }));
+  const before = owned.state.app;
+  expect(Object.isFrozen(before.view)).toBe(true);
+  restored.view.route = "outside";
+  expect(before.view.route).toBe("route");
+  owned.dispose();
+  owned.state.set({ connected: true });
+  expect(owned.state.app).toBe(before);
 });

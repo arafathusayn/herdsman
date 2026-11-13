@@ -14,6 +14,7 @@
       "@herdsman/sdk": ["../sdk/ts/src/client.ts"],
       "@herdsman/sdk/*": ["../sdk/ts/src/generated/*.ts"],
       "@reactre/state": ["./vendor/reactre/packages/state/src/index.ts"],
+      "@reactre/state/data": ["./vendor/reactre/packages/state/src/data.ts"],
       "@reactre/state/run": ["./vendor/reactre/packages/state/src/run.ts"],
       "@reactre/state/run-nested": ["./vendor/reactre/packages/state/src/run-nested.ts"],
       "@reactre/state/tasks": ["./vendor/reactre/packages/state/src/tasks.ts"],

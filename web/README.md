@@ -8,7 +8,8 @@ make web
 ```
 
 `vendor/reactre` is the upstream Reactre Git submodule, pinned to main commit
-`8bae29b9fce00ab1e192f906e15191c6057550d7` (the merged state package). It retains
+`63542a92765fbd401e37ce3b99fe47f429e2cd0f` (compiler hosts, structural JSON data,
+static template text holes and lifecycle examples, Reactre PRs #2–#5). It retains
 upstream's [Apache-2.0 license](vendor/reactre/LICENSE). Core, DOM and state
 runtime/compiler sources are read directly; upstream `dist` and `node_modules`
 are unused. Do not install or build the upstream checkout.
@@ -38,11 +39,14 @@ during `make web`. Author no generated JavaScript or template helper calls.
 
 `tsconfig.json` resolves Reactre's types to source. `reactre.ts` resolves the
 runtime's imports to source too, including from inside the submodule's own
-TypeScript config, and loads the upstream compiler. Its `sourceCompiler` adapter
-also gives upstream whole-program analysis that source resolver: plain imported
+TypeScript config, and loads the public upstream `reactreCompiler` plugin. Its thin
+`sourceCompiler` adapter supplies `analysis.resolve`: plain imported
 data must not be treated as possible stores because package resolution failed.
 The same analysis selects the core runtime features. Builds fail if the graph
-cannot be resolved; runtime tests without entrypoints use per-file analysis.
+cannot be resolved (`analysis.strict`); runtime tests without entrypoints use
+per-file analysis. The resolver distinguishes source paths, explicitly external
+imports (`false`) and unresolved imports (`null`). Upstream owns graph analysis,
+diagnostics, runtime selection and compilation; HTML entries were already supported.
 The compiled integration test checks that selecting a row does not re-read its
 static label. `build.ts` builds both
 HTML pages into `internal/web/dist` for Go to embed. The browser receives the
@@ -74,9 +78,15 @@ signal to a component.
 
 Cached controllers use explicit `controllerScope` owners. Tab exit cancels work;
 replacing a controller disposes it. Requests abort on replacement/cleanup and
-drop late results. URL/browser storage are persistence boundaries. SDK values
-cross a data-only JSON boundary because current upstream contracts exclude
-optional fields, dynamic records and collections; decoded reads are immutable.
+drop late results. URL/browser storage are persistence boundaries. The application
+snapshot uses `app.machine.ts` with typed nested JSON payloads, including optional
+SDK fields and string-keyed records. `immutableData` copies/freezes incoming patches;
+unchanged domains retain identity and equal patches do not notify. No string
+encode/decode or decoded memo is needed on that path. Collection-valued local
+state and generic requests still use `wire`: Map/Set, bigint, explicit undefined
+and SDK error classes need its lossless representation. Unknown data still needs
+schema validation before the immutable boundary. Restored JSON is copied/frozen
+again at app initialization; persisted machine-format changes need migrations.
 See [the ownership inventory and statecharts](../docs/adr/0036-actor-owned-web-state.md)
 for cleanup rules, diagrams and tradeoffs.
 

@@ -10,6 +10,18 @@ import type { PageReader } from "./log-view.tsx";
 
 beforeAll(installDom);
 
+const routeDefaults = {
+  dir: "",
+  name: "",
+  title: "",
+  orchestrator_pane: "",
+  tasks: null,
+  checklist: null,
+  files: null,
+  modified: "",
+  live: true,
+};
+
 const globals = globalThis as unknown as Record<string, unknown>;
 globals["location"] ??= { search: "" };
 globals["window"] ??= { addEventListener() {} };
@@ -158,8 +170,12 @@ test("loaded pages survive more than a newest-window of consecutive live appends
   const { LogView } = await import("./log-view.tsx");
   const span = (from: number, to: number): LogLine[] =>
     Array.from({ length: to - from }, (_, index) => ({ time: "09:00", text: `line${from + index}` }));
-  const snapshot = (at: number): Route =>
-    ({ id: "live-appends", run_state: span(at, at + 4), older_run_state: at }) as Route;
+  const snapshot = (at: number): Route => ({
+    ...routeDefaults,
+    id: "live-appends",
+    run_state: span(at, at + 4),
+    older_run_state: at,
+  });
   const [route, setRoute] = signal(snapshot(300));
   const view = mount(() => <LogView route={route()} page={async () => ({ lines: span(200, 300), older: 200 })} />);
   dispatch(find(view, isTag("button"))!, "click");
@@ -181,11 +197,12 @@ test("loaded pages survive more than a newest-window of consecutive live appends
 test("an incompatible snapshot evicts cached pages so old history cannot resurrect them", async () => {
   const { LogView } = await import("./log-view.tsx");
   const initial = {
+    ...routeDefaults,
     id: "history-return",
     history: "first",
     run_state: [{ time: "10:00", text: "new" }],
     older_run_state: 1,
-  } as Route;
+  } satisfies Route;
   const [route, setRoute] = signal(initial);
   const view = mount(() => (
     <LogView
@@ -207,13 +224,13 @@ for (const alreadyLoaded of [false, true]) {
     const { LogView } = await import("./log-view.tsx");
     const span = (from: number, to: number): LogLine[] =>
       Array.from({ length: to - from }, (_, index) => ({ time: "09:00", text: `line${from + index}` }));
-    const snapshot = (at: number): Route =>
-      ({
-        id: `pending-page-${alreadyLoaded}`,
-        history: "same",
-        run_state: span(at, at + 4),
-        older_run_state: at,
-      }) as Route;
+    const snapshot = (at: number): Route => ({
+      ...routeDefaults,
+      id: `pending-page-${alreadyLoaded}`,
+      history: "same",
+      run_state: span(at, at + 4),
+      older_run_state: at,
+    });
     const [route, setRoute] = signal(snapshot(300));
     let resolve!: (value: Awaited<ReturnType<PageReader>>) => void;
     const page: PageReader = async (_id, before) => {
@@ -244,11 +261,12 @@ for (const alreadyLoaded of [false, true]) {
 test("a pending page cannot restore a cache invalidated by new history", async () => {
   const { LogView } = await import("./log-view.tsx");
   const initial = {
+    ...routeDefaults,
     id: "pending-new-history",
     history: "first",
     run_state: [{ time: "10:00", text: "new" }],
     older_run_state: 1,
-  } as Route;
+  } satisfies Route;
   const [route, setRoute] = signal(initial);
   let resolve!: (value: Awaited<ReturnType<PageReader>>) => void;
   const view = mount(() => (

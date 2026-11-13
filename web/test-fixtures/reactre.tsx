@@ -15,7 +15,7 @@ export function mount(root: Element) {
       </Show>
       <ul>
         <For each={rows()} key={(row) => row.id}>
-          {(row) => <li class={isSelected(row.id) ? "selected" : ""}>{row.label}</li>}
+          {(row) => <li class={isSelected(row.id) ? "selected" : ""}>{`${row.label}`}</li>}
         </For>
       </ul>
     </section>

@@ -2,7 +2,7 @@
 
 One application using `@reactre/core`, `@reactre/state` and the upstream
 compilers from Herdsman's source submodule, pinned at
-`8bae29b9fce00ab1e192f906e15191c6057550d7` (Reactre main when added).
+`63542a92765fbd401e37ce3b99fe47f429e2cd0f` (Reactre main verified for the update).
 The existing `re` entry is the separate `@re/core` library; it is unchanged.
 
 The [core + built-in signals entry](../reactre-signals/) uses the same
@@ -11,8 +11,10 @@ comparison changes only snapshot ownership and its bridge.
 
 Every fresh driver snapshot enters a compiled state actor. The upstream
 `useActor` bridge connects it to core; no second writable UI model exists.
-The finite benchmark contracts are directly typed, unlike Herdsman's SDK
-boundary, which also needs to encode optional fields and collections.
+The benchmark contracts are directly typed. Herdsman's application snapshot now
+also uses structural JSON contracts; generic request and collection adapters
+retain their extended codec. This benchmark already avoided string conversion,
+so upstream's immutable-data conversion measurements do not predict its speed.
 
 Team, Activity and Checklist derive keyed row projections. Updates compare
 each row's fields, retaining equal rows for core's keyed rendering. Initial

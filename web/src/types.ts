@@ -73,7 +73,7 @@ export interface Layout {
   tab_id: string;
   zoomed: boolean;
   area: Rect;
-  panes: { pane_id: string; focused: boolean; rect: Rect }[] | null;
+  panes: readonly { pane_id: string; focused: boolean; rect: Rect }[] | null;
 }
 
 export interface Snapshot {
@@ -82,11 +82,11 @@ export interface Snapshot {
   focused_workspace_id: string | null;
   focused_tab_id: string | null;
   focused_pane_id: string | null;
-  workspaces: Workspace[] | null;
-  tabs: Tab[] | null;
-  panes: Pane[] | null;
-  layouts: Layout[] | null;
-  agents: Agent[] | null;
+  workspaces: readonly Workspace[] | null;
+  tabs: readonly Tab[] | null;
+  panes: readonly Pane[] | null;
+  layouts: readonly Layout[] | null;
+  agents: readonly Agent[] | null;
 }
 
 export interface Task {
@@ -126,16 +126,16 @@ export interface Route {
   orchestrator_pane: string;
   /** The optional adjutant: the user's front, which relays through herdsman messages. */
   adjutant_pane?: string;
-  tasks: Task[] | null;
-  checklist: CheckItem[] | null;
-  run_state: LogLine[] | null;
+  tasks: readonly Task[] | null;
+  checklist: readonly CheckItem[] | null;
+  run_state: readonly LogLine[] | null;
   /** Run-state lines before run_state, which holds the newest only; paged by routeRunState. */
   older_run_state?: number;
   /** The oldest record the view pages to (the newest 2,000 only); older ones are in 00-route.md. */
   run_state_from?: number;
   /** Names the run state's history: an append keeps it, an edit changes it, and loaded older pages go with it. */
   history?: string;
-  files: RouteFile[] | null;
+  files: readonly RouteFile[] | null;
   modified: string;
   live: boolean;
 }
@@ -143,7 +143,7 @@ export interface Route {
 export interface State {
   herdr: { version: string; protocol: number };
   snapshot: Snapshot;
-  routes: Route[] | null;
+  routes: readonly Route[] | null;
   error?: string;
 }
 
@@ -257,14 +257,14 @@ export interface Channel {
   error?: string;
   approved: boolean;
   pending: boolean;
-  peers: { name: string; role: "adjutant" | "orchestrator"; pane: string }[];
-  health: { name: string; age: number; ok: boolean }[];
+  peers: readonly { name: string; role: "adjutant" | "orchestrator"; pane: string }[];
+  health: readonly { name: string; age: number; ok: boolean }[];
   health_after: number;
   /** Health problems beyond the heartbeats, named as `message status` names them. */
-  flags: string[];
+  flags: readonly string[];
   /** Hold and resume intents in the channel's state folder; a named hold lists each owner and why. */
-  holds: { name: string; owners?: { by: string; reason: string }[] }[];
-  boxes: {
+  holds: readonly { name: string; owners?: readonly { by: string; reason: string }[] }[];
+  boxes: readonly {
     name: string;
     orphan: boolean;
     counts: Record<string, number>;
@@ -272,8 +272,8 @@ export interface Channel {
     claim: "held" | "incomplete" | "none";
     suspicious: number;
   }[];
-  messages: ChannelMessage[];
-  alerts: { title: string; body: string }[];
+  messages: readonly ChannelMessage[];
+  alerts: readonly { title: string; body: string }[];
 }
 
 export interface CatalogModel {
