@@ -1865,15 +1865,60 @@
     },
     {
       "name": "project",
-      "summary": "Work on a project's context repo: project context init|check|note, project log.",
-      "help": "usage: herdsman project context init|check|note|log ...\n       herdsman project log [--since <date>] [--task <task>] [--json]\n\nWork on the context repo of the project bound to this folder.\n\nexit codes:\n  0  done\n  1  check found problems, the daemon refused, or it is not running\n  2  bad usage\n",
+      "summary": "Keep projects, their folders and repositories, and work on their context repo.",
+      "help": "usage: herdsman project context init|check|note|log ...\n       herdsman project log [--since <date>] [--task <task>] [--json]\n       herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]\n       herdsman project show [<project>] [--json]\n       herdsman project list [--archived] [--json]\n       herdsman project update [<project>] [--name <name>] [--description <text>]\n                               [--add-repo <spec>]... [--remove-repo <name>]... [--json]\n       herdsman project delete [<project>] [--force]\n       herdsman project bind [<project>] [--folder <path>] [--json]\n       herdsman project unbind [--folder <path>] [--json]\n\ncontext and log work on the context repo of the project bound to this folder.\n\nKeeps the projects, the folders bound to them and their repositories. A <spec>\nis [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.\ncreate binds --folder, or this folder with --bind.\n<project> is a name, an id or @; left out, it is the project bound to this\nfolder. delete refuses a project with open tasks, tasks on a running route,\nor task worktrees still present. --force archives it and keeps its records.\n\nexit codes:\n  0  done\n  1  check found problems, the record was not found, the daemon refused, or it is not running\n  2  bad usage\n",
       "usage": [
         "herdsman project context init|check|note|log ...",
-        "herdsman project log [--since <date>] [--task <task>] [--json]"
+        "herdsman project log [--since <date>] [--task <task>] [--json]",
+        "herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]",
+        "herdsman project show [<project>] [--json]",
+        "herdsman project list [--archived] [--json]",
+        "herdsman project update [<project>] [--name <name>] [--description <text>]"
+      ],
+      "positionals": [
+        {
+          "name": "name"
+        },
+        {
+          "name": "project"
+        }
       ],
       "flags": [
         {
+          "name": "--add-repo",
+          "valueName": "spec"
+        },
+        {
+          "name": "--archived"
+        },
+        {
+          "name": "--bind"
+        },
+        {
+          "name": "--description",
+          "valueName": "text"
+        },
+        {
+          "name": "--folder",
+          "valueName": "path"
+        },
+        {
+          "name": "--force"
+        },
+        {
           "name": "--json"
+        },
+        {
+          "name": "--name",
+          "valueName": "name"
+        },
+        {
+          "name": "--remove-repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--repo",
+          "valueName": "spec"
         },
         {
           "name": "--since",
@@ -1891,7 +1936,7 @@
         },
         {
           "code": "1",
-          "meaning": "check found problems, the daemon refused, or it is not running"
+          "meaning": "check found problems, the record was not found, the daemon refused, or it is not running"
         },
         {
           "code": "2",
@@ -2753,6 +2798,100 @@
         {
           "code": "1",
           "meaning": "the entry or source was not found, or a recipe was refused or failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "task",
+      "summary": "Keep the tasks of each project.",
+      "help": "usage: herdsman task create <title> [--project <project>] [--id <slug>] [--slug <slug>]\n                            [--body <text>] [--body-file <path>]\n                            [--label <label>]... [--repo <name>]... [--json]\n       herdsman task show <task> [--project <project>] [--json]\n       herdsman task list [--project <project>] [--all] [--status <status>]\n                          [--repo <name>] [--label <label>] [--json]\n       herdsman task update <task> [--project <project>] [--title <text>] [--body <text>]\n                            [--status <status>] [--add-repo <name>]... [--remove-repo <name>]...\n                            [--label <label>]... [--unlabel <label>]...\n                            [--add-label <label>]... [--remove-label <label>]... [--json]\n       herdsman task delete <task> [--project <project>] [--force]\n       herdsman task link <task> <link> [--project <project>] [--repo <name>] [--json]\n\nKeeps the tasks of each project. <task> is a slug, an id, or @ for the task of\nthe current worktree. A <status> is todo, doing, review, done or archived. A\n<link> is pr:<n>, issue:<n> or a URL; --repo may be left out when the task\nnames one repository. A task's project cannot change. delete refuses a task\nthat still has a worktree or runs in a route, and names down. --slug is --id,\n--add-label is --label and --remove-label is --unlabel. With no arguments on a\nterminal, task create opens a form.\n\nexit codes:\n  0  done\n  1  the record was not found, the change was refused, or the call failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman task create <title> [--project <project>] [--id <slug>] [--slug <slug>]"
+      ],
+      "positionals": [
+        {
+          "name": "title"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--add-label",
+          "valueName": "label"
+        },
+        {
+          "name": "--add-repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--all"
+        },
+        {
+          "name": "--body",
+          "valueName": "text"
+        },
+        {
+          "name": "--body-file",
+          "valueName": "path"
+        },
+        {
+          "name": "--force"
+        },
+        {
+          "name": "--id",
+          "valueName": "slug"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--label",
+          "valueName": "label"
+        },
+        {
+          "name": "--project",
+          "valueName": "project"
+        },
+        {
+          "name": "--remove-label",
+          "valueName": "label"
+        },
+        {
+          "name": "--remove-repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--slug",
+          "valueName": "slug"
+        },
+        {
+          "name": "--status",
+          "valueName": "status"
+        },
+        {
+          "name": "--title",
+          "valueName": "text"
+        },
+        {
+          "name": "--unlabel",
+          "valueName": "label"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the record was not found, the change was refused, or the call failed"
         },
         {
           "code": "2",

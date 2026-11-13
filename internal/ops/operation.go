@@ -281,18 +281,10 @@ func (e *Engine) Submit(ctx context.Context, s Spec) (*Operation, error) {
 // Drive runs a running operation's remaining steps, in order. It refuses an
 // operation with an intended step: only Reconcile may decide about those.
 func (e *Engine) Drive(ctx context.Context, id string) (*Operation, error) {
-	e.mu.Lock()
-	if e.driving[id] {
-		e.mu.Unlock()
+	if !e.acquireOperation(id) {
 		return nil, ErrBusy
 	}
-	e.driving[id] = true
-	e.mu.Unlock()
-	defer func() {
-		e.mu.Lock()
-		delete(e.driving, id)
-		e.mu.Unlock()
-	}()
+	defer e.releaseOperation(id)
 
 	op, err := e.Get(id)
 	if err != nil || op.State != OpRunning {
@@ -416,4 +408,22 @@ func newULID(t time.Time) string {
 		}
 	}
 	return sb.String()
+}
+
+// acquireOperation excludes both execution and reconciliation of the same
+// operation. A probe must never reinterpret an effect that is still running.
+func (e *Engine) acquireOperation(id string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.driving[id] {
+		return false
+	}
+	e.driving[id] = true
+	return true
+}
+
+func (e *Engine) releaseOperation(id string) {
+	e.mu.Lock()
+	delete(e.driving, id)
+	e.mu.Unlock()
 }

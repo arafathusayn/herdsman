@@ -15,9 +15,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/project"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/route/routechan"
 	"github.com/arafathusayn/herdsman/internal/runtime"
@@ -35,8 +37,9 @@ type routeService struct {
 	d *Daemon
 }
 
-// operationEffects adds the effects of a route's start to the configured ones.
-func (d *Daemon) operationEffects() map[string]ops.Effect {
+// operationEffects adds the effects of a route's start and of the project
+// records to the configured ones.
+func (d *Daemon) operationEffects(db store.Conn) map[string]ops.Effect {
 	d.worktrees = &WorktreeService{HerdrSocket: d.cfg.HerdrSocket}
 	d.teardowns = newTeardownJournal(d.worktrees)
 	teardown := d.cfg.RouteTeardown
@@ -47,6 +50,9 @@ func (d *Daemon) operationEffects() map[string]ops.Effect {
 	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run, Recovery: d.routeRecovery(), Down: d.cfg.RouteDown, Teardown: teardown,
 		Runtime: d.runtimeRegistry(), Executions: d.recordExecution, Services: daemonServices{d}, CoreChannel: coreChannel{d}, Channels: routeChannels{d}, CoreApp: d.coreApp})
 	maps.Copy(effects, d.teardowns.effects())
+	for name, effect := range project.Effects(db) {
+		effects[name] = effect
+	}
 	for name, effect := range d.cfg.Effects {
 		effects[name] = effect
 	}

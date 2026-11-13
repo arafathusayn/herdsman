@@ -65,6 +65,22 @@ func bindingIn(dir string) (Binding, bool, error) {
 	return Binding{Folder: dir, ID: cfg.id, Name: cfg.name}, true, nil
 }
 
+// ProjectOfRoute names the project whose tasks run in a route, or "" when no
+// task does. Tasks of two projects on one route leave no single answer.
+func (s *Store) ProjectOfRoute(route string) (string, error) {
+	ids, err := column(s.db, "SELECT DISTINCT project_id FROM tasks WHERE route = ?", route)
+	if err != nil {
+		return "", err
+	}
+	switch len(ids) {
+	case 0:
+		return "", nil
+	case 1:
+		return ids[0], nil
+	}
+	return "", fmt.Errorf("%w: route %s has tasks of %d projects; name the project", ErrConflict, route, len(ids))
+}
+
 // ResolveProject applies the precedence: the named project, then the nearest
 // bound folder, then the route's project.
 func (s *Store) ResolveProject(sc Scope) (*Project, error) {

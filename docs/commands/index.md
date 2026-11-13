@@ -32,7 +32,7 @@ Generated from `herdsman spec cli`.
 - [`notice`](notice.md): A managed agent's instructions on herdr-core: notice wait, notice read, notice ack.
 - [`pause`](pause.md): Interrupt a route's agents and hold its channel; every pane stays open.
 - [`plugin`](plugin.md): Manage plugins (experimental).
-- [`project`](project.md): Work on a project's context repo: project context init|check|note, project log.
+- [`project`](project.md): Keep projects, their folders and repositories, and work on their context repo.
 - [`prune`](prune.md): Free integrated worktrees past a minimum age.
 - [`recommend`](recommend.md): The same as suggest.
 - [`resource`](resource.md): Record a resource a task created: resource add.
@@ -45,6 +45,7 @@ Generated from `herdsman spec cli`.
 - [`status`](status.md): Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.
 - [`stop`](stop.md): End a route's sessions and service panes; the work stays on disk.
 - [`suggest`](suggest.md): Search the catalog of tips and tools.
+- [`task`](task.md): Keep the tasks of each project.
 - [`teardown`](teardown.md): Stop what a task runs, keeping what it holds.
 - [`trace`](trace.md): Show or export one route's spans as OpenTelemetry.
 - [`transcript-audit`](transcript-audit.md): Audit a Claude or Codex transcript for writes: transcript-audit claude|codex <transcript> <session-id> [root/ ...].

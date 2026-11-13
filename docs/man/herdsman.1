@@ -49,7 +49,7 @@ Commands:
   notice   A managed agent's instructions on herdr-core: notice wait, notice read, notice ack.
   pause    Interrupt a route's agents and hold its channel; every pane stays open.
   plugin   Manage plugins (experimental).
-  project  Work on a project's context repo: project context init|check|note, project log.
+  project  Keep projects, their folders and repositories, and work on their context repo.
   prune    Free integrated worktrees past a minimum age.
   recommend The same as suggest.
   resource Record a resource a task created: resource add.
@@ -62,6 +62,7 @@ Commands:
   status   Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.
   stop     End a route's sessions and service panes; the work stays on disk.
   suggest  Search the catalog of tips and tools.
+  task     Keep the tasks of each project.
   teardown Stop what a task runs, keeping what it holds.
   trace    Show or export one route's spans as OpenTelemetry.
   transcript-audit Audit a Claude or Codex transcript for writes: transcript-audit claude|codex <transcript> <session-id> [root/ ...].
@@ -115,6 +116,7 @@ Commands:
 .BR herdsman-status (1),
 .BR herdsman-stop (1),
 .BR herdsman-suggest (1),
+.BR herdsman-task (1),
 .BR herdsman-teardown (1),
 .BR herdsman-trace (1),
 .BR herdsman-transcript-audit (1),
