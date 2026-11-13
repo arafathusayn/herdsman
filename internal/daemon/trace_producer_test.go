@@ -189,3 +189,21 @@ func TestTurnKindReadsTheRole(t *testing.T) {
 		t.Fatal("wrong kind")
 	}
 }
+
+func TestWorktreeTraceUsesCallerFolder(t *testing.T) {
+	s, repo := shareRepo(t, "")
+	wrong, wanted := t.TempDir(), t.TempDir()
+	t.Setenv(routeFolderEnv, wrong)
+	r, err := s.forCaller([]string{routeFolderEnv + "=" + wanted, "PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}).open(t.Context(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.close()
+	runner := r.runner(wtree.Vars{Values: map[string]string{"task": "a"}}, repo)
+	if runner.LogDir != filepath.Join(wanted, "logs", "hooks") {
+		t.Fatalf("hook trace uses daemon environment: %s", runner.LogDir)
+	}
+	if _, err := os.Stat(filepath.Join(wrong, "logs")); err == nil {
+		t.Fatal("git trace wrote to daemon's route")
+	}
+}

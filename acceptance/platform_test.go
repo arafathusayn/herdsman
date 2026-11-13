@@ -100,7 +100,7 @@ func TestDecide(t *testing.T) {
 func TestEveryProbeFailsWithoutItsTool(t *testing.T) {
 	// A planted missing tool: nothing resolves on an empty PATH.
 	t.Setenv("PATH", t.TempDir())
-	for _, name := range []string{"ps", "lsof", "docker", "btrfs-loopback", "keychain"} {
+	for _, name := range []string{"ps", "lsof", "docker", "btrfs-loopback", "keychain", "herdr-core", "herdr-app"} {
 		if err := probes()[name](); err == nil {
 			t.Errorf("%s probe passed with no tools on PATH", name)
 		}
@@ -131,7 +131,7 @@ func TestTheRepositoryDeclarationCoversEveryGateOnBothPlatforms(t *testing.T) {
 			}
 		}
 	}
-	for _, capability := range []string{"docker", "lsof", "btrfs-loopback", "keychain", "pty"} {
+	for _, capability := range []string{"docker", "lsof", "btrfs-loopback", "keychain", "pty", "herdr-core", "herdr-app"} {
 		if _, ok := known[capability]; !ok {
 			t.Errorf("no probe for %s", capability)
 		}

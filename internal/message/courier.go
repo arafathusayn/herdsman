@@ -216,7 +216,7 @@ func (c *courier) processEntryIn(e *Env, f, name string) int {
 		default:
 			fi := inbox.Object(m["from_identity"])
 			pane, _ := fi["pane"].(string)
-			observed, code, note := inbox.LiveIdentity(e.ctx(), e.Client, pane)
+			observed, code, note := e.verifier().Live(e.ctx(), inbox.PaneRef(pane))
 			if note != "" {
 				fmt.Fprintln(e.Stderr, note)
 			}
@@ -503,7 +503,7 @@ func (c *courier) sweep() error {
 		}
 		count := len(r.Unacked(box))
 		p, _ := r.Peer(name)
-		observed, code, note := inbox.LiveIdentity(e.ctx(), e.Client, p.Identity.Pane)
+		observed, code, note := e.verifier().Live(e.ctx(), inbox.PaneRef(p.Identity.Pane))
 		if note != "" {
 			fmt.Fprintln(e.Stderr, note)
 		}

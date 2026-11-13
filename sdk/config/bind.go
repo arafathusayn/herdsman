@@ -359,9 +359,44 @@ func resolveKey(key string, md protoreflect.MessageDescriptor) (*resolved, error
 	if err != nil {
 		return nil, err
 	}
+	return resolveParts(key, parts, md, canonicalKey)
+}
+
+// envFieldName is the field an upper-case variable segment stands for.
+func envFieldName(part string) string { return canonicalKey(strings.ToLower(part)) }
+
+// inSafetySection reports whether a path runs through policy or launch, so
+// that an unknown key there can stop the command. Only field names are folded:
+// the segment after a map is the user's own text.
+func inSafetySection(parts []string, md protoreflect.MessageDescriptor, name func(string) string) bool {
+	for i := 0; i < len(parts); i++ {
+		fd := md.Fields().ByName(protoreflect.Name(name(parts[i])))
+		switch {
+		case fd == nil:
+			return false
+		case isSafetySection(fd):
+			return true
+		case isMessageMap(fd):
+			md = fd.MapValue().Message()
+			i++
+		case isSingularMessage(fd):
+			md = fd.Message()
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// resolveParts walks segments through the message. fieldName maps a written
+// segment to a field name; a map key or a hook's own name is kept as written.
+func resolveParts(key string, parts []string, md protoreflect.MessageDescriptor, fieldName func(string) string) (*resolved, error) {
+	if slices.Contains(parts, "") {
+		return nil, fmt.Errorf("%q: empty key segment", key)
+	}
 	out := &resolved{}
 	for i := 0; i < len(parts); i++ {
-		name := canonicalKey(parts[i])
+		name := fieldName(parts[i])
 		fd := md.Fields().ByName(protoreflect.Name(name))
 		if fd == nil {
 			return nil, unknownKeyError(key, parts[i], md)

@@ -1,0 +1,25 @@
+.TH HERDSMAN-LAUNCH 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-launch \- Run one agent launch in a herdr-core terminal; herdr-core runs it, not a person.
+.SH DESCRIPTION
+.nf
+usage: herdsman launch --socket <path> --intent <id>
+       herdsman launch --view <descriptor>
+
+The program herdr-core starts in the terminal of a reserved launch. It proves
+to the daemon that it is that terminal's process, runs the prelude, registers,
+and then becomes the harness. A person never runs it; up does, through core.
+The optional TUI view uses --view to attach a helper to an existing execution.
+Closing that view never stops the execution.
+
+exit codes:
+  0   never: on success the process becomes the harness
+  64  usage error
+  70  the daemon refused the launch
+  71  a prelude step failed
+  72  the launch was not registered
+  73  the harness could not start
+  74  the daemon's launch socket could not be reached
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

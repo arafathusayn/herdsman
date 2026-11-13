@@ -48,6 +48,7 @@ var Gates = []Gate{
 	{Name: "merge-lost-response", Package: "./acceptance/landing", Test: "TestLostResponseLandsOnce"},
 	{Name: "restricted-maintenance", Package: "./acceptance/restricted", Test: "TestMaintenanceAfterBranchesAreGone"},
 	{Name: "drill-export-restore", Package: "./acceptance/drills", Test: "TestRestoreFromExportOnACleanMachine"},
+	{Name: "core-launch-registers", Package: "./acceptance/core", Test: "TestRealCoreLaunchRegistersAndStops", Needs: []string{"herdr-core", "ps", "signals"}},
 }
 
 // Suite is one run on one platform.

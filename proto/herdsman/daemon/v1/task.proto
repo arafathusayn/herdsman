@@ -21,6 +21,10 @@ service TaskService {
   rpc Delete(TaskServiceDeleteRequest) returns (TaskServiceDeleteResponse);
   // Link attaches a pull request, an issue or a URL to a task.
   rpc Link(TaskServiceLinkRequest) returns (TaskServiceLinkResponse);
+  // New makes a task's worktree: base, names, the tree, its hooks and setup.
+  rpc New(TaskServiceNewRequest) returns (TaskServiceNewResponse);
+  // Go finds the worktree a selector means, making one for a pull request.
+  rpc Go(TaskServiceGoRequest) returns (TaskServiceGoResponse);
 }
 
 message TaskServiceCreateRequest {
@@ -99,4 +103,72 @@ message TaskServiceLinkRequest {
 
 message TaskServiceLinkResponse {
   herdsman.core.v1.Task task = 1;
+}
+
+message TaskServiceNewRequest {
+  // The caller's folder, absolute: it selects the repository.
+  string dir = 1;
+  string task = 2;
+  // Empty means the repository's default branch.
+  string base = 3;
+  // A pull request to start from: pr:<n> or a URL.
+  string from = 4;
+  // The branch's type prefix; empty means feat.
+  string type = 5;
+  // The command that starts an agent in the worktree.
+  string agent = 6;
+  string prompt = 7;
+  bool no_setup = 8;
+  // Rename a stale folder at the path aside.
+  bool clobber = 9;
+  // The caller's environment, as NAME=value, for hooks and for finding herdr.
+  repeated string environ = 10;
+  // Under the restricted profile, grant the agent the [policy] roots.
+  bool integrator = 11;
+}
+
+message TaskServiceNewResponse {
+  // The version of this response's shape.
+  string schema_version = 1;
+  string task = 2;
+  string branch = 3;
+  string path = 4;
+  string base = 5;
+  int32 port = 6;
+  // Whether herdr made or opened the worktree.
+  bool herdr = 7;
+  repeated string setup = 8;
+  // The command line that enters the worktree.
+  string launch = 9;
+  repeated string logs = 10;
+  repeated string warnings = 11;
+  // The agent started in the worktree; empty when none was.
+  string agent_name = 12;
+  // The ports reserved for the task, starting at port.
+  repeated int32 ports = 13;
+}
+
+message TaskServiceGoRequest {
+  // The caller's folder, absolute: it selects the repository.
+  string dir = 1;
+  // A task, branch or path, one of ^ @ -, pr:<n> or a URL.
+  string selector = 2;
+  // Also focus the worktree's herdr pane.
+  bool focus = 3;
+  // The caller's environment, as NAME=value, for hooks and for finding herdr.
+  repeated string environ = 4;
+}
+
+message TaskServiceGoResponse {
+  // The version of this response's shape.
+  string schema_version = 1;
+  string task = 2;
+  string branch = 3;
+  string path = 4;
+  // Whether the call made the worktree.
+  bool created = 5;
+  bool focused = 6;
+  // The remote a fork's branch pushes to; empty for other branches.
+  string push_remote = 7;
+  repeated string warnings = 8;
 }

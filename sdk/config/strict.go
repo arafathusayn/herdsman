@@ -2,14 +2,15 @@ package config
 
 import (
 	"fmt"
-	"strings"
 
+	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // strictSections are the sections where a misspelling could quietly switch
-// off a safety setting, so an unknown key stops the command.
-var strictSections = map[string]bool{"policy": true, "launch": true}
+// off a safety setting, so an unknown key stops the command. In [runtime] a
+// misspelled backend would otherwise fall through to the installation default.
+var strictSections = map[string]bool{"policy": true, "launch": true, "runtime": true}
 
 // Warning is one key the configuration does not define.
 type Warning struct {
@@ -32,26 +33,33 @@ type StrictError struct {
 
 func (e *StrictError) Error() string { return e.Warning.String() }
 
+// isSafetySection reports a field whose whole subtree is strict, wherever the
+// section sits: at the top of a file or inside one repository's overrides.
+func isSafetySection(fd protoreflect.FieldDescriptor) bool {
+	return isSingularMessage(fd) && strictSections[string(fd.Name())]
+}
+
 // report collects what normalization finds. strict turns every unknown key
 // into an error, as the strict sections always do.
 type report struct {
 	strict   bool
 	warnings []Warning
+	// wire is the binary message read, when the source was binary.
+	wire *configv1.Config
 }
 
-func (r *report) unknown(path, key string, md protoreflect.MessageDescriptor) error {
-	return r.add(Warning{Key: path, Suggestion: suggest(key, md)})
+func (r *report) unknown(path, key string, md protoreflect.MessageDescriptor, safety bool) error {
+	return r.add(Warning{Key: path, Suggestion: suggest(key, md)}, safety)
 }
 
 // unknownWire reports a binary field this build does not define; it has a
 // number and no name, so nothing can be suggested.
-func (r *report) unknownWire(path string) error {
-	return r.add(Warning{Key: path})
+func (r *report) unknownWire(path string, safety bool) error {
+	return r.add(Warning{Key: path}, safety)
 }
 
-func (r *report) add(warning Warning) error {
-	section, _, _ := strings.Cut(warning.Key, ".")
-	if r.strict || strictSections[section] {
+func (r *report) add(warning Warning, safety bool) error {
+	if r.strict || safety {
 		return &StrictError{Warning: warning}
 	}
 	r.warnings = append(r.warnings, warning)

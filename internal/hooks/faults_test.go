@@ -34,8 +34,8 @@ func TestApprovalsReportAnUnreadableFile(t *testing.T) {
 }
 
 func TestApprovalsAcceptAnEmptyDocument(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "a.json")
-	os.WriteFile(path, []byte("{}"), 0o600)
+	path := filepath.Join(t.TempDir(), "a.toml")
+	os.WriteFile(path, nil, 0o600)
 	if ok, err := (&Approvals{Path: path}).Approved("p", "x"); err != nil || ok {
 		t.Fatalf("%v %v", ok, err)
 	}
@@ -49,7 +49,7 @@ func TestApproveReportsWhereItCannotWrite(t *testing.T) {
 	if err := os.Symlink(filepath.Join(base, "gone"), link); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&Approvals{Path: filepath.Join(link, "a.json")}).Approve("p", []string{"x"}); err == nil || !strings.Contains(err.Error(), "folder") {
+	if err := (&Approvals{Path: filepath.Join(link, "a.toml")}).Approve("p", []string{"x"}); err == nil || !strings.Contains(err.Error(), link) {
 		t.Fatal(err)
 	}
 	if os.Geteuid() == 0 {
@@ -58,7 +58,7 @@ func TestApproveReportsWhereItCannotWrite(t *testing.T) {
 	dir := t.TempDir()
 	os.Chmod(dir, 0o500)
 	defer os.Chmod(dir, 0o700)
-	if err := (&Approvals{Path: filepath.Join(dir, "a.json")}).Approve("p", []string{"x"}); err == nil || !strings.Contains(err.Error(), "write") {
+	if err := (&Approvals{Path: filepath.Join(dir, "a.toml")}).Approve("p", []string{"x"}); err == nil || !strings.Contains(err.Error(), "permission denied") {
 		t.Fatal(err)
 	}
 }

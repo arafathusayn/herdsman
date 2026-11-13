@@ -44,6 +44,9 @@ func (e Env) or(k, d string) string {
 // Deps are what a watcher needs besides its environment.
 type Deps struct {
 	Client *herdr.Client
+	// Agents reads the agents watched by runtime reference (herdr-core);
+	// nil reads none of them.
+	Agents Agents
 	Now    func() time.Time
 	// Sleep waits between polls; false ends the loop (tests stop there).
 	Sleep  func(time.Duration) bool
@@ -105,8 +108,25 @@ func watched(env Env) []string {
 
 func underscore(name string) string { return strings.ReplaceAll(name, "-", "_") }
 
-// paneOf is HERDSMAN_PANE_<name>, else the default pane of im-a to im-d.
+// ExecPrefix marks a watched agent's place that is a herdr-core execution's
+// runtime reference, not a pane: "exec:<execution id>".
+const ExecPrefix = "exec:"
+
+// Agents reads herdr-core agents by their runtime reference, through the
+// daemon: the program status core reports and the terminal's newest lines.
+// It never types.
+type Agents interface {
+	Status(ctx context.Context, execution string) (herdr.Status, bool)
+	Read(ctx context.Context, execution string, lines int) (string, bool)
+}
+
+// paneOf is the agent's place: HERDSMAN_EXEC_<name> (a herdr-core
+// execution, as "exec:<id>"), else HERDSMAN_PANE_<name>, else the default
+// pane of im-a to im-d.
 func paneOf(env Env, name string) string {
+	if v := env.get("HERDSMAN_EXEC_" + underscore(name)); v != "" {
+		return ExecPrefix + v
+	}
 	if v := env.get("HERDSMAN_PANE_" + underscore(name)); v != "" {
 		return v
 	}
@@ -123,9 +143,18 @@ func paneOf(env Env, name string) string {
 	return ""
 }
 
-// readPane reads the last lines of a pane, "" when it cannot, without the
-// trailing newlines (as the scripts' command substitution drops them).
-func readPane(ctx context.Context, c *herdr.Client, pane string, lines int) string {
+// readPane reads the last lines of a pane, or of a herdr-core execution
+// through the runtime, "" when it cannot, without the trailing newlines (as
+// the scripts' command substitution drops them).
+func (d *Deps) readPane(ctx context.Context, pane string, lines int) string {
+	if id, ok := strings.CutPrefix(pane, ExecPrefix); ok {
+		if d.Agents == nil {
+			return ""
+		}
+		t, _ := d.Agents.Read(ctx, id, lines)
+		return strings.TrimRight(t, "\n")
+	}
+	c := d.Client
 	if c == nil || pane == "" {
 		return ""
 	}
@@ -296,8 +325,17 @@ func count(st *state, file string, stderr io.Writer, who string) int {
 	return int(n)
 }
 
-// agentStatus is Herdr's status of the pane's agent, "" when unknown.
-func agentStatus(ctx context.Context, c *herdr.Client, pane string) herdr.Status {
+// agentStatus is Herdr's status of the pane's agent, or the program status
+// herdr-core reports for an execution, "" when unknown.
+func (d *Deps) agentStatus(ctx context.Context, pane string) herdr.Status {
+	if id, ok := strings.CutPrefix(pane, ExecPrefix); ok {
+		if d.Agents == nil {
+			return ""
+		}
+		st, _ := d.Agents.Status(ctx, id)
+		return st
+	}
+	c := d.Client
 	if c == nil || pane == "" {
 		return ""
 	}
@@ -376,7 +414,7 @@ func (d *Deps) wakeOn(ctx context.Context, panes []string) {
 	}
 	subs := make([]map[string]any, 0, len(panes))
 	for _, p := range panes {
-		if p != "" {
+		if p != "" && !strings.HasPrefix(p, ExecPrefix) {
 			subs = append(subs, map[string]any{"type": "pane.agent_status_changed", "pane_id": p})
 		}
 	}
@@ -425,8 +463,8 @@ type target struct{ name, pane string }
 func statusRecheck(ctx context.Context, d Deps, st *state, targets []target, block, work, stalled *regexp.Regexp) []string {
 	var out []string
 	for _, t := range targets {
-		text := readPane(ctx, d.Client, t.pane, 40)
-		reason, blocked := screenBlock(agentStatus(ctx, d.Client, t.pane), text, block, work, stalled)
+		text := d.readPane(ctx, t.pane, 40)
+		reason, blocked := screenBlock(d.agentStatus(ctx, t.pane), text, block, work, stalled)
 		h := st.read("hash-" + t.name)
 		if newBlock(st, t.name, blocked, h, h) {
 			out = append(out, "BLOCKED "+t.name+" "+reason)

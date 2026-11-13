@@ -14,6 +14,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/runtime"
 )
 
 // Verb is one of a route's lifecycle verbs.
@@ -66,6 +67,7 @@ const (
 	effectDown      = "route.down"
 	effectTeardown  = "route.teardown"
 	effectRemove    = "route.remove"
+	effectForget    = "route.forget-channel"
 )
 
 // controlData is what the steps of a verb carry beyond a start's step data.
@@ -78,6 +80,8 @@ type controlData struct {
 	Snapshot   string   `json:"snapshot,omitempty"`
 	Captures   []string `json:"captures,omitempty"`
 	Targets    []string `json:"targets,omitempty"`
+	// Force is a delete's --force: the route's agents may still run.
+	Force bool `json:"force,omitempty"`
 }
 
 // KindOf returns the operation kind of a verb.
@@ -104,6 +108,15 @@ func IsControlKind(kind string) bool {
 // ControlState reads a route's lifecycle state from its verbs, oldest first.
 // Only a finished verb counts: a failed one changed nothing it promised.
 func ControlState(verbs []*ops.Operation) string {
+	return ControlStateUndone(verbs, nil)
+}
+
+// ControlStateUndone is ControlState where a finished delete whose snapshot
+// undo restored (undone, keyed by the delete's operation id, which names its
+// snapshot) leaves the route stopped rather than deleted: its folder and
+// inbox are back, its agents ended with the delete, and a resume starts them
+// again under fresh launches.
+func ControlStateUndone(verbs []*ops.Operation, undone map[string]bool) string {
 	state := ControlRunning
 	for _, op := range verbs {
 		if op.State != ops.OpDone {
@@ -118,6 +131,9 @@ func ControlState(verbs []*ops.Operation) string {
 			state = ControlStopped
 		case KindDelete:
 			state = ControlDeleted
+			if undone[op.ID] {
+				state = ControlStopped
+			}
 		}
 	}
 	return state
@@ -168,7 +184,33 @@ func PlanControl(ctx context.Context, q ControlRequest) (*ControlPlan, error) {
 		q.Grace = DefaultGrace
 	}
 	base := stepData{Key: first.Key, Route: first.Route, Repo: first.Repo, Folder: first.Folder, Inbox: first.Inbox, Workspace: first.Workspace, Socket: first.Socket, Executable: first.Executable}
+	if base.Inbox == "" {
+		// A core start journals its folder step before the inbox is set,
+		// so the route's inbox is the one its channel step names.
+		base.Inbox = journaledInbox(q.Start)
+	}
 	b := &controlBuilder{q: q, base: base}
+	if BackendOf(q.Start) == runtime.BackendCore {
+		b.base.Backend = runtime.BackendCore
+		if err := b.planCoreControl(); err != nil {
+			return nil, err
+		}
+		snap := ""
+		if q.Verb == VerbDelete {
+			root, err := snapshotRoot(ctx, first.Repo)
+			if err != nil {
+				return nil, err
+			}
+			snap = filepath.Join(root, fmt.Sprintf("%s-%s-%d", first.Route, q.Date, q.Generation))
+			b.remove(snap)
+		}
+		got, err := b.plan(first)
+		if err != nil {
+			return nil, err
+		}
+		got.Snapshot = snap
+		return got, nil
+	}
 	for _, st := range q.Start.Steps {
 		if st.Effect == effectAgent {
 			d, err := decode(st)
@@ -201,13 +243,34 @@ func PlanControl(ctx context.Context, q ControlRequest) (*ControlPlan, error) {
 	default:
 		return nil, fmt.Errorf("unknown verb %q", q.Verb)
 	}
+	got, err := b.plan(first)
+	if err != nil {
+		return nil, err
+	}
+	got.Snapshot = plan.Snapshot
+	return got, nil
+}
+
+// journaledInbox is the inbox a start's steps name, or empty with none.
+func journaledInbox(start *ops.Operation) string {
+	for _, st := range start.Steps {
+		if d, err := decode(st); err == nil && d.Inbox != "" {
+			return d.Inbox
+		}
+	}
+	return ""
+}
+
+// plan is the verb's journal entry from the steps built.
+func (b *controlBuilder) plan(first stepData) (*ControlPlan, error) {
+	q := b.q
 	key := ControlKeyPrefix(string(q.Verb), first.Repo, first.Route, q.Start.ID) + strconv.Itoa(q.Generation)
 	var text strings.Builder
 	fmt.Fprintf(&text, "%s route %s\n", q.Verb, first.Route)
 	for _, st := range b.steps {
 		fmt.Fprintf(&text, "- %s\n", st.Name)
 	}
-	plan.Text = text.String()
+	plan := &ControlPlan{Text: text.String()}
 	plan.Spec = ops.Spec{Key: key, Kind: KindOf(q.Verb), Plan: plan.Text, Locks: []string{RouteLock(first.Repo, first.Route)}, Steps: b.steps}
 	return plan, nil
 }
@@ -231,7 +294,7 @@ func (b *controlBuilder) add(name, effectName, key string, d stepData) {
 }
 
 func (b *controlBuilder) control() *controlData {
-	return &controlData{Verb: b.q.Verb, Generation: b.q.Generation, Agents: b.agents, GraceMS: b.q.Grace.Milliseconds(), Note: b.q.Note}
+	return &controlData{Verb: b.q.Verb, Generation: b.q.Generation, Agents: b.agents, GraceMS: b.q.Grace.Milliseconds(), Note: b.q.Note, Force: b.q.Verb == VerbDelete && b.q.Force}
 }
 
 func (b *controlBuilder) with(edit func(*stepData)) stepData {
@@ -349,7 +412,14 @@ func (b *controlBuilder) remove(dest string) {
 	if !b.q.KeepWorktrees {
 		b.add("free the route's tasks", effectDown, "down", data())
 	}
-	b.add("verify the snapshot again, close the workspace and remove the route", effectRemove, "remove", data())
+	name := "verify the snapshot again, close the workspace and remove the route"
+	if b.base.Backend == runtime.BackendCore {
+		name = "verify the snapshot again and remove the route, leaving core's spaces and tabs"
+	}
+	b.add(name, effectRemove, "remove", data())
+	if b.base.Inbox != "" {
+		b.add("forget the route's daemon channel", effectForget, "forget-channel", data())
+	}
 }
 
 func controlEffects(deps Deps) map[string]ops.Effect {
@@ -367,6 +437,7 @@ func controlEffects(deps Deps) map[string]ops.Effect {
 		effectDown:      effect{deps, applyDown, probeUnknown},
 		effectTeardown:  effect{deps, applyTeardown, probeUnknown},
 		effectRemove:    effect{deps, applyRemove, probeRemove},
+		effectForget:    effect{deps, applyForget, probeForget},
 	}
 }
 
@@ -427,13 +498,13 @@ func sendKey(ctx context.Context, c *herdr.Client, pane, key string) error {
 // applyInterrupt sends the harness's interrupt key. It is best effort: a pane
 // that cannot be reached is named in the record and the pause goes on, since an
 // agent acts on the key at its next turn boundary at the soonest anyway.
-func applyInterrupt(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
-	record, err := c.AgentGet(ctx, d.Name)
+func applyInterrupt(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
+	got, err := deps.provider(c).Interrupt(ctx, runtime.Target{Name: d.Name})
 	if err != nil {
 		return writeRow(d, AgentRow{Name: d.Name, Status: StatusNotReached})
 	}
-	row := AgentRow{Name: d.Name, Pane: record.PaneID, Status: string(record.Status)}
-	if err := sendKey(ctx, c, record.PaneID, "esc"); err != nil {
+	row := AgentRow{Name: d.Name, Pane: got.Pane, Status: got.RawProgram}
+	if !got.Sent {
 		row.Status = StatusNotReached
 	}
 	return writeRow(d, row)
@@ -578,33 +649,40 @@ func probeRecord(_ context.Context, _ Deps, _ *herdr.Client, d stepData) (ops.Ve
 const lastCallPrompt = "The route is stopping. Write your report now and start no new work."
 
 // applyLastCall gives an agent a bounded time to report, then interrupts it.
-func applyLastCall(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
-	record, err := c.AgentGet(ctx, d.Name)
+// applyLastCall is a TUI step: the report request is typed, and the wait reads
+// the agent's status. On herdr-core it becomes the final-report notice.
+func applyLastCall(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
+	tui, err := deps.tui(c)
 	if err != nil {
+		return err
+	}
+	target := runtime.Target{Name: d.Name}
+	got, err := tui.Inspect(ctx, target)
+	if err != nil || !got.Exists {
 		return writeRow(d, AgentRow{Name: d.Name, Status: StatusNotReached})
 	}
-	row := AgentRow{Name: d.Name, Pane: record.PaneID, Status: string(record.Status)}
-	if err := c.AgentPrompt(ctx, d.Name, lastCallPrompt); err != nil {
+	row := AgentRow{Name: d.Name, Pane: got.Pane, Status: got.Observation.RawProgram}
+	if _, err := tui.Deliver(ctx, target, runtime.Delivery{Text: lastCallPrompt, Tag: "last-call"}); err != nil {
 		row.Status = StatusNotReached
 		return writeRow(d, row)
 	}
-	want := []herdr.Status{"idle", "done"}
-	if _, err := c.WaitAgentStatus(ctx, d.Name, want, time.Duration(d.Control.GraceMS)*time.Millisecond); err != nil {
+	want := []runtime.Program{runtime.ProgramIdle, runtime.ProgramDone}
+	if _, err := tui.WaitProgram(ctx, target, want, time.Duration(d.Control.GraceMS)*time.Millisecond); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		_ = sendKey(ctx, c, record.PaneID, "esc") // best effort; the pane closes next
+		_ = tui.SendKey(ctx, got.Pane, "esc") // best effort; the pane closes next
 	}
 	return writeRow(d, row)
 }
 
-func applyClosePane(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
+func applyClosePane(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
 	pane, err := labelledPane(ctx, c, d.Workspace, d.Label)
 	if err != nil {
 		return err
 	}
 	if pane != "" {
-		if err := c.Call(ctx, "pane.close", map[string]any{"pane_id": pane}, nil); err != nil && !isNotFound(err) {
+		if _, err := deps.provider(c).Stop(ctx, runtime.Target{Pane: pane}); err != nil {
 			return err
 		}
 	}
@@ -643,7 +721,7 @@ func probeRetire(_ context.Context, _ Deps, _ *herdr.Client, d stepData) (ops.Ve
 }
 
 // applyContinue tells an agent to go on, with what it was doing when stopped.
-func applyContinue(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
+func applyContinue(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
 	if _, err := os.Stat(sentStamp(d)); err == nil {
 		return nil
 	}
@@ -658,7 +736,7 @@ func applyContinue(ctx context.Context, _ Deps, c *herdr.Client, d stepData) err
 	if d.Control.Note != "" {
 		text += " " + d.Control.Note
 	}
-	if err := c.AgentPrompt(ctx, d.Name, text); err != nil {
+	if _, err := deps.provider(c).Deliver(ctx, runtime.Target{Name: d.Name}, runtime.Delivery{Text: text, Tag: d.Tag}); err != nil {
 		return err
 	}
 	return writeFileNew(sentStamp(d), nil)
@@ -688,7 +766,8 @@ func RepoOf(op *ops.Operation) string {
 	return d.Repo
 }
 
-// RunningAgents names the route's agents herdr still knows, in start order.
+// RunningAgents names the route's agents their backend still knows, in start
+// order.
 func RunningAgents(ctx context.Context, start *ops.Operation) ([]string, error) {
 	var running []string
 	for _, st := range start.Steps {
@@ -699,10 +778,16 @@ func RunningAgents(ctx context.Context, start *ops.Operation) ([]string, error) 
 		if err != nil {
 			return nil, err
 		}
-		if _, err := herdr.New(d.Socket).AgentGet(ctx, d.Name); err == nil {
-			running = append(running, d.Name)
-		} else if !isNotFound(err) {
+		rt, err := (Deps{}).open(d)
+		if err != nil {
+			return nil, fmt.Errorf("ask about %s: %w", d.Name, err)
+		}
+		got, err := rt.Inspect(ctx, runtime.Target{Name: d.Name})
+		if err != nil {
 			return nil, fmt.Errorf("ask herdr about %s: %w", d.Name, err)
+		}
+		if got.Exists {
+			running = append(running, d.Name)
 		}
 	}
 	return running, nil
@@ -711,6 +796,9 @@ func RunningAgents(ctx context.Context, start *ops.Operation) ([]string, error) 
 // ResolveHalted puts a resume that stopped at the pair approval back to run,
 // since a fresh call brings a fresh attestation.
 func ResolveHalted(e *ops.Engine, op *ops.Operation) error {
+	if BackendOf(op) == runtime.BackendCore {
+		return continueCore(e, op)
+	}
 	if op.State != ops.OpStopped && op.State != ops.OpConflict {
 		return nil
 	}

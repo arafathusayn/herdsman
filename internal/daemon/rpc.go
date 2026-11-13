@@ -185,7 +185,7 @@ func (s *messageService) GetSetup(ctx context.Context, req *daemonv1.GetSetupReq
 	}
 	res := &daemonv1.GetSetupResponse{Version: s.contract()}
 	for _, a := range out.Inventory {
-		res.Inventory = append(res.Inventory, &daemonv1.InventoryAgent{Pane: a.Pane, SessionJson: string(a.Session), Agent: a.Agent})
+		res.Inventory = append(res.Inventory, &daemonv1.InventoryAgent{Pane: a.Pane, SessionJson: string(a.Session), Agent: a.Agent, Runtime: tuiRef(a.Pane)})
 	}
 	if out.Proof != nil {
 		b, _ := encode(out.Proof)
@@ -546,7 +546,7 @@ func statusToProto(st RouteStatus) *daemonv1.StatusResponse {
 		Registry: &daemonv1.RegistryState{State: st.Registry.State, PendingSha256: st.Registry.PendingSHA256},
 	}
 	for _, p := range st.Peers {
-		res.Peers = append(res.Peers, &daemonv1.PeerInfo{Name: p.Name, Role: p.Role, Pane: p.Pane, Session: p.Session})
+		res.Peers = append(res.Peers, &daemonv1.PeerInfo{Name: p.Name, Role: p.Role, Pane: p.Pane, Session: p.Session, Runtime: tuiRef(p.Pane)})
 	}
 	for _, b := range st.Boxes {
 		res.Boxes = append(res.Boxes, &daemonv1.BoxCount{Name: b.Name, New: int32(b.New), Ready: int32(b.Ready), Cur: int32(b.Cur),

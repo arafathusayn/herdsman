@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/arafathusayn/herdsman/internal/approvals"
 	"github.com/arafathusayn/herdsman/internal/hooks"
 	"github.com/arafathusayn/herdsman/internal/suggest"
 	"github.com/arafathusayn/herdsman/sdk/config"
@@ -269,7 +270,14 @@ func (s *SuggestService) Get(ctx context.Context, r SuggestGetRequest) (SuggestG
 }
 
 func (s *SuggestService) approvals() *hooks.Approvals {
-	return &hooks.Approvals{Path: filepath.Join(s.configDir(), "approvals.json")}
+	if s.ConfigDir != "" {
+		return &hooks.Approvals{Path: filepath.Join(s.configDir(), approvals.FileName)}
+	}
+	store, err := approvals.Default(os.Environ())
+	if err != nil {
+		return &hooks.Approvals{Path: filepath.Join(s.configDir(), approvals.FileName)}
+	}
+	return &hooks.Approvals{Path: store.Path()}
 }
 
 // Plan returns what applying an entry would do. It changes nothing.

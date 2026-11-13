@@ -1,25 +1,29 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/approvals"
+	contracts "github.com/arafathusayn/herdsman/proto"
 	"github.com/arafathusayn/herdsman/sdk/config"
 )
 
-const configUsage = `usage: herdsman config get <key> [-c <path>]
-       herdsman config set <key> <value> [-c <path>]
+const configUsage = `usage: herdsman config get [<key>] [--source] [--json] [-c <path>]
+       herdsman config set <key> <value> [--append] [--project|--user|-c <path>]
        herdsman config unset <key> [-c <path>]
        herdsman config show [--strict] [-c <path>]
        herdsman config export --format toml|yaml|json|bin [-c <path>]
        herdsman config update [-c <path>]
        herdsman config init [--format toml|yaml|json|bin] [-c <path>]
-       herdsman config schema --format jsonschema|descriptor
+       herdsman config schema --format jsonschema|descriptor|proto
        herdsman config approvals list
        herdsman config approvals clear [<project>]
        herdsman config shell install|uninstall [bash|zsh|fish] [--json]
@@ -29,6 +33,11 @@ const configHelp = configUsage + `
 Keys are dotted paths such as merge.strategy; a kebab-case spelling is the same
 key. -c names a file; otherwise HERDSMAN_CONFIG, then the repository's parent
 folder, then the repository root.
+
+get with no key prints the whole effective configuration. --source adds where
+a value came from; --json prints typed JSON. set prints the old and new value
+and the file changed; --user writes the user file, --append adds one item to a
+list.
 
 show prints the file in use and then one "key = value (source)" line each.
 A warning goes to stderr; --strict makes it an error. An unknown key in the
@@ -51,6 +60,10 @@ func init() {
 type configArgs struct {
 	path, format string
 	strict       bool
+	source, json bool
+	user         bool
+	project      bool
+	appendItem   bool
 	words        []string
 }
 
@@ -70,6 +83,16 @@ func parseConfigArgs(args []string) (*configArgs, error) {
 			}
 		case "--strict":
 			out.strict = true
+		case "--source":
+			out.source = true
+		case "--json":
+			out.json = true
+		case "--user":
+			out.user = true
+		case "--project":
+			out.project = true
+		case "--append":
+			out.appendItem = true
 		default:
 			out.words = append(out.words, arg)
 		}
@@ -77,12 +100,30 @@ func parseConfigArgs(args []string) (*configArgs, error) {
 	return out, nil
 }
 
+// flagsFitVerb refuses a flag the verb has no use for, and a choice of target
+// made twice.
+func (a *configArgs) flagsFitVerb(verb string) bool {
+	if (a.source || a.json) && verb != "get" {
+		return false
+	}
+	if (a.user || a.project || a.appendItem) && verb != "set" {
+		return false
+	}
+	targets := 0
+	for _, chosen := range []bool{a.user, a.project, a.path != ""} {
+		if chosen {
+			targets++
+		}
+	}
+	return (verb != "set" || targets <= 1) && !(a.source && len(a.words) == 0)
+}
+
 // configVerbs maps each verb to its handler and how many words it takes.
 var configVerbs = map[string]struct {
 	minWords, maxWords int
 	run                func(*configArgs, io.Writer, io.Writer) error
 }{
-	"get":       {1, 1, configGet},
+	"get":       {0, 1, configGet},
 	"set":       {2, 2, configSet},
 	"unset":     {1, 1, configUnset},
 	"show":      {0, 0, configShow},
@@ -103,7 +144,7 @@ func runConfig(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	}
 	verb, ok := configVerbs[args[0]]
 	parsed, err := parseConfigArgs(args[1:])
-	if !ok || err != nil || len(parsed.words) < verb.minWords || len(parsed.words) > verb.maxWords {
+	if !ok || err != nil || len(parsed.words) < verb.minWords || len(parsed.words) > verb.maxWords || !parsed.flagsFitVerb(args[0]) {
 		fmt.Fprint(stderr, configUsage)
 		return 2
 	}
@@ -142,8 +183,26 @@ func repoRoot() string {
 	}
 }
 
+// repositoryKey names the repository at root in the user file, from its
+// origin remote. A repository with no remote has no overrides.
+func repositoryKey(root string) string {
+	if root == "" {
+		return ""
+	}
+	cmd := exec.Command("git", "-C", root, "remote", "get-url", "origin")
+	cmd.Env = slices.DeleteFunc(os.Environ(), func(pair string) bool {
+		return strings.HasPrefix(pair, "GIT_DIR=") || strings.HasPrefix(pair, "GIT_WORK_TREE=")
+	})
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return config.RepositoryKey(string(out))
+}
+
 func (a *configArgs) options() config.Options {
-	return config.Options{ConfigPath: a.path, RepoRoot: repoRoot(), Strict: a.strict}
+	root := repoRoot()
+	return config.Options{ConfigPath: a.path, RepoRoot: root, ProjectKey: repositoryKey(root), Strict: a.strict}
 }
 
 func (a *configArgs) load(stderr io.Writer) (*config.Result, error) {
@@ -174,23 +233,88 @@ func configGet(a *configArgs, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if len(a.words) == 0 {
+		format := config.FormatTOML
+		if a.json {
+			format = config.FormatJSON
+		}
+		data, err := result.Encode(format)
+		if err != nil {
+			return err
+		}
+		_, err = stdout.Write(data)
+		return err
+	}
+	if a.json {
+		return writeTypedValue(result, a, stdout)
+	}
 	value, err := result.Get(a.words[0])
 	if err != nil {
 		return err
+	}
+	if a.source {
+		_, source, err := result.Typed(a.words[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%s (%s)\n", value, source)
+		return nil
 	}
 	fmt.Fprintln(stdout, value)
 	return nil
 }
 
-func configSet(a *configArgs, stdout, _ io.Writer) error {
-	path, err := a.target()
+func writeTypedValue(result *config.Result, a *configArgs, stdout io.Writer) error {
+	value, source, err := result.Typed(a.words[0])
 	if err != nil {
 		return err
 	}
-	if err := config.SetFile(path, a.words[0], a.words[1]); err != nil {
+	var document any = value
+	if a.source {
+		document = map[string]any{"value": value, "source": source}
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintln(stdout, path)
+	fmt.Fprintf(stdout, "%s\n", data)
+	return nil
+}
+
+// setTarget is the file a set writes. A user file that does not exist yet is
+// created empty, and removed again if the edit fails.
+func (a *configArgs) setTarget() (path string, created bool, err error) {
+	if !a.user {
+		path, err = a.target()
+		return path, false, err
+	}
+	path, exists, err := config.UserFile(a.options())
+	if err != nil || exists {
+		return path, false, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", false, err
+	}
+	return path, true, os.WriteFile(path, nil, 0o644)
+}
+
+func configSet(a *configArgs, stdout, _ io.Writer) error {
+	path, created, err := a.setTarget()
+	if err != nil {
+		return err
+	}
+	edit, err := config.EditFile(path, a.words[0], a.words[1], a.appendItem)
+	if err != nil {
+		if created {
+			os.Remove(path)
+		}
+		return err
+	}
+	old := "(unset)"
+	if edit.HadOld {
+		old = edit.Old
+	}
+	fmt.Fprintf(stdout, "%s: %s -> %s (%s)\n", edit.Key, old, edit.New, edit.Path)
 	return nil
 }
 
@@ -268,12 +392,19 @@ func configInit(a *configArgs, stdout, _ io.Writer) error {
 		}
 		path = filepath.Join(filepath.Dir(root), "herdsman.config."+format)
 	}
-	if err := config.InitFile(path, format); err != nil {
+	found, err := config.InitDetected(path, format, repoRoot())
+	if err != nil {
 		return err
 	}
 	fmt.Fprintln(stdout, path)
 	if format == config.FormatJSON || format == config.FormatBin {
-		fmt.Fprintln(stdout, "this format has no comments; herdsman config schema --format jsonschema describes every key")
+		fmt.Fprintln(stdout, "this format has no comments; what each key means:")
+		for _, line := range config.InitExplanations() {
+			fmt.Fprintln(stdout, " ", line)
+		}
+	}
+	if len(found.EnvFiles) > 0 {
+		fmt.Fprintf(stdout, "found %s; list any to copy into worktrees under setup.env\n", strings.Join(found.EnvFiles, ", "))
 	}
 	return nil
 }
@@ -286,8 +417,10 @@ func configSchema(a *configArgs, stdout, _ io.Writer) error {
 		data, err = config.JSONSchema()
 	case "descriptor":
 		data, err = config.DescriptorSet()
+	case "proto":
+		data, err = contracts.Files.ReadFile("herdsman/config/v1/config.proto")
 	default:
-		return configUsageError("--format must be jsonschema or descriptor")
+		return configUsageError("--format must be jsonschema, descriptor or proto")
 	}
 	if err != nil {
 		return err

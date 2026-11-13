@@ -16,13 +16,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/approvals"
 	"github.com/arafathusayn/herdsman/internal/cow"
 	"github.com/arafathusayn/herdsman/internal/gitrefs"
 	"github.com/arafathusayn/herdsman/internal/gitrun"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/hooks"
+	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/profile"
+	"github.com/arafathusayn/herdsman/internal/route"
+	"github.com/arafathusayn/herdsman/internal/runtime/core"
 	"github.com/arafathusayn/herdsman/internal/wtree"
+	"github.com/arafathusayn/herdsman/sdk/client"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 const (
@@ -40,9 +47,40 @@ type WorktreeService struct {
 	StateDir    string // Empty resolves the account's state folder.
 	FileCap     int64  // Largest file a snapshot captures; 0 is the default.
 	ConfigDir   string // Folder of the user's file; empty uses the standard one.
+	// Backend refuses a task launch whose execution backend, resolved for the
+	// repository, this build cannot run; nil checks nothing.
+	Backend func(ctx context.Context, repo string) error
+	// OnCore reports a repository whose task agents run on herdr-core; nil
+	// means the TUI.
+	OnCore func(ctx context.Context, repo string) bool
+	// CoreTask starts a task agent on herdr-core.
+	CoreTask func(ctx context.Context, q route.TaskLaunch) (route.TaskStarted, error)
 
+	caller  []string         // The caller's environment; nil means this process's.
+	tasks   *taskJournal     // Nil runs the effects without an operation.
 	journal *teardownJournal // Set by the daemon, which runs teardowns.
 	engine  *ops.Engine
+}
+
+// forCaller is the service for a request from a process with this environment.
+func (s *WorktreeService) forCaller(environ []string) *WorktreeService {
+	served := *s
+	served.caller = environ
+	return &served
+}
+
+// getenv reads the caller's environment.
+func (s *WorktreeService) getenv(name string) string {
+	if s.caller == nil {
+		return os.Getenv(name)
+	}
+	prefix := name + "="
+	for _, entry := range s.caller {
+		if value, ok := strings.CutPrefix(entry, prefix); ok {
+			return value
+		}
+	}
+	return ""
 }
 
 // worktreeSchemaVersion is the version of the verbs' JSON. It only grows.
@@ -90,6 +128,8 @@ type WorktreeNewResponse struct {
 	Warnings []string `json:"warnings,omitempty"`
 	// AgentName is the agent started in the worktree, when one was.
 	AgentName string `json:"agent_name,omitempty"`
+	// Ports is the task's reserved block, starting at Port.
+	Ports []int `json:"ports,omitempty"`
 }
 
 // WorktreeListRequest asks for the worktree table.
@@ -97,6 +137,8 @@ type WorktreeListRequest struct {
 	Dir        string `json:"dir"`
 	All        bool   `json:"all,omitempty"`
 	Statusline bool   `json:"statusline,omitempty"`
+	Full       bool   `json:"full,omitempty"`     // Add the slow cells and a summary.
+	Skeleton   bool   `json:"skeleton,omitempty"` // Names only, without collecting.
 }
 
 // WorktreeRow is one line of the table. Path is empty for a branch with no tree.
@@ -115,13 +157,33 @@ type WorktreeRow struct {
 	Main       bool   `json:"main"`
 	Default    bool   `json:"default"`
 	Error      string `json:"error,omitempty"`
+	// The cells of a full list.
+	Remote       string `json:"remote,omitempty"`
+	RemoteAhead  int    `json:"remote_ahead,omitempty"`
+	RemoteBehind int    `json:"remote_behind,omitempty"`
+	Agent        string `json:"agent,omitempty"`
+	PR           int    `json:"pr,omitempty"`
+	Review       string `json:"review,omitempty"`
+	CI           string `json:"ci,omitempty"`
+	Port         int    `json:"port,omitempty"`
+	PortsHeld    int    `json:"ports_held,omitempty"`
+	Containers   int    `json:"containers,omitempty"`
+	DiskBytes    int64  `json:"disk_bytes,omitempty"`
+}
+
+// WorktreeListSummary is the line under a full table.
+type WorktreeListSummary struct {
+	Worktrees int `json:"worktrees"`
+	Dirty     int `json:"dirty"`
 }
 
 // WorktreeListResponse is the table, or one line of it for a status bar.
 type WorktreeListResponse struct {
 	versioned
-	Rows       []WorktreeRow `json:"rows"`
-	Statusline string        `json:"statusline,omitempty"`
+	Rows       []WorktreeRow       `json:"rows"`
+	Statusline string              `json:"statusline,omitempty"`
+	Summary    WorktreeListSummary `json:"summary,omitzero"`
+	Warnings   []string            `json:"warnings,omitempty"`
 }
 
 // WorktreeGoRequest asks where a selector leads.
@@ -171,8 +233,27 @@ type WorktreeHookResponse struct {
 	Result   string                `json:"result,omitempty"`
 }
 
-// WorktreeCall serves one verb for the command line in this process.
+// WorktreeCall keeps local git-only verbs in this process. Agent launches
+// must use the daemon so backend selection, identity and notices are enforced.
 func WorktreeCall(ctx context.Context, method string, request []byte) ([]byte, error) {
+	if method == "New" {
+		var req WorktreeNewRequest
+		if err := json.Unmarshal(request, &req); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(req.Agent) != "" {
+			sdk, err := client.Dial(client.Options{})
+			if err != nil {
+				return nil, err
+			}
+			defer sdk.Close()
+			res, err := sdk.Ledger.NewWorktree(ctx, &daemonv1.NewWorktreeRequest{Dir: req.Dir, Task: req.Task, Base: req.Base, From: req.From, Type: req.Type, Agent: req.Agent, Prompt: req.Prompt, NoSetup: req.NoSetup, Clobber: req.Clobber, Integrator: req.Integrator})
+			if err != nil {
+				return nil, err
+			}
+			return res.GetResult(), nil
+		}
+	}
 	return (&WorktreeService{}).Call(ctx, method, request)
 }
 
@@ -216,17 +297,23 @@ func dispatch[Req, Resp any](ctx context.Context, data []byte, method func(conte
 
 // repository is everything one call needs about the repository around Dir.
 type repository struct {
-	git     *gitrun.Runner
-	state   *wtree.State
-	reader  *gitrefs.Reader
-	rows    []wtree.Row
-	main    string
-	common  string
-	dir     string
-	dflt    string
-	hooks   hooks.Config
-	naming  wtree.Naming
-	project string
+	git         *gitrun.Runner
+	state       *wtree.State
+	reader      *gitrefs.Reader
+	rows        []wtree.Row
+	main        string
+	common      string
+	dir         string
+	dflt        string
+	hooks       hooks.Config
+	naming      wtree.Naming
+	route       string
+	traceFolder string
+	environ     []string
+	// What setup.env and setup.share list, and setup.ports.
+	envFiles, shared []string
+	ports            int
+	project          string
 }
 
 func (r *repository) close() { r.state.Close() }
@@ -236,7 +323,7 @@ func (s *WorktreeService) open(ctx context.Context, dir string) (*repository, er
 		return nil, fmt.Errorf("worktree service: folder %q is not absolute", dir)
 	}
 	git := &gitrun.Runner{}
-	if folder := os.Getenv(routeFolderEnv); folder != "" {
+	if folder := s.getenv(routeFolderEnv); folder != "" {
 		git.Tracer = gitrun.NewFileTrace(filepath.Join(folder, "logs"))
 	}
 	out, err := git.Run(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
@@ -256,7 +343,7 @@ func (s *WorktreeService) open(ctx context.Context, dir string) (*repository, er
 	if err != nil {
 		return nil, err
 	}
-	repo := &repository{git: git, state: state, reader: reader, common: common, dir: dir}
+	repo := &repository{git: git, state: state, reader: reader, common: common, dir: dir, route: s.getenv("HERDSMAN_ROUTE"), environ: s.caller, traceFolder: s.getenv(routeFolderEnv)}
 	collector := wtree.Collector{Refs: reader, State: state, Git: git}
 	if repo.rows, err = collector.Skeleton(ctx); err != nil {
 		state.Close()
@@ -291,15 +378,15 @@ func (s *WorktreeService) approvals() (*hooks.Approvals, error) {
 	if s.Approvals != "" {
 		return &hooks.Approvals{Path: s.Approvals}, nil
 	}
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		base = filepath.Join(home, ".config")
+	environ := s.caller
+	if environ == nil {
+		environ = os.Environ()
 	}
-	return &hooks.Approvals{Path: filepath.Join(base, "herdsman", "approvals.json")}, nil
+	store, err := approvals.Default(environ)
+	if err != nil {
+		return nil, err
+	}
+	return &hooks.Approvals{Path: store.Path()}, nil
 }
 
 func (r *repository) vars(task, branch, path, kind, base, head string) wtree.Vars {
@@ -308,7 +395,7 @@ func (r *repository) vars(task, branch, path, kind, base, head string) wtree.Var
 	}
 	optional := map[string]string{
 		"branch": branch, "worktree_path": path, "base": base, "default_branch": r.dflt,
-		"route": os.Getenv("HERDSMAN_ROUTE"), "commit": head,
+		"route": r.route, "commit": head,
 	}
 	if path != "" {
 		optional["worktree_name"] = filepath.Base(path)
@@ -321,7 +408,12 @@ func (r *repository) vars(task, branch, path, kind, base, head string) wtree.Var
 			values[key] = value
 		}
 	}
-	return wtree.Vars{Values: values, Port: wtree.HashPort(task)}
+	port := wtree.HashPort(task)
+	block := make(map[string]int, r.ports)
+	for i := range r.ports {
+		block[strconv.Itoa(i)] = port + i
+	}
+	return wtree.Vars{Values: values, Port: port, Ports: block}
 }
 
 // plan expands a hook and refuses one that holds a template nobody accepted.
@@ -348,10 +440,10 @@ func (s *WorktreeService) plan(r *repository, hook string, vars wtree.Vars) (hoo
 func (r *repository) runner(vars wtree.Vars, path string) *hooks.Runner {
 	logs := filepath.Join(r.common, wtree.StateFolder, "logs")
 	// A hook run for a route is logged where that route's trace looks for it.
-	if folder := os.Getenv(routeFolderEnv); folder != "" {
+	if folder := r.traceFolder; folder != "" {
 		logs = filepath.Join(folder, "logs", "hooks")
 	}
-	return &hooks.Runner{LogDir: logs, Dir: path, Env: hooks.Env{
+	return &hooks.Runner{LogDir: logs, Dir: path, Environ: r.environ, Env: hooks.Env{
 		Task: vars.Values["task"], Branch: vars.Values["branch"], Worktree: path, Route: vars.Values["route"],
 	}}
 }
@@ -360,7 +452,12 @@ func (s *WorktreeService) herdrClient(ctx context.Context) *herdr.Client {
 	socket := s.HerdrSocket
 	if socket == "" {
 		var err error
-		if socket, err = herdr.SocketPath(""); err != nil {
+		if s.caller != nil {
+			socket, err = herdr.SocketPathFor(s.getenv)
+		} else {
+			socket, err = herdr.SocketPath("")
+		}
+		if err != nil {
 			return nil
 		}
 	}
@@ -415,12 +512,16 @@ func (r *repository) clearPath(path string, clobber bool) error {
 }
 
 // create makes the tree through herdr when it answers, else through git. With
-// an empty start the branch already exists.
-func (s *WorktreeService) create(ctx context.Context, r *repository, shape taskShape, task, branch, path, start string, resp *WorktreeNewResponse) error {
+// an empty start the branch already exists. A task whose agent runs on
+// herdr-core makes its tree with git alone: no TUI workspace is opened.
+func (s *WorktreeService) create(ctx context.Context, r *repository, shape taskShape, task, branch, path, start string, onCore bool, resp *WorktreeNewResponse) error {
 	if shape.ownClone {
 		return r.cloneTask(ctx, branch, path, start)
 	}
-	client := s.herdrClient(ctx)
+	var client *herdr.Client
+	if !onCore {
+		client = s.herdrClient(ctx)
+	}
 	if client != nil && start != "" {
 		params := map[string]any{"cwd": r.main, "branch": branch, "base": start, "path": path, "label": task, "focus": false}
 		err := client.Call(ctx, "worktree.create", params, nil)
@@ -468,6 +569,31 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err != nil {
 		return resp, err
 	}
+	// A task that launches an agent resolves its backend as up does, before
+	// anything is made.
+	if strings.TrimSpace(req.Agent) != "" && s.Backend != nil {
+		if err := s.Backend(ctx, r.main); err != nil {
+			return resp, err
+		}
+	}
+	// Core tasks use git worktrees or restricted clones and launch through
+	// the authenticated core wrapper. Validate before creating either tree.
+	onCore := strings.TrimSpace(req.Agent) != "" && s.OnCore != nil && s.OnCore(ctx, r.main)
+	if onCore {
+		if _, err := compileCoreTask(req.Agent); err != nil {
+			return resp, err
+		}
+	}
+	if !onCore {
+		if _, err := splitAgentCommand(req.Agent); err != nil {
+			return resp, err
+		}
+	}
+	if onCore && shape.ownClone {
+		if err := profile.CheckCoreHarnessArgs(command[1:]); err != nil {
+			return resp, err
+		}
+	}
 	kind := req.Type
 	if kind == "" {
 		kind = "feat"
@@ -509,16 +635,20 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := r.clearPath(path, req.Clobber); err != nil {
 		return resp, err
 	}
-	if err := s.create(ctx, r, shape, req.Task, branch, path, start, &resp); err != nil {
+	spec := treeSpec{Main: r.main, Task: req.Task, Branch: branch, Path: path, Start: start, OwnClone: shape.ownClone, GitOnly: onCore}
+	if request != nil {
+		spec.Identity = request.identity
+	}
+	if err := s.makeTree(ctx, r, spec, &resp); err != nil {
 		return resp, err
 	}
 	if request != nil {
-		if err := r.markRequest(ctx, request, branch); err != nil {
-			return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
-		}
 		resp.Warnings = append(resp.Warnings, renamedWarning(request, branch)...)
 	}
 	resp.Task, resp.Branch, resp.Path, resp.Port = req.Task, branch, path, vars.Port
+	for i := range r.ports {
+		resp.Ports = append(resp.Ports, vars.Port+i)
+	}
 	resp.Launch = "cd " + path
 	if len(command) > 0 {
 		if resp.Launch, err = shape.launchLine(command, path, req.Integrator); err != nil {
@@ -531,22 +661,68 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 		resp.Warnings = append(resp.Warnings, "integrator has no effect outside the restricted profile")
 	}
 	if req.Agent != "" {
-		if !resp.Herdr {
+		if !resp.Herdr && !onCore {
 			resp.Warnings = append(resp.Warnings, "the agent was not started; run the launch line")
 		}
 	} else if req.Prompt != "" {
 		resp.Warnings = append(resp.Warnings, "the prompt was ignored: no agent was named")
 	}
-	if err := r.state.PutWorktree(ctx, wtree.Worktree{Task: req.Task, Branch: branch, Path: path, CreatedAt: time.Now()}); err != nil {
-		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
-	}
 	if err := s.finishNew(ctx, r, req, vars, before, after, &resp); err != nil {
 		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
+	}
+	if onCore {
+		if err := s.enterCore(ctx, r, req, &resp); err != nil {
+			return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
+		}
+		return resp, nil
 	}
 	if err := s.enterWorkspace(ctx, req, &resp); err != nil {
 		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
 	}
 	return resp, nil
+}
+
+// enterCore starts the task's agent on herdr-core: a core execution through
+// the launch transaction, its prompt a task notice. Nothing is typed; the
+// start line is a person's, and a step that waits on a person is a warning.
+func (s *WorktreeService) enterCore(ctx context.Context, r *repository, req WorktreeNewRequest, resp *WorktreeNewResponse) error {
+	if s.CoreTask == nil {
+		return errors.New("this daemon cannot start a task agent on herdr-core")
+	}
+	spec, err := compileCoreTask(req.Agent)
+	if err != nil {
+		return err
+	}
+	q := route.TaskLaunch{Repo: r.main, Path: resp.Path, Task: resp.Task, Branch: resp.Branch, Command: spec.Command, Env: spec.Env, Prelude: spec.Prelude, Prompt: req.Prompt}
+	shape, err := s.shapeOf(r)
+	if err != nil {
+		return err
+	}
+	if shape.ownClone {
+		role := profile.RoleImplementer
+		if req.Integrator {
+			role = profile.RoleIntegrator
+		}
+		roots, err := profile.ResolveRoots(profile.RootRequest{Policy: shape.policy, Role: role, TaskRoot: resp.Path, Protected: shape.protected})
+		if err != nil {
+			return err
+		}
+		q.RestrictedRoots = &roots
+	}
+	got, err := s.CoreTask(ctx, q)
+	if err != nil {
+		return fmt.Errorf("the agent did not start on herdr-core: %w", err)
+	}
+	resp.AgentName = resp.Task
+	resp.Launch = "cd " + resp.Path
+	resp.Warnings = append(resp.Warnings, "herdr-core execution "+got.Execution.ID+": a person submits the start line in the app")
+	if got.Notice != "" {
+		resp.Warnings = append(resp.Warnings, "the prompt waits for the agent as notice "+got.Notice)
+	}
+	if got.Waiting != "" {
+		resp.Warnings = append(resp.Warnings, "the launch waits on a person: "+got.Waiting)
+	}
+	return nil
 }
 
 // quoteForShell makes text one word for a shell.
@@ -588,7 +764,10 @@ func (s *WorktreeService) enterWorkspace(ctx context.Context, req WorktreeNewReq
 	if err := client.Call(ctx, "pane.send_input", map[string]any{"pane_id": pane, "text": export}, nil); err != nil {
 		return fmt.Errorf("the task's environment was not set: %w", err)
 	}
-	words := strings.Fields(req.Agent)
+	words, err := splitAgentCommand(req.Agent)
+	if err != nil {
+		return err
+	}
 	if len(words) == 0 {
 		return nil
 	}
@@ -624,6 +803,25 @@ func (r *repository) shareIgnored(ctx context.Context, folder string, resp *Work
 	}
 }
 
+// bringListed brings over what the configuration names. A listed path outside
+// the repository or one that is tracked work stays, and the response says so.
+func (r *repository) bringListed(ctx context.Context, listed []string, resp *WorktreeNewResponse) {
+	for _, name := range listed {
+		if !filepath.IsLocal(name) {
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf("setup lists %s, which is outside the repository; left alone", name))
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(r.main, name)); err != nil {
+			continue
+		}
+		if _, err := r.git.Run(ctx, r.main, "check-ignore", "-q", name); err != nil {
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf("setup lists %s, which git does not ignore; left alone", name))
+			continue
+		}
+		r.shareIgnored(ctx, name, resp)
+	}
+}
+
 func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req WorktreeNewRequest, vars wtree.Vars, before, after hooks.Plan, resp *WorktreeNewResponse) error {
 	runner := r.runner(vars, resp.Path)
 	if _, err := runner.Run(ctx, "pre-start", before); err != nil {
@@ -637,6 +835,7 @@ func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req Work
 		for _, folder := range detected.Share {
 			r.shareIgnored(ctx, folder, resp)
 		}
+		r.bringListed(ctx, slices.Concat(r.envFiles, r.shared), resp)
 		setup, installs, err := s.setupPlan(r, vars, detected)
 		if err != nil {
 			return err
@@ -674,12 +873,21 @@ func (s *WorktreeService) List(ctx context.Context, req WorktreeListRequest) (Wo
 		return resp, err
 	}
 	defer r.close()
+	if req.Skeleton {
+		for _, row := range r.rows {
+			resp.Rows = append(resp.Rows, tableRow(row))
+		}
+		return resp, nil
+	}
 	collector := wtree.Collector{Refs: r.reader, State: r.state, Git: r.git}
 	if err := collector.Fill(ctx, r.rows, nil); err != nil {
 		return resp, err
 	}
 	for _, row := range r.rows {
 		resp.Rows = append(resp.Rows, tableRow(row))
+	}
+	if req.Full {
+		s.fillFull(ctx, r, &resp)
 	}
 	if req.Statusline {
 		current, err := wtree.ResolveSelector(wtree.Selector{Kind: wtree.SelectCurrent}, r.selectContext(""))
@@ -1057,24 +1265,13 @@ func (s *WorktreeService) goRequest(ctx context.Context, r *repository, text str
 	gitDir := r.main
 	if shape.ownClone {
 		gitDir = path
-		if err := r.cloneTask(ctx, branch, path, start); err != nil {
-			return wtree.Row{}, err
-		}
-	} else {
-		args := []string{"worktree", "add", "-q", path, branch}
-		if start != "" {
-			args = []string{"worktree", "add", "-q", "-b", branch, path, start}
-		}
-		if _, err := r.git.Run(ctx, r.main, args...); err != nil {
-			return wtree.Row{}, err
-		}
 	}
-	if err := r.markRequest(ctx, pr, branch); err != nil {
+	var made WorktreeNewResponse
+	spec := treeSpec{Main: r.main, Task: task, Branch: branch, Path: path, Start: start, Identity: pr.identity, GitOnly: true, OwnClone: shape.ownClone}
+	if err := s.makeTree(ctx, r, spec, &made); err != nil {
 		return wtree.Row{}, err
 	}
-	if err := r.state.PutWorktree(ctx, wtree.Worktree{Task: task, Branch: branch, Path: path, CreatedAt: time.Now()}); err != nil {
-		return wtree.Row{}, err
-	}
+	resp.Warnings = append(resp.Warnings, made.Warnings...)
 	resp.Created = true
 	resp.Warnings = append(resp.Warnings, renamedWarning(pr, branch)...)
 	if resp.PushRemote, err = r.setPushRemote(ctx, pr, branch, gitDir); err != nil {
@@ -1242,4 +1439,22 @@ func (s *WorktreeService) describeHooks(r *repository, store *hooks.Approvals, t
 	}
 	resp.OK = true
 	return resp, nil
+}
+
+// compileCoreTask uses the same launch grammar as route coordinators. Validate
+// before creating a worktree, and retain quoted arguments as single words.
+func compileCoreTask(line string) (launch.Spec, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return launch.Spec{}, err
+	}
+	spec, err := launch.Compile(line, launch.Options{Home: home})
+	if err != nil {
+		return spec, err
+	}
+	adapter, err := core.AdapterFor(filepath.Base(spec.Command[0]))
+	if err != nil {
+		return spec, err
+	}
+	return spec, adapter.CheckArgs(spec.Command[1:])
 }

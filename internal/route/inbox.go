@@ -111,14 +111,14 @@ type peerIdentity struct {
 }
 
 // applyTargets records every enrolled pane as a card-watch target.
-func applyTargets(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
+func applyTargets(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
 	targets := make([]peerIdentity, 0, len(d.Peers))
 	for _, name := range d.Peers {
 		record, err := c.AgentGet(ctx, name)
 		if err != nil {
 			return fmt.Errorf("agent %s: %w", name, err)
 		}
-		id, code, note := inbox.LiveIdentity(ctx, c, record.PaneID)
+		id, code, note := deps.verifier(c).Live(ctx, inbox.Ref{Backend: deps.provider(c).Backend(), Pane: record.PaneID})
 		if code != inbox.LiveOK {
 			return fmt.Errorf("agent %s has no live identity: %s", name, note)
 		}

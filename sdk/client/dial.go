@@ -57,6 +57,8 @@ type Client struct {
 	Project daemonv1.ProjectService
 	Suggest suggestv1.SuggestService
 	Trace   tracev1.TraceService
+	Task    daemonv1.TaskService
+	Runtime daemonv1.RuntimeService
 
 	http *http.Client
 }
@@ -115,6 +117,8 @@ func Dial(options Options) (*Client, error) {
 		Project: daemonv1.NewProjectServiceClient(hc, base),
 		Suggest: suggestv1.NewSuggestServiceClient(hc, base),
 		Trace:   tracev1.NewTraceServiceClient(hc, base),
+		Task:    daemonv1.NewTaskServiceClient(hc, base),
+		Runtime: daemonv1.NewRuntimeServiceClient(hc, base),
 		http:    &http.Client{Transport: transport},
 	}, nil
 }

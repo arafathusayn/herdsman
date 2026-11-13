@@ -37,6 +37,12 @@ const (
 	KindCheck   = "check"
 	KindReview  = "review"
 	KindHook    = "hook"
+	// The kinds of a herdr-core route's own steps, which the daemon
+	// records: a launch step, a notice's issue, claim or handling, and a
+	// line a person typed into an execution.
+	KindLaunch = "launch"
+	KindNotice = "notice"
+	KindSubmit = "submit"
 )
 
 // Files inside a route folder.
@@ -84,7 +90,7 @@ type Trace struct {
 // recordedKind reports whether a span of this kind can come from a log. The
 // root is always derived.
 func recordedKind(kind string) bool {
-	return slices.Contains([]string{KindTurn, KindCommand, KindCheck, KindReview, KindHook}, kind)
+	return slices.Contains([]string{KindTurn, KindCommand, KindCheck, KindReview, KindHook, KindLaunch, KindNotice, KindSubmit}, kind)
 }
 
 func (s Span) valid() bool {
@@ -96,7 +102,8 @@ func (s Span) valid() bool {
 var ErrInvalid = errors.New("invalid record")
 
 // Append records a span in the route's own log, for the work no other log
-// covers: agent turns, checks and reviews.
+// covers: agent turns, checks and reviews, and a herdr-core route's launch
+// steps, notices and typed lines.
 func Append(route string, span Span) error {
 	if !span.valid() {
 		return fmt.Errorf("%w: trace: a span needs a known kind, a name, a start and a duration of zero or more (kind %q, name %q)", ErrInvalid, span.Kind, span.Name)

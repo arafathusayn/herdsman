@@ -8,6 +8,7 @@ import (
 
 	contracts "github.com/arafathusayn/herdsman/proto"
 	cliv1 "github.com/arafathusayn/herdsman/sdk/cli/v1"
+	"github.com/arafathusayn/herdsman/sdk/config"
 	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
@@ -20,13 +21,14 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-const specUsage = "usage: herdsman spec cli|proto|descriptor\n"
+const specUsage = "usage: herdsman spec cli|proto|descriptor|jsonschema\n"
 
 const specHelp = specUsage + `
 cli prints every command, flag and exit code as JSON.
 proto prints every contract source, each after a "// file: <path>" line.
 descriptor prints the contracts' serialized FileDescriptorSet, with every
 import before the file that needs it.
+jsonschema prints the JSON Schema of the configuration file.
 
 exit codes:
   0  the contracts were printed
@@ -35,11 +37,11 @@ exit codes:
 `
 
 func init() {
-	register(command{name: "spec", summary: "Print the SDK contracts: spec cli|proto|descriptor.", help: specHelp, run: runSpec})
+	register(command{name: "spec", summary: "Print the SDK contracts: spec cli|proto|descriptor|jsonschema.", help: specHelp, run: runSpec})
 }
 
 func runSpec(args []string, _ io.Reader, stdout, stderr io.Writer) int {
-	writers := map[string]func(io.Writer) error{"cli": writeSpecCLI, "proto": writeSpecProto, "descriptor": writeSpecDescriptor}
+	writers := map[string]func(io.Writer) error{"cli": writeSpecCLI, "proto": writeSpecProto, "descriptor": writeSpecDescriptor, "jsonschema": writeSpecJSONSchema}
 	if len(args) != 1 || writers[args[0]] == nil {
 		fmt.Fprint(stderr, specUsage)
 		return 2
@@ -49,6 +51,16 @@ func runSpec(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// writeSpecJSONSchema prints the schema of the configuration file.
+func writeSpecJSONSchema(w io.Writer) error {
+	data, err := config.JSONSchema()
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "%s\n", data)
+	return err
 }
 
 // writeSpecProto prints the embedded sources in path order.
@@ -75,7 +87,7 @@ func writeSpecProto(w io.Writer) error {
 func writeSpecDescriptor(w io.Writer) error {
 	set := &descriptorpb.FileDescriptorSet{}
 	seen := map[string]bool{}
-	for _, file := range []protoreflect.FileDescriptor{cliv1.File_herdsman_cli_v1_cli_proto, configv1.File_herdsman_config_v1_config_proto, corev1.File_herdsman_core_v1_core_proto, daemonv1.File_herdsman_daemon_v1_events_proto, daemonv1.File_herdsman_daemon_v1_ledger_proto, daemonv1.File_herdsman_daemon_v1_message_proto, daemonv1.File_herdsman_daemon_v1_ops_proto, daemonv1.File_herdsman_daemon_v1_plugin_proto, daemonv1.File_herdsman_daemon_v1_project_proto, daemonv1.File_herdsman_daemon_v1_route_proto, daemonv1.File_herdsman_daemon_v1_task_proto, pluginv1.File_herdsman_plugin_v1_plugin_proto, suggestv1.File_herdsman_suggest_v1_suggest_proto, tracev1.File_herdsman_trace_v1_trace_proto} {
+	for _, file := range []protoreflect.FileDescriptor{cliv1.File_herdsman_cli_v1_cli_proto, configv1.File_herdsman_config_v1_config_proto, corev1.File_herdsman_core_v1_core_proto, daemonv1.File_herdsman_daemon_v1_events_proto, daemonv1.File_herdsman_daemon_v1_ledger_proto, daemonv1.File_herdsman_daemon_v1_message_proto, daemonv1.File_herdsman_daemon_v1_notice_proto, daemonv1.File_herdsman_daemon_v1_ops_proto, daemonv1.File_herdsman_daemon_v1_plugin_proto, daemonv1.File_herdsman_daemon_v1_project_proto, daemonv1.File_herdsman_daemon_v1_route_proto, daemonv1.File_herdsman_daemon_v1_runtime_proto, daemonv1.File_herdsman_daemon_v1_task_proto, pluginv1.File_herdsman_plugin_v1_plugin_proto, suggestv1.File_herdsman_suggest_v1_suggest_proto, tracev1.File_herdsman_trace_v1_trace_proto} {
 		appendFile(set, seen, file)
 	}
 	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(set)

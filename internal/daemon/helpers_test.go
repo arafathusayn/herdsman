@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/herdr/herdrtest"
+	"github.com/arafathusayn/herdsman/internal/herdrapp"
 	"github.com/arafathusayn/herdsman/internal/inbox"
 )
 
@@ -70,6 +73,41 @@ type harness struct {
 
 func newHarness(t testing.TB) *harness {
 	t.Helper()
+	h := newAccountHarness(t)
+	// The harness drives a fake Herdr TUI server, so its account selects the
+	// TUI as an upgraded installation does. herdr-core is opted into by the
+	// config file (optInCore), which newCoreHarness writes.
+	h.setDefaultBackend("herdr-tui")
+	return h
+}
+
+// coreOptIn is the config file that selects herdr-core while it ships as an
+// experiment.
+const coreOptIn = "[runtime]\nbackend = \"herdr-core\"\n\n[runtime.core]\nexperimental = true\n"
+
+// optInCore writes coreOptIn where the routes of these tests find it: the
+// parent folder of their repository, the private home.
+func optInCore(t testing.TB, h *harness) {
+	t.Helper()
+	if err := os.MkdirAll(h.ph, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.ph, "herdsman.config.toml"), []byte(coreOptIn), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// newAccountHarness is a harness whose account keeps the installation default
+// its migration wrote: that of a new installation.
+func newAccountHarness(t testing.TB) *harness {
+	t.Helper()
+	return newAccountHarnessWith(t, nil)
+}
+
+// newAccountHarnessWith is newAccountHarness with its configuration edited
+// before the daemon starts.
+func newAccountHarnessWith(t testing.TB, edit func(dir string, cfg *Config)) *harness {
+	t.Helper()
 	dir := shortDir(t)
 	h := &harness{t: t, dir: dir, ph: filepath.Join(dir, "p"), home: filepath.Join(dir, "h"), clock: newClock()}
 	_ = os.MkdirAll(h.home, 0o700)
@@ -83,9 +121,35 @@ func newHarness(t testing.TB) *harness {
 		Now: h.clock.Now, Sleep: func(time.Duration) {}, Log: func(s string) { t.Log(s) }, LockWait: 2, DrainWait: time.Millisecond,
 		// No file-mode processes unless a test names some: the machine's own
 		// would make adoption busy.
-		Procs: func() ([]Proc, error) { return nil, nil }}
+		Procs: func() ([]Proc, error) { return nil, nil },
+		// Never the user's own core or app: a socket nothing serves, an app
+		// that refuses to run, login values of the scratch home.
+		Core: CoreConfig{Socket: filepath.Join(dir, "no-core.sock"), App: refusingApp{t}, AppHome: filepath.Join(dir, "apphome"),
+			Environ: []string{"PATH=/usr/bin:/bin", "HOME=" + filepath.Join(dir, "h")}, NoReconcile: true}}
+	if edit != nil {
+		edit(dir, &h.cfg)
+	}
 	h.start()
 	return h
+}
+
+// refusingApp stands for an app that is never run: a test that reaches it
+// fails at the step that needed it.
+type refusingApp struct{ t testing.TB }
+
+func (refusingApp) Run(context.Context, herdrapp.Invocation) (herdrapp.Output, error) {
+	return herdrapp.Output{Exit: 1}, errors.New("the herdr app is not run in these tests")
+}
+
+// setDefaultBackend changes the account's installation default.
+func (h *harness) setDefaultBackend(backend string) {
+	h.t.Helper()
+	if err := h.d.ops.Read(func(c store.Conn) error {
+		_, err := store.SetInstallationDefault(c, backend, 1)
+		return err
+	}); err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 func (h *harness) start() {

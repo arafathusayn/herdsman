@@ -18,6 +18,8 @@ import (
 	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/routedb"
+	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
+	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
 // heldInspect marks a route that an inspect daemon leaves unstarted.
@@ -32,11 +34,12 @@ func (d *Daemon) openOps() error {
 		return fmt.Errorf("account database: %w", err)
 	}
 	d.mu.Lock()
-	d.acctDB = c
+	shared := newSerialConn(c)
+	d.acctDB = shared
 	d.recovery = ops.NewRecovery(ops.RecoveryOptions{StateDir: d.cfg.PrivateHome, Retention: d.cfg.Retention, Policy: d.cfg.RetentionPolicy, Quiesce: d.quiesce})
 	effects := d.recovery.Effects()
-	maps.Copy(effects, d.operationEffects())
-	d.ops = ops.NewEngine(c, ops.Options{Effects: effects, Checks: d.cfg.Checks, Now: d.cfg.Now, Fault: d.cfg.OpsFault})
+	maps.Copy(effects, d.operationEffects(shared))
+	d.ops = ops.NewEngine(shared, ops.Options{Effects: effects, Checks: d.cfg.Checks, Now: d.cfg.Now, Fault: d.cfg.OpsFault})
 	d.worktrees.useTeardownOperations(d.teardowns, d.ops)
 	d.recovery.Attach(d.ops)
 	d.mu.Unlock()
@@ -88,12 +91,21 @@ var inspectReads = map[string]bool{
 	"Hello": true, "Health": true, "DaemonStatus": true, "ListOperations": true, "GetOperation": true,
 	"ListRoutes": true, "Status": true, "GetSetup": true, "Authority": true, "Wait": true, "Stream": true,
 	"Get": true, "List": true, "Search": true, "Plan": true, "Sources": true, "Records": true, "Evaluate": true,
-	"ContextCheck": true, "Log": true,
+	"ContextCheck": true, "Log": true, "ListExecutions": true, "GetExecution": true, "Doctor": true, "GetDefault": true,
+}
+
+// inspectProcedures are reads whose short name another service uses for a
+// change: OpsService/Export writes the channel secrets, this one only returns
+// text.
+var inspectProcedures = map[string]bool{
+	rpc.Path(configv1.ConfigServiceName, "Export"):   true,
+	rpc.Path(configv1.ConfigServiceName, "Show"):     true,
+	rpc.Path(configv1.ConfigServiceName, "Validate"): true,
 }
 
 // refuseInInspect answers every call that could change something.
 func (d *Daemon) refuseInInspect(r *http.Request) *APIError {
-	if !d.cfg.Inspect || inspectReads[path.Base(r.URL.Path)] {
+	if !d.cfg.Inspect || inspectReads[path.Base(r.URL.Path)] || inspectProcedures[r.URL.Path] {
 		return nil
 	}
 	return Errf("failed_precondition", "this daemon runs in inspect mode and changes nothing; %s %s was refused", r.Method, r.URL.Path)

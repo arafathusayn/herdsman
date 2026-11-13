@@ -33,7 +33,7 @@ func (e *Env) selfPeer(name string) (self, error) {
 	if e.pane() == "" {
 		return self{}, die("HERDR_PANE_ID: set own pane\nown identity unavailable")
 	}
-	id, code, note := inbox.LiveIdentity(e.ctx(), e.Client, e.pane())
+	id, code, note := e.verifier().Live(e.ctx(), inbox.PaneRef(e.pane()))
 	if code != inbox.LiveOK {
 		if note != "" {
 			return self{}, die("%s\nown identity unavailable", note)

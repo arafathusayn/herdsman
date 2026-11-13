@@ -34,6 +34,9 @@ func Default(environ []string) (*Store, error) {
 	return Open(filepath.Join(dir, FileName)), nil
 }
 
+// Path is the file behind the store.
+func (s *Store) Path() string { return s.path }
+
 // List returns every approval, by project.
 func (s *Store) List() (map[string][]string, error) {
 	data, err := os.ReadFile(s.path)
@@ -122,13 +125,23 @@ func (s *Store) locked(change func() error) error {
 	return change()
 }
 
+// tempFile is what write needs of a file.
+type tempFile interface {
+	Write([]byte) (int, error)
+	Close() error
+	Name() string
+}
+
+// createTemp is a variable so that a test can make the disk fail.
+var createTemp = func(dir, pattern string) (tempFile, error) { return os.CreateTemp(dir, pattern) }
+
 // write replaces the file whole, readable only by its owner.
 func (s *Store) write(approvals map[string][]string) error {
 	data, err := config.EncodeApprovals(approvals)
 	if err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(filepath.Dir(s.path), ".approvals-*")
+	temp, err := createTemp(filepath.Dir(s.path), ".approvals-*")
 	if err != nil {
 		return err
 	}

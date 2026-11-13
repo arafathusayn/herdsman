@@ -130,23 +130,23 @@ type evalRunner struct {
 
 // evalRoutes is what running in routes needs from the daemon and herdr.
 type evalRoutes struct {
-	service daemonv1.RouteService
-	socket  string
-	kinds   []string
+	service       daemonv1.RouteService
+	socket        string
+	kinds         []string
+	selectBackend func(context.Context, string, string) (string, error)
 }
 
 // dialEvalRoutes reaches herdr and the daemon, starting them as up does; tests
 // replace it.
 var dialEvalRoutes = func(ctx context.Context) (*evalRoutes, func(), error) {
-	socket, err := upHerdr(ctx, false)
-	if err != nil {
-		return nil, nil, err
-	}
 	sdk, err := upDaemon(ctx, false)
 	if err != nil {
 		return nil, nil, err
 	}
-	return &evalRoutes{service: sdk.Route, socket: socket, kinds: upKinds(ctx)}, sdk.Close, nil
+	return &evalRoutes{service: sdk.Route, selectBackend: func(ctx context.Context, repo, route string) (string, error) {
+		backend, _, err := upBackend(ctx, sdk, repo, upFlags{route: route})
+		return backend, err
+	}}, sdk.Close, nil
 }
 
 const (
@@ -180,10 +180,25 @@ func evalPause(ctx context.Context) {
 // startEvalRoute brings a route up and returns its folder once the agent has
 // its brief.
 func (r *evalRunner) startEvalRoute(ctx context.Context, id *corev1.RouteId, repo string, arm evalArm, task evalTask) (string, error) {
+	socket, kinds := r.routes.socket, r.routes.kinds
+	if r.routes.selectBackend != nil {
+		backend, err := r.routes.selectBackend(ctx, repo, id.GetValue())
+		if err != nil {
+			return "", err
+		}
+		if backend == backendCore {
+			socket, kinds = "", nil
+		} else {
+			if socket, err = upHerdr(ctx, false); err != nil {
+				return "", err
+			}
+			kinds = upKinds(ctx)
+		}
+	}
 	prompt := task.Prompt + "\n\nWhen the task is finished, create an empty file named " + evalDoneFile + " in the root of this repository."
 	request := &daemonv1.UpRequest{
 		Route: id, Repo: repo, Prompt: prompt, OrchestratorCommand: arm.Command, OrchestratorKind: arm.Kind, NoAdjutant: true,
-		HerdrSocket: r.routes.socket, Caller: upCaller(), Kinds: r.routes.kinds, Date: now().Format("2006-01-02"),
+		HerdrSocket: socket, Caller: upCaller(), Kinds: kinds, Date: now().Format("2006-01-02"),
 	}
 	if _, err := r.routes.service.Up(ctx, request); err != nil {
 		return "", err
@@ -237,7 +252,7 @@ func (r *evalRunner) routeCost(ctx context.Context, folder, repo string) *int64 
 // runRoute runs one task in a real route of its own: a new repository, a route
 // started as up starts one, the arm's agent working until it says it finished
 // or time runs out, the task's check, and the route stopped.
-func (r *evalRunner) runRoute(ctx context.Context, arm evalArm, task evalTask, control string) error {
+func (r *evalRunner) runRoute(ctx context.Context, arm evalArm, task evalTask, control string) (resultErr error) {
 	r.serial++
 	label := control
 	if label == "" {
@@ -256,14 +271,27 @@ func (r *evalRunner) runRoute(ctx context.Context, arm evalArm, task evalTask, c
 	}
 	id := &corev1.RouteId{Value: fmt.Sprintf("eval-%05d", r.serial)}
 	stop := &daemonv1.RouteServiceStopRequest{Route: id, Repo: repo, GraceSeconds: 1}
+	stopped := false
+	stopRoute := func() error {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_, err := r.routes.service.Stop(cleanup, stop)
+		if err != nil {
+			return fmt.Errorf("stop route %s: %w", id.GetValue(), err)
+		}
+		stopped = true
+		return nil
+	}
+	defer func() {
+		if !stopped {
+			resultErr = errors.Join(resultErr, stopRoute())
+		}
+	}()
 	limited, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	began := time.Now()
 	folder, err := r.startEvalRoute(limited, id, repo, arm, task)
 	if err != nil {
-		// A route that got partway up must not outlive the run. The start's
-		// failure is the one to report.
-		_, _ = r.routes.service.Stop(ctx, stop)
 		return err
 	}
 	finished := awaitEvalDone(limited, repo)
@@ -285,8 +313,8 @@ func (r *evalRunner) runRoute(ctx context.Context, arm evalArm, task evalTask, c
 		}
 		pass = checked == 0
 	}
-	if _, err := r.routes.service.Stop(ctx, stop); err != nil {
-		return fmt.Errorf("stop route %s: %w", id.GetValue(), err)
+	if err := stopRoute(); err != nil {
+		return err
 	}
 	_, err = r.service.RecordRun(ctx, &tracev1.RecordRunRequest{Suite: r.folder, Run: &tracev1.Run{Task: task.ID, Arm: arm.Name, Control: control, Pass: pass, DurationMs: duration, CostMicros: r.routeCost(ctx, folder, repo)}})
 	return err

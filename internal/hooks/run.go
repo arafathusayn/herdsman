@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -27,10 +28,16 @@ type Runner struct {
 	LogDir string
 	Dir    string
 	Env    Env
+	// Environ is the commands' base environment; nil means this process's.
+	Environ []string
 }
 
 func (r *Runner) environment(hook string) []string {
-	return append(os.Environ(),
+	base := r.Environ
+	if base == nil {
+		base = os.Environ()
+	}
+	return append(slices.Clone(base),
 		"HERDSMAN_TASK="+r.Env.Task, "HERDSMAN_BRANCH="+r.Env.Branch, "HERDSMAN_WORKTREE_PATH="+r.Env.Worktree,
 		"HERDSMAN_ROUTE="+r.Env.Route, "HERDSMAN_HOOK="+hook)
 }

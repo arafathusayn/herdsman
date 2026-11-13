@@ -23,6 +23,167 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type NewWorktreeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Dir           string                 `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`
+	Task          string                 `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
+	Base          string                 `protobuf:"bytes,3,opt,name=base,proto3" json:"base,omitempty"`
+	From          string                 `protobuf:"bytes,4,opt,name=from,proto3" json:"from,omitempty"`
+	Type          string                 `protobuf:"bytes,5,opt,name=type,proto3" json:"type,omitempty"`
+	Agent         string                 `protobuf:"bytes,6,opt,name=agent,proto3" json:"agent,omitempty"`
+	Prompt        string                 `protobuf:"bytes,7,opt,name=prompt,proto3" json:"prompt,omitempty"`
+	NoSetup       bool                   `protobuf:"varint,8,opt,name=no_setup,json=noSetup,proto3" json:"no_setup,omitempty"`
+	Clobber       bool                   `protobuf:"varint,9,opt,name=clobber,proto3" json:"clobber,omitempty"`
+	Integrator    bool                   `protobuf:"varint,10,opt,name=integrator,proto3" json:"integrator,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NewWorktreeRequest) Reset() {
+	*x = NewWorktreeRequest{}
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NewWorktreeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NewWorktreeRequest) ProtoMessage() {}
+
+func (x *NewWorktreeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NewWorktreeRequest.ProtoReflect.Descriptor instead.
+func (*NewWorktreeRequest) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *NewWorktreeRequest) GetDir() string {
+	if x != nil {
+		return x.Dir
+	}
+	return ""
+}
+
+func (x *NewWorktreeRequest) GetTask() string {
+	if x != nil {
+		return x.Task
+	}
+	return ""
+}
+
+func (x *NewWorktreeRequest) GetBase() string {
+	if x != nil {
+		return x.Base
+	}
+	return ""
+}
+
+func (x *NewWorktreeRequest) GetFrom() string {
+	if x != nil {
+		return x.From
+	}
+	return ""
+}
+
+func (x *NewWorktreeRequest) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *NewWorktreeRequest) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *NewWorktreeRequest) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
+	}
+	return ""
+}
+
+func (x *NewWorktreeRequest) GetNoSetup() bool {
+	if x != nil {
+		return x.NoSetup
+	}
+	return false
+}
+
+func (x *NewWorktreeRequest) GetClobber() bool {
+	if x != nil {
+		return x.Clobber
+	}
+	return false
+}
+
+func (x *NewWorktreeRequest) GetIntegrator() bool {
+	if x != nil {
+		return x.Integrator
+	}
+	return false
+}
+
+type NewWorktreeResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The versioned worktree result document shared with the CLI's JSON output.
+	Result        []byte `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NewWorktreeResponse) Reset() {
+	*x = NewWorktreeResponse{}
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NewWorktreeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NewWorktreeResponse) ProtoMessage() {}
+
+func (x *NewWorktreeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NewWorktreeResponse.ProtoReflect.Descriptor instead.
+func (*NewWorktreeResponse) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *NewWorktreeResponse) GetResult() []byte {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
 type ResourcesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// common_dir is the repository's common git directory.
@@ -34,7 +195,7 @@ type ResourcesRequest struct {
 
 func (x *ResourcesRequest) Reset() {
 	*x = ResourcesRequest{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[0]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -46,7 +207,7 @@ func (x *ResourcesRequest) String() string {
 func (*ResourcesRequest) ProtoMessage() {}
 
 func (x *ResourcesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[0]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59,7 +220,7 @@ func (x *ResourcesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourcesRequest.ProtoReflect.Descriptor instead.
 func (*ResourcesRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{0}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ResourcesRequest) GetCommonDir() string {
@@ -87,7 +248,7 @@ type PlanRequest struct {
 
 func (x *PlanRequest) Reset() {
 	*x = PlanRequest{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[1]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -99,7 +260,7 @@ func (x *PlanRequest) String() string {
 func (*PlanRequest) ProtoMessage() {}
 
 func (x *PlanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[1]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -112,7 +273,7 @@ func (x *PlanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanRequest.ProtoReflect.Descriptor instead.
 func (*PlanRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{1}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *PlanRequest) GetCommonDir() string {
@@ -138,7 +299,7 @@ type PlanResponse struct {
 
 func (x *PlanResponse) Reset() {
 	*x = PlanResponse{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[2]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -150,7 +311,7 @@ func (x *PlanResponse) String() string {
 func (*PlanResponse) ProtoMessage() {}
 
 func (x *PlanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[2]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -163,7 +324,7 @@ func (x *PlanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanResponse.ProtoReflect.Descriptor instead.
 func (*PlanResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{2}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *PlanResponse) GetPlan() *TeardownPlan {
@@ -189,7 +350,7 @@ type ResourceRecord struct {
 
 func (x *ResourceRecord) Reset() {
 	*x = ResourceRecord{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[3]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -201,7 +362,7 @@ func (x *ResourceRecord) String() string {
 func (*ResourceRecord) ProtoMessage() {}
 
 func (x *ResourceRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[3]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -214,7 +375,7 @@ func (x *ResourceRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceRecord.ProtoReflect.Descriptor instead.
 func (*ResourceRecord) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{3}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ResourceRecord) GetTask() string {
@@ -285,7 +446,7 @@ type ResourceLine struct {
 
 func (x *ResourceLine) Reset() {
 	*x = ResourceLine{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[4]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -297,7 +458,7 @@ func (x *ResourceLine) String() string {
 func (*ResourceLine) ProtoMessage() {}
 
 func (x *ResourceLine) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[4]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -310,7 +471,7 @@ func (x *ResourceLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceLine.ProtoReflect.Descriptor instead.
 func (*ResourceLine) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{4}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ResourceLine) GetKind() string {
@@ -389,7 +550,7 @@ type TeardownPlan struct {
 
 func (x *TeardownPlan) Reset() {
 	*x = TeardownPlan{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[5]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -401,7 +562,7 @@ func (x *TeardownPlan) String() string {
 func (*TeardownPlan) ProtoMessage() {}
 
 func (x *TeardownPlan) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[5]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -414,7 +575,7 @@ func (x *TeardownPlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeardownPlan.ProtoReflect.Descriptor instead.
 func (*TeardownPlan) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{5}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *TeardownPlan) GetSchemaVersion() string {
@@ -462,7 +623,7 @@ type ResourcesResponse struct {
 
 func (x *ResourcesResponse) Reset() {
 	*x = ResourcesResponse{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[6]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -474,7 +635,7 @@ func (x *ResourcesResponse) String() string {
 func (*ResourcesResponse) ProtoMessage() {}
 
 func (x *ResourcesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[6]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -487,7 +648,7 @@ func (x *ResourcesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourcesResponse.ProtoReflect.Descriptor instead.
 func (*ResourcesResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{6}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ResourcesResponse) GetRecords() []*ResourceRecord {
@@ -520,7 +681,7 @@ type AddResourceRequest struct {
 
 func (x *AddResourceRequest) Reset() {
 	*x = AddResourceRequest{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[7]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -532,7 +693,7 @@ func (x *AddResourceRequest) String() string {
 func (*AddResourceRequest) ProtoMessage() {}
 
 func (x *AddResourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[7]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -545,7 +706,7 @@ func (x *AddResourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddResourceRequest.ProtoReflect.Descriptor instead.
 func (*AddResourceRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{7}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *AddResourceRequest) GetCommonDir() string {
@@ -606,7 +767,7 @@ type AddResourceResponse struct {
 
 func (x *AddResourceResponse) Reset() {
 	*x = AddResourceResponse{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[8]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -618,7 +779,7 @@ func (x *AddResourceResponse) String() string {
 func (*AddResourceResponse) ProtoMessage() {}
 
 func (x *AddResourceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[8]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -631,7 +792,7 @@ func (x *AddResourceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddResourceResponse.ProtoReflect.Descriptor instead.
 func (*AddResourceResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{8}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *AddResourceResponse) GetRecord() *ResourceRecord {
@@ -657,7 +818,7 @@ type TeardownPlansRequest struct {
 
 func (x *TeardownPlansRequest) Reset() {
 	*x = TeardownPlansRequest{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[9]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -669,7 +830,7 @@ func (x *TeardownPlansRequest) String() string {
 func (*TeardownPlansRequest) ProtoMessage() {}
 
 func (x *TeardownPlansRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[9]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -682,7 +843,7 @@ func (x *TeardownPlansRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeardownPlansRequest.ProtoReflect.Descriptor instead.
 func (*TeardownPlansRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{9}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *TeardownPlansRequest) GetDir() string {
@@ -726,7 +887,7 @@ type TeardownPlansResponse struct {
 
 func (x *TeardownPlansResponse) Reset() {
 	*x = TeardownPlansResponse{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[10]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -738,7 +899,7 @@ func (x *TeardownPlansResponse) String() string {
 func (*TeardownPlansResponse) ProtoMessage() {}
 
 func (x *TeardownPlansResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[10]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -751,7 +912,7 @@ func (x *TeardownPlansResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeardownPlansResponse.ProtoReflect.Descriptor instead.
 func (*TeardownPlansResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{10}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TeardownPlansResponse) GetPlans() [][]byte {
@@ -784,7 +945,7 @@ type TeardownRequest struct {
 
 func (x *TeardownRequest) Reset() {
 	*x = TeardownRequest{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[11]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -796,7 +957,7 @@ func (x *TeardownRequest) String() string {
 func (*TeardownRequest) ProtoMessage() {}
 
 func (x *TeardownRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[11]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -809,7 +970,7 @@ func (x *TeardownRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeardownRequest.ProtoReflect.Descriptor instead.
 func (*TeardownRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{11}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *TeardownRequest) GetDir() string {
@@ -852,7 +1013,7 @@ type TeardownOutcome struct {
 
 func (x *TeardownOutcome) Reset() {
 	*x = TeardownOutcome{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[12]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -864,7 +1025,7 @@ func (x *TeardownOutcome) String() string {
 func (*TeardownOutcome) ProtoMessage() {}
 
 func (x *TeardownOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[12]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -877,7 +1038,7 @@ func (x *TeardownOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeardownOutcome.ProtoReflect.Descriptor instead.
 func (*TeardownOutcome) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{12}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *TeardownOutcome) GetKind() string {
@@ -920,7 +1081,7 @@ type TeardownReport struct {
 
 func (x *TeardownReport) Reset() {
 	*x = TeardownReport{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[13]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -932,7 +1093,7 @@ func (x *TeardownReport) String() string {
 func (*TeardownReport) ProtoMessage() {}
 
 func (x *TeardownReport) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[13]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -945,7 +1106,7 @@ func (x *TeardownReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeardownReport.ProtoReflect.Descriptor instead.
 func (*TeardownReport) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{13}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TeardownReport) GetTask() string {
@@ -978,7 +1139,7 @@ type TeardownResponse struct {
 
 func (x *TeardownResponse) Reset() {
 	*x = TeardownResponse{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[14]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -990,7 +1151,7 @@ func (x *TeardownResponse) String() string {
 func (*TeardownResponse) ProtoMessage() {}
 
 func (x *TeardownResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[14]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1003,7 +1164,7 @@ func (x *TeardownResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeardownResponse.ProtoReflect.Descriptor instead.
 func (*TeardownResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{14}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *TeardownResponse) GetReports() []*TeardownReport {
@@ -1029,7 +1190,7 @@ type RegisterResourceRequest struct {
 
 func (x *RegisterResourceRequest) Reset() {
 	*x = RegisterResourceRequest{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[15]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1041,7 +1202,7 @@ func (x *RegisterResourceRequest) String() string {
 func (*RegisterResourceRequest) ProtoMessage() {}
 
 func (x *RegisterResourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[15]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1054,7 +1215,7 @@ func (x *RegisterResourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterResourceRequest.ProtoReflect.Descriptor instead.
 func (*RegisterResourceRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{15}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RegisterResourceRequest) GetDir() string {
@@ -1101,7 +1262,7 @@ type RegisterResourceResponse struct {
 
 func (x *RegisterResourceResponse) Reset() {
 	*x = RegisterResourceResponse{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[16]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1113,7 +1274,7 @@ func (x *RegisterResourceResponse) String() string {
 func (*RegisterResourceResponse) ProtoMessage() {}
 
 func (x *RegisterResourceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[16]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1126,7 +1287,7 @@ func (x *RegisterResourceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterResourceResponse.ProtoReflect.Descriptor instead.
 func (*RegisterResourceResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{16}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RegisterResourceResponse) GetRecord() *ResourceRecord {
@@ -1146,7 +1307,7 @@ type LedgerHealthRequest struct {
 
 func (x *LedgerHealthRequest) Reset() {
 	*x = LedgerHealthRequest{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[17]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1158,7 +1319,7 @@ func (x *LedgerHealthRequest) String() string {
 func (*LedgerHealthRequest) ProtoMessage() {}
 
 func (x *LedgerHealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[17]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1171,7 +1332,7 @@ func (x *LedgerHealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LedgerHealthRequest.ProtoReflect.Descriptor instead.
 func (*LedgerHealthRequest) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{17}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *LedgerHealthRequest) GetDir() string {
@@ -1190,7 +1351,7 @@ type LedgerHealthResponse struct {
 
 func (x *LedgerHealthResponse) Reset() {
 	*x = LedgerHealthResponse{}
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[18]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1202,7 +1363,7 @@ func (x *LedgerHealthResponse) String() string {
 func (*LedgerHealthResponse) ProtoMessage() {}
 
 func (x *LedgerHealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[18]
+	mi := &file_herdsman_daemon_v1_ledger_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1215,7 +1376,7 @@ func (x *LedgerHealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LedgerHealthResponse.ProtoReflect.Descriptor instead.
 func (*LedgerHealthResponse) Descriptor() ([]byte, []int) {
-	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{18}
+	return file_herdsman_daemon_v1_ledger_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *LedgerHealthResponse) GetRunning() []*ResourceLine {
@@ -1229,7 +1390,23 @@ var File_herdsman_daemon_v1_ledger_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_ledger_proto_rawDesc = "" +
 	"\n" +
-	"\x1fherdsman/daemon/v1/ledger.proto\x12\x12herdsman.daemon.v1\"E\n" +
+	"\x1fherdsman/daemon/v1/ledger.proto\x12\x12herdsman.daemon.v1\"\xf9\x01\n" +
+	"\x12NewWorktreeRequest\x12\x10\n" +
+	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x12\n" +
+	"\x04task\x18\x02 \x01(\tR\x04task\x12\x12\n" +
+	"\x04base\x18\x03 \x01(\tR\x04base\x12\x12\n" +
+	"\x04from\x18\x04 \x01(\tR\x04from\x12\x12\n" +
+	"\x04type\x18\x05 \x01(\tR\x04type\x12\x14\n" +
+	"\x05agent\x18\x06 \x01(\tR\x05agent\x12\x16\n" +
+	"\x06prompt\x18\a \x01(\tR\x06prompt\x12\x19\n" +
+	"\bno_setup\x18\b \x01(\bR\anoSetup\x12\x18\n" +
+	"\aclobber\x18\t \x01(\bR\aclobber\x12\x1e\n" +
+	"\n" +
+	"integrator\x18\n" +
+	" \x01(\bR\n" +
+	"integrator\"-\n" +
+	"\x13NewWorktreeResponse\x12\x16\n" +
+	"\x06result\x18\x01 \x01(\fR\x06result\"E\n" +
 	"\x10ResourcesRequest\x12\x1d\n" +
 	"\n" +
 	"common_dir\x18\x01 \x01(\tR\tcommonDir\x12\x12\n" +
@@ -1314,8 +1491,9 @@ const file_herdsman_daemon_v1_ledger_proto_rawDesc = "" +
 	"\x13LedgerHealthRequest\x12\x10\n" +
 	"\x03dir\x18\x01 \x01(\tR\x03dir\"R\n" +
 	"\x14LedgerHealthResponse\x12:\n" +
-	"\arunning\x18\x01 \x03(\v2 .herdsman.daemon.v1.ResourceLineR\arunning2\xa3\x05\n" +
-	"\rLedgerService\x12X\n" +
+	"\arunning\x18\x01 \x03(\v2 .herdsman.daemon.v1.ResourceLineR\arunning2\x83\x06\n" +
+	"\rLedgerService\x12^\n" +
+	"\vNewWorktree\x12&.herdsman.daemon.v1.NewWorktreeRequest\x1a'.herdsman.daemon.v1.NewWorktreeResponse\x12X\n" +
 	"\tResources\x12$.herdsman.daemon.v1.ResourcesRequest\x1a%.herdsman.daemon.v1.ResourcesResponse\x12I\n" +
 	"\x04Plan\x12\x1f.herdsman.daemon.v1.PlanRequest\x1a .herdsman.daemon.v1.PlanResponse\x12^\n" +
 	"\vAddResource\x12&.herdsman.daemon.v1.AddResourceRequest\x1a'.herdsman.daemon.v1.AddResourceResponse\x12d\n" +
@@ -1336,54 +1514,58 @@ func file_herdsman_daemon_v1_ledger_proto_rawDescGZIP() []byte {
 	return file_herdsman_daemon_v1_ledger_proto_rawDescData
 }
 
-var file_herdsman_daemon_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_herdsman_daemon_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_herdsman_daemon_v1_ledger_proto_goTypes = []any{
-	(*ResourcesRequest)(nil),         // 0: herdsman.daemon.v1.ResourcesRequest
-	(*PlanRequest)(nil),              // 1: herdsman.daemon.v1.PlanRequest
-	(*PlanResponse)(nil),             // 2: herdsman.daemon.v1.PlanResponse
-	(*ResourceRecord)(nil),           // 3: herdsman.daemon.v1.ResourceRecord
-	(*ResourceLine)(nil),             // 4: herdsman.daemon.v1.ResourceLine
-	(*TeardownPlan)(nil),             // 5: herdsman.daemon.v1.TeardownPlan
-	(*ResourcesResponse)(nil),        // 6: herdsman.daemon.v1.ResourcesResponse
-	(*AddResourceRequest)(nil),       // 7: herdsman.daemon.v1.AddResourceRequest
-	(*AddResourceResponse)(nil),      // 8: herdsman.daemon.v1.AddResourceResponse
-	(*TeardownPlansRequest)(nil),     // 9: herdsman.daemon.v1.TeardownPlansRequest
-	(*TeardownPlansResponse)(nil),    // 10: herdsman.daemon.v1.TeardownPlansResponse
-	(*TeardownRequest)(nil),          // 11: herdsman.daemon.v1.TeardownRequest
-	(*TeardownOutcome)(nil),          // 12: herdsman.daemon.v1.TeardownOutcome
-	(*TeardownReport)(nil),           // 13: herdsman.daemon.v1.TeardownReport
-	(*TeardownResponse)(nil),         // 14: herdsman.daemon.v1.TeardownResponse
-	(*RegisterResourceRequest)(nil),  // 15: herdsman.daemon.v1.RegisterResourceRequest
-	(*RegisterResourceResponse)(nil), // 16: herdsman.daemon.v1.RegisterResourceResponse
-	(*LedgerHealthRequest)(nil),      // 17: herdsman.daemon.v1.LedgerHealthRequest
-	(*LedgerHealthResponse)(nil),     // 18: herdsman.daemon.v1.LedgerHealthResponse
+	(*NewWorktreeRequest)(nil),       // 0: herdsman.daemon.v1.NewWorktreeRequest
+	(*NewWorktreeResponse)(nil),      // 1: herdsman.daemon.v1.NewWorktreeResponse
+	(*ResourcesRequest)(nil),         // 2: herdsman.daemon.v1.ResourcesRequest
+	(*PlanRequest)(nil),              // 3: herdsman.daemon.v1.PlanRequest
+	(*PlanResponse)(nil),             // 4: herdsman.daemon.v1.PlanResponse
+	(*ResourceRecord)(nil),           // 5: herdsman.daemon.v1.ResourceRecord
+	(*ResourceLine)(nil),             // 6: herdsman.daemon.v1.ResourceLine
+	(*TeardownPlan)(nil),             // 7: herdsman.daemon.v1.TeardownPlan
+	(*ResourcesResponse)(nil),        // 8: herdsman.daemon.v1.ResourcesResponse
+	(*AddResourceRequest)(nil),       // 9: herdsman.daemon.v1.AddResourceRequest
+	(*AddResourceResponse)(nil),      // 10: herdsman.daemon.v1.AddResourceResponse
+	(*TeardownPlansRequest)(nil),     // 11: herdsman.daemon.v1.TeardownPlansRequest
+	(*TeardownPlansResponse)(nil),    // 12: herdsman.daemon.v1.TeardownPlansResponse
+	(*TeardownRequest)(nil),          // 13: herdsman.daemon.v1.TeardownRequest
+	(*TeardownOutcome)(nil),          // 14: herdsman.daemon.v1.TeardownOutcome
+	(*TeardownReport)(nil),           // 15: herdsman.daemon.v1.TeardownReport
+	(*TeardownResponse)(nil),         // 16: herdsman.daemon.v1.TeardownResponse
+	(*RegisterResourceRequest)(nil),  // 17: herdsman.daemon.v1.RegisterResourceRequest
+	(*RegisterResourceResponse)(nil), // 18: herdsman.daemon.v1.RegisterResourceResponse
+	(*LedgerHealthRequest)(nil),      // 19: herdsman.daemon.v1.LedgerHealthRequest
+	(*LedgerHealthResponse)(nil),     // 20: herdsman.daemon.v1.LedgerHealthResponse
 }
 var file_herdsman_daemon_v1_ledger_proto_depIdxs = []int32{
-	5,  // 0: herdsman.daemon.v1.PlanResponse.plan:type_name -> herdsman.daemon.v1.TeardownPlan
-	4,  // 1: herdsman.daemon.v1.TeardownPlan.lines:type_name -> herdsman.daemon.v1.ResourceLine
-	3,  // 2: herdsman.daemon.v1.ResourcesResponse.records:type_name -> herdsman.daemon.v1.ResourceRecord
-	5,  // 3: herdsman.daemon.v1.ResourcesResponse.plan:type_name -> herdsman.daemon.v1.TeardownPlan
-	3,  // 4: herdsman.daemon.v1.AddResourceResponse.record:type_name -> herdsman.daemon.v1.ResourceRecord
-	12, // 5: herdsman.daemon.v1.TeardownReport.outcomes:type_name -> herdsman.daemon.v1.TeardownOutcome
-	13, // 6: herdsman.daemon.v1.TeardownResponse.reports:type_name -> herdsman.daemon.v1.TeardownReport
-	3,  // 7: herdsman.daemon.v1.RegisterResourceResponse.record:type_name -> herdsman.daemon.v1.ResourceRecord
-	4,  // 8: herdsman.daemon.v1.LedgerHealthResponse.running:type_name -> herdsman.daemon.v1.ResourceLine
-	0,  // 9: herdsman.daemon.v1.LedgerService.Resources:input_type -> herdsman.daemon.v1.ResourcesRequest
-	1,  // 10: herdsman.daemon.v1.LedgerService.Plan:input_type -> herdsman.daemon.v1.PlanRequest
-	7,  // 11: herdsman.daemon.v1.LedgerService.AddResource:input_type -> herdsman.daemon.v1.AddResourceRequest
-	9,  // 12: herdsman.daemon.v1.LedgerService.TeardownPlans:input_type -> herdsman.daemon.v1.TeardownPlansRequest
-	11, // 13: herdsman.daemon.v1.LedgerService.Teardown:input_type -> herdsman.daemon.v1.TeardownRequest
-	15, // 14: herdsman.daemon.v1.LedgerService.RegisterResource:input_type -> herdsman.daemon.v1.RegisterResourceRequest
-	17, // 15: herdsman.daemon.v1.LedgerService.LedgerHealth:input_type -> herdsman.daemon.v1.LedgerHealthRequest
-	6,  // 16: herdsman.daemon.v1.LedgerService.Resources:output_type -> herdsman.daemon.v1.ResourcesResponse
-	2,  // 17: herdsman.daemon.v1.LedgerService.Plan:output_type -> herdsman.daemon.v1.PlanResponse
-	8,  // 18: herdsman.daemon.v1.LedgerService.AddResource:output_type -> herdsman.daemon.v1.AddResourceResponse
-	10, // 19: herdsman.daemon.v1.LedgerService.TeardownPlans:output_type -> herdsman.daemon.v1.TeardownPlansResponse
-	14, // 20: herdsman.daemon.v1.LedgerService.Teardown:output_type -> herdsman.daemon.v1.TeardownResponse
-	16, // 21: herdsman.daemon.v1.LedgerService.RegisterResource:output_type -> herdsman.daemon.v1.RegisterResourceResponse
-	18, // 22: herdsman.daemon.v1.LedgerService.LedgerHealth:output_type -> herdsman.daemon.v1.LedgerHealthResponse
-	16, // [16:23] is the sub-list for method output_type
-	9,  // [9:16] is the sub-list for method input_type
+	7,  // 0: herdsman.daemon.v1.PlanResponse.plan:type_name -> herdsman.daemon.v1.TeardownPlan
+	6,  // 1: herdsman.daemon.v1.TeardownPlan.lines:type_name -> herdsman.daemon.v1.ResourceLine
+	5,  // 2: herdsman.daemon.v1.ResourcesResponse.records:type_name -> herdsman.daemon.v1.ResourceRecord
+	7,  // 3: herdsman.daemon.v1.ResourcesResponse.plan:type_name -> herdsman.daemon.v1.TeardownPlan
+	5,  // 4: herdsman.daemon.v1.AddResourceResponse.record:type_name -> herdsman.daemon.v1.ResourceRecord
+	14, // 5: herdsman.daemon.v1.TeardownReport.outcomes:type_name -> herdsman.daemon.v1.TeardownOutcome
+	15, // 6: herdsman.daemon.v1.TeardownResponse.reports:type_name -> herdsman.daemon.v1.TeardownReport
+	5,  // 7: herdsman.daemon.v1.RegisterResourceResponse.record:type_name -> herdsman.daemon.v1.ResourceRecord
+	6,  // 8: herdsman.daemon.v1.LedgerHealthResponse.running:type_name -> herdsman.daemon.v1.ResourceLine
+	0,  // 9: herdsman.daemon.v1.LedgerService.NewWorktree:input_type -> herdsman.daemon.v1.NewWorktreeRequest
+	2,  // 10: herdsman.daemon.v1.LedgerService.Resources:input_type -> herdsman.daemon.v1.ResourcesRequest
+	3,  // 11: herdsman.daemon.v1.LedgerService.Plan:input_type -> herdsman.daemon.v1.PlanRequest
+	9,  // 12: herdsman.daemon.v1.LedgerService.AddResource:input_type -> herdsman.daemon.v1.AddResourceRequest
+	11, // 13: herdsman.daemon.v1.LedgerService.TeardownPlans:input_type -> herdsman.daemon.v1.TeardownPlansRequest
+	13, // 14: herdsman.daemon.v1.LedgerService.Teardown:input_type -> herdsman.daemon.v1.TeardownRequest
+	17, // 15: herdsman.daemon.v1.LedgerService.RegisterResource:input_type -> herdsman.daemon.v1.RegisterResourceRequest
+	19, // 16: herdsman.daemon.v1.LedgerService.LedgerHealth:input_type -> herdsman.daemon.v1.LedgerHealthRequest
+	1,  // 17: herdsman.daemon.v1.LedgerService.NewWorktree:output_type -> herdsman.daemon.v1.NewWorktreeResponse
+	8,  // 18: herdsman.daemon.v1.LedgerService.Resources:output_type -> herdsman.daemon.v1.ResourcesResponse
+	4,  // 19: herdsman.daemon.v1.LedgerService.Plan:output_type -> herdsman.daemon.v1.PlanResponse
+	10, // 20: herdsman.daemon.v1.LedgerService.AddResource:output_type -> herdsman.daemon.v1.AddResourceResponse
+	12, // 21: herdsman.daemon.v1.LedgerService.TeardownPlans:output_type -> herdsman.daemon.v1.TeardownPlansResponse
+	16, // 22: herdsman.daemon.v1.LedgerService.Teardown:output_type -> herdsman.daemon.v1.TeardownResponse
+	18, // 23: herdsman.daemon.v1.LedgerService.RegisterResource:output_type -> herdsman.daemon.v1.RegisterResourceResponse
+	20, // 24: herdsman.daemon.v1.LedgerService.LedgerHealth:output_type -> herdsman.daemon.v1.LedgerHealthResponse
+	17, // [17:25] is the sub-list for method output_type
+	9,  // [9:17] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name
@@ -1400,7 +1582,7 @@ func file_herdsman_daemon_v1_ledger_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herdsman_daemon_v1_ledger_proto_rawDesc), len(file_herdsman_daemon_v1_ledger_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

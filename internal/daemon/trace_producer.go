@@ -11,6 +11,7 @@ import (
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
+	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/trace"
 )
 
@@ -82,7 +83,9 @@ func (d *Daemon) observeTurns(ctx context.Context) {
 	}
 	services := &routeService{d: d}
 	for _, op := range all {
-		if op.Kind != route.OperationKind || startOf(op).GetState() != "done" {
+		// TUI turn status is not part of core's protocol. Core launches,
+		// notices and submissions have their own trace producers.
+		if op.Kind != route.OperationKind || route.BackendOf(op) == runtime.BackendCore || startOf(op).GetState() != "done" {
 			continue
 		}
 		name, repo := startOf(op).GetRoute().GetValue(), route.RepoOf(op)

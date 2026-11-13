@@ -110,7 +110,7 @@ func CheckHarnessArgs(p policy.Policy, args []string) error {
 
 func sandboxKey(setting string) bool {
 	key, _, _ := strings.Cut(setting, "=")
-	key = strings.TrimSpace(key)
+	key = normalizedConfigKey(key)
 	return strings.HasPrefix(key, "sandbox") || strings.HasPrefix(key, "permissions") ||
 		key == "default_permissions" || key == "cd" || key == "cwd"
 }
