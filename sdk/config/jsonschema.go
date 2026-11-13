@@ -29,7 +29,7 @@ func messageSchema(md protoreflect.MessageDescriptor, strict bool, depth int) ma
 	for i := range fields.Len() {
 		fd := fields.Get(i)
 		name := string(fd.Name())
-		schema := fieldSchema(fd, strict || depth == 0 && strictSections[name], depth)
+		schema := fieldSchema(fd, strict || isSafetySection(fd), depth)
 		if schema == nil {
 			continue
 		}

@@ -32,17 +32,17 @@ var (
 // cgoprobe tag sets it (cgoprobe.go).
 var cgoProbe func(stdout io.Writer) error
 
-// The worktree verbs run their service in this process until the generated
-// client exists.
+// Git-only worktree verbs run locally; agent launches reach the daemon's
+// runtime-aware service through the generated client.
 func init() {
 	worktreeCall = daemon.WorktreeCall
+	localTask = daemon.LocalTaskService()
 	importCall = daemon.ImportAccount
 }
 
-// The suggest verbs have no client yet either. A recipe runs through its own
-// function because the service must never be able to run one.
+// A recipe runs through its own function because the service must never be
+// able to run one; the catalog verbs go through the SDK.
 func init() {
-	suggestCall = daemon.SuggestCall
 	suggestIsTerminal = daemon.IsTerminal
 	suggestRun = func(ctx context.Context, dir, id string, in io.Reader, out, errOut io.Writer, isTerminal bool) error {
 		return daemon.SuggestRun(ctx, dir, id, suggest.Terminal{In: in, Out: out, Err: errOut, IsTerminal: isTerminal})

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/arafathusayn/herdsman/internal/status"
 	"github.com/arafathusayn/herdsman/sdk/client"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
@@ -36,6 +37,7 @@ of the current folder. --teardown also stops the route's task processes.
 type controlFlags struct {
 	yes, dryRun, force, keepFolder, keepWorktrees, teardown bool
 	note                                                    string
+	confirmed                                               string
 	grace                                                   int
 }
 
@@ -202,6 +204,22 @@ func runControl(v controlVerb, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
+	if v.name == "resume" && res.GetState() == "stopped" && strings.Contains(res.GetReason(), "confirm the execution identities") {
+		got, err := sdk.Route.Get(ctx, &daemonv1.RouteServiceGetRequest{Route: id, Repo: repo})
+		if err != nil {
+			return fail(err)
+		}
+		start := got.GetStart()
+		if ok, err := upConfirmTTY(start); err != nil {
+			return fail(err)
+		} else if ok {
+			f.confirmed = start.GetPair().GetChecksum()
+			res, err = v.call(ctx, sdk, id, repo, false, f)
+			if err != nil {
+				return fail(err)
+			}
+		}
+	}
 	switch res.GetState() {
 	case "done":
 		fmt.Fprintf(stdout, "route %s is %s\n", id.GetValue(), res.GetControl())
@@ -235,11 +253,22 @@ func routeStatusText(w io.Writer, s *daemonv1.RouteStart) {
 }
 
 func routeStatusJSON(w io.Writer, s *daemonv1.RouteStart) error {
+	return routeStatusJSONWith(w, s, nil)
+}
+
+// routeStatusJSONWith adds the route's executions, each field of the runtime
+// contract as RuntimeService reports it; nil leaves them out.
+func routeStatusJSONWith(w io.Writer, s *daemonv1.RouteStart, execs []status.Agent) error {
 	pending := s.GetPair().GetChecksum() != "" && !s.GetPair().GetApproved()
-	return json.NewEncoder(w).Encode(map[string]any{
+	doc := map[string]any{
 		"route": s.GetRoute().GetValue(), "control": s.GetControl(), "state": s.GetState(), "reason": s.GetReason(), "folder": s.GetFolder(),
 		"pair": map[string]any{"checksum": s.GetPair().GetChecksum(), "approved": s.GetPair().GetApproved(), "pending": pending},
-	})
+	}
+	if execs != nil {
+		doc["backend"] = s.GetBackend()
+		doc["executions"] = execs
+	}
+	return json.NewEncoder(w).Encode(doc)
 }
 
 func runRouteStatus(arg string, asJSON bool, stdout, stderr io.Writer) int {
@@ -261,12 +290,29 @@ func runRouteStatus(arg string, asJSON bool, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
+	// The runtime part: an older daemon without RuntimeService leaves it out.
+	execs, rerr := routeExecutions(ctx, sdk, id, repo)
+	agents := []status.Agent{}
+	for _, e := range execs {
+		agents = append(agents, statusAgent(e))
+	}
 	if asJSON {
-		if err := routeStatusJSON(stdout, res.GetStart()); err != nil {
+		if rerr != nil {
+			agents = nil
+		}
+		if err := routeStatusJSONWith(stdout, res.GetStart(), agents); err != nil {
 			return fail(err)
 		}
 		return 0
 	}
 	routeStatusText(stdout, res.GetStart())
+	if rerr != nil {
+		fmt.Fprintf(stdout, "executions: unavailable (%v)\n", rerr)
+		return 0
+	}
+	if b := res.GetStart().GetBackend(); b != "" {
+		fmt.Fprintf(stdout, "backend: %s\n", b)
+	}
+	status.WriteRuntime(stdout, agents)
 	return 0
 }

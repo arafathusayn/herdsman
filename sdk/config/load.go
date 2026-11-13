@@ -4,19 +4,21 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
 	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	"github.com/arafathusayn/herdsman/sdk/internal/encoding/toml"
 	"github.com/arafathusayn/herdsman/sdk/internal/encoding/tree"
-	"google.golang.org/protobuf/proto"
+	"github.com/arafathusayn/herdsman/sdk/internal/encoding/yaml"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -92,6 +94,17 @@ func Load(opts Options) (*Result, error) {
 	merge(merged, messageTree(Defaults().ProtoReflect()), "", SourceDefault, sources)
 	result := &Result{Sources: sources}
 
+	projectPath, err := findProjectFile(opts, environ)
+	if err != nil {
+		return nil, err
+	}
+	if projectPath == "" {
+		implied, _, err := detected(opts.RepoRoot)
+		if err != nil {
+			return nil, err
+		}
+		merge(merged, messageTree(implied.ProtoReflect()), "", SourceDefault, sources)
+	}
 	userPath, err := findUserFile(opts, environ)
 	if err != nil {
 		return nil, err
@@ -103,10 +116,6 @@ func Load(opts Options) (*Result, error) {
 		}
 		result.UserPath = userPath
 		applyUserLayer(merged, layer, opts.ProjectKey, sources)
-	}
-	projectPath, err := findProjectFile(opts, environ)
-	if err != nil {
-		return nil, err
 	}
 	if projectPath != "" {
 		layer, err := readLayer(projectPath, rep)
@@ -121,6 +130,11 @@ func Load(opts Options) (*Result, error) {
 	}
 	if err := applyFlags(merged, opts.Flags, md, sources); err != nil {
 		return nil, err
+	}
+	if node, ok := merged.Lookup("schema", "version"); ok {
+		if err := checkSchemaVersion(node); err != nil {
+			return nil, err
+		}
 	}
 	msg := &configv1.Config{}
 	if err := bindMessage(merged, msg.ProtoReflect(), ""); err != nil {
@@ -156,6 +170,9 @@ func ReadFile(path string) (*Result, error) {
 	if err := bindMessage(layer, msg.ProtoReflect(), ""); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if rep.wire != nil {
+		carryUnknown(rep.wire.ProtoReflect(), msg.ProtoReflect())
+	}
 	sources := map[string]string{}
 	recordSources(layer, "", SourceProject, sources)
 	return &Result{Config: msg, tree: layer, Sources: sources, Warnings: rep.warnings, ProjectPath: path}, nil
@@ -189,7 +206,7 @@ func decodeLayer(format string, data []byte, rep *report) (*tree.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	layer, err := normalize(root, configDescriptor(), "", rep)
+	layer, err := normalize(root, configDescriptor(), "", false, rep)
 	if err != nil {
 		return nil, err
 	}
@@ -220,24 +237,31 @@ func checkLayer(layer *tree.Node) error {
 	return nil
 }
 
+// parseVersion reads a SemVer core; ok is false for anything else.
+func parseVersion(text string) (numbers [3]int, ok bool) {
+	parts := strings.Split(text, ".")
+	if len(parts) != 3 {
+		return numbers, false
+	}
+	for i, part := range parts {
+		number, err := strconv.Atoi(part)
+		if err != nil || number < 0 {
+			return numbers, false
+		}
+		numbers[i] = number
+	}
+	return numbers, true
+}
+
 func checkSchemaVersion(node *tree.Node) error {
 	if node.Kind != tree.String {
 		return fmt.Errorf("schema.version: expected a string, found %s", node.Kind)
 	}
-	parts := strings.Split(node.Str, ".")
-	if len(parts) != 3 {
+	numbers, ok := parseVersion(node.Str)
+	if !ok {
 		return fmt.Errorf("schema.version: %q is not SemVer", node.Str)
 	}
-	numbers := [3]int{}
-	for i, part := range parts {
-		number, err := strconv.Atoi(part)
-		if err != nil || number < 0 {
-			return fmt.Errorf("schema.version: %q is not SemVer", node.Str)
-		}
-		numbers[i] = number
-	}
-	known, _, _ := strings.Cut(SchemaVersion, ".")
-	if major, _ := strconv.Atoi(known); numbers[0] > major {
+	if known, _ := parseVersion(SchemaVersion); numbers[0] > known[0] {
 		return fmt.Errorf("schema.version: the file needs %s, this binary knows %s; upgrade herdsman", node.Str, SchemaVersion)
 	}
 	return nil
@@ -284,6 +308,27 @@ func findUserFile(opts Options, environ []string) (string, error) {
 		return "", nil
 	}
 	return findOne(dir, "config", userFormats)
+}
+
+// FileIn returns the project file directly in dir, or "" when there is none.
+func FileIn(dir string) (string, error) { return findOne(dir, "herdsman.config", projectFormats) }
+
+// UserFile returns the user file's path and whether it exists yet. A new file
+// would be TOML.
+func UserFile(opts Options) (string, bool, error) {
+	environ := opts.Environ
+	if environ == nil {
+		environ = os.Environ()
+	}
+	dir := userDir(opts, environ)
+	if dir == "" {
+		return "", false, errors.New("no user configuration folder: HOME is unset")
+	}
+	found, err := findOne(dir, "config", userFormats)
+	if err != nil || found != "" {
+		return found, found != "", err
+	}
+	return filepath.Join(dir, "config.toml"), false, nil
 }
 
 // ProjectFile returns the project file discovery chooses, or "" when there
@@ -354,10 +399,10 @@ func applyEnvironment(merged *tree.Node, environ []string, md protoreflect.Messa
 		if !ok || !prefixed || !strings.Contains(rest, "__") {
 			continue
 		}
-		key := strings.ToLower(strings.ReplaceAll(rest, "__", "."))
-		resolved, err := resolveKey(key, md)
+		parts := strings.Split(rest, "__")
+		resolved, err := resolveParts(rest, parts, md, envFieldName)
 		if err != nil {
-			if rep.strict {
+			if rep.strict || inSafetySection(parts, md, envFieldName) {
 				return fmt.Errorf("%s: %w", name, err)
 			}
 			rep.warnings = append(rep.warnings, Warning{Key: name})
@@ -398,7 +443,7 @@ func applyText(merged *tree.Node, resolved *resolved, value, source string, sour
 
 // writeAtomic replaces a file so that a reader never sees half of it.
 func writeAtomic(path string, data []byte) error {
-	temp, err := os.CreateTemp(filepath.Dir(path), ".herdsman-config-*")
+	temp, err := createTemp(filepath.Dir(path), ".herdsman-config-*")
 	if err != nil {
 		return err
 	}
@@ -475,22 +520,19 @@ func encodeFile(format string, root *tree.Node, original []byte) ([]byte, error)
 		return encodeText(format, root)
 	}
 	msg := &configv1.Config{}
-	layer, err := normalize(root, configDescriptor(), "", &report{})
+	layer, err := normalize(root, configDescriptor(), "", false, &report{})
 	if err != nil {
-		return nil, err
-	}
-	if err := refuseEmptyLists(layer, configDescriptor(), ""); err != nil {
 		return nil, err
 	}
 	if err := bindMessage(layer, msg.ProtoReflect(), ""); err != nil {
 		return nil, err
 	}
-	prior := &configv1.Config{}
-	if err := proto.Unmarshal(original, prior); err != nil {
+	prior, _, err := unmarshalBin(original)
+	if err != nil {
 		return nil, err
 	}
 	carryUnknown(prior.ProtoReflect(), msg.ProtoReflect())
-	return encodeBin(msg)
+	return encodeBinLists(msg, emptyLists(layer, configDescriptor(), nil))
 }
 
 func decodeRaw(format string, data []byte) (*tree.Node, error) {
@@ -516,37 +558,92 @@ func readForEdit(path string) (string, []byte, *tree.Node, error) {
 	return format, data, root, nil
 }
 
-// SetFile writes one value into a file, keeping a TOML file's comments. The
-// file is not touched unless the result is valid.
+// SetFile writes one value into a file, keeping the comments of a format that
+// has them. The file is not touched unless the result is valid.
 func SetFile(path, key, value string) error {
+	_, err := EditFile(path, key, value, false)
+	return err
+}
+
+// Edit says what a change to a file did. Old is meaningful when HadOld is true.
+type Edit struct {
+	Path, Key, Old, New string
+	HadOld              bool
+}
+
+// EditFile sets a key and reports the old and new value. With appendItem the
+// value is added, as one item, to the end of a list held in the file.
+func EditFile(path, key, value string, appendItem bool) (Edit, error) {
 	resolved, err := resolveKey(key, configDescriptor())
 	if err != nil {
-		return err
+		return Edit{}, err
 	}
-	node, err := textNode(resolved, value)
-	if err != nil {
-		return err
+	var node *tree.Node
+	if !appendItem {
+		if node, err = textNode(resolved, value); err != nil {
+			return Edit{}, err
+		}
+	} else if !resolved.field.IsList() || resolved.field.Kind() != protoreflect.StringKind || resolved.hookEntry || resolved.mapEntry {
+		return Edit{}, fmt.Errorf("%s: not a list of strings, so nothing can be appended", key)
 	}
 	format, data, root, err := readForEdit(path)
 	if err != nil {
-		return err
+		return Edit{}, err
 	}
 	written := writtenPath(root, resolved.segments, configDescriptor())
+	edit := Edit{Path: path, Key: strings.Join(resolved.segments, ".")}
+	current, had := root.Lookup(written...)
+	if had {
+		edit.HadOld, edit.Old = true, renderNode(current)
+	}
+	if appendItem {
+		node = tree.NewArray()
+		if had {
+			if current.Kind != tree.Array {
+				return Edit{}, fmt.Errorf("%s: not a list of strings, so nothing can be appended", key)
+			}
+			node.Items = append(node.Items, current.Items...)
+		}
+		node.Items = append(node.Items, tree.NewString(value))
+	}
+	edit.New = renderNode(node)
+	if err := writeSet(path, format, data, root, written, node); err != nil {
+		return Edit{}, err
+	}
+	return edit, nil
+}
+
+// writeSet stores node at written, in the file's own format.
+func writeSet(path, format string, data []byte, root *tree.Node, written []string, node *tree.Node) error {
+	var err error
+	whole := func() ([]byte, error) {
+		if err := setPath(root, written, node); err != nil {
+			return nil, err
+		}
+		return encodeFile(format, root, data)
+	}
 	var out []byte
-	if format == FormatTOML {
+	switch format {
+	case FormatTOML:
 		doc, err := toml.Parse(data)
 		if err != nil {
 			return err
+		}
+		if current, ok := root.Lookup(written...); ok && current.Kind == tree.Table {
+			if _, err := doc.UnsetTable(written); err != nil {
+				return err
+			}
 		}
 		if err := doc.Set(written, node); err != nil {
 			return err
 		}
 		out = doc.Encode()
-	} else {
-		if err := setPath(root, written, node); err != nil {
+	case FormatYAML:
+		if out, err = editYAML(data, func(doc *yaml.Document) error { return doc.Set(written, node) }, whole); err != nil {
 			return err
 		}
-		if out, err = encodeFile(format, root, data); err != nil {
+	default:
+		if out, err = whole(); err != nil {
 			return err
 		}
 	}
@@ -554,6 +651,26 @@ func SetFile(path, key, value string) error {
 		return err
 	}
 	return writeAtomic(path, out)
+}
+
+// editYAML applies an edit that keeps the file's comments. A file with no
+// block mapping at its top is rewritten whole, unless that would drop a
+// comment.
+func editYAML(data []byte, edit func(*yaml.Document) error, whole func() ([]byte, error)) ([]byte, error) {
+	doc, err := yaml.Parse(data)
+	if errors.Is(err, yaml.ErrNotEditable) {
+		if bytes.Contains(data, []byte("#")) {
+			return nil, errors.New("this YAML file's layout cannot be edited without losing a comment; write the top level as a block mapping")
+		}
+		return whole()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := edit(doc); err != nil {
+		return nil, err
+	}
+	return doc.Encode(), nil
 }
 
 // UnsetFile removes one key from a file and reports whether it was there.
@@ -570,25 +687,47 @@ func UnsetFile(path, key string) (bool, error) {
 	if _, ok := root.Lookup(written...); !ok {
 		return false, nil
 	}
+	whole := func() ([]byte, error) {
+		parent, _ := root.Lookup(written[:len(written)-1]...)
+		parent.Delete(written[len(written)-1])
+		return encodeFile(format, root, data)
+	}
 	var out []byte
-	if format == FormatTOML {
+	switch format {
+	case FormatTOML:
 		doc, err := toml.Parse(data)
 		if err != nil {
 			return false, err
 		}
-		if _, err := doc.Unset(written); err != nil {
+		if current, _ := root.Lookup(written...); current.Kind == tree.Table {
+			_, err = doc.UnsetTable(written)
+		} else {
+			_, err = doc.Unset(written)
+		}
+		if err != nil {
 			return false, err
 		}
 		out = doc.Encode()
-	} else {
-		parent, _ := root.Lookup(written[:len(written)-1]...)
-		parent.Delete(written[len(written)-1])
-		if out, err = encodeFile(format, root, data); err != nil {
+	case FormatYAML:
+		if out, err = editYAML(data, func(doc *yaml.Document) error {
+			_, err := doc.Unset(written)
+			return err
+		}, whole); err != nil {
+			return false, err
+		}
+	default:
+		if out, err = whole(); err != nil {
 			return false, err
 		}
 	}
 	if err := checkEdit(format, out); err != nil {
 		return false, err
+	}
+	// Report a removal only once the bytes about to be written show one.
+	if back, err := decodeRaw(format, out); err == nil {
+		if _, there := back.Lookup(written...); there {
+			return false, fmt.Errorf("%s: the key could not be removed from this file", key)
+		}
 	}
 	return true, writeAtomic(path, out)
 }
@@ -637,19 +776,53 @@ func encodeMessage(msg *configv1.Config, format string) ([]byte, error) {
 	}
 }
 
-// UpdateFile rewrites a file's keys to their canonical spelling, keeping a
-// TOML file's comments and any key it does not recognize.
+// schemaOutdated reports a supported version below the one this build writes.
+func schemaOutdated(root *tree.Node) bool {
+	node, ok := root.Lookup("schema", "version")
+	if !ok || node.Kind != tree.String {
+		return false
+	}
+	found, valid := parseVersion(node.Str)
+	known, _ := parseVersion(SchemaVersion)
+	return valid && slices.Compare(found[:], known[:]) < 0
+}
+
+// UpdateFile rewrites a file to the current contract: canonical key spellings
+// and the schema version this build writes. Comments survive in the formats
+// that have them, and a key it does not recognize stays. Two spellings of one
+// key are refused, since keeping either would lose the other.
 func UpdateFile(path string) error {
 	format, data, root, err := readForEdit(path)
 	if err != nil {
 		return err
 	}
+	if _, err := normalize(root, configDescriptor(), "", false, &report{}); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
 	pending := renames(root, configDescriptor(), nil, nil)
-	if len(pending) == 0 {
+	schemaPath := []string{"schema", "version"}
+	outdated := schemaOutdated(root)
+	if len(pending) == 0 && !outdated {
 		return nil
 	}
+	whole := func() ([]byte, error) {
+		for _, item := range pending {
+			parent, _ := root.Lookup(item.from[:len(item.from)-1]...)
+			parent.Delete(item.from[len(item.from)-1])
+			if err := setPath(root, item.to, item.value); err != nil {
+				return nil, err
+			}
+		}
+		if outdated {
+			if err := setPath(root, schemaPath, tree.NewString(SchemaVersion)); err != nil {
+				return nil, err
+			}
+		}
+		return encodeFile(format, root, data)
+	}
 	var out []byte
-	if format == FormatTOML {
+	switch format {
+	case FormatTOML:
 		doc, err := toml.Parse(data)
 		if err != nil {
 			return err
@@ -664,6 +837,13 @@ func UpdateFile(path string) error {
 					continue
 				}
 			}
+			moved, err := doc.RenameKey(item.from, item.to)
+			if err != nil {
+				return err
+			}
+			if moved {
+				continue
+			}
 			if _, err := doc.Unset(item.from); err != nil {
 				return err
 			}
@@ -671,16 +851,29 @@ func UpdateFile(path string) error {
 				return err
 			}
 		}
-		out = doc.Encode()
-	} else {
-		for _, item := range pending {
-			parent, _ := root.Lookup(item.from[:len(item.from)-1]...)
-			parent.Delete(item.from[len(item.from)-1])
-			if err := setPath(root, item.to, item.value); err != nil {
+		if outdated {
+			if err := doc.Set(schemaPath, tree.NewString(SchemaVersion)); err != nil {
 				return err
 			}
 		}
-		if out, err = encodeFile(format, root, data); err != nil {
+		out = doc.Encode()
+	case FormatYAML:
+		edit := func(doc *yaml.Document) error {
+			for _, item := range pending {
+				if err := doc.Rename(item.from, item.to[len(item.to)-1]); err != nil {
+					return err
+				}
+			}
+			if outdated {
+				return doc.Set(schemaPath, tree.NewString(SchemaVersion))
+			}
+			return nil
+		}
+		if out, err = editYAML(data, edit, whole); err != nil {
+			return err
+		}
+	default:
+		if out, err = whole(); err != nil {
 			return err
 		}
 	}
@@ -690,13 +883,14 @@ func UpdateFile(path string) error {
 	return writeAtomic(path, out)
 }
 
-// InitFile writes the defaults to a new file. It never replaces one.
+// InitFile writes the defaults and the execution backend (NewFile) to a new
+// file. It never replaces one.
 func InitFile(path, format string) error {
-	data, err := encodeMessage(Defaults(), format)
+	data, err := encodeMessage(NewFile(), format)
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	file, err := openNew(path)
 	if err != nil {
 		return err
 	}

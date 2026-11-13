@@ -79,6 +79,8 @@ type Case struct {
 	Before   func(Sample) error
 	After    func(Sample) error
 	Cleanup  func(Sample) error
+	// Daemon says the case's verbs reach a daemon, so one runs for the case.
+	Daemon bool
 }
 
 // Bench holds what the cases share.
@@ -87,6 +89,7 @@ type Bench struct {
 	Tools        Tools
 	run          func(Step) (string, error)
 	ComposeReady bool
+	daemon       func() (func() error, error)
 }
 
 func (b *Bench) resetCaches(repo string, s Sample) error {
@@ -198,6 +201,7 @@ func (b *Bench) ledgerCase() Case {
 	repo := b.Fixtures.Repo20
 	return Case{
 		ID: CaseLedgerScan, Kind: KindBudget, BudgetMS: ledgerBudgetMS,
+		Daemon: true,
 		Before: func(Sample) error { return b.ensureTask(repo) },
 		Steps: func(Sample) []Step {
 			// With nothing to stop the verb scans the machine, prints the plan and
@@ -277,6 +281,7 @@ func (b *Bench) teardownWith(id string, extra func(s Sample, path, execution str
 	servers := map[string]server{}
 	return Case{
 		ID: id, Kind: KindBudget, BudgetMS: teardownBudgetMS,
+		Daemon: true,
 		Before: func(s Sample) error {
 			if err := b.ensureTask(repo); err != nil {
 				return err

@@ -120,7 +120,7 @@ func TestSendAdmissionRefusals(t *testing.T) {
 	valid := func() SendRequest { return SendRequest{To: orch.name, Kind: "brief", Body: "b", Key: key()} }
 	admit := func(from string, q SendRequest) *APIError {
 		return rt.do(ctx, func() *APIError {
-			_, _, _, e := rt.admitSend(from, q)
+			_, _, _, e := rt.admitSend(from, q, false)
 			return e
 		})
 	}

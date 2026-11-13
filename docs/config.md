@@ -199,12 +199,12 @@ Automations run an action when the daemon sees an event. The surface is experime
 
 ### [automations.on.<key>]
 
-Actions keyed by event kind, such as "merge.landed".
+Actions keyed by event kind, such as "merge.landed", or a runtime event as "runtime." and its kind, such as "runtime.needs_attention". Runtime events are delivered at most once: a restart loses those not yet fired.
 
 | Key | Type | Description |
 | --- | --- | --- |
 | `run` | string | A shell template. Event values reach the shell as variables, never as text. |
-| `builtin` | string | A built-in action, such as "route pause". |
+| `builtin` | string | A built-in action, such as "route pause". On a herdr-core route it pauses through the route's pause verb and types nothing in a pane. |
 | `plugin` | string | A plugin's action, written "<plugin> <action>". |
 | `timeout` | string | How long the action may run, such as "90s". |
 
@@ -216,3 +216,43 @@ Retention bounds the snapshots that undo can restore. The daemon reads it from t
 | --- | --- | --- |
 | `undo` | string | How long a snapshot is kept: a Go duration or a count of days, as "720h" or "30d". The default is 30 days. |
 | `cap` | string | The most all snapshots may hold: bytes, or a count with KiB, MiB, GiB or TiB, as "20GiB". The default is 20 GiB. A full cap refuses a new snapshot. |
+
+## [runtime]
+
+Runtime chooses where agents run. The section is strict: an unknown key stops the command, so a misspelled backend never falls through to a default.
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `backend` | string | "herdr-core" or "herdr-tui". Unset means the installation default, which `herdsman runtime default` prints: herdr-core for a new installation. Existing installations and routes retain their recorded backend. |
+
+### [runtime.core]
+
+RuntimeCore says how to reach herdr-core. A new route resolves its endpoint once, from socket, else session, else hc's default session, and keeps it: a config that later names another endpoint for that route is refused with backend_migration_required. HC_SOCKET, HC_SESSION and HC_TERMINAL_ID in the daemon's environment never choose the endpoint. A value that cannot be used stops every run with invalid_runtime_config.
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `binary` | string | The hc program Herdsman runs, such as in `herdsman doctor`; a bare name is looked up on PATH. The default is "hc". The daemon itself reaches core over its socket. |
+| `socket` | string | An absolute socket path. Unset resolves the session under hc's path rules (XDG_RUNTIME_DIR, else the state directory). |
+| `session` | string | The core session, one path segment. The default is "default". A socket and a session that name different endpoints stop the run with both named. |
+| `connect_timeout` | string | How long a connection to core may take to answer, such as "5s". The default is 5 seconds. |
+| `ready_timeout` | string | How long an agent may take to become ready after it registers, such as "90s". The default is 90 seconds. |
+| `experimental` | boolean | Compatibility key accepted from earlier experimental configurations. It has no effect: herdr-core is the default for new installations. |
+
+### [runtime.app]
+
+RuntimeApp says which native herdr app shows a route's agents. The app's binding to core is verified per app home, so a changed home is verified again before a new agent is dispatched.
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `binary` | string | The app program; a bare name is looked up on PATH. The default is "herdr-app". |
+| `home` | string | An absolute app home; unset means the user's main app. |
+| `visibility_timeout` | string | How long to wait for an agent to appear in the app, such as "15s". The default is 15 seconds. |
+
+### [runtime.tui_view]
+
+RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the execution backend or the required native-app visibility. Reports are expiring display metadata; the TUI owns no harness identity or readiness.
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `enabled` | boolean | Mirror core agents in dedicated TUI workspaces. Off unless set. Enabling requires an explicit absolute socket path. |
+| `socket` | string | The TUI's absolute socket path. No ambient pane or session is used. |

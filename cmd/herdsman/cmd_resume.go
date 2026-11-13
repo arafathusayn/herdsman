@@ -31,6 +31,8 @@ var resumeVerb = controlVerb{name: "resume", usage: resumeUsage,
 		fs.StringVar(&f.note, "p", "", "a note for every continue prompt")
 	},
 	call: func(ctx context.Context, sdk *client.Client, id *corev1.RouteId, repo string, dry bool, f controlFlags) (*daemonv1.RouteControl, error) {
-		res, err := sdk.Route.Resume(ctx, &daemonv1.RouteServiceResumeRequest{Route: id, Repo: repo, DryRun: dry, Note: f.note, Caller: upCaller()})
+		caller := upCaller()
+		caller.ConfirmedChecksum = f.confirmed
+		res, err := sdk.Route.Resume(ctx, &daemonv1.RouteServiceResumeRequest{Route: id, Repo: repo, DryRun: dry, Note: f.note, Caller: caller})
 		return res.GetResult(), err
 	}}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"net/http/httptest"
 	"os"
@@ -20,6 +19,7 @@ import (
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func newSuggestService(t *testing.T) *SuggestService {
@@ -67,11 +67,8 @@ func TestSearchCarriesReasonsAndIsRepeatable(t *testing.T) {
 	if !slices.Contains(codes, suggest.ReasonHarness) {
 		t.Fatalf("reasons = %v, want the harness reason", codes)
 	}
-	data, err := s.Call(ctx, "Search", []byte(`{"text":"for-claude"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), `"reasons"`) {
+	data := mustJSON(t, first.Items)
+	if !strings.Contains(data, `"reasons"`) {
 		t.Fatalf("response has no reasons: %s", data)
 	}
 	again, err := s.Search(ctx, SuggestSearchRequest{Dir: first.Dir, Text: "for-claude"})
@@ -246,10 +243,10 @@ func TestPlanShowsTheRecipeAndItsApproval(t *testing.T) {
 
 // An agent reaches the service; only a person at a terminal may install.
 func TestTheServiceCannotRunARecipe(t *testing.T) {
-	s := newSuggestService(t)
-	for _, method := range []string{"Run", "Apply", "Approve"} {
-		if _, err := s.Call(context.Background(), method, []byte(`{"id":"x"}`)); err == nil {
-			t.Errorf("method %s must not exist", method)
+	service := suggestv1.File_herdsman_suggest_v1_suggest_proto.Services().ByName("SuggestService")
+	for _, method := range []protoreflect.Name{"Run", "Apply", "Approve"} {
+		if service.Methods().ByName(method) != nil {
+			t.Errorf("the service has a %s method", method)
 		}
 	}
 }
@@ -375,40 +372,11 @@ func TestABrokenSourcesFileIsReported(t *testing.T) {
 	}
 }
 
-func TestSuggestCallRoutesEveryMethod(t *testing.T) {
-	s := newSuggestService(t)
-	writeUserEntry(t, s, "known", commandInstall("echo one"))
-	ctx := context.Background()
-	for method, request := range map[string]string{
-		"Search":  `{"text":"known"}`,
-		"Get":     `{"id":"known"}`,
-		"Plan":    `{"id":"known"}`,
-		"Sources": `{}`,
-		"Add":     `{"kind":"tip","title":"Routed","tags":["one"],"body":"b"}`,
-	} {
-		if _, err := s.Call(ctx, method, []byte(request)); err != nil {
-			t.Errorf("%s: %v", method, err)
-		}
-	}
-	for _, method := range []string{"SourceAdd", "SourceRemove", "SourcePreview", "SourcePin"} {
-		if _, err := s.Call(ctx, method, []byte(`{"url":"file://`+filepath.Join(s.Home, "no-such-repo")+`"}`)); err == nil {
-			t.Errorf("%s: an unknown or unreachable source must fail", method)
-		}
-	}
-	if _, err := s.Call(ctx, "Search", []byte(`{`)); err == nil {
-		t.Error("a bad request must fail")
-	}
-}
-
 func TestSuggestDefaultsUseTheUsersFolders(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 	t.Setenv("HOME", filepath.Join(root, "home"))
-	data, err := SuggestCall(context.Background(), "Sources", []byte(`{}`))
-	if err != nil || !strings.Contains(string(data), `"sources"`) {
-		t.Fatalf("data = %s, %v", data, err)
-	}
 	s := &SuggestService{}
 	if got := s.sourcesPath(); got != filepath.Join(root, "config", "herdsman", "suggest-sources.txt") {
 		t.Fatalf("sources path = %s", got)
@@ -718,7 +686,10 @@ func TestSuggestReportsAnUnusableConfigFolder(t *testing.T) {
 	if err := os.MkdirAll(s.sourcesPath(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.pins(); err == nil {
+	if err := os.WriteFile(filepath.Join(s.sourcesPath(), "keep"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pins(""); err == nil {
 		t.Fatal("pins must report an unreadable file")
 	}
 	if err := s.storePins(nil); err == nil {
@@ -889,24 +860,22 @@ func TestAddRefusesAnEntryTooLargeToReadBack(t *testing.T) {
 	}
 }
 
-func TestStorePinsReportsAFailedWriteAndLeavesTheFile(t *testing.T) {
+func TestStorePinsReportsAFailedWriteAndLeavesTheOlderFile(t *testing.T) {
 	s := newSuggestService(t)
-	if err := s.storePins([]suggest.Pin{}); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.sourcesPath()), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	previous := writeSuggestPins
-	writeSuggestPins = func(io.Writer, string) (int, error) { return 0, errors.New("disk full") }
-	t.Cleanup(func() { writeSuggestPins = previous })
-	if err := s.storePins(nil); err == nil || !strings.Contains(err.Error(), "disk full") {
-		t.Fatalf("error = %v", err)
-	}
-	names, err := os.ReadDir(filepath.Dir(s.sourcesPath()))
-	if err != nil {
+	line := "https://example.com/a@" + strings.Repeat("a", 40) + "\n"
+	if err := os.WriteFile(s.sourcesPath(), []byte(line), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range names {
-		if strings.HasPrefix(name.Name(), ".suggest-sources-") {
-			t.Fatalf("a temporary file stayed behind: %s", name.Name())
-		}
+	if err := os.WriteFile(filepath.Join(s.configDir(), "config.toml"), []byte("[broken\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.storePins(nil); err == nil {
+		t.Fatal("a configuration that cannot be edited must be an error")
+	}
+	if got, err := os.ReadFile(s.sourcesPath()); err != nil || string(got) != line {
+		t.Fatalf("the older file changed: %q %v", got, err)
 	}
 }

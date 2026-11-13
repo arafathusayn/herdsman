@@ -92,9 +92,7 @@ type ProjectServiceCreateRequest struct {
 	Description string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
 	Repos       []*v1.ProjectRepo      `protobuf:"bytes,3,rep,name=repos,proto3" json:"repos,omitempty"`
 	// An absolute folder to bind right away; empty for none.
-	Folder string `protobuf:"bytes,4,opt,name=folder,proto3" json:"folder,omitempty"`
-	// Report the plan and change nothing.
-	DryRun        bool `protobuf:"varint,5,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	Folder        string `protobuf:"bytes,4,opt,name=folder,proto3" json:"folder,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -157,18 +155,9 @@ func (x *ProjectServiceCreateRequest) GetFolder() string {
 	return ""
 }
 
-func (x *ProjectServiceCreateRequest) GetDryRun() bool {
-	if x != nil {
-		return x.DryRun
-	}
-	return false
-}
-
 type ProjectServiceCreateResponse struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Project *v1.Project            `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
-	// What the request would do; set only for dry_run.
-	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       *v1.Project            `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -206,13 +195,6 @@ func (*ProjectServiceCreateResponse) Descriptor() ([]byte, []int) {
 func (x *ProjectServiceCreateResponse) GetProject() *v1.Project {
 	if x != nil {
 		return x.Project
-	}
-	return nil
-}
-
-func (x *ProjectServiceCreateResponse) GetPlan() *v1.Plan {
-	if x != nil {
-		return x.Plan
 	}
 	return nil
 }
@@ -394,14 +376,12 @@ func (x *ProjectServiceListResponse) GetProjects() []*v1.Project {
 }
 
 type ProjectServiceUpdateRequest struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	Scope       *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
-	Name        *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	Description *string                `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
-	AddRepos    []*v1.ProjectRepo      `protobuf:"bytes,4,rep,name=add_repos,json=addRepos,proto3" json:"add_repos,omitempty"`
-	RemoveRepos []string               `protobuf:"bytes,5,rep,name=remove_repos,json=removeRepos,proto3" json:"remove_repos,omitempty"`
-	// Report the plan and change nothing.
-	DryRun        bool `protobuf:"varint,6,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Scope         *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+	Name          *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	Description   *string                `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	AddRepos      []*v1.ProjectRepo      `protobuf:"bytes,4,rep,name=add_repos,json=addRepos,proto3" json:"add_repos,omitempty"`
+	RemoveRepos   []string               `protobuf:"bytes,5,rep,name=remove_repos,json=removeRepos,proto3" json:"remove_repos,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -471,18 +451,9 @@ func (x *ProjectServiceUpdateRequest) GetRemoveRepos() []string {
 	return nil
 }
 
-func (x *ProjectServiceUpdateRequest) GetDryRun() bool {
-	if x != nil {
-		return x.DryRun
-	}
-	return false
-}
-
 type ProjectServiceUpdateResponse struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Project *v1.Project            `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
-	// What the request would do; set only for dry_run.
-	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       *v1.Project            `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -524,19 +495,10 @@ func (x *ProjectServiceUpdateResponse) GetProject() *v1.Project {
 	return nil
 }
 
-func (x *ProjectServiceUpdateResponse) GetPlan() *v1.Plan {
-	if x != nil {
-		return x.Plan
-	}
-	return nil
-}
-
 type ProjectServiceDeleteRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Scope *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
-	Force bool                   `protobuf:"varint,2,opt,name=force,proto3" json:"force,omitempty"`
-	// Report the plan and change nothing.
-	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Scope         *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+	Force         bool                   `protobuf:"varint,2,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -585,17 +547,8 @@ func (x *ProjectServiceDeleteRequest) GetForce() bool {
 	return false
 }
 
-func (x *ProjectServiceDeleteRequest) GetDryRun() bool {
-	if x != nil {
-		return x.DryRun
-	}
-	return false
-}
-
 type ProjectServiceDeleteResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// What the request would do; set only for dry_run.
-	Plan          *v1.Plan `protobuf:"bytes,1,opt,name=plan,proto3" json:"plan,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -630,20 +583,11 @@ func (*ProjectServiceDeleteResponse) Descriptor() ([]byte, []int) {
 	return file_herdsman_daemon_v1_project_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *ProjectServiceDeleteResponse) GetPlan() *v1.Plan {
-	if x != nil {
-		return x.Plan
-	}
-	return nil
-}
-
 type ProjectServiceBindRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Scope *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
 	// The absolute folder to bind.
-	Folder string `protobuf:"bytes,2,opt,name=folder,proto3" json:"folder,omitempty"`
-	// Report the plan and change nothing.
-	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	Folder        string `protobuf:"bytes,2,opt,name=folder,proto3" json:"folder,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -692,18 +636,9 @@ func (x *ProjectServiceBindRequest) GetFolder() string {
 	return ""
 }
 
-func (x *ProjectServiceBindRequest) GetDryRun() bool {
-	if x != nil {
-		return x.DryRun
-	}
-	return false
-}
-
 type ProjectServiceBindResponse struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Project *v1.Project            `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
-	// What the request would do; set only for dry_run.
-	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       *v1.Project            `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -745,19 +680,10 @@ func (x *ProjectServiceBindResponse) GetProject() *v1.Project {
 	return nil
 }
 
-func (x *ProjectServiceBindResponse) GetPlan() *v1.Plan {
-	if x != nil {
-		return x.Plan
-	}
-	return nil
-}
-
 type ProjectServiceUnbindRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The absolute folder to release.
-	Folder string `protobuf:"bytes,1,opt,name=folder,proto3" json:"folder,omitempty"`
-	// Report the plan and change nothing.
-	DryRun        bool `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	Folder        string `protobuf:"bytes,1,opt,name=folder,proto3" json:"folder,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -799,18 +725,9 @@ func (x *ProjectServiceUnbindRequest) GetFolder() string {
 	return ""
 }
 
-func (x *ProjectServiceUnbindRequest) GetDryRun() bool {
-	if x != nil {
-		return x.DryRun
-	}
-	return false
-}
-
 type ProjectServiceUnbindResponse struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Project *v1.Project            `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
-	// What the request would do; set only for dry_run.
-	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       *v1.Project            `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -848,13 +765,6 @@ func (*ProjectServiceUnbindResponse) Descriptor() ([]byte, []int) {
 func (x *ProjectServiceUnbindResponse) GetProject() *v1.Project {
 	if x != nil {
 		return x.Project
-	}
-	return nil
-}
-
-func (x *ProjectServiceUnbindResponse) GetPlan() *v1.Plan {
-	if x != nil {
-		return x.Plan
 	}
 	return nil
 }
@@ -1044,10 +954,8 @@ func (x *ContextProblem) GetDetail() string {
 }
 
 type ProjectServiceContextInitRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Scope *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
-	// Report the plan and change nothing.
-	DryRun        bool `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Scope         *Scope                 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1089,19 +997,10 @@ func (x *ProjectServiceContextInitRequest) GetScope() *Scope {
 	return nil
 }
 
-func (x *ProjectServiceContextInitRequest) GetDryRun() bool {
-	if x != nil {
-		return x.DryRun
-	}
-	return false
-}
-
 type ProjectServiceContextInitResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The absolute folder that now holds the layout.
-	Folder string `protobuf:"bytes,1,opt,name=folder,proto3" json:"folder,omitempty"`
-	// What the request would do; set only for dry_run.
-	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
+	Folder        string `protobuf:"bytes,1,opt,name=folder,proto3" json:"folder,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1141,13 +1040,6 @@ func (x *ProjectServiceContextInitResponse) GetFolder() string {
 		return x.Folder
 	}
 	return ""
-}
-
-func (x *ProjectServiceContextInitResponse) GetPlan() *v1.Plan {
-	if x != nil {
-		return x.Plan
-	}
-	return nil
 }
 
 type ProjectServiceContextCheckRequest struct {
@@ -1256,10 +1148,8 @@ type ProjectServiceContextNoteRequest struct {
 	Task  string   `protobuf:"bytes,3,opt,name=task,proto3" json:"task,omitempty"`
 	Repos []string `protobuf:"bytes,4,rep,name=repos,proto3" json:"repos,omitempty"`
 	// Empty joins every open branch of the history.
-	Parents []string `protobuf:"bytes,5,rep,name=parents,proto3" json:"parents,omitempty"`
-	Body    string   `protobuf:"bytes,6,opt,name=body,proto3" json:"body,omitempty"`
-	// Report the plan and change nothing.
-	DryRun        bool `protobuf:"varint,7,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	Parents       []string `protobuf:"bytes,5,rep,name=parents,proto3" json:"parents,omitempty"`
+	Body          string   `protobuf:"bytes,6,opt,name=body,proto3" json:"body,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1336,18 +1226,9 @@ func (x *ProjectServiceContextNoteRequest) GetBody() string {
 	return ""
 }
 
-func (x *ProjectServiceContextNoteRequest) GetDryRun() bool {
-	if x != nil {
-		return x.DryRun
-	}
-	return false
-}
-
 type ProjectServiceContextNoteResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Event *ContextEvent          `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
-	// What the request would do; set only for dry_run.
-	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Event         *ContextEvent          `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1385,13 +1266,6 @@ func (*ProjectServiceContextNoteResponse) Descriptor() ([]byte, []int) {
 func (x *ProjectServiceContextNoteResponse) GetEvent() *ContextEvent {
 	if x != nil {
 		return x.Event
-	}
-	return nil
-}
-
-func (x *ProjectServiceContextNoteResponse) GetPlan() *v1.Plan {
-	if x != nil {
-		return x.Plan
 	}
 	return nil
 }
@@ -1543,16 +1417,14 @@ const file_herdsman_daemon_v1_project_proto_rawDesc = "" +
 	"\x05Scope\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x16\n" +
 	"\x06folder\x18\x02 \x01(\tR\x06folder\x12/\n" +
-	"\x05route\x18\x03 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\"\xb9\x01\n" +
+	"\x05route\x18\x03 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\"\xa0\x01\n" +
 	"\x1bProjectServiceCreateRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x123\n" +
 	"\x05repos\x18\x03 \x03(\v2\x1d.herdsman.core.v1.ProjectRepoR\x05repos\x12\x16\n" +
-	"\x06folder\x18\x04 \x01(\tR\x06folder\x12\x17\n" +
-	"\adry_run\x18\x05 \x01(\bR\x06dryRun\"\x7f\n" +
+	"\x06folder\x18\x04 \x01(\tR\x06folder\"S\n" +
 	"\x1cProjectServiceCreateResponse\x123\n" +
-	"\aproject\x18\x01 \x01(\v2\x19.herdsman.core.v1.ProjectR\aproject\x12*\n" +
-	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"K\n" +
+	"\aproject\x18\x01 \x01(\v2\x19.herdsman.core.v1.ProjectR\aproject\"K\n" +
 	"\x18ProjectServiceGetRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\"P\n" +
 	"\x19ProjectServiceGetResponse\x123\n" +
@@ -1560,38 +1432,30 @@ const file_herdsman_daemon_v1_project_proto_rawDesc = "" +
 	"\x19ProjectServiceListRequest\x12)\n" +
 	"\x10include_archived\x18\x01 \x01(\bR\x0fincludeArchived\"S\n" +
 	"\x1aProjectServiceListResponse\x125\n" +
-	"\bprojects\x18\x01 \x03(\v2\x19.herdsman.core.v1.ProjectR\bprojects\"\x9f\x02\n" +
+	"\bprojects\x18\x01 \x03(\v2\x19.herdsman.core.v1.ProjectR\bprojects\"\x86\x02\n" +
 	"\x1bProjectServiceUpdateRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
 	"\vdescription\x18\x03 \x01(\tH\x01R\vdescription\x88\x01\x01\x12:\n" +
 	"\tadd_repos\x18\x04 \x03(\v2\x1d.herdsman.core.v1.ProjectRepoR\baddRepos\x12!\n" +
-	"\fremove_repos\x18\x05 \x03(\tR\vremoveRepos\x12\x17\n" +
-	"\adry_run\x18\x06 \x01(\bR\x06dryRunB\a\n" +
+	"\fremove_repos\x18\x05 \x03(\tR\vremoveReposB\a\n" +
 	"\x05_nameB\x0e\n" +
-	"\f_description\"\x7f\n" +
+	"\f_description\"S\n" +
 	"\x1cProjectServiceUpdateResponse\x123\n" +
-	"\aproject\x18\x01 \x01(\v2\x19.herdsman.core.v1.ProjectR\aproject\x12*\n" +
-	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"}\n" +
+	"\aproject\x18\x01 \x01(\v2\x19.herdsman.core.v1.ProjectR\aproject\"d\n" +
 	"\x1bProjectServiceDeleteRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x14\n" +
-	"\x05force\x18\x02 \x01(\bR\x05force\x12\x17\n" +
-	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"J\n" +
-	"\x1cProjectServiceDeleteResponse\x12*\n" +
-	"\x04plan\x18\x01 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"}\n" +
+	"\x05force\x18\x02 \x01(\bR\x05force\"\x1e\n" +
+	"\x1cProjectServiceDeleteResponse\"d\n" +
 	"\x19ProjectServiceBindRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x16\n" +
-	"\x06folder\x18\x02 \x01(\tR\x06folder\x12\x17\n" +
-	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"}\n" +
+	"\x06folder\x18\x02 \x01(\tR\x06folder\"Q\n" +
 	"\x1aProjectServiceBindResponse\x123\n" +
-	"\aproject\x18\x01 \x01(\v2\x19.herdsman.core.v1.ProjectR\aproject\x12*\n" +
-	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"N\n" +
+	"\aproject\x18\x01 \x01(\v2\x19.herdsman.core.v1.ProjectR\aproject\"5\n" +
 	"\x1bProjectServiceUnbindRequest\x12\x16\n" +
-	"\x06folder\x18\x01 \x01(\tR\x06folder\x12\x17\n" +
-	"\adry_run\x18\x02 \x01(\bR\x06dryRun\"\x7f\n" +
+	"\x06folder\x18\x01 \x01(\tR\x06folder\"S\n" +
 	"\x1cProjectServiceUnbindResponse\x123\n" +
-	"\aproject\x18\x01 \x01(\v2\x19.herdsman.core.v1.ProjectR\aproject\x12*\n" +
-	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\xb2\x03\n" +
+	"\aproject\x18\x01 \x01(\v2\x19.herdsman.core.v1.ProjectR\aproject\"\xb2\x03\n" +
 	"\fContextEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x0e\n" +
@@ -1614,29 +1478,25 @@ const file_herdsman_daemon_v1_project_proto_rawDesc = "" +
 	"\x0eContextProblem\x12\x12\n" +
 	"\x04file\x18\x01 \x01(\tR\x04file\x12\x12\n" +
 	"\x04code\x18\x02 \x01(\tR\x04code\x12\x16\n" +
-	"\x06detail\x18\x03 \x01(\tR\x06detail\"l\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail\"S\n" +
 	" ProjectServiceContextInitRequest\x12/\n" +
-	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x17\n" +
-	"\adry_run\x18\x02 \x01(\bR\x06dryRun\"g\n" +
+	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\";\n" +
 	"!ProjectServiceContextInitResponse\x12\x16\n" +
-	"\x06folder\x18\x01 \x01(\tR\x06folder\x12*\n" +
-	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"T\n" +
+	"\x06folder\x18\x01 \x01(\tR\x06folder\"T\n" +
 	"!ProjectServiceContextCheckRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\"|\n" +
 	"\"ProjectServiceContextCheckResponse\x12\x16\n" +
 	"\x06events\x18\x01 \x01(\x05R\x06events\x12>\n" +
-	"\bproblems\x18\x02 \x03(\v2\".herdsman.daemon.v1.ContextProblemR\bproblems\"\xda\x01\n" +
+	"\bproblems\x18\x02 \x03(\v2\".herdsman.daemon.v1.ContextProblemR\bproblems\"\xc1\x01\n" +
 	" ProjectServiceContextNoteRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x14\n" +
 	"\x05actor\x18\x02 \x01(\tR\x05actor\x12\x12\n" +
 	"\x04task\x18\x03 \x01(\tR\x04task\x12\x14\n" +
 	"\x05repos\x18\x04 \x03(\tR\x05repos\x12\x18\n" +
 	"\aparents\x18\x05 \x03(\tR\aparents\x12\x12\n" +
-	"\x04body\x18\x06 \x01(\tR\x04body\x12\x17\n" +
-	"\adry_run\x18\a \x01(\bR\x06dryRun\"\x87\x01\n" +
+	"\x04body\x18\x06 \x01(\tR\x04body\"[\n" +
 	"!ProjectServiceContextNoteResponse\x126\n" +
-	"\x05event\x18\x01 \x01(\v2 .herdsman.daemon.v1.ContextEventR\x05event\x12*\n" +
-	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\xa8\x01\n" +
+	"\x05event\x18\x01 \x01(\v2 .herdsman.daemon.v1.ContextEventR\x05event\"\xa8\x01\n" +
 	"\x18ProjectServiceLogRequest\x12/\n" +
 	"\x05scope\x18\x01 \x01(\v2\x19.herdsman.daemon.v1.ScopeR\x05scope\x12\x14\n" +
 	"\x05since\x18\x02 \x01(\x03R\x05since\x12\x12\n" +
@@ -1704,64 +1564,56 @@ var file_herdsman_daemon_v1_project_proto_goTypes = []any{
 	(*v1.RouteId)(nil),                         // 27: herdsman.core.v1.RouteId
 	(*v1.ProjectRepo)(nil),                     // 28: herdsman.core.v1.ProjectRepo
 	(*v1.Project)(nil),                         // 29: herdsman.core.v1.Project
-	(*v1.Plan)(nil),                            // 30: herdsman.core.v1.Plan
 }
 var file_herdsman_daemon_v1_project_proto_depIdxs = []int32{
 	27, // 0: herdsman.daemon.v1.Scope.route:type_name -> herdsman.core.v1.RouteId
 	28, // 1: herdsman.daemon.v1.ProjectServiceCreateRequest.repos:type_name -> herdsman.core.v1.ProjectRepo
 	29, // 2: herdsman.daemon.v1.ProjectServiceCreateResponse.project:type_name -> herdsman.core.v1.Project
-	30, // 3: herdsman.daemon.v1.ProjectServiceCreateResponse.plan:type_name -> herdsman.core.v1.Plan
-	0,  // 4: herdsman.daemon.v1.ProjectServiceGetRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	29, // 5: herdsman.daemon.v1.ProjectServiceGetResponse.project:type_name -> herdsman.core.v1.Project
-	29, // 6: herdsman.daemon.v1.ProjectServiceListResponse.projects:type_name -> herdsman.core.v1.Project
-	0,  // 7: herdsman.daemon.v1.ProjectServiceUpdateRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	28, // 8: herdsman.daemon.v1.ProjectServiceUpdateRequest.add_repos:type_name -> herdsman.core.v1.ProjectRepo
-	29, // 9: herdsman.daemon.v1.ProjectServiceUpdateResponse.project:type_name -> herdsman.core.v1.Project
-	30, // 10: herdsman.daemon.v1.ProjectServiceUpdateResponse.plan:type_name -> herdsman.core.v1.Plan
-	0,  // 11: herdsman.daemon.v1.ProjectServiceDeleteRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	30, // 12: herdsman.daemon.v1.ProjectServiceDeleteResponse.plan:type_name -> herdsman.core.v1.Plan
-	0,  // 13: herdsman.daemon.v1.ProjectServiceBindRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	29, // 14: herdsman.daemon.v1.ProjectServiceBindResponse.project:type_name -> herdsman.core.v1.Project
-	30, // 15: herdsman.daemon.v1.ProjectServiceBindResponse.plan:type_name -> herdsman.core.v1.Plan
-	29, // 16: herdsman.daemon.v1.ProjectServiceUnbindResponse.project:type_name -> herdsman.core.v1.Project
-	30, // 17: herdsman.daemon.v1.ProjectServiceUnbindResponse.plan:type_name -> herdsman.core.v1.Plan
-	25, // 18: herdsman.daemon.v1.ContextEvent.commits:type_name -> herdsman.daemon.v1.ContextEvent.CommitsEntry
-	26, // 19: herdsman.daemon.v1.ContextEvent.extra:type_name -> herdsman.daemon.v1.ContextEvent.ExtraEntry
-	0,  // 20: herdsman.daemon.v1.ProjectServiceContextInitRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	30, // 21: herdsman.daemon.v1.ProjectServiceContextInitResponse.plan:type_name -> herdsman.core.v1.Plan
-	0,  // 22: herdsman.daemon.v1.ProjectServiceContextCheckRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	16, // 23: herdsman.daemon.v1.ProjectServiceContextCheckResponse.problems:type_name -> herdsman.daemon.v1.ContextProblem
-	0,  // 24: herdsman.daemon.v1.ProjectServiceContextNoteRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	15, // 25: herdsman.daemon.v1.ProjectServiceContextNoteResponse.event:type_name -> herdsman.daemon.v1.ContextEvent
-	30, // 26: herdsman.daemon.v1.ProjectServiceContextNoteResponse.plan:type_name -> herdsman.core.v1.Plan
-	0,  // 27: herdsman.daemon.v1.ProjectServiceLogRequest.scope:type_name -> herdsman.daemon.v1.Scope
-	1,  // 28: herdsman.daemon.v1.ProjectService.Create:input_type -> herdsman.daemon.v1.ProjectServiceCreateRequest
-	3,  // 29: herdsman.daemon.v1.ProjectService.Get:input_type -> herdsman.daemon.v1.ProjectServiceGetRequest
-	5,  // 30: herdsman.daemon.v1.ProjectService.List:input_type -> herdsman.daemon.v1.ProjectServiceListRequest
-	7,  // 31: herdsman.daemon.v1.ProjectService.Update:input_type -> herdsman.daemon.v1.ProjectServiceUpdateRequest
-	9,  // 32: herdsman.daemon.v1.ProjectService.Delete:input_type -> herdsman.daemon.v1.ProjectServiceDeleteRequest
-	11, // 33: herdsman.daemon.v1.ProjectService.Bind:input_type -> herdsman.daemon.v1.ProjectServiceBindRequest
-	13, // 34: herdsman.daemon.v1.ProjectService.Unbind:input_type -> herdsman.daemon.v1.ProjectServiceUnbindRequest
-	17, // 35: herdsman.daemon.v1.ProjectService.ContextInit:input_type -> herdsman.daemon.v1.ProjectServiceContextInitRequest
-	19, // 36: herdsman.daemon.v1.ProjectService.ContextCheck:input_type -> herdsman.daemon.v1.ProjectServiceContextCheckRequest
-	21, // 37: herdsman.daemon.v1.ProjectService.ContextNote:input_type -> herdsman.daemon.v1.ProjectServiceContextNoteRequest
-	23, // 38: herdsman.daemon.v1.ProjectService.Log:input_type -> herdsman.daemon.v1.ProjectServiceLogRequest
-	2,  // 39: herdsman.daemon.v1.ProjectService.Create:output_type -> herdsman.daemon.v1.ProjectServiceCreateResponse
-	4,  // 40: herdsman.daemon.v1.ProjectService.Get:output_type -> herdsman.daemon.v1.ProjectServiceGetResponse
-	6,  // 41: herdsman.daemon.v1.ProjectService.List:output_type -> herdsman.daemon.v1.ProjectServiceListResponse
-	8,  // 42: herdsman.daemon.v1.ProjectService.Update:output_type -> herdsman.daemon.v1.ProjectServiceUpdateResponse
-	10, // 43: herdsman.daemon.v1.ProjectService.Delete:output_type -> herdsman.daemon.v1.ProjectServiceDeleteResponse
-	12, // 44: herdsman.daemon.v1.ProjectService.Bind:output_type -> herdsman.daemon.v1.ProjectServiceBindResponse
-	14, // 45: herdsman.daemon.v1.ProjectService.Unbind:output_type -> herdsman.daemon.v1.ProjectServiceUnbindResponse
-	18, // 46: herdsman.daemon.v1.ProjectService.ContextInit:output_type -> herdsman.daemon.v1.ProjectServiceContextInitResponse
-	20, // 47: herdsman.daemon.v1.ProjectService.ContextCheck:output_type -> herdsman.daemon.v1.ProjectServiceContextCheckResponse
-	22, // 48: herdsman.daemon.v1.ProjectService.ContextNote:output_type -> herdsman.daemon.v1.ProjectServiceContextNoteResponse
-	24, // 49: herdsman.daemon.v1.ProjectService.Log:output_type -> herdsman.daemon.v1.ProjectServiceLogResponse
-	39, // [39:50] is the sub-list for method output_type
-	28, // [28:39] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	0,  // 3: herdsman.daemon.v1.ProjectServiceGetRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	29, // 4: herdsman.daemon.v1.ProjectServiceGetResponse.project:type_name -> herdsman.core.v1.Project
+	29, // 5: herdsman.daemon.v1.ProjectServiceListResponse.projects:type_name -> herdsman.core.v1.Project
+	0,  // 6: herdsman.daemon.v1.ProjectServiceUpdateRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	28, // 7: herdsman.daemon.v1.ProjectServiceUpdateRequest.add_repos:type_name -> herdsman.core.v1.ProjectRepo
+	29, // 8: herdsman.daemon.v1.ProjectServiceUpdateResponse.project:type_name -> herdsman.core.v1.Project
+	0,  // 9: herdsman.daemon.v1.ProjectServiceDeleteRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	0,  // 10: herdsman.daemon.v1.ProjectServiceBindRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	29, // 11: herdsman.daemon.v1.ProjectServiceBindResponse.project:type_name -> herdsman.core.v1.Project
+	29, // 12: herdsman.daemon.v1.ProjectServiceUnbindResponse.project:type_name -> herdsman.core.v1.Project
+	25, // 13: herdsman.daemon.v1.ContextEvent.commits:type_name -> herdsman.daemon.v1.ContextEvent.CommitsEntry
+	26, // 14: herdsman.daemon.v1.ContextEvent.extra:type_name -> herdsman.daemon.v1.ContextEvent.ExtraEntry
+	0,  // 15: herdsman.daemon.v1.ProjectServiceContextInitRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	0,  // 16: herdsman.daemon.v1.ProjectServiceContextCheckRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	16, // 17: herdsman.daemon.v1.ProjectServiceContextCheckResponse.problems:type_name -> herdsman.daemon.v1.ContextProblem
+	0,  // 18: herdsman.daemon.v1.ProjectServiceContextNoteRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	15, // 19: herdsman.daemon.v1.ProjectServiceContextNoteResponse.event:type_name -> herdsman.daemon.v1.ContextEvent
+	0,  // 20: herdsman.daemon.v1.ProjectServiceLogRequest.scope:type_name -> herdsman.daemon.v1.Scope
+	1,  // 21: herdsman.daemon.v1.ProjectService.Create:input_type -> herdsman.daemon.v1.ProjectServiceCreateRequest
+	3,  // 22: herdsman.daemon.v1.ProjectService.Get:input_type -> herdsman.daemon.v1.ProjectServiceGetRequest
+	5,  // 23: herdsman.daemon.v1.ProjectService.List:input_type -> herdsman.daemon.v1.ProjectServiceListRequest
+	7,  // 24: herdsman.daemon.v1.ProjectService.Update:input_type -> herdsman.daemon.v1.ProjectServiceUpdateRequest
+	9,  // 25: herdsman.daemon.v1.ProjectService.Delete:input_type -> herdsman.daemon.v1.ProjectServiceDeleteRequest
+	11, // 26: herdsman.daemon.v1.ProjectService.Bind:input_type -> herdsman.daemon.v1.ProjectServiceBindRequest
+	13, // 27: herdsman.daemon.v1.ProjectService.Unbind:input_type -> herdsman.daemon.v1.ProjectServiceUnbindRequest
+	17, // 28: herdsman.daemon.v1.ProjectService.ContextInit:input_type -> herdsman.daemon.v1.ProjectServiceContextInitRequest
+	19, // 29: herdsman.daemon.v1.ProjectService.ContextCheck:input_type -> herdsman.daemon.v1.ProjectServiceContextCheckRequest
+	21, // 30: herdsman.daemon.v1.ProjectService.ContextNote:input_type -> herdsman.daemon.v1.ProjectServiceContextNoteRequest
+	23, // 31: herdsman.daemon.v1.ProjectService.Log:input_type -> herdsman.daemon.v1.ProjectServiceLogRequest
+	2,  // 32: herdsman.daemon.v1.ProjectService.Create:output_type -> herdsman.daemon.v1.ProjectServiceCreateResponse
+	4,  // 33: herdsman.daemon.v1.ProjectService.Get:output_type -> herdsman.daemon.v1.ProjectServiceGetResponse
+	6,  // 34: herdsman.daemon.v1.ProjectService.List:output_type -> herdsman.daemon.v1.ProjectServiceListResponse
+	8,  // 35: herdsman.daemon.v1.ProjectService.Update:output_type -> herdsman.daemon.v1.ProjectServiceUpdateResponse
+	10, // 36: herdsman.daemon.v1.ProjectService.Delete:output_type -> herdsman.daemon.v1.ProjectServiceDeleteResponse
+	12, // 37: herdsman.daemon.v1.ProjectService.Bind:output_type -> herdsman.daemon.v1.ProjectServiceBindResponse
+	14, // 38: herdsman.daemon.v1.ProjectService.Unbind:output_type -> herdsman.daemon.v1.ProjectServiceUnbindResponse
+	18, // 39: herdsman.daemon.v1.ProjectService.ContextInit:output_type -> herdsman.daemon.v1.ProjectServiceContextInitResponse
+	20, // 40: herdsman.daemon.v1.ProjectService.ContextCheck:output_type -> herdsman.daemon.v1.ProjectServiceContextCheckResponse
+	22, // 41: herdsman.daemon.v1.ProjectService.ContextNote:output_type -> herdsman.daemon.v1.ProjectServiceContextNoteResponse
+	24, // 42: herdsman.daemon.v1.ProjectService.Log:output_type -> herdsman.daemon.v1.ProjectServiceLogResponse
+	32, // [32:43] is the sub-list for method output_type
+	21, // [21:32] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_project_proto_init() }

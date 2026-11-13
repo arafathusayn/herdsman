@@ -193,6 +193,36 @@ func TestUpPrefillsTheConfigAndPassesIt(t *testing.T) {
 	}
 }
 
+// The backend field: prefilled with what up resolves from the config file,
+// the installation default and the doctor, so an unchanged field passes no
+// --backend; choosing the other one passes it.
+func TestUpBackendFieldIsPrefilledAndPassedOnlyWhenChanged(t *testing.T) {
+	for _, c := range []struct {
+		name, backend, keys string
+		want                []string
+	}{
+		{"unchanged core", "herdr-core", "r\tp\t\r", nil},
+		{"unchanged unknown", "", "r\tp\t\r", nil},
+		{"core chosen over the TUI", "herdr-tui", "r\tp\t\t\t\t\t\x1b[B\r", []string{"--backend", "herdr-core"}},
+		{"the TUI chosen over core", "herdr-core", "r\tp\t\t\t\t\t\x1b[B\r", []string{"--backend", "herdr-tui"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			spec := Up(UpDefaults{Common: common(), Harnesses: []string{"claude", "codex"}, Backend: c.backend, BackendNote: "from the config file"})
+			start := sized(spec)
+			if !strings.Contains(start.View(), "Backend (from the config file)") {
+				t.Errorf("no labelled backend field:\n%s", start.View())
+			}
+			m := press(t, start, c.keys)
+			got := spec.Args(m.(components.Form).Values())
+			want := append([]string{"up", "r", "-p", "p", "-o", "codex", "-a", "claude"}, c.want...)
+			want = append(want, "--no-tui")
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("got %q\nwant %q", got, want)
+			}
+		})
+	}
+}
+
 func TestGraceMustBeSeconds(t *testing.T) {
 	for _, spec := range []Spec{teardownSpec(), downSpec()} {
 		if m := press(t, sized(spec), "\t-1\r"); !strings.Contains(m.View(), "a number of seconds") {
@@ -215,7 +245,7 @@ func TestPlanWithoutARunnerShowsTheCommand(t *testing.T) {
 }
 
 func TestPlainAsksTheSameForm(t *testing.T) {
-	input := strings.NewReader("r1\nthe prompt\n.\nnone\n\n\ny\ny\n")
+	input := strings.NewReader("r1\nthe prompt\n.\nnone\n\n\ny\n\ny\n")
 	var out bytes.Buffer
 	spec := upSpec()
 	form, err := spec.Form.RunPlain(tui.NewPrompter(input, &out))

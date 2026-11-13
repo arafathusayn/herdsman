@@ -4,6 +4,7 @@ import { type Client, createClient, type FetchLike, HerdsmanError, type ServiceT
 import { LedgerService } from "@herdsman/sdk/herdsman/daemon/v1/ledger";
 import { ProjectService } from "@herdsman/sdk/herdsman/daemon/v1/project";
 import { RouteService } from "@herdsman/sdk/herdsman/daemon/v1/route";
+import { RuntimeService } from "@herdsman/sdk/herdsman/daemon/v1/runtime";
 import { TaskService } from "@herdsman/sdk/herdsman/daemon/v1/task";
 import { SuggestService } from "@herdsman/sdk/herdsman/suggest/v1/suggest";
 
@@ -16,6 +17,7 @@ export interface Services {
   projects: Client<typeof ProjectService>;
   tasks: Client<typeof TaskService>;
   routes: Client<typeof RouteService>;
+  runtime: Client<typeof RuntimeService>;
   ledger: Client<typeof LedgerService>;
   suggest: Client<typeof SuggestService>;
 }
@@ -35,6 +37,7 @@ export function bindHost(host: SdkHost, send?: FetchLike): void {
     projects: client(ProjectService),
     tasks: client(TaskService),
     routes: client(RouteService),
+    runtime: client(RuntimeService),
     ledger: client(LedgerService),
     suggest: client(SuggestService),
   };

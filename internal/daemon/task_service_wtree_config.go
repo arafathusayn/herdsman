@@ -102,14 +102,21 @@ func (r *repository) projectKey(ctx context.Context) string {
 // that cannot be read stops the command: running without the hooks someone
 // wrote would be worse than refusing.
 func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error {
+	// Two files side by side are refused here because the fallback below would
+	// otherwise let the JSON one win without a word.
+	if _, err := config.FileIn(filepath.Dir(r.main)); err != nil {
+		return err
+	}
 	written, hasJSON, err := jsonHooks(filepath.Dir(r.main))
 	if err != nil {
 		return err
 	}
 	r.naming = wtree.DefaultNaming()
-	loaded, err := config.Load(config.Options{RepoRoot: r.main, UserDir: s.ConfigDir, ProjectKey: r.projectKey(ctx)})
+	r.ports = wtree.PortBlock
+	loaded, err := config.Load(config.Options{RepoRoot: r.main, UserDir: s.ConfigDir, ProjectKey: r.projectKey(ctx), Environ: s.caller})
 	if err != nil {
-		if !hasJSON {
+		var strict *config.StrictError
+		if !hasJSON || errors.As(err, &strict) {
 			return err
 		}
 		// This file predates the shared schema and may not fit it: a timeout
@@ -130,7 +137,18 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 	if name := loaded.Config.GetBranch().GetName(); name != "" {
 		r.naming.BranchName = name
 	}
-	if install := strings.TrimSpace(loaded.Config.GetSetup().GetInstall()); install != "" {
+	setup := loaded.Config.GetSetup()
+	r.envFiles, r.shared = setup.GetEnv(), setup.GetShare()
+	if setup.Ports != nil {
+		r.ports = int(setup.GetPorts())
+	}
+	if r.ports < 0 || r.ports > wtree.PortBlock {
+		return fmt.Errorf("setup.ports is %d; a task's block holds at most %d", r.ports, wtree.PortBlock)
+	}
+	// A command only detected from the repository's files comes back as a
+	// default. setupPlan offers it; only one a person wrote is a hook to approve.
+	install := strings.TrimSpace(loaded.Config.GetSetup().GetInstall())
+	if install != "" && loaded.Sources["setup.install"] != config.SourceDefault {
 		if r.hooks == nil {
 			r.hooks = hooks.Config{}
 		}

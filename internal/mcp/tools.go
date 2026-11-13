@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode"
 
+	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
@@ -52,6 +53,18 @@ var readOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.OpsService.Records":            true,
 	"herdsman.daemon.v1.RouteService.Get":              true,
 	"herdsman.daemon.v1.RouteService.List":             true,
+	"herdsman.config.v1.ConfigService.Export":          true,
+	"herdsman.config.v1.ConfigService.Get":             true,
+	"herdsman.config.v1.ConfigService.Show":            true,
+	"herdsman.config.v1.ConfigService.Validate":        true,
+	"herdsman.daemon.v1.ProjectService.Get":            true,
+	"herdsman.daemon.v1.ProjectService.List":           true,
+	"herdsman.daemon.v1.TaskService.Get":               true,
+	"herdsman.daemon.v1.TaskService.List":              true,
+	"herdsman.daemon.v1.RuntimeService.ListExecutions": true,
+	"herdsman.daemon.v1.RuntimeService.GetExecution":   true,
+	"herdsman.daemon.v1.RuntimeService.Doctor":         true,
+	"herdsman.daemon.v1.RuntimeService.GetDefault":     true,
 	"herdsman.suggest.v1.SuggestService.Search":        true,
 	"herdsman.suggest.v1.SuggestService.Get":           true,
 	"herdsman.suggest.v1.SuggestService.Plan":          true,
@@ -72,10 +85,16 @@ var planOnlyMethods = map[protoreflect.FullName]bool{
 
 // peopleOnlyMethods get no tool. An agent holding this server runs as the same
 // user as the person it works for, so these are the decisions it must not be
-// able to make for them: who may talk on a channel, and whether the daemon runs.
+// able to make for them: who may talk on a channel, whether the daemon runs,
+// and what the safety settings and hooks in a configuration file say.
 // An export writes the channel secrets to a path of the caller's choosing, and
 // an import builds an account whose approved pairs come from any folder.
 var peopleOnlyMethods = map[protoreflect.FullName]bool{
+	"herdsman.daemon.v1.TaskService.New": true,
+	"herdsman.daemon.v1.TaskService.Go":  true,
+	// Record deletion can discard task history or detach a whole project.
+	"herdsman.daemon.v1.ProjectService.Delete":           true,
+	"herdsman.daemon.v1.TaskService.Delete":              true,
 	"herdsman.daemon.v1.MessageService.Shutdown":         true,
 	"herdsman.daemon.v1.MessageService.Enroll":           true,
 	"herdsman.daemon.v1.MessageService.ApprovePair":      true,
@@ -84,6 +103,19 @@ var peopleOnlyMethods = map[protoreflect.FullName]bool{
 	"herdsman.daemon.v1.MessageService.ResetEvents":      true,
 	"herdsman.daemon.v1.OpsService.Export":               true,
 	"herdsman.daemon.v1.OpsService.Import":               true,
+	"herdsman.config.v1.ConfigService.Set":               true,
+	"herdsman.config.v1.ConfigService.Unset":             true,
+	// The installation default decides where every later route of the account
+	// runs.
+	"herdsman.daemon.v1.RuntimeService.SetDefault": true,
+	// A typed submit is one person's explicit action on one execution (the
+	// herdr-core spec, section 10, rule 2); an agent may never press Enter
+	// in another agent's terminal.
+	"herdsman.daemon.v1.RuntimeService.Submit": true,
+	// Read shows another execution's terminal text, which can hold task
+	// content the pair channel does not carry; it serves the waiters and a
+	// person, never an agent through MCP.
+	"herdsman.daemon.v1.RuntimeService.Read": true,
 }
 
 // Files are the contracts served as tools: only those the daemon serves.
@@ -92,8 +124,12 @@ func Files() []protoreflect.FileDescriptor {
 		daemonv1.File_herdsman_daemon_v1_events_proto,
 		daemonv1.File_herdsman_daemon_v1_message_proto,
 		daemonv1.File_herdsman_daemon_v1_route_proto,
+		daemonv1.File_herdsman_daemon_v1_project_proto,
+		daemonv1.File_herdsman_daemon_v1_task_proto,
 		daemonv1.File_herdsman_daemon_v1_ops_proto,
+		daemonv1.File_herdsman_daemon_v1_runtime_proto,
 		suggestv1.File_herdsman_suggest_v1_suggest_proto,
+		configv1.File_herdsman_config_v1_config_proto,
 	}
 }
 
@@ -340,6 +376,9 @@ func decodeArguments(t *tool, arguments json.RawMessage) (decoded, error) {
 		}
 	}
 	var out decoded
+	if _, ok := top["dryRun"]; ok {
+		return decoded{}, errors.New("use dry_run, as declared by the tool schema")
+	}
 	if raw, ok := top[dryRunField]; ok && t.mutating && t.dryRun == nil {
 		if err := json.Unmarshal(raw, &out.unsupported); err != nil {
 			return decoded{}, errors.New("dry_run must be a boolean")

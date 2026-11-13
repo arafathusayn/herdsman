@@ -73,7 +73,7 @@ func (q *SendRequest) validate() *APIError {
 // admitSend runs every check of a send that changes nothing. A retry of a
 // committed send returns its earlier result; otherwise the two peers are the
 // sender and the recipient.
-func (r *Route) admitSend(from string, q SendRequest) (*SendResult, *inbox.Peer, *inbox.Peer, *APIError) {
+func (r *Route) admitSend(from string, q SendRequest, record bool) (*SendResult, *inbox.Peer, *inbox.Peer, *APIError) {
 	if e := q.validate(); e != nil {
 		return nil, nil, nil, e
 	}
@@ -83,7 +83,7 @@ func (r *Route) admitSend(from string, q SendRequest) (*SendResult, *inbox.Peer,
 		}
 		return nil, nil, nil, Errf("key_conflict", "send key reused with other content")
 	}
-	if e := r.deliveryAllowed(); e != nil {
+	if e := r.checkDelivery(record); e != nil {
 		return nil, nil, nil, e
 	}
 	peers, _ := r.approvedPeers()
@@ -118,7 +118,7 @@ func (r *Route) admitSend(from string, q SendRequest) (*SendResult, *inbox.Peer,
 }
 
 func (r *Route) send(from string, q SendRequest) (SendResult, *APIError) {
-	earlier, me, to, e := r.admitSend(from, q)
+	earlier, me, to, e := r.admitSend(from, q, true)
 	if e != nil {
 		return SendResult{}, e
 	}
@@ -592,7 +592,7 @@ type AckResult struct {
 // ack acknowledges one claimed message after the party's durable intake
 // (4.2 Ack).
 func (r *Route) ack(me, token string, q AckRequest) (AckResult, *APIError) {
-	data, already, e := r.admitAck(me, token, q)
+	data, already, e := r.admitAck(me, token, q, true)
 	if e != nil {
 		return AckResult{}, e
 	}
@@ -622,14 +622,14 @@ func (r *Route) ack(me, token string, q AckRequest) (AckResult, *APIError) {
 // admitAck runs the checks of an acknowledgement and returns its ack record;
 // already is set when this same acknowledgement is recorded. It changes
 // nothing.
-func (r *Route) admitAck(me, token string, q AckRequest) (data []byte, already bool, e *APIError) {
+func (r *Route) admitAck(me, token string, q AckRequest, record bool) (data []byte, already bool, e *APIError) {
 	if !inbox.IDOK(q.ID) {
 		return nil, false, Errf("bad_request", "invalid message id")
 	}
 	if q.Record == "" || len(q.Record) > inbox.MaxSize {
 		return nil, false, Errf("bad_request", "nonempty processing record of at most %d bytes required", inbox.MaxSize)
 	}
-	if e := r.deliveryAllowed(); e != nil {
+	if e := r.checkDelivery(record); e != nil {
 		return nil, false, e
 	}
 	box := r.path(me)

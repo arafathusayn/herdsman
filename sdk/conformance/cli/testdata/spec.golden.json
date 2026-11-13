@@ -272,16 +272,16 @@
     {
       "name": "config",
       "summary": "Read and change the configuration; install the shell integration.",
-      "help": "usage: herdsman config get <key> [-c <path>]\n       herdsman config set <key> <value> [-c <path>]\n       herdsman config unset <key> [-c <path>]\n       herdsman config show [--strict] [-c <path>]\n       herdsman config export --format toml|yaml|json|bin [-c <path>]\n       herdsman config update [-c <path>]\n       herdsman config init [--format toml|yaml|json|bin] [-c <path>]\n       herdsman config schema --format jsonschema|descriptor\n       herdsman config approvals list\n       herdsman config approvals clear [<project>]\n       herdsman config shell install|uninstall [bash|zsh|fish] [--json]\n\nKeys are dotted paths such as merge.strategy; a kebab-case spelling is the same\nkey. -c names a file; otherwise HERDSMAN_CONFIG, then the repository's parent\nfolder, then the repository root.\n\nshow prints the file in use and then one \"key = value (source)\" line each.\nA warning goes to stderr; --strict makes it an error. An unknown key in the\npolicy or launch section always stops the command.\n\nshell adds or removes the wrapper that lets herdsman go change the shell's\nfolder, with static completions. The shell defaults to $SHELL.\n\nexit codes:\n  0  done\n  1  the configuration is invalid, or the file cannot be read or written\n  2  usage error\n",
+      "help": "usage: herdsman config get [<key>] [--source] [--json] [-c <path>]\n       herdsman config set <key> <value> [--append] [--project|--user|-c <path>]\n       herdsman config unset <key> [-c <path>]\n       herdsman config show [--strict] [-c <path>]\n       herdsman config export --format toml|yaml|json|bin [-c <path>]\n       herdsman config update [-c <path>]\n       herdsman config init [--format toml|yaml|json|bin] [-c <path>]\n       herdsman config schema --format jsonschema|descriptor|proto\n       herdsman config approvals list\n       herdsman config approvals clear [<project>]\n       herdsman config shell install|uninstall [bash|zsh|fish] [--json]\n\nKeys are dotted paths such as merge.strategy; a kebab-case spelling is the same\nkey. -c names a file; otherwise HERDSMAN_CONFIG, then the repository's parent\nfolder, then the repository root.\n\nget with no key prints the whole effective configuration. --source adds where\na value came from; --json prints typed JSON. set prints the old and new value\nand the file changed; --user writes the user file, --append adds one item to a\nlist.\n\nshow prints the file in use and then one \"key = value (source)\" line each.\nA warning goes to stderr; --strict makes it an error. An unknown key in the\npolicy or launch section always stops the command.\n\nshell adds or removes the wrapper that lets herdsman go change the shell's\nfolder, with static completions. The shell defaults to $SHELL.\n\nexit codes:\n  0  done\n  1  the configuration is invalid, or the file cannot be read or written\n  2  usage error\n",
       "usage": [
-        "herdsman config get <key> [-c <path>]",
-        "herdsman config set <key> <value> [-c <path>]",
+        "herdsman config get [<key>] [--source] [--json] [-c <path>]",
+        "herdsman config set <key> <value> [--append] [--project|--user|-c <path>]",
         "herdsman config unset <key> [-c <path>]",
         "herdsman config show [--strict] [-c <path>]",
         "herdsman config export --format toml|yaml|json|bin [-c <path>]",
         "herdsman config update [-c <path>]",
         "herdsman config init [--format toml|yaml|json|bin] [-c <path>]",
-        "herdsman config schema --format jsonschema|descriptor",
+        "herdsman config schema --format jsonschema|descriptor|proto",
         "herdsman config approvals list",
         "herdsman config approvals clear [<project>]",
         "herdsman config shell install|uninstall [bash|zsh|fish] [--json]"
@@ -299,14 +299,26 @@
       ],
       "flags": [
         {
+          "name": "--append"
+        },
+        {
           "name": "--format",
-          "valueName": "jsonschema|descriptor"
+          "valueName": "jsonschema|descriptor|proto"
         },
         {
           "name": "--json"
         },
         {
+          "name": "--project"
+        },
+        {
+          "name": "--source"
+        },
+        {
           "name": "--strict"
+        },
+        {
+          "name": "--user"
         },
         {
           "name": "-c",
@@ -475,7 +487,7 @@
     {
       "name": "delete",
       "summary": "Remove a route, once a verified snapshot makes that undoable.",
-      "help": "usage: herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--grace <seconds>] [-y] [--dry-run]\n\nRefuses while an agent of the route runs, unless --force, which stops the route\nfirst. Takes a snapshot of the route folder and private inbox through the\nrecovery pipeline, and removes nothing unless that snapshot verifies and covers\nevery path it removes. The result names the operation to give \"herdsman undo\".\n--keep-folder leaves the route folder in place; --keep-worktrees leaves the\nroute's tasks and their worktrees alone.\n",
+      "help": "usage: herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--grace <seconds>] [-y] [--dry-run]\n\nRefuses while an agent of the route runs, unless --force, which stops the route\nfirst. Takes a snapshot of the route folder and private inbox through the\nrecovery pipeline, and removes nothing unless that snapshot verifies and covers\nevery path it removes. The result names the operation to give \"herdsman undo\".\n--keep-folder leaves the route folder in place; --keep-worktrees leaves the\nroute's tasks and their worktrees alone. Once the inbox is removed, the daemon\nforgets a channel it held for the route. Undo of the delete puts the folder and\ninbox back, registers that channel again, and leaves the route stopped: its\nagents ended with the delete, and \"herdsman resume\" starts them again as new\nexecutions.\n",
       "usage": [
         "herdsman delete <route> [--force] [--keep-folder] [--keep-worktrees] [--grace <seconds>] [-y] [--dry-run]"
       ],
@@ -557,7 +569,7 @@
     {
       "name": "doctor",
       "summary": "Check that this machine can run a route: herdr, gh, the binary, the inbox, the sandbox, the load.",
-      "help": "usage: herdsman doctor [--json]\n\nPrints one line per check, \"ok|warn|fail <check> <detail>\": herdr, gh,\nbinary, inbox (when HERDSMAN_INBOX is set), sandbox, load and enforcement\n(HERDSMAN_LOAD_LIMIT, default the core count; HERDSMAN_MIN_FREE, default 10).\nA \"deprecated\" line appears for each old key or variable in use, each old flag,\nand each installed shell wrapper that differs from this binary's, with its\nreplacement and fix.\n--json prints one object {\"ok\": bool, \"checks\": [{\"level\",\"check\",\"detail\"}]};\na deprecated check adds \"deprecation\": {\"kind\",\"name\",\"replacement\",\"since\",\"fix\"}.\n\nExit codes:\n  0  no check failed\n  1  a check failed\n  2  usage error or an invalid setting\n",
+      "help": "usage: herdsman doctor [--json]\n\nPrints one line per check, \"ok|warn|fail <check> <detail>\": herdr, herdr-core\n(when it is installed), gh, binary, inbox (when HERDSMAN_INBOX is set),\nsandbox, load and enforcement (HERDSMAN_LOAD_LIMIT, default the core count;\nHERDSMAN_MIN_FREE, default 10). The herdr-core line says whether the launcher\ncheck knows the holder process of a running herdr-core; it fails when it does\nnot, because a command started through herdr-core would then pass as typed by\na person.\nA \"deprecated\" line appears for each old key or variable in use, each old flag,\nand each installed shell wrapper that differs from this binary's, with its\nreplacement and fix.\n--json prints one object {\"ok\": bool, \"checks\": [{\"level\",\"check\",\"detail\"}]};\na deprecated check adds \"deprecation\": {\"kind\",\"name\",\"replacement\",\"since\",\"fix\"}.\n\nExit codes:\n  0  no check failed\n  1  a check failed\n  2  usage error or an invalid setting\n",
       "usage": [
         "herdsman doctor [--json]"
       ],
@@ -688,12 +700,16 @@
     {
       "name": "eval",
       "summary": "Report a suite's runs with intervals and an A/A control (experimental).",
-      "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
+      "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval run <suite folder> [--local] [--json]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nrun executes the suite described by suite.json in the folder: {\"tasks\":\n[{\"id\",\"prompt\",\"check\"}], \"arms\":[{\"name\",\"kind\",\"command\"}], \"runs\",\n\"control_runs\", \"timeout_seconds\"}. Every run gets a new repository and its own\nroute, started as up starts one with the arm's command as the agent; ordinary\nruns and the two halves of each arm's A/A control are interleaved, then the\nreport above is printed. The agent is told to create .eval-done when finished;\na run passes when it did and the task's check exits 0. It may write\n{\"tokens\",\"cost_micros\"} to .eval-usage.json. The route is stopped afterwards.\nWith --local a command runs directly, with no route or herdr: it gets the prompt\nin HERDSMAN_EVAL_PROMPT and may report usage in the file HERDSMAN_EVAL_USAGE\nnames, and a run passes when the command and the check exit 0.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
       "usage": [
         "herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]",
+        "herdsman eval --experimental-eval run <suite folder> [--local] [--json]",
         "herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>"
       ],
       "positionals": [
+        {
+          "name": "suite folder"
+        },
         {
           "name": "route folder"
         }
@@ -725,6 +741,9 @@
         {
           "name": "--line",
           "valueName": "n"
+        },
+        {
+          "name": "--local"
         },
         {
           "name": "--rank"
@@ -767,12 +786,16 @@
       "subcommands": [
         {
           "name": "finding",
-          "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
+          "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval run <suite folder> [--local] [--json]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nrun executes the suite described by suite.json in the folder: {\"tasks\":\n[{\"id\",\"prompt\",\"check\"}], \"arms\":[{\"name\",\"kind\",\"command\"}], \"runs\",\n\"control_runs\", \"timeout_seconds\"}. Every run gets a new repository and its own\nroute, started as up starts one with the arm's command as the agent; ordinary\nruns and the two halves of each arm's A/A control are interleaved, then the\nreport above is printed. The agent is told to create .eval-done when finished;\na run passes when it did and the task's check exits 0. It may write\n{\"tokens\",\"cost_micros\"} to .eval-usage.json. The route is stopped afterwards.\nWith --local a command runs directly, with no route or herdr: it gets the prompt\nin HERDSMAN_EVAL_PROMPT and may report usage in the file HERDSMAN_EVAL_USAGE\nnames, and a run passes when the command and the check exit 0.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
           "usage": [
             "herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]",
+            "herdsman eval --experimental-eval run <suite folder> [--local] [--json]",
             "herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>"
           ],
           "positionals": [
+            {
+              "name": "suite folder"
+            },
             {
               "name": "route folder"
             }
@@ -804,6 +827,95 @@
             {
               "name": "--line",
               "valueName": "n"
+            },
+            {
+              "name": "--local"
+            },
+            {
+              "name": "--rank"
+            },
+            {
+              "name": "--reviewer",
+              "valueName": "name"
+            },
+            {
+              "name": "--severity",
+              "valueName": "level"
+            },
+            {
+              "name": "--task",
+              "valueName": "task"
+            },
+            {
+              "name": "--title",
+              "valueName": "text"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "reported or recorded"
+            },
+            {
+              "code": "1",
+              "meaning": "a file could not be read or written, or the suite has no A/A control"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage, or the experimental flag is missing"
+            },
+            {
+              "code": "3",
+              "meaning": "a ranking was asked for and refused"
+            }
+          ]
+        },
+        {
+          "name": "run",
+          "help": "usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]\n       herdsman eval --experimental-eval run <suite folder> [--local] [--json]\n       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>\n                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]\n       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed\n\nExperimental: the flag is required and the format can change between minor\nreleases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per\narm: counts, and 95% confidence intervals of pass rate, duration and cost, with\nan A/A control of two groups of the same arm. Every arm needs its own control;\na suite with an arm that has none is refused. Only ranges are reported, never a single value.\n\nrun executes the suite described by suite.json in the folder: {\"tasks\":\n[{\"id\",\"prompt\",\"check\"}], \"arms\":[{\"name\",\"kind\",\"command\"}], \"runs\",\n\"control_runs\", \"timeout_seconds\"}. Every run gets a new repository and its own\nroute, started as up starts one with the arm's command as the agent; ordinary\nruns and the two halves of each arm's A/A control are interleaved, then the\nreport above is printed. The agent is told to create .eval-done when finished;\na run passes when it did and the task's check exits 0. It may write\n{\"tokens\",\"cost_micros\"} to .eval-usage.json. The route is stopped afterwards.\nWith --local a command runs directly, with no route or herdr: it gets the prompt\nin HERDSMAN_EVAL_PROMPT and may report usage in the file HERDSMAN_EVAL_USAGE\nnames, and a run passes when the command and the check exit 0.\n\nEach --findings route adds its reviewer findings, counted by outcome. --rank\nnever ranks: it reports why not, and exits 3.\n\nexit codes:\n  0  reported or recorded\n  1  a file could not be read or written, or the suite has no A/A control\n  2  bad usage, or the experimental flag is missing\n  3  a ranking was asked for and refused\n",
+          "usage": [
+            "herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]",
+            "herdsman eval --experimental-eval run <suite folder> [--local] [--json]",
+            "herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>"
+          ],
+          "positionals": [
+            {
+              "name": "suite folder"
+            },
+            {
+              "name": "route folder"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--experimental-eval",
+              "valueName": "suite folder"
+            },
+            {
+              "name": "--file",
+              "valueName": "path"
+            },
+            {
+              "name": "--findings",
+              "valueName": "route folder"
+            },
+            {
+              "name": "--head",
+              "valueName": "commit"
+            },
+            {
+              "name": "--id",
+              "valueName": "id"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--line",
+              "valueName": "n"
+            },
+            {
+              "name": "--local"
             },
             {
               "name": "--rank"
@@ -1004,9 +1116,62 @@
       ]
     },
     {
+      "name": "launch",
+      "summary": "Run one agent launch in a herdr-core terminal; herdr-core runs it, not a person.",
+      "help": "usage: herdsman launch --socket <path> --intent <id>\n       herdsman launch --view <descriptor>\n\nThe program herdr-core starts in the terminal of a reserved launch. It proves\nto the daemon that it is that terminal's process, runs the prelude, registers,\nand then becomes the harness. A person never runs it; up does, through core.\nThe optional TUI view uses --view to attach a helper to an existing execution.\nClosing that view never stops the execution.\n\nexit codes:\n  0   never: on success the process becomes the harness\n  64  usage error\n  70  the daemon refused the launch\n  71  a prelude step failed\n  72  the launch was not registered\n  73  the harness could not start\n  74  the daemon's launch socket could not be reached\n",
+      "usage": [
+        "herdsman launch --socket <path> --intent <id>",
+        "herdsman launch --view <descriptor>"
+      ],
+      "flags": [
+        {
+          "name": "--intent",
+          "valueName": "id"
+        },
+        {
+          "name": "--socket",
+          "valueName": "path"
+        },
+        {
+          "name": "--view",
+          "valueName": "descriptor"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "never: on success the process becomes the harness"
+        },
+        {
+          "code": "64",
+          "meaning": "usage error"
+        },
+        {
+          "code": "70",
+          "meaning": "the daemon refused the launch"
+        },
+        {
+          "code": "71",
+          "meaning": "a prelude step failed"
+        },
+        {
+          "code": "72",
+          "meaning": "the launch was not registered"
+        },
+        {
+          "code": "73",
+          "meaning": "the harness could not start"
+        },
+        {
+          "code": "74",
+          "meaning": "the daemon's launch socket could not be reached"
+        }
+      ]
+    },
+    {
       "name": "ls",
       "summary": "List the repository's worktrees.",
-      "help": "usage: herdsman ls [--full] [--all] [--json]\n       herdsman ls --statusline [--format text|json|claude-code]\n\nPrints one row per worktree of the repository. --all adds branches without a\ntree, --full adds the commit and path. The JSON form is for scripts:\n\n  herdsman ls --json | jq -r '.rows[] | select(.status != \"\") | .task'\n\nexit codes:\n  0  printed\n  1  the table could not be read\n  2  bad usage\n",
+      "help": "usage: herdsman ls [--full] [--all] [--json]\n       herdsman ls --statusline [--format text|json|claude-code]\n\nPrints one row per worktree of the repository. --all adds branches without a\ntree, --full adds the commit, path and every other cell. The JSON form is for scripts:\n\n  herdsman ls --json | jq -r '.rows[] | select(.status != \"\") | .task'\n\nexit codes:\n  0  printed\n  1  the table could not be read\n  2  bad usage\n",
       "usage": [
         "herdsman ls [--full] [--all] [--json]",
         "herdsman ls --statusline [--format text|json|claude-code]"
@@ -1591,6 +1756,170 @@
       ]
     },
     {
+      "name": "notice",
+      "summary": "A managed agent's instructions on herdr-core: notice wait, notice read, notice ack.",
+      "help": "usage: herdsman notice wait [--after <id>] [--json]\n       herdsman notice read [<id>] [--json]\n       herdsman notice ack <id> --token <token> --outcome <outcome> --record <text|@file> [--json]\n\nHow a managed agent on herdr-core pulls its instructions. The commands reach\nthe daemon's worker socket, which the core wrapper names in\nHERDSMAN_NOTICE_SOCKET, and answer only for the calling agent's own\nexecution, identified by its process. Every reply prints the next command.\n\nexit codes:\n  0  done: something to act on was printed\n  1  the daemon refused, or this is not a managed execution\n  2  bad usage\n  3  wait only: this wait was replaced by a newer one, or the execution stopped\n",
+      "usage": [
+        "herdsman notice wait [--after <id>] [--json]",
+        "herdsman notice read [<id>] [--json]",
+        "herdsman notice ack <id> --token <token> --outcome <outcome> --record <text|@file> [--json]"
+      ],
+      "positionals": [
+        {
+          "name": "id"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--after",
+          "valueName": "id"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--outcome",
+          "valueName": "outcome"
+        },
+        {
+          "name": "--record",
+          "valueName": "text|@file"
+        },
+        {
+          "name": "--token",
+          "valueName": "token"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done: something to act on was printed"
+        },
+        {
+          "code": "1",
+          "meaning": "the daemon refused, or this is not a managed execution"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        },
+        {
+          "code": "3",
+          "meaning": "wait only: this wait was replaced by a newer one, or the execution stopped"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "ack",
+          "help": "usage: herdsman notice ack <id> --token <token> --outcome <outcome> --record <text|@file> [--json]\n\nCloses a claim. The outcome is completed, interrupted (the work stopped\npart-way; the record says how far) or abandoned (you will not go on, and why).\nThe record is required for every outcome; @file reads it from a file. An\nacknowledgement is accepted in every route state.\n\nexit codes:\n  0  acknowledged\n  1  the daemon refused, or this is not a managed execution\n  2  bad usage\n",
+          "usage": [
+            "herdsman notice ack <id> --token <token> --outcome <outcome> --record <text|@file> [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "id"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--outcome",
+              "valueName": "outcome"
+            },
+            {
+              "name": "--record",
+              "valueName": "text|@file"
+            },
+            {
+              "name": "--token",
+              "valueName": "token"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "acknowledged"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused, or this is not a managed execution"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "read",
+          "help": "usage: herdsman notice read [<id>] [--json]\n\nClaims a notice and prints its content and claim token. A repeat read prints\nthe same token, marked as claimed before; it is not permission to do the work\nagain. Without an id it prints the open claim, or claims the next notice. A\nclaim that a gate refuses leaves the notice issued and says why.\n\nexit codes:\n  0  printed\n  1  the daemon refused, or this is not a managed execution\n  2  bad usage\n",
+          "usage": [
+            "herdsman notice read [<id>] [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "id"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "printed"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused, or this is not a managed execution"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "wait",
+          "help": "usage: herdsman notice wait [--after <id>] [--json]\n\nWaits until a notice of this execution can be claimed, and prints its id and\nthe command that reads it. Hold it as a background command. With --after,\nthe wait says that you work on that claim: it is answered by the route's\nfinal-report notice, by the claim when recovery is due, or by the next notice\nonce the claim is acknowledged. One command polls many times; a newer wait of\nthe same execution replaces it, and it exits with code 3.\n\nexit codes:\n  0  a notice or an open claim was printed\n  1  the daemon refused, or this is not a managed execution\n  2  bad usage\n  3  replaced by a newer wait, or the execution stopped\n",
+          "usage": [
+            "herdsman notice wait [--after <id>] [--json]"
+          ],
+          "flags": [
+            {
+              "name": "--after",
+              "valueName": "id"
+            },
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "a notice or an open claim was printed"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused, or this is not a managed execution"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            },
+            {
+              "code": "3",
+              "meaning": "replaced by a newer wait, or the execution stopped"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "pause",
       "summary": "Interrupt a route's agents and hold its channel; every pane stays open.",
       "help": "usage: herdsman pause <route> [--teardown] [-y] [--dry-run]\n\nSends each agent the interrupt key, stops the checkpointer's prompts and holds\nthe message channel. The interrupt is best effort: an agent acts on it at its\nnext turn boundary. <route> is a route name, a route folder, or @ for the route\nof the current folder. --teardown also stops the route's task processes.\n",
@@ -1648,15 +1977,60 @@
     },
     {
       "name": "project",
-      "summary": "Work on a project's context repo: project context init|check|note, project log.",
-      "help": "usage: herdsman project context init|check|note|log ...\n       herdsman project log [--since <date>] [--task <task>] [--json]\n\nWork on the context repo of the project bound to this folder.\n\nexit codes:\n  0  done\n  1  check found problems, the daemon refused, or it is not running\n  2  bad usage\n",
+      "summary": "Keep projects, their folders and repositories, and work on their context repo.",
+      "help": "usage: herdsman project context init|check|note|log ...\n       herdsman project log [--since <date>] [--task <task>] [--json]\n       herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]\n       herdsman project show [<project>] [--json]\n       herdsman project list [--archived] [--json]\n       herdsman project update [<project>] [--name <name>] [--description <text>]\n                               [--add-repo <spec>]... [--remove-repo <name>]... [--json]\n       herdsman project delete [<project>] [--force]\n       herdsman project bind [<project>] [--folder <path>] [--json]\n       herdsman project unbind [--folder <path>] [--json]\n\ncontext and log work on the context repo of the project bound to this folder.\n\nKeeps the projects, the folders bound to them and their repositories. A <spec>\nis [<name>=]<path>[:<branch>[:<remote>]]; the name defaults to the folder's.\ncreate binds --folder, or this folder with --bind.\n<project> is a name, an id or @; left out, it is the project bound to this\nfolder. delete refuses a project with open tasks, tasks on a running route,\nor task worktrees still present. --force archives it and keeps its records.\n\nexit codes:\n  0  done\n  1  check found problems, the record was not found, the daemon refused, or it is not running\n  2  bad usage\n",
       "usage": [
         "herdsman project context init|check|note|log ...",
-        "herdsman project log [--since <date>] [--task <task>] [--json]"
+        "herdsman project log [--since <date>] [--task <task>] [--json]",
+        "herdsman project create <name> [--description <text>] [--repo <spec>]... [--folder <path>] [--bind] [--json]",
+        "herdsman project show [<project>] [--json]",
+        "herdsman project list [--archived] [--json]",
+        "herdsman project update [<project>] [--name <name>] [--description <text>]"
+      ],
+      "positionals": [
+        {
+          "name": "name"
+        },
+        {
+          "name": "project"
+        }
       ],
       "flags": [
         {
+          "name": "--add-repo",
+          "valueName": "spec"
+        },
+        {
+          "name": "--archived"
+        },
+        {
+          "name": "--bind"
+        },
+        {
+          "name": "--description",
+          "valueName": "text"
+        },
+        {
+          "name": "--folder",
+          "valueName": "path"
+        },
+        {
+          "name": "--force"
+        },
+        {
           "name": "--json"
+        },
+        {
+          "name": "--name",
+          "valueName": "name"
+        },
+        {
+          "name": "--remove-repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--repo",
+          "valueName": "spec"
         },
         {
           "name": "--since",
@@ -1674,7 +2048,7 @@
         },
         {
           "code": "1",
-          "meaning": "check found problems, the daemon refused, or it is not running"
+          "meaning": "check found problems, the record was not found, the daemon refused, or it is not running"
         },
         {
           "code": "2",
@@ -2157,11 +2531,245 @@
       ]
     },
     {
-      "name": "spec",
-      "summary": "Print the SDK contracts: spec cli|proto|descriptor.",
-      "help": "usage: herdsman spec cli|proto|descriptor\n\ncli prints every command, flag and exit code as JSON.\nproto prints every contract source, each after a \"// file: <path>\" line.\ndescriptor prints the contracts' serialized FileDescriptorSet, with every\nimport before the file that needs it.\n\nexit codes:\n  0  the contracts were printed\n  1  the contracts could not be read or written\n  2  usage error\n",
+      "name": "runtime",
+      "summary": "Where agents run: runtime doctor, runtime ls, runtime default, runtime submit, runtime show.",
+      "help": "usage: herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]\n       herdsman runtime ls [--route <route>] [--json]\n       herdsman runtime default [<backend>] [--json]\n       herdsman runtime submit <execution> <line> [--yes] [--again] [--json]\n       herdsman runtime show <execution> [--json]\n\nWhere agents run. A backend is herdr-core or herdr-tui. A new route takes\n--backend, then the config file's [runtime] backend, then the installation\ndefault; a route that exists keeps the backend it started on. New installations\nand new config files select herdr-core. Existing installations keep their\nrecorded choice. The optional herdr-tui backend is an explicit configuration\nchoice; the native app remains required for core visibility.\n\nexit codes:\n  0  done; for doctor, the selected backend can run\n  1  the daemon refused or is not running; for doctor, a check failed\n  2  bad usage\n",
       "usage": [
-        "herdsman spec cli|proto|descriptor"
+        "herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]",
+        "herdsman runtime ls [--route <route>] [--json]",
+        "herdsman runtime default [<backend>] [--json]",
+        "herdsman runtime submit <execution> <line> [--yes] [--again] [--json]",
+        "herdsman runtime show <execution> [--json]"
+      ],
+      "positionals": [
+        {
+          "name": "backend"
+        },
+        {
+          "name": "execution"
+        },
+        {
+          "name": "line"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--again"
+        },
+        {
+          "name": "--backend",
+          "valueName": "backend"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--route",
+          "valueName": "route"
+        },
+        {
+          "name": "--yes"
+        },
+        {
+          "name": "-c",
+          "short": "-c",
+          "valueName": "config"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done; for doctor, the selected backend can run"
+        },
+        {
+          "code": "1",
+          "meaning": "the daemon refused or is not running; for doctor, a check failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "default",
+          "help": "usage: herdsman runtime default [<backend>] [--json]\n\nWith no value, prints the installation default and where it came from. With a\nvalue, herdr-core or herdr-tui, sets it. Routes that exist keep their backend,\nand a config file's [runtime] backend still wins.\n\nexit codes:\n  0  printed or set\n  1  the daemon refused or is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman runtime default [<backend>] [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "backend"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "printed or set"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused or is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "doctor",
+          "help": "usage: herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]\n\nSays which backend a run here would use and why, and whether each backend can\nrun on this machine. For herdr-core it also says how each harness is woken\nand which of its steps need a person, the steps up names before a route\nstarts, and each value of [runtime.core], [runtime.app] and\n[runtime.tui_view] in use with where it came from: the config file, the\nroute's persisted endpoint, or the default. With --route, the route's own\nbackend and endpoint. It changes nothing.\n\nexit codes:\n  0  the selected backend can run\n  1  a check failed, or the daemon refused or is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]"
+          ],
+          "flags": [
+            {
+              "name": "--backend",
+              "valueName": "backend"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--route",
+              "valueName": "route"
+            },
+            {
+              "name": "-c",
+              "short": "-c",
+              "valueName": "config"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "the selected backend can run"
+            },
+            {
+              "code": "1",
+              "meaning": "a check failed, or the daemon refused or is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "ls",
+          "help": "usage: herdsman runtime ls [--route <route>] [--json]\n\nLists the executions the daemon knows, newest first: one per harness launch.\nAn agent of a route started before execution records existed is listed as\nlegacy. --route lists one route of this repository. --json also gives each\nrecord's experiment label and the harness's own conversation id with where it\nwas read, when one was found.\n\nexit codes:\n  0  listed\n  1  the daemon refused or is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman runtime ls [--route <route>] [--json]"
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--route",
+              "valueName": "route"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "listed"
+            },
+            {
+              "code": "1",
+              "meaning": "the daemon refused or is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "show",
+          "help": "usage: herdsman runtime show <execution> [--json]\n\nFocuses an execution's existing terminal in the herdr app, through the daemon.\nIt never starts an execution, never creates a view and types nothing. The\nexecution is an id from herdsman runtime ls.\n\nexit codes:\n  0  shown\n  1  refused (no recorded place, identity not proven) or the daemon is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman runtime show <execution> [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "execution"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--json"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "shown"
+            },
+            {
+              "code": "1",
+              "meaning": "refused (no recorded place, identity not proven) or the daemon is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        },
+        {
+          "name": "submit",
+          "help": "usage: herdsman runtime submit <execution> <line> [--yes] [--again] [--json]\n\nTypes one line into one herdr-core execution's terminal and presses Enter, as\nyour own explicit action. herdr-core checks the program's state once, before\nthe paste; the Enter follows that check by about 200 ms with no second check,\nso a dialog that opens in between is confirmed by it. Once core holds the\nline nothing can recall it. It is typed only while the program reports idle,\nafter it reported a status since it started, with no other submit of yours\noutstanding there. No automation ever runs this, and an agent is refused.\n\nWithout --yes it shows that warning and asks you to type yes. --again sends\nalthough an earlier submit is unresolved, knowing that both may be typed.\n\nexit codes:\n  0  typed, or rejected by core before anything was written\n  1  refused, unresolved, or the daemon is not running\n  2  bad usage\n",
+          "usage": [
+            "herdsman runtime submit <execution> <line> [--yes] [--again] [--json]"
+          ],
+          "positionals": [
+            {
+              "name": "execution"
+            },
+            {
+              "name": "line"
+            }
+          ],
+          "flags": [
+            {
+              "name": "--again"
+            },
+            {
+              "name": "--json"
+            },
+            {
+              "name": "--yes"
+            }
+          ],
+          "exitCodes": [
+            {
+              "code": "0",
+              "meaning": "typed, or rejected by core before anything was written"
+            },
+            {
+              "code": "1",
+              "meaning": "refused, unresolved, or the daemon is not running"
+            },
+            {
+              "code": "2",
+              "meaning": "bad usage"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "spec",
+      "summary": "Print the SDK contracts: spec cli|proto|descriptor|jsonschema.",
+      "help": "usage: herdsman spec cli|proto|descriptor|jsonschema\n\ncli prints every command, flag and exit code as JSON.\nproto prints every contract source, each after a \"// file: <path>\" line.\ndescriptor prints the contracts' serialized FileDescriptorSet, with every\nimport before the file that needs it.\njsonschema prints the JSON Schema of the configuration file.\n\nexit codes:\n  0  the contracts were printed\n  1  the contracts could not be read or written\n  2  usage error\n",
+      "usage": [
+        "herdsman spec cli|proto|descriptor|jsonschema"
       ],
       "exitCodes": [
         {
@@ -2181,7 +2789,7 @@
     {
       "name": "status",
       "summary": "Print a health snapshot of every agent in HERDSMAN_STATUS_SPECS and of the machine.",
-      "help": "usage: herdsman status\n       herdsman status --route <route>\n\nPrints a health snapshot of every agent in HERDSMAN_STATUS_SPECS\n(\"name:pane:tree ...\") and of the machine. LIMIT_MIN (30) flags a\nbackground job running that many minutes or more.\n\nWith --route, prints one route's lifecycle state and its pair, flagging\na pair left pending. <route> is a route name, a route folder, or @.\n\nexit codes:\n  0  the snapshot was printed\n  2  usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid\n     LIMIT_MIN\n",
+      "help": "usage: herdsman status\n       herdsman status --route <route>\n\nPrints a health snapshot of every agent in HERDSMAN_STATUS_SPECS\n(\"name:pane:tree ...\") and of the machine. LIMIT_MIN (30) flags a\nbackground job running that many minutes or more.\n\nWith --route, prints one route's lifecycle state and its pair, flagging\na pair left pending, then each execution as the daemon's RuntimeService\nreports it: identity, process, readiness, program status, visibility\n(with the app open or closed), why it waits on a person, unresolved\nitems, notices by state, and the controls its backend allows, each on\nits own line. <route> is a route name, a route folder, or @.\n\nexit codes:\n  0  the snapshot was printed\n  2  usage error, HERDSMAN_STATUS_SPECS is not set, or an invalid\n     LIMIT_MIN\n",
       "usage": [
         "herdsman status",
         "herdsman status --route <route>"
@@ -2302,6 +2910,100 @@
         {
           "code": "1",
           "meaning": "the entry or source was not found, or a recipe was refused or failed"
+        },
+        {
+          "code": "2",
+          "meaning": "bad usage"
+        }
+      ]
+    },
+    {
+      "name": "task",
+      "summary": "Keep the tasks of each project.",
+      "help": "usage: herdsman task create <title> [--project <project>] [--id <slug>] [--slug <slug>]\n                            [--body <text>] [--body-file <path>]\n                            [--label <label>]... [--repo <name>]... [--json]\n       herdsman task show <task> [--project <project>] [--json]\n       herdsman task list [--project <project>] [--all] [--status <status>]\n                          [--repo <name>] [--label <label>] [--json]\n       herdsman task update <task> [--project <project>] [--title <text>] [--body <text>]\n                            [--status <status>] [--add-repo <name>]... [--remove-repo <name>]...\n                            [--label <label>]... [--unlabel <label>]...\n                            [--add-label <label>]... [--remove-label <label>]... [--json]\n       herdsman task delete <task> [--project <project>] [--force]\n       herdsman task link <task> <link> [--project <project>] [--repo <name>] [--json]\n\nKeeps the tasks of each project. <task> is a slug, an id, or @ for the task of\nthe current worktree. A <status> is todo, doing, review, done or archived. A\n<link> is pr:<n>, issue:<n> or a URL; --repo may be left out when the task\nnames one repository. A task's project cannot change. delete refuses a task\nthat still has a worktree or runs in a route, and names down. --slug is --id,\n--add-label is --label and --remove-label is --unlabel. With no arguments on a\nterminal, task create opens a form.\n\nexit codes:\n  0  done\n  1  the record was not found, the change was refused, or the call failed\n  2  bad usage\n",
+      "usage": [
+        "herdsman task create <title> [--project <project>] [--id <slug>] [--slug <slug>]"
+      ],
+      "positionals": [
+        {
+          "name": "title"
+        }
+      ],
+      "flags": [
+        {
+          "name": "--add-label",
+          "valueName": "label"
+        },
+        {
+          "name": "--add-repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--all"
+        },
+        {
+          "name": "--body",
+          "valueName": "text"
+        },
+        {
+          "name": "--body-file",
+          "valueName": "path"
+        },
+        {
+          "name": "--force"
+        },
+        {
+          "name": "--id",
+          "valueName": "slug"
+        },
+        {
+          "name": "--json"
+        },
+        {
+          "name": "--label",
+          "valueName": "label"
+        },
+        {
+          "name": "--project",
+          "valueName": "project"
+        },
+        {
+          "name": "--remove-label",
+          "valueName": "label"
+        },
+        {
+          "name": "--remove-repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--repo",
+          "valueName": "name"
+        },
+        {
+          "name": "--slug",
+          "valueName": "slug"
+        },
+        {
+          "name": "--status",
+          "valueName": "status"
+        },
+        {
+          "name": "--title",
+          "valueName": "text"
+        },
+        {
+          "name": "--unlabel",
+          "valueName": "label"
+        }
+      ],
+      "exitCodes": [
+        {
+          "code": "0",
+          "meaning": "done"
+        },
+        {
+          "code": "1",
+          "meaning": "the record was not found, the change was refused, or the call failed"
         },
         {
           "code": "2",
@@ -2583,7 +3285,7 @@
     {
       "name": "up",
       "summary": "Start a route: workspace, private inbox, both coordinators, the pair and the first brief.",
-      "help": "usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]\n                   [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]\n                   [--pair auto|manual] [--web] [--no-attach] [--dry-run]\n       herdsman up [<route>] --continue [--step <n>=done|rerun]...\n\n-a and -o are the commands that launch each coordinator's harness, typed as you\nwould type them: \"claude doctor && claude --model opus\".\n-c names a config file. Its [launch] section starts the coordinator that has\nno -a or -o; a command given on the line wins.\n--dry-run prints the whole plan and starts nothing.\n--web also starts the web app on the route.\n--pair manual asks on the terminal before the pair is approved. Under the\nrestricted profile it is the default and auto is refused.\nA second up on the same route picks up where the first stopped.\n",
+      "help": "usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]\n                   [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]\n                   [--pair auto|manual] [--web] [--no-attach] [--dry-run]\n                   [--backend herdr-core|herdr-tui]\n       herdsman up [<route>] --continue [--step <n>=done|rerun]...\n\n-a and -o are the commands that launch each coordinator's harness, typed as you\nwould type them: \"claude doctor && claude --model opus\".\n-c names a config file. Its [launch] section starts the coordinator that has\nno -a or -o; a command given on the line wins.\n--dry-run prints the whole plan and starts nothing.\n--web also starts the web app on the route.\n--pair manual asks on the terminal before the pair is approved. Under the\nrestricted profile it is the default and auto is refused.\n--backend picks where the agents run for this start only. Without it the\nconfig file's [runtime] backend decides, then the installation default\n(herdsman runtime default). A route that exists keeps its own backend.\nA second up on the same route picks up where the first stopped.\nherdr-core ships as an experiment: a new route there also needs\nexperimental = true in [runtime.core]. On herdr-core, up runs no herdr command\nand types into no terminal. Before it starts, it prints each agent's steps\nthat will need a person, as runtime doctor reports each harness. It stops for\na person twice, exits 1 and says \"waiting for a person\": until the herdr app\nhas shown the core once (waiting_for_visibility), and for each harness's\nstart line, which a person submits in the agent's pane (needs_attention).\nThen run up --continue. --pair manual and the restricted profile are refused\non herdr-core.\n",
       "usage": [
         "herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]"
       ],
@@ -2596,6 +3298,10 @@
         {
           "name": "--adjutant-kind",
           "valueName": "kind"
+        },
+        {
+          "name": "--backend",
+          "valueName": "herdr-core|herdr-tui"
         },
         {
           "name": "--continue"

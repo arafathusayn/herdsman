@@ -6,6 +6,7 @@ Report a suite's runs with intervals and an A/A control (experimental).
 
 ```text
 usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]
+       herdsman eval --experimental-eval run <suite folder> [--local] [--json]
        herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>
                      --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]
        herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed
@@ -15,6 +16,18 @@ releases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per
 arm: counts, and 95% confidence intervals of pass rate, duration and cost, with
 an A/A control of two groups of the same arm. Every arm needs its own control;
 a suite with an arm that has none is refused. Only ranges are reported, never a single value.
+
+run executes the suite described by suite.json in the folder: {"tasks":
+[{"id","prompt","check"}], "arms":[{"name","kind","command"}], "runs",
+"control_runs", "timeout_seconds"}. Every run gets a new repository and its own
+route, started as up starts one with the arm's command as the agent; ordinary
+runs and the two halves of each arm's A/A control are interleaved, then the
+report above is printed. The agent is told to create .eval-done when finished;
+a run passes when it did and the task's check exits 0. It may write
+{"tokens","cost_micros"} to .eval-usage.json. The route is stopped afterwards.
+With --local a command runs directly, with no route or herdr: it gets the prompt
+in HERDSMAN_EVAL_PROMPT and may report usage in the file HERDSMAN_EVAL_USAGE
+names, and a run passes when the command and the check exit 0.
 
 Each --findings route adds its reviewer findings, counted by outcome. --rank
 never ranks: it reports why not, and exits 3.
@@ -30,6 +43,7 @@ exit codes:
 
 ```text
 usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]
+       herdsman eval --experimental-eval run <suite folder> [--local] [--json]
        herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>
                      --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]
        herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed
@@ -39,6 +53,55 @@ releases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per
 arm: counts, and 95% confidence intervals of pass rate, duration and cost, with
 an A/A control of two groups of the same arm. Every arm needs its own control;
 a suite with an arm that has none is refused. Only ranges are reported, never a single value.
+
+run executes the suite described by suite.json in the folder: {"tasks":
+[{"id","prompt","check"}], "arms":[{"name","kind","command"}], "runs",
+"control_runs", "timeout_seconds"}. Every run gets a new repository and its own
+route, started as up starts one with the arm's command as the agent; ordinary
+runs and the two halves of each arm's A/A control are interleaved, then the
+report above is printed. The agent is told to create .eval-done when finished;
+a run passes when it did and the task's check exits 0. It may write
+{"tokens","cost_micros"} to .eval-usage.json. The route is stopped afterwards.
+With --local a command runs directly, with no route or herdr: it gets the prompt
+in HERDSMAN_EVAL_PROMPT and may report usage in the file HERDSMAN_EVAL_USAGE
+names, and a run passes when the command and the check exit 0.
+
+Each --findings route adds its reviewer findings, counted by outcome. --rank
+never ranks: it reports why not, and exits 3.
+
+exit codes:
+  0  reported or recorded
+  1  a file could not be read or written, or the suite has no A/A control
+  2  bad usage, or the experimental flag is missing
+  3  a ranking was asked for and refused
+```
+
+## herdsman eval run
+
+```text
+usage: herdsman eval --experimental-eval <suite folder> [--json] [--findings <route folder>]... [--rank]
+       herdsman eval --experimental-eval run <suite folder> [--local] [--json]
+       herdsman eval --experimental-eval finding add <route folder> --reviewer <name> --severity <level>
+                     --title <text> [--id <id>] [--task <task>] [--head <commit>] [--file <path>] [--line <n>]
+       herdsman eval --experimental-eval finding outcome <route folder> <id> dismissed|accepted|fixed
+
+Experimental: the flag is required and the format can change between minor
+releases. Reports a suite's recorded runs (runs.jsonl in the suite folder) per
+arm: counts, and 95% confidence intervals of pass rate, duration and cost, with
+an A/A control of two groups of the same arm. Every arm needs its own control;
+a suite with an arm that has none is refused. Only ranges are reported, never a single value.
+
+run executes the suite described by suite.json in the folder: {"tasks":
+[{"id","prompt","check"}], "arms":[{"name","kind","command"}], "runs",
+"control_runs", "timeout_seconds"}. Every run gets a new repository and its own
+route, started as up starts one with the arm's command as the agent; ordinary
+runs and the two halves of each arm's A/A control are interleaved, then the
+report above is printed. The agent is told to create .eval-done when finished;
+a run passes when it did and the task's check exits 0. It may write
+{"tokens","cost_micros"} to .eval-usage.json. The route is stopped afterwards.
+With --local a command runs directly, with no route or herdr: it gets the prompt
+in HERDSMAN_EVAL_PROMPT and may report usage in the file HERDSMAN_EVAL_USAGE
+names, and a run passes when the command and the check exit 0.
 
 Each --findings route adds its reviewer findings, counted by outcome. --rank
 never ranks: it reports why not, and exits 3.

@@ -29,6 +29,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/secrets"
+	"github.com/arafathusayn/herdsman/sdk/client"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
@@ -113,6 +114,13 @@ func NewServer(c *herdr.Client, hub *Hub, q *Queue, cfg Config) *Server {
 	}
 	if q != nil {
 		q.redactor, q.refuseStart = cfg.Redactor, cfg.RefuseAgentStart
+		if cfg.DaemonSocket != "" && q.runtime == nil {
+			// Actions keyed by an execution go to the daemon's
+			// RuntimeService, through the SDK like every other surface.
+			if sdk, err := client.Dial(client.Options{Socket: cfg.DaemonSocket}); err == nil {
+				q.runtime = sdk.Runtime
+			}
+		}
 	}
 	return &Server{
 		hub: hub, queue: q, client: c, cfg: cfg, devices: newDevices(cfg.Token), assets: sub,

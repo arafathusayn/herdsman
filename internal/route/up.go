@@ -15,10 +15,16 @@ import (
 	"time"
 
 	"github.com/arafathusayn/herdsman/internal/herdr"
+	"github.com/arafathusayn/herdsman/internal/herdrapp"
+	"github.com/arafathusayn/herdsman/internal/inbox"
 	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/policy"
 	"github.com/arafathusayn/herdsman/internal/profile"
+	"github.com/arafathusayn/herdsman/internal/runtime"
+	"github.com/arafathusayn/herdsman/internal/runtime/core"
+	"github.com/arafathusayn/herdsman/internal/runtime/coreconfig"
+	"github.com/arafathusayn/herdsman/internal/runtime/legacytui"
 	"github.com/arafathusayn/herdsman/internal/secrets"
 )
 
@@ -85,6 +91,11 @@ type UpRequest struct {
 	SecretRefs string
 	// Protected names paths a sandbox root may not hold.
 	Protected []string
+	// Backend is the resolved execution backend (runtime.Resolve). Empty is
+	// the Herdr TUI, as every start journaled before backends existed.
+	Backend string
+	// Core configures a start on herdr-core; the daemon fills it.
+	Core *CoreLaunch
 }
 
 // UpPlan is the computed start: the journal's operation and what to print.
@@ -140,6 +151,11 @@ type stepData struct {
 	Tag string `json:"tag,omitempty"`
 	// Control is set on the steps of a pause, resume, stop or delete.
 	Control *controlData `json:"control,omitempty"`
+	// Backend is the execution backend the route runs on. A step journaled
+	// before backends existed has none and reads as the Herdr TUI.
+	Backend string `json:"backend,omitempty"`
+	// Core is set on the steps of a herdr-core launch.
+	Core *coreData `json:"core,omitempty"`
 }
 
 // sandboxData is what confines one agent, resolved when the agent starts
@@ -166,6 +182,40 @@ func Describe(op *ops.Operation) Facts {
 		return Facts{}
 	}
 	return Facts{Route: d.Route, Folder: d.Folder, Inbox: d.Inbox, Workspace: d.Workspace}
+}
+
+// BackendOf is the execution backend a journaled start runs on. A start
+// journaled before backends existed is a Herdr TUI start.
+func BackendOf(op *ops.Operation) string {
+	if len(op.Steps) == 0 {
+		return runtime.BackendTUI
+	}
+	d, err := decode(op.Steps[0])
+	if err != nil {
+		return runtime.BackendTUI
+	}
+	return runtime.LegacyBackend(d.Backend)
+}
+
+// Agent is one coordinator a journaled start launches.
+type Agent struct {
+	Name, Role, Kind, Socket, Backend string
+}
+
+// AgentsOf lists the agents a journaled start launches, in start order.
+func AgentsOf(op *ops.Operation) []Agent {
+	var out []Agent
+	for _, st := range op.Steps {
+		if st.Effect != effectAgent {
+			continue
+		}
+		d, err := decode(st)
+		if err != nil {
+			continue
+		}
+		out = append(out, Agent{Name: d.Name, Role: d.Label, Kind: d.Kind, Socket: d.Socket, Backend: runtime.LegacyBackend(d.Backend)})
+	}
+	return out
 }
 
 // PlanOf rebuilds a plan from a journaled start, so a resume needs none of the
@@ -238,7 +288,7 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	base := stepData{Key: p.Key, Route: q.Route, Repo: q.Repo, Folder: p.Folder, Workspace: p.Workspace, Socket: q.HerdrSocket, Executable: q.Executable}
+	base := stepData{Key: p.Key, Route: q.Route, Repo: q.Repo, Folder: p.Folder, Workspace: p.Workspace, Socket: q.HerdrSocket, Executable: q.Executable, Backend: q.Backend}
 	var coordinators []compiled
 	if !q.NoAdjutant {
 		p.AdjutantName = repoName + "-" + q.Route + "-adjutant"
@@ -264,7 +314,25 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 	if _, err := secrets.ParseRefs(q.SecretRefs); err != nil {
 		return nil, err
 	}
-	channelEnv := map[string]string{}
+	if runtime.LegacyBackend(q.Backend) == runtime.BackendCore {
+		var text strings.Builder
+		fmt.Fprintf(&text, "route: %s\nfolder: %s\nspace: %s\n", q.Route, p.Folder, p.Workspace)
+		if p.Inbox != "" {
+			fmt.Fprintf(&text, "inbox: %s\n", p.Inbox)
+		}
+		if q.ConfigPath != "" {
+			fmt.Fprintf(&text, "config: %s\n", q.ConfigPath)
+		}
+		steps, err := planCore(q, p, coordinators, &text)
+		if err != nil {
+			return nil, err
+		}
+		announceStarted(steps, p, q)
+		p.Spec = ops.Spec{Key: p.Key, Kind: OperationKind, Plan: text.String(), Steps: steps}
+		p.Text = text.String()
+		return p, nil
+	}
+	channelEnv := map[string]string{"HERDSMAN_ROUTE_FOLDER": p.Folder}
 	if !q.NoAdjutant {
 		channelEnv["HERDSMAN_INBOX"] = p.Inbox
 		channelEnv["HERDSMAN_PREFLIGHT"] = filepath.Join(p.Inbox, "setup.json")
@@ -559,6 +627,87 @@ type Deps struct {
 	Down func(ctx context.Context, repo, folder string) error
 	// Teardown stops a route's task processes, given the repo and route folder.
 	Teardown func(ctx context.Context, repo, folder string) error
+	// Runtime holds the providers of the backends this build runs (nil: the
+	// Herdr TUI only). A step of a backend it lacks fails with a diagnostic
+	// that names the TUI; nothing falls back.
+	Runtime runtime.Registry
+	// Executions records the execution a launch step adopted or created (nil:
+	// nothing is recorded).
+	Executions func(context.Context, runtime.Execution) error
+	// Services runs the supporting services of a route on herdr-core as the
+	// daemon's own (nil: a core start that needs one fails by name).
+	Services Services
+	// CoreChannel is the daemon's pair channel for routes on herdr-core
+	// (nil: a core start with an adjutant fails by name).
+	CoreChannel CoreChannel
+	// Channels is the daemon's registry of route channels, which a delete
+	// tells to forget the route once its inbox is gone (nil: nothing is
+	// registered, and nothing is forgotten).
+	Channels ChannelRegistry
+	// CoreApp is the app a herdr-core step shows its agents in, from the
+	// route's [runtime.app] (nil: the provider's own).
+	CoreApp func(coreconfig.App) *herdrapp.App
+
+	// rt is the provider of the step being applied or probed.
+	rt runtime.Provider
+}
+
+// DefaultRuntime is the registry of this build: the Herdr TUI only, until the
+// herdr-core provider lands.
+func DefaultRuntime() runtime.Registry {
+	r := runtime.Registry{}
+	legacytui.Register(r)
+	return r
+}
+
+// open is the provider of a step's backend on the step's endpoint.
+func (deps Deps) open(d stepData) (runtime.Provider, error) {
+	reg := deps.Runtime
+	if reg == nil {
+		reg = DefaultRuntime()
+	}
+	p, err := reg.Open(runtime.LegacyBackend(d.Backend), d.Socket)
+	if err != nil {
+		return nil, err
+	}
+	// A core step runs with its route's app and connect timeout, as
+	// journaled with the launch.
+	if cp, ok := p.(*core.Provider); ok && d.Core != nil {
+		if d.Core.App != nil && deps.CoreApp != nil {
+			if app := deps.CoreApp(*d.Core.App); app != nil {
+				cp.App = app
+			}
+		}
+		cp.Options.ConnectTimeout = d.Core.Timeouts.ConnectTimeout()
+	}
+	return p, nil
+}
+
+// provider is the step's provider; a test that calls an effect directly
+// gets the Herdr TUI on c.
+func (deps Deps) provider(c *herdr.Client) runtime.Provider {
+	if deps.rt != nil {
+		return deps.rt
+	}
+	return legacytui.New("", c)
+}
+
+// tui is the step's provider as the Herdr TUI, for the steps that are still
+// TUI-only; another backend is refused by name.
+func (deps Deps) tui(c *herdr.Client) (*legacytui.Provider, error) {
+	if t, ok := deps.provider(c).(*legacytui.Provider); ok {
+		return t, nil
+	}
+	return nil, runtime.Unavailable(deps.rt.Backend(), "for this step yet")
+}
+
+// verifier is the identity check of the step's backend.
+func (deps Deps) verifier(c *herdr.Client) inbox.Verifier {
+	if t, ok := deps.provider(c).(*legacytui.Provider); ok {
+		return t.Verifier()
+	}
+	// No other backend verifies through the TUI; its references stay unknown.
+	return inbox.TUIVerifier{Client: c}
 }
 
 type effect struct {
@@ -574,22 +723,30 @@ func decode(s ops.Step) (stepData, error) {
 	return d, err
 }
 
-// Apply runs the step.
+// Apply runs the step on its backend's provider.
 func (e effect) Apply(ctx context.Context, s ops.Step) error {
 	d, err := decode(s)
 	if err != nil {
 		return err
 	}
-	return e.apply(ctx, e.deps, herdr.New(d.Socket), d)
+	deps := e.deps
+	if deps.rt, err = deps.open(d); err != nil {
+		return err
+	}
+	return e.apply(ctx, deps, legacytui.ClientOf(deps.rt), d)
 }
 
-// Probe looks for the step's effect.
+// Probe looks for the step's effect on its backend's provider.
 func (e effect) Probe(ctx context.Context, s ops.Step) (ops.Verdict, string, error) {
 	d, err := decode(s)
 	if err != nil {
 		return ops.Unknown, "", err
 	}
-	return e.probe(ctx, e.deps, herdr.New(d.Socket), d)
+	deps := e.deps
+	if deps.rt, err = deps.open(d); err != nil {
+		return ops.Unknown, err.Error(), nil
+	}
+	return e.probe(ctx, deps, legacytui.ClientOf(deps.rt), d)
 }
 
 // Effects returns every effect a route's start uses.
@@ -620,6 +777,7 @@ func Effects(deps Deps) map[string]ops.Effect {
 		effectBrief:     effect{deps, applyPrompt, probeSent},
 		effectClone:     effect{deps, applyClone, probeClone},
 	})
+	maps.Copy(effects, coreEffects(deps))
 	return effects
 }
 
@@ -753,47 +911,73 @@ func probePrelude(_ context.Context, _ Deps, _ *herdr.Client, d stepData) (ops.V
 	return ops.Absent, decision.Reason, nil
 }
 
+// applyAgent reconciles the agent's launch intent through the provider: an
+// agent already there is adopted, otherwise its pane is readied and the agent
+// started. The execution is then recorded.
 func applyAgent(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
-	if v, _, err := probeAgent(ctx, deps, c, d); err == nil && v == ops.Matches {
-		return nil
-	}
-	args, err := confinedArgs(d)
+	rt := deps.provider(c)
+	got, err := rt.EnsureExecution(ctx, runtime.Intent{
+		ID: launchIntent(d), Name: d.Name, Kind: d.Kind, Role: d.Label, Timeout: deps.AgentTimeout,
+		Place: func(ctx context.Context) (string, []string, error) {
+			args, err := confinedArgs(d)
+			if err != nil {
+				return "", nil, err
+			}
+			pane, err := ensurePane(ctx, deps, c, d)
+			return pane, args, err
+		},
+	})
 	if err != nil {
 		return err
 	}
-	pane, err := ensurePane(ctx, deps, c, d)
-	if err != nil {
-		return err
-	}
-	_, err = c.AgentStart(ctx, d.Name, d.Kind, pane, args, int(deps.AgentTimeout.Milliseconds()))
-	return err
+	return recordExecution(ctx, deps, rt, d, got)
 }
 
-func probeAgent(ctx context.Context, _ Deps, c *herdr.Client, d stepData) (ops.Verdict, string, error) {
-	record, err := c.AgentGet(ctx, d.Name)
+// launchIntent names one agent's launch. On the Herdr TUI an agent is its
+// name in its route; the pane it gets tells its generations apart.
+func launchIntent(d stepData) string {
+	return "up:" + d.Repo + ":" + d.Route + ":" + d.Name
+}
+
+// recordExecution writes the execution a launch adopted or created, when the
+// caller keeps records.
+func recordExecution(ctx context.Context, deps Deps, rt runtime.Provider, d stepData, got runtime.Ensured) error {
+	if deps.Executions == nil || (got.Outcome != runtime.OutcomeAdopted && got.Outcome != runtime.OutcomeCreated) {
+		return nil
+	}
+	now := time.Now()
+	ins := got.Execution
+	obs := ins.Observation
+	if obs.ObservedAt.IsZero() {
+		obs.ObservedAt = now
+	}
+	e := runtime.Execution{
+		SchemaVersion: runtime.SchemaVersion, ID: runtime.NewExecutionID(), Repo: d.Repo, Route: d.Route, Agent: d.Name, Role: d.Label,
+		LaunchIntent: launchIntent(d) + ":" + ins.Pane, Backend: rt.Backend(), EndpointID: d.Socket, Pane: ins.Pane,
+		TerminalAddress: ins.TerminalAddress, Evidence: ins.Evidence, Cwd: d.paneFolder(), HarnessKind: d.Kind,
+		Conversation: ins.Conversation, Desired: runtime.DesiredRunning, Observation: obs, Created: now, Updated: now,
+	}
+	if rt.Backend() == runtime.BackendTUI {
+		e.TUI = &runtime.TUIBinding{Socket: d.Socket, Pane: ins.Pane}
+	}
+	return deps.Executions(ctx, e)
+}
+
+func probeAgent(ctx context.Context, deps Deps, c *herdr.Client, d stepData) (ops.Verdict, string, error) {
+	got, err := deps.provider(c).Inspect(ctx, runtime.Target{Name: d.Name})
 	if err != nil {
-		if isNotFound(err) {
-			return ops.Absent, "no agent named " + d.Name, nil
-		}
 		return ops.Unknown, "", err
 	}
-	if got := agentKind(record); got != "" && got != d.Kind {
-		return ops.Different, fmt.Sprintf("an agent named %s runs %s, not %s", d.Name, got, d.Kind), nil
+	if !got.Exists {
+		return ops.Absent, "no agent named " + d.Name, nil
+	}
+	if got.Kind != "" && got.Kind != d.Kind {
+		return ops.Different, fmt.Sprintf("an agent named %s runs %s, not %s", d.Name, got.Kind, d.Kind), nil
 	}
 	return ops.Matches, "", nil
 }
 
-func agentKind(record herdr.AgentRecord) string {
-	if record.Agent.Agent == nil {
-		return ""
-	}
-	return *record.Agent.Agent
-}
-
-func isNotFound(err error) bool {
-	var he *herdr.Error
-	return errors.As(err, &he) && strings.Contains(he.Code, "not_found")
-}
+func isNotFound(err error) bool { return legacytui.IsNotFound(err) }
 
 // sentStamp is written after a text reached an agent, the only record that a
 // prompt was delivered.
@@ -801,11 +985,11 @@ func sentStamp(d stepData) string {
 	return filepath.Join(d.Folder, ".steps", "sent-"+d.Tag+"-"+strings.ReplaceAll(d.Name, "/", "-"))
 }
 
-func applyPrompt(ctx context.Context, _ Deps, c *herdr.Client, d stepData) error {
+func applyPrompt(ctx context.Context, deps Deps, c *herdr.Client, d stepData) error {
 	if _, err := os.Stat(sentStamp(d)); err == nil {
 		return nil
 	}
-	if err := c.AgentPrompt(ctx, d.Name, d.Prompt); err != nil {
+	if _, err := deps.provider(c).Deliver(ctx, runtime.Target{Name: d.Name}, runtime.Delivery{Text: d.Prompt, Tag: d.Tag}); err != nil {
 		return err
 	}
 	return writeFileNew(sentStamp(d), nil)
@@ -860,6 +1044,9 @@ func Continue(e *ops.Engine, callers *Callers, p *UpPlan, op *ops.Operation, ove
 		}
 	}
 	if len(overrides) == 0 && (op.State == ops.OpStopped || op.State == ops.OpConflict) {
+		if BackendOf(op) == runtime.BackendCore {
+			return continueCore(e, op)
+		}
 		for _, st := range op.Steps {
 			if st.Effect == effectApprove && st.State == ops.StepIntended {
 				return e.Resolve(op.ID, st.Ordinal, ops.ResolveRerun)

@@ -8,6 +8,7 @@ Start a route: workspace, private inbox, both coordinators, the pair and the fir
 usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]
                    [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]
                    [--pair auto|manual] [--web] [--no-attach] [--dry-run]
+                   [--backend herdr-core|herdr-tui]
        herdsman up [<route>] --continue [--step <n>=done|rerun]...
 
 -a and -o are the commands that launch each coordinator's harness, typed as you
@@ -18,5 +19,17 @@ no -a or -o; a command given on the line wins.
 --web also starts the web app on the route.
 --pair manual asks on the terminal before the pair is approved. Under the
 restricted profile it is the default and auto is refused.
+--backend picks where the agents run for this start only. Without it the
+config file's [runtime] backend decides, then the installation default
+(herdsman runtime default). A route that exists keeps its own backend.
 A second up on the same route picks up where the first stopped.
+herdr-core ships as an experiment: a new route there also needs
+experimental = true in [runtime.core]. On herdr-core, up runs no herdr command
+and types into no terminal. Before it starts, it prints each agent's steps
+that will need a person, as runtime doctor reports each harness. It stops for
+a person twice, exits 1 and says "waiting for a person": until the herdr app
+has shown the core once (waiting_for_visibility), and for each harness's
+start line, which a person submits in the agent's pane (needs_attention).
+Then run up --continue. --pair manual and the restricted profile are refused
+on herdr-core.
 ```

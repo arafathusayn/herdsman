@@ -320,7 +320,7 @@ func TestASendPreviewKnowsItsKey(t *testing.T) {
 // Side-agent data goes through only under RELAY, in a preview as in the send.
 func TestASideAgentPreviewFollowsTheAuthority(t *testing.T) {
 	h := newHarness(t)
-	adj, orch, _ := h.route("r")
+	adj, orch, dir := h.route("r")
 	s := &messageService{d: h.d}
 	ctx := partyContext(context.Background(), adj)
 	preview := func() error {
@@ -334,6 +334,20 @@ func TestASideAgentPreviewFollowsTheAuthority(t *testing.T) {
 	if err := preview(); err != nil {
 		t.Fatalf("under RELAY: %v", err)
 	}
+	pending := filepath.Join(dir, "state", "exposure-pending", "1-1-1.json")
+	if err := os.MkdirAll(filepath.Dir(pending), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pending, []byte(`{"version":1,"time":1,"unknown":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := inboxFingerprint(t, dir)
+	if err := preview(); codeOf(err) != rpc.FailedPrecondition {
+		t.Fatalf("pending exposure: %v", err)
+	}
+	if after := inboxFingerprint(t, dir); after != before {
+		t.Fatal("preview folded an exposure record")
+	}
 }
 
 func TestAClaimPreviewAcceptsAFirstRead(t *testing.T) {
@@ -346,5 +360,44 @@ func TestAClaimPreviewAcceptsAFirstRead(t *testing.T) {
 	}
 	if len(res.GetPlan().GetSteps()) != 1 || res.GetClaim() != "" {
 		t.Fatalf("response %v", res)
+	}
+}
+
+func TestPreviewOfStaleProofChangesNothing(t *testing.T) {
+	h := newHarness(t)
+	adj, orch, inbox := h.route("r")
+	s := &messageService{d: h.d}
+	ctx := partyContext(t.Context(), adj)
+	if err := os.WriteFile(h.rules, []byte("changed policy"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	before := inboxFingerprint(t, inbox)
+	for _, call := range []func() error{
+		func() error {
+			_, err := s.Send(ctx, &daemonv1.SendRequest{Route: routeID("r"), To: orch.name, Kind: "brief", Body: "x", Key: key(), DryRun: true})
+			return err
+		},
+		func() error {
+			_, err := s.Claim(ctx, &daemonv1.ClaimRequest{Route: routeID("r"), ReadKey: key(), DryRun: true})
+			return err
+		},
+		func() error {
+			_, err := s.Ack(ctx, &daemonv1.AckRequest{Route: routeID("r"), Claim: key(), Id: wireMessageID("m000000000001"), Record: "done", DryRun: true})
+			return err
+		},
+	} {
+		if err := call(); codeOf(err) != rpc.FailedPrecondition {
+			t.Fatalf("preview: %v", err)
+		}
+	}
+	if after := inboxFingerprint(t, inbox); after != before {
+		t.Fatal("preview wrote stale-proof state")
+	}
+	_, err := s.Send(ctx, &daemonv1.SendRequest{Route: routeID("r"), To: orch.name, Kind: "brief", Body: "x", Key: key()})
+	if codeOf(err) != rpc.FailedPrecondition {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(inbox, "state", proofLatch)); err != nil {
+		t.Fatalf("actual delivery did not latch stale proof: %v", err)
 	}
 }

@@ -75,6 +75,26 @@ func SocketPath(session string) (string, error) {
 	return filepath.Join(dir, "sessions", session, "herdr.sock"), nil
 }
 
+// SocketPathFor is SocketPath for a caller whose environment is not this
+// process's.
+func SocketPathFor(getenv func(string) string) (string, error) {
+	if p := getenv("HERDR_SOCKET_PATH"); p != "" {
+		return p, nil
+	}
+	dir := getenv("XDG_CONFIG_HOME")
+	if dir != "" {
+		dir = filepath.Join(dir, "herdr")
+	} else if home := getenv("HOME"); home != "" {
+		dir = filepath.Join(home, ".config", "herdr")
+	} else {
+		return "", errors.New("herdr: the caller has no HOME")
+	}
+	if session := getenv("HERDR_SESSION"); session != "" {
+		return filepath.Join(dir, "sessions", session, "herdr.sock"), nil
+	}
+	return filepath.Join(dir, "herdr.sock"), nil
+}
+
 func configDir() (string, error) {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
 		return filepath.Join(x, "herdr"), nil

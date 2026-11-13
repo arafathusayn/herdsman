@@ -1,0 +1,64 @@
+.TH HERDSMAN-NOTICE 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-notice \- A managed agent's instructions on herdr-core: notice wait, notice read, notice ack.
+.SH DESCRIPTION
+.nf
+usage: herdsman notice wait [--after <id>] [--json]
+       herdsman notice read [<id>] [--json]
+       herdsman notice ack <id> --token <token> --outcome <outcome> --record <text|@file> [--json]
+
+How a managed agent on herdr-core pulls its instructions. The commands reach
+the daemon's worker socket, which the core wrapper names in
+HERDSMAN_NOTICE_SOCKET, and answer only for the calling agent's own
+execution, identified by its process. Every reply prints the next command.
+
+exit codes:
+  0  done: something to act on was printed
+  1  the daemon refused, or this is not a managed execution
+  2  bad usage
+  3  wait only: this wait was replaced by a newer one, or the execution stopped
+
+notice ack:
+usage: herdsman notice ack <id> --token <token> --outcome <outcome> --record <text|@file> [--json]
+
+Closes a claim. The outcome is completed, interrupted (the work stopped
+part-way; the record says how far) or abandoned (you will not go on, and why).
+The record is required for every outcome; @file reads it from a file. An
+acknowledgement is accepted in every route state.
+
+exit codes:
+  0  acknowledged
+  1  the daemon refused, or this is not a managed execution
+  2  bad usage
+
+notice read:
+usage: herdsman notice read [<id>] [--json]
+
+Claims a notice and prints its content and claim token. A repeat read prints
+the same token, marked as claimed before; it is not permission to do the work
+again. Without an id it prints the open claim, or claims the next notice. A
+claim that a gate refuses leaves the notice issued and says why.
+
+exit codes:
+  0  printed
+  1  the daemon refused, or this is not a managed execution
+  2  bad usage
+
+notice wait:
+usage: herdsman notice wait [--after <id>] [--json]
+
+Waits until a notice of this execution can be claimed, and prints its id and
+the command that reads it. Hold it as a background command. With --after,
+the wait says that you work on that claim: it is answered by the route's
+final-report notice, by the claim when recovery is due, or by the next notice
+once the claim is acknowledged. One command polls many times; a newer wait of
+the same execution replaces it, and it exits with code 3.
+
+exit codes:
+  0  a notice or an open claim was printed
+  1  the daemon refused, or this is not a managed execution
+  2  bad usage
+  3  replaced by a newer wait, or the execution stopped
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

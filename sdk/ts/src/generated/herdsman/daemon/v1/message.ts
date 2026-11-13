@@ -3,6 +3,34 @@
 
 import type * as herdsman_core_v1_core from "../../core/v1/core";
 
+export interface ResumeGoalRequest {
+  route?: herdsman_core_v1_core.RouteId;
+  /**
+   * The approved name of the agent whose goal is paused; never the adjutant.
+   */
+  target?: string;
+}
+
+export interface ResumeGoalResponse {
+  version?: herdsman_core_v1_core.Version;
+  /**
+   * "held": only a person resumes a paused goal on herdr-core.
+   */
+  status?: string;
+  /**
+   * "goal_paused".
+   */
+  reason?: string;
+  /**
+   * The line a person submits in the agent's terminal.
+   */
+  line?: string;
+  /**
+   * The execution whose goal is paused.
+   */
+  execution?: herdsman_core_v1_core.RuntimeRef;
+}
+
 export interface DaemonStatusRequest {
 }
 
@@ -293,6 +321,10 @@ export interface PeerInfo {
   role?: string;
   pane?: string;
   session?: string;
+  /**
+   * The peer's execution; for a herdr-tui peer it names the same pane.
+   */
+  runtime?: herdsman_core_v1_core.RuntimeRef;
 }
 
 /**
@@ -343,6 +375,10 @@ export interface InventoryAgent {
    */
   sessionJson?: string;
   agent?: string;
+  /**
+   * The agent's execution; for a herdr-tui agent it names the same pane.
+   */
+  runtime?: herdsman_core_v1_core.RuntimeRef;
 }
 
 /**
@@ -863,6 +899,16 @@ export const MessageService = {
     wait: {
       path: "/rpc/herdsman.daemon.v1.MessageService/Wait",
       signature: undefined as unknown as (request: WaitRequest) => WaitResponse,
+    },
+    /**
+     * ResumeGoal asks for a herdr-core agent's paused goal to be resumed. Nothing
+     * is typed: the daemon raises needs_attention with reason goal_paused and the
+     * line a person submits, and the result is always held. A TUI route keeps
+     * its file-mode resume-goal.
+     */
+    resumeGoal: {
+      path: "/rpc/herdsman.daemon.v1.MessageService/ResumeGoal",
+      signature: undefined as unknown as (request: ResumeGoalRequest) => ResumeGoalResponse,
     },
   },
 } as const;

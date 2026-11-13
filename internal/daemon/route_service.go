@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,10 +15,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
+	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/project"
 	"github.com/arafathusayn/herdsman/internal/route"
 	"github.com/arafathusayn/herdsman/internal/route/routechan"
+	"github.com/arafathusayn/herdsman/internal/runtime"
+	"github.com/arafathusayn/herdsman/internal/runtime/core"
 	"github.com/arafathusayn/herdsman/internal/sys"
 	"github.com/arafathusayn/herdsman/sdk/config"
 	corev1 "github.com/arafathusayn/herdsman/sdk/core/v1"
@@ -31,16 +37,28 @@ type routeService struct {
 	d *Daemon
 }
 
-// operationEffects adds the effects of a route's start to the configured ones.
-func (d *Daemon) operationEffects() map[string]ops.Effect {
+// operationEffects adds the effects of a route's start and of the project
+// records to the configured ones.
+func (d *Daemon) operationEffects(db store.Conn) map[string]ops.Effect {
+	d.worktrees = &WorktreeService{HerdrSocket: d.cfg.HerdrSocket}
+	d.teardowns = newTeardownJournal(d.worktrees)
 	teardown := d.cfg.RouteTeardown
 	if teardown == nil {
-		teardown = teardownRoute(&WorktreeService{HerdrSocket: d.cfg.HerdrSocket})
+		teardown = teardownRoute(d.worktrees)
 	}
-	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run, Recovery: d.routeRecovery(), Down: d.cfg.RouteDown, Teardown: teardown})
+	d.worktrees.Backend, d.worktrees.OnCore, d.worktrees.CoreTask = d.taskBackend, d.taskOnCore, d.coreTask
+	effects := route.Effects(route.Deps{Callers: d.callers, Channel: routechan.Run, Recovery: d.routeRecovery(), Down: d.cfg.RouteDown, Teardown: teardown,
+		Runtime: d.runtimeRegistry(), Executions: d.recordExecution, Services: daemonServices{d}, CoreChannel: coreChannel{d}, Channels: routeChannels{d}, CoreApp: d.coreApp})
+	d.worktrees.tasks = d.taskJournal()
+	maps.Copy(effects, d.worktrees.tasks.effects())
+	maps.Copy(effects, d.teardowns.effects())
+	for name, effect := range project.Effects(db) {
+		effects[name] = effect
+	}
 	for name, effect := range d.cfg.Effects {
 		effects[name] = effect
 	}
+	d.traceLaunches(effects)
 	return effects
 }
 
@@ -65,9 +83,36 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 		return nil, rpc.Errorf(rpc.FailedPrecondition, "the route is %s; bring it back with: herdsman resume %s", state, q.Route)
 	}
 	var latest *ops.Operation
+	persisted := ""
 	if len(starts) > 0 && state != route.ControlDeleted {
 		latest = starts[len(starts)-1]
 		q.Date = route.DateOf(latest)
+		persisted = route.BackendOf(latest)
+	}
+	// The backend is chosen before anything is planned: a route that exists
+	// keeps its own, and a backend this build cannot run stops the start with
+	// a diagnostic rather than another backend.
+	sel, rc, err := s.d.launchRuntime(req.GetRepo(), req.GetConfigPath(), req.GetBackend(), persisted)
+	if err != nil {
+		return nil, runtimeFailure(err)
+	}
+	q.Backend = sel.Backend
+	if sel.Experimental && !req.GetDryRun() {
+		s.d.logf("route %s: %s", q.Route, runtime.ExperimentNotice)
+	}
+	if sel.Backend == runtime.BackendCore {
+		c := s.d.coreRT()
+		if c == nil {
+			return nil, runtimeFailure(runtime.Unavailable(runtime.BackendCore, "in this daemon: its launch socket is not open"))
+		}
+		endpoint, err := keptEndpoint(rc, latest, persisted)
+		if err != nil {
+			return nil, runtimeFailure(err)
+		}
+		q.Core = c.launchFor(rc.Settings, endpoint)
+		// Harness kinds come from the core adapter registry, never herdr.
+		q.Kinds = core.Kinds()
+		c.watch(c.ctx, q.Core.Socket)
 	}
 	var plan *route.UpPlan
 	if req.GetContinue() && latest != nil {
@@ -83,7 +128,7 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 	}
 	if req.GetDryRun() {
 		return &daemonv1.UpResponse{Start: &daemonv1.RouteStart{
-			Route: &corev1.RouteId{Value: q.Route}, State: "planned", Folder: plan.Folder, Inbox: plan.Inbox, Workspace: plan.Workspace, Plan: plan.Text,
+			Route: &corev1.RouteId{Value: q.Route}, State: "planned", Folder: plan.Folder, Inbox: plan.Inbox, Workspace: plan.Workspace, Plan: plan.Text, Backend: sel.Backend,
 		}}, nil
 	}
 	caller, err := s.verifiedCaller(ctx, req.GetCaller())
@@ -101,6 +146,11 @@ func (s *routeService) Up(ctx context.Context, req *daemonv1.UpRequest) (*daemon
 	op, err := s.begin(ctx, plan, latest, starts, verdicts, req.GetContinue())
 	if err != nil {
 		return nil, err
+	}
+	if c := s.d.coreRT(); c != nil {
+		if ep, ok := route.CoreEndpointOf(op); ok {
+			c.remember(q.Repo, q.Route, ep, route.CoreAppOf(op))
+		}
 	}
 	s.d.driveLater(op.ID)
 	return &daemonv1.UpResponse{Start: startOf(op)}, nil
@@ -226,8 +276,19 @@ func (s *routeService) verifiedCaller(ctx context.Context, claimed *daemonv1.UpC
 	if err != nil {
 		return route.Caller{}, rpc.Errorf(rpc.PermissionDenied, "identify the caller: %v", err)
 	}
-	tty, harness := inspectCaller(peer.PID, systemProcFacts)
-	return route.Caller{Pane: claimed.GetPane(), PID: peer.PID, Started: identity.Start, TTY: tty, HarnessAncestor: harness, Confirmed: claimed.GetConfirmedChecksum()}, nil
+	facts := inspectCaller(peer.PID, systemProcFacts)
+	caller := route.Caller{
+		Pane: claimed.GetPane(), PID: peer.PID, Started: identity.Start, TTY: facts.tty,
+		HarnessAncestor: facts.harness, CoreCommand: facts.coreCommand, Confirmed: claimed.GetConfirmedChecksum(),
+	}
+	// A caller is an agent when its process descends from a registered
+	// core execution's process: evidence, never what the request says.
+	if c := s.d.coreRT(); c != nil {
+		if e, ok := c.callerExecution(ctx, peer.PID); ok {
+			caller.Execution = e.ID
+		}
+	}
+	return caller, nil
 }
 
 // procFacts is one process-table row.
@@ -252,27 +313,48 @@ func systemProcFacts(pid int) (procFacts, error) {
 	return procFacts{ppid: ppid, tty: fields[1], command: strings.Join(fields[2:], " ")}, nil
 }
 
-// inspectCaller reads a process's controlling terminal and looks for a coding
-// agent among it and its ancestors. A script harness runs under an interpreter,
-// so the second word of a command line counts as well as the first.
-func inspectCaller(pid int, inspect func(int) (procFacts, error)) (tty, harness string) {
+// callerFacts is what the process table says about a caller and its ancestors.
+type callerFacts struct {
+	// tty is the caller's controlling terminal.
+	tty string
+	// harness names a coding agent found among the caller and its ancestors.
+	harness string
+	// coreCommand names the program of the herdr-core terminal the caller
+	// runs in, when that program is not a shell a person types in.
+	coreCommand string
+}
+
+// inspectCaller reads a process's controlling terminal and looks among it and
+// its ancestors for a coding agent and for herdr-core. A script harness runs
+// under an interpreter, so the second word of a command line counts as well
+// as the first. The process just below a herdr-core process is the program
+// herdr-core started in a terminal: the caller itself, or the ancestor it
+// descends from. A holder sits below herdr-core's server, so a herdr-core
+// process below another is not a terminal's program.
+func inspectCaller(pid int, inspect func(int) (procFacts, error)) callerFacts {
+	var out callerFacts
+	below := "" // the command line of the process one step down the chain
 	for depth := 0; pid > 1 && depth < 64; depth++ {
 		facts, err := inspect(pid)
 		if err != nil {
-			return tty, harness
+			return out
 		}
 		if depth == 0 && facts.tty != "" && !strings.HasPrefix(facts.tty, "?") {
-			tty = "/dev/" + facts.tty
+			out.tty = "/dev/" + facts.tty
 		}
 		words := strings.Fields(facts.command)
 		for i := 0; i < len(words) && i < 2; i++ {
 			if name := filepath.Base(words[i]); slices.Contains(route.HarnessNames, name) {
-				return tty, name
+				out.harness = name
+				return out
 			}
 		}
-		pid = facts.ppid
+		if depth > 0 && out.coreCommand == "" && herdr.IsCoreProcess(facts.command) && !herdr.IsCoreProcess(below) {
+			out.coreCommand = route.CoreTerminalCommand(below)
+		}
+		below, pid = facts.command, facts.ppid
 	}
-	return tty, harness
+	return out
 }
 
 // sortStarts orders starts oldest first: by the number in the key, which each
@@ -350,16 +432,23 @@ func startOf(op *ops.Operation) *daemonv1.RouteStart {
 	facts := route.Describe(op)
 	start := &daemonv1.RouteStart{
 		Operation: op.ID, Route: &corev1.RouteId{Value: facts.Route}, State: string(op.State), Reason: op.Reason,
-		Folder: facts.Folder, Inbox: facts.Inbox, Workspace: facts.Workspace, Plan: op.Plan,
+		Folder: facts.Folder, Inbox: facts.Inbox, Workspace: facts.Workspace, Plan: op.Plan, Backend: route.BackendOf(op),
 	}
 	for _, st := range op.Steps {
 		start.Steps = append(start.Steps, &daemonv1.RouteStep{Ordinal: int32(st.Ordinal), Name: st.Name, Key: st.Key, State: string(st.State), Detail: st.Detail})
 	}
 	if facts.Inbox != "" {
 		sum, approved, err := route.PairState(facts.Inbox)
+		if route.BackendOf(op) == runtime.BackendCore {
+			sum, approved, err = route.CorePairState(facts.Folder)
+		}
 		if err == nil {
 			pair := &daemonv1.PairStatus{Checksum: sum, Approved: approved}
-			if record := filepath.Join(facts.Inbox, "pair-approval.json"); approved {
+			record := filepath.Join(facts.Inbox, "pair-approval.json")
+			if route.BackendOf(op) == runtime.BackendCore {
+				record = filepath.Join(facts.Folder, ".steps", "core-pair.json")
+			}
+			if approved {
 				if _, err := os.Stat(record); err == nil {
 					pair.Record = record
 				}

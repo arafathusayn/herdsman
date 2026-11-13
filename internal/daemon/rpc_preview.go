@@ -103,7 +103,7 @@ func (s *messageService) previewSend(ctx context.Context, route string, q SendRe
 	var earlier *SendResult
 	if e := rt.do(ctx, func() *APIError {
 		var e *APIError
-		earlier, _, _, e = rt.admitSend(me, q)
+		earlier, _, _, e = rt.admitSend(me, q, false)
 		return e
 	}); e != nil {
 		return nil, rpcFailure(ctx, e)
@@ -114,7 +114,7 @@ func (s *messageService) previewSend(ctx context.Context, route string, q SendRe
 	if q.Kind == "side_agent_data" {
 		var authority string
 		if e := rt.do(ctx, func() *APIError {
-			authority, _ = rt.authority(ctx, s.d.herdrFor(rt.name))
+			authority, _ = rt.checkAuthority(ctx, s.d.herdrFor(rt.name), false)
 			return nil
 		}); e != nil {
 			return nil, rpcFailure(ctx, e)
@@ -197,7 +197,7 @@ func (s *messageService) previewClaim(ctx context.Context, route string, q Claim
 		return nil, rpcFailure(ctx, e)
 	}
 	if e := rt.do(ctx, func() *APIError {
-		if e := rt.deliveryAllowed(); e != nil {
+		if e := rt.checkDelivery(false); e != nil {
 			return e
 		}
 		_, _, e := rt.admitClaim(me, q)
@@ -214,7 +214,7 @@ func (s *messageService) previewAck(ctx context.Context, route, claim string, q 
 		return nil, rpcFailure(ctx, e)
 	}
 	if e := rt.do(ctx, func() *APIError {
-		_, _, e := rt.admitAck(me, claim, q)
+		_, _, e := rt.admitAck(me, claim, q, false)
 		return e
 	}); e != nil {
 		return nil, rpcFailure(ctx, e)

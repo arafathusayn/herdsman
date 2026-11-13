@@ -1,6 +1,7 @@
 package approvals
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -95,5 +96,97 @@ func TestDefaultLocation(t *testing.T) {
 	}
 	if filepath.Base(store.path) != FileName {
 		t.Fatalf("path %s", store.path)
+	}
+}
+
+func TestPathNamesTheFile(t *testing.T) {
+	if got := Open("/x/y").Path(); got != "/x/y" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestStoreFailures(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Open(filepath.Join(blocker, "sub", FileName)).Approve("p", "t"); err == nil {
+		t.Fatal("wrote under a file")
+	}
+	folder := filepath.Join(dir, "folder")
+	if err := os.MkdirAll(filepath.Join(folder, "inner"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(folder).List(); err == nil {
+		t.Fatal("read a folder")
+	}
+	if err := Open(folder).Approve("p", "t"); err == nil {
+		t.Fatal("replaced a folder")
+	}
+	if _, err := Open(folder).Clear(""); err == nil {
+		t.Fatal("cleared a folder")
+	}
+	if _, err := Open(folder).Approved("p", "t"); err == nil {
+		t.Fatal("read a folder")
+	}
+	if err := Open(filepath.Join(folder, "held.toml")).write(map[string][]string{"p": {"t"}}); err != nil {
+		t.Fatal(err)
+	}
+	locked := filepath.Join(dir, "locked", FileName)
+	if err := os.MkdirAll(locked+".lock", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Open(locked).Approve("p", "t"); err == nil {
+		t.Fatal("a folder served as the lock")
+	}
+}
+
+type failingTemp struct {
+	*os.File
+	fail string
+}
+
+func (f failingTemp) Write(data []byte) (int, error) {
+	if f.fail == "write" {
+		return 0, errors.New("disk failed")
+	}
+	return f.File.Write(data)
+}
+
+func (f failingTemp) Close() error {
+	err := f.File.Close()
+	if f.fail == "close" {
+		return errors.New("disk failed")
+	}
+	return err
+}
+
+func TestDiskFailureKeepsTheApprovals(t *testing.T) {
+	old := createTemp
+	t.Cleanup(func() { createTemp = old })
+	for _, fail := range []string{"create", "write", "close"} {
+		t.Run(fail, func(t *testing.T) {
+			createTemp = old
+			path := filepath.Join(t.TempDir(), FileName)
+			store := Open(path)
+			if err := store.Approve("p", "first"); err != nil {
+				t.Fatal(err)
+			}
+			createTemp = func(dir, pattern string) (tempFile, error) {
+				if fail == "create" {
+					return nil, errors.New("disk failed")
+				}
+				file, err := os.CreateTemp(dir, pattern)
+				return failingTemp{file, fail}, err
+			}
+			if err := store.Approve("p", "second"); err == nil {
+				t.Fatal("no error")
+			}
+			createTemp = old
+			if ok, err := store.Approved("p", "first"); err != nil || !ok {
+				t.Fatalf("%v %v", ok, err)
+			}
+		})
 	}
 }

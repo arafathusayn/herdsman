@@ -30,12 +30,14 @@ type LedgerService struct {
 	Engine func(ctx context.Context) string
 	// Facts reads a live process's start time and argv.
 	Facts func(ctx context.Context, pid int) (time.Time, string, error)
+	// Created reads when a named volume or network was made.
+	Created func(ctx context.Context, kind, name string) (time.Time, error)
 }
 
 // NewLedgerService uses this machine.
 func NewLedgerService() *LedgerService {
 	reader := ledger.NewReader()
-	return &LedgerService{Read: reader.Read, Survey: reader.Survey, Run: reader.Run, Kill: syscall.Kill, Engine: reader.EngineName, Facts: reader.Facts}
+	return &LedgerService{Read: reader.Read, Survey: reader.Survey, Run: reader.Run, Kill: syscall.Kill, Engine: reader.EngineName, Facts: reader.Facts, Created: reader.Created}
 }
 
 // LedgerRequest names one task of one repository.
@@ -150,7 +152,8 @@ func (s *LedgerService) survey(ctx context.Context, base ledger.Snapshot) (ledge
 	return s.Read(ctx, base)
 }
 
-// Plan builds a task's teardown plan without acting on it.
+// Plan builds a task's teardown plan and notes what it saw, without acting on
+// anything it lists.
 func (s *LedgerService) Plan(ctx context.Context, request LedgerRequest) (ledger.Plan, error) {
 	base, state, err := s.snapshotOf(ctx, request)
 	if err != nil {
@@ -161,7 +164,11 @@ func (s *LedgerService) Plan(ctx context.Context, request LedgerRequest) (ledger
 	if err != nil {
 		return ledger.Plan{}, err
 	}
-	return ledger.BuildPlan(live), nil
+	plan := ledger.BuildPlan(live)
+	if err := ledger.NewTable(state.DB()).Observe(ctx, plan); err != nil {
+		return ledger.Plan{}, err
+	}
+	return plan, nil
 }
 
 // Resources lists a task's records and its live plan.
@@ -176,6 +183,9 @@ func (s *LedgerService) Resources(ctx context.Context, request LedgerRequest) (L
 		return LedgerResources{}, err
 	}
 	own := LedgerResources{Plan: ledger.BuildPlan(live)}
+	if err := ledger.NewTable(state.DB()).Observe(ctx, own.Plan); err != nil {
+		return LedgerResources{}, err
+	}
 	for _, record := range base.Records {
 		if record.Task == request.Task {
 			own.Records = append(own.Records, record)
@@ -184,8 +194,9 @@ func (s *LedgerService) Resources(ctx context.Context, request LedgerRequest) (L
 	return own, nil
 }
 
-// AddResource records authority over a resource. A process record is filled
-// from the machine, so its start time and argv are what a later proof reads.
+// AddResource records authority over a resource. A process, volume or network
+// record is filled from the machine, so that a later proof can tell it from a
+// reused pid or name; one whose identity cannot be read is refused.
 func (s *LedgerService) AddResource(ctx context.Context, request LedgerRequest, record ledger.Record, source string) (ledger.Record, error) {
 	state, err := wtree.OpenState(request.CommonDir)
 	if err != nil {
@@ -203,6 +214,11 @@ func (s *LedgerService) AddResource(ctx context.Context, request LedgerRequest, 
 			return ledger.Record{}, fmt.Errorf("ledger: task %q has no execution yet", request.Task)
 		}
 		record.Execution = executions[0]
+	}
+	if record.Kind == ledger.KindVolume || record.Kind == ledger.KindNetwork {
+		if record.Start, err = s.Created(ctx, record.Kind, record.ID); err != nil {
+			return ledger.Record{}, err
+		}
 	}
 	if record.Kind == ledger.KindProcess {
 		var pid int
@@ -262,6 +278,8 @@ type WorktreeTeardownPlanRequest struct {
 // WorktreeTeardownPlanResponse holds one plan per task.
 type WorktreeTeardownPlanResponse struct {
 	Plans []ledger.Plan `json:"plans"`
+	// Hooks says a teardown would run configured hooks even with nothing to stop.
+	Hooks bool `json:"hooks,omitempty"`
 }
 
 // WorktreeTeardownRequest carries what a person approved.
@@ -383,39 +401,28 @@ func (s *WorktreeService) TeardownPlan(ctx context.Context, req WorktreeTeardown
 			return resp, err
 		}
 		resp.Plans = append(resp.Plans, plan)
+		hooked, err := r.hasTeardownHooks(row)
+		if err != nil {
+			return resp, err
+		}
+		resp.Hooks = resp.Hooks || hooked
 	}
 	return resp, nil
 }
 
-// teardownOne runs the blocking stop hooks, the stop, then the background
-// hooks. A hook that fails stops this task before anything is signaled.
-func (s *WorktreeService) teardownOne(ctx context.Context, r *repository, req WorktreeTeardownRequest, plan ledger.Plan) ([]ledger.Outcome, error) {
-	row, err := wtree.ResolveSelector(wtree.Selector{Kind: wtree.SelectName, Value: plan.Task}, r.selectContext(""))
-	if err != nil {
-		return nil, err
-	}
+// hasTeardownHooks reports a task whose teardown would run a configured hook.
+func (r *repository) hasTeardownHooks(row wtree.Row) (bool, error) {
 	vars := r.vars(row.Task, row.Branch, row.Path, "feat", "", row.Head)
-	before, err := s.plan(r, "pre-teardown", vars)
-	if err != nil {
-		return nil, err
+	for _, hook := range []string{"pre-teardown", "post-teardown"} {
+		plan, err := r.hooks.Plan(hook, vars)
+		if err != nil {
+			return false, err
+		}
+		if len(plan) > 0 {
+			return true, nil
+		}
 	}
-	after, err := s.plan(r, "post-teardown", vars)
-	if err != nil {
-		return nil, err
-	}
-	runner := r.runner(vars, row.Path)
-	if _, err := runner.Run(ctx, "pre-teardown", before); err != nil {
-		return nil, err
-	}
-	outcomes, err := ledgerService.Teardown(ctx, TeardownRequest{
-		LedgerRequest: LedgerRequest{CommonDir: r.common, Task: plan.Task}, Approved: plan,
-		Grace: time.Duration(req.GraceSeconds) * time.Second, IncludeAssociated: req.IncludeAssociated,
-	})
-	if err != nil {
-		return outcomes, err
-	}
-	_, err = runner.Start("post-teardown", after)
-	return outcomes, err
+	return false, nil
 }
 
 // Teardown stops every approved plan. One task's failure is reported and does

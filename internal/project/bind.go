@@ -23,6 +23,10 @@ var (
 	idKey         = regexp.MustCompile(`^(?:id|"id"|'id')\s*=\s*(.*)$`)
 	nameKey       = regexp.MustCompile(`^(?:name|"name"|'name')\s*=\s*(.*)$`)
 	escapedKey    = regexp.MustCompile(`^"[^"]*\\`)
+	arrayProject  = regexp.MustCompile(`^\[\[\s*(?:"project"|'project'|project)\s*\]\]`)
+	nestedHeader  = regexp.MustCompile(`^\[+\s*(?:"project"|'project'|project)\s*\.\s*(?:"id"|'id'|id|"name"|'name'|name)\s*[\].]`)
+	dottedKey     = regexp.MustCompile(`^(?:id|name|"id"|"name"|'id'|'name')\s*\.`)
+	escapedName   = regexp.MustCompile(`^\[*\s*("(?:[^"\\]|\\.)*\\(?:[^"\\]|\\.)*")`)
 	stringValue   = regexp.MustCompile(`^("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$`)
 )
 
@@ -250,6 +254,9 @@ func parseConfig(path, text string) (*config, error) {
 		if !top {
 			continue
 		}
+		if err := refuseUneditable(path, line); err != nil {
+			return nil, err
+		}
 		if strings.HasPrefix(line, "[") {
 			if cfg.start >= 0 && cfg.end == 0 {
 				cfg.end = sectionEnd(cfg.lines, cfg.start, i)
@@ -276,9 +283,29 @@ func parseConfig(path, text string) (*config, error) {
 	return cfg, nil
 }
 
+// refuseUneditable stops at the spellings of project this parser cannot edit:
+// adding a [project] section beside either would leave a file TOML rejects.
+func refuseUneditable(path, line string) error {
+	if arrayProject.MatchString(line) {
+		return fmt.Errorf("%w: %s: project is an array of tables", ErrInvalid, path)
+	}
+	if nestedHeader.MatchString(line) {
+		return fmt.Errorf("%w: %s: the project's id or name is a table", ErrInvalid, path)
+	}
+	if m := escapedName.FindStringSubmatch(line); m != nil {
+		if name, err := strconv.Unquote(m[1]); err == nil && name == "project" {
+			return fmt.Errorf("%w: %s: project is spelled with escapes, which cannot be edited", ErrInvalid, path)
+		}
+	}
+	return nil
+}
+
 func (cfg *config) readKey(path string, i int, line string) error {
 	if escapedKey.MatchString(line) {
 		return fmt.Errorf("%w: %s: [project] has a key with escapes, which cannot be edited", ErrInvalid, path)
+	}
+	if dottedKey.MatchString(line) {
+		return fmt.Errorf("%w: %s: [project] has a dotted id or name, which cannot be edited", ErrInvalid, path)
 	}
 	if m := idKey.FindStringSubmatch(line); m != nil {
 		if cfg.idLine >= 0 {
@@ -455,10 +482,28 @@ func clearBinding(files *fileEdits, folder, id string) error {
 	return files.add(path, text, true, updated)
 }
 
+// tempFile is the part of a temporary file replaceFile uses.
+type tempFile interface {
+	Name() string
+	Chmod(os.FileMode) error
+	WriteString(string) (int, error)
+	Sync() error
+	Close() error
+}
+
+// createTemp makes the temporary file; tests replace it to fail a disk call.
+var createTemp = func(dir, pattern string) (tempFile, error) {
+	f, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
 // replaceFile swaps the content in by rename, so a crash leaves the old file
 // or the new one and never half of either.
 func replaceFile(path, text string, mode os.FileMode) (err error) {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".herdsman-config-*")
+	tmp, err := createTemp(filepath.Dir(path), ".herdsman-config-*")
 	if err != nil {
 		return err
 	}

@@ -52,11 +52,13 @@ func (r *Route) approvedPeers() ([]inbox.Peer, bool) {
 
 // deliveryAllowed is the static part of every party write: an approved
 // registry with no pending change and a current setup proof (5.2).
-func (r *Route) deliveryAllowed() *APIError {
+func (r *Route) deliveryAllowed() *APIError { return r.checkDelivery(true) }
+
+func (r *Route) checkDelivery(record bool) *APIError {
 	if _, ok := r.approvedPeers(); !ok {
 		return Errf("registry_pending", "a pair change waits for the human's approval; delivery is held")
 	}
-	if !r.proofValid() {
+	if !r.checkProof(record) {
 		return Errf("proof_stale", "setup proof stale or missing; nothing moves until the human runs herdsman daemon setup %s", r.name)
 	}
 	return nil
@@ -825,8 +827,12 @@ func dropInputLock(dir, token string) {
 // under it before the answer, so a later check cannot regain RELAY when
 // the agent leaves (8; the exposure rule of e93bcc1).
 func (r *Route) authority(ctx context.Context, c *herdr.Client) (string, []string) {
+	return r.checkAuthority(ctx, c, true)
+}
+
+func (r *Route) checkAuthority(ctx context.Context, c *herdr.Client, record bool) (string, []string) {
 	var reasons []string
-	if !r.proofValid() {
+	if !r.checkProof(record) {
 		reasons = append(reasons, "setup-proof-stale")
 	}
 	if _, ok := r.approvedPeers(); !ok {
@@ -838,11 +844,12 @@ func (r *Route) authority(ctx context.Context, c *herdr.Client) (string, []strin
 		v, _ := inbox.Decode(doc.Boundary)
 		b = inbox.Object(v)
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		ok, fault, unknown := inbox.BoundaryV2(cctx, c, r.inbox, b)
+		inv := r.d.boundaryInventory(r.name, inbox.TUIInventory{Client: c})
+		ok, fault, unknown := inbox.BoundaryV2Inventory(cctx, inv, r.inbox, b)
 		cancel()
 		if !ok {
 			reasons = append(reasons, "boundary-"+fault)
-			if fault == inbox.FaultInventory || fault == inbox.FaultPending {
+			if record && (fault == inbox.FaultInventory || fault == inbox.FaultPending) {
 				if err := r.recordExposure(fault, unknown); err != nil {
 					r.d.logf("route %s: exposure record: %v", r.name, err)
 					reasons = append(reasons, "exposure-unrecorded")

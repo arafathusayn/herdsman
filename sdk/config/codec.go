@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -69,9 +68,7 @@ func encodeText(format string, root *tree.Node) ([]byte, error) {
 	case FormatTOML:
 		return toml.Encode(root)
 	case FormatYAML:
-		var b strings.Builder
-		writeYAMLTable(&b, root, 0)
-		return []byte(b.String()), nil
+		return yaml.Encode(root), nil
 	case FormatJSON:
 		var b bytes.Buffer
 		if err := writeJSON(&b, root, ""); err != nil {
@@ -211,71 +208,4 @@ func writeJSON(b *bytes.Buffer, node *tree.Node, indent string) error {
 		b.WriteString(renderNode(node))
 	}
 	return nil
-}
-
-var plainYAMLKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
-
-func yamlKey(key string) string {
-	if plainYAMLKey.MatchString(key) && !yamlReserved(key) {
-		return key
-	}
-	return yamlQuote(key)
-}
-
-// yamlReserved reports a word a plain scalar would read as something else.
-func yamlReserved(word string) bool {
-	switch strings.ToLower(word) {
-	case "null", "true", "false", "y", "n", "yes", "no", "on", "off":
-		return true
-	}
-	return false
-}
-
-// yamlQuote writes a double-quoted scalar, whose escapes match JSON's for
-// everything this writer can produce.
-func yamlQuote(s string) string {
-	var b bytes.Buffer
-	if err := writeJSONString(&b, s); err != nil {
-		return strconv.Quote(s)
-	}
-	return b.String()
-}
-
-func yamlScalar(node *tree.Node) string {
-	if node.Kind == tree.String {
-		return yamlQuote(node.Str)
-	}
-	return renderNode(node)
-}
-
-func writeYAMLTable(b *strings.Builder, table *tree.Node, depth int) {
-	pad := strings.Repeat("  ", depth)
-	for _, key := range table.Keys() {
-		value, _ := table.Get(key)
-		b.WriteString(pad + yamlKey(key) + ":")
-		writeYAMLValue(b, value, depth)
-	}
-}
-
-// writeYAMLValue finishes the line after a key or list dash, nesting a
-// non-empty collection below it.
-func writeYAMLValue(b *strings.Builder, value *tree.Node, depth int) {
-	switch {
-	case value.Kind == tree.Table && value.Len() == 0:
-		b.WriteString(" {}\n")
-	case value.Kind == tree.Array && len(value.Items) == 0:
-		b.WriteString(" []\n")
-	case value.Kind == tree.Table:
-		b.WriteString("\n")
-		writeYAMLTable(b, value, depth+1)
-	case value.Kind == tree.Array:
-		b.WriteString("\n")
-		pad := strings.Repeat("  ", depth+1)
-		for _, item := range value.Items {
-			b.WriteString(pad + "-")
-			writeYAMLValue(b, item, depth+1)
-		}
-	default:
-		b.WriteString(" " + yamlScalar(value) + "\n")
-	}
 }

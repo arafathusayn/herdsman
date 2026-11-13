@@ -29,18 +29,10 @@ export interface ProjectServiceCreateRequest {
    * An absolute folder to bind right away; empty for none.
    */
   folder?: string;
-  /**
-   * Report the plan and change nothing.
-   */
-  dryRun?: boolean;
 }
 
 export interface ProjectServiceCreateResponse {
   project?: herdsman_core_v1_core.Project;
-  /**
-   * What the request would do; set only for dry_run.
-   */
-  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface ProjectServiceGetRequest {
@@ -65,34 +57,18 @@ export interface ProjectServiceUpdateRequest {
   description?: string;
   addRepos?: herdsman_core_v1_core.ProjectRepo[];
   removeRepos?: string[];
-  /**
-   * Report the plan and change nothing.
-   */
-  dryRun?: boolean;
 }
 
 export interface ProjectServiceUpdateResponse {
   project?: herdsman_core_v1_core.Project;
-  /**
-   * What the request would do; set only for dry_run.
-   */
-  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface ProjectServiceDeleteRequest {
   scope?: Scope;
   force?: boolean;
-  /**
-   * Report the plan and change nothing.
-   */
-  dryRun?: boolean;
 }
 
 export interface ProjectServiceDeleteResponse {
-  /**
-   * What the request would do; set only for dry_run.
-   */
-  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface ProjectServiceBindRequest {
@@ -101,18 +77,10 @@ export interface ProjectServiceBindRequest {
    * The absolute folder to bind.
    */
   folder?: string;
-  /**
-   * Report the plan and change nothing.
-   */
-  dryRun?: boolean;
 }
 
 export interface ProjectServiceBindResponse {
   project?: herdsman_core_v1_core.Project;
-  /**
-   * What the request would do; set only for dry_run.
-   */
-  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface ProjectServiceUnbindRequest {
@@ -120,18 +88,10 @@ export interface ProjectServiceUnbindRequest {
    * The absolute folder to release.
    */
   folder?: string;
-  /**
-   * Report the plan and change nothing.
-   */
-  dryRun?: boolean;
 }
 
 export interface ProjectServiceUnbindResponse {
   project?: herdsman_core_v1_core.Project;
-  /**
-   * What the request would do; set only for dry_run.
-   */
-  plan?: herdsman_core_v1_core.Plan;
 }
 
 /**
@@ -179,10 +139,6 @@ export interface ContextProblem {
 
 export interface ProjectServiceContextInitRequest {
   scope?: Scope;
-  /**
-   * Report the plan and change nothing.
-   */
-  dryRun?: boolean;
 }
 
 export interface ProjectServiceContextInitResponse {
@@ -190,10 +146,6 @@ export interface ProjectServiceContextInitResponse {
    * The absolute folder that now holds the layout.
    */
   folder?: string;
-  /**
-   * What the request would do; set only for dry_run.
-   */
-  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface ProjectServiceContextCheckRequest {
@@ -224,18 +176,10 @@ export interface ProjectServiceContextNoteRequest {
    */
   parents?: string[];
   body?: string;
-  /**
-   * Report the plan and change nothing.
-   */
-  dryRun?: boolean;
 }
 
 export interface ProjectServiceContextNoteResponse {
   event?: ContextEvent;
-  /**
-   * What the request would do; set only for dry_run.
-   */
-  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface ProjectServiceLogRequest {

@@ -202,12 +202,9 @@ func TestRunWritesAResultsFileAndMarksWhatCouldNotRun(t *testing.T) {
 	for _, c := range parsed.Cases {
 		verdicts[c.ID] = c.Verdict
 	}
-	// The stand-in creates no worktree and stops no process, so these two
-	// must not pass as measurements.
-	if verdicts["new-shared-cache"] != VerdictUnavailable || verdicts[CaseTeardown] != VerdictUnavailable {
-		t.Fatalf("got %v", verdicts)
-	}
-	if verdicts[CaseLedgerScan] != VerdictWithin {
+	// The stand-in creates no worktree and serves no daemon, so these must not
+	// pass as measurements.
+	if verdicts["new-shared-cache"] != VerdictUnavailable || verdicts[CaseTeardown] != VerdictUnavailable || verdicts[CaseLedgerScan] != VerdictUnavailable {
 		t.Fatalf("got %v", verdicts)
 	}
 }

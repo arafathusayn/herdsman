@@ -362,19 +362,25 @@ func (r *Route) readSetup() (*SetupV2, bool) {
 // their SHA-256; the binary is the installed executable; the target files
 // are the proof's. A proof seen stale stays stale (the latch) until the
 // human's next setup.
-func (r *Route) proofValid() bool {
+func (r *Route) proofValid() bool { return r.checkProof(true) }
+
+// checkProof can inspect a stale proof without writing its durable latch.
+// Actual delivery always records the latch; previews only report refusal.
+func (r *Route) checkProof(record bool) bool {
 	if exists(r.path("state", proofLatch)) {
 		return false
 	}
 	doc, ok := r.readSetup()
 	if !ok {
-		if exists(r.path("setup.json")) {
+		if record && exists(r.path("setup.json")) {
 			r.latchStale("unreadable setup.json")
 		}
 		return false
 	}
 	if why := r.proofFault(doc); why != "" {
-		r.latchStale(why)
+		if record {
+			r.latchStale(why)
+		}
 		return false
 	}
 	return true

@@ -39,6 +39,8 @@ type statement struct {
 
 	path []string // the full path of the key, or the table the header names
 	aot  bool     // the path runs through an array of tables
+
+	keyParts int // for a key/value: how many path parts the key itself wrote
 }
 
 // Document is a parsed file that remembers its source.
@@ -258,7 +260,7 @@ func (p *parser) keyValue(start int) statement {
 	}
 	p.pos++
 	p.skipSpace()
-	st := statement{kind: keyValue, head: p.src[start:p.pos], aot: p.sectionAOT}
+	st := statement{kind: keyValue, head: p.src[start:p.pos], aot: p.sectionAOT, keyParts: len(parts)}
 	st.path = append(append([]string{}, p.section...), parts...)
 
 	valueStart := p.pos

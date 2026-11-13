@@ -204,6 +204,7 @@ func scenarios(name string) []scenario {
 		{"GetOperation", unary[daemonv1.GetOperationRequest, daemonv1.GetOperationResponse]("GetOperation", &daemonv1.GetOperationRequest{Id: "missing"}, nil), connect.CodeNotFound},
 		{"ResolveOperation", unary[daemonv1.ResolveOperationRequest, daemonv1.ResolveOperationResponse]("ResolveOperation", &daemonv1.ResolveOperationRequest{Id: "missing", Decision: "nonsense"}, nil), connect.CodeInvalidArgument},
 		{"Wait", unary[daemonv1.WaitRequest, daemonv1.WaitResponse]("Wait", &daemonv1.WaitRequest{Route: route(name)}, nil), connect.CodeUnauthenticated},
+		{"ResumeGoal", unary[daemonv1.ResumeGoalRequest, daemonv1.ResumeGoalResponse]("ResumeGoal", &daemonv1.ResumeGoalRequest{Route: route(missing), Target: "orch"}, nil), connect.CodeNotFound},
 		{"RemoveRoute", unary("RemoveRoute", &daemonv1.RemoveRouteRequest{Route: route(name)}, func(r *daemonv1.RemoveRouteResponse) error {
 			if !r.GetRemoved() || !r.GetInboxKept() {
 				return fmt.Errorf("removed %v", r)

@@ -411,7 +411,7 @@ func TestOnlyToolsThatPlanAdvertiseDryRun(t *testing.T) {
 			t.Errorf("%s: dry_run in the schema %v, description %q", tool.Name, hasDry, tool.Description)
 		}
 	}
-	if want := []string{"daemon_route_delete", "daemon_route_pause", "daemon_route_resume", "daemon_route_stop", planTool}; !reflect.DeepEqual(planning, want) {
+	if want := []string{"daemon_message_ack", "daemon_message_adopt_route", "daemon_message_claim", "daemon_message_create_route", "daemon_message_hold", "daemon_message_put_setup", "daemon_message_release", "daemon_message_remove_route", "daemon_message_resolve_operation", "daemon_message_send", "daemon_message_unhold", "daemon_route_delete", "daemon_route_pause", "daemon_route_resume", "daemon_route_stop", planTool}; !reflect.DeepEqual(planning, want) {
 		t.Fatalf("tools offering dry_run %v, want %v", planning, want)
 	}
 }
@@ -823,7 +823,7 @@ func TestDryRunAnswerWithoutAPlanIsAnError(t *testing.T) {
 func TestDryRunNeverReachesAMethodThatCannotPlan(t *testing.T) {
 	f := &fake{}
 	c := realServer(t, f, noDeny)
-	wantCode(t, c.tool(actTool, `{"dry_run":true}`), codeDryRunUnsupported)
+	wantCode(t, c.tool("daemon_task_create", `{"dry_run":true}`), codeDryRunUnsupported)
 	if f.calls() != 0 {
 		t.Fatalf("the daemon was called: %v", f.paths)
 	}
@@ -890,12 +890,13 @@ func TestInvalidArgumentsNeverReachTheDaemon(t *testing.T) {
 	f := &fake{}
 	c := realServer(t, f, noDeny)
 	for name, tool := range map[string][2]string{
-		"unknown field":      {readTool, `{"nope":1}`},
-		"wrong type":         {readTool, `{"route":7}`},
-		"not an object":      {readTool, `[1]`},
-		"dry_run read-only":  {readTool, `{"dry_run":true}`},
-		"dry_run not a bool": {actTool, `{"dry_run":"yes"}`},
-		"camel spelling":     {actTool, `{"dryRun":true}`},
+		"unknown field":        {readTool, `{"nope":1}`},
+		"wrong type":           {readTool, `{"route":7}`},
+		"not an object":        {readTool, `[1]`},
+		"dry_run read-only":    {readTool, `{"dry_run":true}`},
+		"dry_run not a bool":   {actTool, `{"dry_run":"yes"}`},
+		"camel spelling":       {actTool, `{"dryRun":true}`},
+		"conflicting spelling": {actTool, `{"dry_run":false,"dryRun":true}`},
 	} {
 		t.Run(name, func(t *testing.T) { wantCode(t, c.tool(tool[0], tool[1]), codeInvalidArgument) })
 	}

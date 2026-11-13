@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"slices"
 	"strconv"
 	"syscall"
@@ -35,6 +36,28 @@ const (
 	ResultFailed  = "failed"
 )
 
+// exitStatus is a failure's errno or the tool's exit code, 0 for none and -1
+// for a failure that carries neither.
+func exitStatus(failure error) int {
+	if failure == nil {
+		return 0
+	}
+	var errno syscall.Errno
+	if errors.As(failure, &errno) {
+		return int(errno)
+	}
+	var exit *exec.ExitError
+	if errors.As(failure, &exit) {
+		return exit.ExitCode()
+	}
+	return -1
+}
+
+// alreadyGone reports a signal that found its process had left.
+func alreadyGone(failure error) bool {
+	return errors.Is(failure, syscall.ESRCH)
+}
+
 // Execution is one teardown of an approved plan.
 type Execution struct {
 	Plan Plan
@@ -43,7 +66,9 @@ type Execution struct {
 	Run  Runner
 	// Engine is the container tool; only needed to stop containers.
 	Engine string
-	// Compose is the task's compose project, stopped as one when wholly its own.
+	// Compose is the task's compose project. When it is wholly the task's own,
+	// its containers are stopped in one call, by id: compose would load whatever
+	// definition it finds where this process happens to run.
 	Compose string
 	// IncludeAssociated also stops the associated lines a person accepted.
 	IncludeAssociated bool
@@ -73,11 +98,13 @@ func (e *Execution) Execute(ctx context.Context) ([]Outcome, error) {
 	}
 	e.Log.plan(e.Plan)
 	outcomes, err := e.stopProcesses(ctx)
-	if err != nil {
-		return outcomes, err
+	if err == nil {
+		var stopped []Outcome
+		stopped, err = e.stopContainers(ctx)
+		outcomes = append(outcomes, stopped...)
 	}
-	stopped, err := e.stopContainers(ctx)
-	return append(outcomes, stopped...), err
+	e.Log.finish(outcomes, err)
+	return outcomes, err
 }
 
 // leavesFirst orders targets so that a child is signaled before its parent.
@@ -147,12 +174,14 @@ func groupOwned(check *revalidation, approved map[lineKey]Line, group int) bool 
 func (e *Execution) send(ctx context.Context, target Line, signal syscall.Signal, approved map[lineKey]Line) ([]int, error) {
 	check, err := revalidate(ctx, e.Read, e.Plan)
 	if err != nil {
+		e.Log.refused(target, err)
 		return nil, err
 	}
 	if !check.processAlive(target) {
 		return nil, nil
 	}
 	if err := check.stillAuthorized(target); err != nil {
+		e.Log.refused(target, err)
 		return nil, err
 	}
 	reached := []int{pidOf(target)}
@@ -167,10 +196,11 @@ func (e *Execution) send(ctx context.Context, target Line, signal syscall.Signal
 		slices.Sort(reached)
 		reached = slices.Compact(reached)
 	}
-	if err := e.Kill(destination, signal); err != nil && !errors.Is(err, syscall.ESRCH) {
+	err = e.Kill(destination, signal)
+	e.Log.action(target, destination, int(signal), err)
+	if err != nil && !alreadyGone(err) {
 		return nil, fmt.Errorf("ledger: signal %d to %d: %w", signal, destination, err)
 	}
-	e.Log.action(target, destination, int(signal))
 	return reached, nil
 }
 
@@ -257,7 +287,7 @@ func (e *Execution) containerTargets() []Line {
 }
 
 // composeOwned reports a project all of whose live containers are targets, so
-// that stopping it by name stops nothing else.
+// that stopping them together leaves none of it running.
 func (e *Execution) composeOwned(check *revalidation, targets []Line) bool {
 	if e.Compose == "" {
 		return false
@@ -277,15 +307,15 @@ func (e *Execution) composeOwned(check *revalidation, targets []Line) bool {
 	return members > 0
 }
 
-// inProject reports a target the compose project's stop reached.
+// inProject reports a target that belongs to the task's compose project.
 func (e *Execution) inProject(check *revalidation, target Line) bool {
 	return slices.ContainsFunc(check.snapshot.Containers, func(c Container) bool {
 		return c.ID == target.ID && c.LabelsExact && c.Labels[LabelComposeProject] == e.Compose
 	})
 }
 
-// engineStop stops containers through the tool. The verbs are stop only:
-// neither down nor rm is ever run, so volumes and networks stay.
+// engineStop stops containers through the tool. The verb is stop only: neither
+// down nor rm is ever run, so volumes and networks stay.
 func (e *Execution) engineStop(ctx context.Context, args ...string) error {
 	if _, err := e.Run(ctx, e.Engine, args...); err != nil {
 		return fmt.Errorf("ledger: %s %v: %w", e.Engine, args, err)
@@ -300,36 +330,51 @@ func (e *Execution) stopContainers(ctx context.Context) ([]Outcome, error) {
 	}
 	check, err := revalidate(ctx, e.Read, e.Plan)
 	if err != nil {
+		for _, target := range targets {
+			e.Log.refused(target, err)
+		}
 		return nil, err
 	}
 	var outcomes []Outcome
 	if e.composeOwned(check, targets) {
-		if err := e.engineStop(ctx, "compose", "-p", e.Compose, "stop"); err != nil {
+		var members, others []Line
+		for _, target := range targets {
+			if e.inProject(check, target) {
+				members = append(members, target)
+			} else {
+				others = append(others, target)
+			}
+		}
+		args := []string{"stop"}
+		for _, target := range members {
+			args = append(args, target.ID)
+		}
+		err := e.engineStop(ctx, args...)
+		for _, target := range members {
+			e.Log.action(target, 0, 0, err)
+		}
+		if err != nil {
 			return nil, err
 		}
-		var others []Line
-		for _, target := range targets {
-			if !e.inProject(check, target) {
-				others = append(others, target)
-				continue
-			}
+		for _, target := range members {
 			outcomes = append(outcomes, Outcome{Kind: target.Kind, ID: target.ID, Level: target.Level, Result: ResultStopped})
-			e.Log.action(target, 0, 0)
 		}
 		targets = others
 	}
 	for _, target := range targets {
 		if check, err = revalidate(ctx, e.Read, e.Plan); err != nil {
+			e.Log.refused(target, err)
 			return outcomes, err
 		}
 		if check.lines[lineKey{target.Kind, target.ID}].Action != target.Action {
 			outcomes = append(outcomes, Outcome{Kind: target.Kind, ID: target.ID, Level: target.Level, Result: ResultGone})
 			continue
 		}
-		if err := e.engineStop(ctx, "stop", target.ID); err != nil {
+		err := e.engineStop(ctx, "stop", target.ID)
+		e.Log.action(target, 0, 0, err)
+		if err != nil {
 			return append(outcomes, Outcome{Kind: target.Kind, ID: target.ID, Level: target.Level, Result: ResultFailed}), err
 		}
-		e.Log.action(target, 0, 0)
 		outcomes = append(outcomes, Outcome{Kind: target.Kind, ID: target.ID, Level: target.Level, Result: ResultStopped})
 	}
 	return outcomes, nil

@@ -35,6 +35,7 @@ func init() {
 const upUsage = `usage: herdsman up <route> -p <prompt> -a <command> -o <command> [-c <config>]
                    [--adjutant-kind <kind>] [--orchestrator-kind <kind>] [--no-adjutant]
                    [--pair auto|manual] [--web] [--no-attach] [--dry-run]
+                   [--backend herdr-core|herdr-tui]
        herdsman up [<route>] --continue [--step <n>=done|rerun]...
 `
 
@@ -47,7 +48,19 @@ no -a or -o; a command given on the line wins.
 --web also starts the web app on the route.
 --pair manual asks on the terminal before the pair is approved. Under the
 restricted profile it is the default and auto is refused.
+--backend picks where the agents run for this start only. Without it the
+config file's [runtime] backend decides, then the installation default
+(herdsman runtime default). A route that exists keeps its own backend.
 A second up on the same route picks up where the first stopped.
+herdr-core ships as an experiment: a new route there also needs
+experimental = true in [runtime.core]. On herdr-core, up runs no herdr command
+and types into no terminal. Before it starts, it prints each agent's steps
+that will need a person, as runtime doctor reports each harness. It stops for
+a person twice, exits 1 and says "waiting for a person": until the herdr app
+has shown the core once (waiting_for_visibility), and for each harness's
+start line, which a person submits in the agent's pane (needs_attention).
+Then run up --continue. --pair manual and the restricted profile are refused
+on herdr-core.
 `
 
 // upDiskMinimum is the free space a route's folders and logs need to start.
@@ -59,6 +72,7 @@ type upFlags struct {
 	adjutantKind, orchestratorKind, pair          string
 	noAdjutant, web, noAttach, dryRun, resume     bool
 	noTUI                                         bool
+	backend                                       string
 	steps                                         []*daemonv1.StepVerdict
 }
 
@@ -105,6 +119,7 @@ func parseUp(args []string, stderr io.Writer) (upFlags, bool) {
 	fs.BoolVar(&f.dryRun, "dry-run", false, "print what would run and stop")
 	fs.BoolVar(&f.resume, "continue", false, "pick up a halted start")
 	fs.BoolVar(&f.noTUI, "no-tui", false, "never open the form")
+	fs.StringVar(&f.backend, "backend", "", "herdr-core or herdr-tui, for this start only")
 	fs.Bool("plain", false, "ask with line prompts")
 	fs.Var(stepFlag{&f.steps}, "step", "a verdict on a halted prelude step")
 	if err := fs.Parse(args); err != nil {
@@ -166,17 +181,8 @@ func runUp(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	ctx := context.Background()
-	socket, err := upHerdr(ctx, f.dryRun)
-	if err != nil {
-		fmt.Fprintln(stderr, "herdsman up:", err)
-		return 1
-	}
-	if !f.dryRun && !f.resume {
-		if err := upDoctor(ctx, repo, socket, stdout); err != nil {
-			fmt.Fprintln(stderr, "herdsman up:", err)
-			return 1
-		}
-	}
+	// The daemon picks the backend before anything is started: a start on
+	// herdr-core never runs herdr, its server or its doctor.
 	sdk, err := upDaemon(ctx, f.dryRun)
 	if err != nil {
 		fmt.Fprintln(stderr, "herdsman up:", err)
@@ -189,11 +195,35 @@ func runUp(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
+	backend, experiment, err := upBackend(ctx, sdk, repo, f)
+	if err != nil {
+		fmt.Fprintln(stderr, "herdsman up:", err)
+		return 1
+	}
+	if experiment != "" {
+		// Said once per run, as every experimental surface is.
+		fmt.Fprintln(stderr, "herdsman:", experiment)
+	}
+	onCore := backend == backendCore
+	socket, kinds := "", []string(nil)
+	if !onCore {
+		if socket, err = upHerdr(ctx, f.dryRun); err != nil {
+			fmt.Fprintln(stderr, "herdsman up:", err)
+			return 1
+		}
+		if !f.dryRun && !f.resume {
+			if err := upDoctor(ctx, repo, socket, stdout); err != nil {
+				fmt.Fprintln(stderr, "herdsman up:", err)
+				return 1
+			}
+		}
+		kinds = upKinds(ctx)
+	}
 	req := &daemonv1.UpRequest{
 		Route: &corev1.RouteId{Value: f.route}, Repo: repo, Prompt: f.prompt, AdjutantCommand: f.adjutant, OrchestratorCommand: f.orchestrator,
 		AdjutantKind: f.adjutantKind, OrchestratorKind: f.orchestratorKind, NoAdjutant: f.noAdjutant, ConfigPath: f.config,
 		HerdrSocket: socket, PairManual: upPairMode(f, repo) == "manual", SecretRefs: os.Getenv(secrets.RefsVariable), DryRun: f.dryRun, Continue: f.resume, Verdicts: f.steps,
-		Caller: upCaller(), Kinds: upKinds(ctx), Date: now().Format("2006-01-02"),
+		Caller: upCaller(), Kinds: kinds, Date: now().Format("2006-01-02"), Backend: f.backend,
 	}
 	res, err := sdk.Route.Up(ctx, req)
 	if err != nil {
@@ -203,6 +233,11 @@ func runUp(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if f.dryRun {
 		fmt.Fprint(stdout, res.GetStart().GetPlan())
 		return 0
+	}
+	if onCore && !f.resume {
+		// Before anything waits, the steps of this run that need a person:
+		// each raises needs_attention on the event stream when it is due.
+		fmt.Fprint(stdout, upPersonSteps(res.GetStart().GetPlan()))
 	}
 	start, code := upFollow(ctx, sdk, req, stdout, stderr)
 	if code != 0 {
@@ -214,7 +249,67 @@ func runUp(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
+	if onCore {
+		fmt.Fprintln(stdout, "the agents run in herdr-core; the herdr app shows them")
+		return 0
+	}
 	return upAttach(ctx, f.noAttach, stdout, stderr)
+}
+
+// backendCore is the herdr-core backend's name, as the daemon reports it.
+const backendCore = "herdr-core"
+
+// upBackend asks the daemon which backend this start runs on: the flag, the
+// config file, the installation default, or the backend the route has; and
+// the line to say when that backend ships as an experiment.
+func upBackend(ctx context.Context, sdk *client.Client, repo string, f upFlags) (backend, experiment string, err error) {
+	report, err := sdk.Runtime.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{Repo: repo, ConfigPath: f.config, Backend: f.backend, Route: &corev1.RouteId{Value: f.route}})
+	if err != nil {
+		return "", "", err
+	}
+	if report.GetSelection().GetBackend() == "" {
+		for _, c := range report.GetChecks() {
+			if c.GetName() == "selection" {
+				return "", "", errors.New(c.GetDetail())
+			}
+		}
+		return "", "", errors.New("the daemon selected no backend")
+	}
+	return report.GetSelection().GetBackend(), report.GetSelection().GetExperiment(), nil
+}
+
+// upPersonSteps is the plan's "needs a person" sections, one per agent: the
+// steps of a run on herdr-core that only a person can take.
+func upPersonSteps(plan string) string {
+	var out strings.Builder
+	in := false
+	for _, line := range strings.Split(plan, "\n") {
+		switch {
+		case strings.HasPrefix(line, "needs a person"):
+			in = true
+		case in && strings.HasPrefix(line, "  "):
+		default:
+			in = false
+		}
+		if in {
+			out.WriteString(line + "\n")
+		}
+	}
+	return out.String()
+}
+
+// upWaitCodes are the waits for a person a start on herdr-core stops at.
+var upWaitCodes = []string{"needs_attention", "waiting_for_visibility", "visibility_missing"}
+
+// upPersonWait reports whether a halted start waits for a person rather than
+// for a fix.
+func upPersonWait(reason string) bool {
+	for _, code := range upWaitCodes {
+		if strings.Contains(reason, code+":") {
+			return true
+		}
+	}
+	return false
 }
 
 func upRepo() (string, error) {
@@ -394,6 +489,12 @@ func upFollow(ctx context.Context, sdk *client.Client, req *daemonv1.UpRequest, 
 					continue
 				}
 			}
+			if start.GetState() == "stopped" && upPersonWait(start.GetReason()) {
+				// Not a failure: the start goes on with up --continue once a
+				// person has done what the reason says.
+				fmt.Fprintf(stderr, "herdsman up: waiting for a person: %s\n", start.GetReason())
+				return start, 1
+			}
 			fmt.Fprintf(stderr, "herdsman up: the start is %s: %s\n", start.GetState(), start.GetReason())
 			return start, 1
 		}
@@ -416,7 +517,11 @@ func upConfirmTTY(start *daemonv1.RouteStart) (bool, error) {
 		return false, err
 	}
 	defer tty.Close()
-	peers, err := os.ReadFile(filepath.Join(start.GetInbox(), "peers"))
+	pairPath := filepath.Join(start.GetInbox(), "peers")
+	if start.GetBackend() == "herdr-core" {
+		pairPath = filepath.Join(start.GetFolder(), ".steps", "core-pair.json.pending")
+	}
+	peers, err := os.ReadFile(pairPath)
 	if err != nil {
 		return false, err
 	}
